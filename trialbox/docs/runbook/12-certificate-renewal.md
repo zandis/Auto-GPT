@@ -4,8 +4,8 @@
 
 *T-635 (OPS-074). The console is served on 443 by Caddy (§12).*
 
-**Drill (T-213b):** `test_runbook_12_certificate_renewal` (Docker drill: a certificate that ends in 20 days gives the
-30-day warning; a new one is put in by these steps; `check-tls` passes and the console answers with the new one).
+**Drill (T-213b):** `test_runbook_12_certificate_renewal` (in process: steps 1 to 3 below, with a 20-day certificate,
+the new pair and each mistake step 3 names; steps 4 and 5 need the running box and are not rehearsed by a test).
 
 **Internal CA** (`TB_TLS_MODE` not `hospital`). Caddy renews its own server certificate by itself; nothing to do. The
 root certificate on the staff PCs lasts for years; when Caddy makes a new root (the `caddy-data` volume was lost),

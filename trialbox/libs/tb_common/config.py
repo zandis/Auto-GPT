@@ -451,7 +451,12 @@ DECLARED: dict[str, Declared] = {
     "TB_DOCTOR_RUNNING_INSPECT": Declared("str", "", "doctor: `stdin` when the host check pipes docker inspect in"),
     "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number rule (tb_common.chartno), written at installation"),
     "TB_CHARTNO_RULE_ANSWERED": Declared("str", "", "yes: a person chose TB_CHARTNO_RULE, asis included (D-1365)"),
-    "TB_SSMIX2_ORDER_NUMBERS": Declared("str", "unique", "SS-MIX2 order numbers (D-594): unique, or per_day"),
+    "TB_SSMIX2_ORDER_NUMBERS": Declared(
+        "str", "per_day", "SS-MIX2 record key (D-594, D-1000): per_day (the specification's), or unique"
+    ),
+    "TB_SSMIX2_ENCODING": Declared(
+        "str", "", "SS-MIX2: the encoding of 8-bit files MSH-18 does not name (EUC-JP or SHIFT_JIS); unset: not guessed"
+    ),
     # D-748: the lake's memory grows with the rows one S1 query carries (patients times index dates). Measured on the
     # 10k lake at 1 GB (the smallest limit lake.store.memory_limit derives): 12,000 rows fit for GZQO and RA-BIO at 36,
     # 12 and 1 index dates, 24,000 failed (GZQO, 12 dates). A 500 MB lake sets it lower (RA-BIO fitted 2,000)

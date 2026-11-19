@@ -944,11 +944,18 @@ fi
 
 for f in deploy/refdata/pending/*.tar; do  # D-140: the reference data pack of the install bundle, now the db runs
   [ -f "$f" ] || continue
-  if "${COMPOSE[@]}" cp "$f" criteria-compiler:/tmp/refdata-install.tar \
-    && "${COMPOSE[@]}" exec -T criteria-compiler python -m tb_common.refdata load /tmp/refdata-install.tar --by deploy/install.sh; then
+  # 10G-1 (D-1323): a one-off run, the pack read-only, unpacked on the objects volume (TMPDIR) whose tb-refdata-*
+  # leftovers it clears first; named, removed first and after a failure (review D3)
+  docker rm -f tb-refdata-load >/dev/null 2>&1 || true
+  if "${COMPOSE[@]}" run --rm --no-deps -T --name tb-refdata-load -e TMPDIR=/data/objects -v "$ROOT/$f:/in/refdata.tar:ro" \
+    criteria-compiler sh -c 'rm -rf -- "${TMPDIR:?}"/tb-refdata-*; exec "$@"' tb-refdata-load \
+    python -m tb_common.refdata load /in/refdata.tar --by deploy/install.sh; then
     # D-187: kept, not deleted: backups leave the pack's rows out and a restore loads it again from here
     mkdir -p deploy/refdata/loaded && mv -f "$f" deploy/refdata/loaded/; echo "    reference data loaded: $(basename "$f" .tar)"
   else
+    docker rm -f tb-refdata-load >/dev/null 2>&1 || true
+    "${COMPOSE[@]}" run --rm --no-deps -T --name tb-refdata-sweep -e TMPDIR=/data/objects criteria-compiler \
+      sh -c 'rm -rf -- "${TMPDIR:?}"/tb-refdata-*' tb-refdata-sweep >/dev/null 2>&1 || true
     echo "install: warning: reference data $(basename "$f") not loaded (python -m tb_common.refdata load)" >&2
   fi
 done

@@ -17,7 +17,13 @@ new heading with the version and date, in the same pull request that sets the ve
   when, is recorded once the root exists (the box's first-run page, or two lines in `deploy/.env`). **An installed
   site is not stopped by the upgrade**: `doctor` warns, with the line to add to `deploy/.env`, for each of the three
   it lacks (D-1365). A typed name holds letters, digits, single spaces and a few marks only, and the wizard writes no
-  `deploy/.env` value with a line break or control character in it, so a name can never add or change a setting.
+  `deploy/.env` value with a line break, a control character or a byte that is not UTF-8 in it, so a name can never
+  add or change a setting; O'Brien and full-width brackets are names. An unknown `--environment` stops the installer
+  before it loads or writes anything.
+- Operations drills (10K-9): each operations page of the RUNBOOK names a drill only where a test rehearses it (§12
+  certificate renewal, §20 close-out, §22 moving the box, §23 lost-box list, §25 leavers); the other pages say that
+  no test rehearses them. Two steps corrected: when the host name changes, run `check-tls` with the new values of
+  `deploy/.env` (§22); at close-out, write down the head after `--sign-head` (§20).
 - ClinicalTrials.gov intake widened (10D-15, D-1367): a study read from the registry (live, offline pack or
   cassette) now carries its sites with their recruitment status, its secondary ids (a jRCT, JapicCTI or UMIN-CTR
   number is recognised as such), arms, interventions, primary and secondary outcomes and the design (allocation,

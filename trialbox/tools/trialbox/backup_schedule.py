@@ -13,8 +13,9 @@ sources). A restore must then give the same rows, or it fails. The rows of the v
 ``pack`` and ``source`` rows are kept, and a restore loads the pack again from the folder where install and update
 keep it (``deploy/refdata/loaded``).
 
-**Nightly** (:func:`nightly`). The script runs in the ``db`` container (``docker compose exec``) into
-``/tmp/tb-backup`` there; the files are copied to a 0700 folder under ``deploy/`` and both are removed right after.
+**Nightly** (:func:`nightly`). The script runs in the ``db`` container (``docker compose exec``); the dump streams
+to a 0700 folder under ``deploy/`` (10G-1: nothing is copied out of the container's tmpfs /tmp, where only the
+script's small files are written), and both are removed right after.
 ``trialbox backup`` runs in a one-off container with every volume read-only (the update path's own step,
 ``update.ComposeBox``) and writes the encrypted file to every directory of ``TB_BACKUP_TARGETS``. When WAL archiving
 is on (``TB_PG_ARCHIVE_MODE=on``), pgBackRest then takes a differential backup, or a full one on
@@ -291,11 +292,98 @@ _ROW = "SELECT %L || ''|'' || count(*) || ''|'' || " + row_agg().replace("'", "'
 _SITE = " WHERE source_id IN (SELECT source_id FROM %I.source WHERE distribution = ''site-fetch'')"
 
 
-def snapshot_script(out: str, name: str, pg_dump: str, conn: str, schemas: Sequence[str], refdata: str | None) -> str:
+#: 10G-1 (D-1323): the compose nightly's stream helper, written to the db container's spool and run as
+#: ``sh <spool>/emit NAME``: it copies its stdin to its stdout (psql's own, so ``exec -T``'s) while ``wc -c`` counts
+#: the bytes through a FIFO, then appends "<bytes> NAME" to the spool's index. ``sh <spool>/emit --end`` prints the
+#: index and a fixed trailer (:data:`STREAM_TRAILER`). Nothing of the data is written in the spool (a tmpfs).
+EMIT_SH = r"""d=$(dirname "$0")
+if [ "$1" = --end ]; then
+  [ -f "$d/index" ] || : > "$d/index"
+  cat "$d/index"; printf 'TBSTREAM %016d\n' "$(wc -c < "$d/index")"; exit 0
+fi
+f="$d/.fifo.$$"
+mkfifo "$f" || exit 1
+wc -c < "$f" > "$f.n" &
+tee "$f"; rc=$?
+wait
+n=$(tr -d ' ' < "$f.n"); rm -f "$f" "$f.n"
+printf '%s %s\n' "$n" "$1" >> "$d/index"
+exit $rc
+"""
+STREAM_TRAILER = 26  # len("TBSTREAM %016d\n")
+
+
+def stream_items(name: str) -> tuple[str, ...]:
+    """What ``snapshot_script(..., stream=True)`` sends for database ``name``, in order: the dump, the row counts,
+    the packs, each of the hospital's own reference tables (an empty one when it has none) and the exit code."""
+    return (f"{name}.dump", f"{name}.rows", f"{name}.packs", *(f"{name}.site.{t}.copy" for t in BULK_REFDATA),
+            f"{name}.dump.rc")  # fmt: skip
+
+
+def split_stream(stream: Path, work: Path, name: str) -> list[str]:
+    """10G-1 / D-455: the compose nightly's stdout (``snapshot_script(..., stream=True)``) back into the files the
+    staged form writes: ``<name>.dump`` first (the stream file is truncated to it and renamed: never copied), then
+    each small file. The byte counts the container recorded must add up to what arrived, else the backup fails: a
+    short or damaged stream is never sealed as a good backup. Exactly :func:`stream_items` must be there (review
+    B1): a part missing or one more fails the backup."""
+    want = stream_items(name)
+    size = stream.stat().st_size
+    with stream.open("rb") as fh:
+        if size < STREAM_TRAILER:
+            raise RuntimeError(f"the snapshot stream of {name} is {size} bytes: no trailer")
+        fh.seek(size - STREAM_TRAILER)
+        tail = fh.read(STREAM_TRAILER)
+        if not (tail.startswith(b"TBSTREAM ") and tail.endswith(b"\n") and tail[9:25].isdigit()):
+            raise RuntimeError(f"the snapshot stream of {name} has no trailer (cut short?)")
+        ilen = int(tail[9:25])
+        body = size - STREAM_TRAILER - ilen
+        if body < 0:
+            raise RuntimeError(f"the snapshot stream of {name} is shorter than its index")
+        fh.seek(body)
+        items: list[tuple[int, str]] = []
+        for ln in fh.read(ilen).decode("utf-8").splitlines():
+            count, _, item = ln.partition(" ")
+            if not count.isdigit() or item not in want or item in (i for _, i in items):
+                raise RuntimeError(f"the snapshot stream of {name} has a bad index line {ln[:80]!r}")
+            items.append((int(count), item))
+        missing = sorted(set(want) - {i for _, i in items})
+        if missing:  # review B1: exactly the expected set; a lost part is a failed backup, never "no rows"
+            raise RuntimeError(f"the snapshot stream of {name} lacks {', '.join(missing)}")
+        if sum(n for n, _ in items) != body:
+            raise RuntimeError(f"the snapshot stream of {name}: the container wrote {sum(n for n, _ in items)} bytes, "
+                               f"{body} arrived")  # fmt: skip
+        if not items or items[0][1] != f"{name}.dump":
+            raise RuntimeError(f"the snapshot stream of {name} does not start with its dump")
+        off = items[0][0]
+        for n, item in items[1:]:
+            fh.seek(off)
+            fd = os.open(work / item, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "wb") as out:
+                left = n
+                while left:
+                    chunk = fh.read(min(left, 1 << 20))
+                    if not chunk:
+                        raise RuntimeError(f"the snapshot stream of {name} ended inside {item}")
+                    out.write(chunk)
+                    left -= len(chunk)
+            off += n
+    os.truncate(stream, items[0][0])
+    stream.replace(work / f"{name}.dump")
+    return [i for _, i in items]
+
+
+def snapshot_script(
+    out: str, name: str, pg_dump: str, conn: str, schemas: Sequence[str], refdata: str | None,
+    stream: bool = False,
+) -> str:  # fmt: skip
     """A ``psql`` script: one ``REPEATABLE READ`` transaction exports its snapshot; ``pg_dump --snapshot`` writes
     ``<out>/<name>.dump`` from it (exit code in ``.dump.rc``); the same session writes every table's row count and
     content hash (``.rows``), the reference packs (``.packs``) and the hospital's own reference rows
-    (``.site.<table>.copy``). ``conn`` is how ``pg_dump`` reaches the database where ``psql`` runs."""
+    (``.site.<table>.copy``). ``conn`` is how ``pg_dump`` reaches the database where ``psql`` runs.
+    ``stream`` (the compose nightly, 10G-1): each of those goes through ``sh <out>/emit NAME`` (:data:`EMIT_SH`) to
+    psql's own stdout instead, the dump first, the exit code last, then the index and trailer (:func:`split_stream`
+    takes them apart on the host). Only the script, the snapshot id, the exit code and the index are written in
+    ``<out>``: the db container's /tmp is a tmpfs (memory) that ``docker cp`` cannot read."""
     for s in (out, name, pg_dump, conn, *schemas):
         if "'" in s:
             raise ValueError(f"a quote in {s!r}")
@@ -309,31 +397,42 @@ def snapshot_script(out: str, name: str, pg_dump: str, conn: str, schemas: Seque
     tables = ("FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('pg_catalog', "
               f"'information_schema') AND table_schema LIKE ANY(ARRAY[{likes}])")  # fmt: skip
     has_src = "to_regclass(format('%I.source', table_schema)) IS NOT NULL"
+    emit = f"sh {out}/emit"
+
+    def to(item: str) -> str:  # where psql's \\o sends one output: a file, or the stream helper (a pipe)
+        return f"\\o |{emit} {name}.{item}" if stream else f"\\o '{o}.{item}'"
+
+    run = f'{pg_dump} -Fc -Z0 --no-owner --no-privileges --snapshot="$(cat {o}.snapshot)" {conn} {dump_args}'
+    if stream:  # the dump through the stream helper; its exit code still to a file (a few bytes)
+        dump = f'{{ {run}; echo $? > "{o}.dump.rc"; }} | {emit} {name}.dump'
+    else:
+        dump = f'{run} -f "{o}.dump"; echo $? > "{o}.dump.rc"'
     lines = [
         "\\pset format unaligned",
         "\\pset tuples_only on",
         "BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;",
         f"SELECT pg_export_snapshot() \\g '{o}.snapshot'",
-        f'\\! sh -c \'{pg_dump} -Fc -Z0 --no-owner --no-privileges --snapshot="$(cat {o}.snapshot)" {conn} '
-        f'{dump_args} -f "{o}.dump"; echo $? > "{o}.dump.rc"\'',
-        f"\\o '{o}.rows'",
+        f"\\! sh -c '{dump}'",
+        to("rows"),
         f"SELECT format('{_ROW}', table_schema || '.' || table_name, table_schema, table_name) {tables} "
         f"AND NOT (table_schema = {rs} AND table_name IN ({bulk})) ORDER BY table_schema, table_name \\gexec",
         f"SELECT format('{_ROW}{_SITE}', 'site:' || table_schema || '.' || table_name, table_schema, table_name, "
         f"table_schema) {tables} AND table_schema = {rs} AND table_name IN ({bulk}) AND {has_src} "
         "ORDER BY table_name \\gexec",
-        f"\\o '{o}.packs'",
+        to("packs"),
         "SELECT format('SELECT pack_id || ''|'' || data_as_of || ''|'' || origin FROM %I.pack ORDER BY pack_id', "
         f"table_schema) {tables} AND table_schema = {rs} AND table_name = 'pack' \\gexec",
     ]
     for t in BULK_REFDATA:
         lines += [
-            f"\\o '{o}.site.{t}.copy'",
+            to(f"site.{t}.copy"),
             f"SELECT format('COPY (SELECT * FROM %I.%I t{_SITE}) TO STDOUT', table_schema, table_name, table_schema) "
             f"{tables} AND table_schema = {rs} AND table_name = {_lit(t)} AND {has_src} \\gexec",
         ]
-    lines += ["\\o", "COMMIT;", ""]
-    return "\n".join(lines)
+    lines += ["\\o", "COMMIT;"]
+    if stream:  # the exit code (a few bytes), then the index and the trailer
+        lines += [f"\\! sh -c '{emit} {name}.dump.rc < \"{o}.dump.rc\"; {emit} --end'"]
+    return "\n".join([*lines, ""])
 
 
 def snapshot_meta(name: str, refdata: str | None) -> dict[str, Any]:
@@ -1052,18 +1151,32 @@ class ComposeOps:
         return self.box.running_jobs()
 
     def snapshot(self, db: str, user: str, work: Path, timeout: float | None = None, at: str | None = None) -> None:
-        """:func:`snapshot_script` in the db container; its files are copied to ``work`` and removed there. Each of
-        the two steps has ``timeout`` seconds (D-455: from the database's size; None: no limit)."""
+        """:func:`snapshot_script` in the db container, received on the host in ``work``; the spool there is removed.
+        The step has ``timeout`` seconds (D-455: from the database's size; None: no limit).
+
+        10G-1 (D-1323): nothing is staged for ``compose cp``. The db container's /tmp is a tmpfs, which ``docker cp``
+        does not see (box rehearsal, CI run 44469191433: "Could not find the file /tmp/tb-backup/."), and which
+        counts against the container's memory limit. So every output is streamed (``stream=True``): the dump, the
+        row counts and hashes, the packs and the hospital's own reference rows go through :data:`EMIT_SH` to psql's
+        stdout, which ``exec -T`` hands to ``<db>.stream`` here; :func:`split_stream` takes it apart and checks the
+        byte counts the container recorded. The spool is emptied first (review B2: a stale index from a run whose
+        removal failed would refuse a good backup). Only the script, the snapshot id, the exit code and the index
+        (bytes, not data) are written in the spool."""
         refdata = REFDATA if db == "trialbox_wf" else None
         script = work / f"{db}.sql"
-        script.write_text(snapshot_script(CONTAINER_SPOOL, db, "pg_dump", f"-U {user} -d {db}", (), refdata))
+        script.write_text(snapshot_script(CONTAINER_SPOOL, db, "pg_dump", f"-U {user} -d {db}", (), refdata,
+                                          stream=True))  # fmt: skip
+        stream = work / f"{db}.stream"
         try:
             self.box.run(self.box._c("exec", "-T", "db", "sh", "-c",
-                                     f"umask 077; mkdir -p {CONTAINER_SPOOL}; cat > {CONTAINER_SPOOL}/{db}.sql; "
-                                     f"psql -X -q -v ON_ERROR_STOP=1 -U {user} -d {db} -f {CONTAINER_SPOOL}/{db}.sql"),
-                         stdin_file=script, timeout=timeout)  # fmt: skip
-            self.box.run(self.box._c("cp", f"db:{CONTAINER_SPOOL}/.", str(work)), timeout=timeout)
+                                     f'umask 077; rm -rf -- {CONTAINER_SPOOL}; mkdir -p {CONTAINER_SPOOL}; '
+                                     f'printf "%s" "$1" > {CONTAINER_SPOOL}/emit; cat > "$2"; '
+                                     f'psql -X -q -v ON_ERROR_STOP=1 -U {user} -d {db} -f "$2"',
+                                     "tb-snapshot", EMIT_SH, f"{CONTAINER_SPOOL}/{db}.sql"),
+                         stdin_file=script, stdout_file=stream, timeout=timeout)  # fmt: skip
+            split_stream(stream, work, db)
         finally:
+            stream.unlink(missing_ok=True)
             with contextlib.suppress(Exception):
                 self.box.run(self.box._c("exec", "-T", "db", "rm", "-rf", CONTAINER_SPOOL))
         script.unlink(missing_ok=True)
