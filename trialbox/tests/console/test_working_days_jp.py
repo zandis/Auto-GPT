@@ -13,8 +13,12 @@ Synthetic data only (pseudonyms, invented visits); the holidays are the Cabinet 
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
+import subprocess
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -27,12 +31,14 @@ from tb_common import workdays
 from tb_common.workdays import for_country, for_zone
 
 from tests.console.test_an_sae_is_told_at_once import CRC, PI
+from tests.console.test_cjk_layout import PHONE, SCRIPT, _node_playwright
 from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
 from tests.console.test_lifecycle_pages import PW, lb  # noqa: F401 - the fixture is used by name
 from tests.console.test_step2 import _row
 
 JP = for_country("JP", {})
 TW = for_zone("Asia/Taipei", {})
+ROOT = Path(__file__).resolve().parents[2]
 LABOUR_DAY = date(2027, 11, 23)  # 勤労感謝の日, a Tuesday
 NEW_YEAR = date(2027, 1, 1)  # 元日, a Friday
 BREAK = date(2026, 12, 30)  # the New Year break, a Wednesday
@@ -192,3 +198,32 @@ def test_the_schedule_page_stores_working_days_and_lists_the_days_off(
         assert title in sec and f"2026-11-23 · {why} · 勤労感謝の日" in sec
         assert "2026-12-29" in sec and "2027-01-01" in sec and "2027-01-11" in sec and "2027-02-23" not in sec
         assert 'data-testid="days-off-problems"' in sec and "TB_DAYS_OFF" in sec
+
+
+@pytest.mark.skipif(not _node_playwright(), reason="Node Playwright is not available")
+def test_the_schedule_page_with_its_days_off_fits_a_phone_in_three_languages(
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """At 390 x 844 px the page does not scroll sideways (the schedule table scrolls in its own box, as before)."""
+    monkeypatch.setattr(workdays, "for_zone", lambda _tz, env=None: for_country("JP", {}))
+    lb["clock"]["now"] = datetime(2026, 12, 20, 1, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+    c, csrf = login(lb["app"], "crc", PW)
+    out = tmp_path / "pages"
+    out.mkdir()
+    pages: list[dict[str, Any]] = []
+    for lang in ("en", "ja", "zh-TW"):
+        c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
+        page = c.get("/studies/GZQO/schedule").text
+        assert 'data-testid="days-off"' in page and "2026-12-29" in page
+        f = f"schedule-{lang}.html"
+        (out / f).write_text(page.replace('href="/static/console.css"', 'href="console.css"'), encoding="utf-8")
+        pages.append({"file": f, "lang": lang, "width": PHONE[0], "height": PHONE[1], "checks": []})
+    (out / "console.css").write_text(c.get("/static/console.css").text, encoding="utf-8")
+    r = subprocess.run(
+        [shutil.which("node") or "node", str(SCRIPT), json.dumps({"dir": str(out), "pages": pages, "shots": ""})],
+        cwd=ROOT, capture_output=True, text=True, timeout=600, check=False,
+    )  # fmt: skip
+    res = json.loads(r.stdout.strip().splitlines()[-1])
+    assert r.returncode == 0 and res["failed"] == 0, (res.get("results"), r.stderr[-2000:])
