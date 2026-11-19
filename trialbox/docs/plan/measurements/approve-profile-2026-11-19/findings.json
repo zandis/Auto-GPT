@@ -9,7 +9,8 @@
       "severity": "High",
       "claim": "At least about 53 s of each 71 s P3 approval on one stream is in steps the compile does not share (audit records, repository write, tag and promotion, the orchestrator's part); the compiler's own steps take 4.45 s on a local stub run, and no record names the step on the box",
       "lane": "A2",
-      "basis": "shown"
+      "basis": "shown",
+      "state": "fixed 08eab5571d57d86e10eb3336526f845cce9f747e"
     },
     {
       "id": "H41-02",

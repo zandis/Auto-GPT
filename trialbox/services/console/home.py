@@ -223,10 +223,14 @@ class Helpers:
         """ROLE-017 (T-102c, D-425): who reads one study's patient-level rows. A page, its XLSX and its ``/api/v1``
         twin ask this one question (the ``phi.view`` row, then the study's delegation log), so they never disagree; a
         refusal is audited."""
-        if not self.permit(sess.user, "phi.view", rid):
+        if not self.rows_ok(sess.user, rid):  # one refusal, one audit event, whichever of the two said no
             self.au.append("console.denied", actor=self.actor(sess), detail={"action": path[:80]})
             raise self.problem(403, "forbidden")
-        self.delegated(sess, rid, path)
+
+    def rows_ok(self, user: Any, rid: str) -> bool:
+        """The question of :meth:`need_rows` as a yes or no, with no audit event (J-5, D-1223: a list shows the
+        screening log's people only to whom the log's own page admits)."""
+        return bool(self.permit(user, "phi.view", rid)) and self.delegated_ok(user, rid)
 
     def delegated_ok(self, user: Any, rid: str | None, tasks: tuple[str, ...] = ("screen",)) -> bool:
         """The rule of :meth:`delegated` as a yes or no, for a page that hides a part instead of refusing. It applies

@@ -46,6 +46,8 @@ from tb_common.flags import Flags
 
 from console import i18n_phone
 from console.i18n import CATALOGUES, pick_language, translate
+from console.people_lists import VIEWS
+from console.person_state import STATES as PERSON_STATES
 from console.studies import WORKLISTS
 
 FLAG = "layout.phone_first"
@@ -124,6 +126,9 @@ def flag_on() -> bool:
 # ------------------------------------------------------------------------------------------------- /link
 _RS = r"(?P<rs>[A-Z0-9][A-Z0-9_-]{0,15})"  # console.app._RULESET_ID
 _RECORD = r"(?P<record>[A-Za-z0-9][A-Za-z0-9_-]{0,63})"
+_PID = r"[0-9a-f]{32}"
+_CANDIDATE_VIEWS = "|".join(v.name for v in VIEWS if v.list == "candidates" and v.name)
+_PARTICIPANT_VIEWS = "|".join(v.name for v in VIEWS if v.list == "participants" and v.name)
 
 
 @dataclass(frozen=True)
@@ -146,6 +151,19 @@ ALLOWED: tuple[Allowed, ...] = (
     Allowed("link.page.week", rf"/studies/{_RS}/week", (("list", "|".join(WORKLISTS)), ("pid", r"[0-9a-f]{32}"))),
     Allowed("link.page.subjects", rf"/studies/{_RS}/subjects"),
     Allowed("link.page.subject", rf"/studies/{_RS}/subjects/{_RECORD}"),
+    # J-5 (D-1223): the two lists of people and their views, with the filters each keeps (off: the address is no page)
+    Allowed(
+        "link.page.candidates",
+        rf"/studies/{_RS}/people/candidates(?:/(?P<view>{_CANDIDATE_VIEWS}))?",
+        (("list", "|".join(WORKLISTS)), ("show", "unknown|open"), ("pid", r"[0-9a-f]{32}"), ("page", r"[0-9]{1,4}")),
+    ),
+    Allowed(
+        "link.page.participants",
+        rf"/studies/{_RS}/people/participants(?:/(?P<view>{_PARTICIPANT_VIEWS}))?",
+        (("state", "|".join(PERSON_STATES)),),
+    ),
+    Allowed("link.page.people_candidates", r"/people/candidates", (("view", r"[a-z]{1,20}"),)),
+    Allowed("link.page.people_participants", r"/people/participants", (("view", r"[a-z]{1,20}"),)),
     Allowed("link.page.sae", r"/sae"),
     Allowed("link.page.notices", r"/settings/notices"),
     Allowed("link.page.account", r"/account"),
