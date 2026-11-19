@@ -25,9 +25,9 @@ from tb_common.optout import OptOutRegister
 
 A, C = "a1b2c3d4e5f6a001", "a1b2c3d4e5f6a003"  # A opts out; C never does
 NOW = datetime(2026, 11, 3, 9, 0, tzinfo=UTC)
-# orch.judged_pairs: D-908, the judged-pair store
+# orch.judged_pairs: D-908, the judged-pair store; orch.answers: D-1360, the answer store
 PLAIN = ("site.contact_outcomes", "site.excluded_review", "team.approach_overrides", "team.referral_events",
-         "team.referrals", "orch.feedback", "orch.judged_pairs", "derived.input_link", "derived.conflict",
+         "team.referrals", "orch.feedback", "orch.judged_pairs", "orch.answers", "derived.input_link", "derived.conflict",
          "derived.score_row")  # fmt: skip
 #: ERASE-A1 (D-866): cleared by the same clear; its rows are tested in test_the_worker_clears_more_owed_tables
 MORE = ("sitesetup.fact",)

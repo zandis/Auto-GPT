@@ -565,6 +565,9 @@ class PatientVerdicts:
     tier: str
     actions: list[str]
     n_unknown: int
+    #: D-1360 (card 10A-4): the cascade's stage that gave each criterion's answer (``S0`` to ``S5``), for the answer
+    #: store; empty on the v1 path, which has no stages
+    rungs: dict[str, str] = field(default_factory=dict)
 
 
 def structured_verdict(c: CriterionIR, ev: PatientEvaluation | None) -> CriterionVerdict:
