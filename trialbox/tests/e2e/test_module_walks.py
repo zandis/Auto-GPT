@@ -311,7 +311,7 @@ def test_the_accounts_and_the_logs(tmp_path: Path) -> None:
 
 def test_the_findings_file_is_the_registers_form() -> None:
     """The findings beside the page, in the register's ``--add-from`` form (card H29), equal to the plans; their rows
-    wait for lane V (the register is pinned to its seed rows), so they are not in the register."""
+    are registered (lane H keeps the register), so every id of the file is in the register."""
     from tools import findings_register as fr
 
     assert mw.FINDINGS_JSON.read_text(encoding="utf-8") == mw.findings_json(), (
@@ -324,4 +324,6 @@ def test_the_findings_file_is_the_registers_form() -> None:
     for r in rows:
         assert r["id"].startswith("H29-") and r["lane"] in fr.LANES and r["basis"] == "shown", r
         assert r["severity"] in ("Medium (mapped)", "Low (mapped)") and "\n" not in r["claim"], r
-    assert "H29-" not in fr.REGISTER.read_text(encoding="utf-8")
+    register = fr.REGISTER.read_text(encoding="utf-8")
+    missing = [r["id"] for r in rows if f"| {r['id']} |" not in register]
+    assert not missing, missing

@@ -20,7 +20,7 @@ from typing import Any
 
 from tb_common.db import ENV, Database
 
-from datacore import pgfunc
+from datacore import pgfunc, proxy_consent
 from datacore.forms import XML_ILLEGAL, Field, fields_of
 
 SCHEMA = """
@@ -110,11 +110,14 @@ class DataCore:
     def __init__(self, url: str | None = None) -> None:
         """``url``: the trial database (``TB_DB_URL`` when ``None``)."""
         self._db = Database.connect(url or os.environ.get(ENV), "datacore")
-        from datacore.lifecycle import SAE_MIGRATIONS
+        from datacore.lifecycle import CONSENT_AGE_RULE, SAE_MIGRATIONS, SCHEDULE_WORKING_DAYS
         from datacore.lifecycle import SCHEMA as LIFECYCLE
         from datacore.sponsor import SCHEMA as SPONSOR
 
-        self._db.migrate([SCHEMA, LIFECYCLE, *SAE_MIGRATIONS, SPONSOR, HISTORY_REASON])  # SPONSOR: version 8 (D-435)
+        # SPONSOR: version 8 (D-435); CONSENT_AGE_RULE: version 10 (D-1232); SCHEDULE_WORKING_DAYS: version 11 (10C-14)
+        self._db.migrate(
+            [SCHEMA, LIFECYCLE, *SAE_MIGRATIONS, SPONSOR, HISTORY_REASON, CONSENT_AGE_RULE, SCHEDULE_WORKING_DAYS]
+        )
         self._append_only()
 
     def _append_only(self) -> None:
@@ -200,6 +203,12 @@ class DataCore:
             cur = rows[0] if rows else None
             if cur is not None and cur["value"] == value and (seen is None or cur["seen"] == seen):
                 return False
+            why = proxy_consent.refused_write(event, field) if value != (cur["value"] if cur else "") else None
+            if why is not None:
+                # 10C-19 (D-1232): the last door: with the setting on, the earlier free-text relation takes no new
+                # value, and the consent form is written only on a canonical consent version, from any path (a
+                # form, data entry, a source's read-back, a resolved conflict, a sheet)
+                raise DataError("DATA-READONLY", why, [{"field": field, "code": "read_only"}])
             new_seen = seen if seen is not None else (cur["seen"] if cur and keep_seen else None)
             tx.execute(
                 "INSERT INTO value (study, record, event, field, value, changed_by, changed_at, seen, pushed) "

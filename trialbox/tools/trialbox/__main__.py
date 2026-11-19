@@ -572,6 +572,13 @@ def _backup_cmd(a: argparse.Namespace) -> int:
                          public_key=a.public, keep_to=a.keep_to, no_copy=a.no_copy, other_site=a.other_site,
                          max_age_days=None if a.older_ok else bk.RESTORE_MAX_AGE_DAYS, running=running,
                          restic_pw=_restic_pw(a))  # fmt: skip
+        # H-48: the restored audit chain may lack the box's update.tls_relaxed; without the marker, doctor FAILs a
+        # relaxed TLS setting and the next deploy/install.sh sends the event again
+        from tools.tls_policy import OLD_CLIENTS_AUDITED
+
+        (a.deploy or Path(__file__).resolve().parents[2] / "deploy").joinpath("site", OLD_CLIENTS_AUDITED).unlink(
+            missing_ok=True
+        )
         print(json.dumps(out, indent=1, ensure_ascii=False))
         for w in out["warnings"]:
             print(f"restore: warning: {w}", file=sys.stderr)

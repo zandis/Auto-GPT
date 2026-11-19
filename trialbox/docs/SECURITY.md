@@ -60,4 +60,12 @@ File: [security/10-key-ceremony-and-escrow.md](security/10-key-ceremony-and-escr
 
 File: [security/11-secure-development-mapping.md](security/11-secure-development-mapping.md). In it: [What it covers](security/11-secure-development-mapping.md#what-it-covers), [How to read a row](security/11-secure-development-mapping.md#how-to-read-a-row), [Summary by group](security/11-secure-development-mapping.md#summary-by-group), [The gaps, by weight](security/11-secure-development-mapping.md#the-gaps-by-weight), [What closing them costs](security/11-secure-development-mapping.md#what-closing-them-costs), [Keeping it current](security/11-secure-development-mapping.md#keeping-it-current).
 
+## 12. Threat model
+
+File: [security/12-threat-model.md](security/12-threat-model.md). In it: [Assets](security/12-threat-model.md#assets), [Actors](security/12-threat-model.md#actors), [Trust boundaries](security/12-threat-model.md#trust-boundaries), [Threats per boundary](security/12-threat-model.md#threats-per-boundary), [Not in this version](security/12-threat-model.md#not-in-this-version), [Findings of this page](security/12-threat-model.md#findings-of-this-page).
+
+## 13. Vulnerability disclosure
+
+File: [security/13-vulnerability-disclosure.md](security/13-vulnerability-disclosure.md). In it: [13.1 What this policy covers](security/13-vulnerability-disclosure.md#131-what-this-policy-covers), [13.2 How to report](security/13-vulnerability-disclosure.md#132-how-to-report), [13.3 What not to do](security/13-vulnerability-disclosure.md#133-what-not-to-do), [13.4 What you can expect, and by when](security/13-vulnerability-disclosure.md#134-what-you-can-expect-and-by-when), [13.5 Safe harbour](security/13-vulnerability-disclosure.md#135-safe-harbour), [13.6 Supported versions, and how a fix reaches an offline box](security/13-vulnerability-disclosure.md#136-supported-versions-and-how-a-fix-reaches-an-offline-box), [13.7 The Japan route (情報セキュリティ早期警戒パートナーシップ)](security/13-vulnerability-disclosure.md#137-the-japan-route-情報セキュリティ早期警戒パートナーシップ), [13.8 Taiwan](security/13-vulnerability-disclosure.md#138-taiwan), [13.9 The contact in the repository, and the release check](security/13-vulnerability-disclosure.md#139-the-contact-in-the-repository-and-the-release-check), [13.10 Sources](security/13-vulnerability-disclosure.md#1310-sources). Parts: [脆弱性開示ポリシー（日本語）](security/13-vulnerability-disclosure-ja.md), [弱點揭露政策（繁體中文）](security/13-vulnerability-disclosure-zh-tw.md).
+
 <!-- end of the generated index -->

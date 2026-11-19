@@ -281,7 +281,12 @@ def router(get: Callable[[], DataService]) -> APIRouter:
     @r.put("/studies/{rs}/sources/redcap")
     def put_redcap(rs: str, body: RedcapSourceBody, who: Claim = AS_SETUP) -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
+        from datacore import proxy_consent
+
         known = svc.dc.fields(rid)
+        kept = [f for f in body.field_map.values() if f in proxy_consent.read_only_now()]
+        if kept:  # D-1232: the earlier free-text relation is mapped from no source while the setting is on
+            raise HTTPException(status_code=409, detail={"code": "DATA-FIELD", "message": "read only", "fields": kept})
         bad = [f for f in [*body.field_map.values(), *body.owned] if f not in known]
         if bad or any(f not in body.field_map.values() for f in body.owned):
             raise HTTPException(status_code=409, detail={"code": "DATA-FIELD", "message": "unknown or unmapped field",
@@ -336,7 +341,12 @@ def router(get: Callable[[], DataService]) -> APIRouter:
             except OSError as exc:
                 missing = {"code": "DATA-KEY", "message": "the site key is missing: run an ingest first"}
                 raise HTTPException(status_code=409, detail=missing) from exc
+        from datacore import proxy_consent
+
         known = svc.dc.fields(rid)
+        kept = [f for f in body.columns.values() if f in proxy_consent.read_only_now()]
+        if kept:  # D-1232: the earlier free-text relation takes no value from a sheet while the setting is on
+            raise HTTPException(status_code=409, detail={"code": "DATA-FIELD", "message": "read only", "fields": kept})
         bad = [f for f in body.columns.values() if f not in known]
         if bad:
             raise HTTPException(
@@ -384,6 +394,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         """TrialBox's seven forms in one call. A built-in field name another form of the study already uses is
         refused (FORM-DUP), so a REDCap dictionary's fields are never shadowed; adding them again replaces them.
         ``ctcae`` names the study's CTCAE version: the AE form then grades each AE 1 to 5 by it (D-396)."""
+        from datacore import proxy_consent
         from datacore.builtin import ORIGIN, builtin_questionnaires, ctcae_code
 
         svc, rid = get(), _rs(rs)
@@ -391,7 +402,8 @@ def router(get: Callable[[], DataService]) -> APIRouter:
             ctcae = ctcae_code(body.ctcae)
         except ValueError as exc:
             raise _fail(forms.FormError("FORM-CTCAE", str(exc), ["ctcae"])) from exc
-        qs = builtin_questionnaires(rid, ctcae)
+        proxy = proxy_consent.is_on()  # 10C-19 (D-1232): the representative and assent items, while the setting is on
+        qs = builtin_questionnaires(rid, ctcae, proxy)
         names = {q["name"] for q in qs}
         theirs = {f.name for q in svc.dc.forms(rid) if q["name"] not in names for f in forms.fields_of(q)}
         dup = sorted(theirs & {i["linkId"] for q in qs for i in q["item"]})
@@ -400,9 +412,10 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         at = svc.stamp()
         for q in qs:
             svc.dc.put_form(rid, q, ORIGIN, at)
+        on = {"proxy": True} if proxy else {}  # off: the event and the answer as before the card
         svc.audit.append("data.forms", ruleset=rid, actor=who.name,
-                         detail={"forms": sorted(names), "origin": ORIGIN, "ctcae": ctcae})  # fmt: skip
-        return {"forms": [q["name"] for q in qs], "fields": sum(len(q["item"]) for q in qs), "ctcae": ctcae}
+                         detail={"forms": sorted(names), "origin": ORIGIN, "ctcae": ctcae, **on})  # fmt: skip
+        return {"forms": [q["name"] for q in qs], "fields": sum(len(q["item"]) for q in qs), "ctcae": ctcae, **on}
 
     @r.get("/studies/{rs}/records", dependencies=[PATIENT_READ])
     def get_records(rs: str) -> list[dict[str, Any]]:
