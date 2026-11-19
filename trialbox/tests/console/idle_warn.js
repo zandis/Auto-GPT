@@ -82,7 +82,7 @@ const CASES = {
     if (process.env.TB_IDLE_SHOT) await p.screenshot({ path: process.env.TB_IDLE_SHOT }); // by hand: the warning, seen
     await p.keyboard.press("Enter"); // the focus is on "Stay signed in"
     await until(p, () => document.getElementById("idle-warn").hidden);
-    const after = await look(p);
+    const after = { ...(await look(p)), stay: state.stay };
     await p.clock.runFor("09:01");
     const again = await look(p);
     await p.keyboard.press("Escape"); // on the warning, Escape is "Stay signed in"
@@ -92,7 +92,7 @@ const CASES = {
     return {
       at_8m58: before,
       at_9m01: { hidden: at.hidden, state: at.state, role: at.role, title: at.title, focus: at.focus, seen: at.seen },
-      after_enter: { hidden: after.hidden, stay_requests: state.stay, focus: after.focus, typed: after.typed },
+      after_enter: { hidden: after.hidden, stay_requests: after.stay, focus: after.focus, typed: after.typed },
       again_9m01_after_the_press: { hidden: again.hidden, state: again.state }, escape: esc,
     };
   },
