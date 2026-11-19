@@ -556,7 +556,7 @@ def test_the_earlier_free_text_relation_takes_no_new_value_on_any_route(lb: dict
     c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})  # the forms as before the card
     c.get("/studies/GZQO/subjects")
     monkeypatch.setenv(proxy_consent.ENV, "on")
-    name = "Hanako Example 090-0000-0000"  # synthetic
+    name = "Hanako Example, the aunt"  # synthetic: a name where only a relation code may go
     form = c.get(f"/studies/GZQO/entry?record={no}&form=tb_consent").text
     assert re.search(r'id="f_ic_lar_relation"[^>]* disabled', form)
     _save(c, csrf, no, "tb_consent", {**CONSENT, "ic_lar": "1", "ic_lar_relation": name})
