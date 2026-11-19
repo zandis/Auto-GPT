@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "24d6a78f44cbf94542108343570279d3d093fce2",
+  "head": "53ff65e2ae8aed3175ab2b2940816ae4b74185a3",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "lane G B1 (P1b review): public-en birth date = visit minus stated age; chart 70000014 (sigir-201414, 85-year-old) is 85 at the run date, not 86, so df261f5f meets AD-MAB-INC-01 (50-85) and is a candidate",
+  "reason": "Merge of master 0de6b1d0 (train 97, with the site profile #1128) into PR #1095: regenerated on the merged tree, not hand-resolved. PR #1095's part: the ssmix2-jp tables' mapping_version (the JP mapping changed) and the condition src_row_hash (end_date_text, outcome_date_text, date_text); no value changed. Master's part is whatever train 97 moved.",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy+omop"
@@ -264,7 +264,7 @@
       "aid": "e8c7a41473a9bfba8a70fa93b2a0b2e8024f3f71fffc20beb5b1e8376465ca32",
       "dept": "39a8a1c53698a25a38106d6d4201dd647f60f5511ae0ee7095fd972491de86ee",
       "ingested_at": "05a48208abfb3b4f185dd15e0200225c785d2068b0adff844abec34d96e6c2d3",
-      "mapping_version": "83e05de1056f80ab50b4657dd1592127c5f4fbeea4896ed3b4837263fc680efe",
+      "mapping_version": "28ab6ca3538e03ecd9c9b6f42c520bd0ec28ca29c48865b1c2c4565ed9c762fb",
       "pid": "b23af1acda2c50728ddd2d643e169f3b587391ae2711ca404999bcc4433d46ab",
       "practitioner_id": "779e3c439834dd86b1a2601530abb82a0b0aaef02a0abc0285ccadebe3231e7a",
       "src_row_hash": "0b31c7d9e808f2ecb55cbc081527ecfaba586a43a3ecd6536b240b37d2038c06",
@@ -273,7 +273,7 @@
       "status": "b6d2c423f999629cf12f93477bb4c57715b2d6e6d7ff728691f3f2cdb36c5f08"
      },
      "rows": 260,
-     "sha": "5e40fb4ebcad6aa17556df0aa832beda300654fa8c2e450151c91407420b99f6"
+     "sha": "b6d72ae83b8fabc2518da446a98260dfc7186db5fdf4508e20bb3fa1e7586f56"
     },
     "claim": {
      "columns": {
@@ -282,7 +282,7 @@
       "created": "63ba4f816711044d55a18d545512f262bbe02edf62d0acbd46817cd764db78c1",
       "ingested_at": "8de4230719da725d8b5644c7379f0b809c6403e6e67befe73b2454899cf3e11f",
       "kid": "028ddd352765d19a29b72a1e273bd7c1fbb55b9c165ebe435c321b662e35d8f3",
-      "mapping_version": "9ad881724f7c69999bed3acc73584c86fede4093b38e302c52f4d0a33a7f6e64",
+      "mapping_version": "eee1be1da93a98c1a67faad98c3ba825fd8e5bc1fb3ce3810a5389a089080144",
       "outcome": "a2cbe9404042d7bc2148990c11b6bf975b6076195dc474b1371784d98c629db9",
       "pid": "17192b6c98a21057e3c3615e6bf4fc505cf795667cd2078bd331f0086f1810c0",
       "product": "36d44687e8a88a321e65d0106c8453d93255f7fd7cc9c6602f331a7442962731",
@@ -290,7 +290,7 @@
       "src_table": "a293fe742250c72229c976d094bae39ffc01fbd2e89bf0e78f0b776b8306e0b1"
      },
      "rows": 63,
-     "sha": "7ec356fa381a0a749e39cc24429419a52c706f2302d4bc4627562e326ac30faf"
+     "sha": "7f963af8e3bc292c239f3403413aa1ddf67101e43228e9ede224ff5fe8238c57"
     },
     "condition": {
      "columns": {
@@ -298,17 +298,17 @@
       "code": "8ef5a0dd18d616bcd9bd37631a139667d666930b02f67b6ad1316c12518149f0",
       "eid": "54443d55594e77fd5378b168e9707f762d17a83cf513a8ac51942497aca2b281",
       "ingested_at": "5ce3bcdbe46f937f381a450dc1266d6d71b965a0dbe7c16d73e4b18525608eec",
-      "mapping_version": "2787f88ec7beeff4dd1f2195f27cd414b68c89d4e1c154b458e929d6884fb311",
+      "mapping_version": "f681106b1dddc2e672c1eadfda0513f740e8085f85dde1cb453b120e88d9f484",
       "onset": "a578d258b746f93febbbe7f8aa06f743bc5ed3e70f5beee38e87e1c2ceb7c09c",
       "pid": "8c65df036ffaf676067377635cd23e6c55f4c604309800b3b9bcb75b1af55d32",
       "recorded": "a578d258b746f93febbbe7f8aa06f743bc5ed3e70f5beee38e87e1c2ceb7c09c",
-      "src_row_hash": "7ad6c2ce081bd2b2346913d48e656fe24ffe033b7caf06ba4ee1bba4ff45f7b9",
+      "src_row_hash": "424d816f6fdf5535fca74b6155444ee64a3047997959cfd8eeca3bdb9124b44d",
       "src_table": "07fc3768eab604a689ae83aefb7eda298f0b9333b36305e8f8a34d0449e1a890",
       "status": "39b7d509b0ed6040fdd92255ce74648a8a3899880db9cc46f04c7fb56c0ab8fa",
       "system": "f80cca1d52b2b46c334a436b09d30b90f66581cc56fec218341bda22981c8028"
      },
      "rows": 1142,
-     "sha": "84335cc0fec2bdcd65edb1bbad162150477453eb8d59aa47c9978eba6c7c0cc5"
+     "sha": "d7da451e07065ebae4fc262758fcaa28a8d46fe38affc487d30566f685388569"
     },
     "consent": {
      "columns": {
@@ -316,14 +316,14 @@
       "contact_ok": "d30bfaa0c02bdb9e44d87f560fddde8c4ed565e2999cb193a84d0bb0e9769e24",
       "date": "af4339678cedc3fb1217e03e16e86e5a0bc06307ae007d264b3b4acb98a5b35f",
       "ingested_at": "d4205a502d878eae5932f4f8988462abad987e4758630bc074d7c791247a37d3",
-      "mapping_version": "f597bb28f3ed9ccdeb5c7e97c2df7ea8d606b282ad9ea9f65e6288f6758d588c",
+      "mapping_version": "9d0ca4b84a851e0e44e1d4c4e6332e29efd0347f85ba0f76457683bdae1cde81",
       "pid": "2711ecab145a0f7aa0f24484a12644ff91eeb45822786427baf6a41a4b885b57",
       "src_row_hash": "a46e947d705137fec4e3e66546ac14d5679e7584b7dd7a828a66a30e9a424043",
       "src_table": "b1ff24624c9bd532c66fa8b49aa042655b63b8807a5705359a7ac3a5da369bf1",
       "status": "6f042531fb22fbdfdbc363fb505bb998841735fc7bef02667eaaa3eaa5962874"
      },
      "rows": 275,
-     "sha": "8dd8afa15bf2489bf26584a0cb6a7f89fd72ccf8cac5fbadfa978742aedf7ef1"
+     "sha": "4b92378ef61ce948b8405affff935f3ac1fc61f513274fe613dbe805992bc909"
     },
     "document": {
      "columns": {
@@ -331,15 +331,15 @@
       "did": "aa987d0502f084acd8481a855f21c346ab00538a6c0fdc2f5be5091e7acf94a9",
       "eid": "b0481b3996e151b6c9b5086877883af29d086e2c4ab1431ec976120c6cbe9034",
       "ingested_at": "2b6dffc48722c3b1297aacf96bf8d57e3e0dd93b7d105c32b9677a09d54da0f5",
-      "mapping_version": "b9af1ae02d185b9a0b6eb9b838d887760ebacb7b7226bfbe386b4ffe2abc7f53",
+      "mapping_version": "b7282a2c6b1783b4afc47552417a61eb579530795b849fc264b292cfbd594a32",
       "pid": "dd33541ac4ee7687a50d2b95a4a59ab72d4b27b339050a64a80ad08de98f4e3a",
-      "src_row_hash": "741bab7e1c076ee289d172626e78b40b10a48b3ebe4837bebbdff99ce5fa3727",
+      "src_row_hash": "2f8675e2c49be70f0ff13d8c97c9abfee837b9df408e89c1d0c4ba082805a232",
       "src_table": "dabe391ee01ad71aa83470f8b4c6d1861039e8ec06b1fbd8d35fbf308b2cf658",
       "text": "5b030d0896f01674c41f5348da2522d1171fa069e5f23ec8288ed550ca68f583",
       "type": "5899d7fc1eca3b9f496a74b4c5404964eec697a446d6d96e7ae577cba528e8cd"
      },
      "rows": 733,
-     "sha": "fbcd23327dbb1a27d76ca13f0a6d4f314a522945a127ddd36ce37b57a4a7636c"
+     "sha": "a146519b5730c749c91f84c07298af49490d8d8673d1e6f139795994637b351f"
     },
     "document_chunk": {
      "columns": {
@@ -362,7 +362,7 @@
       "eid": "5566ef08574373852126df0a05e794a5453809960fe92763267aede5fdadf77f",
       "end": "a39c06535b50f666eb67c49a641481fcfb9933cfd084384bb239ea7c74148995",
       "ingested_at": "569aa04af87734800385e033ab5a90a49dbbe12c4aa8b7e15727f72a336a8a32",
-      "mapping_version": "eec595597c5b2e98041fb3b9334538133088278f9e01e3b4edba9731ae52ec53",
+      "mapping_version": "f18975adc32a9b6ad29fb50c191947b8c7962c9e139f63d27e203d8c0ec130c0",
       "pid": "5de31159910cc9dfb9380e53a399a9b6ca99a8a428135b2a732c67d4db9beeb4",
       "practitioner_id": "802817286f012dce9754f4a90bc366eb1c8effe84229c8b3fc33c7a9231fc690",
       "src_row_hash": "7d8cfa3c455c88b0ad8d8f556401b6112693d019f71409ebcf0a426ee25aabcd",
@@ -371,27 +371,27 @@
       "status": "65c7f093e53885065343020f0d8e802209f6c64edc2ed7ce6b2ac5a4877b8b0f"
      },
      "rows": 2721,
-     "sha": "f4fabbaefac0a3e0aabf8f65533cbd3ae93321cfecf4bd4757b0c04770325489"
+     "sha": "460a21660b7b79e22bb9f256bff893b449330b8174058ea638d3c58ab8820f44"
     },
     "medication": {
      "columns": {
       "atc": "a4775412ca16b19e56dcd3eb2ea9e3b6827cfdaea517935e5392a81a015bc0a7",
       "authored": "069ca8318d478f921f6a822bcba7bc9e0bf1777d0b8703c436a5e4aa2aaa4c6d",
-      "dose": "dff28406fcb05349714cabd0989de84d9b98d63671e1724ade7f72daa46dbaad",
+      "dose": "a80bf780ea3c1da651faa6ce34bfba2f64ee264fd0da57ca4936819991ab817e",
       "end": "3845015f632f3db556450fd5259b2089fe126ddded453b0d244ba363f17cd4a3",
       "ingested_at": "4e60b02c728dfce66dfe6fa91e2ddaa48aebebd656e05a723cdf196f6ff7200c",
-      "mapping_version": "444cbca56ecbbc733ec760d9a3191a37d80cdcfc441b5155a9367a57010054d3",
+      "mapping_version": "65498924e2e01ef319306f7d658a8f19ed761b7f68c6b6226c5cefec59fc641a",
       "mid": "e465215626effa7b55bcba11976fac8741284067a87df385a7c61cdb83352aa8",
       "name": "b6f0c07e05e73e153570e6aac13c7443bcba1177615868599c3ab66e0f7d78de",
       "nhi_code": "bce8141a1169d7d04014e042f0c5037d166c90924d54b8e1c0aae06d27a8307f",
       "pid": "500fe8e9775e83c30b24b22fcb3344ed980a3667859778243e0b05dab7430002",
-      "src_row_hash": "c73524c981c44111f333e8497d42e89ed6f205a7363c8491dc2f6143eb6513d0",
+      "src_row_hash": "b59b99d553a0fb44b2ec556adcdb74636a7c2dd0ffa65ac6638f988d19ae397c",
       "src_table": "3385cb4910a4e6ee4f1676250bdd6c77714dfc92d525f50ea0d01b33c79df8d1",
       "start": "069ca8318d478f921f6a822bcba7bc9e0bf1777d0b8703c436a5e4aa2aaa4c6d",
       "status": "f93a150b765753d0f7116f3984556665d72020a9a502005466324231592b703b"
      },
      "rows": 3648,
-     "sha": "3d12c4c023e82e2058d81c0c3e94f57eeb09ff66f63a819f9bdbe857df7aabfd"
+     "sha": "77489cf21f35e9e150a8c52a51a935f6e90628e059c1699da6c0ea7090eac635"
     },
     "observation": {
      "columns": {
@@ -400,7 +400,7 @@
       "effective": "9c40ab5faf6221da172d2b9057aaaa8646d6f6a9e8c717802174cad3c1de5e24",
       "ingested_at": "f7a4f6f077c998ddfc30566c8adca44b82dc2b4bf435b72ea8364bec7d7e39ae",
       "local_code": "4d8fa52751c1cebf4022c61714c04b8f20a430416ce7b767a9585b351ffe2a12",
-      "mapping_version": "f038e0966a1c25a01022da3106e11ab1ce62ddac595330031801afc7f18e6552",
+      "mapping_version": "dd8cfabfb48de5a06f4f8b7ce761861160e7425233a60adfc17213186282e725",
       "oid": "e08dc62292b8ae5a3c23cb858dcfa97249c1426209323173fb252ad93562b19d",
       "pid": "1f5f63221da158c4d648a041528dfbeedf2cb11caca891398ec0b95e93d7e3f3",
       "src_row_hash": "5671f5b1373dd2608409897198a35b0f4c0f4fc4c6b53951636ee609ce380774",
@@ -412,7 +412,7 @@
       "value_num": "82d0855292189f2114a1d6a79837f3df05f531109f9f8a234283adbc3e817584"
      },
      "rows": 3367,
-     "sha": "edd88911a730628a83c43e3598efc8faf825ad4df312dfa3b824c693bc618bf1"
+     "sha": "7acef25c53a4682d5328f7d881991e2836a83a21fd904247f52ad1aea6c03678"
     },
     "patient": {
      "columns": {
@@ -420,19 +420,19 @@
       "deceased": "aae4d49ead321b189cad4542c419de1d62f3d16f6b07a92a76181a1c979217ae",
       "deceased_date": "aae4d49ead321b189cad4542c419de1d62f3d16f6b07a92a76181a1c979217ae",
       "ingested_at": "7d86e74af1215c3954823cc69b7014261a738d55fffbb3d22e982a053b0f7c8d",
-      "mapping_version": "5ccdab857b64a3e103c306a81d4c86c524eb2d0d736eac7cd1660385bd98f351",
+      "mapping_version": "c0d2c09f4e1a23c047368ab77d9ab93fb0ec98ac83ad426c2405376a777f22f5",
       "pid": "4c7758da6359b8bb18521141d8f9445c356fa33fa255f256b10ecab751b56e61",
       "sex": "ca02e963dab336e51c366f107bda77781c386118401449fff76e50b4a96075d1",
       "src_row_hash": "d746a87240d86ca5948077b55663ad279d468a9c158006578a8cbfcda313906e",
       "src_table": "e03ceef4a52d37ed7ebdad4ad61eb5d38e07774bbc4971fdfc285021bce53ae4"
      },
      "rows": 400,
-     "sha": "4bfdd6241cf2e36fefd370b7a6e2d6cf31e001cbecc41b6dfdb3729498e644d5"
+     "sha": "e528888c84354a0574633f7a13da23c236780f8398c8696f253e6b517f10e766"
     },
     "practitioner": {
      "columns": {
       "ingested_at": "5d57740449a4f8d1641620a91557ed481b0bff2559ee3bfd026de8c45e738a72",
-      "mapping_version": "2212f540756f79226ae060273939975ff32e9ccb76cfdf5b8c260854815c78c7",
+      "mapping_version": "c3d22656215bb268cdd3c7ddbdb0622c9be76bcecd07bc93fabdddc6b02728b0",
       "name": "10702f46be7846fc6e11b4cd7d370ec81c9fdfee715538e0a9fffc09fc521280",
       "practitioner_id": "06024fab44548858b50587ff97fce38d36b9d0a8cba4837851b88fd2162ba668",
       "src_row_hash": "15bd1cbc4737880e8804215fb9fb0da1448507669006f5593ae62dbe656ab350",
@@ -440,13 +440,13 @@
       "staff_id": "06024fab44548858b50587ff97fce38d36b9d0a8cba4837851b88fd2162ba668"
      },
      "rows": 8,
-     "sha": "bf0f7623d82397fc4849983169ebee2ec67db9bd56aded0b1c4e04b733c79bdb"
+     "sha": "fb1b4907b88937e781d1faca83d3e35b875aa248f598ce39331e08924559149c"
     },
     "procedure": {
      "columns": {
       "code": "cf539a67cae75bc2484942dc06c666b2616ff475f9d21c0acbe7a466001e81c7",
       "ingested_at": "b4495454e0e1e1669220cd0c0e204ef3782985465c078213a0d752b29f8bc9b2",
-      "mapping_version": "e92dfb870b43b68c6ddd563ba643dc707e53e73d78e80226595ff1ecf409a142",
+      "mapping_version": "4655deb2f66dda3a3c7af1b40c2faa0e27fbb962532fe2dbedd20a9a898c8d49",
       "performed": "b8b5690dc5b4d21d4065d7ad9aec9eae2710fea73e6717204fb88fcc26fc13da",
       "pid": "54b73ad29ee8b85de13aab237ced3158f698c94c64cdca7f664ad73369df4f9b",
       "prid": "994b7235b12fa8789630c373aadbc5e009cd1ffadfa484b3fdf7b961e5f4f7e3",
@@ -455,7 +455,7 @@
       "system": "72d3b1bfe1326053a88be68171e468d5b46ffd3f4cb10b4cfde0d80849b0bf32"
      },
      "rows": 4,
-     "sha": "2e194983b20f1d10074e881da469e84427e2b9db8815e3c560b908f3e215e652"
+     "sha": "68c62996e447fa811d7679ab9591501ea44fdeeb674b31c1cbbcb614ea216f49"
     },
     "report": {
      "columns": {
@@ -463,7 +463,7 @@
       "conclusion": "0421c6243ca5cf181930c0d36b67629e7fcfe156aada07ae47da64d69ba38415",
       "effective": "83cb6bca6a7f35009872fcd14138dd762e50dae29021711da668158453694260",
       "ingested_at": "fd103c7ffd2e1693ee9732773a375100eafef70d41e0811b1bf394cad9284fd3",
-      "mapping_version": "711af9c1ac28c4ede1a46bd62cd22e4ed0902afc402cb5a3d74251777ab69a1f",
+      "mapping_version": "c3d27a3637b0eec31a36d449e9b84282a1069d0b7ce08829bb50be6f94bbabbe",
       "pid": "acfff25de3fe5c7104ec860d70a392fd09da080d1f1d3fd11b28c5b08e72c8b7",
       "rid": "c26ed453d38f33e01868f914d5baacc5662fbc3786a431dbbd96589056648d51",
       "src_row_hash": "a0cf3de41865cde624abd73a5b8a050622ac0061e0b01ddcd2b9fb98377f6fff",
@@ -471,27 +471,27 @@
       "system": "ccff02218883df6545746605700af4ab4c05a1ee900117a6a8f07268681e1606"
      },
      "rows": 48,
-     "sha": "cc6e155dc3793191c893b5df766e9e69fc13368203831a798fee95a9ca7308d3"
+     "sha": "2beb48c7a4163e9c59f349a5ccd660806054fccbfc8e5bfcf40c6d21b08e58e0"
     },
     "site_fact": {
      "columns": {
-      "basis": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "code": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "d": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "domain": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "fid": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "ingested_at": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "mapping_version": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "pid": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "src_row_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "src_table": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "system": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "unit": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "value_num": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "value_text": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      "basis": "00e8927b74beba14d93bb07c8213aebd004d07bd64e0b483047e017e89d418c3",
+      "code": "33bc1dde37e0251654108bec8ef80666b7ad12cbc525587371ce0f761195416a",
+      "d": "be9115cb886e4a8ac90e2bf0d8dd2383efd143c2b99ca0b7b6618abeb9581313",
+      "domain": "7b95924e932cf2ec8c75521c2e99844a18bd86d86a9841fcfb17bc08b911aac6",
+      "fid": "1b7faa9e976bfb026bb0f82eabf3ef4f58b6725c8a130fb72da9a90c84392e6a",
+      "ingested_at": "b9f8b9d9812afdba9d62abb563336deac5f9a5aef794f08b24f3cdf3525858c1",
+      "mapping_version": "c8292fb991c7bded4b1c39c6f738bbbc0ed95b64782b2794eda0b8b362ece8b3",
+      "pid": "a719ca76f66cd4e92d597bdb0fde9befd0210be697256b3910815376dc5887fe",
+      "src_row_hash": "9f37a67aa9fdad1df07982601d2c6717b87461fa3a04d0e35f852fb86f07fd6b",
+      "src_table": "cfa90e1b0247b7f8239ae01f22d205dd609b0d076b47cdece67766b3ebe6ed21",
+      "system": "efd9de8078fba4fcea916f368408c868657f9bea593254ab08a96ea8b2c2841d",
+      "unit": "d17973a71bb64fbac17151e850dbbe33a4990507b05e4f3bd1a5236c46d0be0e",
+      "value_num": "48c4e85111a267c1f86910ceb1f7a53875032d6e9c03095caf15b9364c84791c",
+      "value_text": "ce6ebf132d9e40bf1de1ee915fe12ac599520a2618ba07c1a06131037096d07b"
      },
-     "rows": 0,
-     "sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+     "rows": 6687,
+     "sha": "ed3f64fa478a6f3b73f9fbea4d5b9ed03db624c7ee6348ae52bd14e185664730"
     }
    },
    "tz": "Asia/Tokyo"
@@ -1471,23 +1471,23 @@
     },
     "site_fact": {
      "columns": {
-      "basis": "5b0d7441ffbf7d96acd2bddafef86028d2171552cd6e6cf06cd71b17eb63d920",
-      "code": "53a14c262531d26e9c47b2834f553e1d3a84bcf4c559aff0cab025040d45386c",
-      "d": "52555b8f39b69d871c59ac39e65a90074eeefd06317f831d9dde5eff7ee4ac69",
-      "domain": "e104314b836ccb100f2c15a7f6bdeb15ebda0c764693780af1950cbf6d095f73",
-      "fid": "4f94ce622d21de7d3b77cf85b160217eddd2ced18b3f1ef9efa9babac1185e64",
-      "ingested_at": "bb8432a3283eb0b270bf5520641941b98641cd86ac33ae09b8f5bcc84497104a",
-      "mapping_version": "bb8432a3283eb0b270bf5520641941b98641cd86ac33ae09b8f5bcc84497104a",
-      "pid": "9a8c4896808482474cd557155fb245daaf41678aa7ea428b483677c54aab6667",
-      "src_row_hash": "bb8432a3283eb0b270bf5520641941b98641cd86ac33ae09b8f5bcc84497104a",
-      "src_table": "bb8432a3283eb0b270bf5520641941b98641cd86ac33ae09b8f5bcc84497104a",
-      "system": "7a6d4907d62ef35724a3e222daa684ad2899b147dd592b4d48dd6f97090f4676",
-      "unit": "ca189c26fab5686ba03982ccd1c0e02ef780bcdde665bafadf733ae71a2efa3e",
-      "value_num": "1c5542ab3ae5515478785b0aa73fdf3063d735c3b46f8f8944ce63f6c1eee377",
-      "value_text": "f443dbe01f5dc20f6d657fa6f6d0c8edc9e3508f4ef420bb244a9a40473c2615"
+      "basis": "731cd7b180b2528eca3c871b35a88fafbd3ba213cf0fee7dadcd7de4a41c5384",
+      "code": "7e23dde802fcbb3c96456941802fc517c2f6b8fde6855a4adc6e8b642685a41e",
+      "d": "dcf66b77821520b976d7729f6b916431d4b6d309f696545061cad7877b08dc1b",
+      "domain": "d29a67ea2ca961e4430bc666cd5802202bee61013206446913ff5e307f172f33",
+      "fid": "a5c9f48eacb15f932f91724f59f824d649398b7468542687d6421059dbe4137a",
+      "ingested_at": "68f663188b49ffdc9d14f1fca93b5117f3cd8e29c6ea455dc7648958119dff20",
+      "mapping_version": "11d01d75fd8d0e23a7b651217015653ac994110a9fa0e9f38db17f928a34d39a",
+      "pid": "02ae91c07099dbe0a195b0fc5b50b1a0f0c02f1fe40109e648dd75ffc4ee024a",
+      "src_row_hash": "e8aa00d21a4e9ccd07082b910bd180b6b01dc3c4d9e385e79b0befedff364b43",
+      "src_table": "c786783edc20cc25e15af9b6a63ce71f0d3e617173b7dbf18731286a427e9a08",
+      "system": "ffd68dc94f5420dd6536f74f306751f196a0106151e12eeb268c75e31aa1724e",
+      "unit": "4b4567e77a3bd1c6252b65666d731ab0d10e16fa6466ffe3308faa3b86edfa31",
+      "value_num": "e35ddd594c0b32885f2ddc71efaccbd2bba9db784b7f77344f172f670a5b09d8",
+      "value_text": "46dfedecf801e1aa51842b04ab6f560ee420c3a8a8dcf9a5c34a4d9827453be4"
      },
-     "rows": 180,
-     "sha": "3f3864a98bf4e11052ddc92cb1efdb7a6aabf60e1aa2b7aea1d916a62a061a44"
+     "rows": 4287,
+     "sha": "6cb4b50ae807403a43ae8eb7cf4152d14e21ccef796c9cd489e20a19ea7d288e"
     }
    },
    "tz": "Asia/Taipei"

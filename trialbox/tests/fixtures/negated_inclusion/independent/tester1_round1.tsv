@@ -1,0 +1,296 @@
+lang	expect	concept	text
+en	held	chemotherapy	No prior chemotherapy for metastatic disease
+en	held	small cell lung cancer	Non-small cell lung cancer, stage IIIB-IV
+en	held	brain metastases	Patients without evidence of brain metastases
+en	held	hepatitis B	Free of active hepatitis B infection
+en	held	EGFR tyrosine kinase inhibitor	Treatment-naive for EGFR tyrosine kinase inhibitors
+en	held	HER2	HER2-negative breast cancer (IHC 0 or 1+)
+en	held	pulmonary embolism	Rule out pulmonary embolism prior to enrollment
+en	held	myocardial infarction	Suspected myocardial infarction
+en	held	hepatitis C	History of hepatitis C, resolved after treatment with SVR12
+en	held	colorectal cancer	Family history of colorectal cancer in a first-degree relative
+en	held	diabetes mellitus	Absence of diabetes mellitus (HbA1c < 6.5%)
+en	held	basal cell carcinoma	No prior malignancy except adequately treated basal cell carcinoma of the skin
+en	held	tobacco use	Patient denies tobacco use
+en	held	smoker	Never smoker (fewer than 100 cigarettes in lifetime)
+en	held	diabetic	Non-diabetic adults aged 18-65 years
+en	held	febrile	Afebrile for at least 48 hours
+en	held	SARS-CoV-2	Negative for SARS-CoV-2 by PCR within 72 hours
+en	held	HBsAg	HBsAg (-) and HCV antibody (-)
+en	held	HCV antibody	HBsAg (-) and HCV antibody (−)
+en	held	hypersensitivity to platinum compounds	No known hypersensitivity to platinum compounds
+en	held	heart failure	Without heart failure (NYHA class II-IV)
+en	held	transient ischemic attack	No history of stroke or transient ischemic attack
+en	held	anti-CTLA-4	No prior treatment with anti-PD-1, anti-PD-L1, or anti-CTLA-4 antibodies
+en	held	chemotherapy	Chemotherapy-naive metastatic castration-resistant prostate cancer
+en	held	breastfeeding	Not pregnant or breastfeeding
+en	held	pregnancy	Pregnancy test negative at screening
+en	held	atrial fibrillation	If atrial fibrillation develops, anticoagulation must be started
+en	held	sepsis	Possible sepsis, to be confirmed by blood culture
+en	held	disease recurrence	No evidence of disease recurrence on CT
+en	held	ALK rearrangement	EGFR mutation-negative and ALK rearrangement-negative NSCLC
+en	held	type 1 diabetes	Patients with diabetes other than type 1 diabetes
+en	held	insulin-dependent diabetes mellitus	Non-insulin-dependent diabetes mellitus
+en	held	smoker	Nonsmoker for at least 12 months
+en	held	Hepatitis B surface antigen	Hepatitis B surface antigen negative
+en	held	tuberculosis	Unable to rule out tuberculosis
+en	held	ascites	Excluding patients with ascites
+en	held	active infection	No active infection requiring systemic antibiotics
+en	held	hypertension	Neither diabetes nor hypertension
+en	held	BRCA1	Patients lacking BRCA1/2 germline mutations
+en	held	distant metastasis	Absent distant metastasis (M0)
+en	held	HIV	Seronegative for HIV
+en	held	dialysis	Patients who would require dialysis during the study period
+en	held	hypotension	Should hypotension occur, the dose will be held
+en	held	seizures	Questionable history of seizures
+en	held	radiotherapy	Has not received radiotherapy within 4 weeks
+en	held	allogeneic stem cell transplant	Has never received an allogeneic stem cell transplant
+en	held	HBV DNA	No detectable HBV DNA
+en	held	dementia	Without a diagnosis of dementia
+en	held	QTc prolongation	Absence of QTc prolongation (QTcF <= 470 ms)
+en	held	anticoagulant	Anticoagulant-free for at least 7 days
+en	held	steroid	Steroid-free remission for 3 months
+en	held	breast cancer	Mother had breast cancer (family history only)
+en	held	active tuberculosis	Active tuberculosis excluded by chest X-ray
+en	held	pneumonia	Pneumonia ruled out on imaging
+en	held	metastases	Metastases: none
+en	held	ascites	Ascites: not present
+en	held	hemodialysis	Not on hemodialysis
+en	held	opioid	Opioid-naïve patients
+en	held	immunotherapy	Immunotherapy naive
+en	held	hepatitis B	Does not have hepatitis B
+en	held	uncontrolled hypertension	Doesn't have uncontrolled hypertension
+en	held	congestive heart failure	Doesn’t have congestive heart failure
+en	held	Hodgkin lymphoma	Non-Hodgkin lymphoma, CD20-positive
+en	held	muscle-invasive bladder cancer	Non-muscle-invasive bladder cancer
+en	held	alcoholic steatohepatitis	Nonalcoholic steatohepatitis (NASH) confirmed by biopsy
+en	held	ischemic cardiomyopathy	Nonischemic cardiomyopathy with LVEF <= 35%
+en	held	ST-elevation myocardial infarction	Non-ST-elevation myocardial infarction within 30 days
+en	held	estrogen receptor	Estrogen receptor-negative breast cancer
+en	held	seizure	Seizure-free for 12 months
+en	held	immunocompromised	Patient is not immunocompromised
+en	held	COPD	No: diabetes, CKD, or COPD
+en	held	chemotherapy	Prior chemotherapy: none
+en	held	small cell lung cancer	Small cell lung cancer excluded; NSCLC only
+en	held	symptomatic brain metastases	Asymptomatic brain metastases allowed
+en	runs	small cell lung cancer	Histologically confirmed small cell lung cancer, extensive stage
+en	runs	chemotherapy	Prior chemotherapy with a platinum doublet; no prior immunotherapy
+en	runs	type 2 diabetes mellitus	Type 2 diabetes mellitus not controlled on metformin
+en	runs	coronary artery disease	Not without significant coronary artery disease
+en	runs	nonspecific interstitial pneumonia	Nonspecific interstitial pneumonia on HRCT
+en	runs	non-small cell lung cancer	Non-small cell lung cancer with EGFR exon 19 deletion
+en	runs	HER2-positive	HER2-positive metastatic breast cancer
+en	runs	triple-negative breast cancer	Triple-negative breast cancer
+en	runs	hepatitis B infection	Chronic hepatitis B infection with HBV DNA not detectable on therapy
+en	runs	atrial fibrillation	Atrial fibrillation, not on anticoagulation
+en	runs	heart failure	Heart failure with reduced ejection fraction, NYHA II-III, no recent hospitalization
+en	runs	brain metastases	Untreated brain metastases
+en	runs	asymptomatic brain metastases	Asymptomatic brain metastases
+en	runs	non-Hodgkin lymphoma	Histologically confirmed non-Hodgkin lymphoma
+en	runs	hypertension	Hypertension that is not adequately controlled
+en	runs	measurable disease	Measurable disease per RECIST 1.1, not previously irradiated
+en	runs	chronic kidney disease	Chronic kidney disease stage 3, not on dialysis
+en	runs	osimertinib	Progression on osimertinib, without T790M
+en	runs	nonalcoholic fatty liver disease	Nonalcoholic fatty liver disease by imaging
+en	runs	diabetes	Not only hypertension but also diabetes
+en	runs	HIV-1	Positive for HIV-1 by ELISA and Western blot
+en	runs	COPD	Documented COPD; never-smokers are not eligible
+en	runs	pulmonary embolism	Unprovoked pulmonary embolism confirmed by CT angiography
+en	runs	hepatitis C	Untreated hepatitis C
+en	runs	hepatocellular carcinoma	Unresectable hepatocellular carcinoma
+en	runs	pancreatic adenocarcinoma	Inoperable pancreatic adenocarcinoma
+en	runs	anemia	Anemia (hemoglobin < 10 g/dL) not due to bleeding
+en	runs	diabetic nephropathy	Diabetic nephropathy; no other renal disease
+en	runs	atrial fibrillation	Irregular heartbeat due to atrial fibrillation
+en	runs	ovarian cancer	Recurrent ovarian cancer, platinum-resistant (not platinum-sensitive)
+en	runs	anti-TNF therapy	Non-responders to prior anti-TNF therapy
+en	runs	smoker	Current smoker (>= 10 pack-years), no lung cancer
+en	runs	allogeneic transplant	Prior allogeneic transplant without graft-versus-host disease
+en	runs	castration-resistant prostate cancer	Metastatic castration-resistant prostate cancer
+en	runs	dyslipidemia	Dyslipidemia unresponsive to statins
+en	runs	insulin-dependent diabetes mellitus	Insulin-dependent diabetes mellitus
+en	runs	HER2-negative	HER2-negative breast cancer
+en	runs	metastases	Bone metastases present; no visceral involvement
+ja	held	化学療法	化学療法の前治療歴なし
+ja	held	小細胞肺癌	非小細胞肺癌（ステージIV）
+ja	held	喫煙	喫煙歴なし
+ja	held	脳転移	脳転移を認めない
+ja	held	B型肝炎	B型肝炎ウイルス感染を有しない
+ja	held	HBs抗原	HBs抗原陰性
+ja	held	HCV抗体	HCV抗体（−）
+ja	held	HIV抗体	HIV抗体(-)
+ja	held	糖尿病	糖尿病の既往なし
+ja	held	心不全	心不全無し
+ja	held	心房細動	心房細動ナシ
+ja	held	化学療法	化学療法未治療
+ja	held	免疫チェックポイント阻害薬	免疫チェックポイント阻害薬の投与歴がない
+ja	held	胸痛	胸痛を否認
+ja	held	結核	結核は除外済み
+ja	held	肺炎	肺炎は否定的
+ja	held	心筋梗塞	心筋梗塞の疑い
+ja	held	敗血症	敗血症疑い
+ja	held	大腸癌	家族歴：大腸癌（父）
+ja	held	乳癌	母が乳癌
+ja	held	基底細胞癌	基底細胞癌以外の悪性腫瘍の既往がない
+ja	held	妊娠	妊娠していない
+ja	held	授乳	授乳中でない
+ja	held	腹水	腹水なし
+ja	held	胸水	胸水(−)
+ja	held	間質性肺炎	間質性肺炎の合併がない
+ja	held	放射線療法	放射線療法を受けたことがない
+ja	held	抗凝固薬	抗凝固薬を使用していない
+ja	held	透析	透析を必要としない
+ja	held	活動性感染症	活動性感染症を有さない
+ja	held	再発	再発の所見なし
+ja	held	遠隔転移	遠隔転移を認めず
+ja	held	脂質異常症	高血圧、糖尿病、脂質異常症のいずれも有しない
+ja	held	一過性脳虚血発作	脳卒中又は一過性脳虚血発作の既往のない患者
+ja	held	EGFR遺伝子変異	EGFR遺伝子変異陰性
+ja	held	ALK融合遺伝子	ALK融合遺伝子陰性
+ja	held	HER2	HER2陰性乳癌
+ja	held	ホジキンリンパ腫	非ホジキンリンパ腫
+ja	held	アルコール性脂肪肝炎	非アルコール性脂肪肝炎
+ja	held	虚血性心筋症	非虚血性心筋症
+ja	held	ST上昇型心筋梗塞	非ST上昇型心筋梗塞
+ja	held	結核	非結核性抗酸菌症
+ja	held	症候性脳転移	無症候性脳転移
+ja	held	発熱	発熱ナシ（48時間以上）
+ja	held	喫煙	喫煙歴：無し
+ja	held	ステロイド	ステロイド未使用
+ja	held	肝硬変	肝硬変は否定された
+ja	held	悪性腫瘍	悪性腫瘍の可能性は低い
+ja	held	出血傾向	出血傾向がないこと
+ja	held	薬物アレルギー	薬物アレルギー：特になし
+ja	held	喫煙	喫煙歴ﾅｼ
+ja	held	結核	結核の既往あり、治癒済み
+ja	held	妊娠	妊娠の可能性がない
+ja	held	心房細動	心房細動が出現した場合は抗凝固療法を開始する
+ja	held	輸血	輸血を要さない
+ja	held	甲状腺機能異常	甲状腺機能異常を伴わない
+ja	held	自己免疫疾患	自己免疫疾患の合併なし、ただし白斑は可
+ja	held	高血圧	高血圧が否定できない
+ja	held	抗PD-1抗体	抗PD-1抗体、抗PD-L1抗体の投与歴なし
+ja	runs	小細胞肺癌	組織学的に確認された小細胞肺癌
+ja	runs	非小細胞肺癌	非小細胞肺癌（EGFR変異陽性）
+ja	runs	不整脈	不整脈を有する患者
+ja	runs	無症候性脳転移	無症候性脳転移を有する
+ja	runs	化学療法	化学療法歴あり、免疫療法歴なし
+ja	runs	喫煙	喫煙歴あり（20 pack-years以上）
+ja	runs	肝細胞癌	未治療の肝細胞癌
+ja	runs	膵癌	切除不能な膵癌
+ja	runs	不安定狭心症	不安定狭心症
+ja	runs	2型糖尿病	2型糖尿病（インスリン非使用）
+ja	runs	心不全	心不全（NYHA II–III）、入院歴なし
+ja	runs	心房細動	心房細動を認める
+ja	runs	HBs抗原	HBs抗原陽性
+ja	runs	HIV抗体	HIV抗体(+)
+ja	runs	慢性腎臓病	慢性腎臓病（透析未導入）
+ja	runs	糖尿病	糖尿病がないわけではない
+ja	runs	非特異性間質性肺炎	非特異性間質性肺炎
+ja	runs	非アルコール性脂肪肝疾患	非アルコール性脂肪肝疾患
+ja	runs	不完全右脚ブロック	不完全右脚ブロック
+ja	runs	無月経	無月経
+ja	runs	未分化癌	未分化癌
+ja	runs	非ホジキンリンパ腫	非ホジキンリンパ腫と診断された
+ja	runs	高血圧	治療抵抗性の高血圧
+ja	runs	脳転移	脳転移あり（放射線治療未実施）
+ja	runs	卵巣癌	再発卵巣癌（プラチナ感受性ではない）
+ja	runs	貧血	貧血（出血によるものではない）
+ja	runs	糖尿病性腎症	糖尿病性腎症、他の腎疾患なし
+ja	runs	肺炎	肺炎の診断が確定している
+ja	runs	HER2陽性乳癌	HER2陽性乳癌
+ja	runs	トリプルネガティブ乳癌	トリプルネガティブ乳癌
+ja	runs	去勢抵抗性前立腺癌	去勢抵抗性前立腺癌
+ja	runs	ＥＧＦＲ遺伝子変異	ＥＧＦＲ遺伝子変異陽性
+ja	runs	不明熱	不明熱
+ja	runs	非代償性肝硬変	非代償性肝硬変
+zh	held	化療	無化療病史
+zh	held	小細胞肺癌	非小細胞肺癌
+zh	held	吸菸	無吸菸史
+zh	held	腦轉移	未發現腦轉移
+zh	held	B型肝炎表面抗原	B型肝炎表面抗原陰性
+zh	held	HCV抗體	HCV抗體（－）
+zh	held	糖尿病	否認糖尿病史
+zh	held	心臟衰竭	無心臟衰竭
+zh	held	肺結核	排除肺結核
+zh	held	心肌梗塞	疑似心肌梗塞
+zh	held	敗血症	懷疑敗血症
+zh	held	乳癌	家族史：母親患乳癌
+zh	held	基底細胞癌	除基底細胞癌以外，無其他惡性腫瘤病史
+zh	held	哺乳	未懷孕且未哺乳
+zh	held	腹水	無腹水
+zh	held	放射治療	未曾接受放射治療
+zh	held	透析	不需要透析
+zh	held	活動性感染	沒有活動性感染
+zh	held	遠處轉移	無遠處轉移
+zh	held	高血脂	無高血壓、糖尿病或高血脂
+zh	held	EGFR基因突變	EGFR基因突變陰性
+zh	held	何杰金氏淋巴瘤	非何杰金氏淋巴瘤
+zh	held	酒精性脂肪肝炎	非酒精性脂肪肝炎
+zh	held	缺血性心肌病	非缺血性心肌病
+zh	held	ST段抬高型心肌梗塞	非ST段抬高型心肌梗塞
+zh	held	吸菸	從未吸菸
+zh	held	抽煙	無抽煙史
+zh	held	類固醇	未使用類固醇
+zh	held	肺炎	肺炎已排除
+zh	held	肝硬化	肝硬化：無
+zh	held	心房顫動	心房顫動（-）
+zh	held	免疫檢查點抑制劑	未接受過免疫檢查點抑制劑治療
+zh	held	化療	未經化療
+zh	held	結核	不考慮結核
+zh	held	心房顫動	若出現心房顫動，需開始抗凝治療
+zh	held	惡性腫瘤	可能為惡性腫瘤，待病理確認
+zh	held	結核	結核病史，已治癒
+zh	held	出血傾向	無出血傾向
+zh	held	藥物過敏	無藥物過敏
+zh	held	妊娠	非妊娠期婦女
+zh	held	HIV	HIV陰性
+zh	held	抗HIV抗體	抗HIV抗體(−)
+zh	held	急性冠脈綜合徵	除外急性冠脈綜合徵
+zh	held	化疗	无化疗史
+zh	held	小细胞肺癌	非小细胞肺癌
+zh	held	吸烟	否认吸烟史
+zh	held	脑转移	未见脑转移
+zh	held	活动性肺结核	排除活动性肺结核
+zh	held	高血压	无糖尿病、高血压
+zh	held	乙肝表面抗原	乙肝表面抗原阴性
+zh	held	心力衰竭	不伴有心力衰竭
+zh	held	放疗	未接受过放疗
+zh	held	透析	无须透析
+zh	runs	小細胞肺癌	經組織學確診之小細胞肺癌
+zh	runs	非小細胞肺癌	非小細胞肺癌，EGFR突變陽性
+zh	runs	心律不整	心律不整病人
+zh	runs	無症狀腦轉移	無症狀腦轉移
+zh	runs	化療	曾接受化療，未接受免疫治療
+zh	runs	吸菸	吸菸史大於20包年
+zh	runs	肝細胞癌	未經治療之肝細胞癌
+zh	runs	胰臟癌	無法切除之胰臟癌
+zh	runs	不穩定型心絞痛	不穩定型心絞痛
+zh	runs	第二型糖尿病	第二型糖尿病，未使用胰島素
+zh	runs	心房顫動	心房顫動，未接受抗凝治療
+zh	runs	B型肝炎表面抗原	B型肝炎表面抗原陽性
+zh	runs	HIV抗體	HIV抗體（＋）
+zh	runs	慢性腎臟病	慢性腎臟病（尚未透析）
+zh	runs	糖尿病	並非沒有糖尿病
+zh	runs	非特異性間質性肺炎	非特異性間質性肺炎
+zh	runs	非酒精性脂肪肝病	非酒精性脂肪肝病
+zh	runs	不完全右束支傳導阻滯	不完全右束支傳導阻滯
+zh	runs	未分化癌	未分化癌
+zh	runs	非何杰金氏淋巴瘤	確診非何杰金氏淋巴瘤
+zh	runs	高血壓	難治性高血壓
+zh	runs	腦轉移	有腦轉移（未接受放療）
+zh	runs	卵巢癌	復發性卵巢癌（非鉑敏感）
+zh	runs	貧血	貧血，非出血所致
+zh	runs	糖尿病腎病變	糖尿病腎病變，無其他腎臟疾病
+zh	runs	HER2陽性乳癌	HER2陽性乳癌
+zh	runs	三陰性乳癌	三陰性乳癌
+zh	runs	去勢抗性前列腺癌	去勢抗性前列腺癌
+zh	runs	原因不明發燒	原因不明發燒
+zh	runs	非代償性肝硬化	非代償性肝硬化
+zh	runs	肺炎	確診肺炎
+zh	runs	非小细胞肺癌	非小细胞肺癌
+zh	runs	心律失常	心律失常
+zh	runs	无症状脑转移	无症状脑转移
+zh	runs	不稳定型心绞痛	不稳定型心绞痛
+zh	runs	高血压	高血压控制不佳
+zh	runs	乙肝表面抗原	乙肝表面抗原阳性

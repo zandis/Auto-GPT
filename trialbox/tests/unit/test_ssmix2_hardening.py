@@ -156,7 +156,10 @@ def test_pid30_marks_deceased_and_repetitions_are_chosen(storage: tuple[Path, di
 def _store(root: Path, mrn: str, typ: str, order: str, segs: list[str]) -> None:
     d = storage_dir(root, mrn, "20261001", typ)
     d.mkdir(parents=True, exist_ok=True)
-    body = "\r".join(["MSH|^~\\&|HIS||TB||20261001||X|1|P|2.5||||||~ISO IR87", *segs]) + "\r"
+    pid = (
+        [] if any(s.startswith("PID|") for s in segs) else [f"PID|||{mrn}^^^^PI"]
+    )  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
+    body = "\r".join(["MSH|^~\\&|HIS||TB||20261001||X|1|P|2.5||||||~ISO IR87", *pid, *segs]) + "\r"
     (d / f"{mrn}_20261001_{typ}_{order}_20261001000000000_-_1").write_bytes(body.encode("iso2022_jp"))
 
 
