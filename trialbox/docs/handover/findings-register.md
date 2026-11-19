@@ -17,6 +17,13 @@ here when a card picks it up.
 - **Closing.** The owning lane proposes the new state in the pull request that does it: `card issued #<pr>` when a card
   is open for it, `fixed <sha>` with the commit that fixes it, or `not a defect: <why>`. Lane R re-checks a fix and
   adds ", seen closed by <who> on <date>". A row is never deleted and an id is never reused.
+- **States that follow a findings file.** `--add-from` refuses an id already here, so a state written later in a
+  card's `findings.json` does not reach its row by itself. `python -m tools.findings_register --sync-states` reads
+  every findings file under `trialbox/docs/` and rewrites only the state cell of each row whose file gives a later
+  state, printing `<id>: <old> -> <new>`. It moves a row only forward (`open`, `card issued`, then `fixed` or
+  `not a defect`), never touches a row seen closed and never moves a row back; a row it leaves is printed as
+  `not synced`, and a state the register cannot take is refused. A row with no findings file, or whose finding has no
+  `state`, is left as it is. `--check` fails on a row the sync would move, so a stale row cannot stay unnoticed.
 - **Checking.** `python -m tools.findings_register --check` runs in `make lint` and in CI's `checks` job. It is strict:
   below the first card heading every line must be a card heading, a blank line, a table's header or rule, or a row,
   so a malformed line or row turns the fast tier red and no row can be skipped unseen. A parse error names its line;
@@ -316,7 +323,7 @@ mapped by the rule above from what the finding says; the source's own word is no
 | H33-07 | 2026-11-18 | [restore-drill-2026-11-18.md](../plan/measurements/restore-drill-2026-11-18.md) | Low | Step 2 ends 'Start them again after the restore.' with no command, and does not say that the role script and migrate of the paragraph after the steps come first | D | shown | open |
 | H33-08 | 2026-11-18 | [restore-drill-2026-11-18.md](../plan/measurements/restore-drill-2026-11-18.md) | Low | The restore page's numbered steps have two step 4s (a missing pack, and events after the backup), so its steps 5 and 6 are its sixth and seventh | D | shown | open |
 | H33-09 | 2026-11-18 | [restore-drill-2026-11-18.md](../plan/measurements/restore-drill-2026-11-18.md) | Low | Section 5's list of what a backup leaves out on purpose does not name the lake's older generations (db/gen/), its reader links (db/.open/) or its lock file, which the backup's manifest lists as left out and which are missing after a restore | D | shown | open |
-| H33-10 | 2026-11-18 | [restore-drill-2026-11-18.md](../plan/measurements/restore-drill-2026-11-18.md) | Medium | RUNBOOK section 22 names its drills test_runbook_22_restore_timed and test_runbook_22_replacing_hardware, and no such test exists in the repository; plan 8 section 8c says to stop writing 'Drill: test_...' before the test exists | D | shown | open |
+| H33-10 | 2026-11-18 | [restore-drill-2026-11-18.md](../plan/measurements/restore-drill-2026-11-18.md) | Medium | RUNBOOK section 22 names its drills test_runbook_22_restore_timed and test_runbook_22_replacing_hardware, and no such test exists in the repository; plan 8 section 8c says to stop writing 'Drill: test_...' before the test exists | D | shown | fixed bd7138a2a |
 
 ## H34: imperfect hospital data through the nightly ingest
 
@@ -470,7 +477,7 @@ mapped by the rule above from what the finding says; the source's own word is no
 
 | Id | Date found | Source | Severity | Claim | Lane | Basis | State |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| H41-01 | 2026-11-19 | [approve-profile-2026-11-19.md](../plan/measurements/approve-profile-2026-11-19.md) | High | At least about 53 s of each 71 s P3 approval on one stream is in steps the compile does not share (audit records, repository write, tag and promotion, the orchestrator's part); the compiler's own steps take 4.45 s on a local stub run, and no record names the step on the box | A2 | shown | open |
+| H41-01 | 2026-11-19 | [approve-profile-2026-11-19.md](../plan/measurements/approve-profile-2026-11-19.md) | High | At least about 53 s of each 71 s P3 approval on one stream is in steps the compile does not share (audit records, repository write, tag and promotion, the orchestrator's part); the compiler's own steps take 4.45 s on a local stub run, and no record names the step on the box | A2 | shown | fixed 08eab5571d57d86e10eb3336526f845cce9f747e |
 | H41-02 | 2026-11-19 | [approve-profile-2026-11-19.md](../plan/measurements/approve-profile-2026-11-19.md) | Medium | An approval with nothing edited or rejected translates its CQL again (3 cold JVM runs, 4.3 s of 4.45 s locally) and loads FHIRHelpers and TB_Common (1.54 MB) to the FHIR server again, both unchanged since the compile | A2 | shown | open |
 | H41-03 | 2026-11-19 | [approve-profile-2026-11-19.md](../plan/measurements/approve-profile-2026-11-19.md) | Low | refresh_installed reads, hashes and parses every installed table again on each compile and approval, about 30 us per row (3.1 s at 100,000 rows) | E | shown | open |
 
@@ -560,3 +567,23 @@ mapped by the rule above from what the finding says; the source's own word is no
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | H55-01 | 2026-11-19 | [open-high-from-lane-j-2026-11-19.md](open-high-from-lane-j-2026-11-19.md) | High | On master an inclusion that negates or forbids something (不可, 禁止, 不允許, forbidden, exception forms, bare 不 and 以外 in zh-TW, a negating prefix such as Non-small cell with small cell coded) can compile as requiring it, so a patient can be wrongly listed with the reviewer's sheet the only guard; per D-1246 (branch of #1180, not on master) master ran 60 of 186, 53 of 57, 121 of 194 and 62 of 73 synthetic must-hold lines; #1117 (10A-1b) is on master, #1180 (10A-1c) is not | J | shown | open |
 | H55-02 | 2026-11-19 | [open-high-from-lane-j-2026-11-19.md](open-high-from-lane-j-2026-11-19.md) | High | On master the lake can attach one patient's order or diagnosis to another patient and the first is lost, because a record's id is not per patient (HMAC of type and number only); lane J's red of 2026-11-19 12:27 UTC, taken by the integrator at 12:48 UTC as in rc1's scope; fix: lane J's card lake ids are per patient (D-1253, not on master); synthetic data only | J | shown | open |
+
+## H52: a one-shot Parquet read that aborts at interpreter exit
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H52-01 | 2026-11-19 | [parquet-exit-abort-2026-11-19.md](parquet-exit-abort-2026-11-19.md) | Medium | a one-shot process that reads a Parquet table with pyarrow's threaded reader can abort at exit (status 134) after the read succeeded: the box rehearsal's terminology check fails in CI, and `trialbox doctor` (run by deploy/check_host.sh as a one-shot container judged by its exit status) can show a false FAIL on a real box after every line said PASS | H | shown | fixed 8019265063365d199606b0a20401a697e05bd8ee |
+
+## H54: the rehearsal's host image is cached, pinned and bounded
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H54-01 | 2026-11-19 | [rehearsal-host-image-2026-11-19.md](rehearsal-host-image-2026-11-19.md) | Medium | the box rehearsal's step host-image built its Ubuntu image from Docker Hub and archive.ubuntu.com on every run, unpinned, uncached and with no cap, so a mirror outage failed it (500 s, 112 s on train 98) and a slow mirror took 46 minutes; CI only, it reddens trains | H | shown | fixed da0e32d0 |
+
+## H57: three wrong-patient faults of the SS-MIX2 reader, registered on the integrator's ruling (lane H, 2026-11-19)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H57-01 | 2026-11-19 | [open-high-ssmix2-wrong-patient-2026-11-19.md](open-high-ssmix2-wrong-patient-2026-11-19.md) | High | On master the SS-MIX2 reader stores an extended-storage file whose standardized name belongs to another patient as a note of the folder's patient (services/adapter/sources/ssmix2/source.py:1674; reviewer B also at :1665); reproduced by reviewer A on synthetic data: folder 10000001's file 10000002_..._DSC-01_... became a note of mrn 10000001 | J | shown | open |
+| H57-02 | 2026-11-19 | [open-high-ssmix2-wrong-patient-2026-11-19.md](open-high-ssmix2-wrong-patient-2026-11-19.md) | High | On master the SS-MIX2 reader's diagnosis supersession treats a 病名番号 as one diagnosis for every patient: one patient's delta tombstone deletes another patient's still-current Condition of that number, a second patient's removal is omitted once the number is tombstoned, and both patients' copies get one Condition id (services/adapter/sources/ssmix2/source.py:1208; reviewer B also at :900); reproduced by reviewer A on synthetic data | J | shown | open |
+| H57-03 | 2026-11-19 | [open-high-ssmix2-wrong-patient-2026-11-19.md](open-high-ssmix2-wrong-patient-2026-11-19.md) | High | On master the SS-MIX2 reader's per-day lab fallback key omits the patient, so two patients' distinct results can overwrite one another (the mapper hashes lab_no alone): two patients' ALL9 files on 20261001 with OBX-1=1 and no OBX-21 both give ALL9@20261001-1 (services/adapter/sources/ssmix2/source.py:1565); read by reviewer B, not run | J | hypothesis | open |

@@ -47,7 +47,8 @@ DECLARED = {
     "ja": "この構成で申告された値です。このハードウェアでは未測定です。",
     "zh-TW": "此為本等級所宣告的值，尚未在本機硬體上量測。",
 }
-_CSRF = re.compile(r'name="csrf" value="[^"]+"')
+# the CSRF token, and the idle warning's live seconds (D-1370), differ from one rendering to the next
+_CSRF = re.compile(r'name="csrf" value="[^"]+"|data-(?:idle|abs)-left="\d+"')
 _LINE = re.compile(
     r'<li data-testid="tier-status-([a-z_]+)" data-level="status">([^<]+?)'
     r'(?: <span class="hint" data-basis="declared">([^<]+)</span>)?</li>'

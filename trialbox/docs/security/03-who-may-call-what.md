@@ -83,13 +83,15 @@
   enrolment code or resets another person's authenticator on `/ops/identity` (audited `console.unlock`,
   `console.enrol_code`, `console.totp_reset`; a reset signs the account out). Sessions end after 10 minutes idle
   (`TB_CONSOLE_IDLE_MINUTES`, 1 to 60; a page's own auto-refresh is not activity) or 8 hours
-  (`TB_CONSOLE_SESSION_HOURS`, 1 to 12); session cookies are HttpOnly and SameSite=Strict, and Secure by default in
+  (`TB_CONSOLE_SESSION_HOURS`, 1 to 12); a page warns one minute before either end, with "Stay signed in"
+  before the idle lock only, which asks an ordinary page (answered with the times only) and lengthens no limit (D-1370); session cookies are HttpOnly and SameSite=Strict, and Secure by default in
   PRODUCTION, where an explicit off is refused. The trusted-header SSO runs only with TOTP and OIDC off (DEV, TEST),
   never signs in a local account, and Caddy strips identity headers.
   Optional sign-in with the hospital account through Authelia (OIDC code flow with PKCE, off unless
   `TB_OIDC_ENABLED=1`): the ID token's signature (RS256 or ES256 only), issuer, audience, expiry and nonce are
   checked, a second factor must be reported (`amr`), and the role comes only from `TB_OIDC_GROUP_ROLES`; a person in
-  no mapped group or in groups of two roles is refused, a `role` claim is ignored, and a directory account never takes
+  no mapped group or in groups of two roles is refused (the page names two of the person's own clashing groups for
+  their IT, D-1370), a `role` claim is ignored, and a directory account never takes
   over a local account. The role table (`console.auth.User`, `tb_common/authz.py`) and the signed actor assertion are
   unchanged. Not done: WebAuthn in the console itself (Authelia offers it), step-up before a reveal, the
   breached-password list and password history (master plan WS-13.1), and removing the trusted-header SSO.
