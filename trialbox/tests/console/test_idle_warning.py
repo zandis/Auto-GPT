@@ -225,6 +225,8 @@ def test_in_a_browser_the_warning_comes_a_minute_before_and_the_typed_text_stays
     assert awake["at_lock"] == {"hidden": True, "state": "", "checks": 1}
     assert awake["warned_again"] == {"hidden": False, "state": "soon"}  # re-armed from the answer's times
     assert awake["before_that"] is True
+    assert got["sent_to_the_password_page"] == {"hidden": True, "state": "", "checks": 1}  # never a false lock
+    assert got["woke_up"] == {"checks": 1, "state": "soon"}  # asked on waking, warned from the answer's 30 s
     assert got["late_page"] == {"warned_within_3s_early": True}  # from the navigation's start: early, never late
     lim = got["absolute_limit"]
     assert lim["at_4m01"] == {"hidden": False, "state": "limit", "stay_hidden": True, "seen": ["close"],

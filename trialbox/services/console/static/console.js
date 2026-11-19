@@ -183,8 +183,9 @@
   // "Stay signed in"; at the session's absolute end the same warning without it (that limit is never extended). The
   // times come from the server with the page and count from the navigation's start on the page's own monotonic clock
   // (performance.now: the server's count began later, so the page errs early, and a jump of the system clock moves
-  // nothing). "Stay signed in" asks a page the person may open anyway (data-stay-url) with keep=1: activity, as any
-  // page is, answered with no page. Before showing the lock the page asks again with auto=1 as well (not activity):
+  // nothing). "Stay signed in" asks a stay page the person may open anyway (data-stay-url) with keep=1: activity, as
+  // any page is, answered with the times and no page. A redirect elsewhere than the sign-in (the password page) means
+  // signed in, time unknown: no lock is shown. When the page becomes visible again it asks quietly too. Before showing the lock the page asks again with auto=1 as well (not activity):
   // another tab may have kept the session awake, and then the warning is armed again from the times it answers. The
   // page is never reloaded or left, so what was typed stays where it is; nothing typed is read or stored here.
   var iw = document.getElementById("idle-warn");
@@ -218,8 +219,9 @@
     var ask = function (quiet) {
       var sent = clock();
       return fetch(base + (base.indexOf("?") < 0 ? "?" : "&") + "keep=1" + (quiet ? "&auto=1" : ""),
-        { credentials: "same-origin", cache: "no-store", redirect: "manual" }).then(function (r) {
-        if (r.type === "opaqueredirect" || (r.status >= 300 && r.status < 400)) return { ended: true };
+        { credentials: "same-origin", cache: "no-store" }).then(function (r) {
+        if (new URL(r.url, window.location.href).pathname === "/login") return { ended: true };
+        if (r.redirected) return { unknown: true }; // sent elsewhere (the password page): signed in, time unknown
         var idle = Number(r.headers.get("x-tb-idle-left")), abs = Number(r.headers.get("x-tb-abs-left"));
         if (!r.ok || !isFinite(idle) || !isFinite(abs) || r.headers.get("x-tb-idle-left") === null) return null;
         return { ended: idle <= 0 || abs <= 0, idleEnd: sent + idle * 1000, absEnd: sent + abs * 1000 };
@@ -240,6 +242,7 @@
         checking = true;
         ask(true).then(function (got) {
           checking = false;
+          if (got && got.unknown) { if (shown) hide(); dismissed = "locked"; return; } // cannot tell: say nothing
           if (got && !got.ended && Math.min(got.idleEnd, got.absEnd) > clock() + 1000) rearm(got); else say("locked");
         }, function () { checking = false; say("locked"); });
         return;
@@ -254,6 +257,7 @@
       ask(false).then(function (got) {
         asked = false;
         if (got && got.ended) { say("locked"); return; }
+        if (got && got.unknown) { hide(); return; }
         if (got) rearm(got); // else the box did not answer as expected: the warning stays, the person may press again
       }, function () { asked = false; }); // no answer (the network): the warning stays
     });
@@ -263,7 +267,15 @@
       e.preventDefault();
       if (shown === "soon") stay.click(); else hide(); // Escape on the warning is "Stay signed in"
     });
-    document.addEventListener("visibilitychange", function () { if (!document.hidden) tick(); }); // a phone woke up
+    // a device that slept: its monotonic clock may not have counted the sleep, so ask (quietly) for the time left
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden || checking || shown === "locked" || dismissed === "locked") return;
+      checking = true;
+      ask(true).then(function (got) {
+        checking = false;
+        if (got && got.ended) say("locked"); else if (got && !got.unknown) rearm(got); else tick();
+      }, function () { checking = false; tick(); });
+    });
     tick();
   }
 })();

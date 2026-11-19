@@ -1,8 +1,9 @@
 {# D-1370 (9g-19, review 02/J-25, A11Y-3, WCAG 2.2.1): a warning one minute before the idle lock, with "Stay signed in".
    Hidden until the console's script shows it (static/console.js, section 7); without the script the page is as before.
    "Stay signed in" asks a page the person may already open (the help page, or the overview without the pilot pages)
-   with keep=1, in the background: activity as any page is (D-192), answered with the session's times and no page (the
-   console's need() stops it after every check the page makes). No new route, no new right, the same limits. Nothing typed on the page is touched, read or stored by it. #}
+   with keep=1, in the background: activity as any page is (D-192), answered with the session's times and no page.
+   keep=1 is honoured on those two pages only (app.STAY_PAGES), which check nothing past the session; anywhere else it
+   is ignored. No new route, no new right, the same limits. Nothing typed on the page is touched, read or stored by it. #}
 {% set left = session_left() %}{% if left %}{% set lead = [60, left[0] // 2]|min %}{# a minute; half a shorter limit #}
 <div id="idle-warn" class="warn idle-warn" role="alertdialog" aria-labelledby="idle-warn-title" aria-describedby="idle-warn-text" hidden data-testid="idle-warn"
   data-idle="{{ left[0] }}" data-lead="{{ lead }}" data-idle-left="{{ left[1] }}" data-abs-left="{{ left[2] }}" data-stay-url="{{ '/help' if pilot else '/' }}"

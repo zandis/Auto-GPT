@@ -59,26 +59,30 @@
       a jump of the system clock moves nothing.
     - **No new route, no new right, no longer limit.** "Stay signed in" asks, in the background, a page every
       signed-in person may open anyway (`/help`, or the overview `/` on a console with the workspace off) with
-      `keep=1`. The console's `need()` makes every check the page makes (session, password change, scope) and then
-      answers `204` with the session's times in two headers (`x-tb-idle-left`, `x-tb-abs-left`): the route's own reads
-      do not run, no account notice is taken, and a request that meets an ended session goes to the sign-in without
-      being remembered as the page to return to (D-777 remembers real pages as before). That request is activity as
+      `keep=1`. `keep=1` is honoured on those two pages only (`console.app.STAY_PAGES`), which every signed-in person
+      may open and which check nothing past the session: there the console's `need()`, after the session, password
+      change and scope checks, answers `204` with the session's times in two headers (`x-tb-idle-left`,
+      `x-tb-abs-left`); the page's own reads do not run, no account notice is taken, and a request that meets an ended
+      session goes to the sign-in without being remembered as the page to return to (D-777 remembers real pages as
+      before). On every other page the parameter is ignored: the request runs exactly as without it, with its own role
+      checks, its refusals and their `console.denied` lines, and its 404s (no existence oracle; a test walks every
+      GET route both ways). That request is activity as
       any page is (D-192); the absolute limit still ends the session however often it is pressed. A press that meets
       an ended session (another tab signed out, the box restarted) shows the lock. The limits, the role table and
       `authz_matrix.yaml` are unchanged.
     - **No false lock from an idle second tab.** Before saying "You have been signed out" the page asks the same page
       with `keep=1&auto=1`, which is not activity (D-192 H3). If the session is alive (another tab in use kept it
       awake) the warning is put away and armed again from the times the answer gives; only an answer that sends it to
-      the sign-in (or no answer) shows the lock.
+      the sign-in (or no answer) shows the lock. A redirect elsewhere (an account that must change its password is
+      sent to its password page) reads as "signed in, time unknown": no lock is shown. When the page becomes visible
+      again (a device that slept, whose monotonic clock may not have counted the sleep) it asks the same quiet question.
     - **The form's text kept:** the warning and the lock never reload or leave the page, so what was typed stays where
       it is; the lock's message says to press Save, and the sign-in that follows puts back an entry form (an AE's, a
       visit's) and a mark's note as D-1222 and D-777 already do. The warning reads and stores nothing typed: no
       field value, no browser store. Not done: a form that D-1222 does not keep is kept on the screen only; it is
       not put back after a sign-in.
     - Known limits: with a second tab in use, an idle tab may still show the one-minute warning early (it counts from
-      its own last request); it no longer shows a false lock, and pressing "Stay signed in" is harmless. An account
-      that must change its password is answered by the password page's redirect, which the page reads as the lock;
-      such an account reaches only its password page (D-279).
+      its own last request); it no longer shows a false lock, and pressing "Stay signed in" is harmless.
     - **Held by** `tests/console/test_idle_warning.py`: the page's warning, its times, lead and three languages; the
       `keep=1` answer (times only, `auto=1` not activity, no notice taken, the page's own checks, an ended session not
       remembered); the press is activity and never passes the absolute limit; reading the times is not activity; and
