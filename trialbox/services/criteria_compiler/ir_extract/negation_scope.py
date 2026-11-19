@@ -163,14 +163,19 @@ _JA_PSEUDO = (
     r"非代償性|非機能性|非遺伝性|無症状|無症候性|無症候"
 )
 # ------------------------------------------------------------------------------------------------ Chinese cues (own)
+_ZH_NOT_DESCRIPTOR = (  # card 10A-1c: what follows 不 in a descriptor after a noun, and the end of that word
+    r"(?:良|全|穩定|稳定|明|足|整|規則|规则|規律|规律|佳)(?:[的之型性症者患脈脉及和或與与並并且]|(?![㐀-鿿]))"
+)
 _ZH_FORWARD = (
     r"從未|从未|未曾|不曾|尚未|並未|并未|須未|须未|必須未|必须未|沒有|没有|沒|没|無|无|不得|不可|不能|不應|不应|"
     r"否認|否认|排除|未|非|免於|免于|"
     # card 10A-1b: a prohibition, or an exception ("除X外"; not 切除, 摘除 …)
     r"不允許|不允许|不准|禁止|禁用|禁忌|除了|(?<![切摘排去清割根免解移刪删])除(?=[^,，。;；]{1,12}外)|"
-    # card 10A-1c: a bare 不 before a verb ("不飲酒", "且不吸菸"); not the words that only contain it ("控制不良",
-    # "腎功能不全", "不穩定心絞痛", "心律不整", "原因不明", "不孕症")
-    r"不(?!良|全|穩定|稳定|明|足|整|規則|规则|規律|规律|孕|佳|同|安|僅|仅|論|论|但|只)"
+    # card 10A-1c: a bare 不 before a verb ("不飲酒", "且不吸菸"). It is not a cue only as a descriptor that ends a
+    # noun, a whole word after a noun ("控制不良之", "心功能不全患者", "心律不整及", "月經不規則", "原因不明。") and
+    # "不孕症"; never as a prefix or before a verb ("不穩定心絞痛", "不足以", "不良於行", "不明原因之", "不適合"):
+    # whatever cannot be bounded so is held
+    rf"(?<![㐀-鿿])不(?!孕症)|不(?!孕症)(?!{_ZH_NOT_DESCRIPTOR})"
 )
 _ZH_BACKWARD = r"未曾|從未|从未|未|沒有|没有|不曾|陰性|阴性|不允許|不允许|不准|禁止|禁忌|不可|以外"  # 以外: 10A-1c
 _ZH_TERMINATE = r"但|但是|除了|除外|然而|惟|唯|以外"
