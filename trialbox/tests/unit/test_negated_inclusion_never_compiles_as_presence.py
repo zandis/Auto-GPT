@@ -36,6 +36,10 @@ FIX = Path(__file__).resolve().parents[1] / "fixtures/negated_inclusion"
 ROWS: list[dict[str, Any]] = json.loads((FIX / "lines.json").read_text(encoding="utf-8"))["rows"]
 # lines lane J's reviewer wrote before reading ROWS (unseen when the rule was designed): kept apart, scored apart
 UNSEEN: list[dict[str, Any]] = json.loads((FIX / "unseen_at_design.json").read_text(encoding="utf-8"))["rows"]
+# card 10A-1b's lines, written before its rule changed (ellipsis, lists, either clause order): kept apart, scored apart
+CARD: list[dict[str, Any]] = json.loads((FIX / "card_10a1b.json").read_text(encoding="utf-8"))["rows"]
+# the lane J coordinator's review of card 10A-1b: lines that ran (new cue words, synonyms, a list before the cue)
+REVIEW: list[dict[str, Any]] = json.loads((FIX / "review_10a1b.json").read_text(encoding="utf-8"))["rows"]
 CHEMO = {"domain": "procedure", "quantifier": "any", "concept": "chemotherapy"}  # VS_CHEMOTHERAPY once compiled
 CHEMO_CAND = [{"domain": "procedure", "name": "chemotherapy", "synonyms": ["化学療法", "化學治療"]}]
 _TERM: list[Terminology] = []
@@ -56,7 +60,10 @@ def _logic(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _cand(row: dict[str, Any]) -> list[dict[str, Any]]:
-    return [{"domain": row["domain"], "name": row["concept"], "synonyms": row["synonyms"]}]
+    """The coded concept and the line's other candidates (``others``: card 10A-1b's lines), as the extractor emits."""
+    return [{"domain": row["domain"], "name": row["concept"], "synonyms": row["synonyms"]}] + [
+        {"domain": row["domain"], "name": x, "synonyms": []} for x in row.get("others", [])
+    ]
 
 
 def _post(crits: list[dict[str, Any]]) -> Any:
@@ -87,7 +94,7 @@ def test_the_two_p2b_lines_are_held() -> None:
                question="Does the patient have significant cardiopulmonary disease?"))  # fmt: skip
 
 
-ALL = [*ROWS, *UNSEEN]
+ALL = [*ROWS, *UNSEEN, *CARD, *REVIEW]
 
 
 @pytest.mark.parametrize("cls", ["structured", "mixed"])
@@ -112,10 +119,15 @@ def _score(rows: list[dict[str, Any]]) -> tuple[int, int, int, int]:
 
 
 def test_the_counts_the_pull_request_reports() -> None:
-    """This card's table: every negated line held; 8 of the 69 that should run are held by the fail-safe. The lines
-    unseen at design: every negated line held; 20 of the 23 that should run are held (card 10A-1b's target)."""
+    """Every negated line of the four tables held. Card 10A-1b held 12 of its own 40 negated lines that ran before it
+    (a cue over a list) and the coordinator's 34 that ran (cue words such as "forbidden", 不可, 禁止, 不允許, "other
+    than X"; a synonym of the coded concept). The lines that should run and are held: card 10A-1's table 8 of 69, the
+    lines unseen at design 20 of 23 (the same as before card 10A-1b), card 10A-1b's own 17 of 40 (18 before), the
+    coordinator's 0 of 8."""
     assert _score(ROWS) == (116, 116, 8, 69)
     assert _score(UNSEEN) == (21, 21, 20, 23)
+    assert _score(CARD) == (40, 40, 17, 40)
+    assert _score(REVIEW) == (36, 36, 0, 8)
     assert {r["lang"] for r in ALL} == {"en", "ja", "zh"}
 
 
@@ -166,6 +178,192 @@ def test_property_presence_inside_other_logic_is_held(shape: int) -> None:
 @pytest.mark.parametrize("shape", range(len(ABSENCE)))
 def test_property_a_negated_line_already_coded_negative_runs(shape: int) -> None:
     assert not [x.text for x in _shaped(ABSENCE[shape]) if FLAG in (x.flags or [])]
+
+
+def test_exclusions_are_byte_identical_with_the_rule_on_and_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Card 10A-1b changes only which inclusions are held: every line of the four tables compiled as an exclusion is
+    the same, byte for byte, with the rule as it is and with it off."""
+    rows = [*ROWS, *UNSEEN, *CARD, *REVIEW]
+    crits = [{"kind": "exclusion", "class": "structured", "text": r["text"], "logic": _logic(r),
+              "concept_candidates": _cand(r)} for r in rows]  # fmt: skip
+
+    def dumped() -> list[str]:
+        return [c.dump_json(x) for x in _post(crits).criteria]
+
+    on = dumped()
+    monkeypatch.setattr("criteria_compiler.ir_extract.postprocess.negated_presence", lambda *a, **kw: False)
+    assert dumped() == on
+
+
+def test_a_reused_approved_line_reads_the_rulesets_concepts() -> None:
+    """Card 10A-1b: an approved ruleset keeps no concept candidates, but each ValueSet's title is the name of one.
+    The reused line reads them as its other concepts: a cue over one of them alone is explained, a cue over a list
+    with this concept in it is not."""
+    t2dm = {"title": "type 2 diabetes mellitus", "compose": {"include": []}}
+    keto = {"title": "ketoacidosis", "compose": {"include": []}}
+    chemo = {"title": "chemotherapy", "compose": {"include": []}}
+    radio = {"title": "radiotherapy", "compose": {"include": []}}
+
+    def crit(text: str, vs: str) -> Any:
+        return c.CriterionIR.model_validate({"id": "T-INC-01", "ruleset": "T", "kind": "inclusion",
+                                             "class": "structured", "text": text, "review": {"status": "approved"},
+                                             "logic": {"domain": "condition", "valueset": vs, "quantifier": "any"}})  # fmt: skip
+
+    line = crit("Type 2 diabetes mellitus without ketoacidosis", "VS_T2DM")
+    assert pp.approved_negated(line, {"VS_T2DM": t2dm})  # the ketoacidosis not known: held
+    assert not pp.approved_negated(line, {"VS_T2DM": t2dm, "VS_KETO": keto})
+    listed = crit("No prior chemotherapy or radiotherapy", "VS_RADIO")
+    assert pp.approved_negated(listed, {"VS_RADIO": radio, "VS_CHEMO": chemo})
+
+
+# Card 10A-1b: each rule that lets a cue go, with lines it must let run (removing the rule fails them) and the
+# near-miss shapes it must hold in en, ja and zh-TW (a rule that releases too much fails them): cue + modifier +
+# concept; cue + modifier + list; a list with a modifier on a later item; the 之 / 的 / の and "of" / "with" joins.
+CH = ["chemotherapy", "化学療法", "化學治療"]
+HT = ["hypertension", "高血圧", "高血壓"]
+ST = ["stroke", "脳卒中", "中風"]
+LC = ["lung cancer", "肺癌"]
+SU = ["surgery", "手術"]
+Line = tuple[str, list[str], list[str]]  # text, the coded concept's names, the line's other candidates
+RULES: dict[str, tuple[list[Line], list[Line]]] = {
+    "R0 the concept is not named: any cue holds": (
+        [],
+        [
+            ("No prior CTX or surgery.", CH, ["surgery"]),
+            ("抗がん剤の使用歴はない。", CH, []),
+            ("從未接受過化療的肺癌患者。", CH, []),
+        ],
+    ),
+    "R1 a bound or a descriptor is not a cue": (
+        [
+            ("Non-small cell lung cancer, stage IV.", LC, []),
+            ("非小細胞肺癌の患者。", LC, []),
+            ("非小細胞肺癌患者。", LC, []),
+        ],
+        [
+            ("No non-small cell lung cancer.", LC, []),
+            ("No history of hypertension, non-small cell lung cancer, or stroke.", LC, []),
+            ("非小細胞肺癌がない。", LC, []),
+            ("無非小細胞肺癌。", LC, []),
+        ],
+    ),
+    "R2 a word the cue negates, a link word, then the concept": (
+        [
+            ("No progression after chemotherapy.", CH, []),
+            ("No response to chemotherapy.", CH, []),
+            ("化学療法後に増悪が認められない。", CH, []),
+        ],
+        [
+            ("No poorly controlled hypertension.", HT, []),
+            ("No poorly controlled hypertension, diabetes, or stroke.", ST, []),
+            ("No hypertension, poorly controlled diabetes, or stroke.", ST, []),
+            ("No history of poorly controlled hypertension.", HT, []),
+            ("No disease controlled with surgery or chemotherapy.", CH, []),
+            ("コントロール不良の高血圧がない。", HT, []),
+            ("高血圧、コントロール不良の糖尿病、脳卒中がないこと。", HT, []),
+            ("無控制不良的高血壓。", HT, []),
+            ("無控制不良之高血壓、糖尿病或中風。", ST, []),
+            ("無高血壓、控制不良的糖尿病或中風。", ST, []),
+        ],
+    ),
+    "R3 a verbal negator closing a modifier with 的 or 之": (
+        [
+            ("未經治療的晚期肺癌。", LC, []),
+            ("未經治療之肺癌患者。", LC, []),
+        ],
+        [
+            ("無未控制之高血壓、不穩定心絞痛或中風。", HT, []),
+            ("無未控制之高血壓、不穩定心絞痛或中風。", ST, []),
+            ("無控制不良的高血壓。", HT, []),
+            ("未曾接受化學治療的患者。", CH, []),
+            ("未經治療之高血壓、糖尿病或中風。", ST, []),
+            ("No untreated hypertension.", HT, []),
+            ("未治療の高血圧がない。", HT, []),
+        ],
+    ),
+    "R4 another named concept the cue reaches instead": (
+        [
+            ("Hypertension; no prior chemotherapy.", HT, ["chemotherapy"]),
+            ("化学療法歴はない。高血圧がある。", HT, ["化学療法"]),
+            ("第二型糖尿病。無酮酸中毒。", ["type 2 diabetes", "第二型糖尿病"], ["酮酸中毒"]),
+        ],
+        [
+            ("No smoking during chemotherapy.", CH, ["smoking"]),
+            ("No uncontrolled hypertension, diabetes or stroke.", ST, ["hypertension"]),
+            ("No prior surgery or chemotherapy.", CH, ["surgery"]),
+            ("手術及び化学療法の治療歴がない。", SU, ["化学療法"]),
+            ("高血圧、コントロール不良の糖尿病がないこと。", HT, ["糖尿病"]),
+            ("未曾接受手術或化學治療。", CH, ["手術"]),
+            ("無高血壓、控制不良的糖尿病或中風。", ST, ["高血壓", "糖尿病"]),
+        ],
+    ),
+    "R5 the cue's own words say what it negates": (
+        [
+            ("Hypertension has not responded to treatment.", HT, []),
+            ("化學治療後未見惡化。", CH, []),
+        ],
+        [
+            ("Chemotherapy has not been given.", CH, []),
+            ("Poorly controlled hypertension has not been diagnosed.", HT, []),
+            ("未曾接受化學治療。", CH, []),
+            ("化学療法を受けていない。", CH, []),
+        ],
+    ),
+    "R6 a word the cue negates right before it": (
+        [
+            ("化学療法歴があり、手術適応がない。", CH, []),
+            ("化学療法を受け、効果がない。", CH, []),
+        ],
+        [
+            ("コントロール不良の高血圧がない。", HT, []),
+            ("Poorly controlled hypertension was not seen.", HT, []),
+            ("高血圧、コントロール不良の糖尿病がない。", HT, []),
+            ("無控制不良的高血壓。", HT, []),
+        ],
+    ),
+    "R7 another named concept in another clause": (
+        [
+            ("Prior surgery is required; no prior radiotherapy.", SU, ["radiotherapy"]),
+            ("手術歴はあるが、放射線治療歴はない。", SU, ["放射線治療"]),
+            ("曾接受手術,但未曾接受放射線治療。", SU, ["放射線治療"]),
+        ],
+        [
+            ("Prior surgery is required; no prior radiotherapy.", SU, []),
+            ("Eligible for chemotherapy; no prior cytotoxic treatment.", CH, []),
+            ("Prior surgery; no prior radiotherapy; or chemotherapy.", CH, ["surgery", "radiotherapy"]),
+            ("化学療法；放射線療法：なし", CH, ["放射線療法"]),
+            ("手術歴はあるが化学療法歴はない。", CH, ["手術"]),
+            ("適合接受化學治療，但未曾接受化療。", CH, []),
+            ("未曾接受化學治療,但曾接受手術。", CH, ["手術"]),
+        ],
+    ),
+}
+
+
+RULE_RUNS = [(r, *x) for r, (runs, _) in RULES.items() for x in runs]
+RULE_HELD = [(r, *x) for r, (_, held) in RULES.items() for x in held]
+
+
+def _rule_atom() -> Atom:
+    return Atom(domain="condition", valueset="VS_X", quantifier="any")
+
+
+@pytest.mark.parametrize(
+    ("rule", "text", "terms", "others"), RULE_RUNS, ids=[f"{r[:2]}-{x[0][:24]}" for r, *x in RULE_RUNS]
+)
+def test_each_release_rule_lets_its_shape_run(rule: str, text: str, terms: list[str], others: list[str]) -> None:
+    from criteria_compiler.ir_extract.negation_scope import negated_presence
+
+    assert not negated_presence(text, _rule_atom(), lambda vs: terms, others), (rule, text)
+
+
+@pytest.mark.parametrize(
+    ("rule", "text", "terms", "others"), RULE_HELD, ids=[f"{r[:2]}-{x[0][:24]}" for r, *x in RULE_HELD]
+)
+def test_each_release_rule_holds_its_near_misses(rule: str, text: str, terms: list[str], others: list[str]) -> None:
+    from criteria_compiler.ir_extract.negation_scope import negated_presence
+
+    assert negated_presence(text, _rule_atom(), lambda vs: terms, others), (rule, text)
 
 
 def test_an_age_or_sex_alone_and_an_exclusion_are_not_this_rule() -> None:
