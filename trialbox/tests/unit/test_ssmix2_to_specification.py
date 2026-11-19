@@ -119,7 +119,7 @@ def test_f2_no_unverified_outcome_code_is_applied_and_none_reads_as_active(stora
     got = {k: (rows[v]["status"], rows[v]["outcome"]) for k, v in kit.DX.items() if v in rows}
     assert got == {
         "gastritis": ("A", ""),
-        "uri": ("U", "F"),
+        "uri": ("E", "F"),  # it has an end day: ended, its outcome unknown (third review of PR #1095 item 4)
         "ra": ("U", "M"),
         "pneumonia": ("A", ""),
         "infarct": ("U", "D"),

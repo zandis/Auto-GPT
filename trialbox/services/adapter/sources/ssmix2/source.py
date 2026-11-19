@@ -134,6 +134,24 @@ _OBX_STATUS = {"F": "final", "U": "final", "C": "corrected", "P": "preliminary",
                "W": "entered-in-error", "X": "cancelled", "N": "cancelled"}  # fmt: skip
 
 
+# ORC-1 order control (HL7 table 0119), third review of PR #1095 item 5: what the message does to the order. A new or
+# changed order, a status message and an administration's RE leave the status to ORC-5 as before; a cancel or a
+# discontinue sets it; any other code, or none, is ``unknown``: never active
+_ORC_KEEP = ("NW", "XO", "SC", "RE", "OK", "SN")
+_ORC_SETS = {"CA": "cancelled", "OC": "cancelled", "CR": "cancelled", "DC": "stopped", "OD": "stopped",
+             "DR": "stopped", "HD": "on-hold", "OH": "on-hold"}  # fmt: skip
+
+
+def order_status(orc: hl7.Segment) -> str:
+    """The canonical order ``status`` from ORC-1 and ORC-5 (:data:`_ORC_KEEP`, :data:`_ORC_SETS`)."""
+    control = orc.field(1).strip().upper()
+    if control in _ORC_SETS:
+        return _ORC_SETS[control]
+    if control in _ORC_KEEP:
+        return _status(_RX_STATUS, orc.field(5))
+    return "unknown"
+
+
 def _status(table: dict[str, str], raw: str) -> str:
     code = (raw or "").strip().upper()
     return table.get(code, code)
@@ -449,6 +467,18 @@ def rx_lines(msg: hl7.Message) -> list[tuple[hl7.Segment, hl7.Segment, hl7.Segme
     return out
 
 
+def order_no(sf: StoredFile, orc: hl7.Segment) -> str:
+    """An order's key (third review of PR #1095 item 6): the file's オーダNo, which with the patient, the day and the
+    type is the specification's unique key, and ORC-2 (the placer order number) when it says something else, as
+    ``<file order>:<ORC-2>``; ORC-2 alone for a file whose order number is "ALL9" or "-". Empty when neither says:
+    the caller quarantines the message."""
+    placer = orc.comp(2, 1).strip()
+    filed = "" if sf.order in ("-", ALL9) else sf.order
+    if filed and placer and placer != filed:
+        return f"{filed}:{placer}"
+    return filed or placer
+
+
 def times(dose: str, per_day: int | None) -> str:
     """One dose times the doses a day, written without a trailing zero; empty when either is unknown or the dose is
     not a number."""
@@ -708,7 +738,11 @@ class Ssmix2Source:
             for sf in self._gone.get(typ, []):
                 dead = len(self._dx_dead)
                 try:
-                    rows = list(build(sf, hl7.parse(hl7.decode(sf.path.read_bytes()))))
+                    msg = hl7.parse(hl7.decode(sf.path.read_bytes()))
+                    if self._identity_problem(sf, msg):  # a delete names only its own patient's records
+                        self.stats[f"{typ}:deleted, patient not certain (not applied)"] += 1
+                        continue
+                    rows = list(build(sf, msg))
                     rows += self._dx_dead[dead:]  # a deleted file's DE diagnoses are gone too
                 except Exception:  # a bare delete marker without a readable message
                     self.stats[f"{typ}:deleted unreadable"] += 1
@@ -748,10 +782,34 @@ class Ssmix2Source:
                 # D-682: the error's type; an OS error's text holds the whole path
                 self._quarantine(typ, sf, "not an HL7 message", type(exc).__name__)
                 continue
+            why = self._identity_problem(sf, msg)
+            if why:
+                self._quarantine(typ, sf, "patient", why)
+                continue
             self.stats[typ] += 1
             if codec not in ("iso2022_jp", "ascii", "utf-8"):
                 self.stats[f"{typ}:read as {codec}"] += 1
             yield sf, msg
+
+    def _identity_problem(self, sf: StoredFile, msg: hl7.Message) -> str:
+        """Why a message's patient is not certain, empty when it is (third review of PR #1095 item 3): the patient of
+        the file name, of its folders (``<pid 1-3>/<pid 4-6>/<pid>``, and the day and type folders) and of PID-3 (the
+        ``PI`` repetition, read with Unicode NFKC and its blanks removed, so ``１２`` is ``12``; no other change,
+        leading zeros kept) must be one. A message with no PID, or no id in PID-3, cannot disagree: it is read as the
+        file's patient, as before, and counted."""
+        parts = sf.path.parts
+        if len(parts) < 6 or (parts[-6], parts[-5], parts[-4]) != (sf.patient[0:3], sf.patient[3:6], sf.patient):
+            return "the folders name another patient than the file name"
+        if (parts[-3], parts[-2]) != (sf.day, sf.type):
+            return "the folders name another day or data type than the file name"
+        pid = msg.first("PID")
+        said = unicodedata.normalize("NFKC", hl7.Segment.rep_comp(pid.pick(3, 5, ("PI",)), 1)).strip() if pid else ""
+        if not said:
+            self.stats[f"{sf.type}:no patient id in PID-3 (the file's patient)"] += 1
+            return ""
+        if said != sf.patient:
+            return "PID-3 names another patient than the file name"
+        return ""
 
     def quarantine_reason(self, source_name: str) -> str | None:
         """Why the table ``source_name`` holds the night (T-615b's hook), or None: more than ``quarantine_max_pct`` %
@@ -972,6 +1030,11 @@ class Ssmix2Source:
             status, outcome = outcome_status(prb)
             if outcome and outcome.upper() != "A":
                 self.stats[f"PPR-01:outcome {outcome} as {status}"] += 1
+            if status in ("A", "U") and hl7.ts(prb.field(9)):
+                # an end day says the diagnosis is over, whatever 転帰 says or does not: E, ended with its outcome
+                # unknown, never active; the end day kept (third review of PR #1095 item 4)
+                status = "E"
+                self.stats["PPR-01:end date without a read outcome (ended)"] += 1
             # a modifier keeps its text, else its code; one with only a code cannot be read: a doubt, so the
             # diagnosis is suspected (never confirmed when in doubt, review of PR #1095 item 3)
             # (a first field of digits alone is taken for a set id, as HL7 segments begin)
@@ -1044,8 +1107,8 @@ class Ssmix2Source:
             self.stats["medication:ATC from the ingredient table"] += 1
         if not atc:
             self.missed[f"medication:{source}"] += 1
-        rx_no = orc.comp(2, 1)
-        if self.order_key == "per_day" and (sf.patient, sf.type, sf.order) in self._repeated:
+        rx_no = order_no(sf, orc)
+        if rx_no and self.order_key == "per_day" and (sf.patient, sf.type, sf.order) in self._repeated:
             rx_no = f"{rx_no}@{sf.day}"  # one number on two days is two orders: two keys (review of PR #1095 item 8)
         return {
             "rx_no": rx_no,
@@ -1059,7 +1122,7 @@ class Ssmix2Source:
             "order_date": hl7.ts(orc.field(9)) or "",
             "rp_no": orc.comp(4, 1),
             "rx_kind": "injection" if sf.type in INJECTION else "prescription",
-            "status": _status(_RX_STATUS, orc.field(5)),
+            "status": order_status(orc),
             "dept_code": "" if sf.dept == "-" else sf.dept,
         }
 
@@ -1069,6 +1132,9 @@ class Ssmix2Source:
         and stays empty when the frequency is unknown (頓用, no TQ1-3, a wording the reader does not read): never a
         guess. RXE-31's YJ code is read when RXE-2 names no YJ code (a HOT9 or local first code)."""
         rows = self._medication_rows(sf, msg)
+        if any(not r["rx_no"] for r in rows):
+            self._quarantine(sf.type, sf, "no order key", "neither the file name nor ORC-2 gives an order number")
+            return
         prev = self._prev.get(sf.path)
         if prev is not None and not sf.deleted:
             # a line the newer version no longer holds is a tombstone (second review of PR #1095 item 4)
@@ -1162,7 +1228,7 @@ class Ssmix2Source:
                     "dose_per_time": rxa.comp(6, 1),
                     "dose_unit": rxa.comp(7, 1),
                 }
-                order = by_no.get((sf.patient, orc.comp(2, 1)))
+                order = by_no.get((sf.patient, order_no(sf, orc)))
                 if order is not None:
                     for k, v in {**done, "hot_code": codes["hot"], "nhi_drug_code": codes["yj"]}.items():
                         if v and not order.get(k):

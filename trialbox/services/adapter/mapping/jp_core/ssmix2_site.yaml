@@ -95,12 +95,13 @@ overlay:
     elements:
       # 10B-3: the reader reads PRB-14 転帰 into A active, R resolved, I inactive (the patient died of it), M remission;
       # any other outcome is U, which has no clinical status and is unconfirmed (D-587), never active
-      clinicalStatus.coding[0].system: {template: "{sys.condition_clinical}", when: {column: status, known: [A, R, I, M]}}
-      clinicalStatus.coding[0].code: {column: status, map: {A: active, R: resolved, I: inactive, M: remission}, default: active, unmapped: ~}
-      verificationStatus.coding[1].system: {template: "{sys.condition_verification}", when: {column: status, unknown_to: [A, R, I, M]}}
-      verificationStatus.coding[1].code: {const: unconfirmed, when: {column: status, unknown_to: [A, R, I, M]}}
+      # E: an end day and no read outcome (third review of PR #1095 item 4): over, so inactive, with its end day
+      clinicalStatus.coding[0].system: {template: "{sys.condition_clinical}", when: {column: status, known: [A, R, I, M, E]}}
+      clinicalStatus.coding[0].code: {column: status, map: {A: active, R: resolved, I: inactive, M: remission, E: inactive}, default: active, unmapped: ~}
+      verificationStatus.coding[1].system: {template: "{sys.condition_verification}", when: {column: status, unknown_to: [A, R, I, M, E]}}
+      verificationStatus.coding[1].code: {const: unconfirmed, when: {column: status, unknown_to: [A, R, I, M, E]}}
       # PRB-9 終了日 as the abatement, only on an inactive, resolved or remitted condition (FHIR's invariant con-4)
-      abatementDateTime: {column: end_date, type: date, when: [{column: end_date, not_empty: true}, {column: status, in: [R, I, M]}]}
+      abatementDateTime: {column: end_date, type: date, when: [{column: end_date, not_empty: true}, {column: status, in: [R, I, M, E]}]}
       code.coding[0]: {builder: coding, column: icd10cm, system: icd10cm}  # only when ICD-10-CM has the same code
       code.coding[1]: {builder: coding, column: icd10, system: icd10}      # WHO ICD-10, always (D-314)
       code.coding[2]: {builder: coding, column: byomei_code, system: byomei, display_column: byomei_name}
