@@ -1,8 +1,8 @@
-"""``trialbox audit-sign``: the nightly signed head of the audit chain (NEW-STD-2, D-562; STD-002, LIFE-010).
+"""``trialbox audit-sign``: the hourly signed head of the audit chain (NEW-STD-2, D-562, 10G-2, D-1345; STD-002).
 
 D-355 built the control: an Ed25519 key signs where the audit chain stands and the signed head is kept, write-once,
-in a folder off the audit volume (``TB_AUDIT_ANCHOR_TARGETS``). This module is what runs it on a box, every night,
-from the installer's cron file after ``logs daily``:
+in a folder off the audit volume (``TB_AUDIT_ANCHOR_TARGETS``). This module is what runs it on a box, every hour,
+from the installer's cron file (10G-2, D-1345; nightly until then):
 
 1. **check**: the chain must verify against its own head anchor and against every signed head already in every
    anchor folder, under the box's own public keys (``audit_sign*.pub`` in the secrets folder, never the keys an
@@ -26,6 +26,7 @@ import contextlib
 import fcntl
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -188,8 +189,23 @@ def host_dirs(env: Mapping[str, str]) -> tuple[Path, Path, list[Path]]:
     return audit_dir, secrets, targets
 
 
-def sign_on_box(deploy: Path, env: Mapping[str, str], run: Run = _run) -> Night:
-    """A site box, as root on the host: the signer in the box's image, the event through the orchestrator."""
+def _can_write(path: Path) -> bool:
+    return os.access(path, os.W_OK)
+
+
+def overwritable(target: Path, writable: Callable[[Path], bool] = _can_write) -> Path | None:
+    """10G-2 (D-1345, review 16-19): the newest signed head of an anchor folder when the account running this (the
+    host's root, from cron) could write over it, else None. A folder with no head yet has nothing to show. The test
+    is the kernel's own answer for this account (``access(2)``): on a local disk root passes every file mode and only
+    an immutable file is refused; on a share root squashed or a WORM file is refused by the share."""
+    heads = sorted((target / "heads").glob("*.json")) if (target / "heads").is_dir() else []
+    return heads[-1] if heads and writable(heads[-1]) else None
+
+
+def sign_on_box(deploy: Path, env: Mapping[str, str], run: Run = _run,
+                writable: Callable[[Path], bool] = _can_write) -> Night:  # fmt: skip
+    """A site box, as root on the host: the signer in the box's image, the event through the orchestrator. A folder
+    whose newest head the host's root could overwrite fails the run (10G-2): the head is still written there."""
     audit_dir, secrets, wanted = host_dirs(env)
     # `docker run -v` makes a host folder that is not there, as root: a wrong audit path would look like an empty
     # chain, and a share that is not mounted would take the head on the box's own disk. So the host looks first.
@@ -222,11 +238,15 @@ def sign_on_box(deploy: Path, env: Mapping[str, str], run: Run = _run) -> Night:
         night = Night(bool(doc["ok"]), list(doc["problems"]), doc.get("signed"), doc.get("detail"))
     except (RuntimeError, OSError, ValueError, KeyError, IndexError) as exc:
         return Night(False, [f"the signer did not answer ({exc}): nothing was recorded"])
-    if absent:
+    open_to_root = [f"the anchor folder {t} lets this box's root overwrite a signed head ({head.name} is writable): "
+                    "a head there proves nothing against the box's own root. Make it a folder the box's root "
+                    "cannot write over (the hospital's share with root squashed, a WORM share, or chattr +i on "
+                    "each head) (10G-2, D-1345)" for t in targets if (head := overwritable(t, writable))]  # fmt: skip
+    if absent or open_to_root:
         night.ok = False
-        night.problems += absent
+        night.problems += absent + open_to_root
         if night.detail is not None:
-            night.detail["failed"] = [*night.detail.get("failed", []), *absent]
+            night.detail["failed"] = [*night.detail.get("failed", []), *absent, *open_to_root]
     compose = shlex.split(env.get("TB_COMPOSE") or f"docker compose --project-directory {shlex.quote(str(deploy))}")
     code = (
         "import json, sys\nfrom tb_common.audit_writer import open_audit\n"
@@ -252,6 +272,56 @@ def sign_local(env: Mapping[str, str]) -> Night:
         log.append(event, actor=actor, detail=detail)
 
     return sign_night(audit_dir, secrets, audit.anchor_targets(env), record=record)
+
+
+# ------------------------------------------------------------------------------------------------ the schedule
+CRON_NAME = "trialbox-retention"  # deploy/install.sh writes it; the update's pre-start step moves an old one on
+CRON_LOG = "/var/log/trialbox-retention.log"
+_NIGHTLY = re.compile(r"20 0 \* \* \* root cd (?P<root>\S+) && \{ python3 -m tools\.trialbox logs daily; "
+                      r"python3 -m tools\.trialbox audit-sign; \} >> (?P<log>\S+) 2>&1")  # fmt: skip
+_HOURLY = re.compile(r"50 \* \* \* \* root cd \S+ && python3 -m tools\.trialbox audit-sign >> \S+ 2>&1")
+
+
+def cron_lines(root: str, log: str = CRON_LOG) -> list[str]:
+    """The two jobs of ``trialbox-retention`` (10G-2, D-1345): the logs once a night at 00:20, the signed audit head
+    every hour at :50. ``deploy/install.sh`` writes the same lines (a test holds the two equal)."""
+    return [
+        f"20 0 * * * root cd {root} && python3 -m tools.trialbox logs daily >> {log} 2>&1",
+        f"50 * * * * root cd {root} && python3 -m tools.trialbox audit-sign >> {log} 2>&1",
+    ]
+
+
+def hourly_cron(cron_dir: Path) -> str:
+    """Move a cron file written before 10G-2 (one 00:20 line running ``logs daily`` then ``audit-sign``) to the two
+    lines of :func:`cron_lines`, with its own install folder and log. Only that line changes: every other line keeps
+    its bytes. Safe to run again. It never raises: a file that is not there, cannot be read or written, or whose line
+    this release does not know, is left as it is and the line returned says so (an update goes on)."""
+    path = cron_dir / CRON_NAME
+    try:
+        lines = path.read_bytes().decode("utf-8").splitlines(keepends=True)
+    except FileNotFoundError:
+        return f"no {path}: deploy/install.sh writes it"
+    except (OSError, UnicodeDecodeError) as exc:
+        return f"{path} cannot be read ({type(exc).__name__}): left as it is; deploy/install.sh writes it again"
+    bare = [ln.rstrip("\r\n") for ln in lines]
+    if any(_HOURLY.fullmatch(ln) for ln in bare):
+        return f"{path} signs the audit head every hour already"
+    found = [(i, m) for i, ln in enumerate(bare) if (m := _NIGHTLY.fullmatch(ln))]
+    if len(found) != 1:
+        return f"{path} has no nightly line this release knows: left as it is (deploy/install.sh writes it again)"
+    i, m = found[0]
+    end = lines[i][len(bare[i]) :] or "\n"
+    new = [*lines[:i], *(ln + end for ln in cron_lines(m["root"], m["log"])), *lines[i + 1 :]]
+    tmp = cron_dir / f".{CRON_NAME}.tmp"  # cron reads no file whose name has a dot
+    try:
+        tmp.write_bytes("".join(new).encode("utf-8"))
+        tmp.chmod(0o644)
+        os.replace(tmp, path)
+    except OSError as exc:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        return f"{path} cannot be written ({type(exc).__name__}): left as it is; deploy/install.sh writes it again"
+    return f"{path}: the audit head is now signed every hour (it was once a night)"
 
 
 def report(night: Night, targets: int) -> int:

@@ -1173,15 +1173,18 @@ def check_ops_runner(inp: DoctorInputs, now: datetime | None = None) -> Check:
     return Check("ops_runner", soft, f"{what}: no health facts, and the Operations page's requests wait; {fix}")
 
 
-HEAD_MAX_AGE_H = 36.0  # TB_AUDIT_HEAD_MAX_AGE_H: the job is nightly; 36 h is where the nightly backup is old (D-274)
+HEAD_MAX_AGE_H = 2.0  # TB_AUDIT_HEAD_MAX_AGE_H: the job is hourly (10G-2, D-1345); one missed run, then FAIL
 
 
 def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
     """NEW-STD-2 (STD-002, LIFE-010, D-562): the signed audit heads of D-355 are in force only when a folder off the
-    audit volume takes one every night. FAIL in VALIDATION and PRODUCTION (WARN elsewhere) when no anchor folder is
-    set, a folder is on the audit volume, the audit signing key is missing, or the newest signed head of any folder
-    is older than ``TB_AUDIT_HEAD_MAX_AGE_H``. The signatures are checked by ``trialbox audit-sign`` each night and
-    by ``tools/audit_verify.py --heads``; this check reads each head's date and that this box's key signed it."""
+    audit volume takes one every hour (10G-2, D-1345). FAIL in VALIDATION and PRODUCTION (WARN elsewhere) when no
+    anchor folder is set, a folder is on the audit volume, the audit signing key is missing, the last run failed
+    (among its reasons: a folder whose heads the box's root could overwrite), or the newest signed head of any folder
+    is older than ``TB_AUDIT_HEAD_MAX_AGE_H``, or dated ahead of the clock by more than it. No head yet is a WARN
+    while the audit key is younger than the limit (a box installed within the hour). The signatures are checked by
+    ``trialbox audit-sign`` each run and by ``tools/audit_verify.py --heads``; this check reads each head's date and
+    that this box's key signed it."""
     if inp.platform:  # nothing signs heads on a platform yet: said, not passed (the review's M6)
         return Check("audit_heads", "WARN", "on a platform no host cron signs the audit head: STD-002 is open there")
     from tb_common import audit, kek
@@ -1194,7 +1197,7 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
     if not targets:
         why = (
             f"no anchor folder: set {audit.ANCHOR_TARGETS_ENV} in deploy/.env to a folder off the box (the hospital's "
-            "share); `trialbox audit-sign` then keeps a signed head of the audit chain there every night. Without it "
+            "share); `trialbox audit-sign` then keeps a signed head of the audit chain there every hour. Without it "
             "a removed audit event leaves no trace (D-562)"
         )
         return Check("audit_heads", soft, why)
@@ -1205,7 +1208,7 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
     now = now or datetime.now(UTC)
     problems: list[str] = []
     waiting: list[str] = []
-    key_age: float | None = None  # how long the box could have signed: a new key has no head until the first night
+    key_age: float | None = None  # how long the box could have signed: a new key has no head until the first run
     if not kek.key_present(secrets / audit.SIGN_KEY_FILE):
         problems.append(
             f"no audit signing key in {secrets}: sh deploy/hardening/seal_keys.sh --secrets {secrets} makes it once "
@@ -1256,15 +1259,24 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
         if not stamps:
             none = f"no signed head in {t} yet (python3 -m tools.trialbox audit-sign)"
             if key_age is not None and abs(key_age) <= limit and not foreign:
-                waiting.append(f"{none}: the audit key is {key_age:.0f} h old, the first night has not signed")
+                waiting.append(f"{none}: the audit key is {key_age:.0f} h old, the first hourly run has not signed")
             else:
                 problems.append(none)
             continue
-        age = (now - max(stamps)).total_seconds() / 3600
-        if abs(age) > limit:  # dated ahead of the clock is not fresh either
+        last = max(stamps)
+        age = (now - last).total_seconds() / 3600
+        since = last.astimezone(UTC).isoformat(timespec="minutes")
+        if age < -limit:  # dated ahead of this box's clock by more than the limit: a clock moved, or a head was made
             problems.append(
-                f"the newest signed head in {t} is {age:.0f} h old (limit {limit:g} h): the nightly audit-sign did "
-                "not run or did not reach the folder (/var/log/trialbox-retention.log)"
+                f"the newest signed head in {t} is dated {since}, {-age:.0f} h ahead of this box's clock "
+                f"({now.astimezone(UTC).isoformat(timespec='minutes')}; limit {limit:g} h either way): set the clock "
+                "(timedatectl, the site's NTP server), then run python3 -m tools.trialbox audit-sign"
+            )
+        elif age > limit:
+            problems.append(
+                f"the newest signed head in {t} is {age:.0f} h old, signed {since} (limit {limit:g} h): the hourly "
+                "audit-sign has not reached the folder since then. Read /var/log/trialbox-retention.log, check the "
+                "folder is mounted, then run python3 -m tools.trialbox audit-sign"
             )
         else:
             newest.append(f"{t}: {age:.0f} h")

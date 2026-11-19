@@ -96,12 +96,26 @@ def _ldap_ca(box: ComposeBox) -> str:
     return check.detail
 
 
+#: where the host's cron files are (deploy/install.sh writes trialbox-retention there); a test points it elsewhere
+CRON_DIR = Path("/etc/cron.d")
+
+
+def _hourly_audit_head(box: ComposeBox) -> str:
+    """10G-2 (D-1345): this release's doctor FAILs a signed audit head older than 2 h, so a box whose cron file still
+    signs once a night is moved to the hourly line before its stack starts. Never fails the update (an absent or
+    unreadable file is said). Harmless to the release before: its ``audit-sign`` run every hour signs every hour."""
+    from tools.trialbox import audit_heads
+
+    return audit_heads.hourly_cron(CRON_DIR)
+
+
 #: name, step; in the order they run. The first two are what every release before this one ran in the updater itself.
 STEPS: list[tuple[str, Callable[[ComposeBox], str]]] = [
     ("image pins", _image_pins),
     ("model key", _model_key),
     ("actor signing key", _actor_key),
     ("FHIR store password", _fhir_password),
+    ("hourly audit head", _hourly_audit_head),  # 10G-2 (D-1345): before the refusal, so that step stays last
     ("hospital directory CA", _ldap_ca),  # D-722: a refusal, not a making; last, so the order before it stands
 ]
 

@@ -385,7 +385,9 @@ DECLARED: dict[str, Declared] = {
     "TB_AUDIT_ANCHOR_TARGETS": Declared("str", "", "where the audit chain's head anchor is also written"),
     "TB_AUDIT_ARCHIVE_DIR": Declared("path", "", "host folder of the audit archive (logs archive-audit)"),
     "TB_AUDIT_DIR": Declared("path", "/data/audit", "the audit chain's folder"),
-    "TB_AUDIT_HEAD_MAX_AGE_H": Declared("float", "36", "doctor: the newest signed audit head may be this old (D-562)"),
+    "TB_AUDIT_HEAD_MAX_AGE_H": Declared(
+        "float", "2", "doctor: the newest signed audit head may be this old; the job is hourly (D-562, D-1345)"
+    ),
     "TB_AUDIT_HOST_DIR": Declared("path", "", "host path of the audit volume (logs archive-audit)"),
     "TB_AUDIT_MIN_FREE_MB": Declared("int", "64", "audit refuses to write below this free space"),
     "TB_AUDIT_TS_MAX_SKEW_S": Declared(

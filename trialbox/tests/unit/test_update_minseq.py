@@ -99,7 +99,15 @@ PINNED = {
     # T-717b (D-547) and NEW-TRUST-1 (D-541): two host-side steps and one guard. The floor stays 0: no box has a
     # release yet, so none is on a release without the two commands (lane D's word, 2026-11-13).
     # D-722: one more host-side step, a refusal that makes nothing; the floor stays 0 for the same reason
-    "pre-start": ["image pins", "model key", "actor signing key", "FHIR store password", "hospital directory CA"],
+    # D-1345 (10G-2): one more host-side step, the cron file moved to the hourly audit head; the floor stays 0
+    "pre-start": [
+        "image pins",
+        "model key",
+        "actor signing key",
+        "FHIR store password",
+        "hourly audit head",
+        "hospital directory CA",
+    ],
     # D-921: one more database step, in the new tree's own db-up (an updater that has the command runs it); an
     # updater from before db-up leaves the migrations to each service's start, as before. The floor stays 0
     "db-up": ["FHIR store password is set", "database", "service roles", "owned schemas", "service stores"],

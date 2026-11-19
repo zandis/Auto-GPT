@@ -1,0 +1,33 @@
+{
+ "card": "H10G2",
+ "title": "the audit head signed hourly, an anchor folder the box's root can write over refused (plan 10 row 10G-2)",
+ "date": "2026-11-19",
+ "source": "docs/handover/audit-head-signed-hourly-2026-11-19.md",
+ "note": "No box, share or Docker daemon here. The refusal of a write is shown on a stand-in (a read-only head and a non-root account); the cron lines are tested as text and on a temporary cron folder.",
+ "findings": [
+  {
+   "id": "H10G2-01",
+   "severity": "Medium",
+   "claim": "The root-overwrite test asks the kernel whether the newest head can be written (access(2)); it does not ask whether a head can be deleted or renamed. A share that refuses an overwrite but lets the box's root delete the newest heads widens the window a rewrite goes unseen to the oldest head left; a WORM share or chattr +a on heads/ closes it, and nothing checks for it",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H10G2-02",
+   "severity": "Medium",
+   "claim": "The refusal has not been run on a real anchor folder (the hospital's share with root squashed, a WORM share, chattr +i on a local disk): it is shown on a read-only file and a non-root account only. The first box's install shows it: an anchor on the box's own disk must make audit-sign exit 1 and doctor audit_heads FAIL with 'lets this box's root overwrite a signed head'",
+   "lane": "Int",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H10G2-03",
+   "severity": "Low",
+   "claim": "doctor cannot test the anchor folders itself: check_host.sh mounts them read-only into the image, so every write is refused there. It reads the last hourly run's result (deploy/logs/audit-sign.json), so a folder that became writable is a FAIL at most one run later, not at once",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

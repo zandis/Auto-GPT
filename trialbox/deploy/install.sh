@@ -828,12 +828,11 @@ fi
 CRON_DIR="${TB_CRON_DIR:-/etc/cron.d}"   # T-632: both cron files, or no finished install in PRODUCTION
 CAN_CRON=0; { [ "$(id -u)" = 0 ] || [ -n "${TB_CRON_DIR:-}" ]; } && [ -d "$CRON_DIR" ] && command -v python3 >/dev/null && CAN_CRON=1
 if [ "$CAN_CRON" = 1 ]; then
-  # D-138: every night collect yesterday's service logs, prune by settings.retention, copy the audit to its archive
-  # NEW-STD-2 (D-562): then the night's signed head of the audit chain into TB_AUDIT_ANCHOR_TARGETS, whatever the
-  # first command returned; `trialbox doctor` (audit_heads) FAILs when no folder is set or the newest head is old
-  printf '%s\n' "SHELL=/bin/sh" "20 0 * * * root cd $ROOT && { python3 -m tools.trialbox logs daily; python3 -m tools.trialbox audit-sign; } >> /var/log/trialbox-retention.log 2>&1" \
+  # D-138: logs at 00:20 (collect, prune, archive the audit); D-562, D-1345: the signed audit head hourly at :50
+  printf '%s\n' "SHELL=/bin/sh" "20 0 * * * root cd $ROOT && python3 -m tools.trialbox logs daily >> /var/log/trialbox-retention.log 2>&1" \
+    "50 * * * * root cd $ROOT && python3 -m tools.trialbox audit-sign >> /var/log/trialbox-retention.log 2>&1" \
     > "$CRON_DIR/trialbox-retention" && chmod 644 "$CRON_DIR/trialbox-retention"
-  echo "    log retention and the signed audit head: $CRON_DIR/trialbox-retention (00:20 daily)"
+  echo "    log retention (00:20 daily) and the signed audit head (hourly, :50): $CRON_DIR/trialbox-retention"
 elif [ "$TB_ENV_SITE" = PRODUCTION ]; then
   die "the cron files cannot be installed (needs root, /etc/cron.d and python3): run the installer as root"
 fi
@@ -1007,7 +1006,7 @@ echo "    add coordinators and viewers on the console's Users page, or: docker c
 fi
 
 # NEW-STD-2 (D-562): the first signed head of the audit chain, when the site named an anchor folder: the night's own
-# command, once, so the box does not wait for 00:20 for its first head. Not a stop: a line of the install's report
+# command, once, so the box does not wait for the next :50 for its first head. Not a stop: a line of the install's report
 if [ -n "$(envget TB_AUDIT_ANCHOR_TARGETS)" ] && [ "$(id -u)" = 0 ]; then
   say "audit chain: the first signed head"
   if SIGN_OUT="$(python3 -m tools.trialbox audit-sign 2>&1)"; then
