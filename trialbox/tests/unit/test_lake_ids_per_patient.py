@@ -342,6 +342,87 @@ def test_a_delta_night_resending_both_patients_keeps_both(tmp_path: Path, door: 
     _check_each_patient_keeps_its_own(lake(tmp_path, "2026-10-02"), door)
 
 
+def _merge_a_into_b(tmp: Path) -> None:
+    pm = _cfg(tmp, "csv").pidmap()
+    try:
+        pm.merge(KEY, A, B, "synthetic merge", "T-1")
+    finally:
+        pm.close()
+
+
+def _ids(records: dict[str, list[dict[str, Any]]]) -> dict[str, list[str]]:
+    return {t: sorted(str(r["id"]) for r in rs) for t, rs in records.items()}
+
+
+@pytest.mark.parametrize("since", [None, "2026-10-01"], ids=["full", "delta"])
+def test_a_merged_chart_keeps_its_records_under_its_own_ids_now_the_surviving_patients(
+    tmp_path: Path, since: str | None
+) -> None:
+    """D-1253 review C: chart A merged into chart B (``pidmap.merge``). Both charts had a visit E1, a diagnosis
+    DX001 and so on. After the merge every record of A names patient B, and none takes B's record's place: the ids
+    stay made under the chart that sent the row (the Patient's pid derives from the chart number the same way),
+    so a full night and a delta night after the merge hold the same records (the full NEW-B-36 comparison:
+    ``tests/unit/test_delta_night_chart_merge.py``)."""
+    from adapter.mapping.engine import patient_resource_id
+
+    night(tmp_path, "csv", both(), "2026-10-01")
+    _merge_a_into_b(tmp_path)
+    again = both()
+    if since:
+        for rows in again.values():
+            for r in rows:
+                if "updated_at" in r:
+                    r["updated_at"] = "2026-10-02"
+    rep = night(tmp_path, "csv", again, "2026-10-02", since=since)
+    assert not rep.errors, rep.errors
+    held = lake(tmp_path, "2026-10-02")
+    assert [p["id"] for p in held["Patient"]] == [PID[B]]
+    visits = sorted(e["id"] for e in held["Encounter"])
+    assert visits == sorted(patient_resource_id(KEY, "Encounter", PID[m], "E1") for m in (A, B))
+    assert all(owner(r) == {PID[B]} for t in PATIENT_OWNED for r in held.get(t, []))
+    assert all(PID[A] not in json.dumps(r) for rs in held.values() for r in rs)
+
+
+def _unique_site(tmp_path: Path) -> Path:
+    return _site(tmp_path, [{"type": "Condition", "table": "thing", "id": {"hid": "no", "unique": "site"},
+                             "elements": SUBJECT}])  # fmt: skip
+
+
+def test_a_number_declared_unique_across_the_site_is_one_record_whichever_patient_names_it(tmp_path: Path) -> None:
+    """``id: {hid: no, unique: site}``: the source guarantees the number is the site's, so a record re-filed to
+    another chart keeps its id (``<type>|<number>``) and moves; the snapshot merge counts it."""
+    from adapter.mapping.engine import resource_id
+    from adapter.ndjson import write_snapshot
+
+    _m, mp = _mapper(_unique_site(tmp_path))
+    (a,) = list(mp.map_table("thing", iter([{"no": "N1", "mrn": A}])))
+    (b,) = list(mp.map_table("thing", iter([{"no": "N1", "mrn": B}])))
+    assert a["id"] == b["id"] == resource_id(KEY, "Condition", "N1")
+    other = list(mp.map_table("thing", iter([{"no": "N2", "mrn": A}])))
+    write_snapshot(tmp_path / "s1", {"Condition": [a, *other]})
+    refiled: dict[str, int] = {}
+    write_snapshot(tmp_path / "delta", {"Condition": [b]}, base=tmp_path / "s1", refiled=refiled)
+    write_snapshot(tmp_path / "full", {"Condition": [b, *other]})
+    assert refiled == {"Condition": 1}
+    assert (tmp_path / "delta/Condition.ndjson").read_text() == (tmp_path / "full/Condition.ndjson").read_text()
+    again: dict[str, int] = {}
+    write_snapshot(tmp_path / "same", {"Condition": [a]}, base=tmp_path / "s1", refiled=again)
+    assert again == {}
+
+
+def test_an_undeclared_number_re_filed_to_another_patient_is_corrected_by_the_next_full_night(tmp_path: Path) -> None:
+    """Undeclared (the default: per patient), a record the source moves to another chart is a new record of that
+    patient; a delta night keeps the first patient's until the next full night, which holds the moved one only."""
+    moved = canonical(A)
+    moved["diagnosis"] = []
+    to_b = canonical(B)
+    rows = {t: moved[t] + (to_b[t] if t in ("patient", "diagnosis") else []) for t in moved}
+    night(tmp_path, "csv", canonical(A), "2026-10-01")
+    night(tmp_path, "csv", rows, "2026-10-02")
+    conditions = lake(tmp_path, "2026-10-02")["Condition"]
+    assert [owner(c) for c in conditions] == [{PID[B]}]
+
+
 # ------------------------------------------------------------------------------------------------ the mapper's rule
 def _mapper(path: Path = BASE) -> tuple[Mapping, Mapper]:
     m = Mapping.load(path)

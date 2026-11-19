@@ -71,6 +71,7 @@ from adapter.pipeline import (
     merge_base,
     reference_maps,
     refuse_future_night,
+    reject_key,
 )
 from adapter.sources.base import has_table
 from adapter.validate.validator import Hl7Validator, StructuralValidator, missing_required
@@ -116,6 +117,11 @@ class BackfillReport:
     published: list[list[str]] = field(default_factory=list)  # the buckets of each publish
     counts: dict[str, int] = field(default_factory=dict)  # records per type in the last publish
     rejected: dict[str, int] = field(default_factory=dict)  # source rows the mapping could not read, per table
+    # D-1253 (review F), as the night counts them: per record type, two source rows with one id and other content
+    # (the last kept); per table, rows rejected for no chart number, deleted rows that named no patient
+    id_collisions: dict[str, int] = field(default_factory=dict)
+    rejected_no_patient: dict[str, int] = field(default_factory=dict)
+    deletes_without_patient: dict[str, int] = field(default_factory=dict)
     # D-535: rows with a value the mapping could not use, per table (the codes: unmapped_codes.json)
     unmapped: dict[str, int] = field(default_factory=dict)
     incomplete: list[str] = field(default_factory=list)  # the completeness gate's problems (the load is held)
@@ -275,7 +281,11 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                     row = mapping.normalize(table, raw)
                     n_read += 1
                     if dcol in row and is_deleted_flag(row[dcol]):
-                        continue  # a deleted row is a tombstone on a delta night; in a first load it is no record
+                        # a deleted row is a tombstone on a delta night; in a first load it is no record. One with no
+                        # chart number is counted, as the night counts it (D-1253 review F)
+                        for _ in mapper.tombstones(table, iter([row])):
+                            pass
+                        continue
                     n_rows += 1
                     if table == "patient":
                         mrn = str(row[tspec["key"]])
@@ -290,8 +300,8 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                             pairs, idents = [], []
                     try:
                         mapped = list(mapper.map_table(table, iter([row])))
-                    except (ValueError, ArithmeticError):  # D-527: as the night does
-                        bad["rejected"] += 1
+                    except (ValueError, ArithmeticError) as exc:  # D-527: as the night does, by reason (STD-025)
+                        bad[reject_key(exc)] += 1
                         continue
                     for res in mapped:
                         emit(res)
@@ -312,7 +322,13 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                     "duplicates_counted": False,
                 }
                 if bad:
-                    tables[table]["rejected"] = {"rejected": sum(bad.values())}
+                    tables[table]["rejected"] = dict(sorted(bad.items()))
+                    no_one = sum(n for k, n in bad.items() if ": no patient (" in k)  # D-1253, as the night
+                    if no_one:
+                        tables[table]["rejected_no_patient"] = no_one
+                gone = mapper.tombstones_without_patient().get(table)
+                if gone:
+                    tables[table]["deletes_without_patient"] = gone
             for table, by_lookup in mapper.unmapped_summary().items():  # NEW-DIN-6 (D-580), as the night
                 if table in tables:  # only a table that was read has an entry (its rows, its presence)
                     tables[table]["unmapped"] = by_lookup
@@ -374,8 +390,9 @@ def _sort_bucket(spool: Path, runs: Path, bucket: str) -> dict[str, Any]:
     return dq
 
 
-def _merged(runs: Path, buckets: list[str], rtype: str) -> Iterator[str]:
-    """Canonical JSON lines of ``rtype`` over ``buckets``, sorted by id, the last source row of an id winning."""
+def _merged(runs: Path, buckets: list[str], rtype: str, clash: list[int] | None = None) -> Iterator[str]:
+    """Canonical JSON lines of ``rtype`` over ``buckets``, sorted by id, the last source row of an id winning.
+    ``clash[0]`` counts the rows whose id an earlier row had, with other content (D-1253)."""
     files = [
         (runs / b / f"{rtype}.ndjson").open(encoding="utf-8")
         for b in buckets
@@ -389,6 +406,8 @@ def _merged(runs: Path, buckets: list[str], rtype: str) -> Iterator[str]:
             body = rest.partition("\t")[2]
             if prev_id is not None and rid != prev_id:
                 yield prev_body
+            elif prev_id is not None and clash is not None and body != prev_body:
+                clash[0] += 1
             prev_id, prev_body = rid, body
         if prev_id is not None:
             yield prev_body
@@ -397,7 +416,9 @@ def _merged(runs: Path, buckets: list[str], rtype: str) -> Iterator[str]:
             fh.close()
 
 
-def _write_merged(runs: Path, buckets: list[str], out: Path) -> dict[str, int]:
+def _write_merged(
+    runs: Path, buckets: list[str], out: Path, collisions: dict[str, int] | None = None
+) -> dict[str, int]:
     from tb_common import id_rule
 
     types = sorted({p.stem for b in buckets for p in (runs / b).glob("*.ndjson")})
@@ -407,12 +428,15 @@ def _write_merged(runs: Path, buckets: list[str], out: Path) -> dict[str, int]:
     for rtype in types:
         tmp = out / f".{rtype}.ndjson.tmp"
         n = 0
+        clash = [0]
         with tmp.open("w", encoding="utf-8") as fh:
-            for body in _merged(runs, buckets, rtype):
+            for body in _merged(runs, buckets, rtype, clash):
                 fh.write(body)
                 n += 1
         tmp.replace(out / f"{rtype}.ndjson")
         counts[rtype] = n
+        if collisions is not None and clash[0]:
+            collisions[rtype] = clash[0]
     return counts
 
 
@@ -553,6 +577,11 @@ def backfill(
             log.warning("back-fill %s: the kept spool has no table facts (an older version's); read again", snap)
         facts = read_source()
     rep.rejected = dict(facts.get("rejected") or {})
+    for t, v in sorted((facts.get("tables") or {}).items()):  # D-1253 review F
+        for name, into in (("rejected_no_patient", rep.rejected_no_patient),
+                           ("deletes_without_patient", rep.deletes_without_patient)):  # fmt: skip
+            if v.get(name):
+                into[str(t)] = int(v[name])
     codes = facts.get("unmapped_codes") or {}
     rep.unmapped = {t: sum(sum(c.values()) for c in by.values()) for t, by in sorted(codes.items())}
     rep.incomplete = gate(facts)
@@ -621,7 +650,9 @@ def _publish(
     _progress(work, rep, f"publish {'all' if final else 'first'} years")
     stage = work / "publish"
     shutil.rmtree(stage, ignore_errors=True)
-    counts = _write_merged(runs, buckets, stage)
+    clashes: dict[str, int] = {}
+    counts = _write_merged(runs, buckets, stage, clashes)
+    rep.id_collisions = clashes  # D-1253 review F: over the years of this publish
     years = [b for b in buckets if b != BASE]
     _atomic_json(stage / REPORT, {"snapshot": snap, "years": years, "complete": final})
     # D-535: the snapshot's completeness record and its unknown codes, as a night's snapshot has them. The table
@@ -632,6 +663,8 @@ def _publish(
     if "tables" in facts:  # always, since the load reads its source again for a spool without them
         _, completeness = completeness_check(cfg, tables, stage, None, full=True)
         completeness["first_load"] = {"years": years, "complete": final}
+        if clashes:  # D-1253: as a night's completeness record has them
+            completeness["id_collisions"] = dict(sorted(clashes.items()))
         _atomic_json(stage / COMPLETENESS, completeness)
     if facts.get("unmapped_codes"):
         _atomic_json(stage / UNMAPPED_CODES, facts["unmapped_codes"])
@@ -707,6 +740,9 @@ def _audit(cfg: AdapterConfig, rep: BackfillReport) -> None:
             "published": rep.published,
             "counts": rep.counts,
             "rejected": rep.rejected or None,
+            "id_collisions": rep.id_collisions or None,  # D-1253 review F: as the night's detail
+            "rejected_no_patient": rep.rejected_no_patient or None,
+            "deletes_without_patient": rep.deletes_without_patient or None,
             "errors": rep.errors or None,
             "current": _current(cfg.lake_dir),
         },

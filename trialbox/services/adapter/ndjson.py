@@ -274,6 +274,7 @@ def write_snapshot(
     aliases: Mapping[str, str] | None = None,
     moved: dict[str, int] | None = None,
     collisions: dict[str, int] | None = None,
+    refiled: dict[str, int] | None = None,
 ) -> dict[str, int]:
     """Write all resource types; with ``base`` (previous snapshot) resources are merged by id.
 
@@ -297,7 +298,10 @@ def write_snapshot(
 
     ``collisions`` (D-1253): per type, how many of the night's records had an id an earlier record of the same night
     had, with other content (two different source rows, one id). The last still wins (DATA-017); it is counted, never
-    silent. The same row sent twice is the same record, not a collision."""
+    silent. The same row sent twice is the same record, not a collision.
+
+    ``refiled`` (D-1253 review C): per type, the records of ``base`` the night gives again under one id with another
+    patient (a number the mapping declares unique across the site, re-filed to another chart at the source)."""
     from tb_common import id_rule
 
     if base is not None and base.exists() and id_rule.snapshot_rule(base) != id_rule.RULE:
@@ -332,13 +336,14 @@ def write_snapshot(
                 )
             left = [0]
             clash = [0]
+            shift = [0]
             try:
                 n, gone = _write_type(
                     directory, rtype, night, base if has_base else None, dead, True, budget, work, out.get(rtype), left,
-                    aliases, moved, clash,
+                    aliases, moved, clash, shift,
                 )  # fmt: skip
             except _Unsorted:
-                left[0] = clash[0] = 0
+                left[0] = clash[0] = shift[0] = 0
                 if moved is not None:
                     moved.pop(rtype, None)
                 n, gone = _write_type(
@@ -355,6 +360,7 @@ def write_snapshot(
                     aliases,
                     moved,
                     clash,
+                    shift,
                 )
         finally:
             shutil.rmtree(work, ignore_errors=True)
@@ -365,6 +371,8 @@ def write_snapshot(
             removed[rtype] = removed.get(rtype, 0) + left[0]
         if collisions is not None and clash[0]:
             collisions[rtype] = collisions.get(rtype, 0) + clash[0]
+        if refiled is not None and shift[0]:
+            refiled[rtype] = refiled.get(rtype, 0) + shift[0]
         counts[rtype] = n
     marker = directory / TOMBSTONES
     if dropped:
@@ -388,6 +396,7 @@ def _write_type(
     aliases: Mapping[str, str] | None = None,
     moved: dict[str, int] | None = None,
     clash: list[int] | None = None,
+    shift: list[int] | None = None,
 ) -> tuple[int, list[str]]:
     """One type: the previous snapshot's records and the night's, by id; per id the night's last record, else the
     previous snapshot's last one unless the source deleted it. Returns (records written, ids dropped).
@@ -395,7 +404,8 @@ def _write_type(
     ``left_out`` (D-528): ids written from neither side, the night's record included (the caller takes an id out
     of the set when a later row gives the record again: the last row of a key decides). ``left[0]`` counts those
     that were in the previous snapshot. ``clash[0]`` counts the night's records whose id an earlier record of the
-    night had, with other content (D-1253)."""
+    night had, with other content (D-1253). ``shift[0]`` counts the previous snapshot's records the night gives
+    again under the same id naming another patient (D-1253 review C: re-filed at the source)."""
     old: Iterable[_Item] = ()
     if base is not None:
         old = (
@@ -436,6 +446,8 @@ def _write_type(
                 cur, from_night, from_base = rid, False, False
             elif seq >= 0 and from_night and body != line and clash is not None:
                 clash[0] += 1  # D-1253: two of tonight's rows, one id, other content (the last wins, counted)
+            elif seq >= 0 and from_base and not from_night and shift is not None and _owner(body) != _owner(line):
+                shift[0] += 1  # D-1253 review C: a site-unique number re-filed to another patient (counted)
             line = body
             from_night = from_night or seq >= 0
             from_base = from_base or seq < 0
@@ -448,18 +460,30 @@ def _write_type(
 #: D-1253: a reference in a snapshot's canonical line, and the source table of its record (``meta.source``)
 _LINK = re.compile(r'"reference":"([A-Z][A-Za-z]+)/([^"]+)"')
 _SOURCE_TABLE = re.compile(r'"source":"[^"/]*/([^"#/]+)#')
-#: the types whose records are not a patient's, never counted as a link to a record not in the lake
-_NOT_LINKED = frozenset({"Patient", "Practitioner", "PractitionerRole", "Organization", "Location", "HealthcareService",
-                         "Medication", "Device", "Substance", "Group"})  # fmt: skip
+#: the types whose records are not a patient's, never counted as a link to a record not in the lake (a mapping says
+#: which more of its types are the site's: ``Mapping.site_wide``)
+_NOT_LINKED = frozenset(
+    {"Patient", "Practitioner", "PractitionerRole", "Organization", "Location", "HealthcareService"}
+)
+_PATIENT_LINK = re.compile(r'"reference":"Patient/([^"]+)"')
 
 
-def absent_links(directory: Path, run_bytes: int | None = None) -> dict[str, dict[str, int]]:
+def _owner(body: str) -> str | None:
+    """The first patient a canonical line names (its subject): what a re-filed record changes."""
+    m = _PATIENT_LINK.search(body)
+    return m.group(1) if m else None
+
+
+def absent_links(
+    directory: Path, run_bytes: int | None = None, site_wide: Iterable[str] = ()
+) -> dict[str, dict[str, int]]:
     """D-1253: per source table and record type, the links in the snapshot ``directory`` to a patient's record the
     snapshot does not hold (a visit number the feed never sent for that patient). Order-free: it reads the merged
     snapshot, whatever order tonight's tables and rows came in. In bounded memory: one pass writes every link to a
     run file per target type, each is sorted in runs of at most ``run_bytes`` (:func:`_sorted`, as the merge) and
     merged with the target type's file, which is sorted by id. Counts only."""
     budget = run_bytes or sort_run_bytes()
+    skip = _NOT_LINKED | frozenset(site_wide)
     work = directory / ".links"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
@@ -470,7 +494,7 @@ def absent_links(directory: Path, run_bytes: int | None = None) -> dict[str, dic
             for path in sorted(directory.glob("*.ndjson")):
                 with path.open(encoding="utf-8") as fh:
                     for line in fh:
-                        found = [(t, i) for t, i in _LINK.findall(line) if t not in _NOT_LINKED]
+                        found = [(t, i) for t, i in _LINK.findall(line) if t not in skip]
                         if not found:
                             continue
                         m = _SOURCE_TABLE.search(line)

@@ -1021,11 +1021,14 @@ def _run_ingest(
     removed: dict[str, int] = {}
     carried_moved: dict[str, int] = {}
     collisions: dict[str, int] = {}  # D-1253: two of tonight's rows, one id, other content
+    refiled: dict[str, int] = {}  # D-1253 review C: a site-unique number given again under another patient
     full_counts = write_snapshot(
         out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed,
         aliases=aliases if base is not None else None, moved=carried_moved, collisions=collisions,
+        refiled=refiled,
     )  # fmt: skip
-    absent = absent_links(out_dir)  # D-1253: order-free, over the merged snapshot, in bounded memory
+    # D-1253: order-free, over the merged snapshot, in bounded memory
+    absent = absent_links(out_dir, site_wide=mapping.site_wide if mapping is not None else ())
     if absent:
         log.warning("links to a patient's record the lake does not hold (per table and type): %s", absent)
     if collisions:
@@ -1055,6 +1058,8 @@ def _run_ingest(
         completeness["id_collisions"] = dict(sorted(collisions.items()))
     if absent:  # D-1253: links to a patient's record the snapshot does not hold, per table and type
         completeness["links_to_absent_records"] = absent
+    if refiled:  # D-1253 review C: a record of a site-unique number, given again under another patient
+        completeness["moved_to_another_patient"] = dict(sorted(refiled.items()))
     (out_dir / COMPLETENESS).write_text(
         json.dumps(completeness, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -1302,6 +1307,7 @@ def _run_ingest(
                 # D-1253: two of tonight's rows with one id and other content (the last kept), per record type; links
                 # by number left out because the number was only another patient's; deletes that named no patient
                 "id_collisions": dict(sorted(collisions.items())) or None,
+                "moved_to_another_patient": dict(sorted(refiled.items())) or None,
                 "links_to_absent_records": {t: sum(by.values()) for t, by in sorted(absent.items())} or None,
                 "rejected_no_patient": {
                     t: v["rejected_no_patient"] for t, v in sorted(tables.items()) if v.get("rejected_no_patient")

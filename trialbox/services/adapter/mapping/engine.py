@@ -1093,7 +1093,6 @@ class Mapper:
         ingest_time: str | None = None,
         concept_map: Callable[[str, str], list[dict[str, Any]] | None] | None = None,
         mrn_regex: str | None = None,
-        aliases: dict[str, str] | None = None,
     ) -> None:
         self.mrn_regex = mrn_regex  # CGRD-A4 (D-816): the site's chart number pattern, for ``masked: true``
         # D-593: the reference data's map (code system, code → its rows), when the caller has it: the night and the
@@ -1129,11 +1128,8 @@ class Mapper:
         # 10B-6 (D-1233): the site profile's rows still to verify, by table; the facts tagged per table
         self.verify_rules: dict[str, list[VerifyRule]] = {}
         self.from_verify: Counter[str] = Counter()
-        # D-1253: the deleted rows that name no patient, by table (counts only); the chart merges (an absorbed
-        # chart's pid -> the surviving chart's pid, ``pidmap.aliases``) a patient's record id is made under, as the
-        # Patient's own id is; the record types whose numbers the mapping declares unique across the site
+        # D-1253: the deleted rows that name no patient, by table (counts only)
         self.dead_without_patient: Counter[str] = Counter()
-        self.aliases: dict[str, str] = dict(aliases or {})
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
@@ -1261,17 +1257,22 @@ class Mapper:
         return self.number_id(rtype, rs, row, str(row[col]), suffix)
 
     def patient_of(self, rs: ResourceSpec, row: Row) -> str:
-        """D-1253: the pseudonym of the record's patient (:meth:`pid` of its patient column). A row without one is
-        refused (rejected and counted by the night, as D-812 refuses a row without its key), never given an id
-        another patient's row could have too."""
+        """D-1253: the pseudonym of the record's patient, derived from its chart number exactly as the Patient
+        record's own id is (:meth:`pid`). A row without one is refused (rejected and counted by the night, as D-812
+        refuses a row without its key), never given an id another patient's row could have too.
+
+        A chart merged into another (``pidmap.merge``, NEW-B-36) keeps making its records' ids under its own pid:
+        the merge moves every reference to the patient (and the Patient itself) to the surviving pid as the
+        snapshot is written, never an id. So a delta night after a merge holds what a full night holds (the ids of
+        records carried over could not be made again: a record keeps no number), and two charts that each had a
+        visit "E1" keep two visits of the surviving patient: none takes the other's place."""
         col = rs.patient
         if col is None:
             raise MappingError(f"{rs.type} from {rs.table} names no patient")
         raw = row.get(col)
         if raw is None or str(raw).strip() == "":
             raise MappingError(f"{rs.type} from {rs.table}: no patient ({col} is empty)")
-        pid = pid_for_mrn(self.key, str(raw))
-        return self.aliases.get(pid, pid)  # a merged chart's records are the surviving chart's, as its Patient is
+        return pid_for_mrn(self.key, str(raw))
 
     def number_id(self, rtype: str, rs: ResourceSpec, row: Row, value: str, suffix: str = "") -> str:
         """The id of the ``rtype`` record with the source number ``value``, as ``rs``'s row names it (D-1253),
