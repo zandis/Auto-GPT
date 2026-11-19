@@ -2,21 +2,23 @@
 
 A working day is Monday to Friday that is not one of the site's days off. The days off are, per country, data:
 
-* the public holidays, from ``refdata_src/holidays_<country>.csv`` (``date,name,kind``; kind ``holiday``, or
+* the public holidays, from the ``refdata_src`` file the country's layer names (``tb_common.country_layer``, part P9
+  ``holiday_list``, D-1250; ``holidays_<country>.csv``, ``date,name,kind``; kind ``holiday``, or
   ``substitute`` and ``citizens`` for the two kinds the source calls 休日). Japan's file is the Cabinet Office's list
   (内閣府「国民の祝日について」, ``syukujitsu.csv``, CP932) for 2025 to 2027 as read on 2026-11-18, names unchanged;
   licence register row ``jp-holidays`` (Public Data License 1.0). The file ships inside the images of the signed
   update bundle, beside the other reference files TrialBox keeps itself (``refdata_src``); a new year's list comes
   with an update;
-* the country's default end-of-year break (Japan: 12-29 to 01-03, the 年末年始 of 行政機関の休日に関する法律 art. 1;
-  not in the Cabinet Office list), which a site changes because hospitals differ;
+* the country's default end-of-year break, its layer's P9 ``new_year_break`` (Japan: 12-29 to 01-03, the 年末年始
+  of 行政機関の休日に関する法律 art. 1; not in the Cabinet Office list), which a site changes because hospitals differ
+  (the site's setting wins);
 * the site's own changes (declared settings, written by the settings wizard into ``deploy/.env``):
   ``TB_NEW_YEAR_BREAK`` (``MM-DD/MM-DD``, or ``none``), ``TB_DAYS_OFF`` (more days off, ``YYYY-MM-DD`` comma
   separated) and ``TB_DAYS_OPEN`` (holidays or break days the hospital works).
 
 The country is the site's (``tb_common.derived.country_of`` of ``site.tz``). A site with no country, or of a country
-with no holiday file, has no days off: Monday to Friday, exactly as before this module (and the site's changes are
-not read). The day itself is always the site's date (the caller passes the site-local day, D-270).
+whose layer names no holiday file, has no days off: Monday to Friday, exactly as before this module (and the site's
+changes are not read). The day itself is always the site's date (the caller passes the site-local day, D-270).
 
 Who reads it: the coordinator's digest and the investigator's weekly mail (``console.notify``: no digest on a day off;
 it comes on the next working day) and a visit window the protocol counts in working days
@@ -41,8 +43,8 @@ from pathlib import Path
 SRC = Path(__file__).resolve().parent / "refdata_src"
 KINDS = ("holiday", "substitute", "citizens")
 DAY_OFF_KINDS = (*KINDS, "new_year", "site")  # why a weekday is off (:meth:`Calendar.day_off`, less "weekend")
-# the end-of-year break each country's offices close by default; a site changes it (TB_NEW_YEAR_BREAK)
-NEW_YEAR_BREAK: dict[str, tuple[tuple[int, int], tuple[int, int]]] = {"JP": ((12, 29), (1, 3))}
+# the end-of-year break each country's offices close by default is its country layer's (P9 ``new_year_break``,
+# tb_common.country_layer, D-1250); a site changes it (TB_NEW_YEAR_BREAK), and the site's setting wins
 ENV_BREAK, ENV_OFF, ENV_OPEN = "TB_NEW_YEAR_BREAK", "TB_DAYS_OFF", "TB_DAYS_OPEN"
 _MD = re.compile(r"^([0-9]{2})-([0-9]{2})$")  # ASCII digits only (``\d`` would take full-width ones)
 _ISO = re.compile(
@@ -65,9 +67,13 @@ class Holidays:
 @lru_cache(maxsize=8)
 def holidays(country: str) -> Holidays | None:
     """The country's holiday file, or None when there is none (the country has no calendar)."""
-    code = (country or "").strip().lower()
-    path = SRC / f"holidays_{code}.csv"
-    if not code.isalpha() or not path.is_file():
+    from tb_common import country_layer
+
+    name = country_layer.value(country, "P9", "holiday_list")  # the country layer names its list (D-1250)
+    if not isinstance(name, str) or not re.fullmatch(r"holidays_[a-z]+\.csv", name):
+        return None
+    path = SRC / name
+    if not path.is_file():
         return None
     days: dict[date, tuple[str, str]] = {}
     with path.open(encoding="utf-8", newline="") as fh:
@@ -103,6 +109,22 @@ def parse_break(text: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
     if days > MAX_BREAK_DAYS:
         raise ValueError(bad)
     return first, last
+
+
+def country_break(country: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    """The New Year break of ``country`` by default: its layer's (P9 ``new_year_break``), None without one."""
+    from tb_common import country_layer
+
+    raw = country_layer.value(country, "P9", "new_year_break")
+    return parse_break(raw) if isinstance(raw, str) else None
+
+
+def break_text(brk: tuple[tuple[int, int], tuple[int, int]] | None) -> str:
+    """A New Year break as a site writes it (``12-29/01-03``), or ``none``."""
+    if brk is None:
+        return "none"
+    (m1, d1), (m2, d2) = brk
+    return f"{m1:02d}-{d1:02d}/{m2:02d}-{d2:02d}"
 
 
 def settings_problems(env: Mapping[str, str]) -> list[str]:
@@ -160,6 +182,9 @@ class Calendar:
     open: frozenset[date] = frozenset()
     problems: tuple[str, ...] = field(default=())  # settings that could not be read (shown, never silently ignored)
     broken: bool = False  # the country's holiday file could not be read: Monday to Friday, and a red health line
+    # where the New Year break came from (D-1250): "site" (TB_NEW_YEAR_BREAK, which wins), "layer" (the country
+    # layer's P9 default), "" (none of either)
+    new_year_from: str = ""
 
     @property
     def has_days_off(self) -> bool:
@@ -247,8 +272,14 @@ WEEKDAYS_ONLY = Calendar()
 def for_country(country: str, environ: Mapping[str, str] | None = None) -> Calendar:
     """The calendar of a site of ``country`` with the site's changes from ``environ`` (default: the process's)."""
     code = (country or "").strip().upper()
+    from tb_common.country_layer import LayerBroken
+
     try:
         hol = holidays(code)
+    except LayerBroken as exc:  # the country's layer cannot be used (D-1250): said in red, naming its file
+        return Calendar(code, problems=(f"the {code} country layer {exc.file} cannot be used ({exc.reason[:160]}): "
+                                        "its holiday list and New Year break are not read, Monday to Friday only",),
+                        broken=True)  # fmt: skip
     except Exception as exc:  # a damaged file never stops a mail or a window: Monday to Friday, said in red
         why = f"{type(exc).__name__}: {str(exc)[:80]}"
         return Calendar(code, problems=(f"the {code} holiday list cannot be read ({why}): Monday to Friday only",),
@@ -257,16 +288,17 @@ def for_country(country: str, environ: Mapping[str, str] | None = None) -> Calen
         return WEEKDAYS_ONLY
     env = os.environ if environ is None else environ
     problems = settings_problems(env)
-    new_year = NEW_YEAR_BREAK.get(code)
+    new_year = country_break(code)
+    source = "layer" if new_year is not None else ""
     raw = (env.get(ENV_BREAK) or "").strip()
     if raw:
         with contextlib.suppress(ValueError):  # in ``problems``; the country's break stands
-            new_year = parse_break(raw)
+            new_year, source = parse_break(raw), "site"  # a setting the site made wins over its layer's (D-1250)
     bad: list[str] = []
     off, open_ = _days(env.get(ENV_OFF) or "", bad), _days(env.get(ENV_OPEN) or "", bad)
     if any(n > MAX_SITE_DAYS_PER_YEAR for n in _per_year(off).values()):
         off = frozenset()  # in ``problems``
-    return Calendar(code, hol, new_year, off, open_, tuple(problems))
+    return Calendar(code, hol, new_year, off, open_, tuple(problems), new_year_from=source)
 
 
 def health(cal: Calendar, today: date) -> tuple[str, str] | None:

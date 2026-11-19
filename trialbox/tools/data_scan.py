@@ -507,7 +507,7 @@ def _scan_docx(data: bytes, where: str, patterns: list[Pattern], allow: Allow) -
 def _scan_parquet(data: bytes, where: str, patterns: list[Pattern], allow: Allow) -> list[Hit]:
     import pyarrow.parquet as pq
 
-    table = pq.read_table(io.BytesIO(data))
+    table = pq.read_table(io.BytesIO(data), use_threads=False)
     cols = table.column_names
     rows: list[list[Any]] = [list(cols), *([r.get(c) for c in cols] for r in table.to_pylist())]
     return scan_lines(table_lines(rows), where, patterns, allow)

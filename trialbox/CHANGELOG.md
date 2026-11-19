@@ -10,10 +10,50 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The one page for hospital IT (10K-18, D-1378) is made from the box's own preflight list, one page per delivered
+  form, in en, ja and zh-TW: for a box its supplier prepared it asks IT for six things (name and certificate, clock,
+  mail relay, backup share, audit share, data feed) with the words the box shows on a red line, and names the three
+  the supplier prepared; for a box IT installs (`it-one-page.it-form.<lang>.md`) it asks for all nine. It no longer
+  says "only three things".
+- One spelling for each core word (9k-16, D-1371): the console says 候補者 / 候選者 for a candidate everywhere, and in
+  Japanese 治験依頼者 (not スポンサー), データ管理責任者 (not データスチュワード) and 治験分担医師・治験協力者リスト
+  (not 責任分担表); in Chinese 授權紀錄表, 試驗委託者 and 病人代碼; in English "sub-investigator". The words are a
+  data file (`services/console/core_words.yaml`) that `make lint` holds every console text to, and the job mails,
+  the PDF titles and the refusal sentences too (the Japanese feasibility mail and report say 実施可能性, not
+  フィージビリティ; the zh-TW steward is 資料管理員). No setting changes; no row has yet been read by a native reader.
+- The console and the device (9f-11, 9f-6, 9g-19; D-1370): one minute before the idle lock a page warns, with
+  "Stay signed in" (the idle and the absolute limits are unchanged; what was typed stays on the page); a hospital
+  sign-in refused because the person's directory groups give two roles names the two groups for the hospital's IT;
+  the console's policy now forbids service workers by name (`worker-src 'none'`), written down with the rest of the
+  rule that nothing of a clinical page is kept on a device.
+- Each pull request that changes the console is now compared screen by screen with master on 72 first screens in
+  three languages (9k-17, D-1377); a changed screen must be looked at before it passes. The check is not required and
+  keeps no picture in git. Nothing changes on the box: no setting, no new file installed.
+- The console's buttons are one design (9k-3, D-1375): a filled, an outlined, a text-only and a red-outlined
+  variant and one small size, every one at least 44 px; the older second layer of sizes is folded into the first, so
+  the pages look as before. Nothing changes on the box: no setting, no new file installed.
+- The console's colours and type are named values (9k-1, 9k-2, D-1368): form fields have a darker border that meets
+  the 3:1 contrast for controls, the amber "needs attention" row is readable in dark mode (and a little paler in
+  light mode), and Japanese and Traditional Chinese pages have a taller line height (1.7) with strict line breaking.
+  Nothing else changes in how the pages look; no setting, no new file.
 - Operations drills (10K-9): each operations page of the RUNBOOK names a drill only where a test rehearses it (§12
   certificate renewal, §20 close-out, §22 moving the box, §23 lost-box list, §25 leavers); the other pages say that
   no test rehearses them. Two steps corrected: when the host name changes, run `check-tls` with the new values of
   `deploy/.env` (§22); at close-out, write down the head after `--sign-head` (§20).
+- Updates from a stick at the box (10K-7, D-1363): the Operations page's update tab lists the bundles on an update
+  stick the host mounts read-only (`/media/trialbox-update`, or `TB_UPDATE_STICK`), verifies one after copying it to
+  the box, shows its Japanese release note and change-impact sheet (change classes CC1 to CC6, minutes down,
+  migration, re-approval), and asks for the apply in the box's quiet hour for exactly the file that was verified (a
+  waiting one can be cancelled there). Mount the stick `ro,nodev,nosuid,noexec`. Every bundle now carries
+  `RELEASE-NOTE.ja.md` and `CHANGE-IMPACT.json` (`tools/make_bundle.sh` refuses to build one without them); a bundle
+  without them is still verified and applied, with a warning. Going back to the previous release is shown on the
+  page and stays the older-release path of the runbook at the box.
+- A live preflight (10K-3, D-1361): the box's name and certificate, the clock, the backup share, the audit share, the
+  data feed (a count of files), the mail relay, the disk, the key protection (the TPM, and Tang where the disk unlock
+  uses it) and the graphics card against the tier record, each line with what to do next in English, Japanese and
+  Chinese. `trialbox doctor --preflight --lang ja` prints it, the settings wizard prints it with `--preflight`, and
+  the box's first-run page shows it, as checked before the owner's answers (a red line says whom to ask: hospital IT
+  or the box's supplier). Read-only, bounded in time; plain `doctor` is unchanged.
 - ClinicalTrials.gov intake widened (10D-15, D-1367): a study read from the registry (live, offline pack or
   cassette) now carries its sites with their recruitment status, its secondary ids (a jRCT, JapicCTI or UMIN-CTR
   number is recognised as such), arms, interventions, primary and secondary outcomes and the design (allocation,

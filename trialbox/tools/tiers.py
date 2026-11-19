@@ -14,12 +14,17 @@ is not a tier install, on a rehearsal box only (``--rehearsal``, D-726).
     large     ``rtxpro6000``  RTX PRO 6000 (96 GB), head hospitals   the pair resident, 32k
     ========  ==============  =====================================  ===================================
 
+A DGX Spark with under 96 GiB of memory (``/proc/meminfo``'s ``MemTotal``) is profile ``gb10-64``, the 64 GB class:
+not tier medium, and refused (card 10E-5, D-1335). Its memory is read for a live check only; a check that names the
+card (``--card``) reads it from ``--mem-kib`` alone, and without it the card stays ``gb10``.
+
 The record is the site's (``deploy/site/serving_config.<gpu>.json``) or the vendor's, shipped with the kit
 (``deploy/measured/serving_config.<gpu>.json``); the site's wins, as in ``install.sh``. The card in the machine must
 be the tier's card (``deploy/gpu_profile.sh``). Standard library only: ``install.sh`` runs it with the host's
 ``python3`` before anything is loaded or started.
 
     python3 tools/tiers.py check --tier large [--deploy deploy] [--arch x86_64 --card "NVIDIA RTX PRO 6000 ..."]
+        [--mem-kib <MemTotal kB>]
     # stdout: "<gpu> <record>"; exit 0 when the tier may be installed, 3 with the reason on stderr when not
 """
 
@@ -41,7 +46,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TIERS: dict[str, str] = {"small": "rtx5090", "medium": "gb10", "large": "rtxpro6000"}
 BOX: dict[str, str] = {
     "rtx5090": "one RTX 5090 (32 GB)",
-    "gb10": "a DGX Spark (GB10)",
+    "gb10": "a DGX Spark (GB10, 128 GB)",
     "rtxpro6000": "one RTX PRO 6000 (96 GB)",
 }
 REFUSED = 3
@@ -71,11 +76,24 @@ def card_name() -> str:
     return out.stdout.strip().splitlines()[0].strip() if out.returncode == 0 and out.stdout.strip() else ""
 
 
-def profile_of(arch: str, card: str, deploy: Path) -> str:
-    """The GPU profile ``deploy/gpu_profile.sh`` gives this machine (one table for install.sh and this check)."""
-    out = subprocess.run(
-        ["sh", str(deploy / "gpu_profile.sh"), arch, card], check=True, capture_output=True, text=True, timeout=30
-    )
+def host_mem_kib(meminfo: Path = Path("/proc/meminfo")) -> int | None:
+    """``MemTotal`` in kB, as the kernel reports it (no rounding), or None when it cannot be read."""
+    try:
+        text = meminfo.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == "MemTotal:" and parts[1].isdigit():
+            return int(parts[1])
+    return None
+
+
+def profile_of(arch: str, card: str, deploy: Path, mem_kib: int | None = None) -> str:
+    """The GPU profile ``deploy/gpu_profile.sh`` gives this machine (one table for install.sh and this check).
+    ``mem_kib`` is ``MemTotal`` in kB; None is unknown (a GB10 then stays ``gb10``)."""
+    cmd = ["sh", str(deploy / "gpu_profile.sh"), arch, card, "", "" if mem_kib is None else str(mem_kib)]
+    out = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30)
     return out.stdout.strip()
 
 
@@ -92,13 +110,20 @@ def how_to_measure(tier: str, gpu: str) -> str:
 
 
 def resolve(
-    tier: str, deploy: Path | None = None, arch: str | None = None, card: str | None = None
+    tier: str,
+    deploy: Path | None = None,
+    arch: str | None = None,
+    card: str | None = None,
+    mem_kib: int | None = None,
 ) -> tuple[str, Path]:
-    """``(gpu profile, record)`` for a tier that may be installed here; :class:`Refused` otherwise."""
+    """``(gpu profile, record)`` for a tier that may be installed here; :class:`Refused` otherwise. Without a named
+    card the check is live and also reads this host's memory (``mem_kib`` given wins)."""
     deploy = deploy or ROOT / "deploy"
     if tier not in TIERS:
         raise Refused(f"unknown tier {tier!r}: use small, medium or large")
     gpu = TIERS[tier]
+    if card is None and mem_kib is None:
+        mem_kib = host_mem_kib()
     arch = arch if arch is not None else platform.machine()
     card = card if card is not None else card_name()
     if not card:
@@ -107,7 +132,14 @@ def resolve(
             "driver and the container toolkit (docs/SECURITY.md), or install without a tier (--mode stub: "
             "structured criteria only)."
         )
-    here = profile_of(arch, card, deploy)
+    here = profile_of(arch, card, deploy, mem_kib)
+    if here == "gb10-64":
+        raise Refused(
+            f"tier {tier} is {BOX[gpu]}, but this machine is a DGX Spark with under 96 GiB of memory (the 64 GB "
+            "class, gb10-64 profile): TrialBox does not serve the model pair on it. Tier medium is the 128 GB Spark; "
+            "no profile of the 64 GB class is measured, so none is guessed (card 10E-5, D-1335). Install without a "
+            "tier (--mode stub: structured criteria only)."
+        )
     if here != gpu:
         mine = next((t for t, g in TIERS.items() if g == here), None)
         hint = f"this card is tier {mine}" if mine else "this card is not one of the three measured boxes"
@@ -141,6 +173,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--deploy", type=Path, default=ROOT / "deploy")
     c.add_argument("--arch", default=None, help="default: this machine")
     c.add_argument("--card", default=None, help="default: nvidia-smi's first card")
+    c.add_argument("--mem-kib", type=int, default=None, help="MemTotal in kB; default: this host's, for a live check")
     sub.add_parser("table", help="print the tier table")
     a = ap.parse_args(argv)
     if a.cmd == "table":
@@ -148,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{t}\t{g}\t{BOX[g]}")
         return 0
     try:
-        gpu, rec = resolve(a.tier, a.deploy, a.arch, a.card)
+        gpu, rec = resolve(a.tier, a.deploy, a.arch, a.card, a.mem_kib)
     except Refused as exc:
         print(f"install: refused: {exc}", file=sys.stderr)
         return REFUSED

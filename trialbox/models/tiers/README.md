@@ -15,7 +15,7 @@ profile holds what the rest of the product reads about the box. Every field says
   measured is never filled in.
 
 A record made under the ballast stand-in (plan 10 row 10E-28, text "by ballast") is refused, and so is a record whose
-serving record was taken on a capped card.
+serving record was taken on a capped card. The services' reader answers a ballast record `malformed` (D-1336).
 
 | file | box | measured | declared | not measured |
 | --- | --- | ---: | ---: | ---: |
@@ -31,7 +31,7 @@ that profile's record takes its measured values from its serving record alone (n
 | Row | Reads | What it does with it |
 | --- | --- | --- |
 | 10E-33 site box wording | `box_role`, `protocol_route`, `interactive_lane`, `busy_wait_seconds`, `first_load_nights`, `console_promises` | "sent to the coordinating box" for a protocol; "night 1 of N" from `first_load_nights` (shown as not measured until R-1); busy times while a run holds the card |
-| 10E-11 night plan per tier | `night_budget_patients`, `judge_calls_per_second`, `models_on_card`, `screen_concurrency` | the night's budget and order; both figures are not measured on the 32 GB box, so its plan says so instead of using a default |
+| 10E-11 night plan per tier | `night_budget_patients`, `judge_calls_per_second`, `models_on_card`, `screen_concurrency` | `services/orchestrator/night_plan.py` (D-1336): the plan the scheduler logs at start, measured values only; an unmeasured `models_on_card` is the safe plan (the 32 GB box says "not measured"); a measured night budget over 45,000 patients is not taken |
 | 10E-17 tier-aware console wording | `console_promises`, `interactive_lane`, `role_groups_on_box`, `protocol_route` | a capability the box lacks is a status line, never an error; a not-measured value is shown as "not measured" |
 | 10G-11 host check per tier | `profile`, `tier`, `desk_side`, `arch` | `desk_side: true` fails a TPM-only disk unlock in VALIDATION and PRODUCTION |
 | 10K-3 live preflight (wizard, `doctor`) | `card_names`, `arch`, `card_memory_mib`, `driver`, `host_memory_gib_min`, `measured_on` | the GPU line checks the card against the record; `driver` not measured gives a line that says so, not a pass |

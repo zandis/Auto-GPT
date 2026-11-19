@@ -398,6 +398,11 @@ def start(orch: Orchestrator) -> Any:
     from apscheduler.schedulers.background import BackgroundScheduler
     from tb_common.config import SCHEDULER_JOB_DEFAULTS, schedule_on_demand, tb_env
 
+    from orchestrator import night_plan
+
+    # 10E-11 (D-1336): the night this box runs, with its tier's measured figures, said once at start
+    orch.night_plan = night_plan.build(orch.cfg)  # type: ignore[attr-defined]
+    night_plan.say(orch.night_plan)  # type: ignore[attr-defined]
     if schedule_on_demand(orch.cfg.settings, tb_env(orch.cfg.env)):
         log.info("schedule is on demand (TB_ENV=%s): no timed jobs", tb_env(orch.cfg.env))
         return None

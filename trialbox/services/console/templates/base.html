@@ -7,7 +7,7 @@
 {% if refresh %}<meta http-equiv="refresh" content="5;url={{ refresh_url }}">{% endif %}
 <title>{% block title %}{{ t('brand') }}{% endblock %} · TrialBox</title>
 <link rel="stylesheet" href="/static/console.css">
-<link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png"><meta name="theme-color" content="#253a5e">{% if user %}<meta name="tb-user" content="{{ user.username }}">{% endif %}{# D-1222 #}
+<link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png"><meta name="theme-color" content="{{ theme_color }}">{% if user %}<meta name="tb-user" content="{{ user.username }}">{% endif %}{# D-1222 #}
 {% block head %}{% endblock %}
 </head>
 <body{% if request is defined and request.state is defined and request.state.phone_first %} class="phone-first"{% endif %}>
@@ -69,6 +69,7 @@
 <p class="hint" data-testid="intended-use">{{ t('footer.statement') }}</p>
 {% with demo_at = 'foot' %}{% include "_demo_banner.html" %}{% endwith %}
 {% include "_feedback.html" %}</footer>
+{% if user and session_left is defined %}{% include "_idle_warn.html" %}{% endif %}
 <script>{{ console_js|safe }}</script>
 </body>
 </html>
