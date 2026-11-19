@@ -13,8 +13,9 @@ sources). A restore must then give the same rows, or it fails. The rows of the v
 ``pack`` and ``source`` rows are kept, and a restore loads the pack again from the folder where install and update
 keep it (``deploy/refdata/loaded``).
 
-**Nightly** (:func:`nightly`). The script runs in the ``db`` container (``docker compose exec``) into
-``/tmp/tb-backup`` there; the files are copied to a 0700 folder under ``deploy/`` and both are removed right after.
+**Nightly** (:func:`nightly`). The script runs in the ``db`` container (``docker compose exec``); the dump streams
+to a 0700 folder under ``deploy/`` (10G-1: nothing is copied out of the container's tmpfs /tmp, where only the
+script's small files are written), and both are removed right after.
 ``trialbox backup`` runs in a one-off container with every volume read-only (the update path's own step,
 ``update.ComposeBox``) and writes the encrypted file to every directory of ``TB_BACKUP_TARGETS``. When WAL archiving
 is on (``TB_PG_ARCHIVE_MODE=on``), pgBackRest then takes a differential backup, or a full one on
@@ -70,6 +71,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -291,11 +293,17 @@ _ROW = "SELECT %L || ''|'' || count(*) || ''|'' || " + row_agg().replace("'", "'
 _SITE = " WHERE source_id IN (SELECT source_id FROM %I.source WHERE distribution = ''site-fetch'')"
 
 
-def snapshot_script(out: str, name: str, pg_dump: str, conn: str, schemas: Sequence[str], refdata: str | None) -> str:
+def snapshot_script(
+    out: str, name: str, pg_dump: str, conn: str, schemas: Sequence[str], refdata: str | None,
+    dump_to_stdout: bool = False,
+) -> str:  # fmt: skip
     """A ``psql`` script: one ``REPEATABLE READ`` transaction exports its snapshot; ``pg_dump --snapshot`` writes
     ``<out>/<name>.dump`` from it (exit code in ``.dump.rc``); the same session writes every table's row count and
     content hash (``.rows``), the reference packs (``.packs``) and the hospital's own reference rows
-    (``.site.<table>.copy``). ``conn`` is how ``pg_dump`` reaches the database where ``psql`` runs."""
+    (``.site.<table>.copy``). ``conn`` is how ``pg_dump`` reaches the database where ``psql`` runs.
+    ``dump_to_stdout`` (the compose nightly, 10G-1): the dump goes to psql's own stdout instead of ``<out>``, the
+    only thing the script writes there, so the host receives it through ``exec -T`` and the dump is never staged in
+    the db container, whose /tmp is a tmpfs (memory) that ``docker cp`` cannot read."""
     for s in (out, name, pg_dump, conn, *schemas):
         if "'" in s:
             raise ValueError(f"a quote in {s!r}")
@@ -309,13 +317,14 @@ def snapshot_script(out: str, name: str, pg_dump: str, conn: str, schemas: Seque
     tables = ("FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('pg_catalog', "
               f"'information_schema') AND table_schema LIKE ANY(ARRAY[{likes}])")  # fmt: skip
     has_src = "to_regclass(format('%I.source', table_schema)) IS NOT NULL"
+    dump_out = "" if dump_to_stdout else f' -f "{o}.dump"'  # no -f: pg_dump writes to stdout, psql's own
     lines = [
         "\\pset format unaligned",
         "\\pset tuples_only on",
         "BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;",
         f"SELECT pg_export_snapshot() \\g '{o}.snapshot'",
         f'\\! sh -c \'{pg_dump} -Fc -Z0 --no-owner --no-privileges --snapshot="$(cat {o}.snapshot)" {conn} '
-        f'{dump_args} -f "{o}.dump"; echo $? > "{o}.dump.rc"\'',
+        f'{dump_args}{dump_out}; echo $? > "{o}.dump.rc"\'',
         f"\\o '{o}.rows'",
         f"SELECT format('{_ROW}', table_schema || '.' || table_name, table_schema, table_name) {tables} "
         f"AND NOT (table_schema = {rs} AND table_name IN ({bulk})) ORDER BY table_schema, table_name \\gexec",
@@ -1043,18 +1052,32 @@ class ComposeOps:
         return self.box.running_jobs()
 
     def snapshot(self, db: str, user: str, work: Path, timeout: float | None = None, at: str | None = None) -> None:
-        """:func:`snapshot_script` in the db container; its files are copied to ``work`` and removed there. Each of
-        the two steps has ``timeout`` seconds (D-455: from the database's size; None: no limit)."""
+        """:func:`snapshot_script` in the db container, received on the host in ``work`` and removed there. Each of
+        the two steps has ``timeout`` seconds (D-455: from the database's size; None: no limit).
+
+        10G-1 (D-1323): nothing is staged for ``compose cp``. The db container's /tmp is a tmpfs, which ``docker cp``
+        does not see (box rehearsal, CI run 44469191433: "Could not find the file /tmp/tb-backup/."), and which
+        counts against the container's memory limit. So the dump (several GB) is streamed: ``pg_dump`` writes to
+        psql's stdout and ``exec -T`` hands it to ``<db>.dump`` here. Only the script and its small files (the
+        snapshot id, the exit code, row counts and hashes, the packs, the hospital's own reference rows) are written
+        in the tmpfs spool, and they come back as a tar stream on stdout, unpacked here with the ``data`` filter."""
         refdata = REFDATA if db == "trialbox_wf" else None
         script = work / f"{db}.sql"
-        script.write_text(snapshot_script(CONTAINER_SPOOL, db, "pg_dump", f"-U {user} -d {db}", (), refdata))
+        script.write_text(snapshot_script(CONTAINER_SPOOL, db, "pg_dump", f"-U {user} -d {db}", (), refdata,
+                                          dump_to_stdout=True))  # fmt: skip
+        side = work / f"{db}.side.tar"
         try:
             self.box.run(self.box._c("exec", "-T", "db", "sh", "-c",
                                      f"umask 077; mkdir -p {CONTAINER_SPOOL}; cat > {CONTAINER_SPOOL}/{db}.sql; "
                                      f"psql -X -q -v ON_ERROR_STOP=1 -U {user} -d {db} -f {CONTAINER_SPOOL}/{db}.sql"),
-                         stdin_file=script, timeout=timeout)  # fmt: skip
-            self.box.run(self.box._c("cp", f"db:{CONTAINER_SPOOL}/.", str(work)), timeout=timeout)
+                         stdin_file=script, stdout_file=work / f"{db}.dump", timeout=timeout)  # fmt: skip
+            self.box.run(self.box._c("exec", "-T", "db", "tar", "-C", CONTAINER_SPOOL, "--exclude", f"{db}.sql",
+                                     "-cf", "-", "."),
+                         stdout_file=side, timeout=timeout)  # fmt: skip
+            with tarfile.open(side) as tf:  # its files only: the spool folder's own entry never touches work's mode
+                tf.extractall(work, members=[m for m in tf.getmembers() if m.isfile()], filter="data")
         finally:
+            side.unlink(missing_ok=True)
             with contextlib.suppress(Exception):
                 self.box.run(self.box._c("exec", "-T", "db", "rm", "-rf", CONTAINER_SPOOL))
         script.unlink(missing_ok=True)

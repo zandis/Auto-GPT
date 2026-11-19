@@ -36,6 +36,14 @@
    "lane": "H",
    "basis": "shown",
    "state": "open"
+  },
+  {
+   "id": "H10G1-05",
+   "severity": "Medium",
+   "claim": "update's rollback (tools/trialbox/update.py RESTORE_SH, mktemp in the db container) writes the dump's whole plain SQL script into db's tmpfs /tmp, which counts against db's memory limit (TB_MEM_DB, 4g by default); a database whose script outgrows it can stop db during a rollback; streaming it needs a way to fail the single transaction when pg_restore fails mid-stream",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
   }
  ]
 }

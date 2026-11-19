@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import shlex
+import shutil
 import stat
+import tarfile
 from collections import namedtuple
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -421,15 +423,24 @@ class FakeBox:
         if "psql" in " ".join(argv) and stdin_file is not None:
             self.db = argv[-1].split("/")[-1].removesuffix(".sql")
             self.scripts[self.db] = stdin_file.read_text()
-        if argv[-3:-2] == ["cp"] or (len(argv) >= 2 and argv[-3] == "cp"):
-            dest = Path(argv[-1])
+        if "psql" in " ".join(argv) and stdin_file is not None:
+            # 10G-1: the dump streams to the host (pg_dump on psql's stdout), never staged for ``compose cp``
+            assert stdout_file is not None and stdout_file.name == f"{self.db}.dump"
+            dest = stdout_file.parent
             assert stat.S_IMODE(dest.stat().st_mode) == 0o700
-            db = self.db
-            (dest / f"{db}.dump").write_bytes(b"PGDMP")
-            (dest / f"{db}.dump.rc").write_text("0\n")
-            (dest / f"{db}.rows").write_text("public.t|1|abc\n")
-            (dest / f"{db}.packs").write_text("")
+            stdout_file.write_bytes(b"PGDMP")
             self.copied.append(dest)
+        if "tar" in argv and "-cf" in argv:  # the small files come back as a tar stream on stdout
+            assert stdout_file is not None
+            db = self.db
+            side = stdout_file.parent / ".side"
+            side.mkdir()
+            (side / f"{db}.dump.rc").write_text("0\n")
+            (side / f"{db}.rows").write_text("public.t|1|abc\n")
+            (side / f"{db}.packs").write_text("")
+            with tarfile.open(stdout_file, "w") as tf:
+                tf.add(side, arcname=".")
+            shutil.rmtree(side)
         if argv[:2] == ["docker", "run"]:
             for i, a in enumerate(argv):
                 if a == "-v" and ":/backup/" in argv[i + 1]:
@@ -476,6 +487,8 @@ def test_compose_nightly_takes_one_snapshot_per_database_and_removes_the_plainte
     assert run[run.index("--keep") + 1] == "9"  # M4: TB_BACKUP_KEEP reaches the container step
     assert fake.copied and all(not d.exists() for d in fake.copied)  # the plaintext dumps are gone after the run
     assert any(c[-3:] == ["rm", "-rf", bs.CONTAINER_SPOOL] for c in fake.calls)  # and from the db container
+    # 10G-1: nothing is copied out of the db container (its /tmp is a tmpfs ``docker cp`` cannot read)
+    assert not any("cp" in c for c in fake.calls)
     assert next(c[c.index("pgbackrest"):] for c in fake.calls if "pgbackrest" in c) == [
         "pgbackrest", "--stanza=trialbox", "--type=diff", "backup"]  # fmt: skip
     assert ops.archiver() == {"archive_mode": "on", "failed_count": 3, "failing": True, "last_archived_age_s": 120}
@@ -503,6 +516,38 @@ def test_the_snapshot_script_runs_on_this_postgres(tmp_path: Path, db_url: str) 
     (tmp_path / "trialbox_wf.dump.rc").write_text("1\n")
     with pytest.raises(RuntimeError, match="exit 1"):
         bs.parse_snapshot(tmp_path, "trialbox_wf")
+
+
+def test_the_streamed_snapshot_script_runs_on_this_postgres(tmp_path: Path, db_url: str) -> None:
+    """10G-1: the compose nightly's form (``dump_to_stdout``): psql's stdout is the dump and nothing else, the
+    small files are written in the spool, and together they parse as the staged form's do."""
+    import subprocess
+
+    from tb_common.db import split_url
+
+    db = Database.connect(db_url, "site")
+    db.migrate(["CREATE TABLE marks (pid TEXT PRIMARY KEY, mark TEXT)"])
+    db.execute("INSERT INTO marks VALUES (?, ?)", ("P1", "approach"))
+    dsn, prefix = split_url(db_url)
+    spool, work = tmp_path / "spool", tmp_path / "work"
+    spool.mkdir()
+    work.mkdir()
+    script = bs.snapshot_script(str(spool), "trialbox_wf", "pg_dump", f'--dbname "{dsn}"', [f"{prefix}*"],
+                                f"{prefix}refdata", dump_to_stdout=True)  # fmt: skip
+    assert "-f " not in script.split("\\! ", 1)[1].split("\n", 1)[0]  # no dump file in the container
+    (spool / "s.sql").write_text(script)
+    with (work / "trialbox_wf.dump").open("wb") as out:
+        subprocess.run(["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", dsn, "-f", str(spool / "s.sql")],
+                       check=True, stdout=out, stderr=subprocess.PIPE)  # fmt: skip
+    assert not (spool / "trialbox_wf.dump").exists()
+    assert (work / "trialbox_wf.dump").read_bytes()[:5] == b"PGDMP"  # psql's stdout carried the dump alone
+    listed = subprocess.run(["pg_restore", "--list", str(work / "trialbox_wf.dump")], capture_output=True, text=True)
+    assert listed.returncode == 0 and "marks" in listed.stdout, listed.stderr
+    for f in spool.glob("trialbox_wf.*"):
+        if f.name != "trialbox_wf.sql":
+            shutil.copy2(f, work / f.name)
+    snap = bs.parse_snapshot(work, "trialbox_wf")
+    assert snap["rows"][f"{db.schema}.marks"][0] == 1 and snap["packs"] == []
 
 
 def test_compose_audit_falls_back_to_a_pending_file_when_the_orchestrator_is_down(tmp_path: Path) -> None:

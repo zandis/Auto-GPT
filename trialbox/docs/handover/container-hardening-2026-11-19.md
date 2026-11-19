@@ -76,6 +76,42 @@ runs the restore; on a hardened one-off that is a tmpfs `/tmp` unless TMPDIR poi
 No Docker daemon here: the YAML tests and the argv test show the change; the next CI box rehearsal on the pushed head
 is the proof (steps `offline` and `after-restart`), and its later steps have still not run under the hardening.
 
+The third rehearsal (run 44469191433, head d44f3f5b, both legs) passed every step (install, the db identity check,
+doctor, terminology, the reference data loaded and surviving the restart, screen, power-cycle) but the restic restore
+(test: step 24; validation: step 25): the nightly's own backup failed with `cp db:/tmp/tb-backup/. HOST ... Could not
+find the file /tmp/tb-backup/. in container`, and the rehearsal printed `REHEARSAL FAIL: the nightly's backup with
+restic failed`. Cause: `ComposeOps.snapshot` (`tools/trialbox/backup_schedule.py`, the `self.box._c("cp",
+f"db:{CONTAINER_SPOOL}/.", ...)` line) wrote the snapshot into db's `/tmp/tb-backup` through `exec` and copied it out
+with `compose cp`; docker cp reads a container's layers and volumes, not a tmpfs mount, so it found nothing. The dump
+(several GB on a site) in that tmpfs would also have counted against db's memory limit (`TB_MEM_DB`, 4g by default).
+
+Fix: the dump is streamed, as update's snapshot already does (`pg_dump` to stdout). `snapshot_script(...,
+dump_to_stdout=True)` leaves `-f` off `pg_dump`, which then writes to psql's own stdout (nothing else of the script
+goes there: `-q`, every query output to its `\o` file); `exec -T db sh -c '... psql -f ...'` hands it to
+`<db>.dump` in the 0700 work folder on the host. The small files (snapshot id, exit code, row counts and hashes, the
+packs, the hospital's own reference rows) are still written in the tmpfs spool and come back as `exec -T db tar -C
+/tmp/tb-backup -cf - .` on stdout, unpacked on the host with tarfile's `data` filter (regular files only); the spool
+is removed as before. No new writable path, no dropped control, no new volume. Peak extra memory in db: the script
+and those small files (the hospital's own reference rows are the largest: a site's own vocabularies, not the vendor
+pack); peak disk: the dump once, in the host work folder, as before. `test_nothing_copies_a_file_out_of_a_tmpfs`
+names any `compose cp SERVICE:PATH HOST` whose PATH is on that service's tmpfs (module constants resolved; a path it
+cannot resolve counts) in install.sh and every deploy script, every tool under `tools/trialbox` (backup, restore,
+restore drill, update, the support bundle in `logs.py`), `tools/box` and the drills; the into-direction test now
+reads the same files. Checked: the only copy out of a tmpfs was this one; update's demo box copies out of its own
+unhardened container (`docker cp trialbox-demo:/tmp/tb-update-backup`); `runbook_install.py` copies into a single
+demo container, not a compose service. `test_the_streamed_snapshot_script_runs_on_this_postgres` runs the streamed
+script on a real PostgreSQL: stdout is a dump `pg_restore --list` reads, and the files parse.
+
+The restore side: `backup.reload_refdata` unpacked each vendor pack in the temporary folder (`tb_common.refdata.opened`,
+`mkdtemp`). It now unpacks in `TB_REFDATA_UNPACK_DIR`, else beside the kept packs (`deploy/refdata`, the disk that
+holds them), the shape the installer and the update use (`TMPDIR=/data/objects`);
+`test_reload_refdata_unpacks_beside_the_kept_packs` pins it. On a compose box `trialbox restore` runs on the host, so
+this was not a container tmpfs there; it keeps a several-GB unpack off a host or a job whose /tmp is a tmpfs.
+
+Not proven (no Docker daemon here): that the streamed backup completes on a box and the restic restore step passes;
+the next CI box rehearsal on the pushed head is the proof. Update's rollback still writes the restore's plain SQL in
+db's tmpfs `/tmp` (H10G1-05).
+
 ## Findings
 
 - **H10G1-01** (Medium): the adapter and the orchestrator cannot run read-only. The HL7 validator writes `.index.json`
@@ -92,3 +128,7 @@ is the proof (steps `offline` and `after-restart`), and its later steps have sti
   loaded` line) goes on, and an offline box then has no trials; the box rehearsal noticed only at its later check (CI
   run 44458900188). The load itself is fixed here (a one-off run, not `compose cp`); making the failure a FAIL line is
   left open, as it changes what install reports.
+- **H10G1-05** (Medium): update's rollback (`tools/trialbox/update.py` `RESTORE_SH`, `mktemp` in db) writes the
+  dump's whole plain SQL script into db's tmpfs `/tmp`, which counts against db's memory limit (`TB_MEM_DB`, 4g by
+  default): a database whose script outgrows it can stop db during a rollback. It works (a write through `exec`, not
+  a `cp`); streaming it needs a way to fail the single transaction when `pg_restore` fails mid-stream. Open.

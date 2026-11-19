@@ -143,13 +143,27 @@ _CP_IN = re.compile(r"""\bcp\b[^\n]*?\s["']?([a-z][a-z-]+):/""")
 _CP_IN_PY = re.compile(r"""_c\(\s*"cp"\s*,[^\n]*?"([a-z][a-z-]+):/""")
 
 
+def _cp_sources() -> list[str]:
+    """Every file that drives the box's containers: the installer and the deploy scripts, the update, backup,
+    restore and support-bundle tools (``tools/trialbox``), the drills and the box helper."""
+    root = DEPLOY.parent
+    files = [*sorted((root / "deploy").glob("*.sh")), *sorted((root / "tools" / "trialbox").glob("*.py")),
+             *sorted((root / "tools" / "box").glob("*.py"))]  # fmt: skip
+    files += [root / "tools" / f for f in ("restore_drill.py", "backup_drill.py", "update_drill.py")]
+    rels = [str(f.relative_to(root)) for f in files if f.is_file()]
+    assert {"deploy/install.sh", "tools/trialbox/update.py", "tools/trialbox/backup_schedule.py",
+            "tools/trialbox/backup.py", "tools/trialbox/restore_drill.py", "tools/restore_drill.py"} <= set(rels)
+    return rels
+
+
 def test_nothing_copies_a_file_into_a_read_only_service() -> None:
     base = _merge((BASE,))
     ro = {s for s, body in base.items() if body.get("read_only") is True}
     assert "criteria-compiler" in ro
     root = DEPLOY.parent
     found = []
-    for rel, rx in (("deploy/install.sh", _CP_IN), ("tools/trialbox/update.py", _CP_IN_PY)):
+    for rel in _cp_sources():
+        rx = _CP_IN if rel.endswith(".sh") else _CP_IN_PY
         for line in (root / rel).read_text(encoding="utf-8").splitlines():
             m = rx.search(line)
             if m and m.group(1) in ro and not re.search(r"\bcp\s+[\"']?" + re.escape(m.group(1)) + ":", line):
@@ -164,6 +178,62 @@ def test_nothing_copies_a_file_into_a_read_only_service() -> None:
     out = '"${COMPOSE[@]}" cp caddy:/data/caddy/pki/authorities/local/root.crt deploy/secrets/tls/caddy-root.crt'
     m = _CP_IN.search(out)
     assert m is None or re.search(r"\bcp\s+[\"']?" + re.escape(m.group(1)) + ":", out)
+
+
+#: container -> host copies (``compose cp SERVICE:PATH HOST``): ``docker cp`` reads a container's layers and volumes,
+#: not a tmpfs mount, so a copy out of a hardened service's tmpfs /tmp finds nothing (box rehearsal, CI run
+#: 44469191433: the nightly's ``cp db:/tmp/tb-backup/.``, "Could not find the file /tmp/tb-backup/.").
+_CP_OUT = re.compile(r"""\bcp\s+(?:-[a-zA-Z]+\s+)*["']?([a-z][a-z-]+):([^\s"']+)""")
+_CP_OUT_PY = re.compile(r'_c\(\s*"cp"\s*,\s*f?"([a-z][a-z-]+):([^"]*)"')
+_CONST = re.compile(r"""^([A-Z][A-Z0-9_]*)\s*(?::\s*str\s*)?=\s*"([^"]*)"\s*(?:#.*)?$""", re.M)
+
+
+def _tmpfs(body: dict[str, Any]) -> list[str]:
+    t = body.get("tmpfs") or []
+    return [str(x).split(":", 1)[0] for x in ([t] if isinstance(t, str) else t)]
+
+
+def _on_tmpfs(path: str, mounts: list[str]) -> bool:
+    """Whether ``path`` is on one of ``mounts``; a path that is not a literal (a variable left in it) counts as
+    one: the guard cannot tell, so it names the line."""
+    if "{" in path or "$" in path or not path.startswith("/"):
+        return True
+    return any(path == m or path.startswith(m.rstrip("/") + "/") for m in mounts)
+
+
+def _copies_out_of_a_tmpfs(rel: str, text: str, tmpfs: dict[str, list[str]]) -> list[str]:
+    consts = dict(_CONST.findall(text))
+    found = []
+    for line in text.splitlines():
+        for m in (_CP_OUT if rel.endswith(".sh") else _CP_OUT_PY).finditer(line):
+            svc, path = m.group(1), m.group(2)
+            if svc not in tmpfs:
+                continue
+            path = re.sub(r"\{([A-Z][A-Z0-9_]*)\}", lambda c: consts.get(c.group(1), c.group(0)), path)
+            if _on_tmpfs(path, tmpfs[svc]):
+                found.append(f"{rel}: {line.strip()}")
+    return found
+
+
+def test_nothing_copies_a_file_out_of_a_tmpfs() -> None:
+    """10G-1: no copy out of a service from a path on its tmpfs, in any file that drives the box (the nightly backup,
+    the restore and drills, update's snapshot and rollback, the support bundle, the installer). The backup streams
+    instead (``exec -T`` to the host's file)."""
+    base = _merge((BASE,))
+    tmpfs = {s: _tmpfs(body) for s, body in base.items() if _tmpfs(body)}
+    assert "/tmp" in tmpfs["db"] and "/var/run/postgresql" in tmpfs["db"]
+    root = DEPLOY.parent
+    found = []
+    for rel in _cp_sources():
+        found += _copies_out_of_a_tmpfs(rel, (root / rel).read_text(encoding="utf-8"), tmpfs)
+    assert found == []
+    # negative: the nightly's line the rehearsal caught is found, through its module constant
+    bad = 'CONTAINER_SPOOL = "/tmp/tb-backup"\nself.box.run(self.box._c("cp", f"db:{CONTAINER_SPOOL}/.", str(work)))\n'
+    assert len(_copies_out_of_a_tmpfs("tools/trialbox/backup_schedule.py", bad, tmpfs)) == 1
+    assert _copies_out_of_a_tmpfs("x.sh", '  "${COMPOSE[@]}" cp db:/tmp/x.sql "$OUT/"', tmpfs)
+    # a copy out of a volume is not one (caddy's root certificate, install.sh)
+    out = '"${COMPOSE[@]}" cp caddy:/data/caddy/pki/authorities/local/root.crt deploy/secrets/tls/caddy-root.crt'
+    assert not _copies_out_of_a_tmpfs("x.sh", out, {**tmpfs, "caddy": ["/tmp"]})
 
 
 def test_the_lint_names_a_service_without_the_controls() -> None:
