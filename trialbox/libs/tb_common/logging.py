@@ -26,7 +26,7 @@ import traceback
 import warnings
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TextIO
 
 #: 10C-1c: the identifier rules are the privacy guard's (``tb_common.phi_guard.note_spans``: names, phone numbers,
 #: chart, ID and insurance numbers, dates of birth, addresses, email addresses, bed and room numbers, in Traditional
@@ -280,7 +280,14 @@ class JsonFormatter(logging.Formatter):
             return failed_line(self.service, record)
 
 
-def _log_warning(message: Warning | str, category: type[Warning], filename: str, lineno: int, *_a: Any) -> None:
+def _log_warning(
+    message: Warning | str,
+    category: type[Warning],
+    filename: str,
+    lineno: int,
+    file: TextIO | None = None,
+    line: str | None = None,
+) -> None:
     """A warning as its category and place: its text can quote a value (a serializer warning prints the field's)."""
     logging.getLogger("py.warnings").warning("%s at %s:%d", category.__name__, filename, lineno)
 

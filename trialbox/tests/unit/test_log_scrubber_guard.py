@@ -221,7 +221,7 @@ def test_an_uncaught_exception_and_a_warning_go_through_the_logger(capsys: pytes
         try:
             raise RuntimeError("患者 山田 太郎 090-1234-5678")
         except RuntimeError:
-            sys.excepthook(*sys.exc_info())  # type: ignore[arg-type]
+            sys.excepthook(*sys.exc_info())
         t = threading.Thread(target=lambda: (_ for _ in ()).throw(KeyError("A123456789")))
         t.start()
         t.join()
@@ -249,7 +249,7 @@ class _SetUp:
 
 # ------------------------------------------------------------------------------------------------ failure and time
 def _fixed(line: str) -> dict[str, Any]:
-    rec = json.loads(line)
+    rec: dict[str, Any] = json.loads(line)
     assert rec["msg"] == "scrub failed" and set(rec) == {"ts", "level", "service", "logger", "msg"}, rec
     return rec
 
