@@ -1,0 +1,12 @@
+{
+ "note": "Seven tests named (the card asked for ten; no more were found with evidence). basis shown: the product code was broken by hand in the worktree (sed on the line, not committed, restored with git checkout) and the named test still passed; the output is in 'evidence'. hypothesis: read from the test, not run.",
+ "tests": [
+  {"test": "tests/unit/test_cascade_units.py::test_span_must_verify_text_window_and_date", "why": "never checks the span's start or end", "change": "assert span[\"end\"] - span[\"start\"] == len(\"on dialysis since 2025\")", "basis": "shown", "evidence": "judge.py:336 start + len(q) to start - len(q): 1 passed"},
+  {"test": "tests/unit/test_one_rule.py::test_a_proposed_fact_on_a_window_bound_counts", "why": "every case's window ends on the index date", "change": "add a case whose window ends after the index date", "basis": "shown", "evidence": "proposed.py:175 index_date + timedelta to index_date - timedelta: 5 passed"},
+  {"test": "tests/unit/test_one_rule.py::test_a_proposed_birth_date_or_sex_matters_to_a_derived_value", "why": "asks eGFR and a lab value only; never a sex criterion", "change": "for what == \"sex\", assert p.refs(<a Female criterion>, \"P\", INDEX, False) == [\"f-demo\"]", "basis": "shown", "evidence": "proposed.py:159 f.code == \"sex\" to !=: 2 passed"},
+  {"test": "tests/unit/test_code_coverage.py::test_coverage_counts_and_windows", "why": "no patient has a row of another domain before the matching one", "change": "give UNK-OLD a medication row before its condition row", "basis": "shown", "evidence": "coverage.py:146 continue to break: 1 passed"},
+  {"test": "tests/unit/test_cascade_exclusion_rules.py::test_a_not_met_below_the_confidence_floor_is_unknown", "why": "tries a not met at 0.74 and 0.95, never a met under the floor", "change": "add a met at 0.74 and assert its tier is not strong", "basis": "shown", "evidence": "engine.py:1417 conf is not None to conf is None: 1 passed"},
+  {"test": "tests/unit/test_safety_properties.py::test_p4_a_fact_that_would_change_an_answer_once_confirmed_already_makes_it_unknown", "why": "assert not missed holds when every evaluated answer is unknown", "change": "also assert some evaluated answers are decided", "basis": "hypothesis", "evidence": ""},
+  {"test": "tests/unit/test_cascade_pipeline.py::test_end_to_end_passes", "why": "all(e2e.checks.values()) holds for no checks; the assert e2e.passed before it carries the test", "change": "assert e2e.checks and all(e2e.checks.values())", "basis": "hypothesis", "evidence": ""}
+ ]
+}

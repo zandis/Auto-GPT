@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from tb_common.dates import printed_in
 from tb_common.deterministic import normalize_ooxml
 
 from orchestrator.reports.common import ReportMeta
@@ -44,10 +45,11 @@ def render(
         raise FileNotFoundError(f"application template {template} not found")
 
     def val(v: Any) -> Any:
-        """Every template field is ``{{r …}}``: RichText escapes the text; unknowns are highlighted [待補]."""
+        """Every template field is ``{{r …}}``: RichText escapes the text; unknowns are highlighted [待補]. 10C-13: each
+        day in a field (a date, or one inside ``陽性（2026-10-01）``) in the site's printed style; western: as given."""
         if v in (None, "", MISSING):
             return RichText(MISSING, highlight="yellow", bold=True)
-        return RichText(str(v))
+        return RichText(printed_in(str(v), meta.dates))
 
     def rows(items: list[dict[str, str]]) -> list[dict[str, Any]]:
         return [{k: val(v) for k, v in it.items()} for it in items]
@@ -73,7 +75,7 @@ def render(
         "tb_screen": val(facts.get("tb_screen")),
         "exclusions": [{"label": val(lbl), "status": val(st)} for lbl, st in exclusions],
         "course": val(course),
-        "footer": val(meta.footer),
+        "footer": RichText(meta.footer),  # an identifier line (snapshot id): kept as stored
     }
     doc = DocxTemplate(str(path))
     doc.render(ctx)

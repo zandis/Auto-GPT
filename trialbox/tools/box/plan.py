@@ -343,7 +343,8 @@ def memory_caps(ram_gib: float, profile: str, deploy: Path = DEPLOY) -> tuple[di
     if profile == "gb10":
         return {}, []
     files = [deploy / "docker-compose.yml", deploy / "docker-compose.identity.yml"]
-    overlay = {"rtxpro6000": "rtxpro6000", "rtx5090": "rtx5090", "rtx4090": "rtx5090"}.get(profile)
+    # dgpu48: the UNMEASURED 48 GB draft (card 24-5): arithmetic only, never detected, refused by install.sh
+    overlay = {"rtxpro6000": "rtxpro6000", "rtx5090": "rtx5090", "rtx4090": "rtx5090", "dgpu48": "dgpu48"}.get(profile)
     if overlay:
         files.append(deploy / f"docker-compose.{overlay}.yml")
     var, fixed = compose_caps(files)
@@ -532,6 +533,7 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         **({"country": a.country} if a.country else {}),
         "tz": a.tz,
         "locale": a.language,
+        **{k: v for k, v in (("printed_dates", a.printed_dates), ("year_basis", a.year_basis)) if v},  # 10C-13/15
         "contact": email,
         "internal_domains": [domain],
         "intake_address": f"trialbox@{domain}",

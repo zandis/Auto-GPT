@@ -516,6 +516,8 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "firstrun.country.": _values("tb_common.site_country", "COUNTRIES"),
     "firstrun.retention.": _values("tb_common.retention", "OVERRIDABLE"),
     "firstrun.ssmix2_order_numbers.": _values("tb_common.site_country", "SSMIX2_ORDER_NUMBERS"),
+    "firstrun.printed_dates.": _values("tb_common.dates", "PRINTED_STYLES"),  # 10C-13
+    "firstrun.year_basis.": _values("tb_common.dates", "YEAR_BASES"),  # 10C-15
     # J-2 (D-1221): a person's one state, every name and the state of facts that could not be read
     "person.state.": _union(_values("console.person_state", "STATES"), lambda: ["unknown"]),
 }
