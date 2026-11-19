@@ -39,7 +39,7 @@ def test_keep_changes_nothing_on_any_page_but_the_two_stay_pages(box: dict[str, 
     _done_screen(box["backend"], job_id)
     audit_dir: Path = box["backend"].audit_dir
     routes = sorted({r.path for r in box["app"].routes if isinstance(r, APIRoute) and "GET" in (r.methods or ())})
-    assert len(routes) > 150 and STAY_PAGES == {"/help", "/"}
+    assert len(routes) > 150 and {"/help", "/"} == STAY_PAGES
     differ = []
     stay = {}
     for name, pw in (("viewer", ""), ("crc", PW)):
