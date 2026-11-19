@@ -806,7 +806,7 @@ def _fill(answers: Path, out: Path, *, lang: str, check_only: bool) -> int:
     except ProfileError:  # a fault of the form: its own output must pass the loader
         return _refuse([sq.Problem("loader", str(out))], lang)
     except OSError as exc:
-        why = exc.strerror or type(exc).__name__
+        why = os.strerror(exc.errno) if exc.errno is not None else type(exc).__name__  # by its number, not its text
         return _refuse([sq.Problem("write_failed", str(out), {"why": why})], lang)
     if above != out.parent:
         print(sq.text(lang, "parents", folder=str(out.parent)))
