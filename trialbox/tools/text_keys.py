@@ -498,8 +498,6 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
         _assigned("services/datacore/lifecycle.py", "visit_status", "status"),
     ),
     "life.state.": _values("datacore.lifecycle", "STATES"),
-    # D-1253: the kinds of a night's record-id counts on the data-ops batch page
-    "dataops.ids.kind.": lambda: [k for k, _ in importlib.import_module("console.dataops_page").ID_COUNTS],
     "life.reason.sf.": _values("datacore.lifecycle", "SCREEN_FAIL_REASONS"),
     "life.reason.wd.": _values("datacore.lifecycle", "WITHDRAW_REASONS"),
     "life.anchor.": _values("datacore.lifecycle", "ANCHORS"),
@@ -508,6 +506,8 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "life.daysoff.why.": _values("tb_common.workdays", "DAY_OFF_KINDS"),
     "dataops.layer.row.": _values("console.country_profile", "KEYS"),  # 10C-25 (D-1250)
     "dataops.layer.source.": _values("console.country_profile", "SOURCES"),
+    # D-1253: the kinds of a night's record-id counts on the data-ops batch page
+    "dataops.ids.kind.": lambda: [k for k, _ in importlib.import_module("console.dataops_page").ID_COUNTS],
     "life.daysoff.end.": lambda: ("soon", "past"),  # Calendar.runs_out
     "registry.status.": _values("orchestrator.candidates", "STATUSES"),
     "sstate.": _values("console.sitestore", "STUDY_STATES"),
