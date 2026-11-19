@@ -555,7 +555,7 @@ class Lifecycle:
                 once.get("sl_crit_version", "").strip())  # fmt: skip
         if once.get("sl_approached") == "1":
             put("approached", once.get("sl_date", ""), "form:tb_screening_log")
-        if once.get("ic_date") and not self._assent_declined(once):
+        if once.get("ic_date"):
             put("consented", once["ic_date"], "form:tb_consent")
         if once.get("en_date") and once.get("en_eligible") == "1":
             put("enrolled", once["en_date"], "form:tb_enrolment")
@@ -589,26 +589,36 @@ class Lifecycle:
                 out[want] = {"day": "", "source": "screening_log", "reason": reason, "note": ""}
         return out
 
-    @staticmethod
-    def _assent_declined(once: dict[str, str]) -> bool:
-        """10C-19 (D-1232): with the setting on, a consent form that records the assent as declined is not taken as
-        consent to proceed; a person's step to "consented", with the reason in its note, is (audited as every step)."""
+    def assent_hold(self, study: str, record: str) -> bool:
+        """10C-19 (D-1232): with the setting on, the consent in force records the participant's assent as declined
+        and no person has since moved the participant on with a reason. While it holds, no form and no screening-log
+        row moves the participant to "consented" or any later step of the main line, whatever the order of the saves
+        (a consent saved first and the assent declined later, or a re-consent that declines); only a person's step
+        with the reason in its note does (audited ``life.step`` as every step), and that step ends the hold. A later
+        consent with the assent obtained ends it too (the rules read the consent in force)."""
         from datacore import proxy_consent
 
-        return proxy_consent.is_on() and proxy_consent.declined(once)
-
-    def assent_declined(self, study: str, record: str) -> bool:
-        from datacore import proxy_consent
-
-        return proxy_consent.is_on() and proxy_consent.declined(self.dc.record(study, record, ""))
+        if not proxy_consent.is_on():
+            return False
+        rows = self.dc.values(study, record)
+        vals: dict[str, dict[str, str]] = {}
+        for r in rows:
+            vals.setdefault(str(r["event"]), {})[str(r["field"])] = str(r["value"])
+        cs = consents_of(vals)
+        if not proxy_consent.declined_in(vals, cs):
+            return False
+        ev = proxy_consent.in_force(cs)
+        since = max((str(r["changed_at"]) for r in rows if str(r["event"]) == ev
+                     and str(r["field"]) in ("ic_assent", "ic_assent_why", "ic_date")), default="")  # fmt: skip
+        forward = LINE[LINE.index("consented") :]
+        return not any(st["source"] == "manual" and str(st["new"]) in forward and str(st["note"] or "").strip()
+                       and str(st["at"]) >= since for st in self.steps(study, record))  # fmt: skip
 
     def consent_missing(self, study: str, record: str, state: str) -> str:
         """T-516 (LIFE-019): the form that shows enrolment or a visit while no consent form exists and the subject is
         not yet consented, else "". The subject page and the participants list raise it as an alert."""
         if state not in LINE or LINE.index(state) >= LINE.index("consented"):
             return ""
-        if self.assent_declined(study, record):
-            return ""  # the form is there; the declined assent is the consent record's own alert (D-1232)
         ev = self.evidence(study, record)
         if "consented" in ev:
             return ""
@@ -638,10 +648,12 @@ class Lifecycle:
         if here and not cs and state in (*ON_STUDY, "completed", "withdrawn"):
             flags.append({"flag": "no_consent_form", "day": "", "event": "", "consent_day": ""})
         have = [int(m.group(1)) for ev in vals if (m := RC_EVENT.match(ev))]
-        out = {"consents": cs, "last": cs[-1] if cs else None, "flags": flags, "here": here,
-               "next_rc": f"rc{max(have, default=0) + 1}"}  # fmt: skip
+        out: dict[str, Any] = {"consents": cs, "last": cs[-1] if cs else None, "flags": flags, "here": here,
+                               "next_rc": f"rc{max(have, default=0) + 1}"}  # fmt: skip
         if proxy_consent.is_on():  # 10C-19 (D-1232): off, the record is as before (no key)
             out["proxy"] = proxy_consent.review(vals, cs, self.consent_age_rule(study), by)
+            if out["proxy"] is not None:  # the participant is held until a person goes on with a reason
+                out["proxy"]["hold"] = self.assent_hold(study, record)
         return out
 
     # ------------------------------------------------------------------ consent by a representative, assent (D-1232)
@@ -680,6 +692,16 @@ class Lifecycle:
         held: list[dict[str, str]] = []
         today = at[:10]
         line_target = max((LINE.index(s) for s in ev if s in LINE), default=0)
+        stop = LINE.index("consented")
+        if line_target >= stop and self.assent_hold(study, record):
+            # 10C-19 (D-1232): a declined assent in force: no form or log row moves the participant to consented or
+            # beyond; the hold names the next step and why (a person's step with a reason moves on)
+            nxt = max(LINE.index(state) + 1, stop) if state in LINE else stop
+            if state in LINE and nxt < len(LINE) and LINE.index(state) < line_target:
+                held.append(
+                    {"state": LINE[nxt], "why": "assent_declined", "current": state, "source": "form:tb_consent"}
+                )
+            line_target = min(line_target, max(stop - 1, LINE.index(state) if state in LINE else 0))
 
         def day_for(s: str, fallback: str) -> str:
             return (ev.get(s) or {}).get("day") or fallback
@@ -694,9 +716,7 @@ class Lifecycle:
                 if implied and s == "consented" and src.startswith("form:"):
                     # T-516 (LIFE-019, D-385): a TrialBox form never implies consent. The study records consent here,
                     # so an enrolment or a visit without a consent form holds the subject and says why
-                    hold = "assent_declined" if self.assent_declined(study, record) else "consent_missing"
-                    held.append({"state": "consented", "why": hold, "current": state,
-                                 "source": src})  # fmt: skip
+                    held.append({"state": "consented", "why": "consent_missing", "current": state, "source": src})
                     break
                 d = day_for(s, by_ev["day"] or today)
                 note = (f"implied by {src}" if implied else (e or {}).get("note", ""))[:300]

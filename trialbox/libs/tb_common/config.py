@@ -464,7 +464,9 @@ DECLARED: dict[str, Declared] = {
     "TB_COMPLETE_DIR": Declared("path", "", "complete-run tool: output folder"),
     "TB_COMPOSE": Declared("str", "", "the docker compose command line of the host tools"),
     "TB_CONSENT_PROXY": Declared(
-        "str", "", "consent by a representative and assent on the consent record: on/off; unset, on in Japan (D-1232)"
+        "str",
+        "",
+        "consent record: a representative and assent; on, else off; the box's plan sets it for Japan (D-1232)",
     ),
     "TB_CONSOLE_ADMIN_EMAIL": Declared("str", "", "console: first admin account"),
     "TB_CONSOLE_ADMIN_PASSWORD_FILE": Declared("path", "", "console: file with the first admin's password"),

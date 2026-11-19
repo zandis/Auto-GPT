@@ -23,6 +23,7 @@ import re
 from typing import Any
 from urllib.parse import quote, urlencode
 
+from datacore import proxy_consent
 from datacore.branching import css_rules
 from datacore.forms import fields_of, titles_of
 from datacore.lifecycle import icf_check
@@ -70,13 +71,16 @@ def record_key(record: str) -> str:
 def form_view(q: dict[str, Any]) -> dict[str, Any]:
     """A Questionnaire as the entry page shows it; labels in every language (the template picks the page's)."""
     fields = []
-    for f in fields_of(q):
+    every = fields_of(q)
+    # 10C-19 (D-1232): with the coded relation on the form, the earlier free-text relation is shown, never entered
+    kept = set(proxy_consent.READ_ONLY) if any(f.name == "ic_lar_rel" for f in every) else set()
+    for f in every:
         fields.append({
             "name": f.name, "kind": f.kind, "label": f.label or f.name, "labels": f.labels,
             "options": [{"code": c, "label": d, "labels": {g: f.option_labels.get(g, {}).get(c, "")
                                                          for g in f.option_labels}} for c, d in f.options.items()],
             "required": f.required, "vmin": f.vmin, "vmax": f.vmax, "branching": f.branching,
-            "entered": f.kind in ENTERED,
+            "entered": f.kind in ENTERED and f.name not in kept,
         })  # fmt: skip
     return {"name": q.get("name", ""), "titles": titles_of(q), "fields": fields}
 

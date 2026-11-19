@@ -1,7 +1,7 @@
 """10C-19 (JP-20, D-1232): consent by a representative (代諾者) and the participant's assent (アセント) on the consent
 record, on the console over the orchestrator's real data-core and lifecycle API. All data is synthetic.
 
-With the setting on (``TB_CONSENT_PROXY=on``; unset, on in Japan): a minor whose consent names no representative
+With the setting on (``TB_CONSENT_PROXY=on``, which the box's plan writes for a Japanese site; unset is off): a minor whose consent names no representative
 warns, one in the study's assent ages with no assent warns, a declined assent is an alert and the consent form is not
 taken as consent to proceed (only a step with a reason is), an adult is unaffected; the warnings show on the
 participant's page, the participants list and the screening log, and the log's XLSX has five columns at the end. With
@@ -15,6 +15,7 @@ import json
 import re
 import shutil
 import subprocess
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,7 @@ from tests.console.test_cjk_layout import PHONE, SCRIPT, _node_playwright
 from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
 from tests.console.test_lifecycle_pages import PW, _save, lb  # noqa: F401 - the fixture is used by name
 from tests.console.test_role_pages import _csrf
+from tests.console.test_team_pages import _events
 
 
 def _orch(lb: dict[str, Any], name: str) -> list[dict[str, Any]]:  # noqa: F811
@@ -58,25 +60,49 @@ def _lang(c: Any, csrf: str, lang: str) -> None:
     c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
 
 
-def test_the_setting_follows_the_japan_profile() -> None:
-    assert proxy_consent.is_on({"TB_TZ": "Asia/Tokyo"}) is True
-    assert proxy_consent.is_on({"TB_TZ": "Asia/Taipei"}) is False
-    assert proxy_consent.is_on({"TB_TZ": "Asia/Tokyo", proxy_consent.ENV: "off"}) is False
+def test_the_setting_follows_the_sites_country_not_its_zone() -> None:
+    from tb_common import box_answers as ba
+    from tb_common import site_country
+
+    from tests.unit.test_box_plan import _hw
+    from tools.box import plan as bp
+
+    # never inferred from the zone: an installed Japanese box keeps today's behaviour until someone sets it
+    assert proxy_consent.is_on({"TB_TZ": "Asia/Tokyo"}) is False
     assert proxy_consent.is_on({"TB_TZ": "Asia/Taipei", proxy_consent.ENV: "on"}) is True
-    # off, the built-in forms are the forms before the card; on, the coded relation replaces the free text
+    assert proxy_consent.is_on({proxy_consent.ENV: "off"}) is False
+    # the Japan profile is the country's data (10K-1); the box's plan writes the setting for Japan only
+    assert [c for c in site_country.COUNTRIES if site_country.defaults(c).consent_proxy] == ["jp"]
+    raw = {
+        "site_name": "Hospital A",
+        "language": "ja",
+        "box_name": "box1",
+        "backup": {"kind": "later"},
+        "owner": {"full_name": "Owner", "username": "owner", "email": "owner@hospa.test"},
+        "source": "later",
+    }
+    jp, problems = ba.parse({**raw, "country": "jp", "tz": "Asia/Tokyo"})
+    assert problems == [] and jp is not None and bp.plan(jp, _hw()).env_extra[proxy_consent.ENV] == "on"
+    for extra in ({"country": "tw", "tz": "Asia/Taipei"}, {"tz": "Asia/Tokyo"}):  # Taiwan; no country at all
+        a, problems = ba.parse({**raw, **extra})
+        assert problems == [] and a is not None and proxy_consent.ENV not in bp.plan(a, _hw()).env_extra
+    # off, the built-in forms are the forms before the card; on, the five items are added and the earlier free-text
+    # relation stays (read only, never required); no free text is added
     off = [f.name for f in builtin.fields()]
-    on = [f.name for f in builtin.fields(proxy=True)]
+    on = {f.name: f for f in builtin.fields(proxy=True)}
     assert not set(proxy_consent.FIELDS) & set(off) and "ic_lar_relation" in off
-    assert set(proxy_consent.FIELDS) <= set(on) and "ic_lar_relation" not in on
-    consent = [n for n in on if n.startswith("ic_")]
-    assert consent[-len(proxy_consent.FIELDS) :] == list(proxy_consent.FIELDS)  # at the end of the consent form
+    assert set(proxy_consent.FIELDS) <= set(on) and not on["ic_lar_relation"].required
+    assert all(on[n].kind != "text" for n in proxy_consent.FIELDS if n != "ic_age")  # codes and a date only
+    assert on["ic_age"].kind == "integer"
 
 
 def test_a_minor_without_a_representative_warns(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
     c, csrf, no, _ = _ready(lb, monkeypatch)
     form = c.get(f"/studies/GZQO/entry?record={no}&form=tb_consent").text
     assert 'data-testid="proxy-form-note"' in form and "Never a name, address or contact" in form
-    assert 'data-testid="f-ic_lar_rel-1"' in form and 'data-testid="f-ic_lar_relation"' not in form
+    assert 'data-testid="f-ic_lar_rel-1"' in form and "ic_lar_other" not in form
+    assert re.search(r'id="f_ic_lar_relation"[^>]* disabled', form)  # the earlier free text: shown, never entered
+    assert "TrialBox holds no date of birth" in form
     _save(c, csrf, no, "tb_consent", {**CONSENT, "ic_age": "15", "ic_lar": "0"})
     page = c.get(f"/studies/GZQO/subjects/{no}").text
     w = re.search(
@@ -129,12 +155,65 @@ def test_in_the_assent_ages_without_assent_warns(lb: dict[str, Any], monkeypatch
     bad = c.post("/studies/GZQO/setup/consent-ages",
                  data={"csrf": _csrf(setup), "majority": "18", "assent_from": "12", "assent_to": "18"})  # fmt: skip
     assert bad.status_code == 400 and "below the age of majority" in bad.text
-    # no age on the consent form: the age at enrolment, in whole years, and the record says which
+    # no age at consent: a warning, never a guess from a later age (the enrolment age is never read)
     _save(c, csrf, no, "tb_consent", {**CONSENT, "ic_age": "", "ic_lar": "1", "ic_lar_rel": "2"},
-          reason="age moved to the enrolment form")  # fmt: skip
-    _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-10-07", "en_eligible": "1", "en_age": "13"})
+          reason="age not on the signed form")  # fmt: skip
+    _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-10-07", "en_eligible": "1", "en_age": "18"})
     page = c.get(f"/studies/GZQO/subjects/{no}").text
-    assert "age 13 at enrolment (whole years)" in page and 'data-testid="proxy-w-no_assent"' in page
+    assert 'data-testid="proxy-w-no_age"' in page and "age at consent not recorded" in page
+    assert "proxy-w-no_assent" not in page and "proxy-w-no_representative" not in page
+
+
+@pytest.mark.parametrize(("majority", "lo", "hi"), [("30", "0", "29"), ("1", "0", "0"), ("18", "12", "18"),
+                                                     ("18", "-1", "10"), ("15", "7", "14"), ("22", "7", "17")])  # fmt: skip
+def test_the_ages_are_bounded(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+                              majority: str, lo: str, hi: str) -> None:  # fmt: skip
+    c, _, _, _ = _ready(lb, monkeypatch)
+    setup = c.get("/studies/GZQO/setup").text
+    r = c.post("/studies/GZQO/setup/consent-ages",
+               data={"csrf": _csrf(setup), "majority": majority, "assent_from": lo, "assent_to": hi})  # fmt: skip
+    assert r.status_code == 400 and not _orch(lb, "life.consent_ages")
+
+
+def test_the_ages_are_whole_numbers_and_not_saved_while_off(lb: dict[str, Any],  # noqa: F811
+                                                             monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    c, csrf, _, _ = _ready(lb, monkeypatch)
+    tok = c.post("/api/v1/session", json={"username": "crc", "password": PW}).json()["token"]
+    auth = {"Authorization": f"Bearer {tok}"}
+    for body in ({"majority": "18", "assent_from": 7, "assent_to": 17}, {"majority": 18.5, "assent_from": 7,
+                                                                         "assent_to": 17}):  # fmt: skip
+        assert c.post("/api/v1/studies/GZQO/setup/consent-ages", json=body, headers=auth).status_code == 422
+    # the orchestrator itself takes no text for a number either
+    r = lb["oc"].put("/studies/GZQO/consent-ages", json={"majority": "18", "assent_from": 7, "assent_to": 17})
+    assert r.status_code == 422
+    monkeypatch.setenv(proxy_consent.ENV, "off")
+    setup = c.get("/studies/GZQO/setup").text
+    assert "consent-ages" not in setup
+    r = c.post("/studies/GZQO/setup/consent-ages",
+               data={"csrf": csrf, "majority": "18", "assent_from": "7", "assent_to": "17"})  # fmt: skip
+    assert r.status_code == 409
+    ok = {"majority": 18, "assent_from": 7, "assent_to": 17}
+    assert c.post("/api/v1/studies/GZQO/setup/consent-ages", json=ok, headers=auth).status_code == 409
+    assert lb["oc"].put("/studies/GZQO/consent-ages", json=ok).status_code == 409
+    assert not _orch(lb, "life.consent_ages")
+
+
+def test_the_ages_are_refused_without_the_right_or_the_page_token(lb: dict[str, Any],  # noqa: F811
+                                                                   monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    c, _, _, _ = _ready(lb, monkeypatch)
+    ok = {"majority": "18", "assent_from": "7", "assent_to": "17"}
+    assert c.post("/studies/GZQO/setup/consent-ages", data={"csrf": "not-the-token", **ok}).status_code == 400
+    lb["users"].create("viewer3", "viewer", PW, "viewer3@hospa.test")
+    v, vcsrf = login(lb["app"], "viewer3", PW)
+    path = "/studies/GZQO/setup/consent-ages"
+    assert v.post(path, data={"csrf": vcsrf, **ok}).status_code == 403
+    tok = c.post("/api/v1/session", json={"username": "viewer3", "password": PW}).json()["token"]
+    r = c.post("/api/v1" + path, json={"majority": 18, "assent_from": 7, "assent_to": 17},
+               headers={"Authorization": f"Bearer {tok}"})  # fmt: skip
+    assert r.status_code == 403
+    denied = [e["detail"]["action"] for e in _events(lb, "console.denied") if "consent-ages" in e["detail"]["action"]]
+    assert denied == [path, "/api/v1" + path]  # the console refuses, and says so, before the orchestrator is asked
+    assert not _orch(lb, "life.consent_ages")
 
 
 def test_a_declined_assent_is_shown_and_not_taken_as_consent(
@@ -151,6 +230,7 @@ def test_a_declined_assent_is_shown_and_not_taken_as_consent(
     assert 'data-state="contacted"' in page  # the consent form did not move the participant on
     assert 'data-testid="consent-missing"' not in page and "assent not obtained: declined" in page
     assert 'data-testid="go-consented-declined"' in page and 'data-testid="go-consented"' not in page
+    assert 'data-testid="step-note-required"' in page and "Note (required: the reason to go on" in page
     # an enrolment does not imply it either: the participant is held, and the reason is the declined assent
     _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-10-07", "en_eligible": "1"})
     assert 'data-state="contacted"' in c.get(f"/studies/GZQO/subjects/{no}").text
@@ -168,6 +248,65 @@ def test_a_declined_assent_is_shown_and_not_taken_as_consent(
               == "manual"]  # fmt: skip
     assert manual[-1]["steps"] == [["approached", "consented"]] and manual[-1]["source"] == "manual"
     assert 'data-testid="proxy-w-assent_declined"' in r.text  # still shown, prominently
+
+
+def _later(lb: dict[str, Any], minutes: int = 5) -> None:  # noqa: F811
+    lb["clock"]["now"] = lb["clock"]["now"] + timedelta(minutes=minutes)
+
+
+def _state(c: Any, no: str) -> str:
+    m = re.search(r'data-state="([a-z_]+)" data-testid="life-state"', c.get(f"/studies/GZQO/subjects/{no}").text)
+    assert m
+    return m.group(1)
+
+
+def test_a_declined_assent_saved_after_the_consent_holds_every_later_step(lb: dict[str, Any],  # noqa: F811
+                                                                         monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """The order of the saves does not matter: consent first (the participant is consented), the assent declined in a
+    later save, then an enrolment form: the participant stays consented until a person goes on with a reason."""
+    c, csrf, no, _ = _ready(lb, monkeypatch)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, "ic_age": "12", "ic_lar": "1", "ic_lar_rel": "1"})
+    assert _state(c, no) == "consented"
+    _later(lb)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, "ic_age": "12", "ic_lar": "1", "ic_lar_rel": "1", "ic_assent": "0",
+                                       "ic_assent_why": "3"}, reason="the child said no")  # fmt: skip
+    _later(lb)
+    _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-10-07", "en_eligible": "1"})
+    assert _state(c, no) == "consented"  # held: the enrolment form does not move the participant on
+    page = c.get(f"/studies/GZQO/subjects/{no}").text
+    assert 'data-testid="proxy-w-assent_declined"' in page and 'data-testid="step-note-required"' in page
+    r = c.post(f"/studies/GZQO/subjects/{no}/step", data={"csrf": csrf, "to": "enrolled", "on_day": "2026-10-07"})
+    assert r.status_code == 409 and _orch(lb, "life.refused")[-1]["detail"]["why"] == "assent_reason"
+    _later(lb)
+    r = c.post(f"/studies/GZQO/subjects/{no}/step", data={"csrf": csrf, "to": "enrolled", "on_day": "2026-10-07",
+                                                         "note": "the committee's ruling, recorded on paper"})  # fmt: skip
+    assert r.status_code == 200 and _state(c, no) == "enrolled"
+    assert "step-note-required" not in c.get(f"/studies/GZQO/subjects/{no}").text  # a person went on: no hold
+
+
+def test_a_re_consent_that_declines_holds_and_one_that_assents_frees(lb: dict[str, Any],  # noqa: F811
+                                                                     monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    c, csrf, no, other = _ready(lb, monkeypatch)
+    # a re-consent (rc1) whose assent is declined: the consent in force declines; the enrolment is held
+    _save(c, csrf, no, "tb_consent", {**CONSENT, "ic_age": "12", "ic_lar": "1", "ic_lar_rel": "1", "ic_assent": "1",
+                                       "ic_assent_date": "2026-10-06"})  # fmt: skip
+    _later(lb)
+    _save(c, csrf, no, "tb_consent", {"ic_date": "2026-10-07", "ic_version": "v2", "ic_copy": "1", "ic_age": "12",
+                                       "ic_lar": "1", "ic_lar_rel": "1", "ic_assent": "0", "ic_assent_why": "3"}, "rc1")  # fmt: skip
+    _later(lb)
+    _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-10-08", "en_eligible": "1"})
+    assert _state(c, no) == "consented"
+    # no dead end: declined at the first consent, then a re-consent with the assent obtained moves the person on
+    _save(c, csrf, other, "tb_consent", {**CONSENT, "ic_age": "9", "ic_lar": "1", "ic_lar_rel": "1",
+                                          "ic_assent": "0", "ic_assent_why": "3"})  # fmt: skip
+    assert _state(c, other) == "contacted"
+    _later(lb)
+    _save(c, csrf, other, "tb_consent", {"ic_date": "2026-10-09", "ic_version": "v2", "ic_copy": "1", "ic_age": "9",
+                                          "ic_lar": "1", "ic_lar_rel": "1", "ic_assent": "1",
+                                          "ic_assent_date": "2026-10-09"}, "rc1")  # fmt: skip
+    assert _state(c, other) == "consented"
+    page = c.get(f"/studies/GZQO/subjects/{other}").text
+    assert "proxy-w-assent_declined" not in page and "go-consented-declined" not in page
 
 
 def test_an_adult_is_unaffected(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
@@ -191,11 +330,16 @@ def test_the_screening_log_export_has_five_columns_at_the_end(
 ) -> None:
     c, csrf, no, _ = _ready(lb, monkeypatch)
     _save(c, csrf, no, "tb_consent", {**CONSENT, "ic_age": "12", "ic_lar": "1", "ic_lar_rel": "9",
-                                       "ic_lar_other": "aunt", "ic_assent": "0", "ic_assent_why": "1"})  # fmt: skip
+                                       "ic_assent": "0", "ic_assent_why": "1"})  # fmt: skip
     rows = _xlsx(c)
     assert tuple(rows[0]) == (*LOG_COLUMNS, *screening_log.PROXY_COLUMNS)
     mine = next(r for r in rows[1:] if r[0] == no)
     assert mine[len(LOG_COLUMNS) :] == ["representative", "9", "0", "1", None]
+    # the data-core exports: the five items after every other column; the earlier free-text relation is still there
+    head = c.get("/studies/GZQO/export.csv").text.splitlines()[0].split(",")
+    assert head[-len(proxy_consent.FIELDS) :] == list(proxy_consent.FIELDS) and "ic_lar_relation" in head
+    odm = c.get("/studies/GZQO/export.odm").text
+    assert 'ItemOID="ic_lar_relation"' in odm and 'ItemOID="ic_assent_date"' in odm
     monkeypatch.setenv(proxy_consent.ENV, "off")
     rows = _xlsx(c)
     assert tuple(rows[0]) == LOG_COLUMNS and all(len(r) == len(LOG_COLUMNS) for r in rows)

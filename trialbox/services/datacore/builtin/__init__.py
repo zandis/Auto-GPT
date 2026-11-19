@@ -6,8 +6,8 @@ unchanged. ``record_id`` (the screening number or pseudonym) is the record key, 
 free text with a severity chosen by a person: nothing is graded automatically.
 
 10C-19 (D-1232): the consent form's representative (代諾者) and assent (アセント) items (``datacore.proxy_consent``)
-are on the form only while that setting is on; they then take the place of the free-text relation. Off, the forms are
-as before.
+are on the form only while that setting is on; the free-text relation then stays, read only and not required. Off,
+the forms are as before.
 
 D-396 (T-619b, STD-050, STD-051): an oncology study grades each AE by CTCAE, grade 1 to 5, and names the CTCAE version
 it uses (5.0 or 6.0). The study picks the version when it adds the forms; the AE form then offers that one version and
@@ -37,13 +37,16 @@ TITLES: dict[str, dict[str, str]] = {
 
 
 def fields(proxy: bool = False) -> list[Field]:
-    """The built-in fields; ``proxy``: with the representative and assent items in place of the free-text relation
-    (10C-19, D-1232), else without them (as before the card)."""
-    from datacore.proxy_consent import FIELDS, REPLACED
+    """The built-in fields; ``proxy``: with the representative and assent items, the free-text relation no longer
+    required (10C-19, D-1232), else without them (as before the card)."""
+    from datacore.proxy_consent import FIELDS, READ_ONLY
 
-    drop = set(REPLACED) if proxy else set(FIELDS)
     every = read_dictionary((Path(__file__).parent / "forms.csv").read_text(encoding="utf-8"))
-    return [f for f in every if f.name not in drop]
+    out = [f for f in every if proxy or f.name not in FIELDS]
+    for f in out:
+        if proxy and f.name in READ_ONLY:  # kept and exported as recorded; never asked for again (D-1232)
+            f.required = False
+    return out
 
 
 #: the CTCAE versions a study may name (the AE form's ``ae_ctcae_version`` codes) -> what the pages show

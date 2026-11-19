@@ -137,7 +137,7 @@ def may_change_state(h: Helpers, user: User, rid: str) -> bool:
 class ConsentAges(BaseModel):
     """The body of ``POST /api/v1/studies/{rs}/setup/consent-ages`` (D-1232)."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)  # whole numbers, never "18" as text
     majority: int
     assent_from: int
     assent_to: int
@@ -360,6 +360,9 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def apply_consent_ages(sess: Session, rid: str, body: dict[str, int]) -> Any:
         """The page's and ``/api/v1``'s one way to save the ages (D-1232): checked, sent signed, audited."""
+        now = get_or_none(f"/studies/{rid}/consent-ages") if s28.has_api(bk) else None
+        if not (now or {}).get("on"):  # the setting is off: nothing reads the ages, so nothing is saved
+            raise h.problem(409, "request.refused", reason="consent by a representative is not recorded on this box")
         why = proxy_consent.check_rule(body["majority"], body["assent_from"], body["assent_to"])
         if why is not None:  # the orchestrator refuses the same (LIFE-CONSENT_AGES); said here in the page's words
             raise h.problem(400, "request.refused", reason=why)

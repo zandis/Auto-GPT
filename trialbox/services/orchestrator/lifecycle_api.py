@@ -42,7 +42,7 @@ from datacore import lifecycle as lc
 from datacore.lifecycle import AE_EVENT, DV_EVENT, Lifecycle, LifeError, Visit
 from datacore.store import DataCore
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from rc_bridge.client import RedcapClient
 from tb_common import sheets
 from tb_common.actor_v3 import Claim
@@ -158,6 +158,7 @@ class ContactRuleBody(BaseModel):
 
 
 class ConsentAgesBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)  # D-1232: whole numbers, never "18" as text
     majority: int
     assent_from: int
     assent_to: int
@@ -518,8 +519,9 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         svc, rid, rec = get(), _rs(rs), _rec(record)
         life = Lifecycle(svc.dc)
         before = life.subject(rid, rec)
-        if body.to == "consented" and not body.note.strip() and life.assent_declined(rid, rec):
-            # 10C-19 (D-1232): consent to proceed after a declined assent is a person's deliberate step, with a reason
+        if body.to in lc.LINE[lc.LINE.index("consented") :] and not body.note.strip() and life.assent_hold(rid, rec):
+            # 10C-19 (D-1232): going on after a declined assent (to consented, enrolled or later) is a person's
+            # deliberate step, with a reason; the step is audited (life.step) and its note kept in the trail
             exc = LifeError("assent_reason", "the participant declined assent: give the reason to proceed in the note")
             svc.audit.append("life.refused", ruleset=rid, actor=who.name,
                              detail={"record": rec, "to": body.to, "why": exc.why})  # fmt: skip
@@ -687,7 +689,13 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
 
     @r.put("/studies/{rs}/consent-ages")
     def put_consent_ages(rs: str, body: ConsentAgesBody, who: Claim = AS_ENTER) -> dict[str, Any]:
+        from datacore import proxy_consent
+
         svc, rid = get(), _rs(rs)
+        if not proxy_consent.is_on():  # D-1232: nothing reads the ages while the setting is off; nothing is saved
+            raise HTTPException(status_code=409, detail={"code": "LIFE-STEP", "why": "consent_ages_off",
+                                                         "message": "consent by a representative is not recorded here",
+                                                         "fields": ["consent_ages_off"]})  # fmt: skip
         life = Lifecycle(svc.dc)
         old = life.consent_age_rule(rid)
         try:

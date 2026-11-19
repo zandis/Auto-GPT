@@ -526,6 +526,8 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
     env["TB_BACKUP_MAILTO"] = email  # OD-16: the owner is told (the message path itself is T-730's)
     env["TB_BACKUP_ALERT_ROUTE"] = "health-page"  # D-735: without a mail agent the health tab carries the alert
     env["TB_ENV"] = a.environment  # D-822: the owner's answer, PRODUCTION unless VALIDATION
+    if a.country and site_country.defaults(a.country).consent_proxy:
+        env["TB_CONSENT_PROXY"] = "on"  # 10C-19 (D-1232): the Japan profile: the representative and the assent
     wizard: dict[str, Any] = {
         "site_id": site_id(a.site_name),
         "site_name": a.site_name,
