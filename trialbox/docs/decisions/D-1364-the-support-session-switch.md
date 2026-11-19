@@ -1,7 +1,8 @@
 # D-1364 The support-session switch: every patient page closed to every role, at most 2 hours (10K-15)
 
 - **Task:** lane K, plan 10 row 10K-15 (review 18, SO-15; owner decision 99, SO-D4: "no standing access; the
-  support-session switch"). · **Date:** 2026-11-19
+  support-session switch"). · **Date:** 2026-11-19 · **Owner's yes:** 2026-11-19 20:20 UTC: "10K-15 support-session
+  switch, with closing the feedback export and the one-time-code pages: yes."
 - **Decision:**
   - **Who:** the administrator role (the hospital's own operator, runbook 21 tier 1) starts and ends a support session
     at `/ops/support-session`, with an optional ticket number and a tick. The ticket field takes the shape of a ticket
@@ -20,8 +21,25 @@
     `command.STATUS`, `command.CANCEL`); the account rows; `site.setup`, `redcap.connection`, `restore.release`,
     `dataops.view`; `edc.switch_off` (a stop narrows); and the two rows that are restrictions, not rights
     (`report.aggregate_only`, `report.sponsor_form`), which keep their answer because refusing a restriction would
-    widen what a viewer or CRO account sees. Every open row but the two restrictions is an administrator row, and the
-    administrator has no patient-level row (D-280). An open row keeps its answer exactly: nothing is widened.
+    widen what a viewer or CRO account sees. Who holds each open row (the matrix; an open row keeps its answer
+    exactly, so nothing is widened): the administrator alone holds `support.session`, `ops.*`,
+    `job.retry_scheduled`, `account.reset`, `account.disable`, `account.enable`, every `account.create.*` and
+    `redcap.connection`; the administrator and the coordinator `site.setup` and `command.CANCEL`; the administrator,
+    the coordinator and the investigator `command.STATUS`; the administrator and the steward `account.confirm`,
+    `dataops.view` and `restore.release`; the administrator and the study's PI (`investigator: [pi]`)
+    `edc.switch_off`; the viewer and the CRO account `report.aggregate_only`; the CRO account `report.sponsor_form`.
+    None is a patient-level row, and the administrator has none (D-280).
+  - **Open without a matrix row:** routes that ask `is_admin` (or nothing but a session) and no `permit` row are not
+    closed by the switch. The walk with a session on finds them; the reviewed list of every route open during a
+    session, and to which columns of the walk, is `OPEN_DURING_A_SESSION` in
+    `tests/console/test_10k15_support_session.py` (86 routes on 2026-11-19), and a route that opens during a session,
+    or to one more column, fails `test_the_matrix_walk_finds_no_patient_route_open_during_a_session` until it is added
+    there after a review. Among them, pages guarded by `is_admin` (or a helper of the administrator) rather than a
+    `permit` row, open to the administrator during a session: `/metrics`, `/admin`, `/admin/accounts`,
+    `/admin/redcap`, `/admin/notice`, `/data/instruments`, `POST /ops/notices`, `POST /ops/ingest`,
+    `/admin/models/canary`; none shows a patient row. `POST /site/remote` (remote help on or off, `is_admin`, then
+    `ops.network`) also stays open to the administrator; the walk does not reach it (it answers the walk's empty body
+    with 400 before it asks), so it is not in the list.
   - **What is reachable during a session, exactly** (the role-route walk with a session on, every route of the
     router table, `test_the_matrix_walk_finds_no_patient_route_open_during_a_session`; the review's leak walk found no
     patient marker in any 2xx answer): (1) aggregate pages and files with counts only: the feasibility report,
@@ -40,7 +58,13 @@
     /ops/accounts/requests` `confirm` of a `create`, `password` or `totp` request (a code, a link or a password; the
     request stays pending, to be confirmed after the session). `GET /ops/users` does not show a one-time password kept
     from before the start (it stays kept for its 10 minutes). Unlocking an account, disabling it, a scope change, a
-    refusal of a request, signing in and the first sign-in stay open: nobody is locked out by the switch.
+    refusal of a request, signing in and the first sign-in stay open: nobody is locked out by the switch. The EDC
+    door (the review of the EDC door): `POST /api/edc/tools` and `POST /api/edc/tools/{id}/confirm` (a tool call,
+    `find_patient`, `draft_form`, `quality_check` and the rest, answers about one EDC record; a held write stays
+    held, to be confirmed after the session), refused before their CSRF and body are read; and
+    `GET /api/edc/oidc/authorize` (the EDC's sign-in, for any signed-in role, when `TB_EDC_OIDC=1`): no sign-in code
+    is issued during a session. `/admin/edc` and `/api/edc/map` (the connection and the study map, no record) stay
+    open.
   - **Aggregate pages stay open.** Report pages that show counts only (the feasibility report, the reports list, the
     sponsor form) stay open to the roles that have them: they ask no closed row, and the two rows they do ask are the
     restrictions above, which keep their answer so that a viewer or a CRO account is not shown more. A SCREEN or FEAS
@@ -50,7 +74,8 @@
     (`ONE_PATIENT_JOBS`); a job that cannot be read is refused (closed on doubt). This narrows only.
   - **What the person sees:** a 403 during a session is the console's problem page saying, in en, ja and zh-TW, that a
     support session is running and when it ends at the latest; `/api/v1` answers `{"error": "support.session_on"}`
-    with the end time. The page is rendered as if at `/`: the refused URL (a study, a pseudonym, a job id) is not
+    with the end time; the EDC's sign-in and a tool confirmation posted from the form of `/admin/edc` are opened by
+    a browser, so their refusal is the page. The page is rendered as if at `/`: the refused URL (a study, a pseudonym, a job id) is not
     repeated in a link, a form's way back or the feedback control; nothing is read for it. The administrator's pages
     carry a banner with a link to end it. A break-glass grant opened before cannot be used, listed or opened.
   - **Audit:** `console.support_session_start` (the administrator, session id, start, latest end, ticket) and
@@ -71,7 +96,10 @@
     2 hours from the first request that sees it, not until the clock reaches the stored start; the move is the audit
     event `console.support_session_moved` (the start it had, the start it has, the new latest end), written in the
     update's transaction (`FOR UPDATE SKIP LOCKED`: one process moves it once); a failed event leaves the start
-    unmoved and the request answers as on doubt (closed). **A start that cannot
+    unmoved and the request answers as on doubt (closed). As with an automatic end, a commit lost after the event was
+    written repeats it: the next request moves the start again and writes a second event (with its own new start);
+    it cannot lose one. Removing the repeat would need the audit trail and the database in one transaction, or an
+    event id the trail refuses twice; neither is a small change, so it is a known limit. **A start that cannot
     be read** (a damaged row) keeps the session on (closed on doubt) until the administrator ends it: the page lists
     every row not ended, and the end reads no stored time.
   - **Fail direction:** closed. When the state cannot be read (the trial database does not answer), the request runs
@@ -102,6 +130,8 @@
   future start; a CASE job page refused; the role-route walk with a session on finds no patient-level route open and nothing widened;
   `test_runbook_21_support_session`; the feedback file, a new account or reset password, an enrolment code and a
   confirmation that shows a secret, each shown with the session off and refused with it on, the refusal audited;
-  sign-out, sign-in and the end still work; a PI lists no grant of its study (`breakglass.study`); a moved start is
+  sign-out, sign-in and the end still work; an EDC tool call, its confirmation and the EDC's sign-in refused during
+  a session in three languages, the refusal audited, a held write confirmed after the end; the list of routes open
+  during a session pinned; a PI lists no grant of its study (`breakglass.study`); a moved start is
   one audit event; a FEAS job's file of counts stays open); `tests/console/test_role_route_matrix.py` (the three new routes, the
   administrator's only); `tests/unit/test_migrations.py` (breakglass version 3).

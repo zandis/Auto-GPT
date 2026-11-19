@@ -349,6 +349,101 @@ EMPTY_BODY = {("POST", "/studies/{rs}/candidates/{pid}/reveal"),
 # so on a box with a study store the page is refused; the walk's box has none and shows the empty page (no row)
 SHOWN_EMPTY = {("GET", "/pilot/registry/{ruleset}")}
 
+# The routes open during a session, and to whom (the walk's columns: ``crc`` coordinator, ``pi`` an investigator the
+# log names, ``lpi`` the study's PI, ``smo``, ``cra``, ``viewer``, ``steward``, ``privacy``), pinned on purpose (the
+# review of D-1364): a route that opens during a session, or opens to one more column, fails the walk below until it
+# is added here after a review that it shows no patient row. Several are open to the administrator only because they
+# ask ``is_admin`` and no matrix row (``/metrics``, ``/data/instruments``, ``/ops/notices``, ``/admin``, ``/admin/redcap``,
+# ``/admin/accounts``); D-1364 names them. Regenerated from this walk, 2026-11-19: 86 routes.
+OPEN_DURING_A_SESSION: dict[tuple[str, str], str] = {
+    ("GET", "/"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("GET", "/about"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("GET", "/about/NOTICE.txt"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("GET", "/account"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("GET", "/admin"): "admin",
+    ("GET", "/admin/accounts"): "admin",
+    ("GET", "/admin/edc"): "admin",
+    ("GET", "/admin/notice"): "admin",
+    ("GET", "/admin/ops"): "admin",
+    ("GET", "/admin/redcap"): "admin",
+    ("GET", "/api/edc/health"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("GET", "/api/edc/map"): "admin",
+    ("GET", "/api/v1/admin/ops"): "admin",
+    ("GET", "/api/v1/ask"): "admin crc pi lpi smo viewer steward privacy",
+    ("GET", "/api/v1/data/batches"): "admin steward",
+    ("GET", "/api/v1/data/sources"): "admin steward",
+    ("GET", "/api/v1/site/readiness"): "admin",
+    ("GET", "/api/v1/studies"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("GET", "/api/v1/studies/{rs}/delegation"): "admin crc pi lpi smo steward privacy",
+    ("GET", "/api/v1/studies/{rs}/icf"): "admin crc pi lpi smo steward privacy",
+    ("GET", "/api/v1/studies/{rs}/irb"): "admin crc pi lpi smo steward privacy",
+    ("GET", "/ask"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("GET", "/cmd"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("GET", "/data-ops"): "admin steward",
+    ("GET", "/data/instruments"): "admin",
+    ("GET", "/enrol"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("GET", "/help"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("GET", "/help/guide"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("GET", "/home"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("GET", "/jobs"): "admin crc pi lpi steward privacy",
+    ("GET", "/metrics"): "admin",
+    ("GET", "/notices/received"): "admin crc pi lpi smo viewer steward privacy",
+    ("GET", "/ops/accounts/requests"): "admin steward",
+    ("GET", "/ops/flags"): "admin steward",
+    ("GET", "/ops/identity"): "admin",
+    ("GET", "/ops/support-session"): "admin",
+    ("GET", "/ops/users"): "admin",
+    ("GET", "/pilot/cascade"): "admin crc pi lpi steward privacy",
+    ("GET", "/pilot/case"): "admin crc pi lpi smo viewer steward privacy",
+    ("GET", "/pilot/consent"): "admin crc pi lpi smo viewer steward privacy",
+    ("GET", "/pilot/jobs/{job_id}"): "admin crc pi lpi smo steward privacy",
+    ("GET", "/pilot/jobs/{job_id}/approval"): "admin crc pi lpi smo steward privacy",
+    ("GET", "/pilot/mailbox"): "admin crc pi lpi steward privacy",
+    ("GET", "/pilot/protocol"): "admin crc pi lpi smo viewer steward privacy",
+    ("GET", "/pilot/registry"): "admin crc pi lpi smo steward privacy",
+    ("GET", "/pilot/registry/{ruleset}"): "crc smo steward privacy",
+    ("GET", "/pilot/request"): "admin crc pi lpi smo viewer steward privacy",
+    ("GET", "/reports"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("GET", "/settings/notices"): "admin crc pi lpi smo viewer steward privacy",
+    ("GET", "/site"): "admin",
+    ("GET", "/site/checks"): "admin",
+    ("GET", "/site/codes"): "admin",
+    ("GET", "/site/help"): "admin",
+    ("GET", "/site/sheets"): "admin",
+    ("GET", "/site/start"): "admin",
+    ("GET", "/studies/{rs}/feasibility"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("GET", "/studies/{rs}/forms"): "admin crc pi lpi smo steward privacy",
+    ("GET", "/studies/{rs}/irb"): "admin crc pi lpi smo steward privacy",
+    ("GET", "/studies/{rs}/sources"): "admin crc pi lpi smo steward privacy",
+    ("GET", "/studies/{rs}/team"): "admin crc pi lpi smo steward privacy",
+    ("GET", "/week"): "admin crc pi lpi smo steward privacy",
+    ("POST", "/account/password"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("POST", "/admin/jobs/{job_id}/cancel"): "admin",
+    ("POST", "/admin/jobs/{job_id}/retry"): "admin",
+    ("POST", "/admin/models/canary"): "admin",
+    ("POST", "/admin/redcap"): "admin",
+    ("POST", "/admin/redcap/{ref}/test"): "admin",
+    ("POST", "/api/v1/site/checks/{cid}"): "admin",
+    ("POST", "/api/v1/site/codes"): "admin",
+    ("POST", "/api/v1/studies/{rs}/edc/switch"): "admin lpi",
+    ("POST", "/data/instruments/{iid}"): "admin",
+    ("POST", "/enrol"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("POST", "/feedback"): "admin crc pi lpi smo cra viewer steward privacy",
+    ("POST", "/ops/accounts/requests"): "admin steward",
+    ("POST", "/ops/flags"): "admin",
+    ("POST", "/ops/identity"): "admin",
+    ("POST", "/ops/ingest"): "admin",
+    ("POST", "/ops/notices"): "admin",
+    ("POST", "/ops/support-session"): "admin",
+    ("POST", "/ops/support-session/end"): "admin",
+    ("POST", "/ops/users"): "admin",
+    ("POST", "/settings/notices"): "admin crc pi lpi smo viewer steward privacy",
+    ("POST", "/site/practice"): "admin",
+    ("POST", "/site/sheets"): "admin",
+    ("POST", "/studies/{rs}/candidates/{pid}/reveal"): "admin crc pi lpi smo steward privacy",
+    ("PUT", "/api/edc/map"): "admin",
+}  # fmt: skip
+
 
 def test_the_matrix_walk_finds_no_patient_route_open_during_a_session(box: dict[str, Any]) -> None:  # noqa: F811
     _start(box)
@@ -360,6 +455,12 @@ def test_the_matrix_walk_finds_no_patient_route_open_during_a_session(box: dict[
     assert sorted(k for k in opened if PATIENT_PATH.search(k[1]) and k not in EMPTY_BODY | SHOWN_EMPTY) == []
     # 2. whatever stays open to any role is open to the administrator outside a session (no patient row, D-280)
     assert sorted(k for k in opened if design[k]["admin"] != "Y" and k not in SHOWN_EMPTY) == []
+    # 2b. exactly the reviewed list stays open, to exactly its columns: a new route open during a session fails here
+    got = {k: {col for col, v in during[k].items() if v == "Y"} for k in opened}
+    want = {k: set(cols.split()) for k, cols in OPEN_DURING_A_SESSION.items()}
+    assert sorted(set(got) - set(want)) == [], "open during a session and not in OPEN_DURING_A_SESSION"
+    assert sorted(set(want) - set(got)) == [], "in OPEN_DURING_A_SESSION and no longer open: take it off the list"
+    assert {k: sorted(v) for k, v in got.items() if v != want[k]} == {}, "open to other columns than the list says"
     # 3. nothing opens that was closed: the session only narrows
     widened = [(k, col) for k, c in during.items() for col, v in c.items() if v == "Y" and design[k][col] != "Y"]
     assert widened == []
@@ -543,3 +644,100 @@ def test_a_file_of_counts_only_stays_open_and_a_patient_level_file_does_not(box:
     assert crc.get(f"{stem}.pdf").status_code == 200  # counts only
     assert crc.get(f"/pilot/jobs/{job.job_id}/sponsor-pack.zip").status_code == 403  # asks a closed row
     assert crc.get(f"{stem}.raw.json").status_code in (403, 404)  # the patient-level file: not given
+
+
+# ---------------------------------------------------------------------------------------------- the EDC door
+def _tool_client(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
+    """A tool client that records each call (the EDC's answer about one record), configured for the test."""
+    from edc_backend import tools
+
+    calls: list[tuple[str, str, str]] = []
+
+    class Http:
+        def close(self) -> None:
+            pass
+
+    class Client:
+        def __init__(self, base: str, token: str, http: Any) -> None:
+            self.http = http
+
+        def capabilities(self) -> dict[str, Any]:  # the connection line of /admin/edc
+            raise tools.ToolError("not asked in this test")
+
+        def call(self, tool: str, project_id: str, *, record_id: str = "", confirm: bool = False) -> dict[str, Any]:
+            calls.append((tool, project_id, record_id))
+            return {"allow": True, "deidentified": True, "record": record_id}
+
+    monkeypatch.setattr(tools, "tool_base", lambda: "https://edc.test")
+    monkeypatch.setattr(tools, "tool_token", lambda: "tool-token-for-tests")
+    monkeypatch.setattr(tools, "http_client", Http)
+    monkeypatch.setattr(tools, "ToolClient", Client)
+    return calls
+
+
+def test_an_edc_tool_call_and_its_confirmation_are_refused_during_a_session(
+    box: dict[str, Any],  # noqa: F811
+    db_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _tool_client(monkeypatch)
+    admin, csrf = login(box["app"])
+    hdr = {"x-csrf": csrf}
+    read = {"tool": "find_patient", "project_id": "proj-1", "record_id": "1001"}
+    r = admin.post("/api/edc/tools", json=read, headers=hdr)
+    assert r.status_code == 200 and r.json()["record"] == "1001" and len(calls) == 1  # off: the record's answer
+    pid = admin.post("/api/edc/tools", json={"tool": "open_query", "project_id": "proj-1", "record_id": "1001"},
+                     headers=hdr).json()["proposal_id"]  # fmt: skip
+    _on(admin)
+    for tool in ("find_patient", "draft_form", "quality_check", "open_query"):
+        r = admin.post("/api/edc/tools", json={**read, "tool": tool}, headers=hdr)
+        assert r.status_code == 403 and r.json()["error"] == "support.session_on", tool
+        assert "1001" not in r.text, tool
+    assert len(calls) == 1 and len(_denied(box, "/api/edc/tools")) == 4
+    # the confirmation posted from /admin/edc's form: the page, in the person's language; the JSON call: JSON
+    r = admin.post(f"/api/edc/tools/{pid}/confirm", data={"csrf": csrf})
+    assert r.status_code == 403 and ON_EN in r.text and 'data-testid="problem-page"' in r.text and pid not in r.text
+    _lang(admin, "ja")
+    assert ON_JA in admin.post(f"/api/edc/tools/{pid}/confirm", data={"csrf": csrf}).text
+    _lang(admin, "zh-TW")
+    assert ON_ZH in admin.post(f"/api/edc/tools/{pid}/confirm", data={"csrf": csrf}).text
+    r = admin.post(f"/api/edc/tools/{pid}/confirm", headers=hdr)
+    assert r.status_code == 403 and r.json()["error"] == "support.session_on"
+    assert len(calls) == 1 and _events(box, "edc.tool_confirm") == []
+    assert len(_denied(box, f"/api/edc/tools/{pid}/confirm")) == 4
+    # the map and the connection page stay open (``redcap.connection``): they show no record
+    assert admin.get("/api/edc/map").status_code == 200 and admin.get("/admin/edc").status_code == 200
+    # after the end the held write is still there to confirm, and a tool call answers again
+    _lang(admin, "en")
+    assert _end(admin).status_code == 303
+    r = admin.post(f"/api/edc/tools/{pid}/confirm", headers=hdr)
+    assert r.status_code == 200 and calls[-1] == ("open_query", "proj-1", "1001")
+    assert admin.post("/api/edc/tools", json=read, headers=hdr).status_code == 200 and len(calls) == 3
+
+
+def test_no_edc_sign_in_starts_during_a_session(
+    box: dict[str, Any],  # noqa: F811
+    db_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cb = "https://edc.example/callback"
+    for name, value in (("TB_EDC_OIDC", "1"), ("TB_EDC_OIDC_ISSUER", "https://box.example"),
+                        ("TB_EDC_OIDC_CLIENT_ID", "edc"), ("TB_EDC_OIDC_CLIENT_SECRET", "oidc-client-secret-for-tests"),
+                        ("TB_EDC_OIDC_REDIRECT", cb)):  # fmt: skip
+        monkeypatch.setenv(name, value)
+    q = {"client_id": "edc", "redirect_uri": cb, "state": "s1"}
+    crc, _ = login_crc(box)
+    r = crc.get("/api/edc/oidc/authorize", params=q, follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"].startswith(cb)  # off: any signed-in role gets a code
+    admin = _start(box)
+    for who, c in (("crc", crc), ("admin", admin)):
+        r = c.get("/api/edc/oidc/authorize", params=q, follow_redirects=False)
+        assert r.status_code == 403 and "location" not in r.headers, who
+        assert ON_EN in r.text and 'data-testid="problem-page"' in r.text and cb not in r.text, who
+    _lang(crc, "ja")
+    assert ON_JA in crc.get("/api/edc/oidc/authorize", params=q, follow_redirects=False).text
+    _lang(crc, "zh-TW")
+    assert ON_ZH in crc.get("/api/edc/oidc/authorize", params=q, follow_redirects=False).text
+    assert len(_denied(box, "/api/edc/oidc/authorize")) == 4
+    assert _end(admin).status_code == 303
+    assert crc.get("/api/edc/oidc/authorize", params=q, follow_redirects=False).status_code == 302

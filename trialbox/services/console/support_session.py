@@ -57,6 +57,21 @@ for _lang, _cat in (("en", i18n_support.EN), ("ja", i18n_support.JA), ("zh-TW", 
     CATALOGUES[_lang].update(_cat)
 
 
+# the EDC door's routes a browser opens as a page (D-1364, the review of the EDC door): the EDC's sign-in, and a tool
+# call's confirmation posted from the form of /admin/edc; their refusal is the page in the person's language
+_EDC_SIGN_IN = "/api/edc/oidc/authorize"
+_EDC_CONFIRM = re.compile(r"^/api/edc/tools/[^/]+/confirm$")
+_FORM = "application/x-www-form-urlencoded"
+
+
+def browser_page(request: Request) -> bool:
+    """Is a refusal of this request the problem page (else the JSON answer of an ``/api/`` route)?"""
+    path = request.url.path
+    if not path.startswith("/api/") or path == _EDC_SIGN_IN:
+        return True
+    return bool(_EDC_CONFIRM.match(path)) and (request.headers.get("content-type") or "").startswith(_FORM)
+
+
 def _detail(s: SupportSession) -> dict[str, Any]:
     return {"session": s.id, "started_by": s.started_by, "started_at": s.started_at, "ends_at": s.ends_at,
             **({"ticket": s.ticket} if s.ticket else {})}  # fmt: skip
@@ -106,7 +121,7 @@ class SupportGuard:
     def refusal(self, request: Request, live: SupportSession | None) -> Response:
         key = ON if live is not None and live.ends_at else UNKNOWN
         until = local_time(live.ends_at, site_zone(self.h.bk), 16) if live is not None and live.ends_at else ""
-        if request.url.path.startswith("/api/"):
+        if not browser_page(request):
             return JSONResponse({"error": key, "detail": {"until": live.ends_at if live else ""}}, status_code=403)
         # the page is rendered as if at "/": the refused URL (a study, a pseudonym) is not repeated on it, in a
         # link, a form's way back or the feedback control

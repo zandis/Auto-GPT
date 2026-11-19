@@ -13,9 +13,10 @@ new heading with the version and date, in the same pull request that sets the ve
 - The support-session switch (10K-15, D-1364): before a supervised screen share (runbook 21) the administrator turns
   it on at **Support session** in the menu. While it runs, every patient page, list, patient-level export, the
   feedback file and break-glass grant is refused to every account, and so is every answer that would show a
-  one-time password or an enrolment code or link, with a page in English, Japanese and Traditional Chinese that says
-  until when; the administrator's pages show a banner. It ends by hand or by itself 2 hours after it started; the
-  start and the end are in the audit trail. Nothing changes on a box where nobody turns it on.
+  one-time password or an enrolment code or link, an EDC tool call about a record and the EDC's sign-in, with a page
+  in English, Japanese and Traditional Chinese that says until when; the administrator's pages show a banner. It
+  ends by hand or by itself 2 hours after it started; the start and the end are in the audit trail. Nothing changes
+  on a box where nobody turns it on.
 - The one page for hospital IT (10K-18, D-1378) is made from the box's own preflight list, one page per delivered
   form, in en, ja and zh-TW: for a box its supplier prepared it asks IT for six things (name and certificate, clock,
   mail relay, backup share, audit share, data feed) with the words the box shows on a red line, and names the three

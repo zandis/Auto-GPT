@@ -162,7 +162,9 @@ def _holds(cond: str, action: str, s: Standing) -> bool:
 # D-425), so a new one is closed by construction, and a new action is closed until it is added to this list. The
 # list holds the operations and account rows the administrator's support work needs, the switch itself, and the two
 # rows that are restrictions, not rights (``report.aggregate_only``, ``report.sponsor_form``): refusing a restriction
-# would widen what a viewer or CRO account sees, so they keep their answer. Nothing here is a patient-level row.
+# would widen what a viewer or CRO account sees, so they keep their answer. Nothing here is a patient-level row. A
+# route that asks no row (``is_admin`` only) is not closed here: every route open during a session is pinned, with
+# the roles it is open to, in ``OPEN_DURING_A_SESSION`` (tests/console/test_10k15_support_session.py).
 SUPPORT_SESSION_MINUTES = 120  # it ends by itself 2 hours after it started (checked at every request)
 SUPPORT_SESSION_OPEN: frozenset[str] = frozenset({
     "support.session",
