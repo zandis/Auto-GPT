@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ job.type }} {{ job.ruleset or '' }}{% endblock %}
 {% block content %}
-<h1>{{ job.type }} {{ job.ruleset or '' }}{% if job.ruleset_version %} v{{ job.ruleset_version }}{% endif %} <span class="state s-{{ job.state }}" data-testid="job-state" data-state="{{ job.state }}">{{ state(job.state) }}</span></h1>
+<h1>{{ job.type }} {{ job.ruleset or '' }}{% if job.ruleset_version %} v{{ job.ruleset_version }}{% endif %} <span class="pill" data-tone="{{ tone('job', job.state) }}" data-testid="job-state" data-state="{{ job.state }}">{{ state(job.state) }}</span></h1>
 <p class="mono">{{ t('col.job') }} {{ job.job_id }} · {{ t('col.by') }} {{ job.requested_by }} · {{ t('col.received') }} {{ job.received_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
 <p>{{ t('job.line') }}: <code data-testid="job-line">{{ line }}</code></p>
 {% if refresh %}<p class="hint" role="status">{{ t('job.refresh') }}</p>{% endif %}{% if compile_answers is not none %}
@@ -91,7 +91,7 @@
 <thead><tr><th scope="col">{{ t('col.tier') }}</th><th scope="col">{{ t('registry.pid') }}</th><th scope="col">{{ t('col.next_visit') }}</th><th scope="col">{{ t('col.practitioner') }}</th><th scope="col">{{ t('col.open') }}</th><th scope="col">{{ t('col.notes') }}</th><th scope="col">{{ t('col.chart') }}</th></tr></thead>
 <tbody>
 {% for r in screen.rows %}<tr data-pid="{{ r.pid }}" class="tier-{{ r.tier }}">
-<td><span class="pill tier-{{ r.tier }}">{{ t('tier.' + r.tier) }}</span>{% if r.changed %} <span class="pill warn" title="{{ r.changed|join(', ') }}">{{ t('job.screen.changed') }}</span>{% endif %}</td>
+<td><span class="pill" data-tone="{{ tone('tier', r.tier) }}">{{ t('tier.' + r.tier) }}</span>{% if r.changed %} <span class="pill warn" title="{{ r.changed|join(', ') }}">{{ t('job.screen.changed') }}</span>{% endif %}</td>
 <td class="mono"><a href="/pilot/registry/{{ job.ruleset }}#p-{{ r.pid }}" title="{{ r.pid }}">{{ r.pid[:12] }}…</a></td>
 <td class="mono">{{ r.next_appointment or '–' }}</td>
 <td>{{ screen.practitioners.get(r.practitioner, r.practitioner) or '–' }}{% if r.department %} · {{ r.department }}{% endif %}</td>
