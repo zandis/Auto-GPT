@@ -130,6 +130,16 @@ DECLARED: dict[str, Declared] = {
         "as before. A page uses the value last read: the console reads the layout flags at its start and then in "
         "the background at most every 5 seconds, so a change shows within about 5 seconds; no restart.",
     ),
+    "layout.plain_menu": Declared(
+        values=("off", "on"),
+        default="off",
+        seed_env=None,  # the menu and the clinical pages' words change only by a person's ruling (D-1251)
+        help="The console's plain menu and words (J-7, D-1251): on, 'More' keeps only what has no named place, each "
+        "page that leaves it is linked from the page it belongs to, the data steward's top bar has four entries, a "
+        "page's menu label, title and heading are one name, and the coordinator, the investigator and the viewer see "
+        "no job type code, variable name or data class. Off: the menu and the pages as before. A page uses the value "
+        "last read: the console reads the layout flags at its start and then every 5 seconds at most.",
+    ),
     "layout.people_lists": Declared(
         values=("off", "on"),
         default="off",
