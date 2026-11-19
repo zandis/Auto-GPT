@@ -1,0 +1,136 @@
+{
+  "card": "H21",
+  "title": "the life-cycle walk on a phone, 390 px (lane H, 2026-11-17)",
+  "date": "2026-11-17",
+  "source": "docs/handover/life-cycle-walk-390-findings-2026-11-17.md",
+  "findings": [
+    {
+      "id": "H21-P-01",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone (390 px) the top bar's links, the language box and Sign out are behind \"☰ Menu\", whose visible label is hidden from assistive technology; the accessible control is a hidden check box named \"Menu\"",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H21-P-02",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone the job page's (/pilot/jobs/{job}) thread table is 720 to 915 px wide, the SCREEN job's rows 829 to 937 px and a FEAS job's funnel 417 px; the table scrolls sideways inside its own frame",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H21-P-03",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone, in ja only, the S20 approval table (/pilot/jobs/{job}/approval) is 463 to 485 px wide; the table scrolls sideways inside its own frame",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H21-P-04",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone the delegation log (/studies/{rs}/team) is 792 to 932 px wide; the table scrolls sideways inside its own frame",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H21-P-05",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone the feasibility funnel (/studies/{rs}/feasibility) is 488 to 506 px wide, the reports list 448 to 518 px and, in ja, the barriers table 400 px; the tables scroll sideways inside their own frames",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H21-P-06",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone, in zh-TW and ja, the feasibility report's five step links are 40 and 31 px wide by 44 px, under the 44 px the card asks of phone controls",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H21-P-07",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone the administrator's home tabs and links (\"Jobs\", \"Services and models\", \"Sources and licences\", \"Open\", \"Mail notices\"; seven in all) are 20 px high, under the spec's 24 x 24 px targets",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H21-P-08",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone the weekly page's worklist (/studies/{rs}/week) is a table 437 to 482 px wide, where the spec expects a card list; the table scrolls sideways inside its own frame",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H21-P-09",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone the candidate list (/studies/{rs}/candidates) is 643 to 724 px wide; the table scrolls sideways inside its own frame",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H21-P-10",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone the coordinator's line on the weekly page (\"The investigator decides here; you get a task when they mark Approach…\") is only in the patient sheet, shown after a row is tapped; the desktop shows it beside the list",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H21-P-11",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone, with a patient's sheet open on the weekly page, the sheet's bar (\"← Back to the list\") covers \"☰ Menu\": the coordinator taps Back first to reach the menu and My studies",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H21-P-12",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone the study's state history (/studies/{rs}/state) is 395 to 445 px wide; the table scrolls sideways inside its own frame",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H21-P-13",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone the opt-out register's list (/site/opt-outs) is 467 to 565 px wide; the table scrolls sideways inside its own frame",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H21-P-14",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone the audit trail's table (/audit) is 1,355 to 1,383 px wide, a row's time on the left and its detail on the right; the table scrolls sideways inside its own frame",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H21-P-15",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone the audit filter's \"Clear\" link (/audit) is 32 to 40 by 24 px, under the 44 px the card asks of phone controls",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H21-P-16",
+      "severity": "Medium (mapped)",
+      "claim": "On a phone the Participants list (/studies/{rs}/subjects) is a table 413 to 423 px wide (en, ja), seen since train 79; the table scrolls sideways inside its own frame",
+      "lane": "C2",
+      "basis": "shown",
+      "state": "open"
+    }
+  ]
+}
