@@ -354,9 +354,10 @@ def test_codes_page_says_which_licensed_lists_are_loaded(sb: dict[str, Any]) -> 
     c, csrf = login(sb["app"], "crc", PW)
     c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/site/codes"})
     page = c.get("/site/codes?study=GZQO").text
-    for kind in ("medis", "jlac10", "yj"):
+    # D-1252: the MEDIS modifier table is a fourth licensed list (was 3)
+    for kind in ("medis", "medis_modifier", "jlac10", "yj"):
         assert f'data-testid="code-list-{kind}" data-state="not_loaded"' in page
-    assert page.count(S_JA["site.codes.list.not_loaded"]) == 3
+    assert page.count(S_JA["site.codes.list.not_loaded"]) == 4
     st = TermStore()
     try:
         sample = Path(__file__).resolve().parents[1] / "fixtures" / "licensed" / "medis_byomei_sample.txt"
@@ -365,7 +366,7 @@ def test_codes_page_says_which_licensed_lists_are_loaded(sb: dict[str, Any]) -> 
         st.close()
     page = c.get("/site/codes?study=GZQO").text
     assert 'data-testid="code-list-medis" data-state="loaded"' in page and "2026.10" in page
-    assert S_JA["site.codes.list.medis"] in page and page.count(S_JA["site.codes.list.not_loaded"]) == 2
+    assert S_JA["site.codes.list.medis"] in page and page.count(S_JA["site.codes.list.not_loaded"]) == 3  # was 2
     c.post("/lang", data={"csrf": csrf, "lang": "zh-TW", "back": "/site/codes"})
     assert S_ZH["site.codes.lists"] in c.get("/site/codes?study=GZQO").text
     c.post("/lang", data={"csrf": csrf, "lang": "en", "back": "/site/codes"})

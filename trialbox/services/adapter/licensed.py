@@ -46,6 +46,8 @@ from tb_common.db import ENV, Database, DatabaseError
 # code systems: the JP Core 1.1.0 NamingSystems for JLAC10, YJ and HOT9; the MEDIS 病名交換用コード OID (JP Core 1.1.0
 # has no NamingSystem for it; verify against the site's release)
 MEDIS_BYOMEI = "urn:oid:1.2.392.200119.4.101.6"
+# the 修飾語管理番号 as a code system: no OID is cited for it (D-1252); a URN of this box's own, never sent out
+MEDIS_MODIFIER = "urn:trialbox:medis-modifier-management-number"
 JLAC10 = "urn:oid:1.2.392.200119.4.504"
 YJ = "urn:oid:1.2.392.100495.20.1.73"
 HOT9 = "urn:oid:1.2.392.200119.4.403.1"
@@ -92,10 +94,29 @@ KINDS: dict[str, Kind] = {
         target_system=ICD10_WHO,
         extra={
             "management_no": ("病名管理番号", "管理番号"),
+            "change": ("変更区分",),  # D-1252: only a current row (0, 3, 5) confirms
             "receipt_code": ("レセプト電算処理システム傷病名コード", "レセプト電算コード", "傷病名コード"),
             "kana": ("病名表記カナ", "病名カナ", "カナ"),
         },
         shape=r"^[0-9A-Z]{4}$",
+    ),
+    # D-1252: the 修飾語テーブル of the same release (ICD10対応標準病名マスター Ver.5.18 仕様書 (2), MEDIS-DC: the file
+    # mdfy*.txt has no header row, so a site loads it with --columns 変更区分,修飾語管理番号,修飾語表記,修飾語表記カナ,
+    # 修飾語交換用コード,接続位置区分,修飾語区分,排他グループコード,レセ電算修飾語コード,修飾語説明用ラベル)
+    "medis_modifier": Kind(
+        "medis_modifier",
+        "MEDIS 標準病名マスター 修飾語テーブル",
+        MEDIS_MODIFIER,
+        code=("修飾語管理番号",),
+        display=("修飾語表記", "修飾語"),
+        extra={
+            "change": ("変更区分",),
+            "exchange_code": ("修飾語交換用コード", "交換用コード"),
+            "position": ("接続位置区分",),
+            "modifier_class": ("修飾語区分",),
+            "receipt_code": ("レセ電算修飾語コード", "レセプト電算処理システム修飾語コード"),
+        },
+        shape=r"^[0-9]{8}$",
     ),
     "jlac10": Kind(
         "jlac10",
@@ -133,6 +154,16 @@ KINDS: dict[str, Kind] = {
         shape=r"^[0-9A-Z]{12}$",
     ),
 }
+
+
+#: the lists whose rows the SS-MIX2 reader reads only when current (D-1252): a release without the 変更区分 column, or
+#: with it empty in every row, is refused at load, never read as every row retired one by one
+CHANGE_REQUIRED = ("medis", "medis_modifier")
+
+
+def extra_i_change(k: Kind, index: dict[str, int]) -> int | None:
+    """The column of 変更区分 in a release's header, or None."""
+    return _col(index, k.extra.get("change", ()))
 
 
 class LicensedError(ValueError):
@@ -201,6 +232,12 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None) -> Parse
         raise LicensedError(
             "LIC-COLUMNS", f"no code column ({want}) in the header; give the columns in file order with --columns"
         )
+    if kind in CHANGE_REQUIRED and extra_i_change(k, index) is None:
+        raise LicensedError(
+            "LIC-COLUMNS",
+            "no 変更区分 column: the SS-MIX2 reader reads only a current row (変更区分 0, 3 or 5) of the MEDIS master "
+            "(D-1252); give the release's columns in file order with --columns",
+        )
     disp_i = _col(index, k.display)
     targ_i = _col(index, k.target) if k.target else None
     extra_i = {name: _col(index, names) for name, names in k.extra.items()}
@@ -208,6 +245,8 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None) -> Parse
     out: list[dict[str, str]] = []
     skipped: list[tuple[int, str]] = []
     seen: set[str] = set()
+    first_row: dict[str, dict[str, str]] = {}
+    conflicting: set[str] = set()
     for n, row in enumerate(body, start=start):
         if not any(c.strip() for c in row):
             continue
@@ -223,22 +262,31 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None) -> Parse
         if not shape.match(code):
             skipped.append((n, f"code {code!r} is not a {k.label} code"))
             continue
+        target = cell(targ_i).upper().replace(" ", "") if targ_i is not None else ""
+        record = {
+            "code": code,
+            "display": cell(disp_i),
+            "target_system": k.target_system if target else "",
+            "target_code": target,
+            "extra": json.dumps({x: cell(i) for x, i in extra_i.items() if cell(i)}, ensure_ascii=False),
+        }
         if code in seen:
-            skipped.append((n, f"code {code} appears twice; the first row is kept"))
+            if kind in CHANGE_REQUIRED and record != first_row[code]:
+                # D-1252: one MEDIS code on two different rows: which is the master's cannot be told, so neither is
+                # read (the reader then does not recognise the code); listed
+                conflicting.add(code)
+                skipped.append((n, f"code {code} appears twice with different content; neither row is read"))
+            else:
+                skipped.append((n, f"code {code} appears twice; the first row is kept"))
             continue
         seen.add(code)
-        target = cell(targ_i).upper().replace(" ", "") if targ_i is not None else ""
-        out.append(
-            {
-                "code": code,
-                "display": cell(disp_i),
-                "target_system": k.target_system if target else "",
-                "target_code": target,
-                "extra": json.dumps({x: cell(i) for x, i in extra_i.items() if cell(i)}, ensure_ascii=False),
-            }
-        )
+        first_row[code] = record
+        out.append(record)
+    out = [r for r in out if r["code"] not in conflicting]
     if not out:
         raise LicensedError("LIC-EMPTY", "no row with a code was found")
+    if kind in CHANGE_REQUIRED and not any(json.loads(c["extra"]).get("change") for c in out):
+        raise LicensedError("LIC-COLUMNS", "the 変更区分 column is empty in every row (D-1252): check the release")
     return Parsed(kind, enc, "tab" if delim == "\t" else "comma", out, skipped)
 
 

@@ -85,7 +85,8 @@
         },
         "revision": {"type": ["string", "null"]},
         "context_length": {"type": ["integer", "null"]},
-        "registry_status": {"type": "string"}
+        "registry_status": {"type": "string"},
+        "thinking_mode": {"enum": ["on", "off"]}
       }
     },
     "qualification_step": {

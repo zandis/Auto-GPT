@@ -5,6 +5,7 @@
     python -m tools.findings_register --counts            # open High, open Medium, open Low, total (printed, not kept)
     python -m tools.findings_register --add-from FILE     # append a card's findings.json to the register
     python -m tools.findings_register --resolve           # after a merge: fold the copies of a row whose state changed
+    python -m tools.findings_register --sync-states       # move a row's state forward to its findings file's state
 
 The register is ``docs/handover/findings-register.md``. Its head is prose. From the first card heading on, the file is
 nothing but card sections, each a heading ``## <card>: <words>``, blank lines, the header and rule
@@ -77,6 +78,19 @@ in a claim is written ``\\|`` (one already written so is kept). Every new row is
 anything is written; an id already in the register, or twice in the file, is refused and nothing is written. After
 writing, the whole register is checked again and the old file is put back if the check fails. The rows are appended
 in the file's order; nothing is sorted or rewritten, so two cards' additions touch different lines.
+
+**States follow their findings files.** ``--add-from`` refuses an id already in the register, so it cannot carry a
+later state. ``--sync-states`` reads every findings file under ``trialbox/docs/`` (any ``.json`` with a ``findings``
+list) and, for each registered id a finding there gives with a ``state`` field, rewrites only that row's state cell,
+in place, to the file's state, printing ``<id>: <old> -> <new>``; nothing else in the file changes. It moves a row
+only forward (``open``, then ``card issued``, then ``fixed`` or ``not a defect``). It never touches a row seen closed
+(lane R sets that), never moves a row back (a lane may close a row in the register before its file says so), and
+leaves two different states of one rank (``fixed`` against ``not a defect``, or two shas) and an id that two files
+give differently for a person; each such row is printed as ``not synced`` and is not an error. A state the register
+cannot take is refused (exit 1) and that row is not written. A row whose id no findings file gives, or whose finding
+has no ``state`` field (the seeded rows, a source page with no findings file), is not synced and not checked.
+``--check`` fails on a row that ``--sync-states`` would move (``... is behind its findings file's ...``) and on a
+refused source state, so a stale row cannot return unnoticed.
 """
 
 from __future__ import annotations
@@ -324,7 +338,8 @@ def row_problems(row: Row, folder: Path, root: Path) -> list[str]:
     return out
 
 
-def check(reg: Register) -> list[str]:
+def check(reg: Register, sources: Path | None = None) -> list[str]:
+    """Every problem of the register; ``sources`` is the trialbox/ folder whose findings files the states follow."""
     errors = list(reg.errors)
     folder = reg.path.parent
     root = root_of(reg.path)
@@ -337,6 +352,8 @@ def check(reg: Register) -> list[str]:
             )
         first.setdefault(row.id, row.line)
         errors.extend(f"{reg.path.name}:{row.line}: row {row.id}: {p}" for p in row_problems(row, folder, root))
+    if not errors:
+        errors.extend(stale_problems(reg, sources or root))
     return errors
 
 
@@ -417,6 +434,121 @@ def resolve(path: Path = REGISTER) -> tuple[list[str], list[str]]:
     return folded, left
 
 
+# --- --sync-states ---
+
+#: how far a state has come; a sync only moves a row forward (D-1180: a finding closes when it is seen closed)
+STATE_RANK = {"open": 0, "card issued": 1, "fixed": 2, "not a defect": 2}
+
+
+def state_name(text: str) -> str:
+    for name, rx in STATE_RES.items():
+        if rx.match(text):
+            return name
+    return ""
+
+
+def source_states(root: Path) -> tuple[dict[str, tuple[str, str]], dict[str, str]]:
+    """The ``state`` of every finding in a findings file under ``<root>/docs``, by id.
+
+    Returns ({id: (state, file)} for the findings that give a state, {id: why it is left} for the ids two files
+    give different states). A JSON file not in the ``--add-from`` form, and a finding with no ``state`` field, give
+    nothing; a register row whose id no file gives is not synced or checked against a source.
+    """
+    found: dict[str, set[tuple[str, str]]] = {}
+    for f in sorted((root / "docs").rglob("*.json")):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        findings = data.get("findings") if isinstance(data, dict) else None
+        if not isinstance(findings, list):
+            continue
+        for x in findings:
+            if isinstance(x, dict) and isinstance(x.get("id"), str) and isinstance(x.get("state"), str):
+                found.setdefault(x["id"], set()).add((x["state"].strip(), f.relative_to(root).as_posix()))
+    states, mixed = {}, {}
+    for fid, pairs in found.items():
+        if len({st for st, _ in pairs}) == 1:
+            states[fid] = min(pairs, key=lambda p: p[1])
+        else:
+            mixed[fid] = (
+                "its findings files give different states ("
+                + "; ".join(f"{st} in {fn}" for st, fn in sorted(pairs, key=lambda p: p[1]))
+                + "): a person decides"
+            )
+    return states, mixed
+
+
+@dataclass
+class SyncPlan:
+    changes: list[tuple[Row, str]] = field(default_factory=list)  # (row, the source's state)
+    refused: list[str] = field(default_factory=list)  # a source state the register cannot take
+    left: list[str] = field(default_factory=list)  # differs, but a sync does not move it (printed, not an error)
+
+
+def sync_plan(reg: Register, root: Path) -> SyncPlan:
+    """What ``--sync-states`` would change: a row moves only forward to its source's state, never once seen closed."""
+    states, mixed = source_states(root)
+    plan = SyncPlan()
+    for row in reg.rows:
+        if row.id in mixed:
+            plan.left.append(f"{row.id}: {mixed[row.id]}")
+            continue
+        if row.id not in states:
+            continue
+        new, fn = states[row.id]
+        old = row.cells["State"]
+        if new == old:
+            continue
+        name = state_name(new)
+        if not name or CONTROL.search(new) or UNESCAPED_PIPE.search(new):
+            plan.refused.append(f"{row.id}: the state '{new}' in {fn} is not a state the register takes")
+        elif row.seen_closed:
+            plan.left.append(f"{row.id}: '{old}' is seen closed, set by a person; {fn} says '{new}': not synced")
+        elif not row.state or STATE_RANK[name] > STATE_RANK[row.state]:
+            plan.changes.append((row, new))
+        elif STATE_RANK[name] < STATE_RANK[row.state]:
+            plan.left.append(f"{row.id}: the register's '{old}' is ahead of '{new}' in {fn}: not moved back")
+        else:
+            plan.left.append(f"{row.id}: the register says '{old}', {fn} says '{new}': a person decides")
+    return plan
+
+
+def stale_problems(reg: Register, root: Path) -> list[str]:
+    """For --check: a row behind its source's state, or a source state the register cannot take."""
+    plan = sync_plan(reg, root)
+    out = [
+        f"{reg.path.name}:{row.line}: row {row.id}: the state '{row.cells['State']}' is behind its findings file's "
+        f"'{new}': run --sync-states"
+        for row, new in plan.changes
+    ]
+    return out + [f"{reg.path.name}: {p}" for p in plan.refused]
+
+
+def sync_states(path: Path = REGISTER, root: Path = ROOT) -> tuple[list[str], list[str], list[str]]:
+    """Rewrite the state cell of each row behind its source. Returns (changes 'id: old -> new', refused, left)."""
+    reg = parse(path)
+    plan = sync_plan(reg, root)
+    if not plan.changes:
+        return [], plan.refused, plan.left
+    text = path.read_text(encoding="utf-8")
+    lines = text.split("\n")
+    done = []
+    for row, new in plan.changes:
+        i = row.line - 1
+        old_line = lines[i]
+        tail = f"| {row.cells['State']} |"
+        assert old_line.rstrip().endswith(tail), (row.id, old_line)
+        cut = old_line.rstrip().rfind(tail)
+        lines[i] = old_line[:cut] + f"| {new} |" + old_line[cut + len(tail) :]
+        done.append(f"{row.id}: {row.cells['State']} -> {new}")
+    path.write_text("\n".join(lines), encoding="utf-8")
+    if errs := check(parse(path), root):
+        path.write_text(text, encoding="utf-8")
+        return [], [*plan.refused, "the register after the sync fails --check; the old file is put back:", *errs], []
+    return done, plan.refused, plan.left
+
+
 # --- --add-from ---
 
 
@@ -491,7 +623,7 @@ def add_from(findings_file: Path, register_path: Path = REGISTER, root: Path = R
     except AddError as exc:
         return [f"{findings_file.name}: {exc}: nothing written"]
     reg = parse(register_path)
-    if errs := check(reg):
+    if errs := check(reg, root):
         return ["the register does not pass --check before the addition: nothing written", *errs]
     have = {r.id for r in reg.rows}
     problems = []
@@ -520,7 +652,7 @@ def add_from(findings_file: Path, register_path: Path = REGISTER, root: Path = R
             lines.pop()
         lines += ["", f"## {card}: {title}", "", HEADER, RULE, *new]
     register_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    if errs := check(parse(register_path)):
+    if errs := check(parse(register_path), root):
         register_path.write_text(before, encoding="utf-8")
         return ["the register after the addition fails --check; the old file is put back:", *errs]
     return []
@@ -533,11 +665,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--counts", action="store_true", help="print the counts of open findings")
     ap.add_argument("--add-from", type=Path, metavar="FINDINGS_JSON", help="append a card's findings to the register")
     ap.add_argument("--resolve", action="store_true", help="after a merge: fold the copies of a row (see the doc)")
+    ap.add_argument(
+        "--sync-states", action="store_true", help="move each row's state forward to its findings file's (see the doc)"
+    )
     ap.add_argument("--register", type=Path, default=REGISTER, help=argparse.SUPPRESS)
     ap.add_argument("--root", type=Path, default=ROOT, help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
-    if not (args.check or args.counts or args.add_from or args.resolve):
-        ap.error("give --check, --counts, --add-from or --resolve")
+    if not (args.check or args.counts or args.add_from or args.resolve or args.sync_states):
+        ap.error("give --check, --counts, --add-from, --resolve or --sync-states")
     if args.release and not args.check:
         ap.error("--release goes with --check")
     rc = 0
@@ -556,9 +691,21 @@ def main(argv: list[str] | None = None) -> int:
             print(f"findings register: not resolved: {p}", file=sys.stderr)
         if left:
             rc = 1
+    if args.sync_states:
+        changed, refused, left = sync_states(args.register, args.root)
+        for c in changed:
+            print(f"findings register: synced {c}")
+        for p in left:
+            print(f"findings register: not synced: {p}")
+        for p in refused:
+            print(f"findings register: refused: {p}", file=sys.stderr)
+        if refused:
+            rc = 1
+        if not changed:
+            print("findings register: no state to sync")
     reg = parse(args.register)
-    if args.check or args.resolve:
-        errors = check(reg)
+    if args.check or args.resolve or args.sync_states:
+        errors = check(reg, args.root)
         for e in errors:
             print(f"findings register: {e}", file=sys.stderr)
         if errors:

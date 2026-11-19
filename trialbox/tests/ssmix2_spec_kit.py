@@ -191,11 +191,11 @@ def _diagnoses(st: Storage) -> None:
             rank="2",
         ),
         # suspected only through its 修飾語: the base name in PRB-3 is 肺炎, the written name in PRB-17 carries
-        # "の疑い", PRB-13 is empty; the ZPR segment after it holds the suffix 修飾語. ZPR's field layout is not
-        # recorded in review 12 (it names "prefix and suffix 修飾語 (the 疑い suffix included)"): here field 1 is a
-        # set id and field 2 the 修飾語 as a coded value with a placeholder code, from review 12, not re-verified
+        # "の疑い", PRB-13 is empty; the ZPR segment after it holds the suffix 修飾語 in ZPR-3 (修飾語管理番号, 接尾語),
+        # as the specification lays ZPR out (標準化ストレージ仕様書 Ver.1.2j 3.7.4, 表3-48; verified for D-1252: ZPR
+        # has no set id, ZPR-1 is the prefix 修飾語). The 修飾語管理番号 is a placeholder of eight digits starting 9998
         _prb("AD", "99990005", "肺炎", icd10="J189", established="20261001", written="肺炎の疑い", rank="2"),
-        "ZPR|1|9999^の疑い^99XYZ",
+        "ZPR|||99980010^の疑い^MDCDX2",
         # the patient died of it: 転帰 D (HL7 table 0241, dead)
         _prb(
             "UP",
