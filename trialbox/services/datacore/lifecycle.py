@@ -808,10 +808,12 @@ class Lifecycle:
         return {(str(r["record"]), str(r["event"])): r for r in rows}
 
     def ack(self, study: str, record: str, event: str, who: str, at: str) -> dict[str, Any]:
-        """One tap: the first acknowledgement stands (who and when); a second is a no-op."""
-        self.db.execute("INSERT INTO ae_ack (study, record, event, who, at) VALUES (?,?,?,?,?) "
-                        "ON CONFLICT (study, record, event) DO NOTHING", (study, record, event, who, at))  # fmt: skip
-        return self.acks(study)[(record, event)]
+        """One tap: the first acknowledgement stands (who and when); a second is a no-op, said by ``new`` False
+        (V11-14, D-1160: so the second writes no event)."""
+        n = self.db.execute("INSERT INTO ae_ack (study, record, event, who, at) VALUES (?,?,?,?,?) "
+                            "ON CONFLICT (study, record, event) DO NOTHING",
+                            (study, record, event, who, at))  # fmt: skip
+        return {**self.acks(study)[(record, event)], "new": n == 1}
 
     def sae_rule(self, study: str) -> dict[str, Any] | None:
         """The study's SAE rule set (D-277), who confirmed it and when; None until the set-up page names one."""

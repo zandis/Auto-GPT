@@ -424,8 +424,15 @@ def _collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[N
 def send_all(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2"), by: str = "console:notify") -> list[Notice]:
     sent = []
     for n in collect(h, today, kinds):
-        h.bk.send_notice(n.kind, [n.to], n.subject, n.body, actor.NOTIFY)  # T-715: the timer's own name
-        h.store.log_notice(n.log_kind or n.kind, n.username, n.day, h.clock().isoformat(), n.subject)
+        # V11-03 (D-1160): the day's log row is claimed before the send, so two senders at once send it once
+        kind, at = n.log_kind or n.kind, h.clock().isoformat()
+        if not h.store.claim_notice(kind, n.username, n.day, at, n.subject):
+            continue
+        try:
+            h.bk.send_notice(n.kind, [n.to], n.subject, n.body, actor.NOTIFY)  # T-715: the timer's own name
+        except BaseException:
+            h.store.unclaim_notice(kind, n.username, n.day, at)
+            raise
         h.au.append("console.notice", actor=by, detail={"action": n.kind, "to": n.to, "subject": n.subject})
         sent.append(n)
     return sent

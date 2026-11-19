@@ -403,8 +403,9 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
         except Unavailable:
             return case_page(request, sess, rid, rec, ev, status=503,
                              refused=translate(lang_of(sess), "sae.unavailable"))  # fmt: skip
-        au.append("console.sae_ack", ruleset=rid, actor=h.actor(sess),
-                  detail={"record": rec, "event": ev, "at": out.get("ack_at")})  # fmt: skip
+        if not out.get("already"):  # V11-14 (D-1160): a second tap writes no second acknowledgement
+            au.append("console.sae_ack", ruleset=rid, actor=h.actor(sess),
+                      detail={"record": rec, "event": ev, "at": out.get("ack_at")})  # fmt: skip
         hook(rid)
         return RedirectResponse(f"/studies/{rid}/sae/{quote(rec)}/{ev}?done=acked", status_code=303)
 

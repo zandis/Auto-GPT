@@ -212,11 +212,6 @@ def test_approach_marked_twice_counts(lb: dict[str, Any]) -> None:
     assert r2.status_code == 303
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="V11-01: a second identical Approach (no new decision) writes a second IRB-override record and event",
-)
 def test_approach_marked_twice_is_one_override(lb: dict[str, Any]) -> None:
     """The mark rows are append-only by design (D-104: a mark is an event); only the override trail is asserted."""
     pi, csrf = _marked(lb)
@@ -333,11 +328,6 @@ def test_two_send_now_at_once_counts(lb: dict[str, Any]) -> None:
            "one_effect": len(notices) == len({(n[0], tuple(n[1])) for n in notices})})  # fmt: skip
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="V11-03: two 'send now' at once send each person's patient digest twice (check, send, log)",
-)
 def test_two_send_now_at_once_send_one_mail(lb: dict[str, Any]) -> None:
     notices = _race_notices(lb)
     if not notices:  # not an AssertionError: a fixture that sends nothing must not satisfy the xfail
@@ -558,11 +548,6 @@ def test_break_glass_open_twice(box: dict[str, Any]) -> None:
     assert row["first_worked"] and row["status"][1] < 500
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="V11-08: a double click on break-glass open makes two grants, two events, two mails",
-)
 def test_break_glass_open_twice_is_one_grant(box: dict[str, Any]) -> None:
     admin, csrf = _bg_open(box)
     row = twice(box, "breakglass_open", admin, "/breakglass", {"csrf": csrf, **BG_FORM})
@@ -585,11 +570,6 @@ def test_break_glass_end_and_review_twice(box: dict[str, Any]) -> None:
     assert end["status"][1] < 500
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="V11-11: ending a grant already ended writes a second console.breakglass_end event",
-)
 def test_break_glass_end_twice_is_one_end(box: dict[str, Any]) -> None:
     admin, csrf = _bg_open(box)
     admin.post("/breakglass", data={"csrf": csrf, **BG_FORM})
@@ -887,11 +867,6 @@ def test_an_sae_recorded_and_acknowledged_twice(lb: dict[str, Any]) -> None:
     _sae_twice(lb)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="V11-14: a second acknowledgement of one SAE writes a second sae_ack in both audit trails",
-)
 def test_an_sae_acknowledged_twice_is_one_acknowledgement(lb: dict[str, Any]) -> None:
     ack = _sae_twice(lb)
     if not ack["first_worked"]:

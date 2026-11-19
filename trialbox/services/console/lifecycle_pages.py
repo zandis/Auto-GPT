@@ -403,8 +403,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not _REC.match(rec) or not re.fullmatch(r"ae\d{1,3}", ev):
             raise h.problem(404, "notfound")
         out = dict(actor.call(h, sess, "sae.ack", rid, "POST", f"/studies/{rid}/aes/{quote(rec)}/{ev}/ack", {}))
-        au.append("console.sae_ack", ruleset=rid, actor=h.actor(sess),
-                  detail={"record": rec, "event": ev, "at": out.get("ack_at")})  # fmt: skip
+        if not out.get("already"):  # V11-14 (D-1160): a second tap writes no second acknowledgement
+            au.append("console.sae_ack", ruleset=rid, actor=h.actor(sess),
+                      detail={"record": rec, "event": ev, "at": out.get("ack_at")})  # fmt: skip
         if h.sae_sync is not None:
             h.sae_sync(rid)  # D-277: the register's trail takes the acknowledgement on the write path
         return out

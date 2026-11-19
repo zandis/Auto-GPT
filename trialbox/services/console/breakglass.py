@@ -211,12 +211,19 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
                           detail={"grant": g.id, "reason": g.reason, "note": g.note, "kind": g.kind,
                                   "ends_at": g.ends_at, **({"pid": g.pid} if g.pid else {})})  # fmt: skip
 
+            fresh: list[Grant] = []
+
+            def opened(g: Grant, ended: list[Grant]) -> None:
+                told(g, ended)
+                fresh.append(g)
+
             g, _ = bg.open(sess.user.username, reason=reason, note=note[:NOTE_MAX * 2], kind=kind,
                            ruleset=ruleset[:40], pid=pid[:80], job_id=job_id[:80], now=now(),
-                           before_commit=told)  # fmt: skip
+                           before_commit=opened)  # fmt: skip
         except BreakGlassError as exc:
             return RedirectResponse(f"/breakglass?err={exc}", status_code=303)
-        tell(sess, g)
+        if fresh:  # V11-08 (D-1160): a second open of the same target is answered by the grant already open
+            tell(sess, g)
         return RedirectResponse("/breakglass?done=open", status_code=303)
 
     @app.post("/breakglass/{gid}/end")

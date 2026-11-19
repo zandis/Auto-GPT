@@ -1245,6 +1245,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         version = str((wk.get("cl") or {}).get("version") or wk["job"].ruleset_version or "") or None
         if version:
             detail["version"] = version
+        if (
+            warned
+            and prev is not None
+            and prev.mark == "approach"
+            and (prev.job_id or "", prev.version or "") == (wk["job"].job_id, version or "")
+        ):  # V11-01 (D-1160): an Approach on an Approach of the same list is no new decision, so no second override
+            warned = []
+            detail.pop("irb_override", None)
         store.mark(rid, Mark(pid, value, stored_reason, stored_note, sess.user.username, now, wk["job"].job_id,
                              version), number=conf if mark == "approach" else None, before_commit=audit)  # fmt: skip
         if warned:  # the override record follows its audit event (an event without the record, never the reverse)

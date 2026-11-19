@@ -700,10 +700,12 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         if one is None or not lc.is_serious(one):
             raise HTTPException(status_code=404, detail={"code": "LIFE-SAE", "message": "no such serious AE"})
         ack = life.ack(rid, rec, event, who.name, svc.stamp())
-        svc.audit.append("life.sae_ack", ruleset=rid, actor=who.name,
-                         detail={"record": rec, "event": event, "at": ack["at"], "by": ack["who"],
-                                 "outcome": one.get("ae_outcome", "")})  # fmt: skip
-        return {"study": rid, "record": rec, "event": event, "ack_by": ack["who"], "ack_at": ack["at"]}
+        if ack["new"]:  # V11-14 (D-1160): a second tap changes nothing and writes nothing
+            svc.audit.append("life.sae_ack", ruleset=rid, actor=who.name,
+                             detail={"record": rec, "event": event, "at": ack["at"], "by": ack["who"],
+                                     "outcome": one.get("ae_outcome", "")})  # fmt: skip
+        return {"study": rid, "record": rec, "event": event, "ack_by": ack["who"], "ack_at": ack["at"],
+                "already": not ack["new"]}  # fmt: skip
 
     @r.get("/studies/{rs}/report", dependencies=[PATIENT_READ])
     def get_report(rs: str) -> dict[str, Any]:

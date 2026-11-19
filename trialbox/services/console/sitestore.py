@@ -763,6 +763,21 @@ class SiteStore:
         at = self.db.fetchval("SELECT MAX(at) FROM notify_log WHERE kind = ? AND username = ?", (kind, username))
         return str(at) if at else None
 
+    def claim_notice(self, kind: str, username: str, day: str, at: str, subject: str) -> bool:
+        """The once-a-day notice is this sender's to send: True when no other sender has logged (or claimed) it
+        for the day. Taken before the send (V11-03, D-1160), so two senders at once send it once."""
+        n = self.db.execute(
+            "INSERT INTO notify_log (kind, username, day, at, subject) VALUES (?,?,?,?,?) "
+            "ON CONFLICT (kind, username, day) DO NOTHING",
+            (kind, username, day, at, subject),
+        )
+        return n == 1
+
+    def unclaim_notice(self, kind: str, username: str, day: str, at: str) -> None:
+        """A claim whose send failed is given back, so the next run sends it."""
+        self.db.execute("DELETE FROM notify_log WHERE kind = ? AND username = ? AND day = ? AND at = ?",
+                        (kind, username, day, at))  # fmt: skip
+
     def log_notice(self, kind: str, username: str, day: str, at: str, subject: str) -> None:
         self.db.execute(
             "INSERT INTO notify_log (kind, username, day, at, subject) VALUES (?,?,?,?,?) "

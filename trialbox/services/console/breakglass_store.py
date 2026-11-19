@@ -162,8 +162,17 @@ class BreakGlassStore:
                 raise BreakGlassError("bg.err.target")
         else:
             raise BreakGlassError("bg.err.target")
-        ended = self.active(username, now)
         with self.db.transaction() as tx:
+            # the register's V11-08 (D-1160): one person's opens are taken one at a time, and an open grant on the
+            # same patient or job is the answer to a second open (a double click): no second grant, event or mail
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"breakglass:{username}",))
+            rows = tx.fetchall(f"SELECT {_COLS} FROM grants WHERE username = ? AND ended_at IS NULL AND ends_at > ?",
+                               (username, _iso(now)))  # fmt: skip
+            ended = [_grant(r) for r in rows]
+            same = next((g for g in ended if (g.kind, g.ruleset, g.pid, g.job_id) == (kind, ruleset, pid, job_id)),
+                        None)  # fmt: skip
+            if same is not None:
+                return same, []
             for g in ended:
                 tx.execute("UPDATE grants SET ended_at = ? WHERE id = ?", (_iso(now), g.id))
             gid = int(
@@ -229,9 +238,9 @@ class BreakGlassStore:
         if g is None or g.username != username:
             raise BreakGlassError("bg.err.none")
         with self.db.transaction() as tx:
-            if g.active(now):
-                tx.execute("UPDATE grants SET ended_at = ? WHERE id = ?", (_iso(now), gid))
-            if before_commit is not None:
+            # V11-11 (D-1160): a grant already ended is ended once; a second end writes nothing and says nothing
+            if tx.execute("UPDATE grants SET ended_at = ? WHERE id = ? AND ended_at IS NULL AND ends_at > ?",
+                          (_iso(now), gid, _iso(now))) == 1 and before_commit is not None:  # fmt: skip
                 before_commit()
         got = self.get(gid)
         assert got is not None
