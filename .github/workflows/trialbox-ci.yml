@@ -388,6 +388,10 @@ jobs:
           path: ${{ runner.temp }}/shards
       - name: Every collected test ran in exactly one shard
         run: .venv/bin/python -m tools.test_shard check "$RUNNER_TEMP"/shards/unit-shard-*/shard.json
+      # H-63: a shard without its coverage data would read as a fall at the ratchet; this names the shard instead,
+      # and prints the lines per shard so that two runs compare shard by shard
+      - name: Every shard's coverage data is present
+        run: .venv/bin/python -m tools.coverage_shards check "$RUNNER_TEMP/shards"
       - name: Combined coverage of all shards
         run: |
           .venv/bin/python -m coverage combine --data-file="$RUNNER_TEMP/coverage.db" "$RUNNER_TEMP"/shards/unit-shard-*/coverage.db
