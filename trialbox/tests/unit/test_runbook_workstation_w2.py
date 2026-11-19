@@ -13,14 +13,18 @@ These tests hold, on stand-ins (no GPU, no network, no Docker):
 
 from __future__ import annotations
 
+import argparse
 import ast
 import json
 import os
+import platform
 import stat
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -33,14 +37,14 @@ SHA = "a" * 40
 
 
 # ------------------------------------------------------------------------------------------------ extraction
-def test_the_follower_knows_every_command_of_section_27_and_no_other():
+def test_the_follower_knows_every_command_of_section_27_and_no_other() -> None:
     unknown, gone = rw.diff()
     assert not unknown, [f"{c.line} step {c.step}: {c.text}" for c in unknown]
     assert not gone, gone
     assert rw.main(["diff"]) == 0
 
 
-def test_extraction_rule_on_a_fixture(tmp_path):
+def test_extraction_rule_on_a_fixture(tmp_path: Path) -> None:
     g = tmp_path / "guide.md"
     g.write_text(
         "# 27. X\n\n| # | Step | Type or click | You should see | If not |\n| --- | --- | --- | --- | --- |\n"
@@ -60,7 +64,7 @@ def test_extraction_rule_on_a_fixture(tmp_path):
     assert rw.extract("guide.md", root=tmp_path)[3].fragment
 
 
-def test_every_launcher_step_is_named_and_every_role_is_known():
+def test_every_launcher_step_is_named_and_every_role_is_known() -> None:
     roles = {"run", "check", "host", "else", "manual", "fragment"}
     assert set(rw.KNOWN.values()) <= roles
     for (step, _text), role in rw.KNOWN.items():
@@ -86,23 +90,23 @@ def test_every_launcher_step_is_named_and_every_role_is_known():
         ("NVIDIA A100, 81920 MiB", False),
     ],
 )
-def test_the_card_check(out, ok):
+def test_the_card_check(out: str, ok: bool) -> None:
     assert (rw.check_card(out) == "") is ok
 
 
-def test_the_driver_check():
+def test_the_driver_check() -> None:
     assert rw.check_driver("| NVIDIA-SMI 580.95.05   Driver Version: 580.95.05   CUDA Version: 13.0 |") == ""
     assert "580.65" in rw.check_driver("Driver Version: 575.57.08")
     assert rw.check_driver("No devices were found") != ""
 
 
-def test_a_newer_compose_is_recorded_not_a_stop():
+def test_a_newer_compose_is_recorded_not_a_stop() -> None:
     assert rw.check_compose("Docker Compose version v5.0.1") == ""
     assert "v5.0" in rw.compose_note("Docker Compose version v5.0.1")
     assert rw.compose_note("Docker Compose version v2.40.3") == ""
 
 
-def test_redact_drops_the_once_shown_password_and_a_hub_token():
+def test_redact_drops_the_once_shown_password_and_a_hub_token() -> None:
     text = (
         "console: administrator 'admin' created (mailbox admin@hospa.test)\n"
         "console: password (shown once): Zq8rT2xLwP0v\nHF_TOKEN=hf_abcdefghijklmnopqrstu\nusing hf_abcdefghijk1234"
@@ -133,8 +137,9 @@ GOOD = {
 class Machine:
     """A stand-in shell: each command's output from a table, the clone makes the folder, a list of what ran."""
 
-    def __init__(self, work: Path, table: dict[str, str] | None = None, rc: dict[str, int] | None = None):
-        self.work, self.table, self.rc, self.ran = work, {**GOOD, **(table or {})}, dict(rc or {}), []
+    def __init__(self, work: Path, table: dict[str, str] | None = None, rc: dict[str, Any] | None = None) -> None:
+        self.work, self.table, self.rc = work, {**GOOD, **(table or {})}, dict(rc or {})
+        self.ran: list[str] = []
 
     def __call__(self, cmd: str, cwd: Path, timeout: int) -> rw.Result:
         self.ran.append(cmd)
@@ -146,13 +151,13 @@ class Machine:
         return rw.Result(rc, self.table.get(cmd, ""), 1.0)
 
 
-def _follow(tmp_path, **kw):
+def _follow(tmp_path: Path, **kw: Any) -> tuple[rw.Follower, rw.Record, Machine]:
     m = kw.pop("machine", None) or Machine(tmp_path)
     f = rw.Follower(TAG, tmp_path, run=m, root=ROOT, **kw)
     return f, f.follow(), m
 
 
-def test_the_happy_path_walks_steps_1_to_11_in_order(tmp_path):
+def test_the_happy_path_walks_steps_1_to_11_in_order(tmp_path: Path) -> None:
     raw = tmp_path / "raw"
     raw.mkdir()
     _, rec, m = _follow(tmp_path, raw_dir=raw)
@@ -177,19 +182,19 @@ def test_the_happy_path_walks_steps_1_to_11_in_order(tmp_path):
     assert rw.timings(rec)[0]["step"] == 1
 
 
-def test_a_checkout_that_is_not_the_tag_stops_at_step_8(tmp_path):
+def test_a_checkout_that_is_not_the_tag_stops_at_step_8(tmp_path: Path) -> None:
     m = Machine(tmp_path, {f"git rev-list -n 1 {TAG}": "b" * 40})
     _, rec, _ = _follow(tmp_path, machine=m)
     assert rec.stopped_at == 8 and "not the tag" in rec.verdict
     assert not any("poc.sh" in c for c in m.ran)
 
 
-def test_a_dirty_checkout_stops_at_step_8(tmp_path):
+def test_a_dirty_checkout_stops_at_step_8(tmp_path: Path) -> None:
     _, rec, _ = _follow(tmp_path, machine=Machine(tmp_path, {"git status --porcelain": " M deploy/poc.sh"}))
     assert rec.stopped_at == 8 and "not clean" in rec.verdict
 
 
-def test_step_1_without_a_driver_is_a_strict_stop(tmp_path):
+def test_step_1_without_a_driver_is_a_strict_stop(tmp_path: Path) -> None:
     m = Machine(
         tmp_path,
         {"nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv": "bash: nvidia-smi: command not found"},
@@ -199,7 +204,7 @@ def test_step_1_without_a_driver_is_a_strict_stop(tmp_path):
     assert rec.stopped_at == 1 and "exited 127" in rec.verdict
 
 
-def test_docker_without_the_group_names_step_6(tmp_path):
+def test_docker_without_the_group_names_step_6(tmp_path: Path) -> None:
     m = Machine(
         tmp_path,
         {"docker info": "permission denied while trying to connect to the Docker daemon socket"},
@@ -209,7 +214,7 @@ def test_docker_without_the_group_names_step_6(tmp_path):
     assert rec.stopped_at == 6 and "sign out and in" in rec.verdict
 
 
-def test_a_newer_compose_is_a_note(tmp_path):
+def test_a_newer_compose_is_a_note(tmp_path: Path) -> None:
     _, rec, _ = _follow(
         tmp_path, machine=Machine(tmp_path, {"docker compose version": "Docker Compose version v5.0.1"})
     )
@@ -220,7 +225,7 @@ def test_a_newer_compose_is_a_note(tmp_path):
 DB_FAIL = "Error response from daemon: pull access denied for trialbox-postgres, repository does not exist"
 
 
-def test_the_start_without_the_database_image_is_a_strict_stop_with_the_guides_status(tmp_path):
+def test_the_start_without_the_database_image_is_a_strict_stop_with_the_guides_status(tmp_path: Path) -> None:
     m = Machine(
         tmp_path,
         {"TB_LLM_MODE=gpu deploy/poc.sh": DB_FAIL},
@@ -232,7 +237,7 @@ def test_the_start_without_the_database_image_is_a_strict_stop_with_the_guides_s
     assert rec.verdict.startswith("the guide alone does not install the box: stopped at step 11")
 
 
-def test_a_rerun_lifts_the_database_image_once_and_says_so(tmp_path):
+def test_a_rerun_lifts_the_database_image_once_and_says_so(tmp_path: Path) -> None:
     (tmp_path / "Auto-GPT" / "trialbox").mkdir(parents=True)
     starts = iter([1, 0])
     m = Machine(
@@ -250,7 +255,7 @@ def test_a_rerun_lifts_the_database_image_once_and_says_so(tmp_path):
     assert rec.steps[-1]["after_lifts"] is True
 
 
-def test_no_lift_when_the_image_is_there(tmp_path):
+def test_no_lift_when_the_image_is_there(tmp_path: Path) -> None:
     (tmp_path / "Auto-GPT" / "trialbox").mkdir(parents=True)
     m = Machine(
         tmp_path,
@@ -261,7 +266,7 @@ def test_no_lift_when_the_image_is_there(tmp_path):
     assert rec.stopped_at == 11 and not rec.lifts
 
 
-def _mailhog(machine: Machine, per_send: list[list[list[str]]]):
+def _mailhog(machine: Machine, per_send: list[list[list[str]]]) -> Callable[[str], bytes]:
     """A stand-in web-mail API: after the k-th test mail is sent, the replies of per_send[:k] are in the mailbox."""
 
     def fetch(url: str) -> bytes:
@@ -282,7 +287,7 @@ def _mailhog(machine: Machine, per_send: list[list[list[str]]]):
     return fetch
 
 
-def test_the_mail_lift_reads_the_replies(tmp_path):
+def test_the_mail_lift_reads_the_replies(tmp_path: Path) -> None:
     (tmp_path / "Auto-GPT" / "trialbox").mkdir(parents=True)
     m = Machine(tmp_path)
     fetch = _mailhog(m, [[["feasibility.pdf", "feasibility.xlsx"]], [["screened.xlsx", "summary.pdf"], []]])
@@ -294,7 +299,7 @@ def test_the_mail_lift_reads_the_replies(tmp_path):
     assert [x["step"] for x in rec.manual] == [12, 15]
 
 
-def test_the_mail_lift_without_a_reply_stops(tmp_path):
+def test_the_mail_lift_without_a_reply_stops(tmp_path: Path) -> None:
     (tmp_path / "Auto-GPT" / "trialbox").mkdir(parents=True)
     m = Machine(tmp_path)
     _, rec, _ = _follow(
@@ -311,34 +316,32 @@ def test_the_mail_lift_without_a_reply_stops(tmp_path):
 
 
 # ------------------------------------------------------------------------------------------------ preflight, CLI
-def _args(tmp_path, **kw):
-    import argparse
-
+def _args(tmp_path: Path, **kw: Any) -> argparse.Namespace:
     base = {"tag": TAG, "work": str(tmp_path), "strict": True, "rerun": False, "mail": False}
     return argparse.Namespace(**{**base, **kw})
 
 
-def _ok(cmd, cwd, timeout):
+def _ok(cmd: str, cwd: Path, timeout: int) -> rw.Result:
     return rw.Result(0, "", 0.0)
 
 
-def test_preflight(tmp_path, monkeypatch):
-    monkeypatch.setattr(rw.platform, "machine", lambda: "x86_64")
-    monkeypatch.setattr(rw.os, "geteuid", lambda: 1000, raising=False)
+def test_preflight(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(os, "geteuid", lambda: 1000, raising=False)
     assert rw.preflight(_args(tmp_path), run=_ok) == []
-    monkeypatch.setattr(rw.os, "geteuid", lambda: 0, raising=False)
+    monkeypatch.setattr(os, "geteuid", lambda: 0, raising=False)
     assert any("not as root" in w for w in rw.preflight(_args(tmp_path), run=_ok))
-    monkeypatch.setattr(rw.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(os, "geteuid", lambda: 1000, raising=False)
     assert any("--mail is a lift" in w for w in rw.preflight(_args(tmp_path, mail=True), run=_ok))
     assert any("not both" in w for w in rw.preflight(_args(tmp_path, rerun=True), run=_ok))
     assert any("not a tag" in w for w in rw.preflight(_args(tmp_path, tag="v1; rm -rf /"), run=_ok))
     (tmp_path / "Auto-GPT").mkdir()
     assert any("empty working folder" in w for w in rw.preflight(_args(tmp_path), run=_ok))
-    monkeypatch.setattr(rw.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(platform, "machine", lambda: "aarch64")
     assert any("not W-2's" in w for w in rw.preflight(_args(tmp_path, strict=False, rerun=True), run=_ok))
 
 
-def test_the_module_needs_only_the_standard_library_and_python_310():
+def test_the_module_needs_only_the_standard_library_and_python_310() -> None:
     src = (ROOT / "tools/runbook_workstation.py").read_text(encoding="utf-8")
     ast.parse(src, feature_version=(3, 10))
     assert "datetime" not in src  # datetime.UTC is 3.11+ (lane J's fault in pin_model under 22.04)
@@ -355,7 +358,7 @@ def test_the_module_needs_only_the_standard_library_and_python_310():
     assert p.returncode == 0, p.stderr
 
 
-def test_the_cli_plan_and_extract_run_without_pythonunbuffered():
+def test_the_cli_plan_and_extract_run_without_pythonunbuffered() -> None:
     env = {k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"}
     for sub in (["plan"], ["extract", "--json"], ["diff"]):
         p = subprocess.run(
@@ -382,8 +385,10 @@ def test_the_cli_plan_and_extract_run_without_pythonunbuffered():
     )
 
 
-def test_follow_refuses_root_before_anything(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(rw.os, "geteuid", lambda: 0, raising=False)
+def test_follow_refuses_root_before_anything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(os, "geteuid", lambda: 0, raising=False)
     rc = rw.main(["follow", "--tag", TAG, "--out", str(tmp_path / "r.json"), "--work", str(tmp_path / "w")])
     assert rc == 2 and not (tmp_path / "r.json").exists()
     assert "not as root" in capsys.readouterr().err

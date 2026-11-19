@@ -50,6 +50,7 @@ record.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import platform
@@ -58,7 +59,6 @@ import shutil
 import subprocess
 import sys
 import time
-import urllib.request
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -71,7 +71,8 @@ GUIDE = "docs/runbook/27-workstation-rtx-pro-6000.md"
 REPO_URL = "https://github.com/zandis/Auto-GPT.git"
 HEADS = ("sudo ", "python3 ", "sh ", "git ", "cd ", "docker ", "nvidia-smi ", "lsb_release", "TB_", "deploy/", "make ")
 DB_IMAGE = "trialbox-postgres:16-1"
-MAILHOG = "http://127.0.0.1:8025/api/v2/messages"
+MAILHOG = "/api/v2/messages"  # the web mail on 127.0.0.1:8025 (the start's TB_HOST_MAILHOG_PORT default)
+MAILHOG_PORT = 8025
 ADMIN_MAIL = "admin@hospa.test"
 
 
@@ -345,7 +346,7 @@ class Follower:
     ):
         self.tag, self.work, self.strict, self.rerun, self.mail = tag, work, strict, rerun, mail
         self.raw_dir, self.run, self.root, self.sleep, self.mail_wait = raw_dir, run, root, sleep, mail_wait
-        self.fetch = fetch or (lambda url: urllib.request.urlopen(url, timeout=10).read())  # localhost only
+        self.fetch = fetch or local_get
         self.cwd = work
         self.rec = Record(tag=tag, mode="strict" if strict else "rerun")
         self.n = 0
@@ -568,6 +569,16 @@ class Follower:
                     {"step": n, "title": titles.get(n, ""), "by": LAUNCHER[n], "result": "write it on the sheet's form"}
                 )
         return self.rec
+
+
+def local_get(path: str) -> bytes:
+    """GET a path of the web mail on this machine (never another host)."""
+    c = http.client.HTTPConnection("127.0.0.1", MAILHOG_PORT, timeout=10)
+    try:
+        c.request("GET", path)
+        return c.getresponse().read()
+    finally:
+        c.close()
 
 
 def _strings(obj: Any) -> Iterable[str]:
