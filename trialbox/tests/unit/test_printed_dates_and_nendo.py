@@ -90,7 +90,7 @@ def test_the_settings_file_takes_the_two_answers_and_refuses_others() -> None:
     assert dates.site_dates(SiteInfo(id="A", name="A", tz="Asia/Tokyo")) == ("both", "fiscal")
     assert dates.site_dates(SiteInfo(id="A", name="A", tz="Asia/Taipei")) == ("western", "calendar")
     with pytest.raises(ValidationError):
-        SiteInfo(id="A", name="A", tz="Asia/Tokyo", printed_dates="heisei")
+        SiteInfo.model_validate({"id": "A", "name": "A", "tz": "Asia/Tokyo", "printed_dates": "heisei"})
 
 
 # ------------------------------------------------------------------------------------------------ 年度
@@ -183,7 +183,8 @@ def test_the_case_sheet_and_the_consent_page_print_dates_in_the_sites_style() ->
     from orchestrator.reports import case_html, consent_html
     from orchestrator.scenarios import consent as c
 
-    from tests.unit.test_wording_outputs import _case_rec, _consent_rec
+    from tests.unit.test_consent_unit import _rec as _consent_rec
+    from tests.unit.test_wording_outputs import _case_rec
 
     rec = _case_rec("ja")
     assert case_html.sheet(rec) == case_html.sheet(rec, "western")  # unchanged for every other site
