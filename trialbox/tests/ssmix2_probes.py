@@ -591,10 +591,18 @@ def modifier_cases() -> list[Case]:
         # a disease row that is not current in the master (変更区分 1, or a value M does not define) is not recognised
         current = "CA" if DISEASE_CHANGE.get(no, "0") in ("0", "3", "5") else "NC"
         specs.append((f"control {name}", no, name, [], "CA", current, ""))
-        specs.append((f"control {name}, ZPR names the same disease", no, name, [zpr(dis=no, dis_ex=ex)], "CA", current,
+        # D-1257 (review of #1189, source.py:1913): without the master the 病名交換用コード of ZPR-5 cannot be compared
+        # with PRB-3's 病名管理番号, so a right one and a conflicting one look the same: unknown without the master
+        # (D-1252 had it confirmed), confirmed with it
+        specs.append((f"control {name}, ZPR names the same disease", no, name, [zpr(dis=no, dis_ex=ex)], "NC", current,
                       ""))  # fmt: skip
-    # S's own example shape: ZPR-2 and ZPR-5 the same disease, nothing else
-    specs.append(("S example ZPR (ZPR-2, ZPR-5 only)", gas, "胃炎", [zpr(dis=gas, dis_ex="ZA02")], "CA", "CA", ""))
+        # ZPR-2 alone repeats PRB-3's own code: that can be compared without the master
+        specs.append((f"control {name}, ZPR-2 repeats PRB-3's code", no, name, [zpr(dis=no)], "CA", current, ""))
+    # S's own example shape: ZPR-2 and ZPR-5 the same disease, nothing else (D-1257: unknown without the master)
+    specs.append(("S example ZPR (ZPR-2, ZPR-5 only)", gas, "胃炎", [zpr(dis=gas, dis_ex="ZA02")], "NC", "CA", ""))
+    # D-1257: the finding's own input, a ZPR-5 exchange code of another disease beside a matching ZPR-2
+    specs.append(("ZPR-5 another disease's exchange code", gas, "胃炎", [zpr(dis=gas, dis_ex="ZA01").replace("肺炎", "胃炎")],
+                  "NC", "NC", ""))  # fmt: skip
 
     # 2. qualifiers written only in the display text (the #1095 limit): unknown with the master, the limit without
     for q in ("（未確定）", "の可能性あり", " provisional", "既往", "家族歴", "の既往", "疑い", "?", "の疑い", "（疑）",
@@ -1036,13 +1044,18 @@ def independent_cases_2() -> list[Case]:
     one("PRB-10's ICD-10 not the master's", "D", [prb(pneu, "肺炎", "DX05", icd10="C349")], "NC", master="master")
     one("guard: PRB-10's ICD-10 the master's", "D", [prb(pneu, "肺炎", "DX05", icd10="J189")], "CA", master="master")
     # F. no master: PRB-3 the 病名交換用コード, ZPR-2 the 病名管理番号
-    one("PRB-3 exchange code, ZPR-2 管理番号, ZPR-5 the same exchange code", "F",
-        [prb("ZA01", "肺炎", "DX05"), "ZPR||99990001^肺炎^MDCDX2|||ZA01^肺炎^MDCDX2"], "CA")  # fmt: skip
+    # D-1257 (review of #1189, source.py:1913): ZPR-5 no longer links a ZPR-2 the reader cannot check without the
+    # master (a ZPR-2 of another disease looked the same): unknown without it, confirmed with it
+    for kind, want in (("", "NC"), ("master", "CA")):
+        one("PRB-3 exchange code, ZPR-2 管理番号, ZPR-5 the same exchange code", "F",
+            [prb("ZA01", "肺炎", "DX05"), "ZPR||99990001^肺炎^MDCDX2|||ZA01^肺炎^MDCDX2"], want, master=kind)  # fmt: skip
     one("PRB-3 exchange code, ZPR-2 管理番号, no ZPR-5", "F", [prb("ZA01", "肺炎", "DX05"), "ZPR||99990001^肺炎^MDCDX2"],
         "NC", master="")  # fmt: skip
     # correct-site shapes that must stay confirmed with the master (lane J: 100 %)
-    one("correct site: the specification's example shape", "OK",
-        [_set_field(prb(gas, "胃炎", "DX05"), 25, "V^非常に限定^HL70177"), f"ZPR||{gas}^胃炎^MDCDX2|||ZA02^胃炎^MDCDX2"], "CA")  # fmt: skip
+    for kind, want in (("", "NC"), ("master", "CA")):  # D-1257: without the master ZPR-5 cannot be compared
+        one("correct site: the specification's example shape", "OK",
+            [_set_field(prb(gas, "胃炎", "DX05"), 25, "V^非常に限定^HL70177"),
+             f"ZPR||{gas}^胃炎^MDCDX2|||ZA02^胃炎^MDCDX2"], want, master=kind)  # fmt: skip
     one("correct site: a class 2 prefix", "OK", [prb(pneu, "左肺炎", "DX05"), zpr(pre=["99980002"], dis=pneu, pre_ex=["ZM02"])],
         "CA", master="master")  # fmt: skip
     one("correct site: base name in PRB-3, full in PRB-17", "OK",

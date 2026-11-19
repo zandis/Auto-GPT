@@ -453,10 +453,30 @@ def tables(url: str | None = None, *, cached: bool = False) -> dict[str, dict[st
         return {k: {} for k in KINDS}
     try:
         out = {k: st.concepts(k) for k in KINDS}
+        loaded = max((str(r["loaded_at"]) for r in st.status() if r["state"] == "loaded"), default="")
     finally:
         st.close()
     _CACHE[key] = (now, out)
+    _GIVEN[id(out)] = (out, loaded)
+    while len(_GIVEN) > _GIVEN_MAX:
+        _GIVEN.pop(next(iter(_GIVEN)))
     return out
+
+
+#: what :func:`tables` gave lately, each with the load time of the newest active release behind it (D-1257). The
+#: tables themselves are kept, so an identity is never mistaken for another dictionary's
+_GIVEN: dict[int, tuple[dict[str, dict[str, dict[str, str]]], str]] = {}
+_GIVEN_MAX = 8
+
+
+def loaded_at_of(given: object) -> str | None:
+    """When the newest active release behind ``given`` (a result of :func:`tables`) was loaded: ISO, UTC, as
+    ``release.loaded_at``; empty when no release is loaded. None when ``given`` did not come from :func:`tables` (a
+    caller's own dictionary), so the time cannot be known. A reader whose rows depend on the licensed lists uses it
+    as part of their change time (D-1257): a release loaded after the delta window opened changes rows whose
+    hospital files did not change."""
+    hit = _GIVEN.get(id(given))
+    return hit[1] if hit is not None and hit[0] is given else None
 
 
 def main(argv: list[str] | None = None) -> int:

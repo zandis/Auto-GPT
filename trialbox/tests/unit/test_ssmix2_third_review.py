@@ -140,17 +140,19 @@ def test_4_a_diagnosis_with_an_end_date_and_no_outcome_is_ended_never_active(tmp
 
     st = _ss(tmp_path)
     prb = ["PRB", "AD", DAY, "99990001^胃炎^MDCDX2", "DX1"] + [""] * 14
-    prb[9], prb[10] = "20261020", "K297^^I10"
+    # the end day is before the day the file was written (D-1257: an end day that had not come yet is unknown,
+    # never ended; this test's day was 20 October in a file of 1 October)
+    prb[9], prb[10] = "20260920", "K297^^I10"
     kit._write(st, kit.P1, "-", "PPR-01", "ALL9", kit._stamp(DAY),
                [kit._msh(f"{DAY}0900", "PPR^ZD1^PPR_ZD1", "P"), kit._pid(kit.P1), "|".join(prb)])  # fmt: skip
     (row,) = list(_source(st).rows("diagnosis", "diagnosis", None, None))
-    assert (row["status"], row["end_date"]) == ("E", "2026-10-20")
+    assert (row["status"], row["end_date"]) == ("E", "2026-09-20")
     m = Mapping.load(Path(__file__).resolve().parents[2] / "services/adapter/mapping/jp_core/ssmix2_site.yaml")
     spec = next(r for r in m.resources if r.type == "Condition")
     res = Mapper(m, b"k" * 32, "S").map_row(spec, row)
     assert res is not None
     assert [c["code"] for c in res["clinicalStatus"]["coding"]] == ["inactive"]
-    assert res["abatementDateTime"].startswith("2026-10-20")
+    assert res["abatementDateTime"].startswith("2026-09-20")
 
 
 # ------------------------------------------------------------------------------------------------ 5: ORC-1
