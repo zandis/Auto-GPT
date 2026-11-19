@@ -696,8 +696,10 @@ def create_app(
                 raise _MustChange()
             raise _Problem(403, "account.must_change")
         _scope_check(request, sess)
-        if request.method == "GET" and request.query_params.get("keep") == "1":
-            raise _KeepAlive(sess.token_sha)  # D-1370: after every check the page itself makes, before its reads
+        # D-1370: answered only on the warning's own pages (data-stay-url), which make no check of their own after
+        # this one; on any other page keep=1 is ignored and that page's own checks answer
+        if request.method == "GET" and request.query_params.get("keep") == "1" and request.url.path in ("/", "/help"):
+            raise _KeepAlive(sess.token_sha)
         bind_session(sess.token_sha[:16])  # S-09: the actor this request names to the orchestrator is signed with it
         if reader:  # NEW-SEC-1 (D-717): this account signs the patient reads of its pages (the workspace's helpers)
             console_actor.bind_reader(reader["h"], sess)

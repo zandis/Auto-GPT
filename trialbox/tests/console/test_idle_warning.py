@@ -114,6 +114,36 @@ def test_the_keep_request_is_answered_with_the_times_only(tmp_path: Path) -> Non
     assert "tb_console_next" in r2.headers.get("set-cookie", "")  # a real page is still remembered (D-777)
 
 
+def test_keep_on_a_page_the_role_may_not_open_gets_that_pages_refusal(tmp_path: Path) -> None:
+    """``keep=1`` is answered only on the warning's own pages: on a page whose route refuses the role after the
+    session check (the users page refuses a viewer in its own body), the refusal answers, not the session's times."""
+    _, _, _, c = _box(tmp_path)
+    for url in ("/ops/users?keep=1", "/ops/users?keep=1&auto=1"):
+        r = c.get(url, follow_redirects=False)
+        assert r.status_code == 403 and "x-tb-idle-left" not in r.headers, url
+
+
+def test_keep_without_a_session_neither_creates_nor_extends_one(tmp_path: Path) -> None:
+    """Nobody signed in, or a session already ended: ``keep=1`` goes to the sign-in, and no session is made or kept
+    awake by it."""
+    _, users, clock, c = _box(tmp_path)
+
+    def count() -> int:
+        return int(users.db.fetchone("SELECT COUNT(*) FROM sessions")[0])
+
+    before = count()
+    for url in ("/help?keep=1", "/?keep=1", "/ops/users?keep=1", "/help?keep=1&auto=1"):
+        r = TestClient(c.app).get(url, follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"].startswith("/login"), url
+        assert "x-tb-idle-left" not in r.headers and "tb_console=" not in r.headers.get("set-cookie", ""), url
+    assert count() == before
+    token = c.cookies.get("tb_console")
+    clock.tick(minutes=10, seconds=1)
+    r = c.get("/help?keep=1", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/login?why=idle"
+    assert users.session(token) is None and count() == before - 1
+
+
 def test_without_the_workspace_pages_stay_signed_in_opens_the_overview(tmp_path: Path) -> None:
     """A console with the workspace off (``TB_CONSOLE_WORKSPACE=off``) has no help page; the overview, which every
     signed-in person opens there, is the button's page."""
