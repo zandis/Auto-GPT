@@ -14,6 +14,10 @@ Bundle = an uncompressed tar holding exactly:
 * ``files/<path>``      — one payload per manifest entry, nothing else. At most one of kind ``host``: the host tree
                           (``trialbox-host.tar``, T-631, D-367: compose files, host tools, configuration), whose own
                           ``HOST-SHA256SUMS`` and member rules (``tools/host_tree.py``) are checked with its sha256.
+                          Two of kind ``other`` are reported, never required (10K-7, D-1363): ``RELEASE-NOTE.ja.md``
+                          and ``CHANGE-IMPACT.json`` (``tools/release_note.py``); a bundle without them, or with a
+                          sheet that does not list the change classes, is a warning in the summary's
+                          ``release_note``, never a refusal.
 
 Everything that decides whether the bundle may be applied is checked **before any payload is read or staged**:
 members safe (regular files only, no absolute or ``..`` paths, no duplicates), the signature with a trusted key
@@ -365,8 +369,22 @@ def verify(
     # trust_sha256: the trust.json this bundle was verified against (None: the deploy/keys files); the update path
     # refuses under its lock when trust.json is no longer exactly that file (a rotation applied in between)
     manifest.update(manifest_sha256=manifest_sha, compat=meta[COMPAT], release=release, trust_after=trust_after,
-                    trust_sha256=trust_sha, downgrade=downgrade, compat_notes=notes, repeat=repeat)  # fmt: skip
+                    trust_sha256=trust_sha, downgrade=downgrade, compat_notes=notes, repeat=repeat,
+                    release_note=release_note_summary(bundle))  # fmt: skip
     return dict(manifest)
+
+
+def release_note_summary(bundle: Path) -> dict[str, Any]:
+    """10K-7 (D-1363): the Japanese release note and the change-impact sheet of an accepted bundle, as the summary
+    reports them. A bundle without them (one built before 10K-7, the previous release a site returns to, a key
+    rotation, an OS patch) is a warning, never a refusal: they inform the person, they decide nothing."""
+    from tools import release_note
+
+    got = release_note.read_from_bundle(bundle)
+    sheet = got["impact"] or {}
+    return {"note": got["note_ja"] is not None, "impact": got["impact"] is not None,
+            "changed": [r["class"] for r in sheet.get("classes") or [] if r.get("changed")],
+            "warnings": got["warnings"]}  # fmt: skip
 
 
 def _schema_errors(manifest: Any) -> list[str]:
@@ -524,7 +542,7 @@ def _cleanup(stage: Path) -> None:
 
 SUMMARY_KEYS = ("bundle_id", "signer", "manifest_sha256", "release_seq", "min_installed_version", "key_id",
                 "not_after", "compat", "release", "rotation", "trust_after", "trust_sha256", "downgrade",
-                "compat_notes", "repeat")  # fmt: skip
+                "compat_notes", "repeat", "release_note")  # fmt: skip
 
 
 def summary(m: dict[str, Any]) -> dict[str, Any]:
@@ -554,6 +572,8 @@ def main(argv: list[str] | None = None) -> int:
     except Rejected as exc:
         print(f"REJECTED: {exc}", file=sys.stderr)
         return 1
+    for w in (m.get("release_note") or {}).get("warnings") or []:  # 10K-7: said, not refused (D-1363)
+        print(f"WARNING: {w} (the Japanese release note and change-impact sheet, D-1363)", file=sys.stderr)
     print(json.dumps(summary(m), ensure_ascii=False, sort_keys=True))
     return 0
 

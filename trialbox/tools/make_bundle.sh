@@ -9,6 +9,12 @@
 #       [--job-image trialbox-backup:1.0.0]   (an image the box runs as a one-off job: release.json `runs: job`, D-968)
 #       [--allow-dirty "<reason>"]   (a rehearsal or a test only: builds from a working tree, D-631)
 #       [--rehearsal]                (a bundle for a rehearsal box: release.json says so; a site box refuses it, D-726)
+#       [--release-note FILE]        (default docs/releases/next-release.ja.yaml, 10K-7, D-1363)
+#
+# The Japanese release note and the change-impact sheet are not optional either (10K-7, D-1363): tools/release_note.py
+# builds RELEASE-NOTE.ja.md and CHANGE-IMPACT.json from --release-note (every change class CC1 to CC6 stated, the
+# impact on the site), before any image is exported; a source that does not read stops the bundle. Both ride in the
+# signed bundle as payloads of kind other, and the box's console shows them beside the verification.
 #
 # The release gates are not optional (T-110b, D-340; CR-046): --gates names the passing record of `make release-gates`
 # (D-186), and the bundle is refused unless every image it carries is a passing image of that record (Trivy, SBOM and
@@ -28,7 +34,7 @@
 # /opt/trialbox/releases/<id> and switch /opt/trialbox/current to it; a rollback switches back.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1; GATES=""; SEQ=""; SBOM_DIR=""; DIRTY=0; DIRTY_WHY=""; REHEARSAL=()
+NOTE_SRC=""; KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1; GATES=""; SEQ=""; SBOM_DIR=""; DIRTY=0; DIRTY_WHY=""; REHEARSAL=()
 IMAGES=(); REFDATA=(); JOBS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -48,7 +54,10 @@ while [ $# -gt 0 ]; do
       case "${2:-}" in ""|--*) echo "make_bundle: --allow-dirty needs a reason (--allow-dirty \"a rehearsal\")" >&2; exit 2 ;; esac
       DIRTY=1; DIRTY_WHY="$2"; shift ;;
     --rehearsal) REHEARSAL=(--rehearsal) ;;
-    -h|--help) sed -n 2,26p "$0"; exit 0 ;;
+    --release-note)
+      case "${2:-}" in ""|--*) echo "make_bundle: --release-note needs a file (--release-note docs/releases/next-release.ja.yaml)" >&2; exit 2 ;; esac
+      NOTE_SRC="$2"; shift ;;
+    -h|--help) sed -n 2,32p "$0"; exit 0 ;;
     *) echo "make_bundle: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -98,6 +107,13 @@ PY="${PY:-$ROOT/.venv/bin/python}"; [ -x "$PY" ] || PY=python3
 
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/tb-bundle.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT INT TERM
+# 10K-7 (D-1363): the Japanese release note and the change-impact sheet first: a class left unstated stops the bundle
+# before minutes of image export
+NOTE_SRC="${NOTE_SRC:-$ROOT/docs/releases/next-release.ja.yaml}"
+[ -f "$NOTE_SRC" ] || { echo "make_bundle: no release-note source $NOTE_SRC (--release-note FILE)" >&2; exit 2; }
+(cd "$ROOT" && PYTHONPATH="$ROOT" "$PY" -m tools.release_note build --source "$NOTE_SRC" --id "$ID" \
+  --release-seq "$SEQ" --out-dir "$STAGE/note") \
+  || { echo "make_bundle: the release note and change-impact sheet could not be built (above)" >&2; exit 2; }
 if [ ${#IMAGES[@]} -eq 0 ]; then
   # every image the box's compose file runs, ours included, from the rendered config (profiles stub and gpu; not the
   # test file: no test mail server in a hospital bundle, OPS-017). An empty .env of its own: on a vendor machine
@@ -200,10 +216,11 @@ if [ "$DIRTY" != 1 ]; then  # D-631: exporting the images took minutes; the tree
                          show_changes "$AFTER"; } >&2; exit 2; }
 fi
 ITEMS+=("host:$STAGE/trialbox-host.tar=trialbox-host.tar")
-echo "==> installer, runbook, settings example, notices, changelog"
+echo "==> installer, runbook, settings example, notices, changelog, release note (ja) and change-impact sheet"
 for f in deploy/install.sh deploy/check_host.sh deploy/settings.example.yaml .env.example NOTICE CHANGELOG.md; do
   ITEMS+=("other:$ROOT/$f=$(basename "$f")")
 done
+ITEMS+=("other:$STAGE/note/RELEASE-NOTE.ja.md=RELEASE-NOTE.ja.md" "other:$STAGE/note/CHANGE-IMPACT.json=CHANGE-IMPACT.json")
 # the whole runbook as one RUNBOOK.md: once T-669 makes docs/RUNBOOK.md an index of section files, `doclint --whole
 # RUNBOOK` joins them (its output is used only when it is a Markdown document: an older doclint ignores --whole and
 # prints its summary); until then docs/RUNBOOK.md is itself the whole text
