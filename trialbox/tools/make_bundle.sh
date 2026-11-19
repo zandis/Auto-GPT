@@ -178,7 +178,7 @@ if [ -n "$MODELS" ]; then
   echo "==> models from $MODELS"
   while IFS= read -r f; do
     rel="${f#"$MODELS"/}"; echo "    $rel"; ITEMS+=("model:$f=$rel")
-  done < <(find "$MODELS" -type f | sort)
+  done < <(find -L "$MODELS" -type f | sort)  # through links (H-43): a model cache's snapshot files link to its blobs
 fi
 if [ -n "$RULESETS" ]; then
   echo "==> rulesets from $RULESETS"
