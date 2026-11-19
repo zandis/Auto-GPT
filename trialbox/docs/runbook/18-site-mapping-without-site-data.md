@@ -49,12 +49,21 @@ writes a folder and never loads it.
 
 1. **Print the answers file** in the language of the person filling it:
    `python -m adapter.site_profile fill --template --lang ja > answers.yaml`. Fill it from the questionnaire and from
-   the hospital's code tables (9.2 sample 3). Synthetic or public codes only in a test.
+   the hospital's code tables (9.2 sample 3). Codes and their names only: never a patient's data or a password (the
+   form does not look for them). Synthetic or public codes only in a test. Every answer is read as text; the
+   template says what the form decides when an answer is left out.
 2. **Check the answers:**
    `python -m adapter.site_profile fill --answers answers.yaml --out /var/tmp/profile-new --check-only --lang ja`.
-   Each refused answer is named, with what is expected. Correct them and run it again until nothing is refused.
-3. **Write the folder:** the same command without `--check-only`. The folder must be new, and it must be outside the
-   site mapping folders; the command refuses both. A row you did not mark `verified` is stored as `verify`.
+   Each refused answer is named by its key, its line and its length, with what is expected; what it said is not
+   repeated. Correct them and run it again until nothing is refused. Then read the summary it prints: rows stored as
+   `verify` because no state was given, rows given factor 1, and rows stored as `verify` because the product has no
+   factor for their units.
+3. **Write the folder:** the same command without `--check-only`. The folder must be new, in a folder you can write,
+   and outside the site mapping folders the box reads. The command knows the folders named by `TB_MAPPING_DIR` in
+   your shell, `/etc/trialbox/mapping` and `deploy/site/mapping`; a mapping folder mounted anywhere else is not known
+   to it, so do not aim `--out` at one. A row you did not mark `verified` is stored as `verify`. The folder is
+   written with mode `0755` (files `0644`) so the box can read it. If the disk refuses or you press Ctrl-C, nothing
+   of the folder is left.
 4. **Check it against the site mapping:**
    `python -m adapter.site_profile check /var/tmp/profile-new --mapping <the site mapping>`.
 5. **Put it in place and load it by name.** Copy the folder to `deploy/site/mapping/profile/` (keep the previous one in

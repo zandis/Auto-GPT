@@ -236,16 +236,32 @@ python -m adapter.site_profile check <new folder> --mapping <the site mapping>  
 would then write code tables that the night reads once they are loaded. The lane lead ruled for a command: the people
 who may run it are the people who run `load` on the box. No route, role or permission row changes.
 
-**It writes and never loads.** The folder is built beside `--out`, read back by `tb_common.site_profile.load`, and only
-then renamed into place. A form fault never leaves a folder the loader refuses, nor half a folder. Loading is still
-`load --by` (versioned, audited, refused when the content changes under the same version), and a profile that cannot
-be applied still stops the night. The command refuses:
+**It writes and never loads.** The files are built beside `--out` and read back by `tb_common.site_profile.load`.
+Only then is `--out` made: if a folder of that name appeared in the meantime, nothing is replaced and the command
+refuses. The checked files are written into the new folder as new files. Folders are mode `0755` and files `0644`,
+whatever the operator's umask, so the box's user can read them. If the disk refuses, or Ctrl-C stops the command,
+nothing of the folder is left: one line says why (exit 2, or 130 for Ctrl-C), never a traceback. A missing folder
+above `--out` is made, and the command says so. Loading is still `load --by` (versioned, audited, refused when the
+content changes under the same version), and a profile that cannot be applied still stops the night. The command
+refuses:
 
 - a folder that exists;
-- a folder inside a site mapping folder the box reads (`TB_MAPPING_DIR`, the mount, `deploy/site/mapping`);
+- a folder above it that is a file, or that the operator cannot write in;
+- a folder inside a site mapping folder the box reads: those named by `TB_MAPPING_DIR` in the shell that runs the
+  command, the mount `/etc/trialbox/mapping` (always, whatever `TB_MAPPING_DIR` says), and `deploy/site/mapping`;
 - a folder inside the image's mapping folder.
 
-The steward checks the new folder and puts it in place.
+The limit: a mapping folder mounted somewhere else, and not named by `TB_MAPPING_DIR` in that shell, is not known to
+the command. The steward checks the new folder and puts it in place.
+
+**Every answer is text.** The answers file is parsed once, by a YAML reader that builds no number, no boolean and no
+date: `factor: 010`, `0x10`, `1:30` and `1_0` are the text written, never 8, 16, 90 or 10. Each typed answer is then
+accepted by one pattern of its own, or refused:
+
+- a factor: a plain decimal above 0 and at most 1000 (no sign, exponent, leading zero, other base, `_` or `:`);
+- a version: `MAJOR.MINOR.PATCH` of whole numbers without a leading zero;
+- a date: `YYYY-MM-DD`, a real day;
+- `synthetic`: exactly `true` or `false` (`yes`, `on` and `True` are refused).
 
 **Validation by allow-list** (`adapter.site_questionnaire.parse`). An answer is accepted only when it is recognised:
 
@@ -254,27 +270,63 @@ The steward checks the new folder and puts it in place.
   unit `tb_common.labunit` knows;
 - a value of a fixed shape: a profile name, a version, a date, a local code (1 to 32 ASCII letters, digits, `.`, `_`
   and `-`), a YJ code, a standard code checked exactly as the loader checks it, or a LOINC answer code;
-- a bounded number.
+- a bounded plain decimal.
 
-Anything else is refused by a message in en, ja and zh-TW from the console's catalogue (`profileform.err.<code>`) that
-names the answer (`tables.lab.rows[3].unit`) and says what is expected. All refusals are listed at once. The answers
-file is read without YAML aliases and without a key written twice, at most 5 MB. A code must be quoted text: an
-unquoted `0123` is refused, never read as a number.
+**Answers must go together** (`adapter.site_questionnaire.GOES_WITH`). For each country, the table lists the doors,
+the standards and each code table's masters. An answer outside its country's row is refused, and the message names
+both answers. Examples: `tw` with the SS-MIX2 door; `jp` with `cgrd_sql`, `tw_core` or `icd10cm`; a lab table whose
+master is the MEDIS disease-name master. Also, the SS-MIX2 version goes with the SS-MIX2 door only. Every shipped
+profile goes together (a test). When Japan's layer (10C-25) is on master, this table should be read from it (D-1249).
+
+The form makes a profile for `jp` and `tw` only. Its tables are the SS-MIX2 reader's (Japan) and the lab look-up,
+whose results carry Japan's or Taiwan's FHIR profile. For `us` or `other` it refuses and says why: nothing it wrote
+could be read for that country.
+
+**Units.** A lab row's factor turns a result in its `source_unit` into its `unit`, as the mapping engine applies it.
+
+- A quantity needs its unit (`1` for a count or a score). A coded result has no unit, no source unit and factor 1.
+- Same unit (or a spelling of it), or no source unit given: the factor is 1. The engine reads such a row's results
+  as already in the unit. A different factor is refused.
+- Different units: the factor must be given. Where `tb_common.labunit.conversion` knows the pair, the factor must
+  agree with it (`g/L` from `mg/dL` is 0.01, so 100 is refused). Where it does not know the pair (`mg/dL` from
+  `mmol/L` with no analyte table), the row is stored as `verify` whatever the answer said, and the summary says so.
+
+**What a refusal says.** Each refusal comes from the console's catalogue (`profileform.err.<code>`), in en, ja and
+zh-TW. It gives the answer's key (`tables.lab.rows[3].unit`), its line in the answers file and its length, then what
+is expected. It never repeats what the answer said, so a patient's name typed into the wrong field is not shown back.
+A key that is not a plain word is shown by its length only. Every refusal the parser finds is reported in one run,
+also inside a coded result's answers. A refusal that stops the reading is reported alone: a file that is not YAML,
+an alias (`*`), a key written twice, or a file over 5 MB.
 
 **No free text unescaped, no path from an answer.**
 
 - A name or a display is printable text: 1 to 120 characters, starting with a letter, a digit or a bracket (never
-  `=`, `+`, `-` or `@`), with no control or format character such as a line break or a direction override. The csv
-  module writes it, so commas and quotes are quoted.
+  `=`, `+`, `-` or `@`), with no control or format character such as a line break or a direction override. Text
+  that looks like a web address with a user name or password is refused. The csv module writes the text, so commas
+  and quotes are quoted.
+- The template says that no patient data and no password goes in the form. The form does not look for them, beyond
+  the address rule above.
 - The manifest holds no answer text. The table files are always `codes/diagnosis.csv`, `codes/drug.csv` and
   `codes/lab.csv`, and a table's `source` is the form's own words for a master from the list, with its checked date.
 
 **An unchecked mapping stays unchecked.** A row is `verified` only when the answer says exactly `verified`. A row with
-no state is `verify`, as this section stores a row nobody checked. The open question above (may such a fact exclude a
-patient?) is not touched.
+no state is `verify`, as this section stores a row nobody checked. An empty state is refused: leave the key out for
+`verify`. The open question above (may such a fact exclude a patient?) is not touched.
+
+**Every default is said.** The template says what the form decides when an answer is left out. The command prints a
+summary before it writes, also with `--check-only`. It covers:
+
+- the profile's name, version, `synthetic`, country and door, each as answered (none has a default; the template
+  leaves them empty);
+- each table's rows;
+- the rows stored as `verify` because no state was given;
+- the rows given factor 1 because of one unit or no source unit;
+- the rows with no source unit;
+- the rows whose factor was checked against the product's conversion;
+- the rows stored as `verify` because the product has no factor for their units.
 
 **What the form fills.** Diagnoses and medicines are for the SS-MIX2 door only. A lab table needs the country `jp` or
-`tw`, the countries whose result profiles the product writes.
+`tw` (above).
 
 | Field | Filled from |
 | --- | --- |
@@ -301,7 +353,8 @@ question to the form.
 `tests/fixtures/site_questionnaire/synthetic-jp-ss.answers.yaml`. These are the same codes as the shipped sample
 tables, every row `verify`, as version 1.1.0 of `synthetic-jp-ss`. The profile the form writes from it passes the
 loader, the mapping check and `activate`, and reads every code to the same standard code as the shipped profile
-(`tests/unit/test_site_questionnaire.py`).
+(`tests/unit/test_site_questionnaire.py`). Every lab cell is as shipped, but for one difference: the two joint counts
+(TJC28, SJC28) have the unit `1` where the shipped table leaves it empty, because a quantity needs its unit.
 
 ## The proof
 

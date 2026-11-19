@@ -25,31 +25,61 @@ loaded. Under lane J's rule that nothing may widen what a role may do, the card 
    (`services/adapter/site_questionnaire.py`). Only the people who can run `load` on the box can run it. There is no
    route, no new role, no permission row and no new reader of existing data. `fill --template --lang <en|ja|zh-TW>`
    prints the answers file to fill, with its questions as comments.
-2. **It writes and never loads.** The folder is built beside `--out`, read back by the real loader
-   (`tb_common.site_profile.load`), and only then renamed into place. Loading stays D-1233's path, with its
-   versions, audit and refusals. The command refuses an existing folder and any folder inside a site mapping folder the
-   box reads (`TB_MAPPING_DIR`, the mount, `deploy/site/mapping`) or the image's mapping folder. `--check-only`
-   prints the refusals and writes nothing.
-3. **Validation by allow-list.** An answer is accepted only when it is recognised:
+2. **It writes and never loads.** The files are built beside `--out` and read back by the real loader
+   (`tb_common.site_profile.load`). Only then is `--out` made, and the checked files are written into it as new
+   files. If a folder of that name appeared meanwhile, nothing is replaced and the command refuses. Folders are
+   `0755` and files `0644`. A disk that refuses, or Ctrl-C, leaves nothing and gives one line, never a traceback.
+   Loading stays D-1233's path, with its versions, audit and refusals.
+
+   The command refuses an existing folder, a folder above that is a file or not writable, and any folder inside a
+   site mapping folder it knows: those named by `TB_MAPPING_DIR` in the shell that runs it, the mount
+   `/etc/trialbox/mapping` (whatever `TB_MAPPING_DIR` says), `deploy/site/mapping`, and the image's mapping folder.
+   **Its limit:** a mapping folder mounted elsewhere, and not named by that shell's `TB_MAPPING_DIR`, is not known to
+   it. `--check-only` prints the refusals and the summary, and writes nothing.
+3. **Every answer is text; validation by allow-list.** The answers file is parsed once, by a YAML reader that builds
+   no number, boolean or date. Each typed answer is accepted by one pattern of its own:
+   - a factor: a plain decimal above 0 and at most 1000;
+   - a version: whole numbers without a leading zero;
+   - a date: an ISO day;
+   - `synthetic`: exactly `true` or `false`.
+
+   An answer is accepted only when it is recognised:
    - a key of the form;
    - a name from a list: a country, a door, an SS-MIX2 data type or a source table, a standard, a master, a category,
      a kind of result, a UCUM unit of `tb_common.labunit`;
    - a value of a fixed shape: a profile name, a site code, a version, a date, a local code, a YJ code, a standard
-     code checked as the loader checks it, a LOINC answer code;
-   - a bounded number (a factor above 0 and at most 1000).
+     code checked as the loader checks it, a LOINC answer code.
 
-   Anything else is refused with a message in en, ja and zh-TW from the console's catalogue
-   (`profileform.err.<code>`). The message names the answer and says what is expected. Every refusal is reported at
-   once, not only the first.
-4. **No free text unescaped, no path or name from an answer.** A name or display is printable text: 1 to 120
-   characters, starting with a letter, a digit or a bracket, with no control or format character. It goes to the CSV
-   through the csv module. The manifest holds none of it. The tables are always `codes/diagnosis.csv`,
-   `codes/drug.csv` and `codes/lab.csv`. A table's `source` is built from the form's own words, a master from the
-   list and a checked date. The answers file is read without aliases and without a key written twice, and is at most
-   5 MB.
-5. **An unchecked mapping stays unchecked.** A row is `verified` only when its answer says exactly `verified`. A row
-   with no state is `verify`, as D-1233 stores a row nobody checked. Whether a fact resting on such a row may exclude
-   a patient stays the owner's open question (DATA §15). This decision does not touch it.
+   **Answers must also go together.** One table, `GOES_WITH`, holds each country's doors, standards and each code
+   table's masters. An answer outside it is refused with both answers named. Japan's own layer (10C-25) is not on
+   master. When it is, this table should be read from it rather than kept in the form; this card does not depend on
+   it. The form makes profiles for `jp` and `tw` only, and says why for `us` and `other`.
+
+   Every other answer is refused, with a message in en, ja and zh-TW from the console's catalogue
+   (`profileform.err.<code>`). The message gives the answer's key, its line and its length, and says what is
+   expected. It never repeats what the answer said.
+
+   **Which refusals come at once.** The ones found in the parsed answers come together, also inside a coded result's
+   answers. A file that cannot be read as plain YAML (not YAML, an alias, a key written twice, over 5 MB) is refused
+   alone, because nothing after it can be read.
+4. **Units are checked, not assumed.** A quantity needs its unit; a coded result has none.
+   - Same unit, or no source unit: the factor is 1, as the engine reads such a row.
+   - Different units: the factor must be given. Where `tb_common.labunit.conversion` knows the pair, the factor must
+     agree with it. Where it does not, the row is `verify` whatever the answer said.
+5. **No free text unescaped, no path or name from an answer.** A name or display is printable text: 1 to 120
+   characters, starting with a letter, a digit or a bracket, with no control or format character and nothing like a
+   web address with a password. It goes to the CSV through the csv module. The manifest holds none of it. The tables
+   are always `codes/diagnosis.csv`, `codes/drug.csv` and `codes/lab.csv`. A table's `source` is built from the
+   form's own words, a master from the list and a checked date. The template says that no patient data goes in the
+   form; the form does not look for it.
+
+   **An unchecked mapping stays unchecked.** A row is `verified` only when its answer says exactly `verified`. A row
+   with no state is `verify`, as D-1233 stores a row nobody checked; an empty state is refused. Whether a fact
+   resting on such a row may exclude a patient stays the owner's open question (DATA §15). This decision does not
+   touch it.
+
+   **Every default is said.** The template and the summary the command prints say what the form decided for an
+   answer left out: state, factor, source unit. Version and `synthetic` have no default.
 6. **The mapping of questions to fields** is data (`site_questionnaire.QUESTIONS`): each question names the profile
    field it fills, or says why it fills none. The manifest fields no question fills are asked of the steward in the
    form's header: `format`, `id`, `site_id`, `country`, `version` and `synthetic`.
@@ -59,7 +89,11 @@ loaded. Under lane J's rule that nothing may widen what a role may do, the card 
 - The form fills a profile for the repository's synthetic Japanese hospital
   (`tests/fixtures/site_questionnaire/synthetic-jp-ss.answers.yaml`). That profile passes the loader, the mapping
   check and `activate`, and it reads every code to the same standard code as the shipped sample tables, every row
-  still `verify` (`tests/unit/test_site_questionnaire.py`).
+  still `verify` (`tests/unit/test_site_questionnaire.py`). Its two joint counts have the unit `1` where the shipped
+  table leaves it empty: a quantity needs its unit.
+- The lane lead's independent review of the first version found answers that validated and activated but said
+  something other than what was written: YAML number forms, a missing factor between two units, and answers that do
+  not go together. Points 2 to 5 are the fix, each rule with a test that fails without it.
 - A console page for the questionnaire is not built. It would widen what an account may do, and it is with the owner.
 - 用法 (10B-4), document types and templates (10B-5, 10B-15), departments (settings) and the character set (settings)
   have no profile field yet. Their questions are listed as filling none until those cards add the field.
