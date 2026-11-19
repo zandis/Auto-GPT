@@ -10,6 +10,7 @@ from __future__ import annotations
 from html import escape
 from typing import Any
 
+from tb_common.dates import printed
 from tb_common.wording import statement
 
 DISCLAIMER = {
@@ -93,7 +94,9 @@ def _text(x: dict[str, Any], lang: str) -> dict[str, Any]:
     return t
 
 
-def patient(rec: dict[str, Any], lang: str, view: dict[str, Any], release: dict[str, Any] | None) -> bytes:
+def patient(
+    rec: dict[str, Any], lang: str, view: dict[str, Any], release: dict[str, Any] | None, dates: str = "western"
+) -> bytes:
     """The patient page in ``lang``: DRAFT until a reviewer releases it."""
     study = escape(rec["study"])
     title = TITLE[lang].format(study=rec["study"])
@@ -129,7 +132,7 @@ def patient(rec: dict[str, Any], lang: str, view: dict[str, Any], release: dict[
     head, help_ = ASK[lang]
     out.append(f'<h2>{escape(head)}</h2><p class="muted">{escape(help_)}</p>')
     out.append('<div class="lines"></div>' * 4)
-    stamp = RELEASED[lang].format(by=release["by"], at=release["at"][:10]) if release else DRAFT[lang]
+    stamp = RELEASED[lang].format(by=release["by"], at=printed(release["at"][:10], dates)) if release else DRAFT[lang]
     out.append(
         f"<footer>{escape(stamp)}<br>TrialBox {escape(rec['site'])} · {study} · "
         f"{escape(rec['icf']['filename'])} sha256 {escape(rec['icf']['sha256'][:12])} · "

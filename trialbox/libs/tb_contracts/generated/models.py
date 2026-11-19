@@ -1566,6 +1566,14 @@ class SiteInfo(BaseModel):
     D-983: the language the site's notes are written in, for every language-dependent choice of the screening cascade; auto reads it from each patient's notes, falling back to locale (the report language). The name and default await the owner.
     """
     contact: str | None = None
+    printed_dates: Literal["western", "era", "both"] | None = None
+    """
+    10C-13: how printed letters, forms and reports write a date: western (ISO, as before), era (令和8年11月18日) or both (2026年（令和8年）11月18日). Unset: western, as before (D-1229); the set-up wizards write the country's default for a new site (Japan both). Stored values, machine exports, audit records and screens stay ISO.
+    """
+    year_basis: Literal["calendar", "fiscal"] | None = None
+    """
+    10C-15: what a year is in yearly reports: the calendar year, or the fiscal year 年度 (1 April to 31 March, named by its first year) with the boundary day in site.tz. Unset: calendar, as before (D-1229); the set-up wizards write the country's default for a new site (Japan fiscal).
+    """
 
 
 class Allowlist(BaseModel):
