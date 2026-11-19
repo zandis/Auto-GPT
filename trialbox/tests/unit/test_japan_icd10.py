@@ -43,7 +43,9 @@ def _storage(root: Path, patient: str, order: str, prb: str) -> None:
     d = storage_dir(root, patient, "20260101", "PPR-01")
     d.mkdir(parents=True, exist_ok=True)
     msh = f"MSH|^~\\&|HIS||TB||20261101||PPR^ZD1|{order}|P|2.5"
-    text = "\r".join([msh, "PV1||O", prb]) + "\r"
+    text = (
+        "\r".join([msh, f"PID|||{patient}^^^^PI", "PV1||O", prb]) + "\r"
+    )  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
     (d / f"{patient}_20260101_PPR-01_{order}_20261101000000000_01_1").write_bytes(text.encode("utf-8"))
 
 

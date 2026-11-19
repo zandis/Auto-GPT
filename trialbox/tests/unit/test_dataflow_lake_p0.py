@@ -142,7 +142,8 @@ def _ss(root: Path, order: str, stamp: str, flag: str) -> None:
     d = storage_dir(root, "10000001", "20260101", "PPR-01")
     d.mkdir(parents=True, exist_ok=True)
     name = f"10000001_20260101_PPR-01_{order}_{stamp}_-_{flag}"
-    (d / name).write_bytes(("\r".join([msh, "PV1||O", prb]) + "\r").encode("iso2022_jp"))
+    pid = "PID|||10000001^^^^PI"  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
+    (d / name).write_bytes(("\r".join([msh, pid, "PV1||O", prb]) + "\r").encode("iso2022_jp"))
 
 
 def test_ssmix2_flag_zero_is_read_as_a_deleted_row(tmp_path: Path) -> None:
