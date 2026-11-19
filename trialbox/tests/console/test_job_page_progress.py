@@ -170,7 +170,8 @@ def test_a_job_page_without_progress_is_byte_for_byte_the_page_without_the_new_b
         after = c.get(f"/pilot/jobs/{jid}").content
         strip["on"] = True
         assert b'data-testid="recheck-share"' in before or jid == reading
-        assert after == before, jid
+        live = re.compile(rb'data-(?:idle|abs)-left="\d+"')  # the idle warning's live seconds (D-1370)
+        assert live.sub(b"", after) == live.sub(b"", before), jid
 
 
 # ---------------------------------------------------------------------------------------------- who is told
