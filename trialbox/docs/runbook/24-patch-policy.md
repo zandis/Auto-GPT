@@ -5,8 +5,8 @@
 *T-635, D-390. Who patches what, how fast, and how a patch is checked. The split is the IT pack's (A.6 and A.7): the
 hospital patches the host, Aimedics patches TrialBox.*
 
-**Drill (T-213b):** `test_runbook_24_patch_window` (Docker drill: a host package update in a window by these steps;
-before and after, `doctor` has no FAIL and the pair canary passes; a held driver package is not upgraded).
+**Drill (T-213b):** none. A patch window is not rehearsed by a test: it needs a host whose packages are
+updated, with `doctor` and the pair canary before and after, and no such drill runs yet.
 
 ## The host system
 

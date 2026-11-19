@@ -165,6 +165,7 @@ def test_master_needs_a_code_column(tmp_path: Path) -> None:
 def _omp01(root: Path, mrn: str, order: str, drug: str) -> None:
     msg = "\r".join([
         "MSH|^~\\&|HIS||TRIALBOX||20261101090000||RDE^O11|" + order + "|P|2.5||||||UNICODE UTF-8",
+        f"PID|||{mrn}^^^^PI",  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
         f"ORC|NW|{order}||1|IP||||20261101",
         f"RXE||{drug}|1||TAB",
     ]) + "\r"  # fmt: skip
@@ -176,6 +177,7 @@ def _omp01(root: Path, mrn: str, order: str, drug: str) -> None:
 def _oml11(root: Path, mrn: str, order: str, jlac: str, spm4: str = "") -> None:
     msg = "\r".join([
         "MSH|^~\\&|HIS||TRIALBOX||20261101090000||OUL^R22|" + order + "|P|2.5||||||UNICODE UTF-8",
+        f"PID|||{mrn}^^^^PI",
         f"SPM|1|||{spm4}" + "|" * 13 + "20261101080000",
         f"OBR|1|{order}|{order}",
         f"OBX|1|NM|{jlac}^検査^JC10||5.0|mg/dL|||||F|||20261101080000",

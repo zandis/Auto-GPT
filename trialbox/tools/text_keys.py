@@ -17,7 +17,12 @@ written, so the loser of an override is seen too, and fails on:
   "x.y")``, a key handed to a nav macro) that the catalogue does not have;
 * **a dynamic family** (``t('life.vstate.' + v.status)``, ``translate(lang, f"life.state.{s}")``) that is neither
   checked member by member (``FAMILIES``: every value the code can produce has its key) nor listed in
-  ``UNCHECKED_FAMILIES`` with the reason; and a family no catalogue key starts with (a misspelled prefix).
+  ``UNCHECKED_FAMILIES`` with the reason; and a family no catalogue key starts with (a misspelled prefix);
+* **a refused spelling** of one of the twenty core words (``tools.core_words``, ``services/console/core_words.yaml``;
+  it also reads the job mails, the report titles and the refusal sentences, ``core_words.SERVICE_CATALOGUES``).
+
+It also checks the live preflight's texts (``tb_common.preflight``, :func:`preflight_problems`): the host's
+``python3`` prints them, so they are not in the console's catalogue, and each is checked in all three languages.
 
 It reads the source with ``ast`` and ``ast.literal_eval`` only (no code of a module runs, apart from importing the
 console to read the served catalogue); a definition that is not a literal is a problem of its own.
@@ -499,6 +504,8 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     # 10C-14: how a visit window counts, and why a day is off at the site (the schedule page)
     "life.unit.": lambda: ("days", "working"),
     "life.daysoff.why.": _values("tb_common.workdays", "DAY_OFF_KINDS"),
+    "dataops.layer.row.": _values("console.country_profile", "KEYS"),  # 10C-25 (D-1250)
+    "dataops.layer.source.": _values("console.country_profile", "SOURCES"),
     "life.daysoff.end.": lambda: ("soon", "past"),  # Calendar.runs_out
     "registry.status.": _values("orchestrator.candidates", "STATUSES"),
     "sstate.": _values("console.sitestore", "STUDY_STATES"),
@@ -784,6 +791,29 @@ def problems() -> list[str]:
     used = {u.key for u in uses if u.family}
     out += [
         f"dynamic family {p!r} is listed but nothing uses it" for p in sorted({*FAMILIES, *UNCHECKED_FAMILIES} - used)
+    ]
+    from tools import core_words  # 9k-16 (D-1371): a core word has one spelling per language
+
+    out += core_words.problems(defs)
+    return out + preflight_problems()
+
+
+def preflight_problems() -> list[str]:
+    """10K-3 (D-1361): the preflight's own texts (``tb_common.preflight``: the groups, each check's label and next
+    action, the time-out's, the summary). They live outside the console's catalogue because the host's ``python3``
+    prints them too; the first-run page, ``doctor --preflight`` and later the console's doctor page (10K-5) and the IT
+    one-page (10K-18) show them. Each must be there, non-empty, in en, ja and zh-TW, and a ja or zh-TW text must not
+    be the English one."""
+    from tb_common import preflight
+
+    where = "libs/tb_common/preflight.py"
+    texts = preflight.all_texts()
+    out = [f"preflight text {name} has no {lg} words ({where})" for name, lg, t in texts if not t.strip()]
+    en = {name: t for name, lg, t in texts if lg == "en"}
+    out += [
+        f"preflight text {name} {lg} is the English text ({where})"
+        for name, lg, t in texts
+        if lg != "en" and t.strip() and t == en.get(name)
     ]
     return out
 

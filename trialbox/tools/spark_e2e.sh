@@ -32,6 +32,12 @@ cd "$ROOT" || exit 2
 PY="${PY:-$ROOT/.venv/bin/python}"
 MODE="${TB_LLM_MODE:-vllm}"
 [ "$MODE" = "stub" ] || MODE="gpu"
+# card 10E-5 (D-1335): the gb10 overlay is sized for the 128 GB Spark; a host under 96 GiB (the 64 GB class) has no
+# measured profile, so the gpu run stops before anything is written. TB_TEST_MEM_KIB stands in for MemTotal in tests
+if [ "$MODE" = gpu ] && [ "$(sh "$ROOT/deploy/gpu_profile.sh" memory-class "${TB_TEST_MEM_KIB:-}")" = gb10-64 ]; then
+  echo "spark-e2e: this host has under 96 GiB of memory (the 64 GB Spark class): the gb10 overlay is sized for 128 GB and no profile of the 64 GB class is measured (card 10E-5, D-1335). Run TB_LLM_MODE=stub tools/spark_e2e.sh, or use a 128 GB Spark" >&2
+  exit 2
+fi
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="${TB_SPARK_OUT:-$ROOT/build/spark-e2e/$STAMP-$MODE}"
 LOGS="$OUT/logs"

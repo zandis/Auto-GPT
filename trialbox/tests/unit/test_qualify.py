@@ -18,6 +18,7 @@ from typing import Any, cast
 import httpx
 import pytest
 import yaml
+from registry.registry import Registry
 
 from tools import licence_register
 from tools import qualify as q
@@ -554,3 +555,14 @@ def test_hw004_review_the_detail_always_has_the_text_key_and_the_pages_say_where
     page = (q.ROOT / "docs" / "runbook" / "11-qualify.md").read_text(encoding="utf-8")
     assert "licences/<folder>/LICENSE" in page and "none-in-source" in page
     assert "licences/<weight folder" in (q.__doc__ or "")
+
+
+def test_qualification_writer_records_thinking_only_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    registry = q.registry_doc()
+    next(b for b in registry["builds"] if b["build_id"] == q.STUB_VERIFIER_BUILD)["thinking_control"] = "thinking_only"
+    monkeypatch.setattr(Registry, "load", lambda: Registry(registry))
+    doc = q.qualify(_opts(), q.stub_target(tmp_path), steps=("pin",))
+    assert doc["steps"]["pin"]["status"] == "passed"
+    assert doc["builds"]["verifier"].get("thinking_mode") == "on"
+    assert "thinking_mode" not in doc["builds"]["judge"]
+    assert q.schema_problems(doc) == []

@@ -141,10 +141,10 @@
    "claim": "RUNBOOK section 22 names its drills test_runbook_22_restore_timed and test_runbook_22_replacing_hardware, and no such test exists in the repository; plan 8 section 8c says to stop writing 'Drill: test_...' before the test exists",
    "lane": "D",
    "basis": "shown",
-   "state": "open",
+   "state": "fixed bd7138a2a",
    "step": "RUNBOOK section 22 (the page around the restore)",
    "place": "docs/runbook/22-disaster-recovery-with-measured-rpo-and-rto.md:9",
-   "page_says": "**Drill (T-213b):** `test_runbook_22_restore_timed` (Docker drill: a box with the 50,000-patient synthetic set is",
+   "page_says": "**Drill (T-213b):** none. The timed restore is not rehearsed by a test: it needs a real compose box with the",
    "happened": "git grep finds the names only in the runbook pages and the two tabletop records, never in tests/",
    "expected": "a drill the page names exists, or the page says it does not yet",
    "expected_from": "plan 8 section 8c ('Stop writing \"Drill: test_…\" on a runbook page before the test exists')"

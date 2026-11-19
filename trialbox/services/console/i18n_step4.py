@@ -393,7 +393,7 @@ ZH: dict[str, str] = {
     "help.this_page": "本頁",
     "help.your_role": "您的角色",
     "help.field": "指令欄",
-    "help.field.text": "可輸入郵件指令（FEAS GZQO、STATUS GZQO）、三種語言中任一種的簡短文字、試驗代碼、病人代號或篩選編號。按 Enter 開啟頁面。",
+    "help.field.text": "可輸入郵件指令（FEAS GZQO、STATUS GZQO）、三種語言中任一種的簡短文字、試驗代碼、病人代碼或篩選編號。按 Enter 開啟頁面。",
     "help.ask.text": "本院的 TrialBox 管理者：{mail}",
     "help.page.home": "您的首頁：依您的角色列出作業，最急的在前。",
     "help.page.week": "可能符合條件的病人及其下次門診。開啟病人可看到原因，並標記「邀請」「需要更多資訊」或「暫不邀請」。",

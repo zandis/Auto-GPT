@@ -383,7 +383,8 @@ def compare_tables(lakes: dict[str, Path], snapshot: str) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for name in SCHEMAS:
         a, b = (
-            pq.read_table(lakes[s] / "parquet" / f"snapshot={snapshot}" / f"{name}.parquet") for s in ("legacy", "omop")
+            pq.read_table(lakes[s] / "parquet" / f"snapshot={snapshot}" / f"{name}.parquet", use_threads=False)
+            for s in ("legacy", "omop")
         )
         same = a.equals(b)
         first = None

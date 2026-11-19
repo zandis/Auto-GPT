@@ -1,0 +1,21 @@
+text	concept	expect	lang	synonyms	others	domain	hold_class
+Diabetes / hypertension (+)	Diabetes	held	en		hypertension	condition	arguable
+Hepatitis B other than in the donor	Hepatitis B	held	en			condition	arguable
+Failure of metformin	Metformin	held	en		failure	medication	arguable
+Hepatitis B, aside from the donor	Hepatitis B	held	en		donor	condition	arguable
+ドナー以外のB型肝炎	B型肝炎	held	ja		ドナー	condition	arguable
+除捐贈者外之B型肝炎	B型肝炎	held	zh		捐贈者	condition	arguable
+Diabetes according to the patient	Diabetes	held	en			condition	arguable_reported
+Diabetes, as per the patient	Diabetes	held	en			condition	arguable_reported
+Diabetes or	Diabetes	held	en			condition	arguable_fragment
+Diabetes, and/or	Diabetes	held	en			condition	arguable_fragment
+Kidney transplantation at 4 weeks	Kidney transplantation	held	en			procedure	arguable_future
+腎移植（登録時から4週）	腎移植	held	ja			procedure	arguable_future
+Metformin, up to 1000 mg daily	Metformin	held	en			medication	arguable_bound
+Depression with PHQ-9 total score < 5	Depression	held	en			condition	arguable_measure
+Hepatitis C with HCV RNA < 15 IU/mL	Hepatitis C	held	en			condition	arguable_measure
+依據WHO之糖尿病診斷標準	糖尿病	held	zh			condition	arguable_definition
+以下の疾患：糖尿病、高血圧、喘息	糖尿病	held	ja		高血圧;喘息	condition	arguable_list
+以下疾病：糖尿病、高血壓、氣喘	糖尿病	held	zh		高血壓;氣喘	condition	arguable_list
+Diabetes should be confirmed	Diabetes	held	en			condition	arguable_instruction
+Diabetes in any individual	Diabetes	held	en			condition	arguable_any

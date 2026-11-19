@@ -1,0 +1,41 @@
+{
+  "card": "H57",
+  "title": "three wrong-patient faults of the SS-MIX2 reader, registered on the integrator's ruling (lane H, 2026-11-19)",
+  "date": "2026-11-19",
+  "source": "docs/handover/open-high-ssmix2-wrong-patient-2026-11-19.md",
+  "findings": [
+    {
+      "id": "H57-01",
+      "severity": "High",
+      "claim": "On master the SS-MIX2 reader stores an extended-storage file whose standardized name belongs to another patient as a note of the folder's patient (services/adapter/sources/ssmix2/source.py:1674; reviewer B also at :1665); reproduced by reviewer A on synthetic data: folder 10000001's file 10000002_..._DSC-01_... became a note of mrn 10000001",
+      "lane": "J",
+      "basis": "shown",
+      "state": "open",
+      "place": "trialbox/services/adapter/sources/ssmix2/source.py:1674 (also :1665)",
+      "evidence": "trialbox/services/adapter/sources/ssmix2/source.py:1674 | An extended-storage file whose standardized name belongs to another patient is stored as a note of the folder patient. | Folder 10000001 holds 10000002_20261001_DSC-01_D1_20261001090000000_01_1.txt containing 患者2の退院サマリ, and the note row is mrn 10000001 with that text.",
+      "by": "reviewer A, by running the reader; reviewer B names it at source.py:1665"
+    },
+    {
+      "id": "H57-02",
+      "severity": "High",
+      "claim": "On master the SS-MIX2 reader's diagnosis supersession treats a 病名番号 as one diagnosis for every patient: one patient's delta tombstone deletes another patient's still-current Condition of that number, a second patient's removal is omitted once the number is tombstoned, and both patients' copies get one Condition id (services/adapter/sources/ssmix2/source.py:1208; reviewer B also at :900); reproduced by reviewer A on synthetic data",
+      "lane": "J",
+      "basis": "shown",
+      "state": "open",
+      "place": "trialbox/services/adapter/sources/ssmix2/source.py:1208 (also :900)",
+      "evidence": "trialbox/services/adapter/sources/ssmix2/source.py:1208 | Supersession treats a 病名番号 as one diagnosis for every patient, so a delta tombstone of one patient's copy deletes the other patient's still-current Condition of that number, and a second patient's removal is omitted when that number is already tombstoned. | Patient 10000001's 20261001 snapshot still has DX0001 and patient 10000002's 20261002 snapshot drops it: rows since 2026-10-02 are only 10000002/DX0002, deleted_rows is 10000002/DX0001, and both patients' DX0001 produce the same Condition id.",
+      "by": "reviewer A, by running the reader; reviewer B names the same family at source.py:1208 and :900"
+    },
+    {
+      "id": "H57-03",
+      "severity": "High",
+      "claim": "On master the SS-MIX2 reader's per-day lab fallback key omits the patient, so two patients' distinct results can overwrite one another (the mapper hashes lab_no alone): two patients' ALL9 files on 20261001 with OBX-1=1 and no OBX-21 both give ALL9@20261001-1 (services/adapter/sources/ssmix2/source.py:1565); read by reviewer B, not run",
+      "lane": "J",
+      "basis": "hypothesis",
+      "state": "open",
+      "place": "trialbox/services/adapter/sources/ssmix2/source.py:1565",
+      "evidence": "`services/adapter/sources/ssmix2/source.py:1565` The new per-day lab fallback key omits the patient, so distinct results can overwrite one another because the mapper hashes `lab_no` alone. Two patients with `ALL9` lab files on `20261001`, each with `OBX-1=1` and no `OBX-21`, both produce `ALL9@20261001-1`.",
+      "by": "reviewer B, read, not run"
+    }
+  ]
+}

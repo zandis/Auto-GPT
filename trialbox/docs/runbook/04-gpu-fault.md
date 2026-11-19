@@ -5,8 +5,8 @@
 *T-635 (OPS-074). Signs: `selftest.failed` in the audit, a run fails with "the model did not answer", the model
 server restarts again and again, `nvidia-smi` errors.*
 
-**Drill (T-213b):** `test_runbook_04_gpu_fault` (Docker drill: the model server is stopped; the night's model jobs do
-not start; a screening run fails with "the model did not answer"; after the restart the canary passes).
+**Drill (T-213b):** none. This procedure is not rehearsed by a test: a drill needs the model server and its GPU
+(the compose stack), and no such drill runs yet.
 
 **What users see.** Notes cannot be judged while the models are down. A screening run fails with "the model did not
 answer" and its rows say "not checked (system busy)"; the verifier never stands in for the judge (D-276; plan Q-16).
