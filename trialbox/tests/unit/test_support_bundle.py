@@ -209,7 +209,7 @@ def test_a_planted_japanese_identifier_in_a_log_line_does_not_reach_the_bundle(b
         box.parent / "logs" / "services" / DAYS[-1] / "orchestrator.log.gz",
         "2026-11-10T01:00:00Z orchestrator | job started\n"
         "2026-11-10T01:00:01Z orchestrator | ValueError: cannot read 'ヤマダ　タロウ様 保険者番号 06130012'\n"
-        "2026-11-10T01:00:02Z orchestrator | 連絡先 090-1234-5678 〒100-0001\n"
+        "2026-11-10T01:00:02Z orchestrator | TEL 090-1234-5678 〒100-0001\n"
         '2026-11-10T01:00:03Z orchestrator | {"msg": "患者：見本　花子さん"}\n'
         "2026-11-10T01:00:04Z orchestrator | job finished\n",
     )
