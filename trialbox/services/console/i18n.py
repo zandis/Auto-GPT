@@ -1221,3 +1221,12 @@ from console.i18n_person import ZH as _PS_ZH  # noqa: E402
 EN.update(_PS_EN)
 JA.update(_PS_JA)
 ZH.update(_PS_ZH)
+
+# 10C-4 (D-1227): the Japan profile's committee record and the head of the institution's permission
+from console.i18n_committee import EN as _CMT_EN  # noqa: E402
+from console.i18n_committee import JA as _CMT_JA  # noqa: E402
+from console.i18n_committee import ZH as _CMT_ZH  # noqa: E402
+
+EN.update(_CMT_EN)
+JA.update(_CMT_JA)
+ZH.update(_CMT_ZH)

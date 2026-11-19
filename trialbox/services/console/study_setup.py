@@ -508,6 +508,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         team = getattr(h, "team", None)
         irb_done = team is not None and not team.irb(rid).warnings(h.today())
         out = [("irb", f"/studies/{rid}/irb", irb_done)]
+        found = h.committee_findings(rid) if h.committee_findings is not None else None
+        if found is not None:  # 10C-4 (D-1227): the Japan profile; the kind not chosen is not done either
+            out.append(("committee", f"/studies/{rid}/committee",
+                        not [c for c, level in found if level == "refuse" or c == "kind_unset"]))  # fmt: skip
         # the SAE type only where the study reports serious adverse events (D-415: a registry study is not gated)
         if s28.has_api(bk) and s28.load(bk, store, rid, defaults(rid)).study_type in SAE_STUDY_TYPES:
             out.insert(0, ("sae", f"/studies/{rid}/setup#sae", not sae_type_missing(rid)))
@@ -584,6 +588,14 @@ def register(app: FastAPI, h: Helpers) -> None:
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
 
+    def committee_missing(rid: str) -> list[str]:
+        """10C-4 (D-1227): what the Japan profile's committee record lacks for the study to open at this site (the
+        committee's approval of the current protocol version; for a 指針 study this site's head-of-institution
+        permission for it), or []. Outside the Japan profile always []."""
+        from tb_common.committees import refusals
+
+        return refusals(h.committee_findings(rid) or []) if h.committee_findings is not None else []
+
     def sae_type_missing(rid: str) -> str:
         """T-629 (FIT-U06, D-415): why the study may not open yet, or "". A study that reports serious adverse events
         opens only with its type for SAE reporting chosen and confirmed on the set-up page, since the type selects
@@ -630,6 +642,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             return state_page(request, sess, rid, status=400, err="sstate.need_reason")
         if state == "open" and (refused := sae_type_missing(rid)):
             return state_page(request, sess, rid, status=409, err=refused)
+        if state == "open" and (missing := committee_missing(rid)):  # 10C-4 (D-1227): the Japan profile only
+            return state_page(request, sess, rid, status=409, err="sstate.committee", bad=[f"cmt.{m}" for m in missing])
         years: int | None = None
         if state == "closed":
             raw = keep_years.strip()

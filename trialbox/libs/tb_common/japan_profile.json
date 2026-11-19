@@ -1,0 +1,34 @@
+{
+  "_what": "The Japan profile layer (plan 10, commitment C-7): data switched on by the site's country (JP, from site.tz). Card 10C-4 (D-1227) adds its committees part; 10C-25 gathers the other parts here. Each rule is the project's reading of the public source named, to be confirmed by the first site's trial office.",
+  "country": "JP",
+  "committees": {
+    "study_kinds": {
+      "chiken": {
+        "committee": "irb",
+        "needs": [
+          "approval"
+        ],
+        "source": "GCP省令 (平成9年厚生省令第28号) 第27条, 第32条: the 治験審査委員会's opinion before the trial"
+      },
+      "tokutei": {
+        "committee": "crb",
+        "needs": [
+          "approval"
+        ],
+        "source": "臨床研究法 (平成29年法律第16号) 第5条, 第23条: the 認定臨床研究審査委員会's opinion on the 実施計画"
+      },
+      "shishin": {
+        "committee": "ethics",
+        "needs": [
+          "permission"
+        ],
+        "source": "人を対象とする生命科学・医学系研究に関する倫理指針 第6 (研究計画書に関する手続): the 研究機関の長's permission after the 倫理審査委員会's review; 一括審査 for multicentre research (article numbers as read 2026-11-18, not verified against the 2026 consolidated text)"
+      }
+    },
+    "committee_kinds": [
+      "irb",
+      "crb",
+      "ethics"
+    ]
+  }
+}
