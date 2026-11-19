@@ -620,7 +620,9 @@ def create_app(
     async def server_timing(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         t0 = time.perf_counter()
         resp = await call_next(request)
-        if server_time.timed(resp.status_code):  # a served page only: a refusal and a not-found answer alike
+        if server_time.timed(
+            resp.status_code, request.url.path
+        ):  # a served page only: a refusal and a not-found answer alike
             resp.headers[server_time.HEADER] = server_time.value((time.perf_counter() - t0) * 1000)
         return resp
 

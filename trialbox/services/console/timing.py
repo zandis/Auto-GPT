@@ -10,6 +10,10 @@ The header is written on a ``200`` answer only. A refusal (401, 403), a not-foun
 refused page sent home) and an error carry none, so a refused account and a missing page answer alike (as D-1241 asks
 of the header search): its presence says no more than the status code already says.
 
+No answer of the header search (``/cmd``, D-1241) carries it either, whatever its status: that field must answer an
+account off the log exactly as it answers a number that does not exist (status, every header, body), and the time of
+the two is not the same. A header there would be the timing it must not give.
+
 The walk (``tools.console_timing``) reads this header, not a client's clock: on a loaded CI runner the time between
 the client and the server's middleware (the test client's own work, the event loop's queue) is not the page's."""
 
@@ -28,6 +32,10 @@ def value(ms: float) -> str:
     return f"{METRIC};dur={max(ms, 0.0):.1f}"
 
 
-def timed(status: int) -> bool:
-    """Whether an answer with this status carries the header: a page that was served, nothing else."""
-    return status == 200
+#: the paths whose answers must not differ between a refused and a missing thing even in time (D-1241)
+UNTIMED: frozenset[str] = frozenset({"/cmd"})
+
+
+def timed(status: int, path: str = "") -> bool:
+    """Whether an answer carries the header: a page that was served (``200``), never on an :data:`UNTIMED` path."""
+    return status == 200 and path not in UNTIMED

@@ -59,6 +59,16 @@ def test_a_refused_page_and_a_missing_page_answer_alike(box: dict[str, Any]) -> 
 VOLATILE = {"audit trail"}
 
 
+def test_the_header_search_carries_no_timing_whatever_it_finds(box: dict[str, Any]) -> None:
+    """D-1241: the field answers an account off the log as it answers a number that does not exist, every header
+    included; a time would differ between the two, so no answer of ``/cmd`` carries one."""
+    crc = clients(box)["coordinator"]
+    for q in ("GZQO-0001", "ZZZZ-9999", "aaaaaaaa", "", "/home"):
+        r = crc.get("/cmd", params={"q": q}, follow_redirects=False)
+        assert "server-timing" not in r.headers, (q, r.status_code)
+    assert timing.timed(200, "/home") and not timing.timed(200, "/cmd") and not timing.timed(404, "/home")
+
+
 def test_the_header_changes_no_page_body(box: dict[str, Any]) -> None:
     app = box["app"]
     pages = ten_pages(box)

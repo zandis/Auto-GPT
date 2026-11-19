@@ -11,7 +11,11 @@
   the study calls each call out), and a share timed at some calls and not others would mislead.
 - **Refused and not found answer alike** (as D-1241 asks of the header search): the header is written on a `200`
   answer only. A refusal (401, 403), a not-found (404), a redirect (sign-in, a page sent home) and an error carry
-  none, so the header says no more than the status code already says.
+  none, so the header says no more than the status code already says. **No answer of the header search** (`/cmd`,
+  `console.timing.UNTIMED`) carries it, whatever its status. D-1241 holds that field to answer an account off the
+  delegation log exactly as it answers a number that does not exist, every header included, and the two take
+  different times. The whole-tree run on this card's merged head found it: D-1241's tests failed on the header's
+  value, and pass with the search untimed.
 - **The walk** (`tools.console_timing`). These ten pages, opened by an account that may open each one (all taken
   from the life-cycle walks, `tests/e2e/life_cycle_walk_plan.py`, and review 13's list):
   1. the home page (`/home`, coordinator);
