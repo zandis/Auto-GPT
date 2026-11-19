@@ -47,6 +47,7 @@ from rc_bridge.client import RedcapClient
 from tb_common import sheets
 from tb_common.actor_v3 import Claim
 from tb_common.audit import AuditLog
+from tb_common.audit_text import mask_free_text
 from tb_common.deterministic import normalize_ooxml
 from tb_common.erased import is_erased
 from tb_common.patient_reads import MONITOR as _MONITOR
@@ -524,7 +525,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         crit = {"criterion": body.criterion.strip(), "criteria_version": body.criteria_version.strip()}
         svc.audit.append("life.step", ruleset=rid, actor=who.name,
                          detail={"record": rec, "steps": [[before["state"] if before else None, sub["state"]]],
-                                 "reason": body.reason, "source": "manual",
+                                 "reason": mask_free_text(body.reason), "source": "manual",
                                  **(crit if crit["criterion"] else {})})  # fmt: skip
         return {"subject": sub, "screening_log": why or "ok"}
 
@@ -540,7 +541,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         why = mirror(svc.registry, rid, str(sub["pid"]), str(sub["state"]), who.name, svc.now())
         svc.audit.append("life.step", ruleset=rid, actor=who.name,
                          detail={"record": rec, "steps": [[before["state"] if before else None, sub["state"]]],
-                                 "source": "undo", "reason": " ".join(body.note.split())})  # fmt: skip
+                                 "source": "undo", "reason": mask_free_text(body.note)})  # fmt: skip
         return {"subject": sub, "screening_log": why or "ok"}
 
     @r.get("/studies/{rs}/schedule")

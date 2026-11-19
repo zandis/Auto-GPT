@@ -440,7 +440,7 @@ class DataOps:
         # (the console lost the adapter's job) leaves the accept recorded: the night cannot be rejected any more,
         # and a second accept resumes the publish or records that it ended
         base = {"batch": batch_id, "source": cur.source, "attempt": cur.attempt, "decision": decision,
-                "reason": reason, "shown": _shown(cur.detail)}  # fmt: skip
+                "reason": mask_free_text(reason), "shown": _shown(cur.detail)}  # fmt: skip
         with self._db.transaction() as tx:
             rows = tx.fetchdicts("SELECT * FROM batch WHERE id = ? FOR UPDATE", (batch_id,))
             if not rows or rows[0]["state"] != HELD:

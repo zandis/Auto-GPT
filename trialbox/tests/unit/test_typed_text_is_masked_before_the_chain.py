@@ -43,3 +43,48 @@ def test_the_wrapped_writer_masks_detail_and_top_level_text_and_delegates_the_re
     text = "".join(p.read_text() for p in tmp_path.rglob("*") if p.is_file())
     assert "test.typed" in text and "GZQO" in text
     assert not _clear(text), _clear(text)
+
+
+def test_a_label_and_its_value_on_separate_lines_are_masked_too() -> None:
+    """The review of D-1158: the reveal note folded whitespace before masking; every path masks so now."""
+    for typed in ("Name:\nSynthia Testperson", "Name:\n\n  Synthia Testperson", f"chart\n{CHART}"):
+        assert not _clear(mask_free_text(typed)), typed
+
+
+def test_free_text_nested_in_any_other_argument_is_masked(tmp_path: Path) -> None:
+    """``AuditLog.append`` moves an unknown argument into the detail: free text nested in one is masked too."""
+    FreeTextMasked(AuditLog(tmp_path)).append(
+        "test.nested", actor="u:alice", extra={"note": TYPED}, steps=[{"why": TYPED}]
+    )
+    text = "".join(p.read_text() for p in tmp_path.rglob("*.jsonl"))
+    assert "test.nested" in text and not _clear(text), _clear(text)
+
+
+def test_an_accepted_nights_reason_is_masked_in_every_event(tmp_path: Path) -> None:
+    """The review of D-1158: an accept writes ``started`` (and ``ended`` when the publish fails) with the reason."""
+    import pytest
+    from datacore.dataops import DataOps
+
+    audit = AuditLog(tmp_path / "audit", "UTC")
+    ops = DataOps()
+    try:
+        made = []
+        for snap in ("2026-11-08", "2026-11-09"):
+            b, _ = ops.record_night(audit, "ingest.held", source="csv", snapshot=snap, passed=False, held=True,
+                                    by="adapter", at="2026-11-10T00:00:00+00:00", actor="adapter",
+                                    detail={"gate": {"outcome": "held"}})  # fmt: skip
+            made.append(b)
+
+        def boom(_b: object) -> None:
+            raise RuntimeError("lake refused")
+
+        with pytest.raises(RuntimeError):
+            ops.decide(audit, made[0].id, "accept", by="steward1", at="2026-11-10T00:00:00+00:00", reason=TYPED,
+                       promote=boom)  # fmt: skip
+        ops.decide(audit, made[1].id, "accept", by="steward1", at="2026-11-10T00:00:00+00:00", reason=TYPED,
+                   promote=lambda _b: None)  # fmt: skip
+    finally:
+        ops.close()
+    text = "".join(p.read_text() for p in (tmp_path / "audit").glob("*.jsonl"))
+    assert text.count('"phase":"started"') == 2 and '"phase":"ended"' in text
+    assert not _clear(text), _clear(text)

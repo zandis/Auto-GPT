@@ -508,6 +508,9 @@ def create_app(
         backend, audit = _default_backend(settings)
     users = users or UserStore()  # schema auth of the trial database (TB_DB_URL, D-126)
     users.idle, users.absolute = settings.identity.idle, settings.identity.absolute  # D-192
+    # the register's V3-14, V8-03, V8-07 (D-1158): every note, reason or comment a person types is masked before the
+    # chain, through every writer the console holds (sign-in's too)
+    audit = cast(AuditLog, FreeTextMasked(audit))
     ident = Identity(settings.identity, users, audit, settings.secure_cookie)
     if settings.admin_password_file is not None:
         made = users.bootstrap_from_file(settings.admin_password_file, mailbox=settings.admin_email or None)
@@ -537,8 +540,7 @@ def create_app(
     templates.env.globals["public_url"] = (_env_map(env).get("TB_CONSOLE_PUBLIC_URL") or "").strip().rstrip("/")
     templates.env.globals["BEST"] = BEST_STANDING
     bk: Backend = backend
-    # the register's V3-14, V8-03, V8-07: every note, reason or comment a person types is masked before the chain
-    au: AuditLog = cast(AuditLog, FreeTextMasked(audit))
+    au: AuditLog = audit  # masked since the writer was opened (D-1158)
     us: UserStore = users
     us.zone = site_tz  # an account's end date is a site day (D-270)
     us.enrol_ttl = timedelta(hours=settings.identity.enrol_hours)  # D-719: TB_CONSOLE_ENROL_CODE_HOURS

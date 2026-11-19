@@ -23,8 +23,10 @@ _DIGITS = re.compile(r"\d{6,}")  # a chart number written without its label, whe
 
 
 def mask_free_text(text: str) -> str:
-    """``text`` with every identifier the note masker knows replaced, its length and spacing kept."""
-    return _DIGITS.sub(ID_MASK, mask_note(mask_ids(text or ""), site_mrn_regex()))
+    """``text`` with its whitespace folded (a label and its value on two lines are one span, as the reveal note
+    always folded them) and every identifier the note masker knows replaced."""
+    folded = " ".join((text or "").split())
+    return _DIGITS.sub(ID_MASK, mask_note(mask_ids(folded), site_mrn_regex()))
 
 
 def mask_free_text_in(value: Any) -> Any:
@@ -45,9 +47,10 @@ class FreeTextMasked:
         object.__setattr__(self, "_inner", inner)
 
     def append(self, event: str, **fields: Any) -> Any:
-        masked = {k: (mask_free_text_in(v) if k == "detail"
-                      else mask_free_text(v) if isinstance(v, str) and k.lower() in FREE_TEXT_KEYS else v)
-                  for k, v in fields.items()}  # fmt: skip
+        """Free text under ``detail`` or nested in any other argument (the log moves those into the detail), and a
+        top-level free-text argument, are masked; every other value is passed as it is."""
+        masked = {k: (mask_free_text(v) if isinstance(v, str) and k.lower() in FREE_TEXT_KEYS
+                      else mask_free_text_in(v)) for k, v in fields.items()}  # fmt: skip
         return self._inner.append(event, **masked)
 
     def __getattr__(self, name: str) -> Any:
