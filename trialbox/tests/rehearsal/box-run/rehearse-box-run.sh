@@ -271,8 +271,12 @@ build_setup() {  # build: a small git repository as the release commit, its git 
 # real one does, then signs with the REAL signer over the real host tree (standins/mkbundle.py).
 set -eu
 while [ $# -gt 0 ]; do case "$1" in --key) K=$2; shift ;; --id) I=$2; shift ;; --release-seq) Q=$2; shift ;;
-  --out) O=$2; shift ;; --gates) G=$2; shift ;; --sbom-dir) shift ;; *) echo "make_bundle: unknown option $1" >&2; exit 2 ;; esac; shift; done
+  --out) O=$2; shift ;; --gates) G=$2; shift ;; --sbom-dir) shift ;; --models) M=$2; shift ;;
+  *) echo "make_bundle: unknown option $1" >&2; exit 2 ;; esac; shift; done
 [ -f "$K" ] && [ -f "$G" ] || { echo "make_bundle: no key or no gates" >&2; exit 2; }
+# H-43: the weights the site bundle carries, as the real one reads them (find -L: through the links)
+[ -n "${M:-}" ] && [ -n "$(find -L "$M/embedder" -type f 2>/dev/null)" ] || { echo "make_bundle: no embedder/ in --models" >&2; exit 2; }
+echo "make-bundle models $(ls "$M" | tr '\n' ' ')" >> "$BR_S/calls.log"
 [ "$(stat -c %a "$K")" = 600 ] || { echo "make_bundle: the key is not 0600" >&2; exit 2; }
 echo "make-bundle key-ok" >> "$BR_S/calls.log"
 x=(); [ -f "$BR_S/knobs/build-rehearsal" ] && x=(--rehearsal)
@@ -285,6 +289,11 @@ EOS
   m tb-src gs://tb-runs/r2/src.bundle; m tb-commit "$(git -C "$r" rev-parse HEAD)"
   m tb-release-id 2026.11-r; m tb-release-seq 3; m tb-vendor-key-secret vendor-key; m tb-vendor-key-version 1
   m tb-out gs://tb-runs/r2/out; m tb-build-root "$S/vm/build"
+  # H-43: b05 places the site bundle's weights: the "VM's" pair folders, no template, an embedder already in place
+  # (models-place keeps a folder that is there; no network here)
+  if [ "$(cat "$S/metadata/tb-steps")" = build ]; then
+    val_models; mkdir -p "$S/models/embedder"; echo '{"stand-in": true}' > "$S/models/embedder/config.json"
+  fi
 }
 val_models() {  # validation: the box's flat model folders from the "VM's" model folders (no network here)
   m tb-model-links "gemma-4-26b-a4b-it-4bit=judge qwen3.5-9b-4bit=verifier"; m tb-model-template ""

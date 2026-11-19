@@ -41,7 +41,7 @@ from typing import Any
 
 import httpx
 
-from tools import mlbench
+from tools import gold_kind, mlbench
 from tools.trec_ct_eval import cluster_ci, wilson
 from tools.trialgpt_compare import Client, _safe, _split
 
@@ -261,6 +261,7 @@ def score_combo(models: list[str], lang: str, items: list[dict[str, Any]]) -> di
         }
     out["cost_usd"] = round(cost, 4)
     out["unanswered"] = unanswered
+    out["gold_kind"] = gold_kind.of_set("medtxt", lang)  # 10G-38 (D-1326): ja physician, en translated
     return out
 
 

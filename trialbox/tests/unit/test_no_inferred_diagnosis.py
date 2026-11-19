@@ -3,6 +3,9 @@ inferring a diagnosis. On jmed both models agreed four times that a patient "has
 diabetes) from a quote naming only an antihypertensive (or metformin); on sigir NCT01784523 the judge counted
 findings into SLE. ``both_agree`` does not protect against a shared inference.
 
+The SLE quote below is a SIGIR 2016 patient description (Koopman and Zuccon, CSIRO, CC BY-SA 4.0; see
+``eval/criterion_ml/NOTICE.md``); the consent sentence is the one NCBI's benchmark appends to every note.
+
 * An exclusion's "present" stands only on a verified quote that states the condition (the criterion's own words, an
   abbreviation or synonym of it, not negated, a relative's, a risk or a drug for it); one that names a drug, a value,
   findings or only a generic diagnosis word (診断, 症, "known") is an inference: unknown, to review, never a hard fail.

@@ -1,0 +1,5 @@
+{
+ "what": "The MedTxt ja pair gate (card 10G-22, D-1325): tools/medtxt_gate.py holds the candidate pair's recorded answers to review 17 §7.3 rules 1 and 2 against the control's. A model, prompt or quantisation change records the new pair (python -m tools.medtxt_eval run) and names it here as the candidate.",
+ "control": {"judge": "google/gemma-4-26b-a4b-it@fp4", "verifier": "qwen/qwen3.5-9b", "why": "the shipped pair as recorded (review 17 §2: judge NVFP4 + 9B; eval/medtxt/results/scores.json)"},
+ "candidate": {"judge": "google/gemma-4-26b-a4b-it@fp4", "verifier": "qwen/qwen3.5-9b"}
+}

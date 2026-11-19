@@ -67,6 +67,8 @@ for p in (ROOT, ROOT / "libs", ROOT / "services"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
+from tb_common import tier_value  # noqa: E402
+
 from tools import g_probes, pin_model  # noqa: E402  (after the path setup, as the parts import them)
 
 LANGS = ("ja", "zh-TW")
@@ -825,9 +827,6 @@ def shuffled(lc: tuple[int, ...], seed: int) -> tuple[int, ...]:
     out = list(lc)
     random.Random(seed).shuffle(out)
     return tuple(out)
-
-
-GATEWAY_SLOTS = 16  # the gateway's slots per endpoint (services/gateway/load.py: the serving record's max_num_seqs)
 
 
 def record_max_seqs(record: Path | None = None) -> int:
@@ -2474,7 +2473,8 @@ def concurrency_lines(e: dict[str, Any]) -> list[str]:
     if len(lc) > 1 or reps > 1:
         out.append("  the model servers are not restarted between settings or repeats (not in scope): a later run "
                    "may find a warm prefix cache")  # fmt: skip
-    slots = int(seqs or GATEWAY_SLOTS)
+    # the gateway's slots per endpoint without a serving record (services/gateway/load.py, tb_common.tier_value)
+    slots = int(seqs or tier_value.FALLBACK_SLOTS)
     queue = [n for n in lc if n > slots]
     if queue and not seqs:
         out.append(f"  {', '.join(map(str, queue))} in flight: above the gateway's {slots} slots per endpoint: "
