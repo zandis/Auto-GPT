@@ -10,6 +10,9 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- Each pull request that changes the console is now compared screen by screen with master on 72 first screens in
+  three languages (9k-17, D-1377); a changed screen must be looked at before it passes. The check is not required and
+  keeps no picture in git. Nothing changes on the box: no setting, no new file installed.
 - The console's colours and type are named values (9k-1, 9k-2, D-1368): form fields have a darker border that meets
   the 3:1 contrast for controls, the amber "needs attention" row is readable in dark mode (and a little paler in
   light mode), and Japanese and Traditional Chinese pages have a taller line height (1.7) with strict line breaking.
