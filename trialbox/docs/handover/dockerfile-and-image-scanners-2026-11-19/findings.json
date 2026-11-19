@@ -3,12 +3,12 @@
  "title": "hadolint on every Dockerfile, three configuration scans per image (plan 10 row 10G-41)",
  "date": "2026-11-19",
  "source": "docs/handover/dockerfile-and-image-scanners-2026-11-19.md",
- "note": "basis 'hypothesis' for the hadolint rows: the rules were read from the Dockerfiles, not reported by hadolint (not run here); the pull request's CI images job is the first run.",
+ "note": "basis 'hypothesis' for H10G41-01 to -05: the rules were read from the Dockerfiles, not reported by hadolint (not run here); the CI images job's report-only step is the first run. No hadolint ignore was added (D-1343).",
  "findings": [
   {
    "id": "H10G41-01",
    "severity": "Low",
-   "claim": "deploy/docker/db.Dockerfile:53 installs ca-certificates without a version (hadolint DL3008, warning); it comes at the version of the digest-pinned trixie suite like the base's own packages; an inline ignore with its reason at db.Dockerfile:38 (D-1343); pinning it is open",
+   "claim": "deploy/docker/db.Dockerfile:46 installs ca-certificates without a version (hadolint DL3008, warning, read from the file); it comes at the version of the digest-pinned trixie suite; no ignore (D-1343): open until pinned or otherwise fixed, the file linted report-only meanwhile",
    "lane": "H",
    "basis": "hypothesis",
    "state": "open"
@@ -16,7 +16,7 @@
   {
    "id": "H10G41-02",
    "severity": "Low",
-   "claim": "RUN steps with pipes and no pipefail SHELL (hadolint DL4006, warning): deploy/docker/db.Dockerfile:43 (pg_config | grep -q and the key checks) and deploy/docker/backup.Dockerfile:40, 48, 49; ignores with reasons at db.Dockerfile:38 and backup.Dockerfile:35; a pipefail SHELL changes how the build runs (pg_config | grep -q can fail on SIGPIPE) and needs a build of both images to prove",
+   "claim": "RUN steps with pipes and no pipefail SHELL (hadolint DL4006, warning, read from the files): deploy/docker/db.Dockerfile:36, 38, 39, 61 and deploy/docker/backup.Dockerfile:36, 44, 45; a pipefail SHELL changes how the build runs (pg_config | grep -q can fail on SIGPIPE) and needs a build of both images to prove; no ignore (D-1343), both files report-only meanwhile",
    "lane": "H",
    "basis": "hypothesis",
    "state": "open"
@@ -24,7 +24,7 @@
   {
    "id": "H10G41-03",
    "severity": "Low",
-   "claim": "tools/rehearse_box/host.Dockerfile:27 installs the rehearsal host's packages without versions (hadolint DL3008, warning); the ignore with its reason is at host.Dockerfile:16 (a comment only; H-54's digest and fetch settings unchanged), and the comment changes the file's hash, so the rehearsal rebuilds its cached host image once",
+   "claim": "tools/rehearse_box/host.Dockerfile:24 installs the rehearsal host's packages without versions (hadolint DL3008, warning, read from the file); the file is unchanged (H-54's pins) and linted report-only until this is closed",
    "lane": "H",
    "basis": "hypothesis",
    "state": "open"
@@ -32,10 +32,10 @@
   {
    "id": "H10G41-04",
    "severity": "Low",
-   "claim": "two rules hadolint is expected to raise on purpose: SC2046 at deploy/docker/backup.Dockerfile:48 (the package list from go list must split into words) and DL3006 at deploy/docker/db.Dockerfile:23 (FROM ${POSTGRES_BASE}, pinned by digest through its ARG, as in D-206); each an inline ignore with its reason",
+   "claim": "two more rules expected from reading the files: SC2046 at deploy/docker/backup.Dockerfile:44 (the package list from go list is split into words on purpose) and DL3006 at deploy/docker/db.Dockerfile:21 (FROM ${POSTGRES_BASE}, pinned by digest through its ARG); no ignore added (D-1343): each needs a change in the file (a quoted list, a literal FROM) or stays report-only",
    "lane": "H",
    "basis": "hypothesis",
-   "state": "not a defect"
+   "state": "open"
   },
   {
    "id": "H10G41-05",
@@ -48,7 +48,7 @@
   {
    "id": "H10G41-06",
    "severity": "Medium",
-   "claim": "none of the three tools was run here: hadolint (fetching and running a binary was refused in the session that made this card), Trivy secret and misconfiguration and Dockle (no Docker daemon); the first hadolint run on the five newly linted Dockerfiles is the pull request's CI images job (gating: a rule not read here turns it red), the first image scans the image gates' job on a train (report-only)",
+   "claim": "none of the three tools was run here: hadolint (fetching and running a binary was refused in the session that made this card), Trivy secret and misconfiguration and Dockle (no Docker daemon); the first hadolint run on the five newly linted Dockerfiles is the CI images job's report-only step, the first image scans the image gates' job on a train (report-only)",
    "lane": "H",
    "basis": "not_run",
    "state": "open"

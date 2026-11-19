@@ -1,10 +1,11 @@
 """10G-41 (D-1343, review 21 OT-3): hadolint on every Dockerfile, and three configuration scans per image.
 
-The Dockerfiles in the tree, the Makefile's ``DOCKERFILES`` (``make ci``) and the CI ``images`` job's hadolint loop
-are one set. Every image of ``SC_OWN_IMAGES`` is scanned from the Dockerfile it is built from by ``make image-scan``,
+The Dockerfiles in the tree are the three the CI ``images`` job gates on (``HADOLINT_GATING``, unchanged since
+D-206) and the five it lints report-only (``HADOLINT_REPORT``, ``make hadolint-report``, a step that cannot fail).
+No hadolint ignore is added (the owner's rule: no scan allow-list entry): the pragmas are exactly master's. Every image of ``SC_OWN_IMAGES`` is scanned from the Dockerfile it is built from by ``make image-scan``,
 which the image gates' job runs report-only after the release gates, keeping its folder with the gate record. Dockle
-is pinned by sha256 like Syft and Trivy. D-1343 carries the dated line from which the scan gates at HIGH; this
-test only checks that the line is there (it never fails because of the calendar). The parsing, the summary and the
+is pinned by sha256 like Syft and Trivy. D-1343 carries the dated lines (hadolint report-only, the scan gating at HIGH); this
+test only checks that they are there (it never fails because of the calendar). The parsing, the summary and the
 ``--fail-at HIGH`` logic are checked on small fixtures with a fake runner: no Docker, no scanner, no network."""
 
 from __future__ import annotations
@@ -61,21 +62,53 @@ def _step(job: dict[str, Any], needle: str) -> tuple[int, dict[str, Any]]:
     raise AssertionError(f"no step with {needle!r}")
 
 
-def test_every_dockerfile_is_in_the_makefile_list_and_the_ci_loop() -> None:
+#: every ``# hadolint ignore=`` in the tree, as on master before 10G-41: nothing may be added (D-1343)
+PRAGMAS = {
+    "deploy/docker/python.Dockerfile": ["DL3006", "SC2086"],
+    "deploy/docker/jvm.Dockerfile": ["DL3006", "DL3006"],
+    "demo/Dockerfile": ["DL3008", "DL3013,SC2086"],
+    "deploy/docker/embed.Dockerfile": ["DL3006", "SC2086"],
+    "deploy/docker/backup.Dockerfile": ["DL3006", "DL3006"],
+}
+
+
+def test_every_dockerfile_is_gated_or_linted_report_only() -> None:
     tree = _dockerfiles_in_tree()
-    assert len(tree) >= 8, sorted(tree)
-    assert set(_make_var("DOCKERFILES")) == tree
-    assert re.search(r"hadolint --failure-threshold warning \$\(DOCKERFILES\)", _makefile())
-    _, step = _step(_workflow("trialbox-ci.yml")["jobs"]["images"], "hadolint")
+    gating, report = set(_make_var("HADOLINT_GATING")), set(_make_var("HADOLINT_REPORT"))
+    assert len(tree) >= 8 and gating | report == tree and not gating & report, sorted(tree)
+    assert gating == {"deploy/docker/python.Dockerfile", "deploy/docker/jvm.Dockerfile", "demo/Dockerfile"}
+    job = _workflow("trialbox-ci.yml")["jobs"]["images"]
+    _, step = _step(job, "--failure-threshold warning")
     loop = re.search(r"for f in (.*?); do", step["run"].replace("\\\n", " "), re.S)
-    assert loop and set(loop.group(1).split()) == tree
-    assert "--failure-threshold warning" in step["run"]
+    assert loop and set(loop.group(1).split()) == gating
+    assert step.get("continue-on-error") is not True
+    _, rep = _step(job, "make hadolint-report")
+    assert rep.get("continue-on-error") is True and "GITHUB_STEP_SUMMARY" in rep["run"]
+    _, keep = _step(job, "Keep the hadolint report")
+    assert keep["with"]["path"] == "trialbox/build/hadolint-report.txt" and "@" in keep["uses"]
+    recipe = re.search(r"^hadolint-report:\n((?:\t.*\n)+)", (ROOT / "Makefile").read_text(encoding="utf-8"), re.M)
+    assert recipe and "--no-fail" in recipe.group(1) and "$(HADOLINT_REPORT)" in recipe.group(1)
+    assert "--failure-threshold" not in recipe.group(1)
+
+
+def test_make_ci_lints_as_on_master() -> None:
+    assert re.search(
+        r"hadolint --failure-threshold warning deploy/docker/python.Dockerfile deploy/docker/backup.Dockerfile "
+        r"deploy/docker/jvm.Dockerfile demo/Dockerfile;",
+        _makefile(),
+    )
+
+
+def test_no_hadolint_ignore_is_added() -> None:
+    for rel in sorted(_dockerfiles_in_tree()):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert re.findall(r"^# hadolint ignore=(\S+)", text, re.M) == PRAGMAS.get(rel, []), rel
 
 
 def test_the_hadolint_image_is_the_ci_jobs_by_digest() -> None:
     (image,) = _make_var("HADOLINT_IMAGE")
     assert re.fullmatch(r"hadolint/hadolint:v[0-9.]+@sha256:[0-9a-f]{64}", image)
-    _, step = _step(_workflow("trialbox-ci.yml")["jobs"]["images"], "hadolint")
+    _, step = _step(_workflow("trialbox-ci.yml")["jobs"]["images"], "--failure-threshold warning")
     assert image in step["run"]
 
 
@@ -96,7 +129,7 @@ def test_every_own_image_is_scanned_from_its_dockerfile() -> None:
     built = set(re.findall(r"-f (\S+)\s+-t (\S+) \.", mk))  # `make images`: docker build ... -f DOCKERFILE -t IMAGE .
     db_script = (ROOT / "deploy/build_db_image.sh").read_text(encoding="utf-8")
     for t in pairs:
-        assert t.dockerfile in _make_var("DOCKERFILES"), t
+        assert t.dockerfile in _make_var("HADOLINT_GATING") + _make_var("HADOLINT_REPORT"), t
         if t.image == "trialbox-postgres:16-1":
             assert f"-f {t.dockerfile} -t {t.image}" in db_script
         elif t.image == "trialbox-demo:step5":
@@ -130,9 +163,13 @@ def test_dockle_is_pinned_for_both_platforms_and_fetched_with_the_others() -> No
         assert "latest" not in a.url
 
 
-def test_the_decision_holds_the_date_the_scan_gates_from() -> None:
-    """Only that the dated line exists and agrees with the code and the workflow: the calendar never fails this."""
-    m = re.search(r"^- \*\*Gating from:\*\* (\d{4}-\d{2}-\d{2})\s*$", DECISION.read_text(encoding="utf-8"), re.M)
+def test_the_decision_holds_the_dated_lines() -> None:
+    """Only that the dated lines exist and agree with the code and the workflow: the calendar never fails this."""
+    text = DECISION.read_text(encoding="utf-8")
+    hl = re.search(r"^- \*\*hadolint report-only from:\*\* (\d{4}-\d{2}-\d{2})\s*$", text, re.M)
+    assert hl, "D-1343 has no 'hadolint report-only from:' line"
+    dt.date.fromisoformat(hl.group(1))
+    m = re.search(r"^- \*\*Gating from:\*\* (\d{4}-\d{2}-\d{2})\s*$", text, re.M)
     assert m, "D-1343 has no 'Gating from:' line"
     day = dt.date.fromisoformat(m.group(1))
     assert day == image_scan.GATING_FROM

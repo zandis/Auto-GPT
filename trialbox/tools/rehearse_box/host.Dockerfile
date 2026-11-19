@@ -11,9 +11,6 @@
 # The rehearsal caches the built image on this file's hash (rehearse.sh TB_REHEARSE_HOST_CACHE, the workflow's cache).
 FROM ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
 ARG DEBIAN_FRONTEND=noninteractive
-# D-1343: DL3008, the packages are what a site's IT installs from Ubuntu 24.04 (RUNBOOK §1 step 1) at the version
-# of the digest-pinned base's suite, as on the box; the rehearsal is not a shipped image.
-# hadolint ignore=DL3008
 RUN --mount=type=secret,id=extra_ca,required=false \
     set -eu; \
     if [ -f /run/secrets/extra_ca ]; then \

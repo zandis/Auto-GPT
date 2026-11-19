@@ -17,7 +17,8 @@ with ``summary.md`` (a row per image, the three tools' counts) and ``index.json`
 Report-only until the date in D-1343 (``GATING_FROM``): the command exits 0 whatever the findings, and a tool that
 fails is written into the summary, not raised. ``--fail-at HIGH`` (the switch D-1343 turns on at that date) fails on
 a Trivy secret or misconfiguration finding of HIGH or CRITICAL, or a scan that did not run. Dockle and hadolint stay
-report-only here: hadolint gates in the CI ``images`` job, Dockle FATAL at the release checklist (review 21 §5.2).
+report-only here: hadolint gates on three files in the CI ``images`` job, Dockle FATAL at the release checklist
+(review 21 §5.2).
 Nothing here accepts or suppresses a finding: there is no ignore file and Trivy runs with no ``TRIVY_*`` environment.
 """
 

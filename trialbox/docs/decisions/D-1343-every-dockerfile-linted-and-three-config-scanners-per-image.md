@@ -2,13 +2,17 @@
 
 - **Task:** lane H, card 10G-41 (plan 10 track G; review 21 OT-3; decision 115 of plan 10, ruled "ok"). · **Date:** 2026-11-19
 - **Decision:**
-  - **hadolint on every Dockerfile under `trialbox/`**, eight today: `deploy/docker/{python,backup,jvm,embed,db}.Dockerfile`,
-    `demo/Dockerfile`, `deploy/redcap-test/Dockerfile`, `tools/rehearse_box/host.Dockerfile` (the review counted 6:
-    the six images; the REDCap test server and the rehearsal host are linted too). One list, the Makefile's
-    `DOCKERFILES`, read by `make ci`; the CI `images` job (trialbox-ci.yml) loops over the same eight. It gates at
-    `warning`, as since D-206, with the same hadolint 2.12.0 image by digest. A rule a Dockerfile breaks on purpose
-    is an inline `# hadolint ignore=` directly above the instruction with its reason in the comment above it (the
-    form of D-206); each new one is also a finding (`docs/handover/dockerfile-and-image-scanners-2026-11-19.md`).
+  - **hadolint on every Dockerfile under `trialbox/`**, eight today (the review counted 6: the six images; the
+    REDCap test server and the rehearsal host are linted too). The three that gate today keep gating exactly as on
+    master: `deploy/docker/python.Dockerfile`, `deploy/docker/jvm.Dockerfile` and `demo/Dockerfile` in the CI
+    `images` job at `warning` (D-206), hadolint 2.12.0 by digest; `make ci`'s line is unchanged. The other five,
+    `deploy/docker/{backup,embed,db}.Dockerfile`, `deploy/redcap-test/Dockerfile` and
+    `tools/rehearse_box/host.Dockerfile` (the Makefile's `HADOLINT_REPORT`), are linted **report-only** by `make
+    hadolint-report` in the same job's next step: findings in the job summary and the `hadolint-report` artifact,
+    never a failure of the job or of `make ci`.
+  - **No hadolint ignore is added** (the owner's rule: no scan allow-list entry). Each rule a newly linted file
+    breaks is an open finding with its file and line (`docs/handover/dockerfile-and-image-scanners-2026-11-19.md`)
+    until it is fixed in the Dockerfile; an ignore already on master may be moved onto its instruction, not added.
   - **Three tools per image** in the image gates' `images` job (trialbox-images.yml), on each image of
     `SC_OWN_IMAGES` (py, backup, jvm, embed, postgres, demo), after the release gates: hadolint on the Dockerfile
     it was built from (JSON); Trivy `--scanners secret,misconfig` on the image and `--image-config-scanners
@@ -24,18 +28,22 @@
     tool that fails is written into the summary. It cannot turn a train red. Third-party images (HAPI FHIR, vLLM,
     the mail servers) are not given these three tools: their configuration is not ours to change; the
     vulnerability gate covers them as before.
+- **hadolint report-only from:** 2026-11-19
+  - The five files of `HADOLINT_REPORT` stay report-only until their findings (H10G41-01 to H10G41-04) are closed;
+    each then moves to the gating loop by a pull request of lane H, never with an ignore.
 - **Gating from:** 2026-12-17
   - From that date the `images` job runs `make image-scan IMAGE_SCAN_ARGS="--fail-at HIGH"` without
     `continue-on-error`: a Trivy secret or misconfiguration finding of HIGH or CRITICAL on any of our images, or a
     Trivy scan that did not run, fails the job. Each finding is fixed, or accepted in a ledger entry of the
     allow-list form (reason, owner, review date within 90 days; review 21 §5.2) by a decision, never by an ignore
     file. Dockle stays report-only in CI (its FATAL blocks at the release checklist, review 21 §5.2); hadolint
-    already gates. The switch is a pull request by lane H on or after the date; nothing turns it on by itself.
+    gates on its three files as above. The switch is a pull request by lane H on or after the date; nothing turns it on by itself.
 - **Not proved here:** no Docker daemon where this was made. hadolint, Trivy and Dockle were not run on any
-  Dockerfile or image; the ignores added are the rules read from the files, and the CI `images` job of the pull
-  request is the first hadolint run on the five newly linted files. The workflow has not run: shown are the YAML
+  Dockerfile or image; the findings are the rules read from the files (basis hypothesis), and the CI `images` job's
+  report step is the first hadolint run on the five newly linted files. The workflow has not run: shown are the YAML
   parse of both workflows and the tests below.
-- **Held by:** `tests/unit/test_image_config_scans.py` (the eight Dockerfiles in the tree, the Makefile list and the
-  CI loop are one set; every image of `SC_OWN_IMAGES` is scanned from its Dockerfile; the images job runs the
-  scan report-only after the release gates and keeps its folder; Dockle pinned for both platforms; this line's date
-  exists; the summary and the `--fail-at HIGH` logic on fixtures).
+- **Held by:** `tests/unit/test_image_config_scans.py` (the eight Dockerfiles in the tree are the gating three and
+  the report-only five; the CI loop is the three, the report step reads the five and cannot fail; no new ignore;
+  every image of `SC_OWN_IMAGES` is scanned from its Dockerfile; the images job runs the scan report-only after the
+  release gates and keeps its folder; Dockle pinned for both platforms; both dated lines exist; the summary and the
+  `--fail-at HIGH` logic on fixtures).

@@ -18,8 +18,6 @@
 # /usr/local/bin/tb-db-check (db.healthcheck.sh) is the readiness check: server up, trialbox_wf there, both extensions
 # installed; a compose healthcheck runs it (D-204 lists the wiring).
 ARG POSTGRES_BASE=postgres:16-trixie@sha256:dd2bf3ce2dc83a81674cf7f217fcfd8a5009a4b325dda5b843bfee82a06cff6f
-# the base is pinned by digest through its ARG: DL3006 cannot see it (D-1343)
-# hadolint ignore=DL3006
 FROM ${POSTGRES_BASE}
 ARG PGVECTOR_VERSION=0.8.7-1.pgdg13+1
 ARG PGROONGA_VERSION=4.1.0-1
@@ -31,11 +29,6 @@ ARG PG_MAJOR_EXPECTED=16
 ARG GROONGA_KEY_FINGERPRINT=2701F317CFCCCB975CADE9C2624CF77434839225
 COPY db.groonga-archive-keyring.asc /usr/share/keyrings/groonga-archive-keyring.asc
 COPY --chmod=0755 db.healthcheck.sh /usr/local/bin/tb-db-check
-# D-1343: DL3008, ca-certificates (for the Groonga repository over https) comes at the version of the digest-pinned
-# trixie suite, as the base's own packages do; the packages this image adds are pinned by exact version below.
-# DL4006, the pipes are checks whose last command decides (grep -q, cut into test); pipefail would also fail
-# `pg_config --version | grep -q` when grep stops reading early, so the shell is left as the base sets it.
-# hadolint ignore=DL3008,DL4006
 RUN --mount=type=secret,id=extra_ca,required=false,mode=0444 \
     set -eux; \
     rm /usr/local/bin/gosu; command -v setpriv; \
