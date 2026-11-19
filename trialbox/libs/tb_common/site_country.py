@@ -33,6 +33,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from tb_common import country_layer
+
 COUNTRIES = ("jp", "tw", "us", "other")
 # the adapter's shipped mappings (services/adapter/mapping), beside libs/ in the tree and in every image (/app)
 MAPPING_ROOT = Path(__file__).resolve().parents[2] / "services" / "adapter"
@@ -72,10 +74,27 @@ class CountryDefaults:
         return found.group(1) if found else None
 
 
+def from_layer(country: str) -> CountryDefaults:
+    """A country's set-up defaults read from its country layer (10C-25, D-1250; ``tb_common.country_layer``): the
+    report language (P5), the retention rules (P1), the source, mapping and zone (P14), printed dates and the year
+    (P9), consent by a representative (P11). Each is offered by the wizards and written into a new site's settings."""
+    v = country_layer.layer(country).value
+    return CountryDefaults(
+        country,
+        v("P5", "report_language"),
+        bool(v("P14", "one_zone", False)),
+        v("P1", "retention_rules"),
+        v("P14", "data_source_type"),
+        v("P14", "mapping"),
+        (),
+        v("P9", "printed_dates", "western"),
+        v("P9", "year_basis", "calendar"),
+        consent_proxy=bool(v("P11", "consent_proxy", False)),
+    )
+
+
 TABLE: dict[str, CountryDefaults] = {
-    "jp": CountryDefaults(
-        "jp", "ja", True, "jp", "ssmix2", "mapping/jp_core/ssmix2_site.yaml", (), "both", "fiscal", consent_proxy=True
-    ),
+    "jp": from_layer("jp"),
     "tw": CountryDefaults("tw", "zh-TW", True, "tw", "csv", "mapping/tw_core/demo_his.yaml", TWPAS_QUESTIONS),
     "us": CountryDefaults("us", "en", False, None, None, None, ()),
     "other": CountryDefaults("other", None, False, None, None, None, ()),

@@ -34,7 +34,7 @@ from datacore.lifecycle import ON_STUDY
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
-from tb_common import workdays
+from tb_common import country_layer, workdays
 from tb_common.csvfile import for_spreadsheet
 from tb_common.erased import is_erased
 
@@ -634,8 +634,16 @@ def register(app: FastAPI, h: Helpers) -> None:
         cal, day = workdays.for_zone(str(getattr(tz, "key", "") or "")), today()
         off = cal.days_off(day, day + timedelta(days=90)) if cal.has_days_off else None
         until = cal.holidays.until.isoformat() if cal.holidays and cal.holidays.until else ""
+        # 10C-25 (D-1250): where the calendar's days come from, and which wins where the site set its own break
+        lay = country_layer.layer(cal.country) if cal.has_days_off else country_layer.NONE
+        layer_line = None
+        if lay.on:
+            layer_line = {"country": lay.country, "version": lay.version, "from": cal.new_year_from,
+                          "brk": workdays.break_text(cal.new_year),
+                          "layer_brk": workdays.break_text(workdays.country_break(cal.country))}  # fmt: skip
         return h.page(request, "life_schedule.html", sess, rs=rid, schedule=sched, blank=SCHEDULE_ROWS, conns=conns,
                       days_off=off, days_off_until=until, days_off_problems=list(cal.problems),
+                      days_off_layer=layer_line,
                       days_off_first=cal.holidays.first.isoformat() if cal.holidays and cal.holidays.first else "",
                       days_off_runs_out=cal.runs_out(day), units=cal.has_days_off,
                       editable=can_enter(sess.user), saved=saved[:10], refused=err[:300])  # fmt: skip

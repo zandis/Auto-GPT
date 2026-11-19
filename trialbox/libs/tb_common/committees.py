@@ -1,6 +1,7 @@
 """Japan's review committees and the head of the institution's permission (plan 10 card 10C-4, JP-3, D-1227).
 
-The Japan profile's committees part is data (``japan_profile.json``, commitment C-7): each Japanese study kind names
+The Japan profile's committees part is data (part P3 of the country layer ``japan_profile.json``, read through
+``tb_common.country_layer``; commitment C-7, D-1250): each Japanese study kind names
 the committee that reviews it and what this box records before the study opens. Read as the project's reading of
 the public sources named in the file, to be confirmed by the first site's trial office. What is recorded here is not
 the complete set of a site's requirements; the others are the site's own (the Japan pack, 10C-2):
@@ -33,15 +34,11 @@ Standard library only (and ``tb_common.db`` for :func:`read`)."""
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 from datetime import date
-from functools import cache
-from pathlib import Path
 from typing import Any
 
-PROFILE = Path(__file__).with_name("japan_profile.json")
 KINDS = ("chiken", "tokutei", "shishin")  # 治験, 特定臨床研究, 指針 study; "" is the other-country default
 VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._/()-]{0,39}$")
 REFUSE, WARN = "refuse", "warn"
@@ -74,19 +71,18 @@ def here(environ: Any = None) -> tuple[str, str]:
     return str(env.get("TB_SITE_ID") or "").strip(), country_of(str(env.get("TB_TZ") or "").strip()) or ""
 
 
-@cache
-def _layer() -> dict[str, Any]:
-    return dict(json.loads(PROFILE.read_text(encoding="utf-8")))
-
-
 def profile() -> dict[str, Any]:
-    """The committees part of the Japan profile (read once)."""
-    return dict(_layer()["committees"])
+    """The committees part (P3) of the country layer that carries one (the Japan profile)."""
+    from tb_common import country_layer
+
+    return dict(country_layer.having("P3", "committees").value("P3", "committees"))
 
 
 def on(country: str) -> bool:
-    """Is the Japan profile on for a site of ``country`` (``JP``, ``TW``, "")?"""
-    return bool(country) and country.upper() == str(_layer()["country"])
+    """Is the committees part on for a site of ``country`` (``JP``, ``TW``, "")? Its country's layer carries it."""
+    from tb_common import country_layer
+
+    return country_layer.value(country, "P3", "committees") is not None
 
 
 def committee_of(kind: str) -> str:

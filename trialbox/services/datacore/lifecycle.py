@@ -209,8 +209,9 @@ RULE_SETS: dict[str, RuleSet] = {
     ),
 }
 RULE_ALIASES = {"jp": "jp_gcp_ii", "tw": "tw_trial"}  # the box-wide names before D-277 (TB_SAE_RULES)
-# the country's strictest set: only its regulator's name is shown before a set is chosen (D-766)
-COUNTRY_DEFAULT = {"JP": "jp_gcp_ii", "TW": "tw_trial"}
+# the country's strictest set: only its regulator's name is shown before a set is chosen (D-766); a country with a
+# layer names its own (tb_common.country_layer P2 ``sae_rule_set``, D-1250: Japan's is jp_gcp_ii)
+COUNTRY_DEFAULT = {"TW": "tw_trial"}
 REPORT_RULES: dict[str, dict[str, tuple[int, int]]] = {k: dict(RULE_SETS[v].parties) for k, v in RULE_ALIASES.items()}
 # what the resolved rules can say is wrong; every one is an alert, never a quiet fallback (CR-009)
 # NEW-LIFE-8 (D-766): ``unconfirmed``: the study has not chosen its set, so no deadline is shown (an alert; it was the
@@ -219,6 +220,14 @@ RULE_PROBLEMS = ("unknown_rules", "no_country", "other_country", "bad_override",
 RULE_ALERTS = ("unknown_rules", "no_country", "other_country", "bad_override", "noclock", "unconfirmed")
 SERIOUS_WHY = ("1", "2", "3", "4", "5", "6")
 _HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+
+
+def country_default(country: str) -> str:
+    """The rule set whose regulator is shown for a site of ``country`` before a study chooses one: its layer's (P2
+    ``sae_rule_set``), else :data:`COUNTRY_DEFAULT`; "" for none."""
+    from tb_common import country_layer
+
+    return str(country_layer.value(country, "P2", "sae_rule_set") or COUNTRY_DEFAULT.get(country, ""))
 
 
 def _site_country(tz: str) -> str:
@@ -268,7 +277,7 @@ def clock_rules(study_set: str = "", tz: str = "", override: str = "", box_set: 
             problems.append("unknown_rules")
     else:  # NEW-LIFE-8 (D-766): no deadline until the study names its set
         rs = None
-        problems.append("unconfirmed" if COUNTRY_DEFAULT.get(country) else "no_country")
+        problems.append("unconfirmed" if country_default(country) else "no_country")
     if rs is not None and country and rs.country != country:
         problems.append("other_country")
     parties = dict(rs.parties) if rs is not None else {}
@@ -279,7 +288,7 @@ def clock_rules(study_set: str = "", tz: str = "", override: str = "", box_set: 
     if "unconfirmed" not in problems and not any(max(v) > 0 for k, v in parties.items() if k in REPORT_PARTIES):
         problems.append("noclock")
     boxed = RULE_SETS.get(RULE_ALIASES.get(box_set.strip().lower(), box_set.strip().lower())) if box_set else None
-    shown = rs if rs is not None else boxed or RULE_SETS.get(COUNTRY_DEFAULT.get(country, "")) if not name else None
+    shown = rs if rs is not None else boxed or RULE_SETS.get(country_default(country)) if not name else None
     return {"name": rs.name if rs is not None else name[:40], "country": rs.country if rs is not None else country,
             "regulator": shown.regulator if shown is not None else "", "parties": parties, "source": source,
             "problems": problems}  # fmt: skip

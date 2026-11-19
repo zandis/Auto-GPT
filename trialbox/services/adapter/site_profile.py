@@ -14,7 +14,9 @@ The loader and its checks are :mod:`tb_common.site_profile`; this module is wher
   record's history and as one ``terminology.site_profile_load`` event in the hash-chained audit (the adapter's own
   audit family); without an audit destination nothing is activated. An id and version read before with other content
   is refused (the steward changes the version with the content). Rolling back is loading the earlier folder,
-  recorded with ``direction: back``.
+  recorded with ``direction: back``. The country layer above the profile (``tb_common.country_layer``, C-7, D-1250)
+  is recorded with it: the event and the record name the layer's country, version and digest, and a load under
+  another layer version is recorded as a change even when the profile's own digest is the same.
 * **The night.** Every night that reads with a profile writes ``site_profile.json`` beside its snapshot (the
   profile's id, version and digest, and the coverage lines); the ``ingest.done`` event carries the same stamp and the
   counts. A fact whose standard code comes from a ``verify`` row carries D-135's basis tag ``verify``
@@ -46,6 +48,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from tb_common import country_layer
 from tb_common.site_profile import MANIFEST, VERIFIED, VERIFY, Profile, ProfileError, content_sha, load
 
 RECORD = "site_profile.json"  # in the lake folder: the active profile and its history; beside a snapshot: the night's
@@ -220,7 +223,10 @@ def activate(
         raise ProfileError(MANIFEST, f"this profile describes a {profile.door} source; the box reads {door}")
     rec = read_record(lake_dir)
     old = rec.get("active") or None
-    if old and old.get("digest") == profile.digest:
+    # the country layer above the profile (C-7, D-1250): its version and digest are recorded with the profile's, and
+    # a load under another layer version is a change of its own; a country without a layer records nothing new
+    layer = country_layer.stamp(profile.country)
+    if old and old.get("digest") == profile.digest and old.get("layer") == layer:
         return None
     for h in rec.get("history", []):
         if h.get("id") == profile.id and h.get("version") == profile.version and h.get("digest") != profile.digest:
@@ -252,6 +258,7 @@ def activate(
         "synthetic": profile.synthetic,
         "rows_changed": len(changes),  # rows added, removed or whose state changed, each by `by` at `at`
         "row_changes": changes[:MAX_CHANGES_IN_EVENT],
+        **({"old_layer": old.get("layer") if old else None, "layer": layer} if layer else {}),
     }
     copy = profile.to_json()
     copy["copy_sha"] = change["copy_sha"] = content_sha(copy)  # the kept copy, as every night will ask it again
@@ -259,7 +266,7 @@ def activate(
 
     open_audit(audit_dir, tz).append(EVENT, actor=by, output_sha=profile.digest, detail=change)
     entry = {**profile.stamp(), "at": at, "by": by, "direction": direction, "rows_changed": len(changes),
-             "copy_sha": change["copy_sha"]}  # fmt: skip
+             "copy_sha": change["copy_sha"], **({"layer": layer} if layer else {})}  # fmt: skip
     lake_dir.mkdir(parents=True, exist_ok=True)
     (lake_dir / KEPT).mkdir(exist_ok=True)
     _write(lake_dir / KEPT / f"{profile.digest}.json", copy)  # what the night reads: this version only
