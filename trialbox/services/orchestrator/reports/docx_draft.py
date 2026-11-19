@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from tb_common.dates import printed_in
 from tb_common.deterministic import normalize_ooxml
 
 from orchestrator.reports.common import ReportMeta
@@ -44,31 +45,28 @@ def render(
         raise FileNotFoundError(f"application template {template} not found")
 
     def val(v: Any) -> Any:
-        """Every template field is ``{{r …}}``: RichText escapes the text; unknowns are highlighted [待補]."""
+        """Every template field is ``{{r …}}``: RichText escapes the text; unknowns are highlighted [待補]. 10C-13: each
+        day in a field (a date, or one inside ``陽性（2026-10-01）``) in the site's printed style; western: as given."""
         if v in (None, "", MISSING):
             return RichText(MISSING, highlight="yellow", bold=True)
-        return RichText(str(v))
-
-    def day(v: Any) -> Any:
-        """10C-13: a date field of the printed form in the site's printed style (ISO as before for western)."""
-        return val(v if v in (None, "", MISSING) else meta.day(v))
+        return RichText(printed_in(str(v), meta.dates))
 
     def rows(items: list[dict[str, str]]) -> list[dict[str, Any]]:
         return [{k: val(v) for k, v in it.items()} for it in items]
 
     ctx = {
         "apply_type": val(apply_type),
-        "run_date": day(meta.run_date),
+        "run_date": val(meta.run_date),
         "site_name": val(meta.site_name),
         "mrn": val(mrn),
         "sex": val(facts.get("sex")),
-        "birth_date": day(facts.get("birth_date")),
+        "birth_date": val(facts.get("birth_date")),
         "age": val(facts.get("age")),
         "physician": val(physician),
         "department": val(department),
         "diagnosis": val(facts.get("diagnosis")),
         "diagnosis_code": val(facts.get("diagnosis_code")),
-        "diagnosis_date": day(facts.get("diagnosis_date")),
+        "diagnosis_date": val(facts.get("diagnosis_date")),
         "dmards": rows(facts.dmards) or [{k: val(None) for k in ("name", "dose", "start", "end", "days")}],
         "prednisolone": val(facts.get("prednisolone")),
         "das28": rows(facts.das28),
@@ -77,7 +75,7 @@ def render(
         "tb_screen": val(facts.get("tb_screen")),
         "exclusions": [{"label": val(lbl), "status": val(st)} for lbl, st in exclusions],
         "course": val(course),
-        "footer": val(meta.footer),
+        "footer": RichText(meta.footer),  # an identifier line (snapshot id): kept as stored
     }
     doc = DocxTemplate(str(path))
     doc.render(ctx)

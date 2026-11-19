@@ -35,7 +35,7 @@ def test_dates_across_the_era_changes_print_right(day: str, era: str, both: str)
     assert dates.printed(day, "era") == era
     assert dates.printed(date.fromisoformat(day), "era") == era
     assert dates.printed(day, "both") == both
-    assert dates.printed(day + "T10:00:00+09:00", "era") == era  # a stamp prints its day
+    assert dates.printed(day + "T10:00:00+09:00", "era", TOKYO) == era  # a stamp prints its day in the site's zone
 
 
 def test_the_first_year_of_an_era_is_gannen_and_the_second_is_two() -> None:
@@ -63,22 +63,36 @@ def test_a_future_era_is_a_row_of_the_table(monkeypatch: pytest.MonkeyPatch) -> 
     assert dates.printed("2040-12-31", "era") == "令和22年12月31日"
 
 
-def test_defaults_follow_the_country_and_an_answer_wins() -> None:
-    jp = SimpleNamespace(tz="Asia/Tokyo", locale="ja")
-    tw = SimpleNamespace(tz="Asia/Taipei", locale="zh-TW")
-    us = SimpleNamespace(tz="America/New_York", locale="en")
-    assert dates.site_dates(jp) == ("both", "fiscal")
-    assert dates.site_dates(tw) == ("western", "calendar")
-    assert dates.site_dates(us) == ("western", "calendar")
+def test_unset_reads_as_before_whatever_the_zone_or_language_and_an_answer_wins() -> None:
+    """D-1229: nothing is guessed at run time. An installed Japanese site (Tokyo, Japanese reports, no keys) prints and
+    counts as before an upgrade; the country's default is written at set-up (see the wizard tests below)."""
+    for tz, locale in (("Asia/Tokyo", "ja"), ("Asia/Taipei", "zh-TW"), ("America/Los_Angeles", "ja"), (None, None)):
+        assert dates.site_dates(SimpleNamespace(tz=tz, locale=locale)) == ("western", "calendar"), (tz, locale)
     assert dates.site_dates(None) == ("western", "calendar")
-    assert dates.site_dates(SimpleNamespace(tz="Asia/Tokyo", printed_dates="western", year_basis=None)) == (
-        "western",
-        "fiscal",
+    assert dates.site_dates(SimpleNamespace(printed_dates="both", year_basis=None)) == ("both", "calendar")
+    assert dates.site_dates(SimpleNamespace(printed_dates="era", year_basis="fiscal")) == ("era", "fiscal")
+    assert dates.site_dates(SimpleNamespace(printed_dates="heisei", year_basis="april")) == ("western", "calendar")
+
+
+def test_a_stamp_prints_the_sites_day_and_what_is_not_a_day_prints_as_given() -> None:
+    # 2026-11-17 20:00 UTC is 18 November in Tokyo: the site's day, never the written one
+    assert dates.printed("2026-11-17T20:00:00+00:00", "era", TOKYO) == "令和8年11月18日"
+    assert dates.printed("2026-11-17T20:00:00Z", "both", TOKYO) == "2026年（令和8年）11月18日"
+    assert dates.printed(datetime(2026, 11, 17, 20, tzinfo=UTC), "era", TOKYO) == "令和8年11月18日"
+    # without the zone a stamp is not certainly one day: printed as given
+    for value in ("2026-11-17T20:00:00+00:00", datetime(2026, 11, 17, 20, tzinfo=UTC)):
+        assert dates.printed(value, "era") == (value.isoformat() if isinstance(value, datetime) else value)
+    for other in ("20261118", 20261118, "2026/11/18", "2026-11-18 (approx.)", "R8.11.18", "x2026-11-18"):
+        assert dates.printed(other, "era") == str(other), other
+
+
+def test_every_day_inside_a_forms_field_is_written_in_the_style() -> None:
+    assert dates.printed_in("陽性（2026-10-01）", "era") == "陽性（令和8年10月1日）"
+    assert dates.printed_in("MTX 10mg（2025-04-30–2026-04-01）", "both") == (
+        "MTX 10mg（2025年（令和7年）4月30日–2026年（令和8年）4月1日）"
     )
-    assert dates.site_dates(SimpleNamespace(tz="Asia/Taipei", printed_dates="era", year_basis="fiscal")) == (
-        "era",
-        "fiscal",
-    )
+    assert dates.printed_in("chest X-ray 2026-09-30：normal", "western") == "chest X-ray 2026-09-30：normal"
+    assert dates.printed_in("stamp 2026-09-30T10:00:00+09:00 kept", "era") == "stamp 2026-09-30T10:00:00+09:00 kept"
 
 
 def test_the_settings_file_takes_the_two_answers_and_refuses_others() -> None:
@@ -87,8 +101,7 @@ def test_the_settings_file_takes_the_two_answers_and_refuses_others() -> None:
 
     site = SiteInfo(id="A", name="A", tz="Asia/Tokyo", printed_dates="era", year_basis="fiscal")
     assert dates.site_dates(site) == ("era", "fiscal")
-    assert dates.site_dates(SiteInfo(id="A", name="A", tz="Asia/Tokyo")) == ("both", "fiscal")
-    assert dates.site_dates(SiteInfo(id="A", name="A", tz="Asia/Taipei")) == ("western", "calendar")
+    assert dates.site_dates(SiteInfo(id="A", name="A", tz="Asia/Tokyo", locale="ja")) == ("western", "calendar")
     with pytest.raises(ValidationError):
         SiteInfo.model_validate({"id": "A", "name": "A", "tz": "Asia/Tokyo", "printed_dates": "heisei"})
 
@@ -172,7 +185,7 @@ def test_the_feasibility_report_prints_its_run_date_in_the_sites_style() -> None
     assert western == feasibility_pdf.render(r, GZQO, dataclasses.replace(META, dates="western"), {})
     ja = dataclasses.replace(META, locale="ja", dates="both")
     text = "".join(p.extract_text() for p in PdfReader(io.BytesIO(feasibility_pdf.render(r, GZQO, ja, {}))).pages)
-    assert "2026年（令和8年）10月5日" in text
+    assert "2026年（令和8年）10月5日" in text and "2026年（令和8年）10月4日" in text  # run date and snapshot
     assert META.footer in text  # the footer's snapshot is an identifier: kept as stored
     era = dataclasses.replace(META, locale="ja", dates="era")
     text = "".join(p.extract_text() for p in PdfReader(io.BytesIO(feasibility_pdf.render(r, GZQO, era, {}))).pages)
@@ -191,6 +204,7 @@ def test_the_case_sheet_and_the_consent_page_print_dates_in_the_sites_style() ->
     page = case_html.sheet(rec, "both").decode()
     assert "2026年（令和8年）10月5日" in page  # checked on
     assert "2026年（令和8年）9月1日 – 2026年（令和8年）9月18日" in page  # the chart's excerpts
+    assert "2026年（令和8年）10月4日" in page  # the snapshot, as on the feasibility cover
     assert "2026-10-05" not in page.split("<footer")[0].split('class="meta"')[1].split("</p>")[0]
 
     crec = _consent_rec()
@@ -200,3 +214,91 @@ def test_the_case_sheet_and_the_consent_page_print_dates_in_the_sites_style() ->
     assert before == consent_html.patient(crec, "ja", view, release=release, dates="western")
     assert "2026-11-18" in before.decode()
     assert "令和8年11月18日" in consent_html.patient(crec, "ja", view, release=release, dates="era").decode()
+
+
+def test_an_upgraded_japanese_site_prints_byte_for_byte_as_before() -> None:
+    """D-1229 (b): a Japanese site installed before 10C-13 has no key; its prints do not change on upgrade."""
+    import dataclasses
+
+    from orchestrator.reports import case_html, feasibility_pdf
+    from tb_contracts.generated.models import SiteInfo
+
+    from tests.unit.test_feas_unit import GZQO, META, _result
+    from tests.unit.test_wording_outputs import _case_rec
+
+    upgraded = SiteInfo(id="A", name="A", tz="Asia/Tokyo", locale="ja")
+    style = dates.site_dates(upgraded)[0]
+    ja = dataclasses.replace(META, locale="ja")
+    r = _result()
+    assert feasibility_pdf.render(r, GZQO, dataclasses.replace(ja, dates=style), {}) == feasibility_pdf.render(
+        r, GZQO, ja, {}
+    )
+    assert case_html.sheet(_case_rec("ja"), style) == case_html.sheet(_case_rec("ja"))
+
+
+def test_the_nhi_form_writes_every_date_in_one_style() -> None:
+    import dataclasses
+    import io
+
+    import docx
+    from orchestrator.reports import docx_draft
+    from orchestrator.scenarios.facts import Facts
+
+    from tests.unit.test_feas_unit import META
+
+    f = Facts("p" * 32)
+    f.values.update({
+        "birth_date": "1960-02-03", "sex": "女", "age": 66, "diagnosis": "RA", "diagnosis_code": "M06.9",
+        "diagnosis_date": "2019-04-30", "prednisolone": "PSL 5mg（2026-01-05–2026-03-31）",
+        "hbsag": "陰性（2026-10-01）", "ahbc": "陰性（2026-10-01）",
+        "tb_screen": "IGRA 陰性（2026-09-29）；胸部X光 2026-09-30：正常",
+    })  # fmt: skip
+    f.dmards.append({"name": "MTX", "dose": "10mg", "start": "2025-05-01", "end": "2026-04-01", "days": "336"})
+    f.das28.append({"label": "最近一次（90日內）", "date": "2026-09-30", "score": "5.21", "method": "DAS28-ESR"})
+
+    def text(meta: object) -> str:
+        data = docx_draft.render("RA-BIO/附表十五.docx", f, "12345678", "Dr A", "RA", "new", None, [], meta)  # type: ignore[arg-type]
+        d = docx.Document(io.BytesIO(data))
+        cells = [c.text for t in d.tables for row in t.rows for c in row.cells]
+        return "\n".join([p.text for p in d.paragraphs] + cells)
+
+    western = docx_draft.render("RA-BIO/附表十五.docx", f, "12345678", "Dr A", "RA", "new", None, [], META)
+    assert western == docx_draft.render(
+        "RA-BIO/附表十五.docx", f, "12345678", "Dr A", "RA", "new", None, [], dataclasses.replace(META, dates="western")
+    )
+    era = text(dataclasses.replace(META, dates="era"))
+    for printed_day in ("令和7年5月1日", "令和8年4月1日", "令和8年10月1日", "令和8年9月29日", "令和8年9月30日",
+                        "令和8年1月5日", "令和8年10月5日", "平成31年4月30日", "昭和35年2月3日"):  # fmt: skip
+        assert printed_day in era, printed_day
+    body = era.replace(META.footer, "")  # the footer's snapshot id stays as stored
+    assert dates._DAY_IN_TEXT.search(body) is None, dates._DAY_IN_TEXT.search(body)
+
+
+def test_the_wizards_write_the_countrys_default_for_a_new_site_and_nothing_for_an_old_answers_file() -> None:
+    from tests.unit.test_site_country import _build
+
+    s, _env, _ = _build(country="jp", data_source_host_dir="/mnt/ssmix2")
+    assert (s["site"]["printed_dates"], s["site"]["year_basis"]) == ("both", "fiscal")
+    s, _env, _ = _build(country="tw")
+    assert (s["site"]["printed_dates"], s["site"]["year_basis"]) == ("western", "calendar")
+    s, _env, _ = _build(country="jp", data_source_host_dir="/mnt/ssmix2", printed_dates="era", year_basis="calendar")
+    assert (s["site"]["printed_dates"], s["site"]["year_basis"]) == ("era", "calendar")
+    # no country (an answers file from before, an installed box): no key is written, so nothing changes; proved
+    # byte for byte against master's settings by test_site_country.test_an_answers_file_without_a_country_reads_...
+    from tools import settings_wizard
+
+    with pytest.raises(settings_wizard.WizardError, match="printed_dates"):
+        _build(country="jp", data_source_host_dir="/mnt/ssmix2", printed_dates="heisei")
+
+
+def test_the_interactive_wizard_asks_both_with_the_countrys_default_shown() -> None:
+    from tests.unit.test_site_country import _interactive
+
+    jp, asked = _interactive("jp", {"HIS source type": "", "Feed folder": "/mnt/ssmix2"})
+    shown = {q.split(" (")[0]: q for q in asked}
+    assert shown["Dates on printed pages"].endswith("[both]: ") and shown["The year in yearly reports"].endswith(
+        "[fiscal]: "
+    )
+    assert (jp["printed_dates"], jp["year_basis"]) == ("both", "fiscal")
+    tw, asked = _interactive("tw", {"Dates on printed pages": "era"})
+    assert (tw["printed_dates"], tw["year_basis"]) == ("era", "calendar")

@@ -85,6 +85,7 @@ def country_values(country: str, hw: dict[str, Any]) -> dict[str, str]:
     except ValueError:
         return {}
     out = {"country": cd.country, "tz": cd.tz or str(hw.get("host_tz", ""))}
+    out |= {"printed_dates": cd.printed_dates, "year_basis": cd.year_basis}  # 10C-13, 10C-15: shown chosen
     if cd.locale:
         out["language"] = cd.locale
     if cd.data_source_type == "ssmix2":
@@ -204,6 +205,7 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
             steward=user, admin=user + box_answers.ADMIN_SUFFIX, ask_country=asks_country, country=country,
             countries=site_country.COUNTRIES, ss_orders=site_country.SSMIX2_ORDER_NUMBERS,
             ask_retention=ask_retention, retention_keys=OVERRIDABLE, printed_styles=dates.PRINTED_STYLES,
+            country_dates=(cd.printed_dates, cd.year_basis),
             year_bases=dates.YEAR_BASES, **ctx,
         )  # fmt: skip
 
@@ -331,6 +333,8 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
             "step": "done", "accounts": [a.username for a in plans], "roles": [a.role for a in plans],
             "source": answers.source.value, "backup": answers.backup.kind.value,
             "chartno_rule": answers.chartno_rule,
+            # 10C-13, 10C-15 (D-1229): asked with the country; recorded only when answered (the flag off: as before)
+            **{k: v for k, v in (("printed_dates", answers.printed_dates), ("year_basis", answers.year_basis)) if v},
         })  # fmt: skip
         resp = h.page(request, "firstrun.html", None, step="done", steward=plans[0].username)
         resp.delete_cookie(COOKIE, httponly=True, samesite="strict", secure=h.secure)  # the flags it was set with

@@ -172,7 +172,7 @@ def sheet(rec: dict[str, Any], dates: str = "western") -> bytes:
     m = META[lang]
     subj = rec["subject"]
     if subj.get("in_lake"):
-        subject_line = m["in_lake"].format(snapshot=subj.get("snapshot"))
+        subject_line = m["in_lake"].format(snapshot=printed(subj.get("snapshot"), dates))
     else:
         subject_line = m["not_in_lake"].format(note=subj.get("note") or "")
     pid_part = m["pid"].format(pid=subj["pid"]) + " · " if subj.get("pid") else ""

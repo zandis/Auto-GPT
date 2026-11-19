@@ -629,7 +629,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if basis == "fiscal":  # 10C-15: say which year it is, so nobody reads a 年度 total as a calendar year's
             first, after = year_window(y, basis)
             last = after - timedelta(days=1)
-            about.append(["year basis", f"fiscal year (年度): {first.isoformat()} to {last.isoformat()}"])
+            about.append(["year basis", translate(sess.lang, "office.year.fiscal", year=y, first=first.isoformat(),
+                                                  last=last.isoformat())])  # fmt: skip
         about.append(["small cells", f"counts between 1 and {k - 1} are shown as <{k}"])
         about.append(["made", h.clock().isoformat(timespec="seconds")])
         buf = io.BytesIO()

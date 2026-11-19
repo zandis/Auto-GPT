@@ -14,8 +14,11 @@ new heading with the version and date, in the same pull request that sets the ve
   before), Japanese era (令和8年11月18日) or both (2026年（令和8年）11月18日) on the feasibility report, the NHI
   navigation summary and application form, the CASE sheet and the released consent page (`site.printed_dates`); the
   research office counts may count by 年度, 1 April to 31 March in the site's time zone, and say which year they count
-  in three languages (`site.year_basis`). Unset, both follow the country: a site in Japan gets both forms and 年度; any
-  other site prints and counts exactly as before. The first-run page asks both with the country.
+  in three languages (`site.year_basis`). **A new site** gets its country's default from the set-up wizards, which
+  ask both questions: Japan both forms and 年度, any other country Western and the calendar year. **An installed site
+  is not changed by the upgrade**: a settings file without the keys prints and counts exactly as before, whatever its
+  zone or language. To change it, set the keys in `deploy/settings.yaml` and restart; there is no console page for
+  this (D-1229).
 - Set-up follows the site's country (10K-1): the settings wizard asks the country first (Japan, Taiwan, United
   States, other) and takes the report language, time zone, retention rules, source type, mapping and the TWPAS
   questions from one table; a Japan site gets Japanese reports, Japan's retention and an SS-MIX2 source (the
