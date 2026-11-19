@@ -40,7 +40,7 @@ def test_a_fixture_file_scores_as_the_table_test_does() -> None:
     rows = tool.read_rows(FIX / "card_10a1c_after.json")
     held = tool.score(rows)
     assert sum(h for r, h in zip(rows, held, strict=True) if r["expect"] == "held") == 63
-    assert sum(h for r, h in zip(rows, held, strict=True) if r["expect"] == "runs") == 22
+    assert sum(h for r, h in zip(rows, held, strict=True) if r["expect"] == "runs") == 25
 
 
 def test_a_row_without_its_label_is_refused(tmp_path: Path) -> None:

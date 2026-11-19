@@ -46,6 +46,8 @@ BEFORE: list[dict[str, Any]] = json.loads((FIX / "card_10a1c_before.json").read_
 AFTER: list[dict[str, Any]] = json.loads((FIX / "card_10a1c_after.json").read_text(encoding="utf-8"))["rows"]
 # its third set, written after the lane J lead's last rulings were coded (chart marks, prefixes, the 不 descriptors)
 THIRD: list[dict[str, Any]] = json.loads((FIX / "card_10a1c_third.json").read_text(encoding="utf-8"))["rows"]
+# an independent tester's lines that ran at 227466c3 (now seen: a regression fixture), and this card's nearest lines
+INDEP1: list[dict[str, Any]] = json.loads((FIX / "independent_set_1.json").read_text(encoding="utf-8"))["rows"]
 CHEMO = {"domain": "procedure", "quantifier": "any", "concept": "chemotherapy"}  # VS_CHEMOTHERAPY once compiled
 CHEMO_CAND = [{"domain": "procedure", "name": "chemotherapy", "synonyms": ["化学療法", "化學治療"]}]
 _TERM: list[Terminology] = []
@@ -100,7 +102,7 @@ def test_the_two_p2b_lines_are_held() -> None:
                question="Does the patient have significant cardiopulmonary disease?"))  # fmt: skip
 
 
-ALL = [*ROWS, *UNSEEN, *CARD, *REVIEW, *BEFORE, *AFTER, *THIRD]
+ALL = [*ROWS, *UNSEEN, *CARD, *REVIEW, *BEFORE, *AFTER, *THIRD, *INDEP1]
 
 
 @pytest.mark.parametrize("cls", ["structured", "mixed"])
@@ -129,17 +131,19 @@ def test_the_counts_the_pull_request_reports() -> None:
     (a cue over a list) and the coordinator's 34 that ran (cue words such as "forbidden", 不可, 禁止, 不允許, "other
     than X"; a synonym of the coded concept). The lines that should run and are held: card 10A-1's table 8 of 69, the
     lines unseen at design 20 of 23 (the same as before card 10A-1b; 19 since card 10A-1c's R8), card 10A-1b's own 17 of 40 (18 before), the
-    coordinator's 0 of 8. Card 10A-1c's 241 lines: 4 of 121 negated lines ran on master (a bare 不, zh 以外), none
-    now; 78 of 120 held that should run (109 on master). Its second set, written after its code was final: 7 of 63
-    ran on master, none now; 22 of 63 held that should run (48 on master). Its third set, written after the lead's
-    last rulings were coded: 26 of 63 ran on master, none now; 9 of 63 held that should run (30 on master)."""
-    assert _score(ROWS) == (116, 116, 8, 69)
+    coordinator's 0 of 8. Card 10A-1c: these counts are about these lines only, never about the reader (a reader
+    that looks for cues misses shapes nobody listed). Its 241 lines: 4 of 121 negated lines ran on master, 82 of 120
+    held that should run (109 on master). Its second and third sets: 7 and 26 of 63 ran on master; 25 and 12 of 63
+    held that should run (48 and 30 on master). Independent set 1, the tester's lines that ran at 227466c3, now
+    seen. "No more than 2 prior lines of chemotherapy" is a must-hold line since card 10A-1c (zero meets it)."""
+    assert _score(ROWS) == (117, 117, 8, 68)
     assert _score(UNSEEN) == (21, 21, 19, 23)
     assert _score(CARD) == (40, 40, 17, 40)
     assert _score(REVIEW) == (36, 36, 0, 8)
-    assert _score(BEFORE) == (121, 121, 78, 120)
-    assert _score(AFTER) == (63, 63, 22, 63)
-    assert _score(THIRD) == (63, 63, 9, 63)
+    assert _score(BEFORE) == (121, 121, 82, 120)
+    assert _score(AFTER) == (63, 63, 25, 63)
+    assert _score(THIRD) == (63, 63, 12, 63)
+    assert _score(INDEP1) == (73, 73, 0, 26)
     assert {r["lang"] for r in ALL} == {"en", "ja", "zh"}
 
 
@@ -195,7 +199,7 @@ def test_property_a_negated_line_already_coded_negative_runs(shape: int) -> None
 def test_exclusions_are_byte_identical_with_the_rule_on_and_off(monkeypatch: pytest.MonkeyPatch) -> None:
     """Card 10A-1b changes only which inclusions are held: every line of the four tables compiled as an exclusion is
     the same, byte for byte, with the rule as it is and with it off."""
-    rows = [*ROWS, *UNSEEN, *CARD, *REVIEW, *BEFORE, *AFTER, *THIRD]
+    rows = [*ROWS, *UNSEEN, *CARD, *REVIEW, *BEFORE, *AFTER, *THIRD, *INDEP1]
     crits = [{"kind": "exclusion", "class": "structured", "text": r["text"], "logic": _logic(r),
               "concept_candidates": _cand(r)} for r in rows]  # fmt: skip
 
@@ -442,7 +446,7 @@ RULES: dict[str, tuple[list[Line], list[Line]]] = {
         [
             ("Chronic hepatitis B without cirrhosis.", HB, []),
             ("Asthma not on oral corticosteroids.", AS, []),
-            ("肝硬変のない慢性B型肝炎。", HB, []),
+            ("肝硬変のない慢性B型肝炎。", HB, ["肝硬変"]),
             ("経口ステロイドを使用していない喘息。", AS, []),
         ],
         [
@@ -456,10 +460,61 @@ RULES: dict[str, tuple[list[Line], list[Line]]] = {
             ("Alcohol use not for 2 years.", ["alcohol use"], []),
             ("Asthma without it.", AS, []),
             ("受けたことのない化学療法。", CH, []),
+            # the lead's independent round: a relative clause whose head is what was never received or given
+            ("受けた経験のない化学療法", CH, []),
+            ("投与経験のない抗PD-1抗体", ["抗PD-1抗体"], []),
+            ("受けた経験を持たない化学療法。", CH, []),
+            ("肝硬変のない慢性B型肝炎。", HB, []),  # the subject of ない is not an extracted concept: cannot tell
             ("本人が受けていない化学療法。", CH, []),
             ("肝硬変のない慢性B型肝炎がない。", HB, []),
             ("化学療法のない肺癌。", CH, []),
             ("無心臟病之家族史。", ["家族史"], []),
+        ],
+    ),
+    "S status: uncertain, hypothetical, another person's, over; a bound on a count": (
+        [
+            ("Sepsis confirmed by blood culture.", ["sepsis"], []),
+            ("Documented atrial fibrillation on ECG.", ["atrial fibrillation"], []),
+            (
+                "Serum urate ≥6.8 mg/dL, or ≥6.0 mg/dL if receiving urate-lowering therapy.",
+                ["urate-lowering therapy"],
+                [],
+            ),
+            ("High-risk breast cancer.", ["breast cancer"], []),
+            ("At least two prior lines of chemotherapy.", CH, []),
+            ("Not more than 8 weeks since the last chemotherapy dose.", CH, []),
+            ("2レジメン以上の化学療法歴がある。", CH, []),
+            ("曾接受至少兩線化療。", ["化療"], []),
+            ("現在喫煙している。", ["喫煙"], []),
+            ("No longer responding to chemotherapy.", CH, []),
+            ("Transfusion-dependent anaemia.", ["transfusion"], []),
+            ("Family history of type 2 diabetes.", ["family history of type 2 diabetes"], []),
+            ("Fractures should have occurred after the onset of diabetes.", ["fracture"], []),
+            ("Hypertension. Should hypotension occur, stop the drug.", HT, []),
+        ],
+        [
+            ("Suspected sepsis.", ["sepsis"], []),
+            ("Family history of type 2 diabetes.", ["type 2 diabetes"], []),
+            ("Should hypotension occur, stop the drug.", ["hypotension"], []),
+            ("Sepsis? Blood cultures pending.", ["sepsis"], []),
+            ("If sepsis develops, antibiotics are started.", ["sepsis"], []),
+            ("敗血症が発症した場合は抗菌薬を開始する。", ["敗血症"], []),
+            ("若發生敗血症，需使用抗生素。", ["敗血症"], []),
+            ("At risk of sepsis.", ["sepsis"], []),
+            ("Sister with sepsis.", ["sepsis"], []),
+            ("家族歴：敗血症（母）", ["敗血症"], []),
+            ("家族史：父親患敗血症", ["敗血症"], []),
+            ("Sepsis, cured.", ["sepsis"], []),
+            ("敗血症は治癒した。", ["敗血症"], []),
+            ("敗血症已痊癒。", ["敗血症"], []),
+            ("Up to three prior regimens of chemotherapy.", CH, []),
+            ("化学療法は3コースまで。", CH, []),
+            ("化療最多三個療程。", ["化療"], []),
+            ("No longer on dialysis.", ["dialysis"], []),
+            ("Never before given chemotherapy.", CH, []),
+            ("Painless haematuria.", ["pain"], []),
+            ("Transfusion-independent.", ["transfusion"], []),
+            ("Inactive tuberculosis.", ["active tuberculosis"], []),
         ],
     ),
     "R9 an exception's own object": (

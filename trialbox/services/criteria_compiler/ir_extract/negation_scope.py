@@ -99,7 +99,9 @@ _EN_FORWARD = (
     r"negative\s+for|never|rather\s+than|ruled?\s+out|to\s+exclude|with\s+no|without|none(?:\s+of)?|neither|nor|"
     r"no|not|[a-z]+n['’]t|cannot|na[iï]ve\s+(?:to|for|with\s+respect\s+to)|abstinen\w*\s+from|exclud\w*|"
     # card 10A-1b: a prohibition or an exception before the concept ("forbidden: X", "other than X", "except X")
-    r"other\s+than|except(?:\s+for)?|contraindicat\w*|forbid\w*|prohibit\w*|disallow\w*|preclud\w*"
+    r"other\s+than|except(?:\s+for)?|contraindicat\w*|forbid\w*|prohibit\w*|disallow\w*|preclud\w*|"
+    # card 10A-1c, the independent round: "absent X", "w/o X", "zero X", "wild-type" (no mutation)
+    r"absent|w/o|zero|wild[- ]?type"
 )
 _PARTICIPLE = r"[a-z]+(?:ed|en|wn|ne|ht)"  # administered, given, shown, done, brought
 _EN_BACKWARD = (
@@ -111,6 +113,9 @@ _EN_BACKWARD = (
     r"|[-–:]\s*(?:none|no|absent|negative)\b|[- ]na[iï]ve|[- ]free\b"
     # card 10A-1c: a chart's "none" after a name or a label ("HBs抗原(−)", "化学療法：－", "Chemotherapy: neg", "N/A")
     r"|\(\s*[-−–]\s*\)|:\s*[-−–](?=\s*(?:$|[,;.。、]))|:\s*(?:neg|n/?a)\b"
+    # the independent round: "X absent", "HIV Ab (neg)", "HBsAg -ve", "X: nil", "transfusion-independent",
+    # "EGFR wild-type", and a label's "no" in Japanese or Chinese ("喫煙：否", "HIV：陰", "HIV抗体：マイナス")
+    r"|\babsent\b|\bneg\b|-ve\b|\bnil\b|[- ]independent\b|\bwild[- ]?type\b|:\s*(?:否|陰|阴|マイナス|ネガティブ)"
 )
 _EN_TERMINATE = (
     r"\b(?:but|however|nevertheless|still|except|though|although|yet|apart\s+from|aside\s+from|other\s+than|"
@@ -119,17 +124,17 @@ _EN_TERMINATE = (
 # a word the cue negates instead of the concept after it ("not responded to chemotherapy")
 _EN_BLOCK = (
     r"\b(?:respon\w*|tolera\w*|candidate|amenable|suitable|restrict\w*|limit\w*|requir\w*|able|progress\w*|"
-    r"benefit\w*|controlled|adequate\w*|fit|willing|plan\w*|longer|change|increase|decrease|heal\w*|conceiv\w*|"
+    r"benefit\w*|controlled|adequate\w*|fit|willing|plan\w*|change|increase|decrease|heal\w*|conceiv\w*|"
     r"improv\w*|recover\w*)\b"
 )
 _EN_PSEUDO = (
-    r"\b(?:no|not|never)\s+(?:more|greater|less|fewer|higher|lower|longer|older|younger|earlier|later|above|below|"
+    # card 10A-1c: "never" and "longer" left this group ("never before treated", "no longer on dialysis" negate)
+    r"\b(?:no|not)\s+(?:more|greater|less|fewer|higher|lower|older|younger|earlier|later|above|below|"
     r"over|under|exceed\w*|in\s+excess|beyond|until|before|after|only|change|increase|decrease|restriction\w*|"
     r"upper|lower|minimum|maximum)\b|\bnon[- ]?(?:small|hodgkin\w*|invasive|muscle|squamous|alcoholic|"
     r"insulin|steroid\w*|melanoma|metastatic|st[- ](?:segment[- ])?elevation|seminoma\w*|clear[- ]cell|"
     r"tuberculous|valvular|ischemic|ischaemic|obstructive|functioning|secretory|hereditary)\b|"
     r"\bgram[- ]negative\b|\bnot\s+(?:otherwise\s+)?specified\b|\bnot\s+elsewhere\s+classified\b|"
-    r"\bnot\s+applicable\b|"
     r"\bnone\s+other\b|\bnevertheless\b|"
     r"\bno\.\s*\d|"  # "hospital No. 17": a number, not a negation (card 10A-1b)
     r"\bnot\s+(?:contraindicated|prohibited|forbidden|precluded|barred|disallowed)\b|"  # a negated prohibition
@@ -139,9 +144,7 @@ _EN_PSEUDO = (
 # a negating prefix in the same word as the concept: the word is not that concept ("non-small cell", "non small cell",
 # "untreated", "asymptomatic", "afebrile", "anaerobic"; card 10A-1c added "non ", "a" and "an"). "anti-" is not one:
 # "anti-HBc positive" names a thing that is present)
-_EN_PREFIX = (
-    r"(?:non[-\s]?|un-?|a-?(?=[b-df-hj-np-tv-z])|an-?(?=[aeiou])|ex-)"  # a before a consonant, an before a vowel
-)
+_EN_PREFIX = r"(?:non[-\s]?|un-?|in-?|a-?(?=[b-df-hj-np-tv-z])|an-?(?=[aeiou])|ex-)"  # a / an by the next sound
 _EN_PREFIXED = (
     r"\b(?:non-?(?:pregnan|lactat|breast-?feed|smok|drink|user|respond)|un(?:treated|exposed|vaccinated|diagnosed)|"
     r"ex-?(?:smok|drink|user))\w*"
@@ -150,13 +153,16 @@ _EN_WINDOW = 6  # words between a cue and its concept (NegEx's window is five)
 
 # ----------------------------------------------------------------------------------------------- Japanese cues (own)
 _JA_BACKWARD = (
-    r"な[しいく]|無[しいく]|ません|おらず|せず|認めず|認めない|否定|除外|ではない|でない|ゼロ|"
+    r"な(?:[しいく]|かっ)|無[しいく]|ません|おらず|せず|認めず|認めない|否定|除外|ではない|でない|ゼロ|"
     r"未(?:施行|実施|投与|治療|経験|使用|受診)|ナイーブ|禁煙|禁酒|断酒|"
     # card 10A-1b: a prohibition or an exception after the concept ("化学療法は不可", "禁止", "を除き", "以外")
     r"不可(?!欠|避)|禁止|禁忌|許可しない|許容しない|認められない|除き|を除く|以外|"
     # card 10A-1c: なし / ない written in katakana ("化学療法歴：ナシ"; half-width ﾅｼ reads the same after NFKC), not
     # inside a katakana word ("ナイアシン", "ナイロン")
-    r"(?<![ァ-ヿ])ナ[シイ](?![ァ-ヿ])"
+    r"(?<![ァ-ヿ])ナ[シイ](?![ァ-ヿ])|"
+    # the independent round: 否認, 陰性, ネガティブ, マイナス, 不使用 (as 未使用), a verb's ず ("施行されず",
+    # "見られず"; not 必ず), 野生型
+    r"否認|陰性|ネガティブ|マイナス|不(?:使用|施行|実施|投与|要)|(?<=[ぁ-ん])ず(?![ぁ-ん])|野生型"
 )
 _JA_FORWARD = r"未|非|無"  # "未治療", "非妊娠", "無治療": a prefix right before the concept
 _JA_TERMINATE = r"ただし|但し|除き|を除く|以外"
@@ -182,7 +188,9 @@ _ZH_FORWARD = (
     # noun, a whole word after a noun ("控制不良之", "心功能不全患者", "心律不整及", "月經不規則", "原因不明。") and
     # "不孕症"; never as a prefix or before a verb ("不穩定心絞痛", "不足以", "不良於行", "不明原因之", "不適合"):
     # whatever cannot be bounded so is held
-    rf"(?<![㐀-鿿])不(?!孕症)|不(?!孕症)(?!{_ZH_NOT_DESCRIPTOR})"
+    rf"(?<![㐀-鿿])不(?!孕症)|不(?!孕症)(?!{_ZH_NOT_DESCRIPTOR})|"
+    # the independent round: 除外 (rule out), 毋須, 缺乏 / 缺少 / 缺如, 野生型
+    r"除外|毋|缺乏|缺少|缺如|野生型"
 )
 _ZH_BACKWARD = r"未曾|從未|从未|未|沒有|没有|不曾|陰性|阴性|不允許|不允许|不准|禁止|禁忌|不可|以外"  # 以外: 10A-1c
 _ZH_TERMINATE = r"但|但是|除了|除外|然而|惟|唯|以外"
@@ -255,6 +263,8 @@ def _read(text: str, own: list[re.Pattern[str]]) -> tuple[str, list[Mention], bo
     # card 10A-1c: in Japanese and Chinese, a coded name right after 非 / 無 / 无 / 未 / 不 in the same word
     # ("不完全寛解" with 完全寛解 coded, "未分化癌" with 分化癌 coded)
     cut = cut or any(s > 0 and u[s - 1] in _CJK_PREFIX and _CJK.match(u[s]) for s, _, _ in found)
+    # and a word that ends in "-less" ("painless" with pain coded)
+    cut = cut or any(re.search(r"(?i)[a-z]less$", u[s:e]) is not None for s, e, _ in found)
     return t, found, cut
 
 
@@ -691,8 +701,14 @@ _JA_EXCEPT = re.compile(r"除き|を除く|以外")
 _ZH_EXCEPT = re.compile(r"以外|除了|除")
 _JA_ABSENT = re.compile(r"(?:な|無)[しい]$")
 _NOUN_END = r"[㐀-鿿ァ-ヿA-Za-z0-9]"
-_JA_OWN_ARG = re.compile(rf"{_NOUN_END}{{2}}(?:[のが]|を[^のがをは、。,]{{0,6}})$")
-_JA_OWN_ARG_BARE = re.compile(rf"{_NOUN_END}{{2}}$")  # "転移なし"
+# ja R8 (card 10A-1c, after the lead's independent round): the absence word's own object, marked by を and not
+# itself the head of a clause ("ケトアシドーシスを伴わない"; not "受けた経験を持たない"): the head after it is not
+# what is absent. Its own subject marked by の / が, or bare before なし, names something else only when it is
+# another extracted concept: "投与経験のない抗PD-1抗体", "受けた経験のない化学療法" negate their head
+_WORD_START = r"(?<![㐀-鿿ァ-ヿA-Za-z0-9たるいだ])"
+_JA_OBJECT = re.compile(rf"{_WORD_START}{_NOUN_END}{{2,}}を[^のがをは、。,]{{0,6}}$")
+_JA_SUBJECT = re.compile(rf"{_WORD_START}(?P<y>{_NOUN_END}{{2,}})[のが]$")
+_JA_SUBJECT_BARE = re.compile(rf"{_WORD_START}(?P<y>{_NOUN_END}{{2,}})$")  # "転移なし"
 _EXCEPT_OBJ = re.compile(rf"{_NOUN_END}を?$")  # "ベバシズマブを除く", "アントラサイクリン系を除き", "脳以外"
 
 
@@ -708,7 +724,10 @@ def _en_content(side: str) -> bool:
     return any(not _EN_EMPTY.match(w) for w in words)
 
 
-def _scope_closed(t: str, m: re.Match[str], found: list[Mention], own: list[re.Pattern[str]], lang: str) -> bool:
+def _scope_closed(
+    t: str, m: re.Match[str], found: list[Mention], own: list[re.Pattern[str]], lang: str,
+    others: list[re.Pattern[str]],
+) -> bool:  # fmt: skip
     """Rules R8 and R9 (card 10A-1c): whether the line shows that the cue ``m`` ends before the coded concept."""
     cue = m.group(0)
     if lang == "en":
@@ -723,9 +742,13 @@ def _scope_closed(t: str, m: re.Match[str], found: list[Mention], own: list[re.P
     before = _clause_before(t, m.start(), True, lang == "ja")
     reach = _list_before(t, m.start(), True, lang == "ja")
     if lang == "ja" and _JA_ABSENT.search(cue):  # R8
-        arg = _JA_OWN_ARG.search(before) or (_JA_OWN_ARG_BARE.search(before) if cue.endswith("し") else None)
         head = m.end() + (1 if t.startswith("の", m.end()) else 0)
-        return arg is not None and _first(own, reach) is None and any(s == head for s, _, _ in found)
+        if _first(own, reach) is not None or not any(s == head for s, _, _ in found):
+            return False
+        if _JA_OBJECT.search(before):
+            return True
+        arg = _JA_SUBJECT.search(before) or (_JA_SUBJECT_BARE.search(before) if cue.endswith("し") else None)
+        return arg is not None and _first(others, arg.group("y")) is not None
     if (_JA_EXCEPT if lang == "ja" else _ZH_EXCEPT).fullmatch(cue):  # R9
         if cue in ("除", "除了"):
             close = t.find("外", m.end(), m.end() + 14)
@@ -735,15 +758,92 @@ def _scope_closed(t: str, m: re.Match[str], found: list[Mention], own: list[re.P
     return False
 
 
+# Card 10A-1c, after the lead's independent round. A line can also deny the coded concept's presence without negating
+# it: the concept is uncertain, hypothetical, another person's, or over (ConText's other categories: uncertainty,
+# hypothetical, experiencer, historical; Harkema et al. 2009, cited above). Such a word anywhere in the sentence that
+# names the concept holds the line; no rule lets it go. Measured, so held: a bound on how many courses of the concept
+# ("no more than two prior lines of chemotherapy", "化学療法は2レジメンを超えない", "化療不超過兩線"): zero meets it.
+_OCCUR = r"(?:develop|occur|aris|happen|appear|emerg)\w*"
+_STATUS = {
+    "en": re.compile(
+        r"\b(?:suspect\w*|possibl[ey]|questionabl[ey]|probabl[ey]|presum\w*|r/o|rule\s+out|query|equivocal|"
+        r"indeterminate|pending|to\s+be\s+confirmed|cannot\s+be\s+excluded|"  # uncertainty
+        # hypothetical: a condition on the concept's occurring, not any "if" (a criterion's own "if receiving X"
+        # is coded in its logic)
+        rf"(?:(?:if|whether|in\s+case|in\s+the\s+event)\b|(?<![\w\s])\s*should\b|^\s*should\b)[^.;]{{0,60}}?\b{_OCCUR}|"
+        r"would|risks?\s+(?:of|for)|prophyla\w*|prevent\w*|planned|scheduled|"
+        r"family\s+history|relatives?|mother|father|brother|sister|siblings?|parents?|sons?|daughters?|aunts?|uncles?|"
+        r"grand(?:mother|father|parent)s?|first[- ]degree|"  # another person
+        r"cured|healed|quit\w*|former(?:ly)?|ceased)\b"  # over ("no longer" is a negation, read with the cues)
+        r"|\?",
+        _FLAGS,
+    ),
+    "ja": re.compile(
+        r"疑い|疑|可能性|恐れ|おそれ|(?:出現|発生|発症|生じ|起き|起こ)[^。]{0,6}場合|リスク|予防|予定|"
+        r"家族歴|家族|父親|母親|祖父|祖母|兄弟|姉妹|親族|血縁|[父母兄弟姉妹](?=[がはのに：:（(）)、]|$)|"
+        r"治癒|完治|治った|やめた|止めた"
+    ),
+    "zh": re.compile(
+        r"疑似|懷疑|怀疑|疑|可能|待排|考慮|考虑|待確認|待确认|不排除|"
+        r"(?:若|如果|假如|一旦|倘若|萬一|万一)[^，,。；;]{0,20}?(?:出現|出现|發生|发生|產生|产生)|"
+        r"風險|风险|預防|预防|預計|预计|計劃|计划|"
+        r"家族史|家族|父親|母親|父亲|母亲|兄弟|姊妹|姐妹|親屬|亲属|一等親|[父母兄弟姐妹](?=[親亲患有之的，,、：:（(）)]|$)|"
+        r"治癒|治愈|痊癒|痊愈|已戒|戒除|戒菸|戒烟|已停|停用"
+    ),
+}
+_N_CJK = r"[0-9一二兩两三四五六七八九十]+"
+_COUNT_BOUND = {
+    "en": re.compile(
+        r"\b(?:(?:no|not)\s+more\s+than|at\s+most|up\s+to|maximum(?:\s+of)?|max\.?|fewer\s+than|less\s+than|"
+        r"not\s+exceeding)\s*(?:\d+|one|two|three|four|five|six)\s+(?:[a-z-]+\s+){0,2}?"
+        r"(?:lines?|regimens?|cycles?|courses?|doses?|episodes?|times|agents?)\b|"
+        r"(?:≤|<=?)\s*\d+\s+(?:[a-z-]+\s+){0,2}?(?:lines?|regimens?|cycles?|courses?|doses?|episodes?|agents?)\b",
+        _FLAGS,
+    ),
+    "ja": re.compile(
+        r"[0-9一二三四五六]+\s*(?:レジメン|コース|サイクル|クール|回|ライン|剤)(?:を超えない|を超えず|まで|以下|未満|以内)"
+    ),
+    "zh": re.compile(
+        rf"(?:不超過|不超过|最多|至多|未滿|未满|少於|少于)\s*{_N_CJK}\s*(?:個|个)?\s*(?:線|线|療程|疗程|週期|周期|次|種|种|劑|剂)|"
+        rf"(?:沒有|没有|無|无|未)[^，,。；;]{{0,8}}?{_N_CJK}\s*(?:個|个)?\s*(?:線|线|療程|疗程|週期|周期|次|種|种|劑|剂)\s*以上|"
+        rf"{_N_CJK}\s*(?:個|个)?\s*(?:線|线|療程|疗程|週期|周期|次|種|种|劑|剂)\s*(?:以下|以內|以内)"
+    ),
+}
+_SENTENCE_END = re.compile(r"\.(?=\s|$)|[。\n]")
+
+
+def _status_held(u: str, t: str, found: list[Mention], lang: str) -> bool:
+    """A status word (uncertain, hypothetical, another person's, over) or a count bound in a sentence that names the
+    concept (card 10A-1c). ``u`` is the line as written, ``t`` with its descriptors blanked."""
+    ends = [m.start() for m in _SENTENCE_END.finditer(u)] + [len(u)]
+    seen: set[int] = set()
+    for s, _, _ in found:  # each sentence that names the concept, read once: a long line costs linear time
+        k = bisect.bisect_left(ends, s)
+        if k in seen:
+            continue
+        seen.add(k)
+        a, z = (ends[k - 1] + 1 if k else 0), ends[k]
+        mine = [(s2, e2) for s2, e2, _ in found if a <= s2 < z]
+        for pat, text in ((_STATUS[lang], t), (_STATUS["en"], t), (_COUNT_BOUND[lang], u)):
+            for m in pat.finditer(
+                text, a, z
+            ):  # a status word inside the coded name is the name ("family history of X")
+                if not any(s2 <= m.start() and m.end() <= e2 for s2, e2 in mine):
+                    return True
+    return False
+
+
 def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] = ()) -> bool:
     """Whether the line carries a negation cue that is not shown to be about something other than this concept."""
     terms = list(terms)
     own = _patterns(terms)
     others = _others(terms, other_terms)
     t, found, _ = _read(text, own)
-    if not found:  # R0: the line never names the coded concept: a cue may be about it under another name
-        return any(p.search(t) for p in _ANY_CUE)
     lang = "ja" if _KANA.search(t) else "zh" if _CJK.search(t) else "en"
+    if not found:  # R0: the line never names the coded concept: a cue may be about it under another name
+        return any(p.search(t) for p in _ANY_CUE) or any(p.search(t) for p in _STATUS.values())
+    if _status_held(unicodedata.normalize("NFKC", text), t, found, lang):
+        return True
     built: list[_Structure] = []
 
     def elsewhere(m: re.Match[str], forward: bool) -> bool:
@@ -756,7 +856,7 @@ def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] 
         if (
             not _explained_forward(_clause_after(t, m.end(), cjk=False), own, others, False, reach)
             and not elsewhere(m, True)
-            and not _scope_closed(t, m, found, own, lang)
+            and not _scope_closed(t, m, found, own, lang, others)
         ):
             return True
     for m in _EN_BWD_ANY.finditer(t):
@@ -777,7 +877,7 @@ def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] 
             if (
                 not _explained_backward(before, m.group(0), after, own, others, True, reach)
                 and not elsewhere(m, False)
-                and not _scope_closed(t, m, found, own, lang)
+                and not _scope_closed(t, m, found, own, lang, others)
             ):
                 return True
         for m in _JA_FWD.finditer(t):
@@ -792,7 +892,7 @@ def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] 
         if (
             not _explained_forward(_clause_after(t, m.end(), cjk=True), own, others, True, reach, m.group(0))
             and not elsewhere(m, True)
-            and not _scope_closed(t, m, found, own, lang)
+            and not _scope_closed(t, m, found, own, lang, others)
         ):
             return True
     for m in _ZH_BWD.finditer(t):
@@ -803,7 +903,7 @@ def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] 
         if (
             not _explained_backward(before, m.group(0), after, own, others, True, reach)
             and not elsewhere(m, False)
-            and not _scope_closed(t, m, found, own, lang)
+            and not _scope_closed(t, m, found, own, lang, others)
         ):
             return True
     return False

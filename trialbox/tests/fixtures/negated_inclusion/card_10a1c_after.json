@@ -591,7 +591,8 @@
    "source": "card-10A-1c-after",
    "others": [],
    "hold_class": "modifier",
-   "why": "the cue is inside a modifier of the coded condition"
+   "why": "the cue is inside a modifier of the coded condition",
+   "over_held": "held after card 10A-1c: the modifier's structure does not show the cue stops before the coded concept"
   },
   {
    "lang": "ja",
@@ -604,7 +605,8 @@
    "source": "card-10A-1c-after",
    "others": [],
    "hold_class": "modifier",
-   "why": "the cue is inside a modifier of the coded condition"
+   "why": "the cue is inside a modifier of the coded condition",
+   "over_held": "held after card 10A-1c: the modifier's structure does not show the cue stops before the coded concept"
   },
   {
    "lang": "ja",
@@ -832,7 +834,8 @@
    "source": "card-10A-1c-after",
    "others": [],
    "hold_class": "modifier",
-   "why": "the cue is inside a modifier of the coded condition"
+   "why": "the cue is inside a modifier of the coded condition",
+   "over_held": "held after card 10A-1c: the modifier's structure does not show the cue stops before the coded concept"
   },
   {
    "lang": "ja",
