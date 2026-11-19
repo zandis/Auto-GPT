@@ -1298,6 +1298,7 @@ class QualifiedBuild(BaseModel):
     revision: str | None
     context_length: int | None
     registry_status: str
+    thinking_mode: Literal["on", "off"] | None = None
 
 
 class RebuildRequest(BaseModel):

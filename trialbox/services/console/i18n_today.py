@@ -154,7 +154,7 @@ ZH: dict[str, str] = {
     "today.line.info": "查詢病人 {p}（{rs}）缺少的資料",
     "today.line.prepare": "準備病人 {p}（{rs}）的門診",
     "today.line.refer": "就病人 {p}（{rs}）詢問主治醫師並記錄回覆",
-    "today.line.delegation": "將 {rs} 授權紀錄表與試驗中心已簽署的授權表核對",
+    "today.line.delegation": "將 {rs} 授權紀錄表與試驗中心已簽署的版本核對",
     "today.next.startup.mine": "{rs} 正在啟動準備：請完成設定並開始試驗。",
     "today.next.startup.other": "{rs} 正在啟動準備：由研究護理師（CRC）完成設定並開始試驗。你不需要做任何事。",
     "today.next.approve.mine": "{rs}：請檢查並核准試驗條件。",

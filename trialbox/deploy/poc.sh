@@ -83,8 +83,12 @@ if [ "$MODE" = gpu ]; then
   docker info 2>/dev/null | grep -qi nvidia || die "gpu mode: Docker lists no nvidia runtime (install nvidia-container-toolkit, then nvidia-ctk runtime configure --runtime=docker and restart Docker)"
   ok "Docker's nvidia runtime"
   GPU="${TB_GPU_PROFILE:-$(sh deploy/gpu_profile.sh)}"
+  # card 10E-5 (D-1335): gb10 is the 128 GB Spark; under 96 GiB of memory it is gb10-64 however it was named.
+  # TB_TEST_MEM_KIB stands in for /proc/meminfo's MemTotal in the tests only
+  [ "$GPU" != gb10 ] || GPU="$(sh deploy/gpu_profile.sh memory-class "${TB_TEST_MEM_KIB:-}")"
   case "$GPU" in
     rtxpro6000|gb10) ok "GPU profile $GPU" ;;
+    gb10-64) die "gpu mode: this DGX Spark has under 96 GiB of memory (the 64 GB class): the PoC does not serve the model pair on it. The gb10 profile is sized for 128 GB and no profile of the 64 GB class is measured (card 10E-5, D-1335); run the PoC without TB_LLM_MODE=gpu (the stub model), or use a 128 GB Spark" ;;
     dgpu48) die "gpu mode: dgpu48 is a DRAFT, UNMEASURED 48 GB profile: the PoC never starts it, whatever is set; its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;
     *) die "gpu mode: GPU profile '$GPU': the one-command PoC serves the pair on rtxpro6000 or gb10 (TB_GPU_PROFILE); others: deploy/install.sh" ;;
   esac

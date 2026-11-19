@@ -123,7 +123,7 @@ def test_every_poc_criterion_has_its_label_and_text_in_the_site_languages(rs: st
 
     for entry in data["criteria"].values():
         for lang in POC[rs]:
-            assert check(" ".join(entry[lang].values())) == [], (rs, lang)
+            assert check(" ".join(entry[lang].values()), lang=lang) == [], (rs, lang)
 
 
 def test_a_changed_criterion_keeps_the_protocol_words_until_labelled_again(tmp_path: Path) -> None:

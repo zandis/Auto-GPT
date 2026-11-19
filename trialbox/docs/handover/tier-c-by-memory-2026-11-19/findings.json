@@ -1,0 +1,33 @@
+{
+ "card": "H10E5",
+ "title": "tier C split by memory: a DGX Spark under 96 GiB is refused, not guessed (plan 10 row 10E-5)",
+ "date": "2026-11-19",
+ "source": "docs/handover/tier-c-by-memory-2026-11-19.md",
+ "note": "basis 'shown' means shown by reading the code and by the card's unit tests on stand-ins (no GPU, no Spark, no Docker daemon).",
+ "findings": [
+  {
+   "id": "H10E5-01",
+   "severity": "Medium",
+   "claim": "plan 10 row 10E-5 is closed by a refusal, not by a profile: a 64 GB DGX Spark has no measured profile and cannot be shown to fit from recorded numbers (D-1335), so tier C still has one size (128 GB); a 64 GB profile needs a run on that hardware (10E-6, C-1) that records the pair's and the services' peaks",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10E5-02",
+   "severity": "Low",
+   "claim": "tools/serving_config.py measured_for(rec, 'gb10') does not check the card's memory: a record captured on a 64 GB Spark would pass as a gb10 measurement; install.sh, poc.sh and the tier check refuse that host before the record is read, so it is not reachable through them, but the record rule alone does not tell the two classes apart (on a GB10, nvidia-smi's memory.total is not a reliable stand-in for MemTotal)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10E5-03",
+   "severity": "Low",
+   "claim": "deploy/check_host.sh --gb10 does not report a host under 96 GiB: it was left unchanged because a memory check there would read the live host's memory inside its existing tests (tests/unit/test_images_lock.py, test_runbook_install_commands.py, which pass --gb10) and fail them on a CI runner under 96 GiB unless those tests are given a stand-in; install.sh, poc.sh and spark_e2e.sh refuse that host before or instead of it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

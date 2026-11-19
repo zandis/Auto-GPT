@@ -17,7 +17,9 @@ written, so the loser of an override is seen too, and fails on:
   "x.y")``, a key handed to a nav macro) that the catalogue does not have;
 * **a dynamic family** (``t('life.vstate.' + v.status)``, ``translate(lang, f"life.state.{s}")``) that is neither
   checked member by member (``FAMILIES``: every value the code can produce has its key) nor listed in
-  ``UNCHECKED_FAMILIES`` with the reason; and a family no catalogue key starts with (a misspelled prefix).
+  ``UNCHECKED_FAMILIES`` with the reason; and a family no catalogue key starts with (a misspelled prefix);
+* **a refused spelling** of one of the twenty core words (``tools.core_words``, ``services/console/core_words.yaml``;
+  it also reads the job mails, the report titles and the refusal sentences, ``core_words.SERVICE_CATALOGUES``).
 
 It also checks the live preflight's texts (``tb_common.preflight``, :func:`preflight_problems`): the host's
 ``python3`` prints them, so they are not in the console's catalogue, and each is checked in all three languages.
@@ -504,6 +506,8 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     # 10C-14: how a visit window counts, and why a day is off at the site (the schedule page)
     "life.unit.": lambda: ("days", "working"),
     "life.daysoff.why.": _values("tb_common.workdays", "DAY_OFF_KINDS"),
+    "dataops.layer.row.": _values("console.country_profile", "KEYS"),  # 10C-25 (D-1250)
+    "dataops.layer.source.": _values("console.country_profile", "SOURCES"),
     "life.daysoff.end.": lambda: ("soon", "past"),  # Calendar.runs_out
     "registry.status.": _values("orchestrator.candidates", "STATUSES"),
     "sstate.": _values("console.sitestore", "STUDY_STATES"),
@@ -790,6 +794,9 @@ def problems() -> list[str]:
     out += [
         f"dynamic family {p!r} is listed but nothing uses it" for p in sorted({*FAMILIES, *UNCHECKED_FAMILIES} - used)
     ]
+    from tools import core_words  # 9k-16 (D-1371): a core word has one spelling per language
+
+    out += core_words.problems(defs)
     return out + preflight_problems()
 
 

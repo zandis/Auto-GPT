@@ -665,3 +665,7 @@ nav.ptabs a { min-height: 44px; display: inline-flex; align-items: center; paddi
 nav.ptabs .ptabs-lists a { font-weight: 600; font-size: 17px; }
 nav.ptabs a.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 nav.ptabs .ptabs-rs { color: var(--muted); }
+/* 9g-19 (D-1370): the idle lock's warning, at the foot of the screen over everything (the sheet's 30 included) */
+.idle-warn { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 40; max-width: 36rem; margin: 0 auto; border: 2px solid var(--warn); }
+.idle-warn[hidden], .idle-warn [hidden] { display: none; }
+.idle-warn button { min-height: 44px; }

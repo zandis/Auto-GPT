@@ -40,6 +40,12 @@ exclusions (of the box's exclusions), eligible reports lost (n of N). A set with
 "not scored", by name (D-1108).
 
 Every rate carries an exact (Clopper-Pearson) 95 % interval. Nothing here reads a model.
+
+Sampled sets (card 10G-37, D-1334): a set whose gold rows are a sample of a larger frame declares the draw in
+``ids.json`` (``sampling``: the unit and each stratum's frame size; each gold row names its ``sampling_stratum``).
+Its report gains ``sampling``: the design, and each rate weighted to the frame with a conservative interval
+(:mod:`.weights`). The unweighted rates beside it are the drawn sample's own counts, as before. A set that declares no
+draw has no ``sampling`` and is scored byte for byte as before.
 """
 
 from __future__ import annotations
@@ -54,11 +60,13 @@ from typing import Any
 
 from tools import gold_kind
 from tools.public_accuracy import key as answer_keys
+from tools.public_accuracy import weights
 
 #: the report's layout: 2 adds ``protocols``, ``pathology``, ``unjudged_exclusions`` and the denominators (card H-3);
 #: 3 adds ``pairs.conflicted`` and, per language, ``eligible_lost_without_conflicted`` (D-1064, card H-6); 4 adds
 #: ``protocols.attempts`` (D-1129, card H-14); 5 adds ``ladder`` (card 10A-3: cells by rung, criterion kind, note
 #: language and site, and the decided share printed beside every figure); a report with no such field is layout 1.
+#: A set that declares a sampled draw adds ``sampling`` (card 10G-37, D-1334); a set that declares none is unchanged.
 #: Keys are only ever added.
 SCHEMA_VERSION = 5
 
@@ -593,6 +601,28 @@ def evidence_hit(quote: str | None, sentences: list[str], evidence: list[int]) -
     return False
 
 
+def criterion_answer(
+    g: dict[str, Any], answers: dict[str, Any], key: bytes | None = None
+) -> tuple[str, dict[str, Any] | None]:
+    """The box's answer on one gold criterion row (it has a ruleset and an mrn): ``not_compiled``, ``unanswered``,
+    ``no_verdict``, ``block``, ``open`` or ``no_block``, and the verdict read (None when there is none)."""
+    a = answers.get(g["ruleset"]) or {}
+    c = match_criterion(g["text"], a.get("draft") or [], g["kind"])
+    p = (a.get("patients") or {}).get(pid_of(g["mrn"], key))
+    if c is None:
+        return "not_compiled", None
+    if p is None:
+        return "unanswered", None
+    v = next((x for x in p.get("verdicts") or [] if x.get("id") == c["id"]), None)
+    verdict = str((v or {}).get("verdict") or "")
+    # S2 (P1b review): a matched row with no verdict is "no verdict", never a "no block"
+    if not verdict:
+        return "no_verdict", v
+    if verdict == "fail":
+        return "block", v
+    return ("open" if verdict in OPEN_VERDICTS else "no_block"), v
+
+
 def score_criteria(
     ids: dict[str, Any],
     crits: list[dict[str, Any]],
@@ -609,30 +639,10 @@ def score_criteria(
         rs, mrn = g.get("ruleset"), g.get("mrn")
         if not rs or not mrn:
             continue
-        a = answers.get(rs) or {}
-        c = match_criterion(g["text"], a.get("draft") or [], g["kind"])
-        pid = pid_of(mrn, key)
-        p = (a.get("patients") or {}).get(pid)
-        if c is None:
-            got = "not_compiled"
-        elif p is None:
-            got = "unanswered"
-        else:
-            v = next((x for x in p.get("verdicts") or [] if x.get("id") == c["id"]), None)
-            verdict = str((v or {}).get("verdict") or "")
-            # S2 (P1b review): a matched row with no verdict is "no verdict", never a "no block"
-            got = (
-                "no_verdict"
-                if not verdict
-                else "block"
-                if verdict == "fail"
-                else "open"
-                if verdict in OPEN_VERDICTS
-                else "no_block"
-            )
-            if v is not None and sentences is not None:
-                hit = evidence_hit(v.get("quote"), sentences.get(g["patient"]) or [], g.get("evidence") or [])
-                evid["no quote or no ids" if hit is None else "in a deciding sentence" if hit else "elsewhere"] += 1
+        got, v = criterion_answer(g, answers, key)
+        if v is not None and sentences is not None:
+            hit = evidence_hit(v.get("quote"), sentences.get(g["patient"]) or [], g.get("evidence") or [])
+            evid["no quote or no ids" if hit is None else "in a deciding sentence" if hit else "elsewhere"] += 1
         if got in ("not_compiled", "unanswered", "no_verdict"):
             s = st.get(rs, ("not_in_answers", ""))[0]
             not_answered[f"screened: {got}" if s == "screened" else s] += 1
@@ -856,6 +866,71 @@ def score_pathology(
     }
 
 
+# ---------------------------------------------------------------- sampled sets (card 10G-37, D-1334)
+SAMPLING_WHAT = (
+    "the gold rows are a sample of a larger frame: each rate below is weighted to the frame (N_h/n_h per drawn row) "
+    "with a conservative 95 % interval; the unweighted rates elsewhere in this report are the drawn sample's own counts"
+)
+
+
+def score_sampling(
+    design: weights.Design | str,
+    ids: dict[str, Any],
+    pairs: list[dict[str, Any]],
+    crits: list[dict[str, Any]],
+    answers: dict[str, Any],
+    key: bytes | None = None,
+    conflicted: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The weighted rates of a sampled set, over every drawn row (a row the box did not answer is drawn and outside
+    the answered rates' domains). A refused declaration is reported with its reason and no weighted figure."""
+    if isinstance(design, str):
+        return {"what": SAMPLING_WHAT, "refused": design}
+    out: dict[str, Any] = {"what": SAMPLING_WHAT, "method": weights.METHOD, "design": design.describe()}
+    lang_of = ids.get("lang") or {}
+    if design.unit == "criterion":
+        crows = []
+        for g in crits:
+            keyed = bool(g.get("ruleset") and g.get("mrn"))
+            got = criterion_answer(g, answers, key)[0] if keyed else "not_compiled"
+            crows.append({"sampling_stratum": g["sampling_stratum"], "kind": g.get("kind"), "label": g.get("label"),
+                          "got": got})  # fmt: skip
+        out["criteria"] = weights.rates(crows, design, weights.criterion_rules(BLOCK_WRONG, BLOCK_RIGHT))
+        return out
+    marked = {(str(r["mrn"]), str(r["ruleset"])) for r in (conflicted or {}).get("marks") or []}
+    rows = []
+    for g in pairs:
+        keyed = bool(g.get("mrn") and g.get("ruleset"))
+        lang = lang_of.get(g.get("ruleset"), "?")
+        declared = design.langs.get(g["sampling_stratum"])
+        if declared is not None and keyed and declared != lang:
+            return {"what": SAMPLING_WHAT, "refused": f"a row of stratum {g['sampling_stratum']} (declared {declared}) "
+                    f"is of language {lang}"}  # fmt: skip
+        got = answer_of(answers, g["ruleset"], pid_of(g["mrn"], key))[0] if keyed else "unanswered"
+        rows.append({"sampling_stratum": g["sampling_stratum"], "lang": lang, "label": g.get("label"), "got": got,
+                     "keyed": keyed, "marked": (str(g.get("mrn")), str(g.get("ruleset"))) in marked})  # fmt: skip
+    has_marks = (conflicted or {}).get("marks") is not None
+    langs = sorted({r["lang"] for r in rows if r["keyed"]} | set(design.langs.values()))
+    out["pairs"] = {"all": weights.rates(rows, design, weights.pair_rules(None, has_marks))}
+    for lang in langs:
+        out["pairs"][lang] = weights.rates(rows, design, weights.pair_rules(lang, has_marks), lang=lang)
+    if ids.get("set") == "tcga":
+        st = statuses(ids, answers)
+        screened = {rs for rs in set((ids.get("rulesets") or {}).values()) if st[rs][0] == "screened"}
+        prows = [
+            {**r, "counted": r["keyed"] and g.get("ruleset") in screened and r["label"] in ("eligible", "excluded")}
+            for r, g in zip(rows, pairs, strict=True)
+        ]
+        p = weights.rates(prows, design, weights.pathology_rules())
+        out["pathology"] = p
+        out["pathology_figure"] = (
+            f"over a sample of {design.describe()['drawn']} of {design.describe()['frame']} pairs: ineligible "
+            f"excluded {weights.frame_phrase(p['ineligible_excluded'])}; wrong exclusions "
+            f"{weights.frame_phrase(p['wrong_exclusions'])}; eligible lost {weights.frame_phrase(p['eligible_lost'])}"
+        )
+    return out
+
+
 # ---------------------------------------------------------------- compile level
 def class_split(draft: list[dict[str, Any]]) -> dict[str, int]:
     return dict(Counter(str(c.get("class")) for c in draft))
@@ -962,8 +1037,18 @@ def score(built: Path, work: Path, key: bytes | None = None) -> dict[str, Any]:
     out["protocols"] = score_protocols(ids, answers, clock if isinstance(clock, dict) else None)
     if ids.get("set") == "tcga":
         out["pathology"] = score_pathology(ids, pairs, answers, key)
+    conflicted = answer_keys.conflicted_of(built) if pairs else None
     if pairs:
-        out["pairs"] = score_pairs(ids, pairs, answers, key, crits, answer_keys.conflicted_of(built))
+        out["pairs"] = score_pairs(ids, pairs, answers, key, crits, conflicted)
+    design = weights.read_design(ids, {"pair": pairs, "criterion": crits})
+    if design is not None:  # card 10G-37 (D-1334): a sampled set, weighted to its frame; an empty draw keeps its frame
+        out["sampling"] = score_sampling(design, ids, pairs, crits, answers, key, conflicted)
+        if (out.get("pathology") or {}).get("scored"):
+            out["pathology"]["figure"] += (
+                " (the counts of the drawn sample, not of the frame: "
+                + ("the declaration is refused, see sampling)" if "refused" in out["sampling"]
+                   else "the frame's figure is sampling.pathology_figure)")
+            )  # fmt: skip
     if crits:
         sents = None
         if ids.get("set") == "sigir":
