@@ -104,7 +104,7 @@ Exclusion Criteria
 - 治験責任医師／分担医師: データスチュワードが責任医師を登録するまで誰も承認できない: `POST /pilot/jobs/<job>/approve` 拒否される：403 とページ "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 - 治験責任医師／分担医師: 治験責任医師はプロトコルを送れない: `POST /pilot/protocol` 拒否される：403 とページ "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 
-### 手順 6 · データスチュワード
+### 手順 6 · データ管理責任者
 
 データスチュワードとして：リストで治験責任医師を登録します。
 
@@ -120,7 +120,7 @@ Exclusion Criteria
 
 表示されるもの: 記載が追加・署名され、タスクが消えます。
 
-- データスチュワード: データスチュワードは実行を開始できない: `POST /pilot/request` 拒否される：403 とページ "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
+- データ管理責任者: データスチュワードは実行を開始できない: `POST /pilot/request` 拒否される：403 とページ "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 
 ### 手順 7 · 治験責任医師／分担医師
 
@@ -169,7 +169,7 @@ Exclusion Criteria
 表示されるもの: スクリーニングの対象：病院全体。試験は準備中で、募集中への変更は拒否され、設定ページに案内されます。その後、試験に SAE 報告の種類が設定されます。
 
 - 治験責任医師／分担医師: 治験責任医師は SAE 報告の種類を選べない: `POST /studies/MYSTUDY/setup/sae` 拒否される：403 とページ "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
-- データスチュワード: データスチュワードは SAE 報告の種類を選べない: `POST /studies/MYSTUDY/setup/sae` 拒否される：403 とページ "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
+- データ管理責任者: データスチュワードは SAE 報告の種類を選べない: `POST /studies/MYSTUDY/setup/sae` 拒否される：403 とページ "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 
 ### 手順 10 · CRC
 
@@ -190,7 +190,7 @@ Exclusion Criteria
 
 表示されるもの: 最初の SCREEN ジョブは理由付きで失敗します（試験が募集中でない。CRC が状態を変える）。試験は募集中になります。2 回目の SCREEN ジョブが完了し、リストが出ます。
 
-- データスチュワード: データスチュワードは試験を募集中にできない: `POST /studies/MYSTUDY/state` 拒否される：403 とページ "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
+- データ管理責任者: データスチュワードは試験を募集中にできない: `POST /studies/MYSTUDY/state` 拒否される：403 とページ "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 - 管理者: 管理者は試験を募集中にできない: `POST /studies/MYSTUDY/state` 拒否される：403 とページ "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 
 ### 手順 11 · CRC

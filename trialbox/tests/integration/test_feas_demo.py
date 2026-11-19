@@ -29,5 +29,5 @@ def test_paste_gout_coh_criteria_gives_the_japanese_funnel(tmp_path: Path) -> No
     assert isinstance(first, int) and 1000 < first < 2500
     # the mail the coordinator gets is Japanese too
     done = [s for s in box.sent if "FEAS done" in s.subject]
-    assert done and "フィージビリティ" in done[-1].text()
+    assert done and "実施可能性" in done[-1].text()
     assert json.loads((tmp_path / "synth" / "summary.json").read_text(encoding="utf-8"))["profile"] == "ci"
