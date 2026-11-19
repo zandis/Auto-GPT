@@ -220,8 +220,8 @@ def examples(role: str, lang: str) -> list[str]:
 
 def keys(role: str) -> list[str]:
     """Every catalogue key the role's guide uses (a test holds each to every language's own catalogue)."""
-    out = [f"role.{role}", "guide.title", "guide.intro", "guide.what", f"help.role.{role}", "guide.rights",
-           "guide.pages", "guide.commands", "guide.commands.help", "guide.ask", "guide.ask.text"]  # fmt: skip
+    out = [f"role.{role}", "guide.title", "guide.intro", "guide.install", "guide.what", f"help.role.{role}",
+           "guide.rights", "guide.pages", "guide.commands", "guide.commands.help", "guide.ask", "guide.ask.text"]  # fmt: skip
     out += ["guide.cond"] if any(c for _s, c in ROLE_PAGES[role]) else []
     out += [k for s, _c in ROLE_PAGES[role] for k in (f"guide.page.{s}", help_key(s, role))]
     out += ["guide.words", *[f"life.gloss.{w}" for w in GLOSSARY]] if sees_patients(role) else []
@@ -248,6 +248,7 @@ def sections(role: str, lang: str) -> dict[str, Any]:
     return {
         "title": title(role, lang),
         "intro": t("guide.intro"),
+        "install": t("guide.install"),
         "what": (t("guide.what"), t(f"help.role.{role}")),
         "rights": (t("guide.rights"), role_description(role, lang)),
         "pages": (
@@ -266,7 +267,7 @@ def sections(role: str, lang: str) -> dict[str, Any]:
 def markdown(role: str, lang: str) -> str:
     """The printable guide (``docs/guides/<role>.<lang>.md``)."""
     s = sections(role, lang)
-    out = [f"# {s['title']}", "", s["intro"], "", f"## {s['what'][0]}", "", s["what"][1], "",
+    out = [f"# {s['title']}", "", s["intro"], "", s["install"], "", f"## {s['what'][0]}", "", s["what"][1], "",
            f"## {s['rights'][0]}", "", s["rights"][1], "", f"## {s['pages'][0]}", ""]  # fmt: skip
     for name, text in s["pages"][1]:
         out += [f"### {name}", "", text, ""]
