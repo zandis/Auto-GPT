@@ -1586,9 +1586,8 @@ GRAMMAR_EN = Grammar(
         ),
         re.I,
     ),
-    causes=re.compile(
-        _en((r"let|lets|allow|allows|have|has",)) + r"\s+(?:the\s+|our\s+)?(?:" + _ACTOR_CORE_EN + ")", re.I
-    ),
+    # English needs no causative: "let the AI decide" puts the product straight before the verb as its subject
+    causes=re.compile(r"(?!)"),
     idle=re.compile(
         r"\s*(?:only\s+|just\s+|also\s+|merely\s+)?(?:shows?|displays?|lists?|reads?|presents?|quotes?|prints?|"
         r"does\s+not|doesn['’]t|do\s+not|never|is\s+not|isn['’]t|cannot|can['’]t|will\s+not|won['’]t|plays\s+no|"
@@ -1600,7 +1599,7 @@ GRAMMAR_EN = Grammar(
         re.I,
     ),
     replace_negated=lambda s, ss, se, r: bool(
-        re.search(_NEG_BEFORE_EN.pattern + r"(?:\s+\S+){0,3}\s*$", s[ss : r.start()], re.I)
+        re.search("(?:" + _NEG_BEFORE_EN.pattern + r")(?:\s+\S+){0,3}\s*$", s[ss : r.start()], re.I)
     ),
     agent_after=re.compile(
         r"[^,;:.!?\n]*?(?<![A-Za-z])(?:by|thanks\s+to|with|using|of)\s+(?:the\s+|a\s+|an\s+|our\s+|their\s+|his\s+|"
@@ -1843,14 +1842,16 @@ _ZH_ACTOR_BEFORE = (
 # Japanese: the candidate words that make an early finding the product's purpose, and the allowed contexts the new
 # classes need (a study's candidates who may meet its criteria: 参加条件に合う可能性のある患者)
 _CANDIDATE_JA = re.compile("候補者|候補|基準|条件|適格|該当")
-# The English names of the published instruments and measured items the catalogue holds (catalogue/items.csv,
-# name_en) whose name carries a rate word: a record value named by its own name (D-351), as NAMED_INSTRUMENTS_ZH is
-# for zh-TW. A test holds that each is in the catalogue and that every catalogue name passes.
+# The English names of the published instruments and measured items the catalogue holds (catalogue/items.csv
+# name_en, catalogue/instruments.csv name) whose name carries a rate word: a record value named by its own name
+# (D-351), as NAMED_INSTRUMENTS_ZH is for zh-TW. A test holds that each is in the catalogue and that every catalogue
+# name passes.
 NAMED_INSTRUMENTS_EN: tuple[str, ...] = (
     "International Prognostic Index",
     "FRAX 10-year major osteoporotic fracture probability",
     "PD-L1 tumour proportion score",
     "Birmingham Vasculitis Activity Score",
+    "FRAX fracture risk",
 )
 # the same for name_ja: a record value named by its own name; read only for text named ja (D-1256)
 NAMED_INSTRUMENTS_JA: tuple[str, ...] = ("主要骨粗鬆症性骨折10年確率",)

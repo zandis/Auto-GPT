@@ -571,6 +571,59 @@ def test_a_japanese_class_refuses_its_claim_and_passes_its_closest_honest_line(
     assert ja(honest) == [], (cls, honest)
 
 
+# Each part of the rule that no development sentence needed on its own, pinned by the sentence it decides (the
+# mutation run of card 10C-5c: removing the part fails this test).
+PARTS_EN = [
+    # (part, text, refused?)
+    ("a record's treatment, before the word", "TrialBox lists patients who received treatment for asthma.", False),
+    ("the product straight before an act", "TrialBox's efficacy has been shown.", True),
+    ("a sentence ends at a full stop", "The box finds candidates. Sepsis is one of the criteria.", False),
+    ("nor denies alone", "The software does not store names, nor does it predict a patient's risk.", False),
+    ("a denial after the verb", "The model predicts nothing about any patient.", False),
+    (
+        "a denied clause's disease",
+        "TrialBox does not screen for cancer; it lists candidates found by the staff.",
+        False,
+    ),
+    (
+        "a product that only shows does nothing",
+        "TrialBox only shows the record and the physician makes the diagnosis.",
+        False,
+    ),
+    ("a product replacing a person", "The doctor's judgement is no longer needed; the model replaces it.", True),
+]
+PARTS_JA = [
+    ("a record's treatment, before the word", "本システムは初回治療の喘息患者を一覧にします。", False),
+    ("a record's treatment, after the word", "本システムは喘息の治療歴を表示します。", False),
+    ("an early finding of candidates", "本システムは条件に合う候補者を早期に見つけます。", False),
+    ("a passive with no product as agent", "関節リウマチと診断された患者。", False),
+    ("a person named by a 医 compound", "診断は主治医が行います。", False),
+    ("a product replacing a person", "医師の判断は不要で、AIが代わりに行います。", True),
+    ("an outright claim noun", "誤診を減らします。", True),
+    ("an outright claim noun", "疑い例を一覧にします。", True),
+    ("an outright claim noun", "臨床判断支援のためのツールです。", True),
+]
+
+
+@pytest.mark.parametrize(("part", "text", "refused"), PARTS_EN)
+def test_each_english_rule_part_decides_its_sentence(part: str, text: str, refused: bool) -> None:
+    assert (en(text) != []) is refused, part
+
+
+@pytest.mark.parametrize(("part", "text", "refused"), PARTS_JA)
+def test_each_japanese_rule_part_decides_its_sentence(part: str, text: str, refused: bool) -> None:
+    assert (ja(text) != []) is refused, part
+
+
+def test_text_not_named_ja_keeps_d1228s_denial() -> None:
+    """D-1228 read a comma before a claim word as continuing a list, so AIが患者のリスクを示し、予測は行いません denied
+    リスク too. Text named ja is read with D-1256's rule (a comma after a verb ends the clause); text with no
+    language keeps D-1228's reading, as before."""
+    text = "AIが患者のリスクを示し、予測は行いません。"
+    assert check(text) == []
+    assert words(ja(text)) == ["リスク"]
+
+
 # ---------------------------------------------------------------------------------------------------- denials
 @pytest.mark.parametrize(
     "text",
@@ -688,6 +741,9 @@ def test_a_catalogue_instrument_is_named_by_its_own_name() -> None:
     product scoring a patient (D-351). Every name in the catalogue passes in its language, each listed name is in the
     catalogue, and the closest real claims fail."""
     rows = list(csv.DictReader((ROOT / "catalogue/items.csv").open(encoding="utf-8")))
+    instruments = [r["name"] for r in csv.DictReader((ROOT / "catalogue/instruments.csv").open(encoding="utf-8"))]
+    assert [n for n in instruments if check_claims(n, "en")] == []  # the /data/instruments page names them
+    rows += [{"name_en": n, "name_ja": ""} for n in instruments]
     assert [r["name_en"] for r in rows if check_claims(r["name_en"], "en")] == []
     assert [r["name_ja"] for r in rows if check_claims(r["name_ja"], "ja")] == []
     assert [n for n in NAMED_INSTRUMENTS_EN if not any(n in r["name_en"] for r in rows)] == []
