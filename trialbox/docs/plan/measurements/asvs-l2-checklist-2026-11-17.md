@@ -51,7 +51,7 @@ Per chapter and verdict. A "-rest" line stands for the unlisted part of a chapte
 <!-- counts:start -->
 | Chapter | meets | does not meet | partly | not applicable | not determined | not assessed | lines |
 |---|---|---|---|---|---|---|---|
-| V1 | 1 | 1 | 1 | 0 | 0 | 1 | 4 |
+| V1 | 2 | 0 | 1 | 0 | 0 | 1 | 4 |
 | V2 | 17 | 6 | 13 | 15 | 1 | 0 | 52 |
 | V3 | 13 | 2 | 1 | 2 | 0 | 0 | 18 |
 | V4 | 7 | 0 | 2 | 0 | 0 | 0 | 9 |
@@ -65,7 +65,7 @@ Per chapter and verdict. A "-rest" line stands for the unlisted part of a chapte
 | V12 | 1 | 0 | 0 | 0 | 0 | 1 | 2 |
 | V13 | 2 | 0 | 0 | 0 | 0 | 1 | 3 |
 | V14 | 8 | 0 | 1 | 0 | 0 | 1 | 10 |
-| all | 69 | 10 | 25 | 17 | 1 | 11 | 133 |
+| all | 70 | 9 | 25 | 17 | 1 | 11 | 133 |
 <!-- counts:end -->
 
 ## Findings
@@ -259,7 +259,7 @@ by function; their files are in `checklist.json`.
 
 | ASVS | Lvl | Requirement (paraphrase) | Verdict | Basis | Evidence | Finding |
 |---|---|---|---|---|---|---|
-| 1.1.2 | L2 | A threat model exists for the design and its changes. *No threat model in docs/security/ (ten files) or docs/validation/ (grep for 'threat model', 'STRIDE').* | **does not meet** | hypothesis | `docs/security/01-the-host.md:1` | V3-16 |
+| 1.1.2 | L2 | A threat model exists for the design and its changes. *10G-4 (D-1327): the threat model is security section 11, reviewed per release: the test fails when the version moves past the release it names, or a path or test it cites is gone. Was 'does not meet' (V3-16).* | **meets** | shown | `docs/security/11-threat-model.md:1`; `test_threat_model_names_the_current_release`; `test_every_path_and_test_the_threat_model_cites_exists` | V3-16 |
 | 1.2.2 | L2 | Calls between the parts of the application are authenticated. *Every call carries a service token, but a callee not in CALLERS accepts any service's token. Every deployed service is listed today, so the gap is latent (the trace store's HTTP app, which trusts unsigned role headers, is not started by any compose file).* | **partly** | hypothesis | `libs/tb_common/service_auth.py:201`; `libs/tb_common/service_auth.py:88` | V3-15 |
 | 1.4.1 | L2 | Access is enforced at trusted points on the server, never in the client. | **meets** | shown | `libs/tb_common/authz.py:157`; `test_the_generated_matrix_equals_the_design_table` |  |
 | V1-rest | - | The rest of V1 (1.1.1, 1.1.3-1.1.7, 1.2.1, 1.2.3, 1.2.4, 1.4.4, 1.4.5, 1.5-1.14). *Not reached.* | **not assessed** | not_run | - |  |
