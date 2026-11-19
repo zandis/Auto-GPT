@@ -8,6 +8,7 @@
 | "Today's limit is reached" on the console | `settings.yaml`: `rate_limit_per_sender_per_day`, `rate_limits_per_day` | the limit counts each heavy run type (FEAS, SCREEN, COHORT, NAV, MICROBATCH, CALIBRATION) per sender per 24 h; raise it, or set `rate_limits_per_day: {SCREEN: 40}` (0 = no limit) and restart the orchestrator (D-146) |
 | "Ruleset X has no approved version" | `git -C /data/rulesets tag` | paste the protocol, then the investigator approves on S20 |
 | Ingest `passed: false` | `ingest_report.json` → `errors` | the hospital changed its export: run `mapping_check.py`, fix the site mapping |
+| The night's read is slow | `ingest_report.json` → `connector` | per table: messages, the connector's own seconds and the p95 per message, with its histogram (10E-9, D-1050); a table whose p95 jumped from the night before points at the export or the disk it is read from, not at the mapping |
 | Equivalence gate under 98 % | the review sheet "equivalence" | edit or reject the flagged criteria |
 | SUBMIT refused | the reply names the check | NAV older than 14 days: rerun NAV |
 | Lake slow or out of memory | `docker stats` | raise `TB_LAKE_MEMORY_LIMIT` (default 40 % of RAM; spills to `/data/lake/tmp`) |

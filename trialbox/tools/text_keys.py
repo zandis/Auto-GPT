@@ -503,7 +503,16 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "help.page.": _union(_values("console.step4", "HELP_SLUGS"), _guide_pages),
     "guide.page.": _guide_pages,
     "life.gloss.": _values("console.guides", "GLOSSARY"),
-    "log.xlsx.col.": lambda: [c for c in _values("datacore.sponsor", "LOG_COLUMNS")() if c != "screening_no"],
+    "log.xlsx.col.": _union(
+        lambda: [c for c in _values("datacore.sponsor", "LOG_COLUMNS")() if c != "screening_no"],
+        _values("console.screening_log", "PROXY_COLUMNS"),  # 10C-19 (D-1232): at the end while the setting is on
+    ),
+    # 10C-19 (D-1232): consent by a representative and assent: the warnings, the relation and reason codes
+    "consent.proxy.w.": _values("datacore.proxy_consent", "FLAGS"),
+    "consent.proxy.short.": _values("datacore.proxy_consent", "FLAGS"),
+    "consent.proxy.rel.": _values("datacore.proxy_consent", "RELATIONS"),
+    "consent.proxy.why.": _values("datacore.proxy_consent", "ASSENT_WHY"),
+    "consent.proxy.proceed.": _values("datacore.proxy_consent", "PROCEED_REASONS"),
     "nav.grp.": _values("console.phone", "MENU_GROUPS"),  # J-3 (D-1222): the groups of "More" behind the flag
     # the box's first-run page (10K-1): the countries, the retention days asked where TrialBox has no rules, and the
     # SS-MIX2 order-number keys
