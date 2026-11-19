@@ -14,21 +14,41 @@
 {# T-684: compact (the week page) folds the list under a one-line heading with the count; the red frame stays #}
 {% macro sae_banner(sae, back='home', compact=false) %}{% if sae %}<section class="card attention sae{{ ' compact' if compact else '' }}" role="alert" data-testid="sae-banner">
 {% if compact %}<details data-testid="sae-fold"><summary><h2>{{ t('life.sae.title') }} · {{ sae|length }}</h2> <span class="hint">{{ t('fold.show') }}</span></summary>{% else %}<h2>{{ t('life.sae.title') }}</h2>{% endif %}
-<p class="hint">{{ t('life.sae.help') }}</p>
-<ul class="plain">{% for a in sae %}<li data-testid="sae-{{ a.record }}-{{ a.event }}">{{ t('life.sae.row', r=a.record, rs=a.rs, term=a.ae_term, day=a.ae_onset or '–') }}{% if a.fatal %} <span class="pill bad" data-testid="sae-fatal">{{ t('life.sae.fatal') }}</span>{% endif %}
- <a class="button secondary" href="/studies/{{ a.rs }}/subjects/{{ a.record|urlencode }}">{{ t('life.sae.open') }}</a>
- {% if user.role == 'investigator' %}<form method="post" action="/studies/{{ a.rs }}/subjects/{{ a.record|urlencode }}/aes/{{ a.event }}/ack" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}"><button type="submit" data-testid="sae-ack-{{ a.record }}-{{ a.event }}">{{ t('life.sae.ack') }}</button></form>{% else %}<span class="hint">{{ t('life.sae.wait_pi') }}</span>{% endif %}</li>{% endfor %}</ul>
+{{ sae_rows(sae, back) }}
 {% if compact %}</details>{% endif %}</section>{% endif %}{% endmacro %}
 
+{% macro sae_body(sae, back='home') %}{% if sae %}<div data-testid="sae-banner">
+<h2>{{ t('life.sae.title') }}</h2>
+{{ sae_rows(sae, back) }}
+</div>{% endif %}{% endmacro %}
+
+{% macro sae_rows(sae, back) %}
+<p class="hint">{{ t('life.sae.help') }}</p>
+<ul class="plain sae-rows">{% for a in sae %}<li data-testid="sae-{{ a.record }}-{{ a.event }}">{{ t('life.sae.row', r=a.record, rs=a.rs, term=a.ae_term, day=a.ae_onset or '–') }}{% if a.fatal %} <span class="pill bad" data-testid="sae-fatal">{{ t('life.sae.fatal') }}</span>{% endif %}
+ <a class="button secondary" href="/studies/{{ a.rs }}/subjects/{{ a.record|urlencode }}">{{ t('life.sae.open') }}</a>
+ {% if user.role == 'investigator' %}<form method="post" action="/studies/{{ a.rs }}/subjects/{{ a.record|urlencode }}/aes/{{ a.event }}/ack" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}"><button type="submit" data-testid="sae-ack-{{ a.record }}-{{ a.event }}">{{ t('life.sae.ack') }}</button></form>{% else %}<span class="hint">{{ t('life.sae.wait_pi') }}</span>{% endif %}</li>{% endfor %}</ul>
+{% endmacro %}
+
 {# CR-010 (D-277): the orchestrator did not answer for these studies, so their SAEs are unknown: never "no SAE" #}
-{% macro sae_failed(studies) %}{% if studies %}<p class="error" role="alert" data-testid="sae-home-failed">{{ t('sae.home_failed', studies=studies|join(', ')) }}</p>{% endif %}{% endmacro %}
+{% macro sae_failed(studies) %}{{ sae_failure_body(studies, standalone=true) }}{% endmacro %}
+
+{% macro sae_failure_body(studies, standalone=false) %}{% if studies %}<p{% if standalone %} class="error" role="alert"{% endif %} data-testid="sae-home-failed">{{ t('sae.home_failed', studies=studies|join(', ')) }}</p>{% endif %}{% endmacro %}
 
 {# SAE reports past their due day (P-03): the investigator's and the coordinator's home pages #}
 {% macro report_banner(reports, compact=false) %}{% if reports %}<section class="card attention{{ ' compact' if compact else '' }}" role="alert" data-testid="sae-reports">
 {% if compact %}<details data-testid="sae-reports-fold"><summary><h2>{{ t('life.reports.title') }} · {{ reports|length }}</h2> <span class="hint">{{ t('fold.show') }}</span></summary>{% else %}<h2>{{ t('life.reports.title') }}</h2>{% endif %}
+{{ report_rows(reports) }}
+{% if compact %}</details>{% endif %}</section>{% endif %}{% endmacro %}
+
+{% macro report_body(reports) %}{% if reports %}<div data-testid="sae-reports">
+<h2>{{ t('life.reports.title') }}</h2>
+{{ report_rows(reports) }}
+</div>{% endif %}{% endmacro %}
+
+{% macro report_rows(reports) %}
 <ul class="plain">{% for a in reports %}<li data-testid="sae-report-{{ a.record }}-{{ a.event }}-{{ a.party }}">{% if a.due %}{{ t('life.reports.row', r=a.record, rs=a.rs, party=t('life.clock.party.' + a.party), day=a.due) }}{% else %}{{ t('life.reports.row_noclock', r=a.record, rs=a.rs, why=t('life.clock.party.' + a.party)) }}{% endif %}
  <a class="button secondary" href="/studies/{{ a.rs }}/subjects/{{ a.record|urlencode }}">{{ t('life.sae.open') }}</a></li>{% endfor %}</ul>
-{% if compact %}</details>{% endif %}</section>{% endif %}{% endmacro %}
+{% endmacro %}
 
 {# one serious AE's reporting clock (P-03) #}
 {% macro report_clock(a) %}{% if a.serious %}<div class="clock" data-testid="clock-{{ a.event }}"><span class="hint">{{ t('life.clock.title') }}:</span>
