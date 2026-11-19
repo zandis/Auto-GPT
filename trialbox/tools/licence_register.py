@@ -20,7 +20,8 @@ The check fails when:
   ``snomed-ct``, D-342);
 * a build of ``models/registry.yaml`` disagrees with its row: ``verified: true`` needs ``register: <id>``, a ``model``
   row whose source is the build's repository, whose SPDX id is the build's, and whose status is ``cleared`` or
-  ``own-work``; a build past ``candidate`` needs ``verified: true``;
+  ``own-work``; measured or promoted builds with a revision in their row need a matching build pin, and
+  a build past ``candidate`` needs ``verified: true``;
 * a vocabulary the OMOP Athena loader allows (``omop.vocab_load.ATHENA_ALLOW``, when it exists) has no row;
 * a ``software`` row (a third-party program inside an image, D-968: restic) disagrees with its pin in
   ``deploy/docker/backup.Dockerfile``: ``ARG <ID>_VERSION`` must be the row's version and every
@@ -58,10 +59,12 @@ COLUMNS = ("id", "kind", "standard", "version", "source", "licence", "spdx", "ob
            "checked", "evidence", "text_sha256", "athena", "paths")  # fmt: skip
 KINDS = frozenset({"code-system", "map", "data-set", "fhir", "model", "software"})
 IMAGE = ROOT / "deploy/docker/backup.Dockerfile"  # where a software row's tool is pinned (D-968)
-STATUSES = frozenset({"cleared", "own-work", "synthetic", "site-loaded", "permission-to-ask", "removed"})
-SHIPS_NOTHING = frozenset({"site-loaded", "removed"})
+STATUSES = frozenset({"cleared", "own-work", "synthetic", "site-loaded", "permission-to-ask", "removed", "pending"})
+SHIPS_NOTHING = frozenset({"site-loaded", "removed", "pending"})
 MODEL_OK = frozenset({"cleared", "own-work"})
 PAST_CANDIDATE = frozenset({"qualified", "champion", "shadow"})
+# Plan 10 decision 93. Match licence names and identifiers irrespective of punctuation.
+EXCLUDED_MODEL_LICENCE = re.compile(r"communitylicen[cs]e|qwencommunity|healthaideveloperfoundation|healthdeveloper")
 
 # the data-file detector (the same rule as tests/unit/test_notice.py, which names the folders in NOTICE)
 SKIP_DIRS = frozenset({".git", ".venv", "node_modules", "__pycache__"})
@@ -265,6 +268,28 @@ def model_problems(rows: list[Row], builds: list[dict[str, Any]]) -> list[str]:
             out.append(f"build {bid}: repository {b.get('repository')!r} is not row {row.id}'s source {row.source!r}")
         if row.spdx != str(lic.get("spdx") or ""):
             out.append(f"build {bid}: spdx {lic.get('spdx')!r} is not row {row.id}'s {row.spdx!r}")
+        expected = b.get("expected") or {}
+        revision = expected.get("revision") or b.get("revision")
+        # An unmeasured candidate can have its terms reviewed before its weights are pinned.
+        measured = expected.get("manifest_sha256") or b.get("sha256") or (b.get("provenance") or {}).get("revision")
+        needs_pin = row.raw["version"].startswith("revision ") and (measured or b.get("status") in PAST_CANDIDATE)
+        if needs_pin and not revision:
+            out.append(
+                f"build {bid}: missing revision for register row {row.id} / "
+                f"缺少登錄列所需的模型修訂版本 / 登録行に対応するモデルのリビジョンがありません"
+            )
+        elif revision and row.raw["version"] != f"revision {revision}":
+            out.append(
+                f"build {bid}: revision {revision!r} differs from row {row.id} / "
+                f"版本與登錄列不符 / リビジョンが登録行と一致しません"
+            )
+        for label in (row.raw["licence"], row.spdx, str(lic.get("name") or "")):
+            if EXCLUDED_MODEL_LICENCE.search(re.sub(r"[^a-z0-9]", "", label.lower())):
+                out.append(
+                    f"build {bid}: excluded licence / 禁止出貨的授權 / 出荷対象外のライセンス "
+                    f"{label!r} (93)"
+                )
+                break
         if row.status not in MODEL_OK:
             out.append(f"build {bid}: register row {row.id} has status {row.status}, not cleared")
     return out

@@ -24,6 +24,7 @@ from tools import licence_register
 from tools import qualify as q
 
 FAST = {"repeat_items": 20}
+APACHE_LICENCE = q.ROOT / "tests/fixtures/licences/Apache-2.0.txt"
 
 
 def _ctx(opts: q.Options, tmp_path: Path, builds: dict[str, q.Build] | None = None) -> q.Ctx:
@@ -259,6 +260,16 @@ def _rows(**judge: str) -> list[Any]:
     return out
 
 
+def test_qualification_rejects_a_measured_verifier_without_its_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(licence_register, "load", _rows)
+    ctx, builds = _judge_ctx(tmp_path)
+    builds["verifier"].revision = None
+    result = q.step_licence(ctx)
+    assert result.status == "failed" and builds["verifier"].build_id in result.reason and "revision" in result.reason
+
+
 def test_hw004_a_source_with_no_licence_file_is_checked_against_its_register_row(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -305,13 +316,18 @@ def test_hw004_the_licence_text_rides_beside_the_weight_folder_and_must_be_the_c
     ctx, _ = _judge_ctx(tmp_path)
     beside = tmp_path / "models" / "licences" / "gemma-folder"
     beside.mkdir(parents=True)
-    (beside / "LICENSE").write_text("Apache License 2.0 text\n", encoding="utf-8")
-    sha = hashlib.sha256(b"Apache License 2.0 text\n").hexdigest()
-    monkeypatch.setattr(licence_register, "load", _rows)  # the committed row holds no text hash: recorded
+    licence = APACHE_LICENCE.read_bytes()
+    (beside / "LICENSE").write_bytes(licence)
+    sha = hashlib.sha256(licence).hexdigest()
+    judge_row = next(row for row in ROWS if row.id == ctx.builds["judge"].licence["register"])
+    assert judge_row.raw["text_sha256"] == sha
+    monkeypatch.setattr(licence_register, "load", _rows)
     r = q.step_licence(ctx)
     assert r.status == "passed", r.reason
     assert r.detail["judge"]["text"] == "licences/gemma-folder/LICENSE" and r.detail["judge"]["text_sha256"] == sha
     assert not (tmp_path / "models" / "gemma-folder" / "LICENSE").exists()  # the weight folder stays as published
+    monkeypatch.setattr(licence_register, "load", lambda: _rows(text_sha256=""))
+    assert q.step_licence(ctx).status == "passed"  # a row can also record an unpinned text
     monkeypatch.setattr(licence_register, "load", lambda: _rows(text_sha256=sha))
     assert q.step_licence(ctx).status == "passed"
     monkeypatch.setattr(licence_register, "load", lambda: _rows(text_sha256="0" * 64))
@@ -528,7 +544,7 @@ def test_hw004_review_the_folder_is_resolved_and_a_cache_snapshot_has_no_beside(
     ctx, _ = _judge_ctx(tmp_path)
     beside = tmp_path / "models" / "licences" / "gemma-folder"
     beside.mkdir(parents=True)
-    (beside / "LICENSE").write_text("Apache License 2.0 text\n", encoding="utf-8")
+    (beside / "LICENSE").write_bytes(APACHE_LICENCE.read_bytes())
     link = tmp_path / "link"
     link.symlink_to(tmp_path / "models" / "gemma-folder")
     ctx.opts.model_dirs["judge"] = link

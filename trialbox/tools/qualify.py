@@ -600,7 +600,10 @@ def step_licence(ctx: Ctx) -> StepResult:
         if not row["name"] or not row["verified"]:
             problems.append(f"{b.build_id}: licence not verified in models/registry.yaml")
         else:  # the register row behind it (T-617b): same repository, same SPDX id, cleared
-            build = {"build_id": b.build_id, "licence": b.licence, "status": b.status, "repository": b.repository}
+            build = {
+                "build_id": b.build_id, "licence": b.licence, "status": b.status, "repository": b.repository,
+                "revision": b.revision, "sha256": b.weights_sha256,
+            }
             problems += licence_register.model_problems(registers, [build])
         reg = next((r for r in registers if r.id == b.licence.get("register")), None)
         row["register"] = reg.id if reg else None

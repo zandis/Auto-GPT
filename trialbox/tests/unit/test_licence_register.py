@@ -195,3 +195,142 @@ def test_the_check_runs_on_a_copy(tmp_path: Path) -> None:
     (root / "models").mkdir()
     shutil.copy(ROOT / "models/registry.yaml", root / "models/registry.yaml")
     assert any("licence verified without a register row" in p for p in lr.check(root))
+
+
+# Review 17 §7.2, in judge-then-verifier order.
+STAGE_H = {
+    "model-gemma-4-26b-a4b-it": "google/gemma-4-26B-A4B-it",
+    "model-gemma-4-31b-it": "google/gemma-4-31B-it",
+    "model-qwen3.8-27b": "Qwen/Qwen3.8-27B",
+    "model-qwen3.6-35b-a3b": "Qwen/Qwen3.6-35B-A3B",
+    "model-gpt-oss-120b": "openai/gpt-oss-120b",
+    "model-llm-jp-4.1-32b-a3b-thinking": "llm-jp/llm-jp-4.1-32b-a3b-thinking",
+    "model-weblab-medllm-gpt-oss-120b": "weblab-LLM-M/Weblab-MedLLM-gpt-oss-120b",
+    "model-qwen3.5-9b-awq-4bit": "cyankiwi/Qwen3.5-9B-AWQ-4bit",
+    "model-gemma-4-12b-it": "google/gemma-4-12B-it",
+    "model-nemotron-nano-9b-v2-japanese": "nvidia/NVIDIA-Nemotron-Nano-9B-v2-Japanese",
+    "model-gpt-oss-20b": "openai/gpt-oss-20b",
+}
+
+
+def test_stage_h_has_one_build_specific_row_per_slot() -> None:
+    rows = lr.load()
+    shipped = {b["licence"]["register"] for b in _builds() if b["licence"]["verified"]}
+    assert len(STAGE_H) == 11
+    assert shipped & STAGE_H.keys() == {"model-qwen3.5-9b-awq-4bit"}
+    for rid, source in STAGE_H.items():
+        (row,) = [r for r in rows if r.kind == "model" and r.source == source]
+        assert row.id == rid
+        revision = row.raw["version"].removeprefix("revision ")
+        assert len(revision) == 40 and revision in row.raw["evidence"]
+        if rid == "model-nemotron-nano-9b-v2-japanese":
+            assert row.status == "pending"
+        else:
+            assert row.status == "cleared"
+            assert row.spdx == "Apache-2.0" and len(row.raw["text_sha256"]) == 64
+            assert "Stage H evaluation only" in row.raw["obligation"] or rid in shipped
+        for locale in ("en", "zh-TW", "ja"):
+            assert f"[{locale}]" in row.raw["obligation"]
+
+    by_id = {r.id: r for r in rows}
+    for rid in ("model-llm-jp-4.1-32b-a3b-thinking", "model-weblab-medllm-gpt-oss-120b"):
+        assert "Provider required" in by_id[rid].raw["obligation"]
+
+
+def test_cleared_stage_h_rows_preserve_publisher_licence_hashes() -> None:
+    # SHA-256 of pinned LICENSE bytes or the ASF 2.0 text referenced by the pinned cards.
+    asf = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    oss = "58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd"
+    qwen = "bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a"
+    assert {r.id: r.raw["text_sha256"] for r in lr.load() if r.id in STAGE_H and r.status == "cleared"} == {
+        "model-gemma-4-26b-a4b-it": asf,
+        "model-gemma-4-31b-it": asf,
+        "model-qwen3.8-27b": qwen,
+        "model-qwen3.6-35b-a3b": "50cbab8a892c5f2993b8c7351a99182507472def3b1374558308605d99b86b32",
+        "model-gpt-oss-120b": oss,
+        "model-llm-jp-4.1-32b-a3b-thinking": asf,
+        "model-weblab-medllm-gpt-oss-120b": oss,
+        "model-qwen3.5-9b-awq-4bit": qwen,
+        "model-gemma-4-12b-it": asf,
+        "model-gpt-oss-20b": oss,
+    }
+
+
+def test_full_precision_and_shipped_gemma_have_distinct_pins() -> None:
+    rows = lr.load()
+    by_id = {r.id: r for r in rows}
+    full = by_id["model-gemma-4-26b-a4b-it"]
+    nvfp4 = by_id["model-gemma-4-26b-a4b-nvfp4"]
+    judge = next(b for b in _builds() if b["build_id"] == "gemma-4-26b-a4b-it-rtxpro6000")
+    verifier = next(b for b in _builds() if b["build_id"] == "qwen3.5-9b-rtxpro6000")
+    assert lr.model_problems(rows, [judge, verifier]) == []
+    assert nvfp4.source == judge["repository"]
+    assert nvfp4.raw["version"] == f"revision {judge['expected']['revision']}"
+    base = judge["provenance"]["base"]
+    assert full.source == base["repository"]
+    assert full.raw["version"] == f"revision {base['revision']}"
+    wrong_pin = {**judge, "expected": {"revision": base["revision"]}}
+    assert any("revision" in p for p in lr.model_problems(rows, [wrong_pin]))
+
+
+def test_section_4_3_exclusions_are_documented() -> None:
+    rows = {r.id: r for r in lr.load()}
+    shipped_sources = {b["repository"] for b in _builds() if b["licence"]["verified"]}
+    for rid, reason in {
+        "model-qwen3.8-flash-next": "Community",
+        "model-medgemma": "Health AI Developer Foundations",
+        "model-qwen4-max": "Hosted only",
+    }.items():
+        row = rows[rid]
+        assert row.status in {"removed", "pending"} and row.source not in shipped_sources
+        assert reason in row.raw["obligation"]
+        for locale in ("en", "zh-TW", "ja"):
+            assert f"[{locale}]" in row.raw["obligation"]
+
+
+@pytest.mark.parametrize(
+    ("licence", "spdx"),
+    [
+        ("Qwen Community License 1.0", "LicenseRef-Qwen-Community-1.0"),
+        ("Health AI Developer Foundations", "LicenseRef-Health-AI-Developer-Foundations"),
+    ],
+)
+def test_excluded_licence_fails_even_with_matching_cleared_row(
+    licence: str,
+    spdx: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rows = _row("loinc", "vocab/*.csv")
+    rows += _row("synthetic-model", kind="model", source="fixture/model", licence=licence, spdx=spdx)
+    root = _tree(tmp_path, rows)
+    fake = types.ModuleType("omop.vocab_load")
+    fake.ATHENA_ALLOW = frozenset()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "omop.vocab_load", fake)
+    registry = root / "models/registry.yaml"
+    registry.parent.mkdir()
+    build = {
+        "build_id": "synthetic-shipped",
+        "status": "champion",
+        "repository": "fixture/model",
+        "licence": {"verified": True, "register": "synthetic-model", "name": licence, "spdx": spdx},
+    }
+    registry.write_text(yaml.safe_dump({"builds": [build]}), encoding="utf-8")
+    check_tree = lr.check
+    monkeypatch.setattr(lr, "check", lambda: check_tree(root))
+    assert lr.main(["--check"]) == 1
+    (problem,) = capsys.readouterr().err.splitlines()
+    assert all(part in problem for part in ("synthetic-shipped", licence, "93"))
+
+
+def test_verified_flag_cannot_clear_pending_nemotron() -> None:
+    rows = lr.load()
+    row = next(r for r in rows if r.id == "model-nemotron-nano-9b-v2-japanese")
+    assert row.status == "pending" and not row.raw["text_sha256"]
+    build = {
+        "build_id": "synthetic-nemotron", "status": "champion", "repository": row.source,
+        "revision": row.raw["version"].removeprefix("revision "),
+        "licence": {"verified": True, "register": row.id, "spdx": row.spdx},
+    }
+    assert any("synthetic-nemotron" in p and "pending" in p for p in lr.model_problems(rows, [build]))
