@@ -358,7 +358,7 @@ def test_the_country_and_the_standard_versions_agree_with_the_settings(tmp_path:
         sp.check_settings(p, country="TW", standards={"tw_core": "1.1.0"})
 
 
-@pytest.mark.parametrize("source", ["postgresql://tb:pw@db/trial", "ask steward@hospital", "x" * 40])
+@pytest.mark.parametrize("source", ["from https://example.invalid/master", "ask steward@hospital", "x" * 40])
 def test_a_manifest_holds_nothing_secret(tmp_path: Path, source: str) -> None:
     doc = _manifest()
     doc["tables"]["lab"]["source"] = source
