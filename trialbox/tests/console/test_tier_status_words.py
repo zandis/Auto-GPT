@@ -16,8 +16,8 @@ from typing import Any
 import pytest
 from console import tier_words
 from console.auth import ROLES
+from console.backend import Health
 from console.i18n import translate
-from tb_common.metrics import Health
 
 from tests.console.test_console_app import ADMIN_PW, box, login  # noqa: F401 - the fixture is used by name
 
@@ -25,9 +25,16 @@ LANGS = ("en", "ja", "zh-TW")
 #: TB_PROFILE label -> the record it reads (None: no record on file, as on a GB10 or a stub box)
 TIERS = {"P-5090": "rtx5090", "P-PRO6000": "rtxpro6000", "P-GB10": None}
 NOTHING_WRONG = {"en": "Nothing is wrong.", "ja": "異常ではありません。", "zh-TW": "這不是故障。"}
-TITLE = {"en": "What this box&#39;s tier includes", "ja": "このボックスの構成に含まれる機能", "zh-TW": "這台機器的等級包含哪些功能"}
+TITLE = {
+    "en": "What this box&#39;s tier includes",
+    "ja": "このボックスの構成に含まれる機能",
+    "zh-TW": "這台機器的等級包含哪些功能",
+}
 LACKS = {
-    "en": ("Protocol reading: this box&#39;s tier does not include it.", "Questions to the models during a screening run"),
+    "en": (
+        "Protocol reading: this box&#39;s tier does not include it.",
+        "Questions to the models during a screening run",
+    ),
     "ja": ("プロトコルの読み取り：このボックスの構成には含まれていません。", "スクリーニング実行中のモデルへの質問"),
     "zh-TW": ("計畫書判讀：這台機器的等級不包含此功能。", "篩選執行期間向模型提問"),
 }
@@ -112,7 +119,9 @@ def test_a_broken_capability_the_tier_includes_still_shows_as_an_error(
     bk = box["backend"]
     # both tiers include judging notes and the gateway: no model answering and the gateway down are errors on both
     bk.models_info = {**bk.models_info, "mode": "none", "judge_model": None, "may_block": False}
-    monkeypatch.setattr(bk, "health", lambda: [Health("orchestrator", True, ""), Health("gateway", False, "ConnectError")])
+    monkeypatch.setattr(
+        bk, "health", lambda: [Health("orchestrator", True, ""), Health("gateway", False, "ConnectError")]
+    )
     c, csrf = _admin(box)
     for lang in LANGS:
         page = _home(c, csrf, lang)
