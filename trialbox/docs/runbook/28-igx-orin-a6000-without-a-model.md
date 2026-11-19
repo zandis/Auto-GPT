@@ -35,9 +35,11 @@ models need about 100 GB free and more memory than this machine has (review 24, 
 | 11 | Stop | `deploy/poc.sh down` | the containers stop; data kept | – |
 
 **If the build fails** (step 6 stops with `poc: the database image trialbox-postgres:16-1 did not build`, or another
-build's error): it is almost always a download that failed. Check the internet (the last command of step 0), run
-`deploy/poc.sh` again (nothing was started, and what was built is kept), and if it fails a second time send us the
-`poc:` line and the 30 lines above it.
+build's error): it is almost always a download that failed. Check that the machine reaches the three package
+servers the build uses: `for h in deb.debian.org apt.postgresql.org packages.groonga.org; do curl -sS -o /dev/null -w "$h %{http_code}\n" https://$h/; done`
+(each line should end in a number such as `200` or `301`, not an error). Then run `deploy/poc.sh` again (nothing was
+started, and what was built is kept), and if it fails a second time send us the `poc:` line, the 30 lines above it
+and the three lines of that check.
 
 ## Every day after
 

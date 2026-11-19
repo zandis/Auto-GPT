@@ -250,3 +250,31 @@ def test_every_helper_of_the_path_runs_on_python_3_10(rel: str) -> None:
             assert (node.value.id, node.attr) not in {("hashlib", "file_digest"), ("datetime", "UTC")}, rel
     shell = (ROOT / "tools/fetch_jvm_deps.sh").read_text(encoding="utf-8")
     assert set(re.findall(r'"\$PY" "\$ROOT/(tools/[a-z_]+\.py)"', shell)) <= set(HOST_HELPERS)
+
+
+def test_the_script_builds_from_the_checkout_wherever_it_is_called_from(tmp_path: Path) -> None:
+    """The context and Dockerfile paths are relative to the checkout: the script moves there first, whatever the
+    caller's working directory, and a checkout under a path with a space works too."""
+    root = tmp_path / "a folder with space" / "trialbox"
+    (root / "deploy/docker").mkdir(parents=True)
+    shutil.copy2(ROOT / "deploy/build_db_image.sh", root / "deploy/build_db_image.sh")
+    (root / "deploy/docker/db.Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    seen = tmp_path / "seen.txt"
+    (bindir / "docker").write_text(
+        '#!/bin/sh\n{ pwd; for a in "$@"; do echo "$a"; done; } > "$TB_TEST_SEEN"\n'
+        "[ -f deploy/docker/db.Dockerfile ] && [ -d deploy/docker ] || exit 9\n",
+        encoding="utf-8",
+    )
+    (bindir / "docker").chmod(0o755)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    env = {k: v for k, v in os.environ.items() if k not in ("HTTPS_PROXY", "TB_EXTRA_CA")}
+    env.update(PATH=f"{bindir}:/usr/bin:/bin", TB_TEST_SEEN=str(seen))
+    res = subprocess.run(["bash", str(root / "deploy/build_db_image.sh")], cwd=elsewhere, capture_output=True,
+                         text=True, env=env, timeout=30, check=False)  # fmt: skip
+    assert res.returncode == 0, res.stderr
+    cwd, *argv = seen.read_text(encoding="utf-8").splitlines()
+    assert Path(cwd).resolve() == root.resolve()
+    assert argv == ["build", "-f", "deploy/docker/db.Dockerfile", "-t", DB, "deploy/docker"]
