@@ -42,6 +42,9 @@
 # (leave the box running and the work dir for inspection), TB_EXTRA_CA (a PEM for apt and pip behind a TLS proxy).
 # TB_REHEARSE_MIN_FREE_GB (default 30: free space wanted for the work dir and Docker's root), TRIVY_CACHE (default
 # .cache/trivy: the gates' database, `make trivy-db` at most 7 days before; D-883).
+# H-54: TB_REHEARSE_HOST_CACHE (a folder: the host image is loaded from host-<sha256 of host.Dockerfile>.tar there when
+# it exists, and saved there after a build; CI keeps it in the Actions cache), TB_REHEARSE_HOST_IMAGE_CAP_S (the cap of
+# one host-image build attempt, HOST_IMAGE_CAP_S below).
 # Needs: Docker with compose, no other TrialBox stack running on it, port 8090 free, python3 with the repo's venv.
 # Either Docker image store: the containerd store keeps digests, the classic overlay2 store does not (tools/
 # image_pins.py); DOCKER_HOST=unix:///path/docker.sock rehearses on another daemon (its socket goes into the box).
@@ -74,6 +77,13 @@ BUNDLE_NAME="trialbox-$ID.tar"
 BOX="$W/box"
 HOST_IMG="trialbox-rehearsal-host:24.04"
 HOST_CT="tb-rehearse-host"
+# H-54: a cache miss builds the host image from the Ubuntu archive (an outside mirror). One attempt may take
+# HOST_IMAGE_CAP_S seconds, then it is stopped and tried once more: the slowest successful build in the 12 CI legs read
+# on 2026-11-19 took 222 s (most 14-50 s); one leg's mirror trickled for 2758 s (46 min) and another's refused for 500 s
+HOST_IMAGE_CAP_S="${TB_REHEARSE_HOST_IMAGE_CAP_S:-600}"
+HOST_IMAGE_ATTEMPTS=2
+HOST_IMAGE_LABEL="org.trialbox.rehearsal.host-dockerfile-sha256"
+HOST_CACHE="${TB_REHEARSE_HOST_CACHE:-}"
 LOGS="$W/logs"
 SOCK=/var/run/docker.sock
 case "${DOCKER_HOST:-}" in unix://*) SOCK="${DOCKER_HOST#unix://}" ;; "") ;; *) echo "rehearse: DOCKER_HOST must be a unix socket" >&2; exit 2 ;; esac
@@ -193,11 +203,44 @@ media() (  # a subshell: set -e stops the step, not the run
 )
 
 host_image() {
-  local args=()
+  local key tar="" args=() a rc=1 t0 out what
+  key="$(sha256sum tools/rehearse_box/host.Dockerfile | cut -c1-64)" || return 1
+  [ -n "$HOST_CACHE" ] && tar="$HOST_CACHE/host-$key.tar"
+  # H-54: the image built from this very Dockerfile (the file name and the label both carry its hash): no fetch at all
+  if [ -n "$tar" ] && [ -s "$tar" ]; then
+    if docker load -i "$tar" >/dev/null \
+      && [ "$(docker image inspect --format "{{index .Config.Labels \"$HOST_IMAGE_LABEL\"}}" "$HOST_IMG" 2>/dev/null)" = "$key" ]; then
+      echo "ok: host image $HOST_IMG from the cache $tar (host.Dockerfile sha256 $key): nothing fetched"; return 0
+    fi
+    echo "the cached $tar did not load as $HOST_IMG with host.Dockerfile's hash $key: building"
+  fi
   [ -n "${HTTPS_PROXY:-}" ] && args+=(--network host --build-arg "https_proxy=$HTTPS_PROXY")
   [ -n "${TB_EXTRA_CA:-}" ] && args+=(--secret "id=extra_ca,src=$TB_EXTRA_CA")
-  docker build "${args[@]}" -f tools/rehearse_box/host.Dockerfile -t "$HOST_IMG" tools/rehearse_box/shims || return 1
-  echo "ok: clean Ubuntu 24.04 host image $HOST_IMG (docker CLI + compose, python3, nftables, cron)"
+  for a in $(seq 1 "$HOST_IMAGE_ATTEMPTS"); do
+    out="$LOGS/host-image-build-$a.log"; t0=$SECONDS
+    BUILDKIT_PROGRESS=plain timeout --kill-after=30 "$HOST_IMAGE_CAP_S" docker build "${args[@]}" \
+      --label "$HOST_IMAGE_LABEL=$key" -f tools/rehearse_box/host.Dockerfile -t "$HOST_IMG" tools/rehearse_box/shims \
+      >"$out" 2>&1
+    rc=$?; cat "$out"
+    [ "$rc" = 0 ] && break
+    # what the build was fetching when it stopped: the last apt or registry line of its log
+    what="$(grep -E 'Get:[0-9]|Err:[0-9]|Failed to fetch|Unable to connect|Could not resolve|Temporary failure|Unable to locate|load metadata for|failed to resolve|failed to do request' "$out" | tail -n 1 | cut -c1-300)"
+    case "$rc" in
+      124|137) echo "host-image: attempt $a of $HOST_IMAGE_ATTEMPTS stopped at its cap of $HOST_IMAGE_CAP_S s (HOST_IMAGE_CAP_S) while fetching: ${what:-nothing logged}" ;;
+      *) echo "host-image: attempt $a of $HOST_IMAGE_ATTEMPTS failed after $((SECONDS - t0)) s (docker build exit $rc); last fetch: ${what:-nothing logged}" ;;
+    esac
+    [ "$a" -lt "$HOST_IMAGE_ATTEMPTS" ] && sleep $((a * 15))
+  done
+  [ "$rc" = 0 ] || { echo "host-image: no host image after $HOST_IMAGE_ATTEMPTS attempts: the Ubuntu archive or the base image's registry did not serve the build (see above)"; return 1; }
+  echo "ok: clean Ubuntu 24.04 host image $HOST_IMG (docker CLI + compose, python3, nftables, cron), built in $((SECONDS - t0)) s"
+  # saved for the next run; never an image built with a site's CA (TB_EXTRA_CA): the cache holds only public layers
+  if [ -n "$tar" ] && [ -z "${TB_EXTRA_CA:-}" ]; then
+    mkdir -p "$HOST_CACHE" && rm -f "$HOST_CACHE"/host-*.tar \
+      && docker save -o "$tar.part" "$HOST_IMG" && mv "$tar.part" "$tar" \
+      && echo "ok: host image saved to $tar for the next run" \
+      || { rm -f "$tar.part"; echo "note: the host image was not saved to $HOST_CACHE (the next run builds it again)"; }
+  fi
+  return 0
 }
 
 clear_images() {  # only the media may bring them back: by id, so every tag and digest of the image goes
