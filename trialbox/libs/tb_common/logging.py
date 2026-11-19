@@ -102,9 +102,39 @@ def site_rule_on() -> str:
     return pattern
 
 
+#: LOG-JA (D-927): what a log line holds that the note masker would mask is masked too, its kind in capitals
+WITHHELD = "[message withheld: the PHI scrubber failed]"
+
+
+def _note_rules(text: str) -> str:
+    """Every span ``tb_common.phi_guard.note_spans`` finds (names, addresses, dates of birth, ID, chart, phone, bed
+    and room numbers in Chinese, Japanese and English, D-923, #1091) replaced by its kind: the rules the notes are
+    masked by are the rules a log line is scrubbed by, so a rule added to the masker reaches the logs too."""
+    from tb_common.phi_guard import note_spans  # here, not at import: nearly every module imports logging
+
+    spans = note_spans(text)
+    if not spans:
+        return text
+    out, last = [], 0
+    for kind, start, end in spans:
+        out.append(text[last:start])
+        out.append(f"[{kind.upper()}]")
+        last = end
+    out.append(text[last:])
+    return "".join(out)
+
+
 def redact(text: str) -> str:
     """Replace Taiwan IDs, Japanese My Number / insurance numbers / postcodes, phone numbers, MRN-shaped tokens and
-    secrets (a value after a secret's name, a bearer token, a secret value the process holds)."""
+    secrets (a value after a secret's name, a bearer token, a secret value the process holds), then everything the
+    note masker masks (LOG-JA, D-927). A scrubber that fails withholds the message: never a line it did not scrub."""
+    try:
+        return _redact(text)
+    except Exception:
+        return WITHHELD
+
+
+def _redact(text: str) -> str:
     for v in _SECRET_VALUES:
         if v in text:
             text = text.replace(v, "[SECRET]")
@@ -115,7 +145,7 @@ def redact(text: str) -> str:
         text = pat.sub(repl, text)
     for pat in _EXTRA_MRN:
         text = pat.sub("[MRN]", text)
-    return text
+    return _note_rules(text)
 
 
 class JsonFormatter(logging.Formatter):
