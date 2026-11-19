@@ -12,6 +12,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from guard.guard import Guard
@@ -76,12 +77,12 @@ def test_the_analyser_is_registered_and_loaded_only_for_japanese_text() -> None:
         "import sys; import tb_common.phi_guard as pg, guard.guard, tb_common.ja_names, tools.ja_name_eval; "
         f"loaded = lambda: [m for m in {_ANALYSERS!r} if m in sys.modules]; "
         "print(pg.NAME_RECOGNISERS == [pg.japanese_names], loaded()); "
-        "print(pg.mask_note('病人在台北看診。Seen today, stable.'), loaded()); "
+        "print(pg.mask_note('這位病人在台北看診。Seen today, stable.'), loaded()); "
         "print(pg.mask_note('68歳男性 ミホン タロウ'), loaded())"
     )
     assert _fresh(code).splitlines() == [
         "True []",
-        "病人在台北看診。Seen today, stable. []",
+        "這位病人在台北看診。Seen today, stable. []",
         "68歳男性 ○○○ ○○○ ['sudachipy', 'sudachidict_small']",
     ]
 
@@ -252,11 +253,106 @@ def test_the_harness_skips_cleanly_without_an_analyser(
 
 @pytest.mark.req("PRIV-29")
 def test_the_recommended_analyser_as_measured() -> None:
-    """The analyser of the lock (D-1235): the figures of the assessment
-    (docs/research/2026-11-19-japanese-name-analyser.md) as ceilings."""
+    """The guard as it ships (D-1235, second round): the development figures of the pull request as ceilings."""
     assert ja_name_eval.installed("sudachi-small")
-    res = ja_name_eval.run(["sudachi-small"])["sudachi-small"]
+    res = ja_name_eval.run(["sudachi-small"])["guard"]
     assert res["probe_masked"]["missed"] == 0
-    assert res["new_names"]["missed"] <= 17 and res["held_names"]["missed"] <= 4
+    assert res["new_names"]["missed"] <= 11 and res["held_names"]["missed"] <= 2
     for key in ("probe_unchanged", "new_ordinary", "held_ordinary"):
         assert res[key]["changed"] == 0, res[key]["which"]
+
+
+# ------------------------------------------------------------------------------------------------ second round
+CLASSES = json.loads((SYNTH / "ja_name_classes.json").read_text())
+
+
+@pytest.mark.req("PRIV-29")
+@pytest.mark.parametrize("probe", CLASSES["names"], ids=lambda p: f"{p['class']}:{p['text']}")
+def test_a_name_of_every_class_is_masked(probe: dict[str, Any]) -> None:
+    """Kanji with no kana, hiragana, beside a title or a label, katakana foreign names across a middle dot, a name
+    kept whole, Latin letters: the masker and the guard both take every character of each name."""
+    assert ja_name_eval.unmasked(probe["text"], probe["ids"], Guard(None)) == []
+
+
+@pytest.mark.req("PRIV-29")
+@pytest.mark.parametrize(
+    "probe",
+    [pytest.param(p, marks=pytest.mark.xfail(strict=True, reason="limit: " + p["class"])) for p in CLASSES["limit"]],
+    ids=lambda p: f"{p['class']}:{p['text']}",
+)
+def test_the_limits_still_leak(probe: dict[str, Any]) -> None:
+    """The stated limits (a kanji surname alone, a hiragana surname the analyser does not know, a romaji surname
+    alone): strict expected failures, so one that starts to pass must move to ``names``."""
+    assert ja_name_eval.unmasked(probe["text"], probe["ids"], Guard(None)) == []
+
+
+@pytest.mark.req("PRIV-29")
+@pytest.mark.parametrize("text", CLASSES["ordinary"])
+def test_the_counter_cases_pass_unchanged(text: str) -> None:
+    """Eponyms, places, titles with no name, a medicine, family and staff words, a prefix, drugs before an age,
+    English sentences and Chinese lines."""
+    assert not ja_name_eval.changed(text, Guard(None)), mask_note(text)
+
+
+@pytest.mark.req("PRIV-29")
+@pytest.mark.parametrize("line", CLASSES["pinned"], ids=lambda p: p["text"])
+def test_the_name_is_masked_never_the_title_beside_it(line: dict[str, str]) -> None:
+    assert mask_note(line["text"]) == line["mask"]
+
+
+@pytest.mark.req("PRIV-29")
+def test_the_language_comes_from_the_site_and_the_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A kanji-only line is read when the site declares Japanese notes, or declares nothing and the line holds no
+    character only Chinese writes; never when the site declares Chinese or English notes. Kana is Japanese at any
+    site."""
+    kanji, chinese, kana = "森本裕子", "這位病人是森本裕子", "森本裕子さんが来院"
+    monkeypatch.setattr(phi_guard, "site_notes_language", lambda: None)
+    assert [phi_guard.japanese_text(t) for t in (kanji, chinese, kana)] == [True, False, True]
+    assert mask_note(kanji) == "○○○○"
+    monkeypatch.setattr(phi_guard, "site_notes_language", lambda: "ja")
+    assert [phi_guard.japanese_text(t) for t in (kanji, chinese, kana)] == [True, True, True]
+    for lang in ("zh-TW", "en"):
+        monkeypatch.setattr(phi_guard, "site_notes_language", lambda lang=lang: lang)
+        assert [phi_guard.japanese_text(t) for t in (kanji, chinese, kana)] == [False, False, True]
+        assert mask_note(kanji) == kanji
+
+
+@pytest.mark.req("PRIV-29")
+def test_the_site_language_is_the_declared_notes_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    import tb_common.config as config
+
+    class Site:
+        notes_language = "zh-TW"
+
+    class Settings:
+        site = Site()
+
+    class Config:
+        settings = Settings()
+
+    monkeypatch.setattr(config, "get_config", Config)
+    assert phi_guard.site_notes_language() == "zh-TW"
+    Site.notes_language = "auto"
+    assert phi_guard.site_notes_language() is None
+
+
+@pytest.mark.req("PRIV-29")
+def test_romaji_needs_a_surname_and_the_shape_of_a_name() -> None:
+    """Two Hepburn words, one a listed surname by its reading (long vowels written or not), written as a name is."""
+    names = ("Taro Yamada", "Satou Hanako", "Kenji KATOH", "ito yuki")
+    assert [t for t in names if not ja_names.romaji_spans(t)] == []
+    for text in ("Taro Smith", "Taking Sato", "the Yamada", "Yamada", "Mild Ono", "done Mori"):
+        assert ja_names.romaji_spans(text) == [], text
+    assert (ja_names._kana("Ohta"), ja_names._kana("Kenji"), ja_names._kana("Smith")) == ("オタ", "ケンジ", None)
+
+
+@pytest.mark.req("PRIV-29")
+def test_the_reading_cache_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Memory: the analyser's dictionary is memory-mapped (its pages read in as used, at most its 110 MB file); the
+    one cache of this module, surname readings, never holds more than its bound."""
+    monkeypatch.setattr(ja_names, "_SEI_CACHE_MAX", 8)
+    monkeypatch.setattr(ja_names, "_SEI_CACHE", {})
+    an = Stub({})
+    for i in range(50):
+        ja_names._reading_is_sei(an, "カ" * (i + 2))
+        assert len(ja_names._SEI_CACHE) <= 8

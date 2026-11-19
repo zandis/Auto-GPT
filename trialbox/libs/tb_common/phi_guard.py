@@ -1170,26 +1170,65 @@ _NOTE_GATES: tuple[Callable[[_Facts], bool], ...] = (
 )
 
 
-#: 10C-1b: the text the Japanese name analyser reads: it holds kana or 歳 (Japanese writes 歳; Chinese writes 歲 or
-#: 岁). A language, not a country: a Japanese line in any site's note is read, a Chinese or English one never.
-_JA_ANALYSED_TEXT = re.compile("[ぁ-ゖァ-ヺｦ-ﾝ]|歳")
+#: 10C-1b: Japanese text by its own letters: kana, or 歳 (Chinese writes 歲 or 岁), or a kanji only Japanese writes
+_JA_TEXT = re.compile("[ぁ-ゖァ-ヺｦ-ﾝ]|[歳歴薬発変検査実応価図圧済険読続転帰剤]")
+#: 10C-1b: Chinese text by its own letters: traditional and simplified forms, and words, Japanese never writes
+_ZH_TEXT = re.compile(
+    "[們這個說對從於與歷藥醫檢查實應價圖壓濟險讀續轉歸劑體齡號歲岁们这个说对时从么吗呢嗎給给過过還还裡是發會學國經區"
+    "斷腦臟舊麼沒寫處雙雜續轉關點药检发会学国经区断脑脏与没写处双杂续转关价压诊确认无]"
+)
+_JA_HAN = re.compile(f"[{_JA_KANJI}]")
+_LATIN_TWO_WORDS = re.compile("[A-Za-zＡ-Ｚａ-ｚ]{2,}[ 　]{1,2}[A-Za-zＡ-Ｚａ-ｚ]{2,}")
 _JA_ANALYSER = threading.local()  # one tokenizer per thread: a Sudachi tokenizer is not shared between threads
 
 
+def site_notes_language() -> str | None:
+    """The site's declared note language (``settings.site.notes_language``: ``ja``, ``zh-TW`` or ``en``), or None
+    (``auto``, or no site configuration readable)."""
+    try:
+        from tb_common.config import get_config
+
+        site = get_config().settings.site
+        lang = getattr(site, "notes_language", None) if site is not None else None
+    except Exception:
+        return None
+    return lang if lang in ("ja", "zh-TW", "en") else None
+
+
+def japanese_text(text: str) -> bool:
+    """10C-1b: the Japanese name analyser reads ``text``. A language, never a country: a text with kana, 歳 or a
+    kanji only Japanese writes is Japanese at any site; a text with Han characters and none of those is Japanese when
+    the site declares Japanese notes, never when it declares Chinese or English ones, and otherwise unless it holds a
+    character or a word only Chinese writes (森本裕子 alone is read; 病人在台北看診 has none either and is read too:
+    a Chinese name in it is masked, which is no harm; 這位病人是林小明 is not read)."""
+    if _JA_TEXT.search(text):
+        return True
+    if not _JA_HAN.search(text):
+        return False
+    lang = site_notes_language()
+    if lang is not None:
+        return lang == "ja"
+    return _ZH_TEXT.search(text) is None
+
+
 def japanese_names(text: str) -> list[tuple[int, int]]:
-    """10C-1b (D-1235): Japanese person names that no label, honorific or title marks (見本太郎は本日来院), from
-    SudachiPy with SudachiDict-small under the combination rule of ``tb_common.ja_names.name_spans``. Only a text with
-    kana or 歳 is read; the analyser is loaded on the first such text, once per thread (no import when this module
-    loads; the dictionary is a wheel, read from disk: no network). A missing package raises: the guard never quietly
-    masks less."""
-    if _JA_ANALYSED_TEXT.search(text) is None:
+    """10C-1b (D-1235): Japanese person names that no label, honorific or title of the rules marks (見本太郎は本日来院),
+    from SudachiPy with SudachiDict-small under the rule of ``tb_common.ja_names.name_spans``; in a text that is not
+    Japanese (:func:`japanese_text`), only a Japanese name in Latin letters (Taro Yamada) by the guard's listed
+    surnames, with no analyser. The analyser is loaded on the first Japanese text, once per thread (no import when this
+    module loads; the dictionary is a wheel, read from disk: no network). A missing package raises: the guard never
+    quietly masks less."""
+    japanese = japanese_text(text)
+    if not japanese and _LATIN_TWO_WORDS.search(text) is None:
         return []
     from tb_common import ja_names  # here, not at the top: ja_names imports this module
 
+    if not japanese:
+        return ja_names.romaji_spans(text)
     an = getattr(_JA_ANALYSER, "an", None)
     if an is None:
         an = _JA_ANALYSER.an = ja_names.analyser("sudachi-small")
-    return ja_names.name_spans(text, an)
+    return ja_names.name_spans(text, an, japanese=True)
 
 
 #: 10C-1b: name recognisers beyond the patterns, each ``text -> (start, end) spans``, added to :func:`note_spans` (and
@@ -1225,6 +1264,8 @@ def note_spans(text: str, mrn_regex: str | None = None) -> list[tuple[str, int, 
             found.append(("mrn", m.start(), m.end()))
     for recognise in NAME_RECOGNISERS:  # 10C-1b: the Japanese name analyser (japanese_names), D-1235
         found.extend(("name", s, e) for s, e in recognise(text))
+    if NAME_RECOGNISERS:
+        found = _whole_names(text, found)
     merged: list[tuple[str, int, int]] = []
     for kind, s, e in sorted(found, key=lambda f: (f[1], -f[2])):
         if e <= s:
@@ -1235,6 +1276,30 @@ def note_spans(text: str, mrn_regex: str | None = None) -> list[tuple[str, int, 
         else:
             merged.append((kind, s, e))
     return merged
+
+
+_JA_KANJI_CHAR = re.compile(f"[{_JA_KANJI}]")
+
+
+def _whole_names(text: str, found: list[tuple[str, int, int]]) -> list[tuple[str, int, int]]:
+    """10C-1b: never half a name. In Japanese text, a name that starts inside a run of kanji (四月一日 君子: a rule
+    reads 日 君子) takes the run's first one to three kanji too, unless they are a word the guard says is no name
+    (長女, 主治医, 本日)."""
+    names = [f for f in found if f[0] == "name" and 0 < f[1] < len(text) and _JA_KANJI_CHAR.match(text, f[1])]
+    if not any(_JA_KANJI_CHAR.match(text, s - 1) for _k, s, _e in names) or not japanese_text(text):
+        return found
+    from tb_common import ja_names
+
+    out, starts = [], {s for _k, s, _e in names}
+    for kind, s, e in found:
+        if kind == "name" and s in starts:
+            k = s
+            while k > 0 and s - k < 3 and _JA_KANJI_CHAR.match(text, k - 1):
+                k -= 1
+            if k < s and not (k > 0 and _JA_KANJI_CHAR.match(text, k - 1)) and not ja_names.protected_prefix(text[k:s]):
+                s = k
+        out.append((kind, s, e))
+    return out
 
 
 def mask_note(text: str, mrn_regex: str | None = None) -> str:

@@ -22,12 +22,13 @@ asked for one choice with its licence and size before it becomes a dependency.
 
 1. **Chosen:** SudachiPy 0.7.0 with SudachiDict-small 20261015, runtime dependencies (`pyproject.toml`, `uv.lock`,
    `deploy/requirements.lock`, so the `trialbox-py` and demo images), registered in the guard by default
-   (`phi_guard.japanese_names`): loaded lazily, one tokenizer per thread, only for a text with kana or 歳 (a language,
-   not a country); no import when the guard loads; offline after install. `NOTE_MASK_VERSION` 8. Apache-2.0 code and dictionary (UniDic's words,
-   BSD-3-Clause, whose notice `NOTICE` must carry). Wheels for x86-64 and aarch64, no compiler, offline after
-   install, no neural model. About 115 MB installed per image, 44 MB to download, about 9 ms per 10 kB note.
-   Measured: 58 of 75 unlabelled names of the card's lines and 26 of 30 of a held-out set masked (rules alone: none),
-   no ordinary line changed of 266.
+   (`phi_guard.japanese_names`): loaded lazily, one tokenizer per thread, only for Japanese text (a language, not a
+   country; see the second round); no import when the guard loads; offline after install. `NOTE_MASK_VERSION` 8.
+   Apache-2.0 code and dictionary (UniDic's words, BSD-3-Clause, whose notice `NOTICE` must carry). Wheels for
+   x86-64 and aarch64, no compiler, offline after install, no neural model. About 115 MB installed per image (also
+   the embed image, whose lock carries the runtime set), 44 MB to download. Round one measured 58 of 75 unlabelled
+   names of the card's lines and 26 of 30 of a held-out set masked (rules alone: none), no ordinary line changed of
+   266; round two's figures are below.
 2. **Runner-up:** the same engine with SudachiDict-core 20261015: two more names of 75, 83 MB more, and a part of
    NEologd in the dictionary (its sources include the Hatena keyword list, whose terms were not read).
 3. **The combination rule:** the analyser proposes, the guard decides: a name run of the analyser's tags with its
@@ -49,6 +50,40 @@ reaches `deploy/requirements-embed.lock`, which installs the runtime set with th
 registered by default; `NOTE_MASK_VERSION` 8; the known-gap probe 68歳男性 ミホン タロウ moved to `masked`; the test that
 every 10C-1 rule is needed runs the rules alone; the register row `sudachidict-small` and UniDic's BSD-3-Clause notice
 in `NOTICE` section 7. No entry in `deploy/supply-chain-allowlist.yaml`.
+
+## Second round (the coordinator's independent measurement)
+
+On 400 invented chart lines the coordinator wrote before reading the rule, round one masked 123 of 174 names on
+plain lines and 33 of 40 on near-misses, with no over-masking on 150 lines without a name; 57 of 214 names leaked, by
+class. The second round changes the rule by class (`tb_common.ja_names`, its docstring states each step):
+
+- **Language from the site and the text, not a guess from kana** (`phi_guard.japanese_text`): kana, 歳 or a kanji
+  only Japanese writes is Japanese at any site; other Han text is read when the site declares Japanese notes
+  (`settings.site.notes_language: ja`), never when it declares Chinese or English, and, when it declares nothing,
+  unless the text holds a character only Chinese writes. A Chinese note with such a character is not read.
+- **Hiragana names**, a given name after a surname and a surname by its reading.
+- **By position**: the word before a title or an honorific, after a name label, before an age or a sex.
+- **Katakana foreign names** joined across ・ in this module's own code (the analyser returns ・ as a word of its own:
+  round one's "joined across a middle dot" was not true); eponyms as diseases stay.
+- **Never half a name**: a name that starts inside a run of kanji takes the run (四月一日 君子).
+- **Romaji**: two Hepburn words, one a surname by its reading; a Latin word before a title or after a label. On
+  1,506 files of the repository (20 MB, English notes and documents) the pair rule found 6 spans, all of them names.
+- **Over-masking removed**: 井上看護師 masks 井上 only (round one took 看護), 太田胃散 is a medicine.
+- **Memory**: 28 MB after import, about 73 MB after the first Japanese text, 135 MB after 1,000 notes and 137 MB after
+  50,000; the heap stays at 31 MB from 1,000 to 50,000 notes and the rest is the memory-mapped dictionary's pages
+  (file-backed, at most its 110 MB file). No growth to bound; the one cache of the module is bounded (4,096 readings).
+
+Development figures (the lane's own sets, not the coordinator's): the class fixtures
+`eval/phi_synth/ja_name_classes.json` 43 of 51 names leaked with the rules alone, 42 after round one, 3 after round two
+(the 3 stated limits), no counter-case changed; the card's lines 17 → 11 of 75 and the earlier held-out set 4 → 2 of
+30 (no longer held out: its misses were read in round two), no ordinary line changed of 266.
+
+**Limits after round two**: a kanji surname alone with nothing beside it (浅野: a place as often); a hiragana surname
+the analyser does not know by its reading (すどう); a romaji surname alone (Kimura), and, in a text that is not
+Japanese, a romaji pair whose surname is not one of the guard's 57 listed surnames; initials; a name inside a
+clinic's name; rare surnames the dictionary does not hold (四十物, 勅使河原, 小鳥遊) with no title, label or age beside
+them; a kanji-only line at a site that declares Chinese or English notes. Two over-masks of master's rules remain
+(赤ちゃん → ○ちゃん, 校長先生 → ○○先生): not this card's.
 
 ## Consequences
 

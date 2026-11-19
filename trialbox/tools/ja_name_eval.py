@@ -146,6 +146,8 @@ def _spans_of(an: ja_names.Analyser, *, protect: bool) -> Callable[[str], list[t
 def run(choices: list[str]) -> dict[str, Any]:
     data, guard = sets(), _guard()
     out: dict[str, Any] = {"rules": measure(data, None, guard)}
+    if installed("sudachi-small"):  # the guard as it ships: phi_guard.japanese_names (D-1235)
+        out["guard"] = measure(data, phi_guard.japanese_names, guard)
     for choice in choices:
         if not installed(choice):
             out[choice] = {"skipped": "not installed"}
