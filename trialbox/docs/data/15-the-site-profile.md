@@ -59,7 +59,7 @@ The profile keeps the *codes and habits*.
 | The data types the site stores | Nowhere | `data_types`, read by the coverage lines | **Moved here** |
 | The standard versions the site writes | Comments in the mapping; `settings.profiles` for TW Core | `standards`, a declaration. Where both name a standard (`tw_core`, `twpas_version`), they must agree: the night and `load` refuse otherwise | Here, as a declaration. `settings.profiles` stays the value the code reads until 10C-25 sets the layer |
 | The site's country | `settings` (the zone, else the page language: `tb_common.derived.country_of`; the set-up defaults in `tb_common/site_country.py`) | `country` must be the one the settings give: the night and `load` refuse otherwise | Stays in settings; the profile is checked against it |
-| Lab codes a person mapped in site set-up (D-135) | The `local_code` store of site set-up (`sitesetup/store.py`, with who and when): it maps the codes of sheets and charts, not of the feed | Unchanged. Where it and the profile's lab table map one code differently, **the store wins** (a named person's recorded act; `adapter.site_profile.store_wins`) and the work list lists each disagreement (`worklist --setup-db`). **Not yet applied at night**: the adapter does not read the set-up store, and giving it that right is lane C2's (a read right on the `sitesetup` schema) | 10B-19 makes the form the one way to fill both |
+| Lab codes a person mapped in site set-up (D-135) | The `local_code` store of site set-up (`sitesetup/store.py`, with who and when): it maps the codes of sheets and charts. **It does not reach the nightly feed at all**: only tests call `lab_lookup_rows` and `merge_lookup`, so a mapping recorded on the console's Local codes page does not change what the night reads | Unchanged. Where it and the profile's lab table map one code differently, **the store wins** (a named person's recorded act; `adapter.site_profile.store_wins`) and the work list lists each disagreement (`worklist --setup-db`). **Not yet applied at night**: the adapter does not read the set-up store, and giving it that right is lane C2's (a read right on the `sitesetup` schema) | 10B-19 makes the form the one way to fill both |
 | Character set of the export | `settings.data_source.encoding` | Unchanged | 10B-19 (the questionnaire asks it) |
 | SS-MIX2 order-number (visit-key) habit | `TB_SSMIX2_ORDER_NUMBERS` (D-594) | Unchanged | 10B-2 (the specification's key by default), then 10B-19 |
 | Usage (用法) codes → doses per day | Not modelled | Unchanged | 10B-4 (`codes/usage.csv`, a new `used_by`) |
@@ -121,7 +121,8 @@ is shown:
   - A mapping's look-up table: every row that looks up a `verify` code is tagged.
   - An SS-MIX2 table: the reader is not changed here (#1095 is changing it). A diagnosis or medicine row is tagged
     when its local code is a `verify` row and its standard code is the one that row gives. A message that carried the
-    same code itself is tagged too: an over-count on the safe side.
+    same code itself is tagged too: an over-count on the safe side. The follow-up, once #1095 has merged: the reader
+    says which code it took from the table, and only those rows are tagged.
 
 **Open question (no rule exists; not decided here).** May a fact whose standard code rests on an unverified mapping
 exclude a patient? Today it does exactly what any coded record does: it can meet an inclusion and it can exclude.
