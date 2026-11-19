@@ -96,13 +96,14 @@ def test_2_a_suspicion_anywhere_makes_the_diagnosis_provisional(tmp_path: Path, 
     assert row["suspected"] == "Y"
 
 
-@pytest.mark.parametrize(("name", "flag"), [("肺癌", "0^疑いなし^JHSD0005"), ("Rosacea", "")])
-def test_2_no_suspicion_written_anywhere_is_confirmed(tmp_path: Path, name: str, flag: str) -> None:
+# D-1252: the JHSD0005 code table (表95) holds only "1 疑いあり"; a "0" is not a value of it, so "0^疑いなし" is U
+@pytest.mark.parametrize(("name", "flag", "want"), [("肺癌", "0^疑いなし^JHSD0005", "U"), ("Rosacea", "", "")])
+def test_2_no_suspicion_written_anywhere_is_confirmed(tmp_path: Path, name: str, flag: str, want: str) -> None:
     st = _ss(tmp_path)
     segs = [kit._msh("20261001090000", "PPR^ZD1^PPR_ZD1", "P1"), kit._pid(kit.P1), str(_prb(name, flag)["prb"])]
     kit._write(st, kit.P1, "-", "PPR-01", "ALL9", kit._stamp(DAY), segs)
     (row,) = list(_source(st).rows("diagnosis", "diagnosis", None, None))
-    assert row["suspected"] == ""
+    assert row["suspected"] == want
 
 
 # ------------------------------------------------------------------------------------------------ item 3: offsets

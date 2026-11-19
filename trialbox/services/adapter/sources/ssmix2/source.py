@@ -328,21 +328,13 @@ def _suspected(prb: hl7.Segment) -> bool:
     return suspicion_in(prb.comp(3, 2)) or suspicion_in(prb.comp(17, 1))
 
 
-#: the texts a JHSD0005 "0" (not suspected) may carry and still be read as confirmed
-_CONFIRMED_TEXT = ("", "疑いなし", "疑い無し", "なし")
-
-
 def flag_confirmed(prb: hl7.Segment) -> bool:
-    """Whether PRB-13 positively says "not suspected", or is empty (fourth review of PR #1095 item a: an allow-list,
-    never a list of doubtful words): every triple is ``0`` of JHSD0005 (or of the first triple with no table named)
-    with no text or one of :data:`_CONFIRMED_TEXT`. Anything else (another code, another table, another text such as
-    "0^否定できない^JHSD0005") is not a confirmation."""
-    for code, text, system in _triples(prb, 13):
-        code, text = unicodedata.normalize("NFKC", code).strip(), unicodedata.normalize("NFKC", text).strip()
-        if (_jhsd0005(system) or not system) and code == "0" and text in _CONFIRMED_TEXT:
-            continue
-        return False
-    return True
+    """Whether PRB-13 leaves the diagnosis confirmed: only when it is empty. The code table of JHSD0005 (SS-MIX2
+    標準化ストレージ仕様書 Ver.1.2j 別紙：コード表, 表95 疑い病名フラグ; D-1252) holds one value, ``1`` 疑いあり, so a
+    ``0`` (with any text, of JHSD0005 or of no named table) is not a recognised value: the certainty is unknown. This
+    replaces the fourth review's allow-list of "0" texts, which rested on review 12's account of the table, not on
+    the table itself. Anything written in the field, a table name alone included, is not empty."""
+    return not prb.field(13).strip()
 
 
 def same_text(a: str, b: str) -> bool:
@@ -359,9 +351,9 @@ def certainty(prb: hl7.Segment, written: str, modifiers: list[str], unread_modif
     (provisional), ``X`` ruled out (refuted: the lake leaves it out), ``U`` certainty unknown (unconfirmed, never
     confirmed), empty confirmed. A suspicion in the flag (:func:`_suspected`), the name, PRB-17 or a modifier, or a
     modifier with only a code, is ``Y``; a "疑いなし" or "ruled out" there is ``X``; both at once ``U``. Confirmed
-    only when everything is positively recognised: PRB-13 empty or a recognised "not suspected"
-    (:func:`flag_confirmed`), no ZPR modifier (its layout and table are not cited, so its meaning is not known), and
-    PRB-17 empty or the same name as PRB-3. Anything else is ``U``."""
+    only when everything is positively recognised: PRB-13 empty (:func:`flag_confirmed`; a "0" is not a value of
+    JHSD0005), no ZPR modifier (its layout and table are not cited, so its meaning is not known), and PRB-17 empty
+    or the same name as PRB-3. Anything else is ``U``."""
     if len(prb.reps(13)) > 1 or len(prb.reps(17)) > 1:
         return "U"  # a second certainty or written name is data, never dropped (fifth review item 2)
     texts = [written, *modifiers]
