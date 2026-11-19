@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://trialbox.local/schemas/v1/site_profile.schema.json",
+  "$id": "https://trialbox.local/site-profile/v1/site_profile.schema.json",
   "title": "SiteProfile",
   "description": "A site profile's manifest, profile.yaml (10B-6, commitment C-6, D-1233): one hospital's habits as data. Schema version 1.0.0. Nothing secret and no patient data: credentials stay in the environment, the site's name and addresses in settings, everything per study in the study package.",
   "type": "object",

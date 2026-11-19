@@ -16,7 +16,7 @@ mounted read-only into the adapter at `/etc/trialbox/mapping/profile` and kept b
 
 ```
 profile/
-  profile.yaml      the manifest (schemas/site_profile.schema.json)
+  profile.yaml      the manifest (libs/tb_common/site_profile.schema.json)
   codes/<name>.csv  one code table per file
 ```
 

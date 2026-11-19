@@ -19,7 +19,7 @@ hospital meant changing code or the image. Shipped sample rows marked `verify` w
 ## Decision
 
 1. **One folder per site.** `deploy/site/mapping/profile/` (mounted with the site mapping, kept by every update):
-   `profile.yaml` (`schemas/site_profile.schema.json`, `format: tb-site-profile/1`) and `codes/*.csv`. One box is
+   `profile.yaml` (`libs/tb_common/site_profile.schema.json`, `format: tb-site-profile/1`) and `codes/*.csv`. One box is
    one site: one profile. No folder: the box reads as before.
 2. **One loader refuses with the line and the reason** (`tb_common.site_profile.load`): schema errors and unknown
    keys, tables outside the folder, missing columns, patient columns, empty or repeated keys, empty targets, a state

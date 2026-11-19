@@ -2,8 +2,8 @@
 
 A profile is one folder::
 
-    profile.yaml        the manifest (schemas/site_profile.schema.json): id, site, country, version, the door and the
-                        standard versions it targets, the data types the site stores, its code tables
+    profile.yaml        the manifest (site_profile.schema.json beside this module): id, site, country, version,
+                        the door and the standard versions it targets, the data types the site stores, its tables
     codes/<name>.csv    a code table: the site's own code, the standard code, and a state on every row
 
 :func:`load` is the one way the product gets a profile. It refuses, naming the file, the line and the reason:
@@ -35,7 +35,6 @@ import csv
 import hashlib
 import io
 import json
-import os
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -146,8 +145,8 @@ class Profile:
 
 
 def _schema() -> dict[str, Any]:
-    base = Path(os.environ.get("TB_SCHEMAS_DIR") or Path(__file__).resolve().parents[2] / "schemas")
-    data: dict[str, Any] = json.loads((base / "site_profile.schema.json").read_text(encoding="utf-8"))
+    """The manifest's JSON Schema, beside this module (a site file, not a service contract of ``schemas/``)."""
+    data: dict[str, Any] = json.loads(Path(__file__).with_name("site_profile.schema.json").read_text(encoding="utf-8"))
     return data
 
 
