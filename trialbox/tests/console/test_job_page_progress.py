@@ -8,6 +8,7 @@ number is missing, when nobody waits, or to an account that does not read the st
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -98,6 +99,28 @@ def _answers(page: str) -> str | None:
 def test_while_a_protocol_is_read_the_page_counts_the_models_answers_since_the_latest_start(
     box: dict[str, Any], lang: str
 ) -> None:
+    _three_answers_since_the_latest_start(box, lang)
+
+
+@pytest.fixture
+def one_millisecond(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Every audit row this test writes carries one and the same timestamp (the log's resolution is a millisecond):
+    only the order the rows were written in can tell the latest compile.start from the answers after it."""
+    au = box["audit"]
+    real, now = au.append, datetime.now(UTC).replace(microsecond=0)
+    monkeypatch.setattr(au, "append", lambda event, **fields: real(event, **{**fields, "ts": now}))
+    return box
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_rows_written_in_one_millisecond_are_counted_in_the_order_they_were_written(
+    one_millisecond: dict[str, Any], lang: str
+) -> None:
+    """10E-13b: the count follows the audit log's own order, never a tie of timestamps (CI saw 2 for 3)."""
+    _three_answers_since_the_latest_start(one_millisecond, lang)
+
+
+def _three_answers_since_the_latest_start(box: dict[str, Any], lang: str) -> None:
     jid = _reading(box, 981)
     au = box["audit"]
     au.append("compile.start", job_id=jid, ruleset="GZQO", actor="criteria-compiler")  # an earlier, failed attempt
