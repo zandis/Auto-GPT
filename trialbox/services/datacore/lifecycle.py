@@ -694,8 +694,8 @@ class Lifecycle:
                 if implied and s == "consented" and src.startswith("form:"):
                     # T-516 (LIFE-019, D-385): a TrialBox form never implies consent. The study records consent here,
                     # so an enrolment or a visit without a consent form holds the subject and says why
-                    why = "assent_declined" if self.assent_declined(study, record) else ""
-                    held.append({"state": "consented", "why": why or "consent_missing", "current": state,
+                    hold = "assent_declined" if self.assent_declined(study, record) else "consent_missing"
+                    held.append({"state": "consented", "why": hold, "current": state,
                                  "source": src})  # fmt: skip
                     break
                 d = day_for(s, by_ev["day"] or today)

@@ -457,7 +457,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                     r["opted_out"] or ("yes" if r["gone"] else ""),
                 ]
             )
-        cols = sponsor.LOG_COLUMNS
+        cols: tuple[str, ...] = sponsor.LOG_COLUMNS
         if proxy_on(rid):  # 10C-19 (D-1232): five columns at the end; the sponsor's layout names its own columns
             cols = (*cols, *PROXY_COLUMNS)
             for line, r in zip(table, rows, strict=True):

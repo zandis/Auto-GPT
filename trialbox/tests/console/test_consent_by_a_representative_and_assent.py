@@ -33,7 +33,7 @@ from tests.console.test_role_pages import _csrf
 
 def _orch(lb: dict[str, Any], name: str) -> list[dict[str, Any]]:  # noqa: F811
     """The orchestrator's audit events called ``name``."""
-    out = []
+    out: list[dict[str, Any]] = []
     for f in sorted(lb["audit"].directory.glob("*.jsonl")):
         out.extend(e for line in f.read_text().splitlines() if line and (e := json.loads(line)).get("event") == name)
     return out
@@ -114,6 +114,18 @@ def test_in_the_assent_ages_without_assent_warns(lb: dict[str, Any], monkeypatch
     assert r.status_code == 200 and "Age of majority 20; assent asked from age 12 to 19." in r.text
     assert _orch(lb, "life.consent_ages")[-1]["detail"] == {"old": [18, 7, 17], "new": [20, 12, 19]}
     assert "proxy-w-" not in c.get(f"/studies/GZQO/subjects/{no}").text
+    # the /api/v1 twin: the same rule, the same right
+    tok = c.post("/api/v1/session", json={"username": "crc", "password": PW}).json()["token"]
+    api = c.post("/api/v1/studies/GZQO/setup/consent-ages", json={"majority": 18, "assent_from": 12, "assent_to": 17},
+                 headers={"Authorization": f"Bearer {tok}"})  # fmt: skip
+    assert api.status_code == 200 and api.json()["assent_from"] == 12
+    lb["users"].create("viewer2", "viewer", PW, "viewer2@hospa.test")
+    vtok = c.post("/api/v1/session", json={"username": "viewer2", "password": PW}).json()["token"]
+    no_right = c.post("/api/v1/studies/GZQO/setup/consent-ages", json={"majority": 18, "assent_from": 7,
+                      "assent_to": 17}, headers={"Authorization": f"Bearer {vtok}"})  # fmt: skip
+    assert no_right.status_code == 403
+    c.post("/studies/GZQO/setup/consent-ages",
+           data={"csrf": _csrf(setup), "majority": "20", "assent_from": "12", "assent_to": "19"})  # fmt: skip
     bad = c.post("/studies/GZQO/setup/consent-ages",
                  data={"csrf": _csrf(setup), "majority": "18", "assent_from": "12", "assent_to": "18"})  # fmt: skip
     assert bad.status_code == 400 and "below the age of majority" in bad.text
