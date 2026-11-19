@@ -173,18 +173,43 @@ def _files(d: Path) -> dict[str, Path]:
 
 
 def compare(old_dir: Path, new_dir: Path) -> int:
+    """Every data set is proved on its own map: two sites' lakes are two lakes, and the same hospital number in two
+    of them was one id before (the very collision D-1253 ends) and is two ids now."""
+    problems: list[str] = []
+    totals: Counter[str] = Counter()
+    old_f, new_f = _files(old_dir), _files(new_dir)
+    sets_old = {k.split("/")[0] for k in old_f}
+    sets_new = {k.split("/")[0] for k in new_f}
+    for name in sorted(sets_old - sets_new):
+        problems.append(f"{name}: data set gone")
+    for name in sorted(sets_old & sets_new):
+        pr = _compare_set(old_dir / name, new_dir / name, name)
+        problems += pr.problems
+        totals.update(pr.counts)
+        totals["ids"] += len(pr.map)
+        totals["ids_changed"] += sum(1 for a, b in pr.map.items() if a != b)
+    print(json.dumps({**dict(totals), "ids_same": totals["ids"] - totals["ids_changed"],
+                      "data_sets": sorted(sets_old & sets_new), "new_data_sets": sorted(sets_new - sets_old),
+                      "problems": len(problems)}, indent=1, sort_keys=True))  # fmt: skip
+    by_file = Counter(p.split(": ", 1)[0] for p in problems)
+    for f, n in by_file.most_common():
+        print(f"PROBLEMS {n:6d} {f}")
+    for p in problems[:20]:
+        print("PROBLEM", p)
+    if not problems:
+        print("PROVED: in every data set, every row, funnel, candidate list and outcome is the same once the old ids "
+              "are mapped, one to one; nothing else moved")  # fmt: skip
+    return 1 if problems else 0
+
+
+def _compare_set(old_dir: Path, new_dir: Path, name: str) -> Proof:
     pr = Proof()
     old_f, new_f = _files(old_dir), _files(new_dir)
-    only_new = sorted({k.split("/")[0] for k in new_f} - {k.split("/")[0] for k in old_f})
-    only_old = sorted({k.split("/")[0] for k in old_f} - {k.split("/")[0] for k in new_f})
-    if only_old:
-        pr.problems.append(f"data sets gone: {only_old}")
     common = sorted(set(old_f) & set(new_f))
-    missing = sorted(k for k in old_f if k.split("/")[0] not in only_old and k not in new_f)
-    pr.problems += [f"{k}: not in the new dump" for k in missing]
+    pr.problems += [f"{name}/{k}: not in the new dump" for k in sorted(set(old_f) - set(new_f))]
     texts: dict[str, tuple[list[str], list[str]]] = {}
     for k in common:
-        texts[k] = ([_canon(r) for r in _read(old_f[k])], [_canon(r) for r in _read(new_f[k])])
+        texts[f"{name}/{k}"] = ([_canon(r) for r in _read(old_f[k])], [_canon(r) for r in _read(new_f[k])])
     # 1. the map, from the lake rows whose content without its ids is unique in its file on both sides (an outcome's
     #    lists are ordered by id, so its tokens are never paired by position: outcomes are checked, not learned from)
     for k, (old, new) in texts.items():
@@ -223,19 +248,7 @@ def compare(old_dir: Path, new_dir: Path) -> int:
                 pid = json.loads(r).get("pid")
                 if pid and pr.map.get(pid, pid) != pid:
                     pr.problems.append(f"{k}: a patient's pid changed")
-    changed = sum(1 for a, b in pr.map.items() if a != b)
-    print(json.dumps({"files": pr.counts["files"], "rows": pr.counts["rows"], "ids": len(pr.map),
-                      "ids_changed": changed, "ids_same": len(pr.map) - changed, "new_data_sets": only_new,
-                      "problems": len(pr.problems)}, indent=1))  # fmt: skip
-    by_file = Counter(p.split(": ", 1)[0] for p in pr.problems)
-    for f, n in by_file.most_common():
-        print(f"PROBLEMS {n:6d} {f}")
-    for p in pr.problems[:20]:
-        print("PROBLEM", p)
-    if not pr.problems:
-        print("PROVED: every row, funnel, candidate list and outcome is the same once the old ids are mapped, one to "
-              "one; nothing else moved")  # fmt: skip
-    return 1 if pr.problems else 0
+    return pr
 
 
 def main(argv: list[str] | None = None) -> int:
