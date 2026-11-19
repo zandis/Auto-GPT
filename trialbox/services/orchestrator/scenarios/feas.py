@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from datetime import date
 
+from tb_common.dates import site_dates
 from tb_contracts import Settings, dump
 
 from orchestrator.clients import StepFailed
@@ -109,6 +110,7 @@ def run(ctx: Ctx) -> Outcome:
         locale=job_language(ctx),
         contact=settings.site.contact or "",
         clock=pinned_clock_note(ctx),
+        dates=site_dates(settings.site)[0],  # 10C-13
     )
     to = recipients(m.routing, job.requested_by)
     stem = f"feasibility_{rs.id}_v{rs.version}_{snapshot}"
