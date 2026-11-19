@@ -675,7 +675,21 @@ def modifier_cases() -> list[Case]:
     # without the master a code it does not hold, or a local code, cannot be told from a known one (as #1095 reads
     # them); with it, a name the reader cannot find in the master is not positively recognised
     specs.append(("PRB-3 code not in the master", "99991234", "肺炎", [], "CA", "NC", ""))
-    specs.append(("PRB-3 a local code", "L123", "肺炎", [], "CA", "NC", ""))
+    # a diagnosis coded only locally keeps the reading without the master even when it is loaded (lane J's ruling:
+    # the master rule is chosen per diagnosis, never per site)
+    specs.append(("PRB-3 a local code", "L123", "肺炎", [], "CA", "CA", ""))
+    # the mixed site (both tables loaded): local only, MDCDX2 only, both, and a local PRB-3 whose ZPR names MDCDX2
+    for q in ("", "（未確定）", "家族歴"):
+        doubt = "NC*" if q else "CA"
+        # coded only locally: the reading without the master, so doubt only in the text is the stated limit here too
+        specs.append((f"mixed site: local code only, {('肺炎' + q)}", "L123", "肺炎" + q, [], doubt, doubt, ""))
+        specs.append((f"mixed site: MDCDX2 only, {('肺炎' + q)}", pneu, "肺炎" + q, [], doubt, "NC" if q else "CA", ""))
+        specs.append((f"mixed site: local and MDCDX2, {('肺炎' + q)}", f"L123+{pneu}", "肺炎" + q, [], doubt,
+                      "NC" if q else "CA", ""))  # fmt: skip
+    specs.append(("mixed site: local PRB-3, ZPR names the same MDCDX2 disease", "L123", "左肺炎",
+                  [zpr(pre=["99980002"], dis=pneu)], "NC", "CA", ""))  # fmt: skip
+    specs.append(("mixed site: local PRB-3, ZPR names another MDCDX2 disease", "L123", "肺炎", [zpr(dis=gas)], "NC",
+                  "NC", ""))  # fmt: skip
     # the code says one disease, the text another: only the master can tell (the stated limit without it)
     specs.append(("display text of another disease", pneu, "胃炎", [], "NC*", "NC", ""))
     # a modifier with only an exchange code and its 管理番号 is fine (both given, consistent)
@@ -699,14 +713,20 @@ def modifier_cases() -> list[Case]:
     cases: list[Case] = []
     for i, (what, no, text, zs, plain, with_master, written) in enumerate(specs):
         pt = f"2{i:07d}"
-        body = [prb(no, text, "DX001", system="MDCDX2" if no.isdigit() else "99XYZ", written=written), *zs]
+        if "+" in no:  # a local code and an MDCDX2 one: two triples of PRB-3
+            local, number = no.split("+")
+            first = prb(local, text, "DX001", system=f"99XYZ^{number}^{text}^MDCDX2", written=written)
+        else:
+            first = prb(no, text, "DX001", system="MDCDX2" if no.isdigit() else "99XYZ", written=written)
+        body = [first, *zs]
         f = F(pt, "-", "PPR-01", "ALL9", stamp(DAY_A, 0), "1", ppr(pt, body))
         limit = plain == "NC*"
         cases.append(Case(f"{what} (no master)", "M modifiers", "diagnosis", [f], {f"{pt}/DX001": "NC" if limit else plain},
                           limit=limit))  # fmt: skip
         f2 = F(pt, "-", "PPR-01", "ALL9", stamp(DAY_A, 0), "1", ppr(pt, body))
+        limit2 = with_master == "NC*"
         cases.append(Case(f"{what} (licensed master)", "M modifiers", "diagnosis", [f2],
-                          {f"{pt}/DX001": with_master}, licensed="master"))  # fmt: skip
+                          {f"{pt}/DX001": "NC" if limit2 else with_master}, licensed="master", limit=limit2))  # fmt: skip
     # PRB-13: the code table (C 表95) lists only "1 疑いあり"; a "0" is not a value of it (D-1252, lane J's ruling)
     flags = ["0^^JHSD0005", "0^疑いなし^JHSD0005", "0^なし^JHSD0005", "0^^99JHSD0005", "0", "1^疑いあり^JHSD0005"]
     for j, flag in enumerate(flags):

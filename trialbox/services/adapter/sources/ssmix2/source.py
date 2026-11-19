@@ -1652,8 +1652,11 @@ class Ssmix2Source:
         comment = zpr.field(7).strip() if zpr else ""
         if comment:
             texts.append(comment)
-        name, code = prb.comp(3, 2), key_part(prb.comp(3, 1))
-        coded = prb.comp(3, 3).strip().upper() == _MDCDX2
+        name = prb.comp(3, 2)
+        # PRB-3's MDCDX2 code, in whichever triple carries it (a diagnosis may carry a local code and an MDCDX2 one)
+        mdcdx2 = [key_part(c) for c, _t, system in _triples(prb, 3) if system == _MDCDX2 and c.strip()]
+        coded = bool(mdcdx2)
+        code = mdcdx2[0] if coded else key_part(prb.comp(3, 1))
         disease = codes(2)
         # ZPR-2 / ZPR-5 naming another disease are kept as text too: never dropped
         for n in (2, 5):
@@ -1662,7 +1665,19 @@ class Ssmix2Source:
                 other_code = n == 2 and bool(c.strip()) and coded and key_part(c) != code
                 if other_text or other_code:
                     texts.append(txt or c)
+        # D-1252 (lane J's ruling): the master rule is chosen per diagnosis. It reads a diagnosis whose PRB-3 carries
+        # an MDCDX2 code, or whose ZPR names an MDCDX2 disease or modifier, when both tables are loaded; a diagnosis
+        # coded only locally keeps the reading without the master, whether or not the master is loaded. Counted, so
+        # a site sees what share of its diagnoses the stronger rule covers
+        names_mdcdx2 = zpr is not None and any(s == _MDCDX2 for n in range(1, 7) for _c, _t, s in _triples(zpr, n))
         master = self.master
+        if master is None:
+            self.stats["PPR-01:diagnosis read without the master (the tables are not loaded)"] += 1
+        elif not coded and not names_mdcdx2:
+            self.stats["PPR-01:diagnosis read without the master (coded locally)"] += 1
+            master = None
+        else:
+            self.stats["PPR-01:diagnosis read by the master rule"] += 1
         if master is None:
             if zpr is None:
                 return texts, ""
@@ -1679,6 +1694,8 @@ class Ssmix2Source:
         if coded and code not in master.diseases:
             # an MDCDX2 code may be the 病名交換用コード (S 3.7.4 names MDCDX2 for both): read as its 病名管理番号
             code = next((n for n, (_name, x) in master.diseases.items() if x == code), code)
+        # a locally coded PRB-3 whose ZPR names an MDCDX2 disease is read for what the ZPR names: the display name
+        # must then be that disease and its modifiers, else it disagrees with PRB-3 and is unknown
         number = disease[0] if len(disease) == 1 else (code if coded and not disease else "")
         if len(disease) > 1 or (disease and coded and disease != [code]):
             return texts, "ZPR-2 is not PRB-3's disease"

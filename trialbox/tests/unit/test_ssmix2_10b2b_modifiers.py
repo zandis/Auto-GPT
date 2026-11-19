@@ -113,8 +113,30 @@ def test_with_the_master_anything_not_positively_recognised_is_unknown(
     assert row["suspected"] == "U" or "疑" in name
 
 
-def test_with_the_master_a_local_code_is_not_recognised(tmp_path: Path) -> None:
-    assert _row(tmp_path, "肺炎", [], master=True, code="L123")["suspected"] == "U"
+def test_the_master_rule_is_chosen_per_diagnosis_and_counted(tmp_path: Path) -> None:
+    """Lane J's ruling: with both tables loaded, a diagnosis whose PRB-3 carries an MDCDX2 code (alone or beside a
+    local one) is read by the master rule; one coded only locally keeps the reading without the master, exactly as
+    on #1095's head (its display-text doubt is the stated limit); a local PRB-3 whose ZPR names an MDCDX2 disease is
+    read for what the ZPR names. ``stats`` counts which rule read each diagnosis."""
+    body = [
+        prb("L123", "肺炎", "DX001", system="99XYZ"),  # local, plain: confirmed, as before
+        prb("L124", "胃炎（未確定）", "DX002", system="99XYZ"),  # local, doubt only in the text: the stated limit
+        prb("99990001", "肺炎（未確定）", "DX003"),  # MDCDX2: the master rule reads the doubt
+        prb("L125", "肺炎（未確定）", "DX004", system="99XYZ^99990001^肺炎（未確定）^MDCDX2"),  # both codes
+        prb("L126", "左肺炎", "DX005", system="99XYZ"),  # local, ZPR names MDCDX2 and agrees
+        zpr(pre=["99980002"], dis="99990001"),
+        prb("L127", "肺炎", "DX006", system="99XYZ"),  # local, ZPR names another MDCDX2 disease
+        zpr(dis="99990002"),
+    ]
+    F(P1, "-", "PPR-01", "ALL9", stamp(DAY_A, 0), "1", ppr(P1, body)).write(tmp_path)
+    src = Ssmix2Source(tmp_path, licensed=_synthetic_release())
+    got = {r["diag_no"]: r["suspected"] for r in src.rows("diagnosis", "diagnosis", None, None)}
+    assert got == {"DX001": "", "DX002": "", "DX003": "U", "DX004": "U", "DX005": "", "DX006": "U"}
+    assert src.stats["PPR-01:diagnosis read by the master rule"] == 4
+    assert src.stats["PPR-01:diagnosis read without the master (coded locally)"] == 2
+    plain = Ssmix2Source(tmp_path, licensed=EMPTY)
+    list(plain.rows("diagnosis", "diagnosis", None, None))
+    assert plain.stats["PPR-01:diagnosis read without the master (the tables are not loaded)"] == 6
 
 
 # ------------------------------------------------------------------------------------------------ without it

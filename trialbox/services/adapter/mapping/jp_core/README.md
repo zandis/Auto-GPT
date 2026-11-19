@@ -36,9 +36,10 @@ JLAC10 and YJ releases on site. A site loads its own licensed releases (TrialBox
     python -m adapter.licensed load --kind yj     --file <HOT master>    --version <release>
     python -m adapter.licensed status
 
-With both MEDIS tables loaded, a diagnosis is confirmed only when its display name is exactly the coded name and its
-coded modifiers (修飾語) of a recognised class (D-1252: 1 部位, 2 位置, 9 歯科, 3 病因 when the name has no code of
-its own); without them a modifier makes the certainty unknown and doubt written only in the display text is not read.
+With both MEDIS tables loaded, a diagnosis whose PRB-3 carries an `MDCDX2` code is confirmed only when its display
+name is exactly the coded name and its coded modifiers (修飾語) of a recognised class (D-1252: 1 部位, 2 位置, 9 歯科,
+3 病因 when the name has no code of its own); a diagnosis coded only locally, or any diagnosis without both tables,
+is read as before: a modifier makes the certainty unknown and doubt written only in the display text is not read.
 The disease table needs its own `--columns` when it has no header row (変更区分,病名管理番号,病名表記,病名表記カナ,
 採択区分,病名交換用コード,ICD10-2013,...: ICD10対応標準病名マスター 仕様書 (1)).
 

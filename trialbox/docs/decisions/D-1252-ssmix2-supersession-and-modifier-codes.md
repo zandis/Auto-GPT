@@ -88,30 +88,38 @@ ZPR-7 a comment. (S's text for ZPR-4 says 接尾語 under a 接頭語 field name
   is unknown. **Limit:** doubt written only in the display text (「肺炎（未確定）」, 「肺炎既往」) is not read without
   the master; no word list is kept.
 - **With it** (licensed kinds `medis`, indexed by 病名管理番号, and the new `medis_modifier`, both loaded; the
-  disease table alone, loaded for the ICD-10 look-up of D-137, keeps the reading without the master, so loading it
-  never by itself turns a site's locally coded diagnoses unknown; an `MDCDX2` code in PRB-3 may be the 病名管理番号 or
-  the 病名交換用コード, S 3.7.4 names `MDCDX2` for both): confirmed only when the
+  disease table alone, loaded for the ICD-10 look-up of D-137, keeps the reading without the master). **The rule is
+  chosen per diagnosis, never per site** (lane J's ruling): it reads a diagnosis whose PRB-3 carries an `MDCDX2` code
+  (the 病名管理番号 or the 病名交換用コード, S 3.7.4 names `MDCDX2` for both; alone or beside a local code), or whose
+  ZPR names an `MDCDX2` disease or modifier (then the display name must be what the ZPR names, else it disagrees with
+  PRB-3 and is unknown). A diagnosis coded only locally keeps the reading without the master exactly as on #1095's
+  head, with the stated limit, whether or not the master is loaded. `stats` counts each night how many diagnoses
+  each rule read (`read by the master rule`, `read without the master (coded locally)`, `read without the master
+  (the tables are not loaded)`). Under the master rule: confirmed only when the
   display name (PRB-3's text) is exactly the prefixes' 修飾語表記, the 病名表記 and the suffixes' 修飾語表記, after
   `key_part`; every modifier is a current row of the master (変更区分 not 1) in its own position (接続位置区分: 10 and
   over before the name, 9 and under after it, M (2)⑥); the exchange codes given are the master's; and every
   modifier's class (the second character of 修飾語区分, M (2)⑦) is recognised: **1 部位, 2 位置, 9 歯科**; **3 病因**
   only when the master gives the modified name no code of its own (else the coded concept would silently be the
   unmodified one: unknown). **4 経過表現, 5 状態表現** (they can say "old", "after", "in remission"; M defines no
-  finer class), **6 患者帰属, 7 その他, 8 接尾語** (where "の疑い" is): unknown. A PRB-3 code the master does not hold,
-  or a local code, is unknown. No modifier's words are listed anywhere; only the master's own columns are read.
+  finer class), **6 患者帰属, 7 その他, 8 接尾語** (where "の疑い" is): unknown. An `MDCDX2` code the master does not hold is
+  unknown. No modifier's words are listed anywhere; only the master's own columns are read.
 - **P10** PRB-13: the code table of JHSD0005 (C 表95) holds one value, `1` 疑いあり. A `0`, with any text, is not a
   value of it: unknown. PRB-13 confirms only when empty. TrialBox's writers never write PRB-13.
 
 ## Measurement (named inputs: `tests/ssmix2_probes.py`)
 
-232 supersession cases (328 labelled ids) and 242 modifier cases (121 diagnoses, without and with a synthetic
-master), labelled before the implementation. #1095's head `5a4ee5f9` -> this card:
+232 supersession cases (328 labelled ids) and 264 modifier cases (132 diagnoses, without and with a synthetic
+master, the mixed site of local and `MDCDX2` codes included), labelled before the implementation. #1095's head
+`5a4ee5f9` -> this card:
 
 - supersession: wrong 106 -> 0, dangerous (an id read confirmed and active where it is not) 57 -> 0;
-- modifiers: wrong 110 -> 35, dangerous 82 -> 35; the 35 are all the stated limit (no master, doubt only in the
-  display text); outside it 0 and 0.
+- modifiers: wrong 122 -> 43, dangerous 93 -> 43; the 43 are all the stated limit (doubt only in the display text of
+  a diagnosis read without the master: no master loaded, or coded only locally); outside it 0 and 0.
 - Moved toward confirmed: without the master, 8 (ZPR naming only PRB-3's own disease) and 2 (a snapshot superseding
-  an older per-diagnosis file that held the diagnosis ended); with the master, 20, each by the master's own tables.
+  an older per-diagnosis file that held the diagnosis ended); with the master, 21, each by the master's own tables.
+- `make e2e-simple` with all four licensed samples loaded (both MEDIS tables): the GOUT-COH funnel from SS-MIX2 equals
+  its CSV export.
 
 ## How to revert
 
