@@ -354,9 +354,10 @@ def deny_masked_ja(text: str) -> str:
 #   denied when the part of its clause before it carries an odd number of negators, each one attached: a verbal
 #   negator (不, 未, 無法, 並未 ...) counts only when, after its auxiliaries (會, 能, 可, 再 ...), a light verb
 #   (用於, 提供, 進行, 做, 給予, 產生 ...) or a claim word follows it, so 未符合條件之病人的風險 denies nothing; an
-#   existential or copular negator (沒有, 毫無, 不具, 不含, 不是, 並非, 非 after the product's name) covers the rest
-#   of its clause, but not when a patient or a disease word stands straight before it (病人沒有風險 is said ABOUT the
-#   patient). A clause ends at 。！？；, a line end, or a comma that does not continue a list of claim words.
+#   existential, copular or prohibitive negator (沒有, 毫無, 不具, 不含, 不是, 並非, 請勿, 不得, 非 after the
+#   product's name) covers the rest of its clause, once (不是 is not also 不 + 是), but not when a patient or a
+#   disease word stands straight before it (病人沒有風險 is said ABOUT the patient). A clause ends at 。！？；, a
+#   line end, or a comma that does not continue a list of claim words.
 # * which sentences it reads: a sentence with no kana (zh-TW never writes kana; a Japanese sentence nearly always
 #   does). So the zh-TW table never reads a Japanese sentence with kana, and the Japanese table reads every sentence,
 #   exactly as before.
@@ -515,7 +516,7 @@ _LIGHT_ZH = (
 # a verbal negator counts only when a light verb or a claim word follows it (after its auxiliaries)
 _NEG_VERBAL_WORDS_ZH = r"(?:並未|並不|絕不|從不|從未|不再|無法|不|未|無)"
 _NEG_VERBAL_ZH = re.compile(_NEG_VERBAL_WORDS_ZH + r"(?=\s*" + _AUX_ZH + r"\s*" + _LIGHT_ZH + ")")
-# an existential or copular negator covers the rest of its clause
+# an existential, copular or prohibitive negator covers the rest of its clause
 _NEG_WHOLE_ZH = re.compile(
     r"並不是|不是|並非|絕非|而非|亦非|也非|沒有|並無|毫無|不具|不含|不包含|請勿|切勿|勿|不得|禁止"
 )
@@ -526,7 +527,8 @@ _ABOUT_ZH = re.compile("(?:" + "|".join(re.escape(w) for w in (*CLAIM_PATIENTS_Z
 
 
 def _zh_sentence(text: str, start: int, end: int) -> bool:
-    """True when the sentence around ``text[start:end]`` has no kana, so the zh-TW table reads it."""
+    """True when the sentence around ``text[start:end]`` has no kana, so the zh-TW table reads it (``_KANA`` is the
+    script test of :func:`text_lang`, below)."""
     left = max(text.rfind(c, 0, start) for c in "。！？!?\n") + 1
     right = min((i for i in (text.find(c, end) for c in "。！？!?\n") if i >= 0), default=len(text))
     return _KANA.search(text, left, right) is None
@@ -542,8 +544,9 @@ def deny_masked_zh(text: str) -> str:
             continue
         start = max((e.end() for e in _CLAUSE_END_ZH.finditer(text, 0, m.start())), default=0)
         before = text[start : m.start()]
-        # the negator's verb may be the claim word itself (無法辨識), so its lookahead reads past ``before``
         whole = [(w.start() + start, w.end() + start) for w in _NEG_WHOLE_ZH.finditer(before)]
+        # the negator's verb may be the claim word itself (無法辨識), so its lookahead reads past ``before``; a verbal
+        # negator inside an existential or copular one (不 of 不是, 不具) is that one, counted once below
         n = sum(
             1
             for neg in _NEG_VERBAL_ZH.finditer(text, start, m.end())
