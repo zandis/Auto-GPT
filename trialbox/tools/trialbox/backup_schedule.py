@@ -313,11 +313,20 @@ exit $rc
 STREAM_TRAILER = 26  # len("TBSTREAM %016d\n")
 
 
+def stream_items(name: str) -> tuple[str, ...]:
+    """What ``snapshot_script(..., stream=True)`` sends for database ``name``, in order: the dump, the row counts,
+    the packs, each of the hospital's own reference tables (an empty one when it has none) and the exit code."""
+    return (f"{name}.dump", f"{name}.rows", f"{name}.packs", *(f"{name}.site.{t}.copy" for t in BULK_REFDATA),
+            f"{name}.dump.rc")  # fmt: skip
+
+
 def split_stream(stream: Path, work: Path, name: str) -> list[str]:
     """10G-1 / D-455: the compose nightly's stdout (``snapshot_script(..., stream=True)``) back into the files the
     staged form writes: ``<name>.dump`` first (the stream file is truncated to it and renamed: never copied), then
     each small file. The byte counts the container recorded must add up to what arrived, else the backup fails: a
-    short or damaged stream is never sealed as a good backup."""
+    short or damaged stream is never sealed as a good backup. Exactly :func:`stream_items` must be there (review
+    B1): a part missing or one more fails the backup."""
+    want = stream_items(name)
     size = stream.stat().st_size
     with stream.open("rb") as fh:
         if size < STREAM_TRAILER:
@@ -334,9 +343,12 @@ def split_stream(stream: Path, work: Path, name: str) -> list[str]:
         items: list[tuple[int, str]] = []
         for ln in fh.read(ilen).decode("utf-8").splitlines():
             count, _, item = ln.partition(" ")
-            if not count.isdigit() or not item.startswith(f"{name}.") or "/" in item or item in (i for _, i in items):
+            if not count.isdigit() or item not in want or item in (i for _, i in items):
                 raise RuntimeError(f"the snapshot stream of {name} has a bad index line {ln[:80]!r}")
             items.append((int(count), item))
+        missing = sorted(set(want) - {i for _, i in items})
+        if missing:  # review B1: exactly the expected set; a lost part is a failed backup, never "no rows"
+            raise RuntimeError(f"the snapshot stream of {name} lacks {', '.join(missing)}")
         if sum(n for n, _ in items) != body:
             raise RuntimeError(f"the snapshot stream of {name}: the container wrote {sum(n for n, _ in items)} bytes, "
                                f"{body} arrived")  # fmt: skip
@@ -1138,8 +1150,9 @@ class ComposeOps:
         counts against the container's memory limit. So every output is streamed (``stream=True``): the dump, the
         row counts and hashes, the packs and the hospital's own reference rows go through :data:`EMIT_SH` to psql's
         stdout, which ``exec -T`` hands to ``<db>.stream`` here; :func:`split_stream` takes it apart and checks the
-        byte counts the container recorded. Only the script, the snapshot id, the exit code and the index (bytes,
-        not data) are written in the spool."""
+        byte counts the container recorded. The spool is emptied first (review B2: a stale index from a run whose
+        removal failed would refuse a good backup). Only the script, the snapshot id, the exit code and the index
+        (bytes, not data) are written in the spool."""
         refdata = REFDATA if db == "trialbox_wf" else None
         script = work / f"{db}.sql"
         script.write_text(snapshot_script(CONTAINER_SPOOL, db, "pg_dump", f"-U {user} -d {db}", (), refdata,
@@ -1147,7 +1160,7 @@ class ComposeOps:
         stream = work / f"{db}.stream"
         try:
             self.box.run(self.box._c("exec", "-T", "db", "sh", "-c",
-                                     f'umask 077; mkdir -p {CONTAINER_SPOOL}; '
+                                     f'umask 077; rm -rf -- {CONTAINER_SPOOL}; mkdir -p {CONTAINER_SPOOL}; '
                                      f'printf "%s" "$1" > {CONTAINER_SPOOL}/emit; cat > "$2"; '
                                      f'psql -X -q -v ON_ERROR_STOP=1 -U {user} -d {db} -f "$2"',
                                      "tb-snapshot", EMIT_SH, f"{CONTAINER_SPOOL}/{db}.sql"),

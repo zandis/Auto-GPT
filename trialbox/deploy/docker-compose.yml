@@ -123,9 +123,10 @@ services:
     # postgres's own one, ssl-cert (the TLS key, D-993), by name: Docker resolves it in the image's /etc/group, and
     # PID 1 has exactly postgres's groups, as the box rehearsal's SC-1b check wants. Read-only root: the socket
     # folder and /tmp are tmpfs; pgBackRest logs to no file (log-level-file=off). /tmp holds only bytes of
-    # bookkeeping (pgBackRest's lock, the nightly's script, snapshot id, exit code and stream index, the rollback's
-    # marker): the dump, the rows and the rollback's script stream through exec. A tmpfs is memory under mem_limit,
-    # so it is capped: a runaway writer gets "no space left", never db OOM-killed (10G-1 review D1).
+    # bookkeeping (pgBackRest's lock, the nightly's script, snapshot id, exit code and stream index): the nightly's
+    # dump and rows stream through exec, and an update rollback's plain script goes to $PGDATA/tb-rollback on db-pg
+    # (update.RESTORE_SH). A tmpfs is memory under mem_limit, so it is capped: a runaway writer gets "no space left",
+    # never db OOM-killed (10G-1 review D1).
     user: "999:999"
     group_add: [ssl-cert]
     read_only: true

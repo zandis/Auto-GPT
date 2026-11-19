@@ -545,84 +545,122 @@ def test_in_process_box_reads_schema_versions_and_refuses_a_changed_or_missing_m
 def _shims(tmp_path: Path, restore_rc: int) -> dict[str, str]:
     bin_ = tmp_path / "bin"
     bin_.mkdir()
-    (bin_ / "pg_restore").write_text(  # writes its script to stdout, like pg_restore with no -f, then exits restore_rc
-        f'#!/bin/sh\necho "$@" > {tmp_path}/restore_args; cat >/dev/null; echo "SELECT 1;"; exit {restore_rc}\n'
+    (bin_ / "pg_restore").write_text(  # writes its "script" to -f FILE, like pg_restore, then exits restore_rc
+        '#!/bin/sh\nwhile [ $# -gt 1 ]; do [ "$1" = -f ] && out=$2; shift; done\n'
+        f'cat >/dev/null; echo "SELECT 1;" > "$out"; echo "$out" > {tmp_path}/script_path; exit {restore_rc}\n'
     )
     (bin_ / "psql").write_text(f'#!/bin/sh\necho "$@" > {tmp_path}/psql_args; cat > {tmp_path}/psql_in\n')
     for f in bin_.iterdir():
         f.chmod(0o755)
-    (tmp_path / "tmp").mkdir()
-    return {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "TMPDIR": str(tmp_path / "tmp")}
+    (tmp_path / "pgdata").mkdir()  # 10G-1 (H10G1-05): the script's folder is on the db volume, under PGDATA
+    return {
+        **os.environ,
+        "PATH": f"{bin_}:{os.environ['PATH']}",
+        "TMPDIR": str(tmp_path),
+        "PGDATA": str(tmp_path / "pgdata"),
+    }
 
 
 @pytest.mark.parametrize("restore_rc", [0, 1])
-def test_compose_rollback_restore_resets_the_role_first_and_never_commits_a_cut_off_script(
+def test_compose_rollback_restore_resets_the_role_first_and_never_runs_a_cut_off_script(
     tmp_path: Path, restore_rc: int
 ) -> None:
     """The drill's db-image case found that ``pg_restore --clean`` fails when the new release added a table to a
-    schema of the dump. The restore is RESET_SQL + the dump's script in one psql transaction, committed only after
-    pg_restore wrote the whole script. 10G-1 (H10G1-05): streamed, nothing of it written to db's tmpfs /tmp."""
+    schema of the dump. The restore is RESET_SQL + the dump's script in one psql transaction, and only after
+    pg_restore wrote the whole script."""
     dump = tmp_path / "wf.dump"
     dump.write_bytes(b"PGDMP")
-    env = _shims(tmp_path, restore_rc)
     with dump.open("rb") as stdin:
         res = subprocess.run(["sh", "-c", up.RESTORE_SH, "tb-restore", "trialbox", "trialbox_wf", up.RESET_SQL],
-                             stdin=stdin, env=env, capture_output=True, check=False)  # fmt: skip
-    assert not list((tmp_path / "tmp").iterdir())  # the marker is deleted whatever happened; no script was written
-    assert "-f" not in (tmp_path / "restore_args").read_text().split()  # pg_restore writes to the pipe
-    args = (tmp_path / "psql_args").read_text()
-    assert "--single-transaction" not in args.split()  # it would commit whatever arrived at end of input
-    assert "ON_ERROR_STOP=1" in args and "-U trialbox -d trialbox_wf" in args
-    body = (tmp_path / "psql_in").read_text()
-    assert body.startswith("BEGIN;\nDO $tb$")
+                             stdin=stdin, env=_shims(tmp_path, restore_rc), capture_output=True, check=False)  # fmt: skip
+    script = Path((tmp_path / "script_path").read_text().strip())
+    assert not script.exists()  # the plaintext script is deleted whatever happened
+    assert (
+        script.parent == tmp_path / "pgdata" / "tb-rollback" and not script.parent.exists()
+    )  # H10G1-05: its folder too
     if restore_rc:
-        assert res.returncode != 0 and "nothing committed" in res.stderr.decode()
-        assert "COMMIT" not in body  # psql never got a COMMIT for a cut-off script
+        assert res.returncode != 0 and not (tmp_path / "psql_args").exists()  # psql never saw a cut-off script
         return
     assert res.returncode == 0, res.stderr
-    assert body.rstrip().endswith("SELECT 1;\n\nCOMMIT;") and body.count("COMMIT") == 1
+    args = (tmp_path / "psql_args").read_text()
+    assert "--single-transaction" in args and "ON_ERROR_STOP=1" in args and "-U trialbox -d trialbox_wf" in args
+    body = (tmp_path / "psql_in").read_text()
+    assert body.startswith("DO $tb$") and body.rstrip().endswith("SELECT 1;")
     assert "DROP SCHEMA %I CASCADE" in up.RESET_SQL and "deptype = 'e'" in up.RESET_SQL
 
 
-@pytest.mark.parametrize("restore_rc", [0, 1])
-def test_the_streamed_rollback_restore_commits_only_a_whole_script_on_this_postgres(
-    tmp_path: Path, db_url: str, restore_rc: int
+def test_the_rollback_restore_runs_a_real_dump_under_dash_and_a_failed_one_changes_nothing(
+    tmp_path: Path, db_url: str
 ) -> None:
-    """H10G1-05: RESTORE_SH with the real psql: the reset and a script that pg_restore cut off half-way (exit 1)
-    leave the database as it was and the step fails; the same script whole is committed."""
-    from tb_common.db import Database, split_url
+    """10G-1 review A1: the real pg_restore needs -f or -d (PostgreSQL 12+ refuses otherwise), so its argv in
+    RESTORE_SH always names one. Then a real -Fc dump, with a large object (pg_restore's plain script carries its own
+    BEGIN/COMMIT for them), restored through RESTORE_SH under dash with RESET_SQL, in a database of its own: the state
+    of the dump comes back and the migration's table is gone. A pg_restore that fails (a cut-off dump) leaves the
+    database as it was, and psql is never run."""
+    from urllib.parse import unquote, urlsplit
 
-    db = Database.connect(db_url, "site")
-    db.migrate(["CREATE TABLE marks (pid TEXT PRIMARY KEY)"])
-    db.execute("INSERT INTO marks VALUES (?)", ("P1",))
+    import psycopg
+    from psycopg.conninfo import conninfo_to_dict
+    from tb_common.db import split_url
+
+    need = {b: shutil.which(b) for b in ("pg_dump", "pg_restore", "psql")}
+    if not all(need.values()):
+        pytest.skip(f"no PostgreSQL client binaries here: {sorted(b for b, w in need.items() if not w)}")
+    shell = shutil.which("dash") or "/bin/sh"
+    restore_cmd = up.RESTORE_SH[up.RESTORE_SH.index("pg_restore") :].split("||", 1)[0].split()
+    assert "-f" in restore_cmd or "-d" in restore_cmd or "--file" in restore_cmd  # A1: never neither
     dsn, _ = split_url(db_url)
-    marks = f"{db.schema}.marks"
-    bin_ = tmp_path / "bin"
-    bin_.mkdir()
-    psql = shutil.which("psql")
-    assert psql
-    (bin_ / "psql").write_text(f'#!/bin/sh\nexec "{psql}" "$@" --dbname "$TB_T_DSN"\n')  # the test's database
-    (bin_ / "pg_restore").write_text(  # a script cut off inside a COPY (exit 1), or the same one whole (exit 0)
-        "#!/bin/sh\ncat >/dev/null\n"
-        f"printf 'CREATE TABLE {db.schema}.back (n int);\\nCOPY {db.schema}.back (n) FROM stdin;\\n1\\n2'\n"
-        f"[ {restore_rc} = 0 ] && printf '\\n\\\\.\\n'\nexit {restore_rc}\n"
-    )
-    for f in bin_.iterdir():
-        f.chmod(0o755)
-    env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "TMPDIR": str(tmp_path), "TB_T_DSN": dsn}
-    res = subprocess.run(["sh", "-c", up.RESTORE_SH, "tb-restore", "u", "d", f"DROP TABLE {marks};"],
-                         stdin=subprocess.DEVNULL, env=env, capture_output=True, check=False)  # fmt: skip
-    have = {r[0] for r in db.fetchall("SELECT table_name FROM information_schema.tables WHERE table_schema = ?",
-                                   (db.schema,))}  # fmt: skip
-    if restore_rc:
-        assert res.returncode != 0, res.stderr
-        assert "marks" in have and "back" not in have  # the reset and the cut-off script were both rolled back
-        assert [r[0] for r in db.fetchall("SELECT pid FROM marks")] == ["P1"]
-    else:
-        assert res.returncode == 0, res.stderr
-        assert "marks" not in have and "back" in have
-        assert [r[0] for r in db.fetchall("SELECT n FROM back ORDER BY n")] == [1, 2]
-    assert not [f for f in tmp_path.iterdir() if f.name.startswith("tmp")]  # the marker is gone
+    u = urlsplit(dsn)
+    name = f"tb_rollback_{os.getpid()}_{tmp_path.name[-6:].replace('-', '_')}".lower()
+    info = conninfo_to_dict(dsn)
+    env = {**os.environ, "PGDATA": str(tmp_path / "pgdata"),
+           **{f"PG{k.upper()}": str(info[k]) for k in ("host", "port", "password") if info.get(k)}}  # fmt: skip
+    (tmp_path / "pgdata").mkdir()
+    user = str(info.get("user") or unquote(u.username or ""))
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(f'CREATE DATABASE "{name}"')
+    try:
+        target = u._replace(path=f"/{name}").geturl()
+        with psycopg.connect(target, autocommit=True) as con:
+            con.execute("CREATE SCHEMA app")
+            con.execute("CREATE TABLE app.marks (pid TEXT PRIMARY KEY, doc OID)")
+            con.execute("INSERT INTO app.marks VALUES ('P1', lo_from_bytea(0, 'synthetic large object'))")
+        dump = tmp_path / "wf.dump"
+        subprocess.run([str(need["pg_dump"]), "-Fc", "--no-owner", "-f", str(dump), "-d", target], check=True, env=env)
+        with psycopg.connect(target, autocommit=True) as con:  # what the failed release did after the dump
+            con.execute("CREATE TABLE app.added (n int)")
+            con.execute("INSERT INTO app.marks VALUES ('P2', NULL)")
+
+        def restore(f: Path) -> subprocess.CompletedProcess[bytes]:
+            with f.open("rb") as stdin:
+                return subprocess.run([shell, "-c", up.RESTORE_SH, "tb-restore", user, name, up.RESET_SQL],
+                                      stdin=stdin, env=env, capture_output=True, check=False)  # fmt: skip
+
+        def state() -> tuple[list[str], list[str], bytes | None]:
+            with psycopg.connect(target, autocommit=True) as con:
+                tables = [
+                    r[0]
+                    for r in con.execute(
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'app' ORDER BY 1"
+                    )
+                ]
+                pids = [r[0] for r in con.execute("SELECT pid FROM app.marks ORDER BY 1")]
+                lo = con.execute("SELECT lo_get(doc) FROM app.marks WHERE pid = 'P1'").fetchone()
+                return tables, pids, (bytes(lo[0]) if lo and lo[0] is not None else None)
+
+        cut = tmp_path / "cut.dump"
+        cut.write_bytes(dump.read_bytes()[: dump.stat().st_size // 2])
+        before = state()
+        bad = restore(cut)
+        assert bad.returncode != 0 and state() == before  # pg_restore failed: nothing ran, nothing changed
+        assert not (tmp_path / "pgdata" / "tb-rollback").exists()
+        good = restore(dump)
+        assert good.returncode == 0, good.stderr.decode(errors="replace")[-600:]
+        assert state() == (["marks"], ["P1"], b"synthetic large object")
+        assert not (tmp_path / "pgdata" / "tb-rollback").exists()  # the plaintext script and its folder are gone
+    finally:
+        with psycopg.connect(dsn, autocommit=True) as admin:
+            admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
 
 
 # ------------------------------------------------------------------------------------------------ review fixes

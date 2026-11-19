@@ -411,6 +411,18 @@ def stream_of(items: list[tuple[str, bytes]]) -> bytes:
     return b"".join(b for _, b in items) + index + f"TBSTREAM {len(index):016d}\n".encode()
 
 
+def full(name: str, dump: bytes = b"PGDMP", rows: bytes = b"", **site: bytes) -> list[tuple[str, bytes]]:
+    """Every part ``bs.stream_items`` expects for ``name``, in its order: the hospital's own tables empty unless given."""
+    given = {
+        "dump": dump,
+        "rows": rows,
+        "packs": b"",
+        "dump.rc": b"0\n",
+        **{f"site.{t}.copy": v for t, v in site.items()},
+    }
+    return [(i, given.get(i.removeprefix(f"{name}."), b"")) for i in bs.stream_items(name)]
+
+
 class FakeBox:
     """Records every command; plays the db container (the snapshot script) and the backup container."""
 
@@ -433,8 +445,7 @@ class FakeBox:
             dest = stdout_file.parent
             assert stat.S_IMODE(dest.stat().st_mode) == 0o700
             db = self.db
-            stdout_file.write_bytes(stream_of([(f"{db}.dump", b"PGDMP"), (f"{db}.rows", b"public.t|1|abc\n"),
-                                               (f"{db}.packs", b""), (f"{db}.dump.rc", b"0\n")]))  # fmt: skip
+            stdout_file.write_bytes(stream_of(full(db, rows=b"public.t|1|abc\n")))
             self.copied.append(dest)
         if argv[:2] == ["docker", "run"]:
             for i, a in enumerate(argv):
@@ -559,24 +570,66 @@ def test_the_streamed_snapshot_script_runs_on_this_postgres(tmp_path: Path, db_u
 
 
 def test_split_stream_checks_the_counts_the_container_recorded(tmp_path: Path) -> None:
-    """D4: the container's byte counts against what arrived; the dump comes first; names stay in the folder."""
-    good = stream_of([("x.dump", b"PGDMP-0123"), ("x.rows", b"a|1|h\n"), ("x.dump.rc", b"0\n")])
+    """D4: the container's byte counts against what arrived; the dump comes first. B1: exactly the expected parts,
+    none missing (a lost site copy is never "no site rows") and none more."""
+    good = stream_of(full("x", dump=b"PGDMP-0123", rows=b"a|1|h\n", trial=b"1\tT\n"))
     (tmp_path / "x.stream").write_bytes(good)
-    assert bs.split_stream(tmp_path / "x.stream", tmp_path, "x") == ["x.dump", "x.rows", "x.dump.rc"]
+    assert bs.split_stream(tmp_path / "x.stream", tmp_path, "x") == list(bs.stream_items("x"))
     assert (tmp_path / "x.dump").read_bytes() == b"PGDMP-0123" and (tmp_path / "x.rows").read_bytes() == b"a|1|h\n"
+    assert (tmp_path / "x.site.trial.copy").read_bytes() == b"1\tT\n" and (
+        tmp_path / "x.site.term.copy"
+    ).read_bytes() == b""
     assert stat.S_IMODE((tmp_path / "x.rows").stat().st_mode) == 0o600
+    parts = full("x")
     for items, why in (
-        ([("x.rows", b"r"), ("x.dump", b"PGDMP")], "start with its dump"),
-        ([("x.dump", b"PGDMP"), ("../x.rows", b"r")], "bad index line"),
-        ([("x.dump", b"PGDMP"), ("y.rows", b"r")], "bad index line"),
+        ([parts[1], parts[0], *parts[2:]], "start with its dump"),
+        ([*parts, ("x.sql", b"script")], "bad index line"),  # one more
+        ([*parts[:-1], ("../x.dump.rc", b"0\n")], "bad index line"),
+        ([p for p in parts if p[0] != "x.site.trial.copy"], "lacks x.site.trial.copy"),  # one lost
+        ([p for p in parts if p[0] != "x.dump.rc"], "lacks x.dump.rc"),
+        ([*parts, parts[1]], "bad index line"),  # twice
     ):
         (tmp_path / "x.stream").write_bytes(stream_of(items))
         with pytest.raises(RuntimeError, match=why):
             bs.split_stream(tmp_path / "x.stream", tmp_path, "x")
     lying = good.replace(b"10 x.dump", b"11 x.dump")  # the container counted a byte the host never got
     (tmp_path / "x.stream").write_bytes(lying)
-    with pytest.raises(RuntimeError, match=r"the container wrote 19 bytes, 18 arrived"):
+    with pytest.raises(RuntimeError, match=r"the container wrote \d+ bytes, \d+ arrived"):
         bs.split_stream(tmp_path / "x.stream", tmp_path, "x")
+
+
+def test_a_stale_spool_never_refuses_a_good_backup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review B2: the nightly's own command in the db container, run here with sh: a spool a failed removal left
+    (an old index, an old part) is emptied first, so the index names this run's parts only and the backup passes."""
+    import subprocess
+
+    spool = tmp_path / "spool"
+    spool.mkdir()
+    (spool / "index").write_text("5 trialbox_wf.dump\n")  # from a run whose rm failed
+    (spool / "trialbox_wf.rows").write_text("stale")
+    monkeypatch.setattr(bs, "CONTAINER_SPOOL", str(spool))
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    emit = f"sh {spool}/emit"
+    body = {"trialbox_wf.dump": "PGDMP", "trialbox_wf.dump.rc": "0"}
+    sends = "".join(f"printf '%s' '{body.get(i, '')}' | {emit} {i}\n" for i in bs.stream_items("trialbox_wf"))
+    (bin_ / "psql").write_text(f"#!/bin/sh\n{sends}{emit} --end\n")  # the db container's psql, as the script runs
+    (bin_ / "psql").chmod(0o755)
+    work = tmp_path / "work"
+    work.mkdir(mode=0o700)
+
+    def run(argv: list[str], stdin_file: Path | None = None, stdout_file: Path | None = None, **_kw: Any) -> str:
+        if argv[-6:-4] == ["sh", "-c"]:  # the exec into db: run its command here
+            assert stdin_file is not None and stdout_file is not None
+            with stdin_file.open("rb") as fin, stdout_file.open("wb") as fout:
+                subprocess.run(argv[-6:], stdin=fin, stdout=fout, check=True,
+                               env={"PATH": f"{bin_}:/usr/bin:/bin"})  # fmt: skip
+        return ""
+
+    ops = bs.ComposeOps(tmp_path, run)
+    ops.box.run = run
+    ops.snapshot("trialbox_wf", "trialbox", work)
+    assert (work / "trialbox_wf.dump").read_bytes() == b"PGDMP" and (work / "trialbox_wf.rows").read_text() == ""
 
 
 def test_compose_audit_falls_back_to_a_pending_file_when_the_orchestrator_is_down(tmp_path: Path) -> None:

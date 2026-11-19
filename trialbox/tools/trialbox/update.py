@@ -407,18 +407,19 @@ REFDATA_SWEEP_SH = 'rm -rf -- "${TMPDIR:?}"/tb-refdata-*'
 
 # ------------------------------------------------------------------------------------------------ database restore
 # The compose box's rollback restore (ComposeBox.restore_databases), run in the db container: $1 role, $2 database,
-# $3 RESET_SQL; the dump on stdin. RESET_SQL and the dump's script run as one transaction that only a whole script
-# commits. 10G-1 (H10G1-05): the script is streamed, never written to the db container's /tmp (a tmpfs: memory, and
-# capped). So psql gets no --single-transaction (which would commit whatever arrived at end of input): the stream
-# opens with BEGIN, and COMMIT is written after it only when pg_restore exited 0. A cut-off script is run and rolled
-# back when psql's connection closes without a COMMIT (or on its first error, ON_ERROR_STOP); the step then fails,
-# from a marker of a few bytes (in a 0600 file, deleted whatever happens).
+# $3 RESET_SQL; the dump on stdin. The script goes to a 0600 file (pg_restore from a pipe into psql would let psql
+# commit a cut-off script), RESET_SQL and the script run as one transaction, the file is deleted whatever happens.
+# 10G-1 (H10G1-05): the file is on the db volume, not in db's /tmp (a tmpfs: memory, capped at 64m): a folder of its
+# own under PGDATA (the volume's mount point is PGDATA itself, so no sibling exists; the only other postgres-owned
+# mount, the pgBackRest repository, is the hospital's off-box share when archiving is on, no place for a plaintext
+# script). 0700, emptied first (a killed rollback's leftover) and removed on every exit. ``space_needs`` counts it.
+RESTORE_DIR = "${PGDATA:?}/tb-rollback"
 RESTORE_SH = (
-    "umask 077; t=$(mktemp) || exit 1; trap 'rm -f \"$t\"' EXIT; "
-    '{ printf "BEGIN;\\n%s\\n" "$3"; '
-    'if pg_restore --clean --if-exists --no-owner; then printf "\\nCOMMIT;\\n"; else echo failed > "$t"; fi; } '
-    '| psql -X -q -v ON_ERROR_STOP=1 -U "$1" -d "$2" || exit 1; '
-    'if [ -s "$t" ]; then echo "tb-restore: pg_restore failed: nothing committed" >&2; exit 1; fi'
+    f'umask 077; d="{RESTORE_DIR}"; rm -rf -- "$d"; mkdir -m 0700 "$d" || exit 1; '
+    "trap 'rm -rf -- \"$d\"' EXIT; trap 'exit 1' HUP INT TERM; "
+    't=$(mktemp -p "$d") || exit 1; '
+    'pg_restore --clean --if-exists --no-owner -f "$t" || exit 1; '
+    '{ printf "%s\\n" "$3"; cat "$t"; } | psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$1" -d "$2"'
 )
 # Everything the role owns that a later release could have added: its schemas (not public, not an extension's) and
 # its relations in public (not an extension's). D-541: and what the database's owner owns (the FHIR store's own role
@@ -1346,10 +1347,11 @@ class ComposeBox(_DockerImages):
         """Images into Docker's data root, the models (and the ones kept aside), both databases dumped (and a
         decrypted copy during a rollback) under deploy/updates, and the backup on each target (at least the
         databases)."""
-        sizes = 0
+        sizes = largest = 0
         for db in ("trialbox_wf", "hapi"):
             rows = self._psql(f"SELECT pg_database_size('{db}')")
-            sizes += int(rows[0][0]) if rows and rows[0][0].isdigit() else 0
+            n = int(rows[0][0]) if rows and rows[0][0].isdigit() else 0
+            sizes, largest = sizes + n, max(largest, n)
         try:
             root = Path(self.run(["docker", "info", "-f", "{{.DockerRootDir}}"]).strip() or "/var/lib/docker")
         except UpdateFailed:
@@ -1361,7 +1363,10 @@ class ComposeBox(_DockerImages):
         needs = [(root, plan.payload_bytes("image"), "images"), (self.models, plan.payload_bytes("model"), "models"),
                  (updates, kept, "models kept aside"), (updates, 2 * sizes, "database dumps"),
                  (updates, plan.payload_bytes("other"), "other files"),
-                 (self.deploy.parent, 2 * plan.payload_bytes("host"), "host tree (unpacked)")]  # fmt: skip
+                 (self.deploy.parent, 2 * plan.payload_bytes("host"), "host tree (unpacked)"),
+                 # H10G1-05: a rollback writes one database's plain script on the db volume (RESTORE_DIR), under
+                 # Docker's root on a box; a plain script is about the database's size or less (no indexes)
+                 (root / "volumes", largest, "rollback script (largest database) on the db volume")]  # fmt: skip
         for t in [t for t in (self.env.get("TB_BACKUP_TARGETS") or "").replace(",", " ").split() if t]:
             needs.append((Path(t), sizes, "backup (at least the databases)"))
         return needs
@@ -1727,8 +1732,8 @@ class ComposeBox(_DockerImages):
         migration added to a schema of the dump blocks ``DROP SCHEMA`` and the rollback fails (found by the drill's
         db-image case). So the restore is one transaction in ``psql``: first every schema the role owns (but
         ``public`` and an extension's) and every relation it owns in ``public`` is dropped (``RESET_SQL``), then the
-        dump's own script (``pg_restore --clean --if-exists``, streamed: ``RESTORE_SH`` commits only a whole one).
-        Any error, or a cut-off script, rolls the whole of it back."""
+        dump's own script (``pg_restore --clean --if-exists -f``, written to a 0600 file on the db volume and
+        deleted, ``RESTORE_DIR``). Any error rolls the whole of it back."""
         for db, f in point.dumps.items():
             user = "trialbox" if db == "trialbox_wf" else "hapi"
             argv = self._c("exec", "-T", "db", "sh", "-c", RESTORE_SH, "tb-restore", user, db, RESET_SQL)
