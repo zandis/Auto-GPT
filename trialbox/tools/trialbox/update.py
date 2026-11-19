@@ -38,6 +38,7 @@ it, with a real backup, a real ``pg_dump`` / ``pg_restore`` and real migrations)
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -393,14 +394,31 @@ def _with_plain(sealed: Path, rb: Path, use: Callable[[Path], None]) -> None:
             plain.unlink(missing_ok=True)
 
 
+# 10G-1 review D3: the update's one-off runs into criteria-compiler, by name (removed before a run and after one that
+# failed or ran out of time), and the folder a reference pack unpacks in: the objects volume, not the tmpfs /tmp.
+# REFDATA_SWEEP_SH clears what a stopped load left there, by the loader's own folder prefix
+# (``tb_common.refdata.opened``: ``mkdtemp(prefix="tb-refdata-")``); only these one-off runs set TMPDIR to it.
+RULESET_RUN = "tb-ruleset-import"
+REFDATA_RUN = "tb-refdata-load"
+REFDATA_SWEEP = "tb-refdata-sweep"
+REFDATA_TMPDIR = "/data/objects"
+REFDATA_SWEEP_SH = 'rm -rf -- "${TMPDIR:?}"/tb-refdata-*'
+
+
 # ------------------------------------------------------------------------------------------------ database restore
 # The compose box's rollback restore (ComposeBox.restore_databases), run in the db container: $1 role, $2 database,
-# $3 RESET_SQL; the dump on stdin. The script goes to a 0600 file (pg_restore from a pipe into psql would let psql
-# commit a cut-off script), RESET_SQL and the script run as one transaction, the file is deleted whatever happens.
+# $3 RESET_SQL; the dump on stdin. RESET_SQL and the dump's script run as one transaction that only a whole script
+# commits. 10G-1 (H10G1-05): the script is streamed, never written to the db container's /tmp (a tmpfs: memory, and
+# capped). So psql gets no --single-transaction (which would commit whatever arrived at end of input): the stream
+# opens with BEGIN, and COMMIT is written after it only when pg_restore exited 0. A cut-off script is run and rolled
+# back when psql's connection closes without a COMMIT (or on its first error, ON_ERROR_STOP); the step then fails,
+# from a marker of a few bytes (in a 0600 file, deleted whatever happens).
 RESTORE_SH = (
     "umask 077; t=$(mktemp) || exit 1; trap 'rm -f \"$t\"' EXIT; "
-    'pg_restore --clean --if-exists --no-owner -f "$t" || exit 1; '
-    '{ printf "%s\\n" "$3"; cat "$t"; } | psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$1" -d "$2"'
+    '{ printf "BEGIN;\\n%s\\n" "$3"; '
+    'if pg_restore --clean --if-exists --no-owner; then printf "\\nCOMMIT;\\n"; else echo failed > "$t"; fi; } '
+    '| psql -X -q -v ON_ERROR_STOP=1 -U "$1" -d "$2" || exit 1; '
+    'if [ -s "$t" ]; then echo "tb-restore: pg_restore failed: nothing committed" >&2; exit 1; fi'
 )
 # Everything the role owns that a later release could have added: its schemas (not public, not an extension's) and
 # its relations in public (not an extension's). D-541: and what the database's owner owns (the FHIR store's own role
@@ -1614,32 +1632,60 @@ class ComposeBox(_DockerImages):
     def post_apply(self, plan: Plan) -> list[str]:
         return self.rulesets(plan) + self.refdata(plan)
 
+    def _rm_run(self, name: str) -> None:
+        """10G-1 review D3: a named one-off run removed (killed if it still runs). A limit that ran out kills only the
+        compose CLI; the container it started would go on. Nothing there is an error."""
+        with contextlib.suppress(Exception):
+            self.run([*self.docker, "rm", "-f", name], timeout=120)
+
+    def _sweep_unpack(self) -> None:
+        """What a stopped load left of its unpacked pack on the objects volume (a backed-up volume, BACKUP_VOLUMES),
+        removed by a one-off criteria-compiler: the loader's own folder names (``tb_common.refdata.opened``), never a
+        host path."""
+        with contextlib.suppress(Exception):
+            self.run(self._c("run", "--rm", "--no-deps", "-T", "--name", REFDATA_SWEEP,
+                             "-e", f"TMPDIR={REFDATA_TMPDIR}", "criteria-compiler",
+                             "sh", "-c", REFDATA_SWEEP_SH, REFDATA_SWEEP), timeout=600)  # fmt: skip
+
     def rulesets(self, plan: Plan) -> list[str]:
         done = []
         rs = plan.kind("ruleset")
         for z in sorted(rs.rglob("*.zip")) if rs.is_dir() else []:
             # 10G-1 (D-1323): a one-off container with the file bind-mounted read-only; ``compose cp`` cannot write
-            # into criteria-compiler, whose root is read-only and /tmp a tmpfs
-            self.run(self._c("run", "--rm", "--no-deps", "-T", "-v", f"{z.resolve()}:/in/ruleset.zip:ro",
-                             "criteria-compiler", "python", "-m", "criteria_compiler.import_ruleset",
-                             "/in/ruleset.zip", "--by", f"update:{plan.bundle_id}"))  # fmt: skip
+            # into criteria-compiler, whose root is read-only and /tmp a tmpfs. Named, so one a failure left running
+            # is removed (review D3)
+            self._rm_run(RULESET_RUN)
+            try:
+                self.run(self._c("run", "--rm", "--no-deps", "-T", "--name", RULESET_RUN,
+                                 "-v", f"{z.resolve()}:/in/ruleset.zip:ro",
+                                 "criteria-compiler", "python", "-m", "criteria_compiler.import_ruleset",
+                                 "/in/ruleset.zip", "--by", f"update:{plan.bundle_id}"))  # fmt: skip
+            except (UpdateFailed, subprocess.TimeoutExpired):
+                self._rm_run(RULESET_RUN)
+                raise
             done.append(z.name)
         return done
 
     def refdata(self, plan: Plan) -> list[str]:
         """The reference data packs, after the release passed its check: each is one transaction (D-140), so a
-        failure leaves the previous pack's rows and the healthy release; the pack waits in deploy/refdata/pending."""
+        failure leaves the previous pack's rows and the healthy release; the pack waits in deploy/refdata/pending.
+        10G-1 review D3: the one-off run is named and removed before a load and after one that failed or ran out of
+        time, and a load first clears what an earlier one left unpacked on the objects volume (``REFDATA_SWEEP_SH``)."""
         done = []
         for pack in refdata_packs(plan):  # D-140: verified again inside, then one transaction
+            self._rm_run(REFDATA_RUN)
             try:
                 # 10G-1 (D-1323): as rulesets, a one-off container reads the pack bind-mounted read-only; it unpacks
                 # on the objects volume (TMPDIR), not in the tmpfs /tmp that counts against the memory limit
                 load = ["python", "-m", "tb_common.refdata", "load", "/in/refdata.tar"]
-                self.run(self._c("run", "--rm", "--no-deps", "-T", "-e", "TMPDIR=/data/objects",
-                                 "-v", f"{pack.resolve()}:/in/refdata.tar:ro",
-                                 "criteria-compiler", *load, "--by", f"update:{plan.bundle_id}"),
+                self.run(self._c("run", "--rm", "--no-deps", "-T", "--name", REFDATA_RUN,
+                                 "-e", f"TMPDIR={REFDATA_TMPDIR}", "-v", f"{pack.resolve()}:/in/refdata.tar:ro",
+                                 "criteria-compiler", "sh", "-c", REFDATA_SWEEP_SH + '; exec "$@"', REFDATA_RUN,
+                                 *load, "--by", f"update:{plan.bundle_id}"),
                          timeout=7200)  # fmt: skip
-            except UpdateFailed:
+            except (UpdateFailed, subprocess.TimeoutExpired):
+                self._rm_run(REFDATA_RUN)
+                self._sweep_unpack()
                 pend = self.deploy / "refdata" / "pending"
                 pend.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(pack, pend / pack.name)
@@ -1666,8 +1712,8 @@ class ComposeBox(_DockerImages):
         migration added to a schema of the dump blocks ``DROP SCHEMA`` and the rollback fails (found by the drill's
         db-image case). So the restore is one transaction in ``psql``: first every schema the role owns (but
         ``public`` and an extension's) and every relation it owns in ``public`` is dropped (``RESET_SQL``), then the
-        dump's own script (``pg_restore --clean --if-exists -f``, written to a 0600 file in the container and
-        deleted). Any error rolls the whole of it back."""
+        dump's own script (``pg_restore --clean --if-exists``, streamed: ``RESTORE_SH`` commits only a whole one).
+        Any error, or a cut-off script, rolls the whole of it back."""
         for db, f in point.dumps.items():
             user = "trialbox" if db == "trialbox_wf" else "hapi"
             argv = self._c("exec", "-T", "db", "sh", "-c", RESTORE_SH, "tb-restore", user, db, RESET_SQL)

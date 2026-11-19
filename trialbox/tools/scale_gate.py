@@ -37,7 +37,6 @@ import secrets
 import shutil
 import subprocess
 import sys
-import tarfile
 import threading
 import time
 from dataclasses import dataclass, field
@@ -887,11 +886,12 @@ class ComposeStandIn:
                     f'--dbname "{self.dsn}"',
                     [f"{self.prefix}*"],
                     refdata,
-                    dump_to_stdout=stdout_file is not None,
+                    stream=stdout_file is not None,
                 )
                 f = self.spool / f"{self.db}.sql"
                 f.write_text(script, encoding="utf-8")
-                with contextlib.ExitStack() as st:  # 10G-1: the dump streams to the host's file (exec -T's stdout)
+                (self.spool / "emit").write_text(bs.EMIT_SH, encoding="utf-8")
+                with contextlib.ExitStack() as st:  # 10G-1: every output streams to the host's file (exec -T's stdout)
                     sink = st.enter_context(stdout_file.open("wb")) if stdout_file else subprocess.DEVNULL
                     subprocess.run(
                         ["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", self.dsn, "-f", str(f)],
@@ -903,11 +903,6 @@ class ComposeStandIn:
                 f.unlink()
             elif "psql" in argv and "-c" in argv:  # the backup's catalogue questions to the db container (D-455)
                 out = self._query(argv[argv.index("-c") + 1])
-            elif "tar" in argv and "-cf" in argv and stdout_file is not None:  # the small files, as a tar stream
-                with tarfile.open(stdout_file, "w") as tf:
-                    for x in self.spool.glob(f"{self.db}.*"):
-                        if x.name != f"{self.db}.sql":
-                            tf.add(x, arcname=f"./{x.name}")
             elif "rm" in argv and "-rf" in argv:
                 shutil.rmtree(self.spool, ignore_errors=True)
             elif "ps" in argv and "--services" in argv:

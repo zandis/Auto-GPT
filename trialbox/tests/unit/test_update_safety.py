@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -544,39 +545,84 @@ def test_in_process_box_reads_schema_versions_and_refuses_a_changed_or_missing_m
 def _shims(tmp_path: Path, restore_rc: int) -> dict[str, str]:
     bin_ = tmp_path / "bin"
     bin_.mkdir()
-    (bin_ / "pg_restore").write_text(  # writes its "script" to -f FILE, like pg_restore, then exits restore_rc
-        '#!/bin/sh\nwhile [ $# -gt 1 ]; do [ "$1" = -f ] && out=$2; shift; done\n'
-        f'cat >/dev/null; echo "SELECT 1;" > "$out"; echo "$out" > {tmp_path}/script_path; exit {restore_rc}\n'
+    (bin_ / "pg_restore").write_text(  # writes its script to stdout, like pg_restore with no -f, then exits restore_rc
+        f'#!/bin/sh\necho "$@" > {tmp_path}/restore_args; cat >/dev/null; echo "SELECT 1;"; exit {restore_rc}\n'
     )
     (bin_ / "psql").write_text(f'#!/bin/sh\necho "$@" > {tmp_path}/psql_args; cat > {tmp_path}/psql_in\n')
     for f in bin_.iterdir():
         f.chmod(0o755)
-    return {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "TMPDIR": str(tmp_path)}
+    (tmp_path / "tmp").mkdir()
+    return {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "TMPDIR": str(tmp_path / "tmp")}
 
 
 @pytest.mark.parametrize("restore_rc", [0, 1])
-def test_compose_rollback_restore_resets_the_role_first_and_never_runs_a_cut_off_script(
+def test_compose_rollback_restore_resets_the_role_first_and_never_commits_a_cut_off_script(
     tmp_path: Path, restore_rc: int
 ) -> None:
     """The drill's db-image case found that ``pg_restore --clean`` fails when the new release added a table to a
-    schema of the dump. The restore is RESET_SQL + the dump's script in one psql transaction, and only after
-    pg_restore wrote the whole script."""
+    schema of the dump. The restore is RESET_SQL + the dump's script in one psql transaction, committed only after
+    pg_restore wrote the whole script. 10G-1 (H10G1-05): streamed, nothing of it written to db's tmpfs /tmp."""
     dump = tmp_path / "wf.dump"
     dump.write_bytes(b"PGDMP")
+    env = _shims(tmp_path, restore_rc)
     with dump.open("rb") as stdin:
         res = subprocess.run(["sh", "-c", up.RESTORE_SH, "tb-restore", "trialbox", "trialbox_wf", up.RESET_SQL],
-                             stdin=stdin, env=_shims(tmp_path, restore_rc), capture_output=True, check=False)  # fmt: skip
-    script = Path((tmp_path / "script_path").read_text().strip())
-    assert not script.exists()  # the plaintext script is deleted whatever happened
+                             stdin=stdin, env=env, capture_output=True, check=False)  # fmt: skip
+    assert not list((tmp_path / "tmp").iterdir())  # the marker is deleted whatever happened; no script was written
+    assert "-f" not in (tmp_path / "restore_args").read_text().split()  # pg_restore writes to the pipe
+    args = (tmp_path / "psql_args").read_text()
+    assert "--single-transaction" not in args.split()  # it would commit whatever arrived at end of input
+    assert "ON_ERROR_STOP=1" in args and "-U trialbox -d trialbox_wf" in args
+    body = (tmp_path / "psql_in").read_text()
+    assert body.startswith("BEGIN;\nDO $tb$")
     if restore_rc:
-        assert res.returncode != 0 and not (tmp_path / "psql_args").exists()  # psql never saw a cut-off script
+        assert res.returncode != 0 and "nothing committed" in res.stderr.decode()
+        assert "COMMIT" not in body  # psql never got a COMMIT for a cut-off script
         return
     assert res.returncode == 0, res.stderr
-    args = (tmp_path / "psql_args").read_text()
-    assert "--single-transaction" in args and "ON_ERROR_STOP=1" in args and "-U trialbox -d trialbox_wf" in args
-    body = (tmp_path / "psql_in").read_text()
-    assert body.startswith("DO $tb$") and body.rstrip().endswith("SELECT 1;")
+    assert body.rstrip().endswith("SELECT 1;\n\nCOMMIT;") and body.count("COMMIT") == 1
     assert "DROP SCHEMA %I CASCADE" in up.RESET_SQL and "deptype = 'e'" in up.RESET_SQL
+
+
+@pytest.mark.parametrize("restore_rc", [0, 1])
+def test_the_streamed_rollback_restore_commits_only_a_whole_script_on_this_postgres(
+    tmp_path: Path, db_url: str, restore_rc: int
+) -> None:
+    """H10G1-05: RESTORE_SH with the real psql: the reset and a script that pg_restore cut off half-way (exit 1)
+    leave the database as it was and the step fails; the same script whole is committed."""
+    from tb_common.db import Database, split_url
+
+    db = Database.connect(db_url, "site")
+    db.migrate(["CREATE TABLE marks (pid TEXT PRIMARY KEY)"])
+    db.execute("INSERT INTO marks VALUES (?)", ("P1",))
+    dsn, _ = split_url(db_url)
+    marks = f"{db.schema}.marks"
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    psql = shutil.which("psql")
+    assert psql
+    (bin_ / "psql").write_text(f'#!/bin/sh\nexec "{psql}" "$@" --dbname "$TB_T_DSN"\n')  # the test's database
+    (bin_ / "pg_restore").write_text(  # a script cut off inside a COPY (exit 1), or the same one whole (exit 0)
+        "#!/bin/sh\ncat >/dev/null\n"
+        f"printf 'CREATE TABLE {db.schema}.back (n int);\\nCOPY {db.schema}.back (n) FROM stdin;\\n1\\n2'\n"
+        f"[ {restore_rc} = 0 ] && printf '\\n\\\\.\\n'\nexit {restore_rc}\n"
+    )
+    for f in bin_.iterdir():
+        f.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "TMPDIR": str(tmp_path), "TB_T_DSN": dsn}
+    res = subprocess.run(["sh", "-c", up.RESTORE_SH, "tb-restore", "u", "d", f"DROP TABLE {marks};"],
+                         stdin=subprocess.DEVNULL, env=env, capture_output=True, check=False)  # fmt: skip
+    have = {r[0] for r in db.fetchall("SELECT table_name FROM information_schema.tables WHERE table_schema = ?",
+                                   (db.schema,))}  # fmt: skip
+    if restore_rc:
+        assert res.returncode != 0, res.stderr
+        assert "marks" in have and "back" not in have  # the reset and the cut-off script were both rolled back
+        assert [r[0] for r in db.fetchall("SELECT pid FROM marks")] == ["P1"]
+    else:
+        assert res.returncode == 0, res.stderr
+        assert "marks" not in have and "back" in have
+        assert [r[0] for r in db.fetchall("SELECT n FROM back ORDER BY n")] == [1, 2]
+    assert not [f for f in tmp_path.iterdir() if f.name.startswith("tmp")]  # the marker is gone
 
 
 # ------------------------------------------------------------------------------------------------ review fixes

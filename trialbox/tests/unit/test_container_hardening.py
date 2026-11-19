@@ -38,6 +38,8 @@ EXCEPTIONS: dict[tuple[str, str], str] = {
     "/tmp, gigabytes a memory tmpfs would take from the model; to be proved on a GPU box",
     ("llm-service", "user"): "the upstream vLLM image runs as root with its caches under /root; to be proved on a "
     "GPU box with the caches moved",
+    ("llm-service", "cap_drop"): "root must read model files of any mode (without DAC_OVERRIDE it cannot read a "
+    "0600/0640 file of another owner); to be closed with H10G1-02 on a GPU box",
 }
 CAP_ADD: dict[tuple[str, str], str] = {}  # (service, capability) -> why; none is needed
 # Services of the overlay files that are not one of the 15 (10G-1 names the 15 of the base file). Listed so that a
@@ -104,7 +106,9 @@ def test_the_base_file_has_the_15_services_and_each_takes_the_four_controls() ->
     clean = [s for s in sorted(base) if all(_has(base[s], c) or (s, c) in EXCEPTIONS for c in CONTROLS)]
     assert len(clean) == 15
     assert {s for s, _ in EXCEPTIONS} <= THE_15 and all(c in CONTROLS for _, c in EXCEPTIONS)
-    assert all(_has(base[s], "cap_drop") and _has(base[s], "no-new-privileges") for s in THE_15)  # no exception
+    assert all(_has(base[s], "no-new-privileges") for s in THE_15)  # no exception
+    # cap_drop: one written exception, llm-service for rc1 (review D2 of 2026-11-19, D-1323), and no other
+    assert {s for s in THE_15 if not _has(base[s], "cap_drop")} == {"llm-service"}
 
 
 @pytest.mark.parametrize(("stack", "profiles"), STACKS, ids=lambda x: "+".join(x) if isinstance(x, tuple) else x)
@@ -117,6 +121,10 @@ def test_read_only_services_get_a_tmpfs_for_what_they_write() -> None:
     for svc in THE_15 - {"model-guard", "llm-service"}:
         assert "/tmp" in [str(t).split(":")[0] for t in base[svc].get("tmpfs") or []], svc
     assert any(str(t).startswith("/var/run/postgresql:uid=999,gid=999") for t in base["db"]["tmpfs"])
+    # 10G-1 review D1: db's /tmp is capped (memory under db's mem_limit, shared with shared_buffers); what goes there
+    # is bookkeeping only, the data streams through exec (backup_schedule.EMIT_SH, update.RESTORE_SH)
+    tmp = [str(t) for t in base["db"]["tmpfs"] if str(t).split(":")[0] == "/tmp"]
+    assert len(tmp) == 1 and re.search(r"(^|[:,])size=\d+[km]\b", tmp[0]), tmp
 
 
 def test_the_users_match_the_images_and_the_installer() -> None:

@@ -18,9 +18,11 @@
     D-993), by name so Docker resolves it in the image's `/etc/group` (gid 101 in today's base by Debian's
     order; no build step or test pins the number, so a number here could drift). The box rehearsal's first CI run without it
     showed PID 1 with group 999 only, where postgres has 999 and 101. The entrypoint no longer starts as root, so it skips its chown and the setpriv shim (D-993); db-pg
-    and the pgBackRest repository were written by postgres already. tmpfs `/tmp` (pgBackRest's lock, the update's
-    restore file) and `/var/run/postgresql` (the socket, owned 999); pgBackRest writes no log file
-    (`log-level-file=off`).
+    and the pgBackRest repository were written by postgres already. tmpfs `/tmp:size=64m` and `/var/run/postgresql`
+    (the socket, owned 999); pgBackRest writes no log file (`log-level-file=off`). db's `/tmp` holds bookkeeping
+    only (pgBackRest's lock; the nightly's script, snapshot id, exit code and stream index; the rollback's marker):
+    the nightly's dump and side files and the rollback's script stream through `exec` (`backup_schedule.EMIT_SH`,
+    `update.RESTORE_SH`), and the cap makes a runaway writer fail with "no space left" instead of an OOM kill of db.
   - fhir-store runs as `65532:65532`, the upstream distroless image's nonroot user, named so it is fixed; tmpfs
     `/tmp` for embedded Tomcat. HAPI's data is in PostgreSQL.
   - model-guard keeps what it had (D-177).
@@ -30,7 +32,7 @@
   | --- | --- | --- |
   | adapter | read_only | The HL7 validator (`adapter.validate.validator`) writes `.index.json` files into, and renames packages in, its package cache `/opt/hl7/home`, an image path. Run as uid 10001 against a cache it cannot write, it stops with "Unable to rename directory ... for atomic delete" (tried 2026-11-19 with the validator and packages of `make jvm-deps`); against a writable copy it passes. The cache is 399 MB, too much for a tmpfs under the 6g cap. The fix is in the adapter's validator (a writable package home), outside deploy/. |
   | orchestrator | read_only | Runs the same validator for the TWPAS scenario (`scenarios/twpas.py`). |
-  | llm-service | read_only, user | The upstream vLLM image runs as root and writes its compile and kernel caches under `/root/.cache` and `/tmp`: gigabytes a memory tmpfs would take from the model. To be proved on a GPU box with the caches on a volume. cap_drop and no-new-privileges hold. |
+  | llm-service | read_only, user, cap_drop | The upstream vLLM image runs as root and writes its compile and kernel caches under `/root/.cache` and `/tmp`: gigabytes a memory tmpfs would take from the model. To be proved on a GPU box with the caches on a volume. cap_drop (review of 2026-11-19, for rc1, whose only tier is a GPU box no rehearsal leg runs): root must read model files of any mode, and without DAC_OVERRIDE it cannot read a 0600/0640 file of another owner; `tools/fetch_weights.py` writes 0644 under the caller's umask, but a site's own copy, a model cache's files and an update's files keep the modes they came with. To be closed with H10G1-02 on a GPU box. no-new-privileges holds. |
 
 - **Not in the 15:** the overlay services (llm-verifier, the rtx5090 model-swap helpers, caddy, authelia, prometheus,
   the platform doctor, the developer mail servers, the acceptance directory) are listed in `OUTSIDE_THE_15` with a

@@ -49,7 +49,7 @@ class SizedBox(RunningBox):
         if "sum(pg_database_size(datname))" in line:
             self.calls.append(list(argv))
             return f"{2 * self.db_bytes}\n"
-        step = ("snapshot" if "psql -X -q" in line else "copy" if " tar " in f" {line} " else
+        step = ("snapshot" if "psql -X -q" in line else "copy" if " cp " in f" {line} " else
                 "container" if argv[:2] == ["docker", "run"] else "pgbackrest" if "pgbackrest" in argv else "")  # fmt: skip
         if step:
             t = kw.get("timeout")
@@ -118,7 +118,8 @@ def test_without_a_size_a_step_has_no_limit_never_a_fixed_one(tmp_path: Path) ->
     cfg = _cfg(tmp_path, deploy=deploy, targets=[tmp_path / "nas"])
     res = bs.nightly(cfg, ops.make_backup(cfg), lambda e, d: None, now=T0, classify=_offbox({"nas"}))
     assert res["ok"], res["errors"]
-    assert fake.timeouts["snapshot"] is None and fake.timeouts["copy"] is None
+    # 10G-1: the snapshot streams to the host; there is no copy step left to limit
+    assert fake.timeouts["snapshot"] is None and "copy" not in fake.timeouts
     assert res["point_in_time"]["limits"]["trialbox_wf"] is None
 
 

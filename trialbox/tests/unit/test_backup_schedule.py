@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import json
 import shlex
-import shutil
 import stat
-import tarfile
 from collections import namedtuple
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -407,6 +405,12 @@ def test_one_nightly_run_at_a_time(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ the compose box
+def stream_of(items: list[tuple[str, bytes]]) -> bytes:
+    """What ``bs.EMIT_SH`` writes: each item's bytes, the index ("<bytes> <name>" lines), the trailer."""
+    index = "".join(f"{len(b)} {n}\n" for n, b in items).encode()
+    return b"".join(b for _, b in items) + index + f"TBSTREAM {len(index):016d}\n".encode()
+
+
 class FakeBox:
     """Records every command; plays the db container (the snapshot script) and the backup container."""
 
@@ -424,23 +428,14 @@ class FakeBox:
             self.db = argv[-1].split("/")[-1].removesuffix(".sql")
             self.scripts[self.db] = stdin_file.read_text()
         if "psql" in " ".join(argv) and stdin_file is not None:
-            # 10G-1: the dump streams to the host (pg_dump on psql's stdout), never staged for ``compose cp``
-            assert stdout_file is not None and stdout_file.name == f"{self.db}.dump"
+            # 10G-1: every output streams to the host (EMIT_SH's framing), never staged for ``compose cp``
+            assert stdout_file is not None and stdout_file.name == f"{self.db}.stream"
             dest = stdout_file.parent
             assert stat.S_IMODE(dest.stat().st_mode) == 0o700
-            stdout_file.write_bytes(b"PGDMP")
-            self.copied.append(dest)
-        if "tar" in argv and "-cf" in argv:  # the small files come back as a tar stream on stdout
-            assert stdout_file is not None
             db = self.db
-            side = stdout_file.parent / ".side"
-            side.mkdir()
-            (side / f"{db}.dump.rc").write_text("0\n")
-            (side / f"{db}.rows").write_text("public.t|1|abc\n")
-            (side / f"{db}.packs").write_text("")
-            with tarfile.open(stdout_file, "w") as tf:
-                tf.add(side, arcname=".")
-            shutil.rmtree(side)
+            stdout_file.write_bytes(stream_of([(f"{db}.dump", b"PGDMP"), (f"{db}.rows", b"public.t|1|abc\n"),
+                                               (f"{db}.packs", b""), (f"{db}.dump.rc", b"0\n")]))  # fmt: skip
+            self.copied.append(dest)
         if argv[:2] == ["docker", "run"]:
             for i, a in enumerate(argv):
                 if a == "-v" and ":/backup/" in argv[i + 1]:
@@ -519,8 +514,9 @@ def test_the_snapshot_script_runs_on_this_postgres(tmp_path: Path, db_url: str) 
 
 
 def test_the_streamed_snapshot_script_runs_on_this_postgres(tmp_path: Path, db_url: str) -> None:
-    """10G-1: the compose nightly's form (``dump_to_stdout``): psql's stdout is the dump and nothing else, the
-    small files are written in the spool, and together they parse as the staged form's do."""
+    """10G-1: the compose nightly's form (``stream=True``), with the real stream helper and the local psql: psql's
+    stdout carries every output; the spool keeps only bytes of bookkeeping; split on the host, the files parse as
+    the staged form's do and the dump is one ``pg_restore`` reads."""
     import subprocess
 
     from tb_common.db import split_url
@@ -532,24 +528,55 @@ def test_the_streamed_snapshot_script_runs_on_this_postgres(tmp_path: Path, db_u
     spool, work = tmp_path / "spool", tmp_path / "work"
     spool.mkdir()
     work.mkdir()
+    (spool / "emit").write_text(bs.EMIT_SH)
     script = bs.snapshot_script(str(spool), "trialbox_wf", "pg_dump", f'--dbname "{dsn}"', [f"{prefix}*"],
-                                f"{prefix}refdata", dump_to_stdout=True)  # fmt: skip
-    assert "-f " not in script.split("\\! ", 1)[1].split("\n", 1)[0]  # no dump file in the container
+                                f"{prefix}refdata", stream=True)  # fmt: skip
     (spool / "s.sql").write_text(script)
-    with (work / "trialbox_wf.dump").open("wb") as out:
+    with (work / "trialbox_wf.stream").open("wb") as out:
         subprocess.run(["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", dsn, "-f", str(spool / "s.sql")],
                        check=True, stdout=out, stderr=subprocess.PIPE)  # fmt: skip
-    assert not (spool / "trialbox_wf.dump").exists()
-    assert (work / "trialbox_wf.dump").read_bytes()[:5] == b"PGDMP"  # psql's stdout carried the dump alone
+    # nothing proportional to the data in the spool (the db container's tmpfs): only these few bytes
+    left = {f.name: f.stat().st_size for f in spool.iterdir()}
+    assert set(left) == {"emit", "s.sql", "index", "trialbox_wf.snapshot", "trialbox_wf.dump.rc"}, left
+    assert left["index"] < 400 and left["trialbox_wf.dump.rc"] == 2
+    whole = (work / "trialbox_wf.stream").read_bytes()
+    names = bs.split_stream(work / "trialbox_wf.stream", work, "trialbox_wf")
+    assert names[0] == "trialbox_wf.dump" and names[-1] == "trialbox_wf.dump.rc"
+    assert {"trialbox_wf.rows", "trialbox_wf.packs"} <= set(names) and not (work / "trialbox_wf.stream").exists()
+    assert (work / "trialbox_wf.dump").read_bytes()[:5] == b"PGDMP"
     listed = subprocess.run(
         ["pg_restore", "--list", str(work / "trialbox_wf.dump")], check=False, capture_output=True, text=True
     )
     assert listed.returncode == 0 and "marks" in listed.stdout, listed.stderr
-    for f in spool.glob("trialbox_wf.*"):
-        if f.name != "trialbox_wf.sql":
-            shutil.copy2(f, work / f.name)
     snap = bs.parse_snapshot(work, "trialbox_wf")
     assert snap["rows"][f"{db.schema}.marks"][0] == 1 and snap["packs"] == []
+    # D4: a stream cut short, or one whose counts do not add up, is a failed backup, never a short dump
+    for bad in (whole[: len(whole) // 2], whole[:-1], whole[:3] + whole[4:]):
+        f = tmp_path / "bad.stream"
+        f.write_bytes(bad)
+        with pytest.raises(RuntimeError, match="snapshot stream"):
+            bs.split_stream(f, tmp_path, "trialbox_wf")
+
+
+def test_split_stream_checks_the_counts_the_container_recorded(tmp_path: Path) -> None:
+    """D4: the container's byte counts against what arrived; the dump comes first; names stay in the folder."""
+    good = stream_of([("x.dump", b"PGDMP-0123"), ("x.rows", b"a|1|h\n"), ("x.dump.rc", b"0\n")])
+    (tmp_path / "x.stream").write_bytes(good)
+    assert bs.split_stream(tmp_path / "x.stream", tmp_path, "x") == ["x.dump", "x.rows", "x.dump.rc"]
+    assert (tmp_path / "x.dump").read_bytes() == b"PGDMP-0123" and (tmp_path / "x.rows").read_bytes() == b"a|1|h\n"
+    assert stat.S_IMODE((tmp_path / "x.rows").stat().st_mode) == 0o600
+    for items, why in (
+        ([("x.rows", b"r"), ("x.dump", b"PGDMP")], "start with its dump"),
+        ([("x.dump", b"PGDMP"), ("../x.rows", b"r")], "bad index line"),
+        ([("x.dump", b"PGDMP"), ("y.rows", b"r")], "bad index line"),
+    ):
+        (tmp_path / "x.stream").write_bytes(stream_of(items))
+        with pytest.raises(RuntimeError, match=why):
+            bs.split_stream(tmp_path / "x.stream", tmp_path, "x")
+    lying = good.replace(b"10 x.dump", b"11 x.dump")  # the container counted a byte the host never got
+    (tmp_path / "x.stream").write_bytes(lying)
+    with pytest.raises(RuntimeError, match=r"the container wrote 19 bytes, 18 arrived"):
+        bs.split_stream(tmp_path / "x.stream", tmp_path, "x")
 
 
 def test_compose_audit_falls_back_to_a_pending_file_when_the_orchestrator_is_down(tmp_path: Path) -> None:

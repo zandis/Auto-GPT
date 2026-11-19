@@ -122,11 +122,14 @@ services:
     # ran as postgres before). A numeric user:group gets no supplementary group from /etc/group, so group_add gives
     # postgres's own one, ssl-cert (the TLS key, D-993), by name: Docker resolves it in the image's /etc/group, and
     # PID 1 has exactly postgres's groups, as the box rehearsal's SC-1b check wants. Read-only root: the socket
-    # folder and /tmp (pgBackRest's lock, update's restore file) are tmpfs; pgBackRest logs to no file (log-level-file=off).
+    # folder and /tmp are tmpfs; pgBackRest logs to no file (log-level-file=off). /tmp holds only bytes of
+    # bookkeeping (pgBackRest's lock, the nightly's script, snapshot id, exit code and stream index, the rollback's
+    # marker): the dump, the rows and the rollback's script stream through exec. A tmpfs is memory under mem_limit,
+    # so it is capped: a runaway writer gets "no space left", never db OOM-killed (10G-1 review D1).
     user: "999:999"
     group_add: [ssl-cert]
     read_only: true
-    tmpfs: [/tmp, "/var/run/postgresql:uid=999,gid=999,mode=2775"]
+    tmpfs: ["/tmp:size=64m", "/var/run/postgresql:uid=999,gid=999,mode=2775"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     environment:
@@ -473,10 +476,11 @@ services:
       VLLM_LOGGING_LEVEL: WARNING   # no request or prompt lines in the log at any vLLM version (T-605, LLM-042)
     volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
     ipc: host
-    # 10G-1 (D-1323): no capability and no privilege gain. Exceptions written in tests/unit/test_container_hardening.py
-    # (EXCEPTIONS): the upstream image runs as root and writes its compile and kernel caches under /root/.cache and
-    # /tmp, gigabytes a memory tmpfs would take from the model; user and read_only wait for a GPU box (D-1323).
-    cap_drop: [ALL]
+    # 10G-1 (D-1323): no privilege gain. Exceptions written in tests/unit/test_container_hardening.py (EXCEPTIONS):
+    # the upstream image runs as root and writes its compile and kernel caches under /root/.cache and /tmp, gigabytes
+    # a memory tmpfs would take from the model; user and read_only wait for a GPU box. cap_drop too, for rc1: root
+    # without DAC_OVERRIDE cannot read model files of any mode (a site's copy, a cache's 0600/0640 files of another
+    # owner), and no rehearsal leg runs this profile; to be closed with H10G1-02 on a GPU box.
     security_opt: ["no-new-privileges:true"]
     networks: {model-backend-net: {aliases: [llm-service-vllm]}}   # behind model-guard (D-177)
     restart: unless-stopped
