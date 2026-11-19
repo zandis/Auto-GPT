@@ -1,0 +1,77 @@
+# TrialBox visual regression (9k-17, D-1377; review 09 §5.3): 72 first screens of the console (12 pages, desktop and
+# phone, en, ja, zh-TW) drawn from the test suite's synthetic box at one pinned instant, for the pull request and for
+# its base branch, on this one runner with one Chromium and one set of fonts; no picture is kept in git. A shot that
+# differs by more than 0.1 % of its pixels fails the job unless trialbox/tests/console/visual_accepted.txt holds its
+# line (the shot and the new picture's hash): a person reviews the side-by-side page in the job's files
+# (visual/report/index.html) and commits the line the job printed. tools/visual_regression.py says the rest.
+# A paths filter is safe here: this is not a check branch protection requires (the owner decides whether it becomes
+# one; a required check must use trialbox-ci.yml's `changes` job instead).
+name: TrialBox visual regression
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "trialbox/services/console/**"
+      - "trialbox/tests/console/visual_*"
+      - "trialbox/tools/visual_regression.py"
+      - ".github/workflows/trialbox-visual.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trialbox-visual-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+    working-directory: trialbox
+
+env:
+  TB_SCRATCH: ${{ github.workspace }}/../tb-scratch
+
+jobs:
+  visual:
+    runs-on: ubuntu-24.04  # carries PostgreSQL 16 (tools/ci_postgres.sh installs nothing there)
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0  # the base branch is checked out beside this tree
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - name: Python environment
+        run: make venv
+      - name: PostgreSQL server binaries
+        run: tools/ci_postgres.sh  # the box's stores of the test box live in a throwaway cluster (tools/pglocal.py)
+      - name: Node Playwright with Chromium (outside the repository; NODE_PATH points at it)
+        run: |
+          mkdir -p "$RUNNER_TEMP/node-tools"
+          cp tools/package.json tools/package-lock.json "$RUNNER_TEMP/node-tools/"  # the hashed lock (DEP-025, D-393)
+          npm ci --prefix "$RUNNER_TEMP/node-tools" --no-fund --no-audit
+          (cd "$RUNNER_TEMP/node-tools" && npx playwright install --with-deps chromium)
+          echo "NODE_PATH=$RUNNER_TEMP/node-tools/node_modules" >> "$GITHUB_ENV"
+      - name: The base branch beside this tree
+        env:
+          BASE_REF: ${{ github.base_ref || 'master' }}
+        run: git worktree add --detach "$RUNNER_TEMP/base" "origin/$BASE_REF"
+      - name: Shoot both and compare (fails on an unreviewed difference)
+        run: |
+          rc=0
+          PYTHONPATH=libs:services:. .venv/bin/python -m tools.visual_regression run \
+            --base-tree "$RUNNER_TEMP/base/trialbox" --out "$RUNNER_TEMP/visual" || rc=$?
+          cat "$RUNNER_TEMP/visual/report/report.md" >> "$GITHUB_STEP_SUMMARY" || true
+          exit "$rc"
+      - name: Keep the shots and the side-by-side page
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: visual
+          path: ${{ runner.temp }}/visual
+          if-no-files-found: ignore

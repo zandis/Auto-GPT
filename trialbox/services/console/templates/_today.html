@@ -12,4 +12,4 @@
 {% if every %}<p class="chartlinks"><a href="/home" data-testid="today-back">{{ t('today.all.back') }}</a></p>{% endif %}
 </section>{% endmacro %}
 
-{% macro next_line(n) %}<p class="next today-next" data-testid="next-{{ n.rs }}" data-step="{{ n.step }}"><span>{{ t(n.key, **n.values) }}</span>{% if n.href %} <a class="button small-btn" href="{{ n.href }}" data-testid="next-go-{{ n.rs }}">{{ t('today.open') }}</a>{% elif n.in_today %} <span class="hint">{{ t('today.next.in_today') }}</span>{% endif %}</p>{% endmacro %}
+{% macro next_line(n) %}<p class="next today-next" data-testid="next-{{ n.rs }}" data-step="{{ n.step }}"><span>{{ t(n.key, **n.values) }}</span>{% if n.href %} <a class="button small" href="{{ n.href }}" data-testid="next-go-{{ n.rs }}">{{ t('today.open') }}</a>{% elif n.in_today %} <span class="hint">{{ t('today.next.in_today') }}</span>{% endif %}</p>{% endmacro %}
