@@ -174,7 +174,7 @@ def _line_of(text: str, path: list[Any]) -> int | None:
 
 def _unknown_key_line(text: str, path: list[Any], message: str) -> int | None:
     """For an ``additionalProperties`` error: the line of the first key the message names."""
-    names = [p.strip(" '\"") for p in message.rsplit("(", 1)[-1].split(" were unexpected", 1)[0].split(",")]
+    names = re.findall(r"'([^']+)'", message)
     for n in names:
         line = _line_of(text, [*path, n])
         if line is not None and line != _line_of(text, path):

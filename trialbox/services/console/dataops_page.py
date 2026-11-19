@@ -226,6 +226,25 @@ def unmapped_of(detail: Any) -> list[tuple[str, int]]:
     return sorted(rows, key=lambda r: (-r[1], r[0]))
 
 
+def site_profile_of(detail: Any) -> dict[str, Any] | None:
+    """10B-6 (D-1233): the site profile a night was read with and its coverage counts, as the adapter's
+    ``ingest.done`` event keeps them (``adapter.site_profile.summary``); None for a night read without one, or for a
+    record that is not that shape. Counts and names of data types only, never a code or a value."""
+    sp = detail.get("site_profile") if isinstance(detail, dict) else None
+    if not isinstance(sp, dict):
+        return None
+    words = ("id", "version", "digest")
+    counts = ("types_declared", "types_arrived", "unmapped_codes", "unmapped_rows", "verify_rows")
+    lists = ("not_arrived", "not_declared")
+    if not all(isinstance(sp.get(k), str) and sp[k] for k in words):
+        return None
+    if not all(type(sp.get(k)) is int and sp[k] >= 0 for k in counts):
+        return None
+    if not all(isinstance(sp.get(k), list) and all(isinstance(x, str) for x in sp[k]) for k in lists):
+        return None
+    return {**{k: sp[k] for k in (*words, *counts, *lists)}, "digest": sp["digest"][:12]}
+
+
 def unmapped_kinds_of(detail: Any) -> dict[str, dict[str, int]]:
     """NEW-B-39 (D-740): the same rows per source table split by kind (``tb_common.unmapped.KINDS``: a code no look-up
     knows, a unit not read, the reference data not reached); counts only. A table whose split is not counts of the
@@ -363,6 +382,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             b=b,
             steps=read(lambda: ops.steps(bid)),
             unmapped=unmapped_of(b.detail),
+            profile=site_profile_of(b.detail),  # 10B-6 (D-1233)
             may_decide=permit(sess.user.role, DECIDE),
             can_accept=read(ops.can_publish),  # NEW-ARCH-3: the orchestrator says whether an accept can publish
         )
@@ -420,7 +440,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         kinds = unmapped_kinds_of(b.detail)  # NEW-B-39 (D-740)
         return {"batch": b.as_dict(), "steps": read(lambda: ops.steps(bid)),
                 "unmapped": [{"table": t, "rows": n, **({"kinds": kinds[t]} if t in kinds else {})}
-                             for t, n in unmapped_of(b.detail)]}  # fmt: skip
+                             for t, n in unmapped_of(b.detail)],
+                "site_profile": site_profile_of(b.detail)}  # fmt: skip
 
     @app.post("/api/v1/data/batches/{bid}/decide")
     @page_twin("/data-ops/batches/{bid}/decide")  # T-657 (D-444): the page's twin (FIT-019)

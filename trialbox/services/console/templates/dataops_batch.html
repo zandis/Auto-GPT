@@ -20,6 +20,18 @@
 <tfoot><tr><th scope="row">{{ t('dataops.unmapped.total') }}</th><td class="num" data-testid="unmapped-total">{{ '{:,}'.format(unmapped|sum(attribute=1)) }}</td></tr></tfoot>
 </table></div>
 </section>{% endif %}
+{% if profile %}{# 10B-6 (D-1233): the site profile that read this night, and its coverage lines (counts only) #}
+<section class="card" data-testid="batch-profile">
+<h2>{{ t('dataops.profile.title') }}</h2>
+<p data-testid="profile-id">{{ t('dataops.profile.which', id=profile.id, version=profile.version, digest=profile.digest) }}</p>
+<ul class="plain">
+<li data-testid="profile-types">{{ t('dataops.profile.types', arrived=profile.types_arrived, declared=profile.types_declared) }}{% if profile.not_arrived %} · {{ t('dataops.profile.not_arrived') }} <span class="mono">{{ profile.not_arrived|join(', ') }}</span>{% endif %}</li>
+{% if profile.not_declared %}<li data-testid="profile-undeclared">{{ t('dataops.profile.not_declared') }} <span class="mono">{{ profile.not_declared|join(', ') }}</span></li>{% endif %}
+<li data-testid="profile-unmapped">{{ t('dataops.profile.unmapped', codes='{:,}'.format(profile.unmapped_codes), rows='{:,}'.format(profile.unmapped_rows)) }}</li>
+<li data-testid="profile-verify">{{ t('dataops.profile.verify', n='{:,}'.format(profile.verify_rows)) }}</li>
+</ul>
+<p class="hint">{{ t('dataops.profile.help') }}</p>
+</section>{% endif %}
 <section class="card" data-testid="batch-steps">
 <h2>{{ t('dataops.steps.title') }}</h2>
 <div class="scroll" tabindex="0"><table>
