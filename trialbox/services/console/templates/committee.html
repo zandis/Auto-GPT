@@ -39,7 +39,7 @@
 <label for="cmt-ao">{{ t('cmt.approved_on') }}</label><input id="cmt-ao" name="approved_on" type="date" lang="{{ lang }}" value="{{ rec.approved_on }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
 <label><input type="checkbox" name="central" value="1"{% if rec.central %} checked{% endif %}> {{ t('cmt.central') }}</label>
 <label for="cmt-doc">{{ t('cmt.documents') }}</label><input id="cmt-doc" name="documents" maxlength="300" value="{{ rec.documents }}"><span class="hint">{{ t('cmt.documents.hint') }}</span>
-<label for="cmt-due">{{ t('cmt.due_on') }}</label><input id="cmt-due" name="due_on" type="date" lang="{{ lang }}" value="{{ rec.due_on }}"><span class="hint">{{ t('cmt.due_on.hint') }}</span>
+<label for="cmt-due">{{ t('cmt.due_on') }}</label><input id="cmt-due" name="due_on" type="date" lang="{{ lang }}" value="{{ rec.due_on }}"><span class="hint datefmt">{{ t('date.fmt') }}</span><span class="hint">{{ t('cmt.due_on.hint') }}</span>
 <label for="cmt-pv">{{ t('cmt.permission_version') }}</label><input id="cmt-pv" name="permission_version" maxlength="40" value="{{ perm.version if perm else '' }}">
 <label for="cmt-po">{{ t('cmt.permitted_on') }}</label><input id="cmt-po" name="permitted_on" type="date" lang="{{ lang }}" value="{{ perm.permitted_on if perm else '' }}" data-testid="cmt-permitted"><span class="hint datefmt">{{ t('date.fmt') }}</span>
 {% if perm %}<label><input type="checkbox" name="clear_permission" value="1" data-testid="cmt-clear"> {{ t('cmt.clear_permission') }}</label>{% endif %}

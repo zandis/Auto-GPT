@@ -598,3 +598,13 @@ class _Orch:
 
     def create(self, req: Any) -> None:
         self.created.append(req)
+
+
+def test_the_shared_reader_knows_the_store_version_that_makes_the_tables() -> None:
+    """The orchestrator's reader asks the team store's own version record (no table question over a connection,
+    D-683): its version is the team store's that adds the committee tables."""
+    from console import teamstore
+
+    assert (
+        len(teamstore.MIGRATIONS) == cm.TEAM_VERSION and "committee_open" in teamstore.MIGRATIONS[cm.TEAM_VERSION - 1]
+    )

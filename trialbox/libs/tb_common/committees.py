@@ -254,7 +254,7 @@ def read(url: str, ruleset: str, site: str) -> tuple[Committee, Permission | Non
 
     rid = (ruleset or "").upper()
     with Database.connect(url, "team") as db:
-        if db.fetchval("SELECT to_regclass(?)", (f'"{db.schema}".committee_open',)) is None:
+        if len(db.applied()) < TEAM_VERSION:  # the store's own version record: no new table question (D-683)
             return None
         opened, taken = opened_of(db, rid, site), baseline_taken(db, site)
         rows = db.fetchall(
@@ -287,6 +287,7 @@ class Opened:
     at: str = ""
 
 
+TEAM_VERSION = 4  # console.teamstore's version that makes the committee tables
 BASELINE = "*"  # the ruleset of the row that says this site's baseline was taken
 
 
