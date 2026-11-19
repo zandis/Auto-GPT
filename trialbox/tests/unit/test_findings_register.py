@@ -703,6 +703,16 @@ def test_add_from_refuses_and_writes_nothing(area: Path, over: dict[str, object]
     assert reg.read_text(encoding="utf-8") == before
 
 
+@pytest.mark.parametrize("lane", ["J", "K"])
+def test_add_from_takes_lanes_j_and_k(area: Path, lane: str) -> None:
+    # lanes J and K own findings (H-55); lane H registers them, so the tool takes them as a row's lane
+    reg = reg_of(area)
+    assert fr.add_from(findings_file(area, "V2", ["V2-01"], over={"f_lane": lane}), reg, area) == []
+    row = next(r for r in fr.parse(reg).rows if r.id == "V2-01")
+    assert row.cells["Lane"] == lane
+    assert fr.check(fr.parse(reg)) == []
+
+
 def test_add_from_refuses_an_id_twice_in_its_file(area: Path) -> None:
     problems = fr.add_from(findings_file(area, "V2", ["V2-01", "V2-01"]), reg_of(area), area)
     assert problems == ["findings.json: V2-01: twice in the file: nothing written"]
