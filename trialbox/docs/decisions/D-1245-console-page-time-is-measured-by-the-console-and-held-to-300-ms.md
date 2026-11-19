@@ -110,3 +110,13 @@
   on the **home page**. That would be a new reader of the event on another page, so it is left to the owner.
 - **Not widened:** no new route, export, column or reader of existing data; no change to the permission matrix,
   sign-in, the audit schema or break-glass.
+
+## Correction (2026-11-19, 10E-13b)
+
+The count of the model's answers ordered the job's audit rows by their timestamp to find "after the latest
+`compile.start`". Audit timestamps keep milliseconds, and a `compile.start` and the `llm.call` rows after it can
+share one: then the order was undecided and the page could show too few answers (CI saw 2 for 3). The count now
+follows the audit log's own order: the reader already returns the rows newest first in the order they were written
+(day file, then line), so the console reverses that list and the timestamp no longer decides. No change to the audit
+schema, its events, the reader or what any role reads. The test pins every row it writes to one millisecond, in en,
+ja and zh-TW (`tests/console/test_job_page_progress.py`).

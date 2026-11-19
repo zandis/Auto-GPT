@@ -1791,10 +1791,13 @@ def create_app(
         rows the page's table shows, read up to :data:`COMPILE_ROWS` back so the count does not drop out of the
         table's window of 200 during a long compile; the same accounts). Not parts: the rows do not say which prompt a
         call was for, and the number of parts is known to the compiler alone (the page says so). None when the job is
-        not reading a protocol or its compile.start is not among those rows: no line, never a wrong count."""
+        not reading a protocol or its compile.start is not among those rows: no line, never a wrong count.
+        10E-13b: "after" is the audit log's own order (the reader returns the rows newest first, in the order they were
+        written: day file, then line), never their timestamps, whose millisecond a compile.start and the answers
+        after it can share."""
         if job.type != "FEAS" or job.state not in ("parsing", "compiling"):
             return None
-        ordered = sorted(recs, key=lambda r: r.ts)
+        ordered = list(reversed(recs))  # oldest first, as written
         starts = [i for i, r in enumerate(ordered) if r.event == "compile.start"]
         if not starts:
             return None
