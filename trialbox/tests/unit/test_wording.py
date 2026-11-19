@@ -354,11 +354,52 @@ def test_an_actor_word_is_what_makes_a_judgement_a_claim() -> None:
         assert [h.word for h in check(f"{actor}が参加の可否を判断します。")] == ["判断"], actor
 
 
-def test_two_spaces_end_a_sentence_on_a_page() -> None:
-    """On a page one element's words run into the next; the actor of one is not the subject of the next."""
-    page = "<span>AIで読む</span><span>判断は医師</span>"
-    assert "  " in visible_text(page) and check_page(page) == []
-    assert [h.word for h in check("AIで読む 判断は医師")] == ["判断"]  # one space: one sentence
+def test_on_a_page_a_block_ends_a_sentence_and_an_inline_tag_does_not() -> None:
+    """A list item's actor is not the subject of the next item; an inline tag, or the template's line break inside a
+    paragraph, does not split a subject from its verb."""
+    assert check_page("<ul><li>AIで読む</li><li>参加の可否を判断</li></ul>") == []
+    assert [h.word for h in check("AIで読む 参加の可否を判断")] == ["判断"]  # the same words in one sentence
+    assert [h.word for h in check_page("<p><b>AIが</b><b>疾患</b>を発見します</p>")] == ["発見"]
+    assert [h.word for h in check_page("<p>AIが\n    疾患を発見します</p>")] == ["発見"]
+
+
+def test_invisible_characters_do_not_hide_a_claim() -> None:
+    # format characters, and fillers that are letters or marks to Unicode (Hangul filler, combining grapheme joiner)
+    for c in ("\u200b", "\u200d", "\u2060", "\ufeff", "\u00ad", "\u3164", "\u034f"):
+        assert [h.word for h in check(f"AIが疾{c}患を発{c}見します。")] == ["発見"], repr(c)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "本製品は診断、予測、スコアリングを行いません。",  # a list of claim words, denied together
+        "疾患の発見機能はありません。",  # "has no ... function"
+        "診断支援機能もありません。",
+        "患者の参加可否を判断するものではありません。",  # "is not something that ..."
+        "スコアリングのためのツールではありません。",  # "is not a tool for ..."
+        "医学的な判断を行いません。",
+        "疾患のリスクを予測せず、記録を一覧にします。",
+    ],
+)
+def test_a_denial_in_its_common_forms_passes(text: str) -> None:
+    assert check(text) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "AIが疾患を発見しない日はない。",  # two negatives deny nothing
+        "「疾患を発見しません」という日はない。",  # a quoted denial inside a double negative
+        "AIが疾患を検出します（必ず）。",  # 必ず after the claim word is not a negative
+    ],
+)
+def test_two_negatives_or_a_false_negative_are_not_a_denial(text: str) -> None:
+    assert check(text) != []
+
+
+def test_a_candidate_is_not_a_patient_word() -> None:
+    """候補者 is the product's own word for a person who may meet a study's criteria (the review's false alarm)."""
+    assert check("候補者の基準一致スコアを表示します。") == []
 
 
 def test_the_claim_words_are_data_beside_the_list() -> None:

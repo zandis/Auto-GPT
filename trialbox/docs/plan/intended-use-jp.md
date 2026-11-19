@@ -1,9 +1,9 @@
-# Intended use in Japan: why the project reads TrialBox as not a programmed medical device, and what it must never say
+# Intended use in Japan: the device question as the project reads it, and what TrialBox must never say
 
 | Field | Value |
 | --- | --- |
 | Document ID | TB-IU-01-JP (the Japan part of TB-IU-01, `docs/plan/intended-use.md`) |
-| Version | 0.2, draft (2026-11-19; card 10C-5, source JP-4 of `docs/reviews/2026-11-root/11-japan.md` section 3; decision D-1228) |
+| Version | 0.3, draft (2026-11-19; card 10C-5, source JP-4 of `docs/reviews/2026-11-root/11-japan.md` section 3; decision D-1228) |
 | Status | **Not legal advice.** The project's own reading, to be confirmed with the regulatory adviser (TB-IU-01 R1, R5) and with the ministry through the free 該当性 consultation filed after this card (plan 10 decision 65) |
 | Enforced by | `libs/tb_common/wording.py` (`FORBIDDEN` and the `CLAIM_*_JA` lists, `check`), tested in `tests/unit/test_wording.py` |
 
@@ -73,6 +73,10 @@ the product quotes as written (D-351).
 
 ## 4. Where the check runs, exactly
 
+**What the check is.** A lint over the project's own Japanese texts that catches common claim forms. It is not a
+guarantee that a text makes no device claim. **Every new Japanese public text still needs a human reading** (the
+owner's Japanese colleague, and the adviser for anything external).
+
 The rule is `check()` in `libs/tb_common/wording.py` (D-1228 describes it). It is not part of `make lint`; it runs in
 the test suite (`make test`, and the CI job that shards it), through these tests:
 
@@ -85,9 +89,37 @@ the test suite (`make test`, and the CI job that shards it), through these tests
 Not scanned: the guides and handover sheets in `docs/` (scanned once by hand for this card: no claim), `README.md`
 and deploy messages (English), and the public site's words other than Japanese claims.
 
-## 5. Change history
+## 5. Known limits
+
+Measured by the lane coordinator on independent sets of Japanese sentences the rule had not seen:
+
+| Commit | Claims missed | False alarms on legitimate lines |
+| --- | --- | --- |
+| 82f4c721 | 10 of 35 | 5 of 25 |
+| 0a5b7170 | 14 of 40 | 7 of 40 |
+
+The commit after 0a5b7170 fixes the denial forms, the 候補者 false alarm, invisible characters and inline tags (the
+items marked *fixed* below); it has not been re-measured. What a word list cannot catch stays a known limit:
+
+- other spellings and inflections of the listed verbs (kana for kanji, conjugated stems), unlisted verbs of finding,
+  estimating, deciding, ranking, early intervention or risk, and disease names not on the disease list;
+- a disease word more than 12 characters from the verb;
+- a synonym of 判断 (見極め, 決定 …);
+- a person as subject in a later clause clearing the product's judgement in an earlier one
+  (「AIが、医師が見る前に参加可否を判断します」 passes);
+- a named clinical scale masking the product's own estimate of it (「AIがECOGスコアを推定します」 passes);
+- a negative ending later in the same clause read as a denial of an earlier claim word, when no comma separates them;
+- *fixed:* the common denial forms (「…機能はありません」, 「…ものではありません」, 「…ツールではありません」,
+  「…判断を行いません」, 「…機能もありません」), a quoted denial inside a double negative, 候補者 counted as a patient
+  word, zero-width characters, and inline tags splitting a subject from its verb.
+
+**The follow-up card:** lemma matching with a Japanese morphological analyser and a disease test drawn from the
+product's own vocabulary. It waits on the owner's decision about the library.
+
+## 6. Change history
 
 | Version | Date | Change |
 | --- | --- | --- |
 | 0.1 | 2026-11-18 | First draft (card 10C-5): the case-database reasoning of review 11 section 3, the words never said, the check |
 | 0.2 | 2026-11-19 | Review: "criteria-based record listing"; the reading marked as the project's, to be confirmed; the guideline's notice numbers and page; the four case rows checked against the database; the nightly scores addressed; the candidate / disease distinction; exactly where the check runs |
+| 0.3 | 2026-11-19 | Second review: the title no longer reads as a conclusion; the check stated as a lint, not a guarantee, with the measured rates and the known limits (section 5); the follow-up card |
