@@ -7,7 +7,10 @@ it at /about. The demo image copies this folder (trialbox/) minus .dockerignore,
 deploy/requirements.lock, fetches two fonts (tools/fetch_fonts.py) and, when tools/fetch_jvm_deps.sh has run
 before the build, carries the CQL translator jars in .cache/jvm/cql-translator/lib.
 
-Every patient in the demo is synthetic. The code lists below are demo subsets, not complete releases.
+Every patient of the demo's default hospital is synthetic. The image also carries eval/ (the image copies all of
+trialbox/): eval/criterion_ml holds 53 real public patient descriptions of the SIGIR 2016 collection and this
+project's translations of them (CC BY-SA 4.0, section 4), and TB_DEMO_TOOL=public_e2e serves them, with MedTxt
+(CC BY 4.0), as the notes of a public-data site. The code lists below are demo subsets, not complete releases.
 
 Scope: this file is written from the licence register, docs/licences/register.csv (cards T-617a and T-617b,
 finding STD-044, D-342). `python -m tools.licence_register --check` fails the build when a shipped data file has
@@ -249,7 +252,11 @@ NCBI TrialGPT data (SIGIR 2016 cohort, TREC CT trial corpus)
     translations, which adapt them): Koopman B., Zuccon G., A test collection for matching patients to clinical
     trials, SIGIR 2016. Licence: CC BY-SA 4.0, https://creativecommons.org/licenses/by-sa/4.0/ . All Rights
     (including copyright) CSIRO, U.S. National Institute of Standards, U.S. National Institutes of Health 2016.
-    The translations are shared under the same licence.
+    Citation as the publisher gives it: Koopman, Bevan; Zuccon, Guido (2017): A Test Collection for Matching
+    Patient to Clinical Trials. v4. Commonwealth Scientific and Industrial Research Organisation.
+    https://doi.org/10.4225/08/58e2e83d92c2b . The notes are split into sentences; the translations are machine
+    translations made for TrialBox, not clinician-verified, and are shared under the same licence. The notes are
+    not public domain: NCBI's public domain notice covers its own criterion labels only (card 10H-1).
 
 TREC Clinical Trials 2021, 2022, 2023 topics and relevance judgements
   Where: model answers and scores only (eval/trec_ct, eval/open_cohorts, eval/ad); the topics stay in .cache.
@@ -273,7 +280,8 @@ MIMIC-IV Clinical Database Demo on FHIR
   Version: 2.1.0. Not in the image: fetched at run time. services/adapter/mapping/mimic/tables and
     services/adapter/contracts/mimic_fhir carry MIMIC item ids and labels used to map it.
   Licence: Open Data Commons Open Database License v1.0, https://opendatacommons.org/licenses/odbl/1-0/
-  Attribution: Johnson A., Bulgarelli L., Pollard T., et al. MIMIC-IV Clinical Database Demo on FHIR, PhysioNet.
+  Attribution: Bennett, A., Ulrich, H., Wiedekopf, J., Szul, P., Grimes, J., & Johnson, A. (2025). MIMIC-IV Clinical
+    Database Demo on FHIR (version 2.1.0). PhysioNet. RRID:SCR_007345 (the citation the PhysioNet page asks for).
 
 Synthea
   Where: cohort counts only (eval/synthea).
@@ -461,5 +469,9 @@ Every folder of the image that holds code lists, code maps or value sets, and th
     code needs an affiliate licence is for the owner (inquiry TB-LIC-01).
 9.4 JP Core: the package states no licence; JAMI's terms are to be confirmed before go-live in Japan.
 9.5 Fonts: fetched from an unpinned branch; the font hash pin is in dependency batch 2.
-9.6 The licence of each item above was read from the source's own statement or the component's metadata;
+9.6 Japanese dictionaries, not in the image (card 10H-1, register rows jmed-dict-mini and manbyo): JMED-DICT mini
+    is CC BY 4.0 (Social Computing Laboratory, NAIST), but its link columns (SNOMED CT IPS, WHO ICD-10, MEDIS
+    standard disease names, JLAC10, HOT) follow each resource's own terms. MANBYO names no licence ("feel free to
+    use it", and commercial users are pointed to JMED-DICT mini): NAIST is to be asked before it ships.
+9.7 The licence of each item above was read from the source's own statement or the component's metadata;
     the third-party images of the full product (not the demo image) are covered by T-110 and T-617b.

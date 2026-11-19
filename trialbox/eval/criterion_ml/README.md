@@ -34,8 +34,8 @@ The set has four parts, and they do not share one licence (sources read 2026-11-
 | Criterion labels, evidence ids, GPT-4 labels, `training` flag | `annotations.jsonl` (fields other than the trial text) | U.S. Government work, public domain notice (NCBI), `LICENSE.NCBI` | https://huggingface.co/datasets/ncbi/TrialGPT-Criterion-Annotations (`license_name: public-domain`, LICENSE = the NCBI notice) |
 | Trial titles and criterion text | `annotations.jsonl` (`trial_title`, `criterion_text`) | ClinicalTrials.gov terms and conditions; the text is the sponsors', unchanged | https://clinicaltrials.gov/about-site/terms-conditions |
 
-NCBI's copy of the notes carries the NCBI public domain notice, but NCBI redistributes text that CSIRO publishes under
-CC BY-SA 4.0; this repository follows the original publisher's licence for the notes, as the licence register
+NCBI's release puts the public domain notice of `LICENSE.NCBI` over the file, but NCBI redistributes text that CSIRO
+publishes under CC BY-SA 4.0; this repository follows the original publisher's licence for the notes, as the licence register
 (`docs/licences/register.csv`, rows `pubacc-sigir-2016` and `pubacc-trialgpt-criterion`) and `NOTICE` section 4
 already do. The attribution and the statement of changes are in `NOTICE.md` in this folder. Please cite: Jin Q, Wang Z,
 Floudas CS, et al. *Matching patients to clinical trials with large language models.* Nat Commun 15, 9074 (2024); and
