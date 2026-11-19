@@ -53,7 +53,7 @@
       {% elif b.status == 'champion' %}<span class="pill warn">{{ t('models.record.none') }}</span>{% endif %}</li>{% endfor %}</ul>
     {% else %}<p class="hint">{{ t('models.builds.none') }}</p>{% endif %}{% endif %}
     <a href="/">{{ t('admin.overview') }}</a>
-  </section>{# 10E-17 (D-1244): what this box's tier does not include, a status and never an error; absent on the full tier and with no tier record, so that page is as before #}{% if tier_lacks %}<section class="card tile" data-testid="tile-tier"><h2>{{ t('tier.title') }}</h2><ul class="plain">{% for r in tier_lacks %}<li data-testid="tier-status-{{ r.capability }}" data-level="status">{{ t('tier.lacks.' + r.capability) }}</li>{% endfor %}</ul></section>{% endif %}
+  </section>{# 10E-17 (D-1244): what this box's tier does not include, a status and never an error; absent on the full tier and with no tier record, so that page is as before #}{% if tier_lacks %}<section class="card tile" data-testid="tile-tier"><h2>{{ t('tier.title') }}</h2><ul class="plain">{% for r in tier_lacks %}<li data-testid="tier-status-{{ r.capability }}" data-level="status">{{ t('tier.lacks.' + r.capability) }}{% if r.basis != 'measured' %} <span class="hint" data-basis="declared">{{ t('tier.declared') }}</span>{% endif %}</li>{% endfor %}</ul></section>{% endif %}
   <section class="card tile" data-testid="tile-refdata">
     <h2>{{ t('admin.refdata') }}</h2>
     {% if refdata %}<p class="big" data-testid="refdata-asof">{{ refdata.data_as_of }}</p>

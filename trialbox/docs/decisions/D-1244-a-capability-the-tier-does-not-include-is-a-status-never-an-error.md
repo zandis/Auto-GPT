@@ -12,7 +12,11 @@
     nothing, so a new capability in a record never appears as a raw key.
   - **Words may take a declared field.** `console_promises` is declared on every record. D-1322 keeps a declared
     value from changing what the box does; these rows change nothing: no route, button, run, permission or export
-    reads them. They are only words. D-1322 stays the rule for every value that changes behaviour.
+    reads them. They are only words. D-1322 stays the rule for every value that changes behaviour; this decision
+    does not amend it.
+  - **A declared row says so.** The words never present a declared row as a measured fact. A line worded from a
+    declared field adds "As declared for this tier; not yet measured on this hardware." in en, ja and zh-TW. A line
+    worded from a measured field adds nothing.
   - **Where.** The administrator's home page (`/home`, which is the health tab of `/admin`) gets one tile, "What this
     box's tier includes". It has one line per absence, and each line ends "nothing is wrong". The tile has no pill,
     no warning, error or alert class, and no link. It appears only on the page that already shows the administrator
@@ -27,4 +31,5 @@
   - **Not here.** The protocol page and the coordinator's home: showing them a capability's state would be a new
     reader for those roles. The site box's protocol wording ("sent to the coordinating box") is plan 10 row 10E-33's.
     A not-measured value shown as "not measured" (ECC) is the capability page's job (10K-11).
-- **Held by:** `tests/console/test_tier_status_words.py`; the family `tier.lacks.` in `tools/text_keys.py`.
+- **Held by:** `tests/console/test_tier_status_words.py` (a measured and a declared record, each worded as above); the
+  family `tier.lacks.` in `tools/text_keys.py`.

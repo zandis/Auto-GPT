@@ -38,7 +38,17 @@ LACKS = {
     "ja": ("プロトコルの読み取り：このボックスの構成には含まれていません。", "スクリーニング実行中のモデルへの質問"),
     "zh-TW": ("計畫書判讀：這台機器的等級不包含此功能。", "篩選執行期間向模型提問"),
 }
+#: the qualifier of a line worded from a declared field (D-1244): never presented as a measured fact
+DECLARED = {
+    "en": "As declared for this tier; not yet measured on this hardware.",
+    "ja": "この構成について宣言された内容で、このハードウェアではまだ測定されていません。",
+    "zh-TW": "此為該等級所宣告的內容，尚未在這台硬體上量測。",
+}
 _CSRF = re.compile(r'name="csrf" value="[^"]+"')
+_LINE = re.compile(
+    r'<li data-testid="tier-status-([a-z_]+)" data-level="status">([^<]+?)'
+    r'(?: <span class="hint" data-basis="declared">([^<]+)</span>)?</li>'
+)
 
 
 def _tile(page: str) -> str:
@@ -75,13 +85,48 @@ def test_the_home_page_words_each_tier_in_each_language(
         return
     tile = _tile(page)
     assert TITLE[lang] in tile
-    lines = re.findall(r'<li data-testid="tier-status-([a-z_]+)" data-level="status">([^<]+)</li>', tile)
-    assert [cap for cap, _ in lines] == ["protocol_reading", "chat_during_a_screening_run"]
-    for (_, text), start in zip(lines, LACKS[lang], strict=True):
+    lines = _LINE.findall(tile)
+    assert [cap for cap, _, _ in lines] == ["protocol_reading", "chat_during_a_screening_run"]
+    for (_, text, qualifier), start in zip(lines, LACKS[lang], strict=True):
         assert text.startswith(start) and text.endswith(NOTHING_WRONG[lang]), text
+        # the shipped record declares console_promises: each line says it is declared, not measured (D-1244)
+        assert qualifier == DECLARED[lang], qualifier
     # a status, not an error: no warning or error pill, no alert, no error class in the tile
     for mark in ("pill", "warn", "bad", "error", 'role="alert"', "attention"):
         assert mark not in tile, mark
+
+
+# ------------------------------------------- a measured row is worded without the qualifier, a declared one with it
+def _site_record(tmp_path: Path, basis: str) -> Path:
+    """The shipped 32 GB record with ``console_promises`` given ``basis`` (synthetic: a measured promise is a test's)."""
+    doc = json.loads((Path(tier_words.tier_value.TIERS_DIR) / "rtx5090.json").read_text(encoding="utf-8"))
+    field = doc["fields"]["console_promises"]
+    field["basis"] = basis
+    d = tmp_path / f"tiers-{basis}"
+    d.mkdir()
+    (d / "rtx5090.json").write_text(json.dumps(doc), encoding="utf-8")
+    return d
+
+
+@pytest.mark.parametrize("basis", ["measured", "declared"])
+def test_only_a_declared_row_says_it_is_declared_and_not_measured(
+    box: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    basis: str,
+) -> None:
+    monkeypatch.setenv("TB_PROFILE", "P-5090")
+    monkeypatch.setattr(tier_words.tier_value, "TIERS_DIR", _site_record(tmp_path, basis))
+    c, csrf = _admin(box)
+    for lang in LANGS:
+        tile = _tile(_home(c, csrf, lang))
+        lines = _LINE.findall(tile)
+        assert [cap for cap, _, _ in lines] == ["protocol_reading", "chat_during_a_screening_run"], lang
+        for _, text, qualifier in lines:
+            assert text.endswith(NOTHING_WRONG[lang])
+            assert qualifier == (DECLARED[lang] if basis == "declared" else ""), (lang, qualifier)
+        assert (DECLARED[lang] in tile) == (basis == "declared")
+        assert ('data-basis="declared"' in tile) == (basis == "declared")
 
 
 # ------------------------------------------------------------------------ the full tier and no record: byte for byte
@@ -123,8 +168,16 @@ def test_a_broken_capability_the_tier_includes_still_shows_as_an_error(
         bk, "health", lambda: [Health("orchestrator", True, ""), Health("gateway", False, "ConnectError")]
     )
     c, csrf = _admin(box)
+    broken = _pages(c, csrf)
+    with monkeypatch.context() as m:  # the same broken box with no tier line: the page master renders
+        m.setattr(tier_words, "lacks", lambda *a, **k: [])
+        as_master = _pages(c, csrf)
     for lang in LANGS:
-        page = _home(c, csrf, lang)
+        # unchanged from master: the errors are byte for byte the same, only the status tile is added on the site box
+        tile_html = re.search(r'<section class="card tile" data-testid="tile-tier">.*?</section>', broken[lang], re.S)
+        assert (tile_html is not None) == (label == "P-5090"), lang
+        assert (broken[lang].replace(tile_html.group(0), "", 1) if tile_html else broken[lang]) == as_master[lang]
+        page = broken[lang]
         models = page[page.index('data-testid="tile-models"') :]
         models = models[: models.index("</section>")]
         assert f'<span class="pill warn">{translate(lang, "overview.models.no_judge")}</span>' in models, lang
@@ -171,6 +224,7 @@ def test_the_reader_keeps_only_the_worded_absences_in_the_records_order(tmp_path
     env = {"TB_PROFILE": "P-5090"}
     shipped = tier_words.lacks(env)
     assert [r["capability"] for r in shipped] == ["protocol_reading", "chat_during_a_screening_run"]
+    assert {r["basis"] for r in shipped} == {"declared"}  # the shipped record declares it
     assert tier_words.lacks({"TB_PROFILE": "P-PRO6000"}) == []  # every row available or not measured
     assert tier_words.lacks({"TB_PROFILE": "P-GB10"}) == [] and tier_words.lacks({}) == []
     rows = [
@@ -183,8 +237,13 @@ def test_the_reader_keeps_only_the_worded_absences_in_the_records_order(tmp_path
     ]
     d = _record(tmp_path, rows)
     assert tier_words.lacks(env, d) == [
-        {"capability": "chat_during_a_screening_run", "status": "busy_until_the_run_releases_the_card"}
+        {
+            "capability": "chat_during_a_screening_run",
+            "status": "busy_until_the_run_releases_the_card",
+            "basis": "declared",
+        }
     ]
+    assert [r["basis"] for r in tier_words.lacks(env, _record(tmp_path, rows, "measured"))] == ["measured"]
     assert tier_words.lacks(env, _record(tmp_path, rows, "not_measured")) == []
     assert tier_words.lacks(env, _record(tmp_path, "not a list")) == []
     (d / "rtx5090.json").write_text("{", encoding="utf-8")
@@ -197,3 +256,5 @@ def test_every_worded_capability_has_its_words_in_three_languages() -> None:
         for lang in LANGS:
             text = translate(lang, f"tier.lacks.{cap}")
             assert text != f"tier.lacks.{cap}" and text.endswith(NOTHING_WRONG[lang]), (cap, lang)
+    for lang in LANGS:
+        assert translate(lang, "tier.declared") == DECLARED[lang]

@@ -4,7 +4,8 @@ The box's tier record (``models/tiers/<profile>.json``, plan 10 row 10E-1, D-132
 the console may promise on the box: one row per capability with its ``status`` and ``because``. This module reads
 that field through the services' one reader, ``tb_common.tier_value`` (lane H, D-1322), and keeps only the rows whose
 status says the tier does not include the capability (:data:`WORDED`). The administrator's home page shows them as
-plain lines that end "nothing is wrong", in the tile style of a status, with no warning or error pill.
+plain lines that end "nothing is wrong", in the tile style of a status, with no warning or error pill; a line
+worded from a declared field adds that it is declared for the tier and not yet measured on this hardware.
 
 Words only. The rows decide nothing: no route, button, run or permission reads them, so a declared field may be shown
 (D-1244; D-1322's "measured only" stays the rule for a value that changes what the box does). A capability the tier
@@ -40,7 +41,11 @@ WORDED: dict[str, str] = {
 
 
 def lacks(env: Mapping[str, str] | None = None, tiers_dir: Path | None = None) -> list[dict[str, str]]:
-    """The rows of this box's tier record that the tier does not include, in the record's order; [] when none."""
+    """The rows of this box's tier record that the tier does not include, in the record's order; [] when none.
+
+    Each row carries ``basis``, the field's basis in the record (``measured`` or ``declared``): the page says of a
+    declared row that it is declared for the tier and not yet measured on this hardware, and says nothing of a
+    measured one, so a declared row never reads as a measured fact (D-1244)."""
     tv = tier_value.measured(FIELD, env, tiers_dir)
     rows: Any = tv.value if tv.case == "measured" else tv.declared if tv.case == "declared" else None
     if not isinstance(rows, list):
@@ -51,5 +56,5 @@ def lacks(env: Mapping[str, str] | None = None, tiers_dir: Path | None = None) -
             continue
         cap, status = row.get("capability"), row.get("status")
         if isinstance(cap, str) and WORDED.get(cap) == status and all(c["capability"] != cap for c in out):
-            out.append({"capability": cap, "status": str(status)})
+            out.append({"capability": cap, "status": str(status), "basis": tv.case})
     return out
