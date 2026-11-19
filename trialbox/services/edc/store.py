@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from datacore import pgfunc
+from psycopg import sql as pgsql
 from tb_common import id_rule
 from tb_common.config import environment_name
 from tb_common.crypto import key_fingerprint
@@ -151,21 +152,35 @@ TRAIL_TABLES = ("copy_tick", "decision", "sent", "signature_void")
 def has_trail(d: str = "d", tables: tuple[str, ...] = TRAIL_TABLES) -> str:
     """D-1253 (review round 3): the one definition, as SQL over ``draft {d}``, of a draft with a trail: decided,
     signed or sent, or named by any act (``tables``: the rebuild passes those the store has). A draft without one is
-    open. The EDC store and the one rebuild (``tools/id_rule_rebuild.py``) both use it."""
-    acts = " OR ".join(f"EXISTS (SELECT 1 FROM {t} x WHERE x.draft_id = {d}.id)" for t in tables)
-    return (f"({d}.fate IN ('confirmed', 'edited') OR {d}.signature_id IS NOT NULL OR {d}.sent_at IS NOT NULL"
-            + (f" OR {acts})" if acts else ")"))  # fmt: skip
+    open. The EDC store and the one rebuild (``tools/id_rule_rebuild.py``) both use it. Composed with psycopg's own
+    quoting: the alias and the table names are identifiers."""
+    a = pgsql.Identifier(d)
+    marks = [
+        pgsql.SQL("{}.fate IN ('confirmed', 'edited')").format(a),
+        pgsql.SQL("{}.signature_id IS NOT NULL").format(a),
+        pgsql.SQL("{}.sent_at IS NOT NULL").format(a),
+    ]
+    acts = [
+        pgsql.SQL("EXISTS (SELECT 1 FROM {} x WHERE x.draft_id = {}.id)").format(pgsql.Identifier(t), a) for t in tables
+    ]
+    return pgsql.SQL("({})").format(pgsql.SQL(" OR ").join([*marks, *acts])).as_string(None)
 
 
 def cites_old_rows(d: str = "d", tables: tuple[str, ...] = TRAIL_TABLES) -> str:
     """D-1253 (review round 3): a draft with a trail whose value cites a lake row (``citation`` or
     ``final_citation``). Only such a draft freezes a study of an earlier rule: a decided value with no citation
     ("not found") cites no old row, and its study is not frozen."""
-    return f"(({d}.citation IS NOT NULL OR {d}.final_citation IS NOT NULL) AND {has_trail(d, tables)})"
+    a = pgsql.Identifier(d)
+    cites = pgsql.SQL("({}.citation IS NOT NULL OR {}.final_citation IS NOT NULL)").format(a, a)
+    return pgsql.SQL("({} AND {})").format(cites, pgsql.SQL(has_trail(d, tables))).as_string(None)
 
 
 #: D-1253: whether a study has a draft that freezes it (:func:`cites_old_rows`)
-TRAILED = f"SELECT EXISTS (SELECT 1 FROM draft d WHERE d.study = ? AND {cites_old_rows()})"
+TRAILED = (
+    pgsql.SQL("SELECT EXISTS (SELECT 1 FROM draft d WHERE d.study = ? AND {})")
+    .format(pgsql.SQL(cites_old_rows()))
+    .as_string(None)
+)
 ID_RULE_FROZEN = (
     "prefill is stopped for this study: its decided, signed or sent values cite lake records of the earlier id "
     "rule (D-1253), which the rebuilt lake does not hold. They stay as the study's kept record, readable and "

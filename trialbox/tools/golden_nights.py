@@ -26,7 +26,14 @@ def next_night(ndjson: Path, out: Path) -> None:
     """The next night's feed: the same snapshot with about a tenth of the clinical records gone (deleted at the
     source) and about every 25th remaining numeric result corrected in place (the OMOP store updates it, with its
     before-image). Patients stay (removing a person is the opt-out path's job, never a feed delta's)."""
+    import shutil
+
+    from tb_common import id_rule
+
     out.mkdir(parents=True, exist_ok=True)
+    record = ndjson / id_rule.SNAPSHOT_RECORD
+    if record.exists():  # D-1253: the next night's snapshot says the id rule its ids were made under, as the first's
+        shutil.copyfile(record, out / id_rule.SNAPSHOT_RECORD)
     for f in sorted(ndjson.glob("*.ndjson")):
         rows = [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines() if line.strip()]
         if f.stem != "Patient":
