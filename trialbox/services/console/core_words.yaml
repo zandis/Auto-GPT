@@ -1,0 +1,196 @@
+# The twenty core words of the console, as data (card 9k-16, review 09 DS-16, D-1371).
+#
+# Each word has one spelling per language (en, ja, zh-TW) and the spellings the catalogue check refuses for it.
+# `python -m tools.text_keys` (run by `make lint`) reads every console catalogue string and fails on a refused
+# spelling, naming the key, the language and the spelling to write instead (`tools/core_words.py`).
+#
+# Where the words come from: the twenty concepts and their proposed spellings are review 09's table "The twenty core
+# words in three languages" (docs/reviews/2026-11-root/09-ux.md section 1.6), which calls itself a proposal for the
+# native readers, not a ruling. Decision 37 (plan 10 section 8.1): the zh-TW coordinator word is the owner's to choose;
+# until he does, the word in use stays and no second word is added. Decision 38: "patient code" is the one word for
+# the pseudonym on clinical pages. Decision 35 (reopened): the readers are the owner (zh-TW) and the site's coordinator
+# or the Japanese support partner (ja).
+#
+# NO ROW HAS BEEN READ BY A NATIVE READER (`read_by_native_reader: false` on every row). The spellings are the
+# review's proposal, which matches the present majority spelling of the catalogues wherever a variant is refused.
+# A reader's choice changes a row here, and the check then holds the catalogues to it.
+#
+# A row refuses a variant only where writing the one spelling in its place is a pure substitution in every catalogue
+# string today. Where the other spellings carry another meaning (a clinic visit is not a study visit; 確認 is also
+# "check"; 選定 is "selection"), or where a later card decides the word by study kind (10C-6: the Japanese term set
+# per study kind, with 治験参加者 and 研究責任者), `refused` is empty and `note` says why.
+#
+# Matching: en is matched as whole words, ignoring case; ja and zh-TW anywhere in the text. Before a variant is
+# looked for, the word's own spelling and its `allowed` phrases are masked: `allowed` lists a longer, correct
+# phrase that happens to contain a refused variant (預篩檢查 is 預篩 "pre-screen" + 檢查 "check", not 篩檢).
+#
+# 10F-5 (the site terms layer: a local synonym shown beside a core word, never replacing it) reads this file.
+# Keep it plain data: no anchors, no tags.
+
+version: 1
+words:
+  - id: home
+    concept: The opening page
+    read_by_native_reader: false
+    note: My studies / 担当試験 / 我的試驗 and Overview name other pages, not variants of the opening page
+    en: {spelling: Home, refused: []}
+    ja: {spelling: ホーム, refused: []}
+    zh-TW: {spelling: 首頁, refused: []}
+
+  - id: candidate
+    concept: The person before consent
+    read_by_native_reader: false
+    note: '"patient" (病人, 患者) is the hospital''s patient, a wider concept, and stays'
+    en: {spelling: Candidate, refused: []}
+    ja: {spelling: 候補者, refused: [候補患者]}
+    zh-TW: {spelling: 候選者, refused: [候選病人]}
+
+  - id: participant
+    concept: The person after consent
+    read_by_native_reader: false
+    note: >-
+      en "subject" is also the e-mail subject and the EDC's own word for its record; ja 参加者 and 研究対象者 are
+      10C-6's (the term set per study kind, with the 治験参加者 switch)
+    en: {spelling: Participant, refused: []}
+    ja: {spelling: 被験者, refused: []}
+    zh-TW: {spelling: 受試者, refused: []}
+
+  - id: patient_code
+    concept: The pseudonym shown
+    read_by_native_reader: false
+    note: >-
+      decision 38 rules "patient code" on clinical pages; the audit, break-glass and steward pages name the
+      32-character pseudonym itself, and a string does not say which page it is on, so en "pseudonym" and ja 仮名
+      are not refused yet; zh-TW 病人代號 is the same word misspelt
+    en: {spelling: Patient code, refused: []}
+    ja: {spelling: 患者コード, refused: []}
+    zh-TW: {spelling: 病人代碼, refused: [病人代號]}
+
+  - id: sae
+    concept: Serious adverse event
+    read_by_native_reader: false
+    note: the full words in headings; "SAE" stays in tight cells
+    en: {spelling: Serious adverse event, refused: []}
+    ja: {spelling: 重篤な有害事象, refused: []}
+    zh-TW: {spelling: 嚴重不良事件, refused: []}
+
+  - id: acknowledge
+    concept: The PI acknowledges (an SAE, a finding)
+    read_by_native_reader: false
+    note: 確認 is also "check" and confirm; 承認 is kept for approvals only
+    en: {spelling: Acknowledge, refused: []}
+    ja: {spelling: 確認, refused: []}
+    zh-TW: {spelling: 確認知悉, refused: []}
+
+  - id: pi
+    concept: The principal investigator
+    read_by_native_reader: false
+    note: >-
+      ja 責任医師 and 研究責任者 are 10C-6's (治験責任医師 for 治験, 研究責任者 for other studies); zh-TW 主持人 alone
+      also stands inside 協同主持人
+    en: {spelling: PI, refused: []}
+    ja: {spelling: 治験責任医師, refused: []}
+    zh-TW: {spelling: 試驗主持人, refused: []}
+
+  - id: sub_investigator
+    concept: The sub-investigator
+    read_by_native_reader: false
+    note: ja 分担医師 alone is 10C-6's, as the PI's word
+    en: {spelling: Sub-investigator, refused: [sub-I]}
+    ja: {spelling: 治験分担医師, refused: []}
+    zh-TW: {spelling: 協同主持人, refused: []}
+
+  - id: coordinator
+    concept: The clinical research coordinator
+    read_by_native_reader: false
+    note: >-
+      decision 37: the owner chooses the zh-TW word; until then the word in use (研究護理師) stays and no second word
+      is added; en "CRC" is the role's short name on the delegation log
+    en: {spelling: Coordinator, refused: []}
+    ja: {spelling: CRC, refused: []}
+    zh-TW: {spelling: 研究護理師, refused: [研究協調員]}
+
+  - id: study
+    concept: The study
+    read_by_native_reader: false
+    note: '"protocol" names the document; trial / 治験 / 研究 carry the study kind'
+    en: {spelling: Study, refused: []}
+    ja: {spelling: 試験, refused: []}
+    zh-TW: {spelling: 試驗, refused: []}
+
+  - id: consent
+    concept: Consent
+    read_by_native_reader: false
+    en: {spelling: Consent, refused: []}
+    ja: {spelling: 同意, refused: []}
+    zh-TW: {spelling: 同意, refused: []}
+
+  - id: enrol
+    concept: Enrol (the participant enters the study)
+    read_by_native_reader: false
+    note: British spelling, as the rest of the English text; zh-TW 納入 also stands in 納入條件 (inclusion criteria)
+    en: {spelling: Enrol, refused: [enroll, enrolls, enrollment, enrollments]}
+    ja: {spelling: 登録, refused: []}
+    zh-TW: {spelling: 收案, refused: []}
+
+  - id: visit
+    concept: The study visit
+    read_by_native_reader: false
+    note: the clinic visit (門診, 外来) is another concept and is kept apart
+    en: {spelling: Study visit, refused: []}
+    ja: {spelling: 来院, refused: []}
+    zh-TW: {spelling: 訪視, refused: []}
+
+  - id: screening
+    concept: Screening
+    read_by_native_reader: false
+    note: ja 選定 is "selection" (the day a criteria version starts being used), not a variant
+    en: {spelling: Screening, refused: []}
+    ja: {spelling: スクリーニング, refused: []}
+    zh-TW: {spelling: 篩選, refused: [篩檢], allowed: [預篩檢查]}
+
+  - id: criteria
+    concept: The study criteria
+    read_by_native_reader: false
+    note: '"ruleset" leaves clinical pages by rewording (J-8), not by a spelling'
+    en: {spelling: Study criteria, refused: []}
+    ja: {spelling: 選択・除外基準, refused: []}
+    zh-TW: {spelling: 納入排除條件, refused: []}
+
+  - id: delegation_log
+    concept: The delegation log
+    read_by_native_reader: false
+    note: ja is the J-GCP list's own name; ja 委任 is the verb "delegate", not the log
+    en: {spelling: Delegation log, refused: []}
+    ja: {spelling: 治験分担医師・治験協力者リスト, refused: [責任分担表, 分担表]}
+    zh-TW: {spelling: 授權紀錄表, refused: [授權表, 授權紀錄]}
+
+  - id: feasibility
+    concept: Feasibility
+    read_by_native_reader: false
+    en: {spelling: Feasibility, refused: []}
+    ja: {spelling: 実施可能性, refused: [フィージビリティ]}
+    zh-TW: {spelling: 可行性, refused: []}
+
+  - id: withdraw
+    concept: Withdraw (the participant leaves the study)
+    read_by_native_reader: false
+    note: 同意撤回 for consent; ja 脱落 is a drop-out, another event
+    en: {spelling: Withdraw, refused: []}
+    ja: {spelling: 中止, refused: []}
+    zh-TW: {spelling: 退出, refused: []}
+
+  - id: sponsor
+    concept: The sponsor
+    read_by_native_reader: false
+    note: ja 依頼者 alone is 10C-6's (治験依頼者 for 治験)
+    en: {spelling: Sponsor, refused: []}
+    ja: {spelling: 治験依頼者, refused: [スポンサー]}
+    zh-TW: {spelling: 試驗委託者, refused: [委託者]}
+
+  - id: steward
+    concept: The data steward
+    read_by_native_reader: false
+    en: {spelling: Data steward, refused: []}
+    ja: {spelling: データ管理責任者, refused: [データスチュワード]}
+    zh-TW: {spelling: 資料管理人, refused: []}

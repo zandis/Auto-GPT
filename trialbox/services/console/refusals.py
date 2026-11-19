@@ -188,7 +188,7 @@ REFUSALS: dict[str, tuple[str, str]] = {
     "no such entry in this study's log": ("この試験の委任リストにその行はありません", "本試驗的授權紀錄表沒有這一筆"),
     "say whether the copy matches the signed log": (
         "署名済みリストと一致しているかを選んでください",
-        "請選擇是否與已簽署的授權表一致",
+        "請選擇是否與已簽署的授權紀錄表一致",
     ),
     "no such person in the directory": ("職員名簿にその人はいません", "人員名冊中沒有此人"),
     "give the department and who answers for it": (

@@ -615,7 +615,7 @@ ZH: dict[str, str] = {
     "life.gloss.ae": "不良事件：試驗期間發生的任何不良醫療事件，依醫師原文記錄；TrialBox 不做分級。",
     "life.gloss.sae": "嚴重：死亡、危及生命、住院、殘障、先天性異常或其他重要醫學事件。",
     "life.gloss.deviation": "偏差：與計畫書不同的做法（在訪視窗口外訪視、漏做檢查等）。",
-    "life.gloss.screen_fail": "篩選失敗：不會收案的候選病人（不符合資格、拒絕參加或聯絡不上）。",
+    "life.gloss.screen_fail": "篩選失敗：不會收案的候選者（不符合資格、拒絕參加或聯絡不上）。",
     "life.sae.help": "嚴重不良事件無論結果如何，都會留在這裡，直到試驗主持人確認。",
     "life.sae.fatal": "死亡",
     "life.sae.ack": "標記為已確認",

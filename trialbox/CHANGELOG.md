@@ -10,6 +10,11 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- One spelling for each core word (9k-16, D-1371): the console says 候補者 / 候選者 for a candidate everywhere, and in
+  Japanese 治験依頼者 (not スポンサー), データ管理責任者 (not データスチュワード) and 治験分担医師・治験協力者リスト
+  (not 責任分担表); in Chinese 授權紀錄表, 試驗委託者 and 病人代碼; in English "sub-investigator". The words are a
+  data file (`services/console/core_words.yaml`) that `make lint` holds every console text to. No setting changes;
+  no row has yet been read by a native reader.
 - Dates on printed pages and the fiscal year 年度 (10C-13, 10C-15): a site may print dates in Western form (ISO, as
   before), Japanese era (令和8年11月18日) or both (2026年（令和8年）11月18日) on the feasibility report, the NHI
   navigation summary and application form, the CASE sheet and the released consent page (`site.printed_dates`); the

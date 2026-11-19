@@ -68,7 +68,7 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
-    "role.steward": "データスチュワード",
+    "role.steward": "データ管理責任者",
     "users.role.steward": "オプトアウト台帳とスタッフ名簿の管理；すべてのブレイクグラス利用のレビュー",
     "nav.breakglass": "ブレイクグラス",
     "bg.title": "ブレイクグラス",
