@@ -11,7 +11,7 @@ import shutil
 import stat
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -99,6 +99,8 @@ class AdapterConfig:
     # 10B-6 (D-1233): the site profile's folder (adapter.site_profile.find; None: no profile, the night reads as it
     # did before profiles). Its code tables replace the mapping's look-ups and the SS-MIX2 reader's tables it names
     site_profile: Path | None = None
+    # 10B-6: settings.profiles (tw_core, twpas_version): a profile's standard versions must agree with them
+    profile_standards: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         from tb_common.config import site_tz
@@ -169,15 +171,20 @@ def check_site_key(cfg: AdapterConfig, key: bytes) -> str:
 
 
 def load_site_profile(cfg: AdapterConfig, source_kind: str) -> SiteProfile | None:
-    """10B-6 (D-1233): the site's profile, checked and made the box's (a new one is recorded and audited), or None
-    when the box has none. A profile that fails its checks, or is of another site or door, ends the night here."""
+    """10B-6 (D-1233): the site's profile, checked against the box (its mapping, its country and standard versions)
+    and made the box's (a new one is recorded and audited; no audit folder, no profile), or None when the box has none.
+    A profile that fails, or is of another site or door, ends the night here."""
     if cfg.site_profile is None:
         return None
+    from tb_common.derived import country_of
     from tb_common.site_profile import load as load_profile
 
     from adapter import site_profile as sp
 
     profile = load_profile(cfg.site_profile)
+    if source_kind != "fhir_bulk":
+        sp.check_mapping(profile, Mapping.load(cfg.mapping_path))
+    sp.check_settings(profile, country=country_of(cfg.tz), standards=cfg.profile_standards)
     sp.activate(profile, cfg.lake_dir, site_id=cfg.site_id, by="adapter", audit_dir=cfg.audit_dir, tz=cfg.tz,
                 door=source_kind)  # fmt: skip
     return profile
@@ -612,6 +619,8 @@ def _run_ingest(
     identities: list[tuple[str, dict[str, str]]] = []
     fhir_profiles = ""
     source: Source | None = None
+    mapper: Mapper | None = None  # None for a fhir_bulk night (10B-6's coverage asks)
+    mapping: Mapping | None = None
     tombstones: dict[str, set[str]] = {}  # type -> ids deleted at the source (dataflow review P0-1)
     left_out: dict[str, set[str]] = {}  # D-528: type -> ids a row of a delta night no longer gives
     tables: dict[str, dict[str, Any]] = {}  # T-611: per source table, present / rows / duplicate keys
@@ -661,6 +670,10 @@ def _run_ingest(
             mrn_regex=cfg.mrn_regex,  # CGRD-A4 (D-816, lane E's hunk): a masked text uses the site's pattern
         )  # fmt: skip
         fhir_profiles = mapping.fhir_profiles
+        if profile is not None:  # 10B-6 (D-1233): a fact from a row still to verify carries D-135's basis tag
+            from adapter.site_profile import verify_rules
+
+            mapper.verify_rules = verify_rules(profile, mapping)
         source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding, profile)
         for res in mapper.static_resources():
             to_spool(res)
@@ -829,7 +842,7 @@ def _run_ingest(
             tables[table]["mapped"] = by_map
         unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
     at.update(step="snapshot", table=None)
-    unit_defaults = mapping.unit_defaults if source_kind != "fhir_bulk" else _bulk_unit_defaults(cfg.mapping_path)
+    unit_defaults = mapping.unit_defaults if mapping is not None else _bulk_unit_defaults(cfg.mapping_path)
     counts = spool.counts()
     crep: Any = None
     if contracts is not None:
@@ -1035,7 +1048,12 @@ def _run_ingest(
     if profile is not None:  # 10B-6 (D-1233): which profile read this night, and its coverage lines
         from adapter import site_profile as sp
 
-        cov = sp.coverage(profile, out_dir)
+        cov = sp.coverage(
+            profile,
+            out_dir,
+            reads=sp.readable(profile, mapping.tables) if mapping is not None else None,
+            from_verify=dict(mapper.from_verify) if mapper is not None else None,
+        )
         cov["night_profile"] = profile.stamp()
         (out_dir / sp.RECORD).write_text(
             json.dumps({"profile": profile.stamp(), "coverage": cov}, ensure_ascii=False, indent=1, sort_keys=True)

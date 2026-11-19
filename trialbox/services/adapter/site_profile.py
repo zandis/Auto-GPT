@@ -1,30 +1,35 @@
-"""The site profile on the box (10B-6, commitment C-6, D-1233; design: docs/data/site-profile.md).
+"""The site profile on the box (10B-6, commitment C-6, D-1233; design: docs/data/15-the-site-profile.md).
 
 The loader and its checks are :mod:`tb_common.site_profile`; this module is where the adapter meets a profile:
 
 * **Where it is.** ``profile/profile.yaml`` in the site's mapping folder (``deploy/site/mapping/profile/``, mounted
   read-only at ``/etc/trialbox/mapping/profile``, kept by every update like the site mapping, D-367; or a folder of
   ``TB_MAPPING_DIR``). One box is one site: one profile. No folder: the box reads as it did before profiles.
-* **Activation, versions and audit.** :func:`activate` compares the profile with the one the box last read
-  (``site_profile.json`` in the lake folder, beside ``site_key.json``). A new digest is a new profile: it is recorded
-  with who, when, the old and new version and both digests, in the record's history and as one ``site_profile.load``
-  event in the hash-chained audit. The same id and version with other content is refused (a steward changes the
-  version with the content). Rolling back is loading the earlier folder: it is a change like any other, recorded with
-  ``direction: back``.
-* **The night.** Every night that reads with a profile writes ``site_profile.json`` beside its snapshot (the profile's
-  id, version and digest, and the coverage lines), so "which profile produced this night's read" is one file
-  (:func:`night_profile`); the ``ingest.done`` event carries the same stamp and the coverage counts.
-* **Coverage lines** (:func:`coverage`): which declared data types arrived and how many rows, which arrived that the
-  profile does not declare, how many codes and rows no table could map (by table: counts only), and how many rows
-  of each table are still ``verify``. From the night's own files, so any kept night can be asked again.
-* **The work list** (:func:`worklist`): the unmapped codes and the ``verify`` rows as CSV for the site's data manager.
+* **Checked against the box** (:func:`check_mapping`, :func:`check_settings`): a table a mapping reads has the
+  mapping's look-up key and every column of the mapping's own look-up, and no other column; the profile's country
+  is the one the settings give and its standard versions agree with ``settings.profiles``.
+* **Activation, versions and audit.** :func:`activate` compares the profile with what the box read before
+  (``site_profile.json`` in the lake folder, beside ``site_key.json``, and the rows' states beside it). A new digest
+  is recorded with who, when, the old and new version, both digests and every row whose state changed, in the
+  record's history and as one ``site_profile.load`` event in the hash-chained audit; without an audit destination
+  nothing is activated. An id and version read before with other content is refused (the steward changes the version
+  with the content). Rolling back is loading the earlier folder, recorded with ``direction: back``.
+* **The night.** Every night that reads with a profile writes ``site_profile.json`` beside its snapshot (the
+  profile's id, version and digest, and the coverage lines); the ``ingest.done`` event carries the same stamp and the
+  counts. A fact whose standard code comes from a ``verify`` row carries D-135's basis tag ``verify``
+  (:func:`verify_rules`): it stays coded and is listed in the lake's ``site_fact``.
+* **Coverage lines** (:func:`coverage`): which declared data types arrived and how many rows, which this version does
+  not read, which arrived undeclared, how many codes and rows no table could map (by table: counts only), how many
+  rows of each table are still ``verify`` and how many facts rest on them. From the night's own files.
+* **The work list** (:func:`worklist`): the unmapped codes, the ``verify`` rows and (with the site set-up store) every
+  code that store maps otherwise, as CSV for the site's data manager.
 
-    python -m adapter.site_profile check <folder>
-    python -m adapter.site_profile load <folder> --lake <lake dir> --by <name> [--audit <dir>]
+    python -m adapter.site_profile check <folder> [--mapping <mapping.yaml>]
+    python -m adapter.site_profile load <folder> --lake <lake dir> --by <name> [--audit <dir>] [--mapping <file>]
     python -m adapter.site_profile history --lake <lake dir>
     python -m adapter.site_profile which --lake <lake dir> --snapshot <YYYY-MM-DD>
     python -m adapter.site_profile coverage --night <snapshot folder> [--profile <folder>] [--json]
-    python -m adapter.site_profile worklist --night <snapshot folder> --profile <folder> --out <file.csv>
+    python -m adapter.site_profile worklist --night <snapshot folder> [--profile <folder>] [--setup-db <url>] --out f
 """
 
 from __future__ import annotations
@@ -33,8 +38,9 @@ import argparse
 import csv
 import io
 import json
+import os
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -42,13 +48,24 @@ from typing import Any
 from tb_common.site_profile import MANIFEST, VERIFIED, VERIFY, Profile, ProfileError, load
 
 RECORD = "site_profile.json"  # in the lake folder: the active profile and its history; beside a snapshot: the night's
+STATES = "site_profile.states.json"  # in the lake folder: every row's state as last activated
 FOLDER = "profile"  # in the site mapping folder
 EVENT = "site_profile.load"
+MAX_CHANGES_IN_EVENT = 2000  # rows whose state changed named in one audit event; the count is always complete
 WORKLIST_COLUMNS = ("kind", "table", "code", "rows", "target", "state", "file", "line")
 # the night's files the coverage lines read (adapter.pipeline writes them)
 COMPLETENESS = "completeness.json"
 UNMAPPED_CODES = "unmapped_codes.json"
 READER = "reader.json"
+#: the SS-MIX2 data types the reader reads (its README: ADT-00/12/22/52, PPR-01, OMP-01/02/11/12, OML-11 and the
+#: extended storage's documents); a declared type outside these and the mapping's tables is not read by this version
+SSMIX2_READS = frozenset({"ADT-00", "ADT-12", "ADT-22", "ADT-52", "PPR-01", "OMP-01", "OMP-02", "OMP-11", "OMP-12",
+                          "OML-11", "document"})  # fmt: skip
+#: the SS-MIX2 reader's tables: the canonical table, the column of the site's code, the column of the standard code
+SSMIX2_COLUMNS = {"ssmix2.diagnosis": ("diagnosis", "byomei_code", "icd10"),
+                  "ssmix2.drug": ("medication", "nhi_drug_code", "atc")}  # fmt: skip
+#: columns a table a mapping reads may have besides the mapping's own look-up columns and its state
+LOOKUP_OPTIONAL = frozenset({"plausible_low", "plausible_high", "source_unit"})
 
 
 def find(extra: Iterable[Path] = ()) -> Path | None:
@@ -64,6 +81,97 @@ def find(extra: Iterable[Path] = ()) -> Path | None:
     return None
 
 
+# ------------------------------------------------------------------------------------ checks against the box
+def check_mapping(profile: Profile, mapping: Any) -> None:
+    """Refuse a table a mapping reads (``mapping.<look-up>``) that the mapping would read otherwise than its own:
+    the look-up must be declared, the table keyed by the look-up's key, and hold every column of the mapping's own
+    look-up file (the columns its elements and builders read) and no column besides those, the optional ones
+    (:data:`LOOKUP_OPTIONAL`) and its state. ``mapping`` is an :class:`adapter.mapping.engine.Mapping` loaded without
+    the profile."""
+    for t in profile.tables.values():
+        for use in t.used_by:
+            if not use.startswith("mapping."):
+                continue
+            name = use.split(".", 1)[1]
+            lk = mapping.lookups.get(name)
+            if lk is None:
+                raise ProfileError(t.file, f"{use}: the mapping {mapping.name} has no look-up {name!r}")
+            if t.key != lk.key:
+                raise ProfileError(t.file, f"{use}: the mapping looks {name} up by {lk.key!r}, not {t.key!r}")
+            have = set(_header(t.path))
+            missing = [c for c in lk.columns if c not in have and c != "verified"]
+            if missing:
+                raise ProfileError(f"{t.file}:1", f"{use}: no column {missing[0]!r} (the mapping reads it)")
+            allowed = set(lk.columns) | LOOKUP_OPTIONAL | {t.state_column}
+            extra = sorted(c for c in have if c not in allowed)
+            if extra:
+                raise ProfileError(f"{t.file}:1", f"{use}: column {extra[0]!r} is not one the mapping reads")
+
+
+def _header(path: Path) -> list[str]:
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        return [c.strip() for c in next(csv.reader(fh), [])]
+
+
+def check_settings(profile: Profile, *, country: str | None, standards: Mapping[str, str] | None = None) -> None:
+    """Refuse a profile whose country is not the one the box's settings give (``tb_common.derived.country_of``: JP or
+    TW; None checks nothing), or whose standard versions disagree with ``settings.profiles`` on a name both state."""
+    if country and profile.country.upper() != country.upper():
+        raise ProfileError(MANIFEST, f"country {profile.country} is not the site's ({country.lower()}, from settings)")
+    for k, v in (standards or {}).items():
+        if v and k in profile.standards and profile.standards[k] != str(v):
+            raise ProfileError(MANIFEST, f"standards.{k} {profile.standards[k]} is not settings.profiles.{k} ({v})")
+
+
+def verify_rules(profile: Profile, mapping: Any) -> dict[str, list[Any]]:
+    """Which source rows take their standard code from a ``verify`` row: per canonical table, the rules the mapper
+    tags with (:class:`adapter.mapping.engine.VerifyRule`). A ``mapping.<look-up>`` table: every table whose resources
+    look it up, by the column they look it up with. An SS-MIX2 table: the reader's code column, when the row's
+    standard code is the one that row gives (the reader is not asked where it took the code from: a message that
+    carried the same code itself is counted too)."""
+    from adapter.mapping.engine import VerifyRule
+
+    out: dict[str, list[Any]] = {}
+    for t in profile.tables.values():
+        codes = {r.code: r.target for r in t.rows.values() if r.state == VERIFY}
+        if not codes:
+            continue
+        for use in t.used_by:
+            if use in SSMIX2_COLUMNS:
+                table, col, target = SSMIX2_COLUMNS[use]
+                out.setdefault(table, []).append(VerifyRule(table, col, codes, target))
+            elif use.startswith("mapping."):
+                name = use.split(".", 1)[1]
+                for table, col in sorted(_lookup_keys(mapping, name)):
+                    out.setdefault(table, []).append(VerifyRule(table, col, codes))
+    return out
+
+
+def _lookup_keys(mapping: Any, name: str) -> set[tuple[str, str]]:
+    """(table, row column) of every place a resource looks ``name`` up."""
+    found: set[tuple[str, str]] = set()
+
+    def walk(x: Any, table: str) -> None:
+        if isinstance(x, dict):
+            spec = x.get("lookup")
+            if isinstance(spec, dict) and spec.get("name") == name and spec.get("key"):
+                found.add((table, str(spec["key"])))
+            elif spec == name and x.get("key"):  # a builder's arguments: {lookup: lab, key: local_code}
+                found.add((table, str(x["key"])))
+            for v in x.values():
+                walk(v, table)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v, table)
+
+    for r in mapping.resources:
+        walk(r.elements, r.table)
+        walk(r.where, r.table)
+        walk(r.profile, r.table)
+    return found
+
+
+# ------------------------------------------------------------------------------------- versions and audit
 def _version(v: str) -> tuple[int, ...]:
     return tuple(int(p) for p in v.split("."))
 
@@ -78,20 +186,42 @@ def read_record(lake_dir: Path) -> dict[str, Any]:
     return rec
 
 
+def _states(profile: Profile) -> dict[str, dict[str, str]]:
+    return {n: {c: r.state for c, r in sorted(t.rows.items())} for n, t in sorted(profile.tables.items())}
+
+
+def _state_changes(before: dict[str, dict[str, str]], now: dict[str, dict[str, str]]) -> list[dict[str, Any]]:
+    out = []
+    for table in sorted(set(before) | set(now)):
+        a, b = before.get(table, {}), now.get(table, {})
+        for code in sorted(set(a) | set(b)):
+            if a.get(code) != b.get(code):
+                out.append({"table": table, "code": code, "from": a.get(code), "to": b.get(code)})
+    return out
+
+
+def _write(path: Path, data: Any) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
 def activate(
     profile: Profile,
     lake_dir: Path,
     *,
     site_id: str,
     by: str,
-    audit_dir: Path | None = None,
+    audit_dir: Path | None,
     tz: str = "UTC",
     door: str | None = None,
 ) -> dict[str, Any] | None:
     """Make ``profile`` the box's profile. Returns the change recorded, or None when it is the active one already.
 
-    Refused (:class:`ProfileError`): a profile of another site or another door, or the active profile's id and
-    version with other content."""
+    Refused (:class:`ProfileError`): no audit destination; a profile of another site or another door; an id and
+    version the box read before with other content (the whole history is asked, not only the active profile)."""
+    if audit_dir is None:
+        raise ProfileError(MANIFEST, "a profile is made the box's only with its audit: no audit folder was given")
     if profile.site_id != site_id:
         raise ProfileError(MANIFEST, f"this profile is for site {profile.site_id!r}, not {site_id!r}")
     if door is not None and profile.door != door:
@@ -100,18 +230,24 @@ def activate(
     old = rec.get("active") or None
     if old and old.get("digest") == profile.digest:
         return None
-    if old and old.get("id") == profile.id and old.get("version") == profile.version:
-        raise ProfileError(
-            MANIFEST,
-            f"version {profile.version} was read before with other content (digest {str(old.get('digest'))[:12]}, "
-            f"now {profile.digest[:12]}): give the changed profile a new version",
-        )
+    for h in rec.get("history", []):
+        if h.get("id") == profile.id and h.get("version") == profile.version and h.get("digest") != profile.digest:
+            raise ProfileError(
+                MANIFEST,
+                f"version {profile.version} was read on {h.get('at')} with other content (digest "
+                f"{str(h.get('digest'))[:12]}, now {profile.digest[:12]}): give the changed profile a new version",
+            )
     at = datetime.now(UTC).isoformat(timespec="seconds")
     direction = "first"
     if old:
         same = old.get("id") == profile.id
         direction = "back" if same and _version(profile.version) < _version(str(old.get("version"))) else "forward"
-    entry = {**profile.stamp(), "at": at, "by": by, "direction": direction}
+    try:
+        before = json.loads((lake_dir / STATES).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        before = {}
+    now = _states(profile)
+    changes = _state_changes(before, now)
     change = {
         "profile": profile.id,
         "site": site_id,
@@ -122,16 +258,16 @@ def activate(
         "old_profile": old.get("id") if old else None,
         "direction": direction,
         "synthetic": profile.synthetic,
+        "rows_changed": len(changes),  # rows added, removed or whose state changed, each by `by` at `at`
+        "row_changes": changes[:MAX_CHANGES_IN_EVENT],
     }
-    if audit_dir is not None:
-        from tb_common.audit_writer import open_audit
+    from tb_common.audit_writer import open_audit
 
-        open_audit(audit_dir, tz).append(EVENT, actor=by, output_sha=profile.digest, detail=change)
-    rec = {"active": entry, "history": [*rec.get("history", []), entry]}
+    open_audit(audit_dir, tz).append(EVENT, actor=by, output_sha=profile.digest, detail=change)
+    entry = {**profile.stamp(), "at": at, "by": by, "direction": direction, "rows_changed": len(changes)}
     lake_dir.mkdir(parents=True, exist_ok=True)
-    tmp = lake_dir / (RECORD + ".tmp")
-    tmp.write_text(json.dumps(rec, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    tmp.replace(lake_dir / RECORD)
+    _write(lake_dir / STATES, now)
+    _write(lake_dir / RECORD, {"active": entry, "history": [*rec.get("history", []), entry]})
     return {**change, "at": at, "by": by}
 
 
@@ -144,6 +280,7 @@ def night_profile(night_dir: Path) -> dict[str, Any] | None:
     return rec.get("profile") if isinstance(rec, dict) else None
 
 
+# ----------------------------------------------------------------------------------- coverage and work list
 def _json(path: Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -178,9 +315,27 @@ def _arrived(night_dir: Path, door: str) -> dict[str, int]:
     return {**{t: n for t, n in tables.items() if t not in out}, **out}
 
 
-def coverage(profile: Profile, night_dir: Path) -> dict[str, Any]:
-    """The coverage lines of one night against ``profile``: counts only, never a patient's value."""
+def readable(profile: Profile, mapping_tables: Iterable[str]) -> frozenset[str]:
+    """The data types this version reads at the profile's door: the mapping's tables, and the SS-MIX2 types."""
+    return frozenset(mapping_tables) | (SSMIX2_READS if profile.door == "ssmix2" else frozenset())
+
+
+def coverage(
+    profile: Profile,
+    night_dir: Path,
+    *,
+    reads: Iterable[str] | None = None,
+    from_verify: Mapping[str, int] | None = None,
+) -> dict[str, Any]:
+    """The coverage lines of one night against ``profile``: counts only, never a patient's value. ``reads``: the
+    data types this version reads (:func:`readable`); a declared type outside them is "not read by this version",
+    not "none arrived". ``from_verify``: facts per table that rest on a ``verify`` row (the night's mapper); asked
+    again of a kept night, the night's own record gives them."""
     arrived = _arrived(night_dir, profile.door)
+    said = _json(night_dir / RECORD) or {}
+    if from_verify is None:
+        from_verify = ((said.get("coverage") or {}).get("facts_from_verify")) or {}
+    reads = frozenset(reads) if reads is not None else None
     # SS-MIX2: the storage's canonical tables are not data types; only what the reader names by type is
     if profile.door == "ssmix2":
         read = (_json(night_dir / READER) or {}).get("read") or {}
@@ -188,19 +343,22 @@ def coverage(profile: Profile, night_dir: Path) -> dict[str, Any]:
         undeclared = sorted(t for t in typed if t not in profile.data_types and arrived.get(t))
     else:
         undeclared = sorted(t for t, n in arrived.items() if n and t not in profile.data_types)
+    not_read = [t for t in profile.data_types if reads is not None and t not in reads and not arrived.get(t)]
     unmapped = _unmapped(night_dir)
     states = {name: t.states() for name, t in sorted(profile.tables.items())}
     return {
         "profile": profile.stamp(),
         "night_profile": night_profile(night_dir),
         "data_types": [{"type": t, "rows": arrived.get(t, 0)} for t in profile.data_types],
-        "not_arrived": [t for t in profile.data_types if not arrived.get(t)],
+        "not_read": not_read,
+        "not_arrived": [t for t in profile.data_types if not arrived.get(t) and t not in not_read],
         "not_declared": [{"type": t, "rows": arrived[t]} for t in undeclared],
         "unmapped": {t: {"codes": len(c), "rows": sum(c.values())} for t, c in sorted(unmapped.items())},
         "tables": {
             name: {"rows": s[VERIFIED] + s[VERIFY], VERIFIED: s[VERIFIED], VERIFY: s[VERIFY]}
             for name, s in states.items()
         },
+        "facts_from_verify": {t: int(n) for t, n in sorted(from_verify.items()) if n},
     }
 
 
@@ -211,10 +369,12 @@ def summary(cov: dict[str, Any]) -> dict[str, Any]:
         "types_declared": len(cov["data_types"]),
         "types_arrived": sum(1 for d in cov["data_types"] if d["rows"]),
         "not_arrived": cov["not_arrived"],
+        "not_read": cov.get("not_read", []),
         "not_declared": [d["type"] for d in cov["not_declared"]],
         "unmapped_codes": sum(u["codes"] for u in cov["unmapped"].values()),
         "unmapped_rows": sum(u["rows"] for u in cov["unmapped"].values()),
         "verify_rows": sum(t[VERIFY] for t in cov["tables"].values()),
+        "facts_from_verify": sum(cov.get("facts_from_verify", {}).values()),
     }
 
 
@@ -231,6 +391,8 @@ def lines(cov: dict[str, Any]) -> list[str]:
     arrived = sum(1 for d in cov["data_types"] if d["rows"])
     out.append(f"data types: {arrived} of {len(cov['data_types'])} declared arrived")
     out += [f"  {d['type']}: {d['rows']} rows" for d in cov["data_types"]]
+    if cov.get("not_read"):
+        out.append(f"declared, not read by this version: {', '.join(cov['not_read'])}")
     if cov["not_arrived"]:
         out.append(f"declared, none arrived: {', '.join(cov['not_arrived'])}")
     if cov["not_declared"]:
@@ -242,18 +404,55 @@ def lines(cov: dict[str, Any]) -> list[str]:
         out.append("codes no table maps: none")
     out.append("table rows still to verify:")
     out += [f"  {n}: {t[VERIFY]} of {t['rows']}" for n, t in cov["tables"].items()]
+    facts = cov.get("facts_from_verify") or {}
+    out.append("facts resting on a row still to verify: " + (", ".join(f"{t} {n}" for t, n in facts.items()) or "none"))
     return out
 
 
-def worklist(profile: Profile, night_dir: Path | None) -> list[dict[str, str]]:
-    """The data manager's list: every code of the night no table maps (most rows first), then every ``verify`` row
-    of the profile's tables. Codes and counts only."""
+# --------------------------------------------------------------- the site set-up store (D-135) and the profile
+def store_wins(profile: Profile, confirmed: Mapping[tuple[str, str, str], Mapping[str, str]]) -> dict[str, str]:
+    """The lab code -> LOINC the site uses when both homes map a code: the site set-up store's confirmed map (a named
+    person's recorded act, D-135) wins over the profile's lab table (coordinator's ruling on #1128). ``confirmed`` is
+    ``sitesetup.store.SetupStore.mapping``. Not yet applied at night: the adapter does not read that store."""
+    out = {code: r.target for t in profile.tables.values() if "mapping.lab" in t.used_by for code, r in t.rows.items()}
+    for (domain, system, code), m in confirmed.items():
+        if domain == "observation" and system.rsplit(":", 1)[-1] in ("lab-code",) and m.get("code"):
+            out[code] = str(m["code"])
+    return out
+
+
+def disagreements(
+    profile: Profile, confirmed: Mapping[tuple[str, str, str], Mapping[str, str]]
+) -> list[dict[str, str]]:
+    """Every lab code both homes map, to different standard codes: the work list's ``disagree`` rows."""
+    table = next((t for t in profile.tables.values() if "mapping.lab" in t.used_by), None)
+    if table is None:
+        return []
+    out = []
+    for (domain, system, code), m in sorted(confirmed.items()):
+        row = table.rows.get(code)
+        lab = domain == "observation" and system.rsplit(":", 1)[-1] == "lab-code"
+        if lab and row is not None and m.get("code") and row.target != m["code"]:
+            out.append({"kind": "disagree", "table": table.name, "code": code, "rows": "",
+                        "target": f"profile {row.target}; site set-up {m['code']} (wins)", "state": row.state,
+                        "file": table.file, "line": str(row.line)})  # fmt: skip
+    return out
+
+
+def worklist(
+    profile: Profile,
+    night_dir: Path | None,
+    confirmed: Mapping[tuple[str, str, str], Mapping[str, str]] | None = None,
+) -> list[dict[str, str]]:
+    """The data manager's list: every code of the night no table maps (most rows first), every lab code the site
+    set-up store maps otherwise than the profile, then every ``verify`` row. Codes and counts only."""
     out: list[dict[str, str]] = []
     if night_dir is not None:
         for table, codes in _unmapped(night_dir).items():
             for code, n in sorted(codes.items(), key=lambda kv: (-kv[1], kv[0])):
                 out.append({"kind": "unmapped", "table": table, "code": code, "rows": str(n), "target": "",
                             "state": "", "file": "", "line": ""})  # fmt: skip
+    out += disagreements(profile, confirmed or {})
     for t, r in profile.verify_rows():
         out.append({"kind": "verify", "table": t.name, "code": r.code, "rows": "", "target": r.target,
                     "state": r.state, "file": t.file, "line": str(r.line)})  # fmt: skip
@@ -270,8 +469,30 @@ def worklist_csv(rows: Sequence[dict[str, str]]) -> str:
 
 
 def _cell(v: str) -> str:
-    """A cell a spreadsheet will not run as a formula (a code beginning with = + - @ gets a leading quote)."""
-    return "'" + v if v[:1] in ("=", "+", "-", "@") else v
+    """A cell a spreadsheet will not run as a formula: a value starting with = + - @, a tab or a carriage return
+    gets a leading quote."""
+    return "'" + v if v[:1] in ("=", "+", "-", "@", "\t", "\r") else v
+
+
+# ---------------------------------------------------------------------------------------------- the command
+def _settings() -> Any:
+    """The box's settings (``tb_common.config``): the site id, its zone and locale, ``settings.profiles``."""
+    from tb_common.config import get_config
+
+    return get_config()
+
+
+def _check_with_settings(p: Profile, cfg: Any) -> None:
+    from tb_common.derived import country_of
+
+    profiles = cfg.settings.profiles.model_dump() if cfg.settings.profiles is not None else {}
+    check_settings(p, country=country_of(cfg.env.tz, cfg.settings.site.locale), standards=profiles)
+
+
+def _mapping(path: Path | None) -> Any:
+    from adapter.mapping.engine import Mapping as MappingFile
+
+    return MappingFile.load(path) if path is not None else None
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -279,12 +500,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("check", help="validate a profile folder")
     c.add_argument("folder", type=Path)
+    c.add_argument("--mapping", type=Path, help="the site mapping its mapping.<look-up> tables are held to")
     ld = sub.add_parser("load", help="make a profile the box's (recorded and audited)")
     ld.add_argument("folder", type=Path)
     ld.add_argument("--lake", type=Path, required=True)
     ld.add_argument("--by", required=True, help="who loads it (recorded)")
-    ld.add_argument("--site", help="settings.site.id (default: the profile's own)")
     ld.add_argument("--audit", type=Path, help="the audit folder (default: TB_AUDIT_DIR)")
+    ld.add_argument("--mapping", type=Path, help="the site mapping (needed when a table is a mapping's look-up)")
     h = sub.add_parser("history", help="the profiles this box has read, in order")
     h.add_argument("--lake", type=Path, required=True)
     wh = sub.add_parser("which", help="the profile a night was read with")
@@ -293,26 +515,39 @@ def main(argv: Sequence[str] | None = None) -> int:
     cv = sub.add_parser("coverage", help="a night's coverage lines")
     cv.add_argument("--night", type=Path, required=True, help="the night's snapshot folder (lake/ndjson/<date>)")
     cv.add_argument("--profile", type=Path, help="the profile folder (default: the site's)")
+    cv.add_argument("--mapping", type=Path, help="the site mapping (names the tables this version reads)")
     cv.add_argument("--json", action="store_true")
-    wl = sub.add_parser("worklist", help="unmapped codes and verify rows as CSV")
-    wl.add_argument("--night", type=Path, help="the night's snapshot folder; without it, the verify rows only")
+    wl = sub.add_parser("worklist", help="unmapped codes, disagreements and verify rows as CSV")
+    wl.add_argument("--night", type=Path, help="the night's snapshot folder; without it, no unmapped codes")
     wl.add_argument("--profile", type=Path, help="the profile folder (default: the site's)")
+    wl.add_argument("--setup-db", help="the trial database URL: compare with the site set-up store's maps (D-135)")
     wl.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
     try:
         if a.cmd == "check":
             p = load(a.folder)
+            needs = any(u.startswith("mapping.") for t in p.tables.values() for u in t.used_by)
+            if needs and a.mapping is None:
+                print("refused: a table is a mapping's look-up: give --mapping <the site mapping>", file=sys.stderr)
+                return 2
+            if a.mapping is not None:
+                check_mapping(p, _mapping(a.mapping))
             print(f"{p.id} {p.version} for site {p.site_id} ({p.country}, {p.door}): digest {p.digest}")
             for name, t in sorted(p.tables.items()):
                 s = t.states()
                 print(f"  {name}: {len(t.rows)} rows, {s[VERIFIED]} verified, {s[VERIFY]} to verify ({t.file})")
             return 0
         if a.cmd == "load":
-            import os
-
             p = load(a.folder)
+            if any(u.startswith("mapping.") for t in p.tables.values() for u in t.used_by):
+                if a.mapping is None:
+                    print("refused: a table is a mapping's look-up: give --mapping <the site mapping>", file=sys.stderr)
+                    return 2
+                check_mapping(p, _mapping(a.mapping))
+            cfg = _settings()
+            _check_with_settings(p, cfg)
             audit = a.audit or (Path(os.environ["TB_AUDIT_DIR"]) if os.environ.get("TB_AUDIT_DIR") else None)
-            ch = activate(p, a.lake, site_id=a.site or p.site_id, by=a.by, audit_dir=audit)
+            ch = activate(p, a.lake, site_id=cfg.settings.site.id, by=a.by, audit_dir=audit, tz=cfg.env.tz or "UTC")
             print("already the box's profile" if ch is None else json.dumps(ch, ensure_ascii=False))
             return 0
         if a.cmd == "history":
@@ -329,10 +564,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         p = load(folder)
         if a.cmd == "coverage":
-            cov = coverage(p, a.night)
+            m = _mapping(a.mapping)
+            cov = coverage(p, a.night, reads=readable(p, m.tables) if m is not None else None)
             print(json.dumps(cov, ensure_ascii=False, indent=1) if a.json else "\n".join(lines(cov)))
             return 0
-        rows = worklist(p, a.night)
+        confirmed: dict[tuple[str, str, str], dict[str, str]] = {}
+        if a.setup_db:
+            from sitesetup.store import SetupStore
+
+            st = SetupStore(a.setup_db)
+            try:
+                confirmed = st.mapping("main")
+            finally:
+                st.close()
+        rows = worklist(p, a.night, confirmed)
         a.out.write_text(worklist_csv(rows), encoding="utf-8")
         print(f"{len(rows)} rows written to {a.out}")
         return 0

@@ -43,6 +43,11 @@ from adapter.pipeline import AdapterConfig, FutureNight, LakeBudgetError, NoRoom
 MAPPING_ROOT = Path(__file__).resolve().parent  # the image's mappings (adapter.mapping.site: the site's come first)
 
 
+def _standards(profiles: Any) -> dict[str, str]:
+    """settings.profiles as names and versions (10B-6, D-1233)."""
+    return {k: str(v) for k, v in (profiles.model_dump() if profiles is not None else {}).items() if v is not None}
+
+
 def _registry(reg: Any) -> tuple[str, str] | None:
     """settings.registry_source -> AdapterConfig.registry (unset: the data source's own registry table)."""
     if reg is None or reg.type is None:
@@ -197,6 +202,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         mrn_regex=cfg.settings.mrn_regex,  # T-629 (FIT-U09)
         contracts_dir=contracts_dir(os.environ.get("TB_DATA_CONTRACTS")),  # T-659b
         site_profile=site_profile.find(),  # 10B-6 (D-1233): the site mapping folder's profile/, else none
+        profile_standards=_standards(cfg.settings.profiles),  # 10B-6: a profile's versions agree with these
     )
     default_path = ds.path or (os.environ.get(ds.dsn_env, "") if ds.dsn_env else "")
     return ac, ds.type, default_path

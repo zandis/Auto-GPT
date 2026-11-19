@@ -63,7 +63,20 @@ PATIENT_COLUMNS = frozenset(
 #: the SS-MIX2 reader reads its tables by these columns (key, target): a profile table it reads must use them
 READER_COLUMNS = {"ssmix2.diagnosis": ("code", "icd10"), "ssmix2.drug": ("yj_code", "atc"),
                   "ssmix2.lab": ("local_code", "code")}  # fmt: skip
+#: the columns a table the SS-MIX2 reader alone reads may have (its key and target, the code's name, and the shipped
+#: lab table's columns), besides its state column: an allowlist, so no other column (a patient's) can ride along. A
+#: table a mapping reads (``mapping.<look-up>``) is held to the mapping's own look-up columns at the night and by
+#: ``adapter.site_profile check --mapping``
+READER_ALLOWED = {
+    "ssmix2.diagnosis": frozenset({"code", "name", "icd10"}),
+    "ssmix2.drug": frozenset({"yj_code", "name", "atc"}),
+    "ssmix2.lab": frozenset({"local_code", "system", "code", "display", "ucum", "factor", "category", "value_type",
+                             "answers", "profile", "source_unit", "plausible_low", "plausible_high"}),
+}  # fmt: skip
 _NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
+#: what free text in a manifest (a table's ``source``, a standard's version) must not hold: an address with a scheme
+#: (a database URL with its password), an ``@`` (a sign-in or mail address), or a long run of token characters (a key)
+_SECRET_SHAPES = (re.compile(r"://"), re.compile(r"@"), re.compile(r"[A-Za-z0-9+/=_-]{32,}"))
 MAX_ROWS = 200_000  # a code table larger than any hospital master: a wrong file, refused before it fills memory
 
 
@@ -237,6 +250,12 @@ def read_table(name: str, spec: dict[str, Any], folder: Path, where: str) -> tup
     patient = sorted(c for c in cols if c.lower() in PATIENT_COLUMNS)
     if patient:
         raise ProfileError(f"{shown}:1", f"column {patient[0]!r} would hold patient data: a profile holds codes only")
+    uses = tuple(spec["used_by"])
+    if all(u in READER_ALLOWED for u in uses):
+        allowed = frozenset().union(*(READER_ALLOWED[u] for u in uses)) | {state_col}
+        extra = sorted(c for c in cols if c not in allowed)
+        if extra:
+            raise ProfileError(f"{shown}:1", f"column {extra[0]!r} is not one {', '.join(uses)} reads")
     rows: dict[str, CodeRow] = {}
     for n, r in enumerate(reader, start=2):
         if n > MAX_ROWS + 1:
@@ -257,6 +276,8 @@ def read_table(name: str, spec: dict[str, Any], folder: Path, where: str) -> tup
                 f"{shown}:{n}", f"state {word!r} is not one of {', '.join(sorted(STATE_WORDS))} (verified or verify)"
             )
         rows[code] = CodeRow(code, tgt, STATE_WORDS[word], n, {k: (v or "") for k, v in r.items() if k is not None})
+    if not rows:
+        raise ProfileError(shown, "the table has no rows: a table nobody filled is left out of the profile")
     table = Table(name, str(spec["file"]), path, key, target, state_col, str(spec.get("source") or ""),
                   tuple(spec["used_by"]), rows)  # fmt: skip
     return table, data
@@ -282,6 +303,12 @@ def load(folder: Path | str) -> Profile:
     if not isinstance(doc, dict):
         raise ProfileError(where, "the manifest is a mapping of keys (format, id, site_id, ...)")
     check_manifest(doc, text, where)
+    texts = [(["tables", n, "source"], str(t.get("source") or "")) for n, t in doc["tables"].items()]
+    texts += [(["standards", k], str(v)) for k, v in doc["standards"].items()]
+    for node, value in texts:
+        if any(rx.search(value) for rx in _SECRET_SHAPES):
+            raise ProfileError(f"{where}:{_line_of(text, node)}", f"{'.'.join(node)} looks like an address or a key: "
+                               "a profile holds nothing secret (no URL, no @, no token)")  # fmt: skip
     for part in ("standards", "tables"):
         bad = sorted(k for k in doc[part] if not (isinstance(k, str) and _NAME.fullmatch(k)))
         if bad:

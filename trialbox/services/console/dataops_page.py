@@ -242,7 +242,15 @@ def site_profile_of(detail: Any) -> dict[str, Any] | None:
         return None
     if not all(isinstance(sp.get(k), list) and all(isinstance(x, str) for x in sp[k]) for k in lists):
         return None
-    return {**{k: sp[k] for k in (*words, *counts, *lists)}, "digest": sp["digest"][:12]}
+    # added with the review of #1128: a record written before has neither (none read, none counted)
+    not_read = sp.get("not_read", [])
+    facts = sp.get("facts_from_verify", 0)
+    if not (isinstance(not_read, list) and all(isinstance(x, str) for x in not_read)):
+        return None
+    if not (type(facts) is int and facts >= 0):
+        return None
+    return {**{k: sp[k] for k in (*words, *counts, *lists)}, "digest": sp["digest"][:12], "not_read": not_read,
+            "facts_from_verify": facts}  # fmt: skip
 
 
 def unmapped_kinds_of(detail: Any) -> dict[str, dict[str, int]]:

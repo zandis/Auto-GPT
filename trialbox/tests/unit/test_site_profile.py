@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 import yaml
 from adapter import site_profile as sp
-from adapter.mapping.engine import Mapping, MappingError
+from adapter.mapping.engine import BASIS, VERIFY_BASIS, Mapping, MappingError
 from adapter.ndjson import snapshot_dir
 from adapter.pipeline import AdapterConfig, make_source, run_ingest
 from tb_common.audit import _day_files
@@ -33,6 +33,7 @@ SITE_A = ROOT / "tests/fixtures/synthetic_patients/site-a"
 MAPPING = ROOT / "services/adapter/mapping/tw_core/demo_his.yaml"
 LAB = SHIPPED_ROOT / "tw_core/lab_local_to_loinc.csv"
 NIGHT = "2026-11-01"
+TZ = "Asia/Taipei"
 TABLES = ["patient", "practitioner", "encounter", "appointment", "diagnosis", "lab", "vital", "medication",
           "procedure", "report", "note", "claim", "registry"]  # fmt: skip
 
@@ -260,17 +261,130 @@ def test_a_new_version_is_recorded_and_audited_and_a_rollback_too(tmp_path: Path
     assert all(h["at"] for h in hist)
 
 
-def test_changed_content_under_the_same_version_another_site_or_door_is_refused(tmp_path: Path) -> None:
-    lake = tmp_path / "lake"
-    sp.activate(load(_profile(tmp_path / "a")), lake, site_id="T", by="s")
+def test_changed_content_under_a_version_read_before_another_site_or_door_is_refused(tmp_path: Path) -> None:
+    lake, audit = tmp_path / "lake", tmp_path / "audit"
+    sp.activate(load(_profile(tmp_path / "a")), lake, site_id="T", by="s", audit_dir=audit)
     changed = load(_profile(tmp_path / "b", rename={"UA": "K-0001"}))
     with pytest.raises(ProfileError, match="give the changed profile a new version"):
-        sp.activate(changed, lake, site_id="T", by="s")
+        sp.activate(changed, lake, site_id="T", by="s", audit_dir=audit)
     with pytest.raises(ProfileError, match="for site 'T', not 'U'"):
-        sp.activate(changed, lake, site_id="U", by="s")
+        sp.activate(changed, lake, site_id="U", by="s", audit_dir=audit)
     with pytest.raises(ProfileError, match="describes a csv source; the box reads ssmix2"):
         sp.activate(load(_profile(tmp_path / "c", _manifest(version="2.0.0"))), lake, site_id="T", by="s",
-                    door="ssmix2")  # fmt: skip
+                    door="ssmix2", audit_dir=audit)  # fmt: skip
+    # 1.0.0 -> 1.1.0 -> a changed 1.0.0: the whole history is asked, not only the active profile
+    sp.activate(load(_profile(tmp_path / "d", _manifest(version="1.1.0"))), lake, site_id="T", by="s", audit_dir=audit)
+    with pytest.raises(ProfileError, match="version 1.0.0 was read on .* with other content"):
+        sp.activate(changed, lake, site_id="T", by="s", audit_dir=audit)
+
+
+def test_nothing_is_activated_without_an_audit(tmp_path: Path) -> None:
+    with pytest.raises(ProfileError, match="only with its audit"):
+        sp.activate(load(_profile(tmp_path / "a")), tmp_path / "lake", site_id="T", by="s", audit_dir=None)
+    assert not (tmp_path / "lake" / sp.RECORD).exists()
+
+
+def test_every_row_whose_state_changes_is_in_the_audit_event(tmp_path: Path) -> None:
+    lake, audit = tmp_path / "lake", tmp_path / "audit"
+    sp.activate(load(_profile(tmp_path / "v1")), lake, site_id="T", by="steward-a", audit_dir=audit)
+    first = _events(audit)[0]["detail"]
+    assert first["rows_changed"] == 14 and {c["from"] for c in first["row_changes"]} == {None}
+    f = _profile(tmp_path / "v2", _manifest(version="1.1.0"))
+    text = (f / "codes/lab.csv").read_text(encoding="utf-8")
+    (f / "codes/lab.csv").write_text(text.replace("AHBC,loinc", "AHBX,loinc"), encoding="utf-8")
+    rows = list(csv.DictReader((f / "codes/lab.csv").open(encoding="utf-8")))
+    for r in rows:
+        if r["local_code"] == "IGRA":
+            r["verified"] = "verified"
+    with (f / "codes/lab.csv").open("w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(rows[0]), lineterminator="\n")
+        w.writeheader()
+        w.writerows(rows)
+    sp.activate(load(f), lake, site_id="T", by="steward-b", audit_dir=audit)
+    ev = _events(audit)[1]
+    assert ev["actor"] == "steward-b" and ev["ts"]
+    assert ev["detail"]["row_changes"] == [
+        {"table": "lab", "code": "AHBC", "from": VERIFY, "to": None},
+        {"table": "lab", "code": "AHBX", "from": None, "to": VERIFY},
+        {"table": "lab", "code": "IGRA", "from": VERIFY, "to": VERIFIED},
+    ]
+
+
+# --------------------------------------------------------------------------------- checks against the box
+def test_a_table_a_mapping_reads_has_the_mappings_key_and_columns(tmp_path: Path) -> None:
+    m = Mapping.load(MAPPING)
+    sp.check_mapping(load(_profile(tmp_path / "ok")), m)
+    f = _profile(tmp_path / "three")
+    (f / "codes/lab.csv").write_text("local_code,code,verified\nUA,3084-1,verify\n", encoding="utf-8")
+    with pytest.raises(ProfileError, match="no column 'system' \\(the mapping reads it\\)"):
+        sp.check_mapping(load(f), m)
+    doc = _manifest()
+    doc["tables"]["lab"]["key"] = "site_code"
+    f = _profile(tmp_path / "renamed", doc)
+    text = (f / "codes/lab.csv").read_text(encoding="utf-8")
+    (f / "codes/lab.csv").write_text("site_code" + text[len("local_code") :], encoding="utf-8")
+    with pytest.raises(ProfileError, match="looks lab up by 'local_code', not 'site_code'"):
+        sp.check_mapping(load(f), m)
+    f = _profile(tmp_path / "extra")
+    rows = (f / "codes/lab.csv").read_text(encoding="utf-8").splitlines()
+    (f / "codes/lab.csv").write_text("\n".join([rows[0] + ",chart_note", *(r + ",x" for r in rows[1:])]) + "\n",
+                                     encoding="utf-8")  # fmt: skip
+    with pytest.raises(ProfileError, match="column 'chart_note' is not one the mapping reads"):
+        sp.check_mapping(load(f), m)
+
+
+def test_an_empty_table_is_refused(tmp_path: Path) -> None:
+    f = _profile(tmp_path / "p")
+    header = (f / "codes/lab.csv").read_text(encoding="utf-8").splitlines()[0]
+    (f / "codes/lab.csv").write_text(header + "\n", encoding="utf-8")
+    assert "no rows" in _refused(f).why
+
+
+def test_the_check_command_holds_a_mapping_table_to_its_mapping(tmp_path: Path) -> None:
+    f = _profile(tmp_path / "p")
+    assert sp.main(["check", str(f)]) == 2  # a mapping's look-up: --mapping is needed
+    assert sp.main(["check", str(f), "--mapping", str(MAPPING)]) == 0
+    (f / "codes/lab.csv").write_text("local_code,code,verified\nUA,3084-1,verify\n", encoding="utf-8")
+    assert sp.main(["check", str(f), "--mapping", str(MAPPING)]) == 2
+
+
+def test_the_country_and_the_standard_versions_agree_with_the_settings(tmp_path: Path) -> None:
+    p = load(_profile(tmp_path / "p"))
+    sp.check_settings(p, country="TW", standards={"tw_core": "1.0.0", "twpas_version": "1.2.5"})
+    sp.check_settings(p, country=None)  # a country the settings cannot name: nothing to compare
+    with pytest.raises(ProfileError, match="country tw is not the site's \\(jp, from settings\\)"):
+        sp.check_settings(p, country="JP")
+    with pytest.raises(ProfileError, match="standards.tw_core 1.0.0 is not settings.profiles.tw_core \\(1.1.0\\)"):
+        sp.check_settings(p, country="TW", standards={"tw_core": "1.1.0"})
+
+
+@pytest.mark.parametrize("source", ["postgresql://tb:pw@db/trial", "ask steward@hospital", "x" * 40])
+def test_a_manifest_holds_nothing_secret(tmp_path: Path, source: str) -> None:
+    doc = _manifest()
+    doc["tables"]["lab"]["source"] = source
+    e = _refused(_profile(tmp_path / "p", doc))
+    assert "nothing secret" in e.why and e.where.startswith("profile.yaml:")
+
+
+def test_a_reader_table_has_only_the_columns_the_reader_reads(tmp_path: Path) -> None:
+    (tmp_path / "p/codes").mkdir(parents=True)
+    (tmp_path / "p/codes/dx.csv").write_text("code,name,icd10,verified,patient_no\nX001,痛風,M10.9,verify,12\n",
+                                             encoding="utf-8")  # fmt: skip
+    doc = _manifest(
+        door="ssmix2",
+        country="jp",
+        tables={
+            "diagnosis": {
+                "file": "codes/dx.csv",
+                "key": "code",
+                "target": "icd10",
+                "state": "verified",
+                "used_by": ["ssmix2.diagnosis"],
+            }
+        },
+    )
+    (tmp_path / "p/profile.yaml").write_text(yaml.safe_dump(doc), encoding="utf-8")
+    assert "column 'patient_no' is not one ssmix2.diagnosis reads" in _refused(tmp_path / "p").why
 
 
 # ---------------------------------------------------------------------------------------- coverage and work list
@@ -283,8 +397,17 @@ def _night_files(d: Path) -> Path:
 
 
 def test_coverage_lines_count_types_unmapped_codes_and_verify_rows(tmp_path: Path) -> None:
-    p = load(_profile(tmp_path / "p", _manifest(data_types=["patient", "lab", "vital", "note"])))
-    cov = sp.coverage(p, _night_files(tmp_path / "night"))
+    p = load(_profile(tmp_path / "p", _manifest(data_types=["patient", "lab", "vital", "note", "allergy"])))
+    cov = sp.coverage(p, _night_files(tmp_path / "night"), reads=TABLES, from_verify={"lab": 950, "vital": 0})
+    assert cov["not_read"] == ["allergy"] and cov["facts_from_verify"] == {"lab": 950}
+    assert sp.summary(cov)["facts_from_verify"] == 950
+    text = "\n".join(sp.lines(cov))
+    assert (
+        "declared, not read by this version: allergy" in text
+        and "facts resting on a row still to verify: lab 950" in text
+    )
+    p = load(_profile(tmp_path / "q", _manifest(data_types=["patient", "lab", "vital", "note"])))
+    cov = sp.coverage(p, tmp_path / "night")
     assert cov["data_types"] == [{"type": "patient", "rows": 40}, {"type": "lab", "rows": 300},
                                  {"type": "vital", "rows": 0}, {"type": "note", "rows": 0}]  # fmt: skip
     assert cov["not_arrived"] == ["vital", "note"] and cov["not_declared"] == [{"type": "extra", "rows": 5}]
@@ -311,6 +434,23 @@ def test_the_work_list_is_a_csv_of_unmapped_codes_then_verify_rows(tmp_path: Pat
     out = tmp_path / "w.csv"
     assert sp.main(["worklist", "--profile", str(tmp_path / "p"), "--out", str(out)]) == 0
     assert out.read_text(encoding="utf-8").count("\nverify,") == 6
+    assert [sp._cell(v) for v in ("\tX", "\rX", "-1", "AB")] == ["'\tX", "'\rX", "'-1", "AB"]
+
+
+def test_the_site_set_up_store_wins_and_each_disagreement_is_on_the_work_list(tmp_path: Path) -> None:
+    """Coordinator's ruling on #1128: a lab code both homes map, the D-135 store (a named person's act) wins; every
+    disagreement is a work-list row. Not applied at night yet: the adapter does not read that store (D-1233)."""
+    p = load(_profile(tmp_path / "p"))
+    lab = "urn:trialbox:local:lab-code"
+    confirmed = {("observation", lab, "UA"): {"system": "http://loinc.org", "code": "14933-6"},
+                 ("observation", lab, "CRE"): {"system": "http://loinc.org", "code": "2160-0"},  # the same: no row
+                 ("observation", lab, "NEW1"): {"system": "http://loinc.org", "code": "1234-5"},
+                 ("condition", "urn:trialbox:local:dx-code", "UA"): {"code": "M10.9"}}  # fmt: skip
+    wins = sp.store_wins(p, confirmed)
+    assert (wins["UA"], wins["CRE"], wins["NEW1"], wins["ALT"]) == ("14933-6", "2160-0", "1234-5", "1742-6")
+    rows = sp.worklist(p, None, confirmed)
+    disagree = [r for r in rows if r["kind"] == "disagree"]
+    assert [(r["code"], r["target"]) for r in disagree] == [("UA", "profile 3084-1; site set-up 14933-6 (wins)")]
 
 
 # --------------------------------------------------------------------------------- a night and the plan's proof
@@ -324,7 +464,7 @@ def _cfg(tmp: Path, url: str, tag: str, profile: Path | None) -> AdapterConfig:
     sec.mkdir()
     (sec / "site_hmac.key").write_bytes(b"k" * 32)
     sep = "&" if "?" in url else "?"
-    return AdapterConfig(lake_dir=tmp / f"lake-{tag}", secrets_dir=sec, mapping_path=MAPPING, site_id="T",
+    return AdapterConfig(lake_dir=tmp / f"lake-{tag}", secrets_dir=sec, mapping_path=MAPPING, site_id="T", tz=TZ,
                          rebuild=_Rebuild(), audit_dir=tmp / f"audit-{tag}", site_profile=profile,
                          db_url=f"{url}{sep}tb_prefix=sp{tag}{os.getpid()}_")  # fmt: skip
 
@@ -378,8 +518,21 @@ def test_a_second_profile_with_other_local_codes_reads_the_same_facts_with_no_co
     assert [e["actor"] for e in done if e["event"] == sp.EVENT] == ["adapter"]
 
 
-def test_the_shipped_profile_reads_the_night_byte_for_byte_as_without_one(tmp_path: Path, pg_cluster_url: str) -> None:
-    """No behaviour change: the synthetic Taiwan profile names the very table the mapping reads."""
+def _untagged(line: str) -> tuple[str, bool]:
+    """A resource without the basis tag ``verify`` (if it had one), and whether it had."""
+    r = json.loads(line)
+    tags = (r.get("meta") or {}).get("tag") or []
+    kept = [t for t in tags if t != {"system": BASIS, "code": VERIFY_BASIS}]
+    if len(kept) != len(tags):
+        r["meta"]["tag"] = kept
+    return json.dumps(r, ensure_ascii=False), len(kept) != len(tags)
+
+
+def test_the_shipped_profile_reads_the_night_as_without_one_but_for_the_verify_tag(
+    tmp_path: Path, pg_cluster_url: str
+) -> None:
+    """No other change: the synthetic Taiwan profile names the very table the mapping reads. What changes is the
+    review's ruling: each lab result whose code is a ``verify`` row carries D-135's basis tag ``verify``."""
     feed = tmp_path / "feed"
     shutil.copytree(SITE_A, feed, ignore=shutil.ignore_patterns("*.json"))
     doc = yaml.safe_load((PROFILES / "synthetic-tw-a/profile.yaml").read_text(encoding="utf-8"))
@@ -394,7 +547,43 @@ def test_the_shipped_profile_reads_the_night_byte_for_byte_as_without_one(tmp_pa
     names = sorted(p.name for p in nda.glob("*.ndjson"))
     assert names and names == sorted(p.name for p in ndb.glob("*.ndjson"))
     for n in names:
-        assert (nda / n).read_bytes() == (ndb / n).read_bytes(), n
+        if n != "Observation.ndjson":
+            assert (nda / n).read_bytes() == (ndb / n).read_bytes(), n
+    plain = (nda / "Observation.ndjson").read_text(encoding="utf-8").splitlines()
+    tagged = [_untagged(x) for x in (ndb / "Observation.ndjson").read_text(encoding="utf-8").splitlines()]
+    assert [json.loads(x) for x in plain] == [json.loads(x) for x, _ in tagged]
+    verify = {r.code for r in load(tmp_path / "synthetic-tw-t").tables["lab"].rows.values() if r.state == VERIFY}
+    lab = list(csv.DictReader((feed / "lab.csv").open(encoding="utf-8")))
+    want = sum(1 for r in lab if r["local_code"] in verify)
+    assert sum(1 for _, had in tagged if had) == want > 900  # AHBC, IGRA and the local score codes
+    said = json.loads((ndb / sp.RECORD).read_text(encoding="utf-8"))["coverage"]["facts_from_verify"]
+    assert said == {"lab": want}
+
+
+def test_a_fact_from_a_verify_row_stays_coded_and_is_listed_as_resting_on_one(
+    tmp_path: Path, pg_cluster_url: str
+) -> None:
+    """Today's behaviour, pinned (D-1233; open question in DATA §15): nothing decides whether an unverified mapping
+    may exclude a patient. A fact from a ``verify`` row is coded like any record (so it can meet or exclude), and the
+    lake lists it in ``site_fact`` with basis ``verify``; only ``proposed`` (D-135) keeps a fact out of the coded
+    tables."""
+    from embed_service.embedder import HashEmbedder
+    from lake.client import LakeLocal
+    from lake.store import Lake
+
+    feed = tmp_path / "feed"
+    shutil.copytree(SITE_A, feed, ignore=shutil.ignore_patterns("*.json"))
+    run_ingest(_cfg(tmp_path, pg_cluster_url, "b", _profile(tmp_path / "p")), "csv", str(feed), snapshot=NIGHT,
+               load_fhir=False, validate=False)  # fmt: skip
+    nd = snapshot_dir(tmp_path / "lake-b", NIGHT)
+    ids = {json.loads(x)["id"] for x in (nd / "Observation.ndjson").read_text(encoding="utf-8").splitlines()
+           if _untagged(x)[1]}  # fmt: skip
+    assert len(ids) > 900
+    Lake(tmp_path / "lake-built", TZ).rebuild(NIGHT, HashEmbedder(), nd)
+    lake = LakeLocal(tmp_path / "lake-built", HashEmbedder())
+    coded = {r["oid"] for r in lake.query("SELECT oid FROM observation").to_pylist()}
+    listed = {r["fid"]: r["basis"] for r in lake.query("SELECT fid, basis FROM site_fact").to_pylist()}
+    assert ids <= coded and {listed[i] for i in ids} == {VERIFY_BASIS}
 
 
 def test_a_refused_profile_ends_the_night_before_anything_is_read(tmp_path: Path, pg_cluster_url: str) -> None:
@@ -417,3 +606,65 @@ def test_the_box_finds_its_profile_in_the_site_mapping_folder_only(
     assert sp.find() == tmp_path / "site/profile"
     monkeypatch.setenv("TB_MAPPING_DIR", str(SHIPPED_ROOT))
     assert sp.find() is None  # the image's synthetic profiles are examples: never a box's own
+
+
+def test_a_second_ssmix2_profile_with_other_diagnosis_codes_reads_the_same_diagnoses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The plan's proof at the SS-MIX2 door: the same synthetic storage with the hospital's 病名 codes renamed in
+    every PPR-01 message (they carry no ICD-10 of their own, so the reader takes it from the table), and a profile
+    whose diagnosis table carries the renamed codes, give the same diagnoses (who, which visit, ICD-10, dates)."""
+    from datetime import date
+
+    from adapter import licensed
+
+    from tools.ssmix2_export import export
+    from tools.synth_hospital import run as synth_run
+
+    monkeypatch.setattr(licensed, "tables", lambda *a, **k: {})
+    synth_run(tmp_path / "synth", profile="ci", sites="jp-ss:JP:60", ref_date=date(2026, 11, 1), seed=42)
+    export(tmp_path / "synth" / "jp-ss", tmp_path / "plain")
+    shutil.copytree(tmp_path / "plain", tmp_path / "renamed")
+    renamed = 0
+    for f in (tmp_path / "renamed").rglob("*PPR-01*"):
+        if f.is_file():
+            data = f.read_bytes()
+            renamed += data.count(b"|ZB")
+            f.write_bytes(data.replace(b"|ZB", b"|XB"))
+    assert renamed > 50
+    (tmp_path / "p/codes").mkdir(parents=True)
+    table = (SHIPPED_ROOT / "jp_core/byomei_to_icd10.csv").read_text(encoding="utf-8")
+    (tmp_path / "p/codes/dx.csv").write_text(table.replace("\nZB", "\nXB"), encoding="utf-8")
+    doc = _manifest(id="test-jp", site_id="J", country="jp", door="ssmix2", data_types=["PPR-01"], tables={
+        "diagnosis": {"file": "codes/dx.csv", "key": "code", "target": "icd10", "state": "verified",
+                      "used_by": ["ssmix2.diagnosis"]}})  # fmt: skip
+    (tmp_path / "p/profile.yaml").write_text(yaml.safe_dump(doc), encoding="utf-8")
+
+    def read(storage: Path, profile: Any) -> tuple[list[tuple[str, ...]], set[str]]:
+        src: Any = make_source("ssmix2", str(storage), profile=profile)
+        rows = list(src.rows("diagnosis", "diagnosis", None, None))
+        keep = ("diag_no", "enc_no", "mrn", "icd10", "icd10cm", "diag_date", "recorded_date", "status")
+        return sorted(tuple(str(r.get(k) or "") for k in keep) for r in rows), {str(r["byomei_code"]) for r in rows}
+
+    a, codes_a = read(tmp_path / "plain", None)
+    b, codes_b = read(tmp_path / "renamed", load(tmp_path / "p"))
+    assert a == b and len(a) > 50 and all(r[3] for r in a)
+    assert {c[:2] for c in codes_a if c} == {"ZB"} and {c[:2] for c in codes_b if c} == {"XB"}
+
+
+def test_the_load_command_takes_the_site_from_the_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    cfg = SimpleNamespace(settings=SimpleNamespace(site=SimpleNamespace(id="T", locale="zh-TW"), profiles=None),
+                          env=SimpleNamespace(tz=TZ))  # fmt: skip
+    monkeypatch.setattr(sp, "_settings", lambda: cfg)
+    monkeypatch.delenv("TB_AUDIT_DIR", raising=False)
+    f = _profile(tmp_path / "p")
+    base = ["load", str(f), "--lake", str(tmp_path / "lake"), "--by", "steward-a", "--mapping", str(MAPPING)]
+    assert sp.main(base) == 2  # no audit destination: refused
+    assert sp.main([*base, "--audit", str(tmp_path / "audit")]) == 0
+    assert sp.read_record(tmp_path / "lake")["active"]["by"] == "steward-a"
+    other = _profile(tmp_path / "u", _manifest(site_id="U", version="2.0.0"))
+    assert sp.main(["load", str(other), "--lake", str(tmp_path / "lake"), "--by", "s", "--mapping", str(MAPPING),
+                    "--audit", str(tmp_path / "audit")]) == 2  # fmt: skip
+    assert sp.read_record(tmp_path / "lake")["active"]["site_id"] == "T"
