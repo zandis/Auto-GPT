@@ -1,0 +1,530 @@
+{
+ "about": "Card 10A-1: inclusion lines written by lane J's reviewer before reading this card's table (unseen at design): the lines the reviewer's second review reported (17 negated lines that ran as presence, the cue-less absence words, and one over-hold with its English and Chinese equivalents). The reviewer's full set of 154 lines is not in this repository. Synthetic; no patient data. Fields as in lines.json. 'over_held' marks a must-run row the fail-safe holds today (the target of card 10A-1b): the 19 lines lane J's reviewer reported as newly over-held and one of its 40 fresh lines, verbatim, with the coded concept the reviewer named.",
+ "rows": [
+  {
+   "lang": "en",
+   "text": "Treatment-naive with respect to tyrosine kinase inhibitors.",
+   "concept": "tyrosine kinase inhibitor",
+   "synonyms": [
+    "TKI"
+   ],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "en",
+   "text": "The patient, in the opinion of the investigator and after review of all available medical records, has not at any time before enrolment in this study been exposed to bevacizumab.",
+   "concept": "bevacizumab",
+   "synonyms": [],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "en",
+   "text": "Patients may not have had any previous exposure, whether as monotherapy or as part of a combination regimen given in any line, to an EGFR inhibitor.",
+   "concept": "EGFR inhibitor",
+   "synonyms": [],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "en",
+   "text": "Insulin has never been administered.",
+   "concept": "insulin",
+   "synonyms": [],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "en",
+   "text": "Patients who have received prior docetaxel are not eligible.",
+   "concept": "docetaxel",
+   "synonyms": [],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "ja",
+   "text": "ベバシズマブによる前治療歴が、同意取得時点までの診療録を確認した範囲において一切存在しないこと。",
+   "concept": "bevacizumab",
+   "synonyms": [
+    "ベバシズマブ"
+   ],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "ja",
+   "text": "結核(TB)の既往がないこと。",
+   "concept": "tuberculosis",
+   "synonyms": [
+    "結核",
+    "TB"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "ja",
+   "text": "心房細動(AF)を合併していない。",
+   "concept": "atrial fibrillation",
+   "synonyms": [
+    "心房細動",
+    "AF"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "zh",
+   "text": "化學治療:未曾接受。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "zh",
+   "text": "HIV感染檢測為陰性。",
+   "concept": "HIV infection",
+   "synonyms": [
+    "HIV感染",
+    "HIV"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "en",
+   "text": "Patients must not have a prior or concurrent diagnosis of any other invasive malignancy.",
+   "concept": "invasive malignancy",
+   "synonyms": [
+    "malignancy"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "en",
+   "text": "Must not have previously received treatment with any investigational anti-CD20 monoclonal antibody.",
+   "concept": "anti-CD20 monoclonal antibody",
+   "synonyms": [],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "en",
+   "text": "Prior radiotherapy (RT) is not permitted.",
+   "concept": "radiotherapy",
+   "synonyms": [
+    "RT"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "en",
+   "text": "Chemotherapy (CT) has not been given.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "CT"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "en",
+   "text": "Chemotherapy must not have been given within 4 weeks.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "zh",
+   "text": "受試者未曾於任何醫療機構接受過任何形式之化學治療。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法を、いかなる時点においても、受けていないこと。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "en",
+   "text": "Ex-smoker",
+   "concept": "smoking",
+   "synonyms": [
+    "smoker"
+   ],
+   "domain": "observation",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "en",
+   "text": "Abstinent from alcohol",
+   "concept": "alcohol use",
+   "synonyms": [
+    "alcohol"
+   ],
+   "domain": "observation",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "ja",
+   "text": "禁煙している者",
+   "concept": "smoking",
+   "synonyms": [
+    "喫煙"
+   ],
+   "domain": "observation",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "ja",
+   "text": "治療歴ゼロ",
+   "concept": "prior treatment",
+   "synonyms": [
+    "治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j2"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法後に増悪が認められない患者。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j2"
+  },
+  {
+   "lang": "en",
+   "text": "No progression after chemotherapy.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j2"
+  },
+  {
+   "lang": "zh",
+   "text": "化學治療後未見惡化。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j2"
+  },
+  {
+   "lang": "en",
+   "text": "Must have received prior chemotherapy with no dose reductions.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "en",
+   "text": "Prior surgery is required; no prior radiotherapy.",
+   "concept": "surgery",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "en",
+   "text": "Diagnosis of type 2 diabetes mellitus without ketoacidosis.",
+   "concept": "type 2 diabetes mellitus",
+   "synonyms": [
+    "T2DM"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "en",
+   "text": "Pregnant women at 24 to 32 weeks of gestation with no fetal anomalies.",
+   "concept": "pregnancy",
+   "synonyms": [
+    "pregnant"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "en",
+   "text": "Current smoker who has not quit in the past year.",
+   "concept": "current smoker",
+   "synonyms": [
+    "smoker"
+   ],
+   "domain": "observation",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "en",
+   "text": "Patients with atrial fibrillation who are not candidates for warfarin.",
+   "concept": "atrial fibrillation",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "en",
+   "text": "Has an implanted pacemaker that is not MRI-conditional.",
+   "concept": "pacemaker",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "en",
+   "text": "Documented penicillin allergy, with no desensitisation performed.",
+   "concept": "penicillin allergy",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "ja",
+   "text": "手術歴はあるが、放射線治療歴はない。",
+   "concept": "surgery",
+   "synonyms": [
+    "手術"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "ja",
+   "text": "2型糖尿病と診断され、ケトアシドーシスを伴わない患者。",
+   "concept": "type 2 diabetes mellitus",
+   "synonyms": [
+    "2型糖尿病"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "ja",
+   "text": "メトホルミンを3か月以上、用量変更なく継続投与されている。",
+   "concept": "metformin",
+   "synonyms": [
+    "メトホルミン"
+   ],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "ja",
+   "text": "インスリン未使用の2型糖尿病患者。",
+   "concept": "type 2 diabetes mellitus",
+   "synonyms": [
+    "2型糖尿病"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法を1レジメン以上受けており、最終投与から6か月を超えていない。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "ja",
+   "text": "妊娠24週以上32週未満の妊婦で、胎児異常を認めない。",
+   "concept": "pregnancy",
+   "synonyms": [
+    "妊娠"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "zh",
+   "text": "曾接受手術,但未曾接受放射線治療。",
+   "concept": "surgery",
+   "synonyms": [
+    "手術"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "zh",
+   "text": "診斷為第二型糖尿病,且無酮酸中毒。",
+   "concept": "type 2 diabetes mellitus",
+   "synonyms": [
+    "第二型糖尿病"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "zh",
+   "text": "穩定使用二甲雙胍至少3個月,期間未調整劑量。",
+   "concept": "metformin",
+   "synonyms": [
+    "二甲雙胍"
+   ],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "zh",
+   "text": "懷孕24至32週之孕婦,且未發現胎兒異常。",
+   "concept": "pregnancy",
+   "synonyms": [
+    "懷孕"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "zh",
+   "text": "已植入心臟節律器且無MRI禁忌。",
+   "concept": "pacemaker",
+   "synonyms": [
+    "心臟節律器"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "en",
+   "text": "Receiving metformin, with no history of lactic acidosis.",
+   "concept": "metformin",
+   "synonyms": [],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+  }
+ ]
+}
