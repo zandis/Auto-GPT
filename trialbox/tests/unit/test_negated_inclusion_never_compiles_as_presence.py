@@ -44,6 +44,8 @@ REVIEW: list[dict[str, Any]] = json.loads((FIX / "review_10a1b.json").read_text(
 BEFORE: list[dict[str, Any]] = json.loads((FIX / "card_10a1c_before.json").read_text(encoding="utf-8"))["rows"]
 # card 10A-1c's second set, written after its code was final and never used to tune it
 AFTER: list[dict[str, Any]] = json.loads((FIX / "card_10a1c_after.json").read_text(encoding="utf-8"))["rows"]
+# its third set, written after the lane J lead's last rulings were coded (chart marks, prefixes, the 不 descriptors)
+THIRD: list[dict[str, Any]] = json.loads((FIX / "card_10a1c_third.json").read_text(encoding="utf-8"))["rows"]
 CHEMO = {"domain": "procedure", "quantifier": "any", "concept": "chemotherapy"}  # VS_CHEMOTHERAPY once compiled
 CHEMO_CAND = [{"domain": "procedure", "name": "chemotherapy", "synonyms": ["化学療法", "化學治療"]}]
 _TERM: list[Terminology] = []
@@ -98,7 +100,7 @@ def test_the_two_p2b_lines_are_held() -> None:
                question="Does the patient have significant cardiopulmonary disease?"))  # fmt: skip
 
 
-ALL = [*ROWS, *UNSEEN, *CARD, *REVIEW, *BEFORE, *AFTER]
+ALL = [*ROWS, *UNSEEN, *CARD, *REVIEW, *BEFORE, *AFTER, *THIRD]
 
 
 @pytest.mark.parametrize("cls", ["structured", "mixed"])
@@ -129,13 +131,15 @@ def test_the_counts_the_pull_request_reports() -> None:
     lines unseen at design 20 of 23 (the same as before card 10A-1b; 19 since card 10A-1c's R8), card 10A-1b's own 17 of 40 (18 before), the
     coordinator's 0 of 8. Card 10A-1c's 241 lines: 4 of 121 negated lines ran on master (a bare 不, zh 以外), none
     now; 78 of 120 held that should run (109 on master). Its second set, written after its code was final: 7 of 63
-    ran on master, none now; 22 of 63 held that should run (48 on master)."""
+    ran on master, none now; 22 of 63 held that should run (48 on master). Its third set, written after the lead's
+    last rulings were coded: 26 of 63 ran on master, none now; 9 of 63 held that should run (30 on master)."""
     assert _score(ROWS) == (116, 116, 8, 69)
     assert _score(UNSEEN) == (21, 21, 19, 23)
     assert _score(CARD) == (40, 40, 17, 40)
     assert _score(REVIEW) == (36, 36, 0, 8)
     assert _score(BEFORE) == (121, 121, 78, 120)
     assert _score(AFTER) == (63, 63, 22, 63)
+    assert _score(THIRD) == (63, 63, 9, 63)
     assert {r["lang"] for r in ALL} == {"en", "ja", "zh"}
 
 
@@ -191,7 +195,7 @@ def test_property_a_negated_line_already_coded_negative_runs(shape: int) -> None
 def test_exclusions_are_byte_identical_with_the_rule_on_and_off(monkeypatch: pytest.MonkeyPatch) -> None:
     """Card 10A-1b changes only which inclusions are held: every line of the four tables compiled as an exclusion is
     the same, byte for byte, with the rule as it is and with it off."""
-    rows = [*ROWS, *UNSEEN, *CARD, *REVIEW, *BEFORE, *AFTER]
+    rows = [*ROWS, *UNSEEN, *CARD, *REVIEW, *BEFORE, *AFTER, *THIRD]
     crits = [{"kind": "exclusion", "class": "structured", "text": r["text"], "logic": _logic(r),
               "concept_candidates": _cand(r)} for r in rows]  # fmt: skip
 
