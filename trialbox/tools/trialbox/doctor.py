@@ -1433,8 +1433,8 @@ def check_postgres_memory(inp: DoctorInputs) -> Check:
 
 
 def check_memory_caps(inp: DoctorInputs) -> Check:
-    """T-692 (D-473, scale review F-05): the adapter's and the lake's memory caps against the patient count
-    (``tools.trialbox.memcaps``)."""
+    """T-692 (D-473, scale review F-05): the adapter's, the lake's and (H23b-01, D-1005) the orchestrator's memory
+    caps against the patient count (``tools.trialbox.memcaps``)."""
     from tools.trialbox import memcaps
 
     deploy = inp.deploy or ROOT / "deploy"
@@ -1442,7 +1442,8 @@ def check_memory_caps(inp: DoctorInputs) -> Check:
     if not record.is_file() or not compose.is_file():
         return Check("memory_caps", "WARN", f"{record} or {compose} is not here: the memory caps were not checked")
     lake = inp.ingest_lake or (Path(inp.env["TB_LAKE_DIR"]) if inp.env.get("TB_LAKE_DIR") else None)
-    status, detail = memcaps.check(inp.env, lake, record, compose)
+    orch = deploy / "measured" / "orchestrator_memory.json"
+    status, detail = memcaps.check(inp.env, lake, record, compose, orch if orch.is_file() else None)
     return Check("memory_caps", "FAIL" if status == "FAIL" else "WARN" if status == "WARN" else "PASS", detail)
 
 

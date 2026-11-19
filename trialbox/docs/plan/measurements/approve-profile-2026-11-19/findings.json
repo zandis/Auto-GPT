@@ -1,0 +1,29 @@
+{
+  "card": "H41",
+  "title": "where an approval's seconds go: launch P3's records and a local stub run",
+  "date": "2026-11-19",
+  "source": "docs/plan/measurements/approve-profile-2026-11-19.md",
+  "findings": [
+    {
+      "id": "H41-01",
+      "severity": "High",
+      "claim": "At least about 53 s of each 71 s P3 approval on one stream is in steps the compile does not share (audit records, repository write, tag and promotion, the orchestrator's part); the compiler's own steps take 4.45 s on a local stub run, and no record names the step on the box",
+      "lane": "A2",
+      "basis": "shown"
+    },
+    {
+      "id": "H41-02",
+      "severity": "Medium",
+      "claim": "An approval with nothing edited or rejected translates its CQL again (3 cold JVM runs, 4.3 s of 4.45 s locally) and loads FHIRHelpers and TB_Common (1.54 MB) to the FHIR server again, both unchanged since the compile",
+      "lane": "A2",
+      "basis": "shown"
+    },
+    {
+      "id": "H41-03",
+      "severity": "Low",
+      "claim": "refresh_installed reads, hashes and parses every installed table again on each compile and approval, about 30 us per row (3.1 s at 100,000 rows)",
+      "lane": "E",
+      "basis": "shown"
+    }
+  ]
+}

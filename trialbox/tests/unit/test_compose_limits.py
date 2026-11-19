@@ -31,6 +31,7 @@ STACKS: list[tuple[tuple[str, ...], tuple[str, ...]]] = [
     ((BASE, "docker-compose.secrets.yml", "docker-compose.gb10.yml"), ("gpu",)),
     ((BASE, "docker-compose.secrets.yml", "docker-compose.rtx5090.yml"), ("gpu",)),
     ((BASE, "docker-compose.secrets.yml", "docker-compose.rtxpro6000.yml"), ("gpu",)),
+    ((BASE, "docker-compose.secrets.yml", "docker-compose.dgpu48.yml"), ("gpu",)),  # the UNMEASURED draft (24-5)
     ((BASE, "docker-compose.secrets.yml", "docker-compose.identity.yml"), ("stub", "oidc")),
     ((BASE, "docker-compose.secrets.yml", "docker-compose.monitoring.yml"), ("stub",)),  # T-209a (D-379)
     ((BASE, "docker-compose.secrets.yml", "docker-compose.identity.yml", "docker-compose.box.yml"),

@@ -10,6 +10,9 @@ services:
     # ENG-003 (D-563): the hash embedder of a synthetic stack needs no library: the service image, not trialbox-embed
     image: ${TB_EMBED_IMAGE:-trialbox-py:1.0.0}
     build: {context: .., dockerfile: deploy/docker/python.Dockerfile}
+    # card 24-7: `TB_POC_EMBED=model deploy/poc.sh` exports TB_EMBED_MODE=model and TB_EMBED_IMAGE=trialbox-embed:1.0.0
+    # (the real embedder, e-embed-1, on the CPU, from its pinned folder); unset, the value deploy/.env gives (hash)
+    environment: {TB_EMBED_MODE: "${TB_EMBED_MODE:-hash}"}
   console:
     image: ${TB_IMAGE:-trialbox-py:1.0.0}
     command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090",
