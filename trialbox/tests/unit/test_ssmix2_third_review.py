@@ -357,34 +357,3 @@ def test_minor_a_time_part_is_never_half_read_and_a_leap_second_is_not_a_time() 
     got = hl7.REFUSED - before
     assert got["a time part that is not read: the day kept"] == 2
     assert got["not a time of day (the row is rejected by the mapping)"] == 1
-
-
-def _snapshot_of(st: kit.Storage, patient: str, day: str, prbs: list[list[str]], flag: str = "1") -> None:
-    segs = [kit._msh(f"{day}0900", "PPR^ZD1^PPR_ZD1", day), kit._pid(patient), *("|".join(p) for p in prbs)]
-    kit._write(st, patient, day, "PPR-01", "ALL9", kit._stamp(day, "090000"), segs, flag=flag)
-
-
-def _de(no: str, name: str) -> list[str]:
-    prb = _prb(no, name)
-    prb[1] = "DE"  # PRB-1 DE: this diagnosis is deleted (a tombstone, 10B-3)
-    return prb
-
-
-@pytest.mark.parametrize("deleting", [kit.P1, kit.P2])
-def test_8_one_patients_tombstones_never_hide_anothers_diagnosis_gone_from_a_newer_snapshot(
-    tmp_path: Path, deleting: str
-) -> None:
-    """D-1253 (review E): a diagnosis number already tombstoned may be another patient's. One patient's newer
-    snapshot deletes DX2 (PRB-1 DE); another patient's newer snapshot drops its own DX2: that one is a tombstone of
-    its own too, whichever patient is read first."""
-    st = _ss(tmp_path)
-    dropping = kit.P2 if deleting == kit.P1 else kit.P1
-    for p in (kit.P1, kit.P2):
-        _snapshot_of(st, p, "20261001", [_prb("DX1", "胃炎"), _prb("DX2", "肺炎")])
-    _snapshot_of(st, deleting, "20261005", [_prb("DX1", "胃炎"), _de("DX2", "肺炎")])
-    _snapshot_of(st, dropping, "20261005", [_prb("DX1", "胃炎")])
-    src = _source(st)
-    rows = list(src.rows("diagnosis", "diagnosis", None, None))
-    assert sorted((r["mrn"], r["diag_no"]) for r in rows) == sorted([(kit.P1, "DX1"), (kit.P2, "DX1")])
-    dead = sorted((str(r["mrn"]), str(r["diag_no"])) for r in src.deleted_rows("diagnosis", "diagnosis", None, None))
-    assert dead == sorted([(deleting, "DX2"), (dropping, "DX2")])

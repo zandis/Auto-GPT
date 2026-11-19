@@ -104,8 +104,10 @@
       number may be another patient's.
     - This changes behaviour for a CSV site that sent bare-key deletes. It must now send the chart number with every
       delete (`docs/data/02-mapping-a-site.md`, `CANONICAL.md`).
-    - SS-MIX2 keys the diagnoses already tombstoned by patient and number (review E), so one patient's deleted
-      diagnosis never hides another patient's diagnosis dropped from a newer snapshot.
+    - SS-MIX2 must key the diagnoses already tombstoned by patient and number (review E), so one patient's deleted
+      diagnosis never hides another patient's diagnosis dropped from a newer snapshot. #1189 (10B-2b) carries that
+      change to the reader, with its tests. **This card lands after #1189**, and this branch leaves the reader as
+      master has it.
   - **Collisions.**
     - Two records with one id and different content are counted per record type (`id_collisions`): two different
       source rows of one night, or of one back-fill, with the same patient and number. The last row still wins
@@ -130,8 +132,8 @@
   - **SS-MIX2 version handling is unchanged** (cards #1095 and #1189 own it).
     - The reader keeps the newest version per (patient, data type, order number[, day]) before the mapper sees a row.
     - With `per_day` keys the number an id is made from is `<order>@<day>`, with the patient added.
-    - The one change in the reader is the diagnosis tombstones keyed by patient (above), a minimal change on lines
-      #1189 also edits.
+    - This card does not change the SS-MIX2 reader. The diagnosis tombstones keyed by patient (above) come with
+      #1189, which lands first.
   - **fhir_bulk is not affected.** A FHIR server's id is unique per server and type. `pipeline.bulk_id` keeps
     `HMAC("<type>|<server id>")`, pinned by `test_fhir_bulk_ids_stay_the_servers_unique_ids`. Patient ids (pids) are
     unchanged everywhere.
@@ -319,7 +321,6 @@
     `deletes_without_patient`, `links_to_absent_records`) and its one event when refused for the id rule.
   - `tests/unit/test_lake_snapshot_opened_once.py`: every entry point above refuses a snapshot of the earlier rule
     and of a later one; a served snapshot without NDJSON.
-  - `tests/unit/test_ssmix2_third_review.py::test_8_one_patients_tombstones_never_hide_anothers_diagnosis_gone_from_a_newer_snapshot`.
   - `tests/unit/test_goldens_id_proof.py`.
   - `tests/console/test_id_rule_pages.py`.
   - `tests/integration/test_vec_store.py::test_new_chunks_are_refused_beside_chunks_of_the_earlier_id_rule`.

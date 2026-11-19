@@ -1205,13 +1205,12 @@ class Ssmix2Source:
             del self._dx_dead[mark:]
             self._quarantine(sf.type, sf, "duplicate key", "two diagnoses carry one diagnosis number (PRB-4)")
             return
-        # D-1253 (review E): by patient and number: another patient's tombstone of the same number is not this one's
-        present = {(r.get("mrn"), r["diag_no"]) for r in [*rows, *self._dx_dead]}
+        present = {r["diag_no"] for r in rows} | {r["diag_no"] for r in self._dx_dead}
         for old in self._older_diagnoses(sf):
-            if (old.get("mrn"), old["diag_no"]) not in present:  # a deleted snapshot's own rows are tombstones already
+            if old["diag_no"] not in present:  # a deleted snapshot's own rows are tombstones already
                 old.pop("_changed", None)
                 self._dx_dead.append(old)
-                present.add((old.get("mrn"), old["diag_no"]))
+                present.add(old["diag_no"])
                 self.stats["PPR-01:diagnosis gone from a newer snapshot"] += 1
         yield from rows
 
