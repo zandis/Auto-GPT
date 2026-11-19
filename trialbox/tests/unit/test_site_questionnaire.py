@@ -291,3 +291,20 @@ def test_the_template_is_in_three_languages_and_an_empty_one_is_refused_answer_b
     got = sq.parse_text(text)
     assert not isinstance(got, sq.Form)
     assert {"profile.id", "door", "data_types"} <= {p.where for p in got}
+
+
+def test_a_folder_the_loader_refuses_is_never_put_in_place(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tb_common.site_profile import ProfileError
+
+    def refuse(folder: Path) -> None:
+        raise ProfileError("profile.yaml", "refused for the test")
+
+    monkeypatch.setattr(sq, "load", refuse)
+    form = sq.parse(_answers())
+    assert isinstance(form, sq.Form)
+    with pytest.raises(ProfileError):
+        sq.write(form, tmp_path / "out")
+    assert sorted(tmp_path.iterdir()) == []  # neither the folder nor half of one beside it
+    monkeypatch.setattr(sq, "load", refuse)
+    assert sp.main(["fill", "--answers", str(ANSWERS), "--out", str(tmp_path / "out")]) == 2
+    assert not (tmp_path / "out").exists()
