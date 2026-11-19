@@ -44,7 +44,11 @@ a table test that is off by default (section 9), because the card's exit is a te
 | The data steward, the privacy office | no list rows; pseudonyms in the audit trail only (4.6) | none of the study's | the same |
 
 So the matrix is already right for investigators, the administrator, viewers, CRO accounts, the steward and the
-privacy office. It is **wider** for coordinators. It **has no** trial-office role.
+privacy office. It **has no** trial-office role. It is **wider** for coordinators, and that breadth is **intended**
+today: D-147 item 1 (owner decisions of 2026-11-09) says "Coordinators and administrators keep their role's rights",
+and the matrix's own comment says "A coordinator has its row in every study"
+(`libs/tb_common/authz_matrix.yaml` line 109). So for coordinators this page proposes to narrow a ruled rule; it does
+not report a defect. The header search (4.1) is different: no decision allows it.
 
 ## 2. The matrix today, in the terms this page uses
 
@@ -95,7 +99,7 @@ an SMO coordinator scoped to the study. Every surface below is open today to `cr
 | S15 | Patient-level job file download | `GET /pilot/jobs/{id}/files/{file}` (app.py line 1939; rule `phi_download_ok`, line 1924) | named recipient + `phi.view` + `delegated_ok` | log only | coordinator wider (when named) |
 | S16 | Study export | `GET /studies/{rs}/export.{fmt}` (entry_pages.py line 378), API (entry_pages.py line 472) | `task.screen` | log only | coordinator wider |
 | S17 | Reveal a chart number | `POST /studies/{rs}/candidates/{pid}/reveal` (team.py line 478), `POST /studies/{rs}/patients/{pid}/reveal` (home.py line 1117) | `id.reveal` + log, in `reveal.identifier` | log only | coordinator wider. The walk shows `Y` for admin, steward and privacy only because the empty test body is refused (400) before the right is asked |
-| S18 | Header search ("S28") | `GET /cmd?q=` (`services/console/step4.py` line 131) | `phi.view` only; **no log check** | log only | **wider for every investigator and coordinator** (4.1) |
+| S18 | Header search ("S28") | `GET /cmd?q=` (`services/console/step4.py` line 131) | `phi.view` only; **no log check** | log only | **wider for every investigator and coordinator**; observed by a test (4.1) |
 | S19 | Coordinator's daily mail (N2) | `services/console/notify.py` line 374; log checked for N1 only (line 383) | `request.prepare`; **no log check** | log only | **coordinator wider** (4.2) |
 | S20 | Investigator's mail before clinic (N1) | notify.py line 383 | `list.mark` + `delegated_ok` | unchanged | right |
 | S21 | Mailed candidate workbook (chart numbers) | `services/orchestrator/scenarios/screen.py` lines 844 and 859 | the study's `routing.list_to` addresses; **no role, no log** | each address must be an account on the log | **outside the matrix** (4.3) |
@@ -117,16 +121,27 @@ is about the time before consent. Host commands (a shell on the box) are outside
 
 ## 4. Gaps the matrix cannot close by a cell
 
-### 4.1 The header search does not ask the log (confirmed by a run)
+### 4.1 The header search does not ask the log (confirmed by a committed test)
 
 `search` in `services/console/step4.py` (line 131) checks only `can_view_phi` (line 141). It then reads the week list
 of every study the account sees (line 147) and the screening numbers, and turns a match into a redirect to the
-patient's page. A throwaway run on the console's test box (not committed): an investigator the log does not name got
-403 on `/studies/GZQO/week` and on the patient page, yet `/cmd?q=<12 characters of a pseudonym>` and
-`/cmd?q=<screening number>` answered 303 to `/studies/GZQO/patients/<the full 32-character pseudonym>`. So the search
-confirms that a patient is on a study's list and gives the full pseudonym. It is a guard gap, not a cell: the fix is
-to ask `delegated_ok` per study inside `search`. **Lane J does not fix it** (a change to who may read is C2's). The
-test C2 would need: `test_the_header_search_finds_no_patient_of_a_study_off_the_log`.
+patient's page.
+
+**Observed today**, with synthetic data, by `tests/console/test_proposal_10c3_header_search.py` (run with
+`--runxfail` to see it): an investigator is a sub-investigator on study A's log only (RA-BIO, "screen"); study B
+(GZQO) has a log that names another PI and one pre-consent candidate with screening number `GZQO-0001`. The
+investigator gets 403 on study B's weekly list and on the candidate's patient page. Yet `/cmd?q=gzqo-0001` answers
+`303` to `/studies/GZQO/patients/cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd`. So the search confirms that the patient is on
+study B's list and gives the full pseudonym. A 12-character pseudonym prefix did the same in an earlier throwaway run
+on the single-study box.
+
+**Intended or a defect?** No decision says the search may pass the log. D-147 item 1 says an investigator not on a log
+that names a PI "is refused (403) on the week list, the patient page and the candidates", and D-273 (PV-3) applies
+that rule to every page that shows one study's patients. The search is not named in either. Our reading is that it is
+a gap against D-147 and D-273, not an intended breadth. It is a guard in code, not a cell: the fix would be to ask
+`delegated_ok` per study inside `search`. **Lane J does not fix it** (a change to who may read is C2's). The test is
+an expected failure with the reason "proposal 10C-3, awaiting lane C2's decision" (strict under
+`TB_PROPOSAL_10C3=1`), so nothing goes red.
 
 ### 4.2 The coordinator's daily mail (N2) does not ask the log
 
@@ -244,17 +259,18 @@ database.
   PI, on each of the 13 row surfaces; the trial office's counts). When C2 changes a cell, its rows turn red as XPASS
   (strict), and C2 deletes them from `WIDER_TODAY`. Adopting is: change the cells, empty `WIDER_TODAY`, remove the
   switch.
-- **Not in the table:** S18, S19 and S21, whose guard is code. Sections 4.1 to 4.3 name the console and orchestrator
-  tests C2 would need. The role-by-route table (`tests/console/data/role_route_matrix.md`) would gain a column for a
+- **Not in the table:** S18, S19 and S21, whose guard is code. S18 has its own test,
+  `tests/console/test_proposal_10c3_header_search.py` (4.1), switched the same way. Sections 4.2 and 4.3 name the
+  tests C2 would need for S19 and S21. The role-by-route table (`tests/console/data/role_route_matrix.md`) would gain a column for a
   coordinator off the log, regenerated with `TB_WRITE_ROLE_MATRIX=1`.
 
 ## 10. Proof that nothing changes for any role
 
-- Files changed by this card: this page, the test file of section 9 and decision D-1238. `libs/tb_common/authz.py`,
+- Files changed by this card: this page, the two test files (section 9 and 4.1) and decision D-1238. `libs/tb_common/authz.py`,
   `libs/tb_common/authz_matrix.yaml`, every console and orchestrator file, `tests/console/data/role_route_matrix.md`
   and `tests/console/data/route_actions.yaml` are byte for byte as on master (the pull request's file list).
 - The new test file changes no behaviour and, by default, cannot fail.
-- The run of 4.1 used a temporary file that was deleted before the commit.
+- The header-search test (4.1) is an expected failure and cannot go red by default.
 
 ## 11. Questions
 
@@ -265,7 +281,8 @@ database.
 3. While the log names no PI, does a coordinator see no list (proposed, the investigator's rule), or does a ticked
    coordinator see it (`task:screen`)?
 4. A `trial_office` role (proposed, with 10C-16), or the trial office as a `viewer` account until 10C-16?
-5. Who fixes S18 (search) and S19 (N2 mail) and when? Both are guard gaps today, independent of the cell.
+5. Who fixes S18 (search) and S19 (N2 mail) and when? S18 is a gap against D-147 and D-273; S19 follows the
+   coordinator's ruled breadth today and becomes a gap only if section 5 is adopted.
 6. S21: check `routing.list_to` addresses against the log at approval and at send?
 7. Confirm 4.4 (referral to the treating doctor), 4.5 (break-glass) and 4.6 (audit trail) as outside the rule.
 
@@ -298,6 +315,6 @@ These pages were cited from the public texts and were not re-opened in this sess
 
 ## 13. Not verified
 
-- S19 (N2) and S21 (mailed workbook) are read from the code, not run. S18 was run once (4.1).
+- S19 (N2) and S21 (mailed workbook) are read from the code, not run. S18 is run by a committed test (4.1).
 - Whether any site's log lists coordinators with "screen" today (needed before section 5 is adopted).
 - The legal readings of section 12: our reading only.

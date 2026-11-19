@@ -23,13 +23,17 @@ The proposal and its evidence are in `docs/handover/matrix-proposal-pre-consent-
 
 1. **Inventory.** 24 surfaces show pre-consent patient rows (pages, workbooks, APIs, mails, search). The matrix is
    already right for investigators, the administrator, viewers, CRO accounts, the steward and the privacy office.
-2. **Wider today.** The coordinator's `task.screen` cell is `true`. A coordinator not on a study's log, or in a study
-   whose log names no PI, reads every pre-consent row of every study its account sees. Proposed: the cell becomes
+2. **Wider today, by a ruled rule.** The coordinator's `task.screen` cell is `true`, as D-147 item 1 rules
+   ("Coordinators and administrators keep their role's rights"). So this part proposes to narrow, not to fix. A
+   coordinator not on a study's log, or in a study whose log names no PI, reads every pre-consent row of every study
+   its account sees. Proposed: the cell becomes
    `[logged_tick]`, and `standing` reads the ticks of `crc` entries (today it reads `sub_pi` entries only).
 3. **Missing.** No trial-office role. Proposed: a `trial_office` role (with card 10C-16) that reads the research
    office's counts and no patient row.
-4. **Gaps in code, not in a cell.** The header search finds pseudonyms without asking the log (confirmed by a run).
-   The coordinator's daily mail (N2) does not ask the log. The SCREEN run mails its workbook to the study's
+4. **Gaps in code, not in a cell.** The header search finds a pre-consent patient of a study the investigator's log
+   does not reach, and gives the full pseudonym (observed by
+   `tests/console/test_proposal_10c3_header_search.py`, an expected failure; no decision allows it, against D-147
+   and D-273). The coordinator's daily mail (N2) does not ask the log. The SCREEN run mails its workbook to the study's
    `routing.list_to` addresses, which no role or log checks. Lane J reports these and fixes none of them.
 5. **Test.** `tests/unit/test_proposal_10c3_pre_consent_matrix.py` is off by default (every row a non-strict
    expected failure, reason "proposal 10C-3, awaiting lane C2's decision"). With `TB_PROPOSAL_10C3=1` it checks the
