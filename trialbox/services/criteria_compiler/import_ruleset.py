@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import sys
 import zipfile
 from pathlib import PurePosixPath
 from typing import Any
@@ -82,9 +83,25 @@ def main(argv: list[str] | None = None) -> int:
     repo = RulesetRepo(cfg.env.rulesets_path)
     gate = float(cfg.settings.thresholds.equivalence_min_pct or 98.0) if cfg.settings.thresholds else 98.0
     with open(args.zip, "rb") as fh:
-        tag = install(repo, fh.read(), args.by, gate)
-    print(json.dumps({"installed": tag}))
+        data = fh.read()
+    tag = install(repo, data, args.by, gate)
+    hits = negated_hits(data)
+    for h in hits:  # card 10A-1: installed as approved; a person recompiles these lines (the scan lists them again)
+        print(f"WARNING {h}: its line may negate what its logic asks the presence of; recompile and approve",
+              file=sys.stderr)  # fmt: skip
+    print(json.dumps({"installed": tag, **({"negated_inclusions": hits} if hits else {})}))
     return 0
+
+
+def negated_hits(data: bytes) -> list[str]:
+    """Card 10A-1: the ids of the zip's inclusions whose line may negate what their logic asks the presence of. The
+    install is not refused (the ruleset is the vendor's approved one); the ids are reported for a person to act on."""
+    from tb_common.ruleset import Ruleset
+
+    from criteria_compiler.negated_inclusions import ruleset_hits
+
+    _, files, _ = read_zip(data)
+    return [h.criterion for h in ruleset_hits(Ruleset.from_files(files))]
 
 
 if __name__ == "__main__":
