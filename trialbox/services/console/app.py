@@ -260,6 +260,15 @@ class _LoginRequired(Exception):
     pass
 
 
+class _KeepAlive(Exception):
+    """D-1370 (9g-19): the idle warning's own request to a page (``keep=1``): the session is checked as for the page,
+    and then answered with its times only (no page, no route's reads, no notice taken)."""
+
+    def __init__(self, token_sha: str) -> None:
+        super().__init__("keep")
+        self.token_sha = token_sha
+
+
 class _MustChange(Exception):
     """A page asked by an account whose password someone else set (D-279): it goes to /account first."""
 
@@ -687,6 +696,8 @@ def create_app(
                 raise _MustChange()
             raise _Problem(403, "account.must_change")
         _scope_check(request, sess)
+        if request.method == "GET" and request.query_params.get("keep") == "1":
+            raise _KeepAlive(sess.token_sha)  # D-1370: after every check the page itself makes, before its reads
         bind_session(sess.token_sha[:16])  # S-09: the actor this request names to the orchestrator is signed with it
         if reader:  # NEW-SEC-1 (D-717): this account signs the patient reads of its pages (the workspace's helpers)
             console_actor.bind_reader(reader["h"], sess)
@@ -889,8 +900,16 @@ def create_app(
         why, and the page the person was on is kept to return to after sign-in."""
         ended = bool(request.cookies.get(COOKIE))
         resp = RedirectResponse("/login?why=idle" if ended else "/login", status_code=303)
-        next_page.remember(resp, next_page.page_of(request), settings.secure_cookie)
+        if request.query_params.get("keep") != "1":  # D-1370: the idle warning's request is no page to return to
+            next_page.remember(resp, next_page.page_of(request), settings.secure_cookie)
         return resp
+
+    @app.exception_handler(_KeepAlive)
+    async def _kept(request: Request, exc: _KeepAlive) -> Response:
+        """D-1370 (9g-19): "Stay signed in" (activity, as the page would be) and, with ``auto=1``, the check before
+        the lock (not activity): the seconds to the idle lock and to the absolute end, read without touching."""
+        left = us.session_left(exc.token_sha) or (0, 0, 0)
+        return Response(status_code=204, headers={"x-tb-idle-left": str(left[1]), "x-tb-abs-left": str(left[2])})
 
     @app.exception_handler(_MustChange)
     async def _to_account(request: Request, _exc: _MustChange) -> Response:

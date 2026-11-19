@@ -84,7 +84,7 @@
   `console.enrol_code`, `console.totp_reset`; a reset signs the account out). Sessions end after 10 minutes idle
   (`TB_CONSOLE_IDLE_MINUTES`, 1 to 60; a page's own auto-refresh is not activity) or 8 hours
   (`TB_CONSOLE_SESSION_HOURS`, 1 to 12); a page warns one minute before either end, with "Stay signed in"
-  before the idle lock only, which opens an ordinary page and lengthens no limit (D-1370); session cookies are HttpOnly and SameSite=Strict, and Secure by default in
+  before the idle lock only, which asks an ordinary page (answered with the times only) and lengthens no limit (D-1370); session cookies are HttpOnly and SameSite=Strict, and Secure by default in
   PRODUCTION, where an explicit off is refused. The trusted-header SSO runs only with TOTP and OIDC off (DEV, TEST),
   never signs in a local account, and Caddy strips identity headers.
   Optional sign-in with the hospital account through Authelia (OIDC code flow with PKCE, off unless

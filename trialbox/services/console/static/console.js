@@ -179,17 +179,23 @@
       });
     });
   } catch (e) { /* no session storage: the page works as before */ }
-  // 7. D-1370 (9g-19, A11Y-3): one minute before the idle lock a warning with "Stay signed in"; at the session's absolute
-  // end the same warning without it (that limit is never extended). The times come from the server with the page.
-  // "Stay signed in" opens a page the person may open anyway (data-stay-url) in the background: activity, as any page
-  // is. The page is never reloaded or left, so what was typed stays where it is; nothing typed is read or stored here.
+  // 7. D-1370 (9g-19, A11Y-3): shortly before the idle lock (a minute; half the limit when it is shorter) a warning with
+  // "Stay signed in"; at the session's absolute end the same warning without it (that limit is never extended). The
+  // times come from the server with the page and count from the navigation's start on the page's own monotonic clock
+  // (performance.now: the server's count began later, so the page errs early, and a jump of the system clock moves
+  // nothing). "Stay signed in" asks a page the person may open anyway (data-stay-url) with keep=1: activity, as any
+  // page is, answered with no page. Before showing the lock the page asks again with auto=1 as well (not activity):
+  // another tab may have kept the session awake, and then the warning is armed again from the times it answers. The
+  // page is never reloaded or left, so what was typed stays where it is; nothing typed is read or stored here.
   var iw = document.getElementById("idle-warn");
-  if (iw) {
+  if (iw && window.performance && window.fetch) {
     var num = function (n) { return Math.max(0, Number(iw.getAttribute(n)) || 0) * 1000; };
-    var idleMs = num("data-idle"), t0 = Date.now(), idleEnd = t0 + num("data-idle-left"), absEnd = t0 + num("data-abs-left");
+    var clock = function () { return window.performance.now(); }; // 0 is the navigation's start
+    var idleMs = num("data-idle"), lead = num("data-lead"), idleEnd = num("data-idle-left"), absEnd = num("data-abs-left");
     var stay = iw.querySelector("[data-idle-stay]"), close = iw.querySelector("[data-idle-close]");
     var title = document.getElementById("idle-warn-title"), text = document.getElementById("idle-warn-text");
-    var shown = "", timer = null, asked = false, before = null, dismissed = "";
+    var base = iw.getAttribute("data-stay-url") || "/";
+    var shown = "", timer = null, asked = false, before = null, dismissed = "", checking = false;
     var say = function (kind) {
       shown = kind;
       title.textContent = iw.getAttribute("data-" + kind + "-title") || "";
@@ -202,16 +208,42 @@
     };
     var hide = function () {
       iw.hidden = true;
+      iw.removeAttribute("data-state");
       dismissed = shown; // a closed warning is not shown again (the lock still is)
       shown = "";
       if (before && before.focus && document.body.contains(before)) before.focus(); // back where the person typed
       before = null;
     };
+    // the session's state from the server: "ended" (sent to the sign-in), or the seconds it has left
+    var ask = function (quiet) {
+      var sent = clock();
+      return fetch(base + (base.indexOf("?") < 0 ? "?" : "&") + "keep=1" + (quiet ? "&auto=1" : ""),
+        { credentials: "same-origin", cache: "no-store", redirect: "manual" }).then(function (r) {
+        if (r.type === "opaqueredirect" || (r.status >= 300 && r.status < 400)) return { ended: true };
+        var idle = Number(r.headers.get("x-tb-idle-left")), abs = Number(r.headers.get("x-tb-abs-left"));
+        if (!r.ok || !isFinite(idle) || !isFinite(abs) || r.headers.get("x-tb-idle-left") === null) return null;
+        return { ended: idle <= 0 || abs <= 0, idleEnd: sent + idle * 1000, absEnd: sent + abs * 1000 };
+      });
+    };
+    var rearm = function (got) {
+      idleEnd = got.idleEnd;
+      absEnd = got.absEnd;
+      if (shown) hide();
+      dismissed = "";
+      tick();
+    };
     var tick = function () {
       if (timer) clearTimeout(timer);
-      if (shown === "locked" || dismissed === "locked") return;
-      var now = Date.now(), end = Math.min(idleEnd, absEnd), lead = Math.min(60000, idleMs / 2);
-      if (now >= end) { say("locked"); return; }
+      if (shown === "locked" || dismissed === "locked" || checking) return;
+      var now = clock(), end = Math.min(idleEnd, absEnd);
+      if (now >= end) { // before saying so, ask whether another tab kept the session awake
+        checking = true;
+        ask(true).then(function (got) {
+          checking = false;
+          if (got && !got.ended && Math.min(got.idleEnd, got.absEnd) > clock() + 1000) rearm(got); else say("locked");
+        }, function () { checking = false; say("locked"); });
+        return;
+      }
       if (now >= end - lead && !shown && !dismissed) say(absEnd <= idleEnd ? "limit" : "soon");
       var next = now >= end - lead ? end : end - lead;
       timer = setTimeout(tick, Math.max(250, Math.min(next - now, 15000)));
@@ -219,21 +251,17 @@
     stay.addEventListener("click", function () {
       if (asked) return;
       asked = true;
-      fetch(iw.getAttribute("data-stay-url") || "/", { credentials: "same-origin", cache: "no-store" }).then(function (r) {
+      ask(false).then(function (got) {
         asked = false;
-        if (new URL(r.url, window.location.href).pathname === "/login") { idleEnd = 0; tick(); return; }
-        if (!r.ok) return; // the box did not answer as expected: the warning stays, the person may press again
-        idleEnd = Date.now() + idleMs;
-        hide();
-        dismissed = "";
-        tick();
+        if (got && got.ended) { say("locked"); return; }
+        if (got) rearm(got); // else the box did not answer as expected: the warning stays, the person may press again
       }, function () { asked = false; }); // no answer (the network): the warning stays
     });
     close.addEventListener("click", hide);
     iw.addEventListener("keydown", function (e) {
       if (e.key !== "Escape") return;
       e.preventDefault();
-      if (shown === "soon") stay.click(); else hide();
+      if (shown === "soon") stay.click(); else hide(); // Escape on the warning is "Stay signed in"
     });
     document.addEventListener("visibilitychange", function () { if (!document.hidden) tick(); }); // a phone woke up
     tick();

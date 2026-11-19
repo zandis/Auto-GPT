@@ -30,7 +30,7 @@ from tests.console.test_role_route_matrix import _fill
 ROOT = Path(__file__).resolve().parents[2]
 CONSOLE = ROOT / "services" / "console"
 SCRIPT = Path(__file__).with_name("no_worker.js")
-TEXT = (".html", ".js", ".css", ".json", ".webmanifest", ".svg", ".py", ".txt", ".md")
+TEXT = (".html", ".htm", ".js", ".mjs", ".ts", ".css", ".json", ".webmanifest", ".svg", ".py", ".txt", ".md")
 
 # What would keep a page, or send to a push service, from the browser. The tab's session storage is not here: it holds
 # a form while it is typed (D-777, D-1222), dies with the tab and is dropped on save, on leaving and on sign-out.
@@ -111,6 +111,20 @@ def test_a_consent_is_recorded_as_facts_never_as_a_scan() -> None:
                 assert "image" not in accept and not re.search(r"\.(png|jpe?g|heic|tiff?|gif)\b", accept), p.name
 
 
+def _directives(csp: str) -> dict[str, str]:
+    return {d.split()[0]: " ".join(d.split()[1:]) for d in (x.strip() for x in csp.split(";")) if d}
+
+
+def test_the_policy_forbids_workers_by_name() -> None:
+    """The header the console sends, read directive by directive: ``worker-src 'none'`` is there, and removing it (as
+    planted here) is seen."""
+    from console import app as console_app
+
+    assert _directives(console_app.CSP)["worker-src"] == "'none'"
+    planted = console_app.CSP.replace("; worker-src 'none'", "")
+    assert "worker-src" not in _directives(planted)
+
+
 def test_every_page_says_no_store_and_no_worker(box: dict[str, Any]) -> None:
     """Every GET route of the console, as the administrator and as a coordinator (who opens patient-level pages), is
     answered with ``Cache-Control: no-store`` and a policy that forbids workers, whatever its status. Only the web
@@ -128,8 +142,9 @@ def test_every_page_says_no_store_and_no_worker(box: dict[str, Any]) -> None:
             if path in ("/logout",):
                 continue
             r = c.get(_fill(path, job_id), follow_redirects=False)
-            if r.headers.get("cache-control") != "no-store" or "worker-src 'none'" not in r.headers.get(
-                "content-security-policy", ""
+            if (
+                r.headers.get("cache-control") != "no-store"
+                or _directives(r.headers.get("content-security-policy", "")).get("worker-src") != "'none'"
             ):
                 bad.append((name, path, r.status_code, r.headers.get("cache-control")))
     assert not bad, bad

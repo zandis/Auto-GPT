@@ -3,11 +3,14 @@ in"; what was typed stays on the page.
 
 The server half runs here with the test client: every signed-in page carries the warning (hidden, as an
 ``alertdialog`` in three languages) and the session's real times; "Stay signed in" opens a page the person may open
-anyway, which is activity as any page is; the idle and the absolute limits are the ones the console had (8 hours,
+anyway with ``keep=1``, which is activity as any page is and is answered with the session's times only (no page,
+no notice taken, no page remembered to return to); the check before the lock adds ``auto=1`` and is not activity; the
+idle and the absolute limits are the ones the console had (8 hours,
 however often the person stays). The browser half (``tests/console/idle_warn.js``) runs the console's own script in
 Chromium on pages this console rendered, with the browser's clock moved forward: the warning comes at nine minutes, is
 reached and pressed by keyboard, the clock starts again from the press, the lock keeps the typed text and leaves the
-page where it is, a session the server already ended shows the lock, and the absolute end shows no "Stay"."""
+page where it is, a session the server already ended shows the lock, a session another tab kept awake does not, and the
+absolute end shows no "Stay"."""
 
 from __future__ import annotations
 
@@ -53,6 +56,7 @@ def test_every_signed_in_page_carries_the_warning_hidden_with_the_sessions_times
     assert a["role"] == "alertdialog" and a["aria-labelledby"] == "idle-warn-title"
     assert a["aria-describedby"] == "idle-warn-text"
     assert (a["data-idle"], a["data-idle-left"], a["data-abs-left"]) == ("600", "600", str(8 * 3600))
+    assert a["data-lead"] == "60"
     assert a["data-stay-url"] == "/help"
     assert a["data-soon-text"].startswith("Nothing has reached TrialBox from this page for 10 minutes.")
     clock.tick(minutes=3)
@@ -77,6 +81,39 @@ def test_the_warning_speaks_the_page_language(tmp_path: Path, lang: str, title: 
     assert all(a[k] for k in ("data-limit-title", "data-limit-text", "data-locked-title", "data-locked-text"))
 
 
+def test_a_short_idle_limit_warns_half_way_and_says_so(tmp_path: Path) -> None:
+    """With a one-minute idle limit the warning comes after 30 seconds, and its title says 30 seconds, not a minute."""
+    _, _, _, c = _box(tmp_path, TB_CONSOLE_IDLE_MINUTES="1")
+    a = _attrs(c.get("/help").text)
+    assert (a["data-idle"], a["data-lead"]) == ("60", "30")
+    assert a["data-soon-title"] == "You will be signed out in 30 seconds"
+    assert a["data-limit-title"] == "This session ends in 30 seconds"
+
+
+def test_the_keep_request_is_answered_with_the_times_only(tmp_path: Path) -> None:
+    """``keep=1`` on the warning's page: after every check the page makes, the session's times and no page; with
+    ``auto=1`` it is not activity. A notice for the account is not taken by it (the next real page shows it), and an
+    ended session sends it to the sign-in without remembering it as the page to return to."""
+    _, users, clock, c = _box(tmp_path)
+    users.add_notice("viewer", "password", "admin")
+    clock.tick(minutes=4)
+    r = c.get("/help?keep=1&auto=1", follow_redirects=False)
+    assert r.status_code == 204 and r.content == b""
+    assert (r.headers["x-tb-idle-left"], r.headers["x-tb-abs-left"]) == ("360", str(8 * 3600 - 240))  # not touched
+    r = c.get("/help?keep=1", follow_redirects=False)
+    assert r.status_code == 204 and r.headers["x-tb-idle-left"] == "600"  # touched: activity
+    assert users.has_notices("viewer")  # not taken by the warning's requests
+    assert 'data-testid="account-notice"' in c.get("/help").text and not users.has_notices("viewer")
+    assert c.get("/studies/GZQO/week?keep=1", follow_redirects=False).status_code == 403  # the page's own checks
+    clock.tick(minutes=10, seconds=1)
+    r = c.get("/help?keep=1&auto=1", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/login?why=idle"
+    assert "tb_console_next" not in r.headers.get("set-cookie", "")  # no page to return to
+    c2 = TestClient(c.app, cookies={"tb_console": "ended-token"})
+    r2 = c2.get("/help", follow_redirects=False)
+    assert "tb_console_next" in r2.headers.get("set-cookie", "")  # a real page is still remembered (D-777)
+
+
 def test_without_the_workspace_pages_stay_signed_in_opens_the_overview(tmp_path: Path) -> None:
     """A console with the workspace off (``TB_CONSOLE_WORKSPACE=off``) has no help page; the overview, which every
     signed-in person opens there, is the button's page."""
@@ -84,7 +121,7 @@ def test_without_the_workspace_pages_stay_signed_in_opens_the_overview(tmp_path:
     url = _attrs(c.get("/").text)["data-stay-url"]
     assert url == "/"
     clock.tick(minutes=9, seconds=50)
-    assert c.get(url, follow_redirects=False).status_code == 200
+    assert c.get(url + "?keep=1", follow_redirects=False).status_code == 204
     clock.tick(minutes=9, seconds=50)
     assert _signed_in(c)
 
@@ -106,11 +143,11 @@ def test_stay_signed_in_is_activity_and_never_passes_the_absolute_limit(tmp_path
     url = _attrs(c.get("/help").text)["data-stay-url"]
     for _ in range(8 * 6):  # pressed every 9 minutes 50 seconds for 7 hours 52 minutes
         clock.tick(minutes=9, seconds=50)
-        assert c.get(url, follow_redirects=False).status_code == 200
+        assert c.get(url + "?keep=1", follow_redirects=False).status_code == 204
     a = _attrs(c.get(url).text)
     assert int(a["data-abs-left"]) < 600 and int(a["data-idle-left"]) == 600  # the limit warning comes next
     clock.tick(seconds=int(a["data-abs-left"]) + 1)
-    r = c.get(url, follow_redirects=False)
+    r = c.get(url + "?keep=1", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].startswith("/login")  # what the script reads as the lock
     assert not _signed_in(c)
     assert users.idle == timedelta(minutes=10) and users.absolute == timedelta(hours=8)  # the limits as they were
@@ -176,12 +213,19 @@ def test_in_a_browser_the_warning_comes_a_minute_before_and_the_typed_text_stays
     assert w["at_9m01"]["title"] == "You will be signed out in one minute" and w["at_9m01"]["focus"] == "idle-stay"
     assert w["at_9m01"]["seen"] == ["stay"]  # on the screen: the one button, not Close
     assert w["after_enter"] == {"hidden": True, "stay_requests": 1, "focus": "cmd-q", "typed": "half-typed note"}
+    assert w["escape"] == {"hidden": True, "stay_requests": 2}  # Escape on the warning is "Stay signed in"
     assert w["again_9m01_after_the_press"] == {"hidden": False, "state": "soon"}  # counted from the press
     locked = got["locked_keeps_the_text"]
     assert locked["state"] == "locked" and locked["title"] == "You have been signed out" and locked["stay_hidden"]
     assert locked["typed"] == "half-typed note" and locked["url_same"] and locked["stay_requests"] == 1
+    assert locked["checks"] == 1  # it asked (auto=1, not activity) before saying so
     assert locked["focus"] == "idle-close" and locked["closed_stays_closed"] and locked["seen"] == ["close"]
     assert got["server_already_ended"] == {"state": "locked", "title": "You have been signed out"}
+    awake = got["another_tab_kept_it_awake"]  # the second tab is idle, the session is alive: no false lock
+    assert awake["at_lock"] == {"hidden": True, "state": "", "checks": 1}
+    assert awake["warned_again"] == {"hidden": False, "state": "soon"}  # re-armed from the answer's times
+    assert awake["before_that"] is True
+    assert got["late_page"] == {"warned_within_3s_early": True}  # from the navigation's start: early, never late
     lim = got["absolute_limit"]
     assert lim["at_4m01"] == {"hidden": False, "state": "limit", "stay_hidden": True, "seen": ["close"],
                               "title": "This session ends in one minute"}  # fmt: skip
