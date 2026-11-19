@@ -104,48 +104,96 @@ def site_rule_on() -> str:
 
 #: LOG-JA (D-927): what a log line holds that the note masker would mask is masked too, its kind in capitals
 WITHHELD = "[message withheld: the PHI scrubber failed]"
+#: D-927 (the review's MEDIUM-5): a line longer than this is cut to its first and last halves before it is scrubbed
+#: (``TB_LOG_SCRUB_MAX_CHARS``): the masker reads about 1 µs a character (a 50 kB traceback, 56 ms), and the
+#: formatter holds the handler's lock while it does; what is cut is never written
+SCRUB_MAX_ENV = "TB_LOG_SCRUB_MAX_CHARS"
 
 
-def _note_rules(text: str) -> str:
-    """Every span ``tb_common.phi_guard.note_spans`` finds (names, addresses, dates of birth, ID, chart, phone, bed
-    and room numbers in Chinese, Japanese and English, D-923, #1091) replaced by its kind: the rules the notes are
-    masked by are the rules a log line is scrubbed by, so a rule added to the masker reaches the logs too."""
-    from tb_common.phi_guard import note_spans  # here, not at import: nearly every module imports logging
+def _scrub_max() -> int:
+    from tb_common.config import DECLARED
 
-    spans = note_spans(text)
-    if not spans:
+    try:
+        return max(1024, int(os.environ.get(SCRUB_MAX_ENV) or DECLARED[SCRUB_MAX_ENV].default))
+    except ValueError:
+        return int(DECLARED[SCRUB_MAX_ENV].default)
+
+
+def _cut(text: str) -> str:
+    limit = _scrub_max()
+    if len(text) <= limit:
         return text
-    out, last = [], 0
-    for kind, start, end in spans:
-        out.append(text[last:start])
-        out.append(f"[{kind.upper()}]")
-        last = end
-    out.append(text[last:])
-    return "".join(out)
+    half = limit // 2
+    return f"{text[:half]} …[{len(text) - 2 * half} characters cut before scrubbing]… {text[-half:]}"
 
 
 def redact(text: str) -> str:
-    """Replace Taiwan IDs, Japanese My Number / insurance numbers / postcodes, phone numbers, MRN-shaped tokens and
-    secrets (a value after a secret's name, a bearer token, a secret value the process holds), then everything the
-    note masker masks (LOG-JA, D-927). A scrubber that fails withholds the message: never a line it did not scrub."""
+    """Everything the note masker masks (LOG-JA, D-927), read on the line as written, then Taiwan IDs, Japanese My
+    Number / insurance numbers / postcodes, phone numbers, MRN-shaped tokens and secrets (a value after a secret's
+    name, a bearer token, a secret value the process holds). A scrubber that fails withholds the message, naming
+    the error's type: never a line it did not scrub."""
     try:
-        return _redact(text)
-    except Exception:
+        return _redact(_cut(text))
+    except Exception as exc:  # a log line must never stop the service, nor go out unscrubbed
+        return f"{WITHHELD[:-1]} ({type(exc).__name__})]"
+
+
+def redact_value(value: Any, depth: int = 0) -> Any:
+    """``value`` with every text inside it scrubbed: a dict's keys and values, a list's or tuple's items (the
+    review's HIGH-1: an extra field that is not a text went out as written); other values as they are."""
+    if isinstance(value, str):
+        return redact(value)
+    if depth > 8:  # deeper than any log field: withheld, not walked
         return WITHHELD
+    if isinstance(value, dict):
+        return {redact_value(k, depth + 1): redact_value(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, list | tuple | set | frozenset):
+        return [redact_value(v, depth + 1) for v in value]
+    return value
 
 
 def _redact(text: str) -> str:
+    """Every rule reads the line as it was written, and the spans they find are joined and replaced once (the
+    review's HIGH-2: applied one after another, a secret's token took the label a name was found by, and the
+    masker, run first, could cut a secret value so that its exact match no longer held). A span the secret rules
+    found says ``[SECRET]``; else the identifier rule's or the masker's kind."""
+    from tb_common.phi_guard import note_spans  # here, not at import: nearly every module imports logging
+
+    found: list[tuple[int, int, int, str]] = []  # (start, end, rank, label): 0 secret, 1 identifier rule, 2 masker
     for v in _SECRET_VALUES:
-        if v in text:
-            text = text.replace(v, "[SECRET]")
-    text = _SECRET_LABEL.sub(lambda m: m.group(1) + "[SECRET]", text)
-    text = _BEARER.sub(lambda m: m.group(1) + " [SECRET]", text)
-    text = _URL_PASSWORD.sub(lambda m: m.group(1) + "[SECRET]@", text)
+        at = text.find(v)
+        while at >= 0:
+            found.append((at, at + len(v), 0, "SECRET"))
+            at = text.find(v, at + 1)
+    for rx in (_SECRET_LABEL, _BEARER, _URL_PASSWORD):
+        for m in rx.finditer(text):
+            found.append((m.start(2), m.end(2), 0, "SECRET"))
     for pat, repl in _PHI_PATTERNS:
-        text = pat.sub(repl, text)
+        for m in pat.finditer(text):
+            found.append((m.start(), m.end(), 1, repl.strip("[]")))
     for pat in _EXTRA_MRN:
-        text = pat.sub("[MRN]", text)
-    return _note_rules(text)
+        for m in pat.finditer(text):
+            found.append((m.start(), m.end(), 1, "MRN"))
+    for kind, start, end in note_spans(text):
+        found.append((start, end, 2, kind.upper()))
+    merged: list[list[Any]] = []  # [start, end, rank, label]
+    for start, end, rank, label in sorted(f for f in found if f[1] > f[0]):
+        if merged and start < merged[-1][1]:
+            last = merged[-1]
+            last[1] = max(last[1], end)
+            if rank < last[2]:
+                last[2], last[3] = rank, label
+        else:
+            merged.append([start, end, rank, label])
+    if not merged:
+        return text
+    out, pos = [], 0
+    for start, end, _rank, label in merged:
+        out.append(text[pos:start])
+        out.append(f"[{label}]")
+        pos = end
+    out.append(text[pos:])
+    return "".join(out)
 
 
 class JsonFormatter(logging.Formatter):
@@ -163,14 +211,19 @@ class JsonFormatter(logging.Formatter):
         }
         for key, val in record.__dict__.items():
             if key not in _RESERVED and not key.startswith("_"):
-                payload[key] = redact(val) if isinstance(val, str) else val
+                payload[key] = redact_value(val)
         if record.exc_info:
             payload["exc"] = redact(self.formatException(record.exc_info))
         return json.dumps(payload, ensure_ascii=False, default=str)
 
 
 def setup_logging(service: str, level: str = "INFO") -> logging.Logger:
-    """Configure the root logger for JSON output with every scrubber rule on (D-450); idempotent."""
+    """Configure the root logger for JSON output with every scrubber rule on (D-450); idempotent. A masker that
+    cannot be loaded stops the start (D-927): every line would otherwise be withheld, with no word why."""
+    import importlib
+
+    importlib.import_module("tb_common.phi_guard")  # loaded now, loudly, not at the first line
+
     site_rule_on()
     register_process_secrets()
     root = logging.getLogger()
