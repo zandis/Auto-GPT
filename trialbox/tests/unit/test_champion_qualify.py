@@ -376,3 +376,35 @@ def test_promote_pins_helper_matches_what_promote_writes(tmp_path: Path, monkeyp
     got = {k: yaml.safe_load(p.read_text(encoding="utf-8"))["builds"][JUDGE] for k, p in (("helper", a), ("real", out))}
     assert set(got["helper"]["qualification"]) == set(got["real"]["qualification"])
     assert got["helper"]["status"] == got["real"]["status"] == "champion"
+
+
+@pytest.mark.parametrize("record_role", ["verifier", "judge"])
+def test_thinking_only_verifier_routes_through_production_judge_role(tmp_path: Path, record_role: str) -> None:
+    doc = _doc(
+        alias="v-verifier",
+        served={"verifier": "v-test"},
+        thinking_control="thinking_only",
+        qualification={**qualified("ab" * 32), "thinking_on_role": record_role},
+    )
+    doc["aliases"]["v-verifier"]["class"] = "V"
+    gw = _gw(
+        tmp_path, env=Environment.PRODUCTION, registry=Registry(doc), http=_mock("v-test"), confirm=lambda *_: True
+    )
+    reply = gw.chat(H(Data_Class="D3"), {**_judge_body(), "model": "v-verifier"})
+    if record_role == "verifier":
+        assert reply.status == 200, reply.body
+        assert reply.body["tb"]["alias"] == "v-verifier"
+    else:
+        assert (reply.status, reply.body["error"]["code"]) == (403, "thinking_unmeasured")
+
+
+@pytest.mark.parametrize("env", [Environment.TEST, Environment.VALIDATION])
+def test_thinking_only_build_can_answer_qualification_probe(tmp_path: Path, env: Environment) -> None:
+    reg = Registry(_doc(thinking_control="thinking_only", status="candidate"))
+    gw = _gw(tmp_path, env=env, registry=reg, http=_mock("j-test"), confirm=lambda *_: True)
+    body = {**_judge_body(), "model": "j-workhorse"}
+    reply = gw.chat(H(), body)
+    assert reply.status == 200, reply.body
+    if env == Environment.VALIDATION:
+        patient = gw.chat(H(Data_Class="D3"), body)
+        assert (patient.status, patient.body["error"]["code"]) == (403, "thinking_unmeasured")

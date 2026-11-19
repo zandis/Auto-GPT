@@ -39,7 +39,8 @@ PRODUCTION for exactly the pinned weights is refused (``champion_unqualified``),
 
 **Thinking control** (10E-25). A build can declare ``thinking_control: can_disable`` or ``thinking_only``.
 An omitted field leaves the capability unknown. Judge and verifier routes (including ``second_opinion``) require
-a thinking-only build to have a production qualification reference for the pinned weights and the same role.
+a thinking-only build to have a production qualification reference for the pinned weights and the same role,
+except in TEST and on the VALIDATION qualification route.
 Promotion records that role only when the passing record explicitly reports ``thinking_mode: on`` for the build.
 
 **No build without a context** (LLM-007, D-568). The gateway refuses a prompt over the build's ``context_length`` and
@@ -274,7 +275,9 @@ class Registry:
                 return b
         raise RegistryError("build_unknown", f"unknown build {build_id!r}")
 
-    def resolve(self, alias: str, endpoint: str, *, role: str, env: Environment) -> Resolved:
+    def resolve(
+        self, alias: str, endpoint: str, *, role: str, env: Environment, qualification_probe: bool = False
+    ) -> Resolved:
         if alias not in self.aliases:
             raise RegistryError("alias_unknown", f"alias {alias!r} is not in the registry")
         reasons: list[str] = []
@@ -297,9 +300,13 @@ class Registry:
                 reasons.append(f"{b.build_id}: {why} [weights_unexpected]")
                 continue
             screening_role = role.removeprefix("shadow:")
-            if screening_role == "second_opinion":
+            # S3 agreement and note exclusion send the judge prompt to both model classes.
+            if screening_role == "second_opinion" or (
+                screening_role == "judge" and self.aliases[alias].get("class") == "V"
+            ):
                 screening_role = "verifier"
-            if b.thinking_control == "thinking_only" and screening_role in SCREENING_ROLES:
+            measuring = env == Environment.TEST or (env == Environment.VALIDATION and qualification_probe)
+            if b.thinking_control == "thinking_only" and screening_role in SCREENING_ROLES and not measuring:
                 q = b.qualification or {}
                 if not b.qualified_for_production or q.get("thinking_on_role") != screening_role:
                     reasons.append(
