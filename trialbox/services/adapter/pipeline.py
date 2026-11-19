@@ -207,13 +207,17 @@ def make_source(
 
         # SS-MIX2 standardized and extended storage (D-122, D-137), with the site's licensed code lists; a site
         # profile's tables in place of the shipped samples (10B-6, D-1233)
-        tables = {
-            arg: t.path
-            for use, arg in (("ssmix2.diagnosis", "byomei_to_icd10"), ("ssmix2.drug", "yj_to_atc"),
-                             ("ssmix2.lab", "lab_lookup"))
-            if profile is not None and (t := profile.used_by(use)) is not None
-        }  # fmt: skip
-        return Ssmix2Source(Path(path), licensed=licensed.tables(db_url), **tables)
+        def table(use: str) -> Path | None:
+            t = profile.used_by(use) if profile is not None else None
+            return t.path if t is not None else None
+
+        return Ssmix2Source(
+            Path(path),
+            licensed=licensed.tables(db_url),
+            byomei_to_icd10=table("ssmix2.diagnosis"),
+            yj_to_atc=table("ssmix2.drug"),
+            lab_lookup=table("ssmix2.lab"),
+        )
     raise ValueError(f"unknown source {kind!r}")
 
 

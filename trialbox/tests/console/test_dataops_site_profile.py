@@ -76,7 +76,7 @@ def test_the_nights_page_says_which_profile_read_it_and_its_coverage(box: dict[s
     assert 'name="viewport"' in page and "width=device-width" in page  # the phone's page (390 px)
     sec = _section(page)
     assert translate(lang, "dataops.profile.title") in sec
-    assert "synthetic-jp-ss" in sec and "1.0.0" in sec and "65710b353ff0" in sec and PROFILE["digest"] not in sec
+    assert "synthetic-jp-ss" in sec and "1.0.0" in sec and "65710b353ff0" in sec and str(PROFILE["digest"]) not in sec
     assert "ADT-22" in sec and "OMD" in sec and "1,204" in sec and ">68" not in sec and "68" in sec
     assert "style=" not in sec and "nowrap" not in sec
     if lang == "en":

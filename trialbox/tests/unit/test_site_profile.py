@@ -55,7 +55,7 @@ def _manifest(**over: Any) -> dict[str, Any]:
                 "state": "verified",
                 "source": "a synthetic test table",
                 "used_by": ["mapping.lab"],
-            },  # fmt: skip
+            },
         },
     }
     doc.update(over)
@@ -373,7 +373,7 @@ def test_a_second_profile_with_other_local_codes_reads_the_same_facts_with_no_co
     assert sp.main(["which", "--lake", str(tmp_path / "lake-b"), "--snapshot", NIGHT]) == 0
     done = [json.loads(x) for f in _day_files(tmp_path / "audit-b") for x in f.read_text(encoding="utf-8").splitlines()]
     said = next(e["detail"]["site_profile"] for e in done if e["event"] == "ingest.done")
-    assert (said["id"], said["version"], said["digest"]) == ("test-site", "1.0.0", stamp["digest"])  # type: ignore[index]
+    assert (said["id"], said["version"], said["digest"]) == ("test-site", "1.0.0", stamp["digest"])
     assert said["types_arrived"] == len(TABLES) and said["unmapped_rows"] == 0
     assert [e["actor"] for e in done if e["event"] == sp.EVENT] == ["adapter"]
 
