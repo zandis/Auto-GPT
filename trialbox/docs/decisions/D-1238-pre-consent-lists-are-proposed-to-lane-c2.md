@@ -30,10 +30,9 @@ The proposal and its evidence are in `docs/handover/matrix-proposal-pre-consent-
    `[logged_tick]`, and `standing` reads the ticks of `crc` entries (today it reads `sub_pi` entries only).
 3. **Missing.** No trial-office role. Proposed: a `trial_office` role (with card 10C-16) that reads the research
    office's counts and no patient row.
-4. **Gaps in code, not in a cell.** The header search finds a pre-consent patient of a study the investigator's log
-   does not reach, and gives the full pseudonym (observed by
-   `tests/console/test_proposal_10c3_header_search.py`, an expected failure; no decision allows it, against D-147
-   and D-273). The coordinator's daily mail (N2) does not ask the log. The SCREEN run mails its workbook to the study's
+4. **Gaps in code, not in a cell.** The header search found a pre-consent patient of a study the investigator's log
+   does not reach, and gave the full pseudonym (observed by this card's proof test; no decision allowed it, against
+   D-147 and D-273). It is fixed by #1138 (D-1241), which carries the proof test. The coordinator's daily mail (N2) does not ask the log. The SCREEN run mails its workbook to the study's
    `routing.list_to` addresses, which no role or log checks. Lane J reports these and fixes none of them.
 5. **Test.** `tests/unit/test_proposal_10c3_pre_consent_matrix.py` is off by default (every row a non-strict
    expected failure, reason "proposal 10C-3, awaiting lane C2's decision"). With `TB_PROPOSAL_10C3=1` it checks the

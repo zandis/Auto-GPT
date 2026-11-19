@@ -33,7 +33,7 @@ a table test that is off by default (section 9), because the card's exit is a te
 | The PI the study's log names | yes | yes | the same |
 | A sub-investigator on the log with "screen" | yes | yes (the study pages' counts) | the same |
 | A sub-investigator on the log without "screen" | no | the study's counts | the same |
-| An investigator not on the log | no | the study's counts | the same in the matrix; **one leak in code** (4.1) |
+| An investigator not on the log | no | the study's counts | the same in the matrix; one leak in code (the header search, 4.1), fixed by #1138 (D-1241) |
 | A coordinator on the log with "screen" | yes | yes | the same |
 | A coordinator **not** on the log | **no** | yes | **wider: sees every row of every study its account sees** |
 | A coordinator, while the log names no PI | **no** | yes | **wider: sees every row** (an investigator sees none here, D-380) |
@@ -48,7 +48,7 @@ privacy office. It **has no** trial-office role. It is **wider** for coordinator
 today: D-147 item 1 (owner decisions of 2026-11-09) says "Coordinators and administrators keep their role's rights",
 and the matrix's own comment says "A coordinator has its row in every study"
 (`libs/tb_common/authz_matrix.yaml` line 109). So for coordinators this page proposes to narrow a ruled rule; it does
-not report a defect. The header search (4.1) is different: no decision allows it.
+not report a defect. The header search (4.1) was different: no decision allowed it, and it is fixed by #1138 (D-1241).
 
 ## 2. The matrix today, in the terms this page uses
 
@@ -99,7 +99,7 @@ an SMO coordinator scoped to the study. Every surface below is open today to `cr
 | S15 | Patient-level job file download | `GET /pilot/jobs/{id}/files/{file}` (app.py line 1939; rule `phi_download_ok`, line 1924) | named recipient + `phi.view` + `delegated_ok` | log only | coordinator wider (when named) |
 | S16 | Study export | `GET /studies/{rs}/export.{fmt}` (entry_pages.py line 378), API (entry_pages.py line 472) | `task.screen` | log only | coordinator wider |
 | S17 | Reveal a chart number | `POST /studies/{rs}/candidates/{pid}/reveal` (team.py line 478), `POST /studies/{rs}/patients/{pid}/reveal` (home.py line 1117) | `id.reveal` + log, in `reveal.identifier` | log only | coordinator wider. The walk shows `Y` for admin, steward and privacy only because the empty test body is refused (400) before the right is asked |
-| S18 | Header search ("S28") | `GET /cmd?q=` (`services/console/step4.py` line 131) | `phi.view` only; **no log check** | log only | **wider for every investigator and coordinator**; observed by a test (4.1) |
+| S18 | Header search ("S28") | `GET /cmd?q=` (`services/console/step4.py` line 131) | `phi.view` only; **no log check** | log only | was wider for an investigator off the log; **fixed by #1138 (D-1241)** (4.1) |
 | S19 | Coordinator's daily mail (N2) | `services/console/notify.py` line 374; log checked for N1 only (line 383) | `request.prepare`; **no log check** | log only | **coordinator wider** (4.2) |
 | S20 | Investigator's mail before clinic (N1) | notify.py line 383 | `list.mark` + `delegated_ok` | unchanged | right |
 | S21 | Mailed candidate workbook (chart numbers) | `services/orchestrator/scenarios/screen.py` lines 844 and 859 | the study's `routing.list_to` addresses; **no role, no log** | each address must be an account on the log | **outside the matrix** (4.3) |
@@ -121,14 +121,19 @@ is about the time before consent. Host commands (a shell on the box) are outside
 
 ## 4. Gaps the matrix cannot close by a cell
 
-### 4.1 The header search does not ask the log (confirmed by a committed test)
+### 4.1 The header search did not ask the log: fixed by #1138 (D-1241)
 
 `search` in `services/console/step4.py` (line 131) checks only `can_view_phi` (line 141). It then reads the week list
 of every study the account sees (line 147) and the screening numbers, and turns a match into a redirect to the
 patient's page.
 
-**Observed today**, with synthetic data, by `tests/console/test_proposal_10c3_header_search.py` (run with
-`--runxfail` to see it): an investigator is a sub-investigator on study A's log only (RA-BIO, "screen"); study B
+**Fixed by pull request #1138 (card 10C-3b, decision D-1241).** There, the search asks the patient page's own
+question (`Helpers.reads`) for each study and skips a study where the answer is no, with no break-glass exception.
+This card's proof test is carried there as a passing test, test_header_search_off_log.py (in tests/console on #1138), so it is
+not in this pull request. #1138 was open, not merged, when this was written. What follows is what was observed on
+master `a44a39da`, before the fix.
+
+**Observed before the fix**, with synthetic data, by this card's proof test: an investigator is a sub-investigator on study A's log only (RA-BIO, "screen"); study B
 (GZQO) has a log that names another PI and one pre-consent candidate with screening number `GZQO-0001`. The
 investigator gets 403 on study B's weekly list and on the candidate's patient page. Yet `/cmd?q=gzqo-0001` answers
 `303` to `/studies/GZQO/patients/cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd`. So the search confirms that the patient is on
@@ -139,9 +144,8 @@ on the single-study box.
 that names a PI "is refused (403) on the week list, the patient page and the candidates", and D-273 (PV-3) applies
 that rule to every page that shows one study's patients. The search is not named in either. Our reading is that it is
 a gap against D-147 and D-273, not an intended breadth. It is a guard in code, not a cell: the fix would be to ask
-`delegated_ok` per study inside `search`. **Lane J does not fix it** (a change to who may read is C2's). The test is
-an expected failure with the reason "proposal 10C-3, awaiting lane C2's decision" (strict under
-`TB_PROPOSAL_10C3=1`), so nothing goes red.
+`delegated_ok` per study inside `search`. It changes no role's rights, which is why it could be fixed as a defect
+(#1138, D-1241) and not left to C2's matrix decision.
 
 ### 4.2 The coordinator's daily mail (N2) does not ask the log
 
@@ -188,7 +192,7 @@ once the identifier itself was swapped out.
 
 | Lookup | Observed | Leak? |
 | --- | --- | --- |
-| Command field, 8 or 12 characters of a pseudonym; the screening number in either case | `303` to `/studies/GZQO/patients/<full pseudonym>` | **yes** (4.1) |
+| Command field, 8 or 12 characters of a pseudonym; the screening number in either case | `303` to `/studies/GZQO/patients/<full pseudonym>` | **yes** on master `a44a39da` (4.1); fixed by #1138 (D-1241) |
 | Command field, 4 characters; `0001` alone; `patient aaaaaaaa` | `200`, no full pseudonym, no screening number in the page | no |
 | Every console page keyed by `{pid}` or `{record}` in study B (candidate, patient, subject, EDC copy, review and trail, monitor, SAE, audit by patient) | `403` for both, same body | no |
 | The same through `/api/v1` with a bearer token (candidate, twin, records, subjects, monitor, EDC trail) | `403` for both, same body | no |
@@ -203,7 +207,7 @@ once the identifier itself was swapped out.
 | Exports of study B (screening-log, study export `.xlsx` and `.csv`, enrolment, registry workbook, EDC copy and ODM) and the research-office workbook | `403` before a file or a file name is given | no |
 | SCREEN job files of study B | the patient-level candidate list `404`; the two `aggregate` files (the run's count summary and its PDF) `200`, counts only, no pseudonym | no |
 
-So the command field is the one lookup that leaks to an investigator off the log.
+So the command field was the one lookup that leaked to an investigator off the log; it is fixed by #1138 (D-1241).
 
 ## 5. Proposed rows
 
@@ -263,7 +267,7 @@ sentence, not quietly empty the pages.
 
 **No cell change; tie the account's study list to the log.** Keep `coordinator: true` and add a check on the account
 page that a coordinator's study list names only studies whose log lists it. Smaller, and close to 10D-14's P-3
-alternative. Against it: a hospital coordinator account with no list still sees every study; S18, S19 and S21 are not
+alternative. Against it: a hospital coordinator account with no list still sees every study; S19 and S21 are not
 fixed; and the 書式2 log, which the trial office signs, would still not be what grants the rows. Recommended only if C2
 judges the cell change too wide for 1.0.
 
@@ -287,18 +291,17 @@ database.
   PI, on each of the 13 row surfaces; the trial office's counts). When C2 changes a cell, its rows turn red as XPASS
   (strict), and C2 deletes them from `WIDER_TODAY`. Adopting is: change the cells, empty `WIDER_TODAY`, remove the
   switch.
-- **Not in the table:** S18, S19 and S21, whose guard is code. S18 has its own test,
-  `tests/console/test_proposal_10c3_header_search.py` (4.1), switched the same way. Sections 4.2 and 4.3 name the
-  tests C2 would need for S19 and S21. The role-by-route table (`tests/console/data/role_route_matrix.md`) would gain a column for a
+- **Not in the table:** S18, S19 and S21, whose guard is code. S18 is fixed by #1138 (D-1241), which carries this card's proof test
+  as test_header_search_off_log.py (in tests/console on #1138). Sections 4.2 and 4.3 name the tests C2 would need for S19 and
+  S21. The role-by-route table (`tests/console/data/role_route_matrix.md`) would gain a column for a
   coordinator off the log, regenerated with `TB_WRITE_ROLE_MATRIX=1`.
 
 ## 10. Proof that nothing changes for any role
 
-- Files changed by this card: this page, the two test files (section 9 and 4.1) and decision D-1238. `libs/tb_common/authz.py`,
+- Files changed by this card: this page, the table test of section 9 and decision D-1238. `libs/tb_common/authz.py`,
   `libs/tb_common/authz_matrix.yaml`, every console and orchestrator file, `tests/console/data/role_route_matrix.md`
   and `tests/console/data/route_actions.yaml` are byte for byte as on master (the pull request's file list).
 - The new test file changes no behaviour and, by default, cannot fail.
-- The header-search test (4.1) is an expected failure and cannot go red by default.
 
 ## 11. Questions
 
@@ -309,8 +312,8 @@ database.
 3. While the log names no PI, does a coordinator see no list (proposed, the investigator's rule), or does a ticked
    coordinator see it (`task:screen`)?
 4. A `trial_office` role (proposed, with 10C-16), or the trial office as a `viewer` account until 10C-16?
-5. Who fixes S18 (search) and S19 (N2 mail) and when? S18 is a gap against D-147 and D-273; S19 follows the
-   coordinator's ruled breadth today and becomes a gap only if section 5 is adopted.
+5. S19 (N2 mail): who fixes it, and when? It follows the coordinator's ruled breadth today and becomes a gap only
+   if section 5 is adopted. (S18, the search, is fixed by #1138 (D-1241).)
 6. S21: check `routing.list_to` addresses against the log at approval and at send?
 7. Confirm 4.4 (referral to the treating doctor), 4.5 (break-glass) and 4.6 (audit trail) as outside the rule.
 
@@ -319,6 +322,9 @@ database.
 1. Does the first site's trial office need any account on the box, and if so, for set-up only or also for counts?
 2. Does the first site's signed 書式2 list name every coordinator who will screen, including SMO staff? (Review 11
    site question 3; plan 10 decision 53.)
+3. The weekly screening run mails a workbook with chart numbers to email addresses typed in the study's set-up.
+   Nothing checks that each address belongs to an account on the study's delegation log. Should every such address
+   have to be an account on the log, and be refused otherwise? (S21, section 4.3.)
 
 ## 12. Japanese regulatory grounding (our reading, not legal advice)
 
@@ -344,7 +350,7 @@ These pages were cited from the public texts and were not re-opened in this sess
 ## 13. Not verified
 
 - S21 (mailed workbook) is read from the code, not run. S19 (N2) was run once, but the box had no row for N2 to
-  carry (4.7), so its row path is read from the code. S18 is run by a committed test (4.1); the lookups of 4.7 were run
-  once by probes that were not kept.
+  carry (4.7), so its row path is read from the code. S18 was shown by a test before it was fixed by #1138 (D-1241); the
+  lookups of 4.7 were run once by probes that were not kept.
 - Whether any site's log lists coordinators with "screen" today (needed before section 5 is adopted).
 - The legal readings of section 12: our reading only.
