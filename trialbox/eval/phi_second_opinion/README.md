@@ -17,7 +17,8 @@ A planted identifier is *found* when the flagged spans cover all its characters.
 | Date of birth | 60 / 29 of 60 | 40 / 40 of 40 |
 | E-mail | — | 38 / 37 of 38 |
 
-The public SIGIR notes have no identifier in them (53 English and 53 code-mixed). On them phi_guard flagged nothing, and Presidio flagged 240 spans.
+The public SIGIR notes (SIGIR 2016, CC BY-SA 4.0, CSIRO; see `eval/criterion_ml/NOTICE.md`) have no identifier in
+them (53 English and 53 code-mixed). On them phi_guard flagged nothing, and Presidio flagged 240 spans.
 
 ## Differences, judged
 
