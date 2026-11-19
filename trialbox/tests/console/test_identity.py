@@ -20,7 +20,7 @@ from console import totp
 from console.app import ConsoleSettings, PilotRefused, create_app
 from console.auth import AuthError, UserStore
 from console.identity import IdentityConfigError, IdentitySettings, check_tls, secure_cookie_default
-from console.oidc import OidcClient, OidcConfigError, OidcError, OidcSettings
+from console.oidc import OidcClient, OidcConfigError, OidcError, OidcRoleClash, OidcSettings
 from cryptography import x509
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives import hashes, serialization
@@ -537,10 +537,49 @@ def test_oidc_never_elevates_from_claims_that_are_not_configured(
     if reason is None:
         assert r.status_code == 200 and users.get("crc.tanaka").role == "viewer"  # type: ignore[union-attr]
         return
-    assert r.status_code == 403 and 'data-testid="login-oidc-error"' in r.text and not _signed_in(c)
+    shown = "login-oidc-clash" if reason == "groups map to more than one role" else "login-oidc-error"  # D-1370
+    assert r.status_code == 403 and f'data-testid="{shown}"' in r.text and not _signed_in(c)
     assert users.get("crc.tanaka") is None
     failed = [e for e in _events(audit_dir) if e["event"] == "console.login_failed"]
     assert failed[-1]["detail"] == {"via": "oidc", "reason": reason}
+
+
+@pytest.mark.parametrize(
+    ("lang", "words"),
+    [("en", "Nothing was changed in TrialBox"), ("ja", "病院の IT 担当者"), ("zh-TW", "請醫院資訊部門")],
+)
+def test_oidc_refusal_page_names_the_two_clashing_groups(tmp_path: Path, lang: str, words: str) -> None:
+    """D-1370 (9f-6, review 02/J-6): a person whose groups map to two roles is refused (as before), and the page says
+    which two of their groups clash and that the hospital's IT must choose, in the page language. The names are the
+    site's configured ones, shown escaped, only on this person's own refusal; the audit reason is unchanged."""
+    clock = Clock()
+    odd = 'Dr <b>"A&B"</b> office'  # a directory group name with markup characters, never rendered as markup
+    roles = f"tb-coordinators:coordinator,{odd}:investigator,tb-readers:viewer"
+    app, users, audit_dir, idp = _oidc_app(tmp_path, clock, TB_OIDC_GROUP_ROLES=roles)
+    c = TestClient(app, base_url="https://trialbox.hosp.test", headers={"accept-language": lang})
+    r = _oidc_round(c, idp, lambda cl: cl.update(groups=["all-staff", odd, "tb-coordinators", "tb-readers"]))
+    assert r.status_code == 403 and not _signed_in(c) and users.get("crc.tanaka") is None
+    m = re.search(r'<div class="error" role="alert" data-testid="login-oidc-clash">(.*?)</div>', r.text, re.S)
+    assert m, r.text
+    box = m.group(1)
+    # the first two of the person's groups in the order of the configured map that give different roles
+    assert "tb-coordinators" in box and "Dr &lt;b&gt;&#34;A&amp;B&#34;&lt;/b&gt; office" in box, box
+    assert "<b>" not in box and "tb-readers" not in box and "all-staff" not in box and words in box
+    assert 'data-testid="login-oidc-error"' not in r.text  # the general sentence gives way to the named one
+    failed = [e for e in _events(audit_dir) if e["event"] == "console.login_failed"]
+    assert failed[-1]["detail"] == {"via": "oidc", "reason": "groups map to more than one role"}
+
+
+def test_oidc_role_clash_names_two_groups_of_different_roles() -> None:
+    """The two names come from the configured map, in its order: the first of the person's mapped groups, then the
+    first of theirs with another role (a second group of the same role is not a clash)."""
+    s = OidcSettings.from_env({**OIDC_ENV, "TB_OIDC_CLIENT_SECRET_FILE": "/run/secrets/oidc",
+                               "TB_OIDC_GROUP_ROLES": "a:viewer,b:viewer,c:coordinator,d:investigator"})  # fmt: skip
+    assert s.role_for(["a", "b"]) == "viewer"
+    with pytest.raises(OidcRoleClash) as got:
+        s.role_for(["d", "b", "a", "c"])
+    assert got.value.groups == ("a", "c") and str(got.value) == "groups map to more than one role"
+    assert isinstance(got.value, OidcError)  # every caller that refuses an OidcError refuses it too
 
 
 def test_oidc_groups_from_userinfo_must_be_about_the_same_subject(tmp_path: Path) -> None:

@@ -111,9 +111,11 @@ PROPOSAL_TTL = 3600.0
 # page works without it (a progressive enhancement).
 CONSOLE_JS = (HERE / "static" / "console.js").read_text(encoding="utf-8").strip()
 _JS_HASH = base64.b64encode(hashlib.sha256(CONSOLE_JS.encode("utf-8")).digest()).decode("ascii")
+# D-1370 (9f-11, review 02/J-11): ``worker-src 'none'``: the browser registers no service worker (nor any worker) from
+# the console, whatever a page or a file might ask; nothing of a clinical page is kept for offline use.
 CSP = (
     f"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'sha256-{_JS_HASH}'; "
-    "object-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
+    "object-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'; worker-src 'none'"
 )
 # DEMO-JA: feas_compute.population_label's words, read back to show them in the page language
 _POPULATION = re.compile(r"(hospital|departments ([\w,-]+)): patients with ≥1 encounter in the last (\d+) months")
@@ -259,6 +261,19 @@ class ConsoleSettings:
 
 class _LoginRequired(Exception):
     pass
+
+
+#: D-1370 (9g-19): the two pages the idle warning asks (``data-stay-url``); ``keep=1`` means nothing anywhere else
+STAY_PAGES = frozenset({"/help", "/"})
+
+
+class _KeepAlive(Exception):
+    """D-1370 (9g-19): the idle warning's own request (``keep=1`` on a stay page, which every signed-in person may open
+    and which checks nothing further): answered with the session's times only (no page, no notice taken)."""
+
+    def __init__(self, token_sha: str) -> None:
+        super().__init__("keep")
+        self.token_sha = token_sha
 
 
 class _MustChange(Exception):
@@ -700,6 +715,10 @@ def create_app(
                 raise _MustChange()
             raise _Problem(403, "account.must_change")
         _scope_check(request, sess)
+        if request.method == "GET" and request.url.path in STAY_PAGES and request.query_params.get("keep") == "1":
+            # D-1370: only on the two stay pages, which check nothing past need(); on every other page the parameter is
+            # ignored and the request runs as without it (its own role checks, its denials and their audit lines)
+            raise _KeepAlive(sess.token_sha)
         bind_session(sess.token_sha[:16])  # S-09: the actor this request names to the orchestrator is signed with it
         if reader:  # NEW-SEC-1 (D-717): this account signs the patient reads of its pages (the workspace's helpers)
             console_actor.bind_reader(reader["h"], sess)
@@ -888,6 +907,8 @@ def create_app(
             # NEW-JRN-8 (D-772): a CRO account's monitor grants, read only by the pages that show them (the menu)
             "monitoring": _once(lambda: helpers.monitor_grants(sess.user) if sess and helpers.monitor_grants else []),
             "account_notices": _account_notices(sess, lang),  # D-719 (a): read once, on the next page
+            # D-1370 (9g-19): the idle warning's clock (idle limit, seconds to the idle lock and to the absolute end)
+            "session_left": _once(lambda: us.session_left(sess.token_sha) if sess else None),
             # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake
             "refresh_url": request.url.path
             + "?"
@@ -901,8 +922,16 @@ def create_app(
         why, and the page the person was on is kept to return to after sign-in."""
         ended = bool(request.cookies.get(COOKIE))
         resp = RedirectResponse("/login?why=idle" if ended else "/login", status_code=303)
-        next_page.remember(resp, next_page.page_of(request), settings.secure_cookie)
+        if request.query_params.get("keep") != "1":  # D-1370: the idle warning's request is no page to return to
+            next_page.remember(resp, next_page.page_of(request), settings.secure_cookie)
         return resp
+
+    @app.exception_handler(_KeepAlive)
+    async def _kept(request: Request, exc: _KeepAlive) -> Response:
+        """D-1370 (9g-19): "Stay signed in" (activity, as the page would be) and, with ``auto=1``, the check before
+        the lock (not activity): the seconds to the idle lock and to the absolute end, read without touching."""
+        left = us.session_left(exc.token_sha) or (0, 0, 0)
+        return Response(status_code=204, headers={"x-tb-idle-left": str(left[1]), "x-tb-abs-left": str(left[2])})
 
     @app.exception_handler(_MustChange)
     async def _to_account(request: Request, _exc: _MustChange) -> Response:

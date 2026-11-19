@@ -15,6 +15,15 @@
 - **Planted instructions.** A fence in a note, chart, consent form or protocol cannot close a prompt's data block;
   text nobody can see on the page is flagged; the injection suite (56 attacks, 14 controls, en / ja / zh-TW) gates
   CI against the stub and `qualify` against a pair; model traces live 7 days in PRODUCTION (D-346).
+- **Nothing kept on the device** (D-1370; root review 02, J-11; owner decision 11 of plan 9). The console leaves no
+  copy of a clinical page on a phone or a PC. No service worker: the console's Content-Security-Policy says
+  `worker-src 'none'`, so a browser registers none from any console page. No offline cache: every answer is
+  `Cache-Control: no-store`, but the web manifest and the favicon, which hold nothing of a patient. No lasting browser
+  store: a form being typed is kept only in the tab's session storage (D-777, D-1222), which goes with the tab and on
+  save, leaving and sign-out; never `localStorage`, IndexedDB or the Cache API. No consent scans: a consent is
+  recorded as facts (dates, versions, initials), the signed paper stays in the site file, and no page asks for the
+  camera. No web push: notices go by the hospital's mail; the box never calls Apple's, Google's or any outside push
+  service. Held by `tests/console/test_no_offline_copy.py`, which fails if a service worker registers.
 - **One-way hospital systems.** TrialBox never writes to an EMR, SS-MIX2 or CGRD (owner decision 2).
 - **What an opt-out removes today** (D-441, D-465). Within one tick of the opt-out worker (`TB_OPTOUT_WORKER_MINUTES`)
   the patient leaves the candidate pool, every open candidate becomes withdrawn (a consented or enrolled subject's

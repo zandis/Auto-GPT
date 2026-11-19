@@ -15,6 +15,7 @@ reads (the screening numbers, this week's list (D-133), the registry) and every 
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import pytest
@@ -108,7 +109,8 @@ def _answer(b: dict[str, Any], c: TestClient, q: str) -> dict[str, Any]:
     r = c.get("/cmd", params={"q": q}, follow_redirects=False)
     rows = [{k: v for k, v in x.items() if k in ("event", "actor", "ruleset", "job_id", "detail")}
             for x in _audit(b)[before:]]  # fmt: skip
-    return {"status": r.status_code, "headers": sorted(r.headers.items()), "body": r.content, "audit": rows}
+    body = re.sub(rb'data-(?:idle|abs)-left="\d+"', b"", r.content)  # the idle warning's live seconds (D-1370)
+    return {"status": r.status_code, "headers": sorted(r.headers.items()), "body": body, "audit": rows}
 
 
 def _accounts(b: dict[str, Any]) -> dict[str, TestClient]:

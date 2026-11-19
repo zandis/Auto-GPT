@@ -21,6 +21,11 @@ new heading with the version and date, in the same pull request that sets the ve
   data file (`services/console/core_words.yaml`) that `make lint` holds every console text to, and the job mails,
   the PDF titles and the refusal sentences too (the Japanese feasibility mail and report say 実施可能性, not
   フィージビリティ; the zh-TW steward is 資料管理員). No setting changes; no row has yet been read by a native reader.
+- The console and the device (9f-11, 9f-6, 9g-19; D-1370): one minute before the idle lock a page warns, with
+  "Stay signed in" (the idle and the absolute limits are unchanged; what was typed stays on the page); a hospital
+  sign-in refused because the person's directory groups give two roles names the two groups for the hospital's IT;
+  the console's policy now forbids service workers by name (`worker-src 'none'`), written down with the rest of the
+  rule that nothing of a clinical page is kept on a device.
 - The console's colours and type are named values (9k-1, 9k-2, D-1368): form fields have a darker border that meets
   the 3:1 contrast for controls, the amber "needs attention" row is readable in dark mode (and a little paler in
   light mode), and Japanese and Traditional Chinese pages have a taller line height (1.7) with strict line breaking.
