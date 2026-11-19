@@ -532,6 +532,7 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         **({"country": a.country} if a.country else {}),
         "tz": a.tz,
         "locale": a.language,
+        **{k: v for k, v in (("printed_dates", a.printed_dates), ("year_basis", a.year_basis)) if v},  # 10C-13/15
         "contact": email,
         "internal_domains": [domain],
         "intake_address": f"trialbox@{domain}",

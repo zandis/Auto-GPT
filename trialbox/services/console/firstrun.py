@@ -35,7 +35,7 @@ from zoneinfo import available_timezones
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from tb_common import box_answers, chartno, firstrun, site_country
+from tb_common import box_answers, chartno, dates, firstrun, site_country
 from tb_common.audit import AuditLog
 from tb_common.retention import OVERRIDABLE
 
@@ -64,7 +64,7 @@ def country_on(env: Mapping[str, str]) -> bool:
 SS_FIELDS = ("ssmix2_root", "ssmix2_order_numbers")
 FORM_FIELDS = ("site_name", "tz", "language", "owner_full_name", "owner_username", "owner_email", "box_name",
                "backup_kind", "backup_disk", "backup_share", "source", "chartno_kind", "chartno_width", *SS_FIELDS,
-               *OVERRIDABLE)  # fmt: skip
+               *OVERRIDABLE, "printed_dates", "year_basis")  # fmt: skip
 
 
 def offered_sources(country: str, asks_country: bool) -> list[str]:
@@ -203,7 +203,8 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
             mapped_later=bool(country) and not cd.mapping,
             steward=user, admin=user + box_answers.ADMIN_SUFFIX, ask_country=asks_country, country=country,
             countries=site_country.COUNTRIES, ss_orders=site_country.SSMIX2_ORDER_NUMBERS,
-            ask_retention=ask_retention, retention_keys=OVERRIDABLE, **ctx,
+            ask_retention=ask_retention, retention_keys=OVERRIDABLE, printed_styles=dates.PRINTED_STYLES,
+            year_bases=dates.YEAR_BASES, **ctx,
         )  # fmt: skip
 
     @app.get(PATH)
@@ -273,7 +274,7 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
         data = {k: str(v)[:512] for k, v in (await request.form()).items() if isinstance(v, str)}
         lang(request, data.get("lang", ""))
         if not h.country:  # 10K-1: asked only behind the flag; a posted answer makes nothing then
-            for k in ("country", *OVERRIDABLE):
+            for k in ("country", *OVERRIDABLE, "printed_dates", "year_basis"):  # 10C-13/15: asked with the country
                 data.pop(k, None)
         folder = gate()
         state = pending(request, folder)

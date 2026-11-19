@@ -21,6 +21,7 @@ from __future__ import annotations
 import io
 import json
 import re
+from datetime import timedelta
 from typing import Any
 
 from datacore import sponsor
@@ -28,6 +29,7 @@ from datacore.lifecycle import failed_label
 from fastapi import FastAPI, Request, Response
 from tb_common import sheets
 from tb_common.authz import permit
+from tb_common.dates import in_year, site_dates, year_of, year_window
 from tb_contracts import Job
 
 from console import person_state as ps
@@ -537,6 +539,11 @@ def register(app: FastAPI, h: Helpers) -> None:
         )
 
     # ------------------------------------------------------------------ FR-REP-09
+    def office_year() -> tuple[str, Any]:
+        """10C-15: the site's year basis (``calendar`` or ``fiscal``: 年度) and its zone, which decides the boundary."""
+        site = getattr(getattr(getattr(bk, "cfg", None), "settings", None), "site", None)
+        return site_dates(site)[1], site_zone(bk)
+
     def office_states(rid: str, year: int) -> tuple[str, dict[str, int]]:
         """How far people came in study ``rid``: ``("rows", counts)`` from the one state of each person whose state
         began in ``year`` (cumulative: ever reached, D-1221); ``("unread", {})`` when this reader may read the rows but
@@ -547,8 +554,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             people = ps.read(h, rid)
             if not people.readable:
                 return "unread", {}
-            yr = people.in_year(year)
-            return "rows", {**{x: people.reached(x, year) for x in ("contacted", "consented", "enrolled")},
+            basis = office_year()[0]
+            yr = people.in_year(year, basis)
+            return "rows", {**{x: people.reached(x, year, basis) for x in ("contacted", "consented", "enrolled")},
                             "screen_fail": yr["screen_fail"], "declined": yr["declined"]}  # fmt: skip
         by: dict[str, int] = {}
         for sm in bk.registry_summaries():
@@ -558,18 +566,22 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def office_counts(year: int, k: int) -> list[dict[str, Any]]:
         out = []
+        basis, tz = office_year()
+
+        def inside(at: str) -> bool:  # calendar: the stamp's first four characters, as before; 年度: the site's day
+            return in_year(at, year, basis, tz)
+
         for info in bk.rulesets():
             if info.status != "approved":
                 continue
             rid = info.id
-            y = str(year)
             seen = store.first_seen(rid)
             marks = store.all_marks(rid)
             nos = store.screening_rows(rid)
             counts: dict[str, Any] = {
-                "listed": sum(1 for _j, a in seen.values() if a.startswith(y)),
-                "reviewed": len({m.pid for m in marks if m.at.startswith(y) and m.mark != "withdrawn"}),
-                "approached": sum(1 for _p, _n, a in nos if a.startswith(y)),
+                "listed": sum(1 for _j, a in seen.values() if inside(a)),
+                "reviewed": len({m.pid for m in marks if inside(m.at) and m.mark != "withdrawn"}),
+                "approached": sum(1 for _p, _n, a in nos if inside(a)),
             }
             how, steps = office_states(rid, year)
             if not any(counts.values()) and not any(steps.values()) and how != "unread":
@@ -588,9 +600,12 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = h.need(request)
         if not office_allowed(sess):
             raise h.problem(403, "forbidden")
-        y = year or h.today().year  # the site's year (D-270)
+        basis = office_year()[0]
+        y = year or year_of(h.today(), basis)  # the site's year (D-270); 年度 where the site counts by it (10C-15)
         k = SMALL_CELL
-        return h.page(request, "research_office.html", sess, year=y, rows=office_counts(y, k), keys=COUNT_KEYS, small=k)
+        first, after = year_window(y, basis)
+        return h.page(request, "research_office.html", sess, year=y, rows=office_counts(y, k), keys=COUNT_KEYS, small=k,
+                      basis=basis, first=first.isoformat(), last=(after - timedelta(days=1)).isoformat())  # fmt: skip
 
     @app.get("/reports/research-office.xlsx")
     def research_office_xlsx(request: Request, year: int = 0) -> Response:
@@ -600,16 +615,21 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not office_allowed(sess):
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
-        y = year or h.today().year  # the site's year (D-270)
+        basis = office_year()[0]
+        y = year or year_of(h.today(), basis)  # the site's year (D-270); 年度 where the site counts by it (10C-15)
         k = SMALL_CELL
         wb = Workbook()
         ws: Any = wb.active
-        ws.title = f"counts {y}"
+        ws.title = f"counts FY{y}" if basis == "fiscal" else f"counts {y}"
         ws.append(["study", "kind", *COUNT_KEYS])
         for r in office_counts(y, k):
             ws.append([r["study"], r["kind"], *[r[c] for c in COUNT_KEYS]])
         about = wb.create_sheet("about")
         about.append(["year", y])
+        if basis == "fiscal":  # 10C-15: say which year it is, so nobody reads a 年度 total as a calendar year's
+            first, after = year_window(y, basis)
+            last = after - timedelta(days=1)
+            about.append(["year basis", f"fiscal year (年度): {first.isoformat()} to {last.isoformat()}"])
         about.append(["small cells", f"counts between 1 and {k - 1} are shown as <{k}"])
         about.append(["made", h.clock().isoformat(timespec="seconds")])
         buf = io.BytesIO()

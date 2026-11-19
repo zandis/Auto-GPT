@@ -46,6 +46,11 @@
     <p class="hint" id="tz-help">{{ t('firstrun.tz.help') }}</p>
     <label for="language">{{ t('firstrun.language') }}</label>
     <select id="language" name="language">{% for l in languages %}<option value="{{ l }}"{% if values.get('language', lang) == l %} selected{% endif %}>{{ t('lang.name.' + l) }}</option>{% endfor %}</select>{{ err('language') }}
+    {% if country %}{# 10C-13, 10C-15: asked with the country (10K-1); empty follows it (tb_common.dates.site_dates) #}
+    <label for="printed_dates">{{ t('firstrun.printed_dates') }}</label>
+    <select id="printed_dates" name="printed_dates"><option value="">{{ t('firstrun.printed_dates.auto') }}</option>{% for s in printed_styles %}<option value="{{ s }}"{% if values.get('printed_dates') == s %} selected{% endif %}>{{ t('firstrun.printed_dates.' + s) }}</option>{% endfor %}</select>{{ err('printed_dates') }}
+    <label for="year_basis">{{ t('firstrun.year_basis') }}</label>
+    <select id="year_basis" name="year_basis"><option value="">{{ t('firstrun.year_basis.auto') }}</option>{% for s in year_bases %}<option value="{{ s }}"{% if values.get('year_basis') == s %} selected{% endif %}>{{ t('firstrun.year_basis.' + s) }}</option>{% endfor %}</select>{{ err('year_basis') }}{% endif %}
   </fieldset>{% if ask_retention %}
   <fieldset data-testid="firstrun-retention"><legend>{{ t('firstrun.retention') }}</legend>
     <p class="hint">{{ t('firstrun.retention.help') }}</p>

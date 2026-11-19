@@ -595,6 +595,9 @@ def build(
         retention = defaults_for(rules, days) if rules else site_own(days)
     except ValueError as exc:
         errors.append(str(exc))
+    for k, allowed in (("printed_dates", ("western", "era", "both")), ("year_basis", ("calendar", "fiscal"))):
+        if a.get(k) and str(a[k]) not in allowed:  # 10C-13, 10C-15 (tb_common.dates.PRINTED_STYLES, YEAR_BASES)
+            errors.append(f"{k}: one of {', '.join(allowed)}")
     extra = env_extra(a.get("env_extra"), errors)
     if errors:
         raise WizardError("; ".join(errors))
@@ -606,6 +609,8 @@ def build(
             "tz": tz,
             "locale": locale,
             "contact": str(get("contact")),
+            # 10C-13, 10C-15: written only when answered; unset follows the country (tb_common.dates.site_dates)
+            **{k: str(a[k]) for k in ("printed_dates", "year_basis") if a.get(k)},
         },
         "internal_domains": domains,
         "allowlist": {
