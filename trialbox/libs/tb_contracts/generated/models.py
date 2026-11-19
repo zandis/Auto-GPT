@@ -230,9 +230,77 @@ class CriterionReview(BaseModel):
     comment: str | None = None
 
 
+class CtgovArm(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    label: str
+    type: str | None = None
+    description: str | None = None
+    intervention_names: list[str] | None = None
+
+
+class CtgovDesign(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    study_type: str | None = None
+    allocation: str | None = None
+    model: str | None = None
+    """
+    interventionModel, or observationalModel
+    """
+    primary_purpose: str | None = None
+    masking: str | None = None
+    who_masked: list[str] | None = None
+    enrollment_type: str | None = None
+    """
+    ACTUAL or ESTIMATED, of the study's enrollment
+    """
+
+
+class CtgovIntervention(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    name: str
+    type: str | None = None
+    description: str | None = None
+    arm_labels: list[str] | None = None
+    other_names: list[str] | None = None
+
+
+class CtgovLocation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    facility: str
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    status: str | None = None
+    """
+    the site's recruitment status (RECRUITING, ...)
+    """
+
+
+class CtgovOutcome(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    measure: str
+    description: str | None = None
+    time_frame: str | None = None
+
+
 class CtgovSearchRequest(BaseModel):
     """
-    criteria-compiler POST /ctgov/search: recruiting studies from ClinicalTrials.gov API v2 for COHORT trial simulation (SPEC 8.3), and the trial simulation result. Schema version 2.1.0 (2.1.0: nct_id looks up one study, condition may then be empty; source refdata = the offline reference data pack, D-140. 2.0.0: draft_compiled_on replaces cached; breaking, trial_sim_row forbids extra properties).
+    criteria-compiler POST /ctgov/search: recruiting studies from ClinicalTrials.gov API v2 for COHORT trial simulation (SPEC 8.3), and the trial simulation result. Schema version 2.2.0 (2.2.0: the study adds locations without contacts, secondary ids with the registry of a jRCT, JapicCTI or UMIN-CTR number, arms, interventions, primary and secondary outcomes and the design, all optional, D-1367. 2.1.0: nct_id looks up one study, condition may then be empty; source refdata = the offline reference data pack, D-140. 2.0.0: draft_compiled_on replaces cached; breaking, trial_sim_row forbids extra properties).
     """
 
     model_config = ConfigDict(
@@ -250,6 +318,27 @@ class CtgovSearchRequest(BaseModel):
     locations: list[str] = ["Taiwan", "Japan"]
     status: str = "RECRUITING"
     max_studies: int = Field(50, ge=1, le=200)
+
+
+class CtgovSecondaryId(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    id: str
+    type: str | None = None
+    """
+    the registry's type (REGISTRY, EUDRACT_NUMBER, NIH, OTHER, ...)
+    """
+    domain: str | None = None
+    registry: Literal["jRCT", "JapicCTI", "UMIN-CTR"] | None = None
+    """
+    the registry recognised from the id (tb_common.ctgov_record.registry_of)
+    """
+    registry_id: str | None = None
+    """
+    the id in its registry's own spelling (jRCT2031210123)
+    """
 
 
 class CtgovStudy(BaseModel):
@@ -270,6 +359,19 @@ class CtgovStudy(BaseModel):
     minimum_age: str | None = None
     maximum_age: str | None = None
     sex: str | None = None
+    locations: list[CtgovLocation] | None = None
+    """
+    the record's sites; never a contact person (D-1367)
+    """
+    secondary_ids: list[CtgovSecondaryId] | None = None
+    arms: list[CtgovArm] | None = None
+    interventions: list[CtgovIntervention] | None = None
+    primary_outcomes: list[CtgovOutcome] | None = None
+    secondary_outcomes: list[CtgovOutcome] | None = None
+    design: CtgovDesign | None = None
+    """
+    designModule beyond phases and the enrolment count, which stay on the study
+    """
 
 
 class DerivedPin(BaseModel):

@@ -368,7 +368,11 @@ def store_migrations() -> dict[str, list[str]]:
 #: checksums of versions added after the D-204 baseline, per store (append here; never edit the baseline)
 ADDED: dict[str, tuple[str, ...]] = {
     # D-317: refdata version 3, the record of withdrawn sources
-    "refdata": ("9e976b5878b8d5a8d1a89e417b61450471874a0e1122e43764d755d11662af83",),
+    # 10D-15 (D-1367): refdata version 4, the personal names dropped from the stored CT.gov records
+    "refdata": (
+        "9e976b5878b8d5a8d1a89e417b61450471874a0e1122e43764d755d11662af83",
+        "abc34960b1e30caaa09627b393010734795eee254f3037c0772aec4bde90222e",
+    ),
     # D-279: users.must_change, login_failures.source, sessions.via
     # T-209c (D-406): users.last_login, for the unused-account report
     # T-109b (D-447): users.pw_history, the account's earlier password hashes

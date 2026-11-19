@@ -11,6 +11,10 @@ install, D-140):
 * ``cassette``: CI and the demo box; replays ``cassettes/ctgov/<condition-slug>.json`` written by
   ``tools/make_ctgov_cassettes.py``.
 
+The study (``to_study``, D-1367) carries, beside the fields the trial simulation reads, the record's sites (facility,
+city, country, recruitment status; never a contact person), its secondary ids with the registry of a jRCT, JapicCTI or
+UMIN-CTR number (``registry_ids``), the arms, interventions, primary and secondary outcomes and the design.
+
 With nothing set the client is ``offline`` (owner decision, 2026-11-09); the install question and the settings
 wizard write the hospital's choice (a box installed before D-140 has ``live`` in its ``.env`` and keeps it).
 """
@@ -25,8 +29,19 @@ from pathlib import Path
 from typing import Any, cast
 
 import httpx
+from tb_common.ctgov_record import registry_of
 from tb_common.http import EgressRefused, guarded_client
-from tb_contracts import CtgovSearchRequest, CtgovSearchResult, CtgovStudy
+from tb_contracts import (
+    CtgovArm,
+    CtgovDesign,
+    CtgovIntervention,
+    CtgovLocation,
+    CtgovOutcome,
+    CtgovSearchRequest,
+    CtgovSearchResult,
+    CtgovSecondaryId,
+    CtgovStudy,
+)
 
 CASSETTES = Path(__file__).resolve().parent / "cassettes" / "ctgov"
 DEFAULT_BASE = "https://clinicaltrials.gov/api/v2"
@@ -39,6 +54,102 @@ class CtgovError(RuntimeError):
 
 def slug(condition: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", condition.lower()).strip("-")
+
+
+def _s(v: Any) -> str | None:
+    return str(v) if v not in (None, "") else None
+
+
+def _strs(v: Any) -> list[str]:
+    return [str(x) for x in v or [] if x not in (None, "")]
+
+
+def _design(design: dict[str, Any]) -> CtgovDesign | None:
+    info = design.get("designInfo") or {}
+    mask = info.get("maskingInfo") or {}
+    out = CtgovDesign(
+        study_type=_s(design.get("studyType")),
+        allocation=_s(info.get("allocation")),
+        model=_s(info.get("interventionModel") or info.get("observationalModel")),
+        primary_purpose=_s(info.get("primaryPurpose")),
+        masking=_s(mask.get("masking")),
+        who_masked=_strs(mask.get("whoMasked")) or None,
+        enrollment_type=_s((design.get("enrollmentInfo") or {}).get("type")),
+    )
+    return out if out.model_dump(exclude_none=True) else None
+
+
+def _secondary_id(x: dict[str, Any]) -> CtgovSecondaryId:
+    sid = str(x.get("id") or "")
+    found = registry_of(sid)
+    return CtgovSecondaryId(
+        id=sid,
+        type=_s(x.get("type")),
+        domain=_s(x.get("domain")),
+        registry=cast(Any, found[0]) if found else None,
+        registry_id=found[1] if found else None,
+    )
+
+
+def _widened(ps: dict[str, Any]) -> dict[str, Any]:
+    """10D-15 (D-1367): sites, secondary ids, arms, interventions, outcomes and design. No contact person, official
+    or investigator is read (``tb_common.ctgov_record`` lists what a stored record drops)."""
+    locs = (ps.get("contactsLocationsModule") or {}).get("locations") or []
+    arms = ps.get("armsInterventionsModule") or {}
+    outcomes = ps.get("outcomesModule") or {}
+
+    def outcome(o: dict[str, Any]) -> CtgovOutcome:
+        return CtgovOutcome(measure=str(o["measure"]), description=_s(o.get("description")),
+                            time_frame=_s(o.get("timeFrame")))  # fmt: skip
+
+    parts: dict[str, Any] = {
+        "locations": [
+            CtgovLocation(
+                facility=str(x["facility"]),
+                city=_s(x.get("city")),
+                state=_s(x.get("state")),
+                country=_s(x.get("country")),
+                status=_s(x.get("status")),
+            )
+            for x in locs
+            if x.get("facility")
+        ],
+        "secondary_ids": [
+            _secondary_id(x)
+            for x in (ps.get("identificationModule") or {}).get("secondaryIdInfos") or []
+            if x.get("id")
+        ],
+        "arms": [
+            CtgovArm(
+                label=str(a["label"]),
+                type=_s(a.get("type")),
+                description=_s(a.get("description")),
+                intervention_names=_strs(a.get("interventionNames")),
+            )
+            for a in arms.get("armGroups") or []
+            if a.get("label")
+        ],
+        "interventions": [
+            CtgovIntervention(
+                name=str(i["name"]),
+                type=_s(i.get("type")),
+                description=_s(i.get("description")),
+                arm_labels=_strs(i.get("armGroupLabels")),
+                other_names=_strs(i.get("otherNames")),
+            )
+            for i in arms.get("interventions") or []
+            if i.get("name")
+        ],
+        "primary_outcomes": [outcome(o) for o in outcomes.get("primaryOutcomes") or [] if o.get("measure")],
+        "secondary_outcomes": [outcome(o) for o in outcomes.get("secondaryOutcomes") or [] if o.get("measure")],
+        "design": _design(ps.get("designModule") or {}),
+    }
+    return {k: v or None for k, v in parts.items()}  # a module the record lacks is absent, not empty
+
+
+def registry_ids(study: CtgovStudy, registry: str) -> list[str]:
+    """The ids of one other registry (``jRCT``, ``JapicCTI``, ``UMIN-CTR``) among the study's secondary ids."""
+    return [x.registry_id for x in study.secondary_ids or [] if x.registry == registry and x.registry_id]
 
 
 def to_study(raw: dict[str, Any]) -> CtgovStudy | None:
@@ -67,6 +178,7 @@ def to_study(raw: dict[str, Any]) -> CtgovStudy | None:
         minimum_age=elig.get("minimumAge"),
         maximum_age=elig.get("maximumAge"),
         sex=elig.get("sex"),
+        **_widened(ps),
     )
 
 

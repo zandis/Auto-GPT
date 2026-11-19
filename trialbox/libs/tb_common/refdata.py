@@ -10,7 +10,7 @@ inside the signed update bundle, payload kind ``refdata``)::
                          distribution (ship | site-fetch), files [{path, sha256, bytes, records}]
     NOTICE.md            the attribution and licence text of every source, generated from the manifest
     <source>/<file>.jsonl.gz   one JSON object per line:
-        ctgov:  {"nct_id", "study": <ClinicalTrials.gov API v2 study record, unchanged>}
+        ctgov:  {"nct_id", "study": <ClinicalTrials.gov API v2 study record, without personal names (D-1367)>}
         trial:  {"registry", "trial_id", "title", "status", "phase", "sponsor", "conditions": [], "countries": [],
                  "inclusion", "exclusion", "start", "end", "updated", "codes": [], "record": {<source row>}}
         term:   {"system", "code", "display", "extra": {}}
@@ -84,6 +84,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from tb_common.ctgov_record import strip_names
+
 log = logging.getLogger(__name__)
 
 FORMAT = "trialbox-refdata/1"
@@ -133,7 +135,29 @@ CREATE TABLE IF NOT EXISTS withdrawn (source_id TEXT NOT NULL, name TEXT NOT NUL
   reason TEXT NOT NULL, records BIGINT NOT NULL, withdrawn_at TEXT NOT NULL, withdrawn_by TEXT NOT NULL,
   PRIMARY KEY (source_id, withdrawn_at))
 """
-MIGRATIONS = (DDL, DDL_V2, DDL_V3)  # D-317: version 3, the record of withdrawn sources
+# D-1367: version 4 drops the personal names from the CT.gov records stored before (tb_common.ctgov_record); a pack
+# loaded from now on is stripped as it is loaded (ctgov_row). The paths are ctgov_record.DROPPED_PATHS/_IN_LISTS.
+DDL_V4 = """
+UPDATE ctgov_study SET study = study #- '{protocolSection,contactsLocationsModule,centralContacts}'
+  #- '{protocolSection,contactsLocationsModule,overallOfficials}'
+  #- '{protocolSection,sponsorCollaboratorsModule,responsibleParty,investigatorFullName}'
+  #- '{protocolSection,sponsorCollaboratorsModule,responsibleParty,investigatorTitle}'
+  #- '{protocolSection,sponsorCollaboratorsModule,responsibleParty,oldNameTitle}'
+  #- '{resultsSection,moreInfoModule,pointOfContact}';
+UPDATE ctgov_study SET study = jsonb_set(study, '{protocolSection,contactsLocationsModule,locations}',
+  (SELECT COALESCE(jsonb_agg(CASE WHEN jsonb_typeof(e.v) = 'object' THEN e.v - 'contacts' ELSE e.v END
+                             ORDER BY e.n), '[]'::jsonb)
+   FROM jsonb_array_elements(study #> '{protocolSection,contactsLocationsModule,locations}')
+        WITH ORDINALITY AS e(v, n)))
+  WHERE jsonb_typeof(study #> '{protocolSection,contactsLocationsModule,locations}') = 'array';
+UPDATE ctgov_study SET study = jsonb_set(study, '{protocolSection,referencesModule,references}',
+  (SELECT COALESCE(jsonb_agg(CASE WHEN jsonb_typeof(e.v) = 'object' THEN e.v - 'citation' ELSE e.v END
+                             ORDER BY e.n), '[]'::jsonb)
+   FROM jsonb_array_elements(study #> '{protocolSection,referencesModule,references}')
+        WITH ORDINALITY AS e(v, n)))
+  WHERE jsonb_typeof(study #> '{protocolSection,referencesModule,references}') = 'array'
+"""
+MIGRATIONS = (DDL, DDL_V2, DDL_V3, DDL_V4)  # D-317: version 3, the record of withdrawn sources; D-1367: version 4
 TABLES = ("ctgov_study", "trial", "term", "concept_map", "synonym")
 MAP_COLS = ("source_system", "source_code", "target_system", "target_code", "relation", "source_display",
             "target_display", "extra", "source_id")  # fmt: skip
@@ -626,7 +650,7 @@ def ctgov_row(rec: dict[str, Any], source_id: str) -> tuple[str, ...]:
         _bar(conds),
         _bar(str(x.get("country") or "") for x in locs),
         str((status.get("lastUpdatePostDateStruct") or {}).get("date") or ""),
-        json.dumps(study, ensure_ascii=False),
+        json.dumps(strip_names(study), ensure_ascii=False),  # D-1367: no personal names (an older pack has them)
         source_id,
     )
 

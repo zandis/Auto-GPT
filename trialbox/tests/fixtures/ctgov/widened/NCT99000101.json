@@ -1,0 +1,112 @@
+{
+  "studies": [
+    {
+      "protocolSection": {
+        "identificationModule": {
+          "nctId": "NCT99000101",
+          "orgStudyInfo": {"id": "SYN-GOUT-301"},
+          "secondaryIdInfos": [
+            {"id": "jRCT2031260123", "type": "REGISTRY", "domain": "Japan Registry of Clinical Trials"},
+            {"id": "JapicCTI-260123", "type": "OTHER", "domain": "JAPIC"},
+            {"id": "UMIN000056789", "type": "REGISTRY", "domain": "UMIN-CTR"},
+            {"id": "2026-000123-45", "type": "EUDRACT_NUMBER"},
+            {"id": "SYN-GRANT-7", "type": "OTHER_GRANT", "domain": "Synthetic Foundation (fictional)"}
+          ],
+          "organization": {"fullName": "Synthetic Pharma Co. (fictional)", "class": "INDUSTRY"},
+          "briefTitle": "[SYNTHETIC] Widened Intake Record: a URAT1 Inhibitor Against Placebo in Gout",
+          "officialTitle": "[SYNTHETIC] A Randomised, Double-Blind, Placebo-Controlled Phase 3 Study of a URAT1 Inhibitor in Gout"
+        },
+        "statusModule": {
+          "overallStatus": "RECRUITING",
+          "startDateStruct": {"date": "2026-05-01", "type": "ACTUAL"},
+          "lastUpdatePostDateStruct": {"date": "2026-10-20", "type": "ACTUAL"}
+        },
+        "sponsorCollaboratorsModule": {
+          "responsibleParty": {
+            "type": "PRINCIPAL_INVESTIGATOR",
+            "investigatorFullName": "Synthetic Investigator Gamma",
+            "investigatorTitle": "Professor (fictional)",
+            "investigatorAffiliation": "Synthetic Medical Center Taipei",
+            "oldNameTitle": "Synthetic Investigator Gamma, MD"
+          },
+          "leadSponsor": {"name": "Synthetic Pharma Co. (fictional)", "class": "INDUSTRY"}
+        },
+        "conditionsModule": {"conditions": ["Gout"], "keywords": ["hyperuricaemia"]},
+        "designModule": {
+          "studyType": "INTERVENTIONAL",
+          "phases": ["PHASE3"],
+          "designInfo": {
+            "allocation": "RANDOMIZED",
+            "interventionModel": "PARALLEL",
+            "primaryPurpose": "TREATMENT",
+            "maskingInfo": {"masking": "QUADRUPLE", "whoMasked": ["PARTICIPANT", "CARE_PROVIDER", "INVESTIGATOR", "OUTCOMES_ASSESSOR"]}
+          },
+          "enrollmentInfo": {"count": 320, "type": "ESTIMATED"}
+        },
+        "armsInterventionsModule": {
+          "armGroups": [
+            {"label": "URAT1 inhibitor", "type": "EXPERIMENTAL", "description": "Synthetic compound SYN-101, 4 mg once daily for 24 weeks", "interventionNames": ["Drug: SYN-101"]},
+            {"label": "Placebo", "type": "PLACEBO_COMPARATOR", "description": "Matching placebo once daily for 24 weeks", "interventionNames": ["Drug: Placebo"]}
+          ],
+          "interventions": [
+            {"type": "DRUG", "name": "SYN-101", "description": "Oral tablet, 4 mg", "armGroupLabels": ["URAT1 inhibitor"], "otherNames": ["SYN101"]},
+            {"type": "DRUG", "name": "Placebo", "description": "Oral tablet matching SYN-101", "armGroupLabels": ["Placebo"]}
+          ]
+        },
+        "outcomesModule": {
+          "primaryOutcomes": [
+            {"measure": "Proportion of participants with serum urate below 6.0 mg/dL", "description": "At each of the last three visits", "timeFrame": "Week 24"}
+          ],
+          "secondaryOutcomes": [
+            {"measure": "Change in serum urate from baseline", "timeFrame": "Weeks 4, 12 and 24"},
+            {"measure": "Number of gout flares", "description": "Flares reported by the participant", "timeFrame": "24 weeks"}
+          ]
+        },
+        "eligibilityModule": {
+          "eligibilityCriteria": "Inclusion Criteria:\n\n* Gout\n* Serum urate of 7.0 mg/dL or more\n\nExclusion Criteria:\n\n* eGFR below 30 mL/min/1.73 m2",
+          "sex": "ALL",
+          "minimumAge": "20 Years",
+          "maximumAge": "75 Years"
+        },
+        "contactsLocationsModule": {
+          "centralContacts": [
+            {"name": "Synthetic Contact Alpha", "role": "CONTACT", "phone": "+1-555-0100", "email": "contact-alpha@example.invalid"}
+          ],
+          "overallOfficials": [
+            {"name": "Synthetic Official Beta", "affiliation": "Synthetic Pharma Co. (fictional)", "role": "STUDY_DIRECTOR"}
+          ],
+          "locations": [
+            {
+              "facility": "Synthetic Medical Center Taipei",
+              "status": "RECRUITING",
+              "city": "Taipei",
+              "country": "Taiwan",
+              "contacts": [
+                {"name": "Synthetic Site Contact Delta", "role": "CONTACT", "phone": "+1-555-0101", "email": "site-delta@example.invalid"},
+                {"name": "Synthetic Site Investigator Epsilon", "role": "PRINCIPAL_INVESTIGATOR"}
+              ]
+            },
+            {
+              "facility": "Synthetic University Hospital",
+              "status": "NOT_YET_RECRUITING",
+              "city": "Osaka",
+              "state": "Osaka",
+              "country": "Japan"
+            }
+          ]
+        },
+        "referencesModule": {
+          "references": [
+            {"pmid": "99999901", "type": "BACKGROUND", "citation": "Synthetic Author Eta, Synthetic Author Theta. A fictional paper. Fict J Med. 2026"}
+          ]
+        }
+      },
+      "resultsSection": {
+        "moreInfoModule": {
+          "pointOfContact": {"title": "Synthetic Results Contact Zeta", "organization": "Synthetic Pharma Co. (fictional)", "email": "results-zeta@example.invalid", "phone": "+1-555-0102"}
+        }
+      },
+      "hasResults": true
+    }
+  ]
+}
