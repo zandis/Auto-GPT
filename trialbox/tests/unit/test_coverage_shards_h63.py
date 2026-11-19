@@ -176,7 +176,11 @@ def test_unit_checks_every_shards_data_before_it_combines() -> None:
     at = names.index("Every shard's coverage data is present")
     assert runs[at].strip() == '.venv/bin/python -m tools.coverage_shards check "$RUNNER_TEMP/shards"'
     assert "if" not in steps[at]  # a missing shard stops the job before the combine and the ratchet
-    assert names.index("Every collected test ran in exactly one shard") < at < names.index("Combined coverage of all shards")
+    assert (
+        names.index("Every collected test ran in exactly one shard")
+        < at
+        < names.index("Combined coverage of all shards")
+    )
     assert at < names.index("Coverage ratchet")
 
 

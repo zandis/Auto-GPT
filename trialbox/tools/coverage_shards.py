@@ -48,7 +48,9 @@ class WorkerWatch:
 
     def _measuring(self) -> bool:
         cov = self.config.pluginmanager.get_plugin("_cov")  # pytest-cov's plugin, registered only with --cov
-        return cov is not None and not getattr(cov, "_disabled", True) and getattr(cov, "cov_controller", None) is not None
+        if cov is None or getattr(cov, "_disabled", True):
+            return False
+        return getattr(cov, "cov_controller", None) is not None
 
     @pytest.hookimpl(optionalhook=True)
     def pytest_testnodedown(self, node: Any, error: object | None) -> None:
@@ -91,9 +93,9 @@ def register(config: pytest.Config) -> None:
     here = str(Path.cwd().resolve())
     if os.environ.get(RUN_DIR_ENV) == here:
         raise pytest.UsageError(
-            f"{LEAD}: this pytest measures coverage in {here}, the folder of the pytest run that started it; at its end "
-            "it would combine and delete the coverage files the outer run's workers saved there (card H-63). Start it "
-            "without the outer run's PYTEST_ADDOPTS (or with --no-cov, or in another folder)"
+            f"{LEAD}: this pytest measures coverage in {here}, the folder of the pytest run that started it; at its "
+            "end it would combine and delete the coverage files the outer run's workers saved there (card H-63). "
+            "Start it without the outer run's PYTEST_ADDOPTS (or with --no-cov, or in another folder)"
         )
     os.environ[RUN_DIR_ENV] = here  # inherited by the xdist workers and by every process a test starts
     config.pluginmanager.register(WorkerWatch(config), "tb-coverage-workers")
@@ -146,7 +148,7 @@ def check(root: Path) -> tuple[list[ShardData], list[str]]:
             continue
         try:
             files, lines = measured(db)
-        except Exception as exc:  # noqa: BLE001 (coverage raises its own DataError, sqlite its own; all mean unreadable)
+        except Exception as exc:  # coverage raises its own DataError, sqlite its own: all mean unreadable
             problems.append(f"shard {i}/{count}: {db} cannot be read as coverage data ({exc})")
             continue
         if lines == 0:
@@ -168,7 +170,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for p in problems:
         print(f"{LEAD}: {p}", file=sys.stderr)
     if problems:
-        print(f"{LEAD}: the coverage ratchet does not judge a combined coverage that lacks a shard's data", file=sys.stderr)
+        print(f"{LEAD}: the coverage ratchet does not judge a combined coverage without a shard", file=sys.stderr)
         return 1
     return 0
 
