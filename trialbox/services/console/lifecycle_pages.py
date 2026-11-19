@@ -28,6 +28,7 @@ from datetime import date
 from typing import Any
 from urllib.parse import quote, urlencode
 
+from datacore import proxy_consent
 from datacore.lifecycle import ON_STUDY
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -452,6 +453,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return h.page(request, "life_subject.html", sess, status=status, rs=rid, record=rec, one=one, err=err,
                       sheet_pid=sheet_pid,
                       editable=can_enter(sess.user), refused=refused, done=done, sf_reasons=SF_REASONS,
+                      proceed_reasons=proxy_consent.PROCEED_REASONS,
                       wd_reasons=WD_REASONS, today=today().isoformat(), sf_criteria=sf_criteria,
                       sf_version=sf_version, person=person)  # fmt: skip
 
@@ -474,6 +476,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         rec = record_key(record[:64])
         to, on_day, reason, note = (str(data.get(k) or "").strip()[:300] for k in ("to", "on_day", "reason", "note"))
+        proceed = str(data.get("proceed") or "").strip()[:40]
+        if proceed and to in proxy_consent.FORWARD:  # D-1232: why a person goes on after a declined assent
+            reason = proceed
         criterion = str(data.get("criterion") or "").strip()[:48] if reason == "not_eligible" else ""
         reasons = WD_REASONS if to == "withdrawn" else SF_REASONS
         if (to in FINAL_STEPS and reason in reasons and str(data.get("confirm") or "") != "yes"

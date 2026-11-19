@@ -141,6 +141,12 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not sess.user.can_view_phi or len(q) < 4:
             return out
         for rs in studies:
+            # D-1241: the patient page's own question (``Helpers.reads``: the ``phi.view`` row, then the study's
+            # delegation log; D-147, D-273). Where it says no, no patient of this study is looked for, grant or no
+            # grant: the answer is the answer for a number or prefix that does not exist (break-glass opens a patient
+            # from the grant's own page, where the use is recorded, D-430)
+            if not h.reads(sess.user, rs):
+                continue
             nos = store.screening_nos(rs)
             pids = set(nos)
             if h.week_bundle is not None:  # D-133: a patient on this week's list is found by its code too

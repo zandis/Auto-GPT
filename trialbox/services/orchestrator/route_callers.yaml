@@ -97,6 +97,8 @@ groups:
     - PUT /studies/{rs}/sae-rule
     - GET /studies/{rs}/contact-rule
     - PUT /studies/{rs}/contact-rule
+    - GET /studies/{rs}/consent-ages
+    - PUT /studies/{rs}/consent-ages
     - GET /studies/{rs}/deviations/possible
     - POST /studies/{rs}/deviations/possible
     - POST /studies/{rs}/aes/{record}/{event}/ack
