@@ -73,6 +73,16 @@ x-vllm-5090: &vllm5090
     retries: 40
     start_period: 300s
 
+# H-58 (D-1337): the three one-shot swap helpers below make HTTP calls and write nothing: cap_drop, no-new-privileges,
+# a read-only root and a /tmp tmpfs. Exception (EXCEPTIONS of tests/unit/test_container_hardening.py): user. They run
+# the vLLM image's python, which that image runs as root; it is not shown here to start as another uid, and no
+# rehearsal leg runs this profile.
+x-swap-helper: &swaphelper
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
 x-sleep: &sleep
   # put this server to sleep once it is healthy, so the next one finds the card free (python of the vLLM image)
   - python3
@@ -109,6 +119,7 @@ services:
       - --enable-sleep-mode
 
   judge-sleep-init:
+    <<: *swaphelper
     profiles: [gpu]
     image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
     entrypoint: *sleep
@@ -123,6 +134,9 @@ services:
 
   llm-verifier:
     <<: *vllm5090
+    # H-58 (D-1337): no privilege gain, as llm-service (the same image and command line); read_only, user and
+    # cap_drop are written exceptions with llm-service's reasons (H10G1-02)
+    security_opt: ["no-new-privileges:true"]
     networks: {model-backend-net: {aliases: [llm-verifier-vllm]}}   # behind model-guard (D-177)
     mem_limit: ${TB_MEM_VERIFIER:-48g}   # host memory: holds the verifier's weights while it sleeps
     command:
@@ -139,6 +153,7 @@ services:
       judge-sleep-init: {condition: service_completed_successfully}  # vLLM checks free memory at start
 
   model-swap-init:
+    <<: *swaphelper
     # daytime state: verifier asleep, judge awake (the gateway's first activate call confirms it)
     profiles: [gpu]
     image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
@@ -153,6 +168,7 @@ services:
       llm-verifier: {condition: service_healthy}
 
   judge-wake-init:
+    <<: *swaphelper
     profiles: [gpu]
     image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
     entrypoint: *sleep

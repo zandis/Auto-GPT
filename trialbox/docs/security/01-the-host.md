@@ -27,8 +27,11 @@ input firewall, SSH, offline OS patches, and `deploy/check_host.sh` that checks 
   `/tmp` tmpfs and as a fixed numeric non-root user (`10001:10001` the TrialBox images, `999:999` the database,
   `65532:65532` the FHIR store); no capability is added back. Written exceptions: the adapter and the orchestrator
   keep a writable root (the HL7 validator writes its package cache), and the vLLM server runs as root with a writable
-  root (its compile caches) until a GPU box proves otherwise. `tests/unit/test_container_hardening.py` checks every
-  stack.
+  root (its compile caches) until a GPU box proves otherwise. The services the overlays add (H-58, D-1337) take the
+  same controls, each as its image's own user, with written exceptions: the second vLLM server as the first; the
+  rtx5090 swap helpers' user; Caddy's user and capabilities (root on 443, the hospital's key file); Authelia's user,
+  capabilities and writable root (its entrypoint changes owner and user at start); the test Mailpit's writable root.
+  `tests/unit/test_container_hardening.py` checks every service of every stack.
 - **Swap off** so PHI never pages to disk (`swapoff -a`, remove it from `/etc/fstab`, mask `swap.target`). The host
   check fails while swap is on.
 - **Sealed site keys at install.** `install.sh` seals `site_hmac.key` and `pid_map.key` (and every key of D-347) under
