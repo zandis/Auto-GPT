@@ -147,9 +147,9 @@ def _wiz_env(**var: str) -> str:
 )
 def test_an_unknown_environment_stops_the_install_before_the_wizard(var: dict[str, str]) -> None:
     """Review of #1175, S1: a typo never runs the wizard unguarded (it would leave a settings.yaml the next run
-    keeps): the block stops with nothing written, before the wizard's docker run."""
+    keeps): the block stops before the wizard's docker run (the installer stopped it before anything, below)."""
     res = _wiz_run(**var)
-    assert res.returncode == 1 and "is not DEV, TEST, VALIDATION or PRODUCTION: nothing was written" in res.stderr
+    assert res.returncode == 1 and "is not DEV, TEST, VALIDATION or PRODUCTION: the settings wizard was not run" in res.stderr
     assert res.stdout == ""
     assert INSTALL.index("# ---- end of WIZARD-ENV (D-1365)") < INSTALL.index("SETTINGS_NEW=0")
 
@@ -324,6 +324,9 @@ HOSTILE = {
     "hash": "Dr #Owner",
     "two spaces": "Dr  Owner",
     "too long": "山" * 101,
+    "leading apostrophe": "'Okalani",  # re-check of #1175: _read_dotenv would strip a pair, so never first or last
+    "trailing apostrophe": "Jones'",
+    "apostrophe pair": "'Ann'",
 }
 NAMES = (
     "山田 太郎",
@@ -333,6 +336,14 @@ NAMES = (
     "José Ñúñez",
     "O’Brien",
     "Dr. Lin (IT), 3F",
+    "O'Brien",  # re-check of #1175: the apostrophe a keyboard types, inside a name
+    "D'Angelo",
+    "Mary-Jane O'Neil",
+    "Ma'ruf",
+    "D'Arcy O'Neil-Ma'ruf",  # several
+    "高橋 雅之（情報システム部）",  # the full-width brackets a Japanese IME types
+    "まゆ〜",
+    "ゆう～",
     "山" * 100,
 )
 
@@ -411,3 +422,148 @@ def test_a_value_the_writer_takes_reads_back_exactly_by_the_tools(value: str) ->
     text = settings_wizard.env_text({"TB_ENV": "PRODUCTION", "TB_BACKUP_ALERT_CMD": value})
     _config, tools = _read_back(text)
     assert tools == {"TB_ENV": "PRODUCTION", "TB_BACKUP_ALERT_CMD": value}
+
+
+# ------------------------------------------------------------------ re-check of #1175 (comment 7011796124), S1 to S4
+def _tree(root: Path) -> dict[str, tuple[int, int, bytes]]:
+    """Every path under ``root`` with its mode, modification time and bytes (a link: its target)."""
+    out: dict[str, tuple[int, int, bytes]] = {}
+    for p in sorted(root.rglob("*")):
+        st = p.lstat()
+        body = os.readlink(p).encode() if p.is_symlink() else (p.read_bytes() if p.is_file() else b"")
+        out[str(p.relative_to(root))] = (st.st_mode, st.st_mtime_ns, body)
+    return out
+
+
+@pytest.mark.parametrize(
+    ("args", "dotenv", "said"),
+    [
+        (["--environment", "prod"], None, "'PROD' (--environment)"),
+        (["--environment", "PRODUCTION "], "TB_ENV=PRODUCTION\n", "'PRODUCTION ' (--environment)"),
+        ([], "TB_ENV=PROD\nTB_CHARTNO_RULE=asis\n", "'PROD' (TB_ENV in deploy/.env)"),
+    ],
+)
+def test_an_unknown_environment_stops_the_installer_before_anything_is_loaded_or_written(
+    tmp_path: Path, args: list[str], dotenv: str | None, said: str
+) -> None:
+    """S2: the installer itself, on a site folder: it stops at argument parsing, so its "nothing was loaded or
+    written" is true: no file, folder, link or mode changed (no bundle loaded, no current, no deploy/keys, no
+    mapping copied), the existing deploy/.env untouched."""
+    site = tmp_path / "site"
+    (site / "deploy").mkdir(parents=True)
+    (site / "deploy" / "install.sh").write_text(INSTALL, encoding="utf-8")
+    (site / "answers").mkdir()
+    (site / "answers" / "site.yaml").write_text("site_id: X\n", encoding="utf-8")
+    (site / "answers" / "mapping").mkdir()
+    (site / "answers" / "mapping" / "m.yaml").write_text("x: 1\n", encoding="utf-8")
+    if dotenv is not None:
+        (site / "deploy" / ".env").write_text(dotenv, encoding="utf-8")
+    bundle = tmp_path / "trialbox-1.0.0.tar"
+    bundle.write_bytes(b"not a bundle")
+    before, bundle_before = _tree(site), bundle.read_bytes()
+    env = {k: v for k, v in os.environ.items() if not k.startswith("TB_")}
+    res = subprocess.run(
+        ["bash", str(site / "deploy" / "install.sh"), str(bundle), "--answers", str(site / "answers" / "site.yaml"),
+         *args],
+        capture_output=True, text=True, cwd=tmp_path, env=env, check=False, stdin=subprocess.DEVNULL,
+    )  # fmt: skip
+    assert res.returncode == 1, res.stderr
+    assert f"the environment {said} is not DEV, TEST, VALIDATION or PRODUCTION: nothing was loaded or written" in (
+        res.stderr
+    )
+    assert res.stdout == ""  # not even the host step's heading
+    assert _tree(site) == before and bundle.read_bytes() == bundle_before
+
+
+def test_the_installer_checks_the_environment_before_its_first_step() -> None:
+    early = INSTALL.index("# ---- end of ENV-EARLY")
+    for later in ('if [ "$CHECK" = 1 ]', "# ------------------------------------------------------------------------"
+                  "------------------------ 0. tier", "# REHEARSAL (D-726)", 'say "bundle', "mkdir -p deploy/keys"):  # fmt: skip
+        assert early < INSTALL.index(later), later
+
+
+@pytest.mark.parametrize("value", ["https://x\udcff", "a\ud800b", "\udfff"])
+def test_a_lone_surrogate_is_refused_before_any_file_is_written(value: str, tmp_path: Path) -> None:
+    """S1: a byte that is not UTF-8 (0xFF typed at the terminal arrives as U+DCFF; \\udcff in an answers file)."""
+    assert "not text" in settings_wizard.env_value_problem(value)
+    settings, env, _ = settings_wizard.build(_answers(), [REHEARSAL / "mapping"])
+    env["TB_CONSOLE_URL"] = value
+    with pytest.raises(settings_wizard.WizardError, match="nothing was written"):
+        settings_wizard.write(settings, env, tmp_path / "settings.yaml", tmp_path / ".env")
+    assert list(tmp_path.iterdir()) == []
+    errors: list[str] = []
+    assert settings_wizard.env_extra({"TB_SITE_CONTACT_NOTE": value}, errors) == {} and errors
+
+
+def test_the_command_refuses_a_surrogate_in_an_answers_file_without_a_traceback(tmp_path: Path) -> None:
+    """S1, as the reviewer measured it: ``console_url: "https://x\\udcff"`` in an answers file. Run once without
+    PYTHONUNBUFFERED set (the lane's rule)."""
+    out_dir = tmp_path / "deploy"
+    out_dir.mkdir()
+    answers = _answers(data_source_host_dir=str(tmp_path), console_url="https://x\udcff")
+    f = tmp_path / "site.yaml"
+    f.write_text(yaml.safe_dump(answers), encoding="utf-8")
+    assert "\\uDCFF" in f.read_text(encoding="utf-8")  # the escape, as an operator would write it
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"}
+    env["PYTHONPATH"] = os.pathsep.join(str(ROOT / p) for p in ("libs", "services", "."))
+    run = subprocess.run(
+        [sys.executable, "-m", "tools.settings_wizard", "--answers", str(f), "--out", str(out_dir / "settings.yaml"),
+         "--env-out", str(out_dir / ".env"), "--mapping-dir", str(REHEARSAL / "mapping")],
+        capture_output=True, text=True, cwd=ROOT, env=env, check=False, stdin=subprocess.DEVNULL,
+    )  # fmt: skip
+    assert run.returncode == 1 and run.stderr.startswith("not written: ") and "Traceback" not in run.stderr
+    assert "TB_CONSOLE_URL" in run.stderr
+    assert list(out_dir.iterdir()) == []  # neither settings.yaml nor a 0-byte .env
+
+
+def test_a_failed_env_write_leaves_the_file_as_it_was(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """S1: the .env is written to a temporary file in the same folder and renamed: a write that fails part way (here
+    a value the check is made to let through) leaves the site's .env whole, and no temporary file behind."""
+    settings, env, _ = settings_wizard.build(_answers(), [REHEARSAL / "mapping"])
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("# before\n" + settings_wizard.env_text(env), encoding="utf-8")
+    was = dotenv.read_bytes()
+    monkeypatch.setattr(settings_wizard, "env_value_problem", lambda _v: "")
+    with pytest.raises(settings_wizard.WizardError, match="the file was not changed"):
+        settings_wizard.write(settings, {**env, "TB_CONSOLE_URL": "https://x\udcff"}, tmp_path / "s.yaml", dotenv)
+    assert dotenv.read_bytes() == was and sorted(p.name for p in tmp_path.iterdir()) == [".env", "s.yaml"]
+    monkeypatch.undo()
+    settings_wizard.write(settings, env, tmp_path / "s.yaml", dotenv)  # a good write replaces it, 0600
+    assert dotenv.stat().st_mode & 0o777 == 0o600 and dotenv.read_text(encoding="utf-8").endswith(
+        settings_wizard.env_text(env)
+    )
+    assert sorted(p.name for p in tmp_path.iterdir()) == [".env", "s.yaml"]
+
+
+@pytest.mark.parametrize("name", ["O'Brien", "D'Arcy O'Neil-Ma'ruf", "a'b'c'd"])
+def test_a_name_with_apostrophes_reads_back_as_exactly_the_typed_value(name: str, tmp_path: Path) -> None:
+    """S3: the ASCII apostrophe now passes the name check; written by env_text and read by tb_common.config's
+    _read_dotenv it gives exactly one variable with exactly the typed value."""
+    from tb_common.box_answers import person_name
+    from tb_common.config import _read_dotenv
+
+    assert person_name(name) == name
+    f = tmp_path / ".env"
+    f.write_text(settings_wizard.env_text({"TB_BACKUP_ALERT_WATCHER": name}), encoding="utf-8")
+    assert _read_dotenv(f) == {"TB_BACKUP_ALERT_WATCHER": name}
+    for edge in (f"'{name}", f"{name}'", f"'{name}'"):  # the one place a reader would change it: refused
+        assert person_name(edge) is None, edge
+
+
+@pytest.mark.parametrize("bad", ['O"Brien', "O`Brien", "O$Brien", "O\\Brien", "O=Brien", "O#Brien", "O\x1cBrien",
+                                 "O\u2028Brien", "O\x07Brien"])  # fmt: skip
+def test_the_name_check_still_refuses_what_it_refused(bad: str) -> None:
+    from tb_common.box_answers import person_name
+
+    assert person_name(bad) is None
+
+
+@pytest.mark.parametrize("missing", ["TB_TLS_ROOT_CONFIRMED_BY", "TB_TLS_ROOT_CONFIRMED_ON"])
+def test_the_root_confirmation_needs_both_the_name_and_the_day(missing: str) -> None:
+    """S4: a confirmer with no day (or a day with no confirmer) is no confirmation: doctor still warns."""
+    env = {**LEGACY_PROD, "TB_CHARTNO_RULE_ANSWERED": "yes", "TB_BACKUP_ALERT_WATCHER": "Dr Owner",
+           "TB_TLS_ROOT_CONFIRMED_BY": "Lin", "TB_TLS_ROOT_CONFIRMED_ON": "2026-11-02"}  # fmt: skip
+    del env[missing]
+    c = doctor.check_named_choices(doctor.DoctorInputs(env=env))
+    assert c.status == "WARN" and "no confirmation from hospital IT" in c.detail
+    assert "confirmed by" not in c.detail

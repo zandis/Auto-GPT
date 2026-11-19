@@ -159,19 +159,23 @@ def _s(raw: Any, limit: int = 200) -> str:
 # An allow-list, not a deny-list: letters, combining marks and digits of any script (山田 太郎, 陳 大文, José Ñúñez),
 # single spaces between words (the ASCII or the ideographic space) and the few marks a name, or a role beside it,
 # holds. Everything else is refused: control characters (CR, LF, NUL, tab), the Unicode line and paragraph
-# separators, quotes, $, backquote, backslash, #, =, ;, &, |, <, >, braces and the like
+# separators, double quotes, an apostrophe first or last, $, backquote, backslash, #, =, ;, &, |, <, >, braces and the like
 PERSON_MAX = 100
-_PERSON_MARKS = frozenset(".,-()/’・·")  # dot, comma, hyphen, brackets, slash, ’ (O’Brien), the two middle dots
+# dot, comma, hyphen, brackets (and the full-width ones a Japanese IME types), slash, ’ and ' (O’Brien, O'Brien),
+# the two middle dots, the wave dashes 〜 and ～. The ASCII apostrophe only inside a name, never first or last:
+# tb_common.config's reader strips a quote pair around a value, so 'Ann' would read back as Ann
+_PERSON_MARKS = frozenset(".,-()（）/’'・·〜～")
 _PERSON_SPACES = frozenset(" 　")  # the ASCII space and the ideographic space
 
 
 def person_name(raw: Any) -> str | None:
     """10K-21: a named person (operational contact data, never patient data). Empty: not answered. None: refused
-    (a character outside the allow-list above, two spaces in a row, or longer than ``PERSON_MAX``)."""
+    (a character outside the allow-list above, two spaces in a row, an ASCII apostrophe first or last,
+    or longer than ``PERSON_MAX``)."""
     text = str(raw if raw is not None else "").strip(" 　")
     if not text:
         return ""
-    if len(text) > PERSON_MAX:
+    if len(text) > PERSON_MAX or text[0] == "'" or text[-1] == "'":
         return None
     prev_space = False
     for ch in text:

@@ -26,7 +26,7 @@
     nobody is named.
   - **What is stored about a person:** a name only, as one printable line (no character `str.splitlines` breaks
     at, U+0085, U+2028 and U+2029 included, nothing that is not printable but the ideographic space U+3000; no
-    quote, `$`, backquote, backslash or `#`; at most 100 characters), so `.env`, compose, the installer's shell and
+    double quote, no apostrophe first or last, no `$`, backquote, backslash or `#`; at most 100 characters), so `.env`, compose, the installer's shell and
     the Python readers read it as one value; both wizards use the one check (`box_answers.person_name`). It is kept
     in `deploy/.env` (root only, 0600) and the box's answers file (tmpfs, removed after the apply), as the wizard
     keeps the site's contact address. No mail address, telephone number or account is asked. The name appears in
@@ -39,9 +39,11 @@
     recorded once the root exists: on the box's first-run page (served through Caddy, so the root is there; who,
     and the day it was given; a day to come is refused), or as `TB_TLS_ROOT_CONFIRMED_BY` and
     `TB_TLS_ROOT_CONFIRMED_ON` in `deploy/.env` after IT has pushed it. `doctor` WARNs until both are there.
-  - **The environment the terminal wizard is told** is checked before the wizard runs: a value that is not DEV,
-    TEST, VALIDATION or PRODUCTION stops `install.sh` with nothing written, so a typo cannot run the wizard unguarded
-    and leave a `settings.yaml` the next run keeps. On the first-run page a PRODUCTION box whose patient check cannot
+  - **The environment the terminal wizard is told** is checked at argument parsing (block `ENV-EARLY`), before
+    anything is loaded, linked, made or copied: a `--environment`, or (neither it nor `--rehearsal` given) a `TB_ENV`
+    an existing `deploy/.env` holds, that is not DEV, TEST, VALIDATION or PRODUCTION stops `install.sh` with nothing
+    loaded or written (re-check of #1175), so a typo cannot run the wizard unguarded and leave a `settings.yaml` the
+    next run keeps; `WIZARD-ENV` keeps the same check before the wizard. On the first-run page a PRODUCTION box whose patient check cannot
     be read cannot finish without the rule either (it says to have the database checked and load the page again).
   - **A site installed before (no silent change, no broken start).** The wizard runs only on a fresh install
     (`install.sh` keeps an existing `settings.yaml`), so an installed site's settings are not re-read by it. An
@@ -53,11 +55,18 @@
     outside PRODUCTION and says what is open.
 - **A typed name never adds or changes a setting (review of #1175).** The names a person types (the health page's
   watcher, IT's confirmer) are checked where they enter, by an allow-list (`tb_common.box_answers.person_name`):
-  letters, marks and digits of any script, single spaces and `. , - ( ) / ’ ・ ·`, at most 100 characters; a line
-  break, a control character, a quote, `$`, a backquote, a backslash, `=` or `#` is refused. The `.env` writer
-  (`tools.settings_wizard.env_text`, used by `write`) refuses every value, typed or not, holding a control character
-  or a Unicode line break, or a leading or trailing space, and writes nothing then; `env_extra` applies the same to
-  each value and the name check to the name keys. No reader unescapes, so a value is refused, never escaped.
+  letters, marks and digits of any script, single spaces and `. , - ( ) （ ） / ’ ' ・ · 〜 ～`, at most 100
+  characters; the ASCII apostrophe (O'Brien, Ma'ruf) only inside a name, never first or last, because
+  `tb_common.config._read_dotenv` strips a quote pair around a value; a line break, a control character, a double
+  quote, `$`, a backquote, a backslash, `=` or `#` is refused. The `.env` writer
+  (`tools.settings_wizard.env_text`, used by `write`) refuses every value, typed or not, holding a control character,
+  a Unicode line break, a lone surrogate (a byte that is not UTF-8, re-check of #1175) or a leading or trailing
+  space, and writes nothing then; `env_extra` applies the same to each value and the name check to the name keys.
+  No reader unescapes, so a value is refused, never escaped. `write` puts the `.env` in a temporary file in the same
+  folder (0600) and renames it over the old one, so a failed write leaves the file as it was, never at 0 bytes.
+- **Noted, not changed (re-check of #1175):** a value other than a name that is wrapped in quotes (`"q"`) loses
+  them when `tb_common.config._read_dotenv` reads it back. Staff names (the watcher, IT's confirmer) appear in
+  `doctor`'s output, and so in a support bundle's `doctor.json`.
 - **Not in this card:** a console page or command to record IT's confirmation after the install (the next action is
   a line in `deploy/.env`); mail for the health page's watcher (a box has no mail agent, D-735).
 - **Held by:** `tests/unit/test_silent_choices_guarded.py` (the terminal wizard, the installer's block, the box plan,

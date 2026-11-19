@@ -26,6 +26,7 @@ import os
 import re
 import secrets
 import sys
+import tempfile
 import unicodedata
 from collections.abc import Callable
 from pathlib import Path
@@ -784,7 +785,8 @@ def build(
 
 NAME_KEYS = ("TB_BACKUP_ALERT_WATCHER", "TB_TLS_ROOT_CONFIRMED_BY")  # 10K-21: the people a site names in .env
 NAME_RULE = (  # 10K-21: tb_common.box_answers.person_name, said
-    "letters and digits of any script, single spaces, and . , - ( ) / ’ ・ · only; at most 100 characters"
+    "letters and digits of any script, single spaces, and . , - ( ) （ ） / ’ ' ・ · 〜 ～ only (' not first or last); "
+    "at most 100 characters"
 )
 
 
@@ -889,11 +891,18 @@ _ENV_KEY = re.compile(r"[A-Z][A-Z0-9_]*")
 
 def env_value_problem(value: str) -> str:
     """Why ``value`` cannot be one ``deploy/.env`` value ("" when it can): a control character (CR, LF, NUL, tab,
-    and the rest of Unicode's Cc), a line or paragraph separator, or a leading or trailing space (every reader strips
-    it, so the value read back would not be the one written)."""
+    and the rest of Unicode's Cc), a line or paragraph separator, a lone surrogate (Cs: a 0xFF byte typed at the
+    terminal, or ``\\udcff`` in an answers file; the file is UTF-8 and cannot hold it), or a leading or trailing
+    space (every reader strips it, so the value read back would not be the one written)."""
     for ch in value:
         if unicodedata.category(ch) in ("Cc", "Zl", "Zp"):
             return f"holds a control character or line break (U+{ord(ch):04X})"
+        if unicodedata.category(ch) == "Cs":
+            return f"holds a character that is not text (U+{ord(ch):04X}, a byte that is not UTF-8)"
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return "cannot be written as UTF-8"
     if value != value.strip():
         return "starts or ends with a space"
     return ""
@@ -939,11 +948,27 @@ def write(settings: dict[str, Any], env: dict[str, str], out: Path, env_out: Pat
     load_settings(out)  # the same validation the services run at start-up
     if env_out is not None:
         env_out.parent.mkdir(parents=True, exist_ok=True)
-        env_out.write_text(
-            "# TrialBox environment — written by tools/settings_wizard.py (secrets generated); root only.\n" + body,
-            encoding="utf-8",
+        _write_replacing(
+            env_out, "# TrialBox environment — written by tools/settings_wizard.py (secrets generated); root only.\n" + body
         )
-        env_out.chmod(0o600)
+
+
+def _write_replacing(path: Path, text: str) -> None:
+    """10K-21 (re-check of #1175): ``text`` to ``path`` (mode 0600 from the start, it holds secrets) by a temporary
+    file in the same folder renamed over it: a failure leaves the file as it was (or absent), never cut short."""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            os.fchmod(f.fileno(), 0o600)
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException as exc:
+        Path(tmp).unlink(missing_ok=True)
+        if isinstance(exc, UnicodeError):
+            raise WizardError(f"{path}: a value cannot be written as UTF-8; the file was not changed") from exc
+        raise
 
 
 def main(argv: list[str] | None = None) -> int:

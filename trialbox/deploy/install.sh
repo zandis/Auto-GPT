@@ -105,6 +105,20 @@ alive_stop() {
 }
 die() { alive_stop; printf 'install: %s\n' "$*" >&2; exit 1; }
 indent() { while IFS= read -r line || [ -n "$line" ]; do printf '    %s\n' "$line"; done; }
+# ENV-EARLY (D-1365, re-check of #1175): an environment that is not one of the four stops here, at argument parsing,
+# before anything is loaded, linked, made or copied: --environment, or (neither it nor --rehearsal given) a TB_ENV an
+# existing deploy/.env already holds, read without changing anything. Read as the settings step reads them
+EARLY_ENV="$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')"
+EARLY_FROM="--environment"
+if [ -z "$EARLY_ENV" ] && [ "$REHEARSAL" != 1 ] && [ -f "$ROOT/deploy/.env" ] && [ -r "$ROOT/deploy/.env" ]; then
+  EARLY_ENV="$(sed -n 's/^TB_ENV=//p' "$ROOT/deploy/.env" | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  EARLY_FROM="TB_ENV in deploy/.env"
+fi
+case "$EARLY_ENV" in
+  ""|DEV|TEST|VALIDATION|PRODUCTION) ;;
+  *) die "the environment '$EARLY_ENV' ($EARLY_FROM) is not DEV, TEST, VALIDATION or PRODUCTION: nothing was loaded or written" ;;
+esac
+# ---- end of ENV-EARLY
 rand() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-32}"; }
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
 # OPS-004 (D-570): after an install from a bundle the shipped files under deploy/ are links into ../current
@@ -325,7 +339,7 @@ WIZ_ENV="$ENVIRONMENT"; [ -n "$WIZ_ENV" ] || { [ "$REHEARSAL" != 1 ] || WIZ_ENV=
 WIZ_ENV="$(printf '%s' "${WIZ_ENV:-${PRE_ENV:-PRODUCTION}}" | tr '[:lower:]' '[:upper:]')"
 case "$WIZ_ENV" in
   DEV|TEST|VALIDATION|PRODUCTION) [ "${TB_BOX:-0}" = 1 ] || WIZ_ARGS=(--environment "$WIZ_ENV") ;;
-  *) die "the environment '$WIZ_ENV' (--environment, or TB_ENV in deploy/.env) is not DEV, TEST, VALIDATION or PRODUCTION: nothing was written" ;;
+  *) die "the environment '$WIZ_ENV' (--environment, or TB_ENV in deploy/.env) is not DEV, TEST, VALIDATION or PRODUCTION: the settings wizard was not run" ;;
 esac
 # ---- end of WIZARD-ENV (D-1365)
 SETTINGS_NEW=0
