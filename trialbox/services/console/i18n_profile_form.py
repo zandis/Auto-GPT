@@ -60,9 +60,9 @@ EN = {
     "profileform.tpl.data_types": "Questions 6, 12, 14 and 15: the data types the site stores, such as [ADT-00, PPR-01, OML-11, document, vital].",
     "profileform.tpl.standards": "Questions 8, 9 and 21: the standard versions the site writes, and each master's release date (YYYY-MM-DD). Names: {names}.",
     "profileform.tpl.tables": "Questions 10, 11 and 21, and sample 3 of 9.2: the local code tables. A row with no state is stored as verify (not checked).",
-    "profileform.tpl.diagnosis": "Conditions (病名) to ICD-10: rows of {code, name, icd10, state}.",
-    "profileform.tpl.drug": "Medicines (YJ) to ATC: rows of {code, name, atc, state}.",
-    "profileform.tpl.lab": "Lab tests to LOINC: rows of {code, loinc (or score), display, unit, factor, category, kind, answers, source_unit, state}.",
+    "profileform.tpl.diagnosis": "Conditions (病名) to ICD-10: rows of [code, name, icd10, state].",
+    "profileform.tpl.drug": "Medicines (YJ) to ATC: rows of [code, name, atc, state].",
+    "profileform.tpl.lab": "Lab tests to LOINC: rows of [code, loinc (or score), display, unit, factor, category, kind, answers, source_unit, state].",
     "profileform.tpl.not_asked": "These questions fill no field of the site profile: {questions}. Answer them in the site's records.",
 }
 
@@ -117,9 +117,9 @@ JA = {
     "profileform.tpl.data_types": "質問 6・12・14・15：施設が保存しているデータ種別。例：[ADT-00, PPR-01, OML-11, document, vital]",
     "profileform.tpl.standards": "質問 8・9・21：施設が書き出す規格の版と、各マスターのリリース日（YYYY-MM-DD）。名前：{names}",
     "profileform.tpl.tables": "質問 10・11・21 と 9.2 のサンプル 3：ローカルコード表。状態のない行は verify（未確認）として保存します。",
-    "profileform.tpl.diagnosis": "病名から ICD-10：{code, name, icd10, state} の行。",
-    "profileform.tpl.drug": "医薬品（YJ）から ATC：{code, name, atc, state} の行。",
-    "profileform.tpl.lab": "検査から LOINC：{code, loinc（または score）, display, unit, factor, category, kind, answers, source_unit, state} の行。",
+    "profileform.tpl.diagnosis": "病名から ICD-10：[code, name, icd10, state] の行。",
+    "profileform.tpl.drug": "医薬品（YJ）から ATC：[code, name, atc, state] の行。",
+    "profileform.tpl.lab": "検査から LOINC：[code, loinc（または score）, display, unit, factor, category, kind, answers, source_unit, state] の行。",
     "profileform.tpl.not_asked": "次の質問は施設プロファイルのどの項目にも入りません：{questions}。施設の記録に答えを残してください。",
 }
 
@@ -174,8 +174,8 @@ ZH = {
     "profileform.tpl.data_types": "第 6、12、14、15 題：院所儲存的資料類型，例如 [ADT-00, PPR-01, OML-11, document, vital]。",
     "profileform.tpl.standards": "第 8、9、21 題：院所寫出的標準版本，以及各主檔的發行日期（YYYY-MM-DD）。名稱：{names}",
     "profileform.tpl.tables": "第 10、11、21 題與 9.2 的樣本 3：本院代碼表。未填狀態的列以 verify（未確認）儲存。",
-    "profileform.tpl.diagnosis": "疾病名稱（病名）對照 ICD-10：{code, name, icd10, state} 的列。",
-    "profileform.tpl.drug": "藥品（YJ）對照 ATC：{code, name, atc, state} 的列。",
-    "profileform.tpl.lab": "檢驗對照 LOINC：{code, loinc（或 score）, display, unit, factor, category, kind, answers, source_unit, state} 的列。",
+    "profileform.tpl.diagnosis": "疾病名稱（病名）對照 ICD-10：[code, name, icd10, state] 的列。",
+    "profileform.tpl.drug": "藥品（YJ）對照 ATC：[code, name, atc, state] 的列。",
+    "profileform.tpl.lab": "檢驗對照 LOINC：[code, loinc（或 score）, display, unit, factor, category, kind, answers, source_unit, state] 的列。",
     "profileform.tpl.not_asked": "下列題目不對應院所設定檔的任何欄位：{questions}。請將答案留存於院所紀錄。",
 }
