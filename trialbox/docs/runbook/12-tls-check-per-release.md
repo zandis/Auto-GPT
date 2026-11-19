@@ -50,6 +50,21 @@ per-release security record of card 10G-50 collects them.
    an id the policy needs that the result does not hold fails as missing, so a scan run without the options above
    cannot pass. The release stops until the box is fixed or the policy is changed by a new decision.
 
+**A hospital's old client (the integrator's ruling of 2026-11-19).** The strict policy stands for what the box
+serves, and the default stays strict; since the box takes a hospital as it is, this is what an old client meets. A
+browser or other client that can do only TLS 1.0 or 1.1, or only CBC suites, or only static-RSA key exchange, gets a
+handshake failure on the box's 443: the box offers TLS 1.2 and 1.3 with AEAD suites and an ephemeral key exchange
+only, so client and box agree on nothing, the connection closes before any page is sent, and the browser shows its
+own "cannot connect securely" error. The repository's documents state no list of supported browsers or operating
+systems, so this page names none.
+
+No setting relaxes this today. `TB_TLS_MODE` (`deploy/identity/identity.env.example`) chooses only whose certificate
+is served (Caddy's internal one or the hospital's), and the Caddyfile has no placeholder for protocols or cipher
+suites; the only way to admit an old client is to edit `deploy/identity/Caddyfile` by hand, which is not a supported
+setting, and the policy check above and its unit test then fail by design. That gap is finding H10G48-02
+(`docs/handover/tls-policy-2026-11-19/findings.json`); whether to build one such setting is the lead's to decide, and
+`deploy/security/tls-policy.json` stays strict either way.
+
 **Not yet seen.** No scan has been run against a box. The first run must show, on 443: TLS1 and TLS1_1 "not
 offered", TLS1_2 and TLS1_3 offered, only GCM or ChaCha20 suites with ECDHE, HSTS of 31536000 seconds; on the link:
 TLS1_3 only and `clientAuth` "required". The judge reads the ids testssl.sh 3.2 writes as this page names them

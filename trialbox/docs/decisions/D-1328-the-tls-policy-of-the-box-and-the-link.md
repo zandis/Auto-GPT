@@ -26,4 +26,6 @@
   - **The run.** testssl.sh 3.2 from the test laptop per release (RUNBOOK §12 part, the TLS check per release);
     never shipped, kept or fetched by the repository (review 21, OT-D1). Results under `build/security/<release>/`.
   - A plain-HTTP site in the Caddyfile is allowed only bound to the loopback (the health site, D-360).
+  - **An old client** (TLS 1.0/1.1 only, CBC only or static RSA only) gets a handshake failure on 443; the policy stays
+    strict (the integrator's ruling, 2026-11-19); no setting relaxes it today (finding H10G48-02, RUNBOOK §12 part).
 - **Held by:** `tests/unit/test_tls_policy_judge.py`.
