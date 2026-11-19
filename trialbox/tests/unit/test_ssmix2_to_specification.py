@@ -19,6 +19,22 @@ def storage(tmp_path: Path) -> kit.Storage:
     return kit.build(tmp_path)
 
 
+@pytest.fixture
+def verified_outcomes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The PRB-14 table as if the owner's Japanese reader had verified every proposed row (``verified`` = ``yes``):
+    what the reader then does with each status. The shipped table applies none (second review of PR #1095 item 9)."""
+    import csv
+
+    from adapter.sources.ssmix2 import source
+
+    table: dict[str, dict[str, str]] = {}
+    with (source.JP_CORE / "prb14_outcome.csv").open(encoding="utf-8-sig", newline="") as fh:
+        for r in csv.DictReader(fh):
+            table.setdefault(r["system"].upper(), {})[r["code"].upper()] = r["status"]
+    monkeypatch.setattr(source, "_OUTCOME", table)
+    monkeypatch.setattr(source, "_OUTCOME_ANY", {c: st for t in table.values() for c, st in t.items()})
+
+
 def _source(st: kit.Storage, **kw: object) -> Ssmix2Source:
     return Ssmix2Source(st.root, licensed=EMPTY, **kw)  # type: ignore[arg-type]
 
@@ -96,9 +112,28 @@ def test_f2_a_deleted_diagnosis_is_no_row_and_a_tombstone(storage: kit.Storage) 
     assert src.stats["PPR-01:deleted diagnosis"] == 1
 
 
-def test_f2_every_outcome_is_read_none_reads_as_active_by_mistake(storage: kit.Storage) -> None:
-    """Cured (F, HL7 0241) is resolved with its end and outcome days; remission (M, JHSD0006) is remission; died (D)
-    is inactive; follow-up stopped (I, JHSD0006) says neither and is U, which the mapping leaves unconfirmed."""
+def test_f2_no_unverified_outcome_code_is_applied_and_none_reads_as_active(storage: kit.Storage) -> None:
+    """Second review of PR #1095 item 9: no row of ``prb14_outcome.csv`` is verified, so every coded outcome is U
+    (unknown, never active, D-587); the days are still read."""
+    rows, _, _ = _diagnoses(storage)
+    got = {k: (rows[v]["status"], rows[v]["outcome"]) for k, v in kit.DX.items() if v in rows}
+    assert got == {
+        "gastritis": ("A", ""),
+        "uri": ("U", "F"),
+        "ra": ("U", "M"),
+        "pneumonia": ("A", ""),
+        "infarct": ("U", "D"),
+        "stopped": ("U", "I"),
+    }
+    uri = rows[kit.DX["uri"]]
+    assert (uri["end_date"], uri["outcome_date"], uri["main_diagnosis"]) == ("2026-03-01", "2026-03-01", "N")
+
+
+def test_f2_every_outcome_is_read_none_reads_as_active_by_mistake(
+    storage: kit.Storage, verified_outcomes: None
+) -> None:
+    """Once verified: cured (F, HL7 0241) is resolved with its end and outcome days; remission (M, JHSD0006) is
+    remission; died (D) is inactive; follow-up stopped (I, JHSD0006) says neither and is U."""
     rows, _, _ = _diagnoses(storage)
     got = {k: (rows[v]["status"], rows[v]["outcome"]) for k, v in kit.DX.items() if v in rows}
     assert got == {
@@ -124,7 +159,7 @@ def test_f2_a_suspicion_written_only_as_a_modifier_is_suspected(storage: kit.Sto
     )
 
 
-def test_f2_the_japan_mapping_gives_each_status_its_fhir_word(storage: kit.Storage) -> None:
+def test_f2_the_japan_mapping_gives_each_status_its_fhir_word(storage: kit.Storage, verified_outcomes: None) -> None:
     """The reader's rows through ``jp_core/ssmix2_site.yaml``: each outcome its clinical status, U none and
     unconfirmed (D-587), and the end day as the abatement of the cured diagnosis only."""
     from adapter.mapping.engine import Mapper, Mapping
@@ -300,7 +335,8 @@ def test_review_3_every_way_of_writing_a_suspicion_reads_as_suspected(
 @pytest.mark.parametrize(
     ("outcome", "status"),
     [("R^x^HL70241", "U"), ("N^x^HL70241", "U"), ("W^x^HL70241", "U"), ("Z^x^JHSD0006", "U"), ("Q", "U"),
-     ("F^治癒^HL70241", "R"), ("D^死亡^HL70241", "I"), ("R", "R"), ("A", "A")],
+     ("F^治癒^HL70241", "U"), ("D^死亡^HL70241", "U"), ("C^継続^JHSD0006", "U"), ("M^寛解^JHSD0006", "U"),
+     ("F", "U"), ("R", "R"), ("A", "A")],
 )  # fmt: skip
 def test_review_4_only_cited_outcome_codes_are_mapped_and_an_unlisted_one_is_never_active(
     tmp_path: Path, outcome: str, status: str
@@ -331,7 +367,7 @@ def test_review_2_a_diagnosis_recorded_long_ago_and_ended_last_night_is_read_on_
     segs = [kit._msh("20261101090000", "PPR^ZD1^PPR_ZD1", "P1"), kit._pid(kit.P1), "|".join(prb)]
     kit._write(st, kit.P1, "-", "PPR-01", "ALL9", kit._stamp("20261101"), segs)
     rows = list(_source(st).rows("diagnosis", "diagnosis", "recorded_date", "2026-11-01 00:00:00"))
-    assert [(r["diag_no"], r["status"]) for r in rows] == [("DX0003", "R")] and "_changed" not in rows[0]
+    assert [(r["diag_no"], r["status"]) for r in rows] == [("DX0003", "U")] and "_changed" not in rows[0]
 
 
 def test_review_2_a_new_version_of_a_document_is_read_on_a_delta(storage: kit.Storage) -> None:
@@ -378,8 +414,8 @@ def test_review_6_every_drug_of_an_order_is_a_row_with_its_own_key(tmp_path: Pat
     kit._write(st, kit.P1, day, "OMP-01", "RX0009", kit._stamp(day), segs)
     rows = {r["rx_no"]: r for r in _source(st).rows("medication", "medication", None, None)}
     assert {k: (r["atc"], r["daily_dose"]) for k, r in rows.items()} == {
-        "RX0009": ("M04AA01", "2"),
-        "RX0009#2": ("A10BA02", "2"),
+        "RX0009#1:999000001": ("M04AA01", "2"),
+        "RX0009#1:999000003": ("A10BA02", "2"),
     }
 
 
@@ -461,16 +497,17 @@ def test_review_9_euc_jp_named_in_msh18_is_read_as_euc_jp() -> None:
     assert codec == "euc_jp" and "東京" in text
 
 
-def test_review_9_an_escape_left_open_at_a_segment_end_does_not_turn_the_next_segment_into_kanji() -> None:
+def test_review_9_an_escape_left_open_at_a_segment_end_sets_the_message_aside() -> None:
+    """Second review of PR #1095 item 1: a set left open to a segment's end may have read its separators as
+    characters (which bytes were data cannot be known): the message is refused, never read garbled."""
     from adapter.sources.ssmix2 import hl7
 
     first = "PID|||1^^^^PI||".encode("ascii") + "胃炎".encode("iso2022_jp").removesuffix(b"\x1b(B")
     data = b"MSH|^~\\&|HIS||TB||20261001||ADT^A08|1|P|2.5||||||~ISO IR87\r" + first + b"\rPV1|1|O\r"
-    msg = hl7.parse(hl7.decode_bytes(data)[0])
-    pv1 = msg.first("PV1")
-    assert pv1 is not None and pv1.field(2) == "O"
-    pid = msg.first("PID")
-    assert pid is not None and pid.comp(5, 1) == "胃炎"
+    with pytest.raises(hl7.Undecodable, match="left open"):
+        hl7.decode_bytes(data)
+    closed = data.replace(b"\x1b$B", b"\x1b$B", 1).replace(b"\rPV1", b"\x1b(B\rPV1")
+    assert hl7.parse(hl7.decode_bytes(closed)[0]).first("PID").comp(5, 1) == "胃炎"  # type: ignore[union-attr]
 
 
 def test_review_9_so_si_half_width_katakana_is_read_as_katakana() -> None:
@@ -481,9 +518,12 @@ def test_review_9_so_si_half_width_katakana_is_read_as_katakana() -> None:
     assert "\x0e" not in text and "ｶ" in text  # ｶ
 
 
-def test_review_10_impossible_and_era_dates_are_refused_and_counted(tmp_path: Path) -> None:
+def test_review_10_impossible_and_era_dates_are_refused_and_counted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from adapter.sources.ssmix2 import hl7
 
+    monkeypatch.setenv("TB_TZ", "Asia/Tokyo")
     assert hl7.ts("R08.11.01") is None  # an era date: no date, counted
     # an impossible date is counted and passed on for the mapping to reject the row (STD-025, test_ssmix2_hardening)
     assert hl7.ts("20261301") == "2026-13-01" and hl7.ts("99999999") == "9999-99-99"

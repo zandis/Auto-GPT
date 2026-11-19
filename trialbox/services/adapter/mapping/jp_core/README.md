@@ -10,7 +10,9 @@
   Word and PDF). What of the specification is read and what is not: `docs/data/01-what-the-box-reads.md`.
 * `prb14_outcome.csv` (PRB-14 転帰 code to the diagnosis status) and `document_loinc.csv` (an extended-storage
   LOINC document code to the note type): only codes a document in this repository records (review 12), every
-  row `verify`; a code that is not listed is unknown, never active. Vitals, reports, claims and the
+  row `verify`. A PRB-14 row is applied only once its `verified` column says `yes` (checked against the published
+  table by a Japanese reader); until then its `status` is a proposal and the code reads as unknown, never active.
+  Vitals, reports, claims and the
   registry come from the extended CSVs under `<root>/extended/`.
 * The mapping puts JP Core 1.1.0 profiles on the shared resource set (`profiles`) and adds what JP Core asks for
   (`overlay`: the lab specimen and code text, the Rp identifiers of a MedicationRequest, the 標準病名 coding, the

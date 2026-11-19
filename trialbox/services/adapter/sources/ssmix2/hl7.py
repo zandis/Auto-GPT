@@ -15,11 +15,13 @@ result text compares equal whichever way the vendor stored it; ISO-2022-JP holds
 
 from __future__ import annotations
 
+import os
 import re
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 NULL = '""'  # HL7's explicit null
 _ESC = (("\\", "\\E\\"), ("|", "\\F\\"), ("^", "\\S\\"), ("~", "\\R\\"), ("&", "\\T\\"))
@@ -161,6 +163,10 @@ def _iso2022(data: bytes) -> str:
         if b > 0x7F:
             raise UnicodeDecodeError("iso2022_jp", data, i, i + 1, "8-bit byte in a 7-bit message")
         if b in (0x0D, 0x0A):  # a segment ends in ASCII (the standard resets the set at each line)
+            if shifted or charset != "ascii":
+                # a set left open to the segment's end has read its separators as characters: which bytes were
+                # data cannot be known, so the message is set aside (second review of PR #1095 item 1)
+                raise UnicodeDecodeError("iso2022_jp", data, i, i + 1, "an escape sequence left open at a segment end")
             out.append(chr(b))
             charset, shifted, i = "ascii", False, i + 1
             continue
@@ -177,6 +183,8 @@ def _iso2022(data: bytes) -> str:
         else:
             out.append(chr(b))
             i += 1
+    if shifted or charset != "ascii":
+        raise UnicodeDecodeError("iso2022_jp", data, n - 1, n, "an escape sequence left open at a segment end")
     return "".join(out)
 
 
@@ -193,6 +201,13 @@ _CHARSETS = frozenset({
     "UNICODE UTF-16", "UNICODE UTF-32", "UTF-8", "SHIFT_JIS", "SJIS", "MS932", "CP932", "EUC-JP",
 })  # fmt: skip
 
+#: the site's declaration of the encoding of 8-bit files that MSH-18 does not name (second review of PR #1095 item 1)
+ENCODING_ENV = "TB_SSMIX2_ENCODING"
+_EUC = ("EUC-JP", "EUC_JP", "EUCJP")
+_SJIS = ("SHIFT_JIS", "SHIFT-JIS", "SJIS", "MS932", "CP932", "WINDOWS-31J")
+#: the bytes that carry a message's structure: a decode that changes how many there are has moved a field
+_STRUCTURE = "|^~&\\\r\n"
+
 
 def _msh18(data: bytes) -> str:
     """MSH-18 for a refusal's sentence (D-682): written out only when every part of it is a character set's name.
@@ -205,9 +220,12 @@ def _msh18(data: bytes) -> str:
 
 def decode_bytes(data: bytes) -> tuple[str, str]:
     """``(text, codec)`` of one message, read strictly (STD-020). Escape sequences: the ISO-2022-JP family
-    (``iso2022_jp``, else the extended reading of :func:`_iso2022`). Bytes above 0x7F: UTF-8 when the bytes are valid
-    UTF-8 (a Shift_JIS text almost never is), else Shift_JIS as Windows writes it (cp932), whatever MSH-18 says.
-    Plain ASCII as ASCII. Raises :class:`Undecodable` when nothing reads it."""
+    (``iso2022_jp``, else the extended reading of :func:`_iso2022`); a set left open at a segment's end is refused.
+    Bytes above 0x7F: UTF-8 when the bytes are valid UTF-8 (a Shift_JIS text almost never is); else the encoding
+    MSH-18 or the site (``TB_SSMIX2_ENCODING``) names, EUC-JP or Shift_JIS; else Shift_JIS (cp932) only when the
+    reading is not in doubt: refused when it changes the count of separators and segment ends, or when the same
+    bytes are also valid EUC-JP (second review of PR #1095 item 1: never a guess between the two). Plain ASCII as
+    ASCII. Raises :class:`Undecodable` when nothing reads it, or not for certain."""
     if data.startswith(b"\xef\xbb\xbf"):
         data = data[3:]
     high = any(b > 0x7F for b in data)
@@ -232,18 +250,56 @@ def decode_bytes(data: bytes) -> tuple[str, str]:
         return data.decode("utf-8"), "utf-8"
     except UnicodeDecodeError:
         pass
-    if any(part.strip().upper() in ("EUC-JP", "EUC_JP", "EUCJP") for part in charset_of(data).split("~")):
-        try:  # MSH-18 names EUC-JP: read as EUC-JP, never as Shift_JIS mojibake (review of PR #1095 item 9)
-            return data.decode("euc_jp"), "euc_jp"
+    named = {part.strip().upper() for part in charset_of(data).split("~") if part.strip()}
+    site = os.environ.get(ENCODING_ENV, "").strip().upper()
+    if named & set(_EUC) or (not named & set(_SJIS) and site in _EUC):
+        why = _msh18(data) if named & set(_EUC) else f"{ENCODING_ENV}={site}"
+        try:  # EUC-JP named: read as EUC-JP, never as Shift_JIS mojibake (review of PR #1095 item 9)
+            return _same_structure(data, data.decode("euc_jp"), "EUC-JP"), "euc_jp"
         except UnicodeDecodeError as exc:
-            raise Undecodable(f"not EUC-JP although {_msh18(data)} says so") from exc
+            raise Undecodable(f"not EUC-JP although {why} says so") from exc
     try:
         text = data.decode("cp932")
     except UnicodeDecodeError as exc:
         raise Undecodable(f"neither UTF-8 nor Shift_JIS ({_msh18(data)})") from exc
     if any(c in _CP932_STRAYS for c in text):  # Python's cp932 reads these lone bytes; Shift_JIS has no such byte
         raise Undecodable(f"neither UTF-8 nor Shift_JIS: a byte Shift_JIS does not use ({_msh18(data)})")
+    if not named & set(_SJIS) and site not in _SJIS:
+        # undeclared: read only when not in doubt. A separator taken as a trail byte by a lead byte EUC-JP also
+        # writes is EUC-JP read wrongly, and every later field would shift; a separator after a lead byte EUC-JP
+        # never writes (− 0x817C, ポ 0x837C) is Shift_JIS's own character. A declared file is read by characters
+        if _swallowed(data):
+            raise Undecodable(f"read as Shift_JIS, a separator is lost into a character ({_msh18(data)})")
+        try:
+            data.decode("euc_jp")
+        except UnicodeDecodeError:
+            pass
+        else:  # both read it, and nothing says which: set aside, never a guess
+            raise Undecodable(f"Shift_JIS or EUC-JP, not named ({_msh18(data)}; the site may set {ENCODING_ENV})")
     return text.translate(_CP932_TO_JIS), "cp932"
+
+
+def _swallowed(data: bytes) -> bool:
+    """Whether a Shift_JIS reading of ``data`` takes a separator or segment end as the second byte of a character
+    whose first byte EUC-JP also writes (0x8E, 0x8F, 0xA1 and above)."""
+    i, n = 0, len(data)
+    while i < n:
+        b = data[i]
+        if 0x81 <= b <= 0x9F or 0xE0 <= b <= 0xFC:
+            if i + 1 < n and chr(data[i + 1]) in _STRUCTURE and (b >= 0xA1 or b in (0x8E, 0x8F)):
+                return True
+            i += 2
+        else:
+            i += 1
+    return False
+
+
+def _same_structure(data: bytes, text: str, codec: str) -> str:
+    """``text`` when it has as many separators and segment ends as the bytes: a multi-byte reading that swallowed a
+    ``|`` or ``^`` (a lead byte of the wrong encoding) would shift every field after it."""
+    if any(data.count(c.encode("ascii")) != text.count(c) for c in _STRUCTURE):
+        raise Undecodable(f"read as {codec}, a separator or segment end is lost ({_msh18(data)})")
+    return text
 
 
 def decode(data: bytes) -> str:
@@ -286,11 +342,22 @@ def parse(text: str) -> Message:
 REFUSED: Counter[str] = Counter()
 
 
+_TS = re.compile(r"^(\d{8,14})(?:\.\d*)?([+-]\d{4})?$")
+
+
+def _site_zone() -> ZoneInfo | None:
+    try:
+        return ZoneInfo(os.environ.get("TB_TZ", "").strip()) if os.environ.get("TB_TZ", "").strip() else None
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+
+
 def ts(value: str) -> str | None:
-    """HL7 TS (``YYYYMMDD[HHMM[SS]]``, optional zone) -> ``YYYY-MM-DD[ HH:MM:SS]`` as the canonical tables use. A date
-    that is not a real calendar date (``99999999``, ``20261301``) or not written in digits (a Japanese era) is None and
-    counted in :data:`REFUSED` (an impossible date is still passed on, for the mapping to reject the row, STD-025); an
-    offset is dropped as before (the reader does not know the site's zone) and counted."""
+    """HL7 TS (``YYYYMMDD[HHMM[SS]]``, optional zone) -> ``YYYY-MM-DD[ HH:MM:SS]`` as the canonical tables use, in the
+    site's time. A date that is not a real calendar date (``99999999``, ``20261301``) or not written in digits (a
+    Japanese era) is None and counted in :data:`REFUSED` (an impossible date is still passed on, for the mapping to
+    reject the row, STD-025). A time with an offset is converted to the site's zone (``TB_TZ``); with no zone set,
+    the time is not kept, only the day (second review of PR #1095 item 3: never a wrong time). Counted either way."""
     raw = value.strip()
     v = raw.split("+", maxsplit=1)[0].split("-", maxsplit=1)[0].split(".", maxsplit=1)[0].strip()
     if not v:
@@ -298,14 +365,14 @@ def ts(value: str) -> str | None:
     if len(v) < 8 or not v[:8].isdigit():
         REFUSED["not a date in digits (an era, a word)"] += 1
         return None
+    valid = True
     try:
         date(int(v[:4]), int(v[4:6]), int(v[6:8]))
     except ValueError:
         # counted, and passed on as written: the mapping then refuses the row and counts it in the ingest's
         # completeness (STD-025), so the record is seen as rejected, never loaded undated
         REFUSED["not a calendar date (the row is rejected by the mapping)"] += 1
-    if "+" in raw or "-" in raw[8:]:
-        REFUSED["an offset dropped, the time kept as written"] += 1
+        valid = False
     day = f"{v[:4]}-{v[4:6]}-{v[6:8]}"
     if len(v) < 10 or not v[8:10].isdigit():
         return day
@@ -313,6 +380,20 @@ def ts(value: str) -> str | None:
     sec = v[12:14] if len(v) >= 14 else "00"
     if not (minute + sec).isdigit() or int(v[8:10]) > 23 or int(minute) > 59 or int(sec) > 60:
         REFUSED["not a time of day (the row is rejected by the mapping)"] += 1  # passed on, as a bad date is
+        return f"{day} {v[8:10]}:{minute}:{sec}"
+    m = _TS.match(raw)
+    if "+" in raw or "-" in raw[8:]:
+        zone = _site_zone()
+        if not (m and m.group(2) and valid and zone):
+            REFUSED["an offset the site's zone cannot place: the time not kept"] += 1
+            return day
+        sign = 1 if m.group(2)[0] == "+" else -1
+        off = timezone(sign * timedelta(hours=int(m.group(2)[1:3]), minutes=int(m.group(2)[3:5])))
+        at = datetime(int(v[:4]), int(v[4:6]), int(v[6:8]), int(v[8:10]), int(minute), min(int(sec), 59), tzinfo=off)
+        local = at.astimezone(zone)
+        if local.utcoffset() != off.utcoffset(None):
+            REFUSED["an offset other than the site's: converted to the site's time"] += 1
+        return local.strftime("%Y-%m-%d %H:%M:%S")
     return f"{day} {v[8:10]}:{minute}:{sec}"
 
 

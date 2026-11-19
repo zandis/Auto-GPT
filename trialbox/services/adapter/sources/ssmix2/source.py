@@ -172,6 +172,7 @@ def document_code(kind: str) -> str:
 
 
 _TEXT_EXT = (".txt", ".text", ".csv", ".tsv")
+_COPY_EXT = ("bak", "tmp", "temp", "old", "orig", "swp", "part", "crdownload")  # a copy, not a document
 _CODED = ("CWE", "CE", "CNE", "CF")
 QUARANTINE_MAX_PCT = 1.0  # a table whose unreadable files pass this share of its files holds the night
 _MARKUP_EXT = (".html", ".htm", ".xml")
@@ -187,6 +188,7 @@ class StoredFile:
     stamp: str
     dept: str
     deleted: bool
+    flag: str = "1"
 
 
 def parse_name(path: Path) -> StoredFile | None:
@@ -196,7 +198,7 @@ def parse_name(path: Path) -> StoredFile | None:
     pid, day, typ, order, stamp, dept, flag = parts
     if flag not in FLAGS:
         return None
-    return StoredFile(path, pid, day, typ, order, stamp, dept, flag == "0")
+    return StoredFile(path, pid, day, typ, order, stamp, dept, flag == "0", flag)
 
 
 FLAGS = (
@@ -256,33 +258,40 @@ def _triples_by_rep(seg: hl7.Segment, n: int) -> list[list[tuple[str, str, str]]
 
 
 _NOT_SUSPECTED = ("疑いなし", "疑い無し", "疑いナシ")
+#: "R/O" (rule out) and "s/o" (suspicion of), as Japanese charts write them (second review of PR #1095 item 2)
+_RULE_OUT = re.compile(r"(?<![a-z])(?:r/o|s/o)(?![a-z])", re.IGNORECASE)
 
 
 def suspicion_in(text: str) -> bool:
-    """A 疑 in a 病名 or flag text: "の疑い", "疑", "(疑)", "疑い" (review of PR #1095 item 3); not "疑いなし"."""
+    """A suspicion in a 病名, flag or modifier text: a 疑 ("の疑い", "疑", "(疑)", "疑い", "疑診"), but not "疑いなし";
+    "R/O" or "s/o"; or a question mark after the name ("肺癌?", "肺癌？") (review of PR #1095 item 3, second
+    review item 2)."""
     t = unicodedata.normalize("NFKC", text or "")
     for word in _NOT_SUSPECTED:
         t = t.replace(word, "")
-    return "疑" in t
+    return "疑" in t or bool(_RULE_OUT.search(t)) or t.rstrip().endswith("?")
+
+
+def _jhsd0005(system: str) -> bool:
+    """Whether a coding system names table JHSD0005, also with a local prefix (``99JHSD0005``)."""
+    return system.endswith("JHSD0005")
 
 
 def _suspected(prb: hl7.Segment) -> bool:
-    """A suspected diagnosis: PRB-13 ``1^疑いあり^JHSD0005`` (any coding system name, as vendors vary), or a 病名
-    whose text (PRB-3, or the written name in PRB-17) carries a 疑 (``の疑い``, ``疑``, ``(疑)``) when the vendor
-    sends no flag. The flag is read from whichever triple names table JHSD0005 (a hospital's own code may stand
-    first), and such a triple alone decides: a named ``0`` is not overruled by a ``1`` of another table or of none.
-    With no triple naming the table, a triple whose code is ``1`` with a 疑 in its text is the flag whatever its
-    coding system (``1^疑い^99ZZZ``), and the first triple is read as it always was."""
-    named = [(flag, text) for flag, text, system in _triples(prb, 13) if system == "JHSD0005"]
-    if not named:
-        if any(flag.strip() == "1" and suspicion_in(text) for flag, text, _s in _triples(prb, 13)):
-            return True
-        first = prb.comp(13, 3).strip() == ""
-        named = [(prb.comp(13, 1) if first else "", prb.comp(13, 2))]
+    """A suspected (provisional) diagnosis: any one of the three says so, and when they disagree it is provisional
+    (second review of PR #1095 item 2: a "0" flag never overrules a 疑 in the text). (1) PRB-13 ``1^疑いあり^JHSD0005``
+    in whichever triple names the table (also ``99JHSD0005``), or a ``1`` whose text carries a 疑 under any table, or
+    a ``1`` in the first triple when no table is named; (2) a suspicion in the 病名 (PRB-3) or its written name
+    (PRB-17), :func:`suspicion_in`. The ZPR modifiers are read by the caller. A bare ``1`` of an unknown table with no
+    such text is not the flag."""
+    triples = _triples(prb, 13)
+    named = [(flag, text) for flag, text, system in triples if _jhsd0005(system)]
+    if not named and prb.comp(13, 3).strip() == "":
+        named = [(prb.comp(13, 1), prb.comp(13, 2))]
     if any(flag.strip() == "1" or "疑いあり" in text for flag, text in named):
         return True
-    if any(flag.strip() == "0" for flag, _t in named):  # a named "no suspicion" decides (its own earlier review)
-        return False
+    if any(flag.strip() == "1" and suspicion_in(text) for flag, text, _s in triples):
+        return True
     return suspicion_in(prb.comp(3, 2)) or suspicion_in(prb.comp(17, 1))
 
 
@@ -300,11 +309,17 @@ def _table_rows(name: str) -> list[dict[str, str]]:
         return list(csv.DictReader(fh))
 
 
+# Second review of PR #1095 item 9: a row is applied only once its meaning is verified against the published table
+# (``verified`` = ``yes``); until then its ``status`` is a proposal for the owner's Japanese reader, and the code
+# reads as unknown (U). No row is verified today.
 _OUTCOME: dict[str, dict[str, str]] = {}
+_OUTCOME_TABLES: set[str] = set()
 for _r in _table_rows("prb14_outcome.csv"):
-    _OUTCOME.setdefault(_r["system"].strip().upper(), {})[_r["code"].strip().upper()] = _r["status"].strip()
+    _OUTCOME_TABLES.add(_r["system"].strip().upper())
+    if _r["verified"].strip().lower() == "yes":
+        _OUTCOME.setdefault(_r["system"].strip().upper(), {})[_r["code"].strip().upper()] = _r["status"].strip()
 _LOINC_NOTE = {r["loinc"].strip(): r["note_type"].strip() for r in _table_rows("document_loinc.csv")}
-_OUTCOME_ANY = {**_OUTCOME["HL70241"], **_OUTCOME["JHSD0006"]}
+_OUTCOME_ANY = {code: st for table in _OUTCOME.values() for code, st in table.items()}
 _OUTCOME_WORDS = (("治癒", "R"), ("resolved", "R"), ("死亡", "I"), ("寛解", "M"), ("中止", "U"), ("継続", "A"))
 _DELETED = ("DE",)  # PRB-1 (HL7 table 0287): DE deletes the diagnosis (review 12 §4.4)
 _RANK = {"1": "Y", "2": "N"}  # PRB-18 (JHSD0007): 1 主診断, 2 副診断
@@ -317,16 +332,16 @@ def outcome_status(prb: hl7.Segment) -> tuple[str, str]:
     code, text, system = prb.comp(14, 1).strip(), prb.comp(14, 2), prb.comp(14, 3).strip().upper()
     if not code and not text:
         return "A", ""
-    table = _OUTCOME.get(system, _OUTCOME_ANY)
+    table = _OUTCOME.get(system, {}) if system in _OUTCOME_TABLES else _OUTCOME_ANY
     if code.upper() in table:
         return table[code.upper()], code
     if code.lower() == "resolved":
         return "R", code
     # the reader's own legacy words, A and R with no table named (TrialBox's exporter and older tests write them):
     # read as they always were; a code R that names table 0241 is not verified and is U
-    if code.upper() in ("A", "R") and system not in _OUTCOME:
+    if code.upper() in ("A", "R") and system not in _OUTCOME_TABLES:
         return code.upper(), code
-    if system in _OUTCOME:  # a code of a named table that is not mapped: not verified, never active
+    if system in _OUTCOME_TABLES:  # a code of a named table that is not verified: never active
         return "U", code
     word = next((st for w, st in _OUTCOME_WORDS if w in text or w == code), "")
     return word or "U", code
@@ -413,23 +428,24 @@ def doses_from_text(text: str) -> int | None:
     return n or None
 
 
-def rx_lines(msg: hl7.Message) -> list[tuple[hl7.Segment, hl7.Segment, hl7.Segment | None]]:
-    """Every drug line of an order message as ``(ORC, RXE, TQ1)`` (review of PR #1095 item 6): each RXE with the ORC
-    before it, and the TQ1 of its group, whether it stands before the RXE (RDE^O11's order) or after it."""
-    out: list[tuple[hl7.Segment, hl7.Segment, hl7.Segment | None]] = []
-    orc: hl7.Segment | None = None
-    pending: hl7.Segment | None = None
+def rx_lines(msg: hl7.Message) -> list[tuple[hl7.Segment, hl7.Segment, hl7.Segment | None, bool]]:
+    """Every drug line of an order message as ``(ORC, RXE, TQ1, ambiguous)`` (review of PR #1095 item 6): each RXE
+    with the ORC before it. A TQ1 is the line's timing only when the message's structure leaves no doubt (second
+    review item 5): its ORC group holds one RXE and one TQ1 (before the RXE, as RDE^O11 orders it, or after). An ORC
+    group with several RXE, or several TQ1, gives its lines no TQ1 and ``ambiguous`` true: no daily dose."""
+    groups: list[tuple[hl7.Segment, list[hl7.Segment], list[hl7.Segment]]] = []
     for seg in msg.segments:
         if seg.name == "ORC":
-            orc, pending = seg, None
-        elif seg.name == "TQ1":
-            if out and out[-1][0] is orc and out[-1][2] is None and pending is None:
-                out[-1] = (out[-1][0], out[-1][1], seg)
-            else:
-                pending = seg
-        elif seg.name == "RXE" and orc is not None:
-            out.append((orc, seg, pending))
-            pending = None
+            groups.append((seg, [], []))
+        elif groups and seg.name == "RXE":
+            groups[-1][1].append(seg)
+        elif groups and seg.name == "TQ1":
+            groups[-1][2].append(seg)
+    out: list[tuple[hl7.Segment, hl7.Segment, hl7.Segment | None, bool]] = []
+    for orc, rxes, tq1s in groups:
+        clear = len(rxes) == 1 and len(tq1s) <= 1
+        for rxe in rxes:
+            out.append((orc, rxe, tq1s[0] if clear and tq1s else None, not clear and bool(tq1s)))
     return out
 
 
@@ -566,6 +582,8 @@ class Ssmix2Source:
         self._index: dict[str, list[StoredFile]] | None = None
         self._repeated: set[tuple[str, str, str]] = set()  # (patient, type, order no) live on several days
         self._gone: dict[str, list[StoredFile]] = {}  # newest version deleted (flag 0), by message type
+        self._prev: dict[Path, StoredFile] = {}  # a current version -> the live version before it
+        self._rx_dead: list[Row] = []  # drug lines a newer version of their order no longer holds: tombstones
         self._deleted_docs: list[Row] = []  # extended-storage documents whose newest version is deleted
         self.quarantine_max_pct = quarantine_max_pct
         self.quarantined: list[tuple[str, str, str]] = []  # (message type, path under the root, reason), STD-020
@@ -606,6 +624,7 @@ class Ssmix2Source:
         """The current version of every record by message type (latest timestamp wins, flag 0 = deleted)."""
         if self._index is None:
             latest: dict[tuple[str, str, str, str], StoredFile] = {}
+            versions: dict[tuple[str, str, str, str], list[StoredFile]] = {}
             per_day: dict[tuple[str, str, str, str], StoredFile] = {}  # the newest version in each day folder
             for f in self._walk():
                 sf = parse_name(f)
@@ -617,6 +636,7 @@ class Ssmix2Source:
                 # types (a per-day sequence, not an order number) keep their day
                 by_day = sf.order in ("-", ALL9) or self.order_key == "per_day" or sf.type.startswith("ADT-")
                 key = (sf.patient, sf.type, sf.order, sf.day if by_day else "")
+                versions.setdefault(key, []).append(sf)
                 cur = latest.get(key)
                 if cur is None or _newer(sf, cur):
                     latest[key] = sf
@@ -645,8 +665,20 @@ class Ssmix2Source:
                     self.stats[f"{typ}:delete filed under another day (order left live)"] += 1
             index: dict[str, list[StoredFile]] = {}
             gone: dict[str, list[StoredFile]] = {}
+            prev: dict[Path, StoredFile] = {}
+            for key, sf in latest.items():
+                older = [o for o in versions[key] if o.stamp < sf.stamp and not o.deleted and o.flag != "2"]
+                if older:
+                    prev[sf.path] = max(older, key=lambda o: (o.stamp, o.path.name))
             for sf in sorted(latest.values(), key=lambda s: (s.type, s.patient, s.day, s.order)):
+                if sf.flag == "2":
+                    # flag 2's meaning ("past history", review 12 §4.4) is not cited from the specification: a record
+                    # whose newest version carries it is set aside, neither read nor deleted (second review of PR
+                    # #1095 item 9), and listed for the owner's Japanese reader
+                    self.stats[f"{sf.type}:set aside (condition flag 2, meaning not verified)"] += 1
+                    continue
                 (gone if sf.deleted else index).setdefault(sf.type, []).append(sf)
+            self._prev = prev
             self._index = index
             self._gone = gone
         return self._index
@@ -664,11 +696,13 @@ class Ssmix2Source:
             yield from list(self._lab_dead)
         if table == "diagnosis":
             yield from list(self._dx_dead)
+        if table == "medication":
+            yield from list(self._rx_dead)
         self._files()
         build: Callable[[StoredFile, hl7.Message], Iterator[Row]] = getattr(self, f"_{table}")
         # a deleted file is read only to name its records: what that read appends to the tombstone lists is taken
         # here and removed again, so the lists never grow or repeat on another call (review of PR #1095)
-        marks = (len(self._dx_dead), len(self._lab_dead))
+        marks = (len(self._dx_dead), len(self._lab_dead), len(self._rx_dead))
         for typ in TYPES[table]:
             for sf in self._gone.get(typ, []):
                 dead = len(self._dx_dead)
@@ -685,6 +719,7 @@ class Ssmix2Source:
                     yield row
         del self._dx_dead[marks[0] :]
         del self._lab_dead[marks[1] :]
+        del self._rx_dead[marks[2] :]
 
     def _order_on_its_day(self, sf: StoredFile) -> str:
         """The order number for an id built from it (a result with no id of its own): with ``per_day`` it
@@ -759,6 +794,8 @@ class Ssmix2Source:
             self._lab_dead = []
         if table == "diagnosis":
             self._dx_dead = []
+        if table == "medication":
+            self._rx_dead = []
         out: list[Row] = []
         for typ in TYPES[table]:
             for sf, msg in self._messages(typ):
@@ -774,7 +811,7 @@ class Ssmix2Source:
             # file was written (a diagnosis recorded long ago and ended last night is a change, review of PR
             # #1095 item 2)
             changed = str(row.pop("_changed", "") or "")
-            cols = (delta_column, "class_changed_at", "end_datetime")
+            cols = (delta_column, "class_changed_at", "end_datetime", "end_date")
             stamp = max([str(row.get(c) or "") for c in cols if c] + [changed])
             if delta_column and not after(stamp or None, since):
                 continue
@@ -1030,23 +1067,56 @@ class Ssmix2Source:
         the 用法 of TQ1-3, through the site's usage table, else its text ("1日3回"); ``daily_dose`` is their product,
         and stays empty when the frequency is unknown (頓用, no TQ1-3, a wording the reader does not read): never a
         guess. RXE-31's YJ code is read when RXE-2 names no YJ code (a HOT9 or local first code)."""
-        seen: Counter[str] = Counter()
-        for orc, rxe, tq1 in rx_lines(msg):
-            row = self._medication_line(sf, orc, rxe, tq1)
-            seen[row["rx_no"]] += 1
-            if seen[row["rx_no"]] > 1:  # another drug of the same order: its own key (review of PR #1095 item 6)
-                row["rx_no"] = f"{row['rx_no']}#{seen[row['rx_no']]}"
-                self.stats[f"{sf.type}:drug line after the first"] += 1
-            yield row
+        rows = self._medication_rows(sf, msg)
+        prev = self._prev.get(sf.path)
+        if prev is not None and not sf.deleted:
+            # a line the newer version no longer holds is a tombstone (second review of PR #1095 item 4)
+            keys = {r["rx_no"] for r in rows}
+            counts = (self.stats.copy(), self.drug_lines.copy(), self.missed.copy())
+            try:  # read only to name its lines: what that read counts is put back
+                old = self._medication_rows(prev, hl7.parse(hl7.decode(prev.path.read_bytes())), count=False)
+            except Exception:  # an older version that cannot be read names no line
+                old = []
+            self.stats, self.drug_lines, self.missed = counts
+            for row in old:
+                if row["rx_no"] not in keys:
+                    self._rx_dead.append(row)
+                    self.stats[f"{sf.type}:drug line gone from a newer version"] += 1
+        yield from rows
 
-    def _medication_line(self, sf: StoredFile, orc: hl7.Segment, rxe: hl7.Segment, tq1: hl7.Segment | None) -> Row:
+    def _medication_rows(self, sf: StoredFile, msg: hl7.Message, count: bool = True) -> list[Row]:
+        """The drug lines of one order message. One line keeps the order number as its key (``rx_no``); in a message
+        of several lines each is keyed by the order number, its Rp number (ORC-4) and its drug code (RXE-2), never by
+        its position, so a line removed in a newer version does not hand its key to the next (second review of PR
+        #1095 item 4); the same Rp and drug twice is told apart by its occurrence and counted."""
+        lines = rx_lines(msg)
+        rows: list[Row] = []
+        seen: Counter[str] = Counter()
+        for orc, rxe, tq1, ambiguous in lines:
+            row = self._medication_line(sf, orc, rxe, tq1, count)
+            if ambiguous and count:
+                self.stats[f"{sf.type}:timing not tied to one drug (no daily dose)"] += 1
+            if len(lines) > 1:
+                key = f"{row['rx_no']}#{orc.comp(4, 1) or '-'}:{rxe.comp(2, 1) or '-'}"
+                seen[key] += 1
+                if seen[key] > 1:
+                    if count:
+                        self.stats[f"{sf.type}:same Rp and drug twice in one order"] += 1
+                    key = f"{key}~{seen[key]}"
+                row["rx_no"] = key
+            rows.append(row)
+        return rows
+
+    def _medication_line(
+        self, sf: StoredFile, orc: hl7.Segment, rxe: hl7.Segment, tq1: hl7.Segment | None, count: bool = True
+    ) -> Row:
         codes = drug_codes(rxe, 2)
         source = ""
         yj31 = supplementary_yj(rxe)
         if yj31 and not any(system in _YJ_SYS for _c, _t, system in _triples(rxe, 2)):
             source = codes["yj"] or codes["hot"]
             codes = {**codes, "yj": yj31}
-            self.stats["medication:YJ from RXE-31"] += 1
+            self.stats["medication:YJ from RXE-31"] += count
         row = self._drug_row(sf, orc, codes, source)
         dose = rxe.comp(3, 1)
         code, text = usage(tq1)
@@ -1059,9 +1129,9 @@ class Ssmix2Source:
         daily = times(dose, per_day)
         if dose and not daily:
             why = "no frequency" if per_day is None else "dose not a number"
-            self.stats[f"{sf.type}:daily dose unknown ({why})"] += 1
+            self.stats[f"{sf.type}:daily dose unknown ({why})"] += count
             if code and per_day is None:
-                self.missed[f"usage:{code}"] += 1
+                self.missed[f"usage:{code}"] += count
         row.update(
             start_date=(hl7.ts(tq1.field(7)) or "") if tq1 else "",
             end_date=(hl7.ts(tq1.field(8)) or "") if tq1 else "",
@@ -1195,6 +1265,33 @@ class Ssmix2Source:
         return out
 
     # ------------------------------------------------------------------ extended storage
+    def _ext_kind_dirs(self, root: Path) -> list[Path]:
+        """The data-type folders of the extended storage, ``<pid 1-3>/<pid 4-6>/<pid>/<診療日>/<データ種別>``, in name
+        order; a symbolic link at any level is counted and never followed out of the root (second review of PR #1095
+        item 6), as in the standardised storage."""
+        level = [root]
+        for _depth in range(5):
+            nxt: list[Path] = []
+            for d in level:
+                for c in sorted(d.iterdir()):
+                    if c.is_symlink():
+                        self.stats["document:not read (a symbolic link, not followed)"] += 1
+                    elif c.is_dir():
+                        nxt.append(c)
+            level = nxt
+        return level
+
+    def _ext_problem(self, f: Path) -> str:
+        """Why a document file or content folder is not read, as a pattern that names no patient: a symbolic link, a
+        hidden name, a backup or temporary copy (``b.txt.bak``, ``b.txt~``)."""
+        if f.is_symlink():
+            return "a symbolic link, not followed"
+        if f.name.startswith("."):
+            return "a hidden name"
+        if f.name.endswith("~") or ("." in f.name and f.name.rsplit(".", 1)[-1].lower() in _COPY_EXT):
+            return "a backup or temporary copy"
+        return ""
+
     def _documents(self) -> Iterator[Row]:
         """Documents of the extended storage as ``note`` rows. Under each data-type folder (``<pid 1-3>/<pid 4-6>/
         <pid>/<診療日>/<データ種別>``) a file is one document (the layout read before), and a folder is the guideline's
@@ -1207,22 +1304,31 @@ class Ssmix2Source:
         if not root.is_dir():
             return
         latest: dict[tuple[str, ...], tuple[str, Path, str, str, str, bool]] = {}
-        for kind_dir in sorted(root.glob("*/*/*/*/*")):
-            if not kind_dir.is_dir():
-                continue
+        for kind_dir in self._ext_kind_dirs(root):
             patient, day, kind = kind_dir.parts[-3], kind_dir.parts[-2], kind_dir.name
             for f in sorted(kind_dir.iterdir()):
+                why = self._ext_problem(f)
+                if why:
+                    self.stats[f"document:not read ({why})"] += 1
+                    continue
                 stem = f.name.rsplit(".", 1)[0] if f.is_file() and "." in f.name else f.name
                 sf = parse_name(Path(stem))
                 if sf is not None and sf.patient == patient:
+                    if sf.flag == "2":  # its meaning not verified (second review of PR #1095 item 9)
+                        self.stats["document:set aside (condition flag 2, meaning not verified)"] += 1
+                        continue
                     key: tuple[str, ...] = (patient, day, kind, sf.order)
                     stamp, deleted = sf.stamp, sf.deleted
+                elif len(stem.split("_")) == 7 and stem.split("_")[0] == patient:
+                    self.stats["document:not read (a condition flag other than 0, 1 or 2)"] += 1
+                    continue
                 else:
                     key, stamp, deleted = (patient, day, kind, f.name), "", False
                     if f.is_dir():
                         self.stats["document:content folder without a standardized name"] += 1
                 cur = latest.get(key)
-                if cur is None or stamp > cur[0]:
+                # the later 発生日時; on the same time a deletion wins, as in the standardised storage (_newer)
+                if cur is None or stamp > cur[0] or (stamp == cur[0] and deleted and not cur[5]):
                     latest[key] = (stamp, f, patient, day, kind, deleted)
         for key, (stamp, f, patient, day, kind, deleted) in sorted(latest.items()):
             if deleted:
@@ -1233,7 +1339,11 @@ class Ssmix2Source:
                 self.stats["document:content folder"] += 1
                 texts: list[str] = []
                 hows: list[str] = []
-                for part in sorted(x for x in f.iterdir() if x.is_file()):
+                for part in sorted(x for x in f.iterdir()):
+                    why = self._ext_problem(part)
+                    if why or not part.is_file():
+                        self.stats[f"document:not read ({why or 'a folder inside a content folder'})"] += 1
+                        continue
                     if part.name == CONTENTS_INDEX:
                         self.stats["document:_contents.xml not read"] += 1
                         continue
