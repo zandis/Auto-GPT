@@ -29,6 +29,7 @@ from xml.etree import ElementTree as ET  # building only; nothing is parsed here
 from edc import cdash
 from tb_common import sheets
 
+from datacore import proxy_consent
 from datacore.forms import LANGS, XML_ILLEGAL, Field, checkbox_column, fields_of, titles_of, xml_text
 from datacore.lifecycle import Lifecycle, live_steps
 from datacore.store import DataCore, DataError
@@ -49,6 +50,10 @@ def export_fields(dc: DataCore, study: str) -> list[Field]:
     out: list[Field] = []
     for q in dc.forms(study):
         out.extend(f for f in fields_of(q) if f.kind != "display")
+    # 10C-19 (D-1232): the consent form's representative and assent items come last, after every other column, so a
+    # reader of the columns before them finds them where they were (absent while the setting is off)
+    late = [f for f in out if f.form == "tb_consent" and f.name in proxy_consent.FIELDS]
+    out = [f for f in out if f not in late] + late
     if not any(f.name == RECORD_ID for f in out):
         form = out[0].form if out else "record"
         out.insert(0, Field(RECORD_ID, form, "text", "Record ID", labels={"ja": "レコードID", "zh-TW": "紀錄編號"}))

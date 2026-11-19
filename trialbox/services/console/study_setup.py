@@ -28,6 +28,7 @@ from typing import Any
 from urllib.parse import quote
 
 from datacore import lifecycle as lc
+from datacore import proxy_consent
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -133,6 +134,15 @@ def may_change_state(h: Helpers, user: User, rid: str) -> bool:
     return _permit(h, user, rid, "study.state")
 
 
+class ConsentAges(BaseModel):
+    """The body of ``POST /api/v1/studies/{rs}/setup/consent-ages`` (D-1232)."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)  # whole numbers, never "18" as text
+    majority: int
+    assent_from: int
+    assent_to: int
+
+
 class TakeBack(BaseModel):
     """The body of ``POST /api/v1/studies/{rs}/state/take-back`` (D-763)."""
 
@@ -232,6 +242,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             sae_rule=get_or_none(f"/studies/{rid}/sae-rule") if s28.has_api(bk) else None,
             sae_country=site_country(bk),  # T-629 (FIT-U06): only this country's study types are offered
             contact_rule=get_or_none(f"/studies/{rid}/contact-rule") if s28.has_api(bk) else None,
+            consent_ages=get_or_none(f"/studies/{rid}/consent-ages") if s28.has_api(bk) else None,  # D-1232
             last=reads[0] if reads else None,
             all_reasons=ALL_REASONS,
             study_types=STUDY_TYPES,
@@ -328,6 +339,55 @@ def register(app: FastAPI, h: Helpers) -> None:
             detail={"section": "contact", "max_attempts": body["max_attempts"], "min_days": body["min_days"]},
         )
         return RedirectResponse(f"/studies/{rid}/setup?saved=contact#contact", status_code=303)
+
+    @app.post("/studies/{rs}/setup/consent-ages")
+    def save_consent_ages(request: Request, rs: str, csrf: str = Form(""), majority: str = Form(""),
+                          assent_from: str = Form(""), assent_to: str = Form("")) -> Response:  # fmt: skip
+        """10C-19 (D-1232): the study's age of majority and the ages asked for assent, as the protocol gives them;
+        the consent record warns by them. Who may change the contact rule may change these, and no one else."""
+        sess = h.need(request)
+        rid = study_or_404(sess, rs)
+        need_edit(request, sess, csrf)
+        try:
+            body = {"majority": int(majority), "assent_from": int(assent_from), "assent_to": int(assent_to)}
+        except ValueError:
+            raise h.problem(400, "request.refused", reason="the ages are whole numbers") from None
+        try:
+            apply_consent_ages(sess, rid, body)
+        except (Problem, Unavailable) as exc:
+            return setup_page(request, sess, rid, err=err_of(exc))
+        return RedirectResponse(f"/studies/{rid}/setup?saved=consent_ages#consent-ages", status_code=303)
+
+    def apply_consent_ages(sess: Session, rid: str, body: dict[str, int]) -> Any:
+        """The page's and ``/api/v1``'s one way to save the ages (D-1232): checked, sent signed, audited."""
+        now = get_or_none(f"/studies/{rid}/consent-ages") if s28.has_api(bk) else None
+        if not (now or {}).get("on"):  # the setting is off: nothing reads the ages, so nothing is saved
+            raise h.problem(409, "request.refused", reason="consent by a representative is not recorded on this box")
+        why = proxy_consent.check_rule(body["majority"], body["assent_from"], body["assent_to"])
+        if why is not None:  # the orchestrator refuses the same (LIFE-CONSENT_AGES); said here in the page's words
+            raise h.problem(400, "request.refused", reason=why)
+        out = actor.call(h, sess, "study.setup", rid, "PUT", f"/studies/{rid}/consent-ages", body)
+        au.append("console.study_setup", ruleset=rid, actor=h.actor(sess), detail={"section": "consent_ages", **body})
+        return out
+
+    def first_consent_ages(sess: Session, request: Request) -> None:
+        """The permit check of the ``/api/v1`` twin, before the body is read (console.api_first)."""
+        study_or_404(sess, request.path_params["rs"])
+        if not can_edit(sess):
+            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
+
+    @app.post("/api/v1/studies/{rs}/setup/consent-ages", response_model=None)
+    @before_body(first_consent_ages)
+    def api_consent_ages(request: Request, rs: str, body: ConsentAges) -> Any:
+        """The page's twin (FIT-019, D-1232): ``{"majority", "assent_from", "assent_to"}``; answers the ages."""
+        assert h.api_session is not None  # set by register() before any request
+        sess = h.api_session(request)
+        rid = study_or_404(sess, rs)
+        try:
+            return apply_consent_ages(sess, rid, body.model_dump())
+        except (Problem, Unavailable) as exc:
+            return JSONResponse({"error": "request.refused", "detail": err_of(exc)}, status_code=409)
 
     @app.post("/studies/{rs}/setup/log")
     async def save_log(request: Request, rs: str) -> Response:

@@ -6,6 +6,13 @@
 #   TB_TLS_MODE=hospital   the hospital's certificate: TB_TLS_CERT_FILE (chain, PEM) and TB_TLS_KEY_FILE (PEM),
 #                          mounted read-only at /etc/caddy/certs. Check them first: python -m console.cli check-tls
 #
+#   TB_TLS_OLD_CLIENTS=off the TLS policy as it stands (D-1328): TLS 1.2 and 1.3, AEAD suites with ECDHE only (the
+#                          default and the only setting the per-release TLS check passes).
+#   TB_TLS_OLD_CLIENTS=cbc H-48 (D-1328, amended 2026-11-19): a hospital's old client without AEAD also gets the four
+#                          TLS 1.2 ECDHE suites with AES-CBC-SHA. Never TLS 1.0/1.1, static RSA, 3DES, RC4, export or
+#                          NULL. Off by default; deploy/install.sh audits the switch (update.tls_relaxed) and
+#                          `trialbox doctor` shows a line while it is on (RUNBOOK §12, the TLS check per release).
+#
 # The certificate must name TB_TLS_HOSTNAME and, with OIDC, TB_AUTH_HOSTNAME (two names or a wildcard).
 {
 	admin off
@@ -26,13 +33,39 @@ http://127.0.0.1:2020 {
 	respond 404
 }
 
+# tls_<TB_TLS_MODE> takes suites_<TB_TLS_MODE>_<TB_TLS_OLD_CLIENTS>
 (tls_internal) {
-	tls internal
+	import suites_internal_{$TB_TLS_OLD_CLIENTS:off}
 }
 
 (tls_hospital) {
+	import suites_hospital_{$TB_TLS_OLD_CLIENTS:off}
+}
+
+# TB_TLS_OLD_CLIENTS=off: what Caddy served before H-48 (Caddy's own suites: AEAD with ECDHE)
+(suites_internal_off) {
+	tls internal
+}
+
+(suites_hospital_off) {
 	tls /etc/caddy/certs/site.crt /etc/caddy/certs/site.key {
 		protocols tls1.2 tls1.3
+	}
+}
+
+# TB_TLS_OLD_CLIENTS=cbc: Caddy's AEAD suites as above plus the four ECDHE AES-CBC-SHA suites (TLS 1.2 only; TLS 1.3
+# is unchanged). tools/tls_policy.py reports this as the named exception, never as a pass
+(suites_internal_cbc) {
+	tls internal {
+		protocols tls1.2 tls1.3
+		ciphers TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
+	}
+}
+
+(suites_hospital_cbc) {
+	tls /etc/caddy/certs/site.crt /etc/caddy/certs/site.key {
+		protocols tls1.2 tls1.3
+		ciphers TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
 	}
 }
 

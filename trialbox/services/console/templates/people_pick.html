@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{# J-5 (D-1223): the menu's Candidates or Participants when the account has more than one study with that list. #}
+{% block title %}{{ t('people.pick.title', list=t('people.' + which)) }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('people.pick.title', list=t('people.' + which)) }}</h1></div>
+<section class="card" data-testid="people-pick" data-list="{{ which }}">
+{% if studies %}<p class="hint">{{ t('people.pick.lead') }}</p>
+<ul class="plain">{% for rs, href in studies %}<li><a href="{{ href }}" data-testid="people-pick-{{ rs }}">{{ rs }} · {{ t('people.' + which) }}</a></li>{% endfor %}</ul>
+{% else %}<p class="empty" data-testid="people-pick-none">{{ t('people.pick.none') }}</p>{% endif %}
+</section>
+{% endblock %}
