@@ -109,6 +109,14 @@ KEPT_CONFLICTS = (
 )
 
 
+def _q(template: str, *names: str) -> str:
+    """A statement with each ``{}`` filled by a quoted identifier (psycopg's own quoting), as the text the box's
+    database wrapper takes."""
+    from psycopg import sql
+
+    return sql.SQL(template).format(*(sql.Identifier(n) for n in names)).as_string(None)
+
+
 class Refused(RuntimeError):
     """The rebuild does not start: nothing was changed."""
 
@@ -347,13 +355,17 @@ def _clear_omop(db: Any) -> dict[str, int]:
             if col is None:
                 raise Refused(f"the OMOP store holds feed records of table {t}, which this rebuild does not know")
             counts[t] = tx.execute(
-                f"DELETE FROM {t} WHERE {col} IN (SELECT record_id FROM tb_record WHERE {OMOP_FEED} AND cdm_table = ?)",
+                _q("DELETE FROM {} WHERE {} IN (SELECT record_id FROM tb_record WHERE source_kind = 'feed' AND "
+                   "resource_type <> 'Patient' AND cdm_table = ?)", t, col),
                 (t,),
             )  # fmt: skip
         counts["tb_record_event"] = tx.execute(
-            f"DELETE FROM tb_record_event WHERE record_key IN (SELECT record_key FROM tb_record WHERE {OMOP_FEED})"
+            "DELETE FROM tb_record_event WHERE record_key IN (SELECT record_key FROM tb_record WHERE "
+            "source_kind = 'feed' AND resource_type <> 'Patient')"
         )
-        counts["tb_record"] = tx.execute(f"DELETE FROM tb_record WHERE {OMOP_FEED}")
+        counts["tb_record"] = tx.execute(
+            "DELETE FROM tb_record WHERE source_kind = 'feed' AND resource_type <> 'Patient'"
+        )  # the rows OMOP_FEED names
         _stamp(tx)
     return counts
 
@@ -387,7 +399,7 @@ def _clear_derived(db: Any) -> dict[str, Any]:
         else:
             for t in ("conflict", "input_link", "score_row"):
                 if has(t):
-                    counts[t] = tx.execute(f"DELETE FROM {t}")
+                    counts[t] = tx.execute(_q("DELETE FROM {}", t))
         if has("batch_run"):
             counts["batch_run"] = tx.execute("DELETE FROM batch_run")
         _stamp(tx)
@@ -422,7 +434,7 @@ def _stores(lake: Path, url: str, before: dict[str, Any]) -> dict[str, Any]:
             _stamp(tx)
     if prefix + "dataops" in present:
         with Database.connect(url, "dataops") as db, db.transaction() as tx:
-            done["dataops"] = {t: tx.execute(f"DELETE FROM {t}") for t in ("built", "built_kept")
+            done["dataops"] = {t: tx.execute(_q("DELETE FROM {}", t)) for t in ("built", "built_kept")
                                if tx.fetchval("SELECT to_regclass(?)", (f'"{prefix}dataops".{t}',))}  # fmt: skip
     if prefix + "edc" in present:
         with Database.connect(url, "edc") as db:

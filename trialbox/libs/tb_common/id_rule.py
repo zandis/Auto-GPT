@@ -135,6 +135,7 @@ def probe(url: str, store: Store, schema: str | None = None) -> str:
     later release), or :data:`UNREAD` (this role may not read it: D-378 gives each service the schemas of its own
     work only)."""
     import psycopg
+    from psycopg import sql
 
     from tb_common.db import split_url
 
@@ -144,14 +145,19 @@ def probe(url: str, store: Store, schema: str | None = None) -> str:
     with psycopg.connect(dsn, autocommit=True, connect_timeout=10) as con:
         try:  # the store's own tables, read as they are: a schema or a table that is not there holds no lake id
             holds = con.execute(
-                f'SELECT 1 FROM "{name}".{store.table} WHERE {store.where} LIMIT 1'  # noqa: S608 - names are ours
+                sql.SQL("SELECT 1 FROM {}.{} WHERE {} LIMIT 1").format(
+                    sql.Identifier(name), sql.Identifier(store.table), sql.SQL(store.where)
+                )
             ).fetchone()
         except missing:
             return EMPTY
         except psycopg.errors.InsufficientPrivilege:
             return UNREAD
         try:
-            rules = {r[0] for r in con.execute(f'SELECT rule FROM "{name}".tb_id_rule').fetchall()}  # noqa: S608
+            rules = {
+                r[0]
+                for r in con.execute(sql.SQL("SELECT rule FROM {}.tb_id_rule").format(sql.Identifier(name))).fetchall()
+            }
         except missing:  # a store not yet migrated to D-1253's version: written under rule 1
             rules = set()
         except psycopg.errors.InsufficientPrivilege:

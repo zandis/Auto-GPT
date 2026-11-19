@@ -91,7 +91,9 @@ def dump(root: Path, out: Path, work: Path, source: str) -> int:
             con = duckdb.connect(str(b.lake / "db" / f"{b.snapshot}.duckdb"), read_only=True)
             try:
                 cols = ("did", "chunk_no", "pid", "date", "type", "text", "tok", "sha")
-                rows = con.execute(f"SELECT {', '.join(cols)} FROM document_chunk").fetchall()
+                rows = con.execute(
+                    "SELECT did, chunk_no, pid, date, type, text, tok, sha FROM document_chunk"
+                ).fetchall()
             finally:
                 con.close()
             _write(base / "tables" / "document_chunk.jsonl.gz", [dict(zip(cols, r, strict=True)) for r in rows])
