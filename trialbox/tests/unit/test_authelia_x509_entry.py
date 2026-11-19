@@ -43,7 +43,8 @@ def test_the_reason_is_the_fact_d722_makes_true_and_its_limit() -> None:
     assert "LDAPS" in reason and "directory" in reason  # the one connection the flaw could matter on
     assert "hospital's directory CA only" in reason and "TB_LDAP_CA" in reason and "D-722" in reason  # the fix
     assert "does not start without a usable file" in reason  # where the guarantee comes from (D-722 point 3)
-    assert e_owner() == "Chang-Fu Kuo (the owner, D-1067)"
+    assert e_owner() == "security owner (D-1067)"  # a role, never a person (D-1339)
+    assert str(_entries()[0]["date"]) == "2026-11-15"  # the owner's yes of D-820
 
 
 def e_owner() -> str:

@@ -7,7 +7,8 @@ A finding is accepted only by a written entry: which package, why, and until whe
         package: pillow                  # required: the entry covers this package only
         reason: Not reachable: ...       # required, a sentence a reviewer can check
         review_by: 2027-01-31            # required ISO date, at most 180 days ahead; after it the gate fails
-        owner: security owner            # optional
+        owner: security owner            # optional here; a role or lane, never a person (tools/vex.py requires it)
+        date: 2026-11-10                 # optional here: the day it was accepted (tools/vex.py requires it, D-1339)
         image: hapiproject/hapi          # optional (T-110b): accepts the finding in this image repository only
       - id: "*"                          # D-622: every finding of ONE package in ONE third-party image of
         package: linux-libc-dev          # images.lock, named in full; never an image of ours, never without
@@ -68,10 +69,10 @@ MIN_REASON = 20
 MAX_AHEAD_DAYS = 180
 LICENCE_CLASSES = ("lgpl", "gpl", "agpl", "unknown", "dual")
 
-_VULN_KEYS = {"id", "package", "reason", "review_by", "owner", "image"}
+_VULN_KEYS = {"id", "package", "reason", "review_by", "owner", "image", "date"}
 _LIC_KEYS = {"package", "class", "chosen", "licence", "reason", "review_by", "owner"}
 _BUDGET_KEYS = {"image", "ecosystem", "max", "reason", "review_by", "owner"}
-_OS_KEYS = {"image", "reason", "review_by", "owner"}
+_OS_KEYS = {"image", "reason", "review_by", "owner", "date"}
 _REPO_PART = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*")  # one path component of an image repository, ASCII only
 EVERY_ID = "*"  # D-622: a vulnerability entry for every finding of one package in one third-party image
 IMAGES_LOCK = ROOT / "deploy" / "images.lock"
