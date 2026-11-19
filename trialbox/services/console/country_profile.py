@@ -1,5 +1,5 @@
-"""The steward's view of the country layer (10C-25, D-1250): what the Japan profile offers or turns on at this site,
-the value in force for each, and where it comes from.
+"""The country layer's lines of a night's "Site profile" section (10C-25, D-1250): what the Japan profile offers or
+turns on at this site, the value in force for each, and where it comes from.
 
 * ``site``: a setting the site made (in its settings or its environment). It wins over the layer: a named person's
   recorded choice, as the site set-up store wins over the site profile's table (D-1233).
@@ -61,3 +61,21 @@ def in_force(country: str | None, site: object, env: Mapping[str, str]) -> list[
     row("sae_rule_set", "P2", lay.value("P2", "sae_rule_set"), lifecycle.country_default(code), FROM_LAYER)
     row("committees", "P3", committees.on(code), committees.on(code), FROM_LAYER)
     return rows
+
+
+def card(backend: object) -> dict[str, Any] | None:
+    """The country layer's lines of a night's "Site profile" section (``/data-ops/batches/<id>``, D-1233): its
+    country, version and digest (12 characters) and :func:`in_force`; None for a site whose country has no layer (the
+    section is then as before). The country is the site's (``site.tz``, else ``TB_TZ``), as the site profile is
+    checked against at night."""
+    import os
+
+    from tb_common.derived import country_of
+
+    site = getattr(getattr(getattr(backend, "cfg", None), "settings", None), "site", None)
+    tz = str(getattr(site, "tz", "") or os.environ.get("TB_TZ") or "")
+    lay = country_layer.layer(country_of(tz))
+    if not lay.on:
+        return None
+    return {"country": lay.country, "version": lay.version, "digest": lay.digest[:12],
+            "rows": in_force(lay.country, site, os.environ)}  # fmt: skip

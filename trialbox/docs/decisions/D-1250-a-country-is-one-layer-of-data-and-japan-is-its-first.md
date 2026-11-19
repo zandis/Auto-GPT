@@ -48,14 +48,14 @@ seventeenth switch without anyone noticing.
    `consent_proxy`, the language, the source and mapping) stay what the wizards offer and write into a new site's
    settings. They are **not** run-time defaults, so a box whose settings do not name them prints, counts and records
    consent exactly as before (D-1229's rule; no installed box changes on upgrade).
-   - **Shown per setting.** The steward's site page (`/site`) has a "Country profile" card, only at a site whose
-     country has a layer: the layer's country, version and digest, and one row per setting it offers or turns on.
-     Each row gives the value in force, "set by the site", "from the Japan profile" or "not set: as before the
-     profile", and the profile's value (`console.country_profile.in_force`). Configuration only: no route, no
-     patient data.
-   - The schedule page's "Days off at this site" section (shown only at a site with a holiday list) says the
-     holidays and the New Year break are the country profile's, and when the site set its own break, that the site's
-     setting is used instead. Both are in en, ja and zh-TW.
+   - **Shown per setting.** A night's "Site profile" section on the data-operations page (`/data-ops/batches/<id>`,
+     D-1233), read by the same accounts that read that record, has the country layer's lines, only at a site whose
+     country has a layer: its country, version and digest (12 characters), and one row per setting it offers or
+     turns on. Each row gives the value in force, "set by the site", "from the Japan profile" or "not set: as before
+     the profile", and the profile's value (`console.country_profile.in_force`), in en, ja and zh-TW. A site without
+     a layer sees the section exactly as before. No route, no API field, no patient data.
+   - Not built, for the owner: a "Country profile" card on the site set-up overview (`/site`), which every account
+     that opens the overview would see. That is a new reader of the configuration, and this card does not add it.
 6. **Versions and audit.** The layer ships with the release, as the holiday list does (D-1230), so its version is
    the release's. Its country, version and digest are written in the site profile's record (`site_profile.json`,
    `active.layer`, by `adapter.site_profile.activate`), and a load of the same profile under another layer version
@@ -91,4 +91,4 @@ every site by the text's characters or language: the layer lists them as "On eve
 The next Japan card adds its data to its part and reads it with `country_layer.value`; a second country is one more
 file in `country_layer.FILES` and its own parts. Known limit: the record's layer is written at a load of the site
 profile, so after an update brings a new layer version the record names the earlier one until a person loads the
-profile again; the version in force is the release's, shown on the site page.
+profile again; the version in force is the release's, shown in the night's "Site profile" section.

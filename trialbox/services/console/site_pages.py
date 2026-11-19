@@ -383,24 +383,6 @@ def register(app: FastAPI, h: Helpers) -> None:
             err = str(exc)[:200]
         return {"rd": rd, "err": err}
 
-    def country_card() -> dict[str, Any] | None:
-        """10C-25 (D-1250): the country layer's settings at this site, each with where it comes from; None for a site
-        whose country has no layer (its page is as before). Configuration only, no patient data."""
-        import os
-
-        from tb_common import country_layer
-        from tb_common.derived import country_of
-
-        from console.country_profile import in_force
-
-        site = getattr(getattr(getattr(bk, "cfg", None), "settings", None), "site", None)
-        tz = str(getattr(site, "tz", "") or os.environ.get("TB_TZ") or "")
-        lay = country_layer.layer(country_of(tz))
-        if not lay.on:
-            return None
-        return {"country": lay.country, "version": lay.version, "digest": lay.digest[:12],
-                "rows": in_force(lay.country, site, os.environ)}  # fmt: skip
-
     # ------------------------------------------------------------------ pages
     @app.get("/site")
     def site(request: Request, ws: str = "main", study: str = "") -> Response:
@@ -414,7 +396,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 feas = dict(get(f"/setup/{w}/feasibility?study={quote(rs)}"))
             except (Problem, Unavailable):
                 feas = None
-        return h.page(request, "site_ready.html", sess, **ctx(sess, w, rs), **data, feas=feas, layer=country_card())
+        return h.page(request, "site_ready.html", sess, **ctx(sess, w, rs), **data, feas=feas)
 
     @app.get("/site/start")
     def wizard(request: Request, ws: str = "main", study: str = "", step: int = 1) -> Response:

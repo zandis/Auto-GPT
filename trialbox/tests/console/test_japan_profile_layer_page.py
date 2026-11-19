@@ -1,88 +1,36 @@
-"""10C-25 (D-1250): the page where the site's calendar settings are shown says which come from the Japan profile
-and which the site set itself, and that the site's own setting wins; a site of another country sees exactly the page
-it saw before (the same bytes with every country layer taken away).
+# ruff: noqa: F811 - the box fixture is imported from test_console_app and taken by name
+"""10C-25 (D-1250): a night's "Site profile" section (``/data-ops/batches/<id>``, D-1233) names the country layer
+above the profile (its country, version and digest) and, per setting the layer offers or turns on, the value in force
+and whether it is "from the Japan profile", "set by the site" or "not set: as before the profile". A site whose
+country has no layer sees the section exactly as before: the same bytes with every country layer taken away.
 
-Synthetic data only: the test box's study GZQO and the Cabinet Office's public holiday list."""
+Synthetic data only: the synthetic Japanese hospital's profile stamp and the Cabinet Office's public holiday list."""
 
 from __future__ import annotations
 
 import html
 import re
-from datetime import datetime
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import pytest
-from tb_common import country_layer, workdays
-from tb_common.workdays import for_country
+from tb_common import country_layer, derived
 
 from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
-from tests.console.test_lifecycle_pages import PW, lb  # noqa: F401 - the fixture is used by name
+from tests.console.test_dataops_site_profile import PROFILE, _night, _section, _steward
 from tests.unit.test_japan_profile_layer import _layers
 
 WORDS = {
-    "en": ("are the country profile's (JP, version 1.0.0)", "a setting the site made is used instead"),
-    "ja": (
-        "は国別プロファイル（JP、バージョン 1.0.0）のものです",
-        "施設の設定が国別プロファイルの値（12-29/01-03）より優先されます",
-    ),
-    "zh-TW": ("取自國別設定檔（JP，版本 1.0.0）", "採用本院的設定，而非國別設定檔的值（12-29/01-03）"),
-}
-
-
-def test_the_days_off_say_they_come_from_the_japan_profile_and_that_the_sites_break_wins(
-    lb: dict[str, Any],  # noqa: F811
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    lb["clock"]["now"] = datetime(2026, 12, 20, 1, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
-    c, csrf = login(lb["app"], "crc", PW)
-    for lang, (layer, wins) in WORDS.items():
-        c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
-        monkeypatch.setattr(workdays, "for_zone", lambda _tz, env=None: for_country("JP", {}))
-        page = c.get("/studies/GZQO/schedule").text
-        line = html.unescape(page[page.index('data-testid="days-off-layer"') :].split("</p>", 1)[0])
-        assert layer in line and "12-29/01-03" in line and wins not in line
-        assert "2026-12-29" in page  # the layer's break is the one counted
-        mine = {"TB_NEW_YEAR_BREAK": "12-28/01-04"}
-        monkeypatch.setattr(workdays, "for_zone", lambda _tz, env=None, m=mine: for_country("JP", m))
-        page = c.get("/studies/GZQO/schedule").text
-        line = html.unescape(page[page.index('data-testid="days-off-layer"') :].split("</p>", 1)[0])
-        assert layer in line and wins in line and "12-28/01-04" in line
-        assert "2026-12-28" in page  # and the site's is the one counted
-
-
-def test_a_site_of_another_country_sees_the_same_bytes_with_or_without_any_country_layer(
-    lb: dict[str, Any],  # noqa: F811
-) -> None:
-    """The test box is in Taipei: no layer. Its schedule page is byte for byte the page with every layer taken away
-    (no layer at all is what master had for every site but the committees part, which Taipei never read)."""
-    lb["clock"]["now"] = datetime(2026, 12, 20, 1, 0, tzinfo=ZoneInfo("Asia/Taipei"))
-    c, csrf = login(lb["app"], "crc", PW)
-    for lang in WORDS:
-        c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
-        with_layers = c.get("/studies/GZQO/schedule").text
-        with _layers({}):
-            without = c.get("/studies/GZQO/schedule").text
-        assert with_layers.replace(_csrf(with_layers), "") == without.replace(_csrf(without), "")
-        assert 'data-testid="days-off' not in with_layers
-    assert not country_layer.layer("TW").on
-
-
-def _csrf(page: str) -> str:
-    """The page's form token (a new one may be drawn per request): left out of the comparison."""
-    i = page.find('name="csrf" value="')
-    return page[i + 19 : page.index('"', i + 19)] if i >= 0 else "\0"
-
-
-# ------------------------------------------------------------------------- the site page's country profile card
-from tests.console.test_site_setup_pages import PW as SITE_PW  # noqa: E402
-from tests.console.test_site_setup_pages import sb  # noqa: E402, F401 - the fixture is used by name
-
-CARD = {
     "en": ("Country profile", "set by the site", "from the Japan profile", "not set: as before the profile"),
     "ja": ("国別プロファイル", "施設が設定", "日本のプロファイルから", "未設定：プロファイル導入前のとおり"),
     "zh-TW": ("國別設定檔", "本院設定", "取自日本設定檔", "未設定：與設定檔啟用前相同"),
 }
+
+
+@pytest.fixture(autouse=True)
+def _orch(box: dict[str, Any]) -> None:
+    from tests.console.dataops_orch import attach
+
+    attach(box["backend"], box["audit"])
 
 
 def _rows(page: str) -> dict[str, tuple[str, str, str]]:
@@ -94,43 +42,59 @@ def _rows(page: str) -> dict[str, tuple[str, str, str]]:
     return out
 
 
-def test_the_site_page_shows_each_setting_from_the_japan_profile_or_set_by_the_site(
-    sb: dict[str, Any],  # noqa: F811
-    monkeypatch: pytest.MonkeyPatch,
+def test_the_site_profile_section_names_the_layer_and_where_each_setting_comes_from(
+    box: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tb_common import derived
-
     monkeypatch.setattr(derived, "country_of", lambda tz=None, locale=None: "JP")  # a box in Japan
     for k in ("TB_CONSENT_PROXY", "TB_NEW_YEAR_BREAK", "TB_JP_INGREDIENT_ATC"):
         monkeypatch.delenv(k, raising=False)
-    c, csrf = login(sb["app"], "crc", SITE_PW)
-    page = c.get("/site?study=GZQO").text
-    rows = _rows(page)
+    bid = _night(box, PROFILE)
+    c, csrf = _steward(box)
+    sec = _section(c.get(f"/data-ops/batches/{bid}").text)
+    rows = _rows(sec)
     lay = country_layer.layer("JP")
-    assert f"1.0.0, {lay.digest[:12]}" in page and len(rows) == 10
+    assert f"1.0.0, {lay.digest[:12]}" in sec and lay.digest not in sec and len(rows) == 10
     assert rows["new_year_break"] == ("layer", "12-29/01-03", "12-29/01-03")
     assert rows["printed_dates"] == ("unset", "western", "both")  # the layer is not a run-time default (D-1229)
     assert rows["consent_proxy"] == ("unset", "off", "on")
     assert rows["egfr"] == ("layer", "egfr_jsn", "egfr_jsn") and rows["committees"][0] == "layer"
-    # the site sets its own: each one says so and wins
+    # the site sets its own: each says so, and its value is the one in force
     monkeypatch.setenv("TB_CONSENT_PROXY", "off")
     monkeypatch.setenv("TB_NEW_YEAR_BREAK", "12-28/01-04")
-    for lang, words in CARD.items():
-        c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
-        page = c.get("/site?study=GZQO").text
-        rows = _rows(page)
+    for lang, words in WORDS.items():
+        c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"})
+        sec = _section(c.get(f"/data-ops/batches/{bid}").text)
+        rows = _rows(sec)
         assert rows["new_year_break"] == ("site", "12-28/01-04", "12-29/01-03")
         assert rows["consent_proxy"] == ("site", "off", "on")
-        sec = html.unescape(page[page.index('data-testid="site-country-layer"') :].split("</section>", 1)[0])
-        assert all(w in sec for w in words), lang
+        assert all(w in html.unescape(sec) for w in words), lang
+        assert "style=" not in sec and "nowrap" not in sec
 
 
-def test_a_site_without_a_country_layer_has_no_card_and_the_same_page(sb: dict[str, Any]) -> None:  # noqa: F811
-    c, csrf = login(sb["app"], "crc", SITE_PW)  # the test box is in Taipei
+def test_a_site_without_a_country_layer_sees_the_section_as_before(box: dict[str, Any]) -> None:
+    """The test box is in Taipei: no layer, no lines, and the page is the same bytes with every layer taken away."""
+    bid = _night(box, PROFILE)
+    c, csrf = _steward(box)
     for lang in WORDS:
-        c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
-        with_layers = c.get("/site?study=GZQO").text
+        c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"})
+        with_layers = c.get(f"/data-ops/batches/{bid}").text
         with _layers({}):
-            without = c.get("/site?study=GZQO").text
-        assert 'data-testid="site-country-layer"' not in with_layers
+            without = c.get(f"/data-ops/batches/{bid}").text
+        assert 'data-testid="profile-layer' not in with_layers
         assert with_layers.replace(_csrf(with_layers), "") == without.replace(_csrf(without), "")
+    assert not country_layer.layer("TW").on
+
+
+def test_a_night_read_without_a_profile_has_no_layer_lines_either(
+    box: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(derived, "country_of", lambda tz=None, locale=None: "JP")
+    bid = _night(box, None)
+    c, _ = _steward(box)
+    assert 'data-testid="profile-layer' not in c.get(f"/data-ops/batches/{bid}").text
+
+
+def _csrf(page: str) -> str:
+    """The page's form token (a new one may be drawn per request): left out of the comparison."""
+    i = page.find('name="csrf" value="')
+    return page[i + 19 : page.index('"', i + 19)] if i >= 0 else "\0"

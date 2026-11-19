@@ -34,6 +34,15 @@
 {% if profile.units_not_read_rows %}<li data-testid="profile-units">{{ t('dataops.profile.units', n='{:,}'.format(profile.units_not_read_rows)) }}</li>{% endif %}
 </ul>
 {% if profile.pending %}<p class="warn" data-testid="profile-pending">{{ t('dataops.profile.pending', digest=profile.pending) }}</p>{% endif %}
+{% if layer %}{# 10C-25 (D-1250): the country layer above the profile, and where each of its settings comes from #}
+<h3 data-testid="profile-layer">{{ t('dataops.layer.title') }}</h3>
+<p class="hint">{{ t('dataops.layer.help', country=layer.country, version=layer.version, digest=layer.digest) }}</p>
+<div class="scroll" tabindex="0"><table data-testid="profile-layer-rows">
+<thead><tr><th>{{ t('dataops.layer.setting') }}</th><th>{{ t('dataops.layer.value') }}</th><th>{{ t('dataops.layer.from') }}</th><th>{{ t('dataops.layer.profile_value') }}</th></tr></thead>
+<tbody>{% for r in layer.rows %}<tr data-testid="layer-{{ r.key }}" data-source="{{ r.source }}"><td>{{ t('dataops.layer.row.' + r.key) }} <span class="hint mono">{{ r.part }}</span></td><td class="mono">{{ r.value or '–' }}</td><td>{{ t('dataops.layer.source.' + r.source) }}</td><td class="mono">{{ r.layer or '–' }}</td></tr>{% endfor %}</tbody>
+</table></div>
+<p class="hint">{{ t('dataops.layer.rule') }}</p>
+{% endif %}
 <p class="hint" data-testid="profile-store-wins">{{ t('dataops.profile.store_wins') }}</p>
 <p class="hint">{{ t('dataops.profile.help') }}</p>
 </section>{% endif %}
