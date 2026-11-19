@@ -1,5 +1,7 @@
 # A one-shot Parquet read that aborts at exit (card H-52, 2026-11-19)
 
+**Reader:** the people who build TrialBox
+
 Lane H. Finding H52-01 ([findings JSON](parquet-exit-abort-2026-11-19.json)).
 
 ## What CI saw

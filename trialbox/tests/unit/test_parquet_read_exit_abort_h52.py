@@ -21,6 +21,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCANNED = ("libs", "services", "tools")
+pytestmark = pytest.mark.nodb  # files and subprocesses only; no database
+
 READERS = {"read_table"}  # pyarrow.parquet's whole-table reader; ParquetFile and dataset() are not used here (H-52)
 
 
@@ -92,7 +94,13 @@ def test_rehearsal_read_exits_zero_every_time(tmp_path: Path) -> None:
 
     def once(_: int) -> tuple[int, str, str]:
         r = subprocess.run(
-            [sys.executable, "-c", READ_IT], env=env, cwd=tmp_path, capture_output=True, text=True, timeout=60
+            [sys.executable, "-c", READ_IT],
+            check=False,
+            env=env,
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         return r.returncode, r.stdout.strip(), r.stderr.strip()
 
