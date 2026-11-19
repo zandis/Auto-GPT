@@ -703,6 +703,20 @@ jobs:
         run: .venv/bin/python -m tools.security_scan secrets
       - name: Static security scan (bandit)
         run: .venv/bin/python -m tools.security_scan sast
+      # 10G-42 (b), D-1344 (2026-11-19): the SQL-from-strings rules, report-only: the tool exits 0 without --check, and
+      # continue-on-error keeps a crash from failing the job (plan 10's ruling for 10G-42: the page test warns; D-928's
+      # ruff ratchet already fails a new f-string into execute)
+      - name: SQL-from-strings rules (report-only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: PYTHONPATH=libs:services:. .venv/bin/python -m tools.sql_rules --json "$RUNNER_TEMP/sql-rules.json"
+      - name: Keep the SQL rules result
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: sql-rules
+          path: ${{ runner.temp }}/sql-rules.json
+          if-no-files-found: ignore
 
   # NEW-WIN-1 (D-600): the Windows installer's PowerShell is parsed, held to Windows PowerShell 5.1 syntax and
   # unit-tested with Pester on the Linux runner's PowerShell 7 (no Windows runner). Every Windows command is behind

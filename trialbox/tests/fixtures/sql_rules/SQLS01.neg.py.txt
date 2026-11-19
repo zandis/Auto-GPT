@@ -1,0 +1,11 @@
+# synthetic: f-strings whose holes are fixed in code
+COLS = ("id", "name")
+TABLES = ("item", "box")
+
+
+def fine(cur, ids, limit):
+    cur.execute(f"SELECT {', '.join(COLS)} FROM item WHERE id IN ({', '.join('?' * len(ids))})", ids)
+    cur.execute(f"SELECT id FROM item LIMIT {int(limit)}")
+    for t in TABLES:
+        cur.execute(f"SELECT count(*) FROM {t}")
+    cur.execute("SELECT id FROM item WHERE name = ?", ("a",))

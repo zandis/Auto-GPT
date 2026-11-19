@@ -1,0 +1,8 @@
+# synthetic: COPY with a fixed table and columns; copy() that is not SQL
+COLS = ("id", "name")
+
+
+def load(cur, d):
+    with cur.copy(f"COPY item ({', '.join(COLS)}) FROM STDIN") as cp:
+        cp.write_row((1, "a"))
+    return d.copy()
