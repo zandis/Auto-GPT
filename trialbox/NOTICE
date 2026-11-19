@@ -7,7 +7,10 @@ it at /about. The demo image copies this folder (trialbox/) minus .dockerignore,
 deploy/requirements.lock, fetches two fonts (tools/fetch_fonts.py) and, when tools/fetch_jvm_deps.sh has run
 before the build, carries the CQL translator jars in .cache/jvm/cql-translator/lib.
 
-Every patient in the demo is synthetic. The code lists below are demo subsets, not complete releases.
+Every patient of the demo's default hospital is synthetic. The image also carries eval/ (the image copies all of
+trialbox/): eval/criterion_ml holds 53 real public patient descriptions of the SIGIR 2016 collection and this
+project's translations of them (CC BY-SA 4.0, section 4), and TB_DEMO_TOOL=public_e2e serves them, with MedTxt
+(CC BY 4.0), as the notes of a public-data site. The code lists below are demo subsets, not complete releases.
 
 Scope: this file is written from the licence register, docs/licences/register.csv (cards T-617a and T-617b,
 finding STD-044, D-342). `python -m tools.licence_register --check` fails the build when a shipped data file has
@@ -277,7 +280,8 @@ MIMIC-IV Clinical Database Demo on FHIR
   Version: 2.1.0. Not in the image: fetched at run time. services/adapter/mapping/mimic/tables and
     services/adapter/contracts/mimic_fhir carry MIMIC item ids and labels used to map it.
   Licence: Open Data Commons Open Database License v1.0, https://opendatacommons.org/licenses/odbl/1-0/
-  Attribution: Johnson A., Bulgarelli L., Pollard T., et al. MIMIC-IV Clinical Database Demo on FHIR, PhysioNet.
+  Attribution: Bennett, A., Ulrich, H., Wiedekopf, J., Szul, P., Grimes, J., & Johnson, A. (2025). MIMIC-IV Clinical
+    Database Demo on FHIR (version 2.1.0). PhysioNet. RRID:SCR_007345 (the citation the PhysioNet page asks for).
 
 Synthea
   Where: cohort counts only (eval/synthea).

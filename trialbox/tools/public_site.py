@@ -1,8 +1,9 @@
 """Public-data sites: real public clinical text as the patient notes of a test hospital, in the box's ingest format.
 
 The synthetic hospital (``tools.synth_hospital``) has made-up notes. This tool builds a hospital whose notes are real
-clinical text that is free to use, so the whole platform (ingest, de-identification, feasibility, the list, the
-judge, mail, exports, the screens) can be driven on text a clinician wrote:
+clinical text published under open licences (CC BY-SA 4.0 and CC BY 4.0, with attribution), so the whole platform
+(ingest, de-identification, feasibility, the list, the judge, mail, exports, the screens) can be driven on text a
+clinician wrote:
 
 * **EN site** - the 53 SIGIR 2016 patient descriptions shipped with TrialGPT (``eval/criterion_ml/notes_en.json``;
   CC BY-SA 4.0, Koopman and Zuccon, CSIRO, see ``eval/criterion_ml/NOTICE.md``). Real case summaries written for
