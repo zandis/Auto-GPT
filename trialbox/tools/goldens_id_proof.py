@@ -142,6 +142,27 @@ def _norm(text: str) -> str:
     return _canon(_sorted_lists(json.loads(text)))
 
 
+def _is_sorted(xs: list[Any]) -> bool:
+    keys = [_canon(x) for x in xs]
+    return keys == sorted(keys)
+
+
+def _ordered(raw: Any, mapped: Any) -> Any:
+    """``mapped`` (``raw`` with its ids mapped, same shape) with each list kept in its order, except a list that is
+    in sorted order in ``raw``: its order follows the ids, so it is sorted again after the mapping (D-1253 review H:
+    a list whose order changed for any other reason is a difference, never compared as a set)."""
+    if isinstance(raw, dict) and isinstance(mapped, dict):
+        return {k: _ordered(raw[k], mapped[k]) for k in mapped}
+    if isinstance(raw, list) and isinstance(mapped, list):
+        items = [_ordered(r, m) for r, m in zip(raw, mapped, strict=True)]
+        return sorted(items, key=_canon) if _is_sorted(raw) else items
+    return mapped
+
+
+def _as_compared(raw_text: str, mapped_text: str) -> str:
+    return _canon(_ordered(json.loads(raw_text), json.loads(mapped_text)))
+
+
 def _skeleton(text: str) -> str:
     return _norm(TOKEN.sub("#", text))
 
@@ -182,6 +203,8 @@ def compare(old_dir: Path, new_dir: Path) -> int:
     sets_new = {k.split("/")[0] for k in new_f}
     for name in sorted(sets_old - sets_new):
         problems.append(f"{name}: data set gone")
+    if not sets_old & sets_new:  # D-1253 review H: nothing compared proves nothing
+        problems.append("no data set in both dumps: nothing was compared")
     for name in sorted(sets_old & sets_new):
         pr = _compare_set(old_dir / name, new_dir / name, name)
         problems += pr.problems
@@ -207,6 +230,9 @@ def _compare_set(old_dir: Path, new_dir: Path, name: str) -> Proof:
     old_f, new_f = _files(old_dir), _files(new_dir)
     common = sorted(set(old_f) & set(new_f))
     pr.problems += [f"{name}/{k}: not in the new dump" for k in sorted(set(old_f) - set(new_f))]
+    pr.problems += [f"{name}/{k}: only in the new dump" for k in sorted(set(new_f) - set(old_f))]
+    if not common:
+        pr.problems.append(f"{name}: no file in both dumps: nothing was compared")
     texts: dict[str, tuple[list[str], list[str]]] = {}
     for k in common:
         texts[f"{name}/{k}"] = ([_canon(r) for r in _read(old_f[k])], [_canon(r) for r in _read(new_f[k])])
@@ -234,13 +260,15 @@ def _compare_set(old_dir: Path, new_dir: Path, name: str) -> Proof:
     for k, (old, new) in texts.items():
         if len(old) != len(new):
             continue
-        got = Counter(_norm(pr.mapped(r)) for r in old)
-        want = Counter(_norm(r) for r in new)
+        got = Counter(_as_compared(r, pr.mapped(r)) for r in old)
+        want = Counter(_as_compared(r, r) for r in new)
         if got != want:
             bad = sum((got - want).values())
             pr.problems.append(f"{k}: {bad} rows differ once the old ids are mapped")
         pr.counts["rows"] += len(old)
         pr.counts["files"] += 1
+    if not pr.counts["rows"]:
+        pr.problems.append(f"{name}: no row in any file: nothing was compared")
     # 3. a patient's pseudonym is the same: every pid maps to itself
     for k, (old, _new) in texts.items():
         if k.endswith("tables/patient.jsonl.gz"):

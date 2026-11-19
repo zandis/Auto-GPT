@@ -14,15 +14,17 @@ keeps such ids and was written under rule 1 would hold ids no rule-2 night gives
   holds lake ids and does not say :data:`RULE` is refused with :class:`IdRuleError`, naming the store and the
   runbook step. Nothing is written to it.
 * **The night's check.** The adapter refuses a night, before it reads or writes anything, when the lake's snapshots
-  or a store it can read (:func:`probe`) are under rule 1 (``adapter.pipeline.check_id_rule``).
-  The adapter's role reads only its own schemas (D-378): the vector store, the patient twin and the candidate pool
-  are caught at their own first write after the night, not before it, so a night can complete while those three
-  still hold old ids until their next write. Nothing mixes; run the rebuild's plan right after the update.
-* **EDC keeps the rule per study** (``edc.store``): a study whose decided, signed or sent values cite lake rows of
-  the earlier rule is frozen for prefill (no new draft, nothing sent); its records stay. The one place old ids stay
-  on a box, by design.
+  or a store it can read (:func:`probe`) are of another rule, or when that cannot be read
+  (``adapter.pipeline.check_id_rule``). The adapter's role reads only its own schemas (D-378): the vector store, the
+  patient twin and the candidate pool are caught at their own first write after the night, not before it, so a
+  night can complete while those three still hold old ids; their first write refuses, so no store is ever written
+  under two rules. A store or snapshot of a newer rule (a later release's) is refused with "update the box".
+* **Readers.** No lake reader opens a snapshot whose NDJSON is not this rule (``lake.store.Lake.db_path``).
+* **EDC keeps the rule per study** (``edc.store``): a rule-1 study whose decided, signed or sent values cite lake rows
+  is frozen on every write path; its records stay. The one place old ids stay on a box, by design.
 * **The one way out** is the rebuild of ``python3 -m tools.trialbox id-rule-rebuild`` (runbook §5, "Lake ids per
-  patient"): every store above is cleared; the first night after it is a full one.
+  patient"): it keeps what a person decided and what retention keeps, clears the rest and stamps each store; the
+  first night after it is a full one.
 """
 
 from __future__ import annotations

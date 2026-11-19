@@ -279,54 +279,102 @@ tables back to that role.
 
 ## Lake ids per patient (D-1253): the one rebuild
 
-**For a box that holds synthetic data only.** From the release with D-1253, the id of a patient's record (a visit,
-a diagnosis, a lab result, an order, ...) is made from the hospital's number **and the patient**; before, from the
-number alone, and two patients with the same order number were one record. Every such id changed once. The first
-night after the update refuses, before it reads or writes anything, with one message that names what still holds
-ids of the earlier rule (the lake's snapshots, the OMOP store, the derived store) and this step. The vector store,
-the patient twin and the candidate pool are not read by the night (each service reads its own stores only): they
-refuse at their own **first write after the night**, in the same words, so a night can complete while those three
-still hold old ids. Nothing mixes; **run step 1 right after the update**, which reads every store. Nothing is
-half-migrated, and nothing goes on until the box is rebuilt once, from its sources:
+**What changed.** From the release with D-1253, the id of a patient's record (a visit, a diagnosis, a lab result,
+an order, ...) is made from the hospital's number **and the patient**. Before, it was made from the number alone,
+and two patients with the same order number were one record. Every such id changed once.
 
-1. **The plan** (changes nothing): what is there, per store, and what the rebuild clears. It runs from
-   `/opt/trialbox` as the box's admin (`TB_DB_URL` of `deploy/.env`), in a one-off adapter container that sees the
-   lake: every store is read, not only the adapter's.
+**What a box does after the update.**
+
+- The first night is refused before it reads or writes anything, with one message. The message names what still
+  holds ids of the earlier rule (the lake's snapshots, the OMOP store, the derived store) and this step.
+- No lake reader serves a snapshot of the earlier rule.
+- The vector store, the patient twin and the candidate pool are not read by the night (each service reads its own
+  stores only). Each refuses at its own **first write**, in the same words.
+- A store or snapshot of a **newer** rule (a later release's) is refused with "update the box". Never rebuild for
+  that.
+
+Nothing is half-migrated, and nothing goes on until the box is rebuilt once, from its sources.
+
+0. **Stop the services** (`docker compose stop` in `/opt/trialbox/deploy`; the database stays up). The rebuild
+   checks this itself and refuses, changing nothing, in three cases:
+   - a night runs: it takes the adapter's run lock;
+   - a lake build runs;
+   - any service's database role is still connected.
+1. **The plan** (changes nothing): what the rebuild keeps, moves aside and clears, per kind, with counts, and each
+   store's rule. It runs from `/opt/trialbox` as the box's admin (`TB_DB_URL` of `deploy/.env`), in a one-off adapter
+   container that sees the lake: every store is read, not only the adapter's.
 
    ```sh
    python3 -m tools.trialbox id-rule-rebuild
    ```
 
-2. **EDC values a person decided.** A value a person confirmed, edited, signed or sent is a record, and its trail is
-   append-only (D-281): nothing of it is ever cleared or rewritten. A study whose such values cite lake rows of the
-   earlier rule is **frozen for prefill**: no new draft, nothing sent; its EDC page says why. Its records stay,
-   readable and exportable, and its signatures still verify; its citations cannot be traced into the rebuilt lake
-   (the one place old ids stay on the box, by design). The plan and the rebuild name each frozen study with its
-   count. With the trial team, per frozen study: export the study's EDC values (its ODM export, `GET
-   /api/v1/studies/<study>/edc/export/odm`) and keep the file with the study's records; then close the study in EDC,
-   or start it again under a new study key. The other studies go on. Open drafts that nobody decided are cleared;
-   the next draft run makes them again.
-3. **The rebuild** clears what was made from the old ids and stamps every store with the new rule: the lake's
-   snapshots and their copies (the site key, the pid map, the site set-up's facts, the embedding cache and the FHIR
-   ledger stay), the OMOP store's feed records of patients' clinical data (the persons stay), the derived scores,
-   the note chunks, the patient twin's documents and the candidate pool. What it cleared is in
-   `/data/lake/id_rule_rebuild.json` (counts only). The night's data-ops page shows, from then on, the nights whose
-   numbers could not be used per patient (a card with counts only: rows of one patient and number with other
-   content, links left out because the number was another patient's, deletes and rows without a chart number).
+2. **EDC values a person decided.** The update stamps every study that has drafts with the earlier rule.
+   - **Frozen studies.** A value a person confirmed, edited, signed or sent is a record, and its trail is
+     append-only (D-281): nothing of it is ever cleared or rewritten. A study with such a value is **frozen for
+     prefill**:
+     - every write of its values is refused, with the reason on its EDC page: a draft run, an ODM import, a
+       decision, a copy tick, a send, REDCap's erase of hidden values;
+     - its records stay, readable and exportable, and its signatures still verify;
+     - its citations cannot be traced into the rebuilt lake. This is the one place old ids stay on the box, by
+       design.
+
+     The plan and the rebuild name each frozen study with its count. With the trial team, per frozen study:
+     1. export the study's EDC values (`GET /api/v1/studies/<study>/edc/export/odm`);
+     2. keep the file with the study's records;
+     3. close the study in EDC, or start it again under a new study key.
+   - **Studies with open drafts only.** The plan lists their open drafts (nothing decided, signed or sent) by count.
+     The rebuild clears those drafts and the study goes on under the new rule.
+3. **The rebuild**, in this order:
+   1. It **moves aside** the month-end snapshots retention keeps, to `/data/lake/id_rule_1/`. They are kept, never
+      read, pruned by retention as before, and erased as the lake's snapshots are.
+   2. It clears what is **served**: the served snapshot's name, the DuckDB and Parquet copies, the job holds.
+   3. It clears the rest of the lake's snapshots.
+   4. It clears the **stores** and stamps each one with the new rule:
+      - the OMOP store the night probes (`TB_OMOP_DB_URL` when it is set): its feed records of patients' clinical
+        data. The persons stay.
+      - the derived scores. A conflict a person resolved stays, marked with the earlier rule; its score row is never
+        read again.
+      - the note chunks, the patient twin's documents and the candidate pool;
+      - the data-ops records of what each artefact was built from;
+      - the open drafts of step 2.
+
+   These stay: the site key, the pid map, the site set-up's facts, the embedding cache and the FHIR ledger. A crash
+   after any step leaves a box that serves nothing of the old rule; run the command again and it finishes.
+
+   What the rebuild did goes to two places, with counts only:
+   - `/data/lake/id_rule_rebuild.json`;
+   - one `lake.rebuild.source` audit event.
 
    ```sh
    python3 -m tools.trialbox id-rule-rebuild --yes
    ```
 
-4. **The first night after it** reads every table whole (there is no snapshot to merge over), loads OMOP and the
-   lake from it; the next jobs fill the derived scores, the note chunks, the twin and the pool again. fhir-store
-   follows by itself: its ledger deletes the old ids and loads the new ones.
+4. **Start the services.** The first night after the rebuild reads every table whole (there is no snapshot to merge
+   over) and loads OMOP and the lake from it. The next jobs fill the derived scores, the note chunks, the twin and
+   the pool again. fhir-store follows by itself: its ledger deletes the old ids and loads the new ones.
 
-What stays as it was: **published job outputs** (candidate lists, CASE sheets) made before the rebuild cite the old
-ids and cannot be traced into the rebuilt lake; the **audit chain** is not touched. A site whose export sends a
-deleted row as its bare key (no chart number) must now send the chart number with it: a delete without its patient
-removes nothing and is counted (`deletes_without_patient` in the night's report), since the same number may be
-another patient's.
+**Restoring a backup.**
+- A backup made under the new rule (after this update) is restored on a box that runs this release or a later one.
+  **Update first, then restore.** An older release does not know the rule: it would add earlier-rule ids beside the
+  backup's.
+- A backup made before this update is of the earlier rule. Restored, it is refused like any old store: run steps 0
+  to 4 again.
+
+**What stays as it was.**
+- **Published job outputs** (candidate lists, CASE sheets) made before the rebuild cite the old ids and cannot be
+  traced into the rebuilt lake.
+- The **audit chain** is not touched.
+
+**What the night shows from then on.** The night's data-ops page shows a card with counts only, when one is above
+zero:
+- rows of one patient and number with other content;
+- records the source moved to another patient (a number declared unique across the site);
+- links to a patient's record the lake does not hold;
+- deletes and rows without a chart number.
+
+**For sites.** A site whose export sends a deleted row as its bare key (no chart number) must now send the chart
+number with it. A delete without its patient removes nothing and is counted (`deletes_without_patient`), since the
+same number may be another patient's.
 
 ## Secrets (D-128, D-138): the one place to rotate them
 
