@@ -412,9 +412,15 @@ def test_test_patients_name_only_placeholders() -> None:
     files["tests/patients.ndjson"] = json.dumps(good).encode() + b"\n"
     assert sp.verify(sp.build(files, PRIV, DAY), [PUB]).files["tests/patients.ndjson"]
     bad_cases = {
-        "practitioner": ({**good, "participant": [{"actor": {"reference": "Practitioner/PLANTPRAC77"}}]}, "practitioner"),
+        "practitioner": (
+            {**good, "participant": [{"actor": {"reference": "Practitioner/PLANTPRAC77"}}]},
+            "practitioner",
+        ),
         "role": ({**good, "participant": [{"actor": {"reference": "PractitionerRole/R9"}}]}, "practitioner"),
-        "department": ({**good, "serviceType": [{"coding": [{"system": dept, "code": "PLANTDEPT9"}]}]}, "hospital's own"),
+        "department": (
+            {**good, "serviceType": [{"coding": [{"system": dept, "code": "PLANTDEPT9"}]}]},
+            "hospital's own",
+        ),
         "record": ({"resourceType": "Practitioner", "id": "P12345", "name": [{"text": "Planted"}]}, "record"),
     }
     for resource, says in bad_cases.values():

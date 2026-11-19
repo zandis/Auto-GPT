@@ -508,7 +508,8 @@ def _test_patients_refusal(data: bytes) -> str | None:
         if not isinstance(resource, dict):
             return f"line {number} of {TEST_PATIENTS} is not a FHIR resource"
         if resource.get("resourceType") in _PRACTITIONER_TYPES:
-            return f"line {number} of {TEST_PATIENTS} is a {resource['resourceType']} record, which a package does not carry"
+            kind = resource["resourceType"]
+            return f"line {number} of {TEST_PATIENTS} is a {kind} record, which a package does not carry"
         stack: list[Any] = [resource]
         while stack:
             node = stack.pop()
@@ -519,12 +520,12 @@ def _test_patients_refusal(data: bytes) -> str | None:
                 continue
             stack.extend(node.values())
             ref = node.get("reference")
-            if isinstance(ref, str) and ref.split("/", 1)[0] in _PRACTITIONER_TYPES:
-                if ref.split("/", 1)[-1] not in PLACEHOLDER_PRACTITIONERS:
-                    return (
-                        f"line {number} of {TEST_PATIENTS} names a practitioner that is not one of the synthetic "
-                        "placeholders (P12345 and the like)"
-                    )
+            kind, _, ident = ref.partition("/") if isinstance(ref, str) else ("", "", "")
+            if kind in _PRACTITIONER_TYPES and ident not in PLACEHOLDER_PRACTITIONERS:
+                return (
+                    f"line {number} of {TEST_PATIENTS} names a practitioner that is not one of the synthetic "
+                    "placeholders (P12345 and the like)"
+                )
             if node.get("system") in SITE_LOCAL_CODE_SYSTEMS and node.get("code") not in PLACEHOLDER_DEPARTMENTS:
                 return (
                     f"line {number} of {TEST_PATIENTS} holds a code of the hospital's own system {node['system']} "
