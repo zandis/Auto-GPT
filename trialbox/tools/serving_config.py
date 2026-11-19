@@ -233,13 +233,16 @@ def template_sha256(models_dir: Path, path: str | None) -> str | None:
 
 # What a record must show to count as a measurement of a GPU profile on its own card (install.sh, D-112, D-124):
 #   card       a string in nvidia-smi's card name (the GB10 reports "NVIDIA GB10")
-#   sleep      True: both servers ran with --enable-sleep-mode (the one-card swap, the only way the 5090 pair fits);
+#   also       other strings that name a card of the same profile: the RTX PRO 4500 (Blackwell, 32 GB) is the rtx5090
+#              profile's fallback card (plan 10 decision 106, review 19 card 19-3), mapped to it by
+#              deploy/gpu_profile.sh:45; its record, taken on its own card, must meet every other condition here
+#   sleep     True: both servers ran with --enable-sleep-mode (the one-card swap, the only way the 5090 pair fits);
 #              False: both resident, no sleep mode (the profile serves them side by side)
 #   min_len    each server's --max-model-len is at least this (the profile's context)
 #   mig        True: each server on its own MIG instance; the context rule is then keyed on that instance's MIG
 #              profile (MIG_MIN_LEN), not on the card (shared-quota, D-409)
 PROFILES: dict[str, dict[str, Any]] = {
-    "rtx5090": {"card": "5090", "sleep": True, "min_len": 8192},
+    "rtx5090": {"card": "5090", "also": ("RTX PRO 4500",), "sleep": True, "min_len": 8192},
     "rtxpro6000": {"card": "RTX PRO 6000", "sleep": False, "min_len": 32768},
     "gb10": {"card": "GB10", "sleep": False, "min_len": 16384},
     "shared-quota": {"card": "B200", "sleep": False, "min_len": None, "mig": True},
@@ -320,7 +323,7 @@ def measured_for(rec: dict[str, Any], profile: str) -> list[str]:
     why = validate(rec)
     card = rec.get("card") or {}
     want = rule["card"]
-    if want not in str(card.get("name", "")):
+    if not any(c in str(card.get("name", "")) for c in (want, *rule.get("also", ()))):
         why.append(f"card is {card.get('name') or '?'}, not an {want}")
     if card.get("capped_to"):
         why.append(f"measured on a capped card ({card['capped_to']}), not on the {want} itself")

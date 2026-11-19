@@ -137,3 +137,29 @@ def test_the_findings_file_names_the_drills_faults_and_the_page() -> None:
     for row in data["findings"]:
         assert row["id"].startswith("H32-") and row["fault"] in pf.BY_KEY, row["id"]
         assert row["id"] in text, row["id"]  # the page is the full account of each row
+
+
+def test_the_disk_stand_in_reaches_the_products_gauge_without_a_mount(tmp_path: Path) -> None:
+    """H-39: not as root the watched folder is no mount, so the product measures its device by an earlier path (the
+    deploy folder, or /): tb_common.metrics.disk_paths keeps one path per device. The stand-in answers for the device,
+    as a full disk does, so the product's own gauge reads 94 % and the check leaves ok; cleared, it reads the truth."""
+    from types import SimpleNamespace
+
+    deploy, watched = tmp_path / "deploy", tmp_path / "watched-disk"
+    deploy.mkdir()
+    watched.mkdir()
+    env = {"TB_HEALTH_DISKS": str(watched), "TB_DOCKER_ROOT": str(tmp_path / "no-docker")}
+    paths = metrics.disk_paths(deploy, env)
+    assert watched not in paths  # the same device as the deploy folder: the product never asks for it by name
+    dev = watched.stat().st_dev
+    rec: dict[str, object] = {}
+    clear = pf._plant_disk(SimpleNamespace(disk=watched, disk_mounted=False), rec)  # type: ignore[arg-type]
+    try:
+        on_dev = [d for d in metrics.disk_usage(paths) if Path(d["path"]).stat().st_dev == dev]
+        assert [d["used_pct"] for d in on_dev] == [94.0], on_dev
+        checks = metrics.check_disks(on_dev, metrics.Thresholds())
+        assert [c.level for c in checks] == [metrics.RED], checks
+        assert "stand-in" in str(rec["how"])
+    finally:
+        clear()
+    assert all(d["used_pct"] < 94.0 or Path(d["path"]).stat().st_dev != dev for d in metrics.disk_usage(paths))

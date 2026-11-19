@@ -1,0 +1,41 @@
+{
+ "card": "H43",
+ "title": "the rc1 site bundle's weights and the embedder",
+ "date": "2026-11-19",
+ "source": "docs/handover/rc1-bundle-weights-2026-11-19.md",
+ "note": "basis 'shown' means shown by reading the code and by the card's unit tests on stand-ins; nothing was built, fetched or signed for real.",
+ "findings": [
+  {
+   "id": "H43-01",
+   "severity": "Medium",
+   "claim": "the e-embed-1 row of models/registry.yaml names its repository, revision and expected manifest digest but no expected.source: no committed record lists the embedder's 18 files (path, bytes, sha256); the list lives only in the bucket (r2/models/e-embed-1.sha256), so tools/fetch_weights.py --embedder stops with exit 2 and cannot fill a models folder for a site bundle",
+   "lane": "G",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H43-02",
+   "severity": "Medium",
+   "claim": "which key signs the rc1 site bundle is not decided: the release key on the cloud build VM (d_sign, Secret Manager), a throwaway key (validation mode: not a release, refused by a box that trusts the release key), or the release key on a vendor machine (make release-bundle); options and needs on the card's page, section 4",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H43-03",
+   "severity": "Medium",
+   "claim": "the rc1 bundle's --release-seq is not decided and no record of issued release_seq values exists in the repository; every rc1 site's next update must carry a higher value (tools/verify_update.py:268-283); options on the card's page, section 4",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H43-04",
+   "severity": "Low",
+   "claim": "not verified: the box run's start route still binds the VM's /models over deploy/models (d_models_place) when it installs a bundle that now carries the weights; whether the bundle's models and the bind agree was not checked (no real bundle was built)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

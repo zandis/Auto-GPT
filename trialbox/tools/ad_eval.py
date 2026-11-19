@@ -36,7 +36,7 @@ from typing import Any
 
 import httpx
 
-from tools import mlbench
+from tools import gold_kind, mlbench
 from tools.open_cohorts_eval import split_criteria
 from tools.trec_ct_eval import CACHE as TREC_CACHE
 from tools.trec_ct_eval import CTGOV, MAX_CRITERIA, SEED, note, qrels, rate, topics, wilson
@@ -282,6 +282,7 @@ def score() -> dict[str, Any]:
                     )
             out["+".join(ms)] = {k: rate(v) for k, v in flags.items()}
         res["trec"] = {
+            "gold_kind": gold_kind.of_set("trec"),  # 10G-38 (D-1326): None, the repository does not state it
             "pairs": Counter(p["label"] for p in pairs),
             "patients": len({p["patient"] for p in pairs}),
             "trials": len({p["trial"] for p in pairs}),

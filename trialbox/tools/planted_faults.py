@@ -121,7 +121,7 @@ FAULTS: tuple[Fault, ...] = (
         "disk nearly full",
         "real when root: a 16 MiB tmpfs named in TB_HEALTH_DISKS (the product's own setting for the disks it "
         "watches) filled to about 94 % with a junk file; else planted by a stand-in (shutil.disk_usage answers 94 % "
-        "for that path)",
+        "for every path on that folder's device, which the product measures by its first path)",
         ("disk:",),
         "",
         {"en": DISK_KW, "zh-TW": ("磁碟",), "ja": ("ディスク",)},
@@ -761,15 +761,24 @@ def _plant_disk(box: Box, rec: dict[str, Any]) -> Callable[[], None]:
             fh.write(b"\0" * int(total * 0.94))
         rec["how"] = f"tmpfs {total // 2**20} MiB filled to {shutil.disk_usage(box.disk).used * 100 // total} %"
         return junk.unlink
-    real = shutil.disk_usage  # tb_common.metrics calls shutil.disk_usage: the stand-in answers for one path
-    target = str(box.disk)
+    real = shutil.disk_usage  # tb_common.metrics calls shutil.disk_usage: the stand-in answers for one device
+    # H-39: not as root the watched folder is not a mount: it is on the device of the box's deploy folder, and the
+    # product measures one path per device (tb_common.metrics.disk_paths keeps the first path of each st_dev), so it
+    # never asks for the watched folder itself. A full device is full for every path on it (statvfs answers per file
+    # system), so the stand-in answers 94 % for every path on the watched folder's device, as a full disk would.
+    dev = box.disk.stat().st_dev
 
     def fake(p: Any) -> Any:
         u = real(p)
-        return type(u)(u.total, int(u.total * 0.94), u.total - int(u.total * 0.94)) if str(p) == target else u
+        try:
+            same = os.stat(p).st_dev == dev
+        except OSError:
+            same = False
+        return type(u)(u.total, int(u.total * 0.94), u.total - int(u.total * 0.94)) if same else u
 
     setattr(shutil, "disk_usage", fake)  # noqa: B010 - the stand-in, undone by clear()
-    rec["how"] = "planted by a stand-in: shutil.disk_usage of tb_common.metrics answers 94 % for the watched path"
+    rec["how"] = ("planted by a stand-in: shutil.disk_usage of tb_common.metrics answers 94 % for every path on the "
+                  "watched folder's device (not a mount when not root)")  # fmt: skip
 
     def clear() -> None:
         setattr(shutil, "disk_usage", real)  # noqa: B010

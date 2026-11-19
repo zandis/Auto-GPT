@@ -4,7 +4,7 @@ Built by `tools/public_site.py`. 268 patients, one per source document (SIGIR 53
 
 | What | Where it comes from |
 | --- | --- |
-| Note text (every word) | **Real.** SIGIR 2016 patient descriptions (NCBI TrialGPT release, public domain); NTCIR-16 Real-MedNLP MedTxt-CR case reports and MedTxt-RR radiology reports (CC BY 4.0, Sociocom NAIST) |
+| Note text (every word) | **Real.** SIGIR 2016 patient descriptions (CC BY-SA 4.0, Koopman and Zuccon, CSIRO; NCBI TrialGPT release; label corrected 2026-11-19, card 10H-1); NTCIR-16 Real-MedNLP MedTxt-CR case reports and MedTxt-RR radiology reports (CC BY 4.0, Sociocom NAIST) |
 | Age | **Derived** from the text where stated (141 exact, 7 from a decade such as 60歳代 -> 65, 120 not stated -> no birth date) |
 | Sex | **Derived** from the text where stated (149 of 268) |
 | Diagnoses | **Derived** by a fixed EN/JA dictionary to ICD-10, skipping negated, family-history and suspected mentions (149 rows on 127 patients); rule-based, so it can miss or over-read a mention |
