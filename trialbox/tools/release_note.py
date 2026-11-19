@@ -34,15 +34,7 @@ from typing import Any
 
 # the box reads the note and the sheet back with the verifier's own reader (standard library, no other module of
 # tools/ it does not already need): a verifier copied with only its own modules still verifies and reports them
-from tools.verify_update import (  # noqa: F401 (re-exported: the console's runner and the tests read them here)
-    CHANGE_CLASSES,
-    IMPACT,
-    IMPACT_FORMAT,
-    MAX_BYTES,
-    NOTE,
-    read_from_bundle,
-    sheet_problems,
-)
+from tools.verify_update import CHANGE_CLASSES, IMPACT, IMPACT_FORMAT, MAX_BYTES, NOTE, read_from_bundle, sheet_problems
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "docs" / "releases" / "next-release.ja.yaml"
@@ -216,6 +208,29 @@ def main(argv: list[str] | None = None) -> int:
     print(f"wrote {note.name} and {imp.name} for {a.id}")
     return 0
 
+
+#: this module's names, the verifier's reader and constants among them (re-exported: the console's runner, the drill
+#: and the tests read them here)
+__all__ = [
+    "CHANGE_CLASSES",
+    "CLASSES",
+    "IMPACT",
+    "IMPACT_FORMAT",
+    "MAX_BYTES",
+    "NOTE",
+    "ROOT",
+    "SOURCE",
+    "SOURCE_FORMAT",
+    "NoteError",
+    "build",
+    "impact_sheet",
+    "load_source",
+    "main",
+    "read_from_bundle",
+    "render_note",
+    "sheet_problems",
+    "source_problems",
+]
 
 if __name__ == "__main__":
     raise SystemExit(main())
