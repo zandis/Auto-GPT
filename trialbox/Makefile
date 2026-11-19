@@ -174,6 +174,11 @@ cross-card: venv-check
 # below), and tests/property/ when the folder exists. The example counts are the ones the tests set themselves.
 PROPERTY_TESTS = tests/unit/test_safety_properties.py tests/unit/test_dates.py tests/unit/test_encoding.py tests/unit/test_labvalue.py \
 	$(wildcard tests/property)
+# card 10A-1: list the approved rulesets on main with an inclusion whose line may negate what its logic asks (read-only)
+.PHONY: negated-inclusion-scan
+negated-inclusion-scan: venv-check
+	PYTHONPATH=libs:services:. $(PY) -m criteria_compiler.negated_inclusions $(if $(RULESETS),--rulesets $(RULESETS),)
+
 property: venv-check
 	@PYTHONPATH=libs:services:. $(PY) -c "import hypothesis" 2>/dev/null || echo "property: WARNING hypothesis is not installed: its tests skip (T-737, D-463)" >&2
 	TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. $(PY) -m pytest -q -n 0 -rs -k "property or test_safety_properties" $(PROPERTY_TESTS)
