@@ -10,18 +10,24 @@ the complete set of a site's requirements; the others are the site's own (the Ja
 * ``shishin`` (a study under the 倫理指針): this site's head of institution's permission (研究機関の長, 実施許可) for
   it, given after the ethics committee's (倫理審査委員会) review, often one review for every site (一括審査).
 
-The profile is on for a site whose country is Japan (``site.tz``); anywhere else :func:`findings` says nothing, so a
-box outside Japan behaves as before. The one rule, used by the console's moves into open and by the orchestrator's
-open check before every list (``orchestrator.scheduler.require_open`` and the timer's hold):
+The profile is on for a site whose country is Japan; :func:`here` is the one place the console and the orchestrator
+read the site (``TB_SITE_ID``) and its country (``TB_TZ``). Anywhere else :func:`findings` says nothing, so a box
+outside Japan behaves as before. Each kind needs both records to open (``needs`` in the profile): the committee's
+approval and the site's head-of-institution record (``permission_is``). The one rule, used by the console's moves into
+open and by the orchestrator's open check before every list (``require_open`` and the timer's hold):
 
 * :func:`at_open`, a move into open (start-up or paused to open, a close taken back to open): every refusal, and a
-  study kind not chosen;
-* :func:`at_lists`, a list of a study the box treats as open: a study with no recorded state never passed the move
-  into open, so every refusal holds it; a study recorded open is held by every refusal except the amendment ones
-  (``earlier_*``: as every amendment today, D-311 and D-364, it keeps screening on the version before);
-* :func:`in_waiting`, the rest for an open study (a kind not chosen, an amendment not yet approved or permitted):
-  shown on the state page and the IRB page, with the date by which to record it when the site sets one; nothing
-  stops by itself. A study already open when this rule arrived has no committee record, so it keeps running.
+  study kind not chosen. Each opening is recorded (:class:`Opened`, ``why`` ``gate``: the kind and version opened);
+* :func:`at_lists`, a list of a study the box treats as open, state row or not:
+  - a study with no opening recorded and no mark is held as a move into open would be;
+  - a study marked open before the rule (``why`` ``before_rule``, :func:`take_baseline`: every study open when the
+    profile first applied at this site) is not held for a kind not chosen; once a kind is recorded the rule is whole;
+  - a study opened through the gate is not held by an amendment's findings (``earlier_*``) while its kind is the one
+    it opened with: as every amendment today (D-311, D-364) it screens on the version before; a kind changed since
+    the opening holds it;
+* :func:`in_waiting`, the rest for an open study, shown on the state page and the IRB page with the date the site
+  sets, if any; nothing stops by itself. The baseline is the console's (at its start on a Japanese site, or its
+  first read there); until a site has one, the rule has not arrived there and the orchestrator holds nothing.
 
 Standard library only (and ``tb_common.db`` for :func:`read`)."""
 
@@ -55,6 +61,17 @@ BAD_FIELDS = (
     "permission_permitted_on",
     "permission_site",
 )  # what a record refused names (``problems``, ``permission_`` for the site's)
+
+
+def here(environ: Any = None) -> tuple[str, str]:
+    """``(site id, country)`` of this box, the one reading for the console and the orchestrator: ``TB_SITE_ID`` (empty
+    when unset: no permission is recorded) and the country of ``TB_TZ`` (``JP``, ``TW`` or "")."""
+    import os
+
+    from tb_common.derived import country_of
+
+    env = os.environ if environ is None else environ
+    return str(env.get("TB_SITE_ID") or "").strip(), country_of(str(env.get("TB_TZ") or "").strip()) or ""
 
 
 @cache
@@ -206,26 +223,40 @@ def at_open(found: list[tuple[str, str]]) -> list[str]:
     return [code for code, level in found if level == REFUSE or code == "kind_unset"]
 
 
-def at_lists(found: list[tuple[str, str]], recorded: bool) -> list[str]:
-    """What holds the lists of a study the box treats as open. ``recorded``: its open state is recorded (it passed
-    a move into open); a study with no recorded state is held by every refusal."""
-    return [code for code in refusals(found) if not (recorded and code in AMENDMENT)]
+def at_lists(found: list[tuple[str, str]], rec: Committee, opened: Opened | None) -> list[str]:
+    """What holds the lists of a study the box treats as open (see the module's rule)."""
+    if opened is None:
+        return at_open(found)
+    exempt: set[str] = set()
+    if opened.why == "before_rule" and not rec.kind:
+        exempt.add("kind_unset")
+    if opened.why == "gate" and rec.kind == opened.kind:
+        exempt.update(AMENDMENT)
+    return [code for code in at_open(found) if code not in exempt]
 
 
-def in_waiting(found: list[tuple[str, str]]) -> list[str]:
-    """For a study recorded open: what a move into open would refuse but its lists are not held by."""
-    held = set(at_lists(found, True))
+def in_waiting(found: list[tuple[str, str]], rec: Committee, opened: Opened | None) -> list[str]:
+    """For an open study: what a move into open would refuse but its lists are not held by."""
+    held = set(at_lists(found, rec, opened))
     return [code for code in at_open(found) if code not in held]
 
 
-def read(url: str, ruleset: str, site: str) -> tuple[Committee, Permission | None]:
-    """The study's committee record and this site's permission from the trial database (schema ``team``), for a
-    reader that has no ``console.teamstore`` (the orchestrator). No table yet: an empty record."""
+def held(country: str, rec: Committee, permission: Permission | None, opened: Opened | None, today: date) -> list[str]:
+    """What holds an open study's lists at this site on ``today``."""
+    return at_lists(findings(country, rec, permission, today), rec, opened)
+
+
+def read(url: str, ruleset: str, site: str) -> tuple[Committee, Permission | None, Opened | None, bool] | None:
+    """The study's committee record, this site's permission, its last opening and whether this site's baseline was
+    taken, from the trial database (schema ``team``), for a reader that has no ``console.teamstore`` (the
+    orchestrator). None when the console has not made the tables (the rule has not arrived at this box)."""
     from tb_common.db import Database
 
+    rid = (ruleset or "").upper()
     with Database.connect(url, "team") as db:
-        if db.fetchval("SELECT to_regclass(?)", (f'"{db.schema}".committee',)) is None:
-            return Committee(), None
+        if db.fetchval("SELECT to_regclass(?)", (f'"{db.schema}".committee_open',)) is None:
+            return None
+        opened, taken = opened_of(db, rid, site), baseline_taken(db, site)
         rows = db.fetchall(
             "SELECT kind, external, establisher, contract_on, current_version, approved_version, approved_on, central, "
             "documents, by, at, due_on FROM committee WHERE ruleset = ? ORDER BY at, id",
@@ -237,12 +268,58 @@ def read(url: str, ruleset: str, site: str) -> tuple[Committee, Permission | Non
             ((ruleset or "").upper(), site),
         )
     rec = committee_row(rows[-1]) if rows else Committee()
-    return rec, (permission_row(perms[-1]) if perms and site else None)
+    return rec, (permission_row(perms[-1]) if perms and site else None), opened, taken
 
 
 def committee_row(r: Any) -> Committee:
     t = [str(x or "") for x in r]
     return Committee(t[0], bool(r[1]), t[2], t[3], t[4], t[5], t[6], bool(r[7]), t[8], t[9], t[10], t[11])
+
+
+@dataclass(frozen=True)
+class Opened:
+    """The last opening of a study at a site under the rule: ``gate`` (a move into open passed, with the kind and the
+    protocol version it opened with) or ``before_rule`` (the study was open when the rule first applied here)."""
+
+    kind: str = ""
+    version: str = ""
+    why: str = "gate"
+    at: str = ""
+
+
+BASELINE = "*"  # the ruleset of the row that says this site's baseline was taken
+
+
+def opened_of(db: Any, ruleset: str, site: str) -> Opened | None:
+    rows = db.fetchall(
+        "SELECT kind, version, why, at FROM committee_open WHERE ruleset = ? AND site = ? ORDER BY at, id",
+        (ruleset, site),
+    )
+    return Opened(*(str(x or "") for x in rows[-1])) if rows else None
+
+
+def record_open(db: Any, ruleset: str, site: str, opened: Opened, by: str, at: str) -> None:
+    db.execute(
+        "INSERT INTO committee_open (ruleset, site, kind, version, why, by, at) VALUES (?,?,?,?,?,?,?)",
+        (ruleset, site, opened.kind, opened.version, opened.why, by, at),
+    )
+
+
+def baseline_taken(db: Any, site: str) -> bool:
+    return opened_of(db, BASELINE, site) is not None
+
+
+def take_baseline(db: Any, site: str, open_now: list[str], by: str, at: str) -> list[str]:
+    """Mark the studies open now as open before the rule, once per site (the first call wins); returns those marked
+    (empty when the baseline was taken before)."""
+    if baseline_taken(db, site):
+        return []
+    marked = sorted({r.upper() for r in open_now if r and r != BASELINE})
+    for rid in marked:
+        if opened_of(db, rid, site) is None:
+            record_open(db, rid, site, Opened(why="before_rule"), by, at)
+    record_open(db, BASELINE, site, Opened(why="before_rule"), by, at)
+    return marked
 
 
 def permission_row(r: Any) -> Permission | None:

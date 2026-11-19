@@ -25,7 +25,7 @@
   <dt>{{ t('cmt.central') }}</dt><dd>{{ t('cmt.yes') if rec.central else t('cmt.no') }}</dd>
   <dt>{{ t('cmt.documents') }}</dt><dd>{{ rec.documents or '–' }}</dd>
   <dt>{{ t('cmt.due_on') }}</dt><dd>{{ rec.due_on or '–' }}</dd>
-  <dt>{{ t('cmt.permission', site=site or '–') }}</dt><dd data-testid="cmt-permission">{% if perm and perm.permitted_on %}{{ perm.version }} · {{ perm.permitted_on }}{% else %}–{% endif %}</dd>
+  <dt>{{ t('cmt.permission', site=site or '–') }}</dt><dd data-testid="cmt-permission">{% if perm and perm.permitted_on %}{{ perm.version }} · {{ perm.permitted_on }}{% else %}–{% endif %}{% if rec.kind %}<br><span class="hint" data-testid="cmt-permission-is">{{ t('cmt.permission_is.' + rec.kind) }}</span>{% endif %}</dd>
   {% if rec.by %}<dt>{{ t('team.irb.by') }}</dt><dd>{{ rec.by }} · {{ rec.at|local }}</dd>{% endif %}
 </dl>
 {% if can_edit %}<form method="post" action="/studies/{{ rs }}/committee" class="markform" data-testid="cmt-form">

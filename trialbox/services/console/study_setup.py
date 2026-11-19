@@ -673,6 +673,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                                   keep_years=years)  # fmt: skip
         except ValueError:  # another person changed it first
             return state_page(request, sess, rid, status=409, err="sstate.bad_move")
+        if state == "open" and h.committee_opened is not None:  # 10C-4: the kind and version it opened with
+            h.committee_opened(rid, h.actor(sess))
         return RedirectResponse(f"/studies/{rid}/state?saved=state", status_code=303)
 
     @app.post("/studies/{rs}/state/take-back")
@@ -712,6 +714,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                                   take_back=True)  # fmt: skip
         except ValueError:  # another person changed it first
             return 409, "sstate.take_back_late"
+        if cur.prev == "open" and h.committee_opened is not None:  # 10C-4: back to open is an opening
+            h.committee_opened(rid, h.actor(sess))
         return 200, ""
 
     def first_take_back(sess: Session, request: Request) -> None:

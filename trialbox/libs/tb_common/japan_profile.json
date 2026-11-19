@@ -6,26 +6,32 @@
       "chiken": {
         "committee": "irb",
         "needs": [
-          "approval"
+          "approval",
+          "permission"
         ],
         "source": "GCP省令 (平成9年厚生省令第28号) 第27条 (the IRB), 第32条 (its review): the IRB's opinion before the trial. Article numbers as read 2026-11-18, not re-verified",
-        "elsewhere": "Also needed, not recorded here (the site's own): the head of the institution's decision (実施医療機関の長の指示・決定, 統一書式5) and the trial contract (GCP省令 第13条). To be confirmed by the site's trial office"
+        "elsewhere": "Also needed, not recorded here (the site's own): the trial contract (GCP省令 第13条). To be confirmed by the site's trial office",
+        "permission_is": "実施医療機関の長の指示・決定 (the head of the institution's decision after the IRB), GCP省令 第27条, 統一書式5"
       },
       "tokutei": {
         "committee": "crb",
         "needs": [
-          "approval"
+          "approval",
+          "permission"
         ],
         "source": "臨床研究法 (平成29年法律第16号) 第5条 (実施計画 with the CRB's opinion), 第23条 (certified committees). Article numbers as read 2026-11-18, not re-verified",
-        "elsewhere": "Also needed, not recorded here (the site's own): the 実施計画 submitted to the Minister and published in jRCT (第5条), and the 実施医療機関の管理者's approval (施行規則). To be confirmed by the site's trial office"
+        "elsewhere": "Also needed, not recorded here (the site's own): the 実施計画 submitted to the Minister and published in jRCT (臨床研究法 第5条). To be confirmed by the site's trial office",
+        "permission_is": "実施医療機関の管理者の承認 (the administrator's approval after the CRB), 臨床研究法施行規則"
       },
       "shishin": {
         "committee": "ethics",
         "needs": [
+          "approval",
           "permission"
         ],
         "source": "人を対象とする生命科学・医学系研究に関する倫理指針 第6 (研究計画書に関する手続): the 研究機関の長's permission after the 倫理審査委員会's review; 一括審査 for multicentre research (article numbers as read 2026-11-18, not verified against the 2026 consolidated text)",
-        "elsewhere": "Not recorded here: an external ethics committee is not always under a contract (the 指針 asks for the committee's procedures, not a contract); the no_contract warning is the project's reading. To be confirmed by the site's trial office"
+        "elsewhere": "Not recorded here: an external ethics committee is not always under a contract (the 指針 asks for the committee's procedures, not a contract); the no_contract warning is the project's reading. To be confirmed by the site's trial office",
+        "permission_is": "研究機関の長の許可 (実施許可, the head of the research institution's permission after the ethics committee), 生命・医学系指針 第6"
       }
     },
     "committee_kinds": [
@@ -33,5 +39,6 @@
       "crb",
       "ethics"
     ]
-  }
+  },
+  "_ruling": "Each kind needs both records to open: the committee's approval and the site's head-of-institution record (permission_is). The lane J lead's ruling of 2026-11-19, following the card, until the owner says otherwise: to change it, edit 'needs' (one line per kind)."
 }

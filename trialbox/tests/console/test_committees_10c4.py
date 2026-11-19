@@ -36,12 +36,16 @@ SHISHIN = {"kind": "shishin", "establisher": "見本大学", "current_version": 
            "approved_on": "2026-10-01", "central": "1", "documents": "Sample approval notice, 2026-10-01"}  # fmt: skip
 
 
+PERMIT = {"permission_version": "1.0", "permitted_on": "2026-10-10"}  # this site's head-of-institution record
+
+
 @pytest.fixture
-def jbox(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:  # noqa: F811
-    """The console's test box at a Japanese site (the Japan profile on), site SAMPLE-A."""
+def jbox(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """The console's test box made at a Japanese site (the Japan profile on), site SAMPLE-A; the console takes the
+    site's baseline when it is made (GZQO, known and with no state, is marked open before the rule)."""
     monkeypatch.setenv("TB_TZ", "Asia/Tokyo")
     monkeypatch.setenv("TB_SITE_ID", "SAMPLE-A")
-    return box
+    return dict(request.getfixturevalue("box"))
 
 
 def _en(key: str) -> str:
@@ -67,24 +71,30 @@ def _open(c: Any) -> Any:
 
 # ---------------------------------------------------------------------------------------------- the rule itself
 def test_the_rule_per_kind_amendment_contract_and_profile() -> None:
-    full = cm.Committee("chiken", current_version="2.0", approved_version="2.0", approved_on="2026-10-01")
-    assert cm.findings("JP", full, None, DAY) == []
-    assert cm.findings("JP", cm.Committee("chiken", current_version="2.0"), None, DAY) == [("no_approval", "refuse")]
-    assert cm.findings("JP", cm.Committee("tokutei", current_version="2.0"), None, DAY) == [("no_approval", "refuse")]
-    amended = cm.Committee("tokutei", current_version="2.0", approved_version="1.0", approved_on="2026-01-05")
-    assert cm.findings("JP", amended, None, DAY) == [("earlier_approval", "refuse")]
-    shishin = cm.Committee("shishin", current_version="1.0", approved_version="1.0", approved_on="2026-10-01")
-    assert cm.findings("JP", shishin, None, DAY) == [("no_permission", "refuse")]
-    assert cm.findings("JP", shishin, cm.Permission("A", "1.0", "2026-10-10"), DAY) == []
-    assert cm.findings("JP", shishin, cm.Permission("A", "0.9", "2026-01-10"), DAY) == [
-        ("earlier_permission", "refuse")
-    ]
+    """Every kind needs both records to open (the lane's ruling, following the card): the committee's approval and
+    this site's head-of-institution record (指示・決定, 管理者の承認, 実施許可)."""
+    ok = cm.Permission("A", "2.0", "2026-10-10")
+    for kind in cm.KINDS:
+        full = cm.Committee(kind, current_version="2.0", approved_version="2.0", approved_on="2026-10-01")
+        assert cm.findings("JP", full, ok, DAY) == [], kind
+        assert cm.findings("JP", full, None, DAY) == [("no_permission", "refuse")], kind
+        bare = cm.Committee(kind, current_version="2.0")
+        assert cm.findings("JP", bare, ok, DAY) == [("no_approval", "refuse")], kind
+        amended = cm.Committee(kind, current_version="2.0", approved_version="1.0", approved_on="2026-01-05")
+        old = cm.Permission("A", "1.0", "2026-01-10")
+        assert cm.findings("JP", amended, old, DAY) == [
+            ("earlier_approval", "refuse"),
+            ("earlier_permission", "refuse"),
+        ]
     ext = cm.Committee("chiken", True, "見本法人", "", "2.0", "2.0", "2026-10-01")
-    assert cm.findings("JP", ext, None, DAY) == [("no_contract", "warn")]
+    assert cm.findings("JP", ext, ok, DAY) == [("no_contract", "warn")]
     assert cm.findings("JP", cm.Committee(), None, DAY) == [("kind_unset", "warn")]
     for country in ("TW", "", "US"):
         assert cm.findings(country, cm.Committee("shishin"), None, DAY) == []
     assert {k: cm.committee_of(k) for k in cm.KINDS} == {"chiken": "irb", "tokutei": "crb", "shishin": "ethics"}
+    assert {k: v["needs"] for k, v in cm.profile()["study_kinds"].items()} == {
+        k: ["approval", "permission"] for k in cm.KINDS
+    }
 
 
 # ---------------------------------------------------------------------------------------------- the plan's proof
@@ -122,25 +132,31 @@ def test_the_state_page_lists_the_committee_before_open(
     page = crc.get("/studies/GZQO/state").text
     assert 'data-testid="before-open-committee" data-done="no"' in page and 'href="/studies/GZQO/committee"' in page
     _record(crc, kind="chiken", current_version="3.0", approved_version="3.0", approved_on="2026-10-01")
+    assert 'data-testid="before-open-committee" data-done="no"' in crc.get("/studies/GZQO/state").text  # no 指示・決定
+    _record(crc, kind="chiken", current_version="3.0", approved_version="3.0", approved_on="2026-10-01",
+            permission_version="3.0", permitted_on="2026-10-10")  # fmt: skip
     assert 'data-testid="before-open-committee" data-done="yes"' in crc.get("/studies/GZQO/state").text
 
 
 # ---------------------------------------------------------------------------------------------- each kind
-@pytest.mark.parametrize("kind", ["chiken", "tokutei"])
-def test_a_trial_or_specified_research_needs_its_committee_approval(
-    jbox: dict[str, Any],
-    kind: str,
-) -> None:
+@pytest.mark.parametrize("kind", ["chiken", "tokutei", "shishin"])
+def test_each_kind_needs_its_committee_approval_and_the_site_record(jbox: dict[str, Any], kind: str) -> None:
+    """Review round 2, item 1 (the lane's ruling, following the card): every kind needs both records to open."""
     _startup(jbox)
     crc = _user(jbox, "crc1", "coordinator")
-    assert _record(crc, kind=kind, current_version="1.0").status_code == 303
+    assert _record(crc, kind=kind, current_version="1.0", **PERMIT).status_code == 303
     r = _open(crc)
     assert r.status_code == 409 and _en("sid.cmt.no_approval") in r.text
     page = crc.get("/studies/GZQO/committee").text
     assert CATALOGUES["en"]["cmt.committee." + cm.committee_of(kind)] in page
+    assert _en("cmt.permission_is." + kind) in page  # what the site's record is for this kind
     _record(crc, kind=kind, current_version="1.0", approved_version="1.0", approved_on="2026-10-01",
-            reason="approval notice arrived")  # fmt: skip
-    assert _open(crc).status_code == 303  # no permission date is asked of a 治験 or 特定臨床研究
+            clear_permission="1", reason="the decision letter was withdrawn")  # fmt: skip
+    r = _open(crc)
+    assert r.status_code == 409 and _en("sid.cmt.no_permission") in r.text  # an approval alone does not open
+    _record(crc, kind=kind, current_version="1.0", approved_version="1.0", approved_on="2026-10-01", **PERMIT,
+            reason="the decision letter arrived")  # fmt: skip
+    assert _open(crc).status_code == 303
 
 
 def test_no_kind_chosen_refuses_a_new_open(jbox: dict[str, Any]) -> None:
@@ -167,7 +183,7 @@ def test_an_external_committee_without_a_contract_warns(
     _startup(jbox)
     crc = _user(jbox, "crc1", "coordinator")
     _record(crc, kind="chiken", external="1", establisher="見本医療法人", current_version="1.0",
-            approved_version="1.0", approved_on="2026-10-01")  # fmt: skip
+            approved_version="1.0", approved_on="2026-10-01", **PERMIT)  # fmt: skip
     page = crc.get("/studies/GZQO/committee").text
     assert 'data-testid="cmt-finding-no_contract" data-level="warn"' in page
     assert _open(crc).status_code == 303  # a warning, not a refusal
@@ -357,64 +373,93 @@ def _held_now(rid: str = "GZQO") -> list[str]:
 
 
 def test_the_rule_at_open_at_lists_and_in_waiting() -> None:
-    shishin = cm.Committee("shishin", current_version="2.0", approved_version="2.0", approved_on="2026-10-01")
-    none = cm.findings("JP", shishin, None, DAY)
-    assert cm.at_open(none) == ["no_permission"] and cm.at_lists(none, True) == ["no_permission"]
-    amended = cm.findings("JP", shishin, cm.Permission("A", "1.0", "2026-10-10"), DAY)
+    v2 = cm.Committee("shishin", current_version="2.0", approved_version="2.0", approved_on="2026-10-01")
+    none = cm.findings("JP", v2, None, DAY)
+    assert cm.at_open(none) == ["no_permission"]
+    gate = cm.Opened("shishin", "1.0")  # opened through the gate with version 1.0
+    assert cm.at_lists(none, v2, gate) == ["no_permission"]
+    amended = cm.findings("JP", v2, cm.Permission("A", "1.0", "2026-10-10"), DAY)
     assert cm.at_open(amended) == ["earlier_permission"]
-    assert cm.at_lists(amended, True) == [] and cm.in_waiting(amended) == ["earlier_permission"]
-    assert cm.at_lists(amended, False) == ["earlier_permission"]  # no recorded state: never passed the move into open
+    assert cm.at_lists(amended, v2, gate) == [] and cm.in_waiting(amended, v2, gate) == ["earlier_permission"]
+    # round 2, item 4: the kind changed since the opening: an earlier version's record no longer carries it
+    assert cm.at_lists(amended, v2, cm.Opened("chiken", "1.0")) == ["earlier_permission"]
+    assert cm.at_lists(amended, v2, None) == ["earlier_permission"]  # never opened under the rule, no mark
     unset = cm.findings("JP", cm.Committee(), None, DAY)
-    assert (
-        cm.at_open(unset) == ["kind_unset"]
-        and cm.at_lists(unset, False) == []
-        and cm.in_waiting(unset) == ["kind_unset"]
-    )
-    # review item 6: a date after the site's today is not yet held
-    future = cm.findings("JP", shishin, cm.Permission("A", "2.0", "2026-12-01"), DAY)
-    assert cm.at_open(future) == ["no_permission"]
+    assert cm.at_lists(unset, cm.Committee(), None) == ["kind_unset"]  # round 2, item 3: no mark, no record: held
+    before = cm.Opened(why="before_rule")
+    assert cm.at_lists(unset, cm.Committee(), before) == [] and cm.in_waiting(unset, cm.Committee(), before) == [
+        "kind_unset"]  # fmt: skip
+    assert cm.at_lists(none, v2, before) == ["no_permission"]  # a kind recorded since the mark: the whole rule
+    # round 1, item 6: a date after the site's today is not yet held
+    assert cm.at_open(cm.findings("JP", v2, cm.Permission("A", "2.0", "2026-12-01"), DAY)) == ["no_permission"]
     late = cm.Committee("chiken", True, "見本法人", "2026-12-01", "2.0", "2.0", "2026-12-01")
-    assert cm.findings("JP", late, None, DAY) == [("no_approval", "refuse"), ("no_contract", "warn")]
+    assert cm.findings("JP", late, None, DAY) == [("no_approval", "refuse"), ("no_permission", "refuse"),
+                                                  ("no_contract", "warn")]  # fmt: skip
 
 
-def test_a_study_with_no_recorded_state_is_held(jbox: dict[str, Any]) -> None:
-    """Review blocker 1: a known study with no recorded state counts as open; its lists are held by the record."""
-    sch = _scheduler()
-    assert sch.recorded_study_state("GZQO") is None and _held_now() == []  # no record: the other-country default
-    team = jbox["app"].state.helpers.team
-    team.save_committee("GZQO", cm.Committee("shishin", current_version="1.0", approved_version="1.0",
-                                             approved_on="2026-10-01"), "crc0", AT)  # fmt: skip
-    held = _held_now()
-    assert held and "no_permission" in held and "committee page" in held[0]
+def test_open_before_the_rule_or_new_without_records(jbox: dict[str, Any]) -> None:
+    """Round 2, item 3: the studies open when the rule first applied here are marked (recorded, audited, shown as
+    still to record); a study without the mark and without the records is held, state row or not."""
+    h = jbox["app"].state.helpers
+    assert h.team.opened("GZQO", "SAMPLE-A") == cm.Opened(why="before_rule", at=h.team.opened("GZQO", "SAMPLE-A").at)
+    assert [e for e in _audit(jbox) if (e.get("detail") or {}).get("action") == "committee_baseline"]
+    assert _scheduler().recorded_study_state("GZQO") is None and _held_now() == []  # marked: keeps running
+    crc = _user(jbox, "crc1", "coordinator")
+    assert 'data-testid="cmt-waiting-kind_unset"' in crc.get("/studies/GZQO/state").text
+    assert "kind_unset" in _held_now("NEWJP")  # a new study, no state row, no mark, no record
+    h.store.begin_study("NEWJP", "console:x", AT)
+    h.store.set_study_state("NEWJP", "open", "", "console:x", AT)  # a state row written open, no gate passed
+    assert "kind_unset" in _held_now("NEWJP")
+    # the mark ends where a record begins: a kind recorded on a marked study brings the whole rule
+    h.team.save_committee("GZQO", cm.Committee("shishin", current_version="1.0", approved_version="1.0",
+                                               approved_on="2026-10-01"), "crc0", AT)  # fmt: skip
+    assert "no_permission" in _held_now()
     orch = _Orch()
-    sch._submit(orch, "MICROBATCH", "GZQO")
+    _scheduler()._submit(orch, "MICROBATCH", "GZQO")
     assert orch.created == [] and orch.events[-1][1]["detail"]["state"] == "committee: no_permission"
-    team.save_permission("GZQO", cm.Permission("SAMPLE-A", "1.0", "2026-10-10"), "crc0", AT)
+    h.team.save_permission("GZQO", cm.Permission("SAMPLE-A", "1.0", "2026-10-10"), "crc0", AT)
     assert _held_now() == []
 
 
 def test_the_kind_set_after_the_study_opened_holds_its_lists(jbox: dict[str, Any]) -> None:
-    """Review blocker 1: an open study whose kind is then set to 指針 without a permission stops listing, and the
-    state page and the IRB page say why."""
+    """Round 1, blocker 1, and round 2, item 4: an open study whose kind is changed is held until its records fit
+    the new kind, even with a site record for an older version; the state and IRB pages say why."""
     _startup(jbox)
     crc = _user(jbox, "crc1", "coordinator")
-    _record(crc, kind="chiken", current_version="1.0", approved_version="1.0", approved_on="2026-10-01")
+    _record(crc, kind="chiken", current_version="1.0", approved_version="1.0", approved_on="2026-10-01", **PERMIT)
     assert _open(crc).status_code == 303 and _held_now() == []
-    r = _record(crc, **SHISHIN, reason="it is a guideline study after all")
+    r = _record(crc, **{**SHISHIN, "current_version": "2.0", "approved_version": "2.0"},
+                reason="it is a guideline study after all")  # fmt: skip
     assert r.status_code == 303
-    assert "no_permission" in _held_now()
-    state = crc.get("/studies/GZQO/state").text
-    assert 'data-testid="cmt-held-no_permission"' in state
+    assert "earlier_permission" in _held_now()  # the 1.0 record does not carry a study opened as another kind
+    assert 'data-testid="cmt-held-earlier_permission"' in crc.get("/studies/GZQO/state").text
     assert 'data-testid="cmt-held"' in crc.get("/studies/GZQO/irb").text
+    # the same kind amended: an open study keeps screening on the version before
+    _record(crc, kind="shishin", current_version="2.0", approved_version="2.0", approved_on="2026-10-01",
+            permission_version="2.0", permitted_on="2026-10-12", reason="permission for 2.0")  # fmt: skip
+    assert _held_now() == []
+
+
+def test_clearing_the_kind_of_an_open_study_is_refused(jbox: dict[str, Any]) -> None:
+    """Round 2, item 2: clearing the kind would release an open study's hold; it is refused with the reason."""
+    _startup(jbox)
+    crc = _user(jbox, "crc1", "coordinator")
+    _record(crc, **SHISHIN, **PERMIT)
+    assert _open(crc).status_code == 303
+    r = _record(crc, **{**SHISHIN, "kind": ""}, reason="kind cleared by mistake")
+    assert r.status_code == 409 and _en("cmt.err.kind_clear")[:20] in r.text
+    assert jbox["app"].state.helpers.team.committee("GZQO").kind == "shishin"
+    r = _api(jbox, "crc1").post("/api/v1/studies/GZQO/committee", json={"kind": "", "reason": "kind cleared by api"})
+    assert r.status_code == 409
 
 
 def test_a_close_taken_back_to_open_passes_the_gate(jbox: dict[str, Any]) -> None:
-    """Review blocker 1: open, amend, close, the PI's take-back: back to open is a move into open."""
+    """Round 1, blocker 1: open, amend, close, the PI's take-back: back to open is a move into open."""
     _startup(jbox)
     crc = _user(jbox, "crc1", "coordinator")
     _user(jbox, "dr1", "investigator")
     name_pi(jbox, "dr1")
-    _record(crc, **SHISHIN, permission_version="1.0", permitted_on="2026-10-10")
+    _record(crc, **SHISHIN, **PERMIT)
     assert _open(crc).status_code == 303
     _record(crc, **{**SHISHIN, "current_version": "2.0"}, reason="protocol version 2.0 received")
     assert _held_now() == []  # the amendment: an open study keeps screening on the version before
@@ -429,38 +474,55 @@ def test_a_close_taken_back_to_open_passes_the_gate(jbox: dict[str, Any]) -> Non
 
 
 def test_a_study_open_when_the_profile_arrives_keeps_running(
-    jbox: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The transition rule (the coordinator's ruling, for the owner to confirm): a study opened while the profile was
-    off keeps running when it is switched on; the state page and the IRB page show what is still to record, with the
-    date the site sets; nothing stops by itself."""
-    monkeypatch.setenv("TB_TZ", "Asia/Taipei")
-    _startup(jbox)
-    crc = _user(jbox, "crc1", "coordinator")
+    """The transition rule (the lane's ruling, for the owner to confirm): a study opened while the profile was off
+    keeps running when it is switched on (it is marked at the switch); the state page and the IRB page show what is
+    still to record, with the date the site sets; nothing stops by itself."""
+    b = request.getfixturevalue("box")  # made outside Japan (the tests' Taipei)
+    _startup(b)
+    crc = _user(b, "crc1", "coordinator")
     assert _open(crc).status_code == 303
     monkeypatch.setenv("TB_TZ", "Asia/Tokyo")  # the Japan profile switched on
-    assert _held_now() == []
-    state = crc.get("/studies/GZQO/state").text
+    monkeypatch.setenv("TB_SITE_ID", "SAMPLE-A")
+    state = crc.get("/studies/GZQO/state").text  # the console's first read here takes the baseline
     assert 'data-testid="cmt-waiting-kind_unset"' in state and "Record by" not in state
-    _record(crc, due_on="2026-12-31")
+    assert _held_now() == []
+    team = b["app"].state.helpers.team
+    team.save_committee("GZQO", cm.Committee(due_on="2026-12-31"), "crc0", AT)
     state = crc.get("/studies/GZQO/state").text
     assert 'data-testid="cmt-waiting-kind_unset"' in state and "2026-12-31" in state
     assert 'data-testid="cmt-waiting"' in crc.get("/studies/GZQO/irb").text
     assert _held_now() == []
 
 
+def test_console_and_orchestrator_read_the_same_site(jbox: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 2, item 5: one reading of the site id and its country for both; with TB_SITE_ID unset, a record kept
+    under the configuration's default site id ("DEV") is no permission for either."""
+    from console import committee_pages
+
+    monkeypatch.delenv("TB_SITE_ID")
+    assert cm.here() == ("", "JP") == (committee_pages.site_id(), cm.here()[1])
+    h = jbox["app"].state.helpers
+    h.team.save_committee("GZQO", cm.Committee("shishin", current_version="1.0", approved_version="1.0",
+                                               approved_on="2026-10-01"), "crc0", AT)  # fmt: skip
+    h.team.save_permission("GZQO", cm.Permission("DEV", "1.0", "2026-10-10"), "crc0", AT)
+    assert "no_permission" in (h.committee_status("GZQO") or {})["held"]
+    assert "no_permission" in _held_now()
+    monkeypatch.setenv("TB_TZ", "Asia/Taipei")
+    assert h.committee_status("GZQO") is None and _held_now() == []
+
+
 def test_the_permission_is_changed_only_on_purpose(jbox: dict[str, Any]) -> None:
-    """Review item 4: an API save without the permission fields leaves the site's 実施許可日; clearing it is its own
-    action, with a reason, audited."""
+    """Round 1, item 4: an API save without the site-record fields leaves it; clearing it is its own action, with a
+    reason, audited."""
     _startup(jbox)
     _user(jbox, "crc1", "coordinator")
     api = _api(jbox, "crc1")
     body = {k: v for k, v in SHISHIN.items() if k != "central"}
-    r = api.post(
-        "/api/v1/studies/GZQO/committee", json={**body, "permission_version": "1.0", "permitted_on": "2026-10-10"}
-    )
+    r = api.post("/api/v1/studies/GZQO/committee", json={**body, **PERMIT})
     assert r.status_code == 200 and r.json()["permission"] == {"version": "1.0", "permitted_on": "2026-10-10"}
-    assert "by" not in json.dumps(r.json()["permission"])  # review item 7: as the IRB API, not who recorded it
+    assert "by" not in json.dumps(r.json()["permission"])  # round 1, item 7: as the IRB API, not who recorded it
     r = api.post(
         "/api/v1/studies/GZQO/committee", json={**body, "documents": "Sample notice v2", "reason": "notice renamed"}
     )
@@ -475,7 +537,7 @@ def test_the_permission_is_changed_only_on_purpose(jbox: dict[str, Any]) -> None
 
 
 def test_a_future_permission_date_stored_does_not_open(jbox: dict[str, Any]) -> None:
-    """Review item 6: the gate compares with the site's today, not only the save."""
+    """Round 1, item 6: the gate compares with the site's today, not only the save."""
     _startup(jbox)
     team = jbox["app"].state.helpers.team
     team.save_committee("GZQO", cm.Committee("shishin", current_version="1.0", approved_version="1.0",
@@ -487,7 +549,7 @@ def test_a_future_permission_date_stored_does_not_open(jbox: dict[str, Any]) -> 
 
 
 def test_a_too_long_field_is_400_and_the_right_comes_first(jbox: dict[str, Any]) -> None:
-    """Review item 3: the right is checked before the fields are read; a field too long is 400, never 500."""
+    """Round 1, item 3: the right is checked before the fields are read; a field too long is 400, never 500."""
     _startup(jbox)
     crc = _user(jbox, "crc1", "coordinator")
     page = crc.get("/studies/GZQO/committee").text
@@ -500,33 +562,28 @@ def test_a_too_long_field_is_400_and_the_right_comes_first(jbox: dict[str, Any])
 
 
 def test_without_a_site_id_no_permission_is_recorded(jbox: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
-    """Review item 7: an unset site id never keys a permission under ""."""
+    """Round 1, item 7: an unset site id never keys a site record under ""."""
     monkeypatch.delenv("TB_SITE_ID")
     _startup(jbox)
     crc = _user(jbox, "crc1", "coordinator")
-    r = _record(crc, **SHISHIN, permission_version="1.0", permitted_on="2026-10-10")
+    r = _record(crc, **SHISHIN, **PERMIT)
     assert r.status_code == 400 and "TB_SITE_ID" in r.text
     assert jbox["app"].state.helpers.team.permission("GZQO", "") is None
 
 
-def test_outside_japan_the_routes_answer_as_absent_ones(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
-    """Review item 7: with the profile off the committee routes answer exactly as a route the console does not have,
-    signed in or not, page or API; the one exception is D-444's: an anonymous API POST is asked for its session (401)
-    first, as on every state-changing API route."""
+def test_outside_japan_the_routes_are_not_there(box: dict[str, Any]) -> None:  # noqa: F811
+    """Round 1, item 7, and round 2, item 6: outside Japan the console has no committee route at all, so the route
+    table, the walks and every answer are as before this card."""
     from fastapi.testclient import TestClient
 
-    monkeypatch.setenv("TB_TZ", "Asia/Taipei")
+    assert not [r for r in box["app"].routes if getattr(r, "path", "").endswith("/committee")]
     _user(box, "crc1", "coordinator")
     html = {"accept": "text/html"}
-    bearer = _api(box, "crc1")
-    for client in (TestClient(box["app"]), login(box["app"], "crc1", PW)[0], bearer):
+    for client in (TestClient(box["app"]), login(box["app"], "crc1", PW)[0], _api(box, "crc1")):
         for method in ("GET", "POST"):
             for kind in ("/studies/GZQO/", "/api/v1/studies/GZQO/"):
                 for headers in (html, {}):
                     ours = client.request(method, kind + "committee", headers=headers)
-                    if method == "POST" and kind.startswith("/api/") and client is not bearer:
-                        assert ours.status_code == 401  # D-444: every state-changing API route asks its token first
-                        continue
                     none = client.request(method, kind + "no-such-route", headers=headers)
                     same = none.text.replace("no-such-route", "committee")  # a page names the path it was asked
                     assert (ours.status_code, ours.text) == (none.status_code, same), (method, kind, headers)

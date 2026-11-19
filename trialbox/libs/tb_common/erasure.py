@@ -354,7 +354,7 @@ TABLES: dict[str, Entry] = {
     ),
     "site.notify_log": _none("a notice sent: kind, user, day, subject"),
     # 10C-4 (D-1227): a study's committee record and each site's head-of-institution permission; no patient
-    **_each("team", ("committee", "site_permission"), _CONFIG),
+    **_each("team", ("committee", "committee_open", "site_permission"), _CONFIG),
     "team.monitor_visits": _keep(
         "OD-8", "a monitoring visit's record: the subjects reviewed are trial subjects (an essential record)"
     ),

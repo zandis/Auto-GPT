@@ -502,6 +502,7 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "sstate.before.": lambda: ("sae", "irb", "committee"),  # 10C-4 (D-1227): the Japan profile's committee
     # 10C-4 (D-1227): the Japan profile's committee page (kinds, committees, findings, refused fields)
     "cmt.kind.": _union(_values("tb_common.committees", "KINDS"), lambda: ["none"]),
+    "cmt.permission_is.": _values("tb_common.committees", "KINDS"),
     "cmt.committee.": _values("tb_common.committees", "COMMITTEES"),
     "cmt.f.": _values("tb_common.committees", "CODES"),
     "cmt.bad.": _values("tb_common.committees", "BAD_FIELDS"),

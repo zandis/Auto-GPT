@@ -458,7 +458,7 @@ ADDED: dict[str, tuple[str, ...]] = {
     "team": (
         "ad5cea87a2f6b2b0210c392f8c698a0c72253a93cbbb6ec74915bf0cefbd076f",
         "e3f9d90d7bb93b34988eed53250d15178b95f8b39de74d715c67a7bae376574f",
-        "2716c0a7720edcde712359eccd4d1ac5de63efe979d51bf14f5abb100a3025f3",
+        "e809e7b52e7924ed036f15b206359d3c7382270d0a67eda81d762cecb288333a",
     ),
     # D-280: the break-glass grants, new after the baseline
     # T-309 (D-430): version 2, each use of a grant (the steward's review list)

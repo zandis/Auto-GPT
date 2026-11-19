@@ -105,7 +105,7 @@ are marked "files".
 | `services/console/teamstore.py` | `icf_versions` | R-05 |
 | `services/console/teamstore.py` | `irb`, `approach_overrides` | R-05 |
 | `services/console/sitestore.py` | `study_irb_text` | R-05 |
-| `services/console/teamstore.py` | `committee`, `site_permission` | R-05 |
+| `services/console/teamstore.py` | `committee`, `committee_open`, `site_permission` | R-05 |
 | `libs/tb_common/optout.py` | `optout_events` | R-06 |
 | `services/console/saerecord.py` | `sae_case`, `sae_report`, `sae_trail` | R-07 |
 | `services/datacore/lifecycle.py` | `ae_ack`, `sae_rule` | R-07 |

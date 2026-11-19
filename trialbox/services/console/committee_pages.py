@@ -1,8 +1,8 @@
 """The Japan profile's committee record and the head of the institution's permission (plan 10 card 10C-4, JP-3, D-1227).
 
 ``/studies/{rs}/committee`` (and ``/api/v1/studies/{rs}/committee``) exists only under the Japan profile (the site's
-country is Japan, ``site.tz``); elsewhere it answers exactly as a route the console does not have (the framework's
-404, before any sign-in check) and no other page changes. On it:
+country of ``TB_TZ``, read by ``tb_common.committees.here`` as the orchestrator reads it): the routes are added only
+on a Japanese site, so elsewhere the route table, every page and every walk are as before this card. On it:
 
 * the study kind (治験, 特定臨床研究, a 指針 study, or none: the other-country default), which names the committee
   (IRB, CRB, ethics committee) from the profile's data (``tb_common.committees``);
@@ -24,15 +24,14 @@ every list (``orchestrator.scheduler.require_open`` and the timer's hold) read t
 
 from __future__ import annotations
 
-import os
+import logging
 import re
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, ValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common import committees as cm
 
 from console.api_first import before_body
@@ -40,10 +39,9 @@ from console.auth import Session
 from console.home import Helpers
 from console.i18n import translate
 from console.studies import known_study
-from console.study_setup import site_country
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
-_PATH = re.compile(r"^(/api/v1)?/studies/[^/]+/committee$")
+log = logging.getLogger("console.committee_pages")
 REASON_MIN = 10  # as the IRB record (D-380, ROLE-015): the written reason for a change to a saved record
 FIELDS = ("kind", "external", "establisher", "contract_on", "current_version", "approved_version", "approved_on",
           "central", "documents", "due_on")  # fmt: skip
@@ -70,10 +68,10 @@ class ApiCommittee(BaseModel):
     reason: str = Field(default="", max_length=300)
 
 
-def site_id(bk: object) -> str:
-    """The box's site id (``TB_SITE_ID``): the key of this site's permission. Empty: no permission is recorded."""
-    env = getattr(getattr(bk, "cfg", None), "env", None)
-    return str(getattr(env, "site_id", "") or os.environ.get("TB_SITE_ID", "")).strip()
+def site_id(_bk: object = None) -> str:
+    """The box's site id: ``tb_common.committees.here`` (``TB_SITE_ID``), as the orchestrator reads it. Empty: no
+    permission is recorded."""
+    return cm.here()[0]
 
 
 def register(app: FastAPI, h: Helpers) -> None:
@@ -83,25 +81,20 @@ def register(app: FastAPI, h: Helpers) -> None:
         return h.team  # console.team registers it first (TB_DB_URL, schema team)
 
     def country() -> str:
-        return site_country(bk)
+        return cm.here()[1]
 
-    def absent() -> None:
-        """Outside the Japan profile the routes answer as a route the console does not have."""
-        if not cm.on(country()):
-            raise StarletteHTTPException(status_code=404)
+    def open_now() -> list[str]:
+        """The studies this console treats as open now (its known studies; a study with no state counts as open)."""
+        return [r.id.upper() for r in bk.rulesets() if h.store.study_state(r.id.upper()).state == "open"]
 
-    @app.middleware("http")
-    async def absent_outside_japan(request: Request, call_next: Any) -> Response:
-        """Outside the Japan profile a committee path gets the answer of a path the console has no route for (the
-        app's own 404 handler, as the router gives it), before any route's sign-in check. One exception, D-444: an
-        ``/api/v1`` POST first meets the session guard every state-changing API route has (anonymous: 401), then
-        :func:`absent` (signed in: the absent route's 404)."""
-        path = request.scope.get("path", "")
-        guarded = path.startswith("/api/v1/") and request.method in ("POST", "PUT", "PATCH", "DELETE")
-        if path.endswith("/committee") and _PATH.match(path) and not guarded and not cm.on(country()):
-            handler: Any = app.exception_handlers[StarletteHTTPException]  # the one an unmatched path meets
-            return cast(Response, await handler(request, StarletteHTTPException(status_code=404)))
-        return cast(Response, await call_next(request))
+    def baseline() -> None:
+        """The studies open when the rule first applies at this site are marked open before it, once (audited)."""
+        site = site_id()
+        if team().baseline_taken(site):
+            return
+        marked = team().take_baseline(site, open_now(), "console:baseline", h.clock().isoformat())
+        au.append("console.irb", actor="console:baseline",
+                  detail={"action": "committee_baseline", "site": site, "marked": ",".join(marked)[:2000]})  # fmt: skip
 
     def status(rid: str) -> dict[str, Any] | None:
         """The record's findings at this site and what they do, or None outside the Japan profile: ``open`` what
@@ -110,16 +103,29 @@ def register(app: FastAPI, h: Helpers) -> None:
         into open, the state page and the IRB page."""
         if not cm.on(country()) or getattr(h, "team", None) is None:
             return None
+        baseline()
+        site = site_id()
         rec = team().committee(rid)
-        found = cm.findings(country(), rec, team().permission(rid, site_id(bk)), h.today())
-        cur = h.store.study_state(rid)
-        recorded = bool(cur.at)
-        is_open = cur.state == "open"
+        found = cm.findings(country(), rec, team().permission(rid, site), h.today())
+        opened = team().opened(rid, site)
+        is_open = h.store.study_state(rid).state == "open"
         return {"findings": found, "open": cm.at_open(found),
-                "held": cm.at_lists(found, recorded) if is_open else [],
-                "waiting": cm.in_waiting(found) if is_open and recorded else [], "due_on": rec.due_on}  # fmt: skip
+                "held": cm.at_lists(found, rec, opened) if is_open else [],
+                "waiting": cm.in_waiting(found, rec, opened) if is_open else [], "due_on": rec.due_on}  # fmt: skip
 
-    h.committee_status = status
+    def opened_now(rid: str, by: str) -> None:
+        """A move into open passed under the rule: record the kind and version it opened with."""
+        if cm.on(country()) and getattr(h, "team", None) is not None:
+            rec = team().committee(rid)
+            team().record_open(rid, site_id(), cm.Opened(rec.kind, rec.current_version), by, h.clock().isoformat())
+
+    h.committee_status, h.committee_opened = status, opened_now
+    if not cm.on(country()):
+        return  # outside Japan the routes are not there: the route table is the one before this card
+    try:
+        baseline()
+    except Exception as exc:  # a backend not up yet: the first read takes it
+        log.warning("committee baseline not taken at start: %s", exc)
 
     def deny(sess: Session, path: str) -> Exception:
         au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
@@ -171,6 +177,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             bad.append("permission_site")
         if bad:
             raise refused(sess, "cmt.err.bad", fields=", ".join(translate(sess.lang, f"cmt.bad.{b}") for b in bad))
+        if before.kind and not new.kind and h.store.study_state(rid).state == "open":
+            # review of D-1227: clearing the kind would release an open study's hold; it is refused
+            raise h.problem(409, "request.refused", reason=translate(sess.lang, "cmt.err.kind_clear"))
         changed = [k for k in FIELDS if getattr(before, k) != getattr(new, k)]
         was = ("", "") if before_perm is None else (before_perm.version, before_perm.permitted_on)
         perm_changed = perm is not None and was != (perm.version, perm.permitted_on)
@@ -202,7 +211,6 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     @app.get("/studies/{rs}/committee")
     def committee_page(request: Request, rs: str) -> Response:
-        absent()
         sess = h.need(request)
         rid = study_or_404(sess, rs)
         readable(sess, rid, request.url.path)
@@ -213,7 +221,6 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     @app.post("/studies/{rs}/committee")
     async def committee_save(request: Request, rs: str) -> Response:
-        absent()
         sess = h.need(request)
         form: Mapping[str, Any] = await request.form()
         if not h.csrf_ok(sess, str(form.get("csrf") or "")):
@@ -240,12 +247,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         return h.api_session(request)
 
     def first(sess: Session, request: Request) -> None:
-        absent()
         recordable(sess, request.path_params["rs"], request.url.path)
 
     @app.get("/api/v1/studies/{rs}/committee")
     def api_committee(request: Request, rs: str) -> dict[str, Any]:
-        absent()
         sess = api(request)
         rid = study_or_404(sess, rs)
         readable(sess, rid, request.url.path)

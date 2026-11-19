@@ -21,11 +21,18 @@ in `libs/tb_common/japan_profile.json`, to be confirmed by the first site's tria
 ## Decision
 
 1. **The Japan profile's committees part is data.** `libs/tb_common/japan_profile.json` names, per study kind
-   (`chiken`, `tokutei`, `shishin`), the committee and what this box records: an approval (治験, 特定臨床研究) or
-   the head of institution's permission (指針 study). It is on for a site whose country is Japan (`site.tz`, as the
-   SAE study types already read it). `tb_common.committees` holds the rule, pure, and reads the record from the
-   trial database for the orchestrator.
-2. **The record.** Per study:
+   (`chiken`, `tokutei`, `shishin`), the committee and what this box records. Every kind needs both records to open:
+   the committee's approval, and this site's head-of-institution record.
+   - For a 治験, that record is the 実施医療機関の長's 指示・決定 after the IRB.
+   - For 特定臨床研究, the 実施医療機関の管理者's 承認 after the CRB.
+   - For a 指針 study, the 研究機関の長's 許可 (実施許可) after the ethics committee.
+
+   This follows the card. It is the lane lead's ruling of 2026-11-19 until the owner says otherwise; to change it,
+   edit `needs` in the profile (one line per kind).
+2. **One reading of the site.** `tb_common.committees.here` gives the site id (`TB_SITE_ID`; none: no site record is
+   kept) and its country (`TB_TZ`). Both the console and the orchestrator use it. The profile is on for a site in
+   Japan.
+3. **The record.** Per study:
    - the kind;
    - internal or external, and the establishing body (設置者, text);
    - the contract date when external;
@@ -35,38 +42,49 @@ in `libs/tb_common/japan_profile.json`, to be confirmed by the first site's tria
    - documents by title and date only (no upload);
    - optionally, a date by which what is missing is to be recorded.
 
-   Per site (the box's `TB_SITE_ID`; with none, no permission is recorded): the head of institution's permission
-   date and the version it covers. A permission is changed only when its fields are given, and cleared only on
-   purpose, with a reason, audited. History rows live in schema `team` (version 4). The page is
-   `/studies/{rs}/committee` with its `/api/v1` twin. Outside the Japan profile they answer as a route the console
-   does not have, except that an anonymous API POST is first asked for its session (401), as every state-changing API
-   route is (D-444).
-3. **One rule, read where a study opens and where a list is made.**
-   - **A move into open** (start-up or paused to open, a close taken back to open) is refused when the study kind is
-     not chosen; when a 治験 or 特定臨床研究 lacks its committee's approval of the current version; and when a 指針
-     study lacks this site's permission for it.
-   - **The orchestrator's open check before every list** (`require_open`, and the timer's hold) holds a study with
-     no recorded state for every such refusal, and a study recorded open for every refusal but an amendment's.
-   - So a 指針 study without the permission date cannot screen. A study whose kind is set to 指針 after it opened
-     stops listing until the permission is recorded, and the state and IRB pages say so.
-   - A date after the site's today does not count.
-   - The refusal is a plain sentence naming what is missing and that a hospital coordinator or the study's PI (研究責任者
-     for a 指針 study) records it.
+   Per site: the head-of-institution record's date and the version it covers. It is changed only when its fields
+   are given, and cleared only on purpose, with a reason, audited.
+
+   Each opening under the rule is recorded (table `committee_open`: the kind and the version that passed). So are
+   the marks of the studies open when the rule first applied at the site. All tables are history rows in schema `team`
+   (version 4).
+
+   The page is `/studies/{rs}/committee` with its `/api/v1` twin. Both are added only on a Japanese site, so a box
+   elsewhere has the same route table, pages and walks as before this card.
+4. **One rule, read where a study opens and where a list is made** (`tb_common.committees`).
+   - **A move into open** (start-up or paused to open, a close taken back to open) is refused when the kind is not
+     chosen, or when either record is missing for the current protocol version.
+   - **The orchestrator's open check before every list** (`require_open` and the timer's hold), state row or not:
+     - a study neither opened under the rule nor marked open before it is held as a move into open would be;
+     - a marked study is not held for a kind not chosen; once a kind is recorded on it, the whole rule applies;
+     - a study opened through the gate is not held by an amendment (`earlier_*`) while its kind is the one it opened
+       with: as for every amendment today (D-311, D-364), it screens on the version before;
+     - a kind changed since the opening holds it until its records fit the new kind, even with a site record for an
+       older version.
+   - A 指針 study without the permission date cannot screen.
+   - Dates after the site's today do not count.
+   - The kind of an open study cannot be cleared (409 with the reason).
    - An external committee without a contract date warns.
-4. **Amendments warn; they do not stop an open study.** A new current version makes the recorded approval and
-   permission "for an earlier version" and says what is needed. As for every amendment today (D-311, D-364), an open
-   study keeps screening on the version before. Reopening it (from paused, or a close taken back) needs the current
-   version's approval and permission.
-5. **The transition rule (the lane coordinator's ruling; for the owner to confirm).** A study already open and
-   running when this rule arrives (no committee record yet, or the profile switched on later) keeps running. The
-   state page and the IRB page show what it still lacks as a refusal in waiting, with the date by which to record it
-   only if the site sets one. Nothing stops by itself; only a recorded fact does.
-6. **No new right.** Recording follows the IRB record exactly: the matrix's `irb.edit` for hospital staff; a written
-   reason for a change; audited as `console.irb`, action `committee`, with the old and new values. Reading follows the
-   IRB page. The API returns the fields and findings, not who recorded them, as the IRB API does. The route rows copy
-   those of the IRB routes, for lane C2 to confirm.
-7. **With the profile off nothing changes.** A non-Japanese site has no committee page, no new item and no new
-   refusal, and the IRB, state, set-up and team pages render byte for byte as before.
+5. **The transition rule (the lane's ruling; for the owner to confirm).** When the console first starts on a
+   Japanese site (or first reads there), it marks every study open at that moment as open before the rule
+   (recorded, audited `console.irb`, action `committee_baseline`). Those studies keep running, and the state page and
+   the IRB page show what they still lack, with the date by which to record it only if the site sets one. Nothing
+   stops by itself; only a recorded fact does. Until the console has taken a site's baseline, the rule has not
+   arrived there and the orchestrator holds nothing.
+6. **No new right.** Recording follows the IRB record exactly: the matrix's `irb.edit` for hospital staff, with a
+   written reason for a change; audited as `console.irb`, action `committee`, with the old and new values. Reading
+   follows the IRB page. The API returns the fields and findings, not who recorded them.
+
+   The four route rows copy the IRB routes' rows (`tests/console/data/route_actions_japan.yaml`, for lane C2 to
+   confirm). A walk at a Japanese site judges them, and its table `role_route_matrix_japan.md` equals the IRB rows.
+7. **With the profile off nothing changes.** The pages render byte for byte as before. The route table, the role walk
+   and the role × route matrix are master's.
+
+## Known limits (no change)
+
+- A manual list runs when the committee record cannot be read (a `DatabaseError`), as the existing state check
+  allows; the timer holds.
+- No approval expires here: an approval or a site record stays valid until a new version or a change is recorded.
 
 ## What is recorded is not every requirement
 
@@ -76,9 +94,11 @@ were read on 2026-11-18 and have not been re-verified against the consolidated t
 | Statement | Public source (project's reading) |
 | --- | --- |
 | A 治験 needs the IRB's approval before it starts | GCP省令 (平成9年厚生省令第28号) 第27条, 第32条 |
-| A 治験 also needs the head of the institution's decision (指示・決定) and the trial contract. Not recorded here | GCP省令 第13条; 統一書式5 |
+| A 治験 also needs the head of the institution's decision (指示・決定), recorded here as the site record | GCP省令 第27条; 統一書式5 |
+| A 治験 also needs the trial contract. Not recorded here | GCP省令 第13条 |
 | A 特定臨床研究 needs the CRB's opinion on its 実施計画 | 臨床研究法 (平成29年法律第16号) 第5条, 第23条 |
-| A 特定臨床研究 also needs the 実施計画 submitted to the Minister and published in jRCT, and the 実施医療機関の管理者's approval. Not recorded here | 臨床研究法 第5条; 施行規則 |
+| A 特定臨床研究 also needs the 実施医療機関の管理者's approval, recorded here as the site record | 臨床研究法施行規則 (article not verified) |
+| A 特定臨床研究 also needs the 実施計画 submitted to the Minister and published in jRCT. Not recorded here | 臨床研究法 第5条 |
 | A 指針 study needs the 研究機関の長's permission after the ethics committee's review; 一括審査 for multicentre research | 人を対象とする生命科学・医学系研究に関する倫理指針 第6 (article numbering of the 2026 text not verified) |
 | An external committee is not always under a contract (for a 指針 study the 指針 asks for the committee's procedures, not a contract); the contract warning is the project's reading | 指針 第6; GCP省令 第27条 (for a 治験) |
 

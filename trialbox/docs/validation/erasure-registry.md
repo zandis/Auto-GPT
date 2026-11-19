@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-236 entries: 88 erase, 29 keep, 119 no patient data. 27 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+237 entries: 88 erase, 29 keep, 120 no patient data. 27 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -198,6 +198,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `study.screen_scope` | settings and configuration, no patient |
 | `study.study_settings` | settings and configuration, no patient |
 | `team.committee` | settings and configuration, no patient |
+| `team.committee_open` | settings and configuration, no patient |
 | `team.delegation` | staff, accounts or sign-in state, no patient |
 | `team.delegation_checks` | staff, accounts or sign-in state, no patient |
 | `team.delegation_history` | staff, accounts or sign-in state, no patient |

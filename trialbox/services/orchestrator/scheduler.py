@@ -160,22 +160,25 @@ def recorded_close(ruleset: str, url: str | None = None) -> tuple[str, str, int 
 
 def committee_held(ruleset: str, url: str | None = None) -> list[str]:
     """10C-4 (D-1227): what of the Japan profile's committee record holds this study's lists at this site, or [].
-    The same rule as the console's move into open (``tb_common.committees``): a study with no recorded state is held
-    by every refusal; one recorded open by every refusal but an amendment's (it screens on the version before).
-    Outside the Japan profile (the site's ``TB_TZ``), or with no trial database, always []. A database error is
-    raised: the caller decides."""
+    The same rule as the console's moves into open (``tb_common.committees``): a study neither opened under the rule
+    nor marked open before it is held as a move into open would be; see the module for the rest. The site and its
+    country come from ``tb_common.committees.here`` (``TB_SITE_ID``, ``TB_TZ``), as the console's do. Outside the
+    Japan profile, with no trial database, or before the console took this site's baseline (the rule has not
+    arrived here), always []. A database error is raised: the caller decides."""
     from tb_common import committees as cm
-    from tb_common.derived import country_of
     from tb_common.timeutil import today as site_today
 
     url = url or os.environ.get("TB_DB_URL")
-    tz = os.environ.get("TB_TZ", "").strip()
-    country = country_of(tz) or ""
+    site, country = cm.here()
     if not url or not cm.on(country):
         return []
-    rec, perm = cm.read(url, ruleset, os.environ.get("TB_SITE_ID", "").strip())
-    recorded = recorded_study_state(ruleset, url) is not None
-    return cm.at_lists(cm.findings(country, rec, perm, site_today(tz)), recorded)
+    got = cm.read(url, ruleset, site)
+    if got is None:
+        return []
+    rec, perm, opened, taken = got
+    if not taken:
+        return []
+    return cm.held(country, rec, perm, opened, site_today())
 
 
 def require_open(ruleset: str | None) -> None:
