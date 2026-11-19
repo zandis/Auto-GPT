@@ -10,6 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from tb_common.dates import printed
 from tb_common.wording import statement
 
 if TYPE_CHECKING:  # at run time ``Paragraph`` is the fallback class below, made on first use
@@ -42,6 +43,12 @@ class ReportMeta:
     contact: str = ""
     clock: str = ""  # non-empty when the box's clock was pinned (test stack): printed so a reader never mistakes it
     notice: str = ""  # D-442: printed under the list's footer, e.g. scores not verified for this snapshot
+    dates: str = "western"  # 10C-13: how the page writes a date (tb_common.dates.PRINTED_STYLES; site.printed_dates)
+
+    def day(self, value: object) -> str:
+        """A date as this printed page writes it (10C-13): ISO as before for ``western``; 和暦 or both forms when the
+        site asks (``tb_common.dates.printed``). Footers keep the snapshot id as stored: it is an identifier."""
+        return printed(value, self.dates)
 
     @property
     def footer(self) -> str:

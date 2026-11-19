@@ -1085,7 +1085,7 @@ d_old_servers() {  # judge, verifier, front of deploy/gcp/gpu-sim-startup.sh (--
   done
   return 0
 }
-d_models_place() {  # the site's weights in deploy/models, where install.sh pins them from (the VM's /models, bound)
+d_models_put() {  # the box's flat folders under the VM's weights folder $MODELS (compose's /models)
   local l=() x
   # the box's flat folders (compose's JUDGE_MODEL_DIR, VERIFIER_MODEL_DIR defaults, the registry's template file,
   # the embedder's folder) from the VM's model cache and the registry's public sources (box_vm.py models-place)
@@ -1093,6 +1093,9 @@ d_models_place() {  # the site's weights in deploy/models, where install.sh pins
   [ -z "$EMBED_LIST_SRC" ] || fetch "$EMBED_LIST_SRC" "$TB/embed.sha256" || return 1
   vm models-place --root "$MODELS" ${l[@]+"${l[@]}"} --template "$MODEL_TEMPLATE" \
     ${EMBED_LIST_SRC:+--embed-list "$TB/embed.sha256"} --embed-url "$EMBED_URL" --notes "$NOTES" || return 1
+}
+d_models_place() {  # the site's weights in deploy/models, where install.sh pins them from (the VM's /models, bound)
+  d_models_put || return 1
   mkdir -p "$BOXROOT/deploy/models"
   if [ -n "${TB_BOXRUN_MOUNT:-}" ]; then $TB_BOXRUN_MOUNT "$MODELS" "$BOXROOT/deploy/models"
   else mountpoint -q "$BOXROOT/deploy/models" || mount --bind "$MODELS" "$BOXROOT/deploy/models"; fi
@@ -1260,7 +1263,7 @@ d_sign() {  # the key lives only inside this function's process: tmpfs, 0600, sh
     || { echo "TB-NO-VENDOR-KEY: secret $KSEC version $KVER is not readable by this VM's service account"; return 3; }
   chmod 600 "$k/vendor.key"
   (cd "$CK" && mkdir -p "$BUILD/tmp" && TMPDIR="$BUILD/tmp" TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor.key" --id "$RID" --release-seq "$SEQ" \
-     --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom)
+     --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS")
 }
 # TB_TZ for make_bundle.sh: its compose call that lists the images renders the compose file with a staged .env that
 # names no TB_TZ, and the compose file requires one (T-656, ${TB_TZ:?}); it only lists images (tools/make_bundle.sh:104)
@@ -1274,7 +1277,7 @@ d_sign_throwaway() {  # validation: a key made here, never the vendor key; only 
   cp "$k/vendor_ed25519.pub" "$BUILD/throwaway-signing-key.pub"
   echo "TB-THROWAWAY-KEY: made on this VM for a validation bundle; the bundle is NOT a release"
   (cd "$CK" && mkdir -p "$BUILD/tmp" && TMPDIR="$BUILD/tmp" TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor_ed25519.key" --id "$RID" --release-seq "$SEQ" \
-     --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom)
+     --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS")
 }
 # the room make_bundle.sh needs: it stages every image (docker save, ~25 GB with vLLM) and then writes the bundle; its
 # staging goes under the build root (TMPDIR), not /tmp, and the build cache of b03 is dropped first (images are kept)
@@ -1283,9 +1286,37 @@ b_room() {
   d_old_store
   note free_before_sign "\"$(df -h --output=avail,target "$BUILD" / 2>/dev/null | tail -n +2 | tr -s ' ' | tr '\n' ';')\""
 }
+# H-43 (D-998): a site bundle carries its weights, the pair, the judge's template and the embedder (`release check`
+# refuses a site bundle without embedder/, and make_bundle.sh runs it). They are placed on this VM as the start route
+# places them (d_models_put: the VM's model cache, the registry's public sources, each file checked against its
+# sha256), then named in a folder of links laid out as the profile's compose file reads it; make_bundle.sh --models
+# follows the links (the model cache's snapshot files are links to its blobs). The weights are hashed again by the
+# release record, and the embedder's manifest by `release check`.
+BMODELS="$BUILD/bundle-models"
+d_bundle_models() {
+  local x name rel
+  d_models_put || return 1
+  rm -rf "$BMODELS"; mkdir -p "$BMODELS"
+  for x in $MODEL_LINKS; do
+    name=${x%%=*}
+    [ -d "$MODELS/$name" ] || { echo "TB-NO-WEIGHTS: no $name under $MODELS"; return 1; }
+    ln -s "$(readlink -f "$MODELS/$name")" "$BMODELS/$name"
+  done
+  rel=${MODEL_TEMPLATE%%=*}
+  if [ -n "$rel" ]; then
+    [ -f "$MODELS/$rel" ] || { echo "TB-NO-WEIGHTS: no chat template $rel under $MODELS"; return 1; }
+    mkdir -p "$BMODELS/$(dirname "$rel")"; ln -s "$(readlink -f "$MODELS/$rel")" "$BMODELS/$rel"
+  fi
+  [ -n "$(ls -A "$MODELS/embedder" 2>/dev/null)" ] \
+    || { echo "TB-NO-EMBEDDER: no embedder/ under $MODELS (tb-embed-list names its files; D-998: no site bundle without it)"; return 1; }
+  ln -s "$(readlink -f "$MODELS/embedder")" "$BMODELS/embedder"
+  note bundle_models "\"$(ls "$BMODELS" | tr '\n' ' ')\""
+}
 step_b_sign() {
   b_room
   mkdir -p "$BUILD/out"
+  need "the weights the site bundle carries (the pair, the template, the embedder: make_bundle.sh --models)" \
+    d_bundle_models || return 1
   if [ "$MODE" = validation ]; then
     need "signing the bundle (tools/make_bundle.sh with a throwaway key made on this VM: not a release)" d_sign_throwaway
   else

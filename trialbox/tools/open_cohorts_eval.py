@@ -35,7 +35,7 @@ from typing import Any
 
 import httpx
 
-from tools import mlbench
+from tools import gold_kind, mlbench
 from tools.medtxt_eval import SUSPECTED
 from tools.trec_ct_eval import CTGOV, MAX_CRITERIA, NEGATION, SEED, note, rate
 from tools.trialgpt_compare import Client, _safe, _split
@@ -264,6 +264,7 @@ def score() -> dict[str, Any]:
         if not models:
             continue
         block: dict[str, Any] = {
+            "gold_kind": gold_kind.of_set(cohort),  # 10G-38 (D-1326); None: not stated (trec2023)
             "pairs": {lab: sum(p["label"] == lab for p in pairs) for lab in SAMPLE[cohort]},
             "patients": len({p["patient"] for p in pairs}),
             "trials": len({p["trial"] for p in pairs}),
