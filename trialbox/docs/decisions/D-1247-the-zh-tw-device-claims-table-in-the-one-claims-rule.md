@@ -37,7 +37,8 @@ survey's method is not recorded, so the gap is not explained. Its five false ala
    - the words, and the allowed contexts (`CLAIM_ALLOWED_ZH`, each pinned by a test): a named clinical scale's score
      (ECOG 分數, the `NAMED_SCALES` list shared with Japanese), 分數定義, risk of bias (偏差風險), a study's own risks to
      the participant as a consent form states them (試驗的風險, 風險與好處, 研究為受試者帶來的風險), a study's enrolment
-     forecast and a head count (收案預測, 預測隨機分派, 預估人數), a lab's detection limit (偵測極限);
+     forecast and a head count (收案預測, 預測隨機分派, 預估人數), a lab's detection limit (偵測極限), and the study's
+     screening visit as a point in time (a protocol's 篩選前 90 日內);
    - the subject. Chinese marks a subject by position, not by a particle, so an actor or a person is a subject unless
      an attributive 的 / 之 / 所 follows it (醫師參考 AI 的讀取結果判斷 is the physician judging). 系統性 (systematic) is
      not 系統;
@@ -54,7 +55,9 @@ survey's method is not recorded, so the gap is not explained. Its five false ala
    always has some. The Japanese table still reads every sentence. So Japanese and English results are unchanged:
    `check()` gives the same output on master and on this branch for every console, orchestrator and opportunity-hub
    string in three languages, for the public site's text that the D-1228 test walks, and for D-1228's own test
-   sentences (14,272 items compared). D-1228's tests run unchanged. A denial of a `FORBIDDEN` word in zh-TW (本軟體不用於
+   sentences (14,272 items compared), and the same hits as master for every criterion label and text in
+   `rulesets/*/labels.yaml` (five, all from before this card and none in a ruleset the label test checks). D-1228's
+   tests run unchanged. A denial of a `FORBIDDEN` word in zh-TW (本軟體不用於
    疾病之診斷) is masked, as D-1228 masks a Japanese one.
 4. **The survey's false alarms are resolved by structure, not by exemption.** The statement: its claim words are denied
    (不用於, 不判定, 不作為), and it passes the claim rule without the `ALLOWED` mask. `consent.help`: the object of 風險
@@ -87,7 +90,9 @@ The second set found real faults:
 - 請勿 not read as a negator;
 - two contexts too narrow: 預測可收案, and 研究為受試者帶來的風險.
 
-All are fixed and the sentences are now tests. Both sets were written by the same worker who wrote the rule. After the
+All are fixed and the sentences are now tests. The test that walks the shipped criterion labels then found one
+  protocol text, 篩選前90日內發生心肌梗塞或中風 (GZQO). Its 篩選 is the study's screening visit, so that context
+  is now allowed and pinned by a test. Both sets were written by the same worker who wrote the rule. After the
 fixes, the second set is no longer unseen. An independent set, as the lane coordinator ran for D-1228, has not been
 run.
 

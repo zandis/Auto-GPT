@@ -347,7 +347,8 @@ def deny_masked_ja(text: str) -> str:
 #
 # Only the language-specific parts differ, and each is data in the table below:
 # * the words (CLAIM_*_ZH), including the allowed contexts (CLAIM_ALLOWED_ZH: a study's risks and benefits, a study's
-#   enrolment forecast, a lab's detection limit, a named clinical scale's score, risk of bias);
+#   enrolment forecast, a lab's detection limit, a named clinical scale's score, risk of bias, the study's screening
+#   visit as a point in time);
 # * the subject: Chinese marks a subject by position, not by a particle, so an actor or a person is a subject unless
 #   an attributive 的 / 之 / 所 follows it (AI的讀取結果 is not the AI judging);
 # * the denial: Chinese negates BEFORE the verb (不 / 未 / 無法 / 並非 + verb), Japanese after it. A claim word is
@@ -501,6 +502,8 @@ CLAIM_ALLOWED_ZH: dict[str, tuple[str, ...]] = {
     ),
     # a lab's detection limit
     "偵測": (r"(?:偵測|檢測|檢出)(?:極限|下限|上限|限值)",),
+    # the study's screening visit as a point in time (a protocol's 篩選前 90 日內), not finding a disease
+    "篩選": (r"篩選(?:前|後|期間|期|時|日|當日|當天|訪視)",),
 }
 
 _DENIABLE_ZH = sorted(
