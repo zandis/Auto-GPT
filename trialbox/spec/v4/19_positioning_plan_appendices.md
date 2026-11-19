@@ -932,8 +932,8 @@ redistribution. "Bundle" means the data may ship in the offline bundle.
 
 | Dataset | Licence / access | Use and suite | Bundle |
 | --- | --- | --- | --- |
-| NCBI TrialGPT-Criterion-Annotations: 1,015 pairs, 53 notes (`eval/criterion_ml/`) | U.S. Government Work, public domain (`LICENSE.NCBI`); cite Jin et al. 2024 | Judge evaluation, evidence-span gold, calibration prior: `judge_public` | Yes |
-| zh-TW, ja and mixed renderings of the 53 notes | Derivative of public-domain text; TrialBox licence; **not clinician-verified** | Parity checks, not ground truth: `judge_ml` synthetic strata | Yes |
+| NCBI TrialGPT-Criterion-Annotations: 1,015 pairs, 53 notes (`eval/criterion_ml/`) | Labels: U.S. Government Work, NCBI public domain notice (`LICENSE.NCBI`); cite Jin et al. 2024. Notes: SIGIR 2016, CC BY-SA 4.0 (Koopman and Zuccon, CSIRO) | Judge evaluation, evidence-span gold, calibration prior: `judge_public` | Yes |
+| zh-TW, ja and mixed renderings of the 53 notes | Adaptations of the SIGIR notes: CC BY-SA 4.0 (share-alike), not a TrialBox licence; **not clinician-verified** | Parity checks, not ground truth: `judge_ml` synthetic strata | Yes |
 | NCBI TrialGPT cohorts (SIGIR 2016, TREC CT 2021/2022) | Public research collections; TrialGPT code licence unchecked *(uncertain)* | Retrieval and ranking: `match_registry` | Data, after confirming TREC terms |
 | MIMIC-IV Demo on FHIR v2.1.0; MIMIC-IV demo | ODbL v1.0; fetched and SHA-verified by `tools/fetch_open_data.py` | FHIR and CSV e2e, DQ sanity: `ingest_fhir_demo` | No (fetched) |
 | Synthea | Generator Apache-2.0; data synthetic | Scale, HL7 v2 synthesis, MPI-merge, late arrival: `bench`, `pipeline_scale` | Config yes |

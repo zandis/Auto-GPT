@@ -25,7 +25,13 @@ The check fails when:
 * a ``software`` row (a third-party program inside an image, D-968: restic) disagrees with its pin in
   ``deploy/docker/backup.Dockerfile``: ``ARG <ID>_VERSION`` must be the row's version and every
   ``ARG <ID>_SHA256_<PART>`` (the source archive, or one release file per architecture) must be written in the row's
-  evidence. A software row ships no path of its own.
+  evidence. A software row ships no path of its own;
+* an ``eval/DATASETS.yaml`` entry disagrees with the register (card 10H-1): an open data set names no row in its
+  ``register:`` list, a row named does not exist, the entry's licence lacks the words of a row's SPDX id
+  (``SPDX_WORDS``), it says "public domain" with no public-domain row, or it names SIGIR without row
+  ``pubacc-sigir-2016`` or calls SIGIR material plain public domain;
+* a file that holds SIGIR 2016 note text (CC BY-SA 4.0, CSIRO), or a README, NOTICE.md or PROVENANCE.md beside it,
+  says "public domain" (NCBI's own "public domain notice" excepted), or such a README names SIGIR without its licence.
 
 The rows are rendered by hand into ``NOTICE`` (T-617a); the register is the data behind it.
 """
@@ -35,6 +41,7 @@ from __future__ import annotations
 import argparse
 import csv
 import gzip
+import json
 import re
 import sys
 from collections.abc import Iterable
@@ -294,10 +301,135 @@ def athena_problems(rows: list[Row]) -> list[str]:
             for v in sorted(set(ATHENA_ALLOW) - covered)]  # fmt: skip
 
 
+# ------------------------------------------------------------------------------------------------ evaluation data
+# Card 10H-1 (review 20, finding 1): each data set of eval/DATASETS.yaml names its register rows (``register:``), and
+# the licence it states must carry each row's licence; a file that holds SIGIR 2016 note text (CC BY-SA 4.0, CSIRO)
+# must never be called "public domain". NCBI's own "public domain notice" (the criterion labels) is the one allowed
+# use of the words beside SIGIR material.
+DATASETS = "eval/DATASETS.yaml"
+SIGIR_ROW = "pubacc-sigir-2016"
+SIGIR_NOTES = "eval/criterion_ml"  # notes_en.json and its ja, zh-TW and mixed translations
+#: the words a data set's stated licence must contain for a row of that SPDX id
+SPDX_WORDS = {
+    "CC-BY-SA-4.0": "CC BY-SA 4.0",
+    "CC-BY-4.0": "CC BY 4.0",
+    "ODbL-1.0": "ODbL 1.0",
+    "Apache-2.0": "Apache",
+    "LicenseRef-US-Public-Domain": "public domain",
+    "LicenseRef-ClinicalTrials.gov-Terms": "ClinicalTrials.gov",
+    "LicenseRef-NIST-TREC-no-terms": "NIST",
+    "LicenseRef-OGDL-Taiwan-1.0": "Open Government Data License",
+    "LicenseRef-PDL-1.0-Japan": "Public Data License 1.0",
+}
+# "public domain notice" names NCBI's notice; "license_name: public-domain" quotes NCBI's dataset card
+BARE_PUBLIC_DOMAIN = re.compile(r"(?<!license_name: )public[ -]domain(?![ -]notice)", re.I)
+#: text files that can hold note text or state a licence; a .gz is read decompressed
+TEXT = (".json", ".jsonl", ".jsonl.gz", ".json.gz", ".md", ".csv", ".tsv", ".txt", ".yaml", ".yml", ".py")
+LICENCE_FILES = ("README.md", "NOTICE.md", "PROVENANCE.md")
+
+
+def dataset_problems(root: Path, rows: list[Row]) -> list[str]:
+    """Each eval/DATASETS.yaml entry against its register rows: an open data set names at least one row, every row
+    named exists and its licence words are in the entry's licence, "public domain" needs a row that says so, and an
+    entry naming SIGIR names row pubacc-sigir-2016 and calls nothing about it plain public domain."""
+    f = root / DATASETS
+    if not f.is_file():
+        return []
+    by_id = {r.id: r for r in rows}
+    out = []
+    for key, d in ((yaml.safe_load(f.read_text(encoding="utf-8")) or {}).get("datasets") or {}).items():
+        where = f"{DATASETS} {key}"
+        licence, regs = str(d.get("licence") or ""), [str(x) for x in d.get("register") or []]
+        if d.get("kind") == "open" and not regs:
+            out.append(f"{where}: an open data set names no register row (register:)")
+        named = [by_id[r] for r in regs if r in by_id]
+        out += [f"{where}: register row {r} does not exist" for r in regs if r not in by_id]
+        for r in named:
+            words = SPDX_WORDS.get(r.spdx)
+            if words is None:
+                out.append(f"{where}: register row {r.id} has SPDX id {r.spdx!r}, which has no words in SPDX_WORDS")
+            elif words.lower() not in licence.lower():
+                out.append(f"{where}: licence does not say {words!r}, as register row {r.id} ({r.spdx}) does")
+        if "public domain" in licence.lower() and not any("public domain" in r.raw["licence"].lower() for r in named):
+            out.append(f"{where}: says public domain, but no register row it names does")
+        if "sigir" in licence.lower() or SIGIR_ROW in regs:
+            if SIGIR_ROW not in regs:
+                out.append(f"{where}: names SIGIR material but not register row {SIGIR_ROW}")
+            if BARE_PUBLIC_DOMAIN.search(licence):
+                out.append(f"{where}: calls SIGIR-derived material public domain (CC BY-SA 4.0, CSIRO)")
+    return out
+
+
+def _read_text(p: Path) -> str:
+    try:
+        raw = p.read_bytes()
+        if p.name.endswith(".gz"):
+            raw = gzip.decompress(raw)
+    except (OSError, EOFError, gzip.BadGzipFile):
+        return ""
+    return raw.decode("utf-8", errors="replace")
+
+
+def sigir_probes(root: Path) -> set[str]:
+    """The opening characters of the SIGIR notes' sentences, in English and in the three translations."""
+    out: set[str] = set()
+    for lang, n in (("en", 50), ("ja", 25), ("zh-TW", 25), ("mixed", 25)):
+        p = root / SIGIR_NOTES / f"notes_{lang}.json"
+        if p.is_file():
+            for sentences in json.loads(p.read_text(encoding="utf-8")).values():
+                out.update(s[:n] for s in sentences if isinstance(s, str) and len(s) >= n)
+    return out
+
+
+def sigir_derived_files(root: Path = ROOT) -> list[str]:
+    """Every file outside .cache that names SIGIR (or a ``sigir-`` topic id) and holds a sentence of its notes."""
+    probes = sigir_probes(root)
+    if not probes:
+        return []
+    out = []
+    stack = [root]
+    while stack:
+        here = stack.pop()
+        for p in here.iterdir():
+            if p.name in SKIP_DIRS or (p.name.startswith(".") and p.is_dir()):
+                continue
+            if p.is_dir() and not p.is_symlink():
+                stack.append(p)
+            elif p.is_file() and p.name.lower().endswith(TEXT):
+                text = _read_text(p)
+                if "sigir" in text.lower() and any(s in text for s in probes):
+                    out.append(p.relative_to(root).as_posix())
+    return sorted(out)
+
+
+def sigir_problems(root: Path = ROOT, files: list[str] | None = None) -> list[str]:
+    """No SIGIR-derived file, and no README, NOTICE.md or PROVENANCE.md in its folder or the folders above it (below
+    the top level), calls the material public domain; such a README that names SIGIR also says CC BY-SA 4.0."""
+    files = sigir_derived_files(root) if files is None else files
+    out = []
+    docs: set[str] = set()
+    for f in files:
+        if BARE_PUBLIC_DOMAIN.search(_read_text(root / f)):
+            out.append(f"{f}: holds SIGIR 2016 note text (CC BY-SA 4.0, CSIRO) and says public domain")
+        parts = f.split("/")[:-1]
+        for i in range(2, len(parts) + 1):
+            docs.update(
+                "/".join([*parts[:i], name]) for name in LICENCE_FILES if (root / Path(*parts[:i], name)).is_file()
+            )
+    for d in sorted(docs - set(files)):
+        text = _read_text(root / d)
+        if BARE_PUBLIC_DOMAIN.search(text):
+            out.append(f"{d}: beside SIGIR 2016 note text (CC BY-SA 4.0, CSIRO), says public domain")
+        elif "sigir" in text.lower() and "cc by-sa 4.0" not in text.lower():
+            out.append(f"{d}: names SIGIR beside its note text but not its licence, CC BY-SA 4.0")
+    return out
+
+
 def check(root: Path = ROOT, register: Path | None = None, models: Path | None = None) -> list[str]:
     rows = load(register or root / "docs/licences/register.csv")
     files = shipped_data_files(root)
     out = row_problems(rows) + file_problems(rows, files) + snomed_problems(root, files)
+    out += dataset_problems(root, rows) + sigir_problems(root)
     mfile = models or root / "models/registry.yaml"
     if mfile.is_file():
         out += model_problems(rows, list((yaml.safe_load(mfile.read_text(encoding="utf-8")) or {}).get("builds") or []))

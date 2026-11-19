@@ -10,6 +10,9 @@ This folder holds material under two licences and one set of terms. Read 2026-11
   published by CSIRO: https://researchdata.edu.au/a-test-collection-clinical-trials/664508
 - Copyright notice as published: "All Rights (including copyright) CSIRO, U.S. National Institute of Standards,
   U.S. National Institutes of Health 2016."
+- Citation as the publisher gives it (read 2026-11-19, card 10H-1): Koopman, Bevan; Zuccon, Guido (2017): A Test
+  Collection for Matching Patient to Clinical Trials. v4. Commonwealth Scientific and Industrial Research
+  Organisation. https://doi.org/10.4225/08/58e2e83d92c2b
 - Licence: Creative Commons Attribution-ShareAlike 4.0 International, https://creativecommons.org/licenses/by-sa/4.0/
   (legal code: https://creativecommons.org/licenses/by-sa/4.0/legalcode). The material is provided as-is, without
   warranties, as the licence's Section 5 states.
