@@ -179,4 +179,63 @@
       });
     });
   } catch (e) { /* no session storage: the page works as before */ }
+  // 7. D-1370 (9g-19, A11Y-3): one minute before the idle lock a warning with "Stay signed in"; at the session's absolute
+  // end the same warning without it (that limit is never extended). The times come from the server with the page.
+  // "Stay signed in" opens a page the person may open anyway (data-stay-url) in the background: activity, as any page
+  // is. The page is never reloaded or left, so what was typed stays where it is; nothing typed is read or stored here.
+  var iw = document.getElementById("idle-warn");
+  if (iw) {
+    var num = function (n) { return Math.max(0, Number(iw.getAttribute(n)) || 0) * 1000; };
+    var idleMs = num("data-idle"), t0 = Date.now(), idleEnd = t0 + num("data-idle-left"), absEnd = t0 + num("data-abs-left");
+    var stay = iw.querySelector("[data-idle-stay]"), close = iw.querySelector("[data-idle-close]");
+    var title = document.getElementById("idle-warn-title"), text = document.getElementById("idle-warn-text");
+    var shown = "", timer = null, asked = false, before = null, dismissed = "";
+    var say = function (kind) {
+      shown = kind;
+      title.textContent = iw.getAttribute("data-" + kind + "-title") || "";
+      text.textContent = iw.getAttribute("data-" + kind + "-text") || "";
+      iw.setAttribute("data-state", kind);
+      stay.hidden = kind !== "soon";
+      close.hidden = kind === "soon";
+      if (iw.hidden) { before = document.activeElement; iw.hidden = false; }
+      (kind === "soon" ? stay : close).focus();
+    };
+    var hide = function () {
+      iw.hidden = true;
+      dismissed = shown; // a closed warning is not shown again (the lock still is)
+      shown = "";
+      if (before && before.focus && document.body.contains(before)) before.focus(); // back where the person typed
+      before = null;
+    };
+    var tick = function () {
+      if (timer) clearTimeout(timer);
+      if (shown === "locked" || dismissed === "locked") return;
+      var now = Date.now(), end = Math.min(idleEnd, absEnd), lead = Math.min(60000, idleMs / 2);
+      if (now >= end) { say("locked"); return; }
+      if (now >= end - lead && !shown && !dismissed) say(absEnd <= idleEnd ? "limit" : "soon");
+      var next = now >= end - lead ? end : end - lead;
+      timer = setTimeout(tick, Math.max(250, Math.min(next - now, 15000)));
+    };
+    stay.addEventListener("click", function () {
+      if (asked) return;
+      asked = true;
+      fetch(iw.getAttribute("data-stay-url") || "/", { credentials: "same-origin", cache: "no-store" }).then(function (r) {
+        asked = false;
+        if (new URL(r.url, window.location.href).pathname === "/login") { idleEnd = 0; tick(); return; }
+        if (!r.ok) return; // the box did not answer as expected: the warning stays, the person may press again
+        idleEnd = Date.now() + idleMs;
+        hide();
+        dismissed = "";
+        tick();
+      }, function () { asked = false; }); // no answer (the network): the warning stays
+    });
+    close.addEventListener("click", hide);
+    iw.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      if (shown === "soon") stay.click(); else hide();
+    });
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) tick(); }); // a phone woke up
+    tick();
+  }
 })();

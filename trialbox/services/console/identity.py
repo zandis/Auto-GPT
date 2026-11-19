@@ -52,7 +52,7 @@ from console.account_rules import protected_account
 from console.auth import MAX_FAILURES, AuthError, Session, User, UserStore, source_of
 from console.i18n import EN, JA, ZH
 from console.oidc import Identity as Found
-from console.oidc import OidcClient, OidcConfigError, OidcError, OidcSettings
+from console.oidc import OidcClient, OidcConfigError, OidcError, OidcRoleClash, OidcSettings
 
 MFA_COOKIE = "tb_console_mfa"
 OIDC_COOKIE = "tb_console_oidc"
@@ -573,18 +573,22 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
                 reason = "unknown or expired state"
         user: User | None = None
         who = "-"
+        clash: tuple[str, str] | None = None
         if not reason and flow is not None:
             try:
                 found = ident.oidc_client.finish(code, flow[0], flow[1])
                 who = found.username[:32]
                 user = us.upsert_oidc(found.username, found.subject, found.role, found.mailbox)  # type: ignore[arg-type]
+            except OidcRoleClash as exc:  # D-1370 (9f-6): the page names the two groups, to the person refused only
+                reason = str(exc)[:80]
+                clash = exc.groups
             except (OidcError, AuthError) as exc:
                 reason = str(exc)[:80]
             except (OSError, ValueError, httpx.HTTPError) as exc:  # network or a malformed answer
                 reason = f"provider unreachable or malformed ({type(exc).__name__})"
         if user is None:
             au.append("console.login_failed", actor=f"console:{who}", detail={"via": "oidc", "reason": reason})
-            resp = h.login_page(request, 403, failed=True, uninitialised=False, oidc_failed=True)
+            resp = h.login_page(request, 403, failed=True, uninitialised=False, oidc_failed=True, oidc_clash=clash)
             resp.delete_cookie(OIDC_COOKIE, path="/auth/oidc")
             return resp
         session_token = _signed_in(user, h.lang_of(request, None), "oidc")

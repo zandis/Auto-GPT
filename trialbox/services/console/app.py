@@ -108,9 +108,11 @@ PROPOSAL_TTL = 3600.0
 # page works without it (a progressive enhancement).
 CONSOLE_JS = (HERE / "static" / "console.js").read_text(encoding="utf-8").strip()
 _JS_HASH = base64.b64encode(hashlib.sha256(CONSOLE_JS.encode("utf-8")).digest()).decode("ascii")
+# D-1370 (9f-11, review 02/J-11): ``worker-src 'none'``: the browser registers no service worker (nor any worker) from
+# the console, whatever a page or a file might ask; nothing of a clinical page is kept for offline use.
 CSP = (
     f"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'sha256-{_JS_HASH}'; "
-    "object-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
+    "object-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'; worker-src 'none'"
 )
 # DEMO-JA: feas_compute.population_label's words, read back to show them in the page language
 _POPULATION = re.compile(r"(hospital|departments ([\w,-]+)): patients with ≥1 encounter in the last (\d+) months")
@@ -872,6 +874,8 @@ def create_app(
             # NEW-JRN-8 (D-772): a CRO account's monitor grants, read only by the pages that show them (the menu)
             "monitoring": _once(lambda: helpers.monitor_grants(sess.user) if sess and helpers.monitor_grants else []),
             "account_notices": _account_notices(sess, lang),  # D-719 (a): read once, on the next page
+            # D-1370 (9g-19): the idle warning's clock (idle limit, seconds to the idle lock and to the absolute end)
+            "session_left": _once(lambda: us.session_left(sess.token_sha) if sess else None),
             # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake
             "refresh_url": request.url.path
             + "?"
