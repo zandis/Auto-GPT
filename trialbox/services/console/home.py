@@ -16,8 +16,9 @@ JSON + feasprofile JSON, SCREEN / MICROBATCH candidate list), the candidate regi
 from __future__ import annotations
 
 import json
+import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
@@ -85,6 +86,19 @@ def data_as_of(job: Job, today: date) -> dict[str, Any]:
     whether it is more than :data:`STALE_DAYS` old. Every patient list shows it, so nobody acts on old data unawares."""
     day = job.snapshot_date or job.run_date or (job.updated_at or job.received_at).date()
     return {"day": day.isoformat(), "stale": (today - day).days > STALE_DAYS}
+
+
+# 10D-17 (D-1242, review 14 M14-16): the ClinicalTrials.gov modes of services/criteria_compiler/ctgov.py (MODES; the
+# console does not import the compiler, tests/console/test_ctgov_mode_text.py holds the two equal) and its default
+CTGOV_MODES = ("live", "offline", "cassette")
+
+
+def ctgov_mode(environ: Mapping[str, str] | None = None) -> str:
+    """The box's ClinicalTrials.gov mode as the compiler reads it (``TB_CTGOV_MODE``, unset: ``offline``, D-140), or
+    ``unknown`` for a value the compiler refuses: the feasibility page never states a mode the box is not in. The
+    console receives the setting from ``deploy/.env`` like every service; it reads no data for it."""
+    value = ((os.environ if environ is None else environ).get("TB_CTGOV_MODE") or "offline").strip().lower()
+    return value if value in CTGOV_MODES else "unknown"
 
 
 @dataclass
@@ -671,6 +685,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             saved=saved == "1",
             refreshed=refreshed == "1",
             registry=next((r.kind for r in bk.rulesets() if r.id == rid), "") in st.REGISTRY_KINDS,
+            ctgov_mode=ctgov_mode(),  # 10D-17: the sentence under section 9 states it
         )
 
     @app.post("/studies/{rs}/feasibility/refresh")

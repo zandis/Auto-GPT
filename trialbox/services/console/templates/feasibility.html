@@ -151,7 +151,7 @@
 {% if rep.capabilities %}<div class="scroll" tabindex="0"><table class="compact" data-testid="capabilities"><tbody>{% for c in rep.capabilities %}<tr><td>{{ t('cap.' + c.key) }}</td><td>{{ t('capv.' + c.value) }}</td><td class="hint">{{ c.note if not rep.sponsor else '' }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="hint">{{ t('feas.not_entered') }}</p>{% endif %}
 <h2 class="mt">9 · {{ t('feas.s9') }}</h2>
 {% if rep.competing %}<div class="scroll" tabindex="0"><table class="compact" data-testid="competing"><thead><tr><th>ID</th><th>{{ t('feas.ct.title') }}</th><th>{{ t('feas.ct.overlap') }}</th><th>{{ t('feas.ct.status') }}</th></tr></thead><tbody>{% for c in rep.competing %}<tr><td>{{ c.id }}</td><td>{{ c.title }}</td><td>{{ c.overlap }}</td><td>{{ c.status }}</td></tr>{% endfor %}</tbody></table></div>
-{% else %}<p class="hint">{{ t('feas.ct.none') }}</p>{% endif %}
+{% else %}<p class="hint" data-testid="ct-mode" data-mode="{{ ctgov_mode }}">{% if ctgov_mode == 'live' %}{{ t('feas.ct.none.live') }}{% elif ctgov_mode == 'offline' %}{{ t('feas.ct.none.offline') }}{% elif ctgov_mode == 'cassette' %}{{ t('feas.ct.none.cassette') }}{% else %}{{ t('feas.ct.none.unknown') }}{% endif %}</p>{% endif %}
 
 {% if can_edit and not rep.sponsor %}
 <details class="mt" {{ 'open' if site.missing else '' }} data-testid="site-form">

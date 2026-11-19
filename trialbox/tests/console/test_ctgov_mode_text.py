@@ -1,3 +1,4 @@
+# ruff: noqa: F811 - the box fixture is imported from test_console_app and taken by name
 """10D-17 (D-1242, review 14 M14-16): the feasibility report's "no competing trials" sentence states the box's
 ClinicalTrials.gov mode (``TB_CTGOV_MODE``: live, offline or cassette, D-140) in three languages, instead of saying
 that TrialBox has no ClinicalTrials.gov connection, which was untrue on a box with CT.gov live or offline.
@@ -9,14 +10,16 @@ from __future__ import annotations
 
 import html
 import re
+from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from console import home
 from console.i18n import CATALOGUES, translate
 from criteria_compiler import ctgov
 
-from tests.console.test_console_app import _done_feas, box, login  # noqa: F401 - box: the fixture is used by name
+from tests.console.test_console_app import _done_feas, box, login  # noqa: F401 - the fixture is used by name
 
 PW = "ctgov-mode-password-01"
 LANGS = ("en", "ja", "zh-TW")
@@ -109,3 +112,11 @@ def test_only_the_one_sentence_depends_on_the_mode(box: dict[str, Any], monkeypa
         assert len(pages) == 1, p
     monkeypatch.delenv("TB_CTGOV_MODE")
     assert c.get("/home").text in seen["/home"]  # unset reads as the default, offline
+
+
+def test_the_console_is_given_the_same_mode_as_the_compiler() -> None:
+    """The base compose file hands both services one value, so the page cannot state a mode the compiler is not in."""
+    root = Path(__file__).resolve().parents[2]
+    services = yaml.safe_load((root / "deploy" / "docker-compose.yml").read_text(encoding="utf-8"))["services"]
+    console, compiler = (services[s]["environment"]["TB_CTGOV_MODE"] for s in ("console", "criteria-compiler"))
+    assert console == compiler == "${TB_CTGOV_MODE:-offline}"
