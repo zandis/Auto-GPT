@@ -26,7 +26,7 @@ from typing import Any
 
 import pytest
 
-from tests.unit.test_compose_limits import BASE, DEPLOY, STACKS, _active, _merge, _render
+from tests.unit.test_compose_limits import BASE, DEPLOY, STACKS, TWO_DEVICE_STACKS, _active, _merge, _render
 
 CONTROLS = ("cap_drop", "no-new-privileges", "read_only", "user")
 THE_15 = frozenset({
@@ -89,11 +89,8 @@ OUTSIDE_THE_15: dict[str, str] = {
 NUMERIC_USER = re.compile(r"^(\d+):(\d+)$")
 # H-58: the stacks checked here: test_compose_limits's, and the two-device form's (the Spark beside a workstation,
 # T-214), whose files sit under deploy/two-device and add the `link` service
-HARDENING_STACKS: list[tuple[tuple[str, ...], tuple[str, ...]]] = [
-    *STACKS,
-    ((BASE, "docker-compose.secrets.yml", "docker-compose.gb10.yml", "two-device/docker-compose.spark.yml"), ("gpu",)),
-    ((BASE, "docker-compose.secrets.yml", "two-device/docker-compose.workstation.yml"), ("stub",)),
-]  # fmt: skip
+# the stacks test_compose_limits lints, the two-device ones included (one list: H58-03)
+HARDENING_STACKS: list[tuple[tuple[str, ...], tuple[str, ...]]] = [*STACKS, *TWO_DEVICE_STACKS]
 # the keys of a service that bear on the four controls: an overlay that sets none of them on a service changes
 # nothing this test checks there
 CONTROL_KEYS = frozenset({"user", "read_only", "tmpfs", "cap_drop", "cap_add", "security_opt", "privileged"})

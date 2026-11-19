@@ -55,7 +55,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 SCHEMA = "tb-serving-config/1"
 REQUIRED_SERVER = (
@@ -310,17 +310,47 @@ def parse_mig_list(text: str) -> dict[str, str]:
 PROFILE_CARDS = {k: v["card"] for k, v in PROFILES.items()}
 
 
-def measured_for(rec: dict[str, Any], profile: str) -> list[str]:
+# 96 GiB in kB, as deploy/gpu_profile.sh's SMALL_KIB: a GB10 host whose MemTotal is below it is the 64 GB class
+# (gb10-64), for which nothing is measured (card 10E-5, D-1335)
+SMALL_GB10_KIB = 100663296
+
+
+def host_mem_kib(meminfo: Path = Path("/proc/meminfo")) -> int | None:
+    """This host's ``MemTotal`` in kB, as the kernel reports it (no rounding), or None when it cannot be read."""
+    try:
+        text = meminfo.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == "MemTotal:" and parts[1].isdigit():
+            return int(parts[1])
+    return None
+
+
+def measured_for(
+    rec: dict[str, Any], profile: str, mem_kib: Callable[[], int | None] = host_mem_kib
+) -> list[str]:
     """Why ``rec`` is not a measurement of ``profile`` on its own card; empty when it is (install.sh, D-112).
 
     A record counts only when it is complete, was taken on the card the profile names (not a larger card capped to
     its limits), served both the judge and the verifier, ran them the way the profile does (sleep swap or resident)
-    and at the profile's context length.
+    and at the profile's context length. For ``gb10`` the host's memory is read too (``mem_kib``, by default this
+    host's ``MemTotal``; H10E5-02): under 96 GiB it is the 64 GB class, which no record measures (D-1335). Unknown
+    memory (None) is not refused, as ``deploy/gpu_profile.sh memory-class``.
     """
     rule = PROFILES.get(profile)
     if rule is None:
         return [f"no measurement rule for profile {profile}"]
-    why = validate(rec)
+    why: list[str] = []
+    if profile == "gb10":
+        kib = mem_kib()
+        if kib is not None and kib < SMALL_GB10_KIB:
+            why.append(
+                f"this host's memory is {kib} kB, under 96 GiB: the 64 GB Spark class (gb10-64), which is not "
+                "measured; a gb10 record is the 128 GB Spark's (D-1335)"
+            )
+    why += validate(rec)
     card = rec.get("card") or {}
     want = rule["card"]
     if not any(c in str(card.get("name", "")) for c in (want, *rule.get("also", ()))):
@@ -460,6 +490,7 @@ def main(argv: list[str] | None = None) -> int:
     m = sub.add_parser("measured", help="is the record a measurement of this GPU profile on its own card (install.sh)")
     m.add_argument("profile", choices=sorted(PROFILE_CARDS))
     m.add_argument("record", type=Path)
+    m.add_argument("--mem-kib", type=int, default=None, help="MemTotal in kB (default: this host's, for gb10)")
     a = ap.parse_args(argv)
     if a.cmd == "capture":
         pairs = [tuple(x.split("=", 1)) if "=" in x else (x, x) for x in a.container]
@@ -470,7 +501,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if missing else 0
     rec = json.loads(a.record.read_text(encoding="utf-8"))
     if a.cmd == "measured":
-        why = measured_for(rec, a.profile)
+        why = measured_for(rec, a.profile, host_mem_kib if a.mem_kib is None else (lambda: a.mem_kib))
         print(f"measured on {a.profile}" if not why else "not a measurement of this profile: " + "; ".join(why))
         return 1 if why else 0
     missing = validate(rec)
