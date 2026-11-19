@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import html
 import re
+import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -115,52 +116,83 @@ ALLOWED: tuple[str, ...] = tuple(
     )
 )
 
-# Japanese device claims (JP-4, card 10C-5; reasoning in docs/plan/intended-use-jp.md). Under the MHLW guideline a
-# program becomes a device by what it says it does for a patient: finding (発見), predicting (予測), scoring (スコア) a
-# patient, or listing "suspected" or "undiagnosed" ones (case database No.74 and No.243). Most of these are ordinary
-# words the product needs (バイアスのリスク, ECOG スコア, 検出限界, 登録の予測), so the rule refuses the claim, not the
-# word: a term in CLAIMS_JA is a hit only in a claiming context, i.e. in the same sentence as
-#   * an actor doing it: the product, the system, the AI or a model as subject (CLAIM_ACTORS_JA + が, は, による ...)
-#     anywhere before the term, or
-#   * a patient: a word of CLAIM_PATIENTS_JA within CLAIM_WINDOW characters of the term (患者のリスク, 患者を発見).
-# Before that, the term's allowed contexts are masked (each a regular expression), and so is a negation straight
-# after the term (予測しません, 発見は行いません): a sentence that says what the product does not do is not a claim.
-# 疑い患者 is refused outright (in FORBIDDEN); 診断 (so 診断する, 診断支援) and 判定 were already refused
-# outright in FORBIDDEN and stay so. Protocol and chart text the product quotes is not checked here (D-351).
+# Japanese device claims (JP-4, card 10C-5, D-1228; the reasoning is docs/plan/intended-use-jp.md). Under the MHLW
+# guideline a program is a device by what it says it does: finding, detecting or predicting disease, or giving a patient
+# a risk, a score or a prognosis (case database No.74, No.243, as review 11 reads them). Finding trial CANDIDATES by
+# a study's written criteria is the product's purpose and no such claim. So the rule refuses the claim, not the word,
+# and tells the two apart by the OBJECT of the word:
+#
+# * CLAIM_OUTRIGHT_JA: compound claim nouns that are a claim whatever surrounds them (早期発見, リスク予測, 予後,
+#   スコアリング, 潜在患者 ...).
+# * CLAIM_FIND_JA (発見, 検出, 見つけ, スクリーニング ...): a claim when a disease word (CLAIM_DISEASE_JA: 疾患, 兆候,
+#   発症 ...) or an "early / latent" word (CLAIM_EARLY_JA: 早期, 潜在, 見逃) is within CLAIM_WINDOW characters; finding
+#   patients or candidates for a study is not.
+# * CLAIM_RATE_JA (予測, リスク, 危険度, スコア, 確率): a claim when a patient word (CLAIM_PATIENTS_JA) or a
+#   disease word is within the window, or the AI / the product / a model stands straight before it (AIスコア,
+#   AIによる予測).
+# * 判断: a claim when the product, the system, the AI or a model is its nearest subject (AIが…判断; not
+#   モデルが読み、人が判断します: CLAIM_PERSONS_JA). A judgement in the product's own words always has a person as
+#   subject (医師が判断します); what a model does is 読み取り (D-1228).
+#
+# First the text is NFKC-normalised (half-width ﾘｽｸ, full-width ＡＩ), the term's allowed contexts are masked (named
+# clinical scales, a lab's detection limit, バイアスのリスク, a study's enrolment forecast), and so is a real denial: a
+# list of claim words with a negative verb that ends the clause (本製品は診断、予測、スコアリングを行いません). A
+# double negative (発見しない日はない) is not a denial. A sentence ends at 。！？, a line end, or two spaces (on a page,
+# where one element ends and the next begins). 診断 and 判定 stay refused outright in FORBIDDEN, and 疑い患者 joins
+# them; a denial of them is masked too. Protocol and chart text the product quotes is not checked here (D-351).
 
-
-@dataclass(frozen=True)
-class ClaimTerm:
-    """A Japanese word that is a device claim only in a claiming context. ``actor_only``: only an actor as subject
-    makes it a claim (判断: 治験責任医師が患者の参加の可否を判断します is the product's own rule, not a claim)."""
-
-    term: str
-    allowed: tuple[str, ...] = ()
-    actor_only: bool = False
-
-
-CLAIMS_JA: tuple[ClaimTerm, ...] = (
-    ClaimTerm("発見"),
-    ClaimTerm("見つけ出"),
-    # a study's enrolment forecast (feasibility) is a count, not a patient's outcome
-    ClaimTerm(
-        "予測",
-        allowed=(r"(登録|組み入れ|無作為化|同意取得)(数の|の)?予測", r"予測(期間|される(登録|無作為化|同意取得))"),
-    ),
-    ClaimTerm("予後"),
-    ClaimTerm("リスク", allowed=(r"バイアスのリスク", r"リスク・?オブ・?バイアス")),
-    ClaimTerm("危険度"),
-    ClaimTerm("未診断"),
-    ClaimTerm(
-        "スコア",
-        # a named clinical scale (ECOG, DAS28, eGFR, NIHSS ...) entered by a person or computed by its published
-        # formula for a criterion; and the character "_"
-        allowed=(r"[A-Za-z][A-Za-z0-9-]*\s*(の)?スコア", r"アンダースコア", r"スコア定義"),
-    ),
-    ClaimTerm("検出", allowed=(r"検出(限界|下限|感度|日時)", r"未検出", r"検出され(ず|ない|なかった|ません)")),
-    ClaimTerm("判断", actor_only=True),
+CLAIM_OUTRIGHT_JA: tuple[str, ...] = (
+    "未診断",
+    "早期発見",
+    "早期検知",
+    "早期検出",
+    "リスク予測",
+    "リスク層別",
+    "予後",
+    "発症予測",
+    "疾患予測",
+    "疾病予測",
+    "重症化予測",
+    "スコアリング",
+    "自動検出",
+    "自動検知",
+    "潜在患者",
+    "掘り起こ",
+    "拾い上げ",
 )
+CLAIM_FIND_JA: tuple[str, ...] = (
+    "発見",
+    "見つけ",
+    "見つか",
+    "検出",
+    "検知",
+    "探し出",
+    "スクリーニング",
+    "特定",
+    "判別",
+    "識別",
+)
+CLAIM_RATE_JA: tuple[str, ...] = ("予測", "リスク", "危険度", "スコア", "確率")
+CLAIM_JUDGE_JA: tuple[str, ...] = ("判断",)
 
+CLAIM_DISEASE_JA: tuple[str, ...] = (
+    "疾患",
+    "病気",
+    "疾病",
+    "兆候",
+    "徴候",
+    "予兆",
+    "病変",
+    "発症",
+    "重症",
+    "病態",
+    "悪化",
+    "がん",
+    "癌",
+    "腫瘍",
+)
+CLAIM_EARLY_JA: tuple[str, ...] = ("早期", "早く", "潜在", "見逃")
+CLAIM_PATIENTS_JA: tuple[str, ...] = ("患者", "被験者", "受診者", "候補者", "対象者", "症例", "個人")
 CLAIM_ACTORS_JA: tuple[str, ...] = (
     "TrialBox",
     "本ソフトウェア",
@@ -169,48 +201,150 @@ CLAIM_ACTORS_JA: tuple[str, ...] = (
     "本製品",
     "本ツール",
     "AI",
-    "ＡＩ",
     "人工知能",
     "モデル",
     "アルゴリズム",
 )
-CLAIM_PATIENTS_JA: tuple[str, ...] = ("患者", "被験者", "候補者", "対象者", "受診者", "症例")
-CLAIM_WINDOW = 10
-
-_SUBJECT = r"(?:が|は|により|による|によって|で|を用いて|を使って|を使い)"
-_ACTOR = re.compile(r"(?<![A-Za-z])(?:" + "|".join(re.escape(a) for a in CLAIM_ACTORS_JA) + r")\s*" + _SUBJECT)
-_PATIENT = re.compile("|".join(re.escape(p) for p in CLAIM_PATIENTS_JA))
-_NEGATION = (
-    r"(?:(?:は|を|も)?(?:行(?:いません|わず|わない|っていません)|しません|せず|しない|できません|できない|できなかった|さない|さず)"
-    r"|ではありません|ではない|はしません)"
+# a person as the subject of a judgement: 医師が判断します is the product's own rule, not a claim
+CLAIM_PERSONS_JA: tuple[str, ...] = (
+    "人",
+    "医師",
+    "担当者",
+    "責任医師",
+    "研究者",
+    "CRC",
+    "あなた",
+    "スタッフ",
+    "職員",
+    "スチュワード",
 )
-# a sentence ends at 。！？, a line end, or two spaces (on a page, where one element ends and the next begins)
+CLAIM_WINDOW = 12
+
+# The named clinical scales whose score a clinician enters or the box computes by its published formula for a
+# criterion (eGFR, DAS28, CDAI, SDAI nightly): a scale's score is a record value, not the product scoring a patient.
+NAMED_SCALES: tuple[str, ...] = (
+    "ECOG",
+    "Karnofsky",
+    "KPS",
+    "NIHSS",
+    "MMSE",
+    "MoCA",
+    "CDR",
+    "ADAS-Cog",
+    "DAS28",
+    "CDAI",
+    "SDAI",
+    "HAQ",
+    "eGFR",
+    "APACHE",
+    "SOFA",
+    "Child-Pugh",
+    "MELD",
+    "CHA2DS2-VASc",
+    "HAS-BLED",
+    "Gleason",
+    "NYHA",
+    "PHQ-9",
+    "GAD-7",
+    "EDSS",
+    "PASI",
+    "EASI",
+    "GCS",
+    "mRS",
+)
+
+# Allowed contexts, per term: regular expressions masked before the rule looks. Each is pinned by a test.
+CLAIM_ALLOWED_JA: dict[str, tuple[str, ...]] = {
+    "スコア": (
+        r"(?:"
+        + "|".join(re.escape(s) for s in sorted(NAMED_SCALES, key=len, reverse=True))
+        + r")(?:\s*PS)?\s*(?:の)?スコア",
+        r"アンダースコア",
+        r"スコア定義",
+    ),
+    "リスク": (r"バイアスのリスク", r"リスク・?オブ・?バイアス"),
+    # a study's enrolment forecast (feasibility) is a count, not a patient's outcome
+    "予測": (r"(?:登録|組み入れ|無作為化|同意取得)(?:数の|の)?予測", r"予測される(?:登録|無作為化|同意取得)"),
+    "検出": (r"検出(?:限界|下限)",),
+}
+
+_DENIABLE = sorted(
+    {*CLAIM_OUTRIGHT_JA, *CLAIM_FIND_JA, *CLAIM_RATE_JA, *CLAIM_JUDGE_JA, "診断支援", "診断", "判定", "疑い患者"},
+    key=len,
+    reverse=True,
+)
+_ITEM = "(?:" + "|".join(re.escape(w) for w in _DENIABLE) + ")"
+_NEG = (
+    r"(?:いません|いたしません|わない|わず|しません|しない|せず|できません|できない|ではありません|ではない"
+    r"|さない|さず|しておりません|しておらず)"
+)
+_END = r"(?=[。、．，！？!?\s」）)]|$|が[、,]|ので|ため)"
+# a real denial: claim words (a list of them, or one as the object of the next) and a negative verb ending the clause
+_DENIAL = re.compile(
+    _ITEM + r"(?:(?:[、・,]|および|及び|と|や|を|は|も|の|など|等)*" + _ITEM + r")*(?:など|等)?(?:を|は|も)?(?:一切)?"
+    r"(?:行|おこな)?" + _NEG + _END
+)
+_SUBJECT = r"\s*(?:が|は|により|による|によって|で|を用いて|を使って|を使い)"
+_ACTORS = "(?<![A-Za-z])(?:" + "|".join(re.escape(a) for a in CLAIM_ACTORS_JA) + ")"
+_ACTOR_SUBJECT = re.compile(_ACTORS + _SUBJECT)
+_PERSON_SUBJECT = re.compile("(?:" + "|".join(re.escape(p) for p in CLAIM_PERSONS_JA) + ")" + _SUBJECT)
+_ACTOR_BEFORE = _ACTORS + r"\s*(?:による|の|が|で)?\s*$"
 _SENTENCE = re.compile(r"(?:[^。！？!?\n ]| (?! ))+[。！？!?]?")
+_MASK = "　"
 
 
-def check_claims_ja(text: str, terms: Iterable[ClaimTerm] = CLAIMS_JA) -> list[Hit]:
-    """Every Japanese device claim in ``text``: a term of :data:`CLAIMS_JA` in a claiming context. An empty list
-    means no claim."""
-    terms = tuple(terms)
-    alt = "|".join(re.escape(t.term) for t in terms)
-    # a negated term, with the terms that are its object (リスクを予測しません): what the product does not do
-    negated = re.compile(r"(?:(?:" + alt + r")(?:を|は|も|の))*(?:" + alt + r")" + _NEGATION)
+def _alt(words: Iterable[str]) -> re.Pattern[str]:
+    return re.compile("|".join(re.escape(w) for w in words))
+
+
+_DISEASE = _alt(CLAIM_DISEASE_JA)
+_EARLY = _alt(CLAIM_EARLY_JA)
+_PATIENT = _alt(CLAIM_PATIENTS_JA)
+
+
+def _blank(m: re.Match[str]) -> str:
+    return _MASK * len(m.group(0))
+
+
+def deny_masked_ja(text: str) -> str:
+    """``text`` with every real denial of a claim word blanked: 本製品は診断、予測、スコアリングを行いません says what
+    the product does not do. A double negative (発見しない日はない) is not a denial and stays."""
+    return _DENIAL.sub(_blank, text)
+
+
+def check_claims_ja(text: str) -> list[Hit]:
+    """Every Japanese device claim in ``text`` (the rule above). An empty list means no claim."""
+    text = deny_masked_ja(unicodedata.normalize("NFKC", text))
     hits: list[Hit] = []
     for sentence in _SENTENCE.findall(text):
-        unnegated = negated.sub(lambda m: "　" * len(m.group(0)), sentence)
-        for t in terms:
-            if t.term not in unnegated:
-                continue
-            masked = unnegated
-            for rx in t.allowed:
-                masked = re.sub(rx, lambda m: "　" * len(m.group(0)), masked)
-            for m in re.finditer(re.escape(t.term), masked):
-                actor = any(a.end() <= m.start() for a in _ACTOR.finditer(masked))
-                near = masked[max(0, m.start() - CLAIM_WINDOW) : m.end() + CLAIM_WINDOW]
-                patient = not t.actor_only and _PATIENT.search(near) is not None
-                if actor or patient:
-                    ctx = sentence[max(0, m.start() - 30) : m.end() + 30]
-                    hits.append(Hit(word=t.term, context=ctx.strip()))
+        masked = sentence
+        for patterns in CLAIM_ALLOWED_JA.values():
+            for rx in patterns:
+                masked = re.sub(rx, _blank, masked)
+
+        def near(m: re.Match[str], rx: re.Pattern[str], s: str = masked) -> bool:
+            return rx.search(s[max(0, m.start() - CLAIM_WINDOW) : m.end() + CLAIM_WINDOW]) is not None
+
+        def hit(m: re.Match[str], word: str, s: str = sentence) -> None:
+            hits.append(Hit(word=word, context=s[max(0, m.start() - 30) : m.end() + 30].strip()))
+
+        for word in CLAIM_OUTRIGHT_JA:
+            for m in re.finditer(re.escape(word), masked):
+                hit(m, word)
+        for word in CLAIM_FIND_JA:
+            for m in re.finditer(re.escape(word), masked):
+                if near(m, _DISEASE) or near(m, _EARLY):
+                    hit(m, word)
+        for word in CLAIM_RATE_JA:
+            for m in re.finditer(re.escape(word), masked):
+                if near(m, _PATIENT) or near(m, _DISEASE) or re.search(_ACTOR_BEFORE, masked[: m.start()]):
+                    hit(m, word)
+        for word in CLAIM_JUDGE_JA:
+            for m in re.finditer(re.escape(word), masked):
+                actors = [a.end() for a in _ACTOR_SUBJECT.finditer(masked, 0, m.start())]
+                persons = [p.end() for p in _PERSON_SUBJECT.finditer(masked, 0, m.start())]
+                if actors and (not persons or max(actors) > max(persons)):  # the nearest subject is the product
+                    hit(m, word)
     return hits
 
 
@@ -244,6 +378,8 @@ def check(
     masked = text
     for phrase in allowed:
         masked = masked.replace(phrase, " ")
+    if claims:  # a real denial of a claim word says what the product does not do (D-1228)
+        masked = deny_masked_ja(unicodedata.normalize("NFKC", masked))
     hits: list[Hit] = []
     for word in words:
         for m in _pattern(word).finditer(masked):
