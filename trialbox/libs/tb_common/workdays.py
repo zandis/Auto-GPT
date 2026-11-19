@@ -39,6 +39,7 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parent / "refdata_src"
 KINDS = ("holiday", "substitute", "citizens")
+DAY_OFF_KINDS = (*KINDS, "new_year", "site")  # why a weekday is off (:meth:`Calendar.day_off`, less "weekend")
 # the end-of-year break each country's offices close by default; a site changes it (TB_NEW_YEAR_BREAK)
 NEW_YEAR_BREAK: dict[str, tuple[tuple[int, int], tuple[int, int]]] = {"JP": ((12, 29), (1, 3))}
 ENV_BREAK, ENV_OFF, ENV_OPEN = "TB_NEW_YEAR_BREAK", "TB_DAYS_OFF", "TB_DAYS_OPEN"

@@ -53,6 +53,7 @@ from typing import Any
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
+from tb_common.workdays import WEEKDAYS_ONLY, Calendar
 
 from console import actor
 from console import person_state as ps
@@ -62,7 +63,6 @@ from console.home import Helpers
 from console.i18n import LANGS, translate
 from console.sitestore import NotifyPerson
 from console.timefmt import site_zone
-from tb_common.workdays import WEEKDAYS_ONLY, Calendar
 
 MAX_ROWS = 10  # per digest section; the rest is one line and the link
 # D-386 (LIFE-008): the states whose enrolled participants' visits and serious AEs are still mailed. Screening rows

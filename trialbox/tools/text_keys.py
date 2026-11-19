@@ -490,6 +490,9 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "life.reason.sf.": _values("datacore.lifecycle", "SCREEN_FAIL_REASONS"),
     "life.reason.wd.": _values("datacore.lifecycle", "WITHDRAW_REASONS"),
     "life.anchor.": _values("datacore.lifecycle", "ANCHORS"),
+    # 10C-14: how a visit window counts, and why a day is off at the site (the schedule page)
+    "life.unit.": lambda: ("days", "working"),
+    "life.daysoff.why.": _values("tb_common.workdays", "DAY_OFF_KINDS"),
     "registry.status.": _values("orchestrator.candidates", "STATUSES"),
     "sstate.": _values("console.sitestore", "STUDY_STATES"),
     "role.": _values("console.auth", "ROLES"),

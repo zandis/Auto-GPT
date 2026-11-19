@@ -48,9 +48,10 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, tzinfo
 from typing import Any
 
+from tb_common.workdays import WEEKDAYS_ONLY, Calendar
+
 from datacore.forms import XML_ILLEGAL
 from datacore.store import DataCore
-from tb_common.workdays import WEEKDAYS_ONLY, Calendar
 
 STATES = ("candidate", "approached", "consented", "enrolled", "on_study", "completed", "withdrawn", "screen_fail")
 LINE = ("candidate", "approached", "consented", "enrolled", "on_study", "completed")  # the main line, in order
@@ -782,7 +783,8 @@ class Lifecycle:
         }
 
     def visits(self, study: str, record: str, today: date, schedule: list[Visit] | None = None,
-               subject: dict[str, Any] | None = None, cal: Calendar = WEEKDAYS_ONLY) -> list[dict[str, Any]]:  # fmt: skip
+               subject: dict[str, Any] | None = None,
+               cal: Calendar = WEEKDAYS_ONLY) -> list[dict[str, Any]]:  # fmt: skip
         vers = self.schedule_versions(study)
         if schedule is not None:
             sched = schedule

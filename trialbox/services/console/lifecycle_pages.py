@@ -32,8 +32,8 @@ from datacore.lifecycle import ON_STUDY
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
-from tb_common.csvfile import for_spreadsheet
 from tb_common import workdays
+from tb_common.csvfile import for_spreadsheet
 from tb_common.erased import is_erased
 
 from console import actor, s28

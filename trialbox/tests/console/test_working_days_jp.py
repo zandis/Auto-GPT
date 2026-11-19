@@ -14,7 +14,7 @@ Synthetic data only (pseudonyms, invented visits); the holidays are the Cabinet 
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -102,7 +102,7 @@ def test_sae_deadlines_stay_calendar_days_on_a_holiday() -> None:
     rows = lc.report_clock(e, LABOUR_DAY, dict(rules))
     seven = [r for r in rows if r["days"] == 7]
     assert seven and seven[0]["due"] == "2027-11-23" and not seven[0]["overdue"]
-    assert [r for r in lc.report_clock(e, date(2027, 11, 24), dict(rules)) if r["days"] == 7][0]["overdue"]
+    assert next(r for r in lc.report_clock(e, date(2027, 11, 24), dict(rules)) if r["days"] == 7)["overdue"]
     import inspect
 
     assert "cal" not in inspect.signature(lc.report_clock).parameters  # no calendar to read
@@ -124,17 +124,16 @@ def test_a_visit_window_in_working_days_skips_golden_week() -> None:
 def test_another_country_gets_exactly_what_it_got_before() -> None:
     """Byte for byte: the mails and the windows of a Taiwan site (or a site with no country) with the site's
     calendar are what they were with none, on every day of 2026-11 to 2027-01 and of Golden Week 2027."""
-    days = [date(2026, 11, 1) + (date(2026, 11, 2) - date(2026, 11, 1)) * i for i in range(92)]
-    days += [date(2027, 4, 26) + (date(2026, 11, 2) - date(2026, 11, 1)) * i for i in range(15)]
+    one = timedelta(days=1)
+    days = [date(2026, 11, 1) + one * i for i in range(92)] + [date(2027, 4, 26) + one * i for i in range(15)]
     for cal in (TW, for_zone(None, {}), for_zone("America/Chicago", {"TB_DAYS_OFF": "2026-11-26"})):
         for day in days:
             for lang in ("en", "ja", "zh-TW"):
                 crc, pi = NotifyPerson("crc", None, lang=lang), NotifyPerson("pi", None, lang=lang)
-                assert notify.build_n2(CRC, crc, day, _crc_rows(day), None, _life("2026-11-01"), cal=cal) == (
-                    notify.build_n2(CRC, crc, day, _crc_rows(day), None, _life("2026-11-01")))
-                assert notify.build_n1(PI, pi, day, [("GZQO", [_row("1" * 16, f"{day}T09:00:00+09:00")])],
-                                       cal=cal) == notify.build_n1(
-                    PI, pi, day, [("GZQO", [_row("1" * 16, f"{day}T09:00:00+09:00")])])  # fmt: skip
+                n2 = (CRC, crc, day, _crc_rows(day), None, _life("2026-11-01"))
+                assert notify.build_n2(*n2, cal=cal) == notify.build_n2(*n2)
+                n1 = (PI, pi, day, [("GZQO", [_row("1" * 16, f"{day}T09:00:00+09:00")])])
+                assert notify.build_n1(*n1, cal=cal) == notify.build_n1(*n1)
             v = Visit("v1", 28, 3, 3)
             assert visit_status(v, day, {}, "on_study", day, cal) == visit_status(v, day, {}, "on_study", day)
     assert Visit("v1", 7, 1, 1).as_dict() == {"visit": "v1", "day": 7, "before": 1, "after": 1,
@@ -189,7 +188,7 @@ def test_the_schedule_page_stores_working_days_and_lists_the_days_off(
                              ("zh-TW", "本院休假日", "國定假日")):  # fmt: skip
         c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
         page = c.get("/studies/GZQO/schedule").text
-        sec = page[page.index('data-testid="days-off"'):]
+        sec = page[page.index('data-testid="days-off"') :]
         assert title in sec and f"2026-11-23 · {why} · 勤労感謝の日" in sec
         assert "2026-12-29" in sec and "2027-01-01" in sec and "2027-01-11" in sec and "2027-02-23" not in sec
         assert 'data-testid="days-off-problems"' in sec and "TB_DAYS_OFF" in sec
