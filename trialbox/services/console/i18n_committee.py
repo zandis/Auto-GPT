@@ -90,7 +90,7 @@ JA: dict[str, str] = {
     "cmt.central": "一括審査（全施設を一つの委員会で審査）",
     "cmt.documents": "文書（表題と日付）",
     "cmt.documents.hint": "例：審査結果通知書、2026-10-01。アップロードはしません。",
-    "cmt.permission": "この施設の実施許可（施設 {site}）",
+    "cmt.permission": "この施設の実施許可（{site}）",
     "cmt.permission_version": "実施許可が対象とするプロトコルの版",
     "cmt.permitted_on": "研究機関の長の実施許可日",
     "cmt.rule": "IRB の記録と同じく、病院の CRC または試験の責任医師が記録します。保存済みの記録を変える場合は10文字以上の理由が必要で、変更前後の値が記録されます。",
