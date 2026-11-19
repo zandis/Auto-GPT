@@ -70,6 +70,7 @@ LANGS = ("en", "ja", "zh-TW")
 MAX_BYTES = 5 * 1024 * 1024  # an answers file larger than any hospital's three masters: a wrong file
 MAX_ROWS = 50_000  # rows of one table
 MAX_TEXT = 120  # characters of a name or a display
+MAX_DEPTH = 16  # levels of nesting: the form itself nests seven (the file, tables, lab, rows, a row, answers, one)
 DIR_MODE = 0o755  # the folder the form writes: readable by the box's user, whoever ran the command
 FILE_MODE = 0o644
 
@@ -263,8 +264,8 @@ COLUMNS = {
 }  # fmt: skip
 KEY_TARGET = {"diagnosis": ("code", "icd10"), "drug": ("yj_code", "atc"), "lab": ("local_code", "code")}
 #: every refusal the form gives: ``profileform.err.<code>`` in the console's catalogue, en, ja and zh-TW
-CODES = ("unreadable", "alias", "doubled_key", "format", "unknown_key", "missing", "not_text", "id", "site_id",
-         "country", "country_none", "version", "synthetic", "synthetic_id", "door", "data_type", "std_name",
+CODES = ("unreadable", "too_deep", "alias", "doubled_key", "format", "unknown_key", "missing", "not_text", "id",
+         "site_id", "country", "country_none", "version", "synthetic", "synthetic_id", "door", "data_type", "std_name",
          "std_value", "apart", "table_name", "table_door", "master", "master_synthetic", "date", "rows_empty",
          "rows_too_many", "code_shape", "code_repeat", "yj_shape", "target_code", "text", "text_url", "state",
          "system_one", "unit", "unit_missing", "unit_coded", "factor", "factor_needed", "factor_same", "factor_wrong",
@@ -341,9 +342,9 @@ _Loader: type[Any] = getattr(yaml, "CBaseLoader", yaml.BaseLoader)
 
 
 class _Unreadable(Exception):
-    def __init__(self, code: str, where: str, line: int) -> None:
+    def __init__(self, code: str, where: str, line: int, **values: str) -> None:
         super().__init__(code)
-        self.problem = Problem(code, where, {}, line)
+        self.problem = Problem(code, where, values, line)
 
 
 def _key(k: str) -> str:
@@ -353,39 +354,71 @@ def _key(k: str) -> str:
 
 def read_answers(raw: str | bytes) -> tuple[Any, dict[str, int]]:
     """The answers file as plain text values (dicts, lists and str: never a number, a boolean or a date), parsed once,
-    with the line of every answer by its ``where``. Refused: an alias (a document that grows as it is read) and a key
-    written twice in one mapping (YAML keeps the last silently)."""
+    with the line of every answer by its ``where``. Built from the parser's events with a stack of its own, never by
+    recursion, and refused past :data:`MAX_DEPTH` levels as soon as the parser gets there: a deeply nested file is
+    not a form, and composing it would exhaust Python's stack (or the C composer's). Also refused: an alias (a document
+    that grows as it is read), a key written twice in one mapping (YAML keeps the last silently), a key that is not
+    text, and a second document."""
+    lines: dict[str, int] = {}
+    stack: list[list[Any]] = []  # each open mapping or list: [container, its where, the key read, the key's where]
+    root: list[Any] = []
+    documents = 0
+
+    def place(value: Any, line: int) -> str | None:
+        """Put a value in the open container; the ``where`` of a value placed, or None for a key just read."""
+        if not stack:
+            root.append(value)
+            where = ""
+        else:
+            frame = stack[-1]
+            box = frame[0]
+            if isinstance(box, list):
+                where = f"{frame[1]}[{len(box)}]"
+                box.append(value)
+            elif frame[2] is None:  # a mapping waiting for a key: this is the key
+                if not isinstance(value, str):
+                    raise _Unreadable("unreadable", frame[1] or "answers", line)
+                at = f"{frame[1]}.{_key(value)}" if frame[1] else _key(value)
+                if value in box:
+                    raise _Unreadable("doubled_key", at, line)
+                frame[2], frame[3] = value, at
+                lines[at] = line
+                return None
+            else:
+                where = frame[3]
+                box[frame[2]] = value
+                frame[2] = None
+        lines[where] = line
+        return where
+
     try:
-        node = yaml.compose(raw, Loader=_Loader)
+        for event in yaml.parse(raw, Loader=_Loader):
+            line = event.start_mark.line + 1 if event.start_mark else 0
+            if isinstance(event, yaml.DocumentStartEvent):
+                documents += 1
+                if documents > 1:
+                    raise _Unreadable("unreadable", "answers", line)
+            elif isinstance(event, yaml.AliasEvent):
+                at = stack[-1][3] if stack and isinstance(stack[-1][0], dict) and stack[-1][2] is not None else ""
+                raise _Unreadable("alias", at or (stack[-1][1] if stack else "") or "answers", line)
+            elif isinstance(event, yaml.ScalarEvent):
+                place(str(event.value), line)
+            elif isinstance(event, (yaml.MappingStartEvent, yaml.SequenceStartEvent)):
+                box: Any = {} if isinstance(event, yaml.MappingStartEvent) else []
+                where = place(box, line)
+                if where is None:  # a mapping or a list where a key belongs
+                    raise _Unreadable("unreadable", stack[-1][1] or "answers", line)
+                stack.append([box, where, None, ""])
+                if len(stack) > MAX_DEPTH:
+                    raise _Unreadable("too_deep", "answers", line, depth=str(MAX_DEPTH))
+            elif isinstance(event, (yaml.MappingEndEvent, yaml.SequenceEndEvent)):
+                stack.pop()
     except yaml.MarkedYAMLError as exc:
         mark = exc.problem_mark or exc.context_mark
         raise _Unreadable("unreadable", "answers", mark.line + 1 if mark else 0) from None
-    except (yaml.YAMLError, UnicodeDecodeError, RecursionError):
+    except (yaml.YAMLError, UnicodeDecodeError):
         raise _Unreadable("unreadable", "answers", 0) from None
-    lines: dict[str, int] = {}
-    seen: set[int] = set()
-
-    def build(n: Any, where: str) -> Any:
-        line = n.start_mark.line + 1
-        if id(n) in seen:  # the same node twice: an alias
-            raise _Unreadable("alias", where or "answers", line)
-        seen.add(id(n))
-        lines[where] = line
-        if isinstance(n, yaml.MappingNode):
-            out: dict[str, Any] = {}
-            for kn, vn in n.value:
-                k = kn.value if isinstance(kn, yaml.ScalarNode) else f"<{type(kn).__name__}>"
-                at = f"{where}.{_key(k)}" if where else _key(k)
-                if k in out:
-                    raise _Unreadable("doubled_key", at, kn.start_mark.line + 1)
-                lines[at] = kn.start_mark.line + 1
-                out[k] = build(vn, at)
-            return out
-        if isinstance(n, yaml.SequenceNode):
-            return [build(v, f"{where}[{i}]") for i, v in enumerate(n.value)]
-        return str(n.value)
-
-    return (build(node, "") if node is not None else None), lines
+    return (root[0] if root else None), lines
 
 
 def _line_of(where: str, lines: Mapping[str, int]) -> int:

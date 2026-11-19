@@ -60,8 +60,10 @@ loaded. Under lane J's rule that nothing may widen what a role may do, the card 
    expected. It never repeats what the answer said.
 
    **Which refusals come at once.** The ones found in the parsed answers come together, also inside a coded result's
-   answers. A file that cannot be read as plain YAML (not YAML, an alias, a key written twice, over 5 MB) is refused
-   alone, because nothing after it can be read.
+   answers. A file that cannot be read as plain YAML (not YAML, an alias, a key written twice, a key that is not
+   text, a second document, over 5 MB, nested deeper than 16 levels) is refused alone, because nothing after it can
+   be read. The nesting bound is checked while the file is read, from the parser's events, so a 5000-deep file is
+   refused as not a form instead of exhausting the stack.
 4. **Units are checked, not assumed.** A quantity needs its unit; a coded result has none.
    - Same unit, or no source unit: the factor is 1, as the engine reads such a row.
    - Different units: the factor must be given. Where `tb_common.labunit.conversion` knows the pair, the factor must

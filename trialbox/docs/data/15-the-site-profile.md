@@ -296,7 +296,10 @@ zh-TW. It gives the answer's key (`tables.lab.rows[3].unit`), its line in the an
 is expected. It never repeats what the answer said, so a patient's name typed into the wrong field is not shown back.
 A key that is not a plain word is shown by its length only. Every refusal the parser finds is reported in one run,
 also inside a coded result's answers. A refusal that stops the reading is reported alone: a file that is not YAML,
-an alias (`*`), a key written twice, or a file over 5 MB.
+an alias (`*`), a key written twice, a key that is not text, a second document, a file over 5 MB, or nesting deeper
+than 16 levels (the form itself nests seven). The file is read from the parser's events with a stack of the reader's
+own, never by recursion, and the reading stops as soon as the bound is passed: a deeply nested file is told "not a
+form", never a traceback.
 
 **No free text unescaped, no path from an answer.**
 

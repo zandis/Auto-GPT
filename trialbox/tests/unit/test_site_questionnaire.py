@@ -429,12 +429,50 @@ def test_every_refusal_is_reported_at_once_with_its_line_even_inside_coded_answe
         ("format: tb-site-questionnaire/1\nformat: tb-site-questionnaire/1\n", "doubled_key"),
         ("- a list\n", "unreadable"),
         ("format: [unclosed\n", "unreadable"),
+        ("format: tb-site-questionnaire/1\n---\nformat: tb-site-questionnaire/1\n", "unreadable"),  # two documents
+        ("? [format]\n: tb-site-questionnaire/1\n", "unreadable"),  # a key that is not text
     ],
 )
 def test_an_answers_file_that_is_not_one_plain_mapping_is_refused(text: str, code: str) -> None:
     got = sq.parse_text(text)
     assert not isinstance(got, sq.Form) and _codes(got) == [code]
     assert got[0].line > 0
+
+
+def _nested(style: str, depth: int) -> str:
+    if style == "flow list":
+        return "[" * depth + "]" * depth
+    if style == "flow map":
+        return "{a: " * depth + "x" + "}" * depth
+    if style == "block map":
+        return "".join(" " * i + "a:\n" for i in range(depth)) + " " * depth + "x\n"
+    return "".join(" " * (2 * i) + "- \n" for i in range(depth)).rstrip(" \n") + " x\n"  # block list
+
+
+NESTING = [(s, d) for s in ("flow list", "flow map", "block map", "block list") for d in (sq.MAX_DEPTH + 1, 300, 2000)]
+
+
+@pytest.mark.parametrize(("style", "depth"), NESTING)
+def test_a_deeply_nested_file_is_refused_as_not_a_form_without_a_traceback(
+    style: str, depth: int, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    text = _nested(style, depth)
+    assert len(text) <= sq.MAX_BYTES  # refused for its depth, not its size
+    got = sq.parse_text(text)
+    assert not isinstance(got, sq.Form) and _codes(got) == ["too_deep"]
+    assert str(sq.MAX_DEPTH) in sq.message(got[0], "en") and got[0].line > 0
+    deep = tmp_path / "deep.yaml"
+    deep.write_text(text, encoding="utf-8")
+    assert sp.main(["fill", "--answers", str(deep), "--out", str(tmp_path / "out")]) == 2
+    said = capsys.readouterr()
+    assert "Traceback" not in said.out + said.err and "not a form" in said.out + said.err
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("style", ["flow list", "flow map", "block map", "block list"])
+def test_nesting_up_to_the_bound_is_not_refused_for_its_depth(style: str) -> None:
+    got = sq.parse_text(_nested(style, sq.MAX_DEPTH))
+    assert isinstance(got, list) and "too_deep" not in _codes(got)  # refused for its content, not its depth
 
 
 def test_the_answers_file_is_parsed_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -452,7 +490,7 @@ def test_the_answers_file_is_parsed_once(monkeypatch: pytest.MonkeyPatch) -> Non
     for name in ("compose", "parse", "load", "safe_load", "full_load"):
         monkeypatch.setattr(yaml, name, counted(name))
     assert isinstance(sq.parse_text(ANSWERS.read_bytes()), sq.Form)
-    assert calls == ["compose"]
+    assert calls == ["parse"]
 
 
 # ------------------------------------------------------------------ no free text unescaped, no path from an answer
