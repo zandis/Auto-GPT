@@ -486,7 +486,9 @@ def strip_stray(node: Any, text: str = "", kind_: str = "inclusion") -> tuple[An
 def approved_negated(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) -> bool:
     """Card 10A-1 for a criterion already compiled (an approved ruleset): whether it is an inclusion whose line may
     negate what its coded logic asks the presence of. The concept's names are its ValueSet's title and its codes'
-    displays (an approved ruleset keeps no concept candidates)."""
+    displays (an approved ruleset keeps no concept candidates). The line's other concepts are the titles of the
+    ruleset's ValueSets (each the name of a concept candidate the extractor emitted, card 10A-1b): a cue that governs
+    one of them, not listed with this concept, is explained as it is at the first compile."""
     if c.kind != "inclusion" or c.class_ not in FILTERED:
         return False
 
@@ -496,7 +498,8 @@ def approved_negated(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) -> bo
                  for x in inc.get("concept") or [] if x.get("display")]  # fmt: skip
         return [str(v["title"])] * bool(v.get("title")) + shown
 
-    return negated_presence(c.text, c.logic, terms_for)
+    titles = [str(v["title"]) for v in valuesets.values() if v.get("title")]
+    return negated_presence(c.text, c.logic, terms_for, titles)
 
 
 def hold_reused_negated(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) -> tuple[CriterionIR, str | None]:

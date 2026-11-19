@@ -1,5 +1,5 @@
 {
- "about": "Card 10A-1b: 80 inclusion lines written before the rule of card 10A-1b was changed, kept apart from lines.json and unseen_at_design.json and scored apart. 40 must be held (the coded concept is the one negated), including lines built to exploit the new rule: a negated coded concept beside a positive other concept in either clause order, a cue before a boundary reaching past it, ellipsis ('no prior surgery or chemotherapy' with chemotherapy coded), 'surgery but not chemotherapy', 手術歴はあるが化学療法歴はない with 化学療法 coded, lists. 40 must run (the coded concept is present; a negation governs something else, named as a candidate or not). 'others' are the line's other concept candidates as the extractor would emit them (names; the coded concept's domain). 'why' says what a row tests. Fields otherwise as in lines.json. Synthetic; no patient data.",
+ "about": "Card 10A-1b: 80 inclusion lines written before the rule of card 10A-1b was changed, kept apart from lines.json and unseen_at_design.json and scored apart. 40 must be held (the coded concept is the one negated), including lines built to exploit the new rule: a negated coded concept beside a positive other concept in either clause order, a cue before a boundary reaching past it, ellipsis ('no prior surgery or chemotherapy' with chemotherapy coded), 'surgery but not chemotherapy', 手術歴はあるが化学療法歴はない with 化学療法 coded, lists. 40 must run (the coded concept is present; a negation governs something else, named as a candidate or not). 'others' are the line's other concept candidates as the extractor would emit them (names; the coded concept's domain). 'why' says what a row tests. Fields otherwise as in lines.json. Synthetic; no patient data. 'over_held' marks a must-run row the rule still holds (counted, not hidden).",
  "rows": [
   {
    "lang": "en",
@@ -886,7 +886,8 @@
    "source": "card-10A-1b",
    "others": [
     "インスリン"
-   ]
+   ],
+   "over_held": "held after card 10A-1b: 未 before 使用 reads forward onto the coded concept in the same clause, with no boundary; a structural rule cannot tell it from 未治療の肺癌"
   },
   {
    "lang": "ja",

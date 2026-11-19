@@ -10,7 +10,13 @@ negation cue that is not explained. A cue is explained only when it is shown to 
   phrase that negates nothing ("no longer", "non-small cell", "無法", "未満"): these are blanked before reading;
 * a cue followed, before the concept, by a word it negates instead ("not *responded* to chemotherapy", "no
   *restriction* on", "化学療法後に*増悪*が認められない", "未經治療*的*晚期肺癌");
-* a cue that clearly governs another concept the line names, and not this one.
+* a cue that clearly governs another concept the line names, and not this one: not when that concept is listed with
+  this one under the cue ("no prior surgery or chemotherapy", "手術及び化学療法の治療歴がない": both negated);
+* (card 10A-1b) a cue whose negated thing the line does not name as a concept, when the structure says so without
+  doubt: the cue and every mention of this concept are in different clauses split by a coordinating boundary (";",
+  a sentence end, "but", "however", が、, て、, 但, 且), no mention's clause carries a cue or goes on with a list, and
+  the cue's clause has an object of its own (not a time, a verb, "it", "any treatment", "任何形式之治療"). When the
+  cue's clause comes first the boundary must be adversative ("but", が、, 但). Anything less clear stays held.
 
 The scope reading (ConText's: a cue before the concept, or after it for "not allowed", "なし", "未曾…", in the same
 clause and within a few words; Harkema H, Dowling JN, Thornblade T, Chapman WW. ConText: an algorithm for determining
@@ -53,6 +59,7 @@ windows, and all Japanese and Chinese cues. The licence of the adapted words:
 
 from __future__ import annotations
 
+import bisect
 import re
 import unicodedata
 from collections.abc import Callable, Iterable
@@ -93,7 +100,8 @@ _EN_PSEUDO = (
     r"tuberculous|valvular|ischemic|ischaemic|obstructive|functioning|secretory|hereditary)\b|"
     r"\bgram[- ]negative\b|\bnot\s+(?:otherwise\s+)?specified\b|\bnot\s+elsewhere\s+classified\b|"
     r"\bnot\s+applicable\b|"
-    r"\bnone\s+other\b|\bnevertheless\b"
+    r"\bnone\s+other\b|\bnevertheless\b|"
+    r"\bno\.\s*\d"  # "hospital No. 17": a number, not a negation (card 10A-1b)
 )
 # a cue inside the concept word itself ("non-pregnant", "nonsmoker", "untreated", "ex-smoker")
 _EN_PREFIX = r"(?:non-?|un|ex-)"
@@ -268,6 +276,8 @@ def _cjk_governed(text: str, s: int, e: int, others: list[re.Pattern[str]], ja: 
         if m is None:
             return False
         gap = after[: m.start()]
+        if _JA_BUT.search(gap):  # "手術歴はあるが、…ない": an adversative が ends the reading (card 10A-1b); the
+            return False  # fail-safe still reads that cue
         return not _JA_BLK.search(gap) and _first(others, gap) is None
     for cue in _ZH_FWD.finditer(before):
         gap = before[cue.end() :]
@@ -305,36 +315,225 @@ def governed(text: str, terms: Iterable[str], other_terms: Iterable[str] = ()) -
 
 
 # ----------------------------------------------------------------------------- the fail-safe (an unexplained cue)
-def _explained_forward(after: str, own: list[re.Pattern[str]], others: list[re.Pattern[str]], cjk: bool) -> bool:
+# Card 10A-1b. "Another named concept" explains a cue only when it is not listed with this concept under that cue:
+# "no prior surgery or chemotherapy", "手術及び化学療法の治療歴がない", "未曾接受手術或化學治療" negate both. The words
+# that join a list (or that say the other concept is done with this one: "with", "including", "による") are filler.
+_EN_FILLER = re.compile(
+    r"^(?:[\s,;/&()\-]|\b(?:or|and|nor|either|neither|any|other|prior|previous|of|the|a|an|with|by|using|including|"
+    r"such|as|like|e\.g|i\.e|containing|both|plus)\b)*$",
+    _FLAGS,
+)
+_CJK_FILLER = re.compile(
+    r"^(?:[\s,、/・()\-]|及び|および|並びに|ならびに|または|又は|もしくは|若しくは|を含む|含む|による|などの|等の|"
+    r"或是|或者|以及|包括|包含|例如|や|と|の|も|か|及|或|和|與|与|並|并|暨|跟|等|如)*$"
+)
+# the reach of a list: a comma or 、 does not end it, a semicolon followed by "or" / "and" does not either
+_EN_LIST_END = re.compile(r";(?!\s*(?:or|and|nor)\b)|\.(?=\s|$)|\n", _FLAGS)
+_CJK_LIST_END = re.compile(r"[。;\n]")
+
+
+def _list_after(text: str, i: int, cjk: bool, ja: bool) -> str:
+    s = (_CJK_LIST_END if cjk else _EN_LIST_END).split(text[i : i + _SPAN])[0]
+    return _term_re(cjk, ja).split(s)[0]
+
+
+def _list_before(text: str, i: int, cjk: bool, ja: bool) -> str:
+    s = (_CJK_LIST_END if cjk else _EN_LIST_END).split(text[max(0, i - _SPAN) : i])[-1]
+    return _term_re(cjk, ja).split(s)[-1]
+
+
+def _filler(s: str, cjk: bool) -> bool:
+    return bool((_CJK_FILLER if cjk else _EN_FILLER).match(s))
+
+
+def _listed_after(reach: str, own: list[re.Pattern[str]], others: list[re.Pattern[str]], cjk: bool) -> bool:
+    """A forward cue's reach names another concept, then this one with only list words between: the cue governs
+    both ("no prior surgery or chemotherapy", "diabetes, hypertension, or stroke")."""
+    stop = _first(own, reach)
+    if stop is None:
+        return False
+    ends = [m.end() for p in others for m in p.finditer(reach[:stop])]
+    return bool(ends) and _filler(reach[max(ends) : stop], cjk)
+
+
+def _listed_before(reach: str, own: list[re.Pattern[str]], others: list[re.Pattern[str]], cjk: bool) -> bool:
+    """A backward cue's reach names this concept, then another with only list words between ("手術及び化学療法の
+    治療歴がない", "chemotherapy and radiotherapy are not permitted")."""
+    for p in own:
+        for m in p.finditer(reach):
+            starts = [o.start() for q in others for o in q.finditer(reach, m.end())]
+            if starts and _filler(reach[m.end() : min(starts)], cjk):
+                return True
+    return False
+
+
+def _explained_forward(
+    after: str, own: list[re.Pattern[str]], others: list[re.Pattern[str]], cjk: bool, reach: str = ""
+) -> bool:
     """A forward cue is explained when what it reaches, before this concept, is a word it negates instead or another
-    named concept."""
+    named concept not listed with this one."""
     stop = _first(own, after)
     head = after if stop is None else after[:stop]
     if cjk:
         if re.search(r"[的之]", head[:6]):  # "未經治療的晚期肺癌": the cue negates the modifier 的 closes
             return True
-        return bool(_ZH_BLK.search(head) or _JA_BLK.search(head)) or _first(others, head) is not None
+        if _ZH_BLK.search(head) or _JA_BLK.search(head):
+            return True
+        return _first(others, head) is not None and not _listed_after(reach or after, own, others, cjk)
     near = " ".join(_WORD.findall(head)[: _EN_WINDOW + 1])
-    return bool(_EN_BLK.search(near)) or _first(others, near) is not None
+    if _EN_BLK.search(near):
+        return True
+    return _first(others, near) is not None and not _listed_after(reach or after, own, others, cjk)
 
 
 def _explained_backward(
-    before: str, cue: str, after: str, own: list[re.Pattern[str]], others: list[re.Pattern[str]], cjk: bool
-) -> bool:
+    before: str, cue: str, after: str, own: list[re.Pattern[str]], others: list[re.Pattern[str]], cjk: bool,
+    reach: str = "",
+) -> bool:  # fmt: skip
     """A backward cue is explained when, between this concept (or the clause's start) and the cue, the line names
-    another concept or a word the cue negates instead ("化学療法後に増悪が認められない"), or when the cue's own words
-    say what it negates ("has not *responded*", "未見*惡化*", "未受*控制*")."""
+    another concept not listed with this one, or a word the cue negates instead ("化学療法後に増悪が認められない"), or
+    when the cue's own words say what it negates ("has not *responded*", "未見*惡化*", "未受*控制*")."""
     last = [m.end() for p in own for m in p.finditer(before)]
     tail = before[max(last) :] if last else before
     if cjk:
         said = cue + after[:4]
         if _JA_BLK.search(said) or _ZH_BLK.search(said):
             return True
-        return bool(_JA_BLK.search(tail) or _ZH_BLK.search(tail)) or _first(others, tail) is not None
+        if _JA_BLK.search(tail) or _ZH_BLK.search(tail):
+            return True
+        return _first(others, tail) is not None and not _listed_before(reach or before, own, others, cjk)
     if _EN_BLK.search(cue):
         return True
     near = " ".join(_WORD.findall(tail)[-4:])
-    return bool(_EN_BLK.search(near)) or _first(others, near) is not None
+    if _EN_BLK.search(near):
+        return True
+    return _first(others, near) is not None and not _listed_before(reach or before, own, others, cjk)
+
+
+# Card 10A-1b: a cue whose negated thing the line does not name as a concept ("Prior surgery is required; no prior
+# radiotherapy", radiotherapy not a candidate) is about something else only when the structure says so without
+# doubt: the cue and every mention of this concept are in different clauses split by a coordinating boundary, no
+# mention's clause carries a cue, and the cue's clause has an object of its own. When this concept's clause comes
+# first any such boundary will do (a cue never reaches back over one); when the cue's clause comes first the boundary
+# must be adversative ("No chemotherapy, but prior surgery is required"), since a semicolon or 且 may go on with the
+# cue's list. Anything less clear is "cannot tell", and the line stays held.
+_EN_ADVERSATIVE = r"\b(?:but|however|whereas|although|though|yet)\b"
+_JA_ADVERSATIVE = r"(?<=[るただいす])が(?![ぁ-ん])、?|けれども、?|けれど、?|ものの、?"
+_ZH_ADVERSATIVE = r"但是|但|然而|惟|不過|不过|可是|卻|却"
+_JA_BUT = re.compile(_JA_ADVERSATIVE)
+_PLAIN = {
+    "en": r";|\.(?=\s|$)|\n",
+    "ja": r"[。;\n]|(?:[てで]|され|あり|おり)、",
+    "zh": r"[。;\n]|並且|并且|而且|且",
+}
+_BOUNDS = {
+    lang: re.compile(rf"(?P<adv>{adv})|(?:{_PLAIN[lang]})", _FLAGS)
+    for lang, adv in (("en", _EN_ADVERSATIVE), ("ja", _JA_ADVERSATIVE), ("zh", _ZH_ADVERSATIVE))
+}
+_LIST_GOES_ON = {
+    "en": re.compile(r"^[\s,]*(?:or|and|nor|and/or|plus|as\s+well\s+as)\b", _FLAGS),
+    "ja": re.compile(r"^[\s,、]*(?:及び|および|並びに|ならびに|または|又は|もしくは|若しくは|や|と)"),
+    "zh": re.compile(r"^[\s,、]*(?:及|或|和|與|与|以及|並|并|暨|或是|或者|跟)"),
+}
+_ANY_CUE = [_EN_FWD, _EN_BWD_ANY, _EN_PRE, _JA_BWD, _JA_FWD, _ZH_FWD, _ZH_BWD]
+# an object of its own: a word that is not a function word, a time, a verb form, or a word that may take in this
+# concept ("any treatment", "it", "such therapy", "任何形式之治療", "いずれも")
+_EN_ANAPHOR = re.compile(
+    r"\b(?:it|its|them|they|this|these|those|that|such|same|either|both|which|one|ones|above|aforementioned|said)\b",
+    _FLAGS,
+)
+_EN_GENERIC = re.compile(
+    r"^(?:treatments?|therap(?:y|ies)|drugs?|medications?|medicines?|agents?|regimens?|interventions?)$", _FLAGS
+)
+_EN_EMPTY = re.compile(
+    r"^(?:a|an|the|any|other|prior|previous|of|to|for|with|in|on|at|by|from|within|before|after|during|since|until|"
+    r"is|are|was|were|be|been|being|has|have|had|do|does|did|must|should|may|can|will|would|shall|could|might|not|no|"
+    r"never|none|nor|or|and|history|evidence|use|time|times|day|days|week|weeks|month|months|year|years|hour|hours|"
+    r"last|past|ago|enrolment|enrollment|entry|study|screening|randomisation|randomization|registration|consent|"
+    r"baseline|start|dose|first|at|all|ever|again|more|less|longer|than|there|patient|patients|subject|subjects|"
+    r"participant|participants|some|alone|line|lines|receive|receives|take|takes|took|use|uses|undergo|undergoes|"
+    r"underwent|get|gets|got|start|starts|begin|began|give|gives|gave|need|needs|require|requires|allow|allows|"
+    r"permit|permits|accept|accepts|complete|completes|continue|continues|stop|stops|discontinue|discontinues|"
+    r"show|shows|experience|experiences|develop|develops|meet|meets|perform|administer|prescribe|try|tried|"
+    r"initiate|initiates|qualify|qualifies|exist|exists|occur|occurs|[a-z]+ly|[a-z]+(?:ed|en|wn|ne|ht)|"
+    r"\d+(?:[.,]\d+)?)$",
+    _FLAGS,
+)
+_EN_ADVERBIAL = re.compile(
+    r"^\s*(?:within|before|after|during|since|until|till|at|in|for|from|by|as|beyond|while|when|if|unless|except|earlier|"
+    r"later|again|previously|ever|yet|more|less|longer|than|\d)\b",
+    _FLAGS,
+)
+_CJK_ANAPHOR = re.compile(
+    r"それ|これ|その|この|当該|上記|前記|いずれ|どちら|双方|両方|其|此|該|该|上述|前述|兩者|两者|皆|均|都|同"
+)
+_CJK_EMPTY = re.compile(
+    r"[぀-ゟ]|[0-9０-９]|接受|使用|服用|投与|施行|実施|経験|認め|伴わ|伴う|有する|發生|发生|發現|发现|出現|出现|患有|罹患|"
+    r"任何|形式|方式|種類|种类|治療|治疗|藥物|药物|薬剤|病史|既往|過去|过去|最終|最近|期間|期间|以内|以內|以前|以後|以后|"
+    r"か月|ヶ月|カ月|時間|[曾過过有之的於于經经歴史週月年日天前後后内內患薬]"
+)
+_CJK_WORD = re.compile(r"[㐀-鿿ァ-ヿA-Za-z]{2,}")
+
+
+class _Structure:
+    """The clauses of a line and where this concept is named in them, read once per line (card 10A-1b)."""
+
+    def __init__(self, t: str, found: list[Mention], lang: str) -> None:
+        self.lang, self.cjk = lang, lang != "en"
+        self.starts, self.ends, self.adv = [0], [], []
+        for m in _BOUNDS[lang].finditer(t):
+            self.ends.append(m.start())
+            self.adv.append(m.group("adv") is not None)
+            self.starts.append(m.end())
+        self.ends.append(len(t))
+        self.adv.append(False)
+        self.own: set[int] = set()
+        self.ok = bool(found)  # the line must name this concept, in clauses that carry no cue
+        for s, e, neg in found:
+            k = self.at(s)
+            self.own.add(k)
+            if neg or self.at(e - 1) != k:
+                self.ok = False
+        for k in self.own:
+            clause = t[self.starts[k] : self.ends[k]]
+            if any(p.search(clause) for p in _ANY_CUE) or _LIST_GOES_ON[lang].match(clause):
+                self.ok = False
+        self.last = max(self.own, default=-1)
+
+    def at(self, i: int) -> int:
+        return max(0, bisect.bisect_right(self.starts, i) - 1)
+
+
+def _has_object(clause: str, cue_start: int, cue_end: int, forward: bool, cjk: bool) -> bool:
+    """The cue's clause has a thing of its own for the cue to negate (after a forward cue, before a backward one)."""
+    side = clause[cue_end:] if forward else clause[:cue_start]
+    if cjk:
+        if _CJK_ANAPHOR.search(clause):
+            return False
+        return _CJK_WORD.search(_CJK_EMPTY.sub(" ", side)) is not None
+    if _EN_ANAPHOR.search(clause) or (forward and _EN_ADVERBIAL.match(side)):
+        return False
+    words = _WORD.findall(side)
+    for i, w in enumerate(words):  # "any other treatment" may take in this concept; "biologic therapy" does not
+        if _EN_GENERIC.match(w) and (i == 0 or _EN_EMPTY.match(words[i - 1])):
+            return False
+    return any(not _EN_EMPTY.match(w) and not _EN_GENERIC.match(w) for w in words)
+
+
+def _elsewhere(t: str, start: int, end: int, forward: bool, st: _Structure) -> bool:
+    """Whether the cue at ``t[start:end]`` is, by structure alone, about something in another clause than this
+    concept (card 10A-1b). False whenever it cannot tell."""
+    if not st.ok:
+        return False
+    c = st.at(start)
+    if c in st.own or st.at(end - 1) != c:
+        return False
+    if st.last > c and not st.adv[c]:  # the cue's clause first: only an adversative boundary right after it will do
+        return False
+    cs, ce = max(st.starts[c], start - _SPAN), min(st.ends[c], end + _SPAN)
+    if st.cjk and not forward and not t[cs:start].strip(" ,、"):
+        forward = True  # "…,且未發現胎兒異常": at its clause's start a backward cue reads forward
+    return _has_object(t[cs:ce], start - cs, end - cs, forward, st.cjk)
 
 
 def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] = ()) -> bool:
@@ -343,38 +542,57 @@ def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] 
     own = _patterns(terms)
     others = _others(terms, other_terms)
     t = _prepare(text)
+    found = _mentions(t, own)
+    lang = "ja" if _KANA.search(t) else "zh" if _CJK.search(t) else "en"
+    built: list[_Structure] = []
+
+    def elsewhere(m: re.Match[str], forward: bool) -> bool:
+        if not built:
+            built.append(_Structure(t, found, lang))
+        return _elsewhere(t, m.start(), m.end(), forward, built[0])
+
     for m in _EN_FWD.finditer(t):
-        if not _explained_forward(_clause_after(t, m.end(), cjk=False), own, others, cjk=False):
+        reach = _list_after(t, m.end(), cjk=False, ja=False)
+        if not _explained_forward(_clause_after(t, m.end(), cjk=False), own, others, False, reach) and not elsewhere(
+            m, True
+        ):
             return True
     for m in _EN_BWD_ANY.finditer(t):
         before = _clause_before(t, m.start(), cjk=False)
-        if not _explained_backward(before, m.group(0), "", own, others, cjk=False):
+        reach = _list_before(t, m.start(), cjk=False, ja=False)
+        if not _explained_backward(before, m.group(0), "", own, others, False, reach) and not elsewhere(m, False):
             return True
-    found = _mentions(t, own)
     for m in _EN_PRE.finditer(t):
         # "Nonsmokers with asthma": the prefixed word negates itself; it is about something else only when this
         # concept is named elsewhere in the line, outside that word
         inside = any(s < m.end() and m.start() < e for s, e, _ in found)
         if inside or not found:
             return True
-    japanese = bool(_KANA.search(t))
-    if japanese:
+    if lang == "ja":
         for m in _JA_BWD.finditer(t):
             before, after = _clause_before(t, m.start(), True, True), _clause_after(t, m.end(), True, True)
-            if not _explained_backward(before, m.group(0), after, own, others, cjk=True):
+            reach = _list_before(t, m.start(), True, True)
+            if not _explained_backward(before, m.group(0), after, own, others, True, reach) and not elsewhere(m, False):
                 return True
         for m in _JA_FWD.finditer(t):
-            if not _explained_forward(_clause_after(t, m.end(), True, True), own, others, cjk=True):
+            reach = _list_after(t, m.end(), True, True)
+            if not _explained_forward(_clause_after(t, m.end(), True, True), own, others, True, reach) and not (
+                elsewhere(m, True)
+            ):
                 return True
         return False
     for m in _ZH_FWD.finditer(t):
-        if not _explained_forward(_clause_after(t, m.end(), cjk=True), own, others, cjk=True):
+        reach = _list_after(t, m.end(), True, False)
+        if not _explained_forward(_clause_after(t, m.end(), cjk=True), own, others, True, reach) and not elsewhere(
+            m, True
+        ):
             return True
     for m in _ZH_BWD.finditer(t):
         before, after = _clause_before(t, m.start(), cjk=True), _clause_after(t, m.end(), cjk=True)
         if not before.strip():  # at the clause's start it is a forward cue, read above
             continue
-        if not _explained_backward(before, m.group(0), after, own, others, cjk=True):
+        reach = _list_before(t, m.start(), True, False)
+        if not _explained_backward(before, m.group(0), after, own, others, True, reach) and not elsewhere(m, False):
             return True
     return False
 

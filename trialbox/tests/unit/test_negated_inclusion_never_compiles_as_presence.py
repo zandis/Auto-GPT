@@ -36,6 +36,8 @@ FIX = Path(__file__).resolve().parents[1] / "fixtures/negated_inclusion"
 ROWS: list[dict[str, Any]] = json.loads((FIX / "lines.json").read_text(encoding="utf-8"))["rows"]
 # lines lane J's reviewer wrote before reading ROWS (unseen when the rule was designed): kept apart, scored apart
 UNSEEN: list[dict[str, Any]] = json.loads((FIX / "unseen_at_design.json").read_text(encoding="utf-8"))["rows"]
+# card 10A-1b's lines, written before its rule changed (ellipsis, lists, either clause order): kept apart, scored apart
+CARD: list[dict[str, Any]] = json.loads((FIX / "card_10a1b.json").read_text(encoding="utf-8"))["rows"]
 CHEMO = {"domain": "procedure", "quantifier": "any", "concept": "chemotherapy"}  # VS_CHEMOTHERAPY once compiled
 CHEMO_CAND = [{"domain": "procedure", "name": "chemotherapy", "synonyms": ["化学療法", "化學治療"]}]
 _TERM: list[Terminology] = []
@@ -56,7 +58,10 @@ def _logic(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _cand(row: dict[str, Any]) -> list[dict[str, Any]]:
-    return [{"domain": row["domain"], "name": row["concept"], "synonyms": row["synonyms"]}]
+    """The coded concept and the line's other candidates (``others``: card 10A-1b's lines), as the extractor emits."""
+    return [{"domain": row["domain"], "name": row["concept"], "synonyms": row["synonyms"]}] + [
+        {"domain": row["domain"], "name": x, "synonyms": []} for x in row.get("others", [])
+    ]
 
 
 def _post(crits: list[dict[str, Any]]) -> Any:
@@ -87,7 +92,7 @@ def test_the_two_p2b_lines_are_held() -> None:
                question="Does the patient have significant cardiopulmonary disease?"))  # fmt: skip
 
 
-ALL = [*ROWS, *UNSEEN]
+ALL = [*ROWS, *UNSEEN, *CARD]
 
 
 @pytest.mark.parametrize("cls", ["structured", "mixed"])
@@ -112,10 +117,13 @@ def _score(rows: list[dict[str, Any]]) -> tuple[int, int, int, int]:
 
 
 def test_the_counts_the_pull_request_reports() -> None:
-    """This card's table: every negated line held; 8 of the 69 that should run are held by the fail-safe. The lines
-    unseen at design: every negated line held; 20 of the 23 that should run are held (card 10A-1b's target)."""
-    assert _score(ROWS) == (116, 116, 8, 69)
-    assert _score(UNSEEN) == (21, 21, 20, 23)
+    """Card 10A-1's table: every negated line held; 6 of the 69 that should run are held by the fail-safe (8 before
+    card 10A-1b). The lines unseen at design: every negated line held; 12 of the 23 that should run are held (20
+    before). Card 10A-1b's own lines: every negated line held (12 of 40 ran before it: a cue over a list); 1 of the 40
+    that should run is held (18 before)."""
+    assert _score(ROWS) == (116, 116, 6, 69)
+    assert _score(UNSEEN) == (21, 21, 12, 23)
+    assert _score(CARD) == (40, 40, 1, 40)
     assert {r["lang"] for r in ALL} == {"en", "ja", "zh"}
 
 
@@ -166,6 +174,42 @@ def test_property_presence_inside_other_logic_is_held(shape: int) -> None:
 @pytest.mark.parametrize("shape", range(len(ABSENCE)))
 def test_property_a_negated_line_already_coded_negative_runs(shape: int) -> None:
     assert not [x.text for x in _shaped(ABSENCE[shape]) if FLAG in (x.flags or [])]
+
+
+def test_exclusions_are_byte_identical_with_the_rule_on_and_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Card 10A-1b changes only which inclusions are held: every line of the four tables compiled as an exclusion is
+    the same, byte for byte, with the rule as it is and with it off."""
+    rows = [*ROWS, *UNSEEN, *CARD]
+    crits = [{"kind": "exclusion", "class": "structured", "text": r["text"], "logic": _logic(r),
+              "concept_candidates": _cand(r)} for r in rows]  # fmt: skip
+
+    def dumped() -> list[str]:
+        return [c.dump_json(x) for x in _post(crits).criteria]
+
+    on = dumped()
+    monkeypatch.setattr("criteria_compiler.ir_extract.postprocess.negated_presence", lambda *a, **kw: False)
+    assert dumped() == on
+
+
+def test_a_reused_approved_line_reads_the_rulesets_concepts() -> None:
+    """Card 10A-1b: an approved ruleset keeps no concept candidates, but each ValueSet's title is the name of one.
+    The reused line reads them as its other concepts: a cue over one of them alone is explained, a cue over a list
+    with this concept in it is not."""
+    t2dm = {"title": "type 2 diabetes mellitus", "compose": {"include": []}}
+    keto = {"title": "ketoacidosis", "compose": {"include": []}}
+    chemo = {"title": "chemotherapy", "compose": {"include": []}}
+    radio = {"title": "radiotherapy", "compose": {"include": []}}
+
+    def crit(text: str, vs: str) -> Any:
+        return c.CriterionIR.model_validate({"id": "T-INC-01", "ruleset": "T", "kind": "inclusion",
+                                             "class": "structured", "text": text, "review": {"status": "approved"},
+                                             "logic": {"domain": "condition", "valueset": vs, "quantifier": "any"}})  # fmt: skip
+
+    line = crit("Type 2 diabetes mellitus without ketoacidosis", "VS_T2DM")
+    assert pp.approved_negated(line, {"VS_T2DM": t2dm})  # the ketoacidosis not known: held
+    assert not pp.approved_negated(line, {"VS_T2DM": t2dm, "VS_KETO": keto})
+    listed = crit("No prior chemotherapy or radiotherapy", "VS_RADIO")
+    assert pp.approved_negated(listed, {"VS_RADIO": radio, "VS_CHEMO": chemo})
 
 
 def test_an_age_or_sex_alone_and_an_exclusion_are_not_this_rule() -> None:

@@ -23,3 +23,19 @@ on `main` keeps running until a person recompiles and approves: `make negated-in
 version and criterion, and change nothing; the offline install of a ruleset reports its hits. Cue lists:
 `services/criteria_compiler/ir_extract/negation_scope.py` (English adapted from medspaCy's ConText rules, MIT).
 Test: `tests/unit/test_negated_inclusion_never_compiles_as_presence.py` over `tests/fixtures/negated_inclusion/`.
+
+## Fewer unnecessary holds, and a list under one cue is held (card 10A-1b, 2026-11-19)
+
+The `negated_inclusion_presence` flag now holds fewer lines that should run, and no fewer that should not. (1) The
+line's other concepts: on the first compile, every concept candidate and its synonyms (as before); on the reused
+approved path, the titles of the ruleset's ValueSets (each a candidate's name), where it passed none. Another concept
+explains a cue only when it is not listed with this one under that cue: "No prior chemotherapy or radiotherapy" with
+radiotherapy coded and chemotherapy a candidate ran on master as presence (12 of card 10A-1b's 40 new negated lines
+did); it is held now. (2) A cue whose negated thing is no concept the line names is about something else only when
+the cue and every mention of the coded concept are in different clauses split by a coordinating boundary (";", a
+sentence end, "but", が、, て、, 但, 且), no mention's clause carries a cue, and the cue's clause has an object of its
+own; with the cue's clause first, the boundary must be adversative. "Cannot tell" is held. (3) "No. 17" is a number.
+Measured, missed and held unnecessarily, before and after: card 10A-1's table 0/116 and 8/69 to 0/116 and 6/69; the
+lines unseen at design 0/21 and 20/23 to 0/21 and 12/23; card 10A-1b's 80 lines 12/40 and 18/40 to 0/40 and 1/40;
+P2b's stored `ir_extract` replies (377 coded inclusions) 14 held, 6 unnecessarily, to 13 and 5. Exclusions are byte
+for byte the same with the rule on and off. Lines: `tests/fixtures/negated_inclusion/card_10a1b.json`.

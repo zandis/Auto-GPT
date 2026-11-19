@@ -1,5 +1,5 @@
 {
- "about": "Card 10A-1: inclusion lines written by lane J's reviewer before reading this card's table (unseen at design): the lines the reviewer's second review reported (17 negated lines that ran as presence, the cue-less absence words, and one over-hold with its English and Chinese equivalents). The reviewer's full set of 154 lines is not in this repository. Synthetic; no patient data. Fields as in lines.json. 'over_held' marks a must-run row the fail-safe holds today (the target of card 10A-1b): the 19 lines lane J's reviewer reported as newly over-held and one of its 40 fresh lines, verbatim, with the coded concept the reviewer named.",
+ "about": "Card 10A-1: inclusion lines written by lane J's reviewer before reading this card's table (unseen at design): the lines the reviewer's second review reported (17 negated lines that ran as presence, the cue-less absence words, and one over-hold with its English and Chinese equivalents). The reviewer's full set of 154 lines is not in this repository. Synthetic; no patient data. Fields as in lines.json. 'over_held' marks a must-run row the fail-safe holds today (the target of card 10A-1b): the 19 lines lane J's reviewer reported as newly over-held and one of its 40 fresh lines, verbatim, with the coded concept the reviewer named. 'released' marks a row once marked over_held that card 10A-1b's rule now runs (it is a must-run row like any other).",
  "rows": [
   {
    "lang": "en",
@@ -298,7 +298,7 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "released": "card 10A-1b"
   },
   {
    "lang": "en",
@@ -383,7 +383,7 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "released": "card 10A-1b"
   },
   {
    "lang": "ja",
@@ -396,7 +396,7 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "released": "card 10A-1b"
   },
   {
    "lang": "ja",
@@ -448,7 +448,7 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "released": "card 10A-1b"
   },
   {
    "lang": "zh",
@@ -461,7 +461,7 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "released": "card 10A-1b"
   },
   {
    "lang": "zh",
@@ -474,7 +474,7 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "released": "card 10A-1b"
   },
   {
    "lang": "zh",
@@ -500,7 +500,7 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "released": "card 10A-1b"
   },
   {
    "lang": "zh",
@@ -513,7 +513,7 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "released": "card 10A-1b"
   },
   {
    "lang": "en",
