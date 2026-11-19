@@ -419,7 +419,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     adults = {p["mrn"] for p in patients if (a := _age(p["birth_date"], ref)) is not None and a >= 18}
     import pyarrow.parquet as pq
 
-    known = {r["code"] for t in TERMINOLOGY for r in pq.read_table(t, columns=["code"]).to_pylist()}
+    known = {r["code"] for t in TERMINOLOGY for r in pq.read_table(t, columns=["code"], use_threads=False).to_pylist()}
     vs = {c for c in known if c.startswith(MALIGNANT)}  # the "malignancy" grouper expands over the terminology
     # clinical truth, independent of the terminology: any code in the malignancy families (D-113)
     cancer = {d["mrn"] for d in dx if d["icd10"].startswith(MALIGNANT)}

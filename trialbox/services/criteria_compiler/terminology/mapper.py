@@ -308,13 +308,13 @@ class Terminology:
         self.rows: dict[str, list[dict[str, Any]]] = {}
         for key, fname in TABLE_FILES.items():
             path = directory / f"{fname}.parquet"
-            self.rows[key] = pq.read_table(path).to_pylist() if path.exists() else []
+            self.rows[key] = pq.read_table(path, use_threads=False).to_pylist() if path.exists() else []
         # full code lists (D-122): code lookups and prefix groupers only, never name matching
         self.full: dict[str, list[dict[str, Any]]] = {}
         for key, fname in FULL_FILES.items():
             path = directory / f"{fname}.parquet"
             if path.exists():
-                self.full[key] = pq.read_table(path).to_pylist()
+                self.full[key] = pq.read_table(path, use_threads=False).to_pylist()
         # TERM-1 (D-858, D-1029): block name -> categories, index term -> code or the term it sees, display -> codes.
         # The blocks and the index ship beside the tables (US public domain, D-1029); a newer release loaded on the box
         # at install (``terminology.installed``) is read instead when its manifest line vouches for it. A refused
@@ -346,7 +346,7 @@ class Terminology:
                 # beside the tables, else the shipped ones (a box's vocabulary-built tables hold codes, not these)
                 path = directory / f"{name}.parquet"
                 path = path if path.exists() else TERM_DIR / f"{name}.parquet"
-                rows = pq.read_table(path).to_pylist() if path.exists() else []
+                rows = pq.read_table(path, use_threads=False).to_pylist() if path.exists() else []
                 self.icd_sources[name] = "shipped" if rows else ""
             for r in rows:
                 if name == inst.ICD_BLOCKS:
@@ -357,7 +357,7 @@ class Terminology:
         for r in self.full.get("icd10cm", []):
             self.icd_display.setdefault(_icd_key(str(r["display"])), []).append(str(r["code"]))
         syn = directory / "synonyms.parquet"
-        self.synonyms = pq.read_table(syn).to_pylist() if syn.exists() else []
+        self.synonyms = pq.read_table(syn, use_threads=False).to_pylist() if syn.exists() else []
         self._by_code: dict[tuple[str, str], Concept] = {}
         for key, rows in self.full.items():
             for r in rows:
