@@ -29,9 +29,10 @@
     stopped leaves no stale lines and never holds the code back. The feed's walk stops at 200,000 files or after
     15 s and says so (amber when stopped by time). Every probe is injectable (`Probes`).
   - **What each one says:**
-    - `name_cert`: red when there is no name (PRODUCTION), it does not resolve, it resolves to an address that is
-      not this box's (`ip -j addr`), or the certificate fails `check_tls` (not valid now, another name, a key that
-      is not its own). Amber for a hospital certificate that signed itself, and when this box's addresses cannot be
+    - `name_cert`: red when there is no name (PRODUCTION), it does not resolve, it resolves only to loopback or
+      link-local addresses (`/etc/hosts`, nss-myhostname: no record in the hospital's DNS), it resolves to an address
+      that is not this box's (`ip -j addr`; loopback and link-local dropped on both sides), or the certificate fails
+      `check_tls` (not valid now, another name, a key that is not its own). Amber for a hospital certificate that signed itself, and when this box's addresses cannot be
       read. A `.local` name not answered yet is amber before the owner's answers are applied (the box takes the name
       then, OPS-005) and red once `deploy/site/box/applied` is there.
     - `clock`: as `doctor`.
@@ -41,8 +42,9 @@
       what a write-once share refuses (the box's root owns the heads and may chmod them; the folder is writable and
       not sticky, or root's, so a head could be removed and replaced): that is not visible from here, so it is amber
       with "confirm the share is write-once", never green. Green needs heads that are not root's, not writable, in a
-      sticky folder that is not root's. The advice is a write-once (WORM) share: root-squash alone cannot make the
-      line green.
+      sticky folder that is not root's; an owner that is the box's root or the user root-squash maps it to (nobody,
+      65534) is amber too, since that owner may chmod or remove. The advice is a write-once (WORM) share: root-squash
+      alone cannot make the line green.
     - `feed`: counted, never read. Readability is judged for the services' user (uid and gid 10001, the images'
       `tb`) from mode and ownership, not as root; a link is not followed and counts as not readable, and so does a
       folder the walk cannot enter. Red when the folder is missing, empty, or holds anything not readable.
@@ -73,9 +75,11 @@
     without `python3-yaml` writes no file and the installer says so. **The page's lines are a snapshot taken before
     the owner's answers** (the backup and anchor folders, the feed are often not chosen yet); nothing re-runs them
     after the apply until the console's doctor page (10K-5); `doctor --preflight` does it by hand.
+- **Limits:** no chain check to the hospital's CA exists: a hospital certificate from an unknown CA passes
+  `check_tls` and is shown with its notes (only one that signed itself is amber); a follow-up card.
 - **Not in this card:** the backup and anchor folder choice in the wizard and PRODUCTION's refusal to finish without
   them (10K-4); `doctor` on the console (10K-5); the IT one-page generated from the list (10K-18).
-- **Held by:** `tests/unit/test_preflight.py` (a ready box all green; one fixture per failure reason, 37 of them, each
+- **Held by:** `tests/unit/test_preflight.py` (a ready box all green; one fixture per failure reason, 38 of them, each
   a red line with its ja action; the amber cases; a hanging check and the run's budget; the feed's time bound; port
   465; the command line run once; `--lang`/`--out` refused alone; the terminal wizard; `text_keys` sees a missing
   text; the checks write nothing), `tests/console/test_firstrun_preflight.py` (a fixture per check: a red line with

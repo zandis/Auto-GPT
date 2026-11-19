@@ -242,6 +242,12 @@ REASONS: list[tuple[str, str, Callable[[Box], object], str]] = [
     ("name does not resolve", "name_cert", _probe(resolve=_no_name), "does not resolve here"),
     ("name is another machine", "name_cert", _probe(resolve=lambda h: ["203.0.113.250"]), "not an address of this box"),
     (".local after the apply", "name_cert", _applied, "the set-up was applied"),
+    (
+        "name only on loopback",
+        "name_cert",
+        _probe(resolve=lambda h: ["127.0.1.1", "fe80::1%eth0"], own_addrs=lambda: {"127.0.1.1", "192.0.2.10"}),
+        "only a loopback or link-local",
+    ),
     ("certificate expired", "name_cert", _cert_env((-10, -1)), "not valid now"),
     ("certificate not yet valid", "name_cert", _cert_env((1, 300)), "not valid now"),
     ("certificate names another host", "name_cert", _cert_env((-1, 300), "other.hospital.test"), "does not name"),
@@ -363,6 +369,18 @@ def test_root_owning_the_heads_is_amber(tmp_path: Path, monkeypatch: pytest.Monk
     os.chown(b.paths["head"], 0, 0)
     c = pf.check_audit_share(b.inp(), b.probes)
     assert c.status == "WARN" and "owns the signed heads" in c.detail
+
+
+def test_heads_of_the_squashed_root_are_amber(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """0444 heads in a sticky folder, both owned by the user root is squashed to: that owner may chmod or remove."""
+    b = _ready(tmp_path, monkeypatch)
+    if os.geteuid() == 0:
+        os.chown(b.paths["head"], pf.SQUASHED, pf.SQUASHED)
+        os.chown(b.paths["heads"], pf.SQUASHED, pf.SQUASHED)
+    else:  # a test run as another user: its own uid plays the squashed root
+        monkeypatch.setattr(pf, "SQUASHED", b.paths["head"].lstat().st_uid)
+    c = pf.check_audit_share(b.inp(), b.probes)
+    assert c.status == "WARN" and "squashed to" in c.detail and "remove and replace" in c.detail, c
 
 
 def test_a_check_that_hangs_is_red_with_the_time_out_action(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -26,6 +26,7 @@ name printed.
 from __future__ import annotations
 
 import contextlib
+import ipaddress
 import json
 import os
 import shutil
@@ -204,8 +205,13 @@ def check_name_cert(inp: DoctorInputs, p: Probes) -> Check:
         return Check("name_cert", "WARN", f"{why}; a computer that cannot resolve .local uses the address")
     if not addrs:
         return Check("name_cert", "FAIL", f"{host} does not resolve here ({why})")
-    own = p.own_addrs()
     where = f"{host} is {', '.join(addrs)}"
+    addrs = [a for a in addrs if _routable(a)]
+    if not addrs:  # /etc/hosts or nss-myhostname answering on the box itself: no record in the hospital's DNS
+        return Check("name_cert", "FAIL", f"{where}: only a loopback or link-local address, answered on this box "
+                     "and not by the hospital's DNS")  # fmt: skip
+    own = p.own_addrs()
+    own = {a for a in own if _routable(a)} if own is not None else None
     if own is not None and not set(addrs) & own:
         return Check("name_cert", "FAIL", f"{where}: not an address of this box ({', '.join(sorted(own)) or 'none'})")
     try:
@@ -254,10 +260,23 @@ def _offbox(path: Path, inp: DoctorInputs) -> bool:
     return bs.target_kind(path, local=(Path("/"), _deploy(inp))).offbox
 
 
+def _routable(addr: str) -> bool:
+    """An address other computers can use: not loopback, not link-local (nor something that is not an address)."""
+    try:
+        ip = ipaddress.ip_address(addr.split("%", 1)[0])
+    except ValueError:
+        return False
+    return not (ip.is_loopback or ip.is_link_local or ip.is_unspecified)
+
+
+#: owners a box's root may act as on a share: itself, and the identity root-squash maps it to (nobody, 65534)
+SQUASHED = 65534
+
+
 def _unlinkable(folder: Path, st: os.stat_result, euid: int, writable: bool) -> bool:
     """Whether this process could remove a file from ``folder``: it may write there and the folder is not sticky,
     or it owns the folder."""
-    return writable and (not st.st_mode & stat.S_ISVTX or st.st_uid == euid)
+    return writable and (not st.st_mode & stat.S_ISVTX or st.st_uid in (euid, SQUASHED))
 
 
 def check_audit_share(inp: DoctorInputs, p: Probes) -> Check:
@@ -299,13 +318,13 @@ def check_audit_share(inp: DoctorInputs, p: Probes) -> Check:
         if any(p.writable(h) for h in heads):
             bad.append(f"{f}: the box's root can change a signed head")
             continue
-        owned = any(h.lstat().st_uid == euid for h in heads)
+        owned = any(h.lstat().st_uid in (euid, SQUASHED) for h in heads)
         if owned:
-            soft.append(f"{f}: the box's root owns the signed heads and may make them writable; confirm the share is "
-                        "write-once")  # fmt: skip
+            soft.append(f"{f}: the box's root (or the user root is squashed to, {SQUASHED}) owns the signed heads and "
+                        "may make them writable or remove them; confirm the share is write-once")  # fmt: skip
         if _unlinkable(heads_dir, heads_dir.lstat(), euid, dir_writable):
             soft.append(f"{f}: the box's root may remove and replace a signed head (the folder is writable and not "
-                        "sticky, or owned by root); confirm the share is write-once")  # fmt: skip
+                        f"sticky, or owned by root or {SQUASHED}); confirm the share is write-once")  # fmt: skip
     if bad:
         return Check("audit_share", "FAIL", "; ".join(bad + soft))
     if soft:
