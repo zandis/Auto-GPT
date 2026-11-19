@@ -1,0 +1,46 @@
+{
+  "schema": "tb-tls-policy/1",
+  "decision": "D-1328",
+  "card": "10G-48 (plan 10; review 21, OT-12)",
+  "note": "What TLS the box's 443 and the two-device link must serve. tools/tls_policy.py judges a testssl.sh JSON result (tls.json) and the shipped Caddyfile against it. Protocol ids are testssl.sh's (SSLv2, SSLv3, TLS1, TLS1_1, TLS1_2, TLS1_3).",
+  "fail_on_severity": ["HIGH", "CRITICAL", "FATAL"],
+  "cipher_categories_not_offered": [
+    "cipherlist_NULL",
+    "cipherlist_aNULL",
+    "cipherlist_EXPORT",
+    "cipherlist_LOW",
+    "cipherlist_3DES_IDEA",
+    "cipherlist_OBSOLETED"
+  ],
+  "certificate": {
+    "rsa_min_bits": 2048,
+    "ec_min_bits": 256,
+    "forbidden_signature": ["MD5", "SHA1"],
+    "expired_fails": true
+  },
+  "targets": {
+    "box": {
+      "what": "Caddy on the box's 443 (deploy/identity/Caddyfile, deploy/docker-compose.identity.yml)",
+      "protocols_allowed": ["TLS1_2", "TLS1_3"],
+      "protocols_forbidden": ["SSLv2", "SSLv3", "TLS1", "TLS1_1"],
+      "aead_only": true,
+      "forward_secrecy": true,
+      "hsts_min_seconds": 31536000,
+      "client_certificate": "not required"
+    },
+    "link": {
+      "what": "the two-device link's TLS port on TB_LINK_ADDR (tools/two_device.py, deploy/two-device/)",
+      "protocols_allowed": ["TLS1_3"],
+      "protocols_forbidden": ["SSLv2", "SSLv3", "TLS1", "TLS1_1", "TLS1_2"],
+      "aead_only": true,
+      "forward_secrecy": true,
+      "hsts_min_seconds": null,
+      "client_certificate": "required"
+    }
+  },
+  "caddyfile": {
+    "protocols": ["tls1.2", "tls1.3"],
+    "hsts_min_seconds": 31536000,
+    "plain_http_only_on": ["127.0.0.1", "::1", "localhost"]
+  }
+}

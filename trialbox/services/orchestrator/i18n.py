@@ -201,14 +201,14 @@ T: dict[str, dict[str, str]] = {
         "基準に合致しないとはせず確認待ちに回します。max_pairs を上げて再実行すると読みます。",
         "screen.scores_unverified": "スナップショット {snapshot} のスコアは未確認です（スコアの一括計算が完了していません）。"
         "このリストでは eGFR、DAS28、CDAI、SDAI を使う基準は「情報が必要」です。",
-        "screen.judging.none": "記録基準は読み取っていません（この装置にモデルなし）：確認待ちに回します。",
+        "screen.judging.none": "記録基準は読み取っていません（このボックスにモデルなし）：確認待ちに回します。",
         "screen.judging.nothing": "このルールセットには記録から自動で答えられる基準がありません：すべての基準を人が確認するため、"
         "対象の患者全員を確認待ちとし、基準に合致しないとはしません。",
         "screen.judging.pair": "記録基準：{judge} が読み取り {verifier} が検証。両モデルが一致したときのみ、記録の回答で基準に合致しないとします。",
         "screen.judging.single": "記録基準：{judge} のみが読み取り。この実行では記録の回答で基準に合致しないとした患者はいません（{why}）。"
         "記録基準に該当しない患者は確認待ちに載せています。",
         "screen.judging.why.held": "記録の読み取りを保留中",
-        "screen.judging.why.configured": "この装置の設定による",
+        "screen.judging.why.configured": "このボックスの設定による",
         "screen.judging.why.no_judge": "記録を読むモデルがありません",
         "screen.judging.why.no_verifier": "検証用の第二のモデルが未設定",
         "screen.judging.why.same_model": "検証モデルが別のモデルではありません",
