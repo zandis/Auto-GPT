@@ -35,7 +35,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 for _p in ("libs", "services"):
     sys.path.insert(0, str(ROOT / _p))
-from tb_common import site_country  # noqa: E402 - libs is on the path only from here
+from tb_common import site_country, workdays  # noqa: E402 - libs is on the path only from here
 from tb_common.dates import PRINTED_STYLES, YEAR_BASES  # noqa: E402
 
 EXAMPLE = ROOT / "deploy" / "settings.example.yaml"
@@ -134,6 +134,9 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("tls_hostname", "Console DNS name for https (from hospital IT)", "", "str"),
     # D-736 (LIFE-007): told at once when a serious adverse event is entered (no AE term); a PRODUCTION install needs it
     ("sae_office_mailbox", "Trial office mailbox, told at once when a serious adverse event is entered", "", "str"),
+    # 10C-14 (JP-15): asked only for a country with a holiday list (Japan); the default is the country's 年末年始.
+    # More days off or days open: env_extra TB_DAYS_OFF and TB_DAYS_OPEN (tb_common.workdays)
+    ("new_year_break", "New Year break: the hospital's first and last day off (MM-DD/MM-DD, or none)", "", "str"),
     # OPS-060: the hospital's certificate is the first choice; Caddy's own CA needs its root on every clinic PC by
     # group policy and never works on a personal device
     (
@@ -279,6 +282,8 @@ def _asked(key: str, cd: site_country.CountryDefaults, out: dict[str, Any]) -> b
         return str(out.get("data_source_type")) == "ssmix2"
     if key in NO_RULES_DAYS:
         return _no_rules(cd, out)
+    if key == "new_year_break":
+        return workdays.holidays(cd.country) is not None
     return True
 
 
@@ -316,6 +321,8 @@ def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[s
         d = default if default is not None else base.get(key, "")
         if key in COUNTRY_KEYS and cd is not site_country.LEGACY:
             d = getattr(cd, COUNTRY_KEYS[key]) or ""
+        if key == "new_year_break":
+            d = new_year_default(cd.country)
         required = _required(key, cd, out)
         if required:  # review of #1088, items 3 and 5: no default; Enter is not an answer here
             d = ""
@@ -586,6 +593,7 @@ def build(
     elif not sae_to:
         warnings.append("sae_office_mailbox is empty: nobody is mailed when a serious adverse event is entered; a "
                         "PRODUCTION install stops without it (D-736)")  # fmt: skip
+    break_env = new_year_env(cd.country, a.get("new_year_break"), errors)
     twpas = _bool(a.get("twpas_enabled", "no"))
     if twpas and "twpas_enabled" not in cd.insurer_questions:
         errors.append(f"TWPAS is Taiwan's National Health Insurance: not offered for country {cd.country}")
@@ -738,8 +746,31 @@ def build(
     env.update(ssmix2_env)
     if sae_to:
         env["TB_SAE_OFFICE_MAILBOX"] = sae_to
+    env.update(break_env)
     env.update(extra)
     return settings, env, warnings
+
+
+def new_year_default(country: str) -> str:
+    """The country's New Year break as the question shows it (``12-29/01-03`` for Japan); "" for none."""
+    nb = workdays.NEW_YEAR_BREAK.get((country or "").upper())
+    return f"{nb[0][0]:02d}-{nb[0][1]:02d}/{nb[1][0]:02d}-{nb[1][1]:02d}" if nb else ""
+
+
+def new_year_env(country: str, answer: Any, errors: list[str]) -> dict[str, str]:
+    """10C-14: ``TB_NEW_YEAR_BREAK`` when the site's break is not its country's (nothing is written otherwise)."""
+    text = str(answer or "").strip()
+    if not text or text == new_year_default(country):
+        return {}
+    if workdays.holidays(country) is None:
+        errors.append(f"new_year_break: country {country or '(none)'} has no holiday list, so no working-day calendar")
+        return {}
+    try:
+        workdays.parse_break(text)
+    except ValueError as exc:
+        errors.append(f"new_year_break: {exc}")
+        return {}
+    return {"TB_NEW_YEAR_BREAK": text}
 
 
 def env_extra(raw: Any, errors: list[str]) -> dict[str, str]:
@@ -762,6 +793,8 @@ def env_extra(raw: Any, errors: list[str]) -> dict[str, str]:
             errors.append(f"env_extra: {name} has a line break")
         else:
             out[name] = str(v)
+    # 10C-14: the working-day settings are refused at entry, whatever the route (a box never stops on them)
+    errors += [f"env_extra: {p}" for p in workdays.settings_problems(out)]
     return out
 
 

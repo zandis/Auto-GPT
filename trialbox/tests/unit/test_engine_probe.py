@@ -464,6 +464,6 @@ def test_the_tools_the_owner_runs_with_the_hosts_python_need_nothing_newer_than_
     """The IGX runs Ubuntu 22.04 (Python 3.10). `datetime.UTC` is 3.11: `tools.fetch_weights` (it imports
     `tools.pin_model`) and `tools/serving_config.py capture` stopped at import there; checked by hand under 3.10."""
     for rel in ("tools/engine_probe.py", "tools/dgpu48.py", "tools/serving_config.py", "tools/pin_model.py",
-                "tools/fetch_weights.py"):  # fmt: skip
+                "tools/fetch_weights.py", "tools/security_contact.py", "tools/build_site.py"):  # fmt: skip
         code = "\n".join(ln.split("#", 1)[0] for ln in (ROOT / rel).read_text(encoding="utf-8").splitlines())
         assert "from datetime import UTC" not in code and "datetime.UTC" not in code, rel

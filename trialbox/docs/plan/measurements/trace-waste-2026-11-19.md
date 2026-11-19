@@ -9,8 +9,8 @@ the token limit, an answer that repeats itself, an answer outside the schema), s
 **The answer (shown, on these records).** The judge model (`j-workhorse`) wasted no answered call in either launch:
 0 of 2,443 answered calls were cut, looped or fell outside their schema; its only waste is 10 `ir_extract` calls
 that timed out with no text. The verifier (`v-verifier`) wasted 5 of 521 answered calls on P2b and 4 of 101 on P3,
-all on tcga, all one pattern: inside a JSON string it repeats a carriage return and two spaces until the answer
-stops, so the JSON never closes; the 4 on P3 are 4 of P2b's 5, given the same input. That is too few, in too narrow
+all on tcga, all one pattern: after a JSON string closes it repeats a carriage return and two spaces until the
+answer stops, so the JSON never closes; the 4 on P3 are 4 of P2b's 5, given the same input. That is too few, in too narrow
 a pattern, for a weight edit to have much to fix; what wastes time is the timeouts and a whitespace loop of one model.
 
 ## The records and the command
@@ -88,9 +88,10 @@ back-to-back repeat even 16 characters long, so the count does not hang on the t
 
 ## What the flagged calls are (shown)
 
-- **One pattern.** All 9 flagged calls are the verifier on tcga's `judge@5`. In each, after the opening of the
-  `quote` field (8 calls) or the `reason` field (1 call), the model writes a carriage return and two spaces again and
-  again, 313 to 1,351 times, and the answer stops with the JSON open. Cut, loop and outside the schema are the same
+- **One pattern.** All 9 flagged calls are the verifier on tcga's `judge@5`. In each, after the `quote` field (8
+  calls) or the `reason` field (1 call), the model writes a carriage return and two spaces again and again, 313 to
+  1,351 times, and the answer stops with the JSON open. (Corrected by H-49: the loop starts after that string value
+  has closed, between JSON tokens, not inside the string; see `verifier-constrained-decoding-2026-11-19.md`.) Cut, loop and outside the schema are the same
   calls in every row.
 - **The same input, the same loop.** P3's 4 are 4 of P2b's 5 (the same text, character for character, from the
   same prompt at temperature 0). In each launch two of them are a second call on the same question whose answer ran
