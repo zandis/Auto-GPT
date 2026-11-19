@@ -36,7 +36,7 @@ from typing import Any
 RULE = 2
 SNAPSHOT_RECORD = "id_rule.json"
 RUNBOOK = "docs/runbook/05-updates-backup-restore-secrets.md, Lake ids per patient (D-1253)"
-COMMAND = "python -m tools.id_rule_rebuild"
+COMMAND = "python3 -m tools.trialbox id-rule-rebuild"
 #: the table each store keeps its rule in (one row per rule the store was stamped with)
 DDL = (
     "CREATE TABLE IF NOT EXISTS tb_id_rule (rule INTEGER PRIMARY KEY CHECK (rule > 0), "

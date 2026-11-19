@@ -141,3 +141,86 @@ def test_the_night_names_the_stores_it_reads_that_hold_ids_of_the_earlier_rule(t
     with pytest.raises(id_rule.IdRuleError) as caught:
         check_id_rule(cfg)
     assert caught.value.stores == ["the derived store", "the omop store"]
+
+
+# ------------------------------------------------------------------------------------------------ each store's own write
+def _stopped(exc: BaseException, name: str) -> None:
+    """The stop says what the night's says: the store, the rule, the runbook step and its command."""
+    said = str(exc)
+    assert name in said and id_rule.RUNBOOK in said and id_rule.COMMAND in said and "nothing was written" in said
+
+
+def test_the_omop_store_refuses_a_feed_of_the_new_rule_over_records_of_the_earlier_one(db_url: str) -> None:
+    from omop import schema
+    from omop.load import load_batch
+
+    feed = {"Patient": [{"resourceType": "Patient", "id": "P1", "birthDate": "1960-01-01", "gender": "female"}],
+            "Condition": [{"resourceType": "Condition", "id": "c1", "subject": {"reference": "Patient/P1"},
+                           "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "E11.9"}]},
+                           "onsetDateTime": "2024-07-01"}]}  # fmt: skip
+    db = schema.connect(db_url, "omop_idrule")
+    try:
+        load_batch(db, "feed", "2026-10-01", feed, tz="Asia/Taipei")  # an empty store: stamped
+        assert db.fetchval("SELECT rule FROM tb_id_rule") == id_rule.RULE
+        db.execute("DELETE FROM tb_id_rule")  # its records now of no rule: the store before D-1253
+        before = (db.fetchval("SELECT count(*) FROM tb_record"), db.fetchval("SELECT count(*) FROM tb_load"))
+        with pytest.raises(id_rule.IdRuleError) as caught:
+            load_batch(db, "feed", "2026-10-02", feed, tz="Asia/Taipei")
+        _stopped(caught.value, "omop")
+        assert (db.fetchval("SELECT count(*) FROM tb_record"), db.fetchval("SELECT count(*) FROM tb_load")) == before
+    finally:
+        db.close()
+
+
+def test_the_derived_store_refuses_a_recompute_beside_scores_of_the_earlier_rule(db_url: str) -> None:
+    from tb_common.derived_store import DerivedStore
+
+    st = DerivedStore(db_url)
+    st.recompute("p1", {}, mapping_version="m")  # an empty store: stamped
+    with Database.connect(db_url, "derived") as db:
+        assert db.fetchval("SELECT rule FROM tb_id_rule") == id_rule.RULE
+        db.execute("DELETE FROM tb_id_rule")
+        db.execute("INSERT INTO definition VALUES ('d1', 's', 1, 'x', '{}', 't')")
+        db.execute("INSERT INTO score_row (pid, score, def_version, def_sha, mapping_version, anchor_oid, anchor_date, "
+                   "value, unit, inputs, fingerprint, computed_at) VALUES ('p1', 's', 'd1', 'x', 'm', 'o1', "
+                   "'2026-01-01', 1, 'u', '[]', 'f', 't')")  # fmt: skip
+    with pytest.raises(id_rule.IdRuleError) as caught:
+        st.recompute("p1", {}, mapping_version="m")
+    _stopped(caught.value, "derived")
+    with Database.connect(db_url, "derived") as db:
+        assert (
+            db.fetchval("SELECT count(*) FROM score_row") == 1 and db.fetchval("SELECT count(*) FROM tb_id_rule") == 0
+        )
+
+
+def test_the_patient_twin_refuses_a_document_beside_documents_of_the_earlier_rule(db_url: str) -> None:
+    from patient_profile.twin import ProfileStore
+
+    doc = {"pid": "p1", "profile": "v1", "basis": {"snapshot": "2026-10-01"},
+           "layers": {"core": {"sex": "F", "birth": "1960-01-01"}}}  # fmt: skip
+    twins = ProfileStore(db_url)
+    try:
+        twins.put(doc, "2026-10-01T00:00:00+00:00")
+        twins.db.execute("DELETE FROM tb_id_rule")
+        n = twins.db.fetchval("SELECT count(*) FROM tb_patient_profile")
+        with pytest.raises(id_rule.IdRuleError) as caught:
+            twins.put({**doc, "pid": "p2"}, "2026-10-02T00:00:00+00:00")
+        _stopped(caught.value, "profile")
+        assert twins.db.fetchval("SELECT count(*) FROM tb_patient_profile") == n
+    finally:
+        twins.close()
+
+
+def test_the_candidate_pool_refuses_verdicts_beside_verdicts_of_the_earlier_rule(db_url: str) -> None:
+    from orchestrator.db import JobDB
+
+    jobs = JobDB(db_url)
+    jobs.pool_upsert("GZQO", "1", [{"pid": "p1", "tier": "high", "verdicts": []}], "J1", "2026-10-01T00:00:00+00:00")
+    with Database.connect(db_url, "orch") as db:
+        db.execute("DELETE FROM tb_id_rule")
+    with pytest.raises(id_rule.IdRuleError) as caught:
+        jobs.pool_upsert(
+            "GZQO", "1", [{"pid": "p2", "tier": "high", "verdicts": []}], "J2", "2026-10-02T00:00:00+00:00"
+        )
+    _stopped(caught.value, "orch")
+    assert jobs.pool_count(["p1", "p2"]) == 1

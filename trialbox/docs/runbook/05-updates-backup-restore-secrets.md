@@ -283,9 +283,11 @@ tables back to that role.
 a diagnosis, a lab result, an order, ...) is made from the hospital's number **and the patient**; before, from the
 number alone, and two patients with the same order number were one record. Every such id changed once. The first
 night after the update refuses, before it reads or writes anything, with one message that names what still holds
-ids of the earlier rule (the lake's snapshots, the OMOP store, the derived store) and this step; the vector store,
-the patient twin, the candidate pool and the EDC drafts refuse at their own first write in the same words. Nothing
-is half-migrated, and nothing goes on until the box is rebuilt once, from its sources:
+ids of the earlier rule (the lake's snapshots, the OMOP store, the derived store) and this step. The vector store,
+the patient twin and the candidate pool are not read by the night (each service reads its own stores only): they
+refuse at their own **first write after the night**, in the same words, so a night can complete while those three
+still hold old ids. Nothing mixes; **run step 1 right after the update**, which reads every store. Nothing is
+half-migrated, and nothing goes on until the box is rebuilt once, from its sources:
 
 1. **The plan** (changes nothing): what is there, per store, and what the rebuild clears. It runs from
    `/opt/trialbox` as the box's admin (`TB_DB_URL` of `deploy/.env`), in a one-off adapter container that sees the
@@ -296,17 +298,21 @@ is half-migrated, and nothing goes on until the box is rebuilt once, from its so
    ```
 
 2. **EDC values a person decided.** A value a person confirmed, edited, signed or sent is a record, and its trail is
-   append-only (D-281): the rebuild never clears it. While any such value cites a lake row of the earlier rule, the
-   rebuild stops before it changes anything and names each study with its count. Then a person decides, per study,
-   with the trial team: export the study's EDC values first (the study's ODM export, `GET
-   /api/v1/studies/<study>/edc/export/odm`) and keep the file with the study's records; what happens to the study's
-   EDC store after that is not decided yet (D-1253) and is asked of Aimedics. Open drafts that nobody decided are
-   cleared; the next draft run makes them again.
+   append-only (D-281): nothing of it is ever cleared or rewritten. A study whose such values cite lake rows of the
+   earlier rule is **frozen for prefill**: no new draft, nothing sent; its EDC page says why. Its records stay,
+   readable and exportable, and its signatures still verify; its citations cannot be traced into the rebuilt lake
+   (the one place old ids stay on the box, by design). The plan and the rebuild name each frozen study with its
+   count. With the trial team, per frozen study: export the study's EDC values (its ODM export, `GET
+   /api/v1/studies/<study>/edc/export/odm`) and keep the file with the study's records; then close the study in EDC,
+   or start it again under a new study key. The other studies go on. Open drafts that nobody decided are cleared;
+   the next draft run makes them again.
 3. **The rebuild** clears what was made from the old ids and stamps every store with the new rule: the lake's
    snapshots and their copies (the site key, the pid map, the site set-up's facts, the embedding cache and the FHIR
    ledger stay), the OMOP store's feed records of patients' clinical data (the persons stay), the derived scores,
    the note chunks, the patient twin's documents and the candidate pool. What it cleared is in
-   `/data/lake/id_rule_rebuild.json` (counts only).
+   `/data/lake/id_rule_rebuild.json` (counts only). The night's data-ops page shows, from then on, the nights whose
+   numbers could not be used per patient (a card with counts only: rows of one patient and number with other
+   content, links left out because the number was another patient's, deletes and rows without a chart number).
 
    ```sh
    python3 -m tools.trialbox id-rule-rebuild --yes

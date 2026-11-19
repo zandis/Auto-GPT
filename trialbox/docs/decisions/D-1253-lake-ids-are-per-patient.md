@@ -38,9 +38,18 @@
     same number may be another patient's. This changes behaviour for a CSV site that sent bare-key deletes. It must
     now send the chart number with every delete (`docs/data/02-mapping-a-site.md`, `CANONICAL.md`).
   - **Collisions are visible.** Two records of one night with one id and different content are counted per record
-    type (`id_collisions`): two different source rows of the same patient and number. The count is in
-    `completeness.json`, the night's audit detail, the data-ops batch row (`datacore.dataops.DETAIL_KEYS`) and a log
-    warning. The last row still wins (DATA-017). The same row sent twice is the same record, not a collision.
+    type (`id_collisions`): two different source rows of the same patient and number. The last row still wins
+    (DATA-017). The same row sent twice is the same record, not a collision.
+  - **Where a person reads the counts.** These four counts are kept:
+    - `id_collisions`;
+    - `references_to_another_patient`;
+    - `deletes_without_patient`;
+    - `rejected_no_patient`, the rows rejected because they have no chart number.
+
+    They are in `completeness.json`, in the night's audit detail, in the data-ops batch row
+    (`datacore.dataops.DETAIL_KEYS`) and in a log warning. The console's data-ops batch page shows them in a card,
+    counts only, in en, ja and zh-TW. The card appears only when a count is above zero; otherwise the page is as
+    before. `IngestReport` (a contract) is unchanged.
   - **SS-MIX2 version handling is unchanged** (cards #1095 and #1189 own it). The reader keeps the newest version per
     (patient, data type, order number[, day]) before the mapper sees a row. This rule sits after it: a version
     choice never meets another patient's order. With `per_day` keys the number the id is made from is
@@ -74,17 +83,23 @@
   - published job outputs.
 
   No old-to-new map is built: it would have to be built from the very collisions that lost data. Instead:
-  - **The id rule is recorded and never mixed.** Every snapshot carries `id_rule.json`. Each of the six stores
-    has a `tb_id_rule` table (its own migration) and checks it in its own write transaction (`tb_common.id_rule`):
+  - **The id rule is recorded and never mixed.** Every snapshot carries `id_rule.json`. The OMOP, derived, vector,
+    twin and pool stores each have a `tb_id_rule` table (their own migration) and check it in their own write
+    transaction (`tb_common.id_rule`):
     - an empty store is stamped with rule 2;
-    - a store that holds lake ids and does not say rule 2 refuses with one message, naming itself and the runbook
-      step, and nothing is written.
+    - a store that holds lake ids and does not say rule 2 refuses with the night's words, naming itself, the
+      runbook step and its command, and nothing is written.
+
+    The EDC drafts keep the rule per study (see below). No database role was changed.
   - **The night fails closed.** Before it reads or writes anything, a night (and a back-fill) is refused when the
     lake's snapshots or the OMOP or derived store hold ids of the earlier rule. A snapshot is never merged over an
     old-rule base, so a delta night refuses an old base. The refusal is audited (`ingest.failed`, `refused: id_rule`).
-    The adapter's database role reads only its own schemas (D-378), so the vector store, the twin, the pool and the
-    EDC drafts refuse at their own first write, in the same words. Nothing trips OMOP's 20 % guard, orphans a chunk,
-    retires a derived row or marks an EDC value `source_changed` by accident.
+    The adapter's database role reads only its own schemas (D-378), so the vector store, the patient twin and the
+    candidate pool are caught **at their own first write after the night, not before it**: a night can complete
+    while those three still hold old ids, until their next write refuses. Nothing mixes. The operator runs the
+    rebuild's plan (`python3 -m tools.trialbox id-rule-rebuild`, which reads all of them) right after the update.
+    Nothing trips OMOP's 20 % guard, orphans a chunk, retires a derived row or marks an EDC value `source_changed`
+    by accident.
   - **The rebuild is one explicit operator step** for a box that holds synthetic data only:
     `python3 -m tools.trialbox id-rule-rebuild` (a plan; it changes nothing), then with `--yes`. It runs
     `tools/id_rule_rebuild.py` in a one-off adapter container as the box's admin, and is written up in RUNBOOK §5,
@@ -96,33 +111,45 @@
     - the note chunks;
     - the twin's documents;
     - the pool;
-    - the open EDC drafts.
+    - the open EDC drafts that no trail row names, of a study of the earlier rule.
 
     Then it stamps every store. The first night after it is a full night.
-  - **EDC is where a person must choose.** A value a person confirmed, edited, signed or sent is a record. Its trail
-    is append-only by trigger (D-281). The rebuild never clears it, and stops before any change while one cites a
-    lake row of the earlier rule, naming each study and its count. The documented choice today is to export the
-    study's EDC values (its ODM export) and keep the file. What happens to that study's EDC store next is open (see
-    below).
+  - **EDC keeps the rule per study, and is the one place old ids stay on a box, by design.** A value a person
+    confirmed, edited, signed or sent is a record. Its trail is append-only by trigger (D-281): nothing of it is
+    deleted, no trigger is disabled and no signed record is rewritten, whether the box's data is synthetic or not.
+    - A study whose decided, signed or sent values cite lake rows of the earlier rule is **frozen for prefill**:
+      - a draft run, an ODM import and a send are refused, with the reason;
+      - its records stay, readable and exportable as before, and its signatures still verify;
+      - its citations cannot be traced into the rebuilt lake;
+      - its EDC page says why prefill is stopped (one line in en, ja and zh-TW, shown only for a frozen study).
+    - The other studies go on under rule 2. A study with no trail stamps itself at its first draft run
+      (`edc.tb_id_rule_study`).
+    - A person closes a frozen study in EDC, or starts it again under a new study key. This is where a person
+      chooses.
+    - The rebuild names each frozen study with its count and its ODM export, and offers no removal.
   - **Not touched:** published job outputs (they cite the old ids and cannot be traced into the rebuilt lake), the
-    audit chain, permissions, console pages and the audit schema.
-- **Goldens.** They move by ids alone, and the proof is `tools/goldens_id_proof.py`. It builds the goldens' data sets
+    audit chain, permissions (no database role) and the audit schema. The console changes only by the counts card and
+    the frozen study's line, each shown only when it has something to say.
+- **Goldens.** The goldens' next night (the `-deletes` set) chose its deleted and corrected records by their place
+  in the id-sorted snapshot, so a re-id would have deleted other records. It now chooses them by their content with
+  the ids blanked (`tools/golden_nights.py`), which moves the `-deletes` set once for that reason. They move by ids
+  alone, and the proof is `tools/goldens_id_proof.py`, which builds both releases with the new next night. It builds the goldens' data sets
   with master's code and with this change, then compares every lake row, chunk, funnel, candidate list and full
   outcome. Every 32-hex token is treated as an id; one one-to-one map from old ids to new must make every old row
   equal to the new one exactly, and every pid must map to itself. A new golden set, `ssmix2-jp-per-patient`, holds
   the same 400 synthetic patients with every number a running number per patient
   (`tools.synth_hospital.per_patient_numbers`), so the goldens hold the repeated-number case from now on.
-- **Open (for the lane lead):**
-  - How an operator removes a study's EDC values of the earlier rule, if at all: (i) disable the trail's triggers
-    for that study's rows and delete them, audited; or (ii) an EDC id rule per study, where such a study is frozen
-    in EDC and the rest goes on. Until then the rebuild refuses while such values exist.
-  - Where the counts are shown to a person on the console's data-ops batch page. The card excludes console pages; the
-    counts are in the batch row's detail.
 - **Held by:**
   - `tests/unit/test_lake_ids_per_patient.py`: two patients sharing every number through the CSV, SQL and SS-MIX2
     doors, full and delta night (records, content, tombstones, references), the mapper's rules, collisions, and the
     fhir_bulk pin;
-  - `tests/unit/test_lake_id_rule.py`: snapshots, the night's refusal, each store's stamp and refusal;
-  - `tests/unit/test_id_rule_rebuild.py`: the plan, the rebuild, the EDC stop, the host command;
+  - `tests/unit/test_lake_id_rule.py`: snapshots, the night's refusal, each store's stamp and refusal, through the
+    OMOP load, the derived recompute, the twin's put and the pool's upsert;
+  - `tests/unit/test_id_rule_rebuild.py`: the plan, the rebuild, the frozen EDC study kept and named, the host
+    command;
+  - `tests/unit/test_edc_id_rule_freeze.py`: a study stamps itself; a frozen study's draft and send are refused,
+    its signatures verify;
+  - `tests/console/test_id_rule_pages.py`: the counts card (and the page without it when no count is above zero),
+    the frozen study's line;
   - `tests/integration/test_vec_store.py::test_new_chunks_are_refused_beside_chunks_of_the_earlier_id_rule`;
   - `tools/goldens_id_proof.py`.
