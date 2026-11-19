@@ -133,7 +133,10 @@ def test_every_line_and_every_next_has_its_words_in_three_languages() -> None:
         ("open", 5, True, {"completed": 1, "listed": 3}, "review"),
         ("open", 5, True, {"completed": 1, "set_aside": 1}, "review"),
         ("open", 4, True, {"consented": 1}, "consent"),
-        ("open", 4, True, {"screen_fail": 1, "listed": 2}, "review"),
+        # the week page's step bar at step 4 is "Contact and screen", even when everyone contacted screen-failed
+        ("open", 4, True, {"screen_fail": 1, "listed": 2}, "contact"),
+        ("open", 4, True, {"screen_fail": 3}, "contact"),
+        ("open", 3, True, {"listed": 3}, "review"),
         ("paused", 5, True, {"on_study": 1}, "paused"),
         ("closed", 5, True, {"completed": 1}, "closed"),
     ],
@@ -303,7 +306,7 @@ def test_needs_you_today_safety_first_each_line_to_its_page_and_nothing_twice(lb
         _lang(pi, lang)
         page = crc.get("/home").text
         assert _lines(page) == [
-            ("sae_noclock", f"/studies/GZQO/subjects/{no}"),  # no rule set: no deadline, one cause
+            ("sae_noclock", f"/studies/GZQO/sae/{no}/ae1"),  # no rule set: no deadline, one cause; the SAE case
             ("visits_overdue", "/studies/GZQO/visits"),
             ("visits_today", "/studies/GZQO/visits"),
             ("site", "/studies/GZQO/feasibility#site"),  # a task now, no longer the study's Next (R8)
@@ -312,7 +315,7 @@ def test_needs_you_today_safety_first_each_line_to_its_page_and_nothing_twice(lb
         body = _region(page)
         assert 'data-testid="sae-banner"' not in body and 'data-testid="sae-reports"' not in body
         assert (
-            body.count(f'data-what="GZQO/{no}/ae1"') == 1 and body.count(f'href="/studies/GZQO/subjects/{no}"') == 1
+            body.count(f'data-what="GZQO/{no}/ae1"') == 1 and body.count(f'href="/studies/GZQO/sae/{no}/ae1"') == 1
         ), lang
         assert 'data-testid="tasks"' not in body and 'data-testid="clinic"' not in body
         assert 'data-testid="home-visits"' not in body
@@ -441,8 +444,9 @@ def test_a_refused_investigator_s_home_reads_no_patient_level_row(lb: dict[str, 
 
 
 def test_a_sub_investigator_ticked_for_data_entry_gets_the_participant_pages_lines(lb: dict[str, Any]) -> None:
-    """The review of D-1225: the home uses the participant pages' own rule (screen or enter_data), so a
-    sub-investigator ticked for data entry, who opens the participants and the visits, gets their lines too."""
+    """The review of D-1225: the home uses the participant pages' own rule (screen or enter_data) for the participants
+    and the visits, and the SAE pages' own rule (screen) for the serious AEs: a sub-investigator ticked for data entry
+    gets the visit lines and the study's Next, and no serious AE, which the SAE pages do not show them."""
     from tests.console.test_console_app import sub_investigator
 
     _crc, _pi, _no = _participant_with_saes(lb, 1)
@@ -454,26 +458,25 @@ def test_a_sub_investigator_ticked_for_data_entry_gets_the_participant_pages_lin
     page = c.get("/home").text
     kinds = [k for k, _ in _lines(page)]
     assert "visits_overdue" in kinds and "visits_today" in kinds, kinds
-    assert kinds.count("sae_ack") == 1, kinds  # the acknowledgement route asks study_or_404 and sae.ack, as here
+    assert not any(k.startswith("sae_") for k in kinds), kinds
+    assert c.get(f"/studies/GZQO/sae/{_no}/ae1").status_code == 403  # the SAE pages refuse this account
     assert _next(page)[0] == "conduct"
     for _k, href in _lines(page):
         assert c.get(href).status_code == 200, href
 
 
 def test_without_sae_view_no_serious_adverse_event_is_read_into_a_line(lb: dict[str, Any], monkeypatch: Any) -> None:
-    """The ``sae.view`` row decides the safety lines: refused (a matrix change), the block keeps the visits and shows
-    no serious AE."""
+    """The ``sae.view`` row decides the safety lines, through the SAE pages' own rule: refused (a matrix change), the
+    block keeps the visits, shows no serious AE and reads none."""
     _participant_with_saes(lb, 1)
     _flag(lb, "on")
     crc, _ = login(lb["app"], "crc", PW)
     assert any(k.startswith("sae_") for k, _ in _lines(crc.get("/home").text))
-    h = lb["app"].state.helpers
-    real = h.permit
+    from console import sae_pages
+    from tb_common.authz import sae_allowed as real
 
-    def no_sae(user: Any, action: str, rid: str | None = None) -> Any:
-        return real(user, "sae.view.refused-in-this-test" if action == "sae.view" else action, rid)
-
-    monkeypatch.setattr(h, "permit", no_sae)
+    monkeypatch.setattr(sae_pages, "sae_allowed", lambda role, action: action != "view" and real(role, action))
+    assert crc.get("/sae").status_code == 403  # the SAE pages refuse it too: one rule
     calls = _count_reads(lb)
     kinds = [k for k, _ in _lines(crc.get("/home").text)]
     assert not any(k.startswith("sae_") for k in kinds) and "visits_today" in kinds, kinds
@@ -576,3 +579,56 @@ def test_what_is_read_is_shown_a_screening_sub_investigator_reads_no_visit(lb: d
     page = c.get("/home").text
     assert [k for k, _ in _lines(page)] == ["sae_ack"]
     assert any("/aes" in x for x in calls) and not any("/visits" in x for x in calls), calls
+
+
+# ------------------------------------------------------------------------------------------- every read, its page
+def test_every_read_of_the_home_is_one_the_account_s_own_page_allows(lb: dict[str, Any]) -> None:
+    """The review of D-1225 (second round): for each account, every patient-level read the opening page makes is one
+    that account's own page of that source allows. A study's serious AEs (``/aes``) are checked against the SAE case
+    page, separately from its participants, visits and screening log (``/subjects``, ``/visits``, the registry),
+    checked against the participant page. And a study's ``/aes`` and ``/subjects`` are each read once."""
+    from tests.console.test_console_app import sub_investigator
+
+    _crc, _pi, no = _participant_with_saes(lb, 1)
+    for name, tasks in (("entry", ("enter_data",)), ("screener", ("screen",)), ("refer", ("refer",))):
+        lb["users"].create(name, "investigator", PW, f"{name}@hospa.test")
+        sub_investigator(lb, name, tasks=tasks)
+    lb["users"].create("other", "investigator", PW, "other@hospa.test")
+    _flag(lb, "on")
+    accounts = [("crc", PW), ("pi", PW), ("entry", PW), ("screener", PW), ("refer", PW), ("other", PW),
+                ("viewer", VIEWER_PW)]  # fmt: skip
+    seen_sae, seen_people = set(), set()
+    for who, pw in accounts:
+        c, _ = login(lb["app"], who, pw)
+        calls = _count_reads(lb)
+        assert c.get("/home").status_code == 200, who
+        made = list(calls)
+        for call in made:
+            rs = call.split("/studies/", 1)[1].split("/", 1)[0] if "/studies/" in call else call.split()[-1]
+            if "/aes" in call:
+                seen_sae.add(who)
+                assert c.get(f"/studies/{rs}/sae/{no}/ae1").status_code == 200, (who, call)
+            else:
+                seen_people.add(who)
+                assert c.get(f"/studies/{rs}/subjects").status_code == 200, (who, call)
+        for kind in ("/aes", "/subjects"):
+            assert sum(1 for x in made if kind in x and "GZQO" in x) <= 1, (who, kind, made)
+    assert seen_sae == {"crc", "pi", "screener"} and seen_people == {"crc", "pi", "entry", "screener"}
+
+
+def test_a_closed_study_has_no_visit_task_or_site_line_and_keeps_its_safety_lines(lb: dict[str, Any]) -> None:
+    """A closed study has no visits, tasks or site fields to do: none on the home, and its visits are not read; its
+    serious AEs keep their reporting clocks, so their lines stay."""
+    _participant_with_saes(lb, 1)
+    h = lb["app"].state.helpers
+    _flag(lb, "on")
+    crc, _ = login(lb["app"], "crc", PW)
+    before = {k for k, _ in _lines(crc.get("/home?today=all").text)}
+    assert {"visits_overdue", "site", "delegation"} <= before, before
+    h.store.set_study_state("GZQO", "closed", "J-6 test", "crc", "2026-11-09T02:00:00+00:00")
+    calls = _count_reads(lb)
+    page = crc.get("/home?today=all").text
+    kinds = {k for k, _ in _lines(page)}
+    assert kinds == {"sae_noclock"}, kinds
+    assert not any("/visits" in x for x in calls), calls
+    assert _next(page)[0] == "closed"

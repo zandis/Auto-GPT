@@ -24,7 +24,7 @@ import base64
 import contextlib
 import logging
 import re
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from datetime import date
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -186,6 +186,16 @@ def _printable_report(data: bytes, lang: str) -> bytes:
     return normalize_ooxml(out.getvalue())  # byte-reproducible, as the orchestrator's file (SPEC 11.2)
 
 
+def reports_of(got: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The overdue reports of one study's serious AEs from the data core's answer (``/studies/<rs>/aes``): a row per
+    party whose first report is overdue, and a "no deadline" row (party ``no_clock``) for a serious AE with no clock
+    at all. The life-cycle pages and the SAE pages read it from their own answer (J-6, D-1225)."""
+    rows = [{**a, "party": c["party"], "due": c["due"]} for a in got.get("overdue") or []
+            for c in a["clock"] if c["overdue"]]  # fmt: skip
+    return rows + [{**a, "party": "no_clock", "due": ""} for a in got.get("aes") or []
+                   if a.get("serious") and a.get("noclock")]  # fmt: skip
+
+
 def register(app: FastAPI, h: Helpers) -> None:
     bk, au, store = h.bk, h.au, h.store
     tz = site_zone(bk)
@@ -196,24 +206,34 @@ def register(app: FastAPI, h: Helpers) -> None:
     def lang_of(sess: Session) -> str:
         return sess.lang if sess.lang in ("ja", "zh-TW", "en") else "en"
 
+    def participant_scope(user: Any, rid: str) -> str | None:
+        """Why this account may not read study ``rid``'s participants, or None when it may: the one rule of the
+        participant pages, which :func:`study_or_404` turns into a 404 or a 403 and :func:`reads_participants` into a
+        yes or no (J-6, D-1225). "notfound": not a study the account sees (or a sponsor copy); "phi": no patient
+        rows; "delegation" (D-273, PV-3): an investigator reads a study's participants only as its PI or as a
+        sub-investigator ticked for screening or data entry, once the delegation log names a PI."""
+        if not _RS.match(rid) or not user.sees_study(rid) or user.sponsor_form or not known_study(bk, rid):
+            return "notfound"
+        if not user.can_view_phi:
+            return "phi"
+        return None if h.delegated_ok(user, rid, PARTICIPANT_TASKS) else "delegation"
+
     def study_or_404(sess: Session, rs: str) -> str:
         rid = rs.strip().upper()
-        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.sponsor_form or not known_study(bk, rid):
+        why = participant_scope(sess.user, rid)
+        if why == "notfound":
             raise h.problem(404, "notfound")
-        if not sess.user.can_view_phi:
+        if why == "phi":
             au.append("console.denied", actor=h.actor(sess), detail={"action": f"participants {rid}"})
             raise h.problem(403, "forbidden")
-        # D-273 (PV-3): an investigator reads a study's participants only as its PI or as a sub-investigator ticked
-        # for screening or data entry, once the delegation log names a PI
-        h.delegated(sess, rid, f"participants {rid}", PARTICIPANT_TASKS)
+        if why == "delegation":
+            h.delegated(sess, rid, f"participants {rid}", PARTICIPANT_TASKS)  # audits the refusal and raises 403
         return rid
 
     def reads_participants(user: Any, rid: str) -> bool:
-        """The rule of :func:`study_or_404` as a yes or no, with nothing audited (no page is refused): the account sees
-        the study, is not a sponsor copy, reads patient rows and passes the same delegation check. The opening page
-        reads a study's visits and serious AEs only where this holds (J-6, D-1225)."""
-        return (user.sees_study(rid) and not user.sponsor_form and bool(user.can_view_phi)
-                and h.delegated_ok(user, rid, PARTICIPANT_TASKS))  # fmt: skip
+        """:func:`participant_scope` as a yes or no, with nothing audited (no page is refused): the opening page
+        reads a study's participants, people and visits only where this holds (J-6, D-1225)."""
+        return participant_scope(user, rid) is None
 
     def need_enter(sess: Session, path: str) -> None:
         if not can_enter(sess.user):
@@ -321,9 +341,14 @@ def register(app: FastAPI, h: Helpers) -> None:
     def visits_of(rid: str, day: date) -> dict[str, Any] | None:
         try:
             out = get(f"/studies/{rid}/visits?today={day.isoformat()}")
-            subs = {s["record"]: s for s in get(f"/studies/{rid}/subjects?today={day.isoformat()}")["subjects"]}
         except (Problem, Unavailable):
             return None
+        # the participants as the page view already read them (person_state's slim list, read once per view): the
+        # visit rows need only each record's pseudonym (J-6, D-1225: one read of a study's participants per view)
+        listed = ps.subject_rows(h, rid)
+        if listed is None:
+            return None
+        subs = {str(x.get("record") or ""): x for x in listed}
         for r in [*out["rows"], *(x for rows in out["list"].values() for x in rows)]:
             r["short"] = short_of(subs.get(r["record"], {}))
             r["pid"] = str(subs.get(r["record"], {}).get("pid") or "")
@@ -343,11 +368,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def reports_due(rid: str) -> list[dict[str, Any]]:
         """One row per overdue report of a serious AE (P-03): participant, party, due date. The review of D-766: a
         serious AE with no clock at all (no rule set chosen) is listed too, as "no deadline", never left out."""
-        got = aes(rid)
-        rows = [{**a, "party": c["party"], "due": c["due"]} for a in got.get("overdue") or []
-                for c in a["clock"] if c["overdue"]]  # fmt: skip
-        return rows + [{**a, "party": "no_clock", "due": ""} for a in got.get("aes") or []
-                       if a.get("serious") and a.get("noclock")]  # fmt: skip
+        return reports_of(aes(rid))
 
     def life_home(sess: Session, only: Collection[str] | None = None, visits: Collection[str] | None = None,
                   saes: Collection[str] | None = None) -> dict[str, Any]:  # fmt: skip
@@ -409,6 +430,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     h.life_home = life_home
     h.reads_participants = reads_participants
+    h.life_reports_of = reports_of
     h.life_mail = life_mail
     h.life_sae = serious
     h.life_reports = reports_due

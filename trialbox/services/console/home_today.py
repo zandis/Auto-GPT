@@ -141,7 +141,9 @@ def life_step(
             return "close"  # someone was enrolled, nobody is on study and no candidate is still in progress
     if some(("contacted", "consented")):  # reached and booked, or consented and not yet enrolled
         return "consent"
-    return "contact" if some(("to_contact",)) else "review"
+    # the week page's step bar: at step 4 ("Contact and screen") contacting is the step, even when everyone contacted
+    # so far screen-failed; at step 3 the investigator's review, unless someone marked Approach waits for a call
+    return "contact" if step == 4 or some(("to_contact",)) else "review"
 
 
 def report_step(*, report: bool, grant: tuple[str, str, str] | None) -> str:
@@ -229,7 +231,7 @@ def sae_lines(rs: str, unacked: Iterable[Mapping[str, Any]], reports: Iterable[M
     out = []
     for (record, event), e in events.items():
         a = e["a"]
-        href = f"/studies/{rs}/subjects/{record}"
+        href = f"/studies/{rs}/sae/{record}/{event}"  # the SAE case: acknowledged and reported there
         values: dict[str, Any] = {"r": record, "rs": rs, "term": str(a.get("ae_term") or "")}
         due = ""
         if e.get("unacked") and acknowledges:

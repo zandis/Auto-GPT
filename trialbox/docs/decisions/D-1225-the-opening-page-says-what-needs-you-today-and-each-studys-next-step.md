@@ -22,7 +22,7 @@
     page's `studies.procedure_step`; the line starts from the week page's (`home.study_step`) and goes on with the
     study's recorded state (`SiteStore.study_state`) and the one state of each person (D-1221). The steps, in order:
     start-up (state `startup`), criteria to approve, feasibility count, first screening, review of the week's list,
-    contact of the candidates marked Approach (someone `to_contact`), consent and enrolment (someone contacted, or
+    contact of the candidates marked Approach (someone `to_contact`, or the week page's step bar at "Contact and screen" even when everyone contacted so far screen-failed), consent and enrolment (someone contacted, or
     consented and not yet enrolled), conduct (someone consented, enrolled or on study: the visits), close (someone was
     enrolled, nobody is on study and no candidate is still in progress: on the list, needing information, set aside,
     to contact or contacted; otherwise the consent, contact or review step), paused, closed. A closed study's archive is kept outside TrialBox: the line says so ("its files
@@ -44,18 +44,22 @@
     day of its own (a study's overdue visits, each with its window) comes first. "Today" is the site's day. More than five: "N more", linked to
     `/home?today=all`, the whole list. None: "Nothing needs you today." A study's Next whose page is already a line
     of the block keeps its sentence and says so, so a page is linked once.
-  - **Only what the role may read.** A study's patient-level sources (its people, visits and serious AEs) are read
-    only where the participant pages would let the account read them: `lifecycle_pages.reads_participants`, the rule
-    of their `study_or_404` (sees the study, not a sponsor copy, `phi.view`, and the delegation log's PI or a
-    sub-investigator ticked for screening or data entry). `life_home` is asked for those studies only, and of them
-    for the visits and the serious AEs this page shows (`task.enter_data`, `sae.view`), so no read is made that a page
-    would refuse and none that this page would not show. Within them: serious AEs with `sae.view` (the acknowledgement line with `sae.ack`,
-    as the acknowledgement route asks), visits with `task.enter_data`, the study card's tasks with `request.prepare`.
-    "Mine" is asked only for the step shown, by the row its page asks (`criteria.approve` and the logged PI,
-    `command.FEAS`, `command.SCREEN`, `list.mark` or `request.prepare` with the log's `screen`, `task.enter_data`,
-    `study.state`). The account's standing in a study's log is read once per page view (`Helpers.permit`, through
-    `person_state.per_view`), which also spares the other pages repeated reads within one view. No change to any
-    permission.
+  - **Only what the role may read, read once.** Each source is read only where the account's own page of that source
+    would show it, by that page's own function (no second rule): a study's participants, people and visits by the
+    participant pages' `lifecycle_pages.participant_scope` (which their `study_or_404` turns into a 404 or a 403, and
+    `reads_participants` into a yes or no: sees the study, not a sponsor copy, `phi.view`, and the log's PI or a
+    sub-investigator ticked for screening or data entry); its serious AEs by the SAE pages' `sae_pages.sae_scope`
+    (which their `scope` and the `/sae` worklist use: the `sae.*` row and the log's PI or a sub-investigator ticked
+    for screening; a sub-investigator ticked for data entry only gets no serious AE, as on those pages). Of those,
+    visits are read for the visit lines' row (`task.enter_data`) in a study that is not closed; the card's tasks
+    with `request.prepare`. A study's serious AEs are read once, from the SAE pages' own answer
+    (`sae_pages.home_saes`), its participants once (the visit rows take their pseudonyms from the participant list
+    the page view already read). "Mine" is asked only for the step shown, by the row its page asks. The account's
+    standing in a study's log is read once per page view (`Helpers.permit`, through `person_state.per_view`). No
+    change to what any page allows.
+  - **A closed study** gets no visit, task or site-field line (there is nothing to do), and its visits are not read; its
+    serious AEs keep their lines, because their reports are owed after the close too. A safety line opens the SAE
+    case, where it is acknowledged and reported.
 - **Why:** the opening page's guide stopped at enrolment and pointed back to feasibility; the coordinator's home showed
   the same SAE twice and buried the PI's hand-over under chores; the review asked for "what needs you today" in at most
   five lines and a "Next" for the whole life. A flag because it changes what every clinical role sees first.

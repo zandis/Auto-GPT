@@ -111,8 +111,14 @@ class Helpers:
     api_session: Callable[[Request], Session] | None = None  # set by register(): bearer sign-in for /api/v1
     # set by console.lifecycle_pages (D-134): the home page's visits and serious AEs; the visits for N1/N2
     life_home: Callable[..., dict[str, Any]] | None = None
-    #: set by console.lifecycle_pages (J-6, D-1225): the participant pages' rule of who reads a study's participants
+    #: set by console.lifecycle_pages (J-6, D-1225): the participant pages' rule of who reads a study's participants,
+    #: and the overdue SAE reports of one study from the data core's answer
     reads_participants: Callable[[Any, str], bool] | None = None
+    life_reports_of: Callable[[Any], list[dict[str, Any]]] | None = None
+    #: set by console.sae_pages (J-6, D-1225): the SAE pages' rule of who reads a study's serious AEs, and one study's
+    #: serious AEs for the opening page from the SAE pages' own answer
+    reads_saes: Callable[[Any, str], bool] | None = None
+    home_saes: Callable[[str], dict[str, Any]] | None = None
     life_mail: Callable[[str, date], dict[str, Any]] | None = None
     life_sae: Callable[[str], list[dict[str, Any]]] | None = None  # one study's unacknowledged SAEs (the week page)
     life_reports: Callable[[str], list[dict[str, Any]]] | None = None  # one study's overdue SAE reports (P-03)
@@ -584,8 +590,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         """J-6 (D-1225): "Needs you today" and one "Next" line per study (``console.home_today``). A study's
         patient-level sources (its people, visits and serious AEs) are read only where the participant pages would let
         this account read them (``lifecycle_pages.reads_participants``, the rule of their ``study_or_404``); within
-        those, serious AEs with ``sae.view``, visits with the task ``enter_data``, the card's tasks with
-        ``request.prepare``. Every
+        those, visits with the task ``enter_data`` and the card's tasks with ``request.prepare`` (none for a closed
+        study). Serious AEs are read where the SAE pages would show them (``sae_pages.sae_scope``), once. Every
         other study gets its Next from the reads the account already has (the feasibility report, a monitor grant), so
         no read is made that a page would refuse. The account's standing in each study's log is read once per page
         view (``Helpers.permit``)."""
@@ -611,11 +617,14 @@ def register(app: FastAPI, h: Helpers) -> None:
 
         studies = trials(sess)
         readable = [r.id for r in studies if h.reads_participants is not None and h.reads_participants(user, r.id)]
-        visit_studies = [rs for rs in readable if allow("task.enter_data", rs)]  # the visit lines' row
-        sae_studies = [rs for rs in readable if allow("sae.view", rs)]  # the safety lines' row
-        asked = [rs for rs in readable if rs in visit_studies or rs in sae_studies]
-        life = (h.life_home(sess, only=asked, visits=visit_studies, saes=sae_studies)
-                if h.life_home and asked else None)  # fmt: skip
+        states = {rs: store.study_state(rs) for rs in readable}
+        # a closed study has no visits, tasks or site fields to do; its serious AEs keep their reporting clocks
+        visit_studies = [rs for rs in readable if states[rs].state != "closed" and allow("task.enter_data", rs)]
+        # the SAE pages' own rule (sae_pages.sae_scope), not the participant pages': their serious AEs are read for
+        # the opening page only where those pages show them to this account
+        sae_studies = [r.id for r in studies if h.reads_saes is not None and h.reads_saes(user, r.id)]
+        life = (h.life_home(sess, only=visit_studies, visits=visit_studies, saes=())
+                if h.life_home and visit_studies else None)  # fmt: skip
         coordinator_card = allow("request.prepare")  # the study card with its tasks and funnel, as on today's home
         cards: list[dict[str, Any]] = []
         lines: list[home_today.TodayLine] = []
@@ -631,16 +640,17 @@ def register(app: FastAPI, h: Helpers) -> None:
                 nexts.append(home_today.next_line(rs, step, step != "report_none", home_today.href_of(step, rs),
                                                   visit=g[1] or "–", end=g[2] or "–"))  # fmt: skip
                 continue
+            state = states[rs]
             if coordinator_card:
                 card = study_card(sess, r, jobs)
                 cards.append(card)
                 people = card["people"]
                 step_no = card["step"]
-                lines += home_today.task_lines(card["tasks"], day)
+                if state.state != "closed":
+                    lines += home_today.task_lines(card["tasks"], day)
             else:
                 people = ps.read(h, rs)
                 step_no = study_step(rs, people)
-            state = store.study_state(rs)
             screen_done = st.latest_job(jobs, rs, SCREEN_TYPES) is not None
             step = home_today.life_step(state=state.state, step=step_no, screen_done=screen_done,
                                         counts=people.counts() if people.readable else None)  # fmt: skip
@@ -649,15 +659,16 @@ def register(app: FastAPI, h: Helpers) -> None:
             mine = bool(href) and mine_of(step, rs)
             nexts.append(home_today.next_line(rs, step, mine, href,
                                               years=state.keep_years or STUDY_YEARS_AFTER_CLOSE))  # fmt: skip
-            if life is not None and rs in sae_studies:
-                lines += home_today.sae_lines(rs, [a for a in life["sae"] if a["rs"] == rs],
-                                              [a for a in life["reports"] if a["rs"] == rs],
-                                              acknowledges=allow("sae.ack", rs))  # fmt: skip
-                failed += [x for x in life.get("sae_failed") or [] if x == rs]
-            if life is not None and rs in visit_studies:
+            if rs in visit_studies and life is not None:
                 for v in life["studies"]:
                     if v["rs"] == rs:
                         lines += home_today.visit_lines(rs, len(v["overdue"]), len(v["today"]), day)
+        for rs in sae_studies:  # one read of the study's serious AEs, the SAE pages' own (sae_pages.home_saes)
+            got: dict[str, Any] = (h.home_saes(rs) if h.home_saes is not None
+                                   else {"unacked": [], "reports": [], "failed": True})  # fmt: skip
+            lines += home_today.sae_lines(rs, got["unacked"], got["reports"], acknowledges=allow("sae.ack", rs))
+            if got["failed"]:
+                failed.append(rs)
         lines = home_today.ordered(lines)
         shown = lines if every else lines[: home_today.LIMIT]
         home_today.mark_in_today(nexts, shown)
