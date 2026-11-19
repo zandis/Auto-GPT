@@ -543,6 +543,7 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "people.": _values("console.people_lists", "LISTS"),
     "people.view.": _view_keys,
     "people.side.": _values("console.people_lists", "LISTS"),
+    "tier.lacks.": _values("console.tier_words", "WORDED"),  # 10E-17 (D-1244): the tier's worded absences
 }
 
 _RUN = "a value of stored data or of a service's answer (a state, a kind, a source): no one list in the code holds it"
