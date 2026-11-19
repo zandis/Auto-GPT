@@ -164,13 +164,24 @@ def _opened(cid: str) -> CriterionVerdict:
     return CriterionVerdict(id=cid, verdict="unknown", evidence=Evidence(resource_refs=[], reason=NOT_ASKED[0]))
 
 
+def _tier_env(ctx: Ctx) -> dict[str, str]:
+    """The profile the box was configured with. The loaded dotenv is on ``cfg.env.extra``; the process environment
+    wins, which is the same order ``load_env`` uses. A profile that lives only in the dotenv is still this box's."""
+    extra = getattr(getattr(ctx.cfg, "env", None), "extra", None) or {}
+    out = {str(key): str(value) for key, value in extra.items()}
+    profile = (os.environ.get("TB_PROFILE") or "").strip()
+    if profile:
+        out["TB_PROFILE"] = profile
+    return out
+
+
 def night_budget(ctx: Ctx) -> int:
     """The configured night budget in patients (0: no limit). Left at its default, it is this box's tier record's
     ``night_budget_patients`` when the record measured it (10E-1c, D-1322); a setting always wins."""
     configured = int(getattr(ctx.cfg.env, "microbatch_night_budget", DEFAULT_NIGHT_BUDGET))
     if configured != DEFAULT_NIGHT_BUDGET or (os.environ.get("TB_MICROBATCH_NIGHT_BUDGET") or "").strip():
         return configured
-    measured = tier_value.positive_int(tier_value.measured("night_budget_patients"))
+    measured = tier_value.positive_int(tier_value.measured("night_budget_patients", _tier_env(ctx)))
     return configured if measured is None else measured
 
 

@@ -14,9 +14,11 @@ time and the 06:00–08:00 backup window begins.
 
 from __future__ import annotations
 
+import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, time
-from typing import Any, Mapping
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from tb_common import tier_value
@@ -31,6 +33,11 @@ _BACKUP_START = time(6, 0)
 _BACKUP_END = time(8, 0)
 _CPU_MODELS = frozenset({"cpu", "cpu_judge", "cpu_note"})
 _CODED_ONLY_MODELS = frozenset({"none", "coded_only"})
+# Files the night plan reads that the measured-value reader does not (D-1322 keeps P-PRO6000 and P-5090 only).
+# A label with no file is still no record.
+_PLAN_LABEL = {"P-GB10": "gb10", "P-CPU": "cpu"}
+_PASS_NAMES = ("note_cpu", "judge", "swap", "verifier", "delta_screening", "first_load")
+_CPU_NOTE = "note_cpu"
 _NOT_MEASURED = {"en": "not measured", "zh-TW": "尚未測量", "ja": "未測定"}
 _NO_RECORD = {"en": "no tier record", "zh-TW": "沒有層級紀錄", "ja": "ティアの記録はない"}
 
@@ -118,8 +125,29 @@ class NightPlan:
             backup_window=BACKUP_WINDOW if backup else None,
         )
 
-    def decide(self, clock: time, *, ingest_running: bool) -> Decision:
-        """Advance one step. Coded screening does not start while this night's ingest is still running."""
+    def dispatch(self) -> dict[str, str]:
+        """What the night's screening job has to be told: order, residency and concurrency.
+
+        Values are strings because a job's options are strings. Empty when this plan has nothing to say.
+        """
+        passes = [step.name for step in self.slices if step.name in _PASS_NAMES]
+        out: dict[str, str] = {
+            "models_resident": "1" if self.models_resident else "0",
+            "swap": "1" if self.swap_scheduled else "0",
+        }
+        if self.screen_concurrency is not None:
+            out["screen_concurrency"] = str(self.screen_concurrency)
+        if self.models_on_card:
+            out["models_on_card"] = self.models_on_card
+        if passes:
+            out["passes"] = ">".join(passes)
+        if self.note_model:
+            out["night_pass"] = _CPU_NOTE
+        return out
+
+    def decide(self, clock: time, *, ingest_running: bool, snapshot_ready: bool = False) -> Decision:
+        """Advance one step. Coded screening does not start while this night's ingest is still running,
+        and it is not reported as started when no passed ingest has a snapshot to screen."""
         moment = self.at(clock)
         if ingest_running and "coded" in self.names():
             return Decision(
@@ -132,8 +160,11 @@ class NightPlan:
         started: list[str] = []
         coded = "absent"
         if "coded" in self.names():
-            coded = "run"
-            started.append("coded")
+            if snapshot_ready:
+                coded = "run"
+                started.append("coded")
+            else:
+                coded = "no_snapshot"
         if moment.cpu_note_screening:
             started.append("note_cpu")
         if moment.backup_window is not None:
@@ -209,7 +240,7 @@ def _layout_int(record: Mapping[str, Any], name: str) -> int | None:
 def _positive(value: Any, *, integral: bool) -> int | float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    if isinstance(value, float) and value != value:  # NaN
+    if isinstance(value, float) and math.isnan(value):
         return None
     if isinstance(value, float) and value in (float("inf"), float("-inf")):
         return None
@@ -284,16 +315,32 @@ def _ingest_of(settings: Any) -> str:
     return text or "02:00"
 
 
-def _plus(hhmm: str, minutes: int) -> str:
-    parts = hhmm.split(":")
-    if len(parts) != 2 or not all(part.isdigit() for part in parts):
+def _clock_hhmm(spec: str) -> str | None:
+    """The ``HH:MM`` of a schedule entry (``"04:00"``, ``"MON 04:00"``, ``"1st 04:00"``), or None."""
+    parts = spec.strip().split()
+    if not parts or parts[-1].count(":") != 1:
+        return None
+    hour_text, minute_text = parts[-1].split(":")
+    if not hour_text.isdigit() or not minute_text.isdigit() or len(minute_text) != 2:
+        return None
+    hour, minute = int(hour_text), int(minute_text)
+    if hour > 23 or minute > 59:
+        return None
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _plus(spec: str, minutes: int) -> str:
+    clock = _clock_hhmm(spec)
+    if clock is None:
         return "02:20"
-    total = (int(parts[0]) * 60 + int(parts[1]) + minutes) % (24 * 60)
+    hour, minute = (int(part) for part in clock.split(":"))
+    total = (hour * 60 + minute + minutes) % (24 * 60)
     return f"{total // 60:02d}:{total % 60:02d}"
 
 
 def _load_record(env: Mapping[str, str], tiers_dir: Any) -> Mapping[str, Any] | None:
-    profile = tier_value.profile_of(env)
+    label = (env.get("TB_PROFILE") or "").strip()
+    profile = tier_value.profile_of(env) or _PLAN_LABEL.get(label)
     if profile is None:
         return None
     path = (tiers_dir or tier_value.TIERS_DIR) / f"{profile}.json"
@@ -418,8 +465,8 @@ def build_night_plan(
     )
 
 
-def local_clock(orch: Any, now: datetime | None) -> time:
-    """``now`` in the site's zone, as a clock time. A naive ``now`` is read as already local."""
+def local_now(orch: Any, now: datetime | None) -> datetime:
+    """``now`` in the site's zone. A naive ``now`` is read as already local; None is the clock now."""
     tzname = getattr(getattr(getattr(orch, "cfg", None), "env", None), "tz", "") or "UTC"
     try:
         zone = ZoneInfo(tzname)
@@ -431,7 +478,44 @@ def local_clock(orch: Any, now: datetime | None) -> time:
         now = now.replace(tzinfo=zone)
     else:
         now = now.astimezone(zone)
-    return now.timetz().replace(tzinfo=None)
+    return now
+
+
+def local_clock(orch: Any, now: datetime | None) -> time:
+    """``now`` in the site's zone, as a clock time. A naive ``now`` is read as already local."""
+    return local_now(orch, now).timetz().replace(tzinfo=None)
+
+
+def snapshot_ready(orch: Any) -> bool:
+    """True when a passed ingest published a snapshot the night chain can screen.
+
+    The chain's own query is the answer when the job store has it. A store that only lists jobs counts a
+    scheduler ingest that finished with a snapshot. A failed ingest, or a night with no successful one, does not.
+    """
+    db = getattr(orch, "db", None)
+    if callable(getattr(db, "chained_ingest", None)):
+        try:
+            from orchestrator import night
+
+            return night.current_night(orch) is not None
+        except Exception:
+            return False
+    find = getattr(db, "find", None)
+    if not callable(find):
+        return False
+    try:
+        jobs = find(type_="INGEST", limit=50)
+    except Exception:
+        return False
+    if not isinstance(jobs, (list, tuple)):
+        return False
+    for job in jobs:
+        if getattr(job, "state", "") != "done" or getattr(job, "snapshot_date", None) is None:
+            continue
+        opts = getattr(job, "options", None) or {}
+        if isinstance(opts, Mapping) and (opts.get("chain") == "1" or opts.get("timer") == "1"):
+            return True
+    return False
 
 
 def ingest_still_running(orch: Any) -> bool:

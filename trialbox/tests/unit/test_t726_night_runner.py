@@ -142,7 +142,7 @@ def test_only_the_ingest_and_the_monthly_jobs_have_a_timer(monkeypatch: pytest.M
 
     monkeypatch.setattr("apscheduler.schedulers.background.BackgroundScheduler", Sched)
     monkeypatch.setattr("tb_common.config.schedule_on_demand", lambda settings, env: False)
-    monkeypatch.setattr(night, "advance", lambda orch: [])
+    monkeypatch.setattr(night, "advance", lambda orch, **_kwargs: [])
     orch: Any = SimpleNamespace(
         cfg=SimpleNamespace(settings=SimpleNamespace(schedule=None), env=SimpleNamespace(tz="Asia/Tokyo", extra={})),
         on_terminal=[],

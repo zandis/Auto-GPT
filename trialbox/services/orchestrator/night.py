@@ -31,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from collections.abc import Mapping
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any, cast
 from zoneinfo import ZoneInfo
@@ -155,10 +156,37 @@ def _exists(orch: Orchestrator, jtype: str, rid: str | None, night: str) -> bool
     return orch.db.get(chain_job_id(jtype, rid, night)) is not None
 
 
-def _create(orch: Orchestrator, step: str, night: str, day: date, rid: str | None, plan: str) -> None:
+_DISPATCH_KEYS = ("screen_concurrency", "models_on_card", "models_resident", "swap", "passes", "night_pass")
+
+
+def _screen_dispatch(dispatch: Mapping[str, str] | None) -> dict[str, str]:
+    """The tier's night shape, as job options. Nothing when the caller did not pass one."""
+    if not dispatch:
+        return {}
+    out: dict[str, str] = {}
+    for key in _DISPATCH_KEYS:
+        value = dispatch.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            out[key] = text
+    return out
+
+
+def _create(
+    orch: Orchestrator,
+    step: str,
+    night: str,
+    day: date,
+    rid: str | None,
+    plan: str,
+    dispatch: Mapping[str, str] | None = None,
+) -> None:
     jtype = STEP_TYPE[step]
     options = {"night": night, "step": step, "night_day": day.isoformat(), "plan": plan}
     if step == "screen":
+        options.update(_screen_dispatch(dispatch))
         options["trigger"] = "weekly" if weekly_due(orch, step, rid, day, days(orch)[step]) else "ingest"
     orch.create(
         JobCreate(
@@ -184,7 +212,9 @@ def _say(orch: Orchestrator, night: str, what: str, message: str, detail: dict[s
             log.warning("scheduler.held not audited: %s", exc)
 
 
-def _start_step(orch: Orchestrator, step: str, night: str, day: date) -> list[str | None]:
+def _start_step(
+    orch: Orchestrator, step: str, night: str, day: date, dispatch: Mapping[str, str] | None = None
+) -> list[str | None]:
     """Start the jobs of ``step`` that are due for this night; returns the studies started (none: the step is
     passed over). A job of this type, study and night that exists already is never started again."""
     from orchestrator import scheduler
@@ -208,11 +238,18 @@ def _start_step(orch: Orchestrator, step: str, night: str, day: date) -> list[st
         due.append(rid)
     plan = ",".join(rid or "" for rid in due)  # written into every job of the step: what a restart completes
     for rid in due:
-        _create(orch, step, night, day, rid, plan)
+        _create(orch, step, night, day, rid, plan, dispatch if step == "screen" else None)
     return due
 
 
-def _complete(orch: Orchestrator, step: str, night: str, day: date, jobs: list[Job]) -> list[str | None]:
+def _complete(
+    orch: Orchestrator,
+    step: str,
+    night: str,
+    day: date,
+    jobs: list[Job],
+    dispatch: Mapping[str, str] | None = None,
+) -> list[str | None]:
     """The step was started: make the jobs of its plan that do not exist (the process died between two of them)."""
     planned = {r or None for j in jobs for r in str((j.options or {}).get("plan") or "").split(",")}
     if not any("plan" in (j.options or {}) for j in jobs):
@@ -220,11 +257,11 @@ def _complete(orch: Orchestrator, step: str, night: str, day: date, jobs: list[J
     missing = sorted((r for r in planned - {j.ruleset for j in jobs}), key=lambda r: r or "")
     plan = next(str((j.options or {})["plan"]) for j in jobs if "plan" in (j.options or {}))
     for rid in missing:
-        _create(orch, step, night, day, rid, plan)
+        _create(orch, step, night, day, rid, plan, dispatch if step == "screen" else None)
     return missing
 
 
-def _go_on(orch: Orchestrator) -> list[str | None]:
+def _go_on(orch: Orchestrator, dispatch: Mapping[str, str] | None = None) -> list[str | None]:
     cur = current_night(orch)
     if cur is None:
         return []
@@ -243,7 +280,7 @@ def _go_on(orch: Orchestrator) -> list[str | None]:
     for i, step in enumerate(STEPS):
         jobs = by_step[step]
         if jobs:
-            made = _complete(orch, step, night, day, jobs)
+            made = _complete(orch, step, night, day, jobs, dispatch)
             if made:
                 return made
             if any(j.state not in TERMINAL for j in jobs):
@@ -251,13 +288,13 @@ def _go_on(orch: Orchestrator) -> list[str | None]:
             continue
         if i < reached:
             continue  # passed over, and a later step has started: not started any more this night
-        started = _start_step(orch, step, night, day)
+        started = _start_step(orch, step, night, day, dispatch)
         if started:
             return started
     return []
 
 
-def advance(orch: Orchestrator) -> list[str | None]:
+def advance(orch: Orchestrator, *, dispatch: Mapping[str, str] | None = None) -> list[str | None]:
     """Go on with the night: complete a step that was started in part, else start the first step that has no job
     and is not passed, once every job of the steps before it has ended. Returns the studies of the jobs it started
     (none: nothing to start now). Never raises.
@@ -268,7 +305,7 @@ def advance(orch: Orchestrator) -> list[str | None]:
         from orchestrator import night_work
 
         with _lock:
-            started = _go_on(orch)
+            started = _go_on(orch, dispatch)
             if not started:
                 night_work.note(orch)
             return started

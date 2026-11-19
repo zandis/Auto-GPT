@@ -20,6 +20,7 @@ import re
 import time
 from collections.abc import Callable
 from datetime import datetime
+from pathlib import Path
 from typing import Any, cast
 
 import yaml
@@ -403,20 +404,95 @@ def _box_env(orch: Orchestrator) -> dict[str, str]:
     return out
 
 
+def _stop_cpu_notes(orch: Orchestrator) -> None:
+    """Cancel CPU note-screening jobs that have not ended. A finished one is left as it is."""
+    find = getattr(getattr(orch, "db", None), "find", None)
+    cancel = getattr(orch, "cancel", None)
+    if not callable(find) or not callable(cancel):
+        return
+    try:
+        jobs = find(limit=200)
+    except Exception:
+        log.warning("cpu note screening could not be listed")
+        return
+    if not isinstance(jobs, (list, tuple)):
+        return
+    for job in jobs:
+        opts = getattr(job, "options", None) or {}
+        if not isinstance(opts, dict) or opts.get("night_pass") != "note_cpu":
+            continue
+        if getattr(job, "state", "") in ("done", "failed"):
+            continue
+        job_id = getattr(job, "job_id", None)
+        if not job_id:
+            continue
+        try:
+            cancel(str(job_id), "scheduler")
+        except Exception:
+            log.warning("cpu note screening %s was not stopped", job_id)
+
+
+def _ops_dir(orch: Orchestrator) -> Path | None:
+    """The operations folder, when this process was given one (``TB_OPS_DIR``). The host runner reads it."""
+    extra = getattr(getattr(getattr(orch, "cfg", None), "env", None), "extra", None) or {}
+    raw = str(extra.get("TB_OPS_DIR") or os.environ.get("TB_OPS_DIR") or "").strip()
+    if not raw:
+        return None
+    path = Path(raw)
+    return path if path.is_dir() else None
+
+
+def _open_backup_window(orch: Orchestrator, day: str) -> None:
+    """Open today's 06:00–08:00 backup window once. One operations request is what starts the host backup."""
+    if getattr(orch, "_backup_window_day", None) == day:
+        return
+    ops = _ops_dir(orch)
+    if ops is None:
+        orch._backup_window_day = day  # type: ignore[attr-defined]
+        log.info("backup window 06:00-08:00 is open; this process has no operations folder")
+        return
+    try:
+        from tools.trialbox.ops import OpsDir
+
+        folder = OpsDir(ops)
+        already = any(
+            req.get("action") == "backup" and (req.get("args") or {}).get("day") == day for req in folder.requests()
+        )
+        if not already:
+            folder.submit("backup", "scheduler", {"day": day, "window": "06:00-08:00"})
+    except Exception:
+        log.warning("the backup window was not opened")
+        return
+    orch._backup_window_day = day  # type: ignore[attr-defined]
+
+
 def advance_night(orch: Orchestrator, now: datetime | None = None) -> Any:
-    """Go on with tonight. Coded screening waits while the night's ingest is still running (10E-11)."""
+    """Go on with tonight. Coded screening waits while the night's ingest is still running (10E-11).
+
+    At 06:00 local on a qualified tier A box, a CPU note pass that is still running is stopped and the backup
+    window opens. The chain is told this tier's pass order, residency and concurrency.
+    """
     from orchestrator import night, night_plan
 
     plan = getattr(orch, "night_plan", None)
     if not isinstance(plan, night_plan.NightPlan):
         plan = night_plan.build_night_plan(orch.cfg.settings, _box_env(orch), env_obj=getattr(orch.cfg, "env", None))
         orch.night_plan = plan  # type: ignore[attr-defined]
-    decision = plan.decide(night_plan.local_clock(orch, now), ingest_running=night_plan.ingest_still_running(orch))
+    local = night_plan.local_now(orch, now)
+    decision = plan.decide(
+        local.timetz().replace(tzinfo=None),
+        ingest_running=night_plan.ingest_still_running(orch),
+        snapshot_ready=night_plan.snapshot_ready(orch),
+    )
+    if decision.stop_cpu_note_screening:
+        _stop_cpu_notes(orch)
+    if decision.backup_window is not None:
+        _open_backup_window(orch, local.date().isoformat())
     if decision.coded_screening == "wait_for_ingest":
         # This night's coded pass stays unstarted. The chain still runs: an earlier night may have a step left,
         # and it screens the last ingest that passed, never the one that is still running.
         log.info("coded screening waits for ingest to complete")
-    night.advance(orch)
+    night.advance(orch, dispatch=plan.dispatch())
     return decision
 
 
@@ -468,6 +544,17 @@ def start(orch: Orchestrator) -> Any:
             sched.add_job(cohort, "cron", id="cohort", **kw)
         else:  # D-397: the timer's ingest; the night's chain follows it
             sched.add_job(_submit, "cron", id="ingest", args=[orch, "INGEST", None, {"timer": "1", "chain": "1"}], **kw)
+
+    backup = next((step for step in orch.night_plan.slices if step.name == "backup" and step.start), None)  # type: ignore[attr-defined]
+    clock = night_plan._clock_hhmm(backup.start) if backup is not None and backup.start else None
+    if clock is not None:
+        hour_text, minute_text = clock.split(":")
+
+        def night_backup() -> None:
+            advance_night(orch)
+
+        # 06:00 local: stop a CPU note pass that is still running, and open the backup window (10E-11)
+        sched.add_job(night_backup, "cron", id="night_backup", hour=int(hour_text), minute=int(minute_text))
 
     def go_on(_job: Any = None) -> None:
         advance_night(orch)
