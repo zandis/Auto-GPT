@@ -213,6 +213,9 @@ case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances
   shared-quota) die "this card has MIG on (shared-quota): install.sh does not serve it; use deploy/platform (RUNBOOK §17)" ;;
   b200-no-mig) die "a B200 serves TrialBox only as two MIG instances: enable MIG, make the two instances, use deploy/platform (RUNBOOK §17)" ;;
   arm64-dgpu) die "an Arm 64-bit host with a discrete card that is not a GB10 has no TrialBox profile (unmeasured, root review 24): install with --mode stub, or see RUNBOOK §28" ;;
+  # cards 24-5 and 24-6: the 48 GB draft is never installed, whatever is set; TB_UNMEASURED_DGPU48_MEASURING_RUN=1 is
+  # honoured by its measuring run alone (tools/dgpu48.py), which starts only the model servers and installs nothing
+  dgpu48) die "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;
 esac
 case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;; esac
 # D-348: the vLLM image of deploy/images.lock must run here (its architecture, the driver its CUDA needs, the GPU's
@@ -490,14 +493,15 @@ esac
 grep -q '^TB_NOTE_BLOCK=' deploy/.env && sed -i "s/^TB_NOTE_BLOCK=.*/TB_NOTE_BLOCK=$NOTE_BLOCK/" deploy/.env || echo "TB_NOTE_BLOCK=$NOTE_BLOCK" >> deploy/.env
 grep -q '^COMPOSE_PROFILES=' deploy/.env && sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=$MODE/" deploy/.env || echo "COMPOSE_PROFILES=$MODE" >> deploy/.env
 # T-692 (D-473, OD-10): the adapter's and the lake's memory caps from the patient count (the lake's CURRENT snapshot,
-# else TB_SITE_PATIENTS) and the measured record deploy/measured/ingest_memory.json; a cap set by hand is kept and
-# `trialbox doctor` (memory_caps) says when it is too small
+# else TB_SITE_PATIENTS) and the measured record deploy/measured/ingest_memory.json; the orchestrator's (H23b-01,
+# D-1005) from deploy/measured/orchestrator_memory.json (the size ladder's peaks), written only above the compose
+# default; a cap set by hand is kept and `trialbox doctor` (memory_caps) says when it is too small
 if command -v python3 >/dev/null; then
   LAKE_HOST="$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_lake-data" 2>/dev/null || true)"
   # D-832: the die hangs on the pipe (under pipefail a failing pipe ended the script before a PIPESTATUS line)
-  python3 -m tools.trialbox.memcaps --env-file deploy/.env ${LAKE_HOST:+--lake "$LAKE_HOST"} --write 2>&1 | indent || die "the memory caps could not be sized (above): set TB_MEM_ADAPTER and TB_MEM_LAKE in deploy/.env, then re-run"
+  python3 -m tools.trialbox.memcaps --env-file deploy/.env ${LAKE_HOST:+--lake "$LAKE_HOST"} --write 2>&1 | indent || die "the memory caps could not be sized (above): set TB_MEM_ADAPTER, TB_MEM_LAKE and TB_MEM_ORCH in deploy/.env, then re-run"
 else
-  echo "install: warning: no python3: TB_MEM_ADAPTER and TB_MEM_LAKE keep the compose defaults (doctor memory_caps checks them)" >&2
+  echo "install: warning: no python3: TB_MEM_ADAPTER, TB_MEM_LAKE and TB_MEM_ORCH keep the compose defaults (doctor memory_caps checks them)" >&2
 fi
 # T-703 (D-751): PostgreSQL's buffers, WAL, maintenance memory, /dev/shm and idle-transaction limit from TB_MEM_DB;
 # a value set by hand is kept and `trialbox doctor` (postgres_memory) fails on the defaults of a large host
@@ -1014,6 +1018,8 @@ cat <<EOT
   First ingest:       docker compose --project-directory deploy exec adapter python -m adapter.cli run   (or 02:00 nightly)
   Acceptance:         docs/RUNBOOK.md §6 before go-live;  updates: tools/apply_update.sh <bundle>
   Release gates:      $GATES_MODE
+  Known limit:        SCREEN of the whole hospital stops at about 45,000 patients (the orchestrator's memory cap,
+                      TB_MEM_ORCH; lower on the two-device workstation): CHANGELOG.md, "Known limits"
 EOT
 if [ "${#FAILS[@]}" -gt 0 ]; then
   printf 'install: FAIL: %s\n' "${FAILS[@]}" >&2

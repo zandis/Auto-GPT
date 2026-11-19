@@ -661,6 +661,8 @@ if [ "$STEPS" = dev ] || [ "$STEPS" = "dev acc" ] || [ "$STEPS" = "dev session" 
 elif [ "$STEPS" = build ]; then
   V[tb-src]="${V[tb-src]:-$BUCKET/r2/$RID/src.bundle}"; V[tb-out]="${V[tb-out]:-$BUCKET/r2/$RID}"
   [ "$MODE" = validation ] || V[tb-vendor-key-secret]="$KEY_SECRET"
+  # H-43 (D-998): every site bundle carries the embedder: b05 places it from its file list (public names, sha256s)
+  V[tb-embed-list]="${V[tb-embed-list]:-$BUCKET/r2/models/e-embed-1.sha256}"
 else
   V[tb-bundle]="${V[tb-bundle]:-$BUCKET/r2/$RID/trialbox-$RID.tar}"
   if [ -z "${V[tb-bundle-sha256]:-}" ] && [ "$DRY" = 0 ]; then   # the build's own .sha256 beside the bundle

@@ -164,7 +164,7 @@ No maintained open-source SS-MIX2 → JP Core FHIR converter was found. TrialBox
 
 | Candidate | Licence | Activity | What to reuse | Verdict | Checked |
 | --- | --- | --- | --- | --- | --- |
-| [TrialGPT (NCBI)](https://github.com/ncbi-nlp/TrialGPT) | Public domain notice (GitHub NOASSERTION) | push 2025-01-24 | SIGIR data and prompts as the baseline (already used) | **Use** as benchmark only | 2026-11-07 |
+| [TrialGPT (NCBI)](https://github.com/ncbi-nlp/TrialGPT) | Public domain notice on NCBI's code and labels (GitHub NOASSERTION); the SIGIR notes it carries are CC BY-SA 4.0 (CSIRO) | push 2025-01-24 | SIGIR data and prompts as the baseline (already used) | **Use** as benchmark only | 2026-11-07 |
 | [Criteria2Query (OHDSI)](https://github.com/OHDSI/Criteria2Query) | Apache-2.0 | push 2026-03-01 | Criteria → OMOP cohort JSON; ideas for criteria → ATLAS export | **Evaluate** for the OMOP export path | 2026-11-07 |
 | Chia corpus ([figshare 11855817](https://figshare.com/articles/dataset/Chia_Annotated_Datasets/11855817)) | CC BY 4.0 (confirmed in project 2026-11-05) | dataset | Criteria annotation for router tests (already used) | **Use** | 2026-11-07 |
 | TREC Clinical Trials 2021–2023 | NIST terms | datasets | Gate sets (already used) | **Use** | 2026-11-07 |

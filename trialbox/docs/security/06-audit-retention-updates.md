@@ -17,7 +17,8 @@
 - **Retention** by country (wizard defaults, D-138): service logs 365 days; mail logs 5 years in Japan (医師法 §24),
   7 years in Taiwan (醫療法 §70); outputs 365 days; attachments 90 days; snapshots 3 nightly and 36 month-ends.
   A deleted job file is audited with its sha256 (`retention.deleted`), deleted mail-log rows by count
-  (`retention.mail`); the host's service-log folders past `logs_days` are deleted with no audit event.
+  (`retention.mail`); the host's service-log folders past `logs_days` are deleted with no audit event (finding
+  H10G3-01, `docs/handover/security-page-2026-11-18/findings.json`).
 - **Updates.** Offline, signed (Ed25519), never automatic: an operator runs `tools/apply_update.sh` (D-77, D-138,
   D-210). The bundle is verified before anything is staged (`tools/verify_update.py`), with the host's python3 when it
   has `cryptography`, else in a container with no network. Refused: a tampered or unsigned bundle, a key the box does

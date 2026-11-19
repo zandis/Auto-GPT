@@ -52,6 +52,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from tools import gold_kind
+
 #: the seed of the measured set (eval/accuracy/MANIFEST.json)
 SEED = 20261114
 #: gold exclusions, and decided gold non-exclusions, at least, per language and stratum (plan 37, NEW-LLM-6 gold)
@@ -852,6 +854,7 @@ def score(cases: list[dict[str, Any]], answers: Mapping[str, Mapping[str, dict[s
     """The report: per model (``answers``: role → case id → answer) and, with a judge and a verifier, for the pair
     and for the product (the pair under the rule of a cut record)."""
     rep: dict[str, Any] = {"cases": len(cases), "counts": counts(cases), "set": set_hash(cases)}
+    rep["gold_kind"] = gold_kind.of_set("accuracy")  # 10G-38 (D-1326): None, the repository does not state it
     rep["models"] = {role: _model(cases, ans) for role, ans in answers.items()}
     if "judge" in answers and "verifier" in answers:
         pair = pair_answers(answers["judge"], answers["verifier"])
