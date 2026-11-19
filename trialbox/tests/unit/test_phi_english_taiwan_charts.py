@@ -187,7 +187,7 @@ def test_what_is_no_ones_identifier_is_left(text: str) -> None:
 
 
 def test_the_version_says_the_masking_changed() -> None:
-    assert pg.NOTE_MASK_VERSION == "6"
+    assert pg.NOTE_MASK_VERSION == "7"  # 6 for these charts (D-923); 7 since the Japanese rules (10C-1)
 
 
 def _corpus() -> list[str]:

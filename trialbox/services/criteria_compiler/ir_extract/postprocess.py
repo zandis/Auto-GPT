@@ -28,6 +28,7 @@ from tb_contracts import Atom, BoolExpr, CriterionIR, CriterionReview, LlmExtrac
 from tb_contracts.criterion_ir import ACTIVE_STATUSES
 
 from criteria_compiler import unit_check
+from criteria_compiler.ir_extract.negation_scope import negated_presence
 from criteria_compiler.ir_extract.polarity import is_negated, positive
 from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, atoms, check_bool, demographic_alone, kind
 from criteria_compiler.terminology.mapper import (
@@ -482,6 +483,35 @@ def strip_stray(node: Any, text: str = "", kind_: str = "inclusion") -> tuple[An
     return walk(node), sorted(set(flags))
 
 
+def approved_negated(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) -> bool:
+    """Card 10A-1 for a criterion already compiled (an approved ruleset): whether it is an inclusion whose line may
+    negate what its coded logic asks the presence of. The concept's names are its ValueSet's title and its codes'
+    displays (an approved ruleset keeps no concept candidates)."""
+    if c.kind != "inclusion" or c.class_ not in FILTERED:
+        return False
+
+    def terms_for(vs: str) -> list[str]:
+        v = valuesets.get(vs) or {}
+        shown = [str(x.get("display")) for inc in (v.get("compose") or {}).get("include") or []
+                 for x in inc.get("concept") or [] if x.get("display")]  # fmt: skip
+        return [str(v["title"])] * bool(v.get("title")) + shown
+
+    return negated_presence(c.text, c.logic, terms_for)
+
+
+def hold_reused_negated(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) -> tuple[CriterionIR, str | None]:
+    """Card 10A-1 for a criterion reused from the approved version (an incremental compile skips ``postprocess``):
+    an inclusion whose line may negate what its logic asks the presence of goes to a person, flagged, with a warning.
+    The approved line is never changed silently: its reviewer sees why it came back. ``(criterion, warning)``."""
+    if not approved_negated(c, valuesets):
+        return c, None
+    flags = sorted({*(c.flags or []), "negated_inclusion_presence", "needs_review"})
+    held = c.model_copy(update={"class_": "human", "human_question": c.human_question or _question(c.text),
+                                "logic": Atom(domain="demographic", valueset="NONE"), "flags": flags})  # fmt: skip
+    return held, (f"{c.id}: approved before, but its line may negate what its logic asks the presence of; kept for "
+                  "a person to check")  # fmt: skip
+
+
 def postprocess(
     ruleset: str,
     extracted: LlmExtractOutput,
@@ -495,6 +525,7 @@ def postprocess(
     meaning it always had) or ``egfr_jsn`` at a Japanese site; a protocol that names its equation keeps it."""
     counters = dict(id_offset or {})
     concept_vs: dict[str, str] = {}
+    vs_terms: dict[str, list[str]] = {}  # a ValueSet's concept names and synonyms (card 10A-1)
     valuesets: dict[str, dict[str, Any]] = {}
     mappings: dict[str, MappingResult] = {}
     warnings: list[str] = []
@@ -507,6 +538,8 @@ def postprocess(
             if cand.domain in ("procedure", "encounter") and is_diagnosis_name(cand.name):
                 refiled.add(key)
                 cand = cand.model_copy(update={"domain": "condition"})
+            if key in concept_vs and cand.domain != "demographic":  # card 10A-1: every name and synonym of it
+                vs_terms.setdefault(concept_vs[key], []).extend([cand.name, *(cand.synonyms or [])])
             if key in concept_vs or cand.domain == "demographic":
                 continue
             vs_name = vs_name_for(cand.name)
@@ -515,6 +548,7 @@ def postprocess(
             res = term.map(cand.domain, cand.name, cand.synonyms or [], llm_map)
             mappings[vs_name] = res
             concept_vs[key] = vs_name
+            vs_terms.setdefault(vs_name, []).extend([cand.name, *(cand.synonyms or [])])
             valuesets[vs_name] = valueset(
                 ruleset,
                 vs_name,
@@ -527,6 +561,10 @@ def postprocess(
             )
             if res.method == "none":
                 warnings.append(f"concept '{cand.name}' ({cand.domain}) could not be mapped")
+
+    def terms_for(vs: str) -> list[str]:
+        return vs_terms.get(vs, [])
+
     # 2. criteria -> IR
     incl_ages = inclusion_ages([dump(ec).get("logic") for ec in extracted.criteria if ec.kind == "inclusion"])
     for ec in extracted.criteria:
@@ -558,6 +596,23 @@ def postprocess(
         if stray:
             flags.extend(stray)
             warnings.append(f"{cid}: fields its atoms cannot use ({', '.join(stray)})")
+        # card 10A-1 (review 15, P2b): "No prior chemotherapy" (inclusion) compiled to "any of chemotherapy", which
+        # meets the line only for the patients it should exclude. An inclusion whose logic asks the presence of a
+        # concept that a negation in its line governs (negation_scope) is never run: a person checks it (rewriting it
+        # could be wrong as well). It comes first: a later rule that hands a mixed line to the notes would have a
+        # model answer the presence
+        named_terms = [x for cand in ec.concept_candidates if cand.domain != "demographic"
+                       for x in (cand.name, *(cand.synonyms or []))]  # fmt: skip
+        if ir.kind == "inclusion" and ir.class_ in FILTERED and negated_presence(ir.text, ir.logic, terms_for,
+                                                                                  named_terms):  # fmt: skip
+            flags.append("negated_inclusion_presence")
+            why = notes_can_decide(ir.kind, ir.text, ir.note_question or "") if ir.class_ == "mixed" else None
+            if ir.note_question and why is not None:  # the reviewer sees why the notes cannot decide it either
+                flags.append(f"notes_cannot_decide_{why}")
+            ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
+                                       "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
+            warnings.append(f"{cid}: its line negates what its logic asks the presence of; kept for a person to "
+                            "check")  # fmt: skip
         if ir.class_ in FILTERED and set(stray) & set(HOLD):
             if ir.class_ == "mixed" and ir.note_question:  # as demote_uncompilable keeps it (D-98): the notes decide
                 ir = ir.model_copy(update={"class_": "note", "logic": Atom(domain="demographic", valueset="NONE")})
