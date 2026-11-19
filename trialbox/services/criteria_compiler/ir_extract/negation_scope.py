@@ -109,6 +109,8 @@ _EN_BACKWARD = (
     rf"|not\s+to\s+be\s+{_PARTICIPLE}|(?:must|should|is|are|to)\s+be\s+avoided"
     rf"|(?:has|have|had|must|should|may|is|are|was|were)\s+(?:not|never)\s+(?:have\s+)?(?:been\s+)?{_PARTICIPLE}"
     r"|[-–:]\s*(?:none|no|absent|negative)\b|[- ]na[iï]ve|[- ]free\b"
+    # card 10A-1c: a chart's "none" after a name or a label ("HBs抗原(−)", "化学療法：－", "Chemotherapy: neg", "N/A")
+    r"|\(\s*[-−–]\s*\)|:\s*[-−–](?=\s*(?:$|[,;.。、]))|:\s*(?:neg|n/?a)\b"
 )
 _EN_TERMINATE = (
     r"\b(?:but|however|nevertheless|still|except|though|although|yet|apart\s+from|aside\s+from|other\s+than|"
@@ -135,8 +137,11 @@ _EN_PSEUDO = (
 )
 # a cue inside the concept word itself ("non-pregnant", "nonsmoker", "untreated", "ex-smoker")
 # a negating prefix in the same word as the concept: the word is not that concept ("non-small cell", "non small cell",
-# "untreated", "asymptomatic" and "atypical" with "symptomatic" / "typical …" coded; card 10A-1c added "non " and "a")
-_EN_PREFIX = r"(?:non[-\s]?|un-?|a-?|ex-)"
+# "untreated", "asymptomatic", "afebrile", "anaerobic"; card 10A-1c added "non ", "a" and "an"). "anti-" is not one:
+# "anti-HBc positive" names a thing that is present)
+_EN_PREFIX = (
+    r"(?:non[-\s]?|un-?|a-?(?=[b-df-hj-np-tv-z])|an-?(?=[aeiou])|ex-)"  # a before a consonant, an before a vowel
+)
 _EN_PREFIXED = (
     r"\b(?:non-?(?:pregnan|lactat|breast-?feed|smok|drink|user|respond)|un(?:treated|exposed|vaccinated|diagnosed)|"
     r"ex-?(?:smok|drink|user))\w*"
@@ -221,6 +226,7 @@ _ABBREV = re.compile(r"^\s*[（(][^（）()]{1,20}[）)]")  # "結核(TB)の既�
 _SUFFIX = re.compile(r"(?:ations?|atory|ancies|ancy|ants?|ments?|ions?|ies|ing|ers|er|ed|es|s|y)$")
 
 Mention = tuple[int, int, bool]
+_CJK_PREFIX = frozenset("非無无未不")
 
 
 def _blank(text: str, pattern: re.Pattern[str]) -> str:
@@ -246,6 +252,9 @@ def _read(text: str, own: list[re.Pattern[str]]) -> tuple[str, list[Mention], bo
     t, blanked = _descriptors(u)
     found = _mentions(u, own)
     cut = any(a < e and s < b and not (s <= a and b <= e) for s, e, _ in found for a, b in blanked)
+    # card 10A-1c: in Japanese and Chinese, a coded name right after 非 / 無 / 无 / 未 / 不 in the same word
+    # ("不完全寛解" with 完全寛解 coded, "未分化癌" with 分化癌 coded)
+    cut = cut or any(s > 0 and u[s - 1] in _CJK_PREFIX and _CJK.match(u[s]) for s, _, _ in found)
     return t, found, cut
 
 

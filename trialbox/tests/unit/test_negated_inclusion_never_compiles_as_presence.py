@@ -279,6 +279,11 @@ RULES: dict[str, tuple[list[Line], list[Line]]] = {
             ("Anemia.", ["anemia"], []),
             ("非常に重症の喘息。", AS, []),
             ("無症候性脳梗塞。", ["脳梗塞"], []),
+            ("Anti-HBc positive.", ["HBc"], []),  # "anti-" names a thing that is present: not a negating prefix
+            ("Aerobic exercise.", ["aerobic exercise"], []),
+            ("HBs抗原(+)の患者。", ["HBs抗原"], []),
+            ("Prior chemotherapy - cisplatin based.", CH, []),
+            ("Chemotherapy: yes.", CH, []),
             ("ナイアシン投与中の脂質異常症。", ["脂質異常症"], []),
             # card 10A-1c: a coded name that holds a descriptor whole is found in the line
             ("非小細胞肺癌の患者。", ["非小細胞肺癌"], []),
@@ -317,6 +322,18 @@ RULES: dict[str, tuple[list[Line], list[Line]]] = {
             ("非ＳＴ上昇型心筋梗塞。", ["ST上昇型心筋梗塞"], []),
             ("無症候性脳梗塞。", ["症候性脳梗塞"], []),
             ("無症候性脳梗塞。", ["症候"], []),
+            ("Afebrile neutropenia.", ["febrile neutropenia"], []),
+            ("Anaerobic infection.", ["aerobic infection"], []),
+            ("不完全寛解の患者。", ["完全寛解"], []),
+            ("不完全緩解之患者。", ["完全緩解"], []),
+            ("未分化癌。", ["分化癌"], []),
+            # card 10A-1c: a chart's "none" after a name or a label
+            ("HBs抗原(−)の患者。", ["HBs抗原"], []),
+            ("化学療法：－", CH, []),
+            ("化學治療：(−)", CH, []),
+            ("Chemotherapy: -", CH, []),
+            ("Chemotherapy: neg", CH, []),
+            ("Chemotherapy: N/A", CH, []),
             # card 10A-1c: なし in katakana, full width and half width
             ("化学療法歴：ナシ", CH, []),
             ("化学療法歴：ﾅｼ", CH, []),
