@@ -61,8 +61,8 @@ JA: dict[str, str] = {
     "署名とすべてのファイルを確認します。USBメモリは読み取るだけで、機器にはコピーしたファイルだけが追加"
     "されます。",
     "ops.confirm.update_quiet": "更新 {bundle} を機器の静かな時間帯（{at} から {hours} 時間）に適用しますか？"
-    "その時間に、実行中のジョブがなければ、誰も立ち会わずに実行されます。最初にバックアップを取り、サービスを"
-    "止めて新しいリリースで再起動し、確認に失敗した場合は自動的に元に戻ります。{wait} 時間以内にジョブのない"
+    "その時間に、実行中の処理がなければ、誰も立ち会わずに実行されます。最初にバックアップを取り、サービスを"
+    "止めて新しいリリースで再起動し、確認に失敗した場合は自動的に元に戻ります。{wait} 時間以内に処理のない"
     "静かな時間帯が来なければ実行されず、改めて依頼していただきます。",
     "ops.stick.title": "更新用USBメモリ",
     "ops.stick.help": "病院の媒体持込手続きに従い、更新用USBメモリを機器に挿してください。機器は読み取るだけです。"
@@ -85,7 +85,7 @@ JA: dict[str, str] = {
     "ops.update.impact.what": "変更内容",
     "ops.update.impact.downtime": "機器の停止時間は約 {n} 分です",
     "ops.update.impact.migration": "データベースの移行",
-    "ops.update.impact.reapproval": "ルールセットの再承認",
+    "ops.update.impact.reapproval": "選択・除外基準の再承認",
     "ops.update.cc.CC1": "モデルに影響する変更",
     "ops.update.cc.CC2": "データ経路の変更",
     "ops.update.cc.CC3": "外部接続の変更",
@@ -110,9 +110,9 @@ ZH: dict[str, str] = {
     "ops.action.update_quiet": "於安靜時段套用",
     "ops.confirm.update_stick_check": "要將更新包 {bundle} 從更新用隨身碟複製到本機並驗證嗎？將檢查其簽章與每個檔案。"
     "隨身碟只會被讀取；本機只會新增複製的檔案。",
-    "ops.confirm.update_quiet": "要在本機的安靜時段（{at} 起 {hours} 小時）套用更新 {bundle} 嗎？屆時若沒有工作在執行，"
+    "ops.confirm.update_quiet": "要在本機的安靜時段（{at} 起 {hours} 小時）套用更新 {bundle} 嗎？屆時若沒有作業在執行，"
     "會在無人在場的情況下執行：先備份，接著停止服務並以新版本重新啟動；任何檢查失敗時會自動還原。若 {wait} 小時內"
-    "沒有出現無工作執行的安靜時段，就不會執行，請重新申請。",
+    "沒有出現無作業執行的安靜時段，就不會執行，請重新申請。",
     "ops.stick.title": "更新用隨身碟",
     "ops.stick.help": "請依醫院的媒體攜入程序，將更新用隨身碟插入本機。本機只會讀取它。驗證更新包時會先複製到本機"
     "再檢查，其日文版本說明與變更影響表會顯示在「本機上的更新包」之下。",
@@ -133,7 +133,7 @@ ZH: dict[str, str] = {
     "ops.update.impact.what": "變更內容（日文）",
     "ops.update.impact.downtime": "本機約停機 {n} 分鐘",
     "ops.update.impact.migration": "資料庫遷移",
-    "ops.update.impact.reapproval": "需重新核准的規則集",
+    "ops.update.impact.reapproval": "需重新核准的納入／排除條件",
     "ops.update.cc.CC1": "影響模型",
     "ops.update.cc.CC2": "資料路徑",
     "ops.update.cc.CC3": "介面",

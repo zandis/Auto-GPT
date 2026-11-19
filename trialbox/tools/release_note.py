@@ -156,7 +156,7 @@ def render_note(sheet: Mapping[str, Any], summary_ja: str) -> str:
         "",
         f"- 停止時間の目安: 約 {sheet['downtime_minutes']} 分（その間は誰も作業できません）",
         f"- データベースの移行: {yes[sheet['database_migration']]}",
-        f"- ルールセットの再承認: {'必要' if sheet['ruleset_reapproval'] else '不要'}",
+        f"- 選択・除外基準の再承認: {'必要' if sheet['ruleset_reapproval'] else '不要'}",
         "- 適用の前に自動でバックアップを取り、確認に失敗した場合は自動で元のリリースに戻ります。",
         "",
         "## 病院IT担当の作業",
