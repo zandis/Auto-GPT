@@ -55,7 +55,7 @@ This card took no decision of its own and so uses no lane J number.
 | # | Need (review 14) | Rows proposed | New reads | Decision asked |
 | --- | --- | --- | --- | --- |
 | P-1 | No coordinating-centre or central-monitor account inside a site box (finding G-10; review 14 section 4.1) | none: a fixed role list on a site box, held by a test | none | adopt, worded as narrowed in 4.2 |
-| P-2 | Coordinating mode with its own small role set; no patient role in it (G-10, M14-12, OD-2) | 4 roles on the coordinating box only; 4 new actions; every existing row `false` for them | the sites' signed counts; package content; no row, no pseudonym | adopt with changes (choose 5.4 option a or b) |
+| P-2 | Coordinating mode with its own small role set; no patient role in it (G-10, M14-12, OD-2) | A separate coordinating matrix file: 4 roles, 4 new actions, the box's operations and account rows for `cc_admin`; no patient row exists in it. Option (c): 3 roles, no count-reading row | the sites' signed counts (pre-consent rounded, reasons rounded, post-consent exact if decision 49 rules so); package content; no row, no pseudonym | adopt with changes (choose (a), (b) or (c) in 5.4; (c) recommended) |
 | P-3 | SMO or other-department coordinator sees only delegated studies (G-11, OD-8) | mostly met by D-380 item 4; residual: one new condition `logged` on the coordinator's study rows, or no row | none (narrows only) | adopt the residual or record P-3 as met by D-380 |
 | P-4 | Pharmacist read-only account when a pharmacy module exists (review 02 J-D1) | none now; a sketch for later | none now | refuse for 1.0; keep the sketch |
 | P-5 | Package import as a right of steward or coordinator; the PI's approval still required (G-3, M14-3) | 1 new action `package.import`; `criteria.approve` unchanged | the package's content; no patient data | adopt |
@@ -129,7 +129,7 @@ Nothing is blocked today. The risk is drift: an administrator can create a `view
 - The role walk's pseudonym search over every page the `viewer` and `cro` columns reach stays at zero hits
   (`tests/console/test_matrix_role_walk.py`, unchanged).
 
-**Decision for C2:** adopt / adopt with changes / refuse. Recommended: adopt, with the wording of 3.2.
+**Decision for C2:** adopt / adopt with changes / refuse. Recommended: adopt, with the wording of 4.2.
 
 ## 5. P-2: a coordinating mode with its own small role set
 
@@ -143,23 +143,27 @@ role.
 
 ### 5.2 Proposed rows
 
-**Roles.** The coordinating box loads a different role list; a site box keeps the seven (P-1). The loader already
-refuses a role it does not list, so the mode is the role list:
+**Form: two matrix files, one per kind of box (proposed).** The loader requires every row to name every role of its
+file (`load_matrix`, `libs/tb_common/authz.py` lines 117-119). So the coordinating roles are written as their own
+file, which the coordinating box loads in place of the site file (10D-13 decides how the box knows its mode):
+
+- the **site file** (`libs/tb_common/authz_matrix.yaml`) keeps its seven roles and its 89 rows unchanged; P-5's
+  `package.import` is its only proposed addition (section 8.3). None of the rows below is added to it;
+- the **coordinating file** (a new file beside it) names only the four coordinating roles and only the rows below.
+  Every patient row of the site file is simply absent from it, and `permit` refuses an action its file does not list
+  ("unknown action"), so a mis-set mode fails closed: no patient row exists to grant.
+
+The other form, one file with all eleven roles, would add four `false` cells to each of the 89 site rows and seven
+`false` cells to each row below; it is not written out here, since it gives no role anything the two files do not.
+
+**The coordinating file, whole** (copyable; every row names all four roles):
 
 ```yaml
-# coordinating mode only (10D-13 decides how the box knows its mode)
+version: 1
 roles: [cc_investigator, cc_data_manager, central_monitor, cc_admin]
-```
 
-**Every one of today's 89 rows is `false` for all four roles**, with one exception: `cc_admin` takes the
-administrator's operations and account rows (`ops.*`, `account.*`, `job.retry_scheduled`), so the box can be run.
-No row with a patient behind it (`phi.view`, `id.reveal`, `task.*`, `edc.*`, `profile.*`, `breakglass.*`,
-`audit.ids`, `monitor.*`) is true for any of them. In coordinating mode the box holds no patient data; the rows are
-`false` anyway so that a mis-set mode reads nothing.
-
-**New actions** (on a site box every cell of these is `false`):
-
-```yaml
+actions:
+  # ------------------------------------------------ the package (P-2): no patient data on this box
   package.build:
     what: build and version a study package (criteria, value sets, tests, forms, schedule); no patient data (P-2)
     cc_investigator: false
@@ -172,28 +176,124 @@ No row with a patient behind it (`phi.view`, `id.reveal`, `task.*`, `edc.*`, `pr
     cc_data_manager: false
     central_monitor: false
     cc_admin: false
+  # ------------------------------------------------ the sites' signed counts (P-2; options (a) and (b) only, see 5.4)
   feed.read:
-    what: read the sites' signed counts (feasibility, funnel, reasons, enrolment, package versions); counts only, no pseudonym (P-2)
+    what: read the sites' signed counts by site and study (feasibility, funnel, reasons, enrolment, package versions); no row, no pseudonym (P-2)
     cc_investigator: true
     cc_data_manager: true
     central_monitor: true
     cc_admin: false
   feed.merge:
-    what: verify and merge the sites' signed count files (as COHORT MERGE, D-73, D-1226); counts only (P-2)
+    what: verify the sites' signed count files against the key register and merge them (as COHORT MERGE, D-73, D-1226); no row (P-2)
     cc_investigator: false
     cc_data_manager: true
     central_monitor: false
     cc_admin: false
+  # ------------------------------------------------ running the box (the site file's rows of the same names, cc_admin only)
+  ops.view:
+    what: read the operations pages
+    cc_investigator: false
+    cc_data_manager: false
+    central_monitor: false
+    cc_admin: true
+  ops.backup:
+    what: ask for a backup now
+    cc_investigator: false
+    cc_data_manager: false
+    central_monitor: false
+    cc_admin: true
+  ops.backup_check:
+    what: check the newest backups
+    cc_investigator: false
+    cc_data_manager: false
+    central_monitor: false
+    cc_admin: true
+  ops.update_check:
+    what: verify a staged update bundle
+    cc_investigator: false
+    cc_data_manager: false
+    central_monitor: false
+    cc_admin: true
+  ops.update_apply:
+    what: apply a staged, signed bundle
+    cc_investigator: false
+    cc_data_manager: false
+    central_monitor: false
+    cc_admin: true
+  ops.logs:
+    what: collect yesterday's service logs
+    cc_investigator: false
+    cc_data_manager: false
+    central_monitor: false
+    cc_admin: true
+  ops.network:
+    what: write the network sheet again
+    cc_investigator: false
+    cc_data_manager: false
+    central_monitor: false
+    cc_admin: true
+  job.retry_scheduled:
+    what: run a failed job of the box's own scheduler again with that job's own inputs, every scheduled type (not a right to start INGEST, RETENTION or CALIBRATION; T-746, D-474)
+    cc_investigator: false
+    cc_data_manager: false
+    central_monitor: false
+    cc_admin: true
+  # ------------------------------------------------ accounts: only the four coordinating roles can exist here
+  account.create.cc:
+    what: create an account in one of the four coordinating roles; no other role can be created on this box (P-2)
+    cc_investigator: false
+    cc_data_manager: false
+    central_monitor: false
+    cc_admin: true
+  account.reset:
+    what: a new one-time password for an account
+    cc_investigator: false
+    cc_data_manager: false
+    central_monitor: false
+    cc_admin: true
+  account.disable:
+    what: disable an account
+    cc_investigator: false
+    cc_data_manager: false
+    central_monitor: false
+    cc_admin: true
+  account.enable:
+    what: enable a disabled account again
+    cc_investigator: false
+    cc_data_manager: false
+    central_monitor: false
+    cc_admin: true
+  account.confirm:
+    what: confirm another person's request to open, re-scope or reset a protected account (never one's own; D-719)
+    cc_investigator: true
+    cc_data_manager: false
+    central_monitor: false
+    cc_admin: false
 ```
 
-Scope rule of all four rows: **own coordinating centre, counts only, no pseudonym**. A count below the published
-floor never reaches the reader (the site rounds before signing, D-467; the reader cannot undo it).
+The `what` texts of the rows copied from the site file are its own, word for word. `cc_admin` holds none of the site file's `account.create.*` rows (patient-data, steward, privacy, admin,
+aggregate): those rows are not in this file, so no such account can be created on a coordinating box. Who confirms
+an account here is a choice for C2 (section 10.1): proposed, the coordinating investigator, so that the
+administrator who creates is not the person who confirms.
+
+**Scope of the four P-2 rows: own coordinating centre, counts only, no pseudonym.** What "counts only" means, by kind
+of count (each rounded or ranged by the site before it signs, so the reader cannot undo it):
+
+| Count | Rule | Source |
+| --- | --- | --- |
+| Pre-consent stage counts (candidates, reviewed, approached, contacted) and draft-package feasibility counts | floor 10, multiples of 10 | D-467 (the opportunity feed's rule), as review 14 section 4.3 proposes; decisions 49 and 51, open |
+| Screen-failure reasons | by category only, rounded as the pre-consent counts | review 14 section 4.3; decision 49, open |
+| Post-consent counts (consented, enrolled) | **exact**, if decision 49 is ruled as recommended | review 14 OD-3; decision 49, open |
+| Alliance cohort counts | a suppressed cell travels and merges as a range | D-73 (merge), D-1226 (signature) |
+
+So the floor applies to the pre-consent counts and reasons, not to every count this role set reads: the exact
+post-consent counts (5.3) are the exception C2 is asked to accept or refuse.
 
 ### 5.3 New reads
 
 | Role | Newly reads | Never reads |
 | --- | --- | --- |
-| cc_investigator, cc_data_manager, central_monitor | per site and per study: rounded pre-consent stage counts, exact post-consent counts (decision 49, open), screen-fail reasons by category, package version and import test result, the site's key fingerprint | any row, pseudonym, screening number, chart number, date of a patient |
+| cc_investigator, cc_data_manager, central_monitor | per site and per study: pre-consent stage counts rounded (D-467), exact post-consent counts (decision 49, open), screen-failure reasons by category, rounded, package version and import test result, the site's key fingerprint | any row, pseudonym, screening number, chart number, date of a patient |
 | cc_data_manager | the package's own content (criteria, value sets, synthetic test patients) | the same |
 | cc_admin | the box's health and accounts | any count or package content |
 
@@ -206,8 +306,20 @@ week can identify a person to someone who knows the clinic. C2 should hear it as
 (the `investigator` signs, the `coordinator` builds, the `viewer` reads feeds, the `admin` runs). Fewer columns, one
 matrix. Against it: the same name means different rights on two kinds of box, the role guides and the role walk
 would need a mode column anyway, and a mode flag that fails open would give a site's `coordinator` its patient rows
-on the coordinating box. **(a)**, the four roles above, fails closed: a site role does not exist there. Recommended:
-(a). Either needs the mode itself, which is 10D-13's (lane C2b), not this card's.
+on the coordinating box. **(a)**, the four roles above, fails closed: a site role does not exist there.
+
+**(c) No account reads the counts at all.** The opportunity hub already shows signed per-site feeds on a page that
+has no accounts: it checks each file's schema and its signature against the site key register before anything of it
+reaches the page (D-467; `services/opportunity_hub/dashboard.py` lines 1-8). If the coordinating view (10D-11,
+decision 90) reads the sites' count files the same way, `feed.read`, `feed.merge` and the `central_monitor` role
+fall away; only building and signing a package need a person's role, and the coordinating file holds
+`cc_investigator`, `cc_data_manager` and `cc_admin` with `package.build`, `package.sign` and the box rows. The
+counts are then readable by whoever can open the page on the coordinating centre's network, which is the hub's
+present rule; the counts are the same rounded ones either way.
+
+Recommended: **(c)** for release 1.0, as the most data-minimising and the one already built in part; **(a)** if C2
+or the owner wants reads of the counts tied to named people and audited per person. (b) is not recommended. Every
+option needs the mode itself, which is 10D-13's (lane C2b), not this card's.
 
 ### 5.5 Without it
 
@@ -224,8 +336,8 @@ coordinator, who also holds that site's patient rows.
 - `test_who_builds_does_not_sign`: one account cannot hold `package.build` and `package.sign` for the same version.
 - `test_a_site_box_refuses_the_four_roles` (with P-1).
 
-**Decision for C2:** adopt / adopt with changes / refuse. Recommended: adopt with changes (choose (a) or (b) in 5.4;
-decide whether `feed.merge` is the data manager's or a separate two-person step).
+**Decision for C2:** adopt / adopt with changes / refuse. Recommended: adopt with changes (choose (a), (b) or (c) in 5.4,
+(c) recommended; under (a) or (b), decide whether `feed.merge` is the data manager's or a separate two-person step).
 
 ## 6. P-3: a study-scoped coordinator
 
@@ -238,8 +350,9 @@ says "today every coordinator sees every study" [its citation: `authz_matrix.yam
 ### 6.2 Review 14 is out of date: most of this is on master
 
 D-380 item 4 (ROLE-011) already scopes accounts by study: an account with affiliation `smo` or `cro` (or the `cro`
-role) **must** name its studies, `/ops/users` and `UserStore.set_scope` refuse an empty list, and an account stored
-without one sees no study [R `docs/decisions/D-380-roles.md`, item 4; `services/console/auth.py` lines 56-59, 379-380 and 407-430].
+role) **must** name its studies, `/ops/users` and `UserStore.set_scope` (`services/console/auth.py` line 492) refuse an empty list through the check in
+`scope_values` (line 428), and an account stored
+without one sees no study [R `docs/decisions/D-380-roles.md`, item 4; `services/console/auth.py` lines 56-60, 379-380, 407-430 and 492].
 Any hospital coordinator account may be given a list too. IRB dates are refused to SMO accounts (D-380 item 5,
 `services/console/team.py:799`). So "every coordinator sees every study" holds only for a hospital coordinator
 whose account lists no study.
@@ -269,6 +382,18 @@ One new condition and the coordinator cells of the study-bound rows that read or
 Every other cell is unchanged. **This only narrows**: no role newly reads or does anything. D-380's account list
 stays as a second fence (both must hold).
 
+**Where `logged` may be used.** `logged_tick` is accepted by the loader only on `task.*` rows, because it reads the
+row's own task name (`libs/tb_common/authz.py` line 127). `logged` reads no task name, so the loader need not limit it
+by row; proposed instead: a test lists the rows allowed to use it (the coordinator cells above) and fails on any
+other use, so it cannot spread to another role or row unnoticed.
+
+**Adopting it too early locks every coordinator out.** If the delegation log does not yet list coordinators (not
+verified by this card, section 11), the condition holds for nobody, and every coordinator loses every study the day
+the rows change. The rows can be adopted only after the log lists each coordinator in each of their studies (a
+migration that writes today's coordinators into the logs, or the research office doing it before the change), and
+the adopting change should carry a test that a box with an empty log is refused at start with a sentence, not
+silently emptied.
+
 ### 6.4 Data-minimising alternative considered
 
 **No row change:** keep D-380's list as the only scope, and add a check that an SMO account's list names only studies
@@ -284,7 +409,7 @@ Nothing is blocked. A coordinator removed from a study's log keeps reading that 
 - `test_a_coordinator_not_in_the_log_sees_no_candidate_list` (403 on `GET /studies/{rs}/week` and its API twin).
 - `test_a_coordinator_removed_from_the_log_loses_the_study_the_same_day`.
 - `test_d380_an_smo_account_without_studies_sees_none` (exists in substance in the D-380 tests; kept).
-- The role-by-route table regenerated (`TB_WRITE_ROLE_MATRI=1`), with an out-of-scope coordinator column.
+- The role-by-route table regenerated (`TB_WRITE_ROLE_MATRIX=1`), with an out-of-scope coordinator column.
 
 **Decision for C2:** adopt / adopt with changes / refuse. Recommended: record P-3 as met by D-380 item 4 for SMO
 accounts, and adopt either 6.3 or 6.4 for the delegation-log residual.
@@ -402,9 +527,10 @@ import outside the matrix and the audit's role, and it is the path that counts a
 
 ### 10.1 For lane C2
 
-1. P-2: option (a), four roles that exist only on a coordinating box, or (b), the seven names with patient rows off
-   by mode? (5.4)
-2. P-2: is the merge (`feed.merge`) the data manager's alone, or a two-person step?
+1. P-2: option (c), counts read as signed files on an account-less page, (a), four roles that exist only on a
+   coordinating box, or (b), the seven names with patient rows off by mode? (5.4) Two matrix files or one? (5.2)
+2. P-2 under (a) or (b): is the merge (`feed.merge`) the data manager's alone, or a two-person step? Who confirms an
+   account on the coordinating box (proposed: the coordinating investigator)?
 3. P-2: is an exact post-consent count by week (decision 49) a read you accept for these roles at a small site?
 4. P-3: the matrix condition `logged` on the coordinator's study rows (6.3), or only an account-page check against the
    log (6.4)? Does the delegation log list coordinators today (not verified by this card)?
@@ -426,8 +552,8 @@ import outside the matrix and the audit's role, and it is the path that counts a
 
 ## 11. Not verified
 
-- Whether the delegation log records coordinators with tasks today (needed by 6.3); read from the matrix comment
-  only.
+- Whether the delegation log records coordinators with tasks today (needed by 6.3; adopting 6.3 without it locks
+  every coordinator out); read from the matrix comment only.
 - That the console refuses `criteria.approve` to an investigator who is not the logged PI on every approval path:
   taken from D-380 item 3, not re-run here.
 - The legal readings behind P-2's reads are review 14's opinions (its section 14), not checked here.
