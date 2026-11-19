@@ -863,14 +863,14 @@ def env_extra(raw: Any, errors: list[str]) -> dict[str, str]:
             name in DECLARED or any(name.startswith(f) for f in DECLARED_FAMILIES)
         ):
             errors.append(f"env_extra: {name} is not a declared TB_* setting")
-        elif why := env_value_problem(str(v)):
-            errors.append(f"env_extra: {name} {why}")
         elif name in NAME_KEYS:  # 10K-21 (review of #1175): a person's name, by the allow-list, whatever the route
             who = person_name(v)
             if who is None:
                 errors.append(f"env_extra: {name} is not one plain name ({NAME_RULE})")
             else:
                 out[name] = who
+        elif why := env_value_problem(str(v)):
+            errors.append(f"env_extra: {name} {why}")
         elif name == "TB_TLS_ROOT_CONFIRMED_ON" and str(v).strip() and confirmed_on(v) is None:
             errors.append(f"env_extra: {name} must be a day (YYYY-MM-DD), today or before")
         else:
