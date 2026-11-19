@@ -864,6 +864,7 @@ def create_app(
             "pilot": settings.pilot,
             "path": request.url.path,
             "pi_tasks": _pi_tasks(sess),
+            "page_status": status,  # J-5 (D-1223): the strip of the lists of people shows on a 200 only
             "k": settings.small_cell,
             "cell": lambda v: cell(v, settings.small_cell),
             "state": state,
@@ -1404,7 +1405,7 @@ def create_app(
         audit_hooks.doors["provenance"] = prov_db
     app.state.audit_hooks = audit_hooks
     audit_page.register(app, audit_hooks)
-    phone.register(app)  # J-3 (D-1222): the phone-first flag per request, the web manifest and the icons
+    phone.register(app, boot)  # J-3 (D-1222): the layout flags per request (D-1225: read at start), manifest, icons
 
     # ------------------------------------------------------------------ pilot workspace
     if not settings.pilot:
@@ -1413,11 +1414,13 @@ def create_app(
     from console import (
         admin_flags,
         approval,
+        committee_pages,
         data_pages,
         edc_pages,
         entry_pages,
         lifecycle_pages,
         notify,
+        people_lists,
         recorded_opinions,
         screening_log,
         sdv_page,
@@ -1466,6 +1469,7 @@ def create_app(
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
     raw_env = _env_map(env)
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
+    committee_pages.register(app, helpers)  # 10C-4 (D-1227): the Japan profile's committees, after team (its store)
     if helpers.chart_to_pid is not None:  # NEW-JRN-6 (D-771): the audit browser's chart number door
         audit_hooks.doors["chart_to_pid"] = helpers.chart_to_pid
     account_team["h"] = helpers  # D-719: the account notices find each study's PI here
@@ -1520,6 +1524,7 @@ def create_app(
     from console import twin_api
 
     twin_api.register(app, helpers)  # T-204 (D-440): the patient twin's read route, after break-glass (it uses grants)
+    people_lists.register(app, helpers, templates.env)  # J-5 (D-1223): Candidates and Participants, behind a flag
     from console import timers
 
     timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00
@@ -2259,7 +2264,15 @@ def create_app(
         order = {name: i for i, name in enumerate(person_state.STATES)}
         # the table holds the people the counts count: a participant record with no pseudonym yet too ("#" and its
         # screening number), once
-        ranked = sorted((st_.name, pid) for pid, st_ in people.states().items())
+        # J-5 (D-1223, flag layout.people_lists): served as Candidates' default view, only the people before consent
+        # by the one state (the rest are Participants'); the counts are theirs. Otherwise the page as before
+        if people_lists.default_of(request) == "candidates":
+            states = people_lists.side(people, "candidates")
+            shown = person_state.shown_counts(person_state.counts(states.values()), person_state.CANDIDATE)
+        else:
+            states = people.states()
+            shown = person_state.shown_counts(people.counts())
+        ranked = sorted((st_.name, pid) for pid, st_ in states.items())
         rows = [{"pid": pid, "state": people.of(pid), "entry": entries.get(pid)}
                 for _, pid in sorted(ranked, key=lambda x: (order.get(x[0], 99), x[1]))]  # fmt: skip
         return page(
@@ -2269,7 +2282,7 @@ def create_app(
             status,
             ruleset=rs,
             rows=rows,
-            shown=person_state.shown_counts(people.counts()),
+            shown=shown,
             readable=people.readable,
             **ctx,
         )

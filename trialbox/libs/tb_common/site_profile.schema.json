@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/site-profile/v1/site_profile.schema.json",
+  "title": "SiteProfile",
+  "description": "A site profile's manifest, profile.yaml (10B-6, commitment C-6, D-1233): one hospital's habits as data. Schema version 1.0.0. Nothing secret and no patient data: credentials stay in the environment, the site's name and addresses in settings, everything per study in the study package.",
+  "type": "object",
+  "required": [
+    "format",
+    "id",
+    "site_id",
+    "country",
+    "version",
+    "door",
+    "standards",
+    "data_types",
+    "tables"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "description": "The manifest's format; a reader refuses a format it does not know",
+      "const": "tb-site-profile/1"
+    },
+    "id": {
+      "description": "The profile's name. A profile shipped in the repository is synthetic and its id starts with synthetic-",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"
+    },
+    "site_id": {
+      "description": "settings.site.id of the box this profile is for; a night of another site refuses it",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,32}$"
+    },
+    "country": {
+      "description": "The country layer above this profile (commitment C-7, card 10C-25); tb_common.site_country.COUNTRIES",
+      "enum": [
+        "jp",
+        "tw",
+        "us",
+        "other"
+      ]
+    },
+    "version": {
+      "description": "The steward's version of this profile, MAJOR.MINOR.PATCH; changed content needs a new version",
+      "type": "string",
+      "pattern": "^[0-9]{1,4}\\.[0-9]{1,4}\\.[0-9]{1,4}$"
+    },
+    "synthetic": {
+      "description": "True for a profile of synthetic data (every profile in the repository)",
+      "type": "boolean"
+    },
+    "door": {
+      "description": "The data source this profile describes: settings.data_source.type",
+      "enum": [
+        "csv",
+        "cgrd_sql",
+        "ssmix2"
+      ]
+    },
+    "standards": {
+      "description": "The standard versions the site writes and this profile targets, e.g. {ssmix2: '1.2h', jp_core: '1.1.0'} (names: lower-case letters, digits and _, checked by tb_common.site_profile)",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 32
+      }
+    },
+    "data_types": {
+      "description": "The data types the site's source stores (an SS-MIX2 data type such as ADT-00, or a source table of a csv door). The coverage lines count each one on every night",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,31}$"
+      }
+    },
+    "tables": {
+      "description": "The site's code tables, by name. Each is a CSV in codes/ (or, for a synthetic profile, a file shipped in the image's mapping folder, written shipped:<path>) with a state on every row (names: lower-case letters, digits and _, checked by tb_common.site_profile)",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/table"
+      }
+    }
+  },
+  "$defs": {
+    "table": {
+      "type": "object",
+      "required": [
+        "file",
+        "key",
+        "target",
+        "used_by"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "description": "codes/<name>.csv inside the profile folder, or shipped:<path under services/adapter/mapping> for a synthetic profile",
+          "type": "string",
+          "pattern": "^(codes/[A-Za-z0-9_.-]+\\.csv|shipped:[A-Za-z0-9_./-]+\\.csv)$"
+        },
+        "key": {
+          "description": "The column holding the site's own code",
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "description": "The column holding the standard code it maps to",
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "description": "The column holding each row's state, verified or verify (default: state)",
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "description": "Where the rows came from (the hospital's master and its date, a public release, synthetic)",
+          "type": "string",
+          "maxLength": 200
+        },
+        "used_by": {
+          "description": "Where the product reads this table: mapping.<look-up> replaces the site mapping's look-up of that name (the mapping must declare it); ssmix2.diagnosis, ssmix2.drug and ssmix2.lab are the SS-MIX2 reader's 病名 to ICD-10, YJ to ATC and known-lab-code tables",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ssmix2.diagnosis",
+                  "ssmix2.drug",
+                  "ssmix2.lab"
+                ]
+              },
+              {
+                "type": "string",
+                "pattern": "^mapping\\.[a-z][a-z0-9_]{0,31}$"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -72,7 +72,7 @@ File: [runbook/11-cloud-runs.md](runbook/11-cloud-runs.md). Parts: [RUNBOOK §11
 
 ## 12. Identity and TLS (D-192, D-193)
 
-File: [runbook/12-identity-and-tls.md](runbook/12-identity-and-tls.md). Parts: [RUNBOOK §12 part: certificate renewal](runbook/12-certificate-renewal.md).
+File: [runbook/12-identity-and-tls.md](runbook/12-identity-and-tls.md). Parts: [RUNBOOK §12 part: certificate renewal](runbook/12-certificate-renewal.md), [RUNBOOK §12 part: the TLS check per release](runbook/12-tls-check-per-release.md).
 
 ## 13. Working in parallel on one machine (D-201)
 

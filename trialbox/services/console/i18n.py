@@ -479,7 +479,7 @@ JA: dict[str, str] = {
     "col.patients": "段階後の患者数",
     "stage.S0": "S0 · 対象（最近受診または近日予約）",
     "stage.S1": "S1 · コード化フィルタ（年齢・性別・病名・検査・薬剤）",
-    "stage.S2": "S2 · コードで確定、残りはノートで判断",
+    "stage.S2": "S2 · コードで確定、残りはノートから読み取り",
     "stage.S2b": "S2b · 第 2 モデルが一致",
     "stage.S3": "S3 · モデルがノートを読む",
     "stage.S4": "S4 · 人が確認する候補者",
@@ -491,7 +491,7 @@ JA: dict[str, str] = {
     "headline.ci95_low": "95 % 区間（下限）",
     "headline.ci95_high": "95 % 区間（上限）",
     "headline.n_scope": "対象患者数",
-    "headline.recall": "検出率（適格者のうち見つけた割合）",
+    "headline.recall": "適格者のうち見つけた割合",
     "headline.months": "月数",
     "headline.per_month": "月あたり",
     "headline.data_class": "データ区分",
@@ -520,7 +520,7 @@ JA: dict[str, str] = {
     "job.recheck.pass": "この割合では、全員を再スクリーニングするのに週次実行 {runs} 回かかります。",
     "job.recheck.nopass": "この実行に残っていた夜間予算が少なく、これらの患者のための枠を確保できませんでした。",
     "job.recheck.carried": "次回の実行に持ち越し：{n} 名。",
-    "job.screen.rows.help": "条件に合う可能性のある患者が先、次に次回受診日順。未確定事項は TrialBox が判断できなかった基準、引用はモデルが読んだ文です。同じリストは暗号化メールでも送付済みです。",
+    "job.screen.rows.help": "条件に合う可能性のある患者が先、次に次回受診日順。未確定事項は TrialBox が記録から読み取れなかった基準、引用はモデルが読んだ文です。同じリストは暗号化メールでも送付済みです。",
     "job.screen.changed": "変更あり",
     "job.screen.failing": "カルテ記載で満たさない",
     "job.screen.reveal": "カルテ番号を表示",
@@ -541,8 +541,8 @@ JA: dict[str, str] = {
     "verdict.fail": "満たさない",
     "opinion.judge": "1回目の確認",
     "opinion.verifier": "2回目の確認",
-    "opinion.says.pass": "「あり」と判断",
-    "opinion.says.fail": "「なし」と判断",
+    "opinion.says.pass": "「あり」と読み取り",
+    "opinion.says.fail": "「なし」と読み取り",
     "verdict.unknown": "不明（記録なし）",
     "verdict.pending_human": "要確認（担当者）",
     "verdict.exclusion.pass": "該当なし",
@@ -1221,3 +1221,12 @@ from console.i18n_person import ZH as _PS_ZH  # noqa: E402
 EN.update(_PS_EN)
 JA.update(_PS_JA)
 ZH.update(_PS_ZH)
+
+# 10C-4 (D-1227): the Japan profile's committee record and the head of the institution's permission
+from console.i18n_committee import EN as _CMT_EN  # noqa: E402
+from console.i18n_committee import JA as _CMT_JA  # noqa: E402
+from console.i18n_committee import ZH as _CMT_ZH  # noqa: E402
+
+EN.update(_CMT_EN)
+JA.update(_CMT_JA)
+ZH.update(_CMT_ZH)

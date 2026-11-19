@@ -43,7 +43,7 @@ import os
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -117,7 +117,27 @@ DECLARED: dict[str, Declared] = {
         help="The console's phone-first layout (J-3, D-1222): on a phone the week list comes first under the title "
         "and the study's links fold into one 'Study' fold below it, the list's rows are cards, the menu's 'More' folds "
         "in two levels, and the patient sheet shows the evidence before the mark's note and reason. Off: the pages "
-        "as before. Read once per request; no restart.",
+        "as before. A page uses the value last read: the console reads the layout flags at its start and then in "
+        "the background at most every 5 seconds, so a change shows within about 5 seconds; no restart.",
+    ),
+    "layout.home_today": Declared(
+        values=("off", "on"),
+        default="off",
+        seed_env=None,  # what the opening page shows first changes only by a person's ruling, with a reason (D-1225)
+        help="The opening page's 'Needs you today' and 'Next' (J-6, D-1225): on, /home gives the coordinator, the "
+        "investigator, the CRO and the viewer at most five lines of what needs them today (safety first, then "
+        "overdue, then due today), then one 'Next' line per study, from start-up to archive. Off: the opening pages "
+        "as before. A page uses the value last read: the console reads the layout flags at its start and then in "
+        "the background at most every 5 seconds, so a change shows within about 5 seconds; no restart.",
+    ),
+    "layout.people_lists": Declared(
+        values=("off", "on"),
+        default="off",
+        seed_env=None,  # what the lists of people show first changes only by a person's ruling, with a reason (D-1223)
+        help="The console's two lists of people (J-5, D-1223): on, Candidates (before consent) and Participants (who "
+        "have consented) in the menu, each old list a view of one of them under one strip, and every old address "
+        "sent to its view with its query kept; each view is the old page with its own guard, reads and actions. Off: "
+        "the pages and the menu as before. Read once per request; no restart.",
     ),
     "lake.source": Declared(
         values=("legacy", "omop"),
@@ -258,13 +278,21 @@ class Flags:
     def row(self, name: str) -> str | None:
         """The stored value, None when the flag has no row (or the store is not installed). Raises on errors
         (``LookupError`` when no store is configured). Reads only: it creates no schema and no table."""
-        declared(name)
+        return self.rows([name]).get(name)
+
+    def rows(self, names: Sequence[str]) -> dict[str, str]:
+        """The stored values of ``names`` in one read (a flag with no row is left out; an empty dict when the store is
+        not installed). Raises on errors, as :meth:`row` does. The console's layout flags (D-1222, D-1225) are read
+        together this way, so reading two costs what reading one did."""
+        wanted = list(names)
+        for n in wanted:
+            declared(n)
         if self._db is not None:
             with self._db.transaction() as tx:
                 if tx.fetchval("SELECT to_regclass('flag')") is None:
-                    return None
-                v = tx.fetchval("SELECT value FROM flag WHERE name = ?", (name,))
-            return None if v is None else str(v)
+                    return {}
+                got = tx.fetchall("SELECT name, value FROM flag WHERE name = ANY(?)", (wanted,))
+            return {str(r[0]): str(r[1]) for r in got if r[1] is not None}
         if not self._url:
             raise LookupError(f"{DB_URL_ENV} is not set: no flag store")
         import psycopg
@@ -278,9 +306,9 @@ class Flags:
         with psycopg.connect(dsn, autocommit=True, connect_timeout=10) as con:
             reg = con.execute("SELECT to_regclass(%s)", (table,)).fetchone()
             if not reg or reg[0] is None:
-                return None
-            r = con.execute(f"SELECT value FROM {table} WHERE name = %s", (name,)).fetchone()
-        return None if r is None or r[0] is None else str(r[0])
+                return {}
+            got = con.execute(f"SELECT name, value FROM {table} WHERE name = ANY(%s)", (wanted,)).fetchall()
+        return {str(r[0]): str(r[1]) for r in got if r[1] is not None}
 
     def get(self, name: str, default: str | None = None) -> str | None:
         """The flag's value; ``default`` when it has no row, when the store is unreachable or on any error (logged).

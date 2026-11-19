@@ -650,3 +650,18 @@ form.entry .restored { outline: 2px solid var(--warn); outline-offset: 1px; back
 /* J-4 (D-1224): the screening number in the outcome box is a link to the participant; on a phone it is a 44 px
    target (D-133 step 4b), the desktop look unchanged */
 @media (max-width: 760px) { .pill[data-testid=screening-no] > a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; } }
+/* J-6 (D-1225, flag layout.home_today): "Needs you today", the same lines on a desktop and a phone; a safety line and
+   an overdue line carry a coloured edge, the words say the same (the colour only repeats them) */
+.today-lines li.tl-bad { border-left: 4px solid var(--bad); }
+.today-lines li.tl-warn { border-left: 4px solid var(--warn); }
+.today-lines li a { overflow-wrap: anywhere; }
+.today-next { margin: 8px 0; }
+.today-next span { overflow-wrap: anywhere; }
+/* J-5 (D-1223, flag layout.people_lists): the strip above each view of Candidates and Participants. It wraps on a
+   phone: no sideways scroll, every target at least 44 px. */
+nav.ptabs { display: grid; gap: 6px; margin: 4px 0 12px; }
+nav.ptabs .ptabs-lists, nav.ptabs .ptabs-views { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+nav.ptabs a { min-height: 44px; display: inline-flex; align-items: center; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); text-decoration: none; }
+nav.ptabs .ptabs-lists a { font-weight: 600; font-size: 17px; }
+nav.ptabs a.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+nav.ptabs .ptabs-rs { color: var(--muted); }
