@@ -2204,6 +2204,102 @@ class SiteSchema(BaseModel):
     """
 
 
+class StudyProtocol(BaseModel):
+    """
+    The protocol part of a study manifest (10D-2, D-1366; review 14 M14-1): what the coordinating centre fixes for every site, read from rulesets/<ID>/ by tb_common.study_manifest. Its canonical serialisation (keys sorted, no spaces, UTF-8) hashes to criteria_sha256, the same on every site that adopts it; a site edit to any of it is refused. The canonical form is written in D-1366. Schema version 1.0.0.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    schema_: Literal["tb-study-protocol/1"] = Field(..., alias="schema")
+    criteria_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    """
+    sha256 of the canonical serialisation of schema, manifest and files (every key but this one)
+    """
+    manifest: dict[
+        Literal[
+            "id",
+            "kind",
+            "title",
+            "trial_alias",
+            "sponsor",
+            "version",
+            "source_documents",
+            "protocol_version",
+            "protocol_date",
+            "language",
+            "index_date_rule",
+            "library",
+            "criteria",
+            "thresholds",
+            "variants",
+            "twpas",
+            "docx_template",
+            "cohort",
+            "population",
+            "nct_id",
+            "terminology_release",
+            "prompt_pins",
+            "derived_pins",
+            "source_last_update",
+            "models",
+        ],
+        Any,
+    ]
+    """
+    the protocol fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (as the file writes it, no default added, nulls left out); models carries only judge_prompt, the judge's prompt pin of a manifest without prompt_pins (which model serves is the site's)
+    """
+    files: dict[str, str]
+    """
+    the protocol's files of rulesets/<ID>/ by relative path (ir/*.json, valuesets/*.json, every file under cql/elm/, cql/*.cql, sql/*.sql, labels.yaml, tests/patients.ndjson, tests/expected.json, and the file docx_template names), each the sha256 of its canonical bytes (D-1366); a criterion IR file without the site's review record (who, when, comment, approved or draft); no other file is hashed
+    """
+
+
+class StudySite(BaseModel):
+    """
+    The site part of a study manifest (10D-2, D-1366; review 14 M14-1): what a hospital sets for itself beside the protocol part it adopted (screening scopes and people, routing, which model serves, its approval and IRB record, its own equivalence run and loaded code tables), read from rulesets/<ID>/ by tb_common.study_manifest. Edited freely at the site. Schema version 1.0.0.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    schema_: Literal["tb-study-site/1"] = Field(..., alias="schema")
+    criteria_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    """
+    the criteria hash of the protocol part this site part goes with
+    """
+    manifest: dict[
+        Literal[
+            "status",
+            "effective_from",
+            "irb_reference",
+            "irb_approved_on",
+            "scopes",
+            "routing",
+            "models",
+            "review",
+            "equivalence",
+            "terminology_tables",
+            "terminology_refused",
+        ],
+        Any,
+    ]
+    """
+    the site fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (as the file writes it, no default added, nulls left out); models without judge_prompt, which is the protocol's
+    """
+    criterion_reviews: dict[str, CriterionReview] | None = None
+    """
+    each criterion's review record at this site, by criterion id, as its IR file holds it
+    """
+    files: dict[str, str] | None = None
+    """
+    the site's own files of rulesets/<ID>/ (its equivalence run, tests/equivalence.json) by relative path, each its sha256
+    """
+
+
 class TableReadTimes(BaseModel):
     """
     10E-9: one table's (or the whole source's) read: messages, the connector's own seconds, the 95th percentile per message read from the histogram as its bucket's upper bound (null with no message, or when it falls above the last bound, which the histogram then shows), and the histogram by upper bound in milliseconds

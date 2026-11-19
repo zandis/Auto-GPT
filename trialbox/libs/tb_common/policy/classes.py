@@ -149,6 +149,9 @@ _D1 = {
     "ApproveRequest",
     "ApproveResult",
     "RulesetManifest",
+    # 10D-2 (D-1366): the manifest's two parts, its fields and file hashes; no patient data
+    "StudyProtocol",
+    "StudySite",
     "RulesetModels",
     "RulesetThresholds",
     "EquivalenceReport",
