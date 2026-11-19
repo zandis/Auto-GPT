@@ -663,6 +663,9 @@ DECLARED: dict[str, Declared] = {
     "TB_GATEWAY_VERIFIER_URL": Declared("str", "", "the gateway URL of the verifier"),
     "TB_GATEWAY_WATCH_S": Declared("float", "5", "gateway: how often the stall watch looks"),
     "TB_GPU_KEY": Declared("str", "", "GPU profile tool: GPU key"),
+    "TB_UNMEASURED_DGPU48_MEASURING_RUN": Declared(
+        "bool", "", "tools/dgpu48.py measure: 1 lets the measuring run start the UNMEASURED 48 GB draft (card 24-5)"
+    ),
     "TB_GPU_PROFILE": Declared("str", "", "platform: GPU profile"),
     "TB_GUARD_ADMIN": Declared("bool", "", "model guard: allow admin routes"),
     "TB_GUARD_ROUTES": Declared("str", "", "model guard: host=upstream:port routes, comma-separated (D-177)"),
