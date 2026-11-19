@@ -330,6 +330,7 @@ def build(out: Path, ref: date = REF, sites: tuple[str, ...] = ("en", "ja")) -> 
                 "lang": d.lang,
                 "age": d.age,
                 "age_approx": d.age_approx,
+                "birth_date": birth,
                 "sex": d.sex,
                 "dx": [{"icd10": c, "label": lab, "evidence": ev} for c, lab, ev in d.dx],
             }
@@ -360,7 +361,9 @@ def summarise(patients: list[dict[str, Any]], appointments: int) -> dict[str, An
         "by_source": dict(by_src),
         "age_stated": sum(p["age"] is not None and not p["age_approx"] for p in patients),
         "age_approx": sum(bool(p["age_approx"]) for p in patients),
-        "age_missing": sum(p["age"] is None for p in patients),
+        # D-1003: the patients written with no birth date. A note can state an age its record lacks (B1, stated_age_*),
+        # and that patient gets a birth date, so `age is None` overcounted the ingest's missing Patient.birthDate
+        "age_missing": sum(not p["birth_date"] for p in patients),
         "sex_stated": sum(p["sex"] is not None for p in patients),
         "with_dx": sum(bool(p["dx"]) for p in patients),
         "dx_rows": sum(len(p["dx"]) for p in patients),

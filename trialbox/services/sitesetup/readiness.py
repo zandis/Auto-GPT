@@ -329,6 +329,7 @@ def readiness(svc: SiteSetup, ws: str, study: dict[str, Any], records: dict[str,
 def patient_check(svc: SiteSetup, ws: str, rs: Any, today: date) -> list[dict[str, Any]]:
     """Every patient of the workspace against the approved criteria the SQL engine can read (structured ones;
     note criteria are read by the two models at screening)."""
+    from criteria_compiler.semantics import codes_settle
     from orchestrator.scenarios.evaluate import SqlEngine
 
     pids = sorted(
@@ -350,7 +351,12 @@ def patient_check(svc: SiteSetup, ws: str, rs: Any, today: date) -> list[dict[st
             v = None if e is None else e.results.get(cid)
             reason = ((e.reasons or {}) if e else {}).get(cid) or ("coded" if v is not None else "data_gap")
             refs = ((e.evidence or {}) if e else {}).get(cid) or []
-            if c.kind == "inclusion":
+            if c.kind == "inclusion" and c.class_ == "mixed":
+                # D-98: codes that do not show a mixed line leave it to the notes; card 10A-2: an age or sex part
+                # alone never meets it. Either way the notes are read at screening, not here
+                verdict = "met" if v is True and codes_settle(c) else "unknown"
+                reason = "not_evaluated" if v is not None and verdict == "unknown" else reason
+            elif c.kind == "inclusion":
                 verdict = "met" if v is True else ("not_met" if v is False else "unknown")
             else:
                 verdict = "excluded" if v is True else ("clear" if v is False else "unknown")

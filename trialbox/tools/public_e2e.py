@@ -194,6 +194,21 @@ def _done(box: Any, type_: str, ruleset: str) -> list[Any]:
     return [j for j in box.orch.db.find(type_=type_, ruleset=ruleset) if j.state == "done"]
 
 
+def open_study(crc: Any, rs: str, s: Stage) -> bool:
+    """WALK-1 (D-1153, F-14): a new study starts in start-up, and a list runs only for an open study (D-386). Its
+    coordinator opens it as the journeys do (tests/e2e/journeys/steps.py, J-CRC-08): the SAE type on the set-up page,
+    then Open on the state page. Each request is a check, so a study that does not open says so here, not as a
+    SCREEN that never finished."""
+    setup = crc.get(f"/studies/{rs}/setup")
+    r = crc.post(f"/studies/{rs}/setup/sae", data={"csrf": fd._csrf(setup.text), "rule_set": "tw_trial"})
+    saved = s.check(f"{rs}: the SAE type set", r.status_code == 200 and r.url.params.get("saved") == "sae",
+                    (r.status_code, str(r.url)))  # fmt: skip
+    page = crc.get(f"/studies/{rs}/state")
+    s.check(f"{rs}: a new study starts in start-up", 'data-state="startup"' in page.text, page.status_code)
+    r = crc.post(f"/studies/{rs}/state", data={"csrf": fd._csrf(page.text), "state": "open"})
+    return s.check(f"{rs}: opened", saved and r.status_code == 200 and 'data-state="open"' in r.text, r.status_code)
+
+
 def _text(html: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html))
 
@@ -449,6 +464,8 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     # ------------------------------------------------------------------ 2 SCREEN on real notes
     s = Stage("2 screening (patient list) on real notes")
     t = time.perf_counter()
+    for rs in (TRIAL, COHORT):  # D-1003: the studies stage 1 created are in start-up until their coordinator opens them
+        open_study(crc, rs, s)
     screen_secs: dict[str, float] = {}
     for rs, pract in ((TRIAL, ""), (COHORT, "P12345,P23456")):
         t_req = time.perf_counter()
