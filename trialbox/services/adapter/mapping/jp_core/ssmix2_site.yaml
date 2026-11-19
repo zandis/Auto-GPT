@@ -96,6 +96,10 @@ overlay:
       # 10B-3: the reader reads PRB-14 転帰 into A active, R resolved, I inactive (the patient died of it), M remission;
       # any other outcome is U, which has no clinical status and is unconfirmed (D-587), never active
       # E: an end day and no read outcome (third review of PR #1095 item 4): over, so inactive, with its end day
+      # the reader's certainty (third review of PR #1095 item 7): Y suspected (provisional), X ruled out (refuted: the lake
+      # leaves it out), U unknown (unconfirmed: the lake keeps it out of the coded table, as a suspected one)
+      verificationStatus.coding[0].system: {template: "{sys.condition_verification}", when: {column: suspected, in: [Y, y, "1", X, U]}}
+      verificationStatus.coding[0].code: {column: suspected, map: {Y: provisional, y: provisional, "1": provisional, X: refuted, U: unconfirmed}}
       clinicalStatus.coding[0].system: {template: "{sys.condition_clinical}", when: {column: status, known: [A, R, I, M, E]}}
       clinicalStatus.coding[0].code: {column: status, map: {A: active, R: resolved, I: inactive, M: remission, E: inactive}, default: active, unmapped: ~}
       verificationStatus.coding[1].system: {template: "{sys.condition_verification}", when: {column: status, unknown_to: [A, R, I, M, E]}}

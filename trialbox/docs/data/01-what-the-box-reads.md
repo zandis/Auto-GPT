@@ -17,10 +17,12 @@ resources (D-122).
 
 **SS-MIX2 (Japan).** The reader walks `<id[0:3]>/<id[3:6]>/<id>/<診療日>/<type>/`, keeps the newest message per
 patient, 診療日, type and order number (the specification's key; a site may declare `unique`, D-594, D-1000), and
-reads HL7 v2.5 in ISO-2022-JP (with its katakana and extended sets), UTF-8, EUC-JP when MSH-18 names it, and
-Shift_JIS (cp932) when MSH-18 names it or the reading is not in doubt; an 8-bit file that MSH-18 does not name and
-that could be either EUC-JP or Shift_JIS is set aside, never guessed (a site declares its encoding with
-`TB_SSMIX2_ENCODING`): ADT-00/12/22/52 (patient, visits, discharges, class changes), PPR-01 (one
+reads HL7 v2.5 in ISO-2022-JP (with its katakana and extended sets) and, for 8-bit files, in the encoding MSH-18
+names, else the one the site declares (`TB_SSMIX2_ENCODING`: EUC-JP, SHIFT_JIS or UTF-8; an unknown value stops
+the reader), read first and strictly, never falling back to another; an undeclared 8-bit file is read only when it
+can be one encoding alone (UTF-8 holding Japanese, or Shift_JIS that is not also EUC-JP), else set aside, never
+guessed. Every reading must keep its separators and hold no control character but the segment ends. The patient of
+the file name, of its folders and of PID-3 must agree. It reads ADT-00/12/22/52 (patient, visits, discharges, class changes), PPR-01 (one
 snapshot per patient: deletions, ICD-10 from PRB-10, dates, 転帰, 主診断, 修飾語), OMP-01/02 (orders: one dose, the
 doses a day from the 用法, YJ from RXE-31) and OMP-11/12 (administrations) with YJ and ATC, and OML-11 (labs with
 JLAC10). Extended storage is read in the guideline's layout (content folders under data-type folders that carry the
@@ -42,13 +44,13 @@ Each row says what is read and what is not; "Partly" means only what the row lis
 | ADT-22 | Partly | As ADT-12, PV1-45 | A11 cancellation only through flag 0 (10B-8) |
 | ADT-52 | Partly | A03 discharge (PV1-45), a class change (PV1-2) | A13 (cancel discharge) not undone (10B-8) |
 | ADT-01, 21, 31, 32, 41, 42, 51, 61 | Not | – | 10B-7, 10B-8 |
-| PPR-01 | Partly | PRB-1 `DE`, PRB-2, PRB-3, PRB-4, PRB-7, PRB-9, PRB-10, PRB-13, PRB-14 (the code is kept; a status is applied only from a row of `jp_core/prb14_outcome.csv` marked verified, and none is, so every coded 転帰 is unknown (U), never active), PRB-15, PRB-16, PRB-17, PRB-18, ZPR coded values | ZPR's field layout (read loosely: every coded value a 修飾語; one with no text makes the diagnosis suspected). A diagnosis is suspected when the flag (JHSD0005, also `99JHSD0005`), the name or a modifier says so (疑, R/O, s/o, a trailing ?); when they disagree it is suspected; a diagnosis missing from a newer snapshot without `DE` is kept; 主診断 not yet read by the lake |
-| OMP-01, 02 | Partly | Every RXE of the message: ORC-2, 4, 5, 9; RXE-2, RXE-3 (one dose), RXE-5, RXE-31 (YJ); TQ1-3 (用法), TQ1-7/8, only when its ORC group holds one RXE and one TQ1; the daily dose only from the site's `usage.csv` or a text that is exactly "1日N回" with meal times. A message of one drug line is keyed by its order number; of several, each line by order number, Rp number (ORC-4) and drug code (RXE-2), and a line a newer version no longer holds is deleted | JAMI 標準用法 codes are not decoded; RXE-12 refills; any other usage wording gives no daily dose |
-| OMP-11, 12 | Partly | ORC-2, 5, 9; RXA-3/4, RXA-5, RXA-6/7 (the amount given) | Other RXA fields |
+| PPR-01 | Partly | A snapshot under "ALL9": the newest of the patient's (any day folder) supersedes the others, and a diagnosis an older one holds and the newest does not is deleted in the lake, as by `DE`; a file per diagnosis under its own number is a record of its own. PRB-1 `DE` (also full-width), PRB-2, PRB-3, PRB-4, PRB-7, PRB-9, PRB-10, PRB-13, PRB-14 (the code is kept; a status is applied only from a row of `jp_core/prb14_outcome.csv` marked verified, and none is, so every coded 転帰 is unknown (U), never active; a code whose own text says another outcome is U; an end day (PRB-9) with no read outcome is E, ended: inactive with its end day), PRB-15, PRB-16, PRB-17, PRB-18, ZPR coded values | ZPR's field layout (read loosely: every coded value a 修飾語; one with no text makes the diagnosis suspected). A diagnosis is suspected when the flag (JHSD0005, also `99JHSD0005`, full-width digits read), the name, PRB-17 or a modifier says so (疑, R/O, s/o, rule out, suspected, a trailing ?); ruled out ("疑いなし", "ruled out") when one of them says that (refuted: the lake leaves it out); unknown when both are said, or PRB-13 holds a value of a table the reader does not know (unconfirmed); 主診断 not yet read by the lake |
+| OMP-01, 02 | Partly | Every RXE of the message: ORC-1 (CA, OC, CR cancel; DC, OD, DR stop; HD, OH hold; NW, XO, SC, RE, OK, SN leave the status to ORC-5; any other, or none, is unknown, never active), ORC-2, 4, 5, 9; RXE-2, RXE-3 (one dose), RXE-5, RXE-31 (YJ); TQ1-3 (用法), TQ1-7/8, only when its ORC group holds one RXE and one TQ1; the daily dose only from the site's `usage.csv` or a text that is exactly "1日N回" with meal times. An order is keyed by the file's order number (with ORC-2 added when it says something else; ORC-2 alone under "ALL9"; neither: the message is set aside); in a message of several lines, each line by that key, Rp number (ORC-4) and drug code (RXE-2), and a line a newer version no longer holds is deleted | JAMI 標準用法 codes are not decoded; RXE-12 refills; any other usage wording gives no daily dose |
+| OMP-11, 12 | Partly | ORC-2, 5, 9; RXA-3/4, RXA-5, RXA-6/7 (the amount given); an administration fills the one line of its order that holds its drug, else it is a row of its own | Other RXA fields |
 | OML-11 | Partly | OBX-2, 3, 5, 6, 7, 8, 11, 14, 21; OBR-2/3, 7; SPM-4, 17 | Microbiology shape untested (10B-9) |
 | OML-01, OMG-01/02/03/11/12/13, OMD | Not | – | 10B-9, 10B-10 |
 | Extended storage | Partly | Content folders (versioned and flagged by name; on an equal 発生日時 a deletion wins; symbolic links, hidden names and backup copies such as `.bak` not read), the LOINC code of a CWE data-type folder (`jp_core/document_loinc.csv`, each `verify`), the older layout; text, HTML/XML (tags dropped), Word, PDF with text | `_contents.xml`; CDA sections (HS032, HS008) |
-| Character sets, dates | Partly | ISO-2022-JP (SO/SI katakana; a set left open at a segment end is set aside), UTF-8, EUC-JP and Shift_JIS as above; declared separators, `\.br\`, `\Xhh\`; `""` read as empty; impossible and era dates counted; a time with an offset converted to the site's zone (`TB_TZ`) | With no site zone a time with an offset keeps only its day |
+| Character sets, dates | Partly | ISO-2022-JP (SO/SI katakana; a set left open at a segment end is set aside), UTF-8, EUC-JP and Shift_JIS as above; declared separators, `\.br\`, `\Xhh\`; `""` read as empty; impossible and era dates counted; a time part of another length counted and not read; a leap second counted as not a time of day; a time with an offset converted to the site's zone (`TB_TZ`); an offset beyond ±14:00 sets its message aside | With no site zone a time with an offset keeps only its day |
 
 **What is set aside, and why** (counted in the reader's statistics by pattern, never by a patient's name; a quarantined
 message is listed with its reason, STD-020). A site that finds these counts should ask its vendor:
@@ -56,12 +58,17 @@ message is listed with its reason, STD-020). A site that finds these counts shou
 | Set aside | Why | What the site can do |
 | --- | --- | --- |
 | A message in no readable encoding | No codec reads it strictly | Ask the vendor which encoding it writes |
-| An 8-bit message MSH-18 does not name that is valid EUC-JP and Shift_JIS both, or whose Shift_JIS reading would lose a separator into a character | Guessing would store wrong text or shift every field after the lost separator | Set `TB_SSMIX2_ENCODING` to the vendor's encoding, or have MSH-18 name it |
+| An 8-bit message MSH-18 does not name that could be more than one encoding, or whose Shift_JIS reading would lose a separator into a character | Guessing would store wrong text or shift every field after the lost separator | Set `TB_SSMIX2_ENCODING` to the vendor's encoding, or have MSH-18 name it |
+| A message that is not the encoding it declares, or declared Shift_JIS that is also EUC-JP-shaped, or a decoded text holding a control character (an ESC, SO) | The declaration is wrong or the bytes are damaged | Ask the vendor to correct MSH-18 or the export |
+| A message whose PID-3, or whose folders, name another patient (or another day or type folder) than its file name | It cannot be told whose record it is | Ask the vendor to correct the filing |
+| A message with a time-zone offset beyond ±14:00; a file whose 発生日時 is not 17 digits of a real time | Its times cannot be placed, or it could replace the right version | Ask the vendor to correct the export |
+| An order message with no order number in its file name or ORC-2 | It has no key | Ask the vendor to correct the export |
 | An ISO-2022-JP message whose kanji or katakana set is still open at a segment end | Its separators may have been read as characters | Ask the vendor to close the set (ESC ( B) before each segment end |
 | A record whose newest file carries condition flag 2 | The flag's meaning is not cited from the specification | Confirm the meaning (see the PR's list for the Japanese reader) |
 | A file at another depth, with an extension, with another number of name parts or another flag; a symbolic link; a hidden or backup document | Not a message or document file of the layout | Remove or move it |
 | A delete filed under another day than its order | Which record it means is not certain | Counted only |
 | A drug line whose TQ1 the message structure does not tie to it | The timing could belong to another drug | Kept without a daily dose |
+| An administration of a drug its order does not hold, of no drug code, or fitting several lines | It cannot be told which line it was given for | Kept as a row of its own, counted |
 
 Count: of the 26 types, **0 read in full**, **10 partly** (ADT-00, 12, 22, 52, PPR-01, OMP-01, 02, 11, 12, OML-11),
 **16 not**.

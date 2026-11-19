@@ -1,7 +1,7 @@
 system,code,status,meaning,source,verified
-HL70241,F,R,治癒 (cured),review 12 §4.10 F2,verify
-HL70241,D,I,死亡 (died),review 12 §4.10 F2,verify
-JHSD0006,C,A,継続,review 12 §4.10 F2,verify
-JHSD0006,M,M,寛解,review 12 §4.10 F2,verify
-JHSD0006,I,U,中止,review 12 §4.10 F2,verify
-JHSD0006,O,U,その他,review 12 §4.10 F2,verify
+HL70241,F,R,治癒 (cured),proposal from review 12 §4.10 F2 (an internal review); no public source cited yet,verify
+HL70241,D,I,死亡 (died),proposal from review 12 §4.10 F2 (an internal review); no public source cited yet,verify
+JHSD0006,C,A,継続,proposal from review 12 §4.10 F2 (an internal review); no public source cited yet,verify
+JHSD0006,M,M,寛解,proposal from review 12 §4.10 F2 (an internal review); no public source cited yet,verify
+JHSD0006,I,U,中止,proposal from review 12 §4.10 F2 (an internal review); no public source cited yet,verify
+JHSD0006,O,U,その他,proposal from review 12 §4.10 F2 (an internal review); no public source cited yet,verify

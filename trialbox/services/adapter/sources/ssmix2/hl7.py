@@ -402,6 +402,29 @@ REFUSED: Counter[str] = Counter()
 
 
 _TS = re.compile(r"^(\d{8,14})(?:\.\d*)?([+-]\d{4})?$")
+#: a timestamp with an offset anywhere in a message, between separators (third review of PR #1095 item 10)
+_OFFSET_IN = re.compile(r"(?:^|(?<=[|^&~]))\d{8,14}(?:\.\d*)?[+-](\d{2})(\d{2})(?=$|[|^&~\r\n])", re.MULTILINE)
+
+
+def offset_problem(text: str) -> str:
+    """Why a message's timestamps cannot be placed, empty when they can: an offset beyond ±14:00 or with minutes
+    beyond 59 (``+2400``, ``+9900``). The reader quarantines such a message, never the whole table."""
+    for m in _OFFSET_IN.finditer(text):
+        if int(m.group(1)) > 14 or int(m.group(2)) > 59:
+            return "a time-zone offset out of range"
+    return ""
+
+
+def valid_stamp(stamp: str) -> bool:
+    """A file name's 発生日時: 17 digits, ``YYYYMMDDHHMMSSfff``, a real date and time (third review item 10)."""
+    if len(stamp) != 17 or not stamp.isdigit():
+        return False
+    try:
+        datetime(int(stamp[:4]), int(stamp[4:6]), int(stamp[6:8]), int(stamp[8:10]), int(stamp[10:12]),
+                 int(stamp[12:14]))  # fmt: skip
+    except ValueError:
+        return False
+    return True
 
 
 def _site_zone() -> ZoneInfo | None:
@@ -433,22 +456,27 @@ def ts(value: str) -> str | None:
         REFUSED["not a calendar date (the row is rejected by the mapping)"] += 1
         valid = False
     day = f"{v[:4]}-{v[4:6]}-{v[6:8]}"
-    if len(v) < 10 or not v[8:10].isdigit():
+    if len(v) > 8 and (len(v) not in (10, 12, 14) or not v[8:].isdigit()):
+        # a time part of another length, or not digits: never half read (third review, minor)
+        REFUSED["a time part that is not read: the day kept"] += 1
+        return day
+    if len(v) < 10:
         return day
     minute = v[10:12] if len(v) >= 12 else "00"  # STD-023: ``YYYYMMDDHH`` keeps its hour
     sec = v[12:14] if len(v) >= 14 else "00"
-    if not (minute + sec).isdigit() or int(v[8:10]) > 23 or int(minute) > 59 or int(sec) > 60:
+    if int(v[8:10]) > 23 or int(minute) > 59 or int(sec) > 59:  # a leap second too (third review, minor)
         REFUSED["not a time of day (the row is rejected by the mapping)"] += 1  # passed on, as a bad date is
         return f"{day} {v[8:10]}:{minute}:{sec}"
     m = _TS.match(raw)
     if "+" in raw or "-" in raw[8:]:
         zone = _site_zone()
-        if not (m and m.group(2) and valid and zone):
+        hours, minutes = (int(m.group(2)[1:3]), int(m.group(2)[3:5])) if m and m.group(2) else (99, 99)
+        if not (m and m.group(2) and valid and zone) or hours > 14 or minutes > 59:
             REFUSED["an offset the site's zone cannot place: the time not kept"] += 1
             return day
         sign = 1 if m.group(2)[0] == "+" else -1
         off = timezone(sign * timedelta(hours=int(m.group(2)[1:3]), minutes=int(m.group(2)[3:5])))
-        at = datetime(int(v[:4]), int(v[4:6]), int(v[6:8]), int(v[8:10]), int(minute), min(int(sec), 59), tzinfo=off)
+        at = datetime(int(v[:4]), int(v[4:6]), int(v[6:8]), int(v[8:10]), int(minute), int(sec), tzinfo=off)
         local = at.astimezone(zone)
         if local.utcoffset() != off.utcoffset(None):
             REFUSED["an offset other than the site's: converted to the site's time"] += 1

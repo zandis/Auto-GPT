@@ -214,7 +214,7 @@ def parse_name(path: Path) -> StoredFile | None:
     if len(parts) != 7:
         return None
     pid, day, typ, order, stamp, dept, flag = parts
-    if flag not in FLAGS:
+    if flag not in FLAGS or not hl7.valid_stamp(stamp):
         return None
     return StoredFile(path, pid, day, typ, order, stamp, dept, flag == "0", flag)
 
@@ -236,7 +236,12 @@ def name_problem(name: str) -> str:
         return f"{len(parts)} parts, not 7"
     if parts[6] not in FLAGS:
         return "a condition flag other than 0, 1 or 2"
+    if not hl7.valid_stamp(parts[4]):
+        return STAMP_PROBLEM
     return ""
+
+
+STAMP_PROBLEM = "a 発生日時 that is not 17 digits of a real time"
 
 
 def _newer(sf: StoredFile, cur: StoredFile) -> bool:
@@ -276,8 +281,16 @@ def _triples_by_rep(seg: hl7.Segment, n: int) -> list[list[tuple[str, str, str]]
 
 
 _NOT_SUSPECTED = ("疑いなし", "疑い無し", "疑いナシ")
-#: "R/O" (rule out) and "s/o" (suspicion of), as Japanese charts write them (second review of PR #1095 item 2)
-_RULE_OUT = re.compile(r"(?<![a-z])(?:r/o|s/o)(?![a-z])", re.IGNORECASE)
+#: "R/O" (rule out) and "s/o" (suspicion of), as Japanese charts write them (second review of PR #1095 item 2), and the
+#: English words (third review item 7): "rule out", "suspected", "suspicion" ("ruled out" is not one: it refutes)
+_RULE_OUT = re.compile(r"(?<![a-z])(?:r/o|s/o|rule[- ]?out|suspect(?:ed)?|suspicion)(?![a-z])", re.IGNORECASE)
+#: a diagnosis ruled out (third review of PR #1095 item 7): "…の疑いなし", "ruled out"
+_RULED_OUT = re.compile(r"疑い(?:なし|無し|ナシ)|(?<![a-z])ruled[- ]?out(?![a-z])", re.IGNORECASE)
+
+
+def refuted_in(text: str) -> bool:
+    """A diagnosis written as ruled out: "肺癌の疑いなし", "ruled out"."""
+    return bool(_RULED_OUT.search(unicodedata.normalize("NFKC", text or "")))
 
 
 def suspicion_in(text: str) -> bool:
@@ -302,15 +315,48 @@ def _suspected(prb: hl7.Segment) -> bool:
     a ``1`` in the first triple when no table is named; (2) a suspicion in the 病名 (PRB-3) or its written name
     (PRB-17), :func:`suspicion_in`. The ZPR modifiers are read by the caller. A bare ``1`` of an unknown table with no
     such text is not the flag."""
-    triples = _triples(prb, 13)
+    triples = [(unicodedata.normalize("NFKC", f), t, sy) for f, t, sy in _triples(prb, 13)]  # "１" is "1"
     named = [(flag, text) for flag, text, system in triples if _jhsd0005(system)]
     if not named and prb.comp(13, 3).strip() == "":
-        named = [(prb.comp(13, 1), prb.comp(13, 2))]
+        named = [(unicodedata.normalize("NFKC", prb.comp(13, 1)), prb.comp(13, 2))]
     if any(flag.strip() == "1" or "疑いあり" in text for flag, text in named):
         return True
     if any(flag.strip() == "1" and suspicion_in(text) for flag, text, _s in triples):
         return True
     return suspicion_in(prb.comp(3, 2)) or suspicion_in(prb.comp(17, 1))
+
+
+def flag_unread(prb: hl7.Segment) -> bool:
+    """Whether PRB-13 holds a value the reader cannot read (third review of PR #1095 item 7): a code under a table
+    that is not JHSD0005 and whose text says nothing of a suspicion, or a code of JHSD0005 (or of the first triple
+    with no table named) that is neither 0 nor 1. Such a diagnosis's certainty is unknown, never confirmed."""
+    for code, text, system in _triples(prb, 13):
+        code = unicodedata.normalize("NFKC", code).strip()
+        if not code:
+            continue
+        if _jhsd0005(system) or not system:
+            if code not in ("0", "1"):
+                return True
+        elif not (code == "1" and suspicion_in(text)):
+            return True
+    return False
+
+
+def certainty(prb: hl7.Segment, texts: list[str], unread_modifier: bool) -> str:
+    """The canonical ``suspected`` column (third review of PR #1095 item 7): ``Y`` suspected (provisional), ``X`` ruled
+    out (refuted: the lake leaves it out), ``U`` certainty unknown (unconfirmed, never confirmed), empty confirmed.
+    A suspicion in the flag (:func:`_suspected`), the name or a modifier, or a modifier with only a code, makes it
+    ``Y``; a "疑いなし" or "ruled out" in the name or a modifier makes it ``X``; both at once, or a PRB-13 value the
+    reader cannot read and nothing else, ``U``."""
+    suspected = _suspected(prb) or unread_modifier or any(map(suspicion_in, texts))
+    refuted = any(map(refuted_in, [prb.comp(3, 2), *texts]))
+    if suspected and refuted:
+        return "U"
+    if refuted:
+        return "X"
+    if suspected:
+        return "Y"
+    return "U" if flag_unread(prb) else ""
 
 
 _ICD10_SYS = ("I10", "ICD10")  # the HL7 table 0396 name and the spelling vendors write
@@ -330,12 +376,25 @@ def _table_rows(name: str) -> list[dict[str, str]]:
 # Second review of PR #1095 item 9: a row is applied only once its meaning is verified against the published table
 # (``verified`` = ``yes``); until then its ``status`` is a proposal for the owner's Japanese reader, and the code
 # reads as unknown (U). No row is verified today.
-_OUTCOME: dict[str, dict[str, str]] = {}
-_OUTCOME_TABLES: set[str] = set()
-for _r in _table_rows("prb14_outcome.csv"):
-    _OUTCOME_TABLES.add(_r["system"].strip().upper())
-    if _r["verified"].strip().lower() == "yes":
-        _OUTCOME.setdefault(_r["system"].strip().upper(), {})[_r["code"].strip().upper()] = _r["status"].strip()
+def outcome_table(rows: list[dict[str, str]]) -> tuple[dict[str, dict[str, str]], set[str]]:
+    """``(applied rows by table and code, every table named)`` of ``prb14_outcome.csv``. A row is applied only when
+    ``verified`` is ``yes``, and such a row must name its public source (the SS-MIX2 specification or a JAHIS table,
+    with title, version and section, third review of PR #1095 item 11): a verified row whose source is empty or says
+    it cites none stops the reader."""
+    applied: dict[str, dict[str, str]] = {}
+    tables: set[str] = set()
+    for r in rows:
+        tables.add(r["system"].strip().upper())
+        if r["verified"].strip().lower() != "yes":
+            continue
+        source = r.get("source", "").strip()
+        if not source or "no public source" in source or "internal review" in source:
+            raise ValueError(f"prb14_outcome.csv: {r['system']} {r['code']} is verified but cites no public source")
+        applied.setdefault(r["system"].strip().upper(), {})[r["code"].strip().upper()] = r["status"].strip()
+    return applied, tables
+
+
+_OUTCOME, _OUTCOME_TABLES = outcome_table(_table_rows("prb14_outcome.csv"))
 _LOINC_NOTE = {r["loinc"].strip(): r["note_type"].strip() for r in _table_rows("document_loinc.csv")}
 _OUTCOME_ANY = {code: st for table in _OUTCOME.values() for code, st in table.items()}
 _OUTCOME_WORDS = (("治癒", "R"), ("resolved", "R"), ("死亡", "I"), ("寛解", "M"), ("中止", "U"), ("継続", "A"))
@@ -350,6 +409,14 @@ def outcome_status(prb: hl7.Segment) -> tuple[str, str]:
     code, text, system = prb.comp(14, 1).strip(), prb.comp(14, 2), prb.comp(14, 3).strip().upper()
     if not code and not text:
         return "A", ""
+    status, code = _outcome_code(code, text, system)
+    said = next((st for w, st in _OUTCOME_WORDS if w in text), "")
+    if code and said and said != status:  # A^治癒: the code and its own text disagree, third review item 7
+        return "U", code
+    return status, code
+
+
+def _outcome_code(code: str, text: str, system: str) -> tuple[str, str]:
     table = _OUTCOME.get(system, {}) if system in _OUTCOME_TABLES else _OUTCOME_ANY
     if code.upper() in table:
         return table[code.upper()], code
@@ -614,6 +681,7 @@ class Ssmix2Source:
         self._repeated: set[tuple[str, str, str]] = set()  # (patient, type, order no) live on several days
         self._gone: dict[str, list[StoredFile]] = {}  # newest version deleted (flag 0), by message type
         self._prev: dict[Path, StoredFile] = {}  # a current version -> the live version before it
+        self._dx_older: dict[Path, list[StoredFile]] = {}  # the newest PPR-01 snapshot -> the live ones it supersedes
         self._rx_dead: list[Row] = []  # drug lines a newer version of their order no longer holds: tombstones
         self._deleted_docs: list[Row] = []  # extended-storage documents whose newest version is deleted
         self.quarantine_max_pct = quarantine_max_pct
@@ -648,6 +716,8 @@ class Ssmix2Source:
                     why = name_problem(name)
                     if why:
                         self.stats[f"storage:file name not read ({why})"] += 1
+                        if why == STAMP_PROBLEM:  # a message file all the same: listed for the site (item 10)
+                            self.quarantined.append((name.split("_")[2], str(f.relative_to(self.root)), why))
                         continue
                     yield f
 
@@ -701,7 +771,10 @@ class Ssmix2Source:
                 older = [o for o in versions[key] if o.stamp < sf.stamp and not o.deleted and o.flag != "2"]
                 if older:
                     prev[sf.path] = max(older, key=lambda o: (o.stamp, o.path.name))
+            superseded = self._supersede_snapshots(latest, prev)
             for sf in sorted(latest.values(), key=lambda s: (s.type, s.patient, s.day, s.order)):
+                if sf.path in superseded:
+                    continue
                 if sf.flag == "2":
                     # flag 2's meaning ("past history", review 12 §4.4) is not cited from the specification: a record
                     # whose newest version carries it is set aside, neither read nor deleted (second review of PR
@@ -713,6 +786,53 @@ class Ssmix2Source:
             self._index = index
             self._gone = gone
         return self._index
+
+    def _supersede_snapshots(
+        self, latest: dict[tuple[str, str, str, str], StoredFile], prev: dict[Path, StoredFile]
+    ) -> set[Path]:
+        """A PPR-01 filed under order number "ALL9" is one snapshot of all of a patient's diagnoses (標準化ストレージ
+        仕様書, as review 12 §4.4 records it): the newest (by 発生日時; on a tie the deletion) supersedes every other
+        snapshot of the patient, whatever its day folder (third review of PR #1095 item 8). The others are not read
+        as current; what they hold and the newest does not becomes a tombstone (:meth:`_diagnosis`). Returns the
+        superseded files."""
+        by_patient: dict[str, list[StoredFile]] = {}
+        for sf in latest.values():
+            # the snapshot form only: order number "ALL9" (or "-"); a file per diagnosis under its own number (the
+            # layout TrialBox's exporter and older vendors write) is a record of its own, as before
+            if sf.type == "PPR-01" and sf.flag != "2" and sf.order in (ALL9, "-"):
+                by_patient.setdefault(sf.patient, []).append(sf)
+        superseded: set[Path] = set()
+        self._dx_older = {}
+        for files in by_patient.values():
+            newest = files[0]
+            for sf in files[1:]:
+                if _newer(sf, newest):
+                    newest = sf
+            older = [sf for sf in files if sf is not newest]
+            for sf in older:
+                superseded.add(sf.path)
+                self.stats["PPR-01:snapshot superseded by a newer one"] += 1
+            live = [sf for sf in older if not sf.deleted]
+            if newest.path in prev:
+                live.append(prev[newest.path])
+            if live:
+                self._dx_older[newest.path] = live
+        return superseded
+
+    def _older_diagnoses(self, sf: StoredFile) -> list[Row]:
+        """The diagnoses of the snapshots ``sf`` supersedes, read only to name them: what that read counts, and the
+        tombstones it would add, are put back."""
+        out: list[Row] = []
+        counts = (self.stats.copy(), self.missed.copy())
+        mark = len(self._dx_dead)
+        for old in self._dx_older.get(sf.path, []):
+            try:
+                out.extend(self._diagnosis_rows(old, hl7.parse(hl7.decode(old.path.read_bytes()))))
+            except Exception:  # an older snapshot that cannot be read names nothing
+                log.debug("ssmix2: an older PPR-01 snapshot could not be read")
+        del self._dx_dead[mark:]
+        self.stats, self.missed = counts
+        return out
 
     def deleted_rows(self, table: str, source_name: str, delta_column: str | None, since: str | None) -> Iterator[Row]:
         """The rows of records whose newest version carries flag ``0`` (deleted at the hospital), so the adapter can
@@ -750,6 +870,7 @@ class Ssmix2Source:
                 self.stats[f"{typ}:deleted"] += 1
                 for row in rows:
                     row.pop("_same", None)
+                    row.pop("_order", None)
                     row.pop("_changed", None)
                     yield row
         del self._dx_dead[marks[0] :]
@@ -785,6 +906,10 @@ class Ssmix2Source:
             why = self._identity_problem(sf, msg)
             if why:
                 self._quarantine(typ, sf, "patient", why)
+                continue
+            why = hl7.offset_problem(text)
+            if why:
+                self._quarantine(typ, sf, "time", why)
                 continue
             self.stats[typ] += 1
             if codec not in ("iso2022_jp", "ascii", "utf-8"):
@@ -870,6 +995,7 @@ class Ssmix2Source:
             # file was written (a diagnosis recorded long ago and ended last night is a change, review of PR
             # #1095 item 2)
             changed = str(row.pop("_changed", "") or "")
+            row.pop("_order", None)
             cols = (delta_column, "class_changed_at", "end_datetime", "end_date")
             stamp = max([str(row.get(c) or "") for c in cols if c] + [changed])
             if delta_column and not after(stamp or None, since):
@@ -981,6 +1107,21 @@ class Ssmix2Source:
         return rows
 
     def _diagnosis(self, sf: StoredFile, msg: hl7.Message) -> Iterator[Row]:
+        """:meth:`_diagnosis_rows`, and the supersession of older snapshots (third review of PR #1095 item 8): a
+        diagnosis an older snapshot of the patient holds and this one does not is a tombstone (all of them when this
+        newest snapshot is itself deleted). The lake removes a tombstoned diagnosis, as it does one deleted by
+        ``DE``."""
+        rows = list(self._diagnosis_rows(sf, msg))
+        present = {r["diag_no"] for r in rows} | {r["diag_no"] for r in self._dx_dead}
+        for old in self._older_diagnoses(sf):
+            if old["diag_no"] not in present:  # a deleted snapshot's own rows are tombstones already
+                old.pop("_changed", None)
+                self._dx_dead.append(old)
+                present.add(old["diag_no"])
+                self.stats["PPR-01:diagnosis gone from a newer snapshot"] += 1
+        yield from rows
+
+    def _diagnosis_rows(self, sf: StoredFile, msg: hl7.Message) -> Iterator[Row]:
         """PPR-01: one snapshot of a patient's diagnoses, one PRB each with the ZPR segments that follow it (10B-3,
         review 12 F2; SS-MIX2 標準化ストレージ仕様書 表 3-46 and 3-47 as the review records them):
 
@@ -1067,10 +1208,12 @@ class Ssmix2Source:
                 "outcome": outcome,
                 "outcome_date": hl7.ts(prb.field(15)) or "",
                 "main_diagnosis": _RANK.get(prb.comp(18, 1).strip(), ""),
-                "_changed": hl7.ts(sf.stamp) or "",  # the snapshot file's 発生日時 (not a column)
-                "suspected": "Y" if _suspected(prb) or unread or any(map(suspicion_in, (written, *modifiers))) else "",
+                "_changed": hl7.ts(sf.stamp[:14]) or "",  # the snapshot file's 発生日時 (not a column)
+                "suspected": certainty(prb, [written, *modifiers], bool(unread)),
             }
-            if prb.field(1).strip().upper() in _DELETED:  # deleted at the hospital: a tombstone, never a record
+            if (
+                unicodedata.normalize("NFKC", prb.field(1)).strip().upper() in _DELETED
+            ):  # ＤＥ too (minor)  # deleted at the hospital: a tombstone, never a record
                 self.stats["PPR-01:deleted diagnosis"] += 1
                 row.pop("_changed", None)
                 self._dx_dead.append(row)
@@ -1147,6 +1290,7 @@ class Ssmix2Source:
             self.stats, self.drug_lines, self.missed = counts
             for row in old:
                 if row["rx_no"] not in keys:
+                    row.pop("_order", None)
                     self._rx_dead.append(row)
                     self.stats[f"{sf.type}:drug line gone from a newer version"] += 1
         yield from rows
@@ -1161,6 +1305,7 @@ class Ssmix2Source:
         seen: Counter[str] = Counter()
         for orc, rxe, tq1, ambiguous in lines:
             row = self._medication_line(sf, orc, rxe, tq1, count)
+            row["_order"] = row["rx_no"]  # the order's own key, for its administrations (not a column)
             if ambiguous and count:
                 self.stats[f"{sf.type}:timing not tied to one drug (no daily dose)"] += 1
             if len(lines) > 1:
@@ -1213,8 +1358,14 @@ class Ssmix2Source:
         return row
 
     def _administrations(self, rows: list[Row]) -> list[Row]:
-        """OMP-11/12 (実施): fill the order's empty fields, or become a medication of its own."""
-        by_no = {(r["mrn"], r["rx_no"]): r for r in rows}
+        """OMP-11/12 (実施): fill the empty fields of the order line it was given for, or become a medication of its
+        own. The line is the one of its order (the order's key, :func:`order_no`) whose drug code it shares (YJ,
+        HOT or the line's own code): an administration of a drug its order does not hold, of no drug code, or that
+        fits several lines, never fills a line (third review of PR #1095 item 9): it is a row of its own, keyed
+        ``<order>~<its drug code>``, and counted."""
+        lines: dict[tuple[str, str], list[Row]] = {}
+        for r in rows:
+            lines.setdefault((r["mrn"], str(r.get("_order") or r["rx_no"]).split("@", 1)[0]), []).append(r)
         for typ in CHANGES["medication"]:
             for sf, msg in self._messages(typ):
                 orc, rxa = msg.first("ORC"), msg.first("RXA")
@@ -1228,20 +1379,32 @@ class Ssmix2Source:
                     "dose_per_time": rxa.comp(6, 1),
                     "dose_unit": rxa.comp(7, 1),
                 }
-                order = by_no.get((sf.patient, order_no(sf, orc)))
-                if order is not None:
+                key = order_no(sf, orc)
+                given = {c for c in (codes["yj"], codes["hot"]) if c}
+                candidates = lines.get((sf.patient, key), [])
+                same = [
+                    r for r in candidates
+                    if given & {str(r.get(c) or "") for c in ("nhi_drug_code", "hot_code", "source_drug_code")} - {""}
+                ]  # fmt: skip
+                if len(same) == 1:
+                    order = same[0]
                     for k, v in {**done, "hot_code": codes["hot"], "nhi_drug_code": codes["yj"]}.items():
                         if v and not order.get(k):
                             order[k] = v
                     self.stats[f"{typ}:with its order"] += 1
                     continue
                 row = self._drug_row(sf, orc, codes)
+                if candidates:  # its order is here, but not one line of it is certainly this drug
+                    why = "no drug code" if not given else ("several lines" if same else "another drug")
+                    self.stats[f"{typ}:administration not tied to an order line ({why})"] += 1
+                    row["rx_no"] = f"{key}~{codes['yj'] or codes['hot'] or '-'}"
+                else:
+                    self.stats[f"{typ}:without an order"] += 1
                 # an administration alone says nothing of the doses a day: the daily dose is unknown, never RXA-6
                 row.update(doses_per_day="", doses_per_day_from="", usage_code="", usage_text="", daily_dose="")
                 row.update(done)
                 rows.append(row)
-                by_no[(sf.patient, row["rx_no"])] = row
-                self.stats[f"{typ}:without an order"] += 1
+                lines.setdefault((sf.patient, key), []).append(row)
         return rows
 
     def _lab(self, sf: StoredFile, msg: hl7.Message) -> Iterator[Row]:
@@ -1387,7 +1550,7 @@ class Ssmix2Source:
                     key: tuple[str, ...] = (patient, day, kind, sf.order)
                     stamp, deleted = sf.stamp, sf.deleted
                 elif len(stem.split("_")) == 7 and stem.split("_")[0] == patient:
-                    self.stats["document:not read (a condition flag other than 0, 1 or 2)"] += 1
+                    self.stats["document:not read (a standardized name that is not valid)"] += 1
                     continue
                 else:
                     key, stamp, deleted = (patient, day, kind, f.name), "", False
@@ -1422,7 +1585,7 @@ class Ssmix2Source:
             self.stats["document" if text else f"document without text ({how})"] += 1
             when = hl7.ts(day) or ""
             if not when and stamp:
-                when = hl7.ts(stamp) or ""
+                when = hl7.ts(stamp[:14]) or ""
             code = document_code(kind)
             if code:
                 note_type = _LOINC_NOTE.get(code, "document")
@@ -1436,7 +1599,7 @@ class Ssmix2Source:
                 "note_type": note_type,
                 "doc_code": code,
                 "text": text,
-                "_changed": hl7.ts(stamp) or "",  # the version's 発生日時, for the delta (not a column)
+                "_changed": hl7.ts(stamp[:14]) or "",  # the version's 発生日時, for the delta (not a column)
             }
 
 

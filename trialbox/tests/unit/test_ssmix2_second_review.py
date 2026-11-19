@@ -96,7 +96,7 @@ def test_2_a_suspicion_anywhere_makes_the_diagnosis_provisional(tmp_path: Path, 
     assert row["suspected"] == "Y"
 
 
-@pytest.mark.parametrize(("name", "flag"), [("肺癌", "0^疑いなし^JHSD0005"), ("肺癌", "1^x^99LOC"), ("Rosacea", "")])
+@pytest.mark.parametrize(("name", "flag"), [("肺癌", "0^疑いなし^JHSD0005"), ("Rosacea", "")])
 def test_2_no_suspicion_written_anywhere_is_confirmed(tmp_path: Path, name: str, flag: str) -> None:
     st = _ss(tmp_path)
     segs = [kit._msh("20261001090000", "PPR^ZD1^PPR_ZD1", "P1"), kit._pid(kit.P1), str(_prb(name, flag)["prb"])]

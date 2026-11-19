@@ -347,16 +347,17 @@ def test_review_4_only_cited_outcome_codes_are_mapped_and_an_unlisted_one_is_nev
 
 
 def test_review_all9_keeps_its_day_under_unique_for_a_type_that_is_not_adt(tmp_path: Path) -> None:
-    """A mutant survived: "ALL9 keeps its day" was only proved through ADT types. Two PPR-01 snapshots under ALL9
-    on two day folders stay two records under ``unique`` too (each read, and not counted as a repeat)."""
+    """A mutant survived: "ALL9 keeps its day" was only proved through ADT types. Two OML-11 results under ALL9 on two
+    day folders stay two records under ``unique`` too (each read, and not counted as a repeat). (PPR-01 under ALL9 is
+    a snapshot: the newer supersedes the older, third review of PR #1095 item 8.)"""
     st = kit.Storage(tmp_path / "ss", tmp_path / "ss" / "extended_storage")
-    for day, dx in (("20261001", "DX0001"), ("20261002", "DX0002")):
-        prb = ["PRB", "AD", "20261001", "99990001^胃炎^MDCDX2", dx] + [""] * 14
-        prb[10] = "K297^^I10"
-        segs = [kit._msh(f"{day}090000", "PPR^ZD1^PPR_ZD1", dx), kit._pid(kit.P1), "|".join(prb)]
-        kit._write(st, kit.P1, day, "PPR-01", "ALL9", kit._stamp(day), segs)
+    for day, uid in (("20261001", "U1"), ("20261002", "U2")):
+        obx = ["OBX", "1", "NM", "3D046000001906202^HbA1c^JC10", "", "6.0", "%", *[""] * 15]
+        obx[11], obx[14], obx[21] = "F", f"{day}090000", uid
+        segs = [kit._msh(f"{day}090000", "OUL^R22^OUL_R22", uid), kit._pid(kit.P1), "|".join(obx)]
+        kit._write(st, kit.P1, day, "OML-11", "ALL9", kit._stamp(day), segs)
     src = _source(st, order_key="unique")
-    assert sorted(r["diag_no"] for r in src.rows("diagnosis", "diagnosis", None, None)) == ["DX0001", "DX0002"]
+    assert len(list(src.rows("lab", "lab", None, None))) == 2
     assert not [k for k in src.stats if "several days" in k]
 
 
