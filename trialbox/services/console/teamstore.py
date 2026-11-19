@@ -707,11 +707,6 @@ class TeamStore:
         return self.irb(ruleset)
 
     # ------------------------------------------------------------------ 10C-4: committee and permission (D-1227)
-    _CMT = (
-        "kind, external, establisher, contract_on, current_version, approved_version, approved_on, central, "
-        "documents, by, at"
-    )
-
     @staticmethod
     def _cmt(r: tuple[Any, ...]) -> Committee:
         t = [str(x or "") for x in r]
@@ -723,12 +718,17 @@ class TeamStore:
         return rows[-1] if rows else Committee()
 
     def committee_history(self, ruleset: str) -> list[Committee]:
-        rows = self.db.fetchall(f"SELECT {self._CMT} FROM committee WHERE ruleset = ? ORDER BY at, id", (ruleset,))
+        rows = self.db.fetchall(
+            "SELECT kind, external, establisher, contract_on, current_version, approved_version, approved_on, central, "
+            "documents, by, at FROM committee WHERE ruleset = ? ORDER BY at, id",
+            (ruleset,),
+        )
         return [self._cmt(r) for r in rows]
 
     def save_committee(self, ruleset: str, rec: Committee, by: str, at: str) -> Committee:
         self.db.execute(
-            f"INSERT INTO committee (ruleset, {self._CMT}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO committee (ruleset, kind, external, establisher, contract_on, current_version, "
+            "approved_version, approved_on, central, documents, by, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (ruleset, rec.kind, int(rec.external), rec.establisher, rec.contract_on, rec.current_version,
              rec.approved_version, rec.approved_on, int(rec.central), rec.documents, by, at),
         )  # fmt: skip
