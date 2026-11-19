@@ -2,12 +2,13 @@
 
 One list of the checks a site's IT team needs green before the box takes its first night: the box's name and
 certificate, the clock, the backup share, the audit share, the hospital's data feed, the mail relay, the disk, the
-key protection (TPM or Tang) and the graphics card against the tier record. Each item has a stable id (the name of
-the check that answers it, ``tools/trialbox/preflight.py``; ``clock`` is ``doctor``'s own), a group, and its label and
-next action in en, ja and zh-TW. ``doctor --preflight`` prints it, the terminal wizard prints it
-(``tools/settings_wizard.py --preflight``) and the console's first-run page shows it (``console.firstrun``) from the
-file the box installer writes into the first-run folder (:data:`FILE`). Later cards read this list too (the console's
-doctor page, the IT one-page): add an item here and its check there, never a text anywhere else.
+key protection (the TPM, and Tang where the disk unlock uses it) and the graphics card against the tier record. Each
+item has a stable id (the name of the check that answers it, ``tools/trialbox/preflight.py``; ``clock`` is
+``doctor``'s own), a group, and its label and next action in en, ja and zh-TW. ``doctor --preflight`` prints it, the
+terminal wizard prints it (``tools/settings_wizard.py --preflight``) and the console's first-run page shows it
+(``console.firstrun``) from the file the box installer writes into the first-run folder (:data:`FILE`). Later cards
+read this list too (the console's doctor page, the IT one-page): add an item here and its check there, never a text
+anywhere else. ``tools/text_keys.py`` checks every text here (:func:`all_texts`) as it checks the console's.
 
 Standard library only: the console reads it, and so may the host's ``python3``.
 """
@@ -35,6 +36,24 @@ AGAIN = {
     "ja": "その後、もう一度確認してください。",
     "zh-TW": "然後再檢查一次。",
 }
+#: a check that did not finish in its time (a share or server that does not answer): its detail starts with this,
+#: and the line is red with :data:`TIMED_OUT` as its action, never green
+TIMEOUT_PREFIX = "timed out"
+TIMED_OUT = {
+    "en": "A share or server did not answer in time: ask hospital IT whether it is up and reachable from the box.",
+    "ja": "共有フォルダーまたはサーバーが時間内に応答しませんでした。病院のIT担当者に、それが動いていてボックスから"
+    "届くかどうかを確認してもらってください。",
+    "zh-TW": "共用資料夾或伺服器未在時限內回應：請醫院資訊人員確認它是否正常運作、主機是否連得到。",
+}
+#: a line whose id this list does not know (a newer or damaged file): shown red with this action
+UNKNOWN = {
+    "en": "This check is not known to this version of the box: call the box's supplier.",
+    "ja": "この確認項目はこのバージョンのボックスでは不明です。ボックスの納入業者に連絡してください。",
+    "zh-TW": "此版本的主機不認得這項檢查：請聯絡主機供應商。",
+}
+#: the last line of the printed list
+SUMMARY_PASSED = {"en": "preflight passed", "ja": "事前確認はすべて合格です", "zh-TW": "事前檢查全部通過"}
+SUMMARY_FAILED = {"en": "{n} check(s) failed", "ja": "{n} 件の確認が不合格です", "zh-TW": "{n} 項檢查未通過"}
 
 
 @dataclass(frozen=True)
@@ -87,13 +106,13 @@ ITEMS: tuple[Item, ...] = (
         "storage",
         {"en": "Audit record share", "ja": "監査記録の保管先", "zh-TW": "稽核紀錄共用資料夾"},
         {
-            "en": "Ask hospital IT for a share off the box where the box may add files but the box's administrator "
-            "(root) cannot change or delete them (write-once, or root mapped to nobody).",
-            "ja": "病院のIT担当者に、ボックスの外の共有フォルダーで、ボックスはファイルを追加できるが、ボックスの"
-            "管理者（root）は変更も削除もできないもの（追記のみ、またはrootを無権限に変換する設定）を用意してもらって"
-            "ください。",
-            "zh-TW": "請醫院資訊人員準備主機以外的共用資料夾：主機可以新增檔案，但主機的管理者（root）不能修改或刪除"
-            "（只能寫入一次，或把 root 對應成無權限的使用者）。",
+            "en": "Ask hospital IT for a write-once (WORM) share off the box: the box may add a file there, but no one "
+            "on the box, its administrator (root) included, may change or delete a file once written.",
+            "ja": "病院のIT担当者に、ボックスの外にある追記専用（WORM、一度書いたら変更できない）"
+            "共有フォルダーを用意してもらってください。ボックスはファイルを追加できますが、ボックスの管理者（root）を含め、書いた後のファイルを"
+            "変更・削除できない設定にします。",
+            "zh-TW": "請醫院資訊人員準備主機以外的一次寫入（WORM）共用資料夾：主機可以新增檔案，但檔案寫入後，"
+            "包括主機管理者（root）在內，任何人都不能修改或刪除。",
         },
     ),
     Item(
@@ -133,14 +152,21 @@ ITEMS: tuple[Item, ...] = (
     Item(
         "tpm_tang",
         "hardware",
-        {"en": "Key protection (TPM or Tang)", "ja": "鍵の保護（TPMまたはTang）", "zh-TW": "金鑰保護（TPM 或 Tang）"},
         {
-            "en": "Turn on the TPM 2.0 in the box's firmware settings, or ask hospital IT for a Tang server the box "
-            "can reach; call the box's supplier if neither is possible.",
-            "ja": "ボックスのファームウェア設定でTPM 2.0を有効にするか、病院のIT担当者にボックスから届くTangサーバーを"
-            "用意してもらってください。どちらもできない場合はボックスの納入業者に連絡してください。",
-            "zh-TW": "請在主機的韌體設定中啟用 TPM 2.0，或請醫院資訊人員提供主機連得到的 Tang 伺服器；"
-            "兩者都不行時請聯絡主機供應商。",
+            "en": "Key protection (TPM; disk unlock with Tang)",
+            "ja": "鍵の保護（TPM、ディスク解錠はTangも使用）",
+            "zh-TW": "金鑰保護（TPM；磁碟解鎖另需 Tang）",
+        },
+        {
+            "en": "Turn on the TPM 2.0 in the box's firmware settings: the box seals its keys to it. Where the disk "
+            "unlock uses Tang, it needs the TPM and one of the hospital's Tang servers answering: ask hospital IT to "
+            "let the box reach one. Without a TPM, call the box's supplier.",
+            "ja": "ボックスのファームウェア設定でTPM 2.0を有効にしてください。ボックスは鍵をTPMに封印します。"
+            "ディスクの解錠にTangを使う場合は、TPMに加えて病院のTangサーバーのどれか一つが応答する必要があります。"
+            "病院のIT担当者に、ボックスから届くようにしてもらってください。TPMがない場合はボックスの納入業者に"
+            "連絡してください。",
+            "zh-TW": "請在主機的韌體設定中啟用 TPM 2.0：主機把金鑰封存在 TPM。若磁碟解鎖使用 Tang，"
+            "除了 TPM 還需要醫院的任一台 Tang 伺服器回應：請醫院資訊人員讓主機連得到。沒有 TPM 時請聯絡主機供應商。",
         },
     ),
     Item(
@@ -183,13 +209,34 @@ def label(check_id: str, lang: str) -> str:
     return item.label[lang_of(lang)] if item else check_id
 
 
-def action(check_id: str, lang: str) -> str:
-    """The next action for a line that is not green, with "then run the check again"; empty for an unknown id."""
+def action(check_id: str, lang: str, detail: str = "") -> str:
+    """The next action for a line that is not green, with "then run the check again": the check's own, the
+    time-out's for a check that did not finish (:data:`TIMEOUT_PREFIX`), :data:`UNKNOWN`'s for an id not listed."""
     item = BY_ID.get(check_id)
-    if item is None:
-        return ""
     lg = lang_of(lang)
+    if item is None:
+        return UNKNOWN[lg]
+    if detail.startswith(TIMEOUT_PREFIX):
+        return TIMED_OUT[lg] + AGAIN[lg]
     return item.action[lg] + AGAIN[lg]
+
+
+def summary(fails: int, lang: str) -> str:
+    lg = lang_of(lang)
+    return SUMMARY_FAILED[lg].format(n=fails) if fails else SUMMARY_PASSED[lg]
+
+
+def all_texts() -> list[tuple[str, str, str]]:
+    """Every text of this list as ``(name, language, text)``: what ``tools/text_keys.py`` checks (each one present
+    and non-empty in en, ja and zh-TW). 10K-5 and 10K-18 read the same texts."""
+    out: list[tuple[str, str, str]] = []
+    named: list[tuple[str, Mapping[str, str]]] = [(f"group.{g}", t) for g, t in GROUPS.items()]
+    named += [(f"{i.id}.label", i.label) for i in ITEMS] + [(f"{i.id}.action", i.action) for i in ITEMS]
+    named += [("again", AGAIN), ("timed_out", TIMED_OUT), ("unknown", UNKNOWN)]
+    named += [("summary.passed", SUMMARY_PASSED), ("summary.failed", SUMMARY_FAILED)]
+    for name, texts in named:
+        out += [(name, lg, texts.get(lg, "")) for lg in LANGS]
+    return out
 
 
 def group_label(group: str, lang: str) -> str:
@@ -215,19 +262,21 @@ def page_lines(doc: Mapping[str, Any], lang: str) -> list[dict[str, str]]:
     if doc.get("format") != FORMAT:
         return []
     shown = []
-    for ln in doc.get("lines") or ():
+    lines = doc.get("lines")
+    for ln in lines if isinstance(lines, list) else ():
         if not isinstance(ln, Mapping):
             continue
-        cid = str(ln.get("id", ""))
-        status = str(ln.get("status", ""))
-        status = status if status in STATUSES else "FAIL"
+        cid = str(ln.get("id", ""))[:64]
         item = BY_ID.get(cid)
+        status = str(ln.get("status", ""))
+        status = status if status in STATUSES and item is not None else "FAIL"  # an unknown id is never green
+        detail = str(ln.get("detail", ""))[:600]
         shown.append({
             "id": cid,
             "group": group_label(item.group if item else "", lang),
             "label": label(cid, lang),
             "status": status,
-            "detail": str(ln.get("detail", ""))[:600],
-            "action": action(cid, lang) if status != "PASS" else "",
+            "detail": detail,
+            "action": action(cid, lang, detail) if status != "PASS" else "",
         })  # fmt: skip
     return shown

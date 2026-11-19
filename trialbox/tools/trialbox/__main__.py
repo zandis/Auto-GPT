@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument(
         "--preflight", action="store_true", help="only the live preflight, each line with its next action (10K-3)"
     )
-    d.add_argument("--lang", default="en", help="--preflight: the language of the labels and actions (en, ja, zh-TW)")
+    d.add_argument("--lang", default=None, help="--preflight: the language of the labels and actions (en, ja, zh-TW)")
     d.add_argument("--out", type=Path, default=None, help="--preflight: also write the first-run page's file here")
     pi = sub.add_parser("platform-images", help="the release-images component from release.json (D-211)")
     pi.add_argument("--release", type=Path, default=None)
@@ -332,6 +332,9 @@ def main(argv: list[str] | None = None) -> int:
         return _platform_cmd(a)
     if a.cmd == "doctor" and a.preflight:
         return _preflight_cmd(a)
+    if a.cmd == "doctor" and (a.out is not None or a.lang is not None):
+        print("doctor: --lang and --out go with --preflight", file=sys.stderr)
+        return 2
     if a.cmd == "doctor":
         from tools.trialbox import doctor
 
@@ -395,7 +398,7 @@ def _preflight_cmd(a: argparse.Namespace) -> int:
     if a.json:
         print(json.dumps(pf.as_json(checks), indent=1, ensure_ascii=False))
     else:
-        print(pf.render(checks, a.lang, color=pf.color_on()))
+        print(pf.render(checks, a.lang or "en", color=pf.color_on()))
     return 0 if doctor.ok(checks) else 1
 
 

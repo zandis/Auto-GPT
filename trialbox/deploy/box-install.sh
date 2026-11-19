@@ -32,7 +32,8 @@
 # Knobs for the tests and the rehearsal only: TB_BOX_HARDWARE (a hardware.json instead of detecting), TB_BOX_INSTALL
 # (the install command), TB_BOX_PY (a python command instead of the image), TB_BOX_COMPOSE (the compose command),
 # TB_BOX_HOST_CHECK (the host check command), TB_ISSUE_DIR, TB_FIRSTRUN_HOST_DIR, TB_BOX_POLL_S, TB_BOX_NO_ROOT=1,
-# TB_SYSTEMD=0 (as install.sh).
+# TB_SYSTEMD=0 (as install.sh), TB_BOX_PREFLIGHT (the python command that runs the first-run page's preflight, even
+# with TB_BOX_PY; 10K-3) and TB_BOX_PREFLIGHT_S (its time limit, 90 s).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -192,17 +193,24 @@ show_code() {
   printf '%s\n\n' "$text"
 }
 box_preflight() {  # 10K-3 (D-1361): the live preflight the first-run page shows (tb_common.preflight); never stops the set-up
-  if [ -n "${TB_BOX_PREFLIGHT:-}" ]; then
-    # shellcheck disable=SC2086 # a command line on purpose (tests)
-    $TB_BOX_PREFLIGHT --out "$FR/preflight.json" >/dev/null 2>&1 || true
-  elif [ -n "${TB_BOX_PY:-}" ]; then
-    :  # the tests' stand-in for the image (TB_BOX_PY): no checks of this host
-  elif python3 -c 'import yaml' 2>/dev/null; then
-    PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" python3 -m tools.trialbox doctor --preflight --env-file "$ROOT/deploy/.env" \
-      --settings "$ROOT/deploy/settings.yaml" --out "$FR/preflight.json" >/dev/null 2>&1 || true
-  else
-    echo "    the preflight is not shown on the set-up page (no python3-yaml on this host): run 'python3 -m tools.trialbox doctor --preflight --env-file deploy/.env' after the set-up"
+  # an earlier run's lines never stay: a run that fails or is stopped leaves no file, and the page says "not run yet"
+  rm -f "$FR/preflight.json"
+  local py="${TB_BOX_PREFLIGHT:-}"
+  if [ -z "$py" ] && [ -n "${TB_BOX_PY:-}" ]; then
+    return 0  # the tests' stand-in for the image (TB_BOX_PY): no checks of this host unless TB_BOX_PREFLIGHT says
   fi
+  if [ -z "$py" ] && ! python3 -c 'import yaml' 2>/dev/null; then
+    echo "    the preflight is not shown on the set-up page (no python3-yaml on this host): run 'python3 -m tools.trialbox doctor --preflight --env-file deploy/.env' after the set-up"
+    return 0
+  fi
+  local settings=()
+  [ ! -f "$ROOT/deploy/settings.yaml" ] || settings=(--settings "$ROOT/deploy/settings.yaml")
+  # one check is bounded in the tool (a hung share, a resolver); the whole run here, killed 5 s after its limit
+  # shellcheck disable=SC2086 # a command line on purpose (tests)
+  PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" timeout -k 5 "${TB_BOX_PREFLIGHT_S:-90}" ${py:-python3} -m tools.trialbox \
+    doctor --preflight --env-file "$ROOT/deploy/.env" ${settings[@]+"${settings[@]}"} --out "$FR/preflight.json" \
+    >/dev/null 2>&1 || true
+  [ -f "$FR/preflight.json" ] || echo "    the preflight did not finish in ${TB_BOX_PREFLIGHT_S:-90} s: the set-up page says it has not run"
   chown 10001:10001 "$FR/preflight.json" 2>/dev/null || true
 }
 box_preflight

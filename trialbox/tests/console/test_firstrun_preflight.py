@@ -24,7 +24,7 @@ DETAIL = {
     "feed": "/srv/feed holds no file yet",
     "mail_relay": "relay.hospital.test:587 did not answer (ConnectionRefusedError: refused)",
     "disk": "/opt/trialbox/deploy: 40 GiB free (5%), below 10%",
-    "tpm_tang": "KEK_BACKEND=tpm but this board has no usable TPM 2.0",
+    "tpm_tang": "keys: KEK_BACKEND=tpm but this board has no usable TPM 2.0; disk unlock: not bound to Tang",
     "gpu_tier": "tier record rtx5090: the card is 'NVIDIA RTX A2000', the record names 5090 or RTX PRO 4500",
 }
 
@@ -88,3 +88,31 @@ def test_the_lines_are_not_shown_before_the_code(tmp_path: Path) -> None:
     _write(b["folder"], dict.fromkeys(text.IDS, "FAIL"))
     page = TestClient(b["app"]).get("/login/first-run?lang=ja").text
     assert "firstrun-preflight" not in page and "/srv/anchor" not in page
+
+
+def test_a_hostile_or_broken_file_is_shown_escaped_and_never_green(tmp_path: Path) -> None:
+    """The file is the installer's, but the page trusts none of it: markup is escaped, an id the list does not know
+    is red with the "call the supplier" action, a status the list does not know is red, broken files show nothing."""
+    b = _box(tmp_path)
+    doc = {"format": text.FORMAT, "at": "<script>alert(1)</script>",
+           "lines": [{"id": "<script>x</script>", "status": "PASS", "detail": "<script>alert(2)</script>"},
+                     {"id": "feed", "status": "<b>", "detail": "<img src=x onerror=alert(3)>"}, "notadict", 5, None]}  # fmt: skip
+    firstrun.write_private(b["folder"] / text.FILE, doc)
+    c = _with_code(b)
+    page = c.get("/login/first-run/answers?lang=ja").text
+    assert "<script>alert" not in page and "<img src=x" not in page and "<script>x" not in page
+    assert page.count('data-status="FAIL"') == 2 and text.UNKNOWN["ja"] in html.unescape(page)
+    for raw in ("{not json", "[]", '{"format":"tb-preflight/1","lines":"abc"}',
+                '{"format":"tb-preflight/1","lines":{"a":1}}',
+                '{"format":"tb-preflight/1","lines":[{"id":["x"],"status":{"a":1},"detail":{"k":"v"}}]}'):  # fmt: skip
+        (b["folder"] / text.FILE).write_text(raw, encoding="utf-8")
+        r = c.get("/login/first-run/answers?lang=ja")
+        assert r.status_code == 200, (raw, r.text[-500:])
+
+
+def test_a_check_that_timed_out_shows_the_time_out_action(tmp_path: Path) -> None:
+    b = _box(tmp_path)
+    lines = [{"id": "backup_share", "status": "FAIL", "detail": f"{text.TIMEOUT_PREFIX} after 20 s: no answer"}]
+    firstrun.write_private(b["folder"] / text.FILE, text.document(lines, "2026-11-19T01:02:03+00:00"))
+    li = html.unescape(_line(_with_code(b).get("/login/first-run/answers?lang=ja").text, "backup_share"))
+    assert '<p class="error">' in li and text.TIMED_OUT["ja"] in li
