@@ -31,6 +31,8 @@ services:
       start_period: 10s
     environment:
       TB_TLS_MODE: "${TB_TLS_MODE:-internal}"
+      # H-48 (D-1328): off, or cbc for a hospital's old client (RUNBOOK §12); the Caddyfile picks its tls snippet by it
+      TB_TLS_OLD_CLIENTS: "${TB_TLS_OLD_CLIENTS:-off}"
       TB_TLS_HOSTNAME: "${TB_TLS_HOSTNAME:?set TB_TLS_HOSTNAME in deploy/.env (the console's DNS name)}"
       TB_AUTH_HOSTNAME: "${TB_AUTH_HOSTNAME:-auth.invalid}"
       # the site's own SSO header names too, so Caddy strips them from every request (review H1)
@@ -95,6 +97,8 @@ services:
       TB_CONSOLE_MFA: "${TB_CONSOLE_MFA:-totp}"
       TB_CONSOLE_IDLE_MINUTES: "${TB_CONSOLE_IDLE_MINUTES:-10}"
       TB_CONSOLE_SESSION_HOURS: "${TB_CONSOLE_SESSION_HOURS:-8}"
+      # H-48: the administrator's first page says while 443 also serves CBC to old clients (RUNBOOK §12)
+      TB_TLS_OLD_CLIENTS: "${TB_TLS_OLD_CLIENTS:-off}"
       TB_OIDC_ENABLED: "${TB_OIDC_ENABLED:-0}"
       TB_OIDC_ISSUER: "${TB_OIDC_ISSUER:-}"
       TB_OIDC_CLIENT_ID: "${TB_OIDC_CLIENT_ID:-trialbox-console}"

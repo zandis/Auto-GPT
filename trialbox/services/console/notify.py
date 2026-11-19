@@ -31,6 +31,13 @@ study gives no list rows, marks, calls or new pre-screens, so it gives no mail u
 AE is due: its participants' visits and unacknowledged serious AEs are still mailed (:data:`CARE_STATES`; closed
 since NEW-LIFE-6, D-763, which closes only an empty study).
 
+10C-14 (JP-15): a working day is the site's (``tb_common.workdays``): Monday to Friday, less the public holidays and
+the New Year break of a country with a holiday list (Japan), as the site changed them. On a day off N2 is what a
+weekend gives (the overdue SAE reports only, D-764) and the full digest comes on the next working day; the weekly N1
+of an investigator whose clinic days are unknown comes on the week's first working day. What concerns a serious AE is
+never held back by a day off: the SAE count of N1 and the SAE reports of N2 go out every day, and their deadlines are
+calendar days. A site of another country, or with no country, has Monday to Friday, as before.
+
 Run on a schedule with ``python -m console.notify --at 07:00`` (N1) and ``--at 07:30`` (N2), or from the admin home
 ("Send notices now"). A notice is sent at most once per person and day.
 """
@@ -38,6 +45,7 @@ Run on a schedule with ``python -m console.notify --at 07:00`` (N1) and ``--at 0
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -46,6 +54,7 @@ from typing import Any
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
+from tb_common.workdays import WEEKDAYS_ONLY, Calendar
 
 from console import actor
 from console import person_state as ps
@@ -54,7 +63,9 @@ from console.backend import Unavailable
 from console.home import Helpers
 from console.i18n import LANGS, translate
 from console.sitestore import NotifyPerson
+from console.timefmt import site_zone
 
+log = logging.getLogger(__name__)
 MAX_ROWS = 10  # per digest section; the rest is one line and the link
 # D-386 (LIFE-008): the states whose enrolled participants' visits and serious AEs are still mailed. Screening rows
 # (the list, marks, calls, new pre-screens) go out only for an open study (``StudyState.runs``); a paused study keeps
@@ -128,8 +139,10 @@ def build_n1(
     today: date,
     studies: Sequence[tuple[str, list[dict[str, Any]]]],
     life: dict[str, dict[str, Any]] | None = None,
+    cal: Calendar = WEEKDAYS_ONLY,
 ) -> Notice | None:
-    """The investigator's pre-clinic mail for ``today``, or None when today is not a mail day for them."""
+    """The investigator's pre-clinic mail for ``today``, or None when today is not a mail day for them. ``cal``: the
+    site's working days (10C-14): the weekly list goes on the week's first working day (Monday unless it is off)."""
     lang = person.lang
     all_rows = [(rs, r) for rs, rows in studies for r in rows]
     known = bool(person.practitioner_id)
@@ -143,11 +156,18 @@ def build_n1(
             mine = []
         why = translate(lang, "n1.why.clinic", day=today.isoformat()) if mine else translate(lang, "n1.why.sae")
     else:
-        if today.weekday() != 0 and not alert:
+        monday = today - timedelta(days=today.weekday())
+        try:  # Monday, or the week's first working day after a holiday (10C-14)
+            first = cal.next_working_day(monday)
+            week_day = today == first and first - monday < timedelta(days=7)
+        except (ValueError, OverflowError):  # the calendar cannot say: Monday, as before; the SAE alert never waits
+            week_day = today.weekday() == 0
+        if not week_day and not alert:
             return None
-        mine = all_rows if today.weekday() == 0 else []
-        why = translate(lang, "n1.why.monday") if mine else translate(lang, "n1.why.sae")
-    end = today + timedelta(days=7)
+        mine = all_rows if week_day else []
+        why_key = "n1.why.monday" if today.weekday() == 0 else "n1.why.firstday"
+        why = translate(lang, why_key) if mine else translate(lang, "n1.why.sae")
+    end = today + timedelta(days=7) if today < date.max - timedelta(days=7) else date.max  # never an OverflowError
     today_rows = [(rs, r) for rs, r in mine if r.get("visit") and r["visit"].date() == today]
     week_rows = [(rs, r) for rs, r in mine if r.get("visit") and today < r["visit"].date() < end]
     if known is False:  # the Monday mail is the whole week, in one list
@@ -209,11 +229,14 @@ def build_n2(
     since: str | None,
     life: dict[str, dict[str, Any]] | None = None,
     health: Any = None,
+    cal: Calendar = WEEKDAYS_ONLY,
 ) -> Notice | None:
     """The coordinator's digest. ``studies``: (study, weekly rows, extra) with extra = {marks: [Mark], retry: {pid:
     date}, registry: {pid: status}}; ``since``: the time of the last digest (None = the last 24 hours); ``health``:
-    the box's health now (``tb_common.metrics.Health``, T-209a), one line at the top."""
-    weekend = today.weekday() >= 5  # NEW-LIFE-7 (D-764): a weekend digest carries the overdue SAE reports only
+    the box's health now (``tb_common.metrics.Health``, T-209a), one line at the top; ``cal``: the site's working days.
+    """
+    # NEW-LIFE-7 (D-764): a weekend digest carries the overdue SAE reports only; 10C-14: so does a holiday's
+    weekend = not cal.is_working_day(today)
     lang = person.lang
     url = base_url()
     cut = since or (datetime.combine(today, datetime.min.time()) - timedelta(days=1)).isoformat()
@@ -321,6 +344,22 @@ def build_health(
 
 
 # ---------------------------------------------------------------------------------------------- collecting and sending
+def site_calendar(h: Any) -> Calendar:
+    """The site's working days (10C-14): the country of ``site.tz``, with the site's changes (``TB_NEW_YEAR_BREAK``,
+    ``TB_DAYS_OFF``, ``TB_DAYS_OPEN``). A test app with no zone has Monday to Friday."""
+    from tb_common.workdays import for_zone
+
+    try:
+        zone = site_zone(h.bk)
+    except Exception:  # no readable zone: the box does not start (D-270); a bare test app has no days off
+        return WEEKDAYS_ONLY
+    try:
+        return for_zone(str(getattr(zone, "key", "") or ""))
+    except Exception:  # never stops a round: Monday to Friday (the health line says why, ``workdays.health``)
+        log.exception("the site's working days could not be built: Monday to Friday this round")
+        return WEEKDAYS_ONLY
+
+
 def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[Notice]:
     """The round's digests. NEW-SEC-1 (D-717, its review): every patient read of the round is signed as the morning
     mail's principal, whoever started it (the timer, or an administrator's "Send notices now")."""
@@ -356,6 +395,7 @@ def _collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[N
         return acc[0]
 
     acc: list[dict[str, Any] | None] = []
+    cal = site_calendar(h)
     for u in h.users.users():
         if not u.mailbox or (u.expires and u.expires < today.isoformat()):
             continue
@@ -411,11 +451,23 @@ def _collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[N
                 refs = [x for x in team.latest_referrals(r.id).values() if x.open and x.pid in listed] if team else []
                 studies.append((r.id, wk_rows, {"marks": store.all_marks(r.id), "retry": retry, "registry": reg,
                                                 "nos": nos, "referrals": refs}))  # fmt: skip
-        n = (
-            build_n1(u, person, today, studies, life)
-            if kind == "N1"
-            else build_n2(u, person, today, studies, store.last_notice("N2", u.username), life, health_now())
-        )
+        last = store.last_notice("N2", u.username) if kind == "N2" else None
+
+        def build(c: Calendar, k: str = kind, who: User = u, p: NotifyPerson = person, st: list[Any] = studies,
+                  lf: dict[str, dict[str, Any]] = life, before: str | None = last) -> Notice | None:  # fmt: skip
+            if k == "N1":
+                return build_n1(who, p, today, st, lf, c)
+            return build_n2(who, p, today, st, before, lf, health_now(), c)
+
+        try:
+            n = build(cal)
+        except Exception:  # 10C-14: a calendar fault never stops a mail; the health line says what is wrong with it
+            log.exception("notice %s for one person: built again without the site's days off", kind)
+            try:
+                n = build(WEEKDAYS_ONLY)
+            except Exception:  # one person's mail that cannot be built does not stop the others' in this round
+                log.exception("notice %s for one person could not be built", kind)
+                continue
         if n is not None:
             out.append(n)
     return out

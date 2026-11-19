@@ -16,8 +16,9 @@ JSON + feasprofile JSON, SCREEN / MICROBATCH candidate list), the candidate regi
 from __future__ import annotations
 
 import json
+import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
@@ -85,6 +86,23 @@ def data_as_of(job: Job, today: date) -> dict[str, Any]:
     whether it is more than :data:`STALE_DAYS` old. Every patient list shows it, so nobody acts on old data unawares."""
     day = job.snapshot_date or job.run_date or (job.updated_at or job.received_at).date()
     return {"day": day.isoformat(), "stale": (today - day).days > STALE_DAYS}
+
+
+# 10D-17 (D-1242, review 14 M14-16): the ClinicalTrials.gov modes of services/criteria_compiler/ctgov.py (MODES; the
+# console does not import the compiler, tests/console/test_ctgov_mode_text.py holds the two equal)
+CTGOV_MODES = ("live", "offline", "cassette")
+
+
+def ctgov_mode(environ: Mapping[str, str] | None = None) -> str:
+    """The box's ClinicalTrials.gov mode, read from ``TB_CTGOV_MODE`` as the compiler reads it (lower case, D-140):
+    one of :data:`CTGOV_MODES`; ``unset`` when the variable is empty or absent (the compiler then works ``offline``, its
+    default, and the page says both); ``unknown`` for a value the compiler refuses. The page never states a mode the
+    setting does not name. The console receives the setting from ``deploy/.env`` like every service (``env_file``);
+    it reads no data for it."""
+    raw = (os.environ if environ is None else environ).get("TB_CTGOV_MODE") or ""
+    if not raw:
+        return "unset"
+    return raw.lower() if raw.lower() in CTGOV_MODES else "unknown"
 
 
 @dataclass
@@ -202,10 +220,14 @@ class Helpers:
         """ROLE-017 (T-102c, D-425): who reads one study's patient-level rows. A page, its XLSX and its ``/api/v1``
         twin ask this one question (the ``phi.view`` row, then the study's delegation log), so they never disagree; a
         refusal is audited."""
-        if not self.permit(sess.user, "phi.view", rid):
+        if not self.rows_ok(sess.user, rid):  # one refusal, one audit event, whichever of the two said no
             self.au.append("console.denied", actor=self.actor(sess), detail={"action": path[:80]})
             raise self.problem(403, "forbidden")
-        self.delegated(sess, rid, path)
+
+    def rows_ok(self, user: Any, rid: str) -> bool:
+        """The question of :meth:`need_rows` as a yes or no, with no audit event (J-5, D-1223: a list shows the
+        screening log's people only to whom the log's own page admits)."""
+        return bool(self.permit(user, "phi.view", rid)) and self.delegated_ok(user, rid)
 
     def delegated_ok(self, user: Any, rid: str | None, tasks: tuple[str, ...] = ("screen",)) -> bool:
         """The rule of :meth:`delegated` as a yes or no, for a page that hides a part instead of refusing. It applies
@@ -671,6 +693,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             saved=saved == "1",
             refreshed=refreshed == "1",
             registry=next((r.kind for r in bk.rulesets() if r.id == rid), "") in st.REGISTRY_KINDS,
+            ctgov_mode=ctgov_mode(),  # 10D-17: the sentence under section 9 states it
         )
 
     @app.post("/studies/{rs}/feasibility/refresh")
