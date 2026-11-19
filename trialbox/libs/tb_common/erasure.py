@@ -491,7 +491,7 @@ TABLES: dict[str, Entry] = {
     **_each("vec", ["tb_id_rule"], _none("the lake-id rule the store's ids were made under (D-1253)")),
     **_each("profile", ["tb_id_rule"], _none("the lake-id rule the store's ids were made under (D-1253)")),
     **_each("orch", ["tb_id_rule"], _none("the lake-id rule the store's ids were made under (D-1253)")),
-    **_each("edc", ["tb_id_rule"], _none("the lake-id rule the store's ids were made under (D-1253)")),
+    **_each("edc", ["tb_id_rule_study"], _none("the lake-id rule each study's citations were made under (D-1253)")),
     **_each("omop", ("care_site", "provider"), _none("sites and providers, no patient")),
     **_each(
         "omop",

@@ -143,19 +143,11 @@ def _drop(rows: list[dict[str, Any]], every: int) -> list[dict[str, Any]]:
 
 
 def next_night(ndjson: Path, out: Path) -> None:
-    """The next night's feed: the same snapshot with a tenth of the clinical records gone (deleted at the source)
-    and every 25th remaining numeric result corrected in place (the OMOP store updates it, with its before-image).
-    Patients stay (removing a person is the opt-out path's job, never a feed delta's)."""
-    out.mkdir(parents=True, exist_ok=True)
-    for f in sorted(ndjson.glob("*.ndjson")):
-        rows = [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines() if line.strip()]
-        if f.stem != "Patient":
-            rows = _drop(rows, 10)
-        if f.stem == "Observation":
-            numeric = [r for r in rows if isinstance((r.get("valueQuantity") or {}).get("value"), int | float)]
-            for r in numeric[::25]:
-                r["valueQuantity"]["value"] = round(r["valueQuantity"]["value"] + 1, 4)
-        (out / f.name).write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    """The next night's feed (``tools.golden_nights``: which records go and which results are corrected follows their
+    content, never their ids, D-1253)."""
+    from tools.golden_nights import next_night as chosen
+
+    chosen(ndjson, out)
 
 
 def build_sets(work: Path) -> list[Built]:

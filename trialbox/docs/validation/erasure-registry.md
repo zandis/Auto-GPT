@@ -122,7 +122,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `edc.switch` | settings and configuration, no patient |
 | `edc.switch_event` | settings and configuration, no patient |
 | `edc.target` | settings and configuration, no patient |
-| `edc.tb_id_rule` | the lake-id rule the store's ids were made under (D-1253) |
+| `edc.tb_id_rule_study` | the lake-id rule each study's citations were made under (D-1253) |
 | `edcdoor.oidc_code` | staff, accounts or sign-in state, no patient |
 | `feedback.entry` | in-product feedback from staff, not about a patient (record inventory O-02) |
 | `lake:.rebuild.lock` | the lock one lake rebuild holds (T-722), no patient |

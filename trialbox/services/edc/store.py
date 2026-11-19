@@ -133,8 +133,25 @@ CREATE TABLE IF NOT EXISTS direct_source_event (id BIGINT GENERATED ALWAYS AS ID
 SCHEMA_V8 = """
 ALTER TABLE draft ADD COLUMN IF NOT EXISTS prov TEXT
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8,
-              id_rule.DDL)  # fmt: skip  # D-1253: v9, the rule the citations' lake rows were made under
+# D-1253: the lake-id rule each study's citations were made under, per study (tb_common.id_rule): a study whose
+# decided, signed or sent values cite lake rows of the earlier rule is frozen for prefill; the others go on
+SCHEMA_V9 = """
+CREATE TABLE IF NOT EXISTS tb_id_rule_study (study TEXT PRIMARY KEY, rule INTEGER NOT NULL CHECK (rule > 0),
+  recorded_at TIMESTAMPTZ NOT NULL DEFAULT now())
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9)
+#: D-1253: a study's drafts whose citations carry a trail (a decision, a signature, a send): its records
+TRAILED = (
+    "SELECT 1 FROM draft d WHERE d.study = ? AND (d.citation IS NOT NULL OR d.final_citation IS NOT NULL) AND "
+    "(d.fate IN ('confirmed', 'edited') OR d.signature_id IS NOT NULL OR d.sent_at IS NOT NULL OR EXISTS "
+    "(SELECT 1 FROM decision x WHERE x.draft_id = d.id) OR EXISTS (SELECT 1 FROM sent x WHERE x.draft_id = d.id) OR "
+    "EXISTS (SELECT 1 FROM copy_tick x WHERE x.draft_id = d.id)) LIMIT 1"
+)
+ID_RULE_FROZEN = (
+    "prefill is stopped for this study: its decided, signed or sent values cite lake records of the earlier id "
+    "rule (D-1253), which the rebuilt lake does not hold. They stay as the study's kept record, readable and "
+    "exportable; close the study in EDC or start it again under a new study key"
+)
 #: tables that only ever grow (D-281): a trigger refuses UPDATE, DELETE and TRUNCATE on each
 APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record",
                "copy_tick", "direct_source_event")  # fmt: skip
@@ -522,6 +539,29 @@ class EdcStore:
         if not self.switch(study).on:
             raise EdcError("edc.off", "prefill is off for this study (no sponsor acknowledgement on file)")
 
+    def id_rule_frozen(self, study: str) -> bool:
+        """D-1253: the study's decided, signed or sent values cite lake rows of the earlier id rule (it was never
+        stamped with the current one and holds such a trail): no new draft, nothing sent."""
+        with self._db.transaction() as tx:
+            return self._frozen(tx, study)
+
+    @staticmethod
+    def _frozen(tx: Any, study: str) -> bool:
+        stamped = tx.fetchval("SELECT 1 FROM tb_id_rule_study WHERE study = ? AND rule = ?", (study, id_rule.RULE))
+        return stamped is None and tx.fetchval(TRAILED, (study,)) is not None
+
+    def _study_rule(self, tx: Any, study: str) -> None:
+        """In a draft run's transaction: a study of the current rule goes on; one with no trail is stamped and goes
+        on; a frozen one is refused before anything is written."""
+        if self._frozen(tx, study):
+            raise EdcError("edc.id_rule_frozen", ID_RULE_FROZEN)
+        tx.execute("INSERT INTO tb_id_rule_study (study, rule) VALUES (?, ?) ON CONFLICT (study) DO NOTHING",
+                   (study, id_rule.RULE))  # fmt: skip
+
+    def require_not_frozen(self, study: str) -> None:
+        if self.id_rule_frozen(study):
+            raise EdcError("edc.id_rule_frozen", ID_RULE_FROZEN)
+
     def require_drafting(self, study: str) -> None:
         """Prefill on or copy-assist (D-434): drafts, the ODM import, review and signatures."""
         if not self.switch(study).drafting:
@@ -591,7 +631,7 @@ class EdcStore:
         A record key stays bound to the one subject it was first drafted for (D-162, review E-02)."""
         ids: list[int] = []
         with self._db.transaction() as tx:
-            id_rule.ensure(tx, id_rule.EDC)  # D-1253: a citation's lake row of rule 2 never beside rule-1 ones
+            self._study_rule(tx, study)  # D-1253: never a citation of rule 2 beside a study's rule-1 records
             other = tx.fetchval("SELECT pid FROM draft WHERE study = ? AND record = ? AND pid <> ? LIMIT 1",
                                 (study, record, pid))  # fmt: skip
             if other is not None:
@@ -668,6 +708,7 @@ class EdcStore:
         :meth:`add_drafts`. A record key stays bound to its one subject (D-162). Nothing is decided or signed."""
         out: dict[str, list[dict[str, Any]]] = {"drafted": [], "decided": [], "same": []}
         with self._db.transaction() as tx:
+            self._study_rule(tx, study)  # D-1253: a frozen study takes no new draft, from a file either
             for rec, pid in sorted({(str(p["record"]), str(p["pid"])) for p in proposals}):
                 other = tx.fetchval("SELECT pid FROM draft WHERE study = ? AND record = ? AND pid <> ? LIMIT 1",
                                     (study, rec, pid))  # fmt: skip

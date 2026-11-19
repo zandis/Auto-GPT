@@ -903,6 +903,8 @@ def _run_ingest(
             if rejected:
                 n_bad = sum(rejected.values())
                 tables[table]["rejected"] = dict(sorted(rejected.items()))
+                if no_one := sum(n for k, n in rejected.items() if ": no patient (" in k):  # D-1253: counts only
+                    tables[table]["rejected_no_patient"] = no_one
                 why = "; ".join(f"{k} ({v})" for k, v in sorted(rejected.items()))
                 log.warning("%s: %d of %d rows rejected: %s", table, n_bad, len(rows), why)
                 if n_bad * 100 > REJECT_MAX_PCT * len(rows):
@@ -1304,6 +1306,10 @@ def _run_ingest(
                     t: sum(v["references_to_another_patient"].values())
                     for t, v in sorted(tables.items())
                     if v.get("references_to_another_patient")
+                }
+                or None,
+                "rejected_no_patient": {
+                    t: v["rejected_no_patient"] for t, v in sorted(tables.items()) if v.get("rejected_no_patient")
                 }
                 or None,
                 "deletes_without_patient": {

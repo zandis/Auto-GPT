@@ -137,7 +137,8 @@ class EdcService:
         items = self.store.map(rs)
         return {"switch": sw.as_dict(), "events": self.store.switch_events(rs)[-10:], "map": items,
                 "target": self.store.target(rs), "mapped": sum(1 for i in items if i.get("source", "none") != "none"),
-                "subjects": self.store.subjects(rs), "fields": len(self.dc.fields(rs))}  # fmt: skip
+                "subjects": self.store.subjects(rs), "fields": len(self.dc.fields(rs)),
+                "id_rule_frozen": self.store.id_rule_frozen(rs)}  # fmt: skip
 
     @audits_refusals("edc.switch")
     def set_switch(self, rs: str, on: bool, *, by: str, role: str, **ack: Any) -> dict[str, Any]:
@@ -470,6 +471,7 @@ class EdcService:
     @audits_refusals("edc.sent")
     def send_redcap(self, rs: str, by: str, record: str | None = None) -> dict[str, Any]:
         self.store.require_on(rs)
+        self.store.require_not_frozen(rs)  # D-1253: nothing of a frozen study is sent
         target = self.store.target(rs)
         if target is None:
             raise EdcError("edc.target", "no REDCap target is set for this study")

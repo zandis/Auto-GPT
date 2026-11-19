@@ -11,10 +11,11 @@ lake table, the chunker's rows, and per ruleset the FEAS funnel, the candidates 
     python tools/goldens_id_proof.py compare /var/tmp/proof/old /var/tmp/proof/new
 
 ``compare`` treats every 32-hex token in any value (a record id, a reference, a pid, a panel component's
-``<id>.<code>``, an evidence string ``<id>|<day>``) as an id. It learns one map old token -> new token from the rows
-whose content without their ids is unique in their table on both sides, refuses a map that is not one-to-one, and
-then requires, for **every** row of every table and every outcome: the old row with its ids mapped is the new row,
-exactly; and every funnel, count and candidate list identical. Pids map to themselves (a patient's pseudonym did not
+``<id>.<code>``, an evidence string ``<id>|<day>``) as an id. It learns one map old token -> new token from the lake
+rows whose content without their ids is unique in their table on both sides, refuses a map that is not one-to-one,
+and then requires, for **every** row of every table and every outcome: the old row with its ids mapped is the new
+row, exactly, a list compared as a set (evidence and references are listed by id, so their order follows the ids);
+and every funnel, count and candidate list identical. Pids map to themselves (a patient's pseudonym did not
 change). It prints the counts and exits 0 only when all holds. Data sets one side lacks (a set new in this card) are
 named and skipped.
 """
@@ -50,6 +51,10 @@ def _write(path: Path, rows: list[Any]) -> None:
 
 def dump(root: Path, out: Path, work: Path, source: str) -> int:
     _paths(root.resolve())
+    # the next night of this checkout's goldens, whichever release builds the sets: which records go follows their
+    # content, never their ids (tools/golden_nights.py, loaded from this file's own folder)
+    import importlib.util
+
     import duckdb
     import pyarrow.parquet as pq
     from embed_service.embedder import HashEmbedder
@@ -63,6 +68,12 @@ def dump(root: Path, out: Path, work: Path, source: str) -> int:
     from tools import omop_parity as parity
     from tools import pglocal
 
+    spec = importlib.util.spec_from_file_location("golden_nights_d1253", Path(__file__).resolve().with_name(
+        "golden_nights.py"))  # fmt: skip
+    assert spec is not None and spec.loader is not None
+    nights = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(nights)
+    g.next_night = nights.next_night
     work.mkdir(parents=True, exist_ok=True)
     url = g.private_url(work)
     own = split_url(url)[1]
@@ -118,8 +129,21 @@ def _canon(x: Any) -> str:
     return json.dumps(x, sort_keys=True, ensure_ascii=False)
 
 
+def _sorted_lists(x: Any) -> Any:
+    """Every list as a set (its order may follow the ids: evidence and references are listed by id)."""
+    if isinstance(x, dict):
+        return {k: _sorted_lists(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return sorted((_sorted_lists(v) for v in x), key=_canon)
+    return x
+
+
+def _norm(text: str) -> str:
+    return _canon(_sorted_lists(json.loads(text)))
+
+
 def _skeleton(text: str) -> str:
-    return TOKEN.sub("#", text)
+    return _norm(TOKEN.sub("#", text))
 
 
 class Proof:
@@ -161,7 +185,8 @@ def compare(old_dir: Path, new_dir: Path) -> int:
     texts: dict[str, tuple[list[str], list[str]]] = {}
     for k in common:
         texts[k] = ([_canon(r) for r in _read(old_f[k])], [_canon(r) for r in _read(new_f[k])])
-    # 1. the map, from the rows whose content without its ids is unique in its file on both sides
+    # 1. the map, from the lake rows whose content without its ids is unique in its file on both sides (an outcome's
+    #    lists are ordered by id, so its tokens are never paired by position: outcomes are checked, not learned from)
     for k, (old, new) in texts.items():
         if len(old) != len(new):
             pr.problems.append(f"{k}: {len(old)} rows became {len(new)}")
@@ -175,6 +200,8 @@ def compare(old_dir: Path, new_dir: Path) -> int:
         if Counter({s: len(v) for s, v in o_by.items()}) != Counter({s: len(v) for s, v in n_by.items()}):
             pr.problems.append(f"{k}: the rows' content without their ids differs")
             continue
+        if "/tables/" not in k:
+            continue
         for s, rows in o_by.items():
             if len(rows) == 1:
                 pr.learn(rows[0], n_by[s][0], k)
@@ -182,9 +209,10 @@ def compare(old_dir: Path, new_dir: Path) -> int:
     for k, (old, new) in texts.items():
         if len(old) != len(new):
             continue
-        got = Counter(pr.mapped(r) for r in old)
-        if got != Counter(new):
-            bad = sum((got - Counter(new)).values())
+        got = Counter(_norm(pr.mapped(r)) for r in old)
+        want = Counter(_norm(r) for r in new)
+        if got != want:
+            bad = sum((got - want).values())
             pr.problems.append(f"{k}: {bad} rows differ once the old ids are mapped")
         pr.counts["rows"] += len(old)
         pr.counts["files"] += 1
@@ -199,7 +227,10 @@ def compare(old_dir: Path, new_dir: Path) -> int:
     print(json.dumps({"files": pr.counts["files"], "rows": pr.counts["rows"], "ids": len(pr.map),
                       "ids_changed": changed, "ids_same": len(pr.map) - changed, "new_data_sets": only_new,
                       "problems": len(pr.problems)}, indent=1))  # fmt: skip
-    for p in pr.problems[:50]:
+    by_file = Counter(p.split(": ", 1)[0] for p in pr.problems)
+    for f, n in by_file.most_common():
+        print(f"PROBLEMS {n:6d} {f}")
+    for p in pr.problems[:20]:
         print("PROBLEM", p)
     if not pr.problems:
         print("PROVED: every row, funnel, candidate list and outcome is the same once the old ids are mapped, one to "

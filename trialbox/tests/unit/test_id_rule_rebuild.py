@@ -1,6 +1,7 @@
 """D-1253: the one rebuild of a box whose lake ids were made under the earlier rule (``tools/id_rule_rebuild.py``,
-runbook 30). A dry run changes nothing; ``--yes`` clears what was made from the old ids and stamps each store; EDC
-values a person decided are never cleared, and the rebuild then changes nothing at all. Synthetic data only."""
+runbook §5). A dry run changes nothing; ``--yes`` clears what was made from the old ids and stamps each store. EDC's
+trail is never cleared: a study whose decided values cite the old ids stays frozen and is named. Synthetic data
+only."""
 
 from __future__ import annotations
 
@@ -102,10 +103,12 @@ def test_the_rebuild_clears_what_the_old_ids_made_and_the_next_night_is_a_full_o
     from omop.schema import schema_for
 
     for store, schema in [(id_rule.OMOP, schema_for(cfg.lake_dir)), (id_rule.DERIVED, None), (id_rule.VEC, None),
-                          (id_rule.TWIN, None), (id_rule.POOL, None), (id_rule.EDC, None)]:  # fmt: skip
+                          (id_rule.TWIN, None), (id_rule.POOL, None)]:  # fmt: skip
         assert id_rule.probe(db_url, store, schema) == id_rule.EMPTY, store.name
         with Database.connect(db_url, schema or store.schema) as db:
             assert db.fetchval("SELECT rule FROM tb_id_rule") == id_rule.RULE, store.name
+    with Database.connect(db_url, "edc") as db:  # the open draft (no trail) of a study of the earlier rule: gone
+        assert db.fetchval("SELECT count(*) FROM draft") == 0
     with Database.connect(db_url, schema_for(cfg.lake_dir)) as db:  # the person stays: its pseudonym is the same
         assert db.fetchval("SELECT count(*) FROM tb_record WHERE resource_type = 'Patient'") == 1
     # the next night: no snapshot to merge over, so the night is whole, under rule 2
@@ -114,21 +117,24 @@ def test_the_rebuild_clears_what_the_old_ids_made_and_the_next_night_is_a_full_o
     assert id_rule.snapshot_rule(folder) == id_rule.RULE and len(list(read_type(folder, "Condition"))) == 1
 
 
-def test_edc_values_a_person_decided_stop_the_rebuild_before_it_changes_anything(
+def test_edc_values_a_person_decided_are_kept_and_their_study_is_named_frozen(
     tmp_path: Path, db_url: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Nothing of EDC's trail is ever cleared: the decided draft and its decision stay; the open draft no trail names
+    goes; the study is named frozen with its export; everything else is rebuilt."""
     cfg = _old_lake(tmp_path)
     _tables(db_url)
     with Database.connect(db_url, "edc") as db:
         db.execute("INSERT INTO draft VALUES (2, 'S2', '{}', '{}', 'confirmed', 7, NULL)")
         db.execute("INSERT INTO decision VALUES (1, 2)")
-    assert rb.main(["--lake", str(cfg.lake_dir), "--db-url", db_url, "--yes"]) == 2
-    assert "study S2: 1" in capsys.readouterr().err
-    assert snapshot_dir(cfg.lake_dir, "2026-10-01").exists()  # nothing changed
-    with Database.connect(db_url, "vec") as db:
-        assert db.fetchval("SELECT count(*) FROM note_chunk") == 1
+    assert rb.plan(cfg.lake_dir, db_url)["edc"]["frozen_studies"] == {"S2": 1}
+    assert rb.main(["--lake", str(cfg.lake_dir), "--db-url", db_url, "--yes"]) == 0
+    said = capsys.readouterr().out
+    assert "EDC study S2: frozen for prefill (1 decided" in said and "/api/v1/studies/S2/edc/export/odm" in said
+    assert not (cfg.lake_dir / "ndjson").exists()
     with Database.connect(db_url, "edc") as db:
-        assert db.fetchval("SELECT count(*) FROM draft") == 2
+        assert [r[0] for r in db.fetchall("SELECT id FROM draft ORDER BY id")] == [2]
+        assert db.fetchval("SELECT count(*) FROM decision") == 1
 
 
 def test_the_host_command_runs_the_rebuild_as_the_admin_in_a_one_off_adapter_container(

@@ -15,8 +15,14 @@ keeps such ids and was written under rule 1 would hold ids no rule-2 night gives
   runbook step. Nothing is written to it.
 * **The night's check.** The adapter refuses a night, before it reads or writes anything, when the lake's snapshots
   or a store it can read (:func:`probe`) are under rule 1 (``adapter.pipeline.check_id_rule``).
-* **The one way out** is the rebuild of ``python -m tools.id_rule_rebuild`` (runbook
-  §5, "Lake ids per patient"): every store above is cleared; the first night after it is a full one.
+  The adapter's role reads only its own schemas (D-378): the vector store, the patient twin and the candidate pool
+  are caught at their own first write after the night, not before it, so a night can complete while those three
+  still hold old ids until their next write. Nothing mixes; run the rebuild's plan right after the update.
+* **EDC keeps the rule per study** (``edc.store``): a study whose decided, signed or sent values cite lake rows of
+  the earlier rule is frozen for prefill (no new draft, nothing sent); its records stay. The one place old ids stay
+  on a box, by design.
+* **The one way out** is the rebuild of ``python3 -m tools.trialbox id-rule-rebuild`` (runbook §5, "Lake ids per
+  patient"): every store above is cleared; the first night after it is a full one.
 """
 
 from __future__ import annotations
@@ -59,8 +65,9 @@ DERIVED = Store("derived", "derived", "score_row")
 VEC = Store("vec", "vec", "note_chunk")
 TWIN = Store("profile", "profile", "tb_patient_profile")
 POOL = Store("orch", "orch", "pool")
-EDC = Store("edc", "edc", "draft", "citation IS NOT NULL OR final_citation IS NOT NULL")
-STORES = (OMOP, DERIVED, VEC, TWIN, POOL, EDC)
+STORES = (OMOP, DERIVED, VEC, TWIN, POOL)
+#: the EDC drafts keep the rule per study (``edc.store``'s ``tb_id_rule_study``): a study whose decided, signed or sent
+#: values cite rows of the earlier rule is frozen for prefill, the others go on; nothing of the trail is ever cleared
 
 
 class IdRuleError(RuntimeError):

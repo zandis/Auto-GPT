@@ -20,11 +20,14 @@ rebuilt once, from its sources:
 4. the vector store: the note chunks (the embeddings are keyed by the text's hash and stay);
 5. the patient twin: every document and version;
 6. the candidate pool: every row (MICROBATCH fills it again);
-7. the EDC drafts that are open and have no decision, signature or send.
+7. the EDC drafts of a study of the earlier rule that no trail row names (open drafts: the next run makes them again).
 
-Then each store is stamped with rule 2. **EDC decided or signed values are never cleared**: their trail is
-append-only (D-281). While any EDC draft with a citation has a decision, a signature or a send, the command stops
-before it changes anything and names each study with its counts; the runbook says what a person decides then.
+Then each store is stamped with rule 2. **Nothing of EDC's trail is ever cleared** (append-only, D-281), no trigger is
+disabled and no signed record rewritten. EDC keeps the rule per study (``edc.store``): a study whose decided,
+signed or sent values cite rows of the earlier rule is **frozen** for prefill (no new draft, nothing sent); its
+records stay, readable and exportable. The plan and the rebuild name each frozen study with its count and the
+export (its ODM file); a person closes the study in EDC or starts it again under a new study key. The rebuild offers
+no removal of any study's EDC records.
 
 Published job outputs and the audit chain are not touched: an output made before the rebuild cites the old ids and
 cannot be traced into the rebuilt lake; the chain is unaffected. What was cleared is written to
@@ -66,15 +69,26 @@ COUNTS: dict[str, tuple[str, ...]] = {
     "orch": ("pool",),
 }
 OMOP_FEED = "source_kind = 'feed' AND resource_type <> 'Patient'"
-EDC_DECIDED = (
-    "SELECT d.study, count(*) FROM draft d WHERE (d.citation IS NOT NULL OR d.final_citation IS NOT NULL) AND "
-    "(d.fate IN ('confirmed', 'edited') OR d.signature_id IS NOT NULL OR d.sent_at IS NOT NULL OR EXISTS "
-    "(SELECT 1 FROM decision x WHERE x.draft_id = d.id)) GROUP BY d.study ORDER BY d.study"
+#: EDC (D-1253): a study is frozen when its decided, signed or sent values cite rows of the earlier rule and it was
+#: never stamped with the current one (``edc.store``); an open draft is one no trail row names (every append-only
+#: table with a ``draft_id``, read from the schema, so a trail table added later is never missed)
+EDC_TRAIL_TABLES = (
+    "SELECT DISTINCT table_name FROM information_schema.columns WHERE table_schema = current_schema() AND "
+    "column_name = 'draft_id' AND table_name <> 'draft' ORDER BY table_name"
 )
-EDC_OPEN = (
-    "FROM draft d WHERE NOT EXISTS (SELECT 1 FROM decision x WHERE x.draft_id = d.id) AND d.signature_id IS NULL "
-    "AND d.sent_at IS NULL AND d.fate NOT IN ('confirmed', 'edited')"
-)
+EDC_STAMPED = "d.study IN (SELECT study FROM tb_id_rule_study WHERE rule = 2)"
+
+
+def _edc_clauses(db: Any) -> tuple[str, str]:
+    """``(the trail of a draft, a draft of a study of the earlier rule)``, as SQL over ``draft d``."""
+    trail = " OR ".join(
+        f"EXISTS (SELECT 1 FROM {t} x WHERE x.draft_id = d.id)" for (t,) in db.fetchall(EDC_TRAIL_TABLES)
+    )
+    has = "(d.fate IN ('confirmed', 'edited') OR d.signature_id IS NOT NULL OR d.sent_at IS NOT NULL" + (
+        f" OR {trail})" if trail else ")"
+    )
+    old = f"NOT {EDC_STAMPED}" if _has(db, "tb_id_rule_study") else "TRUE"
+    return has, old
 
 
 class Refused(RuntimeError):
@@ -117,13 +131,22 @@ def plan(lake: Path, url: str | None) -> dict[str, Any]:
         with Database.connect(url, name) as db:
             if store is id_rule.OMOP and _has(db, "tb_record"):
                 row["feed_records"] = int(db.fetchval(f"SELECT count(*) FROM tb_record WHERE {OMOP_FEED}"))
-            elif store is id_rule.EDC and _has(db, "draft"):
-                row["decided_by_study"] = {str(s): int(n) for s, n in db.fetchall(EDC_DECIDED)}
-                row["open_drafts"] = int(db.fetchval(f"SELECT count(*) {EDC_OPEN}"))
             else:
                 row["rows"] = {t: int(db.fetchval(f"SELECT count(*) FROM {t}")) for t in COUNTS.get(name, ())
                                if _has(db, t)}  # fmt: skip
         out[store.name] = row
+    if prefix + "edc" in present:
+        with Database.connect(url, "edc") as db:
+            if _has(db, "draft"):
+                trail, old = _edc_clauses(db)
+                cited = "(d.citation IS NOT NULL OR d.final_citation IS NOT NULL)"
+                frozen = db.fetchall(f"SELECT d.study, count(*) FROM draft d WHERE {cited} AND {trail} AND {old} "
+                                     "GROUP BY d.study ORDER BY d.study")  # fmt: skip
+                out["edc"] = {
+                    "frozen_studies": {str(s): int(n) for s, n in frozen},
+                    "open_drafts": int(db.fetchval(f"SELECT count(*) FROM draft d WHERE NOT {trail} AND {old}")),
+                    "export": "GET /api/v1/studies/<study>/edc/export/odm",
+                }
     return out
 
 
@@ -157,18 +180,11 @@ def _clear_omop(db: Any) -> dict[str, int]:
 
 
 def rebuild(lake: Path, url: str | None) -> dict[str, Any]:
-    """Clear and stamp (module docstring); raises :class:`Refused`, before any change, on EDC decided values."""
+    """Clear and stamp (module docstring). EDC's trail is never touched: a frozen study stays frozen."""
     from omop.schema import schema_for
     from tb_common.db import Database, split_url
 
     before = plan(lake, url)
-    decided = (before.get("edc") or {}).get("decided_by_study") or {}
-    if decided:
-        raise Refused(
-            "EDC values a person decided, signed or sent cite lake rows of the earlier rule: "
-            + ", ".join(f"study {s}: {n}" for s, n in sorted(decided.items()))
-            + f". They are records and are never cleared here. See {id_rule.RUNBOOK}, step 2"
-        )
     done: dict[str, Any] = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "rule": id_rule.RULE}
     if url:
         prefix = split_url(url)[1]
@@ -189,10 +205,12 @@ def rebuild(lake: Path, url: str | None) -> dict[str, Any]:
                 tx.execute(id_rule.DDL)
                 tx.execute("INSERT INTO tb_id_rule (rule) VALUES (?) ON CONFLICT (rule) DO NOTHING", (id_rule.RULE,))
         if prefix + "edc" in present:
-            with Database.connect(url, "edc") as db, db.transaction() as tx:
-                done["edc"] = {"open_drafts": tx.execute(f"DELETE {EDC_OPEN}")}
-                tx.execute(id_rule.DDL)
-                tx.execute("INSERT INTO tb_id_rule (rule) VALUES (?) ON CONFLICT (rule) DO NOTHING", (id_rule.RULE,))
+            with Database.connect(url, "edc") as db:
+                if _has(db, "draft"):
+                    trail, old = _edc_clauses(db)
+                    with db.transaction() as tx:  # open drafts no trail names, of a study not of the current rule
+                        n = tx.execute(f"DELETE FROM draft d WHERE NOT {trail} AND {old}")
+                    done["edc"] = {"open_drafts": n, "frozen_studies": (before.get("edc") or {}).get("frozen_studies")}
     gone = []
     for entry in LAKE_ENTRIES:
         path = lake / entry
@@ -228,6 +246,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     print(json.dumps({"cleared": done}, indent=1, sort_keys=True))
     print("the next night reads every table whole (a full night); then the lake is rebuilt from it")
+    for study, n in sorted(((done.get("edc") or {}).get("frozen_studies") or {}).items()):
+        print(f"EDC study {study}: frozen for prefill ({n} decided, signed or sent values cite the earlier rule's "
+              f"rows); export it: GET /api/v1/studies/{study}/edc/export/odm ({id_rule.RUNBOOK}, step 2)")  # fmt: skip
     return 0
 
 

@@ -493,6 +493,8 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
         _assigned("services/datacore/lifecycle.py", "visit_status", "status"),
     ),
     "life.state.": _values("datacore.lifecycle", "STATES"),
+    # D-1253: the kinds of a night's record-id counts on the data-ops batch page
+    "dataops.ids.kind.": lambda: [k for k, _ in importlib.import_module("console.dataops_page").ID_COUNTS],
     "life.reason.sf.": _values("datacore.lifecycle", "SCREEN_FAIL_REASONS"),
     "life.reason.wd.": _values("datacore.lifecycle", "WITHDRAW_REASONS"),
     "life.anchor.": _values("datacore.lifecycle", "ANCHORS"),

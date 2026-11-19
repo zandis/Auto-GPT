@@ -459,8 +459,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "237fcba81e000e604f3cc4bac1e217bd99ed1a73bc031522efb79fb04801fdac",
         # E-PROV-1 (D-1047, D-989): edc version 8, the model calls each draft came from
         "9d2f3dc99b16a609aeefd428212cadc11d3b1c75f7014354a9e12d83323d4697",
-        # D-1253: tb_id_rule, the rule the store's lake ids were made under (tb_common.id_rule)
-        "3504fdf2b59e5659f3f6e54ef8a7f2584b72dc4b80a3c4b9fa4313035dbdd03e",
+        # D-1253: tb_id_rule_study, the lake-id rule per study (edc.store: a study of the earlier rule is frozen)
+        "ecb48a88e33875c30e09674444b53add6ee83f582af14cc1e26deac18c3d3759",
     ),
     # T-108c (D-401): mail version 3, the send keys as the outbox and the job type on each intake row
     "mail": ("dc540a482b5619e6226318becb615e79a639ab2be3c2d47154b43029886f8579",),
