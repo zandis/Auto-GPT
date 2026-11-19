@@ -269,8 +269,11 @@ def main(argv: list[str] | None = None) -> int:
 
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("zip", nargs="?")
-    ap.add_argument("--by", help="who runs it (default: offline-update for a zip; for --site-profile the user the "
-                    "command runs as, host:<user>)")
+    ap.add_argument(
+        "--by",
+        help="who runs it (default: offline-update for a zip; for --site-profile the user the "
+        "command runs as, host:<user>)",
+    )
     ap.add_argument(
         "--site-profile",
         nargs=2,
