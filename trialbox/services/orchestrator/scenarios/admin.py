@@ -93,7 +93,7 @@ def twins_after_ingest(ctx: Ctx, snapshot: object) -> None:
     try:
         guarded("twin", generation_of(lake, night), build)
     except Exception as exc:  # neither the ledger's failure nor the build's fails the ingest
-        log.warning("twin build after the ingest is not finished (%s: %s)", type(exc).__name__, exc)
+        log.warning("twin build after the ingest is not finished (%s)", type(exc).__name__)
 
 
 def ingest(ctx: Ctx) -> Outcome:

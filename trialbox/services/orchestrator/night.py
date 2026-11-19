@@ -181,7 +181,7 @@ def _say(orch: Orchestrator, night: str, what: str, message: str, detail: dict[s
         try:
             orch.audit.append("scheduler.held", detail={**detail, "night": night})
         except Exception as exc:  # the audit must not take the chain down
-            log.warning("scheduler.held not audited: %s", exc)
+            log.warning("scheduler.held not audited: %s", type(exc).__name__)
 
 
 def _start_step(orch: Orchestrator, step: str, night: str, day: date) -> list[str | None]:
@@ -273,7 +273,7 @@ def advance(orch: Orchestrator) -> list[str | None]:
                 night_work.note(orch)
             return started
     except Exception as exc:  # the chain must not take a job's end or the start-up down
-        log.exception("the night chain did not advance: %s", exc)
+        log.exception("the night chain did not advance: %s", type(exc).__name__)
         return []
 
 

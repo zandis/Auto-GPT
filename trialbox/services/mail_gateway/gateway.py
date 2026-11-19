@@ -405,7 +405,7 @@ class Gateway:
             try:
                 self.jobs(req)
             except OrchestratorDown as exc:
-                log.warning("orchestrator unavailable, will retry %s: %s", m.message_id, exc)
+                log.warning("orchestrator unavailable, will retry %s: %s", m.message_id, type(exc).__name__)
                 return None
             except JobRefused as exc:
                 return self._reject(m, ts.isoformat(), f"request refused: {exc}", True, True)

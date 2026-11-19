@@ -181,7 +181,7 @@ def after_ingest(orch: Any, snapshot: str) -> dict[str, Any] | None:
         try:
             orch.audit.append("derive.failed", detail={"snapshot": snapshot, "error": type(exc).__name__})
         except Exception as aexc:  # the audit must not take the job down
-            log.warning("derive.failed not audited: %s", aexc)
+            log.warning("derive.failed not audited: %s", type(aexc).__name__)
         return None
 
 

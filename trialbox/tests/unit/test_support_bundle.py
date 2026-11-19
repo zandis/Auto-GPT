@@ -197,3 +197,26 @@ def test_trialbox_command(box: Path, tmp_path: Path, capsys: pytest.CaptureFixtu
                           "--add", "/data/x.json"]) == 2  # fmt: skip
     assert "refused, nothing written" in capsys.readouterr().err
     assert os.listdir(usb) == [next(usb.glob("*.tar.gz")).name]
+
+
+def test_a_planted_japanese_identifier_in_a_log_line_does_not_reach_the_bundle(box: Path, tmp_path: Path) -> None:
+    """10C-1c: the bundle reads the collected days of TrialBox's own services only (never the third-party tree) and
+    scrubs every line with the privacy guard's rules: a Japanese name, insurer number, phone and postal code written
+    to a service's log (by a line that bypassed the services' formatter: a traceback on stderr) are not in the
+    bundle, nor in any other file of it. Synthetic values only."""
+    planted = ["ヤマダ　タロウ", "06130012", "090-1234-5678", "100-0001", "見本　花子"]
+    _gz(
+        box.parent / "logs" / "services" / DAYS[-1] / "orchestrator.log.gz",
+        "2026-11-10T01:00:00Z orchestrator | job started\n"
+        "2026-11-10T01:00:01Z orchestrator | ValueError: cannot read 'ヤマダ　タロウ様 保険者番号 06130012'\n"
+        "2026-11-10T01:00:02Z orchestrator | 連絡先 090-1234-5678 〒100-0001\n"
+        '2026-11-10T01:00:03Z orchestrator | {"msg": "患者：見本　花子さん"}\n'
+        "2026-11-10T01:00:04Z orchestrator | job finished\n",
+    )
+    out = sb.build(box, tmp_path / "usb", runner=fake_runner, now=NOW, say=lambda _s: None)
+    m = _members(out)
+    log = m[f"logs/{DAYS[-1]}/orchestrator.log"]
+    assert "job started" in log and "job finished" in log
+    for value in planted:
+        assert not any(value in text for text in m.values()), value
+    assert not any(n.startswith("logs/") and "db" in n for n in m)  # the third-party logs stay out

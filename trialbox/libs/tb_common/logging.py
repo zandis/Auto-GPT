@@ -22,15 +22,17 @@ import re
 import sys
 import threading
 import time
+import traceback
+import warnings
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-#: 10C-1c: the identifier rules are the privacy guard's (``tb_common.phi_guard.note_spans``: names, phone numbers, chart,
-#: ID and insurance numbers, dates of birth, addresses, email addresses, bed and room numbers, in Traditional Chinese,
-#: Japanese and English), the same spans the note masker masks and the check before a model call refuses. This module
-#: holds no identifier pattern of its own; it only names what the guard found (:func:`_token`). The guard is imported
-#: on the first record scrubbed (about 0.2 s of regular expressions), not when this module is.
+#: 10C-1c: the identifier rules are the privacy guard's (``tb_common.phi_guard.note_spans``: names, phone numbers,
+#: chart, ID and insurance numbers, dates of birth, addresses, email addresses, bed and room numbers, in Traditional
+#: Chinese, Japanese and English), the spans the note masker masks and the check before a model call refuses. This
+#: module holds no identifier pattern of its own; it only names what the guard found (:func:`_token`). The guard is
+#: imported on the first record scrubbed (about 0.2 s of regular expressions), not when this module is.
 _GUARD: Any = None
 #: the longest text of one field that is scrubbed; the rest is cut and not logged (the guard is linear in the length:
 #: at most about 2.5 microseconds a character on the adversarial inputs of its own tests, so 16k characters take at
@@ -188,6 +190,26 @@ def _cut(text: str, keep_end: bool = False) -> str:
     return part[:i] + f"[cut: {len(text) - i} characters not logged]"
 
 
+TRACE_FRAMES = 30  # of each error of the chain, so that one line of the log stays a line
+TRACE_CHAIN = 5
+
+
+def error_trace(exc: BaseException) -> str:
+    """An error without its own text (D-557): the frames it passed (file, line, function, the line of code) and its
+    type, then those of the errors it came from. 10C-1c: what the formatter writes for every exception of a record,
+    ``log.exception`` and ``exc_info=True`` included: an error's text quotes what its author put in it (a validation
+    error prints its input, a database error its values), which is patient content the scrubber cannot know."""
+    parts: list[str] = []
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen and len(parts) < TRACE_CHAIN:
+        seen.add(id(cur))
+        frames = "".join(traceback.format_tb(cur.__traceback__, limit=-TRACE_FRAMES))  # the last ones: where it broke
+        parts.append(f"{frames}{type(cur).__name__}")
+        cur = cur.__cause__ or (None if cur.__suppress_context__ else cur.__context__)
+    return "\n-- raised while handling --\n".join(parts)
+
+
 class _Overrun(Exception):
     pass
 
@@ -247,8 +269,8 @@ class JsonFormatter(logging.Formatter):
             for key, val in record.__dict__.items():
                 if key not in _RESERVED and not key.startswith("_"):
                     payload[key] = _scrub_value(val, deadline)
-            if record.exc_info:
-                payload["exc"] = redact(_cut(self.formatException(record.exc_info), keep_end=True))
+            if record.exc_info and record.exc_info[1] is not None:  # the type and the frames, never the text (D-557)
+                payload["exc"] = redact(_cut(error_trace(record.exc_info[1]), keep_end=True))
             if record.stack_info:
                 payload["stack"] = redact(_cut(self.formatStack(record.stack_info), keep_end=True))
             if time.perf_counter() > deadline:
@@ -256,6 +278,11 @@ class JsonFormatter(logging.Formatter):
             return json.dumps(payload, ensure_ascii=False, default=str)
         except Exception:  # an overrun, a guard error, a message whose arguments do not format: never the raw text
             return failed_line(self.service, record)
+
+
+def _log_warning(message: Warning | str, category: type[Warning], filename: str, lineno: int, *_a: Any) -> None:
+    """A warning as its category and place: its text can quote a value (a serializer warning prints the field's)."""
+    logging.getLogger("py.warnings").warning("%s at %s:%d", category.__name__, filename, lineno)
 
 
 def _log_uncaught(kind: type[BaseException], value: BaseException, tb: Any) -> None:
@@ -267,9 +294,8 @@ def _log_uncaught(kind: type[BaseException], value: BaseException, tb: Any) -> N
 
 def _log_uncaught_thread(args: threading.ExceptHookArgs) -> None:
     if args.exc_value is not None:
-        logging.getLogger("uncaught").critical(
-            "uncaught %s in a thread", args.exc_type.__name__, exc_info=(args.exc_type, args.exc_value, args.exc_traceback)
-        )
+        exc = (args.exc_type, args.exc_value, args.exc_traceback)
+        logging.getLogger("uncaught").critical("uncaught %s in a thread", args.exc_type.__name__, exc_info=exc)
 
 
 def setup_logging(service: str, level: str = "INFO") -> logging.Logger:
@@ -285,7 +311,7 @@ def setup_logging(service: str, level: str = "INFO") -> logging.Logger:
     # 10C-1c: an uncaught exception and a warning go through the scrubber too, not straight to stderr
     sys.excepthook = _log_uncaught
     threading.excepthook = _log_uncaught_thread
-    logging.captureWarnings(True)
+    warnings.showwarning = _log_warning
     for noisy in ("httpx", "httpcore", "urllib3", "matplotlib", "fontTools", "apscheduler"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):

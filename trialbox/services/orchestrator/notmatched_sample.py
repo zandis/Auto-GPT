@@ -72,7 +72,7 @@ def weekly(orch: Any, today: date | None = None, store: NotMatchedStore | None =
         gated = gate_on(environ)
         gone = register_now()  # raises when the register does not answer: no sample rather than one with an opt-out
     except Exception as exc:
-        log.error("not-matched sample not drawn: %s", exc)
+        log.error("not-matched sample not drawn: %s", type(exc).__name__)
         return {}
     day = today or site_today(orch.cfg.env.tz)
     week = iso_week(day)
@@ -97,7 +97,7 @@ def weekly(orch: Any, today: date | None = None, store: NotMatchedStore | None =
                     detail = {"week": week, "n": len(rows), "snapshot": snapshot, "by": BY}
                     orch.audit.append("notmatched.sample", ruleset=rid, job_id=job.job_id, detail=detail)
             except Exception as exc:  # one study's failure does not stop the others
-                log.exception("not-matched sample of %s not drawn: %s", rid, exc)
+                log.exception("not-matched sample of %s not drawn: %s", rid, type(exc).__name__)
     finally:
         if store is None:
             st.close()

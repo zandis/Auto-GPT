@@ -190,7 +190,7 @@ def _held(orch: Orchestrator, jtype: str, ruleset: str | None) -> bool:
         try:
             orch.audit.append("scheduler.held", ruleset=ruleset, detail={"job": jtype, "state": "held after a restore"})
         except Exception as exc:  # the audit must not take the scheduler down
-            log.warning("scheduler.held not audited: %s", exc)
+            log.warning("scheduler.held not audited: %s", type(exc).__name__)
         return True
     if jtype not in LIST_JOBS or not ruleset:
         return False
@@ -205,7 +205,7 @@ def _held(orch: Orchestrator, jtype: str, ruleset: str | None) -> bool:
     try:
         orch.audit.append("scheduler.held", ruleset=ruleset, detail={"job": jtype, "state": state})
     except Exception as exc:  # the audit must not take the scheduler down
-        log.warning("scheduler.held not audited: %s", exc)
+        log.warning("scheduler.held not audited: %s", type(exc).__name__)
     return True
 
 
@@ -243,7 +243,7 @@ def night_gate(orch: Orchestrator, today: str | None = None, clock: Callable[[],
         try:
             ok = preflight(orch)
         except Exception as exc:  # the gate itself must not take the scheduler down
-            log.exception("night self-test errored: %s", exc)
+            log.exception("night self-test errored: %s", type(exc).__name__)
             ok = False
         if not ok and canary_gate.GATE.waiting is not None:
             _unreached[day] = clock() + canary_gate.retry_seconds()
@@ -280,7 +280,7 @@ def after_ingest(orch: Orchestrator, timed: bool = False, chained: bool = False)
             done.append(rid)
         return done
     except Exception as exc:  # the follow-up must not turn a passed ingest into a failed one
-        log.exception("MICROBATCH after the ingest not submitted: %s", exc)
+        log.exception("MICROBATCH after the ingest not submitted: %s", type(exc).__name__)
         return []
 
 

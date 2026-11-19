@@ -10,7 +10,6 @@ import os
 import re
 import socket
 import time
-import traceback
 from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from typing import Any, TypeVar, get_args
 from urllib.parse import urlparse
@@ -23,7 +22,7 @@ from pydantic import BaseModel
 from starlette.routing import Match, Mount, compile_path
 from tb_contracts import dump
 
-from tb_common.logging import setup_logging
+from tb_common.logging import error_trace, setup_logging
 
 M = TypeVar("M", bound=BaseModel)
 HealthCheck = Callable[[], dict[str, Any]]
@@ -120,26 +119,15 @@ def kept_failure(detail: str) -> str:
     return kind.group(1) if kind else text
 
 
-TRACE_FRAMES = 30  # of each error of the chain, so that one line of the log stays a line
-TRACE_CHAIN = 5
-
-
 def trace_of(exc: BaseException) -> dict[str, str]:
     """An error for the log without its own text (D-557): ``error`` is its type, ``trace`` the frames it passed
     (file, line, function, the line of code) and the types of the errors it came from.
 
     An error's text is whatever its author put in it: a database error quotes its statement's values, a validation
     error prints its input, an f-string holds a value of the path. The log's scrubber knows the shapes of a chart
-    number and a secret, not every value, so the text is left out and the type and the place are kept."""
-    parts: list[str] = []
-    seen: set[int] = set()
-    cur: BaseException | None = exc
-    while cur is not None and id(cur) not in seen and len(parts) < TRACE_CHAIN:
-        seen.add(id(cur))
-        frames = "".join(traceback.format_tb(cur.__traceback__, limit=-TRACE_FRAMES))  # the last ones: where it broke
-        parts.append(f"{frames}{type(cur).__name__}")
-        cur = cur.__cause__ or (None if cur.__suppress_context__ else cur.__context__)
-    return {"error": type(exc).__name__, "trace": "\n-- raised while handling --\n".join(parts)}
+    number and a secret, not every value, so the text is left out and the type and the place are kept. 10C-1c: the
+    log formatter writes every exception of a record this way (:func:`tb_common.logging.error_trace`)."""
+    return {"error": type(exc).__name__, "trace": error_trace(exc)}
 
 
 NO_ROUTE = "(no route)"

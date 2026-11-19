@@ -1,0 +1,439 @@
+/data/lake/2026-11-08/part-0001.parquet for sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab held: the study is v1.4.2
+/data/lake/2026-11-08/part-0001.parquet: recorded as audit.journal_resync; going on with the rows written after it
+01JITCOMPILE7Q4K9ZT2M5XW3B built from a snapshot that is not a night: not recorded in the generation ledger
+01JITCOMPILE7Q4K9ZT2M5XW3B=3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43 is not a number of minutes; the worker runs every 5
+1.0.0: loaded under 01JITCOMPILE7Q4K9ZT2M5XW3B: 3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43
+1.0.0: recorded as audit.journal_resync; going on with the rows written after it
+12.3 ms for ScreeningJob held: the study is ValueError
+1234 for 0.42 held: the box was restored and the restore is not complete
+1234: read whole on this delta night: the reference data did not answer for it on 0.42 (D-538)
+17 for main held: the study state could not be read: trialbox_wf
+17: 4 rows have a change time that is not a date: read on every night, never windowed 
+1ee23f8bc69240ca7c572e40510f985b: read whole on this delta night: rows link to its visits by day (D-806)
+1ee23f8bc69240ca7c572e40510f985b=1234 in the environment is ignored: the flag 0.42 is /data/lake/2026-11-08/part-0001.parquet (change it on 
+2026-11-08: 5 of 1 rows rejected: ruleset-onc-7 v3
+2026-11-19T03:00:00Z failed its wake check, its answers are not used this run: 200
+2026-11-19T03:00:00Z for 200 held: the study state could not be read: orchestrator
+2026-11-19T03:00:00Z=200 in the environment is ignored: the flag orchestrator is STUDY-JP-001 (change it on 
+3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43 failed its wake check, its answers are not used this run: 1ee23f8bc69240ca7c572e40510f985b
+5: 16 rows left out (not a JLAC10 or LOINC code)
+65536: read whole on this delta night: rows link to its visits by day (D-806)
+998: 11 rows hold a value no look-up knows (65536)
+CALIBRATION held: the night model self-test did not pass
+COHORT held: the night model self-test did not pass
+D-275 guard: 12.3 ms ScreeningJob cannot be rendered now: unknown for every patient
+D-275 guard: 2026-11-19T03:00:00Z v200 did not render as a whole; rendering each criterion
+D-275 guard: ValueError v17 did not render as a whole; rendering each criterion
+D-275 guard: sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab v1.4.2 cannot be rendered now: unknown for every patient
+EDC prefill: the box's model did not draft study main record trialbox_wf: 2026-11-08
+EDC prefill: the box's model did not draft study orchestrator record STUDY-JP-001: 12.3 ms
+EDC prefill: the box's record was not read for study ScreeningJob record ValueError (17)
+EDC prefill: the box's record was not read for study night record 5 (ruleset-onc-7 v3)
+EDC re-read after the send failed for study TimeoutError (/api/v1/jobs/998)
+EDC re-read after the send failed for study main (trialbox_wf)
+FAIL: the verifier is not a second model (2026-11-08): note answers will never exclude
+FAIL: the verifier is not a second model (llm-service): note answers will never exclude
+IMAP poll error
+IMAP poll failed: 65536
+IMAP poll failed: night
+JP Core: 5 of ruleset-onc-7 v3 sampled resources fail
+JP Core: ja of redcap sampled resources fail
+MICROBATCH after the ingest held: the night model self-test did not pass
+MICROBATCH after the ingest not submitted: 1.0.0
+MICROBATCH after the ingest not submitted: TimeoutError
+OMOP store failed on the conflicts (/api/v1/jobs/998)
+OMOP store failed on the conflicts (01JITCOMPILE7Q4K9ZT2M5XW3B)
+OMOP store unavailable for the conflicts (3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43)
+OMOP store unavailable for the conflicts (llm-service)
+STUDY-JP-001: 7 of 12 rows rejected: ValueError
+TB_GATEWAY_PHI_TRIPWIRE=1ee23f8bc69240ca7c572e40510f985b is neither on nor off: the PHI tripwire stays on
+TB_GATEWAY_PHI_TRIPWIRE=65536 is neither on nor off: the PHI tripwire stays on
+TB_MAIL_AUTHSERV_ID is not set: no sender can be authenticated, so every request mail is refused 
+TimeoutError: 21 rows have a change time that is not a date: read on every night, never windowed 
+TimeoutError: loaded under /api/v1/jobs/llm-service: 998
+a site change is saved; its publish waits for the lake (1234)
+a site change is saved; its publish waits for the lake (ja)
+actor.refused: not written to the audit trail
+actor.unsigned
+actor.unsigned: not written to the audit trail
+after-job hook failed
+an ingest is already running on the adapter (run 0.42): this job follows it
+an ingest is already running on the adapter (run redcap): this job follows it
+approve /data/lake/2026-11-08/part-0001.parquet vsha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab: the FHIR server refused the load: v1.4.2
+approve 1.0.0 v01JITCOMPILE7Q4K9ZT2M5XW3B: the FHIR server refused the load: 3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43
+audit journal row 1ee23f8bc69240ca7c572e40510f985b from 1234 marked 0.42
+audit journal row 2026-11-19T03:00:00Z from 200 marked orchestrator
+back-fill /data/lake/2026-11-08/part-0001.parquet: sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab sorted (v1.4.2)
+back-fill 12.3 ms: the kept spool met an outage of the reference data; read again
+back-fill 2026-11-08: the kept spool met an outage of the reference data; read again
+back-fill 2026-11-19T03:00:00Z: published 200 (orchestrator)
+back-fill STUDY-JP-001: 12.3 ms sorted (ScreeningJob)
+back-fill STUDY-JP-001: the kept spool has no table facts (an older version's); read again
+back-fill ScreeningJob: the kept spool's tables are incomplete; the source is read again
+back-fill ValueError: published 17 (main)
+back-fill night: the kept spool's tables are incomplete; the source is read again
+back-fill trialbox_wf: the kept spool has no table facts (an older version's); read again
+breached-password list refused (5): every new password is refused until it is fixed
+breached-password list refused (ValueError): every new password is refused until it is fixed
+cascade run failed
+catalogue unreadable on /data/items (17: main)
+catalogue unreadable on /data/items (ruleset-onc-7 v3: TimeoutError)
+conflict not settled: the orchestrator answered /api/v1/jobs/llm-service 998
+conflict not settled: the orchestrator answered trialbox_wf 2026-11-08
+conflicts unavailable on /data/conflicts (65536)
+conflicts unavailable on /data/conflicts (night)
+console timer 5 failed
+console timer ja failed
+console timers off (TB_CONSOLE_TIMERS / TB_ENV)
+could not process message uid redcap
+could not process message uid ruleset-onc-7 v3
+could not send Failed mail for 1.0.0: 01JITCOMPILE7Q4K9ZT2M5XW3B
+could not send Failed mail for TimeoutError: /api/v1/jobs/998
+could not send Received mail for 3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43: 1ee23f8bc69240ca7c572e40510f985b
+could not send Received mail for llm-service: 65536
+csv source: 1234
+csv source: ja
+dataops store failed (0.42)
+dataops store failed (redcap)
+dataops store unreachable (/data/lake/2026-11-08/part-0001.parquet)
+dataops store unreachable (1.0.0)
+delta load
+demo guard: session not read (01JITCOMPILE7Q4K9ZT2M5XW3B)
+demo guard: session not read (sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab)
+demo guard: the refusal of 3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43 was not audited
+demo guard: the refusal of v1.4.2 was not audited
+derive batch of 0.42: 39 patient(s) failed; their scores read as unknown
+derive batch of 1ee23f8bc69240ca7c572e40510f985b failed: 1234
+derive batch of 2026-11-19T03:00:00Z failed: 200
+derive batch of orchestrator: 12 patient(s) failed; their scores read as unknown
+derive batch skipped: no trial database (12.3 ms unset)
+derive batch skipped: no trial database (sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab unset)
+derive status not read: ScreeningJob
+derive status not read: v1.4.2
+derive.failed not audited: 2026-11-19T03:00:00Z
+derive.failed not audited: ValueError
+derive: recompute failed for 17 (main)
+derive: recompute failed for 200 (orchestrator)
+derive: the opt-out register could not be read (STUDY-JP-001); no patient skipped
+derive: the opt-out register could not be read (trialbox_wf); no patient skipped
+egress refused
+embed batch of 10 not answered (night): again in 1 s
+embed batch of 7 not answered (ScreeningJob): again in 10 s
+embedding chunks: 16 of 12
+embedding chunks: 2 of 4
+enrolment workbook handed over without its sheet for people (/api/v1/jobs/998)
+enrolment workbook handed over without its sheet for people (trialbox_wf)
+equivalence of 2026-11-08 could not run: night refused it: 5
+equivalence of llm-service could not run: 65536 refused it: ja
+fhir-store load not recorded in the generation ledger (redcap)
+fhir-store load not recorded in the generation ledger (ruleset-onc-7 v3)
+fhir-store not loaded: 1.0.0
+fhir-store not loaded: TimeoutError
+flag /api/v1/jobs/ja holds 998, not one of llm-service; using the default 65536
+flag /data/lake/2026-11-08/part-0001.parquet: the change was not committed and flag.set.failed was not written
+flag 0.42 unreadable (/data/lake/2026-11-08/part-0001.parquet: sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab); using the default v1.4.2
+flag 01JITCOMPILE7Q4K9ZT2M5XW3B holds 3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43, not one of 1ee23f8bc69240ca7c572e40510f985b; using the default 1234
+flag 1ee23f8bc69240ca7c572e40510f985b: 1234; using the default 0.42
+flag 2026-11-19T03:00:00Z: 200; using the default orchestrator
+flag STUDY-JP-001: the change was not committed and flag.set.failed was not written
+flag redcap unreadable (1.0.0: 01JITCOMPILE7Q4K9ZT2M5XW3B); using the default 3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43
+flag store unavailable on /ops/flags (12.3 ms: ScreeningJob)
+flag store unavailable on /ops/flags (sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab: v1.4.2)
+flags not seeded at start (2026-11-19T03:00:00Z: 200)
+flags not seeded at start (ValueError: 17)
+ingest failed
+ingest finished
+ingest run main could not be run as a process
+ingest run orchestrator could not be run as a process
+ingest.failed could not be audited
+instrument switch refused by the orchestrator (STUDY-JP-001 12.3 ms)
+instrument switch refused by the orchestrator (trialbox_wf 2026-11-08)
+instrument switch: the orchestrator did not answer (ScreeningJob)
+instrument switch: the orchestrator did not answer (night)
+instrument switches unavailable on /data/instruments (5: ruleset-onc-7 v3)
+instrument switches unavailable on /data/instruments (ValueError: 17)
+ir_extractTimeoutError: the gateway gave up on the answer; asking it again in 21 parts
+ir_extractmain: the gateway gave up on the answer; asking it again in 11 parts
+jRCT download: 10 rows without a jRCT id left out
+jRCT download: 3 rows without a jRCT id left out
+ja: 6 rows left out (not a JLAC10 or LOINC code)
+ja: read whole on this delta night: the reference data did not answer for it on redcap (D-538)
+job /api/v1/jobs/llm-service: lake hold not released (998)
+job 0.42: the lake takes no time limit; its queries have the lake's own
+job 1.0.0: lake hold not released (01JITCOMPILE7Q4K9ZT2M5XW3B)
+job 1.0.0: the lake takes no time limit; its queries have the lake's own
+job 3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43: lake snapshot 1ee23f8bc69240ca7c572e40510f985b not held (1234)
+job 65536: lake snapshot ja not held (redcap)
+job TimeoutError is being run by another worker: not run a second time
+job ja is being run by another orchestrator: not queued again
+job llm-service failed in 65536
+job night failed in 5
+job redcap is being run by another worker: not run a second time
+job ruleset-onc-7 v3 is being run by another orchestrator: not queued again
+job stopped at /data/lake/2026-11-08/part-0001.parquet: the lake snapshot has no consent table (D-654)
+job stopped at 01JITCOMPILE7Q4K9ZT2M5XW3B: the lake snapshot has no consent table (D-654)
+judged-pair store: a read failed; the question is asked live
+judged-pair store: a write failed; the answer stands, unstored
+judged-pair store: the opt-out check at the job's end failed
+judged-pair store: the retention sweep failed; it runs again at the next job's end
+known_pid: the pid map cannot be opened: 3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43
+known_pid: the pid map cannot be opened: sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab
+known_pid: the pid map cannot be read: 1ee23f8bc69240ca7c572e40510f985b
+known_pid: the pid map cannot be read: v1.4.2
+lake 12.3 ms, snapshot ScreeningJob: the source record was not written (ValueError: 17)
+lake 1234, snapshot 0.42: source /data/lake/2026-11-08/part-0001.parquet (sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab)
+lake 2026-11-19T03:00:00Z, snapshot 200: source orchestrator (STUDY-JP-001)
+lake from OMOP: feed STUDY-JP-001, site 12.3 ms, export in 12 s
+lake from OMOP: feed main, site trialbox_wf, export in 10 s
+lake over its byte budget: the NDJSON of month-end snapshots ValueError was removed; the lake still serves them, 
+lake over its byte budget: the NDJSON of month-end snapshots night was removed; the lake still serves them, 
+lake query failed: 17main
+lake query failed: 5ruleset-onc-7 v3
+lake query stopped at its limit: TimeoutError
+lake query stopped at its limit: trialbox_wf
+lake query stopped at its time limit of /api/v1/jobs/998 s
+lake query stopped at its time limit of 2026-11-08 s
+lake snapshot /api/v1/jobs/998 is being rebuilt: not pruned this time
+lake snapshot 01JITCOMPILE7Q4K9ZT2M5XW3B is older than CURRENT 3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43: built, not promoted (DATA-007)
+lake snapshot 1.0.0 is being rebuilt: not pruned this time
+lake snapshot llm-service is older than CURRENT 65536: built, not promoted (DATA-007)
+lake snapshot not opened: the memory limit was met: 1ee23f8bc69240ca7c572e40510f985b
+lake snapshot not opened: the memory limit was met: ja
+lake v1.4.2, snapshot 2026-11-19T03:00:00Z: the source record was not written (200: orchestrator)
+lake: no hard link for 1234 (0.42); the date's file is a copy of its generation
+lake: no hard link for redcap (1.0.0); the date's file is a copy of its generation
+lake: no reader link for /data/lake/2026-11-08/part-0001.parquet (sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab); readers open the file itself
+lake: no reader link for 01JITCOMPILE7Q4K9ZT2M5XW3B (3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43); readers open the file itself
+mail 1ee23f8bc69240ca7c572e40510f985b 1234 (try 4): /data/lake/2026-11-08/part-0001.parquet
+mail held: failed after the message left
+mail held: prepare failed
+mail held: the answer was lost
+mail v1.4.2 2026-11-19T03:00:00Z (try 3): orchestrator
+model self-test could not reach STUDY-JP-001: not run, tried again
+model self-test could not reach sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab: not run, tried again
+model swap release failed: 12.3 ms
+model swap release failed: v1.4.2
+night 2026-11-19T03:00:00Z: 200
+night ScreeningJob: ValueError
+night refused: 17
+night refused: orchestrator
+night self-test errored: STUDY-JP-001
+night self-test errored: main
+night self-test failed, LLM jobs not started: 12.3 ms
+night self-test failed, LLM jobs not started: trialbox_wf
+no refusal reply to 2026-11-08: over 5 refusals today
+no refusal reply to ScreeningJob: over 10 refusals today
+not-matched sample not drawn: 17
+not-matched sample not drawn: 5
+not-matched sample not drawn: the box is held after a restore
+not-matched sample of main not drawn: trialbox_wf
+not-matched sample of ruleset-onc-7 v3 not drawn: TimeoutError
+omop dual write /api/v1/jobs/llm-service failed (998): rolled back, the night is not affected
+omop dual write 0.42: the store cannot be opened (/data/lake/2026-11-08/part-0001.parquet)
+omop dual write 1.0.0: the store cannot be opened (01JITCOMPILE7Q4K9ZT2M5XW3B)
+omop dual write 1ee23f8bc69240ca7c572e40510f985b: the relational checks failed to run (1234)
+omop dual write 2026-11-08 failed (night): rolled back, the night is not affected
+omop dual write 3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43: the failure could not be recorded in tb_load
+omop dual write 5 refused: ruleset-onc-7 v3
+omop dual write 65536 refused: ja
+omop dual write 65536: the failure could not be recorded in tb_load
+omop dual write TimeoutError: /api/v1/jobs/llm-service in 3 s
+omop dual write ja: the relational checks failed to run (redcap)
+omop dual write redcap: 1.0.0 in 26 s
+omop dual write: 3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43
+omop dual write: sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab
+on-terminal hook failed
+opt-out match: a study could not be read
+opt-out worker failure not audited: 1ee23f8bc69240ca7c572e40510f985b
+opt-out worker failure not audited: v1.4.2
+opt-out worker off (1234=0)
+opt-out worker off (2026-11-19T03:00:00Z=0)
+opt-out worker tick failed: 0.42
+opt-out worker tick failed: 200
+opt-out worker: no trial database (/data/lake/2026-11-08/part-0001.parquet)
+opt-out worker: no trial database (orchestrator)
+opt-out worker: store 2026-11-19T03:00:00Z still holds opted-out patients after its clear
+opt-out worker: store STUDY-JP-001 not cleared (12.3 ms)
+opt-out worker: store ScreeningJob still holds opted-out patients after its clear
+opt-out worker: store sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab not cleared (v1.4.2)
+opt-out worker: the OMOP store 200 was not cleared (orchestrator)
+opt-out worker: the OMOP store STUDY-JP-001 was not opened (12.3 ms)
+opt-out worker: the OMOP store ValueError was not cleared (17)
+opt-out worker: the OMOP store main was not opened (trialbox_wf)
+opt-out worker: the OMOP store was not opened (2026-11-08)
+opt-out worker: the OMOP store was not opened (ScreeningJob)
+opt-out worker: the OMOP stores were not listed (ValueError)
+opt-out worker: the OMOP stores were not listed (night)
+opt-out worker: the registry was not read (17)
+opt-out worker: the registry was not read (5)
+orchestrator for STUDY-JP-001 held: the box was restored and the restore is not complete
+orchestrator unavailable, will retry main: trialbox_wf
+orchestrator unavailable, will retry ruleset-onc-7 v3: TimeoutError
+outbox pass failed
+outbox: /api/v1/jobs/998
+outbox: 2026-11-08
+practitioner names were not read from the lake (llm-service)
+practitioner names were not read from the lake (night)
+provenance index not installed: the chain is written without it
+provenance index: a row was not written (5); run trialbox provenance --rebuild
+provenance index: a row was not written (65536); run trialbox provenance --rebuild
+publish of TimeoutError was interrupted in its lake step: the served folder is put back
+publish of batch /api/v1/jobs/llm-service did not end done (998)
+publish of batch 1.0.0 did not end done (01JITCOMPILE7Q4K9ZT2M5XW3B)
+publish of batch 3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43 ended without done (1ee23f8bc69240ca7c572e40510f985b)
+publish of batch 65536 ended without done (ja)
+publish of ja was interrupted after its lake step: the re-run is the served night
+publish of redcap was interrupted in its lake step: the served folder is put back
+publish of ruleset-onc-7 v3 was interrupted after its lake step: the re-run is the served night
+records carried over from snapshot 1234 written under the surviving patient of a chart merge: 0.42
+records carried over from snapshot redcap written under the surviving patient of a chart merge: 1.0.0
+records the feed's rows no longer give were removed: /data/lake/2026-11-08/part-0001.parquet
+records the feed's rows no longer give were removed: 01JITCOMPILE7Q4K9ZT2M5XW3B
+refdata: 3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43 skipped: withdrawn after pack 1ee23f8bc69240ca7c572e40510f985b was made
+refdata: sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab skipped: withdrawn after pack v1.4.2 was made
+reference data store query failed; reconnecting later
+refusal not audited: 1234 0.42 /data/lake/2026-11-08/part-0001.parquet
+refusal not audited: 2026-11-19T03:00:00Z 200 orchestrator
+refused: STUDY-JP-001 (12.3 ms)
+refused: sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab (v1.4.2)
+register unreadable on /data/instruments (2026-11-19T03:00:00Z: 200)
+register unreadable on /data/instruments (ScreeningJob: ValueError)
+reply to 17 failed: main
+reply to orchestrator failed: STUDY-JP-001
+ruleset 12.3 ms cannot be read, no job is started for it: ScreeningJob
+ruleset detail: ValueError has no approved version to show (17)
+ruleset detail: night has no approved version to show (5)
+ruleset trialbox_wf cannot be read, no job is started for it: 2026-11-08
+schedule is on demand (TB_ENV=main): no timed jobs
+schedule is on demand (TB_ENV=ruleset-onc-7 v3): no timed jobs
+scheduled TimeoutError not created: /api/v1/jobs/998
+scheduled trialbox_wf not created: 2026-11-08
+scheduler.held not audited: llm-service
+scheduler.held not audited: night
+screening ranks note sentences with the hash stub: the embed service did not answer (5)
+screening ranks note sentences with the hash stub: the embed service did not answer (65536)
+selftest report not written: ja
+selftest report not written: ruleset-onc-7 v3
+sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab=v1.4.2 is not a number of minutes; the worker runs every 5
+site counts: the lake could not be read (TimeoutError /api/v1/jobs/998)
+site counts: the lake could not be read (redcap 1.0.0)
+site patient check: the lake could not be read (01JITCOMPILE7Q4K9ZT2M5XW3B 3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43)
+site patient check: the lake could not be read (llm-service 65536)
+site publish batch not applied
+ssmix2: a 1ee23f8bc69240ca7c572e40510f985b file quarantined: 1234
+ssmix2: a ja file quarantined: redcap
+start check failed
+start check: GET 0.42/models failed: /data/lake/2026-11-08/part-0001.parquet
+start check: GET 1.0.0/models failed: 01JITCOMPILE7Q4K9ZT2M5XW3B
+store 3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43: schema version 32 back-filled with sha256 1234 (0.42, D-204)
+store sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab: schema version 6 back-filled with sha256 2026-11-19T03:00:00Z (200, D-204)
+stored scores read as unknown: /data/lake/2026-11-08/part-0001.parquet
+stored scores read as unknown: orchestrator
+stored scores read from the batch of STUDY-JP-001 (12.3 ms; the rows are built anew since)
+stored scores read from the batch of sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab (v1.4.2; the rows are built anew since)
+stored scores unknown: the generation ledger cannot be read (2026-11-19T03:00:00Z)
+stored scores unknown: the generation ledger cannot be read (ScreeningJob)
+stored-score read off: the derived store cannot be opened (200)
+stored-score read off: the derived store cannot be opened (ValueError)
+study state of 17 not read: main
+study state of orchestrator not read: STUDY-JP-001
+tb_llm: GET /v1/models gave no contexts (12.3 ms): this call keeps its own default
+tb_llm: GET /v1/models gave no contexts (trialbox_wf): this call keeps its own default
+the FHIR store could not be put back to 2026-11-08 (night)
+the FHIR store could not be put back to ScreeningJob (ValueError)
+the PHI tripwire is off (TB_GATEWAY_PHI_TRIPWIRE=off): D0-D2 calls may leave the box unchecked 
+the audit chain refused a write (17): retrying in 60 s
+the audit chain refused a write (5): retrying in 60 s
+the build of main could not begin
+the build of ruleset-onc-7 v3 could not begin
+the build process of TimeoutError could not be started
+the build process of trialbox_wf could not be started
+the chart merges could not be read: /api/v1/jobs/998
+the chart merges could not be read: 2026-11-08
+the coded values were not read from the lake (llm-service)
+the coded values were not read from the lake (night)
+the confirmed facts were not read from the lake (5)
+the confirmed facts were not read from the lake (65536)
+the feasibility report's data facts were not read from the lake (ja)
+the feasibility report's data facts were not read from the lake (ruleset-onc-7 v3)
+the hold after a restore could not be read (TimeoutError): taken as held
+the hold after a restore could not be read (redcap): taken as held
+the lake's pruning did not end after the night (/api/v1/jobs/998); it runs again after the next one
+the lake's pruning did not end after the night (1.0.0); it runs again after the next one
+the lifecycle was not refreshed after a REDCap read
+the night chain did not advance: 01JITCOMPILE7Q4K9ZT2M5XW3B
+the night chain did not advance: llm-service
+the night's batch row was not opened
+the night's batch row was not updated
+the night's batch row was not written
+the night's length was not recorded (3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43): 1ee23f8bc69240ca7c572e40510f985b
+the night's length was not recorded (65536): ja
+the night's work was not recorded (1234): 0.42
+the night's work was not recorded (redcap): 1.0.0
+the participant records could not be read
+the pid map of the served night /data/lake/2026-11-08/part-0001.parquet is still not written (sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab)
+the pid map of the served night 01JITCOMPILE7Q4K9ZT2M5XW3B is still not written (3f2b8c1e-9a4d-4c6e-8f00-2d7a1b5c9e43)
+the promotion of 1ee23f8bc69240ca7c572e40510f985b gave no answer (1234); CURRENT names it
+the promotion of v1.4.2 gave no answer (2026-11-19T03:00:00Z); CURRENT names it
+the provenance index could not be read
+the reference map from 0.42 to /data/lake/2026-11-08/part-0001.parquet is not loaded: the rows that need it are counted as not asked 
+the reference map from 200 to orchestrator is not loaded: the rows that need it are counted as not asked 
+the screening log could not be read for a lifecycle step
+the screening log was not updated by a lifecycle step
+the served night STUDY-JP-001: its pid map step is finished now
+the served night sha256:9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab: its pid map step is finished now
+this service can sign nobody: 12.3 ms (run `trialbox secrets init`, then restart it)
+this service can sign nobody: v1.4.2 (run `trialbox secrets init`, then restart it)
+trialbox_wf: 10 rows hold a value no look-up knows (night)
+twin build after the ingest did not run: 2026-11-19T03:00:00Z
+twin build after the ingest did not run: ScreeningJob
+twin build after the ingest is not finished (200)
+twin build after the ingest is not finished (ValueError)
+twin build after the ingest skipped (17)
+twin build after the ingest skipped (orchestrator)
+twin: build failed for STUDY-JP-001 (12.3 ms)
+twin: build failed for main (trialbox_wf)
+twin: snapshot 2026-11-08: 5 new, 1 unchanged, 16 erased, 12 failed
+twin: snapshot ScreeningJob: 10 new, 2 unchanged, 4 erased, 11 failed
+two_phase round 10: 5 verifier questions answered
+two_phase round 21: 3 verifier questions answered
+two_phase: 1 swap(s), wake checks failed: ruleset-onc-7 v3
+two_phase: 11 swap(s), wake checks failed: 65536
+unhandled error
+v1.4.2 built from a snapshot that is not a night: not recorded in the generation ledger
+worker cannot claim a job (TimeoutError, 21 time(s) in a row); retrying in 3 s
+worker cannot claim a job (ja, 6 time(s) in a row); retrying in 5 s
+worker error on 01JITCOMPILE7Q4K9ZT2M5XW3B
+worker error on llm-service
+worker error while looking at watched jobs
+worker reaches the database again after 36 failed claim(s)
+worker reaches the database again after 5 failed claim(s)
+GET /api/v1/jobs/{job_id} 200 12.3ms
+POST /api/v1/studies/{rs}/records/{record} 422 4.1ms
+INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+INFO:     Started server process [41]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+Added job "night_chain" to job store "default"
+Running job "retention (trigger: cron[hour='2', minute='20'])" (scheduled at 2026-11-19 02:20:00+09:00)
+Job "retention" executed successfully
+2026-11-19T03:00:00.123+00:00 orchestrator job 01JITCOMPILE7Q4K9ZT2M5XW3B SCREENING -> DONE in 41.2 s
+lake: 12 parquet files, 1.4 GiB, 3 snapshots kept, sha256 9c56cc51b374c3ba
+embed cache hit 98.2% (41233 of 41987 chunks)
+model llm-service ready: 2 GPUs, 128 GB, max_model_len=32768
+backup trialbox-2026-11-19.tbbak written: 4.2 GB in 312 s
+restic snapshot 7f3a9c2e saved, 1532 files, 0 errors
+disk /data 61% used (1.2 TB free)
+audit chain verified: 2026-11-18.jsonl 14211 events, head 4be1f0c2
+ingest feed ss-mix2 day 2026-11-18: 5123 files, 0 quarantined, 211 MB
+retry 3/5 after 2.0 s (ConnectTimeout)
+pid 1ee23f8bc69240ca7c572e40510f985b recomputed in 0.8 s
+study STUDY-JP-001 v7 published to 3 sites
+trace 4bf92f3577b34da6a3ce929d0e0e4736 span 00f067aa0ba902b7
+container trialbox-console-1 restarts=0 status=running health=healthy
+ruleset onc-7@3 compiled: 41 criteria, 0 warnings, 2.3 s
+TZ Asia/Tokyo; site day 2026-11-18T00:00:00+09:00 to 2026-11-19T00:00:00+09:00
+HTTP/1.1 503 Service Unavailable from http://lake:8081/health after 5.0 s
+worker 2 of 4 idle
+cron 00:20 logs daily: collected 11 services, pruned 2 days
+version 2026.11.18-rc2 (git 06c9796f)

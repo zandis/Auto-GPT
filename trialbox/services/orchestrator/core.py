@@ -647,7 +647,7 @@ class Orchestrator:
         try:
             self.send(job, [job.requested_by], _subject(job, "received"), body, [], kind="received")
         except (StepFailed, ServiceError, RuntimeError) as exc:
-            log.warning("could not send Received mail for %s: %s", job.job_id, exc)
+            log.warning("could not send Received mail for %s: %s", job.job_id, type(exc).__name__)
 
     def _failed_mail(self, job: Job) -> None:
         to = job.requested_by
@@ -662,7 +662,7 @@ class Orchestrator:
         try:
             self.send(job, [to], _subject(job, "failed", f"at {err.step}"), body, [], kind="failed")
         except (StepFailed, ServiceError, RuntimeError) as exc:
-            log.warning("could not send Failed mail for %s: %s", job.job_id, exc)
+            log.warning("could not send Failed mail for %s: %s", job.job_id, type(exc).__name__)
 
     # ------------------------------------------------------------------ restart recovery (T-689; D-532)
     def _watch(self, job_id: str) -> None:
@@ -859,7 +859,7 @@ def _error(exc: Exception, state: str) -> JobError:
             detail = f"{detail}: {str(exc.detail)[:300]}"
         return JobError(step=state, message=f"The {exc.service} service failed.", detail=detail)
     # D-557: the record keeps the error's type; its own text (a database error quotes its values, a validation
-    # error prints its input) is in the log line of the failure, where the log's rules apply, not on the job page
+    # error prints its input) is on neither the job page nor the log (10C-1c: the log keeps the type and the frames)
     return JobError(step=state, message="Internal error while processing the job.", detail=type(exc).__name__)
 
 
