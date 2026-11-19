@@ -141,6 +141,11 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not sess.user.can_view_phi or len(q) < 4:
             return out
         for rs in studies:
+            # D-1241: the patient page's own question (``Helpers.reads``: the ``phi.view`` row, then the study's
+            # delegation log, D-147 / D-273 / T-309). Where it says no, a patient of this study is found only when an
+            # open break-glass grant covers that patient, as the patient page would open it; anything else answers
+            # as a number or prefix that does not exist (no hit, no refusal, no audit of its own)
+            own = h.reads(sess.user, rs)
             nos = store.screening_nos(rs)
             pids = set(nos)
             if h.week_bundle is not None:  # D-133: a patient on this week's list is found by its code too
@@ -150,15 +155,26 @@ def register(app: FastAPI, h: Helpers) -> None:
                 pids |= {e.pid for e in bk.registry_rows(rs)}
             except Exception:  # the registry is optional for search  # noqa: S112
                 continue
+            looked = False
             for pid in sorted(pids):
                 if is_erased(pid):  # D-875: an erased row is no patient to find
                     continue
                 no = nos.get(pid, "")
                 if pid.startswith(q) or (no and no.upper() == qu):
+                    if not own:
+                        looked = True
+                        if not granted(sess, rs, pid):
+                            continue
                     out["patients"].append({"study": rs, "pid": pid, "no": no, "href": f"/studies/{rs}/patients/{pid}"})
                 if len(out["patients"]) >= 20:
                     return out
+            if not own and not looked:  # D-1241: a miss asks the grants once too, as a refused hit does
+                granted(sess, rs, q)
         return out
+
+    def granted(sess: Session, rs: str, pid: str) -> bool:
+        """D-1241: an open break-glass grant covers this patient (found, not used: a search opens nothing)."""
+        return h.breakglass_find is not None and h.breakglass_find(sess, ruleset=rs, pid=pid) is not None
 
     def one_patient(pats: list[dict[str, str]]) -> str | None:
         """The page to open when every hit is the same patient (D-133, review task T3: a code typed on the phone
