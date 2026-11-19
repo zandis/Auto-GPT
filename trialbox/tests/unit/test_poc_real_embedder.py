@@ -38,7 +38,14 @@ exit 0
 def _root(tmp: Path, weights: str = "good") -> Path:
     root = tmp / "root"
     (root / "deploy").mkdir(parents=True)
-    for rel in ("deploy/poc.sh", "deploy/gpu_profile.sh", "deploy/docker-compose.poc.yml", ".env.example"):
+    # deploy/build_db_image.sh: the database image's build, which the start runs when it builds (card 24-2)
+    for rel in (
+        "deploy/poc.sh",
+        "deploy/build_db_image.sh",
+        "deploy/gpu_profile.sh",
+        "deploy/docker-compose.poc.yml",
+        ".env.example",
+    ):
         shutil.copy2(ROOT / rel, root / rel)
     emb = root / "deploy/models/embedder"
     if weights != "none":

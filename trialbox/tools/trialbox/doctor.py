@@ -5,6 +5,8 @@ closed). Checks:
 
 * ``inputs`` (OPS-016): one FAIL line per input that cannot be read (a ``--settings`` file that is missing or does not
   parse); the other checks still run, on empty settings;
+* ``tls_old_clients`` (H-48, D-1328): only while ``TB_TLS_OLD_CLIENTS=cbc`` relaxes 443 for a hospital's old
+  client, one WARN line saying so; a value other than off or cbc, or one not audited by deploy/install.sh, is FAIL;
 * ``topology``: ``TB_TOPOLOGY`` (A/B/C) and ``TB_ENV`` (DEV/TEST/VALIDATION/PRODUCTION) are valid;
 * ``terminology`` (D-1028, D-858): the code systems loaded on the box (``TB_TERMINOLOGY_DIR``), each with its rows and
   version; a table without its manifest line, or with other bytes, is FAIL; none loaded is WARN;
@@ -2205,6 +2207,27 @@ def host_profile(inp: DoctorInputs, out: list[Check]) -> list[Check]:
     return [*out, Check("host_profile", "WARN", f"host profile poc: host-facility checks as WARN: {said}")]
 
 
+def tls_old_clients(inp: DoctorInputs, out: list[Check]) -> list[Check]:
+    """H-48 (D-1328): ``TB_TLS_OLD_CLIENTS`` (deploy/.env, or exported, as compose reads it). Off and audited: no
+    line. cbc and audited (``deploy/site/tls-old-clients.audited``, written by deploy/install.sh after its
+    ``update.tls_relaxed`` event): one WARN line while it is on. A value other than off or cbc, or one that differs
+    from the last audited value (switched with no audit event: a plain ``docker compose up``, an exported variable,
+    a restore): FAIL."""
+    from tools.tls_policy import old_clients_state
+
+    value, _audited, problem = old_clients_state(inp.env, _site_dir(inp), {})
+    if problem:
+        return [*out, Check("tls_old_clients", "FAIL", problem)]
+    if value == "off":
+        return out
+    why = (
+        "TB_TLS_OLD_CLIENTS=cbc (audited): 443 also serves the TLS 1.2 ECDHE AES-CBC-SHA suites to old clients; the "
+        "per-release TLS check reports it as an exception; set off in deploy/.env and re-run deploy/install.sh when "
+        "the old client is gone (RUNBOOK §12)"
+    )
+    return [*out, Check("tls_old_clients", "WARN", why)]
+
+
 def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] = CHECKS) -> list[Check]:
     out: list[Check] = [Check("inputs", "FAIL", why) for why in inp.input_errors]
     for fn in checks:
@@ -2213,7 +2236,7 @@ def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] =
             out.append(fn(inp))
         except Exception as e:  # fail closed: a check that cannot run is a failure
             out.append(Check(name, "FAIL", f"check error: {type(e).__name__}: {e}"))
-    return host_profile(inp, out)
+    return tls_old_clients(inp, host_profile(inp, out))
 
 
 def ok(checks: list[Check]) -> bool:

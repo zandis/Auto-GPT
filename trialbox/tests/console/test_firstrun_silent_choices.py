@@ -95,6 +95,35 @@ def test_outside_production_the_page_reads_the_answers_as_before(tmp_path: Path)
     assert got["chartno_rule"] == "" and "health_page_person" not in got
 
 
+def test_production_does_not_finish_while_the_patient_check_cannot_be_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of #1175, S2: "could not be read" is not "not asked": a PRODUCTION box does not finish without the rule
+    then; it says to have the database checked and load the page again."""
+    monkeypatch.setattr(page, "box_holds_patients", lambda: None)
+    b = _box(tmp_path, TB_ENV="PRODUCTION")
+    c = _with_code(b)
+    shown = c.get("/login/first-run/answers").text
+    assert "a box in use cannot finish without it" in shown and "If you finish without it" not in shown
+    r, _ = _answers(c, health_page_person="Dr Owner")
+    assert r.status_code == 422 and b["users"].count() == 0
+    assert 'data-testid="err-chartno_rule"' in r.text and "load this page again" in r.text
+    r, _ = _answers(_with_code(_box(tmp_path / "test")))  # a TEST box: as before
+    assert r.status_code == 200, r.text[-600:]
+
+
+@pytest.mark.parametrize("field", ["health_page_person", "tls_root_confirmed_by"])
+@pytest.mark.parametrize("sep", ["\u2028", "\u2029", "\u0085"])
+def test_a_name_with_a_unicode_line_break_is_refused_on_the_page(tmp_path: Path, field: str, sep: str) -> None:
+    """Review of #1175, B2: str.splitlines breaks there, so the .env readers would see a second key."""
+    b = _box(tmp_path, TB_ENV="PRODUCTION")
+    c = _with_code(b)
+    over = {"chartno_kind": "asis", "health_page_person": "Dr Owner", field: f"Jane Doe{sep}TB_ENV=DEV"}
+    r, _ = _answers(c, **over)
+    assert r.status_code == 422 and f'data-testid="err-{field}"' in r.text
+    assert not (tmp_path / "firstrun" / firstrun.ANSWERS).exists()
+
+
 def test_a_box_that_holds_patients_is_not_asked_the_rule_in_production(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

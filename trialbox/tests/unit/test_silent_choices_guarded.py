@@ -5,8 +5,9 @@
 2. The ``health-page`` backup alert route names the person who opens the health page every working day
    (``TB_BACKUP_ALERT_WATCHER``), stored with the route and shown where the route is shown (the backup install's
    note, ``doctor``).
-3. Caddy's own CA: the wizard asks who in hospital IT confirmed the root is on every clinic PC and records who and
-   when; ``doctor`` reports a missing confirmation.
+3. Caddy's own CA: who in hospital IT confirmed the root is on every clinic PC, and when, is recorded once the root
+   exists (the box's first-run page, or ``deploy/.env``); the terminal wizard, which runs before it exists, records
+   none; ``doctor`` reports a missing confirmation (a WARN in PRODUCTION).
 
 An installed site keeps working: its answers files read as before outside PRODUCTION, and a PRODUCTION site without
 the new answers gets a ``doctor`` WARN with the next action, never a FAIL (``named_choices``). The box's first-run
@@ -115,9 +116,10 @@ def _wiz_block() -> str:
     return INSTALL[start : INSTALL.index("# ---- end of WIZARD-ENV (D-1365)", start)]
 
 
-def _wiz_env(**var: str) -> str:
+def _wiz_run(**var: str) -> subprocess.CompletedProcess[str]:
     script = (
         "set -euo pipefail\n"
+        'die() { printf "install: %s\\n" "$*" >&2; exit 1; }\n'
         f"ENVIRONMENT={var.get('ENVIRONMENT', '')!r}\nREHEARSAL={var.get('REHEARSAL', '0')}\n"
         f"PRE_ENV={var.get('PRE_ENV', '')!r}\n{_wiz_block()}\n"
         'printf "%s" "${WIZ_ARGS[*]-}"\n'
@@ -125,8 +127,31 @@ def _wiz_env(**var: str) -> str:
     env = {k: v for k, v in os.environ.items() if k != "TB_BOX"}
     if "TB_BOX" in var:
         env["TB_BOX"] = var["TB_BOX"]
-    res = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, check=True)
+    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, check=False)
+
+
+def _wiz_env(**var: str) -> str:
+    res = _wiz_run(**var)
+    assert res.returncode == 0, res.stderr
     return res.stdout
+
+
+@pytest.mark.parametrize(
+    "var",
+    [
+        {"ENVIRONMENT": "prod"},
+        {"ENVIRONMENT": " PRODUCTION"},
+        {"PRE_ENV": "BOGUS"},
+        {"PRE_ENV": "BOGUS", "TB_BOX": "1"},
+    ],
+)
+def test_an_unknown_environment_stops_the_install_before_the_wizard(var: dict[str, str]) -> None:
+    """Review of #1175, S1: a typo never runs the wizard unguarded (it would leave a settings.yaml the next run
+    keeps): the block stops with nothing written, before the wizard's docker run."""
+    res = _wiz_run(**var)
+    assert res.returncode == 1 and "is not DEV, TEST, VALIDATION or PRODUCTION: nothing was written" in res.stderr
+    assert res.stdout == ""
+    assert INSTALL.index("# ---- end of WIZARD-ENV (D-1365)") < INSTALL.index("SETTINGS_NEW=0")
 
 
 def test_the_installer_tells_the_wizard_the_environment_as_it_decides_it() -> None:
@@ -189,32 +214,18 @@ def test_the_person_is_shown_where_the_route_is_shown(tmp_path: Path, monkeypatc
 
 
 # ------------------------------------------------------------------------------- 3. IT's confirmation of the root
-def test_the_internal_ca_records_who_confirmed_and_when() -> None:
+def test_the_terminal_wizard_records_no_confirmation_before_the_root_exists() -> None:
+    """Review of #1175, S3: the wizard runs before Caddy's first start, when there is no root to push: an answer is
+    not recorded as a confirmation, and the warning says the next action (a doctor WARN in PRODUCTION after)."""
     env, warnings = _build("PRODUCTION", tls_mode="internal", tls_root_confirmed_by="Lin, IT desk")
-    assert env["TB_TLS_ROOT_CONFIRMED_BY"] == "Lin, IT desk"
-    assert env["TB_TLS_ROOT_CONFIRMED_ON"] == date.today().isoformat()
-    assert not any("nobody from hospital IT" in w for w in warnings)
-    env, _ = _build("", tls_mode="internal", tls_root_confirmed_by="Lin", tls_root_confirmed_on="2026-11-02")
-    assert env["TB_TLS_ROOT_CONFIRMED_ON"] == "2026-11-02"
-    with pytest.raises(settings_wizard.WizardError, match="tls_root_confirmed_on"):
-        _build("", tls_mode="internal", tls_root_confirmed_by="Lin", tls_root_confirmed_on="next week")
-
-
-def test_no_confirmation_is_a_warning_never_a_refusal() -> None:
-    """A new box makes its root at Caddy's first start: IT cannot have pushed it before the install."""
-    env, warnings = _build("PRODUCTION", tls_mode="internal")
+    assert "TB_TLS_ROOT_CONFIRMED_BY" not in env and "TB_TLS_ROOT_CONFIRMED_ON" not in env
+    assert any("is not recorded: the root does not exist yet" in w for w in warnings)
+    env, warnings = _build("PRODUCTION", tls_mode="internal")  # a warning, never a refusal
     assert "TB_TLS_ROOT_CONFIRMED_BY" not in env
-    assert any(w.startswith("tls_mode internal: nobody from hospital IT has confirmed") for w in warnings)
-
-
-def test_the_wizard_asks_the_confirmation_for_caddy_s_ca_only() -> None:
-    keys = [q[0] for q in settings_wizard.QUESTIONS]
-    assert keys.index("tls_root_confirmed_by") > keys.index("tls_mode")
-    from tb_common import site_country
-
-    cd = site_country.LEGACY
-    assert settings_wizard._asked("tls_root_confirmed_by", cd, {"tls_mode": "internal"})
-    assert not settings_wizard._asked("tls_root_confirmed_by", cd, {"tls_mode": "hospital"})
+    assert any("put TB_TLS_ROOT_CONFIRMED_BY" in w and "TB_TLS_ROOT_CONFIRMED_ON" in w for w in warnings)
+    assert "tls_root_confirmed_by" not in [q[0] for q in settings_wizard.QUESTIONS]  # not asked at install
+    c = doctor.check_named_choices(doctor.DoctorInputs(env={**LEGACY_PROD, **env}))
+    assert c.status == "WARN" and "TB_TLS_ROOT_CONFIRMED_BY" in c.detail  # the fresh install stays in sight
 
 
 def test_the_box_plan_carries_it_s_confirmation() -> None:
@@ -224,6 +235,45 @@ def test_the_box_plan_carries_it_s_confirmation() -> None:
     assert a is not None, problems
     env = bp.plan(a, _hw()).env_extra
     assert env["TB_TLS_ROOT_CONFIRMED_BY"] == "Lin" and env["TB_TLS_ROOT_CONFIRMED_ON"] == date.today().isoformat()
+
+
+# ----------------------------------------------------------- B2: a name is one printable line for every reader
+SEPARATORS = ["\u2028", "\u2029", "\u0085"]  # str.splitlines breaks at each; .env's Python readers use it
+
+
+@pytest.mark.parametrize("sep", SEPARATORS)
+def test_a_watcher_name_with_a_unicode_line_break_is_refused_and_never_reaches_env(sep: str) -> None:
+    name = f"Jane Doe{sep}TB_ENV=DEV"
+    for environment in ("", "PRODUCTION"):
+        with pytest.raises(settings_wizard.WizardError, match="TB_BACKUP_ALERT_WATCHER is not one plain name"):
+            _build(environment, env_extra={**PAGE, "TB_BACKUP_ALERT_WATCHER": name})
+
+
+@pytest.mark.parametrize("field", ["health_page_person", "tls_root_confirmed_by"])
+@pytest.mark.parametrize("sep", SEPARATORS)
+def test_the_first_run_answers_refuse_a_unicode_line_break_in_a_name(field: str, sep: str) -> None:
+    from tests.unit.test_box_plan import OWNER
+
+    a, problems = parse(OWNER | {field: f"Lin{sep}TB_CONSOLE_SECURE_COOKIE=0"}, disks=("/dev/sdb",))
+    assert a is None and [(p.field, p.code) for p in problems] == [(field, "person_name")]
+
+
+def test_a_name_is_one_printable_line_and_a_japanese_space_is_kept() -> None:
+    from tb_common.box_answers import person_name
+
+    assert person_name("山田\u3000花子") == "山田\u3000花子" and person_name("陳 小明") == "陳 小明"
+    for bad in ("a\u200bb", "a\x0bb", "a\u00a0b\u2028", "x" * 101, "a\tb"):
+        assert person_name(bad) is None, repr(bad)
+
+
+def test_a_written_watcher_is_read_back_as_one_value(tmp_path: Path) -> None:
+    from tb_common.config import _read_dotenv
+
+    env, _ = _build("PRODUCTION", chartno_rule="asis", env_extra={**PAGE, "TB_BACKUP_ALERT_WATCHER": "山田\u3000花子"})
+    f = tmp_path / ".env"
+    f.write_text("".join(f"{k}={v}\n" for k, v in env.items()), encoding="utf-8")
+    back = _read_dotenv(f)
+    assert back["TB_BACKUP_ALERT_WATCHER"] == "山田\u3000花子" and set(back) == set(env)
 
 
 # -------------------------------------------------------------------- doctor: a site from before is told, not stopped

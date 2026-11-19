@@ -19,22 +19,30 @@
     health-page`, D-735; `tools/box/plan.py` always sets it). The first-run page asks who opens the health page
     every working day (`health_page_person`), required on a PRODUCTION box; the plan writes it as
     `TB_BACKUP_ALERT_WATCHER` in `deploy/.env`, beside the route. The terminal wizard refuses the route without a
-    named person in PRODUCTION and warns elsewhere (an answers file's `env_extra`). The name is shown where the
-    route is shown: the backup install's note and `doctor`'s `backup` line ("<name> opens the health tab every
-    working day"), or the next action when nobody is named.
-  - **What is stored about a person:** a name only, as one plain value (one line; no quote, `$`, backquote,
-    backslash or `#`, so `.env`, compose and the installer's shell read it as written; at most 100 characters), in
-    `deploy/.env` (root only, 0600) and the box's answers file (tmpfs, removed after the apply), as the wizard keeps
-    the site's contact address. No mail address, telephone number or account is asked; nothing goes to the audit
-    or a support bundle beyond what `.env` already goes to. A staff member's name is operational contact data, never
-    patient data.
+    named person in PRODUCTION and warns elsewhere. **That refusal fires only for an answers file** (the route
+    comes in its `env_extra`, as the box's plan writes it); a route an operator sets by hand in `deploy/.env` is
+    caught by `doctor`'s `named_choices` WARN only. The name is shown where the route is shown: the backup install's
+    note and `doctor`'s `backup` line ("<name> opens the health tab every working day"), or the next action when
+    nobody is named.
+  - **What is stored about a person:** a name only, as one printable line (no character `str.splitlines` breaks
+    at, U+0085, U+2028 and U+2029 included, nothing that is not printable but the ideographic space U+3000; no
+    quote, `$`, backquote, backslash or `#`; at most 100 characters), so `.env`, compose, the installer's shell and
+    the Python readers read it as one value; both wizards use the one check (`box_answers.person_name`). It is kept
+    in `deploy/.env` (root only, 0600) and the box's answers file (tmpfs, removed after the apply), as the wizard
+    keeps the site's contact address. No mail address, telephone number or account is asked. The name appears in
+    `doctor`'s detail and so in a support bundle's `doctor.json`, as the SAE office mailbox already does. A staff
+    member's name is operational contact data, never patient data.
   - **IT's confirmation of the internal CA's root (W7).** With Caddy's own CA (`tls_mode internal`; every box) the
-    terminal wizard asks who in hospital IT confirmed that its root certificate is on every clinic PC
-    (`tls_root_confirmed_by`, asked for that mode only) and records who and when (`TB_TLS_ROOT_CONFIRMED_BY`,
-    `TB_TLS_ROOT_CONFIRMED_ON`: the day given in `tls_root_confirmed_on`, else today; a day to come is refused). The
-    first-run page asks the same, optionally, and records the day it was given. **Not answered is a warning, never
-    a refusal**: a new box makes its root at Caddy's first start, so IT cannot have pushed it before the install;
-    `doctor` reports it until it is recorded.
+    guard is a `doctor` WARN in PRODUCTION, **not a refusal**: Caddy makes the root at its first start, after the
+    wizard, so nobody can have pushed it before the install. The terminal wizard therefore records no confirmation
+    (an answer `tls_root_confirmed_by` is not written, and it says so) and says the next action. The confirmation is
+    recorded once the root exists: on the box's first-run page (served through Caddy, so the root is there; who,
+    and the day it was given; a day to come is refused), or as `TB_TLS_ROOT_CONFIRMED_BY` and
+    `TB_TLS_ROOT_CONFIRMED_ON` in `deploy/.env` after IT has pushed it. `doctor` WARNs until both are there.
+  - **The environment the terminal wizard is told** is checked before the wizard runs: a value that is not DEV,
+    TEST, VALIDATION or PRODUCTION stops `install.sh` with nothing written, so a typo cannot run the wizard unguarded
+    and leave a `settings.yaml` the next run keeps. On the first-run page a PRODUCTION box whose patient check cannot
+    be read cannot finish without the rule either (it says to have the database checked and load the page again).
   - **A site installed before (no silent change, no broken start).** The wizard runs only on a fresh install
     (`install.sh` keeps an existing `settings.yaml`), so an installed site's settings are not re-read by it. An
     answers file without the new keys reads exactly as before outside PRODUCTION (the legacy fixtures of 10K-1 keep

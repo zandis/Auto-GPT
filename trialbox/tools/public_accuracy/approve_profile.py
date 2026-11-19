@@ -23,7 +23,20 @@ journal, and approvals waiting on each other (one at a time here).
 The equivalence gate runs at compile with a made-up gate that passes every compiled criterion (no lake here); an
 approval with nothing rejected or edited reads the compile's report and does not run the gate again.
 
-Exit 0 when the approvals ran, 1 when one was not approved, 2 on an input it will not read.
+Card H-45: ``Compiler.approve`` and the orchestrator's APPROVE job now record their own step seconds
+(``metrics.step_seconds`` of the job, ``step_seconds`` of the compiler's answer; names in ``tb_common.steptime``). The
+stub run prints the compiler's recorded steps beside the wrapped ones. ``--steps`` reads them back from stored
+records instead of running anything:
+
+    python -m tools.public_accuracy.approve_profile --steps PATH [PATH ...] [--json OUT]
+
+``PATH`` is a launch set (a ``.tgz`` or a folder with ``built/`` and ``work/``: its ``work/box-calls.log``), a
+``box-calls.log`` itself, or a job record saved as JSON. It prints, over the APPROVE jobs found, each step's median,
+mean and largest seconds and its share of the jobs' summed time, and checks that each job's steps add up to its
+``wall_seconds``.
+
+Exit 0 when the approvals ran, 1 when one was not approved, 2 on an input it will not read (``--steps``: 2 also when
+no APPROVE job with step seconds is found).
 """
 
 from __future__ import annotations
@@ -188,6 +201,7 @@ def profile(
     from criteria_compiler.service import Compiler
     from doc_parser.parser import parse
     from tb_common.config import adopt_site_tz
+    from tb_common.steptime import COMPILER_STEPS
 
     adopt_site_tz()
     logging.getLogger("llm-stub").setLevel(logging.WARNING)
@@ -212,6 +226,7 @@ def profile(
         decisions, _ = parse_review_xlsx(deps.store.get(res.review_xlsx_key))
         shutil.copytree(work / "repo", work / "compiled")
         acc: dict[str, float] = defaultdict(float)
+        recorded: dict[str, float] = defaultdict(float)
         depth = [0]
         undo = _wrap(comp, acc, depth)
         prof = cProfile.Profile()
@@ -233,6 +248,8 @@ def profile(
                 prof.disable()
                 walls.append(time.perf_counter() - t0)
                 statuses.append(got.status)
+                for k, v in (got.step_seconds or {}).items():
+                    recorded[k] += v
         finally:
             for target, attr, orig in reversed(undo):
                 setattr(target, attr, orig)
@@ -251,6 +268,7 @@ def profile(
         "site_list_rows": site_list_rows,
         "setup_s": round(setup_s, 3), "compile_s": round(compile_s, 3),
         "approve_s": {"mean": round(total / runs, 4), "each": [round(w, 4) for w in walls]}, "steps_mean_s": steps,
+        "recorded_steps_mean_s": {k: round(recorded[k] / runs, 4) for k in COMPILER_STEPS if k in recorded},
     }  # fmt: skip
     if top:
         st = pstats.Stats(prof)
@@ -275,8 +293,93 @@ def render(r: dict[str, Any]) -> str:
     )
     for k, v in r["steps_mean_s"].items():
         out.append(f"  {v:9.4f} s  {k}")
+    if r.get("recorded_steps_mean_s"):
+        out.append("  recorded by Compiler.approve itself (step_seconds, H-45):")
+        for k, v in r["recorded_steps_mean_s"].items():
+            out.append(f"  {v:9.4f} s  {k}")
     for row in r.get("top_cumulative", []):
         out.append(f"  top {row['cum_s_per_approval']:9.4f} s  {row['calls']:6d} calls  {row['function']}")
+    return "\n".join(out) + "\n"
+
+
+def _records(text: str) -> list[dict[str, Any]]:
+    """The JSON objects of a job record file (one object or a list) or of a log (one object per line)."""
+    try:
+        whole = json.loads(text)
+    except ValueError:
+        whole = None
+    if isinstance(whole, dict):
+        return [whole]
+    if isinstance(whole, list):
+        return [x for x in whole if isinstance(x, dict)]
+    out = []
+    for line in text.splitlines():
+        if line.startswith("{"):
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(d, dict):
+                out.append(d)
+    return out
+
+
+def approve_jobs(paths: list[Path]) -> list[dict[str, Any]]:
+    """[{job, state, wall, steps}] of each APPROVE job with step seconds, the last record of each job."""
+    from tb_common.steptime import numbers_only
+
+    from tools.public_accuracy.replay import collect
+
+    files: list[Path] = []
+    with tempfile.TemporaryDirectory(prefix="tb-approve-steps-") as t:
+        sets = [p for p in paths if p.is_dir() or p.name.endswith((".tgz", ".tar.gz", ".tar"))]
+        for folder in collect(sets, Path(t)).values() if sets else []:
+            files.append(folder / "work" / "box-calls.log")
+        files += [p for p in paths if p not in sets]
+        found: dict[str, dict[str, Any]] = {}
+        for f in files:
+            if not f.is_file():
+                continue
+            for d in _records(f.read_text(encoding="utf-8", errors="replace")):
+                m = d.get("metrics")
+                if d.get("type") != "APPROVE" or not isinstance(m, dict) or not isinstance(m.get("step_seconds"), dict):
+                    continue
+                jid = str(d.get("job") or d.get("job_id") or f"#{len(found)}")
+                found[jid] = {"job": jid, "state": d.get("state"), "wall": float(m.get("wall_seconds") or 0),
+                              "steps": numbers_only(m["step_seconds"])}  # fmt: skip
+    return list(found.values())
+
+
+def step_table(jobs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Each step's median, mean and largest seconds over the jobs, its share of their summed time, and the check that
+    a job's steps add up to its wall seconds (a failed job writes no wall seconds: its steps are its run's time)."""
+    import statistics as st
+
+    from tb_common.steptime import APPROVE_STEPS
+
+    total = sum(sum(j["steps"].values()) for j in jobs)
+    rows = []
+    for k in APPROVE_STEPS:
+        xs = [j["steps"].get(k, 0.0) for j in jobs]
+        if not any(k in j["steps"] for j in jobs):
+            continue
+        rows.append({"step": k, "jobs": sum(k in j["steps"] for j in jobs), "median_s": round(st.median(xs), 3),
+                     "mean_s": round(st.fmean(xs), 3), "max_s": round(max(xs), 3),
+                     "share": round(sum(xs) / total, 4) if total else 0.0})  # fmt: skip
+    off = [j["job"] for j in jobs if j["wall"] and abs(sum(j["steps"].values()) - j["wall"]) > 0.01 + 0.001 * j["wall"]]
+    return {"schema_version": SCHEMA_VERSION, "tool": "python -m tools.public_accuracy.approve_profile --steps",
+            "approve_jobs": len(jobs), "failed_jobs": sum(j["state"] == "failed" for j in jobs),
+            "summed_s": round(total, 3), "rows": rows, "steps_differ_from_wall": off}  # fmt: skip
+
+
+def render_steps(r: dict[str, Any]) -> str:
+    out = [f"approve step seconds (H-45): {r['approve_jobs']} APPROVE job(s) with step seconds "
+           f"({r['failed_jobs']} failed), {r['summed_s']} s in all",
+           f"  {'step':28s} {'jobs':>5s} {'median s':>10s} {'mean s':>10s} {'max s':>10s} {'share':>7s}"]  # fmt: skip
+    for x in r["rows"]:
+        out.append(f"  {x['step']:28s} {x['jobs']:5d} {x['median_s']:10.3f} {x['mean_s']:10.3f} {x['max_s']:10.3f} "
+                   f"{100 * x['share']:6.1f}%")  # fmt: skip
+    out.append(f"  steps differ from wall_seconds: {', '.join(r['steps_differ_from_wall']) or 'none'}")
     return "\n".join(out) + "\n"
 
 
@@ -290,7 +393,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--site-list-rows", type=int, default=0, help="load a made-up site list of N rows first")
     ap.add_argument("--top", type=int, default=0, help="the K functions with the most cumulative time")
     ap.add_argument("--json", type=Path)
+    ap.add_argument("--steps", type=Path, nargs="+", help="read stored APPROVE jobs' step seconds; run nothing")
     a = ap.parse_args(argv)
+    if a.steps:
+        from tools.public_accuracy.replay import Refused
+
+        try:
+            found = approve_jobs(a.steps)
+        except (Refused, OSError, ValueError) as exc:
+            print(f"approve_profile: {exc}", file=sys.stderr)
+            return 2
+        if not found:
+            print("approve_profile: no APPROVE job with step seconds in the records given", file=sys.stderr)
+            return 2
+        table = step_table(found)
+        if a.json:
+            a.json.write_text(json.dumps(table, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        sys.stdout.write(render_steps(table))
+        return 0
     if not a.protocol.is_file() or a.runs < 1:
         print("approve_profile: --protocol must be a file and --runs at least 1", file=sys.stderr)
         return 2

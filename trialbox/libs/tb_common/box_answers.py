@@ -160,11 +160,16 @@ _PERSON = re.compile(r"[^\x00-\x1f\x7f\"'`$\\#]{1,100}")
 
 def person_name(raw: Any) -> str | None:
     """10K-21: a named person (operational contact data, never patient data). Empty: not answered. None: it cannot
-    be written as one plain value (a line break, a quote, ``$``, a backquote, a backslash, ``#``, or too long)."""
+    be written as one plain value (a line break, a quote, ``$``, a backquote, a backslash, ``#``, or too long).
+
+    Review of #1175, B2: one printable line as every reader splits it. ``str.splitlines`` (the ``.env`` readers in
+    Python) also breaks at U+0085, U+2028, U+2029 and other separators, so anything it would split on, and anything
+    not printable, is refused; the ideographic space U+3000 of a Japanese name is the one separator kept."""
     text = str(raw if raw is not None else "").strip()
     if not text:
         return ""
-    return text if _PERSON.fullmatch(text) else None
+    one_line = len(text.splitlines()) == 1 and text.replace("\u3000", " ").isprintable()
+    return text if one_line and _PERSON.fullmatch(text) else None
 
 
 def confirmed_on(raw: Any, today: date | None = None) -> str | None:

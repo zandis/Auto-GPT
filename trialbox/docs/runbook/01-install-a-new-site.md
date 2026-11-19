@@ -74,8 +74,7 @@ keeps the shipped cap. The machine needs that memory beside the other services'.
 is to be taken exactly as written. The wizard writes it to `deploy/.env` as `TB_CHARTNO_RULE`, and every service
 writes a chart number that way before it becomes a pseudonym, so `123456` from a sheet that dropped the zeros and
 `00123456` are one patient. The wizard refuses a rule the MRN pattern does not fit (the pattern must say one fixed
-width, with both anchors). With no answer it keeps `asis` and warns, except on a PRODUCTION site, where it refuses
-to finish until the question is answered (`asis` is an answer; D-1365); it never reads a rule from the pattern. Set
+width, with both anchors). With no answer it keeps `asis` and warns; it never reads a rule from the pattern. Set
 it at install: once the box has loaded patients the tools refuse another rule, because it would change the
 pseudonym of every chart number that is not already written the new way.
 
@@ -102,6 +101,18 @@ runbook §11). The image vulnerability gate blocks
 for every image a bundle carries; the dated exceptions and open findings are in `deploy/security/known-image-findings.md`
 (SECURITY.md §8). On Windows the box runs in WSL2: `docs/handover/OFFLINE-MEDIA.md`,
 `docs/handover/WINDOWS-INSTALL-CHECKLIST.md` and `deploy/windows/preflight.ps1`.
+
+**Working days** (10C-14, D-1230). A site in Japan counts working days without its national holidays and its New
+Year break: no coordinator digest on those days (the overdue SAE reports still go), and a visit window the protocol
+counts in working days skips them. The break is 12-29 to 01-03 unless the answers say otherwise (`new_year_break`,
+written as `TB_NEW_YEAR_BREAK`: `MM-DD/MM-DD` from December to January, at most 14 days, or `none`); the hospital's
+own days off and the holidays it works go in the answers' `env_extra` as `TB_DAYS_OFF` and `TB_DAYS_OPEN`
+(`YYYY-MM-DD`, comma separated, at most 30 days a year). The wizard refuses a value it cannot read; a running box never
+stops on one: it leaves the value out and the health line is red until it is put right. The schedule page lists the
+coming days off. The holiday list ships in the update bundle; each year, when the Cabinet Office publishes
+the next year (February), the vendor downloads `syukujitsu.csv`, records its sha256 in the licence register row
+`jp-holidays` and runs `python3 -m tools.holidays_import syukujitsu.csv --sha256 <hex> --years <first>-<last>`; the
+health line warns 90 days before the list runs out and is red after it.
 
 **The same, step by step.**
 
@@ -167,3 +178,6 @@ for every image a bundle carries; the dated exceptions and open findings are in 
 (for example `X-Forwarded-User`), `TB_CONSOLE_SSO_TRUSTED_PROXIES` (addresses or CIDRs), optionally
 `TB_CONSOLE_SSO_ROLE_HEADER` and `TB_CONSOLE_SSO_ROLE_MAP=ad-group:admin,crc-group:coordinator`. Behind TLS set
 `TB_CONSOLE_SECURE_COOKIE=1`; the doctor check fails without it in PRODUCTION (D-121).
+
+**Choices a PRODUCTION site answers** (D-1365). The wizard refuses an empty `chartno_rule` on a PRODUCTION site
+(`asis` is an answer); `doctor` (`named_choices`) warns a site installed before, with the line to add.

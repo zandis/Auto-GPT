@@ -101,9 +101,7 @@ you may push to the hospital's git server.
    reads the message on stdin), or `TB_BACKUP_MAILTO` on a host with a mail transfer agent, or, on a box with no
    mail, `TB_BACKUP_ALERT_ROUTE=health-page`: the site's written choice that the red backup tile on the `/admin`
    health tab and the audit carry the alert (D-735). Then nobody is mailed: someone must open the health tab every
-   working day, and `doctor` WARNs in PRODUCTION to keep that in sight. Name that person in `TB_BACKUP_ALERT_WATCHER`
-   (a box's first-run page asks it): the install note and `doctor` show the name with the route, and `doctor`
-   (`named_choices`) WARNs while nobody is named (D-1365). Any other value is a setting error. The cron runs
+   working day, and `doctor` WARNs in PRODUCTION to keep that in sight. Any other value is a setting error. The cron runs
    `backup-nightly` at 04:45 (move it after the night's jobs) and `backup-status --quiet` every hour. A run checks
    free space first and never runs twice at once. It first **waits while a job runs or is queued**, at most
    `TB_BACKUP_JOB_WAIT_S` (6 h: half the 12 h between the 24 h cron and the 36 h age alert), then goes on anyway
@@ -297,3 +295,6 @@ The mail passwords and a cloud-model key are the hospital's: change them at thei
 box installed before step 8 keeps its shared `TB_SERVICE_TOKEN` (with a warning) until the first full rotation;
 outside DEV and TEST the gateway (D-437) and the orchestrator (D-464) refuse it, so run `secrets init` first. The
 administrator's token for scripts is `deploy/secrets/services/operator.token` (header `X-TB-Service-Token`).
+
+**The health page's watcher** (D-1365). With `TB_BACKUP_ALERT_ROUTE=health-page`, name the person who opens it every
+working day in `TB_BACKUP_ALERT_WATCHER`; the install note and `doctor` show the name, or warn while nobody is named.
