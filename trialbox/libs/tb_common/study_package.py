@@ -70,6 +70,19 @@ NAME_MAX_BYTES = 100
 #: how deeply a JSON member may nest arrays and objects, checked on its bytes before it is parsed (the deepest shipped
 #: file, RA-JAK's ELM, nests 87)
 STUDY_PACKAGE_MAX_JSON_DEPTH = 200
+#: the protocol file of synthetic test patients (D-1366 rule 4), the one carried file that names practitioners and
+#: departments
+TEST_PATIENTS = "tests/patients.ndjson"
+#: code systems whose codes are a hospital's own, not a protocol's: a criterion that uses one names codes each site
+#: maps to its own (10D-4); in the test patients only the placeholder codes below may appear
+SITE_LOCAL_CODE_SYSTEMS = frozenset({"https://trialbox.local/fhir/CodeSystem/department"})
+#: the synthetic placeholders the test patients may name (``tools.synth.catalog`` and ``tools.synth.ad``): the
+#: practitioners a ``Practitioner/`` reference may point at and the department codes of the site-local system
+PLACEHOLDER_PRACTITIONERS = frozenset(
+    {"P12345", "P23456", "P34567", "P45678", "P56789", "P67890", "P78901", "P89012", "P90001", "P90002", "P90003"}
+)
+PLACEHOLDER_DEPARTMENTS = frozenset({"RHEU", "META", "NEPH", "CARD", "FM", "ONC", "ORTH", "NEUR", "PSY"})
+_PRACTITIONER_TYPES = ("Practitioner", "PractitionerRole")
 _PART = re.compile(r"^[A-Za-z0-9._-]+$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _KEY_ID = re.compile(r"^ed25519:[0-9a-f]{16}$")
@@ -478,10 +491,53 @@ def verify_file(path: Path, trusted_keys: Iterable[bytes]) -> Package:
 
 
 # ---------------------------------------------------------------------------------------------- write
+def _test_patients_refusal(data: bytes) -> str | None:
+    """Why the test patients may not leave the box, or None: each line a JSON object; no Practitioner or
+    PractitionerRole resource; a ``Practitioner/`` or ``PractitionerRole/`` reference only to a placeholder; a coding
+    of a site-local code system only with a placeholder code."""
+    why = _depth_refusal(TEST_PATIENTS, data)
+    if why:
+        return why
+    for number, line in enumerate(data.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            resource = sm.load_json(line)
+        except (ValueError, UnicodeDecodeError):
+            return f"line {number} of {TEST_PATIENTS} is not JSON, so its codes cannot be checked"
+        if not isinstance(resource, dict):
+            return f"line {number} of {TEST_PATIENTS} is not a FHIR resource"
+        if resource.get("resourceType") in _PRACTITIONER_TYPES:
+            return f"line {number} of {TEST_PATIENTS} is a {resource['resourceType']} record, which a package does not carry"
+        stack: list[Any] = [resource]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, list):
+                stack.extend(node)
+                continue
+            if not isinstance(node, dict):
+                continue
+            stack.extend(node.values())
+            ref = node.get("reference")
+            if isinstance(ref, str) and ref.split("/", 1)[0] in _PRACTITIONER_TYPES:
+                if ref.split("/", 1)[-1] not in PLACEHOLDER_PRACTITIONERS:
+                    return (
+                        f"line {number} of {TEST_PATIENTS} names a practitioner that is not one of the synthetic "
+                        "placeholders (P12345 and the like)"
+                    )
+            if node.get("system") in SITE_LOCAL_CODE_SYSTEMS and node.get("code") not in PLACEHOLDER_DEPARTMENTS:
+                return (
+                    f"line {number} of {TEST_PATIENTS} holds a code of the hospital's own system {node['system']} "
+                    "that is not one of the synthetic placeholders"
+                )
+    return None
+
+
 def build(files: Mapping[str, bytes], private_pem: bytes, created: str) -> bytes:
     """The package of one study folder given as ``{relative path: bytes}``, signed with the coordinating centre's
     Ed25519 private key (PEM); ``created`` is the writer's date, YYYY-MM-DD (the library reads no clock). Refused
     (``ValueError``, one sentence) for a study whose folder holds its docx template, has no ``protocol_version``,
+    test patients that name a practitioner or a site-local code other than the synthetic placeholders,
     or a protocol file whose path a v1 package cannot carry. The result is verified before it is returned."""
     try:
         public_pem = ed25519_public_of(private_pem)
@@ -502,6 +558,10 @@ def build(files: Mapping[str, bytes], private_pem: bytes, created: str) -> bytes
             f"the study folder holds its template {docx}: a v1 package does not carry a template (its bytes would "
             "travel as they are, with whatever names its document properties hold)"
         )
+    if TEST_PATIENTS in protocol["files"]:
+        why = _test_patients_refusal(files[TEST_PATIENTS])
+        if why:
+            raise ValueError(f"the study folder cannot be packaged: {why}")
     for field in ("id", "version", "protocol_version"):
         if not (isinstance(manifest.get(field), str) and manifest[field]):
             raise ValueError(

@@ -397,6 +397,38 @@ def test_a_study_folder_holding_its_template_is_not_packed() -> None:
     assert sp.verify(sp.build(files, PRIV, DAY), [PUB]).protocol["manifest"]["docx_template"] == "form.docx"
 
 
+def test_test_patients_name_only_placeholders() -> None:
+    """The owner's yes to the export (2026-11-19): the test patients leave the box only with the synthetic practitioner
+    and department placeholders; the department system is named site-local."""
+    dept = "https://trialbox.local/fhir/CodeSystem/department"
+    assert dept in sp.SITE_LOCAL_CODE_SYSTEMS
+    good = {
+        "resourceType": "Appointment",
+        "id": "a1",
+        "participant": [{"actor": {"reference": "Practitioner/P12345"}}, {"actor": {"reference": "Patient/syn-1"}}],
+        "serviceType": [{"coding": [{"system": dept, "code": "RHEU"}]}],
+    }
+    files = _small()
+    files["tests/patients.ndjson"] = json.dumps(good).encode() + b"\n"
+    assert sp.verify(sp.build(files, PRIV, DAY), [PUB]).files["tests/patients.ndjson"]
+    bad_cases = {
+        "practitioner": ({**good, "participant": [{"actor": {"reference": "Practitioner/PLANTPRAC77"}}]}, "practitioner"),
+        "role": ({**good, "participant": [{"actor": {"reference": "PractitionerRole/R9"}}]}, "practitioner"),
+        "department": ({**good, "serviceType": [{"coding": [{"system": dept, "code": "PLANTDEPT9"}]}]}, "hospital's own"),
+        "record": ({"resourceType": "Practitioner", "id": "P12345", "name": [{"text": "Planted"}]}, "record"),
+    }
+    for resource, says in bad_cases.values():
+        files["tests/patients.ndjson"] = json.dumps(good).encode() + b"\n" + json.dumps(resource).encode() + b"\n"
+        with pytest.raises(ValueError, match=f"line 2 of tests/patients.ndjson .*{re.escape(says)}"):
+            sp.build(files, PRIV, DAY)
+    files["tests/patients.ndjson"] = b'{"resourceType": "Patient"\n'
+    with pytest.raises(ValueError, match="is not JSON"):
+        sp.build(files, PRIV, DAY)
+    files["tests/patients.ndjson"] = b"[" * 300 + b"]" * 300 + b"\n"
+    with pytest.raises(ValueError, match="nests deeper"):
+        sp.build(files, PRIV, DAY)
+
+
 def test_the_writer_gives_the_date() -> None:
     for bad in ("2026-13-01", "20261119", ""):
         with pytest.raises(ValueError):

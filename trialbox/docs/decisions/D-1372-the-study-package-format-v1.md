@@ -5,6 +5,8 @@
 - **Builds on:** D-1366 (the protocol part, its canonical form and the criteria hash), D-77 and D-210 (the update
   bundle's Ed25519 signature and its `key_id`), D-1102 (the rule-set zip caps), D-1226 (signed alliance tables),
   D-555 (a refusal is a returned sentence)
+- **The owner's yes:** 2026-11-19 20:20 UTC, relayed by the integrator (D-504): "10D-3 study package export: yes."
+  The export is the package as this file lists it, nothing more (see "What leaves the box" below).
 - **What this card does not do, plainly:** nothing on the live path reads a package. No import, console page, route,
   role or audit row changes; `tb_common.study_package` is called only by the tests and by the operator's tool
   `python -m tools.study_package`, which no console action calls.
@@ -86,6 +88,23 @@
   - **"A changed byte fails verification"** is held by flipping every byte of a package (one bit, then all eight),
     and by named classes: header, hash list, signature, protocol part, a protocol file, a tar header's name, mode,
     mtime, owner, checksum and unused bytes, the padding, the end blocks, bytes appended, the archive cut short.
+- **Test patients and the site-local code system (after the owner's yes):**
+  - `SITE_LOCAL_CODE_SYSTEMS` names `https://trialbox.local/fhir/CodeSystem/department` as a hospital's own code
+    system, not a protocol's: a criterion that uses it (GZQO `VS_RHEUMATOLOGY_OR_METABOLISM_CLINIC_VISIT`, NEUR-COH
+    `VS_MEMORY_CLINIC_VISIT`) names codes each site maps to its own (10D-4). Such a value set still travels as it is;
+    the format and the verifier are unchanged.
+  - `build` refuses, with one sentence, a study whose `tests/patients.ndjson` holds a line that is not a JSON object,
+    a `Practitioner` or `PractitionerRole` record, a `Practitioner/` or `PractitionerRole/` reference to anything but
+    the synthetic placeholders (`PLACEHOLDER_PRACTITIONERS`: `P12345` … `P89012` of `tools.synth.catalog`, `P90001`
+    to `P90003` of `tools.synth.ad`), or a coding of a site-local system with a code other than the placeholders
+    (`PLACEHOLDER_DEPARTMENTS`: `RHEU`, `META`, `NEPH`, `CARD`, `FM`, `ONC`, `ORTH`, `NEUR`, `PSY`); nesting deeper
+    than 200 is refused first. All shipped studies pack. Only the writer checks; a package from elsewhere is not
+    refused for it (the verifier's checks and their order are as above).
+- **What leaves the box** in a package: `protocol.json` (the D-1366 protocol part: identity, versions, criteria,
+  thresholds, variants, pins, the protocol files' hashes and the criteria hash), the protocol files under `files/`
+  (`ir/*.json` without the review record but `rejected`, `valuesets/*.json`, `cql/`, `cql/elm/`, `sql/*.sql`,
+  `labels.yaml`, and the synthetic `tests/patients.ndjson` and `tests/expected.json` where the folder holds them), `hashes.json`,
+  `header.json` (with the writer's date and the key id) and `signature.ed25519`. Nothing else.
 - **Stopped on (rule 11), for the owner, not changed here:**
   - `tests/patients.ndjson` is a protocol file (D-1366 rule 4), and in five shipped studies (GOUT-COH, GZQO,
     ONC-OSI, RA-BIO, RA-COH) its synthetic `Appointment` resources name practitioners `Practitioner/P12345` …
