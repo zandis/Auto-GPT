@@ -19,7 +19,8 @@ def _store(root: Path, typ: str, order: str, segs: list[str]) -> None:
     pid = (
         [] if any(s.startswith("PID|") for s in segs) else [f"PID|||{MRN}^^^^PI"]
     )  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
-    body = "\r".join([f"MSH|^~\\&|HIS||TB||{DAY}||X|1|P|2.5||||||~ISO IR87", *pid, *segs]) + "\r"
+    kind = "PPR^ZD1" if typ == "PPR-01" else "X"  # a PPR-01 file carries PPR^ZD1 (D-1252: another MSH-9 is set aside)
+    body = "\r".join([f"MSH|^~\\&|HIS||TB||{DAY}||{kind}|1|P|2.5||||||~ISO IR87", *pid, *segs]) + "\r"
     (d / f"{MRN}_{DAY}_{typ}_{order}_{DAY}000000000_-_1").write_bytes(body.encode("iso2022_jp"))
 
 
