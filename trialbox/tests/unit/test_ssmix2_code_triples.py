@@ -16,7 +16,10 @@ MRN, DAY = "P0001", "20261001"
 def _store(root: Path, typ: str, order: str, segs: list[str]) -> None:
     d = storage_dir(root, MRN, DAY, typ)
     d.mkdir(parents=True, exist_ok=True)
-    body = "\r".join([f"MSH|^~\\&|HIS||TB||{DAY}||X|1|P|2.5||||||~ISO IR87", *segs]) + "\r"
+    pid = (
+        [] if any(s.startswith("PID|") for s in segs) else [f"PID|||{MRN}^^^^PI"]
+    )  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
+    body = "\r".join([f"MSH|^~\\&|HIS||TB||{DAY}||X|1|P|2.5||||||~ISO IR87", *pid, *segs]) + "\r"
     (d / f"{MRN}_{DAY}_{typ}_{order}_{DAY}000000000_-_1").write_bytes(body.encode("iso2022_jp"))
 
 

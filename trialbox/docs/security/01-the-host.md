@@ -22,6 +22,13 @@ input firewall, SSH, offline OS patches, and `deploy/check_host.sh` that checks 
   needs a person at every restart. The host check judges every way into the volume
   (`deploy/hardening/luks_policy.py`): FAIL for TPM2 without a PIN, a clevis `tpm2` alone, or an `sss` whose threshold
   the TPM reaches without Tang; PASS for Tang or a PIN; WARN when nothing opens it automatically.
+- **Containers (10G-1, D-1323).** The 15 services of `deploy/docker-compose.yml` drop every capability
+  (`cap_drop: [ALL]`), cannot gain a privilege (`no-new-privileges`), run on a read-only root filesystem with a
+  `/tmp` tmpfs and as a fixed numeric non-root user (`10001:10001` the TrialBox images, `999:999` the database,
+  `65532:65532` the FHIR store); no capability is added back. Written exceptions: the adapter and the orchestrator
+  keep a writable root (the HL7 validator writes its package cache), and the vLLM server runs as root with a writable
+  root (its compile caches) until a GPU box proves otherwise. `tests/unit/test_container_hardening.py` checks every
+  stack.
 - **Swap off** so PHI never pages to disk (`swapoff -a`, remove it from `/etc/fstab`, mask `swap.target`). The host
   check fails while swap is on.
 - **Sealed site keys at install.** `install.sh` seals `site_hmac.key` and `pid_map.key` (and every key of D-347) under

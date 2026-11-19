@@ -149,6 +149,7 @@ def test_reader_versions_deletes_and_delta(tmp_path: Path) -> None:
         msg = "\r".join(
             [
                 f"MSH|^~\\&|HIS||TB||20261101||OUL^R22|1|P|2.5||||||{cs}",
+                "PID|||12345678^^^^PI",  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
                 f"OBR|1|{order}",
                 f"OBX|1|NM|3C020000002327101^尿酸^JC10||{hl7.escape(value)}|mg/dL||||||||{when}" + "|" * 7 + order,
             ]

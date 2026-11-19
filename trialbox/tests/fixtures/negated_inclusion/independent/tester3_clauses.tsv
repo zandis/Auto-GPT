@@ -1,0 +1,13 @@
+text	concept	expect	lang	hold_class	domain	others
+Hypertension. Pending central review.	hypertension	held	en	clause_split		
+Asthma; to be confirmed at visit 2.	asthma	held	en	clause_split		
+Colorectal cancer. Father, aged 52.	colorectal cancer	held	en	clause_split_family		
+Tuberculosis, but IGRA and chest imaging unremarkable.	tuberculosis	held	en	clause_split		
+Pulmonary embolism; CTPA performed, awaiting report.	pulmonary embolism	held	en	clause_split		
+Hodgkin lymphoma. In complete remission since 2015.	Hodgkin lymphoma	held	en	clause_split		
+肺塞栓症。精査予定。	肺塞栓症	held	ja	clause_split		
+糖尿病。父親。	糖尿病	held	ja	clause_split_family		
+悪性リンパ腫。2015年より完全寛解。	悪性リンパ腫	held	ja	clause_split		
+高血壓；待確認。	高血壓	held	zh	clause_split		
+大腸癌。父親，52歲。	大腸癌	held	zh	clause_split_family		
+淋巴瘤，但目前完全緩解。	淋巴瘤	held	zh	clause_split		

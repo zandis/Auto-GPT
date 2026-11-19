@@ -93,6 +93,19 @@ overlay:
   - type: Condition
     table: diagnosis
     elements:
+      # 10B-3: the reader reads PRB-14 転帰 into A active, R resolved, I inactive (the patient died of it), M remission;
+      # any other outcome is U, which has no clinical status and is unconfirmed (D-587), never active
+      # E: an end day and no read outcome (third review of PR #1095 item 4): over, so inactive, with its end day
+      # the reader's certainty (third review of PR #1095 item 7): Y suspected (provisional), X ruled out (refuted: the lake
+      # leaves it out), U unknown (unconfirmed: the lake keeps it out of the coded table, as a suspected one)
+      verificationStatus.coding[0].system: {template: "{sys.condition_verification}", when: {column: suspected, in: [Y, y, "1", X, U]}}
+      verificationStatus.coding[0].code: {column: suspected, map: {Y: provisional, y: provisional, "1": provisional, X: refuted, U: unconfirmed}}
+      clinicalStatus.coding[0].system: {template: "{sys.condition_clinical}", when: {column: status, known: [A, R, I, M, E]}}
+      clinicalStatus.coding[0].code: {column: status, map: {A: active, R: resolved, I: inactive, M: remission, E: inactive}, default: active, unmapped: ~}
+      verificationStatus.coding[1].system: {template: "{sys.condition_verification}", when: {column: status, unknown_to: [A, R, I, M, E]}}
+      verificationStatus.coding[1].code: {const: unconfirmed, when: {column: status, unknown_to: [A, R, I, M, E]}}
+      # PRB-9 終了日 as the abatement, only on an inactive, resolved or remitted condition (FHIR's invariant con-4)
+      abatementDateTime: {column: end_date, type: date, when: [{column: end_date, not_empty: true}, {column: status, in: [R, I, M, E]}]}
       code.coding[0]: {builder: coding, column: icd10cm, system: icd10cm}  # only when ICD-10-CM has the same code
       code.coding[1]: {builder: coding, column: icd10, system: icd10}      # WHO ICD-10, always (D-314)
       code.coding[2]: {builder: coding, column: byomei_code, system: byomei, display_column: byomei_name}
@@ -121,7 +134,18 @@ overlay:
       identifier[1].system: {template: "{sys.rp_order}"}
       identifier[1].value: {const: "1"}
       medicationCodeableConcept.coding[2]: {builder: coding, column: hot_code, system: hot9}
+      # 10B-4: the reader's daily dose is one dose (RXE-3) times the doses a day of the 用法 (TQ1-3); with no known
+      # frequency it is empty and no daily-dose text is written. The 用法 itself and its doses a day are carried as
+      # the timing
+      dosageInstruction[0].text: {template: "{daily_dose} {dose_unit}", when: {column: daily_dose, not_empty: true}}
+      dosageInstruction[0].timing.code.text: {column: usage_text}
+      dosageInstruction[0].timing.repeat.frequency: {column: doses_per_day, type: int}
+      dosageInstruction[0].timing.repeat.period: {const: 1, when: {column: doses_per_day, not_empty: true}}
+      dosageInstruction[0].timing.repeat.periodUnit: {const: d, when: {column: doses_per_day, not_empty: true}}
   - type: DocumentReference
     table: note
     elements:
       type.coding[0].code: {column: note_type, map: {progress: 11506-3, admission: 34117-2, discharge: 18842-5, consult: 11488-4, nursing: 34746-8, report: 47045-0, document: 34133-9}, default: 11506-3}
+      # 10B-5: the document's own LOINC code, from the guideline's data-type folder name
+      type.coding[1].system: {template: "{sys.loinc}", when: {column: doc_code, not_empty: true}}
+      type.coding[1].code: {column: doc_code, when: {column: doc_code, not_empty: true}}
