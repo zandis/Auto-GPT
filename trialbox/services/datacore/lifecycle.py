@@ -31,6 +31,12 @@ callers add the audit record.
 **Visit windows** (``visit_status``) are computed for a given day (the site's local date), so a test can step through
 them: *due* (the window has not opened), *open* (today is in the window), *overdue* (the window has closed), *done*,
 *missed* (the visit form says so), *stopped* (the subject left the study before it).
+
+**Working days** (10C-14, JP-15): a visit whose protocol counts its window in working days (``working_days``) has
+its days before and after counted in the site's working days (``tb_common.workdays``: Monday to Friday less the
+public holidays and New Year break of a country with a holiday list), so a window of 3 working days after a Friday
+in Golden Week runs past the holidays. The due day is still the protocol's day number in calendar days. A visit
+without the flag counts calendar days, as before.
 """
 
 from __future__ import annotations
@@ -41,6 +47,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, tzinfo
 from typing import Any
+
+from tb_common.workdays import WEEKDAYS_ONLY, Calendar
 
 from datacore.forms import XML_ILLEGAL
 from datacore.store import DataCore
@@ -121,8 +129,20 @@ CREATE TABLE IF NOT EXISTS deviation_call (study TEXT NOT NULL, record TEXT NOT 
   decision TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', event TEXT NOT NULL DEFAULT '', who TEXT NOT NULL,
   at TEXT NOT NULL, PRIMARY KEY (study, record, key))
 """
+# 10C-14 (JP-15): a visit whose window the protocol counts in working days (the data core's version 11, after
+# ``CONSENT_AGE_RULE``, D-1232; additive: every schedule saved before counts calendar days)
+SCHEDULE_WORKING_DAYS = "ALTER TABLE schedule ADD COLUMN IF NOT EXISTS working_days BOOLEAN NOT NULL DEFAULT FALSE"
 # the lifecycle's migrations after its base schema, in order (the name is from the first two; never edit an applied one)
 SAE_MIGRATIONS = (SAE_SCHEMA, SAE_SCHEMA_V2, SCHEDULE_VERSIONS, SCREEN_FAIL_DETAIL, CONTACT_AND_DEVIATIONS)
+# 10C-19 (D-1232): the study's ages for consent by a representative and for assent (version 10, after the sponsor's
+# layout and the history's reason); a study with no row has the default (``datacore.proxy_consent.rule``). And which
+# recorded decline of assent each reasoned step answered (the store's own order: the history's id, the step's id)
+CONSENT_AGE_RULE = """
+CREATE TABLE IF NOT EXISTS consent_age_rule (study TEXT NOT NULL PRIMARY KEY, majority INTEGER NOT NULL,
+  assent_from INTEGER NOT NULL, assent_to INTEGER NOT NULL, set_by TEXT NOT NULL, set_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS assent_proceed (study TEXT NOT NULL, record TEXT NOT NULL, step_id BIGINT NOT NULL,
+  decline_id BIGINT NOT NULL, PRIMARY KEY (study, record, step_id))
+"""
 
 # D-407 (LIFE-017): contact attempts per study. An attempt is a contact outcome that tried to reach the patient; the
 # outcomes that close the contact without a call ("not approached", "lost contact") are never refused. Until the
@@ -369,10 +389,14 @@ class Visit:
     after: int = 0
     anchor: str = "enrolment"
     labels: dict[str, str] = field(default_factory=dict)
+    working_days: bool = False  # 10C-14: the window (before, after) counts the site's working days
 
     def as_dict(self) -> dict[str, Any]:
-        return {"visit": self.name, "day": self.day, "before": self.before, "after": self.after,
-                "anchor": self.anchor, "labels": dict(self.labels)}  # fmt: skip
+        out = {"visit": self.name, "day": self.day, "before": self.before, "after": self.after,
+               "anchor": self.anchor, "labels": dict(self.labels)}  # fmt: skip
+        if self.working_days:  # only when set: a schedule saved before reads and writes as it did
+            out["working_days"] = True
+        return out
 
 
 def check_visit(v: Visit) -> None:
@@ -583,6 +607,53 @@ class Lifecycle:
                 out[want] = {"day": "", "source": "screening_log", "reason": reason, "note": ""}
         return out
 
+    def last_decline(self, study: str, record: str) -> int:
+        """The history id of the last declined assent ever saved on the participant (0 for none): any consent event,
+        dated or not, later corrected or blanked."""
+        from datacore import proxy_consent
+
+        ids = [int(h["id"]) for h in self.dc.history(study, record)
+               if str(h["field"]) == "ic_assent_why" and str(h["new"]) == proxy_consent.DECLINED]  # fmt: skip
+        return max(ids, default=0)
+
+    def assent_hold(self, study: str, record: str) -> bool:
+        """10C-19 (D-1232): from the moment a declined assent is saved on the participant (:meth:`last_decline`),
+        the participant is held: no form and no screening-log row moves them to "consented" or any later step. Typed
+        dates play no part; the order is the store's own (ids). Only two things lift the hold:
+
+        * the reasoned step (a code of ``PROCEED_REASONS`` and a note, ``proxy_consent.proceed_problem``) taken after
+          that decline was saved, while the step still stands (an undo takes it back, and the hold returns); or
+        * a consent version that did not exist when the decline was saved (its first save comes later in the
+          history), on a consent event (the first consent or a re-consent ``rcN``, never a visit or another event),
+          saved with the assent obtained. A correction of a version that existed then lifts nothing.
+
+        It holds whatever the setting: a recorded decline is never released by switching it off."""
+        from datacore import proxy_consent
+
+        decline = self.last_decline(study, record)
+        if not decline:
+            return False
+        hist = self.dc.history(study, record)
+        now = self.dc.record(study, record, "")
+        events = {str(h["event"]) for h in hist if str(h["field"]) == "ic_date"}
+        for ev in events:
+            if not proxy_consent.consent_event(ev):
+                continue  # only a canonical consent version (the first consent or rc1, rc2...; never rc02, a visit)
+            born = min(int(h["id"]) for h in hist if str(h["event"]) == ev and str(h["field"]) == "ic_date")
+            vals = now if ev == "" else self.dc.record(study, record, ev)
+            if born > decline and vals.get("ic_assent") == "1" and vals.get("ic_date"):
+                return False
+        live = {int(st["id"]) for st in live_steps(self.steps(study, record))}
+        rows = self.db.fetchdicts("SELECT step_id, decline_id FROM assent_proceed WHERE study = ? AND record = ?",
+                                  (study, record))  # fmt: skip
+        return not any(int(r["step_id"]) in live and int(r["decline_id"]) >= decline for r in rows)
+
+    def record_proceed(self, study: str, record: str) -> None:
+        """The reasoned step just taken answers the last decline saved (the store's order, never a clock)."""
+        step = self.steps(study, record)[-1]
+        self.db.execute("INSERT INTO assent_proceed (study, record, step_id, decline_id) VALUES (?,?,?,?)",
+                        (study, record, int(step["id"]), self.last_decline(study, record)))  # fmt: skip
+
     def consent_missing(self, study: str, record: str, state: str) -> str:
         """T-516 (LIFE-019): the form that shows enrolment or a visit while no consent form exists and the subject is
         not yet consented, else "". The subject page and the participants list raise it as an alert."""
@@ -604,17 +675,48 @@ class Lifecycle:
         each ``rcN`` event), oldest first; the last one; what is out of order (an enrolment or a visit dated before
         the first consent, a subject past consent with no consent form in a study that records consent here); and
         the event of the next re-consent. Flags are shown, never forced: the forms stay as entered."""
+        from datacore import proxy_consent
+
         vals: dict[str, dict[str, str]] = {}
+        by: dict[tuple[str, str], str] = {}
         for r in self.dc.values(study, record):
             vals.setdefault(str(r["event"]), {})[str(r["field"])] = str(r["value"])
+            by[(str(r["event"]), str(r["field"]))] = str(r.get("changed_by") or "")
         cs = consents_of(vals)
         flags = consent_order(vals, cs, today)
         here = self.records_consent(study) if here is None else here
         if here and not cs and state in (*ON_STUDY, "completed", "withdrawn"):
             flags.append({"flag": "no_consent_form", "day": "", "event": "", "consent_day": ""})
         have = [int(m.group(1)) for ev in vals if (m := RC_EVENT.match(ev))]
-        return {"consents": cs, "last": cs[-1] if cs else None, "flags": flags, "here": here,
-                "next_rc": f"rc{max(have, default=0) + 1}"}  # fmt: skip
+        out: dict[str, Any] = {"consents": cs, "last": cs[-1] if cs else None, "flags": flags, "here": here,
+                               "next_rc": f"rc{max(have, default=0) + 1}"}  # fmt: skip
+        if proxy_consent.is_on():  # 10C-19 (D-1232): off, the record is as before (no key)
+            out["proxy"] = proxy_consent.review(vals, cs, self.consent_age_rule(study), by)
+            if out["proxy"] is not None:  # the participant is held until a person goes on with a reason
+                out["proxy"]["hold"] = self.assent_hold(study, record)
+        return out
+
+    # ------------------------------------------------------------------ consent by a representative, assent (D-1232)
+    def consent_age_rule(self, study: str) -> dict[str, Any]:
+        """The study's age of majority and assent ages (the default until a person sets them)."""
+        from datacore import proxy_consent
+
+        rows = self.db.fetchdicts("SELECT * FROM consent_age_rule WHERE study = ?", (study,))
+        return proxy_consent.rule(rows[0] if rows else None)
+
+    def set_consent_age_rule(self, study: str, majority: int, assent_from: int, assent_to: int, by: str,
+                             at: str) -> dict[str, Any]:  # fmt: skip
+        from datacore import proxy_consent
+
+        why = proxy_consent.check_rule(majority, assent_from, assent_to)
+        if why is not None:
+            raise LifeError("consent_ages", why)
+        self.db.execute("INSERT INTO consent_age_rule (study, majority, assent_from, assent_to, set_by, set_at) "
+                        "VALUES (?,?,?,?,?,?) ON CONFLICT (study) DO UPDATE SET majority = excluded.majority, "
+                        "assent_from = excluded.assent_from, assent_to = excluded.assent_to, "
+                        "set_by = excluded.set_by, set_at = excluded.set_at",
+                        (study, majority, assent_from, assent_to, by, at))  # fmt: skip
+        return self.consent_age_rule(study)
 
     def derive(self, study: str, record: str, *, by: str, at: str, registry: str | None = None,
                schedule: list[Visit] | None = None) -> dict[str, Any]:  # fmt: skip
@@ -630,6 +732,16 @@ class Lifecycle:
         held: list[dict[str, str]] = []
         today = at[:10]
         line_target = max((LINE.index(s) for s in ev if s in LINE), default=0)
+        stop = LINE.index("consented")
+        if line_target >= stop and self.assent_hold(study, record):  # whatever the setting (a recorded decline)
+            # 10C-19 (D-1232): a declined assent in force: no form or log row moves the participant to consented or
+            # beyond; the hold names the next step and why (a person's step with a reason moves on)
+            nxt = max(LINE.index(state) + 1, stop) if state in LINE else stop
+            if state in LINE and nxt < len(LINE) and LINE.index(state) < line_target:
+                held.append(
+                    {"state": LINE[nxt], "why": "assent_declined", "current": state, "source": "form:tb_consent"}
+                )
+            line_target = min(line_target, max(stop - 1, LINE.index(state) if state in LINE else 0))
 
         def day_for(s: str, fallback: str) -> str:
             return (ev.get(s) or {}).get("day") or fallback
@@ -703,7 +815,8 @@ class Lifecycle:
     def schedule(self, study: str) -> list[Visit]:
         rows = self.db.fetchdicts("SELECT * FROM schedule WHERE study = ? ORDER BY seq, visit", (study,))
         return [Visit(str(r["visit"]), int(r["day"]), int(r["win_before"]), int(r["win_after"]), str(r["anchor"]),
-                      dict(json.loads(r["labels"] or "{}"))) for r in rows]  # fmt: skip
+                      dict(json.loads(r["labels"] or "{}")), bool(r.get("working_days")))
+                for r in rows]  # fmt: skip
 
     def set_schedule(self, study: str, visits: list[Visit], origin: str, at: str, effective_from: str = "") -> int:
         """Save a schedule as a new version (D-364, LIFE-012); the versions before it stay. ``effective_from`` is the
@@ -734,9 +847,9 @@ class Lifecycle:
             tx.execute("DELETE FROM schedule WHERE study = ?", (study,))
             for i, v in enumerate(visits):
                 tx.execute("INSERT INTO schedule (study, visit, seq, labels, anchor, day, win_before, win_after, "
-                           "origin, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                           "origin, at, working_days) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                            (study, v.name, i, json.dumps(v.labels, ensure_ascii=False), v.anchor, v.day, v.before,
-                            v.after, origin, at))  # fmt: skip
+                            v.after, origin, at, v.working_days))  # fmt: skip
         return last + 1
 
     def schedule_versions(self, study: str) -> list[dict[str, Any]]:
@@ -745,7 +858,8 @@ class Lifecycle:
         return [{"version": int(r["version"]), "effective_from": str(r["effective_from"] or ""),
                  "origin": str(r["origin"]), "at": str(r["at"]),
                  "visits": [Visit(str(v["visit"]), int(v["day"]), int(v["before"]), int(v["after"]), str(v["anchor"]),
-                                  dict(v.get("labels") or {})) for v in json.loads(r["visits"] or "[]")]}
+                                  dict(v.get("labels") or {}), bool(v.get("working_days")))
+                            for v in json.loads(r["visits"] or "[]")]}
                 for r in rows]  # fmt: skip
 
     def schedule_on(self, study: str, day: date, versions: list[dict[str, Any]] | None = None) -> list[Visit]:
@@ -766,7 +880,8 @@ class Lifecycle:
         }
 
     def visits(self, study: str, record: str, today: date, schedule: list[Visit] | None = None,
-               subject: dict[str, Any] | None = None) -> list[dict[str, Any]]:  # fmt: skip
+               subject: dict[str, Any] | None = None,
+               cal: Calendar = WEEKDAYS_ONLY) -> list[dict[str, Any]]:  # fmt: skip
         vers = self.schedule_versions(study)
         if schedule is not None:
             sched = schedule
@@ -779,13 +894,14 @@ class Lifecycle:
             vals.setdefault(str(r["event"]), {})[str(r["field"])] = str(r["value"])
         out = []
         for v in sched:
-            row = visit_status(v, anchors.get(v.anchor), vals.get(v.name, {}), str(sub["state"]), today)
+            row = visit_status(v, anchors.get(v.anchor), vals.get(v.name, {}), str(sub["state"]), today, cal)
             if vers:  # D-364 (LIFE-012): a visit done is judged by the schedule in force on the visit day
                 on = _day(row["done_on"]) if row["status"] == "done" else None
                 then = in_force_on(vers, on or today)
                 was = next((w for w in then["visits"] if w.name == v.name), None)
                 if on is not None and was is not None and was != v:
-                    row = visit_status(was, anchors.get(was.anchor), vals.get(v.name, {}), str(sub["state"]), today)
+                    row = visit_status(was, anchors.get(was.anchor), vals.get(v.name, {}), str(sub["state"]), today,
+                                       cal)  # fmt: skip
                 row["schedule_version"] = then["version"] if was is not None else in_force_on(vers, today)["version"]
             out.append(row)
         return out
@@ -857,7 +973,8 @@ class Lifecycle:
         return self.contact_rule(study)
 
     # ------------------------------------------------------------------ possible deviations (D-407, LIFE-025)
-    def possible_deviations(self, study: str, today: date, icf_version: str = "") -> list[dict[str, Any]]:
+    def possible_deviations(self, study: str, today: date, icf_version: str = "",
+                            cal: Calendar = WEEKDAYS_ONLY) -> list[dict[str, Any]]:  # fmt: skip
         """What the box's own facts say may be a deviation, one proposal per subject and fact, each with the
         coordinator's answer when there is one (``state``: open, confirmed, dismissed). Never a deviation entry by
         itself: a proposal becomes one only when a person confirms it. ``icf_version``: the consent form version in
@@ -867,7 +984,7 @@ class Lifecycle:
         out: list[dict[str, Any]] = []
         for sub in self.subjects(study):
             rec = str(sub["record"])
-            for p in self._proposals(study, rec, sub, today, icf_version):
+            for p in self._proposals(study, rec, sub, today, icf_version, cal):
                 c = calls.get((rec, p["key"]))
                 out.append({**p, "record": rec, "pid": str(sub["pid"]), "dv_kind": PROPOSAL_KINDS[p["kind"]],
                             "state": {"confirm": "confirmed", "dismiss": "dismissed"}[str(c["decision"])] if c
@@ -877,13 +994,13 @@ class Lifecycle:
         return out
 
     def _proposals(self, study: str, rec: str, sub: dict[str, Any], today: date,
-                   icf_version: str) -> list[dict[str, Any]]:  # fmt: skip
+                   icf_version: str, cal: Calendar = WEEKDAYS_ONLY) -> list[dict[str, Any]]:  # fmt: skip
         vals: dict[str, dict[str, str]] = {}
         for r in self.dc.values(study, rec):
             vals.setdefault(str(r["event"]), {})[str(r["field"])] = str(r["value"])
         once = vals.get("", {})
         out: list[dict[str, Any]] = []
-        for v in self.visits(study, rec, today, subject=sub):
+        for v in self.visits(study, rec, today, subject=sub, cal=cal):
             if v["status"] != "done":
                 continue
             said_out = vals.get(str(v["visit"]), {}).get("vs_window") == "0"
@@ -922,7 +1039,8 @@ class Lifecycle:
         return out
 
     def decide_deviation(self, study: str, record: str, key: str, decision: str, *, reason: str = "", by: str,
-                         at: str, today: date, icf_version: str = "") -> dict[str, Any]:  # fmt: skip
+                         at: str, today: date, icf_version: str = "",
+                         cal: Calendar = WEEKDAYS_ONLY) -> dict[str, Any]:  # fmt: skip
         """The coordinator's answer to one proposal: ``confirm`` writes a deviation entry (the next ``dvN`` event:
         date, kind, what happened; class and reports are then completed on the form), ``dismiss`` keeps the reason.
         One answer per proposal; a second is refused."""
@@ -933,7 +1051,7 @@ class Lifecycle:
             raise LifeError("chars", "the reason holds a character that cannot be stored (a control character)")
         if decision == "dismiss" and not reason:
             raise LifeError("dismiss_reason", "say why this is not a deviation")
-        one = next((p for p in self.possible_deviations(study, today, icf_version)
+        one = next((p for p in self.possible_deviations(study, today, icf_version, cal)
                     if p["record"] == record and p["key"] == key), None)  # fmt: skip
         if one is None:
             raise LifeError("proposal", "no such possible deviation for this subject")
@@ -1021,11 +1139,21 @@ def live_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def visit_status(v: Visit, anchor: date | None, vals: dict[str, str], state: str, today: date) -> dict[str, Any]:
-    """One visit's window and state on ``today`` (the site's local date)."""
+def visit_status(v: Visit, anchor: date | None, vals: dict[str, str], state: str, today: date,
+                 cal: Calendar = WEEKDAYS_ONLY) -> dict[str, Any]:  # fmt: skip
+    """One visit's window and state on ``today`` (the site's local date); ``cal``, the site's working days, counts
+    the window of a visit whose protocol says working days (10C-14)."""
     due = anchor + timedelta(days=v.day) if anchor else None
-    start = due - timedelta(days=v.before) if due else None
-    end = due + timedelta(days=v.after) if due else None
+    start: date | None = None
+    end: date | None = None
+    if due is not None and v.working_days:
+        try:
+            start, end = cal.add_working_days(due, -v.before), cal.add_working_days(due, v.after)
+        except (ValueError, OverflowError):  # no working day to count to (or past 9999): calendar days, never none
+            start, end = due - timedelta(days=v.before), due + timedelta(days=v.after)
+    else:
+        start = due - timedelta(days=v.before) if due else None
+        end = due + timedelta(days=v.after) if due else None
     done_on = vals.get("vs_date", "")
     if vals.get("vs_status") == "1":
         status = "done"
@@ -1056,6 +1184,13 @@ def visit_status(v: Visit, anchor: date | None, vals: dict[str, str], state: str
         "in_window": in_window,
         "missed_reason": vals.get("vs_missed_reason", "") if status == "missed" else "",
         "days_late": (today - end).days if status == "overdue" and end else 0,
+        # 10C-14: a working-days window reaching a year the holiday list does not know (after its last day, or before
+        # its first year): its holidays there are not skipped. Only on such a row, so other rows read as before.
+        **(
+            {"days_off_unknown": True}
+            if v.working_days and start and end and cal.has_days_off and not (cal.covers(start) and cal.covers(end))
+            else {}
+        ),
     }
 
 

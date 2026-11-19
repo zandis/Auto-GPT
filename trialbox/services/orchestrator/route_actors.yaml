@@ -86,6 +86,7 @@ reads_without_patient:
   GET /studies/{rs}/schedule: "a study's visit schedule and its versions"
   GET /studies/{rs}/sae-rule: "a study's SAE reporting rule"
   GET /studies/{rs}/contact-rule: "a study's contact limits"
+  GET /studies/{rs}/consent-ages: "a study's age of majority and assent ages, and whether the setting is on (D-1232)"
   GET /studies/{rs}/sponsor/layout: "the sponsor's screening-log layout (column names)"
   GET /setup/templates/{name}: "a blank template file (the hospital-code sheet lists the site's local codes, no patient)"
   GET /setup/{ws}/readiness: "the readiness answer: counts and what is missing"

@@ -321,6 +321,8 @@ POST /api/v1/studies/{rs}/referrals/{ref_id}/answer crc
 POST /api/v1/studies/{rs}/referrals/{ref_id}/answer pi
 POST /api/v1/studies/{rs}/referrals/{ref_id}/answer smo_in
 POST /api/v1/studies/{rs}/referrals/{ref_id}/answer sub
+POST /api/v1/studies/{rs}/setup/consent-ages crc
+POST /api/v1/studies/{rs}/setup/consent-ages smo_in
 POST /api/v1/studies/{rs}/sources/{name}/sync crc
 POST /api/v1/studies/{rs}/sources/{name}/sync smo_in
 POST /api/v1/studies/{rs}/state/take-back pi
@@ -497,6 +499,8 @@ POST /studies/{rs}/sae/{record}/{event}/{what} privacy
 POST /studies/{rs}/sae/{record}/{event}/{what} smo_in
 POST /studies/{rs}/sae/{record}/{event}/{what} steward
 POST /studies/{rs}/sae/{record}/{event}/{what} sub
+POST /studies/{rs}/setup/consent-ages crc
+POST /studies/{rs}/setup/consent-ages smo_in
 POST /studies/{rs}/setup/contact crc
 POST /studies/{rs}/setup/contact smo_in
 POST /studies/{rs}/setup/scope crc
