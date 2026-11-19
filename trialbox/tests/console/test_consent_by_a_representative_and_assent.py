@@ -29,7 +29,6 @@ from tests.console.test_cjk_layout import PHONE, SCRIPT, _node_playwright
 from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
 from tests.console.test_lifecycle_pages import PW, _save, lb  # noqa: F401 - the fixture is used by name
 from tests.console.test_role_pages import _csrf
-from tests.console.test_team_pages import _events
 
 
 def _orch(lb: dict[str, Any], name: str) -> list[dict[str, Any]]:  # noqa: F811
@@ -38,6 +37,7 @@ def _orch(lb: dict[str, Any], name: str) -> list[dict[str, Any]]:  # noqa: F811
     for f in sorted(lb["audit"].directory.glob("*.jsonl")):
         out.extend(e for line in f.read_text().splitlines() if line and (e := json.loads(line)).get("event") == name)
     return out
+
 
 ROOT = Path(__file__).resolve().parents[2]
 CONSENT = {"ic_date": "2026-10-06", "ic_version": "v1", "ic_copy": "1"}
@@ -79,7 +79,9 @@ def test_a_minor_without_a_representative_warns(lb: dict[str, Any], monkeypatch:
     assert 'data-testid="f-ic_lar_rel-1"' in form and 'data-testid="f-ic_lar_relation"' not in form
     _save(c, csrf, no, "tb_consent", {**CONSENT, "ic_age": "15", "ic_lar": "0"})
     page = c.get(f"/studies/GZQO/subjects/{no}").text
-    w = re.search(r'<p class="warn" role="alert" data-testid="proxy-w-no_representative">([^<]+)<a href="([^"]+)"', page)
+    w = re.search(
+        r'<p class="warn" role="alert" data-testid="proxy-w-no_representative">([^<]+)<a href="([^"]+)"', page
+    )
     assert w and "Age 15" in w.group(1) and "(18)" in w.group(1) and "form=tb_consent" in w.group(2)
     assert 'data-testid="proxy-w-no_assent"' in page  # 15 is in the default assent ages, 7 to 17
     assert 'data-state="consented"' in page and "Consent given by the participant" in page
@@ -123,12 +125,17 @@ def test_in_the_assent_ages_without_assent_warns(lb: dict[str, Any], monkeypatch
     assert "age 13 at enrolment (whole years)" in page and 'data-testid="proxy-w-no_assent"' in page
 
 
-def test_a_declined_assent_is_shown_and_not_taken_as_consent(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: E501, F811
+def test_a_declined_assent_is_shown_and_not_taken_as_consent(
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     c, csrf, no, _ = _ready(lb, monkeypatch)
     _save(c, csrf, no, "tb_consent", {**CONSENT, "ic_age": "12", "ic_lar": "1", "ic_lar_rel": "1", "ic_assent": "0",
                                        "ic_assent_why": "3"})  # fmt: skip
     page = c.get(f"/studies/GZQO/subjects/{no}").text
-    assert re.search(r'<p class="error" role="alert" data-testid="proxy-w-assent_declined">The participant declined', page)
+    assert re.search(
+        r'<p class="error" role="alert" data-testid="proxy-w-assent_declined">The participant declined', page
+    )
     assert 'data-state="contacted"' in page  # the consent form did not move the participant on
     assert 'data-testid="consent-missing"' not in page and "assent not obtained: declined" in page
     assert 'data-testid="go-consented-declined"' in page and 'data-testid="go-consented"' not in page
@@ -166,7 +173,10 @@ def _xlsx(c: Any) -> list[list[Any]]:
     return [list(row) for row in ws.iter_rows(values_only=True)]
 
 
-def test_the_screening_log_export_has_five_columns_at_the_end(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: E501, F811
+def test_the_screening_log_export_has_five_columns_at_the_end(
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     c, csrf, no, _ = _ready(lb, monkeypatch)
     _save(c, csrf, no, "tb_consent", {**CONSENT, "ic_age": "12", "ic_lar": "1", "ic_lar_rel": "9",
                                        "ic_lar_other": "aunt", "ic_assent": "0", "ic_assent_why": "1"})  # fmt: skip
