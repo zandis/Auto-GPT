@@ -161,7 +161,7 @@ def test_the_guard_reads_the_masker_s_definitions() -> None:
 
 
 def test_the_mask_version_says_the_masking_changed() -> None:
-    assert NOTE_MASK_VERSION == "7"  # 10C-1: Japanese identifiers (6 was NEW-B-55, D-923: English Taiwan charts)
+    assert NOTE_MASK_VERSION == "8"  # 10C-1b: Japanese names from the analyser (7: 10C-1; 6: NEW-B-55, D-923)
 
 
 # ---------------------------------------------------------------------------------------------- packet 2 (D-756)

@@ -5,11 +5,13 @@ listed surname. A name with none of these beside it (見本太郎は本日来院
 that knows names: a morphological analyser tags each word, and its lexicon marks surnames (姓), given names (名) and
 other person names (人名).
 
-**Off and absent by default.** Nothing in the product imports this module, and importing it imports no analyser:
-the package (SudachiPy with a SudachiDict, or a MeCab binding with a dictionary) is loaded only by
-:func:`analyser`, called by a person or a test. The analyser is not in the lock files or the images: adding it is
-the owner's decision (decision D-1235, ``docs/research/2026-11-19-japanese-name-analyser.md``). :func:`enable`
-registers :func:`name_spans` in ``phi_guard.NAME_RECOGNISERS``; with that list empty every output is master's.
+**On by default, loaded lazily.** SudachiPy 0.7.0 with SudachiDict-small 20261015 is a runtime dependency (the
+owner's yes, decision D-1235, ``docs/research/2026-11-19-japanese-name-analyser.md``): ``phi_guard.japanese_names``,
+registered in ``phi_guard.NAME_RECOGNISERS``, imports this module and loads the analyser on the first text with kana
+or 歳, one tokenizer per thread. Importing this module imports no analyser: a package is loaded only by
+:func:`analyser`. The other analysers (SudachiDict-core and -full, MeCab, Janome) are not in the lock; the harness
+(``tools/ja_name_eval.py``) measures them where they are installed by hand. :func:`enable` puts another analyser in
+the guard's place for a test; :func:`disable` puts the default back.
 
 **The combination rule** (:func:`name_spans`): the analyser proposes, the guard decides.
 
@@ -84,7 +86,7 @@ def _offsets(text: str, surfaces: list[tuple[str, tuple[str, ...]]]) -> list[Tok
 
 class _Sudachi:
     def __init__(self, dict_type: str) -> None:
-        from sudachipy import Dictionary, SplitMode  # type: ignore[import-not-found,unused-ignore]  # optional, not in the lock
+        from sudachipy import Dictionary, SplitMode  # type: ignore[import-untyped,unused-ignore]  # no stubs (D-1235)
 
         self.label = f"sudachi-{dict_type}"
         self._tok = Dictionary(dict=dict_type).tokenizer(mode=SplitMode.C)
@@ -313,19 +315,18 @@ def name_spans(text: str, an: Analyser, *, protect: bool = True) -> list[tuple[i
     return out
 
 
-_ENABLED: dict[str, Callable[[str], list[tuple[int, int]]]] = {}
+_ENABLED: dict[str, list[Callable[[str], Any]]] = {}
 
 
 def enable(an: Analyser) -> None:
-    """Add the analyser's names to the guard (``phi_guard.NAME_RECOGNISERS``). For a person or a test: the product
-    never calls it until the owner has approved the dependency."""
-    disable()
-    recognise = lambda text: name_spans(text, an)  # noqa: E731
-    _ENABLED["fn"] = recognise
-    phi_guard.NAME_RECOGNISERS.append(recognise)
+    """Put ``an`` in the guard's place (``phi_guard.NAME_RECOGNISERS``), for a test or a measurement: the guard then
+    reads names with ``an`` alone. :func:`disable` puts back what was there."""
+    saved = _ENABLED.get("saved", list(phi_guard.NAME_RECOGNISERS))
+    _ENABLED["saved"] = saved
+    phi_guard.NAME_RECOGNISERS[:] = [lambda text: name_spans(text, an)]
 
 
 def disable() -> None:
-    fn = _ENABLED.pop("fn", None)
-    if fn is not None and fn in phi_guard.NAME_RECOGNISERS:
-        phi_guard.NAME_RECOGNISERS.remove(fn)
+    saved = _ENABLED.pop("saved", None)
+    if saved is not None:
+        phi_guard.NAME_RECOGNISERS[:] = saved

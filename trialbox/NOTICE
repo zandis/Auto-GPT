@@ -429,6 +429,47 @@ Programs inside the image (licence register, kind software)
     Copyright (c) 2014, Alexander Neumann <alexander@bumpern.de>. All rights reserved.
   Obligation: this notice and the licence's terms go with the binary.
 
+Japanese name analyser (licence register, row sudachidict-small; card 10C-1b, decision D-1235)
+  SudachiPy 0.7.0 (https://github.com/WorksApplications/sudachi.rs, Apache-2.0) and SudachiDict-small 20261015
+    (https://github.com/WorksApplications/SudachiDict, Apache-2.0), packages of deploy/requirements.lock, read by
+    the privacy guard to find Japanese person names. Neither is modified.
+  The dictionary's word list (small_lex.csv) and its connection matrix (matrix.def) are a part of UniDic
+    (https://unidic.ninjal.ac.jp/); as SudachiDict's LEGAL file states, that part is under UniDic's licence:
+
+    Copyright (c) 2011-2013, The UniDic Consortium
+    All rights reserved.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are
+    met:
+
+     * Redistributions of source code must retain the above copyright
+       notice, this list of conditions and the following disclaimer.
+
+     * Redistributions in binary form must reproduce the above copyright
+       notice, this list of conditions and the following disclaimer in the
+       documentation and/or other materials provided with the
+       distribution.
+
+     * Neither the name of the UniDic Consortium nor the names of its
+       contributors may be used to endorse or promote products derived
+       from this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+    "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+    LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+    A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+    OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+    SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+    LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+    DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+    THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+    (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+  Obligation: this notice goes with the image (the wheel carries only the Apache-2.0 text). The small dictionary
+    holds no NEologd entries (those are in SudachiDict-core and -full, not shipped).
+
 Base image and operating-system packages
   python:3.12-slim pinned by digest in demo/Dockerfile (Debian; CPython under the PSF License 2.0,
   https://docs.python.org/3/license.html) and the Debian postgresql packages (PostgreSQL Licence,

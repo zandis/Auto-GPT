@@ -1,9 +1,9 @@
-"""Card 10C-1b: the optional analyser recogniser of the privacy guard is inert by default; its rule does what it says.
+"""Card 10C-1b: the guard's Japanese name analyser (SudachiPy with SudachiDict-small, D-1235) and its rule.
 
-Nothing in the product registers a name recogniser, and no analyser package is in the lock: the guard's outputs are
-master's (``phi_guard.NAME_RECOGNISERS`` is empty, nothing imports SudachiPy, MeCab or Janome). The combination rule
-(``tb_common.ja_names.name_spans``) is tested on a stub analyser whose tags are written here, so it needs no package.
-The measurement (``tools.ja_name_eval``) runs only where an analyser is installed, and skips cleanly otherwise.
+The guard registers ``phi_guard.japanese_names`` by default; it loads the analyser lazily (no import when the guard
+loads, none for a text without kana or 歳), one tokenizer per thread, and works with no network. The combination rule
+(``tb_common.ja_names.name_spans``) is tested on a stub analyser whose tags are written here, so those tests need no
+package; the measurement (``tools.ja_name_eval``) runs with the analyser of the lock.
 """
 
 from __future__ import annotations
@@ -51,22 +51,69 @@ def _spans(text: str, words: list[tuple[str, tuple[str, ...]]]) -> list[str]:
     return [text[s:e] for s, e in ja_names.name_spans(text, Stub({text: words}))]
 
 
+_ANALYSERS = ("sudachipy", "sudachidict_small", "fugashi", "MeCab", "janome", "unidic_lite", "ipadic", "spacy", "ginza")
+_ENV = {
+    "PYTHONPATH": f"{ROOT / 'libs'}:{ROOT / 'services'}:{ROOT}",
+    "PATH": "/usr/bin:/bin",
+    # no network: a proxy that refuses every connection (the dictionary is a wheel, read from disk)
+    "HTTP_PROXY": "http://127.0.0.1:9",
+    "HTTPS_PROXY": "http://127.0.0.1:9",
+    "NO_PROXY": "",
+}
+
+
+def _fresh(code: str) -> str:
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=_ENV, check=True)
+    return out.stdout.strip()
+
+
 @pytest.mark.req("PRIV-29")
-def test_nothing_is_registered_and_no_analyser_is_imported() -> None:
-    """Off and absent: importing the guard, the masker, this module and the harness loads no analyser package."""
+def test_the_analyser_is_registered_and_loaded_only_for_japanese_text() -> None:
+    """Registered by default; importing the guard, the masker, this module and the harness loads no analyser, and
+    neither does a Chinese or English note; the first Japanese one loads SudachiPy with SudachiDict-small, offline."""
+    assert [phi_guard.japanese_names] == phi_guard.NAME_RECOGNISERS
     code = (
         "import sys; import tb_common.phi_guard as pg, guard.guard, tb_common.ja_names, tools.ja_name_eval; "
-        "print(pg.NAME_RECOGNISERS == [], [m for m in ('sudachipy', 'fugashi', 'MeCab', 'janome', 'unidic_lite', "
-        "'ipadic', 'spacy', 'ginza') if m in sys.modules])"
+        f"loaded = lambda: [m for m in {_ANALYSERS!r} if m in sys.modules]; "
+        "print(pg.NAME_RECOGNISERS == [pg.japanese_names], loaded()); "
+        "print(pg.mask_note('病人在台北看診。Seen today, stable.'), loaded()); "
+        "print(pg.mask_note('68歳男性 ミホン タロウ'), loaded())"
     )
-    env = {"PYTHONPATH": f"{ROOT / 'libs'}:{ROOT / 'services'}:{ROOT}", "PATH": "/usr/bin:/bin"}
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, check=True)
-    assert out.stdout.strip() == "True []"
-    assert phi_guard.NAME_RECOGNISERS == []
+    assert _fresh(code).splitlines() == [
+        "True []",
+        "病人在台北看診。Seen today, stable. []",
+        "68歳男性 ○○○ ○○○ ['sudachipy', 'sudachidict_small']",
+    ]
 
 
 @pytest.mark.req("PRIV-29")
-def test_a_registered_recogniser_adds_names_to_the_masker_the_guard_and_the_scan() -> None:
+def test_one_tokenizer_per_thread() -> None:
+    """Each thread loads its own analyser (a Sudachi tokenizer is not shared between threads), once."""
+    code = (
+        "import threading; import tb_common.phi_guard as pg; seen = []\n"
+        "def run():\n"
+        "    for _ in range(3): pg.mask_note('見本太郎さん 68歳'); seen.append(id(pg._JA_ANALYSER.an))\n"
+        "ts = [threading.Thread(target=run) for _ in range(3)]\n"
+        "[t.start() for t in ts]; [t.join() for t in ts]\n"
+        "print(len(seen), len(set(seen)))"
+    )
+    assert _fresh(code) == "9 3"
+
+
+@pytest.mark.req("PRIV-29")
+def test_the_default_analyser_masks_a_name_with_no_label() -> None:
+    guard = Guard(None)
+    text = "68歳男性 ミホン タロウ"
+    assert mask_note(text) == "68歳男性 ○○○ ○○○"
+    assert guard.redact(text) == "68歳男性 [NAME]"
+    assert phi_guard.scan(text).hit
+
+
+@pytest.mark.req("PRIV-29")
+def test_a_registered_recogniser_adds_names_to_the_masker_the_guard_and_the_scan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(phi_guard, "NAME_RECOGNISERS", [])  # the rules alone, then one recogniser
     text = "見本太郎は本日来院"
     guard = Guard(None)
     before = (mask_note(text), guard.redact(text), phi_guard.scan(text).hit)
@@ -86,16 +133,17 @@ def test_a_registered_recogniser_adds_names_to_the_masker_the_guard_and_the_scan
 
 
 @pytest.mark.req("PRIV-29")
-def test_enable_and_disable_register_one_recogniser() -> None:
+def test_enable_puts_another_analyser_in_place_and_disable_puts_the_default_back() -> None:
     stub = Stub({"見本太郎は来院": [("見本", NOUN), ("太郎", MEI), ("は", PARTICLE), ("来院", NOUN)]})
     ja_names.enable(stub)
     ja_names.enable(stub)  # once only
     try:
         assert len(phi_guard.NAME_RECOGNISERS) == 1
+        assert [phi_guard.japanese_names] != phi_guard.NAME_RECOGNISERS
         assert mask_note("見本太郎は来院") == "○○○○は来院"
     finally:
         ja_names.disable()
-    assert phi_guard.NAME_RECOGNISERS == []
+    assert [phi_guard.japanese_names] == phi_guard.NAME_RECOGNISERS
 
 
 @pytest.mark.req("PRIV-29")
@@ -194,19 +242,19 @@ def test_the_card_lines_are_well_formed_and_the_ordinary_ones_pass_the_rules() -
 
 
 @pytest.mark.req("PRIV-29")
-def test_the_harness_skips_cleanly_without_an_analyser(capsys: pytest.CaptureFixture[str]) -> None:
-    if any(ja_name_eval.installed(c) for c in ja_names.CHOICES):
-        pytest.skip("an analyser is installed here: the measurement test below runs instead")
+def test_the_harness_skips_cleanly_without_an_analyser(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ja_name_eval, "installed", lambda choice: False)
     assert ja_name_eval.main([]) == 0
     assert "skipped: no analyser installed" in capsys.readouterr().out
 
 
 @pytest.mark.req("PRIV-29")
 def test_the_recommended_analyser_as_measured() -> None:
-    """Runs only where SudachiPy and SudachiDict-small are installed (never in the lock): the figures of the
-    assessment (docs/research/2026-11-19-japanese-name-analyser.md) as ceilings."""
-    if not ja_name_eval.installed("sudachi-small"):
-        pytest.skip("sudachipy and sudachidict_small are not installed (not in the lock: decision D-1235)")
+    """The analyser of the lock (D-1235): the figures of the assessment
+    (docs/research/2026-11-19-japanese-name-analyser.md) as ceilings."""
+    assert ja_name_eval.installed("sudachi-small")
     res = ja_name_eval.run(["sudachi-small"])["sudachi-small"]
     assert res["probe_masked"]["missed"] == 0
     assert res["new_names"]["missed"] <= 17 and res["held_names"]["missed"] <= 4

@@ -3,9 +3,10 @@
     python -m tools.ja_name_eval                                   # every analyser installed, a table on stdout
     python -m tools.ja_name_eval --analysers sudachi-core,mecab-ipadic --json out.json
 
-The analysers are NOT in the lock (``tb_common.ja_names``): with none installed this prints that it skipped and
-exits 0. For each analyser installed it reports, on three sets, the identifiers left with a character unmasked (by
-the note masker or the guard) and the ordinary lines changed, for the rules alone, the rules plus the analyser's
+SudachiPy with SudachiDict-small is in the lock and is the guard's default (D-1235); the other analysers are not
+(installed by hand to compare). With none installed this prints that it skipped and exits 0. For each analyser
+installed it reports, on three sets, the identifiers left with a character unmasked (by the note masker or the
+guard) and the ordinary lines changed, for the rules alone, the rules plus the analyser's
 names under the combination rule (``ja_names.name_spans``), and the rules plus the analyser's raw proposals (the
 rule's steps 1 and 2 only); and the time to mask a 10 kB note (UTF-8 bytes), median of five runs, and the
 analyser's load time.
@@ -92,13 +93,13 @@ def changed(text: str, guard: Any) -> bool:
 
 @contextlib.contextmanager
 def recogniser(fn: Callable[[str], list[tuple[int, int]]] | None) -> Iterator[None]:
-    if fn is not None:
-        phi_guard.NAME_RECOGNISERS.append(fn)
+    """The guard with ``fn`` as its only name recogniser (``None``: the rules alone, without the default analyser)."""
+    saved = list(phi_guard.NAME_RECOGNISERS)
+    phi_guard.NAME_RECOGNISERS[:] = [] if fn is None else [fn]
     try:
         yield
     finally:
-        if fn is not None:
-            phi_guard.NAME_RECOGNISERS.remove(fn)
+        phi_guard.NAME_RECOGNISERS[:] = saved
 
 
 def note_10kb(data: dict[str, Any]) -> str:
@@ -188,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
         ap.error(f"unknown analyser(s) {unknown}; one of {list(PACKAGES)}")
     present = [c for c in choices if installed(c)]
     if not present:
-        print("ja_name_eval: skipped: no analyser installed (none is in the lock; see tb_common.ja_names)")
+        print("ja_name_eval: skipped: no analyser installed (see tb_common.ja_names)")
         return 0
     res = run(choices)
     print(table(res))

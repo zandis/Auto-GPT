@@ -8,6 +8,7 @@ clearance for exactly the text being sent. The guard errs on the side of hits (f
 from __future__ import annotations
 
 import re
+import threading
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -416,8 +417,9 @@ MASK_CHAR = "○"
 # names without a listed surname, wider labelled values, D-756; 5: full addresses with spaces, D-756; 6: English
 # Taiwan charts, romanised and Han names after English words and the English form of an address, D-923; 7: Japanese
 # names in kana and old-form kanji, insurance 記号・番号・枝番, 公費 and 受給者 numbers, Japanese phones, postal codes,
-# era dates of birth and city addresses, 10C-1)
-NOTE_MASK_VERSION = "7"
+# era dates of birth and city addresses, 10C-1; 8: Japanese person names from the morphological analyser, SudachiPy
+# with SudachiDict-small, 10C-1b, D-1235)
+NOTE_MASK_VERSION = "8"
 
 _CJK_N = "一-鿿"
 _KANA_N = "぀-ヿ"
@@ -1168,11 +1170,32 @@ _NOTE_GATES: tuple[Callable[[_Facts], bool], ...] = (
 )
 
 
+#: 10C-1b: the text the Japanese name analyser reads: it holds kana or 歳 (Japanese writes 歳; Chinese writes 歲 or
+#: 岁). A language, not a country: a Japanese line in any site's note is read, a Chinese or English one never.
+_JA_ANALYSED_TEXT = re.compile("[ぁ-ゖァ-ヺｦ-ﾝ]|歳")
+_JA_ANALYSER = threading.local()  # one tokenizer per thread: a Sudachi tokenizer is not shared between threads
+
+
+def japanese_names(text: str) -> list[tuple[int, int]]:
+    """10C-1b (D-1235): Japanese person names that no label, honorific or title marks (見本太郎は本日来院), from
+    SudachiPy with SudachiDict-small under the combination rule of ``tb_common.ja_names.name_spans``. Only a text with
+    kana or 歳 is read; the analyser is loaded on the first such text, once per thread (no import when this module
+    loads; the dictionary is a wheel, read from disk: no network). A missing package raises: the guard never quietly
+    masks less."""
+    if _JA_ANALYSED_TEXT.search(text) is None:
+        return []
+    from tb_common import ja_names  # here, not at the top: ja_names imports this module
+
+    an = getattr(_JA_ANALYSER, "an", None)
+    if an is None:
+        an = _JA_ANALYSER.an = ja_names.analyser("sudachi-small")
+    return ja_names.name_spans(text, an)
+
+
 #: 10C-1b: name recognisers beyond the patterns, each ``text -> (start, end) spans``, added to :func:`note_spans` (and
-#: so to the guard and :func:`scan`) as kind ``name``. Empty by default, and nothing in the product registers one: the
-#: optional analyser (``tb_common.ja_names.enable``, a package not in the lock) is the owner's decision, and landing it
-#: bumps :data:`NOTE_MASK_VERSION`. With the list empty every output is master's.
-NAME_RECOGNISERS: list[Callable[[str], Iterable[tuple[int, int]]]] = []
+#: so to the guard and :func:`scan`) as kind ``name``. By default the Japanese name analyser (:func:`japanese_names`,
+#: D-1235; :data:`NOTE_MASK_VERSION` 8); ``tb_common.ja_names.enable`` can register another analyser for a test.
+NAME_RECOGNISERS: list[Callable[[str], Iterable[tuple[int, int]]]] = [japanese_names]
 
 
 def find_emails(text: str) -> Iterator[re.Match[str]]:
@@ -1200,7 +1223,7 @@ def note_spans(text: str, mrn_regex: str | None = None) -> list[tuple[str, int, 
         body = mrn_regex.strip("^$")
         for m in re.finditer(rf"(?<![0-9A-Za-z\-/.]){body}(?![0-9A-Za-z\-/.])", text):
             found.append(("mrn", m.start(), m.end()))
-    for recognise in NAME_RECOGNISERS:  # 10C-1b: empty unless a process registers one (tb_common.ja_names)
+    for recognise in NAME_RECOGNISERS:  # 10C-1b: the Japanese name analyser (japanese_names), D-1235
         found.extend(("name", s, e) for s, e in recognise(text))
     merged: list[tuple[str, int, int]] = []
     for kind, s, e in sorted(found, key=lambda f: (f[1], -f[2])):
