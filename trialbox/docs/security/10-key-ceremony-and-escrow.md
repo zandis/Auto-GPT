@@ -111,3 +111,22 @@ From `python -m tools.keys inventory` (RUNBOOK §23):
 - `site_hmac.key`: never rotated (a new key gives every patient a new pseudonym and loses their opt-outs);
 - the backup key: a new pair with hospital IT when the envelope is lost or opened without a restore; every later
   backup uses the new public key.
+
+## 7. The backup-key ceremony on the host (10K-13, D-1379)
+
+Instead of step 1 of §4, on a box that has no backup key yet, hospital IT (as root on the box's host) and a witness
+who is another person run, once:
+
+    python -m tools.backup_key_ceremony --stick /media/usb --operator "<name>" --witness "<name>" [--lang ja]
+
+The key pair is made in memory. The private key goes only to the stick named, as two files: `trialbox-backup.key`
+(the file `restore --key` and `restore-drill --key` take) and `trialbox-backup-key-paper.txt`, the paper sheet to
+print: four lines of letters, each ending with four check letters, and the key's fingerprint, so a mistyped letter, a
+missing line or two swapped lines is caught when the sheet is read back. Both are read back from the stick before the
+box keeps the public key (`deploy/secrets/backup.pub`). The stick and the printed sheet go into hospital IT's sealed
+envelope. The audit event `backup.key_ceremony` holds when, the fingerprint and both names; never the key.
+
+It refuses, with nothing written: not root; one name or none, or one person twice; no audit folder; a box with a
+backup key already (a new pair is the rotation of §6 and RUNBOOK §25); no stick; a folder on the box's disks; a stick
+that cannot be written or already holds a key. The ceremony record of §4 step 5 then lists the backup key's
+fingerprint as before.
