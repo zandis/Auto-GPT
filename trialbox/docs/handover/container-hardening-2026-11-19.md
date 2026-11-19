@@ -43,6 +43,39 @@ the YAML test pins it. No Docker daemon here, so only the rendered configuration
 head is the proof. The rehearsal's later steps (terminology, screen, power-cycle, restore) have NOT yet run under the
 hardening: the check aborted before them.
 
+The second rehearsal (run 44458900188, head a103fc28, both legs) passed install, the db identity check, doctor,
+terminology, guard, console, screen and power-cycle, and failed on the reference data: step `offline` printed
+`no reference data loaded` and `REHEARSAL FAIL: the reference data pack trialbox-refdata-20261109 of the media is not
+loaded`; `after-restart` then `REHEARSAL FAIL: the reference data did not survive the restart` (a consequence: the pack
+was never loaded). Cause: `deploy/install.sh` loaded the pack with `docker compose cp PACK
+criteria-compiler:/tmp/refdata-install.tar` and then `exec`. docker cp refuses to write into a container whose root
+filesystem is read-only unless the target is a volume, and the tmpfs `/tmp` is not one; the `cp` failed, the installer
+printed a warning to stderr and went on (H10G1-04), and only the rehearsal's later check noticed. The update path had
+the same two copies (`tools/trialbox/update.py` `ComposeBox.rulesets` and `ComposeBox.refdata`). Terminology passed
+because `deploy/terminology.sh` already loads through a one-off `docker run` with the volume mounted, never a copy.
+
+Fix: both paths run a one-off `docker compose run --rm --no-deps -T` criteria-compiler (same user, read-only root,
+cap_drop, no-new-privileges, networks and database URL as the service) with the file bind-mounted read-only at
+`/in/refdata.tar` (`/in/ruleset.zip` for a ruleset), and `TMPDIR=/data/objects` for the refdata loader so a pack of
+several GB unpacks on the objects volume rather than in the tmpfs `/tmp` that counts against the 3g memory limit. No
+control is dropped; no new exception. `test_nothing_copies_a_file_into_a_read_only_service` names any
+`compose cp HOST SERVICE:PATH` into a read-only service in install.sh or update.py (it finds the three old lines);
+`test_the_update_bundle_loads_the_pack` asserts the new argv.
+
+Checked for the same shape (a write into a now read-only or non-root container): install.sh's other `compose
+exec`/`run` (db roles script, adapter `keys-init`, orchestrator migrate and deferred audit, console bootstrap-admin
+and enrol-code) write to the database, a volume or a writable-root service; `compose cp caddy:... deploy/...` copies
+out, which docker allows from a read-only root. update.py's other `exec`/`run` (pg_dump to stdout, psql, RULESETS_PY,
+migrations, the restore script in db's tmpfs `/tmp`, the orchestrator audit) read, write the database or a volume, or
+write a tmpfs through `exec` (which works: the rehearsal's screen step writes `/tmp/GZQO.zip` that way). Not proven:
+the nightly backup (`tools/trialbox/backup_schedule.py`) dumps into db's tmpfs `/tmp/tb-backup` through `exec`, then
+copies it out with `compose cp db:/tmp/tb-backup/. HOST`; whether docker cp sees a tmpfs's files, and whether the dump
+fits db's memory limit there, is for a box run. A restore's `reload_refdata` unpacks the pack in whichever container
+runs the restore; on a hardened one-off that is a tmpfs `/tmp` unless TMPDIR points at a volume.
+
+No Docker daemon here: the YAML tests and the argv test show the change; the next CI box rehearsal on the pushed head
+is the proof (steps `offline` and `after-restart`), and its later steps have still not run under the hardening.
+
 ## Findings
 
 - **H10G1-01** (Medium): the adapter and the orchestrator cannot run read-only. The HL7 validator writes `.index.json`
@@ -54,3 +87,8 @@ hardening: the check aborted before them.
 - **H10G1-03** (Low): the overlay services outside the 15 are not hardened: llm-verifier (gb10, rtx5090, rtxpro6000,
   platform), the rtx5090 model-swap helpers, caddy, authelia, prometheus, the platform doctor. Each is listed with its
   reason in `OUTSIDE_THE_15`.
+- **H10G1-04** (Medium): a reference data pack that fails to load at install is a stderr warning, not a failure:
+  `deploy/install.sh` (the `for f in deploy/refdata/pending/*.tar` loop, the `install: warning: reference data ... not
+  loaded` line) goes on, and an offline box then has no trials; the box rehearsal noticed only at its later check (CI
+  run 44458900188). The load itself is fixed here (a one-off run, not `compose cp`); making the failure a FAIL line is
+  left open, as it changes what install reports.

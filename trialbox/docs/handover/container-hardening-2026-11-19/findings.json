@@ -28,6 +28,14 @@
    "lane": "H",
    "basis": "shown",
    "state": "open"
+  },
+  {
+   "id": "H10G1-04",
+   "severity": "Medium",
+   "claim": "a reference data pack that fails to load at install is only a stderr warning (deploy/install.sh, the deploy/refdata/pending loop's 'install: warning: reference data ... not loaded' line) and install goes on; under the 10G-1 read-only root the pack's 'compose cp' into criteria-compiler failed that way and only the box rehearsal's later check noticed (CI run 44458900188); the load is fixed (a one-off compose run with the pack bind-mounted), the quiet failure is open",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
   }
  ]
 }

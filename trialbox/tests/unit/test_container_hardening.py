@@ -136,6 +136,36 @@ def test_the_users_match_the_images_and_the_installer() -> None:
     assert base["fhir-store"]["user"] == "65532:65532"
 
 
+#: host -> container copies (``compose cp HOST SERVICE:PATH``) in the installer and the update path: docker cp
+#: refuses to write into a read-only root, and a tmpfs /tmp is no volume to it (box rehearsal, CI run 44458900188:
+#: the reference data pack was never loaded). Copies out of a container (``SERVICE:PATH HOST``) still work.
+_CP_IN = re.compile(r'''\bcp\b[^\n]*?\s["']?([a-z][a-z-]+):/''')
+_CP_IN_PY = re.compile(r'''_c\(\s*"cp"\s*,[^\n]*?"([a-z][a-z-]+):/''')
+
+
+def test_nothing_copies_a_file_into_a_read_only_service() -> None:
+    base = _merge((BASE,))
+    ro = {s for s, body in base.items() if body.get("read_only") is True}
+    assert "criteria-compiler" in ro
+    root = DEPLOY.parent
+    found = []
+    for rel, rx in (("deploy/install.sh", _CP_IN), ("tools/trialbox/update.py", _CP_IN_PY)):
+        for line in (root / rel).read_text(encoding="utf-8").splitlines():
+            m = rx.search(line)
+            if m and m.group(1) in ro and not re.search(r"\bcp\s+[\"']?" + re.escape(m.group(1)) + ":", line):
+                found.append(f"{rel}: {line.strip()}")
+    assert found == []
+    # negative: the line the rehearsal caught is found
+    bad = '  if "${COMPOSE[@]}" cp "$f" criteria-compiler:/tmp/refdata-install.tar \\'
+    assert _CP_IN.search(bad) and _CP_IN.search(bad).group(1) == "criteria-compiler"  # type: ignore[union-attr]
+    bad_py = 'self.run(self._c("cp", str(pack), "criteria-compiler:/tmp/refdata-update.tar"))'
+    assert _CP_IN_PY.search(bad_py) and _CP_IN_PY.search(bad_py).group(1) == "criteria-compiler"  # type: ignore[union-attr]
+    # a copy out (caddy's root certificate, install.sh) is not a copy in
+    out = '"${COMPOSE[@]}" cp caddy:/data/caddy/pki/authorities/local/root.crt deploy/secrets/tls/caddy-root.crt'
+    m = _CP_IN.search(out)
+    assert m is None or re.search(r"\bcp\s+[\"']?" + re.escape(m.group(1)) + ":", out)
+
+
 def test_the_lint_names_a_service_without_the_controls() -> None:
     """Negative: a planted service missing each control is named for each; a stale exception and an unexplained
     cap_add are named too."""

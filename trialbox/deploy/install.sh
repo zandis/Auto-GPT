@@ -908,8 +908,12 @@ fi
 
 for f in deploy/refdata/pending/*.tar; do  # D-140: the reference data pack of the install bundle, now the db runs
   [ -f "$f" ] || continue
-  if "${COMPOSE[@]}" cp "$f" criteria-compiler:/tmp/refdata-install.tar \
-    && "${COMPOSE[@]}" exec -T criteria-compiler python -m tb_common.refdata load /tmp/refdata-install.tar --by deploy/install.sh; then
+  # 10G-1 (D-1323): a one-off criteria-compiler with the pack bind-mounted read-only, not `compose cp` into the
+  # running one: its root filesystem is read-only and /tmp a tmpfs, where docker cp refuses to write (the box
+  # rehearsal of 2026-11-19 found the pack not loaded). TMPDIR: the pack (several GB) unpacks on the objects volume,
+  # not in the tmpfs /tmp, which counts against the service's memory limit
+  if "${COMPOSE[@]}" run --rm --no-deps -T -e TMPDIR=/data/objects -v "$ROOT/$f:/in/refdata.tar:ro" criteria-compiler \
+    python -m tb_common.refdata load /in/refdata.tar --by deploy/install.sh; then
     # D-187: kept, not deleted: backups leave the pack's rows out and a restore loads it again from here
     mkdir -p deploy/refdata/loaded && mv -f "$f" deploy/refdata/loaded/; echo "    reference data loaded: $(basename "$f" .tar)"
   else

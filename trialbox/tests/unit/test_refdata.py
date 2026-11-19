@@ -261,8 +261,11 @@ def test_the_update_bundle_loads_the_pack(sample_tar: Path, tmp_path: Path, monk
     (tmp_path / "deploy").mkdir()
     done = up.ComposeBox(tmp_path / "deploy", run=run).post_apply(plan)
     assert done == [sample_tar.name]
-    assert calls[0].startswith("dc cp ") and calls[0].endswith("criteria-compiler:/tmp/refdata-update.tar")
-    assert "python -m tb_common.refdata load /tmp/refdata-update.tar --by update:B1" in calls[1]
+    # 10G-1 (D-1323): a one-off container reads the pack bind-mounted read-only; no `cp` into the read-only service
+    pack = (stage / "refdata" / sample_tar.name).resolve()
+    assert len(calls) == 1 and not any(" cp " in c for c in calls)
+    assert calls[0].startswith(f"dc run --rm --no-deps -T -e TMPDIR=/data/objects -v {pack}:/in/refdata.tar:ro criteria-compiler ")
+    assert calls[0].endswith("python -m tb_common.refdata load /in/refdata.tar --by update:B1")
     assert "refdata" in json.loads((ROOT / "schemas/update_manifest.schema.json").read_text())["$defs"]["update_file"][
         "properties"]["kind"]["enum"]  # fmt: skip
 

@@ -1618,9 +1618,11 @@ class ComposeBox(_DockerImages):
         done = []
         rs = plan.kind("ruleset")
         for z in sorted(rs.rglob("*.zip")) if rs.is_dir() else []:
-            self.run(self._c("cp", str(z), "criteria-compiler:/tmp/ruleset-update.zip"))
-            self.run(self._c("exec", "-T", "criteria-compiler", "python", "-m", "criteria_compiler.import_ruleset",
-                             "/tmp/ruleset-update.zip", "--by", f"update:{plan.bundle_id}"))  # fmt: skip
+            # 10G-1 (D-1323): a one-off container with the file bind-mounted read-only; ``compose cp`` cannot write
+            # into criteria-compiler, whose root is read-only and /tmp a tmpfs
+            self.run(self._c("run", "--rm", "--no-deps", "-T", "-v", f"{z.resolve()}:/in/ruleset.zip:ro",
+                             "criteria-compiler", "python", "-m", "criteria_compiler.import_ruleset",
+                             "/in/ruleset.zip", "--by", f"update:{plan.bundle_id}"))  # fmt: skip
             done.append(z.name)
         return done
 
@@ -1630,9 +1632,12 @@ class ComposeBox(_DockerImages):
         done = []
         for pack in refdata_packs(plan):  # D-140: verified again inside, then one transaction
             try:
-                self.run(self._c("cp", str(pack), "criteria-compiler:/tmp/refdata-update.tar"))
-                load = ["python", "-m", "tb_common.refdata", "load", "/tmp/refdata-update.tar"]
-                self.run(self._c("exec", "-T", "criteria-compiler", *load, "--by", f"update:{plan.bundle_id}"),
+                # 10G-1 (D-1323): as rulesets, a one-off container reads the pack bind-mounted read-only; it unpacks
+                # on the objects volume (TMPDIR), not in the tmpfs /tmp that counts against the memory limit
+                load = ["python", "-m", "tb_common.refdata", "load", "/in/refdata.tar"]
+                self.run(self._c("run", "--rm", "--no-deps", "-T", "-e", "TMPDIR=/data/objects",
+                                 "-v", f"{pack.resolve()}:/in/refdata.tar:ro",
+                                 "criteria-compiler", *load, "--by", f"update:{plan.bundle_id}"),
                          timeout=7200)  # fmt: skip
             except UpdateFailed:
                 pend = self.deploy / "refdata" / "pending"
