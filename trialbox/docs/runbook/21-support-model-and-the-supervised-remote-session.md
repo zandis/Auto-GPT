@@ -6,9 +6,9 @@
 incidents, notification clocks, the six cases) is T-318, not this page. The sheet the hospital keeps is
 `docs/plan/sites/support-sheet.md` (en, ja, zh-TW).*
 
-**Drill (T-213b):** `test_runbook_21_support_session` (tabletop: a ticket is opened, a supervised session runs to
-the rules below and is recorded; Docker part: the support bundle the session may show holds no patient data, checked
-with `python -m tools.data_scan`).
+**Drill (T-213b):** none yet. The supervised session is not rehearsed by a test: the support-session switch
+and its drill are built by card 10K-15, which names the drill here. Until then a tabletop (a ticket is opened,
+a session runs to the rules below and is recorded) is the only rehearsal.
 
 ## Who answers
 
