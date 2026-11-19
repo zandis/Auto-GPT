@@ -121,7 +121,8 @@ def _storage(
     flag: str = "1",
     charset: str = "~ISO IR87",
 ) -> None:
-    msh = f"MSH|^~\\&|HIS||TB||20261101||X|{order}|P|2.5||||||{charset}"
+    kind = "PPR^ZD1" if typ == "PPR-01" else "X"  # a PPR-01 file carries PPR^ZD1 (D-1252: another MSH-9 is set aside)
+    msh = f"MSH|^~\\&|HIS||TB||20261101||{kind}|{order}|P|2.5||||||{charset}"
     d = storage_dir(root, patient, day, typ)
     d.mkdir(parents=True, exist_ok=True)
     pid = (
@@ -228,13 +229,15 @@ def test_adt52_discharge_and_patient_class_change(tmp_path: Path) -> None:
     assert (rows["E3"]["enc_type"], rows["E3"]["enc_status"]) == ("IPD", "in-progress")  # admitted, not discharged
     assert "E9" not in rows and src.stats["ADT-52:visit not in storage"] == 1
     assert src.stats["ADT-52:discharge"] == 1 and src.stats["ADT-52:class change"] == 1
-    # the delta of a night after the changes includes the changed and the discharged visit
+    # the delta of a night after the changes includes the changed and the discharged visit; D-1252 (the second
+    # tester's class A): the window is the 発生日時 of the files that decide each record, never a clinical date alone,
+    # and every file here was written on 2026-11-01, after the window opened, so E3 is sent too (was {"E1", "E2"})
     assert {
         r["enc_no"]
         for r in Ssmix2Source(root, licensed=EMPTY).rows(
             "encounter", "encounter", "visit_datetime", "2026-06-14 10:00:00"
         )
-    } == {"E1", "E2"}
+    } == {"E1", "E2", "E3"}
 
 
 def test_omp_11_12_fold_into_their_order_or_stand_alone_with_hot_and_yj(tmp_path: Path) -> None:

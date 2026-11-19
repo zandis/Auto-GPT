@@ -119,6 +119,7 @@ DEFAULT_ORDER_KEY = "per_day"  # the specification's key (D-1000, amends D-594's
 # the order number of data no order manages (患者基本, 病名, アレルギー): 構築ガイドライン 3.1 (review 12 §4.2)
 ALL9 = "ALL9"
 CHANGES = {"encounter": ("ADT-52",), "medication": ("OMP-11", "OMP-12")}  # read after the table's own types
+_CHANGE_TYPES = frozenset(t for types in CHANGES.values() for t in types)
 INJECTION = ("OMP-02", "OMP-12")
 JP_CORE = Path(__file__).resolve().parents[2] / "mapping" / "jp_core"
 NOT_PATIENT_DIRS = ("extended", "extended_storage")
@@ -453,6 +454,7 @@ class Master:
     ``medis_modifier``): never in the repository, loaded by the site."""
 
     diseases: dict[str, tuple[str, str, str]]  # 病名管理番号 -> (病名表記, 病名交換用コード, 変更区分)
+    icd: dict[str, str]  # 病名管理番号 -> the master's ICD10-2013
     names: dict[str, str]  # 病名表記 (normalised) -> 病名管理番号
     modifiers: dict[str, dict[str, str]]  # 修飾語管理番号 -> word, exchange, position, class, change
 
@@ -473,11 +475,20 @@ def medis_master(licensed: dict[str, dict[str, dict[str, str]]]) -> Master | Non
     display-name and modifier rules of D-1252 apply only once the site has loaded the modifier table too, so loading
     the disease table never by itself turns a site's locally coded diagnoses unknown."""
     diseases: dict[str, tuple[str, str, str]] = {}
+    icd: dict[str, str] = {}
+    conflicting: set[str] = set()
     for exchange, row in (licensed.get("medis") or {}).items():
         extra = _extra(row)
         number = key_part(extra.get("management_no", ""))
-        if number:
-            diseases[number] = (str(row.get("display") or ""), key_part(exchange), extra.get("change", "").strip())
+        if not number:
+            continue
+        entry = (str(row.get("display") or ""), key_part(exchange), extra.get("change", "").strip())
+        if number in diseases and diseases[number] != entry:
+            conflicting.add(number)  # one 病名管理番号 on two different rows: neither is read (class D)
+        diseases[number] = entry
+        icd[number] = str(row.get("target_code") or "")
+    for number in conflicting:
+        diseases.pop(number, None)
     if not diseases or not licensed.get("medis_modifier"):
         return None
     if not any(c for _n, _x, c in diseases.values()) or not any(
@@ -495,7 +506,39 @@ def medis_master(licensed: dict[str, dict[str, dict[str, str]]]) -> Master | Non
             "class": key_part(ex.get("modifier_class", "")),
             "change": ex.get("change", "").strip(),
         }
-    return Master(diseases, names, modifiers)
+    return Master(diseases, icd, names, modifiers)
+
+
+#: the fields of PRB, ZPR and an ORC of PPR^ZD1 the reader reads, with the components it reads (None: any), D-1252 (the
+#: second tester's class B). PRB (仕様書 Ver.1.2j 表3-47): 1 action, 2 its time, 3 the 病名 (two triples), 4 the id,
+#: 7 diagnosed, 9 ended, 10 ICD-10 and 診断種別 (two triples), 13 疑い flag, 14 転帰 (one triple), 15 its day, 16
+#: onset, 17 the text entered, 18 主診断 (one triple), 25 confidentiality (the specification's own example fills it).
+#: Any other field (11 management discipline, 12 persistence, 19 certainty, 20 probability, 21 to 24 awareness and
+#: prognosis, 5, 6, 8) or any further component holding data is not read: the diagnosis is unknown
+PRB_READ: dict[int, int | None] = {1: 1, 2: 1, 3: 6, 4: 4, 7: 1, 9: 1, 10: 6, 13: None, 14: 3, 15: 1, 16: 1, 17: 1,
+                                   18: 3, 25: None}  # fmt: skip
+ZPR_READ: dict[int, int | None] = {1: 6, 2: 6, 3: 6, 4: 6, 5: 6, 6: 6, 7: 1}  # 表3-48: ZPR-1 to ZPR-7
+#: an ORC after a PRB (表3-46, ◎): the order control must be NW (the specification's example) or empty
+ORC_IN_PPR: dict[int, int | None] = {1: 1, 2: 4, 3: 4, 9: 1, 10: None, 11: None, 12: None, 13: None, 17: None}
+
+
+def unread_field(seg: hl7.Segment, read: dict[int, int | None]) -> str:
+    """The first field or component of ``seg`` holding data the reader does not read (``PRB-19``, ``PRB-3.9``), or
+    empty. HL7's null ``""`` counts as empty."""
+    for n in range(1, len(seg.fields)):
+        raw = seg.field(n)
+        if not raw.strip():
+            continue
+        if n not in read:
+            return f"{seg.name}-{n}"
+        most = read[n]
+        if most is None:
+            continue
+        for rep_ in raw.split("~"):
+            extra = [c for c in rep_.split("^")[most:] if c.strip() and c != hl7.NULL]
+            if extra:
+                return f"{seg.name}-{n}.{most + 1}"
+    return ""
 
 
 def diag_key(value: str) -> str:
@@ -882,6 +925,7 @@ class Ssmix2Source:
         self._older: dict[Path, list[StoredFile]] = {}  # a record's newest file -> every version it supersedes
         self._fallback: dict[Path, list[StoredFile]] = {}  # -> the versions that could be in force (D-1252 P4)
         self._doubt: dict[Path, str] = {}  # a record with no version in force -> why (read as unknown, D-1252)
+        self._decide: dict[Path, str] = {}  # a record's file -> the newest 発生日時 of the files that decide it
         self._rx_dead: list[Row] = []  # drug lines a newer version of their order no longer holds: tombstones
         self._deleted_docs: list[Row] = []  # extended-storage documents whose newest version is deleted
         self.quarantine_max_pct = quarantine_max_pct
@@ -957,15 +1001,18 @@ class Ssmix2Source:
                 order = key_part(sf.order)
                 if order != sf.order:
                     self.stats["storage:order number written in another width or with a blank (one key)"] += 1
+                if sf.type not in _RECORD_TYPES and sf.type not in _CHANGE_TYPES:
+                    self.stats[f"storage:{sf.type} file (a type the reader does not read)"] += 1
                 groups.setdefault(self._key(sf.patient, sf.type, sf.order, sf.day), []).append(sf)
             index: dict[str, list[StoredFile]] = {}
             gone: dict[str, list[StoredFile]] = {}
-            self._doubt, self._fallback, self._older = {}, {}, {}
+            self._doubt, self._fallback, self._older, self._decide = {}, {}, {}, {}
             chosen: dict[tuple[str, str, str, str], StoredFile] = {}
             for key, versions in sorted(groups.items()):
                 state, sf, candidates, older = resolve(versions)
                 typ = sf.type
                 chosen[key] = sf
+                self._decide[sf.path] = max(v.stamp for v in versions)
                 valid = [v for v in versions if v.flag == "1"]
                 if len(valid) > 1:  # the writer did not rename the older version to 2 (D-1252 P1)
                     self.stats[f"{typ}:several valid versions of one record (the newest decides)"] += 1
@@ -1039,6 +1086,9 @@ class Ssmix2Source:
                 self.stats["storage:file not in the guideline's form (no record of it read)"] += 1
             for key in found:
                 sf = chosen[key]
+                stamp = bits[4] if len(bits) == 7 and bits[4].isdigit() else ""
+                if stamp:
+                    self._decide[sf.path] = max(self._decide.get(sf.path, ""), stamp)
                 if sf in index.get(key[1], []) and sf.path not in self._doubt:
                     self._doubt[sf.path] = "a file of the record that is not in the guideline's form"
                     self.stats[f"{key[1]}:a file of the record not in the guideline's form (read as unknown)"] += 1
@@ -1089,6 +1139,7 @@ class Ssmix2Source:
                             files.remove(sf)
                     self._doubt.pop(sf.path, None)
                     self._older.setdefault(snap.path, []).extend(versions)
+                    self._decide[snap.path] = max(self._decide.get(snap.path, ""), *(v.stamp for v in versions))
                     self._fallback.setdefault(snap.path, []).extend(
                         sorted((v for v in versions if not v.deleted), key=lambda v: v.stamp, reverse=True)
                     )
@@ -1125,6 +1176,9 @@ class Ssmix2Source:
             self.stats[f"{typ}:order number filed on several days (keyed by its day)"] += 1
             self._repeated.add(number)
             self._plain[number] = [v for k in keys for v in groups[k]]
+            newest = max(v.stamp for v in self._plain[number])
+            for key in keys:  # a re-keyed record (<number>@<day>) passes the delta window the night it is re-keyed
+                self._decide[chosen[key].path] = max(self._decide.get(chosen[key].path, ""), newest)
             for key in keys:
                 sf = chosen[key]
                 if sf.deleted or sf.path in self._doubt:
@@ -1192,6 +1246,23 @@ class Ssmix2Source:
         """The rows of one record's version in force; for a record with no version in force (D-1252 P3, P5, P6, P9)
         or whose newest version cannot be read (P4), the rows of every version that could be in force, as unknown.
         An older version is never read as in force while a newer one exists."""
+        return self._stamped(sf, self._record_rows_of(typ, sf, build))
+
+    def _stamp_of(self, sf: StoredFile) -> str:
+        """The change time of a record: the newest 発生日時 of the files that decide it (its own versions, flag 2 and
+        deleted ones included; for a number filed on several days, all of them), never a clinical date alone (D-1252,
+        the second tester's class A): a newer version written today passes the delta window whatever its dates."""
+        return hl7.ts(self._decide.get(sf.path, sf.stamp)[:14]) or ""
+
+    def _stamped(self, sf: StoredFile, rows: list[Row]) -> list[Row]:
+        stamp = self._stamp_of(sf)
+        for row in rows:
+            row["_changed"] = max(str(row.get("_changed") or ""), stamp)
+        return rows
+
+    def _record_rows_of(
+        self, typ: str, sf: StoredFile, build: Callable[[StoredFile, hl7.Message], Iterator[Row]]
+    ) -> list[Row]:
         doubt = self._doubt.get(sf.path, "")
         if doubt:
             self._message(typ, sf)  # counted, and quarantined as usual when it cannot be read
@@ -1311,6 +1382,11 @@ class Ssmix2Source:
         why = self._identity_problem(sf, msg)
         if why:
             self._quarantine(typ, sf, "patient", why)
+            return None
+        msh = msg.first("MSH")
+        kind = f"{msh.comp(9, 1)}^{msh.comp(9, 2)}".upper() if msh else ""
+        if typ == "PPR-01" and kind != "PPR^ZD1":  # D-1252: the type's message (構築ガイドライン 表3.1-2)
+            self._quarantine(typ, sf, "message type", "MSH-9 is not PPR^ZD1 in a PPR-01 folder")
             return None
         why = hl7.offset_problem(text)
         if why:
@@ -1556,14 +1632,14 @@ class Ssmix2Source:
     def _encounter_changes(self, rows: list[Row]) -> list[Row]:
         """ADT-52: discharge (A03) or patient class change (A06/A07, or any event with PV1-2), in time order."""
         by_no = {(r["mrn"], r["enc_no"]): r for r in rows}
-        events: list[tuple[str, str, str, hl7.Message]] = []
+        events: list[tuple[str, str, str, hl7.Message, str]] = []
         for typ in CHANGES["encounter"]:
             for sf, msg in self._messages(typ):
                 msh, evn = msg.first("MSH"), msg.first("EVN")
                 when = (hl7.ts(evn.field(6)) or hl7.ts(evn.field(2)) or "") if evn else ""
                 when = when or ((hl7.ts(msh.field(7)) or "") if msh else "")
-                events.append((when, sf.patient, sf.path.name, msg))
-        for when, patient, _name, msg in sorted(events, key=lambda e: (e[0], e[1], e[2])):
+                events.append((when, sf.patient, sf.path.name, msg, self._stamp_of(sf)))
+        for when, patient, _name, msg, written in sorted(events, key=lambda e: (e[0], e[1], e[2])):
             pv1, msh = msg.first("PV1"), msg.first("MSH")
             if pv1 is None:
                 self.stats["ADT-52:no PV1"] += 1
@@ -1572,6 +1648,7 @@ class Ssmix2Source:
             if row is None:
                 self.stats["ADT-52:visit not in storage"] += 1
                 continue
+            row["_changed"] = max(str(row.get("_changed") or ""), written)  # the change's file decides too (D-1252)
             trigger = msh.comp(9, 2) if msh else ""
             if trigger == "A03":
                 row["end_datetime"] = hl7.ts(pv1.field(45)) or when
@@ -1601,13 +1678,15 @@ class Ssmix2Source:
             del self._dx_dead[mark:]
             self._quarantine(sf.type, sf, "duplicate key", "two diagnoses carry one diagnosis number (PRB-4)")
             return
-        present = {r["diag_no"] for r in rows} | {r["diag_no"] for r in self._dx_dead}
+        # by patient: another patient's tombstone of the same number never stands for this one (the second tester's
+        # class E, D-1252)
+        present = {(r["mrn"], r["diag_no"]) for r in [*rows, *self._dx_dead]}
         older = [] if sf.deleted else self._older.get(sf.path, [])
         for old in (row for version in older for row in self._version_rows(sf.type, version)):
-            if old["diag_no"] not in present:  # a deleted snapshot's own rows are tombstones already
+            if (old["mrn"], old["diag_no"]) not in present:  # a deleted snapshot's own rows are tombstones already
                 old.pop("_changed", None)
                 self._dx_dead.append(old)
-                present.add(old["diag_no"])
+                present.add((old["mrn"], old["diag_no"]))
                 self.stats["PPR-01:diagnosis gone from a newer snapshot"] += 1
         yield from rows
 
@@ -1633,16 +1712,31 @@ class Ssmix2Source:
         # are not read: the diagnosis they follow, or every diagnosis when one comes before the first PRB, is unknown
         groups: list[tuple[hl7.Segment, list[hl7.Segment], list[str]]] = []
         before: list[str] = []
+        msh_seen = 0
         for seg in msg.segments:
             if seg.name == "PRB":
                 groups.append((seg, [], []))
             elif not groups:
-                if seg.name not in ("MSH", "SFT", "PID", "PV1", "PV2"):
+                msh_seen += seg.name == "MSH"
+                if seg.name not in ("MSH", "SFT", "PID", "PV1", "PV2") or (seg.name == "MSH" and msh_seen > 1):
                     before.append(seg.name)
             elif seg.name == "ZPR":
                 groups[-1][1].append(seg)
-            elif seg.name not in ("ZPD", "ZI1", "ORC"):
+            elif seg.name == "ORC":
+                orc_problem = unread_field(seg, ORC_IN_PPR)
+                if orc_problem or seg.field(1).strip() not in ("", "NW"):
+                    groups[-1][2].append(orc_problem or f"ORC-1 {seg.field(1).strip()}")
+            elif seg.name not in ("ZPD", "ZI1"):
                 groups[-1][2].append(seg.name)
+        # class C: a ZPR whose disease is not its PRB's names another diagnosis of the message: that one is unknown too
+        named_elsewhere: set[str] = set()
+        for prb_, zprs_, _odd in groups:
+            own = {key_part(c) for c, _t, s in _triples(prb_, 3) if s == _MDCDX2 and c.strip()}
+            if not own:
+                continue
+            for z in zprs_:
+                for n in (2, 5):
+                    named_elsewhere |= {key_part(c) for c, _t, _s in _triples(z, n) if c.strip()} - own
         for prb, zprs, odd in groups:
             code = prb.comp(3, 1)
             # NEW-DIN-5 (DIN-005): the ICD-10 code is in whichever triple names ICD-10: the standard puts the 病名
@@ -1698,6 +1792,13 @@ class Ssmix2Source:
             modifiers, unrecognised, full = self._modifiers(prb, zprs)
             if not unrecognised and (before or odd):
                 unrecognised = f"a {(before or odd)[0]} segment the reader does not read"
+            if not unrecognised:
+                fields = [unread_field(prb, PRB_READ), *(unread_field(z, ZPR_READ) for z in zprs)]
+                field = next((f for f in fields if f), "")
+                if field:
+                    unrecognised = f"{field} holds data the reader does not read"
+            if not unrecognised and named_elsewhere & {key_part(c) for c, _t, s in _triples(prb, 3) if s == _MDCDX2}:
+                unrecognised = "a ZPR of another diagnosis names this one"
             if unrecognised:
                 self.stats[f"PPR-01:certainty unknown ({unrecognised})"] += 1
             written = prb.comp(17, 1).strip()
@@ -1799,8 +1900,14 @@ class Ssmix2Source:
                 return texts, "a modifier, not read without the master", name
             if comment:
                 return texts, "a ZPR comment", name
-            if disease and not (coded and disease == [code]):
-                return texts, "ZPR-2 is not PRB-3's disease", name
+            # PRB-3 may carry the 病名交換用コード and ZPR-2 the 病名管理番号 (both MDCDX2): without the master they are
+            # linked only by ZPR-5, the exchange code (the second tester's class F)
+            linked = coded and [c for c, _t, _s in triples(5) if c] == [code]
+            if disease and not (coded and disease == [code]) and not linked:
+                why = (
+                    "ZPR-2 and PRB-3 cannot be compared without the master" if coded else "ZPR-2 is not PRB-3's disease"
+                )
+                return texts, why, name
             if any(t and not same_text(t, name) for n in (2, 5) for _c, t, _s in triples(n)):
                 return texts, "ZPR-2 or ZPR-5 names another disease than PRB-3", name
             if zpr.field(2).strip() and not disease:
@@ -1838,7 +1945,7 @@ class Ssmix2Source:
                     return texts, "a modifier's text is not the master's for its code", name
                 if not row["position"].isdigit() or (int(row["position"]) >= 10) != before:
                     return texts, "a modifier in the other position", name
-                cls = row["class"][1:2]
+                cls = row["class"][1:2] if re.fullmatch(r"\d{8}", row["class"]) else ""  # M (2)⑦: 8 characters
                 if cls not in (*MODIFIER_CLASSES_KEPT, MODIFIER_CLASS_CAUSE):
                     return texts, f"a modifier of class {cls or '?'}", name
             exchanged = triples(exchange_field)
@@ -1857,6 +1964,10 @@ class Ssmix2Source:
         causes = [
             c for f in (1, 3) for c, _t, _s in triples(f) if master.modifiers[c]["class"][1:2] == MODIFIER_CLASS_CAUSE
         ]
+        icd = who_icd10(master.icd.get(number, ""))
+        icds = {who_icd10(c) for f in (3, 10) for c, _t, s in _triples(prb, f) if s in _ICD10_SYS and c.strip()}
+        if icd and icds - {icd}:
+            return texts, "the ICD-10 is not the master's for the disease", name
         if causes and master.names.get(key_part(full), number) != number:
             return texts, "the modified name has a code of its own", name
         if words != ["", ""]:
@@ -2037,6 +2148,7 @@ class Ssmix2Source:
                 ]  # fmt: skip
                 if len(same) == 1:
                     order = same[0]
+                    order["_changed"] = max(str(order.get("_changed") or ""), self._stamp_of(sf))  # D-1252
                     for k, v in {**done, "hot_code": codes["hot"], "nhi_drug_code": codes["yj"]}.items():
                         if v and not order.get(k):
                             order[k] = v
@@ -2052,6 +2164,7 @@ class Ssmix2Source:
                 # an administration alone says nothing of the doses a day: the daily dose is unknown, never RXA-6
                 row.update(doses_per_day="", doses_per_day_from="", usage_code="", usage_text="", daily_dose="")
                 row.update(done)
+                row["_changed"] = self._stamp_of(sf)
                 rows.append(row)
                 lines.setdefault((sf.patient, key), []).append(row)
         return rows

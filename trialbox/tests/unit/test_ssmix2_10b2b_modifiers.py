@@ -226,3 +226,25 @@ def test_tables_without_change_values_are_read_as_not_loaded_and_counted(tmp_pat
 
 def test_one_row_without_a_change_value_in_a_filled_column_stays_unknown(tmp_path: Path) -> None:
     assert _row(tmp_path, "外肺炎", [zpr(pre=["99980020"], dis="99990001")], master=True)["suspected"] == "U"
+
+
+def test_the_loader_reads_neither_row_of_a_code_given_twice_with_different_content() -> None:
+    """The second tester's class D: which of two different rows is the master's cannot be told; an identical repeat
+    keeps the row, as before."""
+    rows = [
+        '"0","99980002","左","ｶﾅ","ZM02","60","22000000","","",""',
+        '"1","99980002","左","ｶﾅ","ZM02","60","22000000","","",""',
+        '"0","99980003","右","ｶﾅ","ZM03","60","22000001","","",""',
+        '"0","99980003","右","ｶﾅ","ZM03","60","22000001","","",""',
+    ]
+    parsed = lic.parse("medis_modifier", "\r\n".join(rows).encode("cp932"), MODIFIER_COLUMNS.split(","))
+    assert [c["code"] for c in parsed.concepts] == ["99980003"]
+    assert any("different content" in why for _n, why in parsed.skipped)
+
+
+def test_one_management_number_on_two_disease_rows_is_not_read(tmp_path: Path) -> None:
+    rel = _synthetic_release()
+    rel["medis"]["ZX99"] = {**rel["medis"]["ZA01"], "display": "別名"}  # another row with 肺炎's 管理番号
+    F(P1, "-", "PPR-01", "ALL9", stamp(DAY_A, 0), "1", ppr(P1, [prb("99990001", "肺炎", "DX001")])).write(tmp_path)
+    (row,) = list(Ssmix2Source(tmp_path, licensed=rel).rows("diagnosis", "diagnosis", None, None))
+    assert row["suspected"] == "U"

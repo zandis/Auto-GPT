@@ -245,6 +245,8 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None) -> Parse
     out: list[dict[str, str]] = []
     skipped: list[tuple[int, str]] = []
     seen: set[str] = set()
+    first_row: dict[str, dict[str, str]] = {}
+    conflicting: set[str] = set()
     for n, row in enumerate(body, start=start):
         if not any(c.strip() for c in row):
             continue
@@ -260,20 +262,27 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None) -> Parse
         if not shape.match(code):
             skipped.append((n, f"code {code!r} is not a {k.label} code"))
             continue
+        target = cell(targ_i).upper().replace(" ", "") if targ_i is not None else ""
+        record = {
+            "code": code,
+            "display": cell(disp_i),
+            "target_system": k.target_system if target else "",
+            "target_code": target,
+            "extra": json.dumps({x: cell(i) for x, i in extra_i.items() if cell(i)}, ensure_ascii=False),
+        }
         if code in seen:
-            skipped.append((n, f"code {code} appears twice; the first row is kept"))
+            if kind in CHANGE_REQUIRED and record != first_row[code]:
+                # D-1252: one MEDIS code on two different rows: which is the master's cannot be told, so neither is
+                # read (the reader then does not recognise the code); listed
+                conflicting.add(code)
+                skipped.append((n, f"code {code} appears twice with different content; neither row is read"))
+            else:
+                skipped.append((n, f"code {code} appears twice; the first row is kept"))
             continue
         seen.add(code)
-        target = cell(targ_i).upper().replace(" ", "") if targ_i is not None else ""
-        out.append(
-            {
-                "code": code,
-                "display": cell(disp_i),
-                "target_system": k.target_system if target else "",
-                "target_code": target,
-                "extra": json.dumps({x: cell(i) for x, i in extra_i.items() if cell(i)}, ensure_ascii=False),
-            }
-        )
+        first_row[code] = record
+        out.append(record)
+    out = [r for r in out if r["code"] not in conflicting]
     if not out:
         raise LicensedError("LIC-EMPTY", "no row with a code was found")
     if kind in CHANGE_REQUIRED and not any(json.loads(c["extra"]).get("change") for c in out):

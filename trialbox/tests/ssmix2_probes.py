@@ -73,7 +73,7 @@ def prb(
     *,
     action: str = "AD",
     system: str = "MDCDX2",
-    icd10: str = "J189",
+    icd10: str | None = None,
     outcome: str = "",
     end: str = "",
     written: str = "",
@@ -83,6 +83,8 @@ def prb(
     f = ["PRB", action, "20260901090000", f"{number}^{name}^{system}" if number or name else "", dx] + [""] * 14
     f[7] = "20260901"
     f[9] = end
+    if icd10 is None:  # the disease's own ICD-10 in the synthetic master; J18.9 for a code it does not hold
+        icd10 = DISEASES.get(number, ("", "", "J189"))[2].replace(".", "")
     f[10] = f"{icd10}^^I10^O^外来時^JHSD0004" if icd10 else ""
     f[13] = flag13
     f[14] = outcome
@@ -176,6 +178,8 @@ MODIFIERS = {
     "99980018": ("D", "前", "ZM18", "60", "22000005"),  # a 変更区分 the specification does not define
     "99980019": ("9", "後", "ZM19", "60", "22000006"),  # a 変更区分 the specification does not define
     "99980020": ("", "外", "ZM20", "60", "22000007"),  # no 変更区分
+    "99980021": ("0", "左", "ZM21", "60", "022000000"),  # a 修飾語区分 of nine characters
+    "99980022": ("0", "右", "ZM22", "60", "2200000"),  # a 修飾語区分 of seven characters
 }
 
 
@@ -618,7 +622,8 @@ def modifier_cases() -> list[Case]:
             # the modified name a code of its own (then the coded concept would silently be the unmodified one);
             # 4 経過表現 and 5 状態表現 can say "old", "after", "in remission": unknown, as 6, 7 and 8 are
             own_code = any(name == text for name, _e, _i in DISEASES.values())
-            ok = (cls[1] in "129" or (cls[1] == "3" and not own_code)) and _chg in ("0", "3", "5")
+            eight = len(cls) == 8 and cls.isdigit()  # M (2)⑦: 修飾語区分 is 8 characters
+            ok = eight and (cls[1] in "129" or (cls[1] == "3" and not own_code)) and _chg in ("0", "3", "5")
             specs.append((f"modifier class {cls[1]} {word} on {base}", no, text, [z], "NC", "CA" if ok else "NC", ""))
 
     # 4. two modifiers, display text in the master's order
@@ -955,11 +960,117 @@ def key_part_like(value: str) -> str:
     return "".join(unicodedata.normalize("NFKC", value).split())
 
 
+# ------------------------------------------------------------------------------------------------ independent set 2
+def _set_field(segment: str, n: int, value: str) -> str:
+    """``segment`` with field ``n`` set to ``value`` (the segment's fields extended as needed)."""
+    parts = segment.split("|")
+    parts += [""] * (n + 1 - len(parts))
+    parts[n] = value
+    return "|".join(parts)
+
+
+def independent_cases_2() -> list[Case]:
+    """Independent set 2: the classes a second tester found at 5ae5593f (lane J, 2026-11-19), written here from lane
+    J's description (B to F; the delta nights, class A, are ``tests/unit/test_ssmix2_10b2b_delta.py``), and the
+    correct-site shapes that must stay confirmed with the master."""
+    cases: list[Case] = []
+    pneu, gas = "99990001", "99990002"
+    serial = iter(range(10_000))
+
+    def one(
+        what: str, cls: str, body: list[str], want: str, master: str = "both", head: list[str] | None = None
+    ) -> None:
+        for kind in ("", "master") if master == "both" else (master,):
+            pt = f"8{next(serial):07d}"
+            segs = (head or [msh("PPR^ZD1^PPR_ZD1", "P", "20261001090000"), pid(pt)]) + body
+            segs = [s.replace("{pt}", pt) for s in segs]
+            f = F(pt, "-", "PPR-01", "ALL9", stamp(DAY_A, 0), "1", segs)
+            cases.append(Case(f"class {cls}: {what} ({'licensed master' if kind else 'no master'})",
+                              f"J independent class {cls}", "diagnosis", [f], {f"{pt}/DX05": want},
+                              licensed=kind))  # fmt: skip
+
+    base = prb(pneu, "肺炎", "DX05")
+    # B. fields and components the reader does not read
+    for what, seg in (("PRB-19 certainty L^低い", _set_field(base, 19, "L^低い^99XYZ")),
+                      ("PRB-20 probability 0.2", _set_field(base, 20, "0.2")),
+                      ("PRB-11 management discipline", _set_field(base, 11, "01^内科^99XYZ")),
+                      ("PRB-12 persistence", _set_field(base, 12, "C^慢性^99XYZ")),
+                      ("PRB-3 original text (component 9)", _set_field(base, 3, f"{pneu}^肺炎^MDCDX2^^^^^^肺炎の疑い")),
+                      ("PRB-17 with a second component", _set_field(base, 17, "肺炎^疑い")),
+                      ("PRB-14 with an alternate triple", _set_field(base, 14, "A^^^C^継続^JHSD0006"))):  # fmt: skip
+        one(what, "B", [seg], "NC")
+    one("ZPR-8 holding の疑い", "B", [base, f"ZPR||{pneu}^肺炎^MDCDX2||||||の疑い"], "NC")
+    one("an ORC with ORC-1 DC after the PRB", "B", [base, "ORC|DC|X1"], "NC")
+    one("guard: an ORC NW as in the specification's example", "B", [base, "ORC|NW|X1||||||||||110^医師|||||01^内科"],
+        "CA")  # fmt: skip
+    one("a second MSH before the first PRB", "B", [base],
+        "NC", head=[msh("PPR^ZD1^PPR_ZD1", "P", "20261001090000"), msh("PPR^ZD1^PPR_ZD1", "Q", "20261001090000"),
+                    pid("{pt}")])  # fmt: skip
+    one("MSH-9 ADT^A08 in a PPR-01 folder", "B", [base], "GONE",
+        head=[msh("ADT^A08^ADT_A01", "P", "20261001090000"), pid("{pt}")])  # fmt: skip
+    one("guard: PRB-25 confidentiality, as in the specification's example", "B", [_set_field(base, 25, "V^非常に限定^HL70177")],
+        "CA")  # fmt: skip
+    # C. a ZPR under the wrong PRB
+    for kind in ("", "master"):
+        pt = f"8{next(serial):07d}"
+        body = [prb(pneu, "肺炎", "DX05"), zpr(dis=gas, suf=["99980010"]), prb(gas, "胃炎", "DX06")]
+        f = F(pt, "-", "PPR-01", "ALL9", stamp(DAY_A, 0), "1", [msh("PPR^ZD1^PPR_ZD1", "P"), pid(pt), *body])
+        cases.append(Case(f"class C: a ZPR naming 胃炎 after 肺炎's PRB ({'licensed master' if kind else 'no master'})",
+                          "J independent class C", "diagnosis", [f], {f"{pt}/DX05": "NC", f"{pt}/DX06": "NC"},
+                          licensed=kind))  # fmt: skip
+    # D. master edges (reader side; the loader's duplicates: tests/unit/test_ssmix2_10b2b_modifiers.py)
+    one(
+        "a 9-character 修飾語区分",
+        "D",
+        [prb(pneu, "左肺炎", "DX05"), zpr(pre=["99980021"], dis=pneu)],
+        "NC",
+        master="master",
+    )
+    one(
+        "a 7-character 修飾語区分",
+        "D",
+        [prb(pneu, "右肺炎", "DX05"), zpr(pre=["99980022"], dis=pneu)],
+        "NC",
+        master="master",
+    )
+    one("PRB-10's ICD-10 not the master's", "D", [prb(pneu, "肺炎", "DX05", icd10="C349")], "NC", master="master")
+    one("guard: PRB-10's ICD-10 the master's", "D", [prb(pneu, "肺炎", "DX05", icd10="J189")], "CA", master="master")
+    # F. no master: PRB-3 the 病名交換用コード, ZPR-2 the 病名管理番号
+    one("PRB-3 exchange code, ZPR-2 管理番号, ZPR-5 the same exchange code", "F",
+        [prb("ZA01", "肺炎", "DX05"), "ZPR||99990001^肺炎^MDCDX2|||ZA01^肺炎^MDCDX2"], "CA")  # fmt: skip
+    one("PRB-3 exchange code, ZPR-2 管理番号, no ZPR-5", "F", [prb("ZA01", "肺炎", "DX05"), "ZPR||99990001^肺炎^MDCDX2"],
+        "NC", master="")  # fmt: skip
+    # correct-site shapes that must stay confirmed with the master (lane J: 100 %)
+    one("correct site: the specification's example shape", "OK",
+        [_set_field(prb(gas, "胃炎", "DX05"), 25, "V^非常に限定^HL70177"), f"ZPR||{gas}^胃炎^MDCDX2|||ZA02^胃炎^MDCDX2"], "CA")  # fmt: skip
+    one("correct site: a class 2 prefix", "OK", [prb(pneu, "左肺炎", "DX05"), zpr(pre=["99980002"], dis=pneu, pre_ex=["ZM02"])],
+        "CA", master="master")  # fmt: skip
+    one("correct site: base name in PRB-3, full in PRB-17", "OK",
+        [prb(pneu, "肺炎", "DX05", written="左下葉肺炎"), zpr(pre=["99980002", "99980001"], dis=pneu)], "CA", master="master")  # fmt: skip
+    one("correct site: no ZPR, display the master's name", "OK", [prb(gas, "胃炎", "DX05")], "CA")
+    one("correct site: PRB-3 by exchange code", "OK", [prb("ZA02", "胃炎", "DX05", icd10="K297")], "CA")
+
+    # E. one patient's DE never stands for another patient's dropped diagnosis
+    for night in (0, 1):
+        p1, p2 = f"8{next(serial):07d}", f"8{next(serial):07d}"
+        a = prb(pneu, "肺炎", "DX01")
+        files = [
+            F(p1, "-", "PPR-01", "ALL9", stamp(DAY_A, 0), "1", ppr(p1, [prb(pneu, "肺炎", "DX01", action="DE")])),
+            F(p2, "-", "PPR-01", "ALL9", stamp(DAY_A, 0), "1", ppr(p2, [a, prb(gas, "胃炎", "DX02")])),
+            F(p2, "-", "PPR-01", "ALL9", stamp(DAY_A, 1), "1", ppr(p2, [prb(gas, "胃炎", "DX02")]), night=night),
+        ]
+        cases.append(Case(f"class E: one patient's DE and another's dropped DX01 (night {night})",
+                          "J independent class E", "diagnosis", files,
+                          {f"{p1}/DX01": "GONE", f"{p2}/DX01": "GONE", f"{p2}/DX02": "CA"}))  # fmt: skip
+    return cases
+
+
 def all_cases() -> dict[str, list[Case]]:
     return {
         "supersession": supersession_cases(),
         "modifiers": modifier_cases(),
         "independent set 1": independent_cases(),
+        "independent set 2": independent_cases_2(),
     }
 
 
