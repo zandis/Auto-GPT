@@ -151,7 +151,7 @@ profile with the one the box last read: `site_profile.json` in the lake folder h
 history.
 
 - **A new digest** is recorded with who, when, the old and new version, both digests and the direction (first,
-  forward, back). It is written as one `site_profile.load` event in the hash-chained audit through the one audit
+  forward, back). It is written as one `terminology.site_profile_load` event in the hash-chained audit through the one audit
   writer.
 - **Every row whose state changed** (added, removed, `verify` to `verified` or back) is named in the same event with
   its table, code, old and new state; who and when are the event's. The rows' states as last activated are kept in
@@ -159,7 +159,7 @@ history.
 - **No audit, no profile.** Without an audit folder nothing is activated (the night and `load` refuse).
 - **The kept copy is checked every night.** Its content is hashed again and must be what was recorded and audited
   when it was loaded, and every row is checked again. A copy edited by hand, cut short or unreadable is refused with
-  one `site_profile.copy_refused` event.
+  one `terminology.site_profile_copy_refused` event.
 - **A profile that cannot be applied stops the night** (as before versions existed): a kept copy that is refused, or
   a folder on a box where nobody has loaded one, ends the night with `ingest.failed`, and the box keeps serving the
   night before. Why: a night read without the site's profile would leave its codes unread and could miss patients
@@ -168,9 +168,9 @@ history.
   lake folder (`site_profile/<digest>.json`); the night reads that copy (its tables written trimmed to the lake's
   scratch), never the raw files. A folder whose content is not the loaded version (a file dropped in, an edit, an
   unreadable table) is not applied: the night reads the loaded version, says so on its record and on the night's
-  page, and the audit has one `site_profile.not_loaded` event per content. A folder on a box where nobody loaded one
+  page, and the audit has one `terminology.site_profile_not_loaded` event per content. A folder on a box where nobody loaded one
   stops the night (above).
-- **Taking it off.** A folder taken away takes the profile off the box: one `site_profile.removed` event, the record's
+- **Taking it off.** A folder taken away takes the profile off the box: one `terminology.site_profile_removed` event, the record's
   active profile is empty and that night's record says so. `unload --by <name>` does the same by name.
 - **A delta night after a change reads whole.** When the night a delta merges over was read with another profile
   (or none), the night reads every row, so no fact carried over keeps a tag of the version before

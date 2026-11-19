@@ -11,9 +11,10 @@ The loader and its checks are :mod:`tb_common.site_profile`; this module is wher
 * **Activation, versions and audit.** :func:`activate` compares the profile with what the box read before
   (``site_profile.json`` in the lake folder, beside ``site_key.json``, and the rows' states beside it). A new digest
   is recorded with who, when, the old and new version, both digests and every row whose state changed, in the
-  record's history and as one ``site_profile.load`` event in the hash-chained audit; without an audit destination
-  nothing is activated. An id and version read before with other content is refused (the steward changes the version
-  with the content). Rolling back is loading the earlier folder, recorded with ``direction: back``.
+  record's history and as one ``terminology.site_profile_load`` event in the hash-chained audit (the adapter's own
+  audit family); without an audit destination nothing is activated. An id and version read before with other content
+  is refused (the steward changes the version with the content). Rolling back is loading the earlier folder,
+  recorded with ``direction: back``.
 * **The night.** Every night that reads with a profile writes ``site_profile.json`` beside its snapshot (the
   profile's id, version and digest, and the coverage lines); the ``ingest.done`` event carries the same stamp and the
   counts. A fact whose standard code comes from a ``verify`` row carries D-135's basis tag ``verify``
@@ -50,10 +51,10 @@ from tb_common.site_profile import MANIFEST, VERIFIED, VERIFY, Profile, ProfileE
 RECORD = "site_profile.json"  # in the lake folder: the active profile and its history; beside a snapshot: the night's
 STATES = "site_profile.states.json"  # in the lake folder: every row's state as last activated
 KEPT = "site_profile"  # in the lake folder: each version a person loaded, as loaded (<digest>.json)
-REMOVED = "site_profile.removed"
-NOT_LOADED = "site_profile.not_loaded"
+REMOVED = "terminology.site_profile_removed"
+NOT_LOADED = "terminology.site_profile_not_loaded"
 FOLDER = "profile"  # in the site mapping folder
-EVENT = "site_profile.load"
+EVENT = "terminology.site_profile_load"  # the adapter's audit family (tb_common.audit_writer.ROLE_EVENTS)
 MAX_CHANGES_IN_EVENT = 2000  # rows whose state changed named in one audit event; the count is always complete
 WORKLIST_COLUMNS = ("kind", "table", "code", "rows", "target", "state", "file", "line")
 # the night's files the coverage lines read (adapter.pipeline writes them)
@@ -276,7 +277,7 @@ def night_profile(night_dir: Path) -> dict[str, Any] | None:
     return rec.get("profile") if isinstance(rec, dict) else None
 
 
-COPY_REFUSED = "site_profile.copy_refused"
+COPY_REFUSED = "terminology.site_profile_copy_refused"
 
 
 def kept(lake_dir: Path, digest: str, copy_sha: str | None = None) -> Profile:
@@ -304,7 +305,7 @@ def kept(lake_dir: Path, digest: str, copy_sha: str | None = None) -> Profile:
 
 
 def deactivate(lake_dir: Path, *, by: str, audit_dir: Path | None, tz: str = "UTC", why: str) -> dict[str, Any]:
-    """The box reads without a profile from now on: recorded and audited (``site_profile.removed``)."""
+    """The box reads without a profile from now on: recorded and audited (``terminology.site_profile_removed``)."""
     if audit_dir is None:
         raise ProfileError(MANIFEST, "a profile is taken off the box only with its audit: no audit folder was given")
     rec = read_record(lake_dir)

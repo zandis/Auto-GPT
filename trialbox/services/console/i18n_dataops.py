@@ -244,7 +244,7 @@ ZH: dict[str, str] = {
     "dataops.profile.title": "院所設定檔",
     "dataops.profile.units": "單位與該列所載不同的結果：{n}（保留但不含數值，不做換算）",
     "dataops.profile.pending": "本機上有內容不同的設定檔資料夾（{digest}），但尚無人載入。本次匯入使用的是人員已載入的版本。若要使用新版本：python -m adapter.site_profile load --by <您的姓名>",
-    "dataops.profile.store_wins": "在本院代碼頁面（院所設定）對照的檢驗代碼尚未納入夜間匯入。若該對照與此設定檔不一致，以院所設定的對照為準，工作清單（python -m adapter.site_profile worklist --setup-db）會逐一列出差異。",
+    "dataops.profile.store_wins": "在本院代碼頁面（院所設定）對照的檢驗代碼尚未納入夜間匯入。若該對照與此設定檔不一致，以院所設定的對照為準，待辦清單（python -m adapter.site_profile worklist --setup-db）會逐一列出差異。",
     "dataops.profile.which": "以院所設定檔 {id}、版本 {version}（摘要 {digest}）匯入。",
     "dataops.profile.types": "資料類型：宣告的 {declared} 種中有 {arrived} 種已送達",
     "dataops.profile.not_arrived": "已宣告但未送達：",

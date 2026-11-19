@@ -794,7 +794,7 @@ def test_5_taking_the_folder_away_is_audited_and_the_next_night_says_no_profile(
     run_ingest(cfg, "csv", str(feed), snapshot="2026-11-02", load_fhir=False, validate=False)
     assert sp.read_record(tmp_path / "lake-r")["active"] is None
     removed = [json.loads(x) for f in _day_files(tmp_path / "audit-r") for x in f.read_text(encoding="utf-8").splitlines()
-               if '"site_profile.removed"' in x]  # fmt: skip
+               if f'"{sp.REMOVED}"' in x]  # fmt: skip
     assert len(removed) == 1 and removed[0]["detail"]["old_version"] == "1.0.0"
     nd = snapshot_dir(tmp_path / "lake-r", "2026-11-02")
     assert sp.night_profile(nd) is None

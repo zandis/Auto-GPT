@@ -38,7 +38,7 @@ hospital meant changing code or the image. Shipped sample rows marked `verify` w
    cannot be applied stops the night** (a kept copy that is refused, a folder nobody has loaded): a night read
    without the site's codes could miss patients with no sign, so the box keeps serving the night before.
    **Versions and audit.** A new digest is recorded (who, when, old and new version, both digests, direction, and
-   every row whose state changed) in `site_profile.json` in the lake folder and as one `site_profile.load` audit
+   every row whose state changed) in `site_profile.json` in the lake folder and as one `terminology.site_profile_load` audit
    event; with no audit destination nothing is activated; an id and version read before (anywhere in the history)
    with other content is refused; the site is the settings' and the country and standard versions must agree with
    them. Every night read with a profile writes `site_profile.json` beside its snapshot and carries the stamp in
