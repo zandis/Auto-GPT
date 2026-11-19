@@ -86,6 +86,11 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument(
         "--two-device", action="store_true", help="also check this device of the GB10 two-device form (T-214, D-373)"
     )
+    d.add_argument(
+        "--preflight", action="store_true", help="only the live preflight, each line with its next action (10K-3)"
+    )
+    d.add_argument("--lang", default=None, help="--preflight: the language of the labels and actions (en, ja, zh-TW)")
+    d.add_argument("--out", type=Path, default=None, help="--preflight: also write the first-run page's file here")
     pi = sub.add_parser("platform-images", help="the release-images component from release.json (D-211)")
     pi.add_argument("--release", type=Path, default=None)
     pi.add_argument("--check", action="store_true", help="exit 1 when the committed component differs")
@@ -325,6 +330,11 @@ def main(argv: list[str] | None = None) -> int:
         return _drill_cmd(a)
     if a.cmd in ("platform-images", "platform-egress"):
         return _platform_cmd(a)
+    if a.cmd == "doctor" and a.preflight:
+        return _preflight_cmd(a)
+    if a.cmd == "doctor" and (a.out is not None or a.lang is not None):
+        print("doctor: --lang and --out go with --preflight", file=sys.stderr)
+        return 2
     if a.cmd == "doctor":
         from tools.trialbox import doctor
 
@@ -374,6 +384,22 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps({k: v for k, v in result.items() if k != "datasets"}, indent=1, ensure_ascii=False))
     print(f"archived: {path}")
     return 1 if result.get("passed") is False else 0
+
+
+def _preflight_cmd(a: argparse.Namespace) -> int:
+    """``doctor --preflight`` (10K-3, D-1361): the list of ``tb_common.preflight``, each line with its next action."""
+    from tools.trialbox import doctor
+    from tools.trialbox import preflight as pf
+
+    inp = doctor.inputs_from(env_file=a.env_file, settings=a.settings, routing=a.routing, lake=a.lake_dir)
+    checks = pf.run(inp)
+    if a.out is not None:
+        pf.write(checks, a.out)
+    if a.json:
+        print(json.dumps(pf.as_json(checks), indent=1, ensure_ascii=False))
+    else:
+        print(pf.render(checks, a.lang or "en", color=pf.color_on()))
+    return 0 if doctor.ok(checks) else 1
 
 
 def _platform_cmd(a: argparse.Namespace) -> int:

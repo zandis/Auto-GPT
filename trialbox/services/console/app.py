@@ -542,6 +542,7 @@ def create_app(
     # D-776: the box's own public address for a one-time sign-in link (never the request's Host); "" when not set
     templates.env.globals["public_url"] = (_env_map(env).get("TB_CONSOLE_PUBLIC_URL") or "").strip().rstrip("/")
     templates.env.globals["BEST"] = BEST_STANDING
+    templates.env.globals["theme_color"] = phone.THEME  # 9k-1 (D-1368): no colour in a page
     bk: Backend = backend
     au: AuditLog = audit
     us: UserStore = users

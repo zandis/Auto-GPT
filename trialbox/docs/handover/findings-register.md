@@ -522,3 +522,41 @@ mapped by the rule above from what the finding says; the source's own word is no
 | H21-P-14 | 2026-11-17 | [life-cycle-walk-390-findings-2026-11-17.md](life-cycle-walk-390-findings-2026-11-17.md) | Medium (mapped) | On a phone the audit trail's table (/audit) is 1,355 to 1,383 px wide, a row's time on the left and its detail on the right; the table scrolls sideways inside its own frame | C2 | shown | open |
 | H21-P-15 | 2026-11-17 | [life-cycle-walk-390-findings-2026-11-17.md](life-cycle-walk-390-findings-2026-11-17.md) | Medium (mapped) | On a phone the audit filter's "Clear" link (/audit) is 32 to 40 by 24 px, under the 44 px the card asks of phone controls | C2 | shown | open |
 | H21-P-16 | 2026-11-17 | [life-cycle-walk-390-findings-2026-11-17.md](life-cycle-walk-390-findings-2026-11-17.md) | Medium (mapped) | On a phone the Participants list (/studies/{rs}/subjects) is a table 413 to 423 px wide (en, ja), seen since train 79; the table scrolls sideways inside its own frame | C2 | shown | open |
+
+## H10G1: container hardening: the four controls on the 15 services (plan 10 row 10G-1)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H10G1-01 | 2026-11-19 | [container-hardening-2026-11-19.md](container-hardening-2026-11-19.md) | Medium | the adapter and the orchestrator cannot run with a read-only root filesystem: the HL7 validator (services/adapter/validate/validator.py, -Duser.home=/opt/hl7/home) writes .index.json files into and renames packages in its package cache, an image path, and stops with 'Unable to rename directory ... for atomic delete' when it cannot; the fix is a writable package home in the validator, then the two read_only exceptions of D-1323 go | Int | shown | open |
+| H10G1-02 | 2026-11-19 | [container-hardening-2026-11-19.md](container-hardening-2026-11-19.md) | Medium | llm-service (vLLM) runs as root with a writable root filesystem and, for rc1, without cap_drop (D-1323 exceptions): its compile and kernel caches are under /root/.cache and /tmp, and root must read model files of any mode (without DAC_OVERRIDE it cannot read a 0600/0640 file of another owner); a fixed user, read_only and cap_drop need the caches on a volume and readable weights, proved on a GPU box | H | hypothesis | open |
+| H10G1-03 | 2026-11-19 | [container-hardening-2026-11-19.md](container-hardening-2026-11-19.md) | Low | the overlay services outside the base file's 15 carry none or only some of the four controls: llm-verifier, judge-sleep-init, judge-wake-init, model-swap-init, caddy, authelia, prometheus, doctor (tests/unit/test_container_hardening.py OUTSIDE_THE_15) | H | shown | open |
+| H10G1-04 | 2026-11-19 | [container-hardening-2026-11-19.md](container-hardening-2026-11-19.md) | Medium | a reference data pack that fails to load at install is only a stderr warning (deploy/install.sh, the deploy/refdata/pending loop's 'install: warning: reference data ... not loaded' line) and install goes on; under the 10G-1 read-only root the pack's 'compose cp' into criteria-compiler failed that way and only the box rehearsal's later check noticed (CI run 44458900188); the load is fixed (a one-off compose run with the pack bind-mounted), the quiet failure is open | H | shown | open |
+| H10G1-05 | 2026-11-19 | [container-hardening-2026-11-19.md](container-hardening-2026-11-19.md) | Medium | update's rollback (tools/trialbox/update.py RESTORE_SH, mktemp in the db container) wrote the dump's whole plain SQL script into db's tmpfs /tmp, which counts against db's memory limit (TB_MEM_DB, 4g by default) and is capped at 64m; fixed by moving the file onto the db-pg volume (${PGDATA:?}/tb-rollback, 0700, removed on exit), the logic as on master, and the update's preflight counts its space; not yet run on a box | H | hypothesis | fixed 37250175 |
+
+## H10G4: the threat model, reviewed per release (plan 10 row 10G-4)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H10G4-01 | 2026-11-19 | [12-threat-model.md](../security/12-threat-model.md) | Medium | The egress table leaves Docker's embedded DNS alone (deploy/egress.py), so a container's name lookups still reach the hospital's resolver (review 16's J-M7); the decision waits on card 10G-49 | H | hypothesis | open |
+| H10G4-02 | 2026-11-19 | [12-threat-model.md](../security/12-threat-model.md) | Medium | The vendor's update key is one file passed as --key to tools/make_bundle.sh: one person can sign a release (card 10G-7) | H | hypothesis | open |
+| H10G4-03 | 2026-11-19 | [12-threat-model.md](../security/12-threat-model.md) | High | The audit signing key sits in the box's own secrets folder (tools/trialbox/audit_heads.py): root can change the events written since the last signed head before the next night signs them, and holds the key that signs (review 16, section 2.2; card 10G-2) | H | hypothesis | open |
+
+## H10G48: the TLS policy and its per-release check (plan 10 row 10G-48)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H10G48-01 | 2026-11-19 | [12-tls-check-per-release.md](../runbook/12-tls-check-per-release.md) | Medium | The TLS the box serves on 443 and the two-device link serves has never been scanned: TLS is right by configuration (deploy/identity/Caddyfile, tools/two_device.py) and by test of that configuration only; the first testssl.sh run per RUNBOOK 12 (the TLS check per release) closes it | Int | not_run | open |
+| H10G48-02 | 2026-11-19 | [12-tls-check-per-release.md](../runbook/12-tls-check-per-release.md) | Medium | No supported setting relaxes the TLS policy for a hospital's old client: TB_TLS_MODE chooses only the certificate and the Caddyfile has no placeholder for protocols or cipher suites, so a client that can do only TLS 1.0/1.1, CBC or static RSA gets a handshake failure on 443 and the only way round is a hand edit of deploy/identity/Caddyfile that the policy check fails | H | shown | fixed 80804b6 |
+
+## H51: the tier record reader never raises
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H51-01 | 2026-11-19 | [tier-value-never-raises-2026-11-19.md](tier-value-never-raises-2026-11-19.md) | Medium | tier_value.measured raised RecursionError on a tier record nested about 200000 deep and read a record of any size, against its never-raises promise (D-1322) | H | shown | fixed 0ccaa83 |
+
+## H55: two open High findings of lane J, registered on the integrator's ruling (lane H, 2026-11-19)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H55-01 | 2026-11-19 | [open-high-from-lane-j-2026-11-19.md](open-high-from-lane-j-2026-11-19.md) | High | On master an inclusion that negates or forbids something (不可, 禁止, 不允許, forbidden, exception forms, bare 不 and 以外 in zh-TW, a negating prefix such as Non-small cell with small cell coded) can compile as requiring it, so a patient can be wrongly listed with the reviewer's sheet the only guard; per D-1246 (branch of #1180, not on master) master ran 60 of 186, 53 of 57, 121 of 194 and 62 of 73 synthetic must-hold lines; #1117 (10A-1b) is on master, #1180 (10A-1c) is not | J | shown | open |
+| H55-02 | 2026-11-19 | [open-high-from-lane-j-2026-11-19.md](open-high-from-lane-j-2026-11-19.md) | High | On master the lake can attach one patient's order or diagnosis to another patient and the first is lost, because a record's id is not per patient (HMAC of type and number only); lane J's red of 2026-11-19 12:27 UTC, taken by the integrator at 12:48 UTC as in rc1's scope; fix: lane J's card lake ids are per patient (D-1253, not on master); synthetic data only | J | shown | open |
