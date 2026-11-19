@@ -18,8 +18,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 import pytest
+from console import i18n_guides
+from console.guides import ROLES, title
 
 from tests.console.test_console_app import VIEWER_PW, box, login  # noqa: F401 - the fixture is used by name
 
@@ -27,6 +30,78 @@ ROOT = Path(__file__).resolve().parents[2]
 GUIDES = ROOT / "docs" / "guides"
 MATRIX = ROOT / "tests" / "console" / "data" / "role_route_matrix.md"
 LANGS = ("en", "ja", "zh-TW")
+GUIDE_CATALOGUES = {"en": i18n_guides.EN, "ja": i18n_guides.JA, "zh-TW": i18n_guides.ZH}
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_installation_instructions_cover_each_device(lang: str) -> None:
+    instructions = {
+        "en": (
+            "Install in Edge on Windows", "Add to Dock in Safari on macOS", "Share → Add to Home Screen in Safari on iOS",
+            "On Android, open the browser menu", "Install or Add to Home screen",
+            "device must trust", "certificate authority (CA) provided by hospital IT",
+            "FSLogix virtual desktop", "open the console in the browser",
+        ),
+        "zh-TW": (
+            "Windows 的 Edge 選擇「安裝」", "macOS 的 Safari 選擇「加入 Dock」", "iOS 的 Safari 選擇「分享」→「加入主畫面」",
+            "Android", "瀏覽器選單選擇「安裝」或「加到主畫面」", "裝置必須信任", "醫院資訊部門提供的憑證授權單位（CA）",
+            "FSLogix 虛擬桌面", "在瀏覽器中開啟主控台",
+        ),
+        "ja": (
+            "Windows の Edge では「インストール」", "macOS の Safari では「Dock に追加」", "iOS の Safari では「共有」→「ホーム画面に追加」",
+            "Android ではブラウザのメニュー", "「インストール」または「ホーム画面に追加」", "端末", "病院の IT 部門が提供する認証局（CA）を信頼",
+            "FSLogix の仮想デスクトップ", "ブラウザでコンソールを開いて",
+        ),
+    }
+    paragraph = GUIDE_CATALOGUES[lang]["guide.install"]
+    for instruction in instructions[lang]:
+        assert instruction in paragraph
+
+
+def test_installation_in_every_generated_handout(tmp_path: Path) -> None:
+    from tools.role_guides import write
+
+    def snapshot() -> dict[str, bytes]:
+        return {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+
+    write(tmp_path)
+    first = snapshot()
+    write(tmp_path)
+    assert snapshot() == first == {p.name: p.read_bytes() for p in GUIDES.glob("*.md")}
+    assert len(first) == 21
+    for role in ROLES:
+        for lang in LANGS:
+            blocks = first[f"{role}.{lang}.md"].decode("utf-8").split("\n\n")
+            assert [p for p in blocks if "FSLogix" in p] == [GUIDE_CATALOGUES[lang]["guide.install"]]
+
+
+@pytest.mark.parametrize("role", ROLES)
+def test_installation_in_the_signed_in_print_guide(box: dict[str, Any], role: str) -> None:  # noqa: F811
+    user = f"guide-{role}"
+    box["users"].create(user, role, VIEWER_PW)
+    client, csrf = login(box["app"], user, VIEWER_PW)
+    for lang in LANGS:
+        if lang != "en":
+            switched = client.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/help/guide"})
+            assert switched.status_code == 200
+        help_page = client.get("/help")
+        assert 'href="/help/guide"' in help_page.text
+        page = client.get("/help/guide")
+        assert page.status_code == 200
+        article_html = re.search(r"<article\b[^>]*>.*?</article>", page.text, re.S)
+        assert article_html
+        article = ElementTree.fromstring(article_html.group())
+        assert article.get("data-role") == role
+        assert article.findtext(".//h1") == title(role, lang)
+        paragraphs = [p for p in article.iter("p") if "FSLogix" in "".join(p.itertext())]
+        assert len(paragraphs) == 1
+        paragraph = paragraphs[0]
+        assert paragraph in article.findall("p")  # in the printable article itself
+        for node in (article, paragraph):
+            assert "hidden" not in node.attrib and "noprint" not in node.get("class", "").split()
+        text = "".join(paragraph.itertext())
+        assert text == GUIDE_CATALOGUES[lang]["guide.install"]
+        assert text in (GUIDES / f"{role}.{lang}.md").read_text(encoding="utf-8").split("\n\n")
 
 
 def test_the_committed_guides_are_what_the_tool_writes() -> None:
