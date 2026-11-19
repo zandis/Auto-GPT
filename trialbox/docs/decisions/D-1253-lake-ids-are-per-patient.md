@@ -106,8 +106,10 @@
       delete (`docs/data/02-mapping-a-site.md`, `CANONICAL.md`).
     - SS-MIX2 must key the diagnoses already tombstoned by patient and number (review E), so one patient's deleted
       diagnosis never hides another patient's diagnosis dropped from a newer snapshot. #1189 (10B-2b) carries that
-      change to the reader, with its tests. **This card lands after #1189**, and this branch leaves the reader as
-      master has it.
+      change to the reader, with its tests. **This card lands after #1189** (on master since train 100), and this
+      branch leaves the reader as master has it. Its own test of the case
+      (`test_ssmix2_third_review.py::test_8_one_patients_tombstones_never_hide_anothers_diagnosis_gone_from_a_newer_snapshot`)
+      holds on master's reader.
   - **Collisions.**
     - Two records with one id and different content are counted per record type (`id_collisions`): two different
       source rows of one night, or of one back-fill, with the same patient and number. The last row still wins
@@ -321,6 +323,8 @@
     `deletes_without_patient`, `links_to_absent_records`) and its one event when refused for the id rule.
   - `tests/unit/test_lake_snapshot_opened_once.py`: every entry point above refuses a snapshot of the earlier rule
     and of a later one; a served snapshot without NDJSON.
+  - `tests/unit/test_ssmix2_third_review.py::test_8_one_patients_tombstones_never_hide_anothers_diagnosis_gone_from_a_newer_snapshot`
+    (the reader change is #1189's).
   - `tests/unit/test_goldens_id_proof.py`.
   - `tests/console/test_id_rule_pages.py`.
   - `tests/integration/test_vec_store.py::test_new_chunks_are_refused_beside_chunks_of_the_earlier_id_rule`.
