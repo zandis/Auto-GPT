@@ -173,7 +173,6 @@ def pack(root: Path, out: Path, files: Iterable[str] | None = None) -> dict[str,
     return {"files": len(names), "sha256": hashlib.sha256(out.read_bytes()).hexdigest()}
 
 
-
 def _info(name: str, size: int, mode: int) -> tarfile.TarInfo:
     ti = tarfile.TarInfo(name)
     ti.size, ti.mode, ti.mtime = size, mode, _EPOCH

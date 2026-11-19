@@ -1,9 +1,13 @@
 # H-56: the box-run rehearsal's build cases on train 99's CI run (2026-11-19)
 
+**Reader:** the people who build TrialBox: lane H, the integrator, and whoever reads the next red of the box-run
+rehearsal's build cases. Findings for builders, so in one language.
+
 ## What failed
 
 Train 99's CI run, job 135621934683 (unit shard 4/6), worker gw1, 14:21:46 to 14:23:07 UTC:
-`tests/unit/test_g1_box_install_run.py::test_rehearsal_case[build]`, `[build-refused]` and `[build-preempt]`.
+the cases `build`, `build-refused` and `build-preempt` of `test_rehearsal_case` in
+`tests/unit/test_g1_box_install_run.py`.
 In each case steps b01 to b05 finished, then:
 
     TB-STOP b06-verify: tools/verify_update.py (the Ed25519 signature with the vendor public key): exit 1
@@ -34,9 +38,9 @@ reproduction below gives the same stop at b06, and the same `KeyError` path for 
 * The three cases alone, and the file under `-n 8` with `PYTHONUNBUFFERED` unset: passed (67 passed).
 * The whole shard as CI runs it (`make test PYTEST_N=auto SHARD=4/6`, 4 CPUs): 2687 passed. The concurrent
   writer is a matter of timing.
-* `build` while a loop rewrote an untracked file `tools/zz_h56_churn.txt` with random bytes: rc 1, `TB-STOP
+* `build` while a loop rewrote an untracked file under `tools/` (zz_h56_churn.txt) with random bytes: rc 1, `TB-STOP
   b06-verify ... exit 1`, and in `logs/b06-verify.log`: `REJECTED: trialbox-host.tar: host tree:
-  tools/zz_h56_churn.txt: sha256 differs from HOST-SHA256SUMS`.
+  tools/<that file>: sha256 differs from HOST-SHA256SUMS`.
 * The old `pack()` against a small tree with the same writer: it crashed with `OSError: unexpected end of data`
   (the file shrank between the stat and the copy). The new one gave 0 torn trees in 25.
 
