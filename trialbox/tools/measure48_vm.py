@@ -140,13 +140,13 @@ def gate(stage: str, used_s: float, line_s: float, also: list[str] | None = None
 def ladder_next(tried: list[tuple[str, int]]) -> tuple[str, str]:
     """The next option to try, or "" with the reason. ``tried``: (option, ballast48 measure's exit code) in order:
     0 started (kept: the ladder ends), 1 did not start (the next one), anything else (2: refused before any server,
-    the ballast or the card not as asked; 130: stopped at the stop line) ends the ladder: the next option would meet
-    the same refusal."""
+    the ballast or the card not as asked; 3: the tool broke, exit 1 with a traceback or no record, as the VM script
+    tells them apart; 130: stopped at the stop line) ends the ladder: the next option would meet the same."""
     for opt, rc in tried:
         if rc == 0:
             return "", f"{opt} started and is kept"
         if rc != 1:
-            return "", f"{opt} ended with exit {rc} (refused or stopped, not 'did not start'): the ladder ends"
+            return "", f"{opt} ended with exit {rc} (refused, broke or stopped, not 'did not start'): the ladder ends"
     done = [o for o, _ in tried]
     for opt in LADDER:
         if opt not in done:

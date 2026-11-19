@@ -9,9 +9,11 @@ import hashlib
 import io
 import json
 import os
+import signal
 import subprocess
 import sys
 import tarfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -64,14 +66,20 @@ if t == "ballast48":
         opt, out = arg("--option"), pathlib.Path(arg("--out-dir"))
         out.mkdir(parents=True, exist_ok=True)
         print("measuring " + opt + " with the key " + KEY, flush=True)
+        if os.environ.get("M48_CRASH") == opt:
+            print("Traceback (most recent call last):", flush=True)
+            print("ZeroDivisionError: a bug", flush=True)
+            sys.exit(1)
         if os.environ.get("M48_HANG") == opt:
-            hit = []
-            signal.signal(signal.SIGINT, lambda *_: hit.append(1))
-            while not hit:
-                time.sleep(0.05)
-            (out / ("measure." + opt + ".json")).write_text(json.dumps({"option": opt, "started": False,
-                "interrupted": True, "outcome": "BY BALLAST: stopped"}))
-            sys.exit(130)
+            # as lane J's measure: Python's own KeyboardInterrupt, no handler of its own (an ignored SIGINT never
+            # becomes one: the VM script must start the tool with SIGINT at its default)
+            try:
+                while True:
+                    time.sleep(0.05)
+            except KeyboardInterrupt:
+                (out / ("measure." + opt + ".json")).write_text(json.dumps({"option": opt, "started": False,
+                    "interrupted": True, "outcome": "BY BALLAST: stopped"}))
+                sys.exit(130)
         started = opt not in os.environ.get("M48_FAIL", "").split()
         (out / ("measure." + opt + ".json")).write_text(json.dumps({"option": opt, "started": started,
             "outcome": "BY BALLAST", "card_peak_mib": 45000, "ballast": {"free_at_peak_mib": 4100},
@@ -105,7 +113,6 @@ sys.exit(0)
 SHIMS = {
     "nvidia-smi": '#!/bin/sh\n[ -z "${M48_DRIVER_MARK:-}" ] || [ -f "$M48_DRIVER_MARK" ] || exit 9\n'
     'echo "NVIDIA RTX PRO 6000, 97887 MiB, 12.0, 580.95, Enabled"\n',
-    "ubuntu-drivers": '#!/bin/sh\n[ -z "${M48_DRIVER_MARK:-}" ] || touch "$M48_DRIVER_MARK"\n',
     "docker": '#!/bin/sh\necho "docker $*" >> "$M48_CALLS"\ncase "$1" in\n info) echo "Runtimes: nvidia runc" ;;\n'
     ' inspect) case "$*" in *IPAddress*) echo 172.17.0.2 ;; *) echo true ;; esac ;;\n'
     ' system) echo "Images 0 0 0B 0B" ;;\nesac\nexit 0\n',
@@ -113,7 +120,8 @@ SHIMS = {
     'if [ "$1 $2" = "storage cp" ]; then mkdir -p "$(dirname "$(m "$4")")"; cp "$(m "$3")" "$(m "$4")"; exit; fi\n'
     'if [ "$1 $2" = "storage rsync" ]; then d=$(m "$5"); mkdir -p "$d"; cp -a "$(m "$4")/." "$d/"; exit; fi\n'
     "exit 3\n",
-    "apt-get": "#!/bin/sh\nexit 0\n",
+    "apt-get": '#!/bin/sh\ncase "$*" in *nvidia-driver-580-server-open*)\n'
+    '  [ -z "${M48_DRIVER_MARK:-}" ] || touch "$M48_DRIVER_MARK" ;;\nesac\n',
     "systemctl": "#!/bin/sh\nexit 0\n",
 }
 
@@ -162,6 +170,10 @@ class Rig:
         return self.gcs / "bk" / "m48runs" / "m48-test"
 
     def boot(self, **env: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["bash", str(SCRIPT)], env=self.env(**env), capture_output=True, text=True,
+                              timeout=180, check=False)  # fmt: skip
+
+    def env(self, **env: str) -> dict[str, str]:
         e = {k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"}
         e.update({"PATH": f"{self.bin}:{e['PATH']}", "TB_M48_ROOT": str(self.w), "TB_M48_SBIN": str(self.tmp / "sbin"),
                   "TB_M48_SERIAL": str(self.tmp / "serial"), "TB_M48_MD_DIR": str(self.md), "TB_M48_POLL_S": "0.2",
@@ -169,7 +181,7 @@ class Rig:
                   "TB_M48_REBOOT": str(self.bin / "reboot"), "TB_M48_NO_TIMER": "1", "TB_M48_ETC": str(self.tmp / "etc"),
                   "M48_CALLS": str(self.calls), "M48_GCS": str(self.gcs), "M48_CK": str(self.w / "src" / "trialbox")})  # fmt: skip
         e.update(env)
-        return subprocess.run(["bash", str(SCRIPT)], env=e, capture_output=True, text=True, timeout=180, check=False)
+        return e
 
     def decisions(self) -> dict[str, str]:
         d = json.loads((self.up / "decisions.json").read_text())
@@ -370,3 +382,70 @@ def test_the_docker_and_toolkit_lines_are_gpu_sim_startups() -> None:
 @pytest.mark.skipif(sys.platform != "linux", reason="bash and GNU tools")
 def test_the_script_is_bash_clean() -> None:
     assert subprocess.run(["bash", "-n", str(SCRIPT)], check=False).returncode == 0
+
+
+def test_a_crash_is_not_did_not_start(rig: Rig) -> None:
+    r = rig.boot(M48_CRASH="pair-32k")
+    assert r.returncode == 0
+    dec = rig.decisions()
+    assert dec["ladder pair-32k result"].startswith("the tool broke")
+    assert "ladder pair-16k" not in dec and "pair-32k:3" in dec["ladder"]
+
+
+def test_a_did_not_start_is_recorded_as_such(rig: Rig) -> None:
+    assert rig.boot(M48_FAIL="pair-32k").returncode == 0
+    assert rig.decisions()["ladder pair-32k result"].startswith("did not start")
+
+
+def test_sigterm_saves_but_does_not_end_the_run_and_the_next_boot_resumes(rig: Rig) -> None:
+    """A Spot pre-emption or an ACPI stop (SIGTERM): the clock and the records go up, the run is NOT ended, and
+    the next boot goes on from the step that was cut."""
+    e = rig.env(M48_HANG="pair-32k")
+    p = subprocess.Popen(["bash", str(SCRIPT)], env=e, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        for _ in range(600):
+            if rig.calls.exists() and "measure --option pair-32k" in rig.calls.read_text():
+                break
+            time.sleep(0.1)
+        else:
+            pytest.fail("the ladder never started")
+        time.sleep(1)
+        p.send_signal(signal.SIGTERM)
+        assert p.wait(timeout=60) == 143
+    finally:
+        subprocess.run(["pkill", "-f", str(rig.bin / "standin")], check=False)
+    assert not (rig.run_dir / "ended").exists()
+    assert json.loads((rig.up / "steps.json").read_text())["ended"] == ""
+    assert "the run goes on at the next boot" in (rig.up / "vm.log").read_text()
+    assert not (rig.tmp / "powered-off").exists()
+    assert (rig.run_dir / "state" / "s07-ballast").exists() and not (rig.run_dir / "state" / "s08-ladder").exists()
+    r = rig.boot()
+    assert r.returncode == 0, r.stdout[-2000:]
+    steps = [s["step"] for s in json.loads((rig.up / "steps.json").read_text())["steps"]]
+    assert steps.count("s01-host") == 1 and steps.count("s08-ladder") == 1  # nothing finished ran twice
+    assert rig.decisions()["kept"].startswith("pair-32k") and (rig.tmp / "powered-off").exists()
+
+
+def test_tools_start_with_sigint_at_its_default() -> None:
+    text = SCRIPT.read_text()
+    assert "env --default-signal=INT" in text
+    for line in text[text.index("tool() {") : text.index("# ---", text.index("tool() {"))].splitlines():
+        if "python" in line and "-c 'import tools.engine_probe" not in line and "trialbox-py" not in line:
+            assert "sigint " in line, line
+
+
+def test_the_driver_is_d966s_open_module() -> None:
+    text = SCRIPT.read_text()
+    assert "nvidia-driver-580-server-open" in text and "nvidia:580-server " not in text
+
+
+def test_sigint_restores_what_a_background_start_ignores() -> None:
+    """The hazard and the fix, both measured: a simple command started with & gets SIGINT ignored (Python then never
+    raises KeyboardInterrupt); the script's sigint() starts it with SIGINT at its default."""
+    text = SCRIPT.read_text()
+    i = text.index("if env --default-signal=INT true")
+    define = text[i : text.index("\nfi\n", i) + 4]
+    probe = "import signal; print(signal.getsignal(signal.SIGINT) is signal.SIG_IGN)"
+    out = subprocess.run(["bash", "-c", f"{define}\npython3 -c '{probe}' & wait\nsigint python3 -c '{probe}' & wait"],
+                         capture_output=True, text=True, check=True).stdout.split()  # fmt: skip
+    assert out == ["True", "False"]

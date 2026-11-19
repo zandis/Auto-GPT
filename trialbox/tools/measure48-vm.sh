@@ -6,7 +6,7 @@
 #
 # What it does, in H-47's order (docs/plan/measurements/48gb-measuring-run-2026-11-19.md, sections 3 and "Unattended,
 # through the driver (H-53)"), each step timed in steps.json and its log in logs/<step>.log:
-#   s01-host     the driver (ubuntu-drivers, 580-server, one reboot), then Docker and the container toolkit with the
+#   s01-host     the driver (D-966: nvidia-driver-580-server-open, the open modules Blackwell needs; one reboot), then Docker and the container toolkit with the
 #                commands of deploy/gcp/gpu-sim-startup.sh (a test holds them equal)
 #   s02-card     o0-card.csv (the card, CPUs, memory: O-0), the card inside a container
 #   s03-source   the commit's archive from the bucket (tb-src), its sha256 (tb-src-sha256) and its HEAD (tb-commit)
@@ -78,11 +78,15 @@ BOOT_T0=$(date +%s)
 USED0=$(cat "$RUN/used-s" 2>/dev/null || echo "${TB_M48_USED0_S:-0}")
 used() { echo $(( USED0 + ($(date +%s) - BOOT_T0) * SCALE )); }
 LINE_S=$((LINE_MIN * 60)); CAP_S=$((CAP_MIN * 60))
-tick() { used > "$RUN/used-s.tmp" && mv -f "$RUN/used-s.tmp" "$RUN/used-s"; }
+tick() { used > "$RUN/used-s.tmp.$BASHPID" && mv -f "$RUN/used-s.tmp.$BASHPID" "$RUN/used-s"; }
 stamp() { date -u +%FT%TZ; }
 say() { echo "TB-M48 $(stamp) $*" | tee -a "$RUN/vm.log"; }
 echo "$(stamp) boot (used $(used) s of the run)" >> "$RUN/clock.txt"
 tick
+# the clock is saved every minute whatever runs (a hard stop loses at most a minute of it); it ends with this script
+TICK_S=$(awk -v p="$POLL" 'BEGIN { print p * 6 }')
+( while sleep "$TICK_S" && kill -0 $$ 2>/dev/null; do tick; done ) > /dev/null 2>&1 &
+TICKER=$!
 
 # ------------------------------------------------------------------ the records up, as it goes
 pack() {
@@ -91,11 +95,12 @@ pack() {
   h pack --run "$RUN" --out "$W/up" --mask-file "$CK/deploy/.env" --mask-dir "$CK/deploy/secrets" > "$W/up.list" 2>> "$RUN/vm.log" \
     || return 0
   [ -n "$BUCKET" ] || return 0
-  gcloud storage rsync --recursive "$W/up" "$BUCKET/m48runs/$RUN_ID" > /dev/null 2>&1 \
-    || say "TB-UPLOAD-FAILED: the records to $BUCKET/m48runs/$RUN_ID"
+  # bounded: a hung upload must not keep a finished VM billing; a timed-out one is said, the power-off still comes
+  timeout -k 10 300 gcloud storage rsync --recursive "$W/up" "$BUCKET/m48runs/$RUN_ID" > /dev/null 2>&1 \
+    || say "TB-UPLOAD-FAILED (or timed out after 300 s): the records to $BUCKET/m48runs/$RUN_ID"
 }
 poweroff_vm() { if [ -n "${TB_M48_POWEROFF:-}" ]; then "$TB_M48_POWEROFF"; else systemctl poweroff; fi; }
-off() { say "power off: $1"; pack; poweroff_vm; exit 0; }
+off() { say "power off: $1"; pack; kill "$TICKER" 2>/dev/null; poweroff_vm; exit 0; }
 # the cost cap: whatever runs, at CAP_S of the run the records go up and the VM powers itself off
 cat > "$SBIN/tb-m48-off" <<EOS
 #!/bin/sh
@@ -108,7 +113,7 @@ cat > "$SBIN/tb-m48-pack" <<EOS
 #!/bin/bash
 python3 "$HELPER" records --run "$RUN" --used-s "\$(cat "$RUN/used-s")" --ended "the cost cap" >/dev/null 2>&1
 python3 "$HELPER" pack --run "$RUN" --out "$W/up" --mask-file "$CK/deploy/.env" --mask-dir "$CK/deploy/secrets" >/dev/null 2>&1
-[ -z "$BUCKET" ] || gcloud storage rsync --recursive "$W/up" "$BUCKET/m48runs/$RUN_ID" >/dev/null 2>&1
+[ -z "$BUCKET" ] || timeout -k 10 100 gcloud storage rsync --recursive "$W/up" "$BUCKET/m48runs/$RUN_ID" >/dev/null 2>&1
 EOS
 chmod 0755 "$SBIN/tb-m48-off" "$SBIN/tb-m48-pack"
 [ "$(used)" -lt "$CAP_S" ] || off "the cap of $CAP_MIN minutes is used"
@@ -118,6 +123,11 @@ if [ -z "${TB_M48_NO_TIMER:-}" ]; then
 fi
 [ -s "$HELPER" ] || { say "no tb-m48-helper in the metadata"; poweroff_vm; exit 1; }
 
+# A simple command a non-interactive bash starts with & has SIGINT ignored, and Python keeps an ignored SIGINT: the stop
+# line's SIGINT would never become lane J's KeyboardInterrupt. Every tool starts with SIGINT's default restored.
+if env --default-signal=INT true 2> /dev/null; then sigint() { env --default-signal=INT "$@"; }
+else sigint() { python3 -c 'import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.execvp(sys.argv[1], sys.argv[1:])' "$@"; }
+fi
 # ------------------------------------------------------------------ steps, decisions, the stop line
 kv() { if [ $# -eq 2 ]; then printf '%s' "$2" > "$RUN/kv/$1"; else cat "$RUN/kv/$1" 2>/dev/null; fi; }
 decide() {  # decide <what> <choice> <why>: one line of decisions.json (a later boot does not repeat one)
@@ -142,7 +152,11 @@ gate() {  # gate <stage> [--also <stage>]: 0 = may start; the reason in GATE_WHY
 }
 descendants() { local c; for c in $(pgrep -P "$1"); do echo "$c"; descendants "$c"; done; }
 watched() {  # watched <command...>: its output to the step's log; at the stop line SIGINT (then TERM after 3 minutes)
-  "$@" >> "$STEP_LOG" 2>&1 < /dev/null &
+  # a simple command started with & gets SIGINT ignored (bash 5.2, measured); a function (tool) does not, and tool
+  # restores it anyway: either way the stop line's SIGINT reaches the command
+  if declare -F "$1" > /dev/null; then "$@" >> "$STEP_LOG" 2>&1 < /dev/null &
+  else sigint "$@" >> "$STEP_LOG" 2>&1 < /dev/null &
+  fi
   local pid=$! t=0 p=0 target
   while kill -0 "$pid" 2>/dev/null; do
     sleep "$POLL"; tick
@@ -188,22 +202,25 @@ end_run() {  # the end, on every way out: down, release, the records up, power o
   printf '%s' "$why" > "$RUN/ended"
   off "$why"
 }
+# A signal (a Spot pre-emption, an ACPI stop: systemd sends SIGTERM) saves the clock and the records but does NOT end
+# the run, so the next boot (--resume) goes on; bash would otherwise run the EXIT trap below on SIGTERM.
+trap 'trap - EXIT; say "signal: the VM is stopping; the run goes on at the next boot"; tick; pack; kill "$TICKER" 2>/dev/null; exit 143' TERM HUP
 trap 'end_run "the script ended unexpectedly"' EXIT
 [ ! -f "$RUN/ended" ] || off "ended before: $(cat "$RUN/ended")"
 
 # ------------------------------------------------------------------ the repository's tools (one stand-in in rehearsal)
-tool() {  # tool <name> <args...>: run from the checkout
-  if [ -n "$SI" ]; then "$SI" "$@"; return; fi
+tool() {  # tool <name> <args...>: run from the checkout, SIGINT at its default
+  if [ -n "$SI" ]; then sigint "$SI" "$@"; return; fi
   local t=$1; shift
   case "$t" in
-    ballast48) (cd "$CK" && python3 tools/ballast48.py "$@") ;;
-    ballast) (cd "$CK" && python3 -m tools.ballast "$@") ;;
-    fetch_weights) (cd "$CK" && python3 -m tools.fetch_weights "$@") ;;
-    poc) (cd "$CK" && deploy/poc.sh "$@") ;;
+    ballast48) (cd "$CK" && sigint python3 tools/ballast48.py "$@") ;;
+    ballast) (cd "$CK" && sigint python3 -m tools.ballast "$@") ;;
+    fetch_weights) (cd "$CK" && sigint python3 -m tools.fetch_weights "$@") ;;
+    poc) (cd "$CK" && sigint deploy/poc.sh "$@") ;;
     pinned_ref) (cd "$CK" && python3 -c 'import tools.engine_probe as p; print(p.pinned_ref())') ;;
     complete_run) (cd "$CK" && NODE_PATH=/opt/node-tools/node_modules TB_ENV=DEV PYTHONPATH=libs:services:. \
-                   .venv/bin/python -m tools.complete_run "$@") ;;
-    fetch_run_data) (cd "$CK" && .venv/bin/python -m tools.fetch_run_data "$@") ;;
+                   sigint .venv/bin/python -m tools.complete_run "$@") ;;
+    fetch_run_data) (cd "$CK" && sigint .venv/bin/python -m tools.fetch_run_data "$@") ;;
     canary) docker run --rm --network trialbox-model-backend -e TB_GPU_KEY -v "$CK/tools/canary.py:/app/tools/canary.py:ro" \
               trialbox-py:1.0.0 python -m tools.canary "$@" ;;
     setup) "screen_setup_$1" ;;
@@ -228,10 +245,10 @@ step_host() {
   if ! nvidia-smi > /dev/null 2>&1; then
     if [ -f "$RUN/kv/rebooted" ]; then NOTE="no working nvidia-smi after the driver's reboot (logs/s01-host.log)"; return 1; fi
     watched sh -c 'apt-get update -q && apt-get install -y -q git make curl python3-yaml python3-venv \
-      && ubuntu-drivers install --gpgpu nvidia:580-server && apt-get install -y -q nvidia-utils-580-server' \
-      || { NOTE="the driver did not install (H-38's command, logs/s01-host.log)"; return 1; }
+      && apt-get install -y -q nvidia-driver-580-server-open nvidia-utils-580-server' \
+      || { NOTE="the driver did not install (D-966's nvidia-driver-580-server-open, logs/s01-host.log)"; return 1; }
     touch "$RUN/kv/rebooted"; decide reboot yes "the driver was installed: one reboot, then this step again"
-    pack; trap - EXIT
+    pack; trap - EXIT; kill "$TICKER" 2>/dev/null
     if [ -n "${TB_M48_REBOOT:-}" ]; then "$TB_M48_REBOOT"; else systemctl reboot; fi
     exit 0
   fi
@@ -248,7 +265,7 @@ step_card() {
 step_source() {
   [ -n "$SRC" ] && [ -n "$SRC_SHA" ] && [ -n "$COMMIT" ] || { NOTE="no tb-src / tb-src-sha256 / tb-commit"; return 1; }
   rm -rf "$W/src" && mkdir -p "$W/src"
-  case "$SRC" in gs://*) gcloud storage cp "$SRC" "$W/src.tgz" >> "$STEP_LOG" 2>&1 ;; *) cp "$SRC" "$W/src.tgz" ;; esac \
+  case "$SRC" in gs://*) timeout -k 10 600 gcloud storage cp "$SRC" "$W/src.tgz" >> "$STEP_LOG" 2>&1 ;; *) cp "$SRC" "$W/src.tgz" ;; esac \
     || { NOTE="the archive did not come from $SRC"; return 1; }
   [ "$(sha256sum "$W/src.tgz" | cut -d' ' -f1)" = "$SRC_SHA" ] || { NOTE="the archive's sha256 is not tb-src-sha256"; return 1; }
   tar -xzf "$W/src.tgz" -C "$W/src" && rm -f "$W/src.tgz"
@@ -307,10 +324,19 @@ step_ladder() {
     [ -n "$opt" ] || { tried=${tried# }; decide ladder "${tried:-none}" "$why"; break; }
     if ! gate 6; then decide "ladder $opt" "not started" "$GATE_WHY"; break; fi
     decide "ladder $opt" try "$why; $GATE_WHY"
+    local tb0; tb0=$(grep -c '^Traceback' "$STEP_LOG" 2>/dev/null)
     STOP_TARGET="$MEASURE_RE" TB_UNMEASURED_DGPU48_MEASURING_RUN=1 \
       watched tool ballast48 measure --option "$opt" --keep --out-dir "$(measure_dir "$opt")"
     rc=$?
     [ "$STOPLINE" = 0 ] || rc=130
+    # exit 1 is "did not start" only with lane J's record and no new traceback; else the tool broke (3): the
+    # ladder ends, since the next option would run the same broken code
+    if [ "$rc" = 1 ] && { [ ! -s "$(measure_dir "$opt")/measure.$opt.json" ] \
+         || [ "$(grep -c '^Traceback' "$STEP_LOG" 2>/dev/null)" -gt "${tb0:-0}" ]; }; then
+      rc=3; decide "ladder $opt result" "the tool broke (exit 1 with a traceback or no record)" "logs/s08-ladder.log"
+    elif [ "$rc" = 1 ]; then
+      decide "ladder $opt result" "did not start" "$(measure_dir "$opt" | sed "s#^$RUN/##")/measure.$opt.json"
+    fi
     tried="$tried $opt:$rc"; printf '%s' "$tried" > "$RUN/kv/tried"
     if [ "$rc" = 0 ]; then kv kept "$opt"; decide kept "$opt" "the first of the ladder that started"; break; fi
   done
@@ -364,7 +390,9 @@ step_screen() {
   v=$(docker inspect -f '{{.NetworkSettings.Networks.bridge.IPAddress}}' trialbox-llm-verifier-1 2>/dev/null)
   key_env
   export NODE_PATH=/opt/node-tools/node_modules TB_ENV=DEV PYTHONPATH=libs:services:.
-  STOP_TARGET="tools.complete_run --dir $RUN/records/screen" watched tool ballast48 during --out "$RUN/records/screen-during.json" -- \
+  # SIGINT to complete_run itself (its own command line starts with the venv's python), not to `during` around it,
+  # so `during` writes its record with complete_run's exit code
+  STOP_TARGET="^[^ ]*/\.venv/bin/python -m tools\.complete_run --dir $RUN/records/screen" watched tool ballast48 during --out "$RUN/records/screen-during.json" -- \
     "$CK/.venv/bin/python" -m tools.complete_run --dir "$RUN/records/screen" --model pair --patients 1000 --langs ja \
     --only prepare hospital-ja --llm-concurrency 16 --ocr tesseract --judge-url "http://$j:8000/v1" --verifier-url "http://$v:8000/v1"
   local rc=$?

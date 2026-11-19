@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -91,7 +92,7 @@ def test_ladder(tried: list[tuple[str, int]], nxt: str) -> None:
 
 def test_ladder_reasons() -> None:
     assert m48.ladder_next([("pair-32k", 1)])[1] == "pair-32k did not start"
-    assert "refused or stopped" in m48.ladder_next([("pair-32k", 2)])[1]
+    assert "refused, broke or stopped" in m48.ladder_next([("pair-32k", 2)])[1]
     assert m48.ladder_next([("pair-32k", 0)])[1] == "pair-32k started and is kept"
 
 
@@ -226,7 +227,10 @@ GCLOUD = """#!/bin/bash
 echo "gcloud $*" >> "$M48_CALLS"
 case "$*" in
   "auth print-access-token") exit 0 ;;
-  "compute instances describe"*) echo "ERROR: (gcloud.compute.instances.describe) not found" >&2; exit 1 ;;
+  "compute instances describe"*"--format=json"*) [ -f "${M48_DESCRIBE:-/nonexistent}" ] || exit 1; cat "$M48_DESCRIBE" ;;
+  "compute instances describe"*) [ -n "${M48_STATUS:-}" ] || { echo "ERROR: not found" >&2; exit 1; }; echo "$M48_STATUS" ;;
+  "compute instances delete"*|"compute instances stop"*|"compute instances start"*|"compute instances set-scheduling"*) exit 0 ;;
+  "storage rsync"*) [ -d "${M48_GCS:-/nonexistent}" ] && cp -a "$M48_GCS/." "$5/" ; exit 0 ;;
   "compute project-info describe"*) cat "$M48_Q/project.json" ;;
   "compute regions describe"*) cat "$M48_Q/region-asia-east1.json" ;;
   "storage ls"*) exit 0 ;;
@@ -235,7 +239,9 @@ esac
 """
 
 
-def _driver(tmp: Path, *args: str, hdb: tuple[float, float] = (500, 400)) -> subprocess.CompletedProcess[str]:
+def _driver(
+    tmp: Path, *args: str, hdb: tuple[float, float] = (500, 400), **extra: str
+) -> subprocess.CompletedProcess[str]:
     b = tmp / "bin"
     b.mkdir(exist_ok=True)
     (b / "gcloud").write_text(GCLOUD)
@@ -246,7 +252,7 @@ def _driver(tmp: Path, *args: str, hdb: tuple[float, float] = (500, 400)) -> sub
     q = tmp / "quota" / "q"
     env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUNBUFFERED", "TB_SA_KEY_FILE", "GC_DRY")}
     env.update({"PATH": f"{b}:{env['PATH']}", "TB_BUCKET": "gs://bk", "TB_M48_DIR": str(tmp / "local"),
-                "M48_CALLS": str(tmp / "calls.txt"), "M48_Q": str(q), "TB_RUN_ID": "m48-test"})  # fmt: skip
+                "M48_CALLS": str(tmp / "calls.txt"), "M48_Q": str(q), "TB_RUN_ID": "m48-test", **extra})  # fmt: skip
     return subprocess.run(["bash", str(DRIVER), *args], env=env, capture_output=True, text=True, timeout=300,
                           check=False, cwd=ROOT)  # fmt: skip
 
@@ -258,10 +264,13 @@ def test_driver_estimate_makes_no_gcloud_call(tmp_path: Path) -> None:
     assert not (tmp_path / "calls.txt").exists()
 
 
-@pytest.mark.parametrize("vm", ["tb-gpu-sim", "tb-demo-vm", "tb-preview-vm", "tb-steps-vm", "tb-gpu-sim-2"])
+@pytest.mark.parametrize(
+    "vm", ["tb-gpu-sim", "tb-demo-vm", "tb-preview-vm", "tb-steps-vm", "tb-gpu-sim-2", "tb-gpu-sim2", "tb-demo-vm-2",
+           "tb-h47", "tb-h47-", "tb-h53-X", "my-vm"],
+)  # fmt: skip
 def test_driver_refuses_the_kept_vms(tmp_path: Path, vm: str) -> None:
     r = _driver(tmp_path, "--preflight", vm)
-    assert r.returncode == 2 and "kept VM" in r.stderr
+    assert r.returncode == 2 and "not this run's VM name" in r.stderr
     assert not (tmp_path / "calls.txt").exists()
 
 
@@ -297,3 +306,63 @@ def test_driver_no_o_sets_the_line_without_o(tmp_path: Path) -> None:
     assert r.returncode == 0
     create = next(x for x in r.stdout.splitlines() if "compute instances create" in x)
     assert "tb-o=0" in create and "tb-stop-line-minutes=192" in create
+
+
+@pytest.mark.parametrize("vm", ["tb-h47-48gb", "tb-h53-48gb-2"])
+def test_driver_takes_its_own_names(tmp_path: Path, vm: str) -> None:
+    assert _driver(tmp_path, "--dry-run", vm).returncode == 0
+
+
+def _describe(tmp: Path, label: str = "h53-48gb", run: str = "m48-run1") -> str:
+    f = tmp / "describe.json"
+    f.write_text(json.dumps({"status": "TERMINATED", "labels": {"trialbox": label},
+                             "metadata": {"items": [{"key": "tb-run-id", "value": run}]}}))  # fmt: skip
+    return str(f)
+
+
+def _bucket(tmp: Path, steps: dict[str, Any] | None, clock: str = "") -> str:
+    g = tmp / "gcs"
+    g.mkdir()
+    if steps is not None:
+        (g / "steps.json").write_text(json.dumps(steps))
+    if clock:
+        (g / "clock.txt").write_text(clock)
+    return str(g)
+
+
+@pytest.mark.parametrize(("label", "run"), [("h53-48gb", "m48-other"), ("demo-vm", "m48-run1"), ("", "")])
+@pytest.mark.parametrize("how", [("--delete", "m48-run1"), ("--stop", "m48-run1"), ("--resume", "m48-run1")])
+def test_driver_acts_only_on_its_runs_vm(tmp_path: Path, label: str, run: str, how: tuple[str, str]) -> None:
+    r = _driver(tmp_path, *how, M48_DESCRIBE=_describe(tmp_path, label, run), M48_STATUS="TERMINATED",
+                M48_GCS=_bucket(tmp_path, {"used_s": 600, "ended": ""}))  # fmt: skip
+    assert r.returncode == 2 and "is not run m48-run1's VM" in r.stderr
+    calls = (tmp_path / "calls.txt").read_text()
+    for verb in ("instances delete", "instances stop", "instances start", "set-scheduling"):
+        assert verb not in calls
+
+
+def test_collect_deletes_only_its_runs_ended_vm(tmp_path: Path) -> None:
+    g = _bucket(tmp_path, {"used_s": 600, "ended": "complete", "steps": []})
+    r = _driver(tmp_path, "--collect", "m48-run1", M48_DESCRIBE=_describe(tmp_path, run="m48-other"),
+                M48_STATUS="TERMINATED", M48_GCS=g)  # fmt: skip
+    assert "is not run m48-run1's VM" in r.stderr and "instances delete" not in (tmp_path / "calls.txt").read_text()
+    (tmp_path / "describe.json").unlink()
+    r = _driver(tmp_path, "--collect", "m48-run1", M48_DESCRIBE=_describe(tmp_path), M48_STATUS="TERMINATED", M48_GCS=g)
+    assert r.returncode == 0 and "instances delete tb-h47-48gb" in (tmp_path / "calls.txt").read_text()
+
+
+def test_resume_refuses_without_the_vms_clock(tmp_path: Path) -> None:
+    r = _driver(tmp_path, "--resume", "m48-run1", M48_DESCRIBE=_describe(tmp_path), M48_STATUS="TERMINATED",
+                M48_GCS=_bucket(tmp_path, None))  # fmt: skip
+    assert r.returncode == 2 and "has no used_s" in r.stderr
+    assert "instances start" not in (tmp_path / "calls.txt").read_text()
+
+
+def test_resume_cap_is_whats_left_less_a_boot_margin(tmp_path: Path) -> None:
+    clock = "2026-11-20T01:00:00Z boot (used 0 s of the run)\n2026-11-20T01:30:00Z boot (used 1800 s of the run)\n"
+    r = _driver(tmp_path, "--resume", "m48-run1", M48_DESCRIBE=_describe(tmp_path), M48_STATUS="TERMINATED",
+                M48_GCS=_bucket(tmp_path, {"used_s": 3600, "ended": ""}, clock))  # fmt: skip
+    assert r.returncode == 0, r.stderr
+    sched = next(x for x in (tmp_path / "calls.txt").read_text().splitlines() if "set-scheduling" in x)
+    assert "--max-run-duration=164m" in sched  # 240 - 60 on the clock - 2 boots x 8
+    assert "--provisioning-model=SPOT" in sched and "--instance-termination-action=STOP" in sched

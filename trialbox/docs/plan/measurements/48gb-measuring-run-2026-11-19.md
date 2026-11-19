@@ -103,9 +103,14 @@ toolkit as `deploy/gcp/gpu-sim-startup.sh` lines 12 to 20, with `sudo`):
 tmux new -s h47
 mkdir -p ~/h47 ~/h47-raw && chmod 700 ~/h47-raw && date -u +%FT%TZ >> ~/h47/clock.txt
 sudo apt-get update && sudo apt-get install -y git make curl python3-yaml python3-venv
-sudo ubuntu-drivers install --gpgpu nvidia:580-server && sudo apt-get install -y nvidia-utils-580-server
+sudo apt-get install -y nvidia-driver-580-server-open nvidia-utils-580-server
 sudo reboot
 ```
+
+**Corrected 2026-11-19 (H-53):** this line named `ubuntu-drivers install --gpgpu nvidia:580-server`, the closed
+modules. D-966 names `nvidia-driver-580-server-open` ("the Blackwell cards need the open modules") and runbook 27 row 4
+says the same ("No devices were found": install the `-open` one), so the line above is the open package, as the
+unattended run installs it.
 
 SSH again, `tmux new -s h47`, then:
 
@@ -396,7 +401,7 @@ measured elsewhere say where.
 
 - Nothing on this page ran on a GPU, a VM or the hub; `tools/ballast48.py` is tested on stand-ins only.
 - That vLLM accepts the scaled utilisations with the ballast's memory on the card (the 5090 stand-in's premise,
-  `ballast-stand-in-2026-11-18.md`, also unrun); that `ubuntu-drivers install --gpgpu nvidia:580-server` gives a
+  `ballast-stand-in-2026-11-18.md`, also unrun); that `nvidia-driver-580-server-open` (D-966) gives a
   working driver for this card on this image; that the stub start reaches `deploy/.env` and `trialbox-py:1.0.0` with
   the database image built first; that the hospital part runs from the user's home with the servers on the bridge.
 
@@ -447,14 +452,14 @@ choice, why, the clock).
 
 | Step | Section 3's step | What, and the rule |
 | --- | --- | --- |
-| `s01-host` | 2 | apt (git, make, curl, python3-yaml, python3-venv), `ubuntu-drivers install --gpgpu nvidia:580-server`, `nvidia-utils-580-server`, **one reboot** (decision `reboot`), then Docker and the toolkit with `gpu-sim-startup.sh`'s own lines (a test holds them equal) |
+| `s01-host` | 2 | apt (git, make, curl, python3-yaml, python3-venv), `nvidia-driver-580-server-open` and `nvidia-utils-580-server` (D-966: the open modules this card generation needs; runbook 27 row 4), **one reboot** (decision `reboot`), then Docker and the toolkit with `gpu-sim-startup.sh`'s own lines (a test holds them equal) |
 | `s02-card` | 2 | `o0-card.csv` (the card, CPUs, memory); the card inside a container |
 | `s03-source` | 3 | the commit's archive from the bucket: its sha256 and its `TB_HEAD.json` against the metadata, else a stop |
 | `s04-weights` | 3 | `tools/fetch_weights.py --profile rtxpro6000`, `HF_TOKEN` unset: a gated or refused file fails the step with the tool's words; nothing waits for input |
 | `s05-stub` | 4 | `TB_POC_SKIP_INGEST=1 deploy/poc.sh`, status, down. **The database image is not built first:** #1130 (train 96) is on master and `deploy/poc.sh` `build_db_image` builds `trialbox-postgres:16-1` itself when it is missing (card 24-2). Its output (the administrator's password) stays in `raw/` on the VM; its last 15 lines go to the step's log redacted and masked. Then the build cache, the dangling layers and the stub's volumes are freed |
 | `s06-engine` | 5 | `docker pull` of `tools/engine_probe.py pinned_ref` |
 | `s07-ballast` | 5 | `tools.ballast hold --target-mib 49140` until `ready` (a `refused`, or neither in 15 minutes, ends the run), `ballast48 plan` |
-| `s08-ladder` | 6 | `ballast48 measure --keep`: pair-32k; on exit 1 (did not start) pair-16k; then judge-alone. The first that starts is kept (decision `kept`). Exit 2 (refused before any server) or a stop at the line ends the ladder: the next option would meet the same refusal. None kept: the end |
+| `s08-ladder` | 6 | `ballast48 measure --keep`: pair-32k; on exit 1 (did not start) pair-16k; then judge-alone. The first that starts is kept (decision `kept`). Exit 1 counts as "did not start" only when lane J's `measure.<option>.json` is there and the step's log gained no `Traceback`; otherwise the tool broke (recorded as exit 3, decision `ladder <option> result: the tool broke`). Exit 2 (refused before any server), exit 3 or a stop at the line ends the ladder: the next option would meet the same. None kept: the end |
 | `s09-tools`, `s10-screen` | 7, 8 | on a kept **pair** only, and only when stages 7 and 8 together (0.90 h high) end before the line: the tools as `complete-run-vm.sh` sets them up, then 1,000 patients, ja, 16 in flight, `ballast48 during`. A failed screen is a record, not the end |
 | `s11-o` | O | only when pair-32k is kept, `tb-o=1`, and O's high (0.25 h) ends before the line: `verifier-flag`; exit 1 is the result (decision `O result: flag refused`), the canary skipped; else the canary and `canary-diff` |
 | `s12-down` | 8 / O | `ballast48 down` (always, when an option was kept) |
@@ -467,9 +472,22 @@ which passes before the script's first line). At the line the running tool gets 
 it has and stops its servers; the screen's `complete_run`, so `during` writes its record), and 3 minutes later
 SIGTERM; then the end: `down`, the release, the records up, power off. A failure of a needed step (1 to 7, or a
 ladder with nothing kept) goes straight to the same end. The VM's own cap (`tb-cap-minutes`, 240) powers it off
-whatever runs, after one last upload; the cloud's `--max-run-duration 4h` is the hard cap. A pre-emption stops the VM
-(STOP): `--collect` says so; `--resume <run id>` starts it again with the minutes left of the 4 h as its cloud cap,
-and the ballast is held again before any later step.
+whatever runs, after one last upload; the cloud's `--max-run-duration 4h` is the hard cap. The clock is saved every
+minute by a ticker, whatever step runs. Every upload is bounded (`timeout` 300 s; the cap's last one 100 s): a hung
+upload is logged and the power-off still comes. Every tool starts with SIGINT at its default (`env
+--default-signal=INT`): a simple command a non-interactive bash starts with `&` has SIGINT ignored (measured, bash
+5.2), and Python then never raises `KeyboardInterrupt`.
+
+**A pre-emption, or any stop by signal.** The VM stops (STOP). systemd sends the script SIGTERM: it saves the clock
+and the records and exits WITHOUT ending the run (no `ended`), so the next boot goes on from the step that was cut.
+`--collect` says the VM stopped before the run ended. `--resume <run id>` refuses when the run's `steps.json` has no
+`used_s` (no clock is never a fresh 240 minutes); else it starts the VM again, SPOT, with a cloud cap of the minutes
+left: 240 less the VM's clock less 8 minutes for each boot so far (`clock.txt`'s boot lines: the minutes before the
+script's first line, billed but not on its clock). The ballast is held again before any later step.
+
+**Only its own VM.** The driver takes only `tb-h47-...` and `tb-h53-...` names. `--collect` (its delete), `--stop`,
+`--resume` and `--delete <run id>` act only when the VM of that name carries label `trialbox=h53-48gb` AND metadata
+`tb-run-id=<run id>`; otherwise they refuse and change nothing.
 
 **The records, as it goes** (`$TB_BUCKET/m48runs/<run id>/`, after every step and every minute of a long one):
 `steps.json`, `decisions.json`, `disk.jsonl` (free and used bytes before each step, and after each freeing),
@@ -529,7 +547,9 @@ SSH and the screen's tools still come after the ladder. `deploy/gcp/measure48-ru
   the ladder's next option, O or not, step 9 or not, a stop at the line) is made from the clock and the exit codes and
   written to `decisions.json`. Why: the integrator's container has no outbound port 22.
 - The disk is 100 GB, not 250 (the quota); section 9.3 shows it fits.
-- Step 1 is the driver's, same shape; the VM is deleted by the `--collect` that finds the run ended (or `--delete`).
+- Step 1 is the driver's, same shape; the VM is deleted by the `--collect` that finds the run ended (or
+  `--delete <run id>`), and only when it is that run's VM.
+- Step 2 installs D-966's open driver, `nvidia-driver-580-server-open` (the sheet's `580-server` line is corrected).
 - Step 3: the commit's `git archive` from the bucket (as `complete-run.sh`), not a clone; the weights with no token.
 - Step 4: no separate database image build (#1130 is on master; `deploy/poc.sh` builds it).
 - Steps 7 and 8 run as root (a start-up script), with the tools where `complete-run-vm.sh` puts them, and the screen
@@ -541,11 +561,12 @@ SSH and the screen's tools still come after the ladder. `deploy/gcp/measure48-ru
 
 ### 9.6 What the first real run is the first to exercise
 
-Everything on a VM: the driver's install by `ubuntu-drivers` on this image and the reboot from a start-up script;
+Everything on a VM: `nvidia-driver-580-server-open` on this image and the reboot from a start-up script;
 `gcloud` on the VM (the image's snap) writing to the bucket with `--scopes storage-rw`; `deploy/poc.sh` as root from
 a start-up script with no terminal; the hub serving the weights to this VM without a token; the ballast, lane J's
 measure, the screen and stage O on the card (section 8's list stands); SIGINT reaching lane J's measure at the line
-and its servers stopped by its own handler; the disk figures marked "not measured"; the quota reading of
+and its servers stopped by its own handler; SIGTERM from systemd at a real pre-emption and the next boot's resume;
+the 8-minute boot margin against the real boot time; the disk figures marked "not measured"; the quota reading of
 `HDB_TOTAL_GB` from `gcloud compute regions describe` (the metric's name is the integrator's report).
 
 ### 9.7 Questions (H-53)

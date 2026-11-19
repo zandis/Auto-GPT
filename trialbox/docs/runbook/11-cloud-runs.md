@@ -567,7 +567,9 @@ asia-east1-a, g4-standard-48 with one RTX PRO 6000, a 100 GB `hyperdisk-balanced
 the VM as its start-up script (`tools/measure48-vm.sh`, with `tools/measure48_vm.py` as its helper: the
 estimate, the stop-line gate, the ladder, the disk guard, the upload allow-list, the summary). The kept VMs
 (`tb-gpu-sim`, `tb-demo-vm`, `tb-preview-vm`, `tb-steps-vm`) are refused by name. Owner's yes first for anything but
-`--estimate` and `--preflight`.
+`--estimate` and `--preflight`. Only `tb-h47-...` and `tb-h53-...` names are taken; `--collect` (its delete),
+`--stop`, `--resume` and `--delete <run id>` act only on a VM with label `trialbox=h53-48gb` and metadata
+`tb-run-id=<run id>`.
 
     deploy/gcp/measure48-run.sh --estimate                       # free, no gcloud: US$6.30 (2.3 h), line 3.5 h, cap 4 h
     deploy/gcp/measure48-run.sh --preflight --commit <sha>       # read-only gcloud: quota (GPU, CPUs, HDB_TOTAL_GB), VM name, bucket
@@ -577,13 +579,16 @@ estimate, the stop-line gate, the ladder, the disk guard, the upload allow-list,
 - **Unattended.** The VM does H-47's steps 2 to 10 by itself: the driver with one reboot, Docker and the toolkit
   (gpu-sim-startup.sh's lines), the commit's archive from the bucket (sha256 and HEAD checked), the weights from the
   public hub with no token (a gated file fails the step, nothing waits), the stub started once for `deploy/.env` and
-  the images (poc.sh builds the database image itself since #1130), the engine image, the ballast at 49,140 MiB, the
+  the images (poc.sh builds the database image itself since #1130); the driver is D-966's
+  `nvidia-driver-580-server-open`, the engine image, the ballast at 49,140 MiB, the
   ladder (pair-32k, else pair-16k, else judge-alone, `--keep`), the small screen on a kept pair, stage O on a kept
   pair-32k, `down`, pair-32k-host53, the ballast released. Every choice is in `decisions.json`.
 - **The clock.** A stage starts only when its high estimate ends before the stop line (204 minutes of the VM's own
   clock, every boot counted: 3.5 h less stage 1's 0.10 h); at the line the running command gets SIGINT (lane J's
   measure writes what it has) and the end runs. The VM's own cap (240 minutes) and the cloud's `--max-run-duration
-  4h` power it off whatever runs. A pre-emption stops it (STOP): `--resume <run id>` starts it again with the cap left.
+  4h` power it off whatever runs. A pre-emption stops it (STOP); its SIGTERM saves the records without ending the
+  run. `--resume <run id>` starts it again with the cap left (240 minutes less the VM's clock less 8 a boot), and
+  refuses when the run's `steps.json` has no clock.
 - **The records.** After every step (and every minute of a long one) the allow-listed files go to
   `$TB_BUCKET/m48runs/<run id>/`, redacted and with the servers' key and every value of `deploy/.env` and
   `deploy/secrets/` masked. Never uploaded: the stub's output (it holds the administrator's password), `deploy/.env`,
