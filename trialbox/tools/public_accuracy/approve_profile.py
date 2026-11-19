@@ -6,8 +6,9 @@ in process, no GPU, no network, no FHIR server, no lake.
 
 It compiles one made-up protocol (default: the synthetic GZQO fixture) as ``tools.build_rulesets`` does, with the stub
 model and the repository's terminology tables, with an installed-tables folder of its own (empty, or with one made-up
-site list of ``--site-list-rows`` rows, loaded by ``terminology.installed.install_site_list``), then approves it ``--runs`` times from the review workbook as sent (the launch driver mails it back
-unchanged). Each approval runs on a fresh copy of the compiled repository, so each one is a first approval.
+site list of ``--site-list-rows`` rows, loaded by ``terminology.installed.install_site_list``), then approves it
+``--runs`` times from the review workbook as sent (the launch driver mails it back unchanged). Each approval runs on
+a fresh copy of the compiled repository, so each one is a first approval.
 
 Every step of ``Compiler.approve`` is wrapped with a timer: the draft read, ``refresh_installed``, the per-criterion
 ``ai.confirmed`` records, ``build_artifacts`` (CQL generation and the CQL-to-ELM translation), the equivalence report
@@ -124,7 +125,7 @@ def _wrap(comp: Any, acc: dict[str, float], depth: list[int]) -> list[tuple[Any,
         elif owner == "repo":
             continue
         elif owner.endswith(".provenance"):
-            target = service.provenance
+            target = getattr(service, "provenance")  # noqa: B009 - the module the service calls it through
         else:
             target = importlib.import_module(owner)
         if not hasattr(target, attr):
@@ -170,14 +171,17 @@ def _deps(work: Path, seed: Path, *, fake_translator: bool, site_list_rows: int 
     llm = LlmClient("http://stub/v1", "trialbox-stub", audit=audit)
     llm.http = TestClient(stub)
     return CompilerDeps(
-        store=FsStore(work / "obj"), repo=RulesetRepo(work / "repo", seed), llm=llm, term=Terminology(installed=installed),
-        settings_thresholds={"equivalence_min_pct": 98.0}, translator=FakeTranslator() if fake_translator else Translator(),  # type: ignore[arg-type]
-        audit=audit, equivalence=PassGate(), mrn_regex=r"^\d{8}$", fhir=RecordingFhir(),
+        store=FsStore(work / "obj"), repo=RulesetRepo(work / "repo", seed), llm=llm,
+        term=Terminology(installed=installed), settings_thresholds={"equivalence_min_pct": 98.0},
+        translator=FakeTranslator() if fake_translator else Translator(),  # type: ignore[arg-type]
+        audit=audit, equivalence=PassGate(), mrn_regex=r"^\d{8}$",
+        fhir=RecordingFhir(),  # type: ignore[arg-type]
     )  # fmt: skip
 
 
-def profile(protocol: Path, runs: int, *, fake_translator: bool = False, top: int = 0,
-            site_list_rows: int = 0) -> dict[str, Any]:
+def profile(
+    protocol: Path, runs: int, *, fake_translator: bool = False, top: int = 0, site_list_rows: int = 0
+) -> dict[str, Any]:
     import tb_contracts as c
     from criteria_compiler.repo import RulesetRepo
     from criteria_compiler.review import parse_review_xlsx
@@ -225,10 +229,10 @@ def profile(protocol: Path, runs: int, *, fake_translator: bool = False, top: in
                                        job_id=f"01JPROFA{i:018d}")  # fmt: skip
                 t0 = time.perf_counter()
                 prof.enable()
-                out = comp.approve(req)
+                got = comp.approve(req)
                 prof.disable()
                 walls.append(time.perf_counter() - t0)
-                statuses.append(out.status)
+                statuses.append(got.status)
         finally:
             for target, attr, orig in reversed(undo):
                 setattr(target, attr, orig)
@@ -238,7 +242,8 @@ def profile(protocol: Path, runs: int, *, fake_translator: bool = False, top: in
     out: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION, "tool": "python -m tools.public_accuracy.approve_profile",
         "protocol": protocol.name, "criteria": len(res.criteria), "runs": runs, "statuses": statuses,
-        "translator": "fake" if fake_translator else "real (CQL-to-ELM, JVM)", "fhir": "recorded, not sent (no server here)",
+        "translator": "fake" if fake_translator else "real (CQL-to-ELM, JVM)",
+        "fhir": "recorded, not sent (no server here)",
         "fhir_load": {"loads_per_approval": deps.fhir.loads / runs,
                       "resources_per_approval": len(deps.fhir.resources) // runs,
                       "bytes_per_approval": sum(b for _n, b in deps.fhir.resources) // runs,
@@ -259,11 +264,15 @@ def profile(protocol: Path, runs: int, *, fake_translator: bool = False, top: in
 
 def render(r: dict[str, Any]) -> str:
     out = [f"approve profile: {r['protocol']} ({r['criteria']} criteria), {r['runs']} approval(s), translator "
-           f"{r['translator']}, fhir {r['fhir']}, made-up site list {r['site_list_rows']} rows; statuses {sorted(set(r['statuses']))}",
-           f"  setup {r['setup_s']} s, compile {r['compile_s']} s, approve mean {r['approve_s']['mean']} s"]  # fmt: skip
+           f"{r['translator']}, fhir {r['fhir']}, made-up site list {r['site_list_rows']} rows; "
+           f"statuses {sorted(set(r['statuses']))}",
+           f"  setup {r['setup_s']} s, compile {r['compile_s']} s, "
+           f"approve mean {r['approve_s']['mean']} s"]  # fmt: skip
     f = r["fhir_load"]
-    out.append(f"  fhir load per approval: {f['loads_per_approval']} load(s), {f['resources_per_approval']} resources, "
-               f"{f['bytes_per_approval']} bytes; largest {f['largest']}")
+    out.append(
+        f"  fhir load per approval: {f['loads_per_approval']} load(s), {f['resources_per_approval']} resources, "
+        f"{f['bytes_per_approval']} bytes; largest {f['largest']}"
+    )
     for k, v in r["steps_mean_s"].items():
         out.append(f"  {v:9.4f} s  {k}")
     for row in r.get("top_cumulative", []):

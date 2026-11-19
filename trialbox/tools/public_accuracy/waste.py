@@ -13,7 +13,8 @@ call's duration (the gateway's ledger has tokens and latency; the stored sets do
 is therefore a rule on the returned text, stated here and on the card's page:
 
 * **cut** (ended at the token limit): the text is not JSON and the parser ran off its end (the error's position is at
-  or past the last non-blank character, or a string is never closed): the answer stopped before its JSON closed. ``at_cap`` is the looser bound:
+  or past the last non-blank character, or a string is never closed): the answer stopped before its JSON closed.
+  ``at_cap`` is the looser bound:
   :func:`tb_llm.budget.estimate_tokens` of the text (an over-estimate, D-645) is at least 90 % of the prompt's
   ``max_tokens``.
 * **loop** (the output repeats): some block of ``p`` characters (1 <= p <= :data:`MAX_PERIOD`) follows itself back to
@@ -102,9 +103,10 @@ _SCHEMAS: dict[str, Any] = {}
 
 
 def schema_of(prompt: str) -> tuple[dict[str, Any] | None, int | None]:
-    """(the registered output schema, max_tokens) of ``id@version``; (None, None) when the registry has no such prompt."""
+    """(the registered output schema, max_tokens) of ``id@version``; (None, None) for a prompt the registry lacks."""
     if prompt in _SCHEMAS:
-        return _SCHEMAS[prompt]
+        known: tuple[dict[str, Any] | None, int | None] = _SCHEMAS[prompt]
+        return known
     got: tuple[dict[str, Any] | None, int | None] = (None, None)
     try:
         from tb_contracts.schema import inline_schema
@@ -114,7 +116,7 @@ def schema_of(prompt: str) -> tuple[dict[str, Any] | None, int | None]:
         p = default_registry().get(pid, int(ver), environment="sandbox")  # read only: qualification is not asked
         cap = next((int(ln.split(":", 1)[1]) for ln in p.text.splitlines() if ln.startswith("max_tokens:")), None)
         got = (inline_schema(p.entry.schema) if p.entry.schema else None, cap)
-    except Exception:  # noqa: BLE001 - an unknown prompt is reported as such, not a crash
+    except Exception:  # an unknown prompt is reported as such (schema_unknown), not a crash
         got = (None, None)
     _SCHEMAS[prompt] = got
     return got
@@ -154,9 +156,10 @@ def classify(trace: dict[str, Any]) -> dict[str, Any]:
     if refused or not isinstance(text, str):
         return row | {"tokens": 0, "cut": False, "at_cap": False, "repeat": (0, 0), "outside_schema": None}
     tok = estimate_tokens(text)
+    ok = in_schema(text, schema)
     return row | {
-        "tokens": tok, "cut": cut(text), "at_cap": bool(cap) and tok >= AT_CAP_SHARE * cap,
-        "repeat": longest_repeat(text), "outside_schema": (lambda v: None if v is None else not v)(in_schema(text, schema)),
+        "tokens": tok, "cut": cut(text), "at_cap": cap is not None and tok >= AT_CAP_SHARE * cap,
+        "repeat": longest_repeat(text), "outside_schema": None if ok is None else not ok,
     }  # fmt: skip
 
 
