@@ -246,6 +246,33 @@ def test_promote_needs_a_passing_record_for_exactly_the_pinned_weights(
     assert "status" not in entry and "qualification" not in entry
 
 
+@pytest.mark.parametrize("thinking_mode", [None, "off", "on"])
+def test_promote_carries_explicit_thinking_on_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, thinking_mode: str | None
+) -> None:
+    d = _folder(tmp_path / "models", "gemma-4-26b-a4b-it-4bit", b"synthetic judge release")
+    release = release_registry(tmp_path, {JUDGE: d}, monkeypatch)
+    doc = yaml.safe_load(release.read_text(encoding="utf-8"))
+    next(b for b in doc["builds"] if b["build_id"] == JUDGE)["thinking_control"] = "thinking_only"
+    release.write_text(yaml.safe_dump(doc), encoding="utf-8")
+    out = tmp_path / "site" / "registry.site.yaml"
+    manifest, _ = pin_model.pin(JUDGE, d, served_name=pin_model.JUDGE_SERVED, out=out)
+    record = _record(tmp_path, {"judge": (JUDGE, manifest.sha256)})
+    if thinking_mode is not None:
+        body = json.loads(record.read_text(encoding="utf-8"))
+        body["builds"]["judge"]["thinking_mode"] = thinking_mode
+        record.write_text(json.dumps(q.finalize(body)), encoding="utf-8")
+
+    pin_model.promote(JUDGE, record, out)
+    reg = Registry.load(release, out)
+    if thinking_mode == "on":
+        assert reg.resolve("j-workhorse", "serving", role="judge", env=Environment.PRODUCTION).build.build_id == JUDGE
+    else:
+        with pytest.raises(RegistryError) as exc:
+            reg.resolve("j-workhorse", "serving", role="judge", env=Environment.PRODUCTION)
+        assert exc.value.reason == "thinking_unmeasured"
+
+
 # ------------------------------------------------------------------------------------------------ the gateway rule
 def _doc(**judge: Any) -> dict[str, Any]:
     sha = "ab" * 32
@@ -349,3 +376,35 @@ def test_promote_pins_helper_matches_what_promote_writes(tmp_path: Path, monkeyp
     got = {k: yaml.safe_load(p.read_text(encoding="utf-8"))["builds"][JUDGE] for k, p in (("helper", a), ("real", out))}
     assert set(got["helper"]["qualification"]) == set(got["real"]["qualification"])
     assert got["helper"]["status"] == got["real"]["status"] == "champion"
+
+
+@pytest.mark.parametrize("record_role", ["verifier", "judge"])
+def test_thinking_only_verifier_routes_through_production_judge_role(tmp_path: Path, record_role: str) -> None:
+    doc = _doc(
+        alias="v-verifier",
+        served={"verifier": "v-test"},
+        thinking_control="thinking_only",
+        qualification={**qualified("ab" * 32), "thinking_on_role": record_role},
+    )
+    doc["aliases"]["v-verifier"]["class"] = "V"
+    gw = _gw(
+        tmp_path, env=Environment.PRODUCTION, registry=Registry(doc), http=_mock("v-test"), confirm=lambda *_: True
+    )
+    reply = gw.chat(H(Data_Class="D3"), {**_judge_body(), "model": "v-verifier"})
+    if record_role == "verifier":
+        assert reply.status == 200, reply.body
+        assert reply.body["tb"]["alias"] == "v-verifier"
+    else:
+        assert (reply.status, reply.body["error"]["code"]) == (403, "thinking_unmeasured")
+
+
+@pytest.mark.parametrize("env", [Environment.TEST, Environment.VALIDATION])
+def test_thinking_only_build_can_answer_qualification_probe(tmp_path: Path, env: Environment) -> None:
+    reg = Registry(_doc(thinking_control="thinking_only", status="candidate"))
+    gw = _gw(tmp_path, env=env, registry=reg, http=_mock("j-test"), confirm=lambda *_: True)
+    body = {**_judge_body(), "model": "j-workhorse"}
+    reply = gw.chat(H(), body)
+    assert reply.status == 200, reply.body
+    if env == Environment.VALIDATION:
+        patient = gw.chat(H(Data_Class="D3"), body)
+        assert (patient.status, patient.body["error"]["code"]) == (403, "thinking_unmeasured")

@@ -800,14 +800,30 @@ class UserStore:
             return None
         created, last = datetime.fromisoformat(row[2]), datetime.fromisoformat(row[3])
         user = self.get(str(row[0]))
-        # D-279 (CR-117): a directory session is asked of the directory again after ``oidc_absolute``
-        absolute = min(self.absolute, self.oidc_absolute) if row[5] == "oidc" else self.absolute
+        absolute = self._absolute_of(str(row[5]))
         if user is None or now - created > absolute or now - last > self.idle:
             self.end_session(token)
             return None
         if touch:
             self.db.execute("UPDATE sessions SET last_seen = ? WHERE token_sha = ?", (now.isoformat(), sha))
         return self._acting(Session(user, str(row[1]), str(row[4]), sha), str(row[6] or ""))
+
+    def _absolute_of(self, via: str) -> timedelta:
+        """D-279 (CR-117): a directory session is asked of the directory again after ``oidc_absolute``."""
+        return min(self.absolute, self.oidc_absolute) if via == "oidc" else self.absolute
+
+    def session_left(self, token_sha: str) -> tuple[int, int, int] | None:
+        """D-1370 (9g-19, A11Y-3): for the page's idle warning, the idle limit and the seconds left until the idle lock
+        and until the absolute end, read without touching the session (reading it is not activity). The limits are
+        the ones ``session`` applies; nothing here lengthens them. None when the session is gone."""
+        row = self.db.fetchone("SELECT created, last_seen, via FROM sessions WHERE token_sha = ?", (token_sha,))
+        if row is None:
+            return None
+        now = self.clock()
+        idle_left = self.idle - (now - datetime.fromisoformat(row[1]))
+        abs_left = self._absolute_of(str(row[2] or "")) - (now - datetime.fromisoformat(row[0]))
+        secs = (int(self.idle.total_seconds()), int(idle_left.total_seconds()), int(abs_left.total_seconds()))
+        return secs[0], max(0, secs[1]), max(0, secs[2])
 
     # ------------------------------------------------------------------ acting role (STEPS-ROLE, D-877)
     def _acting(self, sess: Session, acting: str) -> Session:

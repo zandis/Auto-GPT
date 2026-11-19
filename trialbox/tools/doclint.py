@@ -45,6 +45,10 @@ rest of the name) is a ``def`` of that name under ``tests/``. The pages read are
 records, and the site records that list the drills (``docs/plan/sites/``); a page whose procedure no test rehearses
 says so in words and names no test. Failing.
 
+**one-page** (card 10K-18, D-1378): the one page for hospital IT of each delivered form
+(``docs/handover/it-one-page*.md``) is what ``tools/it_one_page.py`` makes from the preflight's check list
+(``tb_common.preflight``): every check placed once per form, every page as the list makes it. Failing.
+
 More checks, all failing: **index** (the committed index differs from the files: run ``--write``), **number**
 (a number written twice, a file whose name and title disagree, a part with no section, a RUNBOOK number with no row in
 the table) and **set** (a file in a section folder that is not ``NN-<slug>.md``). Every section file also gets the
@@ -407,6 +411,15 @@ def check_drills() -> list[str]:
     return errs
 
 
+def check_it_pages() -> list[str]:
+    """10K-18 (D-1378): the IT one-pages compared with the preflight's check list (``tools/it_one_page.py``)."""
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tools import it_one_page
+
+    return it_one_page.problems()
+
+
 def check_set() -> list[str]:
     errs = [f"{d}: set: missing" for d in DOCS if not (ROOT / d).exists()]
     extra = sorted(p.name for p in (ROOT / "docs").glob("*.md") if f"docs/{p.name}" not in DOCS)
@@ -458,6 +471,7 @@ def main(argv: list[str] | None = None) -> int:
     errs += check_gone()
     errs += handover_problems()
     errs += check_drills()
+    errs += check_it_pages()
     warns = [] if strict else [e for e in errs if any(k in e for k in WARN_KINDS)]
     errs = [e for e in errs if e not in warns]
     for w in warns:

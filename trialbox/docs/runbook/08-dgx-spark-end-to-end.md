@@ -19,6 +19,11 @@ pickle or Python files) in `deploy/models/gemma-4-26b-a4b-it-4bit` and `deploy/m
 disk. Spark memory as set, not yet measured on a Spark: `JUDGE_GPU_MEM_UTIL` 0.30, `VERIFIER_GPU_MEM_UTIL` 0.15, and a
 memory limit per service (`deploy/gb10-profile.yaml`, D-373). The driver hold is re-tested every 28 days (D-373).
 
+**A 64 GB Spark is refused.** These settings are for the 128 GB Spark. On a Spark with under 96 GiB of memory
+(`MemTotal`), `deploy/install.sh`, `deploy/poc.sh` and `make spark-e2e` stop in GPU mode and say why, and the box plan
+makes a box without a model. No profile of the 64 GB class is measured, so none is guessed (card 10E-5, D-1335).
+Install it with `--mode stub` (structured criteria only), or use a 128 GB Spark.
+
 **Pinning by hand.**
 
 ```sh
