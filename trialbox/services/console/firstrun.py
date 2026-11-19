@@ -36,6 +36,7 @@ from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common import box_answers, chartno, dates, firstrun, site_country
+from tb_common import preflight as tb_preflight
 from tb_common.audit import AuditLog
 from tb_common.retention import OVERRIDABLE
 
@@ -43,8 +44,13 @@ from console import totp
 from console.auth import AuthError, PasswordRejected, UserStore, check_password_policy
 from console.i18n import CATALOGUES, LANGS
 from console.i18n_firstrun import EN, JA, ZH
+from console.i18n_preflight import EN as _PF_EN
+from console.i18n_preflight import JA as _PF_JA
+from console.i18n_preflight import ZH as _PF_ZH
 
 for _lang, _cat in (("en", EN), ("ja", JA), ("zh-TW", ZH)):
+    CATALOGUES[_lang].update(_cat)
+for _lang, _cat in (("en", _PF_EN), ("ja", _PF_JA), ("zh-TW", _PF_ZH)):  # 10K-3: the words around the preflight
     CATALOGUES[_lang].update(_cat)
 
 COOKIE = "tb_firstrun"
@@ -91,6 +97,14 @@ def country_values(country: str, hw: dict[str, Any]) -> dict[str, str]:
     if cd.data_source_type == "ssmix2":
         out["source"] = box_answers.SourceKind.SSMIX2.value
     return out
+
+
+def preflight_lines(folder: Path) -> tuple[dict[str, list[dict[str, str]]], str]:
+    """10K-3 (D-1361): the live preflight the box installer wrote into the first-run folder
+    (``tb_common.preflight.FILE``), as the page shows it in each language, and when it ran. Nothing is checked here:
+    the console cannot see the host's clock, disks, TPM or shares. No file: no lines (the page says so)."""
+    doc = firstrun.read(folder / tb_preflight.FILE)
+    return {lg: tb_preflight.page_lines(doc, lg) for lg in LANGS}, str(doc.get("at", ""))[:25]
 
 
 TIMEZONES = tuple(sorted(z for z in available_timezones() if "/" in z and not z.startswith(("Etc/", "SystemV/"))))
@@ -195,6 +209,7 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
         secret = str(state["secret"])
         user = str(values.get("owner_username") or "owner")
         held = box_holds_patients()
+        pf, pf_at = preflight_lines(folder)
         return h.page(
             request, "firstrun.html", None, status, step="answers", fr_csrf=state["csrf"], values=values,
             ask_chartno=held is False, chartno_unread=held is None, chartno_kinds=chartno.KINDS,
@@ -206,7 +221,7 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
             countries=site_country.COUNTRIES, ss_orders=site_country.SSMIX2_ORDER_NUMBERS,
             ask_retention=ask_retention, retention_keys=OVERRIDABLE, printed_styles=dates.PRINTED_STYLES,
             country_dates=(cd.printed_dates, cd.year_basis),
-            year_bases=dates.YEAR_BASES, **ctx,
+            year_bases=dates.YEAR_BASES, preflight=pf, preflight_at=pf_at, **ctx,
         )  # fmt: skip
 
     @app.get(PATH)
