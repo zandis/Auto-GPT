@@ -1,15 +1,20 @@
 """10K-13 (D-1379): the backup-key ceremony on the box's host. Hospital IT as root, with a witness who is another
 person, makes the backup key pair once; the private key goes to a stick (the ``backup-keygen`` key file) and to a
 paper sheet on that stick whose lines carry check letters; the box keeps the public key; the audit names both people
-and the key's fingerprint, never the key. The refusals: wrong role, no names or one person twice, no audit folder, a
-second run, no stick, a folder on the box's disks, a stick that cannot be written, a stick holding a key, a failed
-read-back; and a damaged paper line. Every key is made in the test's tmp folder; outputs are checked for its absence.
+and the key's fingerprint, never the key. The refusals: wrong role, no names or one person twice (in any spelling),
+no audit folder, a second run (by the public key or by the audit), no stick, a folder on the box's disks, a stick that
+cannot be written, a file or link of either name on the stick; and a damaged paper line. The failure domain: a
+failure injected where it happens (a sync after a file is made, the stick's folder sync, a read-back, the public key's
+folder, its name taken meanwhile, the audit append, an interruption, an unexpected error, another device) leaves
+nothing on the stick or the box and says what was removed; a removal that fails is named with its path. Every key is
+made in the test's tmp folder; outputs are checked for its absence.
 """
 
 from __future__ import annotations
 
 import ast
 import base64
+import errno
 import io
 import json
 import os
@@ -21,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tb_common import audit as tb_audit
 from tb_common import kek as K
 
 from tools import backup_key_ceremony as bkc
@@ -49,7 +55,7 @@ def _main(b: dict[str, Path], capsys: pytest.CaptureFixture[str], *extra: str, s
           names: tuple[str, ...] = ("--operator", OP, "--witness", WIT), lang: str = "en") -> tuple[int, str]:  # fmt: skip
     argv = ["--stick", str(stick or b["stick"]), *names, "--deploy", str(b["deploy"]), "--secrets", str(b["sec"]),
             "--audit-dir", str(b["audit"]), "--lang", lang, *extra]  # fmt: skip
-    rc = bkc.main(argv, env={"TB_SITE_ID": "synthetic-site"})
+    rc = bkc.main(argv, env={"TB_SITE_ID": "synthetic-site", "TB_TZ": "Asia/Tokyo"})
     out = capsys.readouterr()
     return rc, out.out + out.err
 
@@ -74,8 +80,34 @@ def _everything_written(b: dict[str, Path], out: str) -> str:
 
 def _nothing_kept(b: dict[str, Path], stick: Path | None = None) -> None:
     assert not list((stick or b["stick"]).iterdir())
-    assert not b["pub"].exists()
+    assert not os.path.lexists(b["pub"])
+    if b["deploy"].is_dir():
+        assert not list(b["deploy"].rglob("*"))  # no public key, no temporary file, no folder made for them
     assert _events(b) == []
+
+
+def _fd_path(fd: int) -> str:
+    return os.readlink(f"/proc/self/fd/{fd}")
+
+
+def _fail_fsync(monkeypatch: pytest.MonkeyPatch, when: Any) -> None:
+    """``os.fsync`` raises EIO for the open file or folder whose path ``when`` accepts, as a failing stick does."""
+    real = os.fsync
+
+    def fsync(fd: int) -> None:
+        if when(_fd_path(fd)):
+            raise OSError(errno.EIO, "Input/output error")
+        real(fd)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+
+
+def _removed_all(out: str, *paths: Path) -> None:
+    """The refusal says each file was removed again and nothing of the key is kept."""
+    said = bkc.REMOVED_ALL["en"].split("{files}")
+    assert said[0] in out and said[1] in out, out
+    for p in paths:
+        assert str(p) in out, (p, out)
 
 
 # ------------------------------------------------------------------------------------------------ the ceremony
@@ -90,6 +122,7 @@ def test_the_ceremony_puts_the_key_on_the_stick_and_paper_and_audits_both_names(
     assert sorted(p.name for p in box["stick"].iterdir()) == sorted([bkc.KEY_FILE, bkc.PAPER_FILE])
     for f in (key_file, paper):
         assert stat.S_IMODE(f.stat().st_mode) == 0o600
+    assert sorted(p.name for p in box["pub"].parent.iterdir()) == ["backup.pub"]  # no temporary file left
     # the box keeps the public half where `trialbox backup` reads it; both forms give its key
     pub = bk.load_public(box["pub"]).public_bytes_raw()
     fp = bk.fingerprint(pub)
@@ -104,10 +137,11 @@ def test_the_ceremony_puts_the_key_on_the_stick_and_paper_and_audits_both_names(
     # the audit: who, when, the fingerprint; both names; never the key, a line of it or a path on the stick
     (ev,) = _events(box)
     assert ev["actor"] == bkc.ACTOR
+    assert ev["ts"].endswith("+09:00")  # TB_TZ, the site's zone, as `restore` writes its events
     assert {k: ev["detail"][k] for k in ("fingerprint", "operator", "witness", "site", "forms")} == {
         "fingerprint": fp, "operator": OP, "witness": WIT, "site": "synthetic-site", "forms": ["stick", "paper"]}  # fmt: skip
     assert str(box["stick"]) not in json.dumps(ev)
-    assert fp in out and OP in out and WIT in out
+    assert fp in out and OP in out and WIT in out and "Unmount (eject) the stick" in out
     written = _everything_written(box, out)
     for form in _secret_forms(box["stick"]):
         assert form not in written
@@ -151,6 +185,9 @@ def test_wrong_role_is_refused(box: dict[str, Path], capsys: pytest.CaptureFixtu
         (("--witness", WIT), bkc.NO_NAMES),
         (("--operator", OP, "--witness", "  "), bkc.NO_NAMES),
         (("--operator", OP, "--witness", OP.upper()), bkc.SAME_PERSON),
+        (("--operator", "Taro Yamada", "--witness", "Ｔａｒｏ　Ｙａｍａｄａ"), bkc.SAME_PERSON),  # full width
+        (("--operator", "Taro Yamada", "--witness", "taro  YAMADA"), bkc.SAME_PERSON),  # two spaces
+        (("--operator", "山田 太郎", "--witness", "山田　　太郎"), bkc.SAME_PERSON),  # ideographic spaces
         (("--operator", "A\nB", "--witness", WIT), bkc.BAD_NAME),
         (("--operator", "x" * 101, "--witness", WIT), bkc.BAD_NAME),
     ],
@@ -205,18 +242,174 @@ def test_the_write_probe(tmp_path: Path) -> None:
     assert bkc.writable(tmp_path / "missing") is False
 
 
-def test_a_stick_that_fails_while_written_keeps_nothing(box: dict[str, Path], capsys: pytest.CaptureFixture[str],
-                                                        monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
-    real = bkc._write_new
-
-    def full(path: Path, text: str) -> None:
-        if path.name == bkc.PAPER_FILE:
-            raise OSError(28, "No space left on device")
-        real(path, text)
-
-    monkeypatch.setattr(bkc, "_write_new", full)
+@pytest.mark.parametrize("name", [bkc.KEY_FILE, bkc.PAPER_FILE])
+def test_a_sync_that_fails_after_the_file_is_made_keeps_nothing(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    _fail_fsync(monkeypatch, lambda path: path.endswith("/" + name))
     rc, out = _main(box, capsys)
     assert rc == 1 and bkc.NOT_WRITABLE["en"].format(path=box["stick"]) in out
+    made = [box["stick"] / bkc.KEY_FILE] + ([box["stick"] / bkc.PAPER_FILE] if name == bkc.PAPER_FILE else [])
+    _removed_all(out, *made)
+    assert "Traceback" not in out and len(out.strip().splitlines()) == 1
+    _nothing_kept(box)
+
+
+def test_the_stick_folder_sync_failing_keeps_nothing(box: dict[str, Path], capsys: pytest.CaptureFixture[str],
+                                                    monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    _fail_fsync(monkeypatch, lambda path: path == str(box["stick"]))
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.NOT_WRITABLE["en"].format(path=box["stick"]) in out
+    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE)
+    _nothing_kept(box)
+
+
+def test_short_writes_are_written_in_full(box: dict[str, Path], capsys: pytest.CaptureFixture[str],
+                                          monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    real = os.write
+
+    def short(fd: int, data: Any) -> int:
+        return real(fd, bytes(data)[:7] if _fd_path(fd).startswith(str(box["stick"])) else data)
+
+    monkeypatch.setattr(os, "write", short)
+    rc, out = _main(box, capsys)
+    assert rc == 0, out
+    assert bk.load_private(box["stick"] / bkc.KEY_FILE).public_key().public_bytes_raw() == bk.load_public(
+        box["pub"]).public_bytes_raw()  # fmt: skip
+    assert bkc.read_paper((box["stick"] / bkc.PAPER_FILE).read_text(encoding="utf-8"))
+
+
+def test_a_file_made_on_another_device_is_refused(box: dict[str, Path], capsys: pytest.CaptureFixture[str],
+                                                  monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """The stick pulled or mounted again between the check and the write: the file is not on the checked device."""
+    real = bkc.check
+
+    def moved(*a: Any, **k: Any) -> tuple[str, str, int]:
+        who, wit, dev = real(*a, **k)
+        return who, wit, dev + 1
+
+    monkeypatch.setattr(bkc, "check", moved)
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.STICK_MOVED["en"].format(name=bkc.KEY_FILE, path=box["stick"]) in out
+    _removed_all(out, box["stick"] / bkc.KEY_FILE)
+    _nothing_kept(box)
+
+
+def test_an_audit_append_that_fails_undoes_the_stick_and_the_public_key(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def full(self: tb_audit.AuditLog) -> None:
+        raise tb_audit.AuditFull("audit volume has less than 64 MB free: free disk space first")
+
+    monkeypatch.setattr(tb_audit.AuditLog, "_check_space", full)
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.AUDIT_FAILED["en"].format(path=box["audit"]) in out
+    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE, box["pub"], box["pub"].parent)
+    assert "Traceback" not in out and len(out.strip().splitlines()) == 1
+    _nothing_kept(box)
+    # the box can run the ceremony again on the same stick: nothing of the failed one is in the way
+    monkeypatch.undo()
+    monkeypatch.setattr(bkc, "is_root", lambda: True)
+    real = key_escrow.media_problem
+    monkeypatch.setattr(key_escrow, "media_problem", lambda o, s: None if K._inside(o, box["stick"]) else real(o, s))
+    rc, out = _main(box, capsys)
+    assert rc == 0, out
+    assert len(_events(box)) == 1
+
+
+def test_an_audit_line_written_before_the_append_fails_keeps_the_ceremony(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The append writes the event's line, then fails on the head anchor: the chain holds the ceremony, so the
+    ceremony is done and nothing is undone (the next writer accepts a chain one line past its anchor)."""
+
+    def no_head(*a: Any, **k: Any) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(tb_audit, "write_head", no_head)
+    rc, out = _main(box, capsys)
+    assert rc == 0, out
+    (ev,) = _events(box)
+    assert ev["detail"]["fingerprint"] == bk.fingerprint(bk.load_public(box["pub"]).public_bytes_raw())
+    assert sorted(p.name for p in box["stick"].iterdir()) == sorted([bkc.KEY_FILE, bkc.PAPER_FILE])
+
+
+def test_a_public_key_folder_that_cannot_be_made_keeps_nothing(box: dict[str, Path],
+                                                              capsys: pytest.CaptureFixture[str]) -> None:  # fmt: skip
+    box["deploy"].rmdir()
+    box["deploy"].write_text("a file where the deploy folder should be (synthetic)\n", encoding="utf-8")
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.PUB_FAILED["en"].format(path=box["pub"]) in out
+    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE)
+    _nothing_kept(box)
+    assert box["deploy"].read_text(encoding="utf-8").startswith("a file where")
+
+
+def test_a_public_key_that_appears_meanwhile_is_never_overwritten(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = bkc.read_paper
+
+    def and_a_key_appears(text: str) -> bytes:
+        box["pub"].parent.mkdir(parents=True)
+        box["pub"].write_text("another public key (synthetic)\n", encoding="utf-8")
+        return real(text)
+
+    monkeypatch.setattr(bkc, "read_paper", and_a_key_appears)
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.PUB_FAILED["en"].format(path=box["pub"]) in out
+    assert box["pub"].read_text(encoding="utf-8") == "another public key (synthetic)\n"  # not removed: not ours
+    assert sorted(p.name for p in box["pub"].parent.iterdir()) == ["backup.pub"]  # the temporary file is removed
+    assert not list(box["stick"].iterdir()) and _events(box) == []
+
+
+@pytest.mark.parametrize(("fault", "text"), [(KeyboardInterrupt, bkc.INTERRUPTED), (RuntimeError, bkc.UNEXPECTED)])
+def test_an_interruption_or_an_unexpected_error_keeps_nothing(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch,
+    fault: type[BaseException], text: dict[str, str],
+) -> None:  # fmt: skip
+    def stop(text: str) -> bytes:
+        raise fault()
+
+    monkeypatch.setattr(bkc, "read_paper", stop)
+    rc, out = _main(box, capsys)
+    assert rc == 1 and text["en"].format(kind=fault.__name__) in out
+    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE)
+    assert "Traceback" not in out
+    _nothing_kept(box)
+
+
+def test_a_removal_that_fails_is_named_with_its_path(box: dict[str, Path], capsys: pytest.CaptureFixture[str],
+                                                     monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    key_file = box["stick"] / bkc.KEY_FILE
+    real_unlink = Path.unlink
+
+    def unlink(self: Path, missing_ok: bool = False) -> None:
+        if self == key_file:
+            raise PermissionError(errno.EROFS, "Read-only file system")
+        real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(bkc, "read_paper", lambda text: b"\x01" * 32)
+    monkeypatch.setattr(Path, "unlink", unlink)
+    rc, out = _main(box, capsys)
+    monkeypatch.undo()
+    assert rc == 1 and bkc.READ_BACK["en"] in out
+    assert bkc.LEFT["en"].format(files=key_file) in out
+    assert bkc.REMOVED_SOME["en"].format(files=box["stick"] / bkc.PAPER_FILE) in out
+    assert "nothing of the key is kept" not in out
+    assert key_file.exists() and not (box["stick"] / bkc.PAPER_FILE).exists()
+    assert not box["pub"].exists() and _events(box) == []
+    key_file.unlink()
+
+
+def test_a_refusal_before_anything_is_written_says_so(box: dict[str, Path], capsys: pytest.CaptureFixture[str],
+                                                      monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    def boom(*a: Any, **k: Any) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(bkc, "writable", boom)
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.INTERRUPTED["en"] in out and bkc.KEPT_NOTHING["en"] in out
     _nothing_kept(box)
 
 
@@ -240,12 +433,49 @@ def test_a_second_run_is_refused(box: dict[str, Path], capsys: pytest.CaptureFix
     assert not list(second.iterdir()) and box["pub"].read_bytes() == pub_before and len(_events(box)) == 1
 
 
+def test_a_second_run_is_refused_by_the_audit_when_the_public_key_is_gone(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``backup.pub`` is a file root can delete; the audit's event is what says the ceremony was run."""
+    rc, out = _main(box, capsys)
+    assert rc == 0, out
+    (ev,) = _events(box)
+    box["pub"].unlink()
+    second = box["stick"] / "second"
+    second.mkdir()
+    rc, out = _main(box, capsys, stick=second)
+    assert rc == 1
+    assert bkc.AUDITED_ALREADY["en"].format(at=ev["ts"], fp=ev["detail"]["fingerprint"]) in out
+    assert not list(second.iterdir()) and not box["pub"].exists() and len(_events(box)) == 1
+    # another site's ceremony in the same folder is not this site's
+    assert bkc.earlier_ceremony(box["audit"], "another-site") is None
+    assert bkc.earlier_ceremony(box["audit"], "synthetic-site") is not None
+
+
 def test_a_stick_holding_a_key_is_refused(box: dict[str, Path], capsys: pytest.CaptureFixture[str]) -> None:
     (box["stick"] / bkc.KEY_FILE).write_text("an older key file (synthetic)\n", encoding="utf-8")
     rc, out = _main(box, capsys)
     assert rc == 1 and bkc.STICK_HAS_KEY["en"].format(name=bkc.KEY_FILE) in out
     assert (box["stick"] / bkc.KEY_FILE).read_text(encoding="utf-8") == "an older key file (synthetic)\n"
     assert not box["pub"].exists() and _events(box) == []
+
+
+@pytest.mark.parametrize("name", [bkc.KEY_FILE, bkc.PAPER_FILE])
+def test_a_link_of_either_name_on_the_stick_is_refused(box: dict[str, Path], capsys: pytest.CaptureFixture[str],
+                                                       name: str) -> None:  # fmt: skip
+    target = box["tmp"] / "on-the-box-disk.txt"
+    (box["stick"] / name).symlink_to(target)  # dangling
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.STICK_HAS_KEY["en"].format(name=name) in out
+    assert not target.exists() and (box["stick"] / name).is_symlink()
+    assert [p.name for p in box["stick"].iterdir()] == [name]
+    assert not box["pub"].exists() and _events(box) == []
+
+
+def test_same_person_compares_folded_spellings() -> None:
+    assert bkc.folded("Ｔａｒｏ\u3000 Yamada") == bkc.folded("taro yamada") == "taro yamada"
+    assert bkc.folded("山田　太郎") == bkc.folded("山田 太郎")
+    assert bkc.folded("Yamada Taro") != bkc.folded("Taro Yamada")
 
 
 # ------------------------------------------------------------------------------------------------ the paper sheet

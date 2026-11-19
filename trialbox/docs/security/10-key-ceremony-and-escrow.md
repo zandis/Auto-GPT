@@ -121,12 +121,22 @@ who is another person run, once:
 
 The key pair is made in memory. The private key goes only to the stick named, as two files: `trialbox-backup.key`
 (the file `restore --key` and `restore-drill --key` take) and `trialbox-backup-key-paper.txt`, the paper sheet to
-print: four lines of letters, each ending with four check letters, and the key's fingerprint, so a mistyped letter, a
-missing line or two swapped lines is caught when the sheet is read back. Both are read back from the stick before the
-box keeps the public key (`deploy/secrets/backup.pub`). The stick and the printed sheet go into hospital IT's sealed
-envelope. The audit event `backup.key_ceremony` holds when, the fingerprint and both names; never the key.
+print: four lines of letters, each ending with four check letters, and the key's fingerprint. What is checked: the
+command reads both files back from the stick (the sheet's file through its line checks: check letters, order, count,
+fingerprint) and each must give the public key just made before the box keeps the public key
+(`deploy/secrets/backup.pub`). What is not: no command reads a sheet typed back by a person today; the check letters
+let such a reader name a mistyped line, but none is built (D-1379). Unmount (eject) the stick before pulling it out:
+the command syncs both files and the stick's folder, and the unmount makes sure nothing is still being written. The stick and the
+printed sheet go into hospital IT's sealed envelope. The audit event `backup.key_ceremony` holds when, the fingerprint
+and both names; never the key.
 
-It refuses, with nothing written: not root; one name or none, or one person twice; no audit folder; a box with a
-backup key already (a new pair is the rotation of §6 and RUNBOOK §25); no stick; a folder on the box's disks; a stick
-that cannot be written or already holds a key. The ceremony record of §4 step 5 then lists the backup key's
-fingerprint as before.
+It refuses, with nothing written: not root; one name or none, or one person twice (in any spelling: full-width
+letters, double or ideographic spaces, case); no audit folder; a box with a backup key already, or whose audit holds a
+`backup.key_ceremony` already (the refusal names its time; a new pair is the rotation of §6 and RUNBOOK §25); no
+stick; a folder on the box's disks; a stick that cannot be written; a file or a link of either name on the stick. A
+failure once the first file is made (the stick, the read-back, the public key, the audit, an interruption) removes
+every file the command made, on the stick and on the box, and the refusal lists what was removed and any file it could
+not remove, with its path. The ceremony record of §4 step 5 then lists the backup key's fingerprint as before.
+
+Until the install and the runbooks are changed to it (open follow-ups of D-1379), §1's table and §4 step 1 still name
+`trialbox backup-keygen`; on a box with no backup key yet, run the witnessed ceremony of §7 instead.
