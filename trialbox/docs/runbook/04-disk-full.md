@@ -5,9 +5,8 @@
 *T-635 (OPS-074). Signs: jobs fail with a write error, the database stops, `backup-status` is red, `doctor` warns.
 Never free space by deleting from the audit volume, the secrets volume or the database files.*
 
-**Drill (T-213b):** none. This procedure is not rehearsed by a test: a drill needs a box whose data disk can
-be filled (the compose stack on a real or virtual host), and no such drill runs yet. Follow the steps below as
-written and report what was missing from them.
+**Drill (T-213b):** none. This procedure is not rehearsed by a test: a drill needs a box whose data disk can be
+filled (the compose stack on a host), and no such drill runs yet.
 
 1. **Where:** `df -h /data /var/lib/docker /` and `docker system df`. Note which disk is full.
 2. **WAL archiving stuck?** `python3 -m tools.trialbox backup-status`. With archiving on and the archive failing,

@@ -4,10 +4,8 @@
 
 *T-635 (OPS-074). The console is served on 443 by Caddy (§12).*
 
-**Drill (T-213b):** `test_runbook_12_certificate_renewal` (in process, with certificates made for the test:
-a certificate that ends in 20 days gives the 30-day warning of step 1; step 2 puts the new certificate and key
-in the same files; step 3 passes, and fails on a key that is not the certificate's, a wrong name and a date not
-valid today). Steps 4 and 5 need the running box and are not rehearsed by a test.
+**Drill (T-213b):** `test_runbook_12_certificate_renewal` (in process: steps 1 to 3 below, with a 20-day certificate,
+the new pair and each mistake step 3 names; steps 4 and 5 need the running box and are not rehearsed by a test).
 
 **Internal CA** (`TB_TLS_MODE` not `hospital`). Caddy renews its own server certificate by itself; nothing to do. The
 root certificate on the staff PCs lasts for years; when Caddy makes a new root (the `caddy-data` volume was lost),
