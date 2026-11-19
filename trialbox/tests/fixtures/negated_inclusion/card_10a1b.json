@@ -1,0 +1,1102 @@
+{
+ "about": "Card 10A-1b: 80 inclusion lines written before the rule of card 10A-1b was changed, kept apart from lines.json and unseen_at_design.json and scored apart. 40 must be held (the coded concept is the one negated), including lines built to exploit the new rule: a negated coded concept beside a positive other concept in either clause order, a cue before a boundary reaching past it, ellipsis ('no prior surgery or chemotherapy' with chemotherapy coded), 'surgery but not chemotherapy', 手術歴はあるが化学療法歴はない with 化学療法 coded, lists. 40 must run (the coded concept is present; a negation governs something else, named as a candidate or not). 'others' are the line's other concept candidates as the extractor would emit them (names; the coded concept's domain). 'why' says what a row tests. Fields otherwise as in lines.json. Synthetic; no patient data.",
+ "rows": [
+  {
+   "lang": "en",
+   "text": "No prior surgery or chemotherapy.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "surgery"
+   ],
+   "why": "ellipsis: the cue governs both"
+  },
+  {
+   "lang": "en",
+   "text": "No prior chemotherapy or radiotherapy.",
+   "concept": "radiotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "chemotherapy"
+   ],
+   "why": "ellipsis, the review line with the second concept coded"
+  },
+  {
+   "lang": "en",
+   "text": "No prior chemotherapy; prior surgery is required.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "surgery"
+   ],
+   "why": "negated coded concept, positive other in the second clause"
+  },
+  {
+   "lang": "en",
+   "text": "Prior surgery is required; no prior chemotherapy.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "surgery"
+   ],
+   "why": "negated coded concept after the boundary"
+  },
+  {
+   "lang": "en",
+   "text": "Surgery but not chemotherapy.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "surgery"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Prior surgery, but no chemotherapy.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "surgery"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "No history of diabetes, hypertension, or stroke.",
+   "concept": "stroke",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "diabetes",
+    "hypertension"
+   ],
+   "why": "list under one cue"
+  },
+  {
+   "lang": "en",
+   "text": "No history of diabetes, hypertension, or stroke.",
+   "concept": "hypertension",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [],
+   "why": "list under one cue; no other candidate"
+  },
+  {
+   "lang": "en",
+   "text": "Without radiotherapy or chemotherapy before enrolment.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "radiotherapy"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Neither radiotherapy nor chemotherapy.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "radiotherapy"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Has received surgery, and has never received chemotherapy.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "surgery"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Surgery is allowed but chemotherapy has not been given.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "surgery"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "No surgery, radiotherapy, or chemotherapy within 4 weeks.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "surgery",
+    "radiotherapy"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Free of chemotherapy and of radiotherapy.",
+   "concept": "radiotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "chemotherapy"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Diagnosis of diabetes; no insulin.",
+   "concept": "insulin",
+   "synonyms": [],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "diabetes"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Insulin-naive patients with type 2 diabetes.",
+   "concept": "insulin",
+   "synonyms": [],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "type 2 diabetes"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "No chemotherapy; however, prior surgery is allowed.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "surgery"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Type 2 diabetes without ketoacidosis.",
+   "concept": "ketoacidosis",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "type 2 diabetes"
+   ],
+   "why": "the negated thing coded"
+  },
+  {
+   "lang": "en",
+   "text": "Received surgery; neither chemotherapy nor radiotherapy.",
+   "concept": "radiotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "surgery",
+    "chemotherapy"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Prior surgery is required, and chemotherapy must not have been given.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "surgery"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Prior chemotherapy is required; not within 4 weeks of enrolment.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [],
+   "why": "the cue negates the coded concept's own time window"
+  },
+  {
+   "lang": "en",
+   "text": "Chemotherapy; never received at any time.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [],
+   "why": "the cue's clause has no object of its own"
+  },
+  {
+   "lang": "en",
+   "text": "Prior surgery; no prior radiotherapy; or chemotherapy.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "surgery",
+    "radiotherapy"
+   ],
+   "why": "a list split by semicolons under one cue"
+  },
+  {
+   "lang": "en",
+   "text": "No prior radiotherapy; chemotherapy within 4 weeks.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [],
+   "why": "the cue's clause first, the list goes on after the semicolon"
+  },
+  {
+   "lang": "ja",
+   "text": "手術歴はあるが化学療法歴はない。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "手術"
+   ]
+  },
+  {
+   "lang": "ja",
+   "text": "手術歴はあるが、化学療法歴はない。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "手術"
+   ]
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法歴はないが、手術歴はある。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "手術"
+   ]
+  },
+  {
+   "lang": "ja",
+   "text": "手術及び化学療法の治療歴がない。",
+   "concept": "surgery",
+   "synonyms": [
+    "手術"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "化学療法"
+   ],
+   "why": "ellipsis: the cue after both"
+  },
+  {
+   "lang": "ja",
+   "text": "手術、放射線治療、化学療法のいずれも受けていない。",
+   "concept": "surgery",
+   "synonyms": [
+    "手術"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "放射線治療",
+    "化学療法"
+   ]
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法または放射線治療を受けたことがない。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "放射線治療"
+   ]
+  },
+  {
+   "lang": "ja",
+   "text": "インスリン未使用の2型糖尿病患者。",
+   "concept": "insulin",
+   "synonyms": [
+    "インスリン"
+   ],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "2型糖尿病"
+   ]
+  },
+  {
+   "lang": "ja",
+   "text": "2型糖尿病と診断され、インスリンを使用していない。",
+   "concept": "insulin",
+   "synonyms": [
+    "インスリン"
+   ],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "2型糖尿病"
+   ]
+  },
+  {
+   "lang": "ja",
+   "text": "結核の既往はなく、HIV感染もない。",
+   "concept": "tuberculosis",
+   "synonyms": [
+    "結核"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "HIV感染"
+   ]
+  },
+  {
+   "lang": "ja",
+   "text": "喫煙歴がなく、飲酒歴もない。",
+   "concept": "alcohol use",
+   "synonyms": [
+    "飲酒"
+   ],
+   "domain": "observation",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "喫煙"
+   ]
+  },
+  {
+   "lang": "zh",
+   "text": "曾接受手術,但未曾接受化學治療。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "手術"
+   ]
+  },
+  {
+   "lang": "zh",
+   "text": "未曾接受化學治療,但曾接受手術。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "手術"
+   ]
+  },
+  {
+   "lang": "zh",
+   "text": "未曾接受手術或化學治療。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "手術"
+   ]
+  },
+  {
+   "lang": "zh",
+   "text": "診斷為第二型糖尿病,且無酮酸中毒。",
+   "concept": "ketoacidosis",
+   "synonyms": [
+    "酮酸中毒"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "第二型糖尿病"
+   ]
+  },
+  {
+   "lang": "zh",
+   "text": "不曾接受放射線治療、化學治療或手術。",
+   "concept": "surgery",
+   "synonyms": [
+    "手術"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [
+    "放射線治療",
+    "化學治療"
+   ]
+  },
+  {
+   "lang": "zh",
+   "text": "化學治療,且從未接受過任何形式之治療。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-10A-1b",
+   "others": [],
+   "why": "the cue's object is a word that takes in the coded concept"
+  },
+  {
+   "lang": "en",
+   "text": "Prior surgery is required; no prior immunotherapy.",
+   "concept": "surgery",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [],
+   "why": "the negated thing is not a candidate"
+  },
+  {
+   "lang": "en",
+   "text": "Must have had prior surgery; no prior hormonal therapy.",
+   "concept": "surgery",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "hormonal therapy"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Prior chemotherapy is required; no prior radiotherapy.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "radiotherapy"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Chemotherapy but not surgery.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "surgery"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Chemotherapy but not surgery.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [],
+   "why": "the negated thing is not a candidate"
+  },
+  {
+   "lang": "en",
+   "text": "History of asthma; no smoking in the last 10 years.",
+   "concept": "asthma",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "en",
+   "text": "Diagnosis of rheumatoid arthritis; no prior biologic therapy.",
+   "concept": "rheumatoid arthritis",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "en",
+   "text": "Diagnosis of rheumatoid arthritis; no prior biologic therapy.",
+   "concept": "rheumatoid arthritis",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "biologic therapy"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Type 2 diabetes without ketoacidosis.",
+   "concept": "type 2 diabetes",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "ketoacidosis"
+   ],
+   "why": "the negated thing is a candidate"
+  },
+  {
+   "lang": "en",
+   "text": "Confirmed HIV infection; however, no opportunistic infection in the past 6 months.",
+   "concept": "HIV infection",
+   "synonyms": [
+    "HIV"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "en",
+   "text": "Receiving metformin; no history of lactic acidosis.",
+   "concept": "metformin",
+   "synonyms": [],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "lactic acidosis"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Receiving metformin; no history of lactic acidosis.",
+   "concept": "metformin",
+   "synonyms": [],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "en",
+   "text": "Atrial fibrillation; not on anticoagulant therapy.",
+   "concept": "atrial fibrillation",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "anticoagulant therapy"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Documented penicillin allergy, without anaphylaxis.",
+   "concept": "penicillin allergy",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "anaphylaxis"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Prior surgery, but no radiotherapy.",
+   "concept": "surgery",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "radiotherapy"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "No chemotherapy, but prior surgery is required.",
+   "concept": "surgery",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [],
+   "why": "the cue's clause first, an adversative boundary"
+  },
+  {
+   "lang": "en",
+   "text": "Pregnant women with no fetal anomalies.",
+   "concept": "pregnancy",
+   "synonyms": [
+    "pregnant"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "fetal anomalies"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Chronic hepatitis B, with no cirrhosis.",
+   "concept": "chronic hepatitis B",
+   "synonyms": [
+    "hepatitis B"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "cirrhosis"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Prior surgery is required.",
+   "concept": "surgery",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [],
+   "why": "no cue at all"
+  },
+  {
+   "lang": "en",
+   "text": "Has had prior chemotherapy.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [],
+   "why": "no cue at all"
+  },
+  {
+   "lang": "ja",
+   "text": "手術歴はあるが、放射線治療歴はない。",
+   "concept": "surgery",
+   "synonyms": [
+    "手術"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "放射線治療"
+   ]
+  },
+  {
+   "lang": "ja",
+   "text": "手術歴はあるが化学療法歴はない。",
+   "concept": "surgery",
+   "synonyms": [
+    "手術"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法歴はないが、手術歴はある。",
+   "concept": "surgery",
+   "synonyms": [
+    "手術"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [],
+   "why": "the cue's clause first, an adversative boundary"
+  },
+  {
+   "lang": "ja",
+   "text": "2型糖尿病と診断され、ケトアシドーシスを伴わない患者。",
+   "concept": "type 2 diabetes mellitus",
+   "synonyms": [
+    "2型糖尿病"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "ケトアシドーシス"
+   ]
+  },
+  {
+   "lang": "ja",
+   "text": "インスリン未使用の2型糖尿病患者。",
+   "concept": "type 2 diabetes mellitus",
+   "synonyms": [
+    "2型糖尿病"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "インスリン"
+   ]
+  },
+  {
+   "lang": "ja",
+   "text": "関節リウマチと診断されているが、生物学的製剤の使用歴はない。",
+   "concept": "rheumatoid arthritis",
+   "synonyms": [
+    "関節リウマチ"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "ja",
+   "text": "心房細動を有するが、抗凝固療法は受けていない。",
+   "concept": "atrial fibrillation",
+   "synonyms": [
+    "心房細動"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "抗凝固療法"
+   ]
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法を受けたことがある患者。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [],
+   "why": "no cue at all"
+  },
+  {
+   "lang": "ja",
+   "text": "メトホルミンを服用しているが、乳酸アシドーシスの既往はない。",
+   "concept": "metformin",
+   "synonyms": [
+    "メトホルミン"
+   ],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "ja",
+   "text": "妊娠中の女性で、胎児異常を認めない。",
+   "concept": "pregnancy",
+   "synonyms": [
+    "妊娠"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "胎児異常"
+   ]
+  },
+  {
+   "lang": "zh",
+   "text": "曾接受手術,但未曾接受放射線治療。",
+   "concept": "surgery",
+   "synonyms": [
+    "手術"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "放射線治療"
+   ]
+  },
+  {
+   "lang": "zh",
+   "text": "曾接受化學治療,但未曾接受手術。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "zh",
+   "text": "未曾接受化學治療,但曾接受手術。",
+   "concept": "surgery",
+   "synonyms": [
+    "手術"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [],
+   "why": "the cue's clause first, an adversative boundary"
+  },
+  {
+   "lang": "zh",
+   "text": "診斷為第二型糖尿病,且無酮酸中毒。",
+   "concept": "type 2 diabetes mellitus",
+   "synonyms": [
+    "第二型糖尿病"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "酮酸中毒"
+   ]
+  },
+  {
+   "lang": "zh",
+   "text": "第二型糖尿病,未使用胰島素。",
+   "concept": "type 2 diabetes mellitus",
+   "synonyms": [
+    "第二型糖尿病"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "胰島素"
+   ]
+  },
+  {
+   "lang": "zh",
+   "text": "診斷為類風濕性關節炎;未曾使用生物製劑。",
+   "concept": "rheumatoid arthritis",
+   "synonyms": [
+    "類風濕性關節炎"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "zh",
+   "text": "患有心房顫動,但未接受抗凝血治療。",
+   "concept": "atrial fibrillation",
+   "synonyms": [
+    "心房顫動"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "zh",
+   "text": "曾接受化學治療之患者。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [],
+   "why": "no cue at all"
+  },
+  {
+   "lang": "zh",
+   "text": "正在服用二甲雙胍,且無乳酸中毒病史。",
+   "concept": "metformin",
+   "synonyms": [
+    "二甲雙胍"
+   ],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "zh",
+   "text": "懷孕之婦女,且未發現胎兒異常。",
+   "concept": "pregnancy",
+   "synonyms": [
+    "懷孕"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-10A-1b",
+   "others": [
+    "胎兒異常"
+   ]
+  }
+ ]
+}
