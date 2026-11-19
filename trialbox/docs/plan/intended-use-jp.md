@@ -112,6 +112,8 @@ outright ban on two words, not by the claim rule. What a word list cannot catch 
   (「AIが、医師が見る前に参加可否を判断します」 passes);
 - a named clinical scale masking the product's own estimate of it (「AIがECOGスコアを推定します」 passes);
 - a negative ending later in the same clause read as a denial of an earlier claim word, when no comma separates them;
+- a denial whose negative sits after a comma is still flagged (「診断支援を含め、医学的判断を行う機能は一切ありません」
+  raises 診断): a false alarm, reworded by hand;
 - *fixed:* the common denial forms (「…機能はありません」, 「…ものではありません」, 「…ツールではありません」,
   「…判断を行いません」, 「…機能もありません」), a quoted denial inside a double negative, 候補者 counted as a patient
   word, zero-width characters, and inline tags splitting a subject from its verb.
