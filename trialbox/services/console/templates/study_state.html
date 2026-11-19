@@ -55,7 +55,8 @@
 {% if before_open %}{# WALK-2 (F-04): the new study's path leads to the IRB record before the first Approach #}
 <section class="card" data-testid="before-open"><h3>{{ t('sstate.before.title') }}</h3><p class="hint">{{ t('sstate.before.help') }}</p>
 <ul>{% for key, href, done in before_open %}<li data-testid="before-open-{{ key }}" data-done="{{ 'yes' if done else 'no' }}"><a href="{{ href }}">{{ t('sstate.before.' + key) }}</a>: <span class="{{ 'ok' if done else 'warn' }}">{{ t('sstate.before.done') if done else t('sstate.before.todo') }}</span></li>{% endfor %}</ul></section>
-{% endif %}
+{% endif %}{% if committee and (committee.held or committee.waiting) %}{# 10C-4 (D-1227): the Japan profile #}
+<section class="card" data-testid="committee-state"><h3>{{ t('cmt.title') }}</h3>{% for code in committee.held %}<p class="error" data-testid="cmt-held-{{ code }}">{{ t('cmt.held') }} {{ t('cmt.f.' + code) }}</p>{% endfor %}{% for code in committee.waiting %}<p class="warn" data-testid="cmt-waiting-{{ code }}">{{ t('cmt.waiting') }} {{ t('cmt.f.' + code) }}{% if committee.due_on %} {{ t('cmt.due', day=committee.due_on) }}{% endif %}</p>{% endfor %}<p><a href="/studies/{{ rs }}/committee">{{ t('cmt.open') }}</a></p></section>{% endif %}
 {% if cur.state == 'closed' and kept_until %}<p class="hint" data-testid="state-kept-until">{{ t('sstate.kept_until', day=kept_until, years=cur.keep_years or keep_default) }}</p>{% endif %}
 {% if editable %}
 {% if moves %}
