@@ -7,22 +7,26 @@
   - **Measure first.** 241 synthetic lines were written before any rule changed (en 81, ja 80, zh-TW 80; 121 must be
     held, 120 must run; each names the shape it tests) and were scored on master
     (`tests/fixtures/negated_inclusion/card_10a1c_before.json`). Master missed 4 of them, so the card first closed
-    the misses. A second set of fresh lines, written after the code was final, is scored apart
-    (`card_10a1c_after.json`).
+    the misses. Two more fresh sets, written after the code was final and after the lane J lead's last rulings were
+    coded, are scored apart (`card_10a1c_after.json`, `card_10a1c_third.json`). `python -m
+    tools.negated_inclusion_score <file>` scores anyone's file of labelled lines the same way.
   - **Misses closed (more holds, by design):**
     - A bare 不 is a Chinese cue ("不飲酒", "且不吸菸"). It is not a cue only in 不良, 不全, 不穩定, 不明, 不足,
       不整, 不規則, 不規律 or 不佳 right after a noun and ending the word ("控制不良之", "心功能不全患者"), and in
       不孕症. As a prefix or before a verb it is a cue ("不足以", "不良於", "不明原因之", "不適合"). Whatever cannot
       be bounded this way stays a cue.
-    - なし written in katakana (ナシ, half-width ﾅｼ) is a Japanese cue.
+    - なし written in katakana (ナシ, half-width ﾅｼ) is a Japanese cue; so is a chart's "none" after a name or a
+      label: "(−)", "：－", ": neg", ": N/A".
     - 以外 is a Chinese backward cue, as it already was in Japanese ("黑色素瘤以外之…" with 黑色素瘤 coded).
     - R3 lets only "未(經)治療的/之 X" go. Before, it let a negator go over any modifier of up to six characters,
       and "未曾有心臟病之家族史" (no family history of heart disease) ran with 家族史 coded.
     - The concept is looked for in the line as written. Before, it was looked for after the descriptors were
       blanked. A descriptor that reaches into the coded name from before it now holds the line: "小細胞肺癌" in
       "非小細胞肺癌", "Hodgkin lymphoma" in "non-Hodgkin lymphoma". Blanking alone hid the 非, and the line ran.
-      In English, a coded name right after a negating prefix in the same word is not that concept: "non" (with a
-      hyphen, a space or nothing), "un", "a", "ex-" ("asymptomatic" with "symptomatic gallstones" coded).
+      A coded name right after a negating prefix in the same word is not that concept: in English "non" (with a
+      hyphen, a space or nothing), "un", "ex-", "a" before a consonant and "an" before a vowel ("asymptomatic",
+      "afebrile", "anaerobic"); "anti-" is not one ("anti-HBc positive"). In Japanese and Chinese 非, 無, 无, 未,
+      不 ("不完全寛解", "未分化癌").
   - **Releases added.** Each needs the cue's own object written and the coded concept outside it. None depends on
     a word list of objects, or on how far away the cue is.
     - R8, a modifier: in English the concept, then at once "without" or "not on / with / in / for / from / by",
