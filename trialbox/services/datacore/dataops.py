@@ -72,6 +72,7 @@ DETAIL_KEYS = (
     "unmapped",
     "unmapped_kinds",  # NEW-B-39 (D-740): the same rows per table split by kind, counts only
     "site_profile",  # 10B-6 (D-1233): the profile's id, version, digest and coverage counts (type names, no code)
+    "full_night",  # 10B-20 (D-1254): the date of the last full night and how many delta nights since (no row)
     "error",
     "step",
     "table",

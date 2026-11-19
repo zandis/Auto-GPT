@@ -576,7 +576,18 @@ def publish_held(
     refusal of the data (D-271) still stands."""
     from adapter.pipeline import merge_base
 
-    return publish_night(cfg, snap, held_folder(cfg, snap), last_good=merge_base(cfg.lake_dir, snap), on_step=on_step)
+    folder = held_folder(cfg, snap)
+    try:  # 10B-20 (D-1254): whether the held night read whole, from its own report, before the publish moves it
+        since = json.loads((folder / "ingest_report.json").read_text(encoding="utf-8")).get("since")
+        full: bool | None = not since
+    except (OSError, ValueError, AttributeError):
+        full = None  # not known: the record is not moved
+    out = publish_night(cfg, snap, folder, last_good=merge_base(cfg.lake_dir, snap), on_step=on_step)
+    if out.ok and out.promoted and full is not None:  # an accepted night that is served completed
+        from adapter import full_nights
+
+        full_nights.completed(cfg.lake_dir, snap, full=full)
+    return out
 
 
 __all__ = [
