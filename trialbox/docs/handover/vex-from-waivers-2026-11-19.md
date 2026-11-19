@@ -10,8 +10,8 @@ Plan 10 row 10G-8 (review 16, item 16-9), decision D-1339. Done when a waiver wi
 
 | File | Entries | What they wave through | In this card |
 | --- | --- | --- | --- |
-| `deploy/supply-chain-allowlist.yaml` `vulnerabilities` | 62 | a pip-audit or Trivy finding, per id, package and image | yes: owner, date, VEX |
-| `deploy/supply-chain-allowlist.yaml` `os_packages_unreadable` | 1 | an image whose OS packages the scanner cannot read | yes: owner, date (a property in the VEX) |
+| `deploy/supply-chain-allowlist.yaml` `vulnerabilities` | 62 | a pip-audit or Trivy finding, per id, package and image | yes: date, check, VEX |
+| `deploy/supply-chain-allowlist.yaml` `os_packages_unreadable` | 1 | an image whose OS packages the scanner cannot read | yes: date, check (a property in the VEX) |
 | `deploy/supply-chain-allowlist.yaml` `licences`, `budgets` | 23, 10 | a licence flag | no: no vulnerability (H10G8-07) |
 | `tools/security_scan_ignores.yaml` | 57 | a secrets or SAST finding in our own code (`make security-scan`) | no: no component vulnerability (H10G8-07) |
 
@@ -19,17 +19,18 @@ There is no `.trivyignore`, OSV or pip-audit ignore file: the gates read the all
 
 ## What changed
 
-- Every one of the 63 waivers names its owner as a role, `security owner (D-1067)`, in place of a person's name
-  (D-1067 says who holds the role), and gains `date`, the day the ruling that accepted it was given. No waiver is
-  added or removed; no reason, `review_by`, id, package or image changes. All 63 had a reason; none needed "reason not
-  recorded".
+- Every one of the 63 waivers gains `date`, the day the ruling that accepted it was given. The 63 added `date` lines
+  are the only change to the file: no waiver is added or removed; no owner, reason, `review_by`, id, package or image
+  changes. All 63 had an owner and a reason; none needed "reason not recorded". Whether the owner should be a role
+  in place of a person is left to a ruling (H10G8-08).
 - `tools/supply_chain/allowlist.py` accepts the key `date` (it stays optional there, so the gates match on nothing new).
-- `tools/vex.py` (new): `check` and `write`. `check` fails on a waiver without an owner (a role or a lane), a date or a
-  reason, dated after its review, or past its `review_by` on the release date. `write` gives one CycloneDX 1.6 VEX per
-  release; same inputs, same bytes.
-- `make lint`, `make ci` and CI's `docs` job run `python -m tools.vex check`.
-- Two tests that pinned the owner's old value pin the role and the date now (`test_vllm_dnspython_entry.py`,
-  `test_authelia_x509_entry.py`).
+- `tools/vex.py` (new): `check` and `write`. `check` fails on a waiver with a missing or empty owner, no or a malformed
+  date or `review_by`, no reason, or a date after its review; with `--release-date D` also on a `review_by` before D.
+  `write` applies its release date and gives one CycloneDX 1.6 VEX per release; same inputs, same bytes.
+- `make lint`, `make ci` and CI's `docs` job run `python -m tools.vex check` with no release date, so no calendar day
+  turns every lane red; the review date against today stays with `make allowlist-check`, as on master.
+- Two tests of single entries also pin the new `date` (`test_vllm_dnspython_entry.py`, `test_authelia_x509_entry.py`);
+  their owner assertions are master's.
 
 ## The dates
 
@@ -60,12 +61,12 @@ more). Two runs give the same bytes. CycloneDX was chosen because the SBOMs in t
 
 | Id | Severity | Finding | State |
 | --- | --- | --- | --- |
-| H10G8-01 | Medium | all 63 waivers named a person as owner, and none recorded the date it was accepted | fixed 7a69081e |
+| H10G8-01 | Medium | none of the 63 waivers recorded the date it was accepted | fixed 7a69081e |
 | H10G8-02 | Medium | a waiver without an owner or a date passed every check (`owner` optional, no `date`) | fixed 7a69081e |
 | H10G8-03 | Medium | the signed bundle carries no VEX: adding it to `tools/release.py`'s SBOM extras changes what the rc1 build requires, so it is left for after rc1 | open |
 | H10G8-04 | Low | the 49 per-id HAPI and vLLM waivers carry D-340's date 2026-11-10; the ledger's comment says some findings were published 2026-11-11 under the same rule, and which ones is not recorded per entry | open |
 | H10G8-05 | Low | 54 of 62 VEX records say `exploitable` because only the 8 Authelia reasons record a "not reachable" analysis; the security owner may record more (e.g. kernel headers, dnspython zone-file parsing) | open |
 | H10G8-06 | Low | the package-wide `linux-libc-dev` waiver (D-622) names no ids, so its VEX record has id `*`, which no scanner matches; the ids could come from the release's gate record | open |
 | H10G8-07 | Low | the 23 licence entries, 10 budgets and 57 security-scan ignores have no owner or date (the scan ignores no review date) and are outside this card's check | open |
-| H10G8-08 | Low | `deploy/security/known-image-findings.md` and D-1004 still name a person as owner of every row; a test pins that page's text | open |
+| H10G8-08 | Low | for the integrator and the owner to rule: whether the waivers of this public file (and the release VEX made from them, and `deploy/security/known-image-findings.md`) should name a role as owner in place of a person; D-1004 wrote the owner's name in each entry; not decided here | open |
 | H10G8-09 | Low | the VEX is not validated against the CycloneDX 1.6 schema (no schema in the tree, no network) | open |

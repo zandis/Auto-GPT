@@ -7,7 +7,7 @@ A finding is accepted only by a written entry: which package, why, and until whe
         package: pillow                  # required: the entry covers this package only
         reason: Not reachable: ...       # required, a sentence a reviewer can check
         review_by: 2027-01-31            # required ISO date, at most 180 days ahead; after it the gate fails
-        owner: security owner            # optional here; a role or lane, never a person (tools/vex.py requires it)
+        owner: security owner            # optional here (tools/vex.py requires one, D-1339)
         date: 2026-11-10                 # optional here: the day it was accepted (tools/vex.py requires it, D-1339)
         image: hapiproject/hapi          # optional (T-110b): accepts the finding in this image repository only
       - id: "*"                          # D-622: every finding of ONE package in ONE third-party image of

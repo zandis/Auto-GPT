@@ -1,18 +1,19 @@
 """The waivers of the supply-chain allow-list and the VEX of a release (card 10G-8, D-1339).
 
-    python -m tools.vex check [--release-date 2026-12-01]     # make lint; CI job `docs`
+    python -m tools.vex check [--release-date 2026-12-01]     # make lint and CI job `docs` run it without a date
     python -m tools.vex write --release-date 2026-12-01 --out dist/sbom/trialbox-vex.cdx.json [--version 1.0.0]
 
 A waiver is an entry of ``deploy/supply-chain-allowlist.yaml`` that lets a vulnerability gate pass: every entry of
 ``vulnerabilities`` and of ``os_packages_unreadable`` (tools/supply_chain/allowlist.py). The licence entries and
 budgets are no vulnerability waiver and are not read here.
 
-``check`` fails (exit 1) on a waiver with no owner, an owner that is not a role or a lane (``security owner``,
-``release owner`` or ``lane X``, optionally followed by the decision that names who holds it: ``security owner
-(D-1067)``; never a person's name), no ``date`` (the day the ruling that accepted it was given), no reason, a
-``date`` after its ``review_by``, or a ``review_by`` before the release date (default: today). It reads one file and
-makes no network call. The rest of the entry's rules (reason length, dates at most 180 days ahead, package, image)
-stay with ``make allowlist-check``.
+``check`` fails (exit 1) on a waiver with no owner (missing or empty; the owner's form is not ruled on here), no
+``date`` (the day the ruling that accepted it was given), no reason, no or a malformed ``review_by``, or a ``date``
+after its ``review_by``. Only with ``--release-date`` does it also fail on a ``review_by`` before that date: lint
+and CI run it without one, so no calendar day turns every lane red; the review date against today stays with
+``make allowlist-check`` (tools/supply_chain/allowlist.py), and ``write`` always applies its release date. It reads
+one file and makes no network call. The rest of the entry's rules (reason length, dates at most 180 days ahead,
+package, image) stay with ``make allowlist-check``.
 
 ``write`` checks first and then writes one CycloneDX 1.6 VEX document for the release (the form of the CycloneDX
 SBOMs that Syft writes for every image and for the lock, tools/supply_chain/sbom.py): one ``vulnerabilities`` record
@@ -31,7 +32,6 @@ import argparse
 import datetime as dt
 import hashlib
 import json
-import re
 import sys
 import uuid
 from collections.abc import Sequence
@@ -46,9 +46,6 @@ ROOT = Path(__file__).resolve().parents[1]
 ALLOWLIST = ROOT / "deploy" / "supply-chain-allowlist.yaml"
 IMAGES_LOCK = ROOT / "deploy" / "images.lock"
 WAIVER_LISTS = ("vulnerabilities", "os_packages_unreadable")
-ROLES = ("security owner", "release owner")
-_ROLE_ALT = "|".join(re.escape(r) for r in ROLES)
-_OWNER = re.compile(rf"^(?:{_ROLE_ALT}|lane [A-Z])(?: \(D-\d+(?:, D-\d+)*\))?$")
 NOT_REACHABLE = "Not reachable:"
 LOCK_SUBJECT = "requirements.lock"  # a vulnerability entry with no image covers the Python lock (pip-audit)
 SPEC_VERSION = "1.6"
@@ -94,14 +91,8 @@ def check(data: dict[str, Any], release_date: dt.date | None) -> list[str]:
     for name, i, raw in waivers(data):
         label = _text(raw, "id") or _text(raw, "image")
         where = f"{name}[{i}]" + (f" ({label})" if label else "")
-        owner = _text(raw, "owner")
-        if not owner:
-            errors.append(f"{where}: no owner; name a role or a lane (e.g. 'security owner (D-1067)')")
-        elif not _OWNER.match(owner):
-            errors.append(
-                f"{where}: owner {owner!r} is not a role or a lane ({', '.join(ROLES)}, lane X; "
-                "optionally '(D-nnn)'); never a person's name"
-            )
+        if not _text(raw, "owner"):
+            errors.append(f"{where}: no owner; every waiver names who answers for it")
         if not _text(raw, "reason"):
             errors.append(f"{where}: no reason")
         since, until = _date(raw.get("date")), _date(raw.get("review_by"))
@@ -234,7 +225,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("check", help="fail on a waiver without an owner, a date or a reason, or past its review_by")
     c.add_argument("--allowlist", type=Path, default=ALLOWLIST)
-    c.add_argument("--release-date", type=dt.date.fromisoformat, default=None, help="default: today")
+    c.add_argument(
+        "--release-date", type=dt.date.fromisoformat, default=None, help="also fail on a review_by before this date"
+    )
     w = sub.add_parser("write", help="write the release's CycloneDX VEX from the waivers")
     w.add_argument("--allowlist", type=Path, default=ALLOWLIST)
     w.add_argument("--images-lock", type=Path, default=IMAGES_LOCK)
@@ -247,18 +240,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (OSError, yaml.YAMLError) as exc:
         print(f"vex: cannot read {a.allowlist}: {exc}", file=sys.stderr)
         return 2
-    release_date = a.release_date or dt.date.today()
+    release_date: dt.date | None = a.release_date
     errors = check(data, release_date)
     for e in errors:
         print(f"vex: {e}", file=sys.stderr)
     n = len(waivers(data))
     if errors:
-        print(f"vex: FAIL, {len(errors)} problems in {n} waivers (release date {release_date})", file=sys.stderr)
+        on = f" (release date {release_date})" if release_date else ""
+        print(f"vex: FAIL, {len(errors)} problems in {n} waivers{on}", file=sys.stderr)
         return 1
     if a.cmd == "check":
-        print(f"vex: {n} waivers, each with an owner, a date, a reason and a review_by on or after {release_date}")
+        on = f" on or after {release_date}" if release_date else ""
+        print(f"vex: {n} waivers, each with an owner, a date, a reason and a review_by{on}")
         return 0
-    doc = build(data, version=a.version or _version(), release_date=release_date, digests=_digests(a.images_lock))
+    doc = build(data, version=a.version or _version(), release_date=a.release_date, digests=_digests(a.images_lock))
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(dumps(doc), encoding="utf-8")
     print(f"vex: wrote {a.out} ({len(doc['vulnerabilities'])} vulnerability records)")

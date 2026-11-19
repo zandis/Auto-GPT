@@ -32,7 +32,7 @@ def test_there_is_one_dated_entry_for_the_vllm_image_and_its_package() -> None:
     e = got[0]
     assert (e["package"], e["image"]) == ("dnspython", "vllm/vllm-openai")
     assert e["review_by"] == dt.date(2027, 1, 10)  # with the other vLLM entries
-    assert e["owner"] == "security owner (D-1067)"  # a role, never a person (D-1339); D-1067 says who holds it
+    assert e["owner"] == "Chang-Fu Kuo (the owner, D-1067)"
     assert e["date"] == dt.date(2026, 11, 15)  # the owner's yes (D-790)
 
 

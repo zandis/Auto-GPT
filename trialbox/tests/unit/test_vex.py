@@ -1,6 +1,6 @@
-"""Card 10G-8 (D-1339): every vulnerability waiver of the allow-list has an owner (a role or a lane, never a person),
-a date and a reason, and is not past its review_by on the release date; ``python -m tools.vex write`` turns the
-waivers into one deterministic CycloneDX VEX document per release."""
+"""Card 10G-8 (D-1339): every vulnerability waiver of the allow-list has an owner, a date and a reason, and with a
+release date is not past its review_by on it; ``python -m tools.vex write`` turns the waivers into one deterministic
+CycloneDX VEX document per release."""
 
 from __future__ import annotations
 
@@ -38,12 +38,17 @@ def _planted(**change: object) -> dict[str, Any]:
     return data
 
 
-def test_the_shipped_waivers_each_have_a_role_owner_a_date_and_a_reason() -> None:
+def test_the_shipped_waivers_each_have_an_owner_a_date_and_a_reason() -> None:
     data = vex.load()
     assert vex.check(data, None) == []
     found = vex.waivers(data)
     assert len(found) == 63  # 62 vulnerability entries and 1 os_packages_unreadable on 2026-11-19
-    assert {str(raw["owner"]) for _, _, raw in found} == {"security owner (D-1067)"}
+    assert all(str(raw["owner"]).strip() and raw["date"] for _, _, raw in found)
+
+
+@pytest.mark.parametrize("owner", ["A. Person (the owner, D-1)", "security owner (D-9999)", "lane H"])
+def test_the_owner_is_any_named_holder_its_form_is_not_ruled_on_here(owner: str) -> None:
+    assert vex.check(_planted(owner=owner), dt.date(2099, 1, 31)) == []
 
 
 def test_the_fixture_passes_on_its_release_date() -> None:
@@ -55,13 +60,12 @@ def test_the_fixture_passes_on_its_release_date() -> None:
     [
         ({"owner": None}, "no owner"),
         ({"owner": "  "}, "no owner"),
-        ({"owner": "A. Person (the owner, D-1)"}, "never a person's name"),
-        ({"owner": "Jane Example"}, "never a person's name"),
-        ({"owner": "security owner, Jane Example"}, "never a person's name"),
+        ({"owner": ""}, "no owner"),
         ({"date": None}, "no date"),
         ({"date": "soon"}, "no date"),
         ({"reason": None}, "no reason"),
         ({"review_by": None}, "no review_by"),
+        ({"review_by": "2099-13-01"}, "no review_by"),
         ({"date": "2099-04-01"}, "is after its review_by"),
     ],
 )
@@ -83,16 +87,25 @@ def test_a_waiver_past_its_review_by_on_the_release_date_fails_and_on_the_day_pa
     assert len(errors) == 1 and "GHSA-aaaa-bbbb-cccc" in errors[0] and "before the release date 2099-02-02" in errors[0]
 
 
+def test_without_a_release_date_no_calendar_day_fails_the_check(capsys: pytest.CaptureFixture[str]) -> None:
+    """lint and CI run ``check`` with no date: a waiver past review fails allowlist-check and ``write``, not lint."""
+    assert vex.check(_fixture(), None) == []
+    fixture = str(FIX / "allowlist.yaml")
+    assert vex.main(["check", "--allowlist", fixture]) == 0  # every review_by of the fixture is 2099
+    assert vex.main(["check", "--allowlist", fixture, "--release-date", "2099-02-02"]) == 1
+    assert "before the release date 2099-02-02" in capsys.readouterr().err
+
+
 def test_the_licence_entries_are_no_waiver_here() -> None:
     data = _fixture()
-    data["licences"][0]["owner"] = "Jane Example"
+    data["licences"][0]["owner"] = ""
     assert vex.check(data, None) == []
 
 
 def test_check_exits_1_on_a_waiver_without_an_owner(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     bad = tmp_path / "allowlist.yaml"
     bad.write_text(yaml.safe_dump(_planted(owner=None)), encoding="utf-8")
-    assert vex.main(["check", "--allowlist", str(bad), "--release-date", "2099-01-31"]) == 1
+    assert vex.main(["check", "--allowlist", str(bad)]) == 1
     assert "no owner" in capsys.readouterr().err
     assert vex.main(["check", "--allowlist", str(FIX / "allowlist.yaml"), "--release-date", "2099-01-31"]) == 0
 

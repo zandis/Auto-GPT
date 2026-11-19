@@ -8,7 +8,7 @@
   {
    "id": "H10G8-01",
    "severity": "Medium",
-   "claim": "all 63 vulnerability waivers of the allow-list named a person as owner, and none recorded the date it was accepted",
+   "claim": "none of the 63 vulnerability waivers of the allow-list recorded the date it was accepted",
    "lane": "H",
    "basis": "shown",
    "state": "fixed 7a69081e",
@@ -85,11 +85,11 @@
   {
    "id": "H10G8-08",
    "severity": "Low",
-   "claim": "deploy/security/known-image-findings.md and D-1004 still name a person as owner of every row; a unit test pins that page's text",
+   "claim": "for the integrator and the owner to rule: whether the waivers of this public allow-list, the release VEX made from them and known-image-findings.md should name a role as owner in place of a person (D-1004 wrote the owner's name in each entry); not decided here",
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "place": "deploy/security/known-image-findings.md:19",
+   "place": "deploy/supply-chain-allowlist.yaml",
    "expected": "see the card's page",
    "happened": "see the card's page"
   },
