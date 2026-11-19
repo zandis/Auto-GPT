@@ -272,14 +272,18 @@ accepted by one pattern of its own, or refused:
   and `-`), a YJ code, a standard code checked exactly as the loader checks it, or a LOINC answer code;
 - a bounded plain decimal.
 
-**Answers must go together** (`adapter.site_questionnaire.GOES_WITH`). For each country, the table lists the doors,
-the standards and each code table's masters. An answer outside its country's row is refused, and the message names
-both answers. Examples: `tw` with the SS-MIX2 door; `jp` with `cgrd_sql`, `tw_core` or `icd10cm`; a lab table whose
+**Answers must go together** (`adapter.site_questionnaire.GOES_WITH`). For each source type a site reads, the table
+lists the doors, the standards and each code table's masters. A country's row is the one of its source type, read
+from the site's set-up defaults (`tb_common.site_country`), which take it from the country layer when the country
+has one (10C-25, D-1250: P14 `data_source_type`); the form names no country. A country whose layer cannot be used is
+refused (`country_layer`), and nothing is assumed. An answer outside its country's row is refused, and the message
+names both answers. Examples: `tw` with the SS-MIX2 door; `jp` with `cgrd_sql`, `tw_core` or `icd10cm`; a lab table whose
 master is the MEDIS disease-name master. Also, the SS-MIX2 version goes with the SS-MIX2 door only. Every shipped
-profile goes together (a test). When Japan's layer (10C-25) is on master, this table should be read from it (D-1249).
+profile goes together (a test).
 
-The form makes a profile for `jp` and `tw` only. Its tables are the SS-MIX2 reader's (Japan) and the lab look-up,
-whose results carry Japan's or Taiwan's FHIR profile. For `us` or `other` it refuses and says why: nothing it wrote
+The form makes a profile for a country whose source type has a row: `jp` and `tw` today. Its tables are the
+SS-MIX2 reader's and the lab look-up, whose results carry the FHIR profile of that source's mapping (Japan's or
+Taiwan's). For `us` or `other` (no shipped mapping, so no source type) it refuses and says why: nothing it wrote
 could be read for that country.
 
 **Units.** A lab row's factor turns a result in its `source_unit` into its `unit`, as the mapping engine applies it.

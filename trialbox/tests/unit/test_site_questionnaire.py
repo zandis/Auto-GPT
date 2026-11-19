@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import csv
+import dataclasses
 import io
 import os
 import stat
@@ -20,6 +21,7 @@ import yaml
 from adapter import site_profile as sp
 from adapter import site_questionnaire as sq
 from adapter.mapping.engine import Mapping
+from tb_common import country_layer, site_country
 from tb_common.site_profile import SHIPPED_ROOT, VERIFIED, VERIFY, load
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -382,10 +384,41 @@ def test_answers_that_do_not_go_together_are_refused_with_both_named(
 def test_every_shipped_profile_goes_together() -> None:
     for folder in sorted((SHIPPED_ROOT / "profile").iterdir()):
         p = load(folder)
-        row = sq.GOES_WITH[p.country]
+        row = sq.goes_with(p.country)
+        assert row is not None, folder
         assert p.door in row["doors"], folder
         assert set(p.standards) <= set(row["standards"]), folder
         assert all(sq.STANDARD_DOOR.get(s, p.door) == p.door for s in p.standards), folder
+
+
+def _layer_with(monkeypatch: pytest.MonkeyPatch, code: str, made: Any) -> None:
+    real = country_layer.layer
+    monkeypatch.setattr(country_layer, "layer", lambda c: made if str(c or "").strip().upper() == code else real(c))
+
+
+def test_a_countrys_row_is_the_source_type_its_layer_gives(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The row of what goes together is read through the country layer (D-1250), by the same call for every country:
+    a layer that gave another source type would give that type's row, and the form names no country."""
+    assert sq.goes_with("jp") is sq.GOES_WITH[country_layer.value("JP", "P14", "data_source_type")]
+    assert sq.goes_with("tw") is sq.GOES_WITH[str(site_country.TABLE["tw"].data_source_type)]
+    real = country_layer.layer("JP")
+    p14 = dataclasses.replace(real.parts["P14"], values={**real.parts["P14"].values, "data_source_type": "csv"})
+    _layer_with(monkeypatch, "JP", dataclasses.replace(real, parts={**real.parts, "P14": p14}))
+    assert sq.goes_with("jp") is sq.GOES_WITH["csv"]
+    got = _refused(_answers())  # the synthetic Japanese hospital's SS-MIX2 door no longer goes with its country
+    assert ("apart", "door") in {(p.code, p.where) for p in got}
+
+
+def test_a_country_whose_layer_cannot_be_read_is_refused_and_nothing_is_assumed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _layer_with(monkeypatch, "JP", country_layer.Layer("JP", file="japan_profile.json", problem="cannot be read"))
+    got = _refused(_answers())
+    p = next(p for p in got if p.code == "country_layer")
+    assert p.where == "profile.country" and sq.made_for() == ("tw",)
+    assert not any(q.code == "apart" for q in got)  # nothing checked against another country's row
+    for lang in LANGS:
+        assert "jp" in sq.message(p, lang)
 
 
 @pytest.mark.parametrize("country", ["us", "other"])

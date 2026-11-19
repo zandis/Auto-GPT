@@ -60,9 +60,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from tb_common import labunit
+from tb_common import country_layer, labunit, site_country
 from tb_common.codekey import fold_key
 from tb_common.labunit import MAX_SCALE, UCUM
+from tb_common.site_country import COUNTRIES
 from tb_common.site_profile import FORMAT, MANIFEST, check_code, load
 
 ANSWERS_FORMAT = "tb-site-questionnaire/1"
@@ -137,9 +138,9 @@ QUESTIONS = (
     Question("9.2.7", no_field_because=f"{_N}: the REDCap data dictionary"),
 )
 
-#: the countries the settings know. The form makes a profile for jp and tw only: its tables are the SS-MIX2 reader's
-#: (Japan) and the lab look-up, whose results carry Japan's or Taiwan's FHIR profile
-COUNTRIES = ("jp", "tw", "us", "other")
+# the countries are the settings' own (tb_common.site_country.COUNTRIES). The form makes a profile for a country
+# whose site reads a source type with a row in GOES_WITH (made_for): its tables are the SS-MIX2 reader's and the lab
+# look-up, whose results carry the FHIR profile of that source's mapping
 DOORS = ("ssmix2", "csv", "cgrd_sql")
 #: the 26 message types of the SS-MIX2 standardised storage (review 12 section 4.3) and the words the profiles use for
 #: what the extended storage and the other exports hold
@@ -182,11 +183,13 @@ SOURCE_WORDS = {
     "jlac11": "JLAC11 master",
 }
 TABLES = ("diagnosis", "drug", "lab")
-#: what goes together, by country: the doors, the standards, and each table's masters. An answer outside its
-#: country's row is refused with both answers named. (Japan's own layer, 10C-25, is not on master; when it is, this
-#: table should be read from it rather than kept here: D-1249.)
+#: what goes together, by the source type a country's site reads: the doors, the standards, and each table's
+#: masters. The source type is the country's set-up default (``tb_common.site_country.defaults``), which a country with
+#: a layer (10C-25, D-1250) reads from it (P14 ``data_source_type``), by the same call for every country: no country
+#: is named here. An answer outside its row is refused with both answers named; a country whose source type has no row
+#: (no shipped mapping) gets no profile, and is told why.
 GOES_WITH: dict[str, dict[str, Any]] = {
-    "jp": {
+    "ssmix2": {
         "doors": ("ssmix2", "csv"),
         "standards": (
             "ssmix2",
@@ -207,12 +210,39 @@ GOES_WITH: dict[str, dict[str, Any]] = {
             "lab": ("synthetic", "hospital", "jlac10", "jlac11"),
         },
     },
-    "tw": {
+    "csv": {
         "doors": ("csv", "cgrd_sql"),
         "standards": ("tw_core", "icd10cm"),
         "masters": {"lab": ("synthetic", "hospital")},
     },
 }
+
+
+def source_type(country: str) -> str | None:
+    """The source type a site of ``country`` reads: its set-up default (``tb_common.site_country``), read from the
+    country's layer when it has one. None when the repository has none. Raises ``country_layer.LayerBroken`` when the
+    country's layer cannot be used: the form then says so and assumes nothing."""
+    return site_country.defaults(country).data_source_type
+
+
+def goes_with(country: str) -> dict[str, Any] | None:
+    """The row of :data:`GOES_WITH` for a site of ``country``; None when the form makes it no profile."""
+    kind = source_type(country)
+    return GOES_WITH.get(kind) if kind else None
+
+
+def made_for() -> tuple[str, ...]:
+    """The countries the form makes a profile for (a country whose layer cannot be used is left out)."""
+    out = []
+    for country in COUNTRIES:
+        try:
+            if goes_with(country) is not None:
+                out.append(country)
+        except country_layer.LayerBroken:
+            continue
+    return tuple(out)
+
+
 #: a standard that only one door writes
 STANDARD_DOOR = {"ssmix2": "ssmix2"}
 #: the tables only the SS-MIX2 reader reads
@@ -240,12 +270,13 @@ _SAFE_KEY = re.compile(r"[A-Za-z0-9_-]{1,40}")
 BOOLEANS = {"true": True, "false": False}
 CATEGORIES = ("laboratory", "survey")
 KINDS = ("quantity", "coded")
-#: the FHIR profile a lab row's results carry, by country and category (the shipped tables' own values)
+#: the FHIR profile a lab row's results carry, by the site's source type (:func:`source_type`) and the row's category
+#: (the shipped tables' own values)
 LAB_PROFILES = {
-    ("jp", "laboratory"): "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_LabResult",
-    ("jp", "survey"): "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_Common",
+    ("ssmix2", "laboratory"): "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_LabResult",
+    ("ssmix2", "survey"): "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_Common",
     (
-        "tw",
+        "csv",
         "laboratory",
     ): "https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-laboratoryResult-twcore",
 }
@@ -265,8 +296,9 @@ COLUMNS = {
 KEY_TARGET = {"diagnosis": ("code", "icd10"), "drug": ("yj_code", "atc"), "lab": ("local_code", "code")}
 #: every refusal the form gives: ``profileform.err.<code>`` in the console's catalogue, en, ja and zh-TW
 CODES = ("unreadable", "too_deep", "alias", "doubled_key", "format", "unknown_key", "missing", "not_text", "id",
-         "site_id", "country", "country_none", "version", "synthetic", "synthetic_id", "door", "data_type", "std_name",
-         "std_value", "apart", "table_name", "table_door", "master", "master_synthetic", "date", "rows_empty",
+         "site_id", "country", "country_none", "country_layer", "version", "synthetic", "synthetic_id", "door",
+         "data_type", "std_name", "std_value", "apart", "table_name", "table_door", "master", "master_synthetic",
+         "date", "rows_empty",
          "rows_too_many", "code_shape", "code_repeat", "yj_shape", "target_code", "text", "text_url", "state",
          "system_one", "unit", "unit_missing", "unit_coded", "factor", "factor_needed", "factor_same", "factor_wrong",
          "category", "kind", "answers", "answer_word", "answer_code", "out_exists", "out_live", "out_parent",
@@ -529,9 +561,17 @@ def parse(doc: Mapping[str, Any]) -> Form | list[Problem]:
     pid = c.shaped(prof, "id", "profile.id", _ID, "id")
     site = c.shaped(prof, "site_id", "profile.site_id", _SITE, "site_id")
     country = c.choice(prof, "country", "profile.country", COUNTRIES, "country")
-    if country is not None and country not in GOES_WITH:
-        c.no("country_none", "profile.country", name=country, expected=", ".join(GOES_WITH))
-        country = None
+    row: dict[str, Any] | None = None
+    if country is not None:
+        try:
+            row = goes_with(country)
+        except country_layer.LayerBroken:  # the country's layer cannot be used: nothing is assumed (D-1250)
+            c.no("country_layer", "profile.country", name=country)
+            country = None
+        else:
+            if row is None:
+                c.no("country_none", "profile.country", name=country, expected=", ".join(made_for()))
+                country = None
     version = c.shaped(prof, "version", "profile.version", _SEMVER, "version")
     said = c.string(prof, "synthetic", "profile.synthetic")
     synthetic = BOOLEANS.get(said) if said is not None else None
@@ -540,12 +580,12 @@ def parse(doc: Mapping[str, Any]) -> Form | list[Problem]:
     elif synthetic is not None and pid is not None and pid.startswith("synthetic-") != synthetic:
         c.no("synthetic_id", "profile.synthetic")
     door = c.choice(doc, "door", "door", DOORS, "door")
-    if door is not None and country is not None and door not in GOES_WITH[country]["doors"]:
+    if door is not None and country is not None and row is not None and door not in row["doors"]:
         c.no("apart", "door", name=door, other="profile.country", other_value=country)
         door = None
     types = _data_types(c, doc.get("data_types"), door)
-    standards = _standards(c, doc.get("standards"), country, door)
-    tables, defaults = _tables(c, doc.get("tables"), door=door, country=country, synthetic=synthetic)
+    standards = _standards(c, doc.get("standards"), country, row, door)
+    tables, defaults = _tables(c, doc.get("tables"), door=door, country=country, row=row, synthetic=synthetic)
     if c.problems:
         return c.problems
     assert pid and site and country and version and door and synthetic is not None  # checked above
@@ -571,7 +611,9 @@ def _data_types(c: _Check, node: Any, door: str | None) -> list[str]:
     return out
 
 
-def _standards(c: _Check, node: Any, country: str | None, door: str | None) -> dict[str, str]:
+def _standards(
+    c: _Check, node: Any, country: str | None, row: Mapping[str, Any] | None, door: str | None
+) -> dict[str, str]:
     st = c.mapping(node, "standards") or {}
     out: dict[str, str] = {}
     for name in st:
@@ -589,7 +631,7 @@ def _standards(c: _Check, node: Any, country: str | None, door: str | None) -> d
             ok, expected = _is_date(v), "YYYY-MM-DD"
         if not ok:
             c.no("std_value", where, v, expected=expected)
-        elif country is not None and name not in GOES_WITH[country]["standards"]:
+        elif country is not None and row is not None and name not in row["standards"]:
             c.no("apart", where, name=name, other="profile.country", other_value=country)
         elif door is not None and STANDARD_DOOR.get(name, door) != door:
             c.no("apart", where, name=name, other="door", other_value=door)
@@ -599,7 +641,13 @@ def _standards(c: _Check, node: Any, country: str | None, door: str | None) -> d
 
 
 def _tables(
-    c: _Check, node: Any, *, door: str | None, country: str | None, synthetic: bool | None
+    c: _Check,
+    node: Any,
+    *,
+    door: str | None,
+    country: str | None,
+    row: Mapping[str, Any] | None,
+    synthetic: bool | None,
 ) -> tuple[dict[str, tuple[dict[str, Any], list[dict[str, str]]]], dict[str, dict[str, list[str]]]]:
     tb = c.mapping(node, "tables") or {}
     out: dict[str, tuple[dict[str, Any], list[dict[str, str]]]] = {}
@@ -616,7 +664,7 @@ def _tables(
         if t is None:
             continue
         c.keys(t, _TABLE_KEYS, where)
-        source = _source(c, t.get("source"), f"{where}.source", name, synthetic, country)
+        source = _source(c, t.get("source"), f"{where}.source", name, synthetic, country, row)
         said = defaults.setdefault(name, {"state_default": [], "factor_same": [], "factor_checked": [],
                                           "forced_verify": [], "no_source_unit": []})  # fmt: skip
         rows = _rows(c, name, t.get("rows"), f"{where}.rows", country, said)
@@ -629,13 +677,21 @@ def _tables(
     return out, defaults
 
 
-def _source(c: _Check, node: Any, where: str, table: str, synthetic: bool | None, country: str | None) -> str | None:
+def _source(
+    c: _Check,
+    node: Any,
+    where: str,
+    table: str,
+    synthetic: bool | None,
+    country: str | None,
+    row: Mapping[str, Any] | None,
+) -> str | None:
     s = c.mapping(node, where)
     if s is None:
         return None
     c.keys(s, _SOURCE_KEYS, where)
     master = c.choice(s, "master", f"{where}.master", tuple(SOURCE_WORDS), "master")
-    if master is not None and country is not None and master not in GOES_WITH[country]["masters"].get(table, ()):
+    if master is not None and country is not None and row is not None and master not in row["masters"].get(table, ()):
         c.no("apart", f"{where}.master", name=master, other="profile.country", other_value=country)
         master = None
     if master == "synthetic" and synthetic is False:
@@ -744,19 +800,20 @@ def _lab(
         target = _target(c, r, system, at, system)
     display = _text(c, r, "display", f"{at}.display")
     category = c.choice(r, "category", f"{at}.category", CATEGORIES, "category")
-    if category is not None and country is not None and (country, category) not in LAB_PROFILES:
+    kind_of = source_type(country) if country is not None else None
+    if category is not None and country is not None and (kind_of, category) not in LAB_PROFILES:
         c.no("category", f"{at}.category", category, expected=", ".join(
-            cat for (ctry, cat) in LAB_PROFILES if ctry == country))  # fmt: skip
+            cat for (src, cat) in LAB_PROFILES if src == kind_of))  # fmt: skip
         category = None
     kind = c.choice(r, "kind", f"{at}.kind", KINDS, "kind")
     units = _units(c, r, at, kind, system, target, notes)
     answers = _answers(c, r.get("answers"), f"{at}.answers", kind, "answers" in r)
-    if not (target and display and category and kind and country) or units is None or answers is None:
+    if not (target and display and category and kind and country and kind_of) or units is None or answers is None:
         return None
     unit, factor, source_unit = units
     return {"system": system, "code": target, "display": display, "ucum": unit, "factor": factor,
             "category": category, "value_type": kind, "answers": answers,
-            "profile": LAB_PROFILES[(country, category)], "source_unit": source_unit}  # fmt: skip
+            "profile": LAB_PROFILES[(kind_of, category)], "source_unit": source_unit}  # fmt: skip
 
 
 def _same_unit(a: str, b: str) -> bool:
@@ -945,7 +1002,7 @@ def template(lang: str) -> str:
 
     lines: list[str] = [*say("head")]
     lines += [f"format: {ANSWERS_FORMAT}", "", *say("profile"), "profile:"]
-    lines += ["  id:", "  site_id:", f"  country:          # {', '.join(GOES_WITH)}", "  version:          # 1.0.0",
+    lines += ["  id:", "  site_id:", f"  country:          # {', '.join(made_for())}", "  version:          # 1.0.0",
               "  synthetic:        # true, false", "", *say("door"), f"door:               # {', '.join(DOORS)}", "",
               *say("data_types"), "data_types: []", "", *say("standards", names=", ".join(STANDARDS)),
               "standards: {}", "", *say("tables"), *say("defaults"), "tables:"]  # fmt: skip

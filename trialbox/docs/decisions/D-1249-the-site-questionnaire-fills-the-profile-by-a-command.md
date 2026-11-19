@@ -50,10 +50,14 @@ loaded. Under lane J's rule that nothing may widen what a role may do, the card 
    - a value of a fixed shape: a profile name, a site code, a version, a date, a local code, a YJ code, a standard
      code checked as the loader checks it, a LOINC answer code.
 
-   **Answers must also go together.** One table, `GOES_WITH`, holds each country's doors, standards and each code
-   table's masters. An answer outside it is refused with both answers named. Japan's own layer (10C-25) is not on
-   master. When it is, this table should be read from it rather than kept in the form; this card does not depend on
-   it. The form makes profiles for `jp` and `tw` only, and says why for `us` and `other`.
+   **Answers must also go together.** One table, `GOES_WITH`, holds the doors, standards and each code table's
+   masters, by the source type a country's site reads. The form names no country: it asks the site's set-up
+   defaults (`tb_common.site_country.defaults`) for the country's source type, which a country with a layer reads
+   from it (10C-25, D-1250: P14 `data_source_type`), by the same call for every country. An answer outside the row
+   is refused with both answers named. The form makes profiles for the countries whose source type has a row (`jp`
+   and `tw` today) and says why for the others (`us`, `other`). A country whose layer cannot be used is refused
+   (`country_layer`) and nothing is assumed, never another country's row. The words left (the standard name
+   `jp_core`) are data labels, pinned in the Japan guard's table (`tests/unit/test_japan_profile_layer.py`).
 
    Every other answer is refused, with a message in en, ja and zh-TW from the console's catalogue
    (`profileform.err.<code>`). The message gives the answer's key, its line and its length, and says what is
