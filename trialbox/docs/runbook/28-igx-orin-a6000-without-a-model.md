@@ -27,20 +27,26 @@ models need about 100 GB free and more memory than this machine has (review 24, 
 | 3 | Base packages | `sudo apt update && sudo apt install -y git make curl python3-venv python3-yaml` | no "E:" line | send the "E:" line |
 | 4 | The version | `git clone https://github.com/zandis/Auto-GPT.git`; `cd Auto-GPT/trialbox`; `git checkout <the tag we send>` | "HEAD is now at …" | – |
 | 5 | Confirm the card's profile | `sh deploy/gpu_profile.sh` | `arm64-dgpu` (an older version prints `gb10`) | anything else: send it; either way do not use GPU mode |
-| 6 | Build the database image (the start forgets it on a machine without Java build tools) | `docker build -f deploy/docker/db.Dockerfile -t trialbox-postgres:16-1 deploy/docker` | after 5 to 15 minutes, a line naming `trialbox-postgres:16-1` | send the last 30 lines |
-| 7 | Start | `deploy/poc.sh` | "fetching fonts and JVM build inputs in a builder container"; image builds (perhaps 20 to 40 minutes on this processor); "starting the stack"; **the admin password, shown once: write it down**; "ingesting synthetic site A (600 patients)"; the addresses | copy the `poc:` line and the output of `deploy/poc.sh status` to us; running step 7 again is safe |
-| 8 | Sign in | browser on this machine: `http://127.0.0.1:8090`, user `admin`; set up the second factor with a phone authenticator | the console's overview | lost password: `docker compose --project-directory deploy -f deploy/docker-compose.yml -f deploy/docker-compose.test.yml -f deploy/docker-compose.poc.yml --profile stub --profile test exec console python -m console.cli reset-password admin` prints a new one, shown once (not `deploy/poc.sh reset`: that deletes all the data) |
-| 9 | Feasibility | console, "Test mailbox": subject `FEAS GZQO` | web mail `http://127.0.0.1:8025`: a reply with a PDF and an XLSX | no reply in 10 minutes: send `deploy/poc.sh status` |
-| 10 | A screened list | "Test mailbox": `SCREEN GZQO version=1.0.0` | an encrypted workbook and a summary PDF; the password in a second mail | send the reply's text |
-| 11 | Memory, after an idle hour | `docker stats --no-stream > ~/tb-stats.txt`; `free -g >> ~/tb-stats.txt` | a table of the services and their memory | send the file (it holds no password and no patient) |
-| 12 | Stop | `deploy/poc.sh down` | the containers stop; data kept | – |
+| 6 | Start (it builds every image it needs, the database's too, the first time) | `deploy/poc.sh` | "fetching fonts and JVM build inputs in a builder container"; image builds; "building the database image trialbox-postgres:16-1" (all builds together perhaps 30 to 60 minutes on this processor); "starting the stack"; **the admin password, shown once: write it down**; "ingesting synthetic site A (600 patients)"; the addresses | copy the `poc:` line and the output of `deploy/poc.sh status` to us; running step 6 again is safe (an image already built is not built again). If the build fails, see below the table |
+| 7 | Sign in | browser on this machine: `http://127.0.0.1:8090`, user `admin`; set up the second factor with a phone authenticator | the console's overview | lost password: `docker compose --project-directory deploy -f deploy/docker-compose.yml -f deploy/docker-compose.test.yml -f deploy/docker-compose.poc.yml --profile stub --profile test exec console python -m console.cli reset-password admin` prints a new one, shown once (not `deploy/poc.sh reset`: that deletes all the data) |
+| 8 | Feasibility | console, "Test mailbox": subject `FEAS GZQO` | web mail `http://127.0.0.1:8025`: a reply with a PDF and an XLSX | no reply in 10 minutes: send `deploy/poc.sh status` |
+| 9 | A screened list | "Test mailbox": `SCREEN GZQO version=1.0.0` | an encrypted workbook and a summary PDF; the password in a second mail | send the reply's text |
+| 10 | Memory, after an idle hour | `docker stats --no-stream > ~/tb-stats.txt`; `free -g >> ~/tb-stats.txt` | a table of the services and their memory | send the file (it holds no password and no patient) |
+| 11 | Stop | `deploy/poc.sh down` | the containers stop; data kept | – |
+
+**If the build fails** (step 6 stops with `poc: the database image trialbox-postgres:16-1 did not build`, or another
+build's error): it is almost always a download that failed. Check that the machine reaches the three package
+servers the build uses: `for h in deb.debian.org apt.postgresql.org packages.groonga.org; do curl -sS -o /dev/null -w "$h %{http_code}\n" https://$h/; done`
+(each line should end in a number such as `200` or `301`, not an error). Then run `deploy/poc.sh` again (nothing was
+started, and what was built is kept), and if it fails a second time send us the `poc:` line, the 30 lines above it
+and the three lines of that check.
 
 ## Every day after
 
 Start: `deploy/poc.sh` (it keeps the passwords and the data). Stop: `deploy/poc.sh down`. State and addresses:
 `deploy/poc.sh status`. Start again from nothing, deleting all data: `deploy/poc.sh reset`.
 
-The builder container of step 7 runs as root and leaves root-owned files under `.cache` in the checkout. They do no
+The builder container of step 6 runs as root and leaves root-owned files under `.cache` in the checkout. They do no
 harm; to delete the checkout later, use `sudo rm -rf Auto-GPT`.
 
 ## Optional: the real embedder (stub judge, real embedder)
@@ -58,7 +64,7 @@ Not verified on any Arm machine. Page 29 (step 4) runs it after the engine probe
 | E4 | Download | the same command without `--dry-run`; then `rm -rf deploy/models/embedder.download/.cache` | the files arrive (2.3 GB; 5 to 30 minutes) | a network error: run it again (it continues) |
 | E5 | Check it is the pinned build before it goes in place | `docker run --rm -v "$PWD/deploy/models/embedder.download:/m:ro" trialbox-py:1.0.0 python -m tools.pin_model --build e-embed-1 --model-dir /m --endpoint embed --served-name e-embed-1 --out /tmp/check.yaml` | `pinned e-embed-1: sha256 e131f3203849…` (18 files) | any other line: send it, and do not go on |
 | E6 | Put it in place | `mv deploy/models/embedder.download deploy/models/embedder` | – | – |
-| E7 | Start again from nothing, once. Step 7 made the synthetic data with the stand-in embedder, and the real one cannot read it. `deploy/poc.sh reset` **deletes all the data of this proof of concept**: the synthetic hospital's database and lake, the test mailboxes, the console's accounts and the admin password. All of it is synthetic and is made again by the next start. It keeps `deploy/.env`, the images, the weights, the pins in `deploy/poc/site` and the stored files in `deploy/.objects` (all synthetic too). Type it only if you agree | `deploy/poc.sh reset` | the containers and their volumes are removed | – |
+| E7 | Start again from nothing, once. Step 6 made the synthetic data with the stand-in embedder, and the real one cannot read it. `deploy/poc.sh reset` **deletes all the data of this proof of concept**: the synthetic hospital's database and lake, the test mailboxes, the console's accounts and the admin password. All of it is synthetic and is made again by the next start. It keeps `deploy/.env`, the images, the weights, the pins in `deploy/poc/site` and the stored files in `deploy/.objects` (all synthetic too). Type it only if you agree | `deploy/poc.sh reset` | the containers and their volumes are removed | – |
 | E8 | Start with it | `TB_POC_EMBED=model deploy/poc.sh` | "embedder check", "building the embedder image", "pinning the embedder", **a new admin password, shown once: write it down**, and at the end "TrialBox POC (stub model, model embedder)" | "the synthetic lake was embedded with the hash embedder": E7 was skipped. Anything else: send the `poc:` line |
 | E9 | What to send back | `deploy/poc.sh report > ~/tb-embedder.txt`; `cat ~/tb-embedder.txt` | the services and their states, their memory, `embed-service TB_EMBED_MODE: model` and the embedder's pin | send `~/tb-embedder.txt` only. Not the start's own output: it shows the admin password and your folder names |
 

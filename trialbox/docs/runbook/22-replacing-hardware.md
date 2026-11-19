@@ -4,8 +4,8 @@
 
 *T-635 (OPS-074, OPS-045). The box is dead, lost, or a part must be replaced and the disk cannot stay.*
 
-**Drill (T-213b):** none. This procedure is not rehearsed by a test: a restore onto a second machine from the
-backup and the KEK shares alone needs that second machine, and no such drill runs yet.
+**Drill (T-213b):** `test_runbook_22_replacing_hardware` (Docker drill: restore onto a second machine from the backup
+and the KEK shares only, with no file from the first machine; the clock runs as in §22).
 
 *Default until the owner answers (TB-DR-09 Q5):* Aimedics keeps one loaner box and ships it within five working days.
 

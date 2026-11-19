@@ -5,9 +5,9 @@
 *T-635 (OPS-074). The morning notices go at 07:00 and 07:30 site time (§2). Users notice first; the administrator
 checks in this order. Ticket priority P1 when nobody got it, P3 for one person (§21).*
 
-**Drill (T-213b):** none. This procedure is not rehearsed by a test as a whole (the console's timers, the
-notice, the relay stopped and started). Its outbox part is tested: a mail queued while the relay is down and
-sent by `mail resolve` once it is back (`tests/unit/test_mail_resolve.py`).
+**Drill (T-213b):** `test_runbook_04_morning_mail_missing` (Docker drill: the mail relay is stopped overnight; the
+checks below find it in the order given, and "Send notices now" sends once the relay is back, with no second mail
+to anyone who already had one).
 
 | Check | How | If so |
 | --- | --- | --- |

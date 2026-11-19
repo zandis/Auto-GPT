@@ -40,7 +40,7 @@
 {% macro visit_row(rs, r, today, editable, back) %}<li class="vrow" data-testid="visit-{{ r.record }}-{{ r.visit }}">
 <div class="vmain"><span class="mono">{{ r.record }}</span> · {{ vlabel(r) }}
  <span class="pill v-{{ r.status }}">{{ t('life.vstate.' + r.status) }}</span>
- <span class="hint nowrap">{{ t('life.visit.due', day=r.due) }} · {{ t('life.visit.window', start=r.start, end=r.end) }}{% if r.days_late %} · {{ t('life.visit.late', n=r.days_late) }}{% endif %}</span></div>
+ <span class="hint nowrap">{{ t('life.visit.due', day=r.due) }} · {{ t('life.visit.window', start=r.start, end=r.end) }}{% if r.days_off_unknown %} · <span data-testid="days-off-unknown">{{ t('life.visit.daysoff_unknown') }}</span>{% endif %}{% if r.days_late %} · {{ t('life.visit.late', n=r.days_late) }}{% endif %}</span></div>
 {% if editable %}<div class="vact">
  <a class="button" href="/studies/{{ rs }}/entry?record={{ r.record|urlencode }}&amp;form=tb_visit&amp;event={{ r.visit }}&amp;prefill=done&amp;win={{ 1 if r.start <= today <= r.end else 0 }}&amp;back={{ back }}" data-testid="done-{{ r.record }}-{{ r.visit }}">{{ t('life.visit.done_today') }}</a>
  <a class="button secondary" href="/studies/{{ rs }}/entry?record={{ r.record|urlencode }}&amp;form=tb_visit&amp;event={{ r.visit }}&amp;back={{ back }}" data-testid="open-{{ r.record }}-{{ r.visit }}">{{ t('life.visit.open') }}</a>

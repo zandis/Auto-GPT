@@ -5,10 +5,8 @@
 *T-635, D-390. What to close when a person leaves the trial team, hospital IT, the key stewards or Aimedics. Do it
 on the last working day, not after.*
 
-**Drill (T-213b):** `test_runbook_25_leaver` (in process: two coordinator accounts are disabled, one on
-**Users** and one with `console.cli disable`; neither can sign in after, neither is deleted, and each disable is
-in the audit with the account's name). Steps 2 to 5, and a key steward's leaving, are not rehearsed by a test;
-the KEK rotation itself is tested in `tests/unit/test_kek.py`.
+**Drill (T-213b):** `test_runbook_25_leaver` (Docker drill: a coordinator account is disabled by these steps and can
+no longer sign in, and the disable is in the audit; tabletop: a key steward leaves and the KEK is rotated).
 
 ## A member of the trial team (coordinator, investigator, PI)
 

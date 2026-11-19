@@ -371,6 +371,29 @@ def run_import_example(tmp: Path) -> None:
     assert seen.stdout.strip() == "['GZQO'] 1.0.0 GZQO/v1.0.0 (offline update, synthetic-run:runbook-test)"
 
 
+def run_holidays_import(tmp: Path) -> None:
+    """10C-14: the yearly holiday update. Run as written, with a file in the Cabinet Office's layout made here (CP932,
+    its header; nothing is fetched), its sha256 and the years filled in, and ``--out`` in the temporary folder so the
+    committed list is not overwritten; a wrong sha256 is refused."""
+    import hashlib
+
+    cmd = next(c for c in commands() if c.startswith("python3 -m tools.holidays_import"))
+    src = tmp / "syukujitsu.csv"
+    src.write_bytes(
+        "国民の祝日・休日月日,国民の祝日・休日名称\r\n2028/1/1,元日\r\n2028/1/10,成人の日\r\n".encode("cp932")
+    )
+    sha = hashlib.sha256(src.read_bytes()).hexdigest()
+    line = cmd.replace("syukujitsu.csv", str(src)).replace("<hex>", sha).replace("<first>-<last>", "2028-2028")
+    out_file = tmp / "holidays_jp.csv"
+    got = _run([*line.replace("python3", sys.executable, 1).split(), "--out", str(out_file)])
+    assert got.returncode == 0, got.stderr
+    assert (
+        out_file.read_text(encoding="utf-8") == "date,name,kind\n2028-01-01,元日,holiday\n2028-01-10,成人の日,holiday\n"
+    )
+    bad = _run([*line.replace("python3", sys.executable, 1).replace(sha, "0" * 64).split(), "--out", str(out_file)])
+    assert bad.returncode == 2 and "not the one recorded" in bad.stderr
+
+
 # command (as §1 writes it, a regular expression) -> its runner
 RUNNERS: list[tuple[str, Callable[[Path], None]]] = [
     (r"tools/serving_config\.py measured", run_serving_measured),
@@ -411,6 +434,7 @@ RUNNERS: list[tuple[str, Callable[[Path], None]]] = [
     (r"deploy/check_host\.sh \[--gb10\]", run_check_host),
     (r"systemctl enable trialbox-.*", run_systemctl_enable),
     (r"python -m tools\.trialbox\.memcaps --measure", run_memcaps_measure),
+    (r"python3 -m tools\.holidays_import syukujitsu\.csv --sha256 <hex> --years <first>-<last>", run_holidays_import),
     (r"python -m tools\.trialbox\.memcaps --env-file deploy/\.env --write", run_memcaps_write),
     (r"docker compose exec criteria-compiler sh -c 'cd /app/rulesets && python -m zipfile .*", run_import_example),
 ]
