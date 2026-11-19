@@ -112,6 +112,9 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.breakglass_end": ("Break-glass grant ended", "緊急アクセス権限の終了", "結束緊急存取授權"),
     "console.breakglass_review": ("Break-glass use reviewed", "緊急アクセス使用の確認", "覆核緊急存取使用"),
     "console.breakglass_notice": ("Break-glass notice sent", "緊急アクセス通知の送信", "寄送緊急存取通知"),
+    # 10K-15 (D-1364): the support-session switch
+    "console.support_session_start": ("Support session started", "サポートセッションの開始", "開始支援作業時段"),
+    "console.support_session_end": ("Support session ended", "サポートセッションの終了", "結束支援作業時段"),
     # exports and downloads
     "console.export": ("Export downloaded", "エクスポートのダウンロード", "下載匯出檔"),
     "console.first_run": ("First-run set-up completed", "初回セットアップの完了", "完成首次設定"),

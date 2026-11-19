@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-235 entries: 89 erase, 29 keep, 117 no patient data. 27 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+236 entries: 89 erase, 29 keep, 118 no patient data. 27 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -101,6 +101,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `auth.pending_logins` | staff, accounts or sign-in state, no patient |
 | `auth.sessions` | staff, accounts or sign-in state, no patient |
 | `auth.users` | staff, accounts or sign-in state, no patient |
+| `breakglass.support_sessions` | a support session (D-1364): the administrator, start, end, ticket number |
 | `datacore.contact_rule` | settings and configuration, no patient |
 | `datacore.form` | settings and configuration, no patient |
 | `datacore.owner` | settings and configuration, no patient |

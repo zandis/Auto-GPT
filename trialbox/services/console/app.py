@@ -1513,6 +1513,9 @@ def create_app(
     from console import breakglass
 
     breakglass.register(app, helpers)  # D-280 (OD-5): the administrator's break-glass grants and the steward's review
+    from console import support_session
+
+    support_session.register(app, helpers)  # 10K-15 (D-1364): the support-session switch; permit closes patient rows
     from console import notmatched_pages
 
     notmatched_pages.register(app, helpers, raw_env)  # T-310a (D-446): weekly sample, send-back, the site's check

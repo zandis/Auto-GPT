@@ -1,0 +1,5 @@
+{# 10K-15 (D-1364, decision 99): while a support session runs (console.support_session sets request.state), the
+   administrator's pages say so at their top, with the latest end and a link to end it #}
+{% if request is defined and user and permit(user.role, 'support.session') %}{% set ss = request.state.support_session if request.state.support_session is defined else none %}
+{% if ss %}<div class="banner" role="alert" data-testid="support-banner">{{ t('support.banner', until=ss.ends_at|local(16)) }} <a href="/ops/support-session">{{ t('support.banner.manage') }}</a></div>
+{% elif request.state.support_unknown is defined and request.state.support_unknown %}<div class="banner" role="alert" data-testid="support-banner">{{ t('support.session_unknown') }}</div>{% endif %}{% endif %}

@@ -3,7 +3,10 @@
 It stands apart from the page (``console.breakglass``) since T-716 (D-484): the orchestrator opens this store to
 read a grant and to write its use. A process that loads the store must not load the console's pages, their sign-in
 code and their audit events with it (the table of who writes which audit family, T-721, reads what a process
-loads)."""
+loads).
+
+10K-15 (D-1364): the same schema keeps the support sessions (:class:`SupportSessionStore`), the other exception to
+routine access, which closes patient pages instead of opening one."""
 
 from __future__ import annotations
 
@@ -17,6 +20,7 @@ from tb_common.authz import (
     BREAK_GLASS_NOTE_MIN,
     BREAK_GLASS_REASONS,
     BREAK_GLASS_REVIEW_DAYS,
+    SUPPORT_SESSION_MINUTES,
 )
 
 from console.storedb import open_db
@@ -60,7 +64,21 @@ CREATE TABLE uses (
 );
 CREATE INDEX uses_grant ON uses (grant_id, id)
 """
-MIGRATIONS = (SCHEMA_V1, SCHEMA_V2)
+# 10K-15 (D-1364, owner decision 99): the support sessions the hospital's administrator starts; the console reads the
+# open one at every request (``console.support_session``). No patient data: who, when, the ticket, how it ended.
+SCHEMA_V3 = """
+CREATE TABLE support_sessions (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  started_by TEXT COLLATE "C" NOT NULL,
+  started_at TEXT COLLATE "C" NOT NULL,
+  ticket TEXT NOT NULL DEFAULT '',
+  ended_at TEXT COLLATE "C",
+  ended_by TEXT,
+  how TEXT
+);
+CREATE INDEX support_sessions_open ON support_sessions (ended_at, id)
+"""
+MIGRATIONS = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3)
 WHATS = ("patient_page", "reveal", "job_page", "case_sheet", "twin")  # twin: T-204 (D-440), the twin API
 _COLS = ("id, username, reason, note, kind, ruleset, pid, job_id, opened_at, ends_at, ended_at, uses, reviewed_by, "
          "reviewed_at, review_note")  # fmt: skip
@@ -236,5 +254,101 @@ class BreakGlassStore:
         self.db.execute("UPDATE grants SET reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ?",
                         (by, _iso(now), " ".join((note or "").split())[:NOTE_MAX] or None, gid))  # fmt: skip
         got = self.get(gid)
+        assert got is not None
+        return got
+
+
+# ---------------------------------------------------------------------------------------------- 10K-15 (D-1364)
+_TICKET = re.compile(r"^[A-Za-z0-9#._/-]{0,40}$")  # a ticket number, never a name or a sentence
+HOWS = ("hand", "auto")  # ended by the administrator, or by itself after SUPPORT_SESSION_MINUTES
+_SCOLS = "id, started_by, started_at, ticket, ended_at, ended_by, how"
+
+
+class SupportError(ValueError):
+    """A support session that cannot be started or ended: the key of the message to show."""
+
+
+@dataclass(frozen=True)
+class SupportSession:
+    id: int
+    started_by: str
+    started_at: str
+    ticket: str
+    ended_at: str | None
+    ended_by: str | None
+    how: str | None
+
+    @property
+    def ends_at(self) -> str:
+        """The latest end: the stored start plus ``SUPPORT_SESSION_MINUTES`` (no stored end that could drift)."""
+        return _iso(datetime.fromisoformat(self.started_at) + timedelta(minutes=SUPPORT_SESSION_MINUTES))
+
+    def active(self, now: datetime) -> bool:
+        return self.ended_at is None and now < datetime.fromisoformat(self.ends_at)
+
+
+def _session(r: Any) -> SupportSession:
+    return SupportSession(int(r[0]), r[1], r[2], r[3] or "", r[4], r[5], r[6])
+
+
+class SupportSessionStore:
+    """The ``support_sessions`` table of schema ``breakglass``. At most one session is open; the console asks
+    :meth:`current` at every request, which also ends a session whose 2 hours are over (once: the row says so)."""
+
+    def __init__(self, url: str | None = None) -> None:
+        self.db = open_db(url, "breakglass", MIGRATIONS)
+
+    def close(self) -> None:
+        self.db.close()
+
+    def current(self, now: datetime) -> tuple[SupportSession | None, list[SupportSession]]:
+        """The open session (None when there is none) and the sessions this call ended because their time was over:
+        each is ended at its latest end (``ends_at``), with ``how`` "auto", by exactly one caller."""
+        rows = self.db.fetchall(f"SELECT {_SCOLS} FROM support_sessions WHERE ended_at IS NULL ORDER BY id")
+        lapsed: list[SupportSession] = []
+        live: SupportSession | None = None
+        for s in (_session(r) for r in rows):
+            if s.active(now):
+                live = s
+                continue
+            if self.db.execute("UPDATE support_sessions SET ended_at = ?, ended_by = '', how = 'auto' "
+                               "WHERE id = ? AND ended_at IS NULL", (s.ends_at, s.id)):  # fmt: skip
+                lapsed.append(self.get(s.id) or s)
+        return live, lapsed
+
+    def get(self, sid: int) -> SupportSession | None:
+        row = self.db.fetchone(f"SELECT {_SCOLS} FROM support_sessions WHERE id = ?", (sid,))
+        return _session(row) if row else None
+
+    def recent(self) -> list[SupportSession]:
+        """Every session, newest first (a few a month at most: one per supervised session)."""
+        rows = self.db.fetchall(f"SELECT {_SCOLS} FROM support_sessions ORDER BY id DESC")
+        return [_session(r) for r in rows]
+
+    def start(self, username: str, ticket: str, now: datetime) -> SupportSession:
+        """Start a session for ``username`` (the administrator); refused while one is open."""
+        ticket = (ticket or "").strip()
+        if not _TICKET.match(ticket):
+            raise SupportError("support.err.ticket")
+        with self.db.transaction() as tx:
+            tx.execute("LOCK TABLE support_sessions IN EXCLUSIVE MODE")  # two starts at once: one wins
+            for r in tx.fetchall(f"SELECT {_SCOLS} FROM support_sessions WHERE ended_at IS NULL"):
+                if _session(r).active(now):
+                    raise SupportError("support.err.on")
+            sid = int(tx.fetchval("INSERT INTO support_sessions (started_by, started_at, ticket) VALUES (?, ?, ?) "
+                                  "RETURNING id", (username, _iso(now), ticket)))  # fmt: skip
+        got = self.get(sid)
+        assert got is not None
+        return got
+
+    def end(self, sid: int, by: str, now: datetime) -> SupportSession:
+        """End the open session ``sid`` by hand; refused when it is not open (ended, or its time is over)."""
+        s = self.get(sid)
+        if s is None or not s.active(now):
+            raise SupportError("support.err.none")
+        if not self.db.execute("UPDATE support_sessions SET ended_at = ?, ended_by = ?, how = 'hand' "
+                               "WHERE id = ? AND ended_at IS NULL", (_iso(now), by, sid)):  # fmt: skip
+            raise SupportError("support.err.none")
+        got = self.get(sid)
         assert got is not None
         return got

@@ -91,6 +91,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/ops/accounts/requests` | Y | - | - | - | - | - | - | Y | - |
 | GET | `/ops/flags` | Y | - | - | - | - | - | - | Y | - |
 | GET | `/ops/identity` | Y | - | - | - | - | - | - | - | - |
+| GET | `/ops/support-session` | Y | - | - | - | - | - | - | - | - |
 | GET | `/ops/users` | Y | - | - | - | - | - | - | - | - |
 | GET | `/pilot/cascade` | Y | Y | Y | Y | - | - | - | Y | Y |
 | GET | `/pilot/cascade/{run_id}` | n | n | n | n | - | - | - | n | n |
@@ -234,6 +235,8 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/ops/identity` | Y | - | - | - | - | - | - | - | - |
 | POST | `/ops/ingest` | Y | - | - | - | - | - | - | - | - |
 | POST | `/ops/notices` | Y | - | - | - | - | - | - | - | - |
+| POST | `/ops/support-session` | Y | - | - | - | - | - | - | - | - |
+| POST | `/ops/support-session/end` | Y | - | - | - | - | - | - | - | - |
 | POST | `/ops/users` | Y | - | - | - | - | - | - | - | - |
 | POST | `/pilot/cascade` | Y | Y | - | - | - | - | - | - | - |
 | POST | `/pilot/case` | Y | Y | - | - | Y | - | - | - | - |

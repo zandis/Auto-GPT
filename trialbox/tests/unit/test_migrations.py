@@ -463,6 +463,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     "breakglass": (
         "0347aae3f58f7558d041191f25bd2fc5bc654e6f5139c9ee28b1588e91544b83",
         "a109d4561de2163aa76c7efdb78674bc128bd1d8ce65f968aaabd6e63b9bdb99",
+        # 10K-15 (D-1364): version 3, the support sessions (who started it, when, the ticket, how it ended)
+        "1e4c4e80e6514315ac11952180fa8b646c310a2f7db090572c9a637fbdcb5f93",
     ),
     # T-112a (D-427): the data-operations batches, new after the baseline
     # T-725 (D-491): dataops version 2, which generation each derived artefact is built from (``built``)

@@ -10,6 +10,11 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The support-session switch (10K-15, D-1364): before a supervised screen share (runbook 21) the administrator turns
+  it on at **Support session** in the menu. While it runs, every patient page, list, export and break-glass grant is
+  refused to every account, with a page in English, Japanese and Traditional Chinese that says until when; the
+  administrator's pages show a banner. It ends by hand or by itself 2 hours after it started; the start and the end
+  are in the audit trail. Nothing changes on a box where nobody turns it on.
 - Dates on printed pages and the fiscal year 年度 (10C-13, 10C-15): a site may print dates in Western form (ISO, as
   before), Japanese era (令和8年11月18日) or both (2026年（令和8年）11月18日) on the feasibility report, the NHI
   navigation summary and application form, the CASE sheet and the released consent page (`site.printed_dates`); the
