@@ -1020,6 +1020,7 @@ class Lake:
         snap = snapshot or self.current()
         if not snap:
             raise FileNotFoundError("lake has no snapshot yet (run adapter / rebuild)")
+        self.check_id_rule(split_generation(snap)[0])
         if split_generation(snap)[1] is not None:  # T-724 (D-490): a generation, never the date's newest in its place
             path = gen_dir(self.dir) / f"{snap}.duckdb"
             if not path.exists() or not path.with_suffix(".json").exists():
@@ -1029,6 +1030,19 @@ class Lake:
         if not path.exists():
             raise FileNotFoundError(f"no lake snapshot {snap}")
         return path
+
+    def check_id_rule(self, snapshot: str) -> None:
+        """D-1253 review G1: no reader opens (and no build makes) a lake of a snapshot whose NDJSON is not this
+        release's id rule (an earlier rule's: rebuild once; a newer one's: update the box). Every read, pin, hold
+        and promote resolves its file here (:meth:`db_path`)."""
+        from tb_common import id_rule
+
+        nd = self.dir / "ndjson" / snapshot
+        if nd.is_dir():
+            try:
+                id_rule.check_snapshot(nd, f"the lake snapshot {snapshot}")
+            except id_rule.IdRuleError as exc:  # 503: the lake cannot serve it (never "no data")
+                raise LakeSchemaError(str(exc)) from exc
 
     def promote(self, snapshot: str) -> None:
         """Make ``snapshot`` the one served by default (``CURRENT``), atomically."""

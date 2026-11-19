@@ -304,9 +304,9 @@ def write_snapshot(
     patient (a number the mapping declares unique across the site, re-filed to another chart at the source)."""
     from tb_common import id_rule
 
-    if base is not None and base.exists() and id_rule.snapshot_rule(base) != id_rule.RULE:
-        # D-1253: never a snapshot of rule-2 ids over one of rule-1 ids (a record would be there twice)
-        raise id_rule.IdRuleError([f"the lake snapshot {base.name}"])
+    if base is not None and base.exists():
+        # D-1253: never a snapshot of rule-2 ids over one of another rule's ids (a record would be there twice)
+        id_rule.check_snapshot(base, f"the lake snapshot {base.name}")
     directory.mkdir(parents=True, exist_ok=True)
     id_rule.write_snapshot_record(directory)  # D-1253: the rule this snapshot's ids were made under
     counts: dict[str, int] = {}

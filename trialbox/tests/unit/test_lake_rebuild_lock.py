@@ -25,6 +25,7 @@ from embed_service.embedder import HashEmbedder
 from lake import store
 from lake.source import lake_rows as source_lake_rows
 from lake.store import Lake, SnapshotHeld
+from tb_common import id_rule
 
 ROOT = Path(__file__).resolve().parents[2]
 NIGHT = "2026-10-04"
@@ -34,6 +35,7 @@ TZ = "Asia/Taipei"
 def _patients(lake_dir: Path, snap: str, n: int) -> None:
     nd = lake_dir / "ndjson" / snap
     nd.mkdir(parents=True, exist_ok=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     pats = [{"resourceType": "Patient", "id": f"syn-{i:03d}", "gender": "female"} for i in range(n)]
     (nd / "Patient.ndjson").write_text("".join(json.dumps(p) + "\n" for p in pats), encoding="utf-8")
 
@@ -173,6 +175,7 @@ _CHILD = """
 import sys
 from pathlib import Path
 from lake import store
+from tb_common import id_rule
 kind, lake_dir = sys.argv[1], Path(sys.argv[2])
 cm = store.lake_lock(lake_dir) if kind == "lake" else store.building(lake_dir, sys.argv[3])
 with cm:

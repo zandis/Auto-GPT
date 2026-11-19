@@ -133,11 +133,14 @@ CREATE TABLE IF NOT EXISTS direct_source_event (id BIGINT GENERATED ALWAYS AS ID
 SCHEMA_V8 = """
 ALTER TABLE draft ADD COLUMN IF NOT EXISTS prov TEXT
 """
-# D-1253: the lake-id rule each study's citations were made under, per study (tb_common.id_rule): a study whose
-# decided, signed or sent values cite lake rows of the earlier rule is frozen for prefill; the others go on
+# D-1253: the lake-id rule each study's citations were made under, per study (tb_common.id_rule). Every study that
+# has drafts when this migration runs drafted from the earlier rule's lake: it is stamped rule 1 here. A study that
+# has none yet starts at rule 2 at its first draft run. A rule-1 study with a decided, signed or sent value is frozen
+# for prefill; one with open drafts only waits for the one rebuild, which clears those drafts and stamps it rule 2
 SCHEMA_V9 = """
 CREATE TABLE IF NOT EXISTS tb_id_rule_study (study TEXT PRIMARY KEY, rule INTEGER NOT NULL CHECK (rule > 0),
-  recorded_at TIMESTAMPTZ NOT NULL DEFAULT now())
+  recorded_at TIMESTAMPTZ NOT NULL DEFAULT now());
+INSERT INTO tb_id_rule_study (study, rule) SELECT DISTINCT study, 1 FROM draft ON CONFLICT (study) DO NOTHING
 """
 MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9)
 #: D-1253: a study's drafts whose citations carry a trail (a decision, a signature, a send): its records
@@ -152,6 +155,11 @@ ID_RULE_FROZEN = (
     "prefill is stopped for this study: its decided, signed or sent values cite lake records of the earlier id "
     "rule (D-1253), which the rebuilt lake does not hold. They stay as the study's kept record, readable and "
     "exportable; close the study in EDC or start it again under a new study key"
+)
+ID_RULE_WAITING = (
+    "prefill waits for the one rebuild of this box (D-1253): this study's open drafts cite lake records of the "
+    f"earlier id rule. The rebuild clears those drafts (nothing decided, signed or sent) and the study goes on: "
+    f"{id_rule.COMMAND}"
 )
 #: tables that only ever grow (D-281): a trigger refuses UPDATE, DELETE and TRUNCATE on each
 APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record",
@@ -541,27 +549,47 @@ class EdcStore:
             raise EdcError("edc.off", "prefill is off for this study (no sponsor acknowledgement on file)")
 
     def id_rule_frozen(self, study: str) -> bool:
-        """D-1253: the study's decided, signed or sent values cite lake rows of the earlier id rule (it was never
-        stamped with the current one and holds such a trail): no new draft, nothing sent."""
+        """D-1253: the study is of the earlier id rule and its decided, signed or sent values cite such lake rows:
+        no new draft, no decision, no tick, nothing sent or erased in REDCap."""
         with self._db.transaction() as tx:
-            return self._frozen(tx, study)
+            return self._study_state(tx, study) == "frozen"
 
     @staticmethod
-    def _frozen(tx: Any, study: str) -> bool:
-        stamped = tx.fetchval("SELECT 1 FROM tb_id_rule_study WHERE study = ? AND rule = ?", (study, id_rule.RULE))
-        return stamped is None and bool(tx.fetchval(TRAILED, (study,)))
+    def _study_state(tx: Any, study: str) -> str:
+        """``new`` (no rule yet: no draft), ``current`` (this rule), ``frozen`` (an earlier rule's trail),
+        ``waiting`` (an earlier rule's open drafts only: the rebuild clears them), ``newer`` (a later release's)."""
+        rule = tx.fetchval("SELECT rule FROM tb_id_rule_study WHERE study = ?", (study,))
+        if rule is None:
+            return "new"
+        if int(rule) == id_rule.RULE:
+            return "current"
+        if int(rule) > id_rule.RULE:
+            return "newer"
+        return "frozen" if tx.fetchval(TRAILED, (study,)) else "waiting"
+
+    @staticmethod
+    def _refuse(state: str) -> None:
+        if state == "frozen":
+            raise EdcError("edc.id_rule_frozen", ID_RULE_FROZEN)
+        if state == "waiting":
+            raise EdcError("edc.id_rule_frozen", ID_RULE_WAITING)
+        if state == "newer":
+            raise EdcError("edc.id_rule_frozen", "this study's drafts are of a newer id rule: update the box")
 
     def _study_rule(self, tx: Any, study: str) -> None:
-        """In a draft run's transaction: a study of the current rule goes on; one with no trail is stamped and goes
-        on; a frozen one is refused before anything is written."""
-        if self._frozen(tx, study):
-            raise EdcError("edc.id_rule_frozen", ID_RULE_FROZEN)
-        tx.execute("INSERT INTO tb_id_rule_study (study, rule) VALUES (?, ?) ON CONFLICT (study) DO NOTHING",
-                   (study, id_rule.RULE))  # fmt: skip
+        """In a draft run's (or an ODM import's) transaction: a study of the current rule goes on; a new one is
+        stamped and goes on; one of another rule is refused before anything is written."""
+        state = self._study_state(tx, study)
+        self._refuse(state)
+        if state == "new":
+            tx.execute("INSERT INTO tb_id_rule_study (study, rule) VALUES (?, ?) ON CONFLICT (study) DO NOTHING",
+                       (study, id_rule.RULE))  # fmt: skip
 
     def require_not_frozen(self, study: str) -> None:
-        if self.id_rule_frozen(study):
-            raise EdcError("edc.id_rule_frozen", ID_RULE_FROZEN)
+        """D-1253: every write path of a study's values (a decision, a copy tick, a send, REDCap's erase) refuses a
+        study of another id rule, before anything is written."""
+        with self._db.transaction() as tx:
+            self._refuse(self._study_state(tx, study))
 
     def require_drafting(self, study: str) -> None:
         """Prefill on or copy-assist (D-434): drafts, the ODM import, review and signatures."""
@@ -805,6 +833,7 @@ class EdcStore:
         if action not in ACTIONS:
             raise EdcError("edc.action", "confirm, edit or reject", 400)
         with self._db.transaction() as tx:
+            self._refuse(self._study_state(tx, study))  # D-1253 review G2: in the decision's own transaction
             rows = tx.fetchdicts("SELECT * FROM draft WHERE study = ? AND id = ? FOR UPDATE", (study, draft_id))
             if not rows:
                 raise EdcError("edc.no_draft", "no such draft", 404)
@@ -1143,6 +1172,7 @@ class EdcStore:
             raise EdcError("edc.tick_none", "no value to tick", 400)
         ids: list[int] = []
         with self._db.transaction() as tx:
+            self._refuse(self._study_state(tx, study))  # D-1253 review G2: in the tick's own transaction
             for d in values:
                 ids.append(int(tx.fetchval(
                     "INSERT INTO copy_tick (study, record, visit, item, draft_id, signed_sha, action, reason, by_user, "

@@ -84,6 +84,12 @@ CREATE TABLE IF NOT EXISTS batch_run (id BIGINT GENERATED ALWAYS AS IDENTITY PRI
 CREATE INDEX IF NOT EXISTS batch_run_snapshot ON batch_run (snapshot, id)
 """,
     id_rule.DDL,  # D-1253: the rule the anchors' and inputs' observation ids were made under
+    # D-1253 (review G4): a resolved conflict the one rebuild keeps (a person's decision), and the score row it names,
+    # marked with the earlier id rule they cite; the row is superseded, so nothing reads it as a score again
+    """
+ALTER TABLE score_row ADD COLUMN IF NOT EXISTS id_rule INTEGER;
+ALTER TABLE conflict ADD COLUMN IF NOT EXISTS id_rule INTEGER
+""",
 ]
 
 
@@ -449,6 +455,7 @@ class DerivedStore:
         """Compare documented scores with the computed rows near their date; open a conflict for each that differs
         by more than the tolerance. Returns the number of conflicts opened (an open one is never opened twice)."""
         with self._db.transaction() as tx:
+            id_rule.ensure(tx, id_rule.DERIVED)  # D-1253 review G5: a conflict cites a note's lake id (documented_id)
             return self._check(tx, list(documented), _now())
 
     def _check(self, tx: Tx, documented: list[Documented], now: str) -> int:

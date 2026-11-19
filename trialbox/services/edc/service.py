@@ -350,6 +350,7 @@ class EdcService:
         written inside its transaction (SEC-6)."""
         try:
             self.store.require_drafting(rs)
+            self.store.require_not_frozen(rs)  # D-1253 review G2: no decision on a study of another id rule
             d = self.store.draft(rs, draft_id)
             if d is None:
                 raise EdcError("edc.no_draft", "no such draft", 404)
@@ -938,6 +939,7 @@ class EdcService:
         vis = visit or BASE_EVENT
         try:
             self.store.require_on(rs)
+            self.store.require_not_frozen(rs)  # D-1253 review G2: nothing written to REDCap for a frozen study
             target = self.store.target(rs)
             if target is None:
                 raise EdcError("edc.target", "no REDCap target is set for this study")

@@ -71,24 +71,51 @@ STORES = (OMOP, DERIVED, VEC, TWIN, POOL)
 
 
 class IdRuleError(RuntimeError):
-    """D-1253: a store (or the lake) holds lake ids made under an earlier rule: nothing is added to it."""
+    """D-1253: a store (or the lake) holds lake ids made under an earlier rule (nothing is added to it: rebuild
+    once), or under a newer rule than this release's (nothing is added either: update the box; never rebuilt)."""
 
-    def __init__(self, stores: Iterable[str]) -> None:
+    def __init__(self, stores: Iterable[str], newer: Iterable[str] = ()) -> None:
         self.stores = sorted(set(stores))
-        super().__init__(
-            f"lake ids of rule {RULE} (D-1253: a patient's record id holds the patient) cannot be added to "
-            f"{', '.join(self.stores)}, which hold{'s' if len(self.stores) == 1 else ''} ids of an earlier rule: "
-            f"nothing was written. Rebuild once ({COMMAND}; {RUNBOOK})"
-        )
+        self.newer = sorted(set(newer))
+        words: list[str] = []
+        if self.stores:
+            words.append(
+                f"lake ids of rule {RULE} (D-1253: a patient's record id holds the patient) cannot be added to "
+                f"{', '.join(self.stores)}, which hold{'s' if len(self.stores) == 1 else ''} ids of an earlier "
+                f"rule: nothing was written. Rebuild once ({COMMAND}; {RUNBOOK})"
+            )
+        if self.newer:
+            words.append(
+                f"{', '.join(self.newer)} hold{'s' if len(self.newer) == 1 else ''} lake ids of a newer rule than "
+                f"this release's (rule {RULE}): nothing was written. Update the box to the release that wrote them; "
+                "do not rebuild"
+            )
+        super().__init__("; ".join(words))
 
 
 def stamped(tx: Any) -> bool:
-    """Whether the store of ``tx`` (its search path) says :data:`RULE`."""
-    return tx.fetchone("SELECT 1 FROM tb_id_rule WHERE rule = ?", (RULE,)) is not None
+    """Whether the store of ``tx`` (its search path) says :data:`RULE` and no newer rule."""
+    return tx.fetchone("SELECT 1 FROM tb_id_rule WHERE rule = ?", (RULE,)) is not None and not _newer(tx)
+
+
+def _newer(tx: Any) -> bool:
+    return tx.fetchone("SELECT 1 FROM tb_id_rule WHERE rule > ?", (RULE,)) is not None
+
+
+#: the advisory lock two first writes of one store take before one of them stamps it (pg_advisory_xact_lock)
+LOCK = 1253
 
 
 def ensure(tx: Any, store: Store) -> None:
-    """In the store's write transaction, before lake ids are written: go on, stamp an empty store, or refuse."""
+    """In the store's write transaction, before lake ids are written: go on, stamp an empty store, or refuse. Two
+    first writes of one empty store meet at an advisory lock: one stamps, the other then reads the stamp."""
+    if _newer(tx):
+        raise IdRuleError([], newer=[store.name])
+    if stamped(tx):
+        return
+    tx.execute("SELECT pg_advisory_xact_lock(?, hashtext(current_schema()))", (LOCK,))
+    if _newer(tx):
+        raise IdRuleError([], newer=[store.name])
     if stamped(tx):
         return
     if tx.fetchone(store.holds) is not None:
@@ -97,13 +124,14 @@ def ensure(tx: Any, store: Store) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ read-only checks
-CURRENT, EMPTY, OLD, UNREAD = "current", "empty", "old", "not readable"
+CURRENT, EMPTY, OLD, NEWER, UNREAD = "current", "empty", "old", "newer", "not readable"
 
 
 def probe(url: str, store: Store, schema: str | None = None) -> str:
     """The rule state of ``store`` in the trial database at ``url``, read only (no schema or table is made):
-    :data:`CURRENT`, :data:`EMPTY` (no schema, no table, or no lake id), :data:`OLD`, or :data:`UNREAD` (this role may
-    not read it: D-378 gives each service the schemas of its own work only)."""
+    :data:`CURRENT`, :data:`EMPTY` (no schema, no table, or no lake id), :data:`OLD`, :data:`NEWER` (stamped by a
+    later release), or :data:`UNREAD` (this role may not read it: D-378 gives each service the schemas of its own
+    work only)."""
     import psycopg
 
     from tb_common.db import split_url
@@ -120,15 +148,17 @@ def probe(url: str, store: Store, schema: str | None = None) -> str:
             return EMPTY
         except psycopg.errors.InsufficientPrivilege:
             return UNREAD
-        if holds is None:
-            return EMPTY
         try:
-            row = con.execute(f'SELECT 1 FROM "{name}".tb_id_rule WHERE rule = %s', (RULE,)).fetchone()  # noqa: S608
+            rules = {r[0] for r in con.execute(f'SELECT rule FROM "{name}".tb_id_rule').fetchall()}  # noqa: S608
         except missing:  # a store not yet migrated to D-1253's version: written under rule 1
-            return OLD
+            rules = set()
         except psycopg.errors.InsufficientPrivilege:
             return UNREAD
-        return CURRENT if row is not None else OLD
+        if any(r > RULE for r in rules):
+            return NEWER
+        if holds is None:
+            return EMPTY
+        return CURRENT if RULE in rules else OLD
 
 
 def write_snapshot_record(directory: Path) -> None:
@@ -136,13 +166,26 @@ def write_snapshot_record(directory: Path) -> None:
 
 
 def snapshot_rule(directory: Path) -> int:
-    """The rule a snapshot's ids were made under: 1 when it carries no record (written before D-1253)."""
+    """The rule a snapshot's ids were made under: 1 when it carries no record (written before D-1253); 0 when the
+    record is unreadable or not an integer (``2.0``, ``"2"``, ``true`` are not 2): never taken for the current rule.
+    A number above :data:`RULE` is a newer release's."""
     try:
-        return int(json.loads((directory / SNAPSHOT_RECORD).read_text(encoding="utf-8"))["rule"])
+        got = json.loads((directory / SNAPSHOT_RECORD).read_text(encoding="utf-8"))["rule"]
     except FileNotFoundError:
         return 1
     except (OSError, ValueError, KeyError, TypeError):
-        return 0  # unreadable: never taken for the current rule
+        return 0
+    return got if isinstance(got, int) and not isinstance(got, bool) and got > 0 else 0
+
+
+def check_snapshot(directory: Path, what: str) -> None:
+    """Refuse (:class:`IdRuleError`) a snapshot that is not :data:`RULE`'s: an earlier rule's to rebuild, a newer
+    rule's to update the box for."""
+    rule = snapshot_rule(directory)
+    if rule > RULE:
+        raise IdRuleError([], newer=[what])
+    if rule != RULE:
+        raise IdRuleError([what])
 
 
 def old_snapshots(ndjson_root: Path) -> list[str]:

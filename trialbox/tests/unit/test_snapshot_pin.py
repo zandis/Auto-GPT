@@ -16,6 +16,7 @@ from lake.store import Lake, StaleSnapshotError, check_snapshot_age, snapshot_ag
 from orchestrator.core import Ctx, Orchestrator, Outcome, Services
 from orchestrator.db import JobDB
 from orchestrator.jobs import PinnedLake
+from tb_common import id_rule
 from tb_common.audit import AuditLog
 from tb_common.config import Config, ConfigError, load_env, load_settings
 from tb_common.objstore import FsStore
@@ -43,6 +44,7 @@ def _night(lake_dir: Path, snap: str, n: int) -> None:
     """One synthetic night: ``n`` patients written as the adapter writes them, built and made CURRENT."""
     nd = lake_dir / "ndjson" / snap
     nd.mkdir(parents=True, exist_ok=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     (nd / "Patient.ndjson").write_text("".join(json.dumps(p) + "\n" for p in _patients(n)), encoding="utf-8")
     Lake(lake_dir, "Asia/Taipei").rebuild(snap, HashEmbedder())
 

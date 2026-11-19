@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from embed_service.embedder import HashEmbedder
 from lake.store import Lake
+from tb_common import id_rule
 
 from tests.unit.test_snapshot_holds import NIGHT, TZ, _night
 from tests.unit.test_t724_generations import _publish, _rows
@@ -92,6 +93,7 @@ def test_the_promotion_names_its_generation_and_is_refused_for_another(tmp_path:
     lake = Lake(lake_dir, TZ)
     nd = lake_dir / "ndjson" / LATER
     nd.mkdir(parents=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     (nd / "Patient.ndjson").write_text(json.dumps({"resourceType": "Patient", "id": "syn-900"}) + "\n")
     built = lake.rebuild(LATER, HashEmbedder(), promote=False, check=True)  # the publish's build
     assert built.generation == f"{LATER}.g1" and not built.promoted and lake.current() == NIGHT
@@ -113,6 +115,7 @@ def test_the_generation_travels_with_the_promotion_over_http(tmp_path: Path, mon
     lake = Lake(lake_dir, TZ)
     nd = lake_dir / "ndjson" / LATER
     nd.mkdir(parents=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     (nd / "Patient.ndjson").write_text(json.dumps({"resourceType": "Patient", "id": "syn-900"}) + "\n")
     lake.rebuild(LATER, HashEmbedder(), promote=False, check=True)
     lake.rebuild(LATER, HashEmbedder(), promote=False, check=True)  # built again: generation 2

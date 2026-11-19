@@ -88,6 +88,6 @@ def test_a_frozen_study_says_why_on_its_edc_page_and_another_page_is_unchanged(e
     assert 'data-testid="edc-id-rule-frozen"' not in before
     _confirm_all(eb["svc"])  # a decided value: the study's trail (stamped at its draft run: not frozen)
     assert 'data-testid="edc-id-rule-frozen"' not in crc.get("/studies/GZQO/edc").text
-    eb["svc"].store.db.execute("DELETE FROM tb_id_rule_study")  # as a study from before D-1253
+    eb["svc"].store.db.execute("UPDATE tb_id_rule_study SET rule = 1")  # as the migration stamps a study before D-1253
     page = crc.get("/studies/GZQO/edc").text
     assert 'data-testid="edc-id-rule-frozen"' in page and "D-1253" in page

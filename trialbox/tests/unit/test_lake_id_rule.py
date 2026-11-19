@@ -74,8 +74,42 @@ def test_a_night_over_a_lake_of_the_earlier_rule_stops_before_anything_is_writte
     assert "the lake (1 snapshots, the last 2026-10-01)" in said and id_rule.COMMAND in said and id_rule.RUNBOOK in said
     assert not snapshot_dir(cfg.lake_dir, "2026-10-02").exists()  # nothing written
     events = [json.loads(line) for f in sorted((tmp_path / "audit").rglob("*.jsonl")) for line in f.open()]
-    assert any(e.get("event") == "ingest.failed" and (e.get("detail") or {}).get("refused") == "id_rule"
-               for e in events)  # fmt: skip
+    failed = [e for e in events if e.get("event") == "ingest.failed"]
+    assert len(failed) == 1 and failed[0]["detail"]["refused"] == "id_rule"  # one event per refused night
+
+
+@pytest.mark.parametrize("said", [3, 2.0, "2", True, None, -2])
+def test_a_snapshot_rule_is_the_integer_2_and_a_newer_one_is_never_rebuilt(tmp_path: Path, said: object) -> None:
+    """D-1253 review G5: only the integer 2 is this rule. A higher integer is a newer release's: "update the box",
+    never "earlier" or "rebuild". Anything else is unreadable: never taken for the current rule."""
+    write_snapshot(tmp_path / "s1", {"Condition": [{"resourceType": "Condition", "id": "a"}]})
+    (tmp_path / "s1" / id_rule.SNAPSHOT_RECORD).write_text(json.dumps({"rule": said}))
+    assert id_rule.snapshot_rule(tmp_path / "s1") == (3 if type(said) is int and said == 3 else 0)
+    with pytest.raises(id_rule.IdRuleError) as caught:
+        write_snapshot(tmp_path / "s2", {"Condition": [{"resourceType": "Condition", "id": "b"}]}, tmp_path / "s1")
+    words = str(caught.value)
+    if said == 3:
+        assert "newer rule" in words and "Update the box" in words and "earlier" not in words
+        assert id_rule.COMMAND not in words and caught.value.newer and not caught.value.stores
+    else:
+        assert "earlier" in words and id_rule.COMMAND in words
+
+
+def test_a_night_over_a_lake_of_a_newer_rule_says_update_the_box(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    run_ingest(cfg, "csv", _feed(tmp_path / "f1", 3), snapshot="2026-10-01", load_fhir=False, validate=False)
+    (snapshot_dir(cfg.lake_dir, "2026-10-01") / id_rule.SNAPSHOT_RECORD).write_text('{"rule": 3}')
+    with pytest.raises(id_rule.IdRuleError, match="Update the box") as caught:
+        run_ingest(cfg, "csv", _feed(tmp_path / "f2", 4), snapshot="2026-10-02", load_fhir=False, validate=False)
+    assert id_rule.COMMAND not in str(caught.value)
+
+
+def test_a_store_rule_that_cannot_be_read_refuses_the_night(tmp_path: Path) -> None:
+    """D-1253 review G5: a probe that fails (the database cannot be reached) refuses the night; it is not logged
+    and passed over."""
+    cfg = _cfg(tmp_path, "postgresql://nobody@127.0.0.1:9/none")
+    with pytest.raises(id_rule.IdRuleError, match="could not be read"):
+        check_id_rule(cfg)
 
 
 # ------------------------------------------------------------------------------------------------ the stores
@@ -103,6 +137,21 @@ def test_what_a_store_says_of_its_rule(db_url: str, store: id_rule.Store, rows: 
                                        state: str) -> None:  # fmt: skip
     _store_table(db_url, store, rows, stamped)
     assert id_rule.probe(db_url, store) == state
+
+
+@pytest.mark.parametrize("store", id_rule.STORES, ids=lambda s: s.name)
+@pytest.mark.parametrize("rows", [0, 1])
+def test_a_store_of_a_newer_rule_is_newer_and_refuses_and_is_never_stamped_again(
+    db_url: str, store: id_rule.Store, rows: int
+) -> None:
+    _store_table(db_url, store, rows, False)
+    with Database.connect(db_url, store.schema) as db:
+        db.execute("INSERT INTO tb_id_rule (rule) VALUES (?)", (id_rule.RULE + 1,))
+    assert id_rule.probe(db_url, store) == id_rule.NEWER
+    with Database.connect(db_url, store.schema) as db:
+        with pytest.raises(id_rule.IdRuleError, match="newer rule"), db.transaction() as tx:
+            id_rule.ensure(tx, store)
+        assert db.fetchval("SELECT count(*) FROM tb_id_rule WHERE rule = ?", (id_rule.RULE,)) == 0
 
 
 def test_a_store_that_is_not_there_holds_no_lake_id(db_url: str) -> None:
@@ -194,6 +243,18 @@ def test_the_derived_store_refuses_a_recompute_beside_scores_of_the_earlier_rule
         assert (
             db.fetchval("SELECT count(*) FROM score_row") == 1 and db.fetchval("SELECT count(*) FROM tb_id_rule") == 0
         )
+    # D-1253 review G5: the documented-score check writes conflicts citing a note's lake id: it refuses too
+    from datetime import date
+
+    from tb_common import scores
+    from tb_common.derived_store import Documented
+
+    score = next(iter(scores.TOLERANCE))
+    with pytest.raises(id_rule.IdRuleError) as caught:
+        st.check_documented([Documented("p1", score, 1.0, date(2026, 1, 1), "d1", "signed")])
+    _stopped(caught.value, "derived")
+    with Database.connect(db_url, "derived") as db:
+        assert db.fetchval("SELECT count(*) FROM conflict") == 0
 
 
 def test_the_patient_twin_refuses_a_document_beside_documents_of_the_earlier_rule(db_url: str) -> None:

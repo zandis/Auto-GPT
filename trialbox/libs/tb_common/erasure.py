@@ -530,6 +530,11 @@ _SNAPSHOTS = (
 )
 LAKE: dict[str, Entry] = {
     "lake:ndjson": _owed("the nightly NDJSON extracts (3 nightly + month-ends kept)", _SNAPSHOTS),
+    "lake:id_rule_1": _owed(
+        "D-1253: month-end snapshots of the earlier lake-id rule, kept aside by the one rebuild under retention and "
+        "never read (NDJSON, DuckDB, Parquet)",
+        _SNAPSHOTS,
+    ),
     "lake:ndjson-rerun": _owed("a re-run of a promoted night until it passes the gate (D-271)", _SNAPSHOTS),
     "lake:db": _owed("the DuckDB snapshots (nightly and month-end) and their side files", _SNAPSHOTS),
     "lake:parquet": _owed("the Parquet copy of each snapshot", _SNAPSHOTS),

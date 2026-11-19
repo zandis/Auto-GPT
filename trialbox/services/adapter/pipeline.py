@@ -22,6 +22,7 @@ from tb_common import chartno, feedguard, labvalue, refdata
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
+from tb_common.id_rule import IdRuleError
 from tb_common.site_profile import Profile as SiteProfile
 from tb_common.site_profile import ProfileError
 from tb_common.unmapped import KINDS
@@ -180,9 +181,14 @@ def check_id_rule(cfg: AdapterConfig) -> None:
     from tb_common import id_rule
 
     old: list[str] = []
+    newer: list[str] = []
     snaps = id_rule.old_snapshots(cfg.lake_dir / "ndjson")
-    if snaps:
-        old.append(f"the lake ({len(snaps)} snapshots, the last {snaps[-1]})")
+    ahead = [s for s in snaps if id_rule.snapshot_rule(cfg.lake_dir / "ndjson" / s) > id_rule.RULE]
+    behind = [s for s in snaps if s not in ahead]
+    if behind:
+        old.append(f"the lake ({len(behind)} snapshots, the last {behind[-1]})")
+    if ahead:
+        newer.append(f"the lake ({len(ahead)} snapshots, the last {ahead[-1]})")
     url = cfg.db_url or os.environ.get(DB_URL_ENV)
     omop_url = os.environ.get("TB_OMOP_DB_URL") or url
     if url or omop_url:
@@ -194,13 +200,17 @@ def check_id_rule(cfg: AdapterConfig) -> None:
                 continue
             try:
                 state = id_rule.probe(where, store, schema)
-            except Exception as exc:  # the database cannot be reached: the night's own steps say so later
-                log.warning("id rule of %s not read (%s)", store.name, type(exc).__name__)
-                continue
+            except Exception as exc:  # D-1253 review G5: a rule that cannot be read refuses the night
+                log.error("id rule of %s not read (%s)", store.name, type(exc).__name__)
+                raise id_rule.IdRuleError(
+                    [f"the {store.name} store (its id rule could not be read: {type(exc).__name__})"]
+                ) from exc
             if state == id_rule.OLD:
                 old.append(f"the {store.name} store")
-    if old:
-        raise id_rule.IdRuleError(old)
+            elif state == id_rule.NEWER:
+                newer.append(f"the {store.name} store")
+    if old or newer:
+        raise id_rule.IdRuleError(old, newer=newer)
 
 
 def load_site_profile(cfg: AdapterConfig, source_kind: str) -> tuple[SiteProfile | None, dict[str, Any]]:
@@ -556,7 +566,7 @@ def run_ingest(
                 validator=validator,
                 cleanup=cleanup,
             )
-    except SiteKeyError:  # T-612 audits its own refusal (with the reason); one event per night
+    except (SiteKeyError, IdRuleError):  # T-612, D-1253: audited with the reason where refused; one event per night
         raise
     except Exception as exc:
         if cfg.audit_dir:
@@ -643,19 +653,14 @@ def _run_ingest(
                 detail={"source": source_kind, "refused": "site_key", "reason": str(exc)},
             )
         raise
-    from tb_common.id_rule import IdRuleError
-
-    try:  # D-1253: before anything is read or written, no lake id of an earlier rule anywhere it would be added to
+    try:  # D-1253: before anything is read or written, no lake id of another rule anywhere it would be added to
         check_id_rule(cfg)
     except IdRuleError as exc:
         log.error("night refused: %s", exc)
-        if cfg.audit_dir:
-            open_audit(cfg.audit_dir, cfg.tz).append(
-                "ingest.failed",
-                snapshot=snap,
-                actor="adapter",
-                detail={"source": source_kind, "refused": "id_rule", "reason": str(exc)},
-            )
+        if cfg.audit_dir:  # one event, which closes the night's batch row (opened above) as failed, with the reason
+            night_event(cfg, "ingest.failed", snapshot=snap, source=source_kind, passed=False, held=False,
+                        batch=at.get("batch"), actor="adapter",
+                        detail={"source": source_kind, "refused": "id_rule", "reason": str(exc)})  # fmt: skip
         raise
     errors: list[str] = []
     # T-692 (D-473): every mapped resource goes to disk as it is made; the night is never held in memory. The spool
@@ -2018,6 +2023,31 @@ def snapshot_bytes(lake_dir: Path, s: str) -> int:
     return _bytes(_snapshot_paths(lake_dir, s))
 
 
+#: D-1253: the earlier id rule's month-end snapshots the one rebuild kept aside (``tools/id_rule_rebuild.py``)
+ID_RULE_ASIDE = "id_rule_1"
+
+
+def _prune_aside(lake_dir: Path, today: date, months: int) -> list[str]:
+    """D-1253: a month-end of the earlier id rule, kept aside by the one rebuild and never read, goes when retention
+    no longer keeps it, as any month-end does. Returns the snapshots that went."""
+    from tb_common.retention import snapshots_to_keep
+
+    aside = lake_dir / "id_rule_1"  # ID_RULE_ASIDE, spelt out: the erasure registry's scan reads the name here
+    nd = aside / "ndjson"
+    snaps = sorted(p.name for p in nd.iterdir() if p.is_dir()) if nd.is_dir() else []
+    keep = snapshots_to_keep(snaps, today, 0, months)
+    gone = []
+    for s in snaps:
+        if s in keep:
+            continue
+        shutil.rmtree(nd / s, ignore_errors=True)
+        shutil.rmtree(aside / "parquet" / f"snapshot={s}", ignore_errors=True)
+        for f in (aside / "db").glob(f"{s}.duckdb*"):
+            f.unlink(missing_ok=True)
+        gone.append(s)
+    return gone
+
+
 def prune_lake(cfg: AdapterConfig, today: date) -> PruneResult:
     """SPEC §10.3: keep the last N nightly snapshots and each month's last snapshot for M months (NDJSON, parquet,
     DuckDB); the current snapshot is always kept, and so is every snapshot a running job holds (T-305b, D-403: a
@@ -2096,6 +2126,7 @@ def prune_lake(cfg: AdapterConfig, today: date) -> PruneResult:
             if drop(s, whole=True):
                 gone.append(s)
                 used -= size
+        gone += _prune_aside(cfg.lake_dir, today, cfg.keep_month_end_months)
         used = _bytes([cfg.lake_dir])
     res = PruneResult(sorted(gone), ndjson_dropped, used, budget)
     if used > budget:

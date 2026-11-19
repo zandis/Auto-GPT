@@ -21,6 +21,7 @@ import pytest
 from adapter.ndjson import snapshot_dir
 from adapter.pipeline import PASSED, AdapterConfig, prune_lake, prune_snapshots
 from lake.store import Lake
+from tb_common import id_rule
 
 TZ = "Asia/Taipei"
 MB = 1024 * 1024
@@ -32,6 +33,7 @@ MONTH_ENDS = ["2026-06-30", "2026-07-31", "2026-08-31", "2026-09-30"]  # oldest 
 def _snap(lake_dir: Path, s: str, ndjson_mb: int = 4, db_mb: int = 2, passed: bool = True) -> None:
     nd = snapshot_dir(lake_dir, s)
     nd.mkdir(parents=True, exist_ok=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     if passed:
         (nd / PASSED).write_text(json.dumps({"snapshot": s}))
     (nd / "ingest_report.json").write_text(json.dumps({"snapshot": s}))  # the night's own report
