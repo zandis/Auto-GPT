@@ -80,6 +80,7 @@ lint: contracts-check
 	$(PY) tools/doclint.py
 	PYTHONPATH=libs:services:. $(PY) -m tools.text_keys  # D-1220: no conflicting double, no missing key
 	$(PY) -m tools.findings_register --check
+	$(PY) -m tools.inline_suppressions --check  # D-1338: every `# nosec` and `# noqa: S` line has a reviewed ledger line
 
 FONTS := .cache/fonts/NotoSansTC-Regular.ttf
 
@@ -218,6 +219,12 @@ security-scan:
 	$(PY) -m tools.security_scan secrets
 	$(PY) -m tools.security_scan sast
 
+# the weekly report-only bandit run (10G-39, D-1338; .github/workflows/trialbox-bandit-weekly.yml): every tracked .py,
+# no severity or confidence filter, --ignore-nosec; SARIF, JSON and a summary in build/bandit-weekly. Gates nothing.
+.PHONY: bandit-weekly
+bandit-weekly:
+	$(PY) -m tools.bandit_weekly --out build/bandit-weekly
+
 # the CI gate's jobs, in the order of .github/workflows/trialbox-ci.yml (D-206): lint, types, docs, contracts, trace,
 # unit (+ the scan of its log), e2e-simple, goldens, data-scan, security, shell, images (if hadolint is installed); then the
 # offline supply-chain checks (lock-check, allowlist-check; `make supply-chain` is trialbox-supply-chain.yml). Stops at
@@ -229,6 +236,7 @@ ci: venv-check
 	$(PY) tools/doclint.py
 	PYTHONPATH=libs:services:. $(PY) -m tools.decisions_index --check
 	$(PY) -m tools.findings_register --check
+	$(PY) -m tools.inline_suppressions --check
 	PYTHONPATH=libs:services:. $(PY) -m tools.licence_register --check
 	$(MAKE) contracts-check
 	TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. $(PY) -m tools.build_rulesets --check
