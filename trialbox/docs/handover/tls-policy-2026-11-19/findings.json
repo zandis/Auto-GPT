@@ -1,0 +1,25 @@
+{
+ "card": "H10G48",
+ "title": "the TLS policy and its per-release check (plan 10 row 10G-48)",
+ "date": "2026-11-19",
+ "source": "docs/runbook/12-tls-check-per-release.md",
+ "note": "No scan was run: the container that wrote the card has no box and no Docker daemon, and testssl.sh is not fetched here. The policy, the judge and the static Caddyfile check are tested on hand-written results.",
+ "findings": [
+  {
+   "id": "H10G48-01",
+   "severity": "Medium",
+   "claim": "The TLS the box serves on 443 and the two-device link serves has never been scanned: TLS is right by configuration (deploy/identity/Caddyfile, tools/two_device.py) and by test of that configuration only; the first testssl.sh run per RUNBOOK 12 (the TLS check per release) closes it",
+   "lane": "Int",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H10G48-02",
+   "severity": "Medium",
+   "claim": "No supported setting relaxes the TLS policy for a hospital's old client: TB_TLS_MODE chooses only the certificate and the Caddyfile has no placeholder for protocols or cipher suites, so a client that can do only TLS 1.0/1.1, CBC or static RSA gets a handshake failure on 443 and the only way round is a hand edit of deploy/identity/Caddyfile that the policy check fails",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

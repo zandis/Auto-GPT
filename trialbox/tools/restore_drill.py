@@ -487,6 +487,7 @@ EXPECTED_CHANGES: dict[str, dict[str, str]] = {
         "orch.pool": "the opt-out worker clears the opted-out patient's rows again after a restore (§5: 'after a "
         "restore the opt-out worker deletes again the rows of every patient on the register')",
         "orch.judged_pairs": "the same: the judged-pair store of a patient on the register is cleared again (D-908)",
+        "orch.answers": "the same: the answer store of a patient on the register is cleared again (D-1360)",
     },
     "volume:audit-data": {
         "": "the chain after the restore = the chain before it, then the restore's own events (the head moves on)",
