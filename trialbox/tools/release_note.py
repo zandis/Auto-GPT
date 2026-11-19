@@ -15,33 +15,38 @@ exported. ``build`` writes two payloads of kind ``other``:
   bundle id and ``release_seq``, the minutes down, migration, re-approval, the actions.
 
 Both are files of the signed manifest (their sha256 is in it), so nobody changes them on the stick unseen. On the
-box, :func:`read_from_bundle` reads them back from a bundle the verifier accepted (sizes capped, each sha256 compared
-with the manifest again): ``tools/verify_update.py`` reports them (a bundle without them is a warning, not a refusal:
-D-1363) and the operations runner shows them on the console's update page. Standard library only, except ``build``
-and ``check``, which read the YAML source with PyYAML (the vendor's machine).
+box, :func:`read_from_bundle` reads them back from a bundle the verifier accepted (sizes capped, each sha256
+compared with the manifest again): it is the verifier's own reader (``tools/verify_update.py``, re-exported here,
+so the verifier needs no module but its own), which reports them (a bundle without them is a warning, not a refusal:
+D-1363), and the operations runner shows them on the console's update page. Standard library only, except
+``build`` and ``check``, which read the YAML source with PyYAML (the vendor's machine).
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import sys
-import tarfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+# the box reads the note and the sheet back with the verifier's own reader (standard library, no other module of
+# tools/ it does not already need): a verifier copied with only its own modules still verifies and reports them
+from tools.verify_update import (  # noqa: F401 (re-exported: the console's runner and the tests read them here)
+    CHANGE_CLASSES,
+    IMPACT,
+    IMPACT_FORMAT,
+    MAX_BYTES,
+    NOTE,
+    read_from_bundle,
+    sheet_problems,
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "docs" / "releases" / "next-release.ja.yaml"
 SOURCE_FORMAT = "trialbox-release-note/1"
-IMPACT_FORMAT = "trialbox-change-impact/1"
-NOTE = "RELEASE-NOTE.ja.md"
-IMPACT = "CHANGE-IMPACT.json"
-#: the largest note and sheet a bundle may carry (a few kilobytes is usual): build refuses more, the box shows no
-#: more (10K-7 review: the console's record of them must stay small)
-MAX_BYTES = {"note_ja": 32 * 1024, "impact": 16 * 1024}
 #: the change classes of docs/validation/change-control.md §2 (D-344), in their order, with their Japanese names
 CLASSES: dict[str, str] = {
     "CC1": "モデルに影響する変更",
@@ -51,6 +56,8 @@ CLASSES: dict[str, str] = {
     "CC5": "セキュリティ修正",
     "CC6": "施設の設定",
 }
+if tuple(CLASSES) != CHANGE_CLASSES:  # one list of classes: the verifier's, which the box checks a sheet against
+    raise ImportError("tools.release_note.CLASSES and tools.verify_update.CHANGE_CLASSES differ")
 _JA = re.compile(r"[぀-ヿ㐀-鿿]")
 
 
@@ -122,20 +129,6 @@ def impact_sheet(src: Mapping[str, Any], bundle_id: str, release_seq: int) -> di
     }
 
 
-def sheet_problems(sheet: Any) -> list[str]:
-    """A change-impact sheet read from a bundle: every class listed, once, in order, each changed or not."""
-    if not isinstance(sheet, Mapping) or sheet.get("format") != IMPACT_FORMAT:
-        return [f"{IMPACT} is not a {IMPACT_FORMAT} sheet"]
-    rows = sheet.get("classes")
-    if not isinstance(rows, list) or [r.get("class") if isinstance(r, Mapping) else None for r in rows] != list(
-        CLASSES
-    ):
-        return [f"{IMPACT} does not list the change classes CC1 to CC6"]
-    if not all(isinstance(r.get("changed"), bool) for r in rows):
-        return [f"{IMPACT}: a change class is neither changed nor unchanged"]
-    return []
-
-
 def render_note(sheet: Mapping[str, Any], summary_ja: str) -> str:
     yes = {True: "あり", False: "なし"}
     lines = [
@@ -195,56 +188,6 @@ def build(source: Path, bundle_id: str, release_seq: int, out_dir: Path) -> tupl
     note.write_text(note_text, encoding="utf-8")
     imp.write_text(sheet_text, encoding="utf-8")
     return note, imp
-
-
-def read_from_bundle(bundle: Path) -> dict[str, Any]:
-    """The note and the sheet of a bundle the verifier has accepted, each read only when its size and sha256 are the
-    manifest's: ``{"bundle_id", "release_seq", "note_ja", "impact", "warnings"}``. A missing or unreadable file is
-    None with a warning; nothing here raises on the bundle's content."""
-    out: dict[str, Any] = {"bundle_id": None, "release_seq": None, "note_ja": None, "impact": None, "warnings": []}
-    try:
-        with tarfile.open(bundle, "r:") as tf:
-            mem = tf.getmember("manifest.json")
-            f = tf.extractfile(mem) if mem.isfile() and mem.size <= 4 << 20 else None
-            manifest = json.loads(f.read()) if f is not None else {}
-            if not isinstance(manifest, dict):
-                manifest = {}
-            out["bundle_id"], out["release_seq"] = manifest.get("bundle_id"), manifest.get("release_seq")
-            listed = {e.get("path"): e for e in manifest.get("files") or [] if isinstance(e, dict)}
-            for name, key in ((NOTE, "note_ja"), (IMPACT, "impact")):
-                entry = listed.get(name)
-                if entry is None or entry.get("kind") != "other":
-                    out["warnings"].append(f"no {name} in this bundle")
-                    continue
-                try:
-                    m = tf.getmember(f"files/{name}")
-                except KeyError:
-                    out["warnings"].append(f"{name} is listed but not in the bundle")
-                    continue
-                cap = MAX_BYTES[key]
-                if m.isfile() and m.size > cap:
-                    out["warnings"].append(f"{name} is too large to show ({m.size} bytes, at most {cap})")
-                    continue
-                fh = tf.extractfile(m) if m.isfile() else None
-                body = fh.read(cap + 1) if fh is not None else b""
-                if (
-                    fh is None
-                    or len(body) != entry.get("size")
-                    or hashlib.sha256(body).hexdigest() != entry.get("sha256")
-                ):
-                    out["warnings"].append(f"{name} does not match the manifest (or is too large); not shown")
-                    continue
-                try:
-                    text = body.decode("utf-8")
-                    out[key] = text if key == "note_ja" else json.loads(text)
-                except ValueError:
-                    out["warnings"].append(f"{name} is not readable UTF-8 text or JSON")
-    except (OSError, KeyError, ValueError, tarfile.TarError) as exc:
-        out["warnings"].append(f"the bundle could not be read: {type(exc).__name__}")
-    if out["impact"] is not None and (bad := sheet_problems(out["impact"])):
-        out["warnings"] += bad
-        out["impact"] = None
-    return out
 
 
 def main(argv: list[str] | None = None) -> int:

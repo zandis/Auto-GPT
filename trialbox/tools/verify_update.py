@@ -48,7 +48,7 @@ import re
 import shutil
 import sys
 import tarfile
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -62,6 +62,16 @@ META = {COMPAT: "compat_sha256", RELEASE: "release_sha256", IMAGES_LOCK: "images
 PAYLOAD = "files/"
 STAGE_MARGIN = 1.05
 MAX_META_BYTES = 4 << 20
+#: 10K-7 (D-1363): the Japanese release note and the change-impact sheet a bundle carries as payloads of kind other
+#: (made by tools/release_note.py), reported by the verifier, never required
+NOTE = "RELEASE-NOTE.ja.md"
+IMPACT = "CHANGE-IMPACT.json"
+IMPACT_FORMAT = "trialbox-change-impact/1"
+#: the change classes of docs/validation/change-control.md §2 (D-344), in their order (tools/release_note.py names them)
+CHANGE_CLASSES = ("CC1", "CC2", "CC3", "CC4", "CC5", "CC6")
+#: the largest note and sheet a bundle may carry (a few kilobytes is usual): build refuses more, the box shows no
+#: more (10K-7 review: the console's record of them must stay small)
+MAX_BYTES = {"note_ja": 32 * 1024, "impact": 16 * 1024}
 
 
 class Rejected(Exception):
@@ -377,14 +387,79 @@ def verify(
 def release_note_summary(bundle: Path) -> dict[str, Any]:
     """10K-7 (D-1363): the Japanese release note and the change-impact sheet of an accepted bundle, as the summary
     reports them. A bundle without them (one built before 10K-7, the previous release a site returns to, a key
-    rotation, an OS patch) is a warning, never a refusal: they inform the person, they decide nothing."""
-    from tools import release_note
-
-    got = release_note.read_from_bundle(bundle)
+    rotation, an OS patch) is a warning, never a refusal: they inform the person, they decide nothing. Read here, with
+    the standard library and no other module of tools/: the verifier runs where only it and the modules it already
+    imports are copied (the box-run's build checkout, a host tree of an older layout), and an import of anything else
+    there stopped a correctly signed bundle (10K-7, train 100)."""
+    got = read_from_bundle(bundle)
     sheet = got["impact"] or {}
     return {"note": got["note_ja"] is not None, "impact": got["impact"] is not None,
             "changed": [r["class"] for r in sheet.get("classes") or [] if r.get("changed")],
             "warnings": got["warnings"]}  # fmt: skip
+
+
+def sheet_problems(sheet: Any) -> list[str]:
+    """A change-impact sheet read from a bundle: every class listed, once, in order, each changed or not."""
+    if not isinstance(sheet, Mapping) or sheet.get("format") != IMPACT_FORMAT:
+        return [f"{IMPACT} is not a {IMPACT_FORMAT} sheet"]
+    rows = sheet.get("classes")
+    if not isinstance(rows, list) or [r.get("class") if isinstance(r, Mapping) else None for r in rows] != list(
+        CHANGE_CLASSES
+    ):
+        return [f"{IMPACT} does not list the change classes CC1 to CC6"]
+    if not all(isinstance(r.get("changed"), bool) for r in rows):
+        return [f"{IMPACT}: a change class is neither changed nor unchanged"]
+    return []
+
+
+def read_from_bundle(bundle: Path) -> dict[str, Any]:
+    """The note and the sheet of a bundle the verifier has accepted, each read only when its size and sha256 are the
+    manifest's: ``{"bundle_id", "release_seq", "note_ja", "impact", "warnings"}``. A missing or unreadable file is
+    None with a warning; nothing here raises on the bundle's content."""
+    out: dict[str, Any] = {"bundle_id": None, "release_seq": None, "note_ja": None, "impact": None, "warnings": []}
+    try:
+        with tarfile.open(bundle, "r:") as tf:
+            mem = tf.getmember("manifest.json")
+            f = tf.extractfile(mem) if mem.isfile() and mem.size <= 4 << 20 else None
+            manifest = json.loads(f.read()) if f is not None else {}
+            if not isinstance(manifest, dict):
+                manifest = {}
+            out["bundle_id"], out["release_seq"] = manifest.get("bundle_id"), manifest.get("release_seq")
+            listed = {e.get("path"): e for e in manifest.get("files") or [] if isinstance(e, dict)}
+            for name, key in ((NOTE, "note_ja"), (IMPACT, "impact")):
+                entry = listed.get(name)
+                if entry is None or entry.get("kind") != "other":
+                    out["warnings"].append(f"no {name} in this bundle")
+                    continue
+                try:
+                    m = tf.getmember(f"files/{name}")
+                except KeyError:
+                    out["warnings"].append(f"{name} is listed but not in the bundle")
+                    continue
+                cap = MAX_BYTES[key]
+                if m.isfile() and m.size > cap:
+                    out["warnings"].append(f"{name} is too large to show ({m.size} bytes, at most {cap})")
+                    continue
+                fh = tf.extractfile(m) if m.isfile() else None
+                body = fh.read(cap + 1) if fh is not None else b""
+                if (
+                    fh is None
+                    or len(body) != entry.get("size")
+                    or hashlib.sha256(body).hexdigest() != entry.get("sha256")
+                ):
+                    out["warnings"].append(f"{name} does not match the manifest (or is too large); not shown")
+                    continue
+                try:
+                    text = body.decode("utf-8")
+                    out[key] = text if key == "note_ja" else json.loads(text)
+                except ValueError:
+                    out["warnings"].append(f"{name} is not readable UTF-8 text or JSON")
+    except (OSError, KeyError, ValueError, tarfile.TarError) as exc:
+        out["warnings"].append(f"the bundle could not be read: {type(exc).__name__}")
+    if out["impact"] is not None and (bad := sheet_problems(out["impact"])):
+        out["warnings"] += bad
+        out["impact"] = None
+    return out
 
 
 def _schema_errors(manifest: Any) -> list[str]:

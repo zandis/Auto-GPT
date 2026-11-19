@@ -10,9 +10,13 @@ same name on the box is refused). The console's update page is ``tests/console/t
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
+import re
 import subprocess
+import sys
+import sysconfig
 import tarfile
 import time
 from datetime import datetime
@@ -24,8 +28,8 @@ import pytest
 from tools import release_note, update_drill
 from tools.sign_bundle import build, keygen
 from tools.trialbox import ops as tb_ops
+from tools.verify_update import Rejected, summary, verify
 from tools.verify_update import main as verify_main
-from tools.verify_update import summary, verify
 
 pytestmark = pytest.mark.nodb
 ROOT = Path(__file__).resolve().parents[2]
@@ -132,6 +136,79 @@ def test_verify_reports_the_note_and_the_changed_classes(tmp_path: Path) -> None
     bundle = update_drill.stick_bundle(tmp_path, priv, "2026.12-1", 3)
     rn = summary(verify(bundle, pub))["release_note"]
     assert rn == {"note": True, "impact": True, "changed": ["CC4"], "warnings": []}
+
+
+def _signed_with_the_note(tmp: Path) -> tuple[Path, Path]:
+    """A bundle laid out as tools/make_bundle.sh lays one out: the note and the sheet built by tools/release_note.py
+    from this checkout's next-release source, then signed by the real signer with the other payloads."""
+    priv, pub = keygen(tmp / "k")
+    note, imp = release_note.build(release_note.SOURCE, "2026.12-1", 4, tmp / "note")
+    (tmp / "rules.json").write_text('{"synthetic": true}\n', encoding="utf-8")
+    items = [("other", tmp / "rules.json", "rulesets/rules.json"), ("other", ROOT / "NOTICE", "NOTICE"),
+             ("other", note, release_note.NOTE), ("other", imp, release_note.IMPACT)]  # fmt: skip
+    out = tmp / "trialbox-2026.12-1.tar"
+    build(priv, "2026.12-1", items, out, release_seq=4)
+    return out, pub
+
+
+def _rehearsal_verifier_modules() -> list[str]:
+    """The modules the box-run rehearsal copies into its build checkout beside the verifier (its b06 runs
+    tools/verify_update.py there): read from the rehearsal itself, so this test follows it."""
+    sh = (ROOT / "tests" / "rehearsal" / "box-run" / "rehearse-box-run.sh").read_text(encoding="utf-8")
+    line = sh[sh.index('cp "$ROOT/tools/verify_update.py"') :].split('"$r/trialbox/tools/"')[0]
+    return re.findall(r'"\$ROOT/tools/(\w+\.py)"', line)
+
+
+def test_the_verifier_with_only_its_own_modules_verifies_a_bundle_with_the_note(tmp_path: Path) -> None:
+    """Train 100: b06 of the box-run's build ran tools/verify_update.py in a checkout holding only the verifier's own
+    modules, and the verifier's report of the note imported tools/release_note.py: exit 1 on a correctly signed
+    bundle. Run the same way here, in a python that sees no other module of this checkout (no site: the venv's
+    editable install would find this checkout's tools/), it verifies and reports the note and the sheet."""
+    bundle, pub = _signed_with_the_note(tmp_path)
+    mods = _rehearsal_verifier_modules()
+    assert "verify_update.py" in mods and "release_note.py" not in mods, mods
+    tools = tmp_path / "ck" / "trialbox" / "tools"
+    tools.mkdir(parents=True)
+    for m in mods:
+        (tools / m).write_bytes((ROOT / "tools" / m).read_bytes())
+    (tools / "__init__.py").write_text("")
+    libs = sorted({sysconfig.get_paths()["purelib"], sysconfig.get_paths()["platlib"]})  # cryptography, nothing else
+    code = f"import runpy, sys; sys.path += {libs!r}; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')"
+    run = subprocess.run([sys.executable, "-S", "-c", code, str(tools / "verify_update.py"), str(bundle),
+                          "--pubkey", str(pub), "--stage", str(tmp_path / "stage")],
+                         cwd=tmp_path, capture_output=True, text=True, check=False, env={"PATH": os.environ["PATH"]})  # fmt: skip
+    assert run.returncode == 0, run.stderr
+    got = json.loads(run.stdout)["release_note"]
+    assert got["note"] is True and got["impact"] is True and got["warnings"] == [], got
+    with tarfile.open(bundle) as tf:
+        names = tf.getnames()
+    assert f"files/{release_note.NOTE}" in names and f"files/{release_note.IMPACT}" in names
+
+
+def _rewrite(bundle: Path, out: Path, change: dict[str, bytes]) -> None:
+    with tarfile.open(bundle) as src, tarfile.open(out, "w", format=tarfile.PAX_FORMAT) as dst:
+        for m in src.getmembers():
+            data = change.get(m.name) or src.extractfile(m).read()  # type: ignore[union-attr]
+            m.size = len(data)
+            dst.addfile(m, io.BytesIO(data))
+
+
+@pytest.mark.parametrize("how", ["same size", "longer"])
+def test_a_note_altered_after_signing_fails_verification(
+    tmp_path: Path, how: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bundle, pub = _signed_with_the_note(tmp_path)
+    with tarfile.open(bundle) as tf:
+        body = tf.extractfile(f"files/{release_note.NOTE}").read()  # type: ignore[union-attr]
+    assert b"CC4" in body
+    altered = body.replace(b"CC4", b"CC9", 1) if how == "same size" else body + "追記\n".encode()
+    bad = tmp_path / "altered.tar"
+    _rewrite(bundle, bad, {f"files/{release_note.NOTE}": altered})
+    with pytest.raises(Rejected):
+        verify(bad, pub)
+    assert verify_main([str(bad), "--pubkey", str(pub)]) == 1
+    assert "REJECTED" in capsys.readouterr().err
+    assert verify_main([str(bundle), "--pubkey", str(pub)]) == 0  # the bundle as signed still verifies
 
 
 def test_a_sheet_that_does_not_list_the_classes_is_a_warning_and_not_shown(tmp_path: Path) -> None:
