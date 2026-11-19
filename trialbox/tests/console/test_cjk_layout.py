@@ -90,7 +90,7 @@ def test_one_font_stack_per_language_with_the_language_own_face_first() -> None:
     """UX-024: the base stack names no CJK face; the ja stack names Japanese faces only, the zh-TW stack Taiwanese
     faces only, so a page never takes the other language's glyph forms. System fonts only: no @font-face, no url()."""
     css = CSS.read_text(encoding="utf-8")
-    m = re.search(r"body \{ margin: 0; font: 15px/1\.5 ([^;]+);", css)
+    m = re.search(r"body \{ margin: 0; font: var\(--t-body\)/var\(--lh\) ([^;]+);", css)  # 9k-2: sizes are tokens
     assert m
     base = [f.strip().strip('"') for f in m.group(1).split(",")]
     assert not [f for f in base if re.search(r"JP|TC|SC|Hiragino|Yu Gothic|Meiryo|JhengHei|PingFang", f)]

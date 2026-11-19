@@ -98,7 +98,7 @@ COLUMNS = ("Id", "Date found", "Source", "Severity", "Claim", "Lane", "Basis", "
 HEADER = "| " + " | ".join(COLUMNS) + " |"
 RULE = "| " + " | ".join("---" for _ in COLUMNS) + " |"
 
-LANES = ("A2", "B2", "C2", "C2a", "C2b", "D", "E", "G", "H", "W", "R", "Int", "V")
+LANES = ("A2", "B2", "C2", "C2a", "C2b", "D", "E", "G", "H", "J", "K", "W", "R", "Int", "V")
 SEVERITIES = ("High", "Medium", "Low")
 BASES = ("shown", "hypothesis", "not_run", "not stated")
 
