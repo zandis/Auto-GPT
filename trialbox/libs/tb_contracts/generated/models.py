@@ -2098,6 +2098,101 @@ class SiteSchema(BaseModel):
     """
 
 
+class StudyProtocol(BaseModel):
+    """
+    The protocol part of a study manifest (10D-2, D-1366; review 14 M14-1): what the coordinating centre fixes for every site, read from rulesets/<ID>/ by tb_common.study_manifest. Its canonical serialisation (keys sorted, no spaces, UTF-8) hashes to criteria_sha256, the same on every site that adopts it; a site edit to any of it is refused. Schema version 1.0.0.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    schema_: Literal["tb-study-protocol/1"] = Field(..., alias="schema")
+    criteria_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    """
+    sha256 of the canonical serialisation of schema, manifest and files (every key but this one)
+    """
+    manifest: dict[
+        Literal[
+            "id",
+            "kind",
+            "title",
+            "trial_alias",
+            "sponsor",
+            "version",
+            "source_documents",
+            "protocol_version",
+            "protocol_date",
+            "language",
+            "index_date_rule",
+            "library",
+            "criteria",
+            "thresholds",
+            "variants",
+            "twpas",
+            "docx_template",
+            "cohort",
+            "population",
+            "nct_id",
+            "terminology_release",
+            "prompt_pins",
+            "derived_pins",
+            "source_last_update",
+        ],
+        Any,
+    ]
+    """
+    the protocol fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it
+    """
+    files: dict[str, str]
+    """
+    the protocol's files of rulesets/<ID>/ by relative path (criteria IR, value sets, CQL and ELM, SQL, labels, synthetic test patients and their expected results), each the sha256 of its canonical bytes; a criterion IR file without the site's review record (who, when, comment, approved or draft)
+    """
+
+
+class StudySite(BaseModel):
+    """
+    The site part of a study manifest (10D-2, D-1366; review 14 M14-1): what a hospital sets for itself beside the protocol part it adopted (screening scopes and people, routing, the note-reading models, its approval and IRB record, its own equivalence run and loaded code tables), read from rulesets/<ID>/ by tb_common.study_manifest. Edited freely at the site. Schema version 1.0.0.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    schema_: Literal["tb-study-site/1"] = Field(..., alias="schema")
+    criteria_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    """
+    the criteria hash of the protocol part this site part goes with
+    """
+    manifest: dict[
+        Literal[
+            "status",
+            "effective_from",
+            "irb_reference",
+            "irb_approved_on",
+            "scopes",
+            "routing",
+            "models",
+            "review",
+            "equivalence",
+            "terminology_tables",
+            "terminology_refused",
+        ],
+        Any,
+    ]
+    """
+    the site fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it
+    """
+    criterion_reviews: dict[str, CriterionReview] | None = None
+    """
+    each criterion's review record at this site, by criterion id, as its IR file holds it
+    """
+    files: dict[str, str] | None = None
+    """
+    the site's own files of rulesets/<ID>/ (its equivalence run, tests/equivalence.json) by relative path, each its sha256
+    """
+
+
 class TerminologyTable(BaseModel):
     """
     One table loaded at install that a compile read (TERM-2 follow-up): its name, the URI of the code system it serves (site for a site list, as lane E's terminology_refused entries name it), its version and the sha256 of its manifest line. Codes and names only, never a patient value.
