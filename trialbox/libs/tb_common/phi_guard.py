@@ -8,7 +8,7 @@ clearance for exactly the text being sent. The guard errs on the side of hits (f
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -1168,6 +1168,13 @@ _NOTE_GATES: tuple[Callable[[_Facts], bool], ...] = (
 )
 
 
+#: 10C-1b: name recognisers beyond the patterns, each ``text -> (start, end) spans``, added to :func:`note_spans` (and
+#: so to the guard and :func:`scan`) as kind ``name``. Empty by default, and nothing in the product registers one: the
+#: optional analyser (``tb_common.ja_names.enable``, a package not in the lock) is the owner's decision, and landing it
+#: bumps :data:`NOTE_MASK_VERSION`. With the list empty every output is master's.
+NAME_RECOGNISERS: list[Callable[[str], Iterable[tuple[int, int]]]] = []
+
+
 def find_emails(text: str) -> Iterator[re.Match[str]]:
     """Every email address of ``text`` (:data:`EMAIL`), looked for around each "@" only (NEW-B-51, D-759)."""
     return _finditer(EMAIL, text)
@@ -1193,6 +1200,8 @@ def note_spans(text: str, mrn_regex: str | None = None) -> list[tuple[str, int, 
         body = mrn_regex.strip("^$")
         for m in re.finditer(rf"(?<![0-9A-Za-z\-/.]){body}(?![0-9A-Za-z\-/.])", text):
             found.append(("mrn", m.start(), m.end()))
+    for recognise in NAME_RECOGNISERS:  # 10C-1b: empty unless a process registers one (tb_common.ja_names)
+        found.extend(("name", s, e) for s, e in recognise(text))
     merged: list[tuple[str, int, int]] = []
     for kind, s, e in sorted(found, key=lambda f: (f[1], -f[2])):
         if e <= s:
