@@ -252,3 +252,42 @@ mapped by the rule above from what the finding says; the source's own word is no
 | V15-08 | 2026-11-17 | [traceability-dry-2026-11-17.md](../plan/measurements/traceability-dry-2026-11-17.md) | Low | Some safety-core test files carry no mark.req and cite no requirement and no decision, so they reach no row of a traceability matrix | A2 | shown | open |
 | V15-09 | 2026-11-17 | [traceability-dry-2026-11-17.md](../plan/measurements/traceability-dry-2026-11-17.md) | Low | The pack's IQ, OQ, release record, Part 11 assessment and model qualification record have no generating command and no record on master | Int | shown | open |
 | V15-10 | 2026-11-17 | [traceability-dry-2026-11-17.md](../plan/measurements/traceability-dry-2026-11-17.md) | Medium | Three tools on one subject: gen_traceability.py (superseded plan, 'planned'), traceability.py (mark.req with CI results, artifact only) and trace_dry.py (this card); none produces the pack's traceability with kept results (also lanes D) | Int | shown | open |
+
+## H23b: the size ladder finished (lane H, 2026-11-18)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H23b-01 | 2026-11-18 | [size-test-2026-11-17.md](../plan/measurements/size-test-2026-11-17.md) | High | No installer step or compose overlay raises the orchestrator's 4 GiB cap (TB_MEM_ORCH), not even the reference workstation's; SCREEN of the whole hospital needs 4.37 GiB at 50,000 patients and 8.22 GiB at 100,000, so it is killed there as shipped | D | shown | open |
+| H23b-02 | 2026-11-18 | [size-test-2026-11-17.md](../plan/measurements/size-test-2026-11-17.md) | Medium | The cascade's S1 keeps every patient's rows at every index date as Python dictionaries (_s1_rows, to_pylist of each batch): 2.08 GiB traced in 12.6 million allocations at 50,000 patients, S1's resident peak 5.31 GiB at 100,000, where the gate's cascade is killed at the 4 GiB cap | A2 | shown | open |
+| H23b-03 | 2026-11-18 | [size-test-2026-11-17.md](../plan/measurements/size-test-2026-11-17.md) | Medium | The cascade's S1 time grows with about the square of the patients (243 s at 50,000, 902 s at 100,000 for one study; 807 s of it reading the rows in D-748's batches), the pattern H-23 showed for FEAS | A2 | shown | open |
+| H23b-04 | 2026-11-18 | [size-test-2026-11-17.md](../plan/measurements/size-test-2026-11-17.md) | Low | The scale gate's ingest runs the HL7 validator only when TB_HL7_VALIDATOR_JAR and the packages are set, and its report does not say which check ran; one size's ingest differs about 2 times between the two (20,000: 241 s with it, 110 s without) | B2 | shown | open |
+
+## H10G6: rule-set zip caps and where a rule set's signature is checked (plan 10 row 10G-6)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H10G6-01 | 2026-11-18 | [rule-set-zip-caps-2026-11-18.md](rule-set-zip-caps-2026-11-18.md) | Low | python -m criteria_compiler.import_ruleset FILE installs any zip given to it whose own manifest says approved; the module checks no signature itself (services/criteria_compiler/import_ruleset.py main); only the update path in front of it does (tools/verify_update.py:243); reaching it needs a shell in the criteria-compiler container | B2 | shown | open |
+| H10G6-02 | 2026-11-18 | [rule-set-zip-caps-2026-11-18.md](rule-set-zip-caps-2026-11-18.md) | Low | the trial simulation runs the SQL of a compiler draft zip read from the object store (services/orchestrator/scenarios/trials.py:63 and :97 -> cohort.load_draft -> feas_compute.py:274) with no signature or hash binding the stored zip to the compile result that named it; changing it needs write access to the object store; only check_select and the read-only lake bound the SQL | A2 | shown | open |
+
+## H10G3: the security page corrected (lane H, plan 10 row 10G-3, 2026-11-18)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H10G3-01 | 2026-11-18 | [06-audit-retention-updates.md](../security/06-audit-retention-updates.md) | Medium (mapped) | Retention deletes the host's service-log folders past logs_days with no audit event (a deleted job file is audited with its sha256, deleted mail-log rows by count) | D | not stated | open |
+
+## J10A1: a negated inclusion held for a person (lane J, plan 10 row 10A-1, 2026-11-18)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| J10A1-01 | 2026-11-18 | [unseen_at_design.json](../../tests/fixtures/negated_inclusion/unseen_at_design.json) | Medium (mapped) | Inclusion lines that should run are held for a person by the fail-safe negation rule (a cue governs something the line does not name as a concept): 20 rows of this file and 8 of lines.json are marked over_held, the target of card 10A-1b | A2 | shown | card issued #1117 |
+
+## J10C1: the privacy guard's Japanese gaps (lane J, plan 10 row 10C-1, 2026-11-18)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| J10C1-01 | 2026-11-18 | [ja_guard_probes.json](../../eval/phi_synth/ja_guard_probes.json) | High (mapped) | A Japanese name with no label or honorific stays readable after the masker (見本太郎は本日来院, 68歳男性 ミホン タロウ, and 患者：<name> alone) | B2 | shown | open |
+| J10C1-02 | 2026-11-18 | [ja_guard_probes.json](../../eval/phi_synth/ja_guard_probes.json) | High (mapped) | A romaji name without a label stays readable after the masker (外来 Mihon Taro 来院) | B2 | shown | open |
+| J10C1-03 | 2026-11-18 | [ja_guard_probes.json](../../eval/phi_synth/ja_guard_probes.json) | High (mapped) | A name split by a line break after its label keeps its second part (氏名：見本 then 太郎 on the next line) | B2 | shown | open |
+| J10C1-04 | 2026-11-18 | [ja_guard_probes.json](../../eval/phi_synth/ja_guard_probes.json) | High (mapped) | An address without 市 stays readable (架空村大字見本123番地, 自宅は見本町1-2-3) | B2 | shown | open |
+| J10C1-05 | 2026-11-18 | [ja_guard_probes.json](../../eval/phi_synth/ja_guard_probes.json) | High (mapped) | A pension number (基礎年金番号) and a passport number (旅券番号) are not masked by the masker | B2 | shown | open |
+| J10C1-06 | 2026-11-18 | [ja_guard_probes.json](../../eval/phi_synth/ja_guard_probes.json) | Medium (mapped) | Two ordinary lines are masked: レボドパ先生 (a drug read as a katakana surname) and 患者：高齢女性 (a Chinese name rule, as on master before) | B2 | shown | open |
