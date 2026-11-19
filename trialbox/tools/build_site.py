@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import importlib.util
 import json
 import os
 import re
@@ -34,7 +35,7 @@ import sys
 import tempfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -188,7 +189,7 @@ def extract_demo(e2e_dir: Path) -> dict[str, Any]:
     return {
         "schema": "trialbox.site.demo@1",
         "source": "tools.cascade_e2e (stub model, no network) -> dl1/DL1_<trial>.json (released D1 object only)",
-        "generated": datetime.now(UTC).strftime("%Y-%m-%d"),
+        "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d"),  # noqa: UP017 (3.10: run with python3)
         "pack_sha256": pack.get("sha256"),
         "deliverable": obj.get("deliverable"),
         "pack_schema": obj.get("schema"),
@@ -1898,6 +1899,23 @@ def load_optional(path: Path) -> Any:
     return read_json(path) if path.exists() else None
 
 
+def security_txt() -> str | None:
+    """The RFC 9116 file from deploy/security/contact.json (card 10G-9, D-1239); None while the owner has not set the
+    contact, so the site never publishes a placeholder. tools/security_contact.py is standard library only, loaded by
+    path because this script runs as ``python3 tools/build_site.py``."""
+    spec = importlib.util.spec_from_file_location("tb_security_contact", ROOT / "tools" / "security_contact.py")
+    if spec is None or spec.loader is None:
+        raise BuildError("tools/security_contact.py cannot be loaded")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    try:
+        text: str = mod.security_txt(mod.load())
+    except mod.ContactError as exc:
+        print(f"security.txt: not published ({exc})")
+        return None
+    return text
+
+
 def build(out_dir: Path) -> list[str]:
     if out_dir.exists():
         shutil.rmtree(out_dir)
@@ -1908,7 +1926,7 @@ def build(out_dir: Path) -> list[str]:
         shutil.copyfile(path, out_dir / "data" / path.name)
     demo_files = sorted(DATA.glob("demo_*_site_a.json"))
     demo = read_json(demo_files[0]) if demo_files else None
-    fragments: dict[str, str] = {"build_date": datetime.now(UTC).strftime("%Y-%m-%d")}
+    fragments: dict[str, str] = {"build_date": datetime.now(timezone.utc).strftime("%Y-%m-%d")}  # noqa: UP017
     for lang in ("en", "ja", "zh-TW"):
         fragments[f"pipeline_{lang.replace('-', '_').lower()}"] = pipeline(lang)
     fragments.update(demo_fragments(demo, load_optional(DATA / "open_data_mimic.json")))
@@ -1931,6 +1949,10 @@ def build(out_dir: Path) -> list[str]:
         '<main><h1>Not found</h1><p><a href="index.html">TrialBox home</a></p></main>',
         encoding="utf-8",
     )
+    if (sec := security_txt()) is not None:  # RFC 9116 section 3: /.well-known/security.txt at the site's root
+        (out_dir / ".well-known").mkdir()
+        (out_dir / ".well-known" / "security.txt").write_text(sec, encoding="utf-8")
+        written.append(".well-known/security.txt")
     hits = scan_for_secrets(out_dir)
     if hits:
         shutil.rmtree(out_dir)

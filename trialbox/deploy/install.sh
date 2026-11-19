@@ -457,6 +457,15 @@ else
   # off on VALIDATION); a value the site wrote is kept
   grep -q '^TB_CONSOLE_SECURE_COOKIE=' deploy/.env || envset TB_CONSOLE_SECURE_COOKIE 1
 fi
+# H-48 (D-1328): TB_TLS_OLD_CLIENTS, the one setting that relaxes 443 for a hospital's old client: off (the default) or
+# cbc (also the four TLS 1.2 ECDHE AES-CBC-SHA suites). Any other value is refused before Caddy reads it (RUNBOOK §12)
+# the value compose gives Caddy: an exported TB_TLS_OLD_CLIENTS wins over deploy/.env, as compose does; quotes dropped
+TLS_OLD="${TB_TLS_OLD_CLIENTS-$(envget TB_TLS_OLD_CLIENTS)}"; TLS_OLD="${TLS_OLD//[\"\']/}"; TLS_OLD="${TLS_OLD:-off}"
+case "$TLS_OLD" in
+  off) ;;
+  cbc) [ -z "$TLS_HOST" ] || echo "    TLS: TB_TLS_OLD_CLIENTS=cbc: 443 also serves TLS 1.2 ECDHE AES-CBC-SHA to old clients (audited; doctor and the TLS check name it)" ;;
+  *) die "TB_TLS_OLD_CLIENTS must be off or cbc, not '$TLS_OLD': fix it in deploy/.env (RUNBOOK §12), then re-run" ;;
+esac
 # SAE-MAILBOX (D-736): the trial office is told at once when a serious adverse event is entered (LIFE-007)
 SAE_TO="$(envget TB_SAE_OFFICE_MAILBOX)"
 [ -n "$SAE_TO" ] || SAE_TO="${TB_SAE_OFFICE_MAILBOX:-}"   # exported for this run
@@ -931,6 +940,28 @@ open_audit(Path("/data/audit")).append("update.applied", actor="deploy/install.s
     detail={"bundle_id": s["bundle_id"], "signer": s["signer"], "files": s["files"]})
 ' < "$f" && rm -f "$f" && echo "    audited bundle $(basename "$f" .json)"
 done
+
+# H-48 (D-1328): a switch of TB_TLS_OLD_CLIENTS since the last audited one is an event of the box's audit chain,
+# sent from the orchestrator's container as update.applied is: update.tls_relaxed (cbc on) or update.tls_strict (back
+# to off). deploy/site/tls-old-clients.audited keeps the last audited value; an event not sent stays due (FAILS)
+TLS_OLD_MARK=deploy/site/tls-old-clients.audited
+TLS_OLD_WAS="$(cat "$TLS_OLD_MARK" 2>/dev/null || true)"; TLS_OLD_WAS="${TLS_OLD_WAS:-off}"
+if [ "$TLS_OLD" != "$TLS_OLD_WAS" ]; then  # with TLS off too: doctor compares the setting with this marker
+  TLS_OLD_EVENT=update.tls_relaxed; [ "$TLS_OLD" != off ] || TLS_OLD_EVENT=update.tls_strict
+  if "${COMPOSE[@]}" exec -T orchestrator python -c '
+import sys
+from pathlib import Path
+from tb_common.audit_writer import open_audit
+event, value, was = sys.argv[1:4]
+open_audit(Path("/data/audit")).append(event, actor="deploy/install.sh",
+    detail={"setting": "TB_TLS_OLD_CLIENTS", "value": value, "was": was, "decision": "D-1328"})
+' "$TLS_OLD_EVENT" "$TLS_OLD" "$TLS_OLD_WAS"; then
+    mkdir -p deploy/site && printf '%s\n' "$TLS_OLD" > "$TLS_OLD_MARK"
+    echo "    audited $TLS_OLD_EVENT (TB_TLS_OLD_CLIENTS=$TLS_OLD, was $TLS_OLD_WAS)"
+  else
+    FAILS+=("TB_TLS_OLD_CLIENTS=$TLS_OLD is served but its switch was not audited ($TLS_OLD_EVENT): re-run deploy/install.sh once the orchestrator is up (RUNBOOK §12)")
+  fi
+fi
 
 # ------------------------------------------------------------------------------------------------ 5. accounts
 if [ "${TB_BOX:-0}" = 1 ]; then  # T-729: the owner makes the first accounts in the first-run wizard
