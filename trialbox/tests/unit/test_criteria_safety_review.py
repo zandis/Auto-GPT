@@ -57,7 +57,10 @@ def _store(root: Path, patient: str, day: str, typ: str, order: str, segs: list[
     msh = f"MSH|^~\\&|HIS||TB||20261001||X|{order}|P|2.5||||||~ISO IR87"
     d = storage_dir(root, patient, day, typ)
     d.mkdir(parents=True, exist_ok=True)
-    text = "\r".join([msh, *segs]) + "\r"
+    pid = (
+        [] if any(s.startswith("PID|") for s in segs) else [f"PID|||{patient}^^^^PI"]
+    )  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
+    text = "\r".join([msh, *pid, *segs]) + "\r"
     (d / f"{patient}_{day}_{typ}_{order}_20261001000000000_-_1").write_bytes(text.encode("iso2022_jp"))
 
 

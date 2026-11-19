@@ -1,5 +1,6 @@
 """NEW-DIN-4 (DIN-004, D-594): whether an SS-MIX2 order number is used again on another day is declared by the site
-(``TB_SSMIX2_ORDER_NUMBERS``) and counted either way. All data is synthetic."""
+(``TB_SSMIX2_ORDER_NUMBERS``) and counted either way. D-1000 (card 10B-2) made the specification's key, ``per_day``,
+the default: the tests of ``unique`` now name it. All data is synthetic."""
 
 from __future__ import annotations
 
@@ -18,7 +19,10 @@ def _store(
 ) -> None:
     d = storage_dir(root, MRN, day, typ)
     d.mkdir(parents=True, exist_ok=True)
-    body = "\r".join([f"MSH|^~\\&|HIS||TB||{day}||X|1|P|2.5||||||~ISO IR87", *segs]) + "\r"
+    pid = (
+        [] if any(s.startswith("PID|") for s in segs) else [f"PID|||{MRN}^^^^PI"]
+    )  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
+    body = "\r".join([f"MSH|^~\\&|HIS||TB||{day}||X|1|P|2.5||||||~ISO IR87", *pid, *segs]) + "\r"
     (d / f"{MRN}_{day}_{typ}_{order}_{day}{stamp}_-_{flag}").write_bytes(body.encode("iso2022_jp"))
 
 
@@ -40,22 +44,22 @@ def _reused(root: Path) -> None:
     _store(root, "OML-11", "O1", D2, ["OBR|1|O1", _obx(1, "7.5", D2)])
 
 
-# ------------------------------------------------------------------------------------------------ the default
-def test_by_default_one_order_number_is_one_record_as_before_and_the_repeat_is_counted(tmp_path: Path) -> None:
+# ------------------------------------------------------------------------------------------------ unique (declared)
+def test_unique_one_order_number_is_one_record_as_before_and_the_repeat_is_counted(tmp_path: Path) -> None:
     _reused(tmp_path)
-    rows, _, stats = _read(tmp_path)
-    assert rows == [("O1-1", "7.5")]  # the behaviour until now: the newest file of the number
+    rows, _, stats = _read(tmp_path, "unique")
+    assert rows == [("O1-1", "7.5")]  # the behaviour of D-594's default: the newest file of the number
     assert stats[COUNT] == 1  # ... and now the site check shows that the number is on two days
 
 
-def test_by_default_an_amendment_or_a_delete_filed_under_a_later_day_still_reaches_its_record(tmp_path: Path) -> None:
+def test_unique_an_amendment_or_a_delete_filed_under_a_later_day_still_reaches_its_record(tmp_path: Path) -> None:
     """What the first repair of this card broke (its review): a vendor files the final result, or the delete,
-    under the day it was sent."""
+    under the day it was sent. Such a site declares ``unique`` (D-1000)."""
     _store(tmp_path, "OML-11", "O1", D1, ["OBR|1|O1", _obx(1, "6.0", D1, status="P")])
     _store(tmp_path, "OML-11", "O1", D2, ["OBR|1|O1", _obx(1, "6.3", D1)], stamp="10" + "0000000")
-    assert _read(tmp_path)[0] == [("O1-1", "6.3")]  # one result, the final one
+    assert _read(tmp_path, "unique")[0] == [("O1-1", "6.3")]  # one result, the final one
     _store(tmp_path, "OML-11", "O1", "20261020", ["OBR|1|O1", _obx(1, "6.3", D1)], flag="0")
-    rows, dead, _ = _read(tmp_path)
+    rows, dead, _ = _read(tmp_path, "unique")
     assert rows == [] and dead == ["O1-1"]  # deleted, and the tombstone names the id the lake holds
 
 
@@ -113,10 +117,12 @@ def test_the_setting_comes_from_the_environment_and_a_wrong_word_is_refused(
 
     assert "TB_SSMIX2_ORDER_NUMBERS" in DECLARED
     _reused(tmp_path)
+    monkeypatch.setenv("TB_SSMIX2_ORDER_NUMBERS", "unique")
+    assert len(_read(tmp_path)[0]) == 1
+    monkeypatch.setenv("TB_SSMIX2_ORDER_NUMBERS", "")  # unset: the specification's key (D-1000)
+    assert len(_read(tmp_path)[0]) == 3
     monkeypatch.setenv("TB_SSMIX2_ORDER_NUMBERS", "per_day")
     assert len(_read(tmp_path)[0]) == 3
-    monkeypatch.setenv("TB_SSMIX2_ORDER_NUMBERS", "")
-    assert len(_read(tmp_path)[0]) == 1
     monkeypatch.setenv("TB_SSMIX2_ORDER_NUMBERS", "day_and_number")
     with pytest.raises(ValueError, match="TB_SSMIX2_ORDER_NUMBERS"):
         Ssmix2Source(tmp_path, licensed={})
