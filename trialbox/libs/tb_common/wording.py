@@ -184,7 +184,8 @@ _NEGATION = (
     r"(?:(?:は|を|も)?(?:行(?:いません|わず|わない|っていません)|しません|せず|しない|できません|できない|できなかった|さない|さず)"
     r"|ではありません|ではない|はしません)"
 )
-_SENTENCE = re.compile(r"[^。！？!?\n]+[。！？!?]?")
+# a sentence ends at 。！？, a line end, or two spaces (on a page, where one element ends and the next begins)
+_SENTENCE = re.compile(r"(?:[^。！？!?\n ]| (?! ))+[。！？!?]?")
 
 
 def check_claims_ja(text: str, terms: Iterable[ClaimTerm] = CLAIMS_JA) -> list[Hit]:
@@ -208,7 +209,8 @@ def check_claims_ja(text: str, terms: Iterable[ClaimTerm] = CLAIMS_JA) -> list[H
                 near = masked[max(0, m.start() - CLAIM_WINDOW) : m.end() + CLAIM_WINDOW]
                 patient = not t.actor_only and _PATIENT.search(near) is not None
                 if actor or patient:
-                    hits.append(Hit(word=t.term, context=sentence.strip()))
+                    ctx = sentence[max(0, m.start() - 30) : m.end() + 30]
+                    hits.append(Hit(word=t.term, context=ctx.strip()))
     return hits
 
 
