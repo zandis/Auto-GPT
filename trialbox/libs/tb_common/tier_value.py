@@ -16,12 +16,17 @@ was, for the reader's start-up log line. A box never fails to start because of i
 (``RecursionError``), a directory, a named pipe or a device (not a regular file: refused without blocking), a
 symbolic-link loop, no permission. :func:`read_record` is the one bounded read;
 the checker (``tools/tier_record.py``) uses it too and fails loudly where this reader keeps its fallback.
+
+**A ballast record is no record (10E-11, D-1336).** A record made under the ballast stand-in (plan 10 row 10E-28: any
+string in it says "by ballast") is never a tier record: :func:`measured` answers ``malformed`` for it, as the checker
+refuses it. :func:`made_under_ballast` walks the parsed record without recursion, so a deep record cannot make it raise.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -36,6 +41,8 @@ FALLBACK_SLOTS = 16
 # the largest tier record read (bytes): the shipped records are under 8 kB; a file over this is refused unread, so a
 # replaced file cannot make a reader (the gateway at start, a console page) hold an unbounded file in memory
 TIER_RECORD_MAX_BYTES = 1_000_000
+# a record made under the ballast stand-in says so in a string (``--capped-to "... by ballast"``, plan 10 row 10E-28)
+BALLAST = re.compile(r"by\s+ballast", re.IGNORECASE)
 CASES = ("measured", "declared", "not_measured", "no_record", "malformed", "unknown_profile")
 
 
@@ -91,6 +98,25 @@ def read_record(path: Path, max_bytes: int = TIER_RECORD_MAX_BYTES, *, constants
         raise TierRecordUnreadable(f"{path.name[:80]}: {exc} (NaN and Infinity are not JSON numbers)") from None
     except ValueError as exc:
         raise TierRecordUnreadable(f"{path.name[:80]}: not JSON ({type(exc).__name__})") from None
+
+
+def made_under_ballast(doc: Any) -> bool:
+    """True when any key or string value of the parsed record says it was made under the ballast stand-in.
+
+    Iterative (a stack, no recursion), so a record nested as deep as the parser allows cannot make it raise."""
+    stack = [doc]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, str):
+            if BALLAST.search(node):
+                return True
+        elif isinstance(node, dict):
+            for key, value in node.items():
+                stack.append(key)
+                stack.append(value)
+        elif isinstance(node, list):
+            stack.extend(node)
+    return False
 
 
 def _shown(v: Any) -> str:
@@ -158,6 +184,9 @@ def measured(field: str, env: Mapping[str, str] | None = None, tiers_dir: Path |
         return TierValue(field, "no_record", profile, why=f"no {path.name}")
     except TierRecordUnreadable as exc:
         return TierValue(field, "malformed", profile, why=str(exc))
+    if made_under_ballast(doc):
+        why = f"{path.name}: made under the ballast stand-in, never a tier record"
+        return TierValue(field, "malformed", profile, why=why)
     fields = doc.get("fields") if isinstance(doc, dict) else None
     f = fields.get(field) if isinstance(fields, dict) else None
     if not isinstance(f, dict) or f.get("basis") not in ("measured", "declared", "not_measured"):

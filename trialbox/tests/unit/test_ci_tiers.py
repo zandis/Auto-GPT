@@ -295,7 +295,7 @@ def test_a_new_push_cancels_the_old_run_of_the_same_pull_request() -> None:
         assert re.search(r"github\.event\.pull_request\.number \|\| github\.ref", conc["group"]), path.name
         cancel = conc["cancel-in-progress"]
         assert cancel is True or cancel == "${{ github.event_name == 'pull_request' }}", path.name
-    assert seen == 5  # ci, images, supply chain, identity, box rehearsal (D-887)
+    assert seen == 6  # ci, images, supply chain, identity, box rehearsal (D-887), visual regression (9k-17, D-1377)
 
 
 def test_the_developers_page_names_the_tiers_and_the_train() -> None:

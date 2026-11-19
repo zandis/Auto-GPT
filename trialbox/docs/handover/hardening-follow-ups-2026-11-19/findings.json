@@ -1,0 +1,33 @@
+{
+  "card": "H58",
+  "title": "hardening follow-ups: the overlay services and a pack that does not load (card H-58)",
+  "date": "2026-11-19",
+  "source": "docs/handover/hardening-follow-ups-2026-11-19.md",
+  "note": "no container was started (no Docker daemon): the YAML of every stack and docker compose config of every stack were checked; H10G1-03 and H10G1-04 are fixed here and their state is set in container-hardening-2026-11-19/findings.json",
+  "findings": [
+    {
+      "id": "H58-01",
+      "severity": "Low",
+      "claim": "the overlay services' written exceptions stay open (D-1337): llm-verifier read_only, user and cap_drop (closed with H10G1-02 on a GPU box), the rtx5090 swap helpers' user (the vLLM image's python runs as root), caddy's user and cap_drop (root on 443; the hospital's key file of an owner and mode the installer does not set), authelia's user, cap_drop and read_only (its entrypoint changes owners and user at start; it writes /app/.healthcheck.env), mailpit's read_only (its message database in /tmp)",
+      "lane": "H",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H58-02",
+      "severity": "Low",
+      "claim": "the controls added to the overlay services that no CI job starts (authelia, prometheus, the platform doctor, the acceptance services, the test bench, the two-device link, the rtx5090 swap helpers) are shown only statically (YAML and docker compose config); each overlay is to be brought up on a compose box before they are trusted there",
+      "lane": "H",
+      "basis": "hypothesis",
+      "state": "open"
+    },
+    {
+      "id": "H58-03",
+      "severity": "Low",
+      "claim": "tests/unit/test_compose_limits.py lints no two-device compose file: its list of compose files globs deploy/ only (the platform file is added by name), so the link service's limits, log cap, health check and watchdog rule are not checked there",
+      "lane": "H",
+      "basis": "shown",
+      "state": "open"
+    }
+  ]
+}

@@ -22,15 +22,15 @@ body { margin: 0; font: var(--t-body)/var(--lh) system-ui, -apple-system, "Segoe
   background: var(--bg); color: var(--ink); }
 a { color: var(--accent); }
 .skip { position: absolute; left: -999px; }
-.skip:focus { left: 8px; top: 8px; background: var(--card); padding: 6px; z-index: 9; }
+.skip:focus { left: 8px; top: 8px; background: var(--card); padding: 12px; z-index: 9; }
 .sr { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }  /* left:0: an off-screen label must not widen the page on a phone (M3) */
 .banner { background: var(--banner); color: var(--on-banner); padding: 6px 16px; font-size: var(--t-meta); }
 .banner.prod { background: var(--banner-prod); }
 .top { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; padding: 10px 16px;
   background: var(--card); border-bottom: 1px solid var(--line); }
-.brand { font-weight: 700; text-decoration: none; color: var(--ink); }
+.brand { display: inline-flex; align-items: center; min-height: 44px; font-weight: 700; text-decoration: none; color: var(--ink); }
 nav { display: flex; flex-wrap: wrap; gap: 4px; }
-nav a { padding: 6px 10px; border-radius: 6px; text-decoration: none; min-height: 32px; }
+nav a { display: inline-flex; align-items: center; padding: 6px 10px; border-radius: 6px; text-decoration: none; min-height: 44px; }
 nav a.active, nav a:hover { background: var(--bg); }
 .who { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; color: var(--muted); }
 main { max-width: 1180px; margin: 0 auto; padding: 16px; }
@@ -45,36 +45,45 @@ h3 { font-size: var(--t-meta); margin: 14px 0 8px; }
 .scroll { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { font-size: var(--t-meta); color: var(--muted); font-weight: 600; }
+th { font-size: var(--t-meta); color: var(--muted); font-weight: 600; letter-spacing: normal; }
 td.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr.muted td { color: var(--muted); }
 .mono, code { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: var(--t-meta); }
 code { background: var(--bg); padding: 2px 6px; border-radius: 4px; }
 label { display: block; font-weight: 600; margin: 10px 0 4px; }
-label.check { font-weight: 400; }
+label:has(> input[type=checkbox]), label:has(> input[type=radio]), label.check { display: flex; align-items: center; gap: 10px;
+  min-height: 44px; margin: 0; font-weight: 400; }
+/* D-133 step 4b, folded into the rules it re-set (9k-3, D-1375): every target at least 44 px (WCAG 2.5.5; a link
+   inside a sentence is the standard's exception), text at least 15 px */
 input, select, textarea { font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--control);
-  border-radius: 6px; padding: 7px 9px; min-height: 36px; width: 100%; max-width: 520px; }
+  border-radius: 6px; padding: 7px 9px; min-height: 44px; width: 100%; max-width: 520px; }
+select { min-width: 44px; }
 input[type=checkbox] { width: auto; min-height: auto; }
 input[type=file] { border: none; padding-left: 0; }
-button, .button { display: inline-block; font: inherit; font-weight: 600; background: var(--accent); color: var(--accent-ink);
-  border: 1px solid var(--accent); border-radius: 6px; padding: 7px 16px; min-height: 36px; margin-top: 12px;
-  cursor: pointer; text-decoration: none; }
+/* 9k-3 (D-1375): the button. Four variants (primary, secondary, quiet, danger), one small size, one disabled or
+   busy look: these six rules are the only ones that paint a button (tests/console/test_buttons_9k3.py counts them);
+   a container may set a button's margin, flex or width, never its look. <button> acts, <a class="button"> goes. */
+button, .button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font: inherit; font-weight: 600;
+  background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent); border-radius: 6px; padding: 9px 16px;
+  min-height: 44px; min-width: 44px; margin-top: 12px; cursor: pointer; text-decoration: none; }
 button.secondary, .button.secondary { background: transparent; color: var(--accent); }
-button.small { padding: 3px 10px; min-height: 28px; margin: 0; font-weight: 500; }
-button[disabled] { opacity: .5; cursor: not-allowed; }
+button.quiet, .button.quiet { background: transparent; color: var(--accent); border-color: transparent; text-decoration: underline; }
+button.danger, .button.danger { color: var(--bad); border-color: var(--bad); }
+button.small, .button.small, .next .button { padding: 8px 14px; margin: 0; font-weight: 500; }
+button[disabled], button[aria-busy="true"], .button[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 3px solid var(--accent); outline-offset: 2px; }
 form.inline { display: inline-flex; gap: 6px; align-items: center; margin: 0; }
-form.inline select { width: auto; min-height: 28px; padding: 2px 6px; }
+form.inline select { width: auto; min-height: 44px; padding: 8px 14px; }
 .mt { margin-top: 14px; }
 .hint { color: var(--muted); font-size: var(--t-meta); }
 .error { background: var(--bad-bg); color: var(--bad); padding: 8px 12px; border-radius: 6px; }
 .warn { background: var(--warn-bg); color: var(--warn); padding: 8px 12px; border-radius: 6px; }
 .ok { background: var(--ok-bg); color: var(--ok); padding: 8px 12px; border-radius: 6px; }
-.pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: var(--t-meta); font-weight: 700; }
+.pill { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: var(--t-meta); font-weight: 700; }
 .pill.ok { background: var(--ok-bg); color: var(--ok); padding: 1px 8px; }
 .pill.bad { background: var(--bad-bg); color: var(--bad); padding: 1px 8px; }
-.state { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: var(--t-meta); font-weight: 700;
+.state { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: var(--t-meta); font-weight: 700;
   border: 1px solid var(--line); }
 .s-done { background: var(--ok-bg); color: var(--ok); }
 .s-failed, .s-cancelled { background: var(--bad-bg); color: var(--bad); }
@@ -90,7 +99,7 @@ ul.checks { columns: 2; padding-left: 18px; }
 .wrap { overflow-wrap: anywhere; }
 p.mono { overflow-wrap: anywhere; }
 td .mono { white-space: nowrap; }
-details > summary { cursor: pointer; color: var(--accent); margin-bottom: 8px; }
+details > summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--accent); margin-bottom: 8px; }
 @media (max-width: 640px) {
   .who { margin-left: 0; } ul.checks { columns: 1; } progress { width: 70px; }
   .top { gap: 8px 12px; padding: 8px 12px; }
@@ -138,20 +147,20 @@ tr:target { outline: 2px solid var(--accent); }
 
 /* report-first role pages (D-104) */
 details.more { position: relative; }
-details.more > summary { list-style: none; padding: 6px 10px; border-radius: 6px; min-height: 32px; color: var(--accent); margin: 0; }
+details.more > summary { list-style: none; display: inline-flex; align-items: center; padding: 6px 10px; border-radius: 6px; min-height: 44px;
+  color: var(--accent); margin: 0; }
 details.more > summary::-webkit-details-marker { display: none; }
 details.more > summary::after { content: " ▾"; }
 details.more[open] > summary { background: var(--bg); }
 .more-items { position: absolute; z-index: 5; background: var(--card); border: 1px solid var(--line); border-radius: 8px;
   padding: 6px; display: flex; flex-direction: column; min-width: 200px; box-shadow: 0 4px 16px var(--shadow); }
-.more-items a { padding: 6px 10px; border-radius: 6px; text-decoration: none; }
+.more-items a { display: inline-flex; align-items: center; min-height: 44px; padding: 6px 10px; border-radius: 6px; text-decoration: none; }
 .more-items a:hover { background: var(--bg); }
 .headrow { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
 .headrow h1, .headrow h2 { margin-bottom: 6px; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .next { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; background: var(--bg);
   border-radius: 8px; padding: 8px 12px; font-weight: 600; }
-.next .button { margin: 0; padding: 4px 14px; min-height: 30px; }
 .tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
 .tiles .tile { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 0; }
 .tiles .tile p { margin: 2px 0; }
@@ -178,8 +187,7 @@ svg .axis { stroke: var(--line); stroke-width: 1; }
 .prow .open { margin: 4px 0 8px; }
 .prow.st-new { border-left: 4px solid var(--accent); }
 .visit { font-variant-numeric: tabular-nums; }
-.markrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.markrow form.inline select { width: auto; max-width: 180px; min-height: 28px; padding: 2px 6px; }
+.markrow form.inline select { width: auto; max-width: 180px; min-height: 44px; padding: 8px 14px; }
 .pill.mk-approach { background: var(--ok-bg); color: var(--ok); }
 .pill.mk-need_info, .pill.stt-new { background: var(--warn-bg); color: var(--warn); }
 .pill.mk-not_suitable, .pill.mk-not_now { background: var(--bad-bg); color: var(--bad); }
@@ -197,7 +205,7 @@ svg .axis { stroke: var(--line); stroke-width: 1; }
 }
 @media print {
   .top, .banner, .actions, details, form, footer, .skip, .noprint { display: none !important; }
-  body { background: var(--print-bg); color: var(--print-ink); font-size: var(--t-meta); } .card { break-inside: avoid; border-color: var(--print-line); }
+  body { background: var(--print-bg); color: var(--print-ink); } .card { break-inside: avoid; border-color: var(--print-line); }
   main { max-width: none; padding: 0; }
 }
 /* D-104: criteria table becomes one card per criterion on phones */
@@ -223,8 +231,9 @@ svg .axis { stroke: var(--line); stroke-width: 1; }
 .bench > * { min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 6px; }
 .rail { padding: 8px; display: grid; gap: 2px; align-content: start; }
 .rail h3 { margin: 4px 8px; font-size: var(--t-meta);  letter-spacing: .06em; color: var(--muted); }
-.rail a { display: flex; justify-content: space-between; gap: 8px; padding: 7px 8px; border-radius: 4px; color: var(--ink); text-decoration: none; }
+.rail a { display: flex; align-items: center; min-height: 44px; justify-content: space-between; gap: 8px; padding: 7px 8px; border-radius: 4px; color: var(--ink); text-decoration: none; }
 .pager { display: flex; gap: 12px; align-items: center; justify-content: center; padding: 10px 0; }
+.pager a { display: inline-flex; align-items: center; min-height: 44px; }
 .rail a:hover { background: var(--bg); }
 .rail a.active { background: var(--bg); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
 .rail .n { font-variant-numeric: tabular-nums; color: var(--muted); }
@@ -261,7 +270,6 @@ table.worklist .bad { color: var(--bad); font-weight: 600; }
 .actp .ns { display: inline-flex; gap: 6px; align-items: center; }
 .actp select { width: auto; max-width: 170px; }
 .actp input { flex: 1 1 100%; }
-.actp .danger { color: var(--bad); border-color: var(--bad); }
 .grp { margin: 10px 12px 2px; font-size: var(--t-meta);  letter-spacing: .06em; color: var(--muted); }
 .critl { list-style: none; margin: 0; padding: 0; }
 .critl li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
@@ -272,12 +280,13 @@ table.worklist .bad { color: var(--bad); font-weight: 600; }
 /* T-516: the lines above the mark bar (why Approach is absent or paused) keep the panel's side gutter */
 .chartp > p.hint, .chartp > p.warn { margin: 8px 12px; }
 .tasks { list-style: none; margin: 0; padding: 0; }
+.tasks a { display: inline-flex; align-items: center; min-height: 44px; }
 .tasks li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .tasks li .hint { grid-column: 1; }
 .tasks .due { font-variant-numeric: tabular-nums; white-space: nowrap; font-size: var(--t-meta); }
 .tasks .due.late { color: var(--bad); font-weight: 700; }
 .pipe { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; }
-.pipe a { flex: 1 1 90px; display: grid; gap: 2px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); text-decoration: none; }
+.pipe a { flex: 1 1 90px; display: inline-flex; align-items: center; min-height: 44px; gap: 2px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); text-decoration: none; }
 .pipe b { font-size: 22px; font-variant-numeric: tabular-nums; }
 .pipe span { font-size: var(--t-meta); color: var(--muted); }
 .crcgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 400px); gap: 12px; align-items: start; }
@@ -305,7 +314,7 @@ details.codes { margin-top: .35rem; }
 details.codes summary { cursor: pointer; color: var(--muted); font-size: var(--t-meta); }
 ul.codes { margin: .25rem 0 .25rem 1rem; padding: 0; font-size: var(--t-meta); }
 .amberwhy { margin: .3rem 0 0; }
-.markrow { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .25rem 0; }
+.markrow { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: .25rem 0; }
 .markform input[type=date], .outform input[type=date] { max-width: 11rem; }
 .outform { margin-top: .6rem; border-top: 1px solid var(--line); padding-top: .5rem; }
 /* D-109 S21 REDCap link form */
@@ -317,10 +326,11 @@ form.grid2 .full { grid-column: 1 / -1; }
 /* build step 4 (D-110): header command field, help, admin tabs, phone layout */
 form.cmd { display: flex; gap: 6px; align-items: center; flex: 1 1 260px; max-width: 460px; margin: 0; }
 form.cmd button { margin-top: 0; white-space: nowrap; }
-form.cmd input[type=search] { flex: 1 1 auto; min-width: 0; min-height: 36px; margin: 0; }
-.helpq { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%;
+form.cmd input[type=search] { flex: 1 1 auto; min-width: 0; min-height: 44px; margin: 0; }
+.helpq { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%;
   border: 1px solid var(--line); text-decoration: none; font-weight: 700; }
 .who a { color: inherit; }
+.who a, .headrow span > a, .headrow > span a { display: inline-flex; align-items: center; min-height: 44px; }
 nav.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 8px 0 14px; }
 nav.tabs a { border-radius: 6px 6px 0 0; padding: 8px 14px; }
 nav.tabs a.active { background: var(--card); border: 1px solid var(--line); border-bottom-color: var(--card); margin-bottom: -1px; }
@@ -330,7 +340,7 @@ form.filters label { margin: 0; }
 .helppanel { max-width: 760px; }
 @media (max-width: 640px) {
   form.cmd { order: 3; flex: 1 1 calc(100% - 52px); max-width: none; }
-  .helpq { order: 4; flex: 0 0 32px; }
+  .helpq { order: 4; flex: 0 0 44px; }
   .who { order: 5; width: 100%; justify-content: space-between; }
   nav.tabs { overflow-x: auto; }
   nav.tabs a { white-space: nowrap; padding: 8px 10px; }
@@ -352,28 +362,11 @@ p.exports { display: flex; flex-wrap: wrap; gap: 8px; }
 p.exports .button { margin-top: 0; }
 
 /* ---------------------------------------------------------------- D-133 step 4b: easy for novices
-   Every target at least 44 px (WCAG 2.5.5; a link inside a sentence is the standard's exception), text at least
-   15 px, a compact header on phones, the patient sheet with a sticky mark bar, IDs that never wrap. */
-body { font-size: var(--t-body); }
-button, .button, input, select, textarea { min-height: 44px; }
-button, .button, select { min-width: 44px; }
-form.cmd input[type=search] { min-height: 44px; }
-.who a, .headrow span > a, .headrow > span a { display: inline-flex; align-items: center; min-height: 44px; }
-button, .button { padding: 9px 16px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
-button.small, form.inline select, .markrow form.inline select, .next .button { min-height: 44px; padding: 8px 14px; }
+   9k-3 (D-1375): what this layer re-set now sits in the rules it re-set. Two rules stay here because rules above
+   of equal weight must not win against them: the 22 px check box (over `.markform input`) and the links that are
+   targets on their own (a link inside a sentence is WCAG 2.5.5's exception). */
 input[type=checkbox], input[type=radio] { min-height: 0; width: 22px; height: 22px; }
-label:has(> input[type=checkbox]), label:has(> input[type=radio]), label.check { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 0; font-weight: 400; }
-nav a, .rail a, .more-items a, nav.tabs a, .pager a, details.more > summary, .tasks a, .pipe a { min-height: 44px; display: inline-flex; align-items: center; }
-details > summary { min-height: 44px; display: flex; align-items: center; }
-.rail a { display: flex; }
 td a, dd > a:only-child, li > a:only-child, p > a:only-child, .actions > a, .headrow > a, h2 > a, h3 > a, .chartlinks a, footer a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
-.brand { display: inline-flex; align-items: center; min-height: 44px; }
-.helpq { width: 44px; height: 44px; flex: 0 0 44px; }
-.skip:focus { padding: 12px; }
-.hint, th, .pill, .state, .kv, .banner, footer, .steps b, .steps span { font-size: var(--t-meta); }
-.pill, .state { padding: 2px 10px; }
-th { letter-spacing: normal; }
-.markrow { gap: 12px; }
 
 /* the header: a one-line banner and, on a phone, one Menu button for the menu, search, language and Sign out */
 header.top { display: block; padding: 0; background: var(--card); border-bottom: 1px solid var(--line); }
@@ -404,7 +397,6 @@ header.top .bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: ce
 .sheetnav { display: none; }
 .markbar { display: flex; flex-wrap: wrap; gap: 10px; padding: 10px 12px; background: var(--card); border-top: 1px solid var(--line); }
 .markbar button, .markbar .button { margin: 0; min-height: 48px; flex: 1 1 auto; }
-.markbar .danger, button.danger { color: var(--bad); border-color: var(--bad); }
 .markform form { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; width: 100%; }
 .markform form label { margin: 0; }
 .markform form input:not([type=hidden]), .markform form select { flex: 1 1 200px; max-width: 360px; }
@@ -665,3 +657,7 @@ nav.ptabs a { min-height: 44px; display: inline-flex; align-items: center; paddi
 nav.ptabs .ptabs-lists a { font-weight: 600; font-size: 17px; }
 nav.ptabs a.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 nav.ptabs .ptabs-rs { color: var(--muted); }
+/* 9g-19 (D-1370): the idle lock's warning, at the foot of the screen over everything (the sheet's 30 included) */
+.idle-warn { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 40; max-width: 36rem; margin: 0 auto; border: 2px solid var(--warn); }
+.idle-warn[hidden], .idle-warn [hidden] { display: none; }
+.idle-warn button { min-height: 44px; }

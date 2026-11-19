@@ -129,7 +129,7 @@ JA: dict[str, str] = {
     "dataops.event.ingest.done": "夜間取り込み完了",
     "dataops.event.ingest.failed": "夜間取り込み失敗",
     "dataops.event.ingest.held": "夜間取り込み保留",
-    "dataops.event.dataops.decide": "データスチュワードの判断",
+    "dataops.event.dataops.decide": "データ管理責任者の判断",
     "dataops.event.dataops.step": "手順の記録",
     "who.adapter": "取り込み処理",
     "feas.pop.hospital": "病院全体：過去 {months} か月に1回以上受診した患者",

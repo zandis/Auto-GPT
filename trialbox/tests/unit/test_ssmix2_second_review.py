@@ -96,13 +96,14 @@ def test_2_a_suspicion_anywhere_makes_the_diagnosis_provisional(tmp_path: Path, 
     assert row["suspected"] == "Y"
 
 
-@pytest.mark.parametrize(("name", "flag"), [("肺癌", "0^疑いなし^JHSD0005"), ("Rosacea", "")])
-def test_2_no_suspicion_written_anywhere_is_confirmed(tmp_path: Path, name: str, flag: str) -> None:
+# D-1252: the JHSD0005 code table (表95) holds only "1 疑いあり"; a "0" is not a value of it, so "0^疑いなし" is U
+@pytest.mark.parametrize(("name", "flag", "want"), [("肺癌", "0^疑いなし^JHSD0005", "U"), ("Rosacea", "", "")])
+def test_2_no_suspicion_written_anywhere_is_confirmed(tmp_path: Path, name: str, flag: str, want: str) -> None:
     st = _ss(tmp_path)
     segs = [kit._msh("20261001090000", "PPR^ZD1^PPR_ZD1", "P1"), kit._pid(kit.P1), str(_prb(name, flag)["prb"])]
     kit._write(st, kit.P1, "-", "PPR-01", "ALL9", kit._stamp(DAY), segs)
     (row,) = list(_source(st).rows("diagnosis", "diagnosis", None, None))
-    assert row["suspected"] == ""
+    assert row["suspected"] == want
 
 
 # ------------------------------------------------------------------------------------------------ item 3: offsets
@@ -240,4 +241,6 @@ def test_9_a_record_whose_newest_version_carries_flag_2_is_set_aside(tmp_path: P
     src = _source(st)
     assert list(src.rows("encounter", "encounter", None, None)) == []
     assert list(src.deleted_rows("encounter", "encounter", None, None)) == []
-    assert src.stats["ADT-12:set aside (condition flag 2, meaning not verified)"] == 1
+    # D-1252: flag 2 is cited now (過去履歴, 構築ガイドライン Ver.1.2j 表3.1-3 No.7): a newest version of flag 2 means
+    # no version is in force; for the types D-1252 does not read as unknown the record is still set aside
+    assert src.stats["ADT-12:set aside (no version in force: the newest carries flag 2)"] == 1

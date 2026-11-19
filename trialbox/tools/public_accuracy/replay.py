@@ -60,6 +60,7 @@ for _p in (ROOT, ROOT / "libs", ROOT / "services"):
 
 from tools import gold_kind  # noqa: E402 - after the path above
 from tools.public_accuracy import ladder as _ladder  # noqa: E402 - after the path above
+from tools.public_accuracy import weights  # noqa: E402 - after the path above
 
 #: the report's layout: 2 adds ``within_target`` and ``met_only_by`` (D-1064 item 4: ``met`` is never true for a
 #: replay), each set's ``zone`` and ``key_stated``, and the target read without the conflicted pairs with
@@ -371,7 +372,9 @@ def eligible_figure(name: str, sc: dict[str, Any], refused: str | None = None) -
         return {"set": name, "gold_kind": kind, "scored": False, "why": refused, "numerator": 0, "denominator": 0}
     if sc.get("not_scored_because"):
         return {"set": name, "gold_kind": kind, "scored": False, "why": sc["not_scored_because"], "numerator": 0,
-                "denominator": 0}  # fmt: skip
+                "denominator": 0, **({"sampling": sc["sampling"]} if "sampling" in sc else {})}  # fmt: skip
+    if "sampling" in sc:  # card 10G-37 (D-1334): a sampled set's figure is the frame's, never the sample's
+        return _weighted_eligible_figure(name, kind, sc)
     summ = (sc.get("pairs") or {}).get("summary") or {}
     if summ:
         k = sum(int(s["eligible_lost"]["k"]) for s in summ.values())
@@ -401,10 +404,51 @@ def eligible_figure(name: str, sc: dict[str, Any], refused: str | None = None) -
             "conflicted_excluded_on_another_line": [], "rows_with_no_verdict": cr.get("no_verdict")}  # fmt: skip
 
 
+def _weighted_eligible_figure(name: str, kind: str | None, sc: dict[str, Any]) -> dict[str, Any]:
+    """Target 1 for a sampled set: the frame's estimate (None when a stratum was not drawn) and its interval. The
+    sample's own counts are kept beside it (``sample``). A refused declaration is not scored, with its reason."""
+    smp = sc["sampling"]
+    if smp.get("refused"):
+        return {"set": name, "gold_kind": kind, "scored": False, "why": f"sampling: {smp['refused']}",
+                "numerator": 0, "denominator": 0}  # fmt: skip
+    con = (sc.get("pairs") or {}).get("conflicted")
+    if "pairs" in smp:
+        allp = smp["pairs"]["all"]
+        name_ = "eligible_lost_without_conflicted" if con is not None else "eligible_lost"
+        block, with_c = allp[name_], allp["eligible_lost"]
+        what = "gold-eligible pairs the box excluded, of those it answered, estimated over the sampled frame"
+    else:
+        block = with_c = smp["criteria"]["wrong_exclusion"]
+        what = "gold rows met or not applicable the box blocked, of those it answered, estimated over the sampled frame"
+    return {"set": name, "gold_kind": kind, "scored": True, "what": what,
+            "numerator": block["estimated_events"], "denominator": block["estimated_in_domain"],
+            "weighted": block, "sample": {"numerator": block["k"], "denominator": block["n"]},
+            "with_conflicted": {"numerator": with_c["estimated_events"], "denominator": with_c["estimated_in_domain"]},
+            "conflicted": None if con is None else con["pairs"],
+            "conflicted_excluded_on_another_line": (sc.get("pairs") or {}).get("conflicted_excluded_on_another_line")
+            or []}  # fmt: skip
+
+
+def _total(values: Any) -> int | float | None:
+    """A pooled count: an int while every part is an int (the figure as before); a weighted estimate is a float and
+    is summed as one; a part with no estimate makes the total None (it is not known, never a smaller number)."""
+    out: int | float = 0
+    for v in values:
+        if v is None:
+            return None
+        out += v if isinstance(v, (int, float)) and not isinstance(v, bool) else int(v)
+    return out
+
+
 def figure(level: str, key: str, per_set: list[dict[str, Any]]) -> dict[str, Any]:
     """Target 1 at one level and key over the sets. The pooled numbers only when every set is of one stated gold kind
     (10G-38, D-1326); otherwise they are None and ``pooled_refused`` says why: the per-set figures and the sums per
-    stated kind (``by_gold_kind``) stand alone. ``within_target`` reads each set (none excluded an eligible patient)."""
+    stated kind (``by_gold_kind``) stand alone. ``within_target`` reads each set (none excluded an eligible patient).
+
+    A sampled set (card 10G-37) adds its frame's estimate, and is within the target only when its interval's upper end
+    is 0 (the draw shows no such patient in the whole frame); a zero in the sample is not a zero in the frame."""
+    if any(x.get("weighted") for x in per_set):
+        return _weighted_figure(level, key, per_set)
     k = sum(int(x.get("numerator") or 0) for x in per_set)
     n = sum(int(x.get("denominator") or 0) for x in per_set)
     scored = all(x.get("scored", True) for x in per_set)
@@ -426,6 +470,41 @@ def figure(level: str, key: str, per_set: list[dict[str, Any]]) -> dict[str, Any
     return {"level": level, "key": key, "numerator": None if refused else k, "denominator": None if refused else n,
             "pooled_refused": refused, "by_gold_kind": by_kind, "met": False, "met_only_by": MET_ONLY_BY,
             "within_target": scored and n > 0 and k == 0, "all_sets_scored": scored,
+            "with_conflicted": {"numerator": None if refused else wk, "denominator": None if refused else wn},
+            "conflicted": None if not marks else [{"set": x["set"], **r} for x in marks for r in x["conflicted"]],
+            "conflicted_excluded_on_another_line": [{"set": x["set"], **r} for x in per_set
+                                                    for r in x.get("conflicted_excluded_on_another_line") or []],
+            "per_set": per_set}  # fmt: skip
+
+
+def _weighted_figure(level: str, key: str, per_set: list[dict[str, Any]]) -> dict[str, Any]:
+    """:func:`figure` when a set is sampled: the pooled numbers are summed estimates (None where one is unknown)."""
+    scored = all(x.get("scored", True) for x in per_set)
+    plain = [x for x in per_set if not x.get("weighted")]
+    k = _total(x.get("numerator") for x in per_set)
+    n = _total(x.get("denominator") for x in per_set)
+    wk = _total((x.get("with_conflicted") or {}).get("numerator") for x in per_set)
+    wn = _total((x.get("with_conflicted") or {}).get("denominator") for x in per_set)
+    seen = sum(int((x.get("sample") or {}).get("denominator") or x.get("denominator") or 0) for x in per_set)
+    within = (scored and seen > 0 and all(weights.proven_zero(x["weighted"]) for x in per_set if x.get("weighted"))
+              and sum(int(x.get("numerator") or 0) for x in plain) == 0)  # fmt: skip
+    marks = [x for x in per_set if x.get("conflicted") is not None]
+    refused: str | None = None
+    try:
+        gold_kind.pooled((str(x.get("set")), x.get("gold_kind")) for x in per_set)
+    except gold_kind.PoolingRefused as e:
+        refused = str(e)
+    by_kind: dict[str, dict[str, Any]] = {}
+    for x in per_set:
+        if x.get("gold_kind") in gold_kind.KINDS:
+            t = by_kind.setdefault(x["gold_kind"], {"numerator": 0, "denominator": 0, "sets": []})
+            t["numerator"] = _total([t["numerator"], x.get("numerator")])  # None stays None
+            t["denominator"] = _total([t["denominator"], x.get("denominator")])
+            t["sets"].append(x["set"])
+    return {"level": level, "key": key, "numerator": None if refused else k, "denominator": None if refused else n,
+            "pooled_refused": refused, "by_gold_kind": by_kind, "met": False, "met_only_by": MET_ONLY_BY,
+            "within_target": within, "all_sets_scored": scored,
+            "sampled_sets": [x["set"] for x in per_set if x.get("weighted")],
             "with_conflicted": {"numerator": None if refused else wk, "denominator": None if refused else wn},
             "conflicted": None if not marks else [{"set": x["set"], **r} for x in marks for r in x["conflicted"]],
             "conflicted_excluded_on_another_line": [{"set": x["set"], **r} for x in per_set
@@ -485,6 +564,9 @@ def pathology_from_run(scores: dict[str, Any], names: list[str]) -> dict[str, An
     if "tcga" in scores:
         p = scores["tcga"].get("pathology") or {}
         fig: dict[str, Any] = {"level": "a", "scored": bool(p.get("scored")), "detail": p}
+        smp = scores["tcga"].get("sampling")
+        if p.get("scored") and smp is not None:  # card 10G-37 (D-1334): a sampled tcga
+            return fig | _weighted_pathology(smp)
         if p.get("scored"):
             ie, we, el = p["ineligible_excluded"], p["wrong_exclusions"], p["eligible_lost"]
             fig |= {"numerator": ie["k"], "denominator": ie["n"], "wrong_exclusions": we["k"], "eligible_lost": el["k"],
@@ -508,6 +590,35 @@ def pathology_from_run(scores: dict[str, Any], names: list[str]) -> dict[str, An
         "P1b's tcga ran no protocol: its filter named G2TCGA-BRCA while the set's ids carry the tag, Gm2TCGA-BRCA "
         "(D-1108)",
     }
+
+
+def _weighted_pathology(smp: dict[str, Any]) -> dict[str, Any]:
+    """The pathology figure of a sampled tcga: the frame's estimates. The PoC-1 claim is the counts of every report,
+    so a sample is within it only when every stratum was drawn in full (then the estimates are those counts)."""
+    if smp.get("refused"):
+        return {"scored": False, "met": False, "met_only_by": MET_ONLY_BY, "within_target": False,
+                "not_scored_because": f"sampling: {smp['refused']}"}  # fmt: skip
+    p, d = smp["pathology"], smp["design"]
+    ie, we, el = p["ineligible_excluded"], p["wrong_exclusions"], p["eligible_lost"]
+    census = d["drawn"] == d["frame"]
+    out = {"numerator": ie["estimated_events"], "denominator": ie["estimated_in_domain"],
+           "wrong_exclusions": we["estimated_events"], "eligible_lost": el["estimated_events"],
+           "eligible": el["estimated_in_domain"], "reports": None, "met": False, "met_only_by": MET_ONLY_BY,
+           "sampled": {"frame": d["frame"], "drawn": d["drawn"], "figure": smp.get("pathology_figure")},
+           "sample": {k: {"k": v["k"], "n": v["n"]} for k, v in p.items()}}  # fmt: skip
+    if census:
+        got = (ie["estimated_events"], ie["estimated_in_domain"], we["estimated_events"], el["estimated_events"],
+               el["estimated_in_domain"])  # fmt: skip
+        claim = (POC1_CLAIM["excluded"], POC1_CLAIM["ineligible"], POC1_CLAIM["wrong"], POC1_CLAIM["lost"],
+                 POC1_CLAIM["eligible"])  # fmt: skip
+        out["within_target"] = d["frame"] == POC1_CLAIM["reports"] and got == claim
+    else:
+        out["within_target"] = False
+        out["within_target_because"] = (
+            f"a sample of {d['drawn']} of {d['frame']} estimates the frame; the PoC-1 claim is the counts of every "
+            "report, which only a draw of every row reproduces"
+        )
+    return out
 
 
 def pathology_from_stored_counts(folder: Path) -> dict[str, Any]:
@@ -753,7 +864,7 @@ def _brief(sc: dict[str, Any], key: dict[str, Any], refused: str | None = None) 
     this set (a run built on v2 has no v1), so nothing is kept but the reason."""
     if refused:
         return {"answer_key": key, "not_scored_because": refused}
-    keep = ("not_scored_because", "protocols", "pathology", "unjudged_exclusions", "ladder")
+    keep = ("not_scored_because", "protocols", "pathology", "unjudged_exclusions", "ladder", "sampling")
     out = {"answer_key": key, "scorer_read_the_folder_as": sc.get("answer_key"), **{k: sc[k] for k in keep if k in sc}}
     if "pairs" in sc:
         out["pairs"] = {lang: {k: v for k, v in s.items() if k != "denominators"}
@@ -857,8 +968,7 @@ def render(r: dict[str, Any]) -> str:
     w(f"   {'level':<6}{'key':<5}{'excluded':>10}{'of':>6}  {'with conflicted':<16}within target  per set")
     for lvl, by in sorted((k, v) for k, v in t["eligible_wrongly_excluded"].items() if k in ("a", "b")):
         for key, f in sorted(by.items()):
-            per = ", ".join(f"{x['set']} {x['numerator']}/{x['denominator']}" if x.get("scored", True)
-                            else f"{x['set']} not scored" for x in f["per_set"])  # fmt: skip
+            per = ", ".join(_per_set(x) for x in f["per_set"])
             beside = _decided_beside(r, lvl, [x["set"] for x in f["per_set"]])
             per += f"; decided: {beside}" if beside else ""
             wc = f.get("with_conflicted") or {}
@@ -866,7 +976,7 @@ def render(r: dict[str, Any]) -> str:
             if f.get("pooled_refused"):  # 10G-38 (D-1326): the sets' gold kinds differ: no pooled figure
                 withc = "-"
                 per += f"; {f['pooled_refused']}"
-            num, den = ("refused", "-") if f.get("pooled_refused") else (f["numerator"], f["denominator"])
+            num, den = ("refused", "-") if f.get("pooled_refused") else (_n(f["numerator"]), _n(f["denominator"]))
             w(f"   ({lvl})   {key:<5}{num:>10}{den:>6}  {withc:<16}"
               f"{_yes(f['within_target']):<13}  {per}")  # fmt: skip
     levels = [lv for lv in ("a", "b") if (t["eligible_wrongly_excluded"].get(lv) or {}).get("v2", {}).get("conflicted")
@@ -963,6 +1073,23 @@ def _box_said(c: dict[str, Any]) -> str:
         more = int(c.get("left_open_elsewhere") or 0)
         return "review" + (f", open on {'; '.join(on)}" if on else "") + (f" (and {more} other open)" if more else "")
     return str(c.get("box"))
+
+
+def _n(x: Any) -> str:
+    """A figure's count as printed: an int as it is, a weighted estimate to one decimal, an unknown one as n/a."""
+    if x is None:
+        return "n/a"
+    return f"{x:.1f}" if isinstance(x, float) else str(x)
+
+
+def _per_set(x: dict[str, Any]) -> str:
+    if not x.get("scored", True):
+        return f"{x['set']} not scored"
+    if x.get("weighted"):  # card 10G-37: the frame's estimate, its interval and the sample it came from
+        b = x["weighted"]
+        return (f"{x['set']} est. {_n(x['numerator'])}/{_n(x['denominator'])} (95 % {b['ci95'][0]}-{b['ci95'][1]}; "
+                f"sample {b['k']}/{b['n']} of {b['drawn']} drawn from {b['frame']})")  # fmt: skip
+    return f"{x['set']} {x['numerator']}/{x['denominator']}"
 
 
 def _within(x: Any) -> str:
