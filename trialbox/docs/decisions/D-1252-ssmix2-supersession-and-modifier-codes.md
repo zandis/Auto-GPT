@@ -107,19 +107,62 @@ ZPR-7 a comment. (S's text for ZPR-4 says 接尾語 under a 接頭語 field name
 - **P10** PRB-13: the code table of JHSD0005 (C 表95) holds one value, `1` 疑いあり. A `0`, with any text, is not a
   value of it: unknown. PRB-13 confirms only when empty. TrialBox's writers never write PRB-13.
 
+### C. The independent tester's classes (lane J, at `2bc79278`)
+
+An independent tester wrote 136 supersession and 353 modifier scenarios from the standard without reading the code;
+the supersession core held, and 75 runs were dangerous in these classes, each now read as follows:
+
+1. A modifier field (ZPR-1, 3, 4, 6) with a text and no code is a modifier: without the master unknown; with it, a
+   component with no code is unknown.
+2. With the master, every ZPR component's text must be the master's 表記 for its code (ZPR-1 / 3 modifiers; ZPR-4 / 6
+   by exchange code; ZPR-2 / 5 the disease), else unknown; without it, ZPR-2 / 5 texts must be PRB-3's name.
+3. PRB-3's names (its triples other than ICD-10) must agree, else unknown.
+4. 変更区分 (M (1)① and (2)①): 0 unchanged, 3 added and 5 changed are current rows; 1 is deleted; any other value, or
+   none, is not read as current: unknown. Checked for the modifier and the disease.
+5. "ALL9" is the guideline's "all nines": 表3.1-3 No.4 says ALL9, and the guideline's own example (図3.1-1, p.16) names
+   the ADT-00 file `…_ADT-00_9999999999999999999999_…` with the note 「-」「All9」などで埋める. `no_order` reads "-",
+   "ALL9" (any width or case, blanks removed) and a run of four or more nines as data no order manages; a run of
+   fewer nines is an order number (a counter that reaches 9, 99 or 999 is one). TrialBox's kit and exporter write
+   the letters; both forms are read.
+6. A file in a record's folder whose name is not in the guideline's form (a type or patient part in another case or
+   width, a flag such as `０` or `0 `, an extension, another part count, a 発生日時 that is not a real time or is after
+   tonight, UTC+14), or whose name disagrees with its folders, may be a newer version or a deletion: the records it may
+   belong to (by its folders and by its name after `key_part`; a name that cannot be split: every record of its
+   folder) have no version in force, unknown for PPR-01 and OMP-01/02. Counted, never ignored.
+7. PPR^ZD1 segments (S 表3-46): before the first PRB, MSH, SFT, PID, PV1 and PV2; after a PRB, ZPR (read), ZPD (歯式),
+   ZI1 (insurance) and ORC (◎). NTE (marked "-", not used by SS-MIX2), VAR, ROL, PTH, OBX, GOL, OBR and any other
+   segment are not read: the diagnosis they follow is unknown; one before the first PRB makes every diagnosis of the
+   snapshot unknown. Counted.
+8. A file whose オーダNo and ORC-2 disagree (`rx01` or `RX001` named, `RX01` in ORC-2), live or deleted: the order ORC-2
+   names and the line itself are unknown. A 発生日時 after tonight is not a version in force (class 6). The same Rp and
+   drug twice in one order: those lines are unknown.
+9. Each of these is counted in `stats` with its reason.
+10. Where the full name is written (S 表3-47: PRB-3 "病名表記を一意に表すコード", recommended the 病名管理番号; PRB-17
+    "患者の病態をあらわすために実際に入力される文字列", the text actually entered): both layouts are read under the
+    master rule. PRB-3's text is the full name (PRB-17 empty or the same), or PRB-3's text is the 病名表記 alone and
+    PRB-17 the full name. Without the master, PRB-17 must be the same name as PRB-3 (as before).
+
+Kept stricter, as lane J ruled: ties, a newest flag 2 over an older flag 1, an empty PRB-1, PRB-13 holding only a
+table name, a one-character 修飾語区分, a repeated identical ZPR, a locally coded diagnosis with a ZPR.
+
 ## Measurement (named inputs: `tests/ssmix2_probes.py`)
 
-232 supersession cases (328 labelled ids) and 264 modifier cases (132 diagnoses, without and with a synthetic
-master, the mixed site of local and `MDCDX2` codes included), labelled before the implementation. #1095's head
-`5a4ee5f9` -> this card:
+Three sets, each labelled before the reading it measures: 232 supersession cases (328 ids), 292 modifier cases (146
+diagnoses without and with a synthetic master, the mixed site included) and "independent set 1" (102 cases, 118 ids,
+written from lane J's description of the tester's classes). Wrong / dangerous (an id read confirmed and active where
+it is not), on #1095's head `5a4ee5f9`, on `2bc79278` (before section C) and on this card's head:
 
-- supersession: wrong 106 -> 0, dangerous (an id read confirmed and active where it is not) 57 -> 0;
-- modifiers: wrong 122 -> 43, dangerous 93 -> 43; the 43 are all the stated limit (doubt only in the display text of
-  a diagnosis read without the master: no master loaded, or coded only locally); outside it 0 and 0.
-- Moved toward confirmed: without the master, 8 (ZPR naming only PRB-3's own disease) and 2 (a snapshot superseding
-  an older per-diagnosis file that held the diagnosis ended); with the master, 21, each by the master's own tables.
-- `make e2e-simple` with all four licensed samples loaded (both MEDIS tables): the GOUT-COH funnel from SS-MIX2 equals
-  its CSV export.
+| Set | #1095 head | 2bc79278 | this head |
+| --- | --- | --- | --- |
+| Supersession | 106 / 57 | 0 / 0 | 0 / 0 |
+| Modifiers | 130 / 95 | 53 / 53 | 43 / 43 |
+| Independent set 1 | 69 / 64 | 79 / 77 | 0 / 0 |
+
+The 43 left are all the stated limit (doubt only in the display text of a diagnosis read without the master: none
+loaded, or coded only locally); outside it 0 and 0. Moved toward confirmed against #1095's head: without the master,
+10 (ZPR naming only PRB-3's own disease) and 2 (a snapshot superseding an older per-diagnosis file); with the master,
+29, each by the master's own tables. `make e2e-simple` with all four licensed samples loaded (both MEDIS tables): the
+GOUT-COH funnel from SS-MIX2 equals its CSV export.
 
 ## How to revert
 
