@@ -112,3 +112,33 @@ def test_registry_app_lists_builds_without_addresses() -> None:
     assert "http" not in str(body)
     assert http.get("/v1/aliases/j-workhorse").json()["builds"]
     assert http.get("/v1/aliases/nope").status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("role", "record_role"),
+    [("judge", "judge"), ("verifier", "verifier"), ("second_opinion", "verifier")],
+)
+def test_thinking_only_requires_explicit_measurement_for_the_role_and_pin(role: str, record_role: str) -> None:
+    sha = "ef" * 32
+    other_role = "verifier" if record_role == "judge" else "judge"
+    build = {"build_id": "thinking", "status": "champion", "sha256": sha, "thinking_control": "thinking_only"}
+    for record in (
+        None,
+        qualified(sha),
+        {**qualified(sha), "thinking_on_role": other_role},
+        {**qualified("ab" * 32), "thinking_on_role": record_role},
+    ):
+        reg = Registry(_doc({**build, "qualification": record}))
+        with pytest.raises(RegistryError) as exc:
+            reg.resolve("j", "serving", role=role, env=Environment.VALIDATION)
+        assert exc.value.reason == "thinking_unmeasured"
+
+    measured = Registry(_doc({**build, "qualification": {**qualified(sha), "thinking_on_role": record_role}}))
+    assert measured.resolve("j", "serving", role=role, env=Environment.PRODUCTION).build.build_id == "thinking"
+    assert measured.table()[0]["thinking_control"] == "thinking_only"
+
+    unmeasured = Registry(_doc(build))
+    assert unmeasured.resolve("j", "serving", role="bakeoff", env=Environment.TEST).build.build_id == "thinking"
+    for control in (None, "can_disable"):
+        reg = Registry(_doc({**build, "thinking_control": control}))
+        assert reg.resolve("j", "serving", role=role, env=Environment.TEST).build.build_id == "thinking"
