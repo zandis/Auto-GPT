@@ -85,7 +85,14 @@ To turn it on, hospital IT or the integrator sets `TB_TLS_OLD_CLIENTS=cbc` in `d
 every run while it is on. If the audit event cannot be sent the install ends with a FAIL line and the event is sent
 by the next install. To turn it off, set `TB_TLS_OLD_CLIENTS=off` (or remove the line) and run `deploy/install.sh`
 again: the box is strict again and the switch is audited as `update.tls_strict`. Turn it off when the old client is
-replaced. Before H-48 the only way was a hand edit of the Caddyfile, which the policy check fails by design; that is
+replaced.
+
+The value is the one compose gives Caddy: a `TB_TLS_OLD_CLIENTS` exported in the shell wins over `deploy/.env`, and
+quotes around it are dropped; the installer reads it the same way. `deploy/site/tls-old-clients.audited` holds the
+value the installer last audited. A value that differs from it (switched by a plain `docker compose up -d`, by an
+exported variable, or after a restore, which removes the file because the restored audit chain may lack the event)
+makes `trialbox doctor` FAIL its `tls_old_clients` line, and `tools/apply_update.sh` refuses the update before
+anything changes; running `deploy/install.sh` sends the event and clears both. Before H-48 the only way was a hand edit of the Caddyfile, which the policy check fails by design; that is
 still true of any edit other than this setting.
 
 **Not yet seen.** No scan has been run against a box. The first run must show, on 443: TLS1 and TLS1_1 "not

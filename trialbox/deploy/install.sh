@@ -459,7 +459,8 @@ else
 fi
 # H-48 (D-1328): TB_TLS_OLD_CLIENTS, the one setting that relaxes 443 for a hospital's old client: off (the default) or
 # cbc (also the four TLS 1.2 ECDHE AES-CBC-SHA suites). Any other value is refused before Caddy reads it (RUNBOOK §12)
-TLS_OLD="$(envget TB_TLS_OLD_CLIENTS)"; TLS_OLD="${TLS_OLD:-off}"
+# the value compose gives Caddy: an exported TB_TLS_OLD_CLIENTS wins over deploy/.env, as compose does; quotes dropped
+TLS_OLD="${TB_TLS_OLD_CLIENTS-$(envget TB_TLS_OLD_CLIENTS)}"; TLS_OLD="${TLS_OLD//[\"\']/}"; TLS_OLD="${TLS_OLD:-off}"
 case "$TLS_OLD" in
   off) ;;
   cbc) [ -z "$TLS_HOST" ] || echo "    TLS: TB_TLS_OLD_CLIENTS=cbc: 443 also serves TLS 1.2 ECDHE AES-CBC-SHA to old clients (audited; doctor and the TLS check name it)" ;;
@@ -945,7 +946,7 @@ done
 # to off). deploy/site/tls-old-clients.audited keeps the last audited value; an event not sent stays due (FAILS)
 TLS_OLD_MARK=deploy/site/tls-old-clients.audited
 TLS_OLD_WAS="$(cat "$TLS_OLD_MARK" 2>/dev/null || true)"; TLS_OLD_WAS="${TLS_OLD_WAS:-off}"
-if [ -n "$TLS_HOST" ] && [ "$TLS_OLD" != "$TLS_OLD_WAS" ]; then
+if [ "$TLS_OLD" != "$TLS_OLD_WAS" ]; then  # with TLS off too: doctor compares the setting with this marker
   TLS_OLD_EVENT=update.tls_relaxed; [ "$TLS_OLD" != off ] || TLS_OLD_EVENT=update.tls_strict
   if "${COMPOSE[@]}" exec -T orchestrator python -c '
 import sys

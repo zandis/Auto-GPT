@@ -30,9 +30,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,10 @@ CERT_IDS = ("cert_keySize", "cert_signatureAlgorithm", "cert_expirationStatus")
 AEAD = ("GCM", "CHACHA20", "CCM")
 TLS13_SUITES = re.compile(r"^TLS_(AES_\d+_(GCM|CCM)|CHACHA20_POLY1305)(_\d+)?_SHA\d+$")
 CIPHER_NAME = re.compile(r"^(?:[A-Z0-9]+(?:-[A-Z0-9]+)+|TLS_[A-Z0-9_]+)$")
+OLD_CLIENTS_KEY = "TB_TLS_OLD_CLIENTS"
+OLD_CLIENTS_VALUES = ("off", "cbc")
+#: deploy/site/<this>: the value deploy/install.sh last audited (update.tls_relaxed / update.tls_strict); absent: off
+OLD_CLIENTS_AUDITED = "tls-old-clients.audited"
 EXIT_EXCEPTION = 3  # met the policy only as relaxed by its one setting (H-48): neither a pass (0) nor a failure (1)
 
 
@@ -68,6 +73,32 @@ def relaxation(policy: dict[str, Any], value: str, target: str = "box") -> dict[
     if target not in level.get("targets", []):
         raise ValueError(f"{key}={value} refused for the {target}: it relaxes {', '.join(level['targets'])} only")
     return {"key": key, "value": value, **level}
+
+
+def old_clients_state(
+    env_file: Mapping[str, str], site_dir: Path, environ: Mapping[str, str] | None = None
+) -> tuple[str, str, str]:
+    """H-48: ``(value, audited, problem)`` of the box's ``TB_TLS_OLD_CLIENTS``. The value is the one compose gives
+    Caddy: an exported variable wins over deploy/.env (``env_file``), quotes are dropped, empty is off. ``audited`` is
+    the value in ``site_dir``/tls-old-clients.audited (absent: off). ``problem`` is empty when the value is off or cbc
+    and is the one audited; otherwise it says why Caddy may serve a value the audit chain does not show."""
+    environ = os.environ if environ is None else environ
+    raw = environ[OLD_CLIENTS_KEY] if OLD_CLIENTS_KEY in environ else env_file.get(OLD_CLIENTS_KEY, "")
+    value = raw.strip().strip("\"'").strip() or "off"
+    mark = site_dir / OLD_CLIENTS_AUDITED
+    audited = (mark.read_text(encoding="utf-8").strip() if mark.is_file() else "") or "off"
+    if value not in OLD_CLIENTS_VALUES:
+        return value, audited, f"{OLD_CLIENTS_KEY}={value!r} is not off or cbc (RUNBOOK §12)"
+    if value != audited:
+        return (
+            value,
+            audited,
+            (
+                f"{OLD_CLIENTS_KEY}={value} is set but the last audited value is {audited}: Caddy may serve it with no "
+                "audit event; run deploy/install.sh, which sends update.tls_relaxed or update.tls_strict (RUNBOOK §12)"
+            ),
+        )
+    return value, audited, ""
 
 
 def exception_line(relaxed: dict[str, Any]) -> str:

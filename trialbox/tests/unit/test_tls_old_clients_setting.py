@@ -220,20 +220,113 @@ def test_the_link_is_never_relaxed(policy: dict[str, Any]) -> None:
 
 
 # --------------------------------------------------------------------------------------- doctor and the installer
-def _doctor(value: str | None) -> list[doctor.Check]:
+def _doctor(value: str | None, tmp_path: Path, audited: str | None = None) -> list[doctor.Check]:
     env = {"TB_ENV": "DEV", "TB_TOPOLOGY": "A", "TB_TZ": "Asia/Taipei"}
     if value is not None:
         env["TB_TLS_OLD_CLIENTS"] = value
-    return doctor.tls_old_clients(doctor.DoctorInputs(env=env, host_tz="Asia/Taipei"), [])
+    site = tmp_path / "deploy" / "site"
+    site.mkdir(parents=True, exist_ok=True)
+    mark = site / tls_policy.OLD_CLIENTS_AUDITED
+    mark.unlink(missing_ok=True)
+    if audited is not None:
+        mark.write_text(audited + "\n", encoding="utf-8")
+    inp = doctor.DoctorInputs(env=env, host_tz="Asia/Taipei", deploy=tmp_path / "deploy")
+    return doctor.tls_old_clients(inp, [])
 
 
-def test_doctor_shows_a_line_only_while_it_is_on() -> None:
-    assert _doctor(None) == [] and _doctor("off") == []
-    (line,) = _doctor("cbc")
+def test_doctor_shows_a_line_only_while_it_is_on(tmp_path: Path) -> None:
+    assert _doctor(None, tmp_path) == [] and _doctor("off", tmp_path) == [] and _doctor("off", tmp_path, "off") == []
+    (line,) = _doctor("cbc", tmp_path, "cbc")
     assert (line.name, line.status) == ("tls_old_clients", "WARN") and "TB_TLS_OLD_CLIENTS=cbc" in line.detail
-    (line,) = _doctor("yes")
+    (line,) = _doctor('"cbc"', tmp_path, "cbc")  # quoted in deploy/.env: compose reads cbc too
+    assert line.status == "WARN"
+    (line,) = _doctor("yes", tmp_path)
     assert (line.name, line.status) == ("tls_old_clients", "FAIL")
     assert "tls_old_clients(inp, host_profile(inp, out))" in Path(doctor.__file__).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(("value", "audited"), [("cbc", None), ("cbc", "off"), ("off", "cbc"), (None, "cbc")])
+def test_doctor_fails_a_switch_that_was_not_audited(value: str | None, audited: str | None, tmp_path: Path) -> None:
+    # a plain `docker compose up`, an exported variable or a restore: Caddy serves a value the chain does not show
+    (line,) = _doctor(value, tmp_path, audited)
+    assert (line.name, line.status) == ("tls_old_clients", "FAIL") and "deploy/install.sh" in line.detail
+
+
+def test_the_effective_value_is_the_one_compose_reads(tmp_path: Path) -> None:
+    site = tmp_path / "site"
+    site.mkdir()
+    state = tls_policy.old_clients_state
+    assert state({}, site, {}) == ("off", "off", "")
+    assert state({"TB_TLS_OLD_CLIENTS": "'cbc'"}, site, {})[0] == "cbc"
+    # an exported variable wins over deploy/.env, as compose's own precedence; exported empty is off
+    assert state({"TB_TLS_OLD_CLIENTS": "off"}, site, {"TB_TLS_OLD_CLIENTS": "cbc"})[0] == "cbc"
+    assert state({"TB_TLS_OLD_CLIENTS": "cbc"}, site, {"TB_TLS_OLD_CLIENTS": ""})[0] == "off"
+    assert state({"TB_TLS_OLD_CLIENTS": "cbc"}, site, {})[2]  # on, never audited
+    (site / tls_policy.OLD_CLIENTS_AUDITED).write_text("cbc\n", encoding="utf-8")
+    assert state({"TB_TLS_OLD_CLIENTS": "cbc"}, site, {}) == ("cbc", "cbc", "")
+
+
+class _Box:
+    name = "compose"
+
+    def __init__(self, deploy: Path, env: dict[str, str]) -> None:
+        self.deploy, self.env = deploy, env
+
+
+def test_an_update_refuses_a_setting_that_was_not_audited(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tools.trialbox.update import Updater, UpdateRefused
+
+    monkeypatch.delenv("TB_TLS_OLD_CLIENTS", raising=False)
+    (tmp_path / "site").mkdir()
+    up = Updater(_Box(tmp_path, {"TB_TLS_OLD_CLIENTS": "cbc"}), tmp_path / "updates")  # type: ignore[arg-type]
+    with pytest.raises(UpdateRefused, match="deploy/install.sh"):
+        up._tls_old_clients()
+    with pytest.raises(UpdateRefused, match="not off or cbc"):
+        Updater(_Box(tmp_path, {"TB_TLS_OLD_CLIENTS": "yes"}), tmp_path)._tls_old_clients()  # type: ignore[arg-type]
+    (tmp_path / "site" / tls_policy.OLD_CLIENTS_AUDITED).write_text("cbc\n", encoding="utf-8")
+    assert up._tls_old_clients() == ["TB_TLS_OLD_CLIENTS=cbc (audited): 443 serves the old-client suites"]
+    with pytest.raises(UpdateRefused, match="last audited value is cbc"):  # back to off, never audited
+        Updater(_Box(tmp_path, {}), tmp_path)._tls_old_clients()  # type: ignore[arg-type]
+    src = Path(Updater.__module__.replace(".", "/") + ".py")
+    text = (ROOT / src).read_text(encoding="utf-8")
+    assert "notes += self._tls_old_clients()\n        notes += self._from_a_commit(plan)" in text  # first
+
+
+def _install_value(tmp_path: Path, line: str, exported: str | None) -> str:
+    """The installer's own line for the value, run with deploy/.env holding ``line``."""
+    start = INSTALL.index('TLS_OLD="${TB_TLS_OLD_CLIENTS-')
+    snippet = INSTALL[start : INSTALL.index("\n", start)]
+    (tmp_path / "deploy").mkdir(exist_ok=True)
+    (tmp_path / "deploy" / ".env").write_text(f"TB_ENV=DEV\n{line}\n", encoding="utf-8")
+    envget = 'envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }'
+    env = {"PATH": "/usr/bin:/bin"} | ({"TB_TLS_OLD_CLIENTS": exported} if exported is not None else {})
+    p = subprocess.run(["bash", "-c", f'set -u\n{envget}\n{snippet}\nprintf %s "$TLS_OLD"'], cwd=tmp_path, env=env,
+                       capture_output=True, text=True, timeout=30, check=True)  # fmt: skip
+    return p.stdout
+
+
+def test_the_installer_reads_the_value_compose_reads(tmp_path: Path) -> None:
+    assert _install_value(tmp_path, 'TB_TLS_OLD_CLIENTS="cbc"', None) == "cbc"  # quotes dropped, as doctor does
+    assert _install_value(tmp_path, "TB_TLS_OLD_CLIENTS='cbc'", None) == "cbc"
+    assert _install_value(tmp_path, "TB_X=1", None) == "off"
+    assert _install_value(tmp_path, "TB_TLS_OLD_CLIENTS=off", "cbc") == "cbc"  # exported wins, as in compose
+    assert _install_value(tmp_path, "TB_TLS_OLD_CLIENTS=cbc", "") == "off"
+    block = INSTALL[INSTALL.index("TLS_OLD_MARK=deploy/site/tls-old-clients.audited") :]
+    assert 'if [ "$TLS_OLD" != "$TLS_OLD_WAS" ]; then' in block  # audited with TLS off too: doctor compares
+
+
+def test_a_restore_drops_the_marker_so_the_event_is_sent_again() -> None:
+    main = (ROOT / "tools" / "trialbox" / "__main__.py").read_text(encoding="utf-8")
+    after = main[main.index("out = bk.restore(") :]
+    assert after.index('joinpath("site", OLD_CLIENTS_AUDITED).unlink(') < after.index("print(json.dumps(out")
+
+
+def test_ci_validates_the_relaxed_snippets_with_caddy() -> None:
+    wf = (ROOT.parent / ".github" / "workflows" / "trialbox-identity.yml").read_text(encoding="utf-8")
+    step = wf[wf.index("caddy validate (both modes, TB_TLS_OLD_CLIENTS=cbc") :]
+    step = step[: step.index("- name:")]
+    assert "for mode in internal hospital" in step and "-e TB_TLS_MODE=$mode -e TB_TLS_OLD_CLIENTS=cbc" in step
+    assert "caddy validate --config /etc/caddy/Caddyfile" in step
 
 
 def test_the_installer_refuses_another_value_and_audits_the_switch() -> None:
