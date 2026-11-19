@@ -9,6 +9,9 @@ Same models, same physician-labelled pairs, same scorer (`tools.mlbench.score`).
 
 Data: `eval/criterion_ml` (NCBI TrialGPT-Criterion-Annotations, 53 SIGIR patients, 105 patient × trial pairs) plus
 NCBI's `trial_info.json` for each trial's full criteria list (fetched into `.cache/trialgpt_compare/`, not committed).
+The recorded answers in `results/raw/` quote the SIGIR 2016 notes and their translations: CC BY-SA 4.0 (Koopman and
+Zuccon, CSIRO), attribution and changes in `eval/criterion_ml/NOTICE.md`; the criterion labels are NCBI's (public
+domain notice, `eval/criterion_ml/LICENSE.NCBI`).
 15 of the 1,015 annotated criteria are not in `trial_info.json` word for word; both sides are scored on the other 1,000.
 
 ```bash

@@ -83,3 +83,72 @@ own reading, lane J finding 1; not a legal opinion).
 - question: If the SIGIR topics are U.S. Government works (TREC CDS), the CC BY-SA claim may not reach the note text.
   The labels follow the publisher's stated licence until a person checks; is that the line you want?
 - question: Must the eval data stay out of any image or package declared "Proprietary" (§3(b)(3) above)?
+
+## Card 10H-1 (2026-11-19): decisions for the owner
+
+Card 10H-1 (plan 10, Track H; review 20 item 20-2) finished what H-37 began. It corrected the remaining labels,
+added register rows for MedTxt, JMED-DICT mini, MANBYO and the MIMIC-IV FHIR demo, and added the build check: every
+text file that names the SIGIR notes, or holds their text, passes `python -m tools.licence_register --check`. Its
+pull request carries the inventory and the sources read. The readings below are **the project's reading, for the
+owner to confirm, not legal advice**. Nothing was removed, moved or re-licensed: each item is yours to decide.
+
+1. **The demo image and the bundle rows (first).** The SIGIR notes and this project's ja, zh-TW and mixed
+   translations of them are CC BY-SA 4.0.
+   - Where they ship today: `demo/Dockerfile` copies all of `trialbox/` minus `.dockerignore`. So
+     `eval/criterion_ml` and `docs/plan/measurements/back-translation-check-2026-11-18/*.json` are in the demo
+     image. `TB_DEMO_TOOL=public_e2e` serves the notes as a public-data site.
+   - The product image (`deploy/docker/python.Dockerfile`) copies only `eval/qualification/*` and
+     `eval/injection`, which hold none of this text.
+   - Spec v4 appendix rows (`spec/v4/19_positioning_plan_appendices.md`) said "Bundle: Yes" for both. They now say
+     "Owner decides".
+   - Not done: excluding the two folders from the demo image with `.dockerignore`. It would break
+     `TB_DEMO_TOOL=public_e2e`, which reads `eval/criterion_ml/notes_en.json`.
+   - The demo NOTICE now says what the image carries.
+   - Shipping is allowed by the licence if the files keep the licence, the attribution and the change note, and
+     nothing restricts them further. Decide: keep them in the demo image, exclude them (and drop or change
+     `public_e2e`), or keep them only in the repository.
+2. **Which licence covers `trialbox/`.**
+   - The repository root `LICENSE` is MIT, inherited from the repository's origin.
+   - `trialbox/pyproject.toml` declares "Proprietary", and CONTRIBUTING.md says no licence is named yet.
+   - The CC BY-SA files cannot be under "Proprietary" or under MIT: CC BY-SA §3(b)(3) forbids adding restrictions,
+     and the files must keep CC BY-SA 4.0.
+   - Name the licence of `trialbox/`, and state that `eval/criterion_ml` and its copies keep CC BY-SA 4.0 whatever
+     it is.
+3. **MedTxt: reports withdrawn for licensing.**
+   - The publisher's page now offers 100 MedTxt-CR reports "due to licensing issues"; the zip `tools/medtxt_eval.py`
+     used held 148.
+   - Row `medtxt` is now `permission-to-ask`, not `cleared`.
+   - Ask NAIST (card 20-3) which reports the CC BY 4.0 release covers. Until the answer, do not publish
+     per-report results from the other 48.
+4. **`eval/bakeoff`**: results (scores, predictions, evidence sentence ids) on the SIGIR notes. It had no
+   DATASETS entry or licence statement, and has both now.
+   - Reading: scores and ids are not the notes' text, so publishing them with the citation is allowed.
+   - Decide whether the bake-off results are published.
+5. **A threshold fitted on these notes** (`services/matching/cascade/s2b_semantic.py:9`: the LTT fit of the S2b
+   threshold on `eval/criterion_ml`).
+   - Reading: a number fitted on the data (a threshold, a weight, a calibration) is not the notes' text or an
+     adaptation of it. Share-alike does not bind it; the product may ship it under any licence.
+   - Text built from the notes does stay CC BY-SA 4.0: prompts, few-shot examples, the translations, rewritten
+     notes.
+   - Confirm, or ask counsel.
+6. **MANBYO** (`permission-to-ask`): its page grants only "feel free to use it" and sends commercial users to
+   JMED-DICT mini.
+   - Send the NAIST request (card 20-3).
+   - Until then, use it for evaluation only, never ship it, and use JMED-DICT mini.
+7. **JMED-DICT mini**: the dictionary is CC BY 4.0, but its link columns follow each resource's terms (SNOMED CT
+   IPS, WHO ICD-10, MEDIS standard disease names, JLAC10, HOT).
+   - Ship only its own columns, or wait for each linked resource's clearance? Its disease normalised forms are MEDIS
+     names (D-173).
+8. **Records that still call MANBYO "CC BY 4.0"**: `docs/DECISIONS.md` D-175 item 2 and root review 06. They are
+   records and were not edited. A superseding note may be wanted.
+9. **Who wrote the SIGIR topics** (H-37's open question): if they are U.S. Government works (TREC CDS 2014/15),
+   CSIRO's licence may not reach their text. The labels follow the publisher until a person checks.
+
+### Found on the way (not changed by this card)
+
+- `catalogue/scores/recist_response.yaml:36` and `libs/tb_common/score_defs.json:1401` say RECIST 1.1 is "free to
+  use", in a shipped file, with no licence named or source cited.
+- KPS, mRS and Child-Pugh are called "public domain" second-hand in `catalogue/items.csv` and `score_defs.json`
+  ("'Public Domain'" from the CDISC QRS table; "public domain per CDISC QRS table"): the CDISC table, not the scales'
+  publishers, is the source.
+- `docs/licences/register.csv` will need a merge with pull request #1093 (new column `athena_never`; the four new rows will be one field short when it lands, and the two edited rows will conflict textually).

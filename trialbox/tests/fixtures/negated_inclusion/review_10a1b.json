@@ -1,0 +1,645 @@
+{
+ "about": "Card 10A-1b, the lane J coordinator's review of the pull request at bc3634ee: lines that ran as presence there or on master (a synonym or class of the coded concept that the structural release took for another thing; cue words the rule did not know: forbidden, contraindicated, 不可, 禁止, 不允許, 'other than X', Xを除き, 除X外; a list with the cue after it), with siblings, and must-run lines proving the new cue words do not hold a negated prohibition or a word that only contains them (不可欠, 不可或缺, 'not contraindicated', 禁忌なし, 禁止されていない, 切除). Written after the rule; kept apart and scored apart. Fields as in card_10a1b.json. Synthetic; no patient data.",
+ "rows": [
+  {
+   "lang": "en",
+   "text": "Eligible for chemotherapy; no prior cytotoxic treatment.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "the negated thing is the coded concept under a name the extractor did not supply"
+  },
+  {
+   "lang": "en",
+   "text": "Candidate for chemotherapy, but never treated with cytotoxics.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "the negated thing is the coded concept under a name the extractor did not supply"
+  },
+  {
+   "lang": "en",
+   "text": "Chemotherapy history is reviewed at screening; no CTX within 4 weeks.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "the negated thing is the coded concept under a name the extractor did not supply"
+  },
+  {
+   "lang": "en",
+   "text": "No prior cytotoxic therapy, but chemotherapy is planned.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "the negated thing is the coded concept under a name the extractor did not supply"
+  },
+  {
+   "lang": "en",
+   "text": "Must be fit for chemotherapy; no previous anthracyclines or taxanes.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "the negated thing is the coded concept under a name the extractor did not supply"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法を予定しており、抗悪性腫瘍薬の使用歴はないこと。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "a drug class of the coded concept"
+  },
+  {
+   "lang": "zh",
+   "text": "適合接受化學治療，但未曾接受化療。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "an abbreviation of the coded concept"
+  },
+  {
+   "lang": "zh",
+   "text": "預計接受化學治療；從未使用細胞毒性藥物。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "a drug class of the coded concept"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法；放射線療法：なし",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [
+    "放射線療法"
+   ],
+   "why": "a list with the cue after it"
+  },
+  {
+   "lang": "en",
+   "text": "Chemotherapy; radiotherapy: none.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [
+    "radiotherapy"
+   ],
+   "why": "a list with the cue after it"
+  },
+  {
+   "lang": "en",
+   "text": "Surgery is required, chemotherapy forbidden.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [
+    "surgery"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Surgery is required; chemotherapy is not to be given.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [
+    "surgery"
+   ]
+  },
+  {
+   "lang": "en",
+   "text": "Chemotherapy must be avoided.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "en",
+   "text": "Chemotherapy is contraindicated.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "en",
+   "text": "Prior chemotherapy is disallowed.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "en",
+   "text": "Prior chemotherapy is barred.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "en",
+   "text": "Prior chemotherapy precluded.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "en",
+   "text": "Any anticancer therapy other than chemotherapy is allowed.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "other than X: X is the excluded thing"
+  },
+  {
+   "lang": "en",
+   "text": "Any prior therapy is allowed except chemotherapy.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "en",
+   "text": "Prior therapies excluding chemotherapy are allowed.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "ja",
+   "text": "手術は可、化学療法は不可。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [
+    "手術"
+   ]
+  },
+  {
+   "lang": "ja",
+   "text": "前治療としての化学療法；不可。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "ja",
+   "text": "放射線療法は許容するが、化学療法は禁止とする。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [
+    "放射線療法"
+   ]
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法は禁忌である。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法の前治療は許可しない。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法の前治療は認めない。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法を除き、前治療は許容する。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "Xを除き: X is the excluded thing"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法以外の前治療は許容する。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法が不可能な患者。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "zh",
+   "text": "允許曾接受手術，但不允許曾接受化學治療。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [
+    "手術"
+   ]
+  },
+  {
+   "lang": "zh",
+   "text": "先前接受化學治療；不允許。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "zh",
+   "text": "不准接受化學治療。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "zh",
+   "text": "禁止使用化學治療。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "zh",
+   "text": "化學治療為禁忌。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "zh",
+   "text": "除化學治療外，其他前治療均可。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "除X外: X is the excluded thing"
+  },
+  {
+   "lang": "zh",
+   "text": "不得曾接受化學治療。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "en",
+   "text": "Type 2 diabetes; metformin is not contraindicated.",
+   "concept": "type 2 diabetes",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "en",
+   "text": "Type 2 diabetes with no restriction on diet.",
+   "concept": "type 2 diabetes",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "en",
+   "text": "Prior chemotherapy is not prohibited.",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "a negated prohibition"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法が不可欠な患者。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "不可欠: indispensable"
+  },
+  {
+   "lang": "ja",
+   "text": "2型糖尿病で、メトホルミンの禁忌なし。",
+   "concept": "type 2 diabetes",
+   "synonyms": [
+    "2型糖尿病"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "coordinator-10A-1b",
+   "others": []
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法の前治療は禁止されていない。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "a negated prohibition"
+  },
+  {
+   "lang": "zh",
+   "text": "需要化學治療，且化學治療不可或缺。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法",
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "不可或缺: indispensable"
+  },
+  {
+   "lang": "zh",
+   "text": "手術切除後之第二型糖尿病患者。",
+   "concept": "type 2 diabetes mellitus",
+   "synonyms": [
+    "第二型糖尿病"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "coordinator-10A-1b",
+   "others": [],
+   "why": "切除 (resection) is not 除"
+  }
+ ]
+}

@@ -467,7 +467,8 @@ def verdicts_of(
         actions.append("contact: deny (FHIR Consent) — never listed")
     seen: set[str] = set()
     acts = [a for a in actions if not (a in seen or seen.add(a))]  # type: ignore[func-returns-value]
-    return PatientVerdicts(t.pid, vs, tier, acts, unknown)
+    rungs = {v.id: str(t.outcomes[v.id].stage) for v in judged_rows if t.outcomes[v.id].stage}  # D-1360
+    return PatientVerdicts(t.pid, vs, tier, acts, unknown, rungs)
 
 
 def judged(t: PatientTrace) -> bool:

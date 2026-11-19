@@ -201,6 +201,12 @@ guard: venv-check
 	env -u TB_TEST_DB_URL TB_PG_BIN=/nonexistent TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -n 2 \
 		-m guard tests/unit
 
+# card 10G-22 (D-1325): the MedTxt ja pair gate on the recorded answers (eval/medtxt/gate.json names the candidate);
+# no model, no network. CI runs it as the guard test tests/unit/test_medtxt_pair_gate.py (the `checks` job, every tier)
+.PHONY: medtxt-gate
+medtxt-gate: venv-check
+	$(PY) -m tools.medtxt_gate check
+
 # the data-handling scan (D-203, WS-13.10, TB-SITE-03): every tracked file, or SCAN="paths", or SCAN="--log f.log";
 # exit 2 on a hit (place and pattern only, never the value). The same scan is the pre-commit hook and a CI job.
 data-scan:

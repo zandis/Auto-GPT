@@ -137,6 +137,10 @@ if case in ("build", "build-preempt"):
     )
     ok(gcloud.count("secrets versions access vendor-key") == 1, "the vendor key was read once, by its secret's name")
     ok(calls["make-bundle key-ok"] == 1, "make_bundle.sh found the key file at mode 600")
+    ok(
+        calls["make-bundle models embedder gemma-4-26b-a4b-it-4bit qwen3.5-9b-4bit "] == 1,
+        "H-43: make_bundle.sh was given the weights (--models: the pair's folders and embedder/)",
+    )
     ok(parts["b05-sign"]["detail"]["key_left_on_tmpfs"] is False, "the key file was gone after the signing step")
     v = parts["b06-verify"]["detail"]
     ok(
@@ -527,6 +531,10 @@ if case == "build-validation":
     ok(v["refused"] == [] and bool(v.get("key_id")), "b06: the signature verifies with the throwaway public key")
     ok(parts["b05-sign"]["detail"]["key_left_on_tmpfs"] is False, "the throwaway key was gone after signing")
     ok("TB-THROWAWAY-KEY" in (R / "logs" / "b05-sign.log").read_text(), "the signing log says the key is throwaway")
+    ok(
+        calls["make-bundle models embedder gemma-4-26b-a4b-it-4bit qwen3.5-9b-4bit "] == 1,
+        "H-43: the throwaway-key bundle was given the weights too (--models)",
+    )
     ok(
         calls["gates-args --vuln-mode report"] == 1 and rec["release_gates_vuln_mode"] == "report"
         and rec["release_gates"].startswith("NOT all green"),

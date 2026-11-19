@@ -143,6 +143,8 @@ CALLERS: dict[tuple[str, str], str] = {
     ("sitesetup/readiness.py", "scores_unverified"): "a lake's failure is raised again: never 'verified'",
     ("sitesetup/readiness.py", "feed_loaded"): RAISES,  # never "no feed is loaded"; `readiness` catches and says it
     ("datacore/optout_worker.py", "run_once"): "caught: the registry is named as failed; the next tick tries again",
+    ("orchestrator/scenarios/retention.py", "answer_rows_swept"): "caught: nothing is swept (the report says 0); the "
+    "next screening run sweeps the answer store (D-1360)",
     # other objects that have a snapshot() of their own
     ("edc/prefill.py", "build"): NOT_THE_LAKE,
     ("gateway/app.py", "readyz"): NOT_THE_LAKE,

@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-237 entries: 88 erase, 29 keep, 120 no patient data. 27 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+238 entries: 89 erase, 29 keep, 120 no patient data. 27 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -14,7 +14,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `candidate_registry` | open candidates become withdrawn; consented and enrolled are kept (OD-8, D-441) | `orch.candidates` |
 | `held_mail` | a held mail carrying an opted-out patient's own file is dropped: its request and recipients go (D-863) | `mail.send_keys` |
 | `omop` | tb_withheld, and the live rows deleted and tombstoned at once (D-441) | `omop.cohort`, `omop.condition_era`, `omop.condition_occurrence`, `omop.condition_occurrence_ydefault`, `omop.cost`, `omop.death`, `omop.device_exposure`, `omop.dose_era`, `omop.drug_era`, `omop.drug_exposure`, `omop.drug_exposure_ydefault`, `omop.episode`, `omop.episode_event`, `omop.fact_relationship`, `omop.location`, `omop.measurement`, `omop.measurement_ydefault`, `omop.note`, `omop.note_nlp`, `omop.note_ydefault`, `omop.observation`, `omop.observation_period`, `omop.observation_ydefault`, `omop.payer_plan_period`, `omop.person`, `omop.procedure_occurrence`, `omop.procedure_occurrence_ydefault`, `omop.specimen`, `omop.tb_appointment`, `omop.tb_claim`, `omop.tb_record_event`, `omop.visit_detail`, `omop.visit_occurrence`, `omop.visit_occurrence_ydefault` |
-| `owed_tables` | T-206b part 1 (D-798): the patient's rows in the site, team, PI feedback and derived tables go (the nightly derive skips an opted-out patient); a batch's failed list loses the pseudonym | `derived.batch_run`, `derived.conflict`, `derived.input_link`, `derived.score_row`, `orch.feedback`, `orch.judged_pairs`, `orch.submissions`, `site.contact_outcomes`, `site.excluded_review`, `sitesetup.fact`, `team.approach_overrides`, `team.candidate_views`, `team.referral_events`, `team.referrals`, `tuned.tuned_patients` |
+| `owed_tables` | T-206b part 1 (D-798): the patient's rows in the site, team, PI feedback and derived tables go (the nightly derive skips an opted-out patient); a batch's failed list loses the pseudonym | `derived.batch_run`, `derived.conflict`, `derived.input_link`, `derived.score_row`, `orch.answers`, `orch.feedback`, `orch.judged_pairs`, `orch.submissions`, `site.contact_outcomes`, `site.excluded_review`, `sitesetup.fact`, `team.approach_overrides`, `team.candidate_views`, `team.referral_events`, `team.referrals`, `tuned.tuned_patients` |
 | `pid_pending` | the staged chart number and identity of the patient go; a later night stages them again (D-489) | `pidmap.pending` |
 | `profile` | ProfileStore.erase: every version of the twin (D-440) | `profile.tb_patient_profile` |
 | `screening_log` | a never-consented patient's screening-log rows stay, numbered, under a random token; the PI's note and the registry's reasons go; a trial subject's stay (OD-8, D-1032, D-875) | `datacore.subject`, `orch.candidate_events`, `site.pi_marks`, `site.screening_no`, `site.weekly_seen`, `study.rc_read_log`, `study.rc_record` |
