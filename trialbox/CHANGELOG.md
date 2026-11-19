@@ -18,6 +18,10 @@ new heading with the version and date, in the same pull request that sets the ve
   `RELEASE-NOTE.ja.md` and `CHANGE-IMPACT.json` (`tools/make_bundle.sh` refuses to build one without them); a bundle
   without them is still verified and applied, with a warning. Going back to the previous release is shown on the
   page and stays the older-release path of the runbook at the box.
+- Operations drills (10K-9): each operations page of the RUNBOOK names a drill only where a test rehearses it (§12
+  certificate renewal, §20 close-out, §22 moving the box, §23 lost-box list, §25 leavers); the other pages say that
+  no test rehearses them. Two steps corrected: when the host name changes, run `check-tls` with the new values of
+  `deploy/.env` (§22); at close-out, write down the head after `--sign-head` (§20).
 - ClinicalTrials.gov intake widened (10D-15, D-1367): a study read from the registry (live, offline pack or
   cassette) now carries its sites with their recruitment status, its secondary ids (a jRCT, JapicCTI or UMIN-CTR
   number is recognised as such), arms, interventions, primary and secondary outcomes and the design (allocation,

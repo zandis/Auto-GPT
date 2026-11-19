@@ -101,12 +101,28 @@ jobs:
           make bench-gate BENCH_OUT="$RUNNER_TEMP/bench-gate" || rc=$?
           cat "$RUNNER_TEMP/bench-gate/bench_gate.md" >> "$GITHUB_STEP_SUMMARY" || true
           exit "$rc"
+      # D-1245 (10E-13): the console's ten pages, p95 of the console's own time (Server-Timing) under 300 ms; held here
+      # nightly, not on each pull request (a pull request runs the walk's rules and the planted slow page only)
+      - name: Console page time (the ten-page walk, p95 under 300 ms)
+        if: ${{ !cancelled() && matrix.run == 'perf-5k' }}
+        run: |
+          rc=0
+          make console-timing CONSOLE_TIMING_OUT="$RUNNER_TEMP/console-timing" || rc=$?
+          cat "$RUNNER_TEMP/console-timing/console_timing.md" >> "$GITHUB_STEP_SUMMARY" || true
+          exit "$rc"
       - name: Keep the performance numbers
         if: always() && matrix.run == 'perf-5k'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: bench-gate
           path: ${{ runner.temp }}/bench-gate
+          if-no-files-found: ignore
+      - name: Keep the console page times
+        if: always() && matrix.run == 'perf-5k'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: console-timing
+          path: ${{ runner.temp }}/console-timing
           if-no-files-found: ignore
 
   # ENG-002 (D-560): the unit suite in random order with the network off (D-201, T-653), in the shards of the

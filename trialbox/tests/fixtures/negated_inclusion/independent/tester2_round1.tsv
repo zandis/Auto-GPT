@@ -1,0 +1,317 @@
+text	concept	expect	lang	hold_class
+Diagnosis of heart failure ruled out by echocardiography within 6 months	heart failure	held	en	ruled_out
+HBsAg neg at screening	HBsAg	held	en	abbrev_neg
+?pulmonary embolism - CTPA requested	pulmonary embolism	held	en	question_mark
+r/o sepsis	sepsis	held	en	rule_out
+Hx of DVT: nil	DVT	held	en	nil
+Pt w/o ascites at enrollment	ascites	held	en	without_abbrev
+s/p appendectomy for appendicitis 2019, fully resolved	appendicitis	held	en	sp_resolved
+Candidate for coronary artery bypass grafting	coronary artery bypass grafting	held	en	candidate
+Scheduled for total knee arthroplasty within 4 weeks of randomization	total knee arthroplasty	held	en	planned
+Eligible for autologous stem cell transplant per investigator	autologous stem cell transplant	held	en	eligible_for
+Allergy to metformin documented in chart	metformin	held	en	allergy_drug
+Intolerant of statin therapy (at least 2 statins tried)	statin therapy	held	en	intolerant
+Failed methotrexate (inadequate response after 12 weeks)	methotrexate	held	en	failed
+Discontinued warfarin at least 7 days before baseline	warfarin	held	en	discontinued
+Completed a 4-week washout of SGLT2 inhibitors	SGLT2 inhibitors	held	en	washout
+TNF inhibitor-naive	TNF inhibitor	held	en	naive
+Seizure-free for >=12 months	seizure	held	en	free
+Clear of melanoma for five years following wide local excision	melanoma	held	en	clear_of
+Breast cancer in complete remission after adjuvant therapy	breast cancer	held	en	remission
+H. pylori eradicated, confirmed by urea breath test	H. pylori	held	en	eradicated
+Status post resection of colorectal cancer with no residual disease	colorectal cancer	held	en	sp_no_residual
+Vaccinated against herpes zoster	herpes zoster	held	en	vaccination
+At high risk of osteoporotic fracture (FRAX >20%)	osteoporotic fracture	held	en	risk_of
+Reports fear of hypoglycemia limiting insulin titration	hypoglycemia	held	en	fear_of
+Received genetic counselling about Lynch syndrome	Lynch syndrome	held	en	counselling
+Kidney donor has hepatitis C	hepatitis C	held	en	donor
+Partner has HIV infection	HIV infection	held	en	partner
+Fetus has trisomy 21 on amniocentesis	trisomy 21	held	en	fetus
+Child of a mother with gestational diabetes	gestational diabetes	held	en	relative
+Mother and sister with BRCA1-positive breast cancer	breast cancer	held	en	family
+Unlike patients with cirrhosis, participants must have normal synthetic liver function	cirrhosis	held	en	comparison
+Septic shock is defined as vasopressor requirement to maintain MAP >=65 mmHg	septic shock	held	en	definition
+No evidence of hypertension, diabetes or dyslipidemia	dyslipidemia	held	en	list_neg_tail
+Hypertension, but no diabetes or chronic kidney disease	chronic kidney disease	held	en	list_partial_neg
+Does the patient have atrial fibrillation?	atrial fibrillation	held	en	question
+"Have you ever been told you have asthma?"	asthma	held	en	quoted_question
+Screen all participants for latent tuberculosis	latent tuberculosis	held	en	instruction
+Section 4.2 - Hepatic impairment	hepatic impairment	held	en	heading
+Pneumonia cannot be excluded on chest X-ray	pneumonia	held	en	cannot_exclude
+Possible early Parkinson disease	Parkinson disease	held	en	doubtful
+Suspected but unconfirmed endometriosis	endometriosis	held	en	doubtful
+If pregnancy occurs during the study, the participant will be withdrawn	pregnancy	held	en	conditional
+Will start dialysis within 3 months	dialysis	held	en	future
+Expected to develop neutropenia after induction chemotherapy	neutropenia	held	en	future
+Troponin pending to exclude myocardial infarction	myocardial infarction	held	en	test_pending
+Prostate biopsy booked to evaluate for prostate cancer	prostate cancer	held	en	test_ordered
+Primary prevention of cardiovascular events in adults over 50	cardiovascular events	held	en	prevention
+Refused chemotherapy	chemotherapy	held	en	refused
+Declined influenza vaccination this season	influenza vaccination	held	en	declined
+Contraindicated for MRI due to pacemaker	MRI	held	en	contraindicated
+Former smoker, quit 2015	smoker	held	en	former
+History of hepatitis B, now HBsAg-cleared with anti-HBs seroconversion	hepatitis B	held	en	resolved
+Zero or more episodes of syncope in the prior year	syncope	held	en	bounded_zero
+<=2 hospitalizations for heart failure in the past 12 months	hospitalizations for heart failure	held	en	bounded_zero
+Up to 3 prior lines of chemotherapy permitted	chemotherapy	held	en	bounded_zero
+HIV ⊖	HIV	held	en	symbol
+Proteinuria: −	Proteinuria	held	en	symbol
+Lymphadenopathy ø	Lymphadenopathy	held	en	symbol
+Absence of prior stroke is not required	stroke	held	en	double_neg_held
+Pregnancy test: ☐ Positive ☑ Negative	pregnancy	held	en	checkbox
+Atrial fibrillation ☐ Yes ☑ No	Atrial fibrillation	held	en	checkbox
+Except for basal cell carcinoma, no prior cancer	basal cell carcinoma	held	en	exception
+Any malignancy other than non-melanoma skin cancer within 5 years	non-melanoma skin cancer	held	en	exception
+Pre-diabetes (HbA1c 5.7-6.4%)	diabetes	held	en	prefix
+Anti-epileptic drug-free for 2 years	anti-epileptic drug	held	en	free
+HCV RNA undetectable 12 weeks after end of treatment (SVR12)	HCV	held	en	resolved
+Afebrile, no neutropenia	neutropenia	held	en	neg
+Denies chest pain	chest pain	held	en	denies
+Pulmonary hypertension excluded by right heart catheterization	Pulmonary hypertension	held	en	excluded_by_test
+COVID-19 screen negative	COVID-19	held	en	screen_negative
+Histologically confirmed non-small cell lung cancer	non-small cell lung cancer	runs	en	name_non
+Biopsy-proven IgA nephropathy	IgA nephropathy	runs	en	confirmed
+Type 2 diabetes mellitus without complications	type 2 diabetes mellitus	runs	en	without_qualifier
+Hypertension not controlled on two agents	Hypertension	runs	en	neg_on_modifier
+Rheumatoid arthritis despite no prior biologic therapy	Rheumatoid arthritis	runs	en	neg_elsewhere
+Metastatic castration-resistant prostate cancer	prostate cancer	runs	en	positive
+Triple-negative breast cancer confirmed by IHC	Triple-negative breast cancer	runs	en	name_negative
+HER2-negative, hormone receptor-positive breast cancer	breast cancer	runs	en	name_negative
+Seronegative rheumatoid arthritis	Seronegative rheumatoid arthritis	runs	en	name_negative
+Chronic kidney disease, not on dialysis	Chronic kidney disease	runs	en	neg_elsewhere
+Hepatitis B surface antigen positive for >=6 months	Hepatitis B surface antigen	runs	en	positive
+Current smoker (>=10 pack-years)	smoker	runs	en	positive
+Atrial fibrillation ☑ Yes ☐ No	Atrial fibrillation	runs	en	checkbox_yes
+Diagnosed with major depressive disorder without psychotic features	major depressive disorder	runs	en	neg_elsewhere
+COPD with >=2 exacerbations in prior year	COPD	runs	en	positive
+Currently receiving metformin monotherapy	metformin	runs	en	current
+Ongoing treatment with warfarin, INR 2-3	warfarin	runs	en	current
+Heart failure with reduced ejection fraction (LVEF <=40%)	Heart failure	runs	en	positive
+Non-alcoholic steatohepatitis, biopsy-confirmed	Non-alcoholic steatohepatitis	runs	en	name_non
+Non-Hodgkin lymphoma, relapsed after first-line therapy	Non-Hodgkin lymphoma	runs	en	name_non
+Recurrent Clostridioides difficile infection, currently active	Clostridioides difficile infection	runs	en	positive
+Has plaque psoriasis, never treated with biologics	plaque psoriasis	runs	en	neg_elsewhere
+Ischemic stroke within 7 days before randomization, confirmed by MRI	Ischemic stroke	runs	en	confirmed
+Persistent asthma not well controlled on inhaled corticosteroids	asthma	runs	en	neg_elsewhere
+Treatment-resistant hypertension	hypertension	runs	en	positive
+Unable to walk 6 minutes because of knee osteoarthritis	knee osteoarthritis	runs	en	neg_elsewhere
+Pathologically confirmed hepatocellular carcinoma, not amenable to resection	hepatocellular carcinoma	runs	en	neg_elsewhere
+Type 1 diabetes; no hypoglycemia unawareness	Type 1 diabetes	runs	en	neg_elsewhere
+Diabetes mellitus and hypertension, but no CKD	hypertension	runs	en	list_partial_pos
+Sickle cell disease (HbSS), no transfusion in past 3 months	Sickle cell disease	runs	en	neg_elsewhere
+PD-L1-negative metastatic NSCLC	NSCLC	runs	en	name_negative
+Stage IV melanoma, BRAF wild-type	melanoma	runs	en	positive
+Known HIV infection on stable antiretroviral therapy	HIV infection	runs	en	positive
+Latent tuberculosis infection with positive QuantiFERON	Latent tuberculosis infection	runs	en	positive
+Measurable disease per RECIST 1.1	Measurable disease	runs	en	positive
+Gout with >=1 flare in the last 6 months	Gout	runs	en	positive
+Pregnant, gestational age 24-32 weeks	Pregnant	runs	en	positive
+Chronic migraine (>=15 headache days/month)	Chronic migraine	runs	en	positive
+Alzheimer disease, mild stage (MMSE 20-26)	Alzheimer disease	runs	en	positive
+Relapsing-remitting multiple sclerosis; denies relapse in last 30 days	multiple sclerosis	runs	en	name_remission
+心房細動は認めず	心房細動	held	ja	認めず
+胸部CTにて肺塞栓は指摘されず	肺塞栓	held	ja	指摘されず
+HBs抗原：陰性	HBs抗原	held	ja	陰性
+悪性腫瘍の既往なし	悪性腫瘍	held	ja	既往なし
+冠動脈造影 未施行	冠動脈造影	held	ja	未施行
+骨髄生検 未実施	骨髄生検	held	ja	未実施
+来月 人工膝関節置換術 予定	人工膝関節置換術	held	ja	予定
+化学療法は希望せず	化学療法	held	ja	希望せず
+ワルファリン 中止（2週間前）	ワルファリン	held	ja	中止
+腎移植の適応外	腎移植	held	ja	適応外
+糖尿病：□あり ■なし	糖尿病	held	ja	checkbox
+喫煙歴： ■なし □あり	喫煙	held	ja	checkbox
+深部静脈血栓症は否定的	深部静脈血栓症	held	ja	否定的
+造影MRIにて脳転移は除外された	脳転移	held	ja	除外
+結核の疑い	結核	held	ja	疑い
+膵癌疑いにて精査中	膵癌	held	ja	疑い
+肺炎の可能性は否定できない	肺炎	held	ja	cannot_exclude
+父が大腸癌	大腸癌	held	ja	family
+母親に乳癌の家族歴あり	乳癌	held	ja	family
+配偶者がB型肝炎キャリア	B型肝炎	held	ja	partner
+胃癌術後、再発なし	胃癌	held	ja	sp_no_residual
+甲状腺機能亢進症は寛解中	甲状腺機能亢進症	held	ja	remission
+ピロリ菌除菌済み	ピロリ菌	held	ja	eradicated
+帯状疱疹ワクチン接種済み	帯状疱疹	held	ja	vaccination
+骨粗鬆症性骨折のリスクが高い	骨粗鬆症性骨折	held	ja	risk
+低血糖への不安が強い	低血糖	held	ja	fear
+妊娠した場合は試験を中止する	妊娠	held	ja	conditional
+将来的に透析導入の見込み	透析	held	ja	future
+メトホルミンにアレルギーあり	メトホルミン	held	ja	allergy
+スタチン不耐	スタチン	held	ja	intolerant
+生物学的製剤ナイーブ	生物学的製剤	held	ja	naive
+てんかん発作は2年間なし	てんかん発作	held	ja	free
+敗血症の除外目的で血液培養提出、結果待ち	敗血症	held	ja	test_pending
+心不全はNYHA II度以上と定義する	心不全	held	ja	definition
+高血圧はあるが、糖尿病・脂質異常症はない	脂質異常症	held	ja	list_partial_neg
+糖尿病、高血圧、慢性腎臓病のいずれも認めない	慢性腎臓病	held	ja	list_neg_tail
+「喘息と言われたことがありますか」	喘息	held	ja	quoted_question
+全例で潜在性結核のスクリーニングを行うこと	潜在性結核	held	ja	instruction
+■ 腎機能障害について	腎機能障害	held	ja	heading
+ＨＩＶ抗体（－）	ＨＩＶ抗体	held	ja	fullwidth_symbol
+尿蛋白 (−)	尿蛋白	held	ja	symbol
+浮腫なし	浮腫	held	ja	なし
+発熱：なし	発熱	held	ja	なし
+胸痛を否定	胸痛	held	ja	否定
+過去12か月の入院回数は2回以下	入院	held	ja	bounded_zero
+前治療レジメン数3以下（0レジメンも可）	前治療	held	ja	bounded_zero
+脳卒中の発症予防を目的とする	脳卒中	held	ja	prevention
+抗凝固療法は禁忌	抗凝固療法	held	ja	contraindicated
+インスリン導入を拒否	インスリン	held	ja	refused
+以前は喫煙していたが10年前に禁煙	喫煙	held	ja	former
+肺結核の既往があるが治癒	肺結核	held	ja	resolved
+境界型糖尿病	糖尿病	held	ja	prefix
+慢性腎臓病の疑いは否定された	慢性腎臓病	held	ja	negated_doubt
+脳梗塞ではなく一過性脳虚血発作	脳梗塞	held	ja	contrast
+ﾜｰﾌｧﾘﾝ服用歴なし	ﾜｰﾌｧﾘﾝ	held	ja	halfwidth
+心房細動 ： 無	心房細動	held	ja	無
+喘息（－）	喘息	held	ja	symbol
+胎児に先天性心疾患を指摘	先天性心疾患	held	ja	fetus
+小児期に川崎病に罹患、後遺症なし	川崎病	held	ja	former
+基底細胞癌を除く悪性腫瘍の既往なし	基底細胞癌	held	ja	exception
+うつ病は認められなかった	うつ病	held	ja	認められなかった
+薬剤性肝障害を起こさないよう注意する	薬剤性肝障害	held	ja	prevention
+組織学的に確認された非小細胞肺癌	非小細胞肺癌	runs	ja	name_non
+生検で確定したIgA腎症	IgA腎症	runs	ja	confirmed
+2型糖尿病（合併症なし）	2型糖尿病	runs	ja	neg_elsewhere
+高血圧あり、糖尿病なし	高血圧	runs	ja	list_partial_pos
+トリプルネガティブ乳癌	トリプルネガティブ乳癌	runs	ja	name_negative
+HER2陰性乳癌	乳癌	runs	ja	name_negative
+心房細動：■あり □なし	心房細動	runs	ja	checkbox_yes
+現在メトホルミンを内服中	メトホルミン	runs	ja	current
+ワルファリン継続中、PT-INR 2.0〜3.0	ワルファリン	runs	ja	current
+左室駆出率40%以下の心不全	心不全	runs	ja	positive
+非アルコール性脂肪肝炎（生検確定）	非アルコール性脂肪肝炎	runs	ja	name_non
+非ホジキンリンパ腫 再発	非ホジキンリンパ腫	runs	ja	name_non
+関節リウマチ、生物学的製剤の使用歴なし	関節リウマチ	runs	ja	neg_elsewhere
+慢性腎臓病（透析未導入）	慢性腎臓病	runs	ja	neg_elsewhere
+HBs抗原陽性が6か月以上持続	HBs抗原	runs	ja	positive
+現喫煙者（20本/日）	喫煙	runs	ja	positive
+大うつ病性障害、精神病性の特徴なし	大うつ病性障害	runs	ja	neg_elsewhere
+COPDで過去1年に増悪2回以上	COPD	runs	ja	positive
+尋常性乾癬、未治療	尋常性乾癬	runs	ja	neg_elsewhere
+切除不能肝細胞癌	肝細胞癌	runs	ja	neg_elsewhere
+脳梗塞発症後7日以内（MRIで確認）	脳梗塞	runs	ja	confirmed
+1型糖尿病、無自覚性低血糖なし	1型糖尿病	runs	ja	neg_elsewhere
+潰瘍性大腸炎（活動期）	潰瘍性大腸炎	runs	ja	positive
+HIV感染症、抗レトロウイルス療法中	HIV感染症	runs	ja	positive
+インターフェロンγ遊離試験陽性の潜在性結核感染症	潜在性結核感染症	runs	ja	positive
+RECIST 1.1に基づく測定可能病変を有する	測定可能病変	runs	ja	positive
+過去6か月に痛風発作を1回以上	痛風	runs	ja	positive
+妊娠24〜32週の妊婦	妊娠	runs	ja	positive
+慢性片頭痛	片頭痛	runs	ja	positive
+軽度アルツハイマー型認知症	アルツハイマー型認知症	runs	ja	positive
+再発寛解型多発性硬化症	多発性硬化症	runs	ja	name_remission
+治療抵抗性高血圧	高血圧	runs	ja	positive
+膝変形性関節症のため歩行困難	膝変形性関節症	runs	ja	neg_elsewhere
+病理学的に確定した胃癌、遠隔転移なし	胃癌	runs	ja	neg_elsewhere
+陰性症状が主体の統合失調症	統合失調症	runs	ja	name_negative
+抗核抗体陽性の全身性エリテマトーデス	全身性エリテマトーデス	runs	ja	positive
+無症候性心房細動	心房細動	runs	ja	name_mu
+無尿を伴う急性腎障害	急性腎障害	runs	ja	name_mu
+尿蛋白（＋）	尿蛋白	runs	ja	symbol_pos
+未分化大細胞リンパ腫	未分化大細胞リンパ腫	runs	ja	name_mi
+不安定狭心症	不安定狭心症	runs	ja	name_fu
+非結核性抗酸菌症	非結核性抗酸菌症	runs	ja	name_non
+未見肺結節	肺結節	held	zh	未見
+否認糖尿病病史	糖尿病	held	zh	否認
+經電腦斷層排除肺栓塞	肺栓塞	held	zh	排除
+無高血壓病史	高血壓	held	zh	無
+暫無心房顫動證據	心房顫動	held	zh	暫無
+尚未接受化學治療	化學治療	held	zh	尚未
+擬行冠狀動脈繞道手術	冠狀動脈繞道手術	held	zh	擬行
+肝腫瘤待查	肝腫瘤	held	zh	待查
+已停用華法林	華法林	held	zh	已停
+既往肺结核，已愈	肺结核	held	zh	已愈
+懷疑胰臟癌	胰臟癌	held	zh	doubt
+不排除肺炎	肺炎	held	zh	cannot_exclude
+肺炎可能性不能排除	肺炎	held	zh	cannot_exclude
+母親患乳癌	乳癌	held	zh	family
+配偶為B型肝炎帶原者	B型肝炎	held	zh	partner
+捐贈者感染C型肝炎	C型肝炎	held	zh	donor
+胎兒診斷先天性心臟病	先天性心臟病	held	zh	fetus
+幽門螺旋桿菌已根除	幽門螺旋桿菌	held	zh	eradicated
+已接種帶狀皰疹疫苗	帶狀皰疹	held	zh	vaccination
+骨質疏鬆性骨折高風險	骨質疏鬆性骨折	held	zh	risk
+擔心發生低血糖	低血糖	held	zh	fear
+若懷孕則退出試驗	懷孕	held	zh	conditional
+預計三個月內開始透析	透析	held	zh	future
+對二甲雙胍過敏	二甲雙胍	held	zh	allergy
+不耐受他汀類藥物	他汀類藥物	held	zh	intolerant
+從未使用生物製劑	生物製劑	held	zh	naive
+癲癇無發作已兩年	癲癇	held	zh	free
+血培養已送，結果未回，以排除敗血症	敗血症	held	zh	test_pending
+心衰竭定義為LVEF≤40%	心衰竭	held	zh	definition
+有高血壓，但無糖尿病及慢性腎病	慢性腎病	held	zh	list_partial_neg
+「您是否曾被診斷為氣喘？」	氣喘	held	zh	quoted_question
+所有受試者須篩檢潛伏性結核	潛伏性結核	held	zh	instruction
+第三節　肝功能不全	肝功能不全	held	zh	heading
+HIV抗體（－）	HIV抗體	held	zh	symbol
+尿蛋白 陰性	尿蛋白	held	zh	陰性
+糖尿病：□有 ■無	糖尿病	held	zh	checkbox
+吸菸：☐是 ☑否	吸菸	held	zh	checkbox
+拒絕化療	化療	held	zh	refused
+不願接受胰島素治療	胰島素	held	zh	declined
+禁用抗凝血劑	抗凝血劑	held	zh	contraindicated
+已戒菸十年之前吸菸者	吸菸者	held	zh	former
+乳癌術後無殘存病灶	乳癌	held	zh	sp_no_residual
+甲狀腺機能亢進已緩解	甲狀腺機能亢進	held	zh	remission
+過去一年住院次數不超過2次	住院	held	zh	bounded_zero
+預防心血管事件	心血管事件	held	zh	prevention
+糖尿病前期	糖尿病	held	zh	prefix
+疑似帕金森氏症	帕金森氏症	held	zh	doubt
+除基底細胞癌外，無其他惡性腫瘤病史	基底細胞癌	held	zh	exception
+胸痛（-）	胸痛	held	zh	symbol
+发热：无	发热	held	zh	无
+暂无手术指征	手术	held	zh	暂无
+未见淋巴结肿大	淋巴结肿大	held	zh	未见
+否认冠心病史	冠心病	held	zh	否认
+拟行肾移植	肾移植	held	zh	拟行
+待查：系统性红斑狼疮	系统性红斑狼疮	held	zh	待查
+不符合骨髓移植適應症	骨髓移植	held	zh	not_indicated
+腦梗塞已排除，考慮短暫性腦缺血發作	腦梗塞	held	zh	ruled_out
+父親有大腸癌病史	大腸癌	held	zh	family
+子女患有第一型糖尿病	第一型糖尿病	held	zh	family_child
+目標為預防骨折	骨折	held	zh	prevention
+已安排肝臟切片檢查以確認是否為肝硬化	肝硬化	held	zh	test_ordered
+未曾發生心肌梗塞	心肌梗塞	held	zh	未曾
+經病理證實之非小細胞肺癌	非小細胞肺癌	runs	zh	name_non
+切片證實IgA腎病變	IgA腎病變	runs	zh	confirmed
+第二型糖尿病，無併發症	第二型糖尿病	runs	zh	neg_elsewhere
+有高血壓，無糖尿病	高血壓	runs	zh	list_partial_pos
+三陰性乳癌	三陰性乳癌	runs	zh	name_negative
+HER2陰性乳癌	乳癌	runs	zh	name_negative
+心房顫動：■有 □無	心房顫動	runs	zh	checkbox_yes
+目前服用二甲雙胍	二甲雙胍	runs	zh	current
+持續使用華法林，INR 2-3	華法林	runs	zh	current
+射出分率≤40%之心衰竭	心衰竭	runs	zh	positive
+非酒精性脂肪肝炎（切片證實）	非酒精性脂肪肝炎	runs	zh	name_non
+非何杰金氏淋巴瘤復發	非何杰金氏淋巴瘤	runs	zh	name_non
+類風濕性關節炎，未曾使用生物製劑	類風濕性關節炎	runs	zh	neg_elsewhere
+慢性腎臟病，尚未透析	慢性腎臟病	runs	zh	neg_elsewhere
+B型肝炎表面抗原陽性超過6個月	B型肝炎表面抗原	runs	zh	positive
+目前為吸菸者	吸菸者	runs	zh	positive
+重度憂鬱症，無精神病特徵	重度憂鬱症	runs	zh	neg_elsewhere
+慢性阻塞性肺病，過去一年急性惡化≥2次	慢性阻塞性肺病	runs	zh	positive
+乾癬，未曾治療	乾癬	runs	zh	neg_elsewhere
+無法切除之肝細胞癌	肝細胞癌	runs	zh	neg_elsewhere
+無症狀心房顫動	心房顫動	runs	zh	name_wu
+第一型糖尿病，無低血糖無感症	第一型糖尿病	runs	zh	neg_elsewhere
+潰瘍性結腸炎（活動期）	潰瘍性結腸炎	runs	zh	positive
+HIV感染，接受抗反轉錄病毒治療中	HIV感染	runs	zh	positive
+潛伏結核感染（丙型干擾素釋放試驗陽性）	潛伏結核感染	runs	zh	positive
+依RECIST 1.1具可測量病灶	可測量病灶	runs	zh	positive
+復發緩解型多發性硬化症	多發性硬化症	runs	zh	name_remission
+頑固性高血壓	高血壓	runs	zh	positive
+已確診阿茲海默症	阿茲海默症	runs	zh	confirmed
+胃癌經病理確認，未見遠處轉移	胃癌	runs	zh	neg_elsewhere
+尿蛋白（＋＋）	尿蛋白	runs	zh	symbol_pos
+無尿之急性腎損傷	急性腎損傷	runs	zh	name_wu
+未分化甲狀腺癌	未分化甲狀腺癌	runs	zh	name_wei
+不穩定型心絞痛	不穩定型心絞痛	runs	zh	name_bu
+非結核分枝桿菌肺病	非結核分枝桿菌肺病	runs	zh	name_non
+确诊为2型糖尿病	2型糖尿病	runs	zh	confirmed
+现患高血压，否认糖尿病	高血压	runs	zh	list_partial_pos
+患者确有慢性心力衰竭	慢性心力衰竭	runs	zh	confirmed
+妊娠24至32週之孕婦	妊娠	runs	zh	positive
+慢性偏頭痛	偏頭痛	runs	zh	positive

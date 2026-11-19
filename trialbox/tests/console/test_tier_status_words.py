@@ -274,8 +274,8 @@ def test_a_record_that_breaks_the_reader_shows_no_line_and_never_takes_the_page_
     d.mkdir()
     (d / "rtx5090.json").write_text("[" * 200000 + "]" * 200000, encoding="utf-8")  # RecursionError in json
     env = {"TB_PROFILE": "P-5090"}
-    with pytest.raises(RecursionError):  # the reader itself raises on it (lane H's, unchanged)
-        tier_value.measured(tier_words.FIELD, env, d)
+    tv = tier_value.measured(tier_words.FIELD, env, d)  # the reader answers malformed, it no longer raises (H-51)
+    assert (tv.case, tv.why) == ("malformed", "rtx5090.json: nested too deep to read")
     assert tier_words.lacks(env, d) == []
     monkeypatch.setenv("TB_PROFILE", "P-5090")
     monkeypatch.setattr(tier_value, "TIERS_DIR", d)

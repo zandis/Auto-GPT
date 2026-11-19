@@ -185,6 +185,9 @@ class Helpers:
     # set by console.breakglass (D-280, T-309): the account's open grant covering one patient or one job, else None;
     # each call that finds one is one audited use. None in bare test apps (no grant, so no access)
     breakglass: Callable[..., Any] | None = None
+    # set by console.team (D-1245): would the study's candidate list admit this account (user, study) -> bool; None in
+    # bare test apps (nobody is admitted)
+    admits_candidates: Callable[[Any, str], bool] | None = None
     breakglass_find: Callable[..., Any] | None = None  # T-716 (D-484): the open grant, found and not used
     breakglass_note: Callable[..., Any] | None = None  # the audit event of a use the orchestrator recorded
     # T-310a (D-446): set by register(): the latest run's not-matched list and its rows as the page shows them; set by

@@ -880,23 +880,29 @@ class ComposeStandIn:
                 self.spool.mkdir(parents=True, exist_ok=True)
                 refdata = f"{self.prefix}refdata" if self.db == "trialbox_wf" else None
                 script = bs.snapshot_script(
-                    str(self.spool), self.db, "pg_dump", f'--dbname "{self.dsn}"', [f"{self.prefix}*"], refdata
+                    str(self.spool),
+                    self.db,
+                    "pg_dump",
+                    f'--dbname "{self.dsn}"',
+                    [f"{self.prefix}*"],
+                    refdata,
+                    stream=stdout_file is not None,
                 )
                 f = self.spool / f"{self.db}.sql"
                 f.write_text(script, encoding="utf-8")
-                subprocess.run(
-                    ["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", self.dsn, "-f", str(f)],
-                    check=True,
-                    capture_output=True,
-                    timeout=timeout,
-                )
+                (self.spool / "emit").write_text(bs.EMIT_SH, encoding="utf-8")
+                with contextlib.ExitStack() as st:  # 10G-1: every output streams to the host's file (exec -T's stdout)
+                    sink = st.enter_context(stdout_file.open("wb")) if stdout_file else subprocess.DEVNULL
+                    subprocess.run(
+                        ["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", self.dsn, "-f", str(f)],
+                        check=True,
+                        stdout=sink,
+                        stderr=subprocess.PIPE,
+                        timeout=timeout,
+                    )
                 f.unlink()
             elif "psql" in argv and "-c" in argv:  # the backup's catalogue questions to the db container (D-455)
                 out = self._query(argv[argv.index("-c") + 1])
-            elif len(argv) >= 3 and argv[-3] == "cp":
-                dest = Path(argv[-1])
-                for x in self.spool.glob(f"{self.db}.*"):
-                    shutil.copy2(x, dest / x.name)
             elif "rm" in argv and "-rf" in argv:
                 shutil.rmtree(self.spool, ignore_errors=True)
             elif "ps" in argv and "--services" in argv:
