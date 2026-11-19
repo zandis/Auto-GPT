@@ -777,6 +777,9 @@ DECLARED: dict[str, Declared] = {
         "int", "", "heavy jobs a sender may start a day, overriding settings.yaml; 0: no limit (D-146, D-775)"
     ),
     "TB_LOG_DIR": Declared("path", "deploy/logs", "host folder of collected logs"),
+    # D-927: the masker reads about 1 µs a character in the log scrubber (a 50 kB traceback, 56 ms) under the
+    # handler's lock; a longer line keeps its first and last halves, the middle never written
+    "TB_LOG_SCRUB_MAX_CHARS": Declared("int", "65536", "log lines longer than this are cut before scrubbing"),
     "TB_LOG_MAX_FILE": Declared("int", "10", "container log files kept per service (provisional, D-389)"),
     "TB_LOG_MAX_SIZE": Declared("str", "100m", "size of one container log file (provisional, D-389)"),
     "TB_MAIL_AUTHSERV_ID": Declared("str", "", "authserv-id trusted in mail auth results (unset: none, D-369)"),
