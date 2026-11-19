@@ -256,7 +256,8 @@ def unit_sql(comp: str, value: str, unit: str) -> str:
 
 def egfr_for_site(country: str | None) -> str:
     """The equation a plain ``egfr`` criterion gets at a site: its country layer's (P8 ``egfr``; Japan: JSN 2009),
-    else CKD-EPI 2021."""
+    else CKD-EPI 2021. A site whose country's layer is broken gets none: ``country_layer.LayerBroken`` is raised (the
+    compile is refused with the file and the reason), never CKD-EPI in its place (D-1250)."""
     from tb_common import country_layer
 
     code = (country or "").upper()

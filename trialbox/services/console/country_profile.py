@@ -66,15 +66,19 @@ def in_force(country: str | None, site: object, env: Mapping[str, str]) -> list[
 def card(backend: object) -> dict[str, Any] | None:
     """The country layer's lines of a night's "Site profile" section (``/data-ops/batches/<id>``, D-1233): its
     country, version and digest (12 characters) and :func:`in_force`; None for a site whose country has no layer (the
-    section is then as before). The country is the site's (``site.tz``, else ``TB_TZ``), as the site profile is
-    checked against at night."""
+    section is then as before). A site whose country's layer is broken gets its ``problem`` (the file and what is
+    wrong) and no rows. The country is read as the compiler reads it (``country_of`` of the box's zone and the
+    site's language: ``criteria_compiler.terminology.resolver.jp_ingredients``)."""
     import os
 
     from tb_common.derived import country_of
 
-    site = getattr(getattr(getattr(backend, "cfg", None), "settings", None), "site", None)
-    tz = str(getattr(site, "tz", "") or os.environ.get("TB_TZ") or "")
-    lay = country_layer.layer(country_of(tz))
+    cfg = getattr(backend, "cfg", None)
+    site = getattr(getattr(cfg, "settings", None), "site", None)
+    tz = str(getattr(getattr(cfg, "env", None), "tz", "") or os.environ.get("TB_TZ") or "")
+    lay = country_layer.layer(country_of(tz, getattr(site, "locale", None)))
+    if lay.broken:
+        return {"country": lay.country, "problem": f"{lay.file}: {lay.problem}", "rows": []}
     if not lay.on:
         return None
     return {"country": lay.country, "version": lay.version, "digest": lay.digest[:12],

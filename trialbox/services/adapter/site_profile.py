@@ -15,8 +15,8 @@ The loader and its checks are :mod:`tb_common.site_profile`; this module is wher
   audit family); without an audit destination nothing is activated. An id and version read before with other content
   is refused (the steward changes the version with the content). Rolling back is loading the earlier folder,
   recorded with ``direction: back``. The country layer above the profile (``tb_common.country_layer``, C-7, D-1250)
-  ships with the release: the record (not the audit event, which is as before) names the layer's country, version
-  and digest, and a load of the same profile under another layer version updates the record's layer.
+  ships with the release: a load's record entry (not the audit event, which is as before) names the layer's country,
+  version and digest read at that load. Reloading the same profile writes nothing, whatever the layer's version now.
 * **The night.** Every night that reads with a profile writes ``site_profile.json`` beside its snapshot (the
   profile's id, version and digest, and the coverage lines); the ``ingest.done`` event carries the same stamp and the
   counts. A fact whose standard code comes from a ``verify`` row carries D-135's basis tag ``verify``
@@ -223,13 +223,11 @@ def activate(
         raise ProfileError(MANIFEST, f"this profile describes a {profile.door} source; the box reads {door}")
     rec = read_record(lake_dir)
     old = rec.get("active") or None
-    # the country layer above the profile (C-7, D-1250) ships with the release: its version and digest are written in
-    # the record only (never in the audit event, which stays as before); a country without a layer writes nothing new
-    layer = country_layer.stamp(profile.country)
     if old and old.get("digest") == profile.digest:
-        if layer and old.get("layer") != layer:  # the same profile under the release's other layer: the record says so
-            _write(lake_dir / RECORD, {**rec, "active": {**old, "layer": layer}})
         return None
+    # the country layer above the profile (C-7, D-1250) ships with the release: the load's record entry names the one
+    # read at this load (never the audit event, which stays as before); no layer, or a broken one: nothing new
+    layer = country_layer.stamp(profile.country)
     for h in rec.get("history", []):
         if h.get("id") == profile.id and h.get("version") == profile.version and h.get("digest") != profile.digest:
             raise ProfileError(

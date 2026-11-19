@@ -2,14 +2,16 @@
 """10C-25 (D-1250): a night's "Site profile" section (``/data-ops/batches/<id>``, D-1233) names the country layer
 above the profile (its country, version and digest) and, per setting the layer offers or turns on, the value in force
 and whether it is "from the Japan profile", "set by the site" or "not set: as before the profile". A site whose
-country has no layer sees the section exactly as before: the same bytes with every country layer taken away.
+country has no layer sees master's section, byte for byte; a Japanese site whose layer is broken sees one red line.
 
 Synthetic data only: the synthetic Japanese hospital's profile stamp and the Cabinet Office's public holiday list."""
 
 from __future__ import annotations
 
 import html
+import json
 import re
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -17,8 +19,9 @@ from tb_common import country_layer, derived
 
 from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
 from tests.console.test_dataops_site_profile import PROFILE, _night, _section, _steward
-from tests.unit.test_japan_profile_layer import _layers
+from tests.unit.test_japan_profile_layer import _tampered
 
+MASTER = Path(__file__).with_name("site_profile_section_master.json")
 WORDS = {
     "en": ("Country profile", "set by the site", "from the Japan profile", "not set: as before the profile"),
     "ja": ("国別プロファイル", "施設が設定", "日本のプロファイルから", "未設定：プロファイル導入前のとおり"),
@@ -71,18 +74,31 @@ def test_the_site_profile_section_names_the_layer_and_where_each_setting_comes_f
         assert "style=" not in sec and "nowrap" not in sec
 
 
-def test_a_site_without_a_country_layer_sees_the_section_as_before(box: dict[str, Any]) -> None:
-    """The test box is in Taipei: no layer, no lines, and the page is the same bytes with every layer taken away."""
+def test_a_site_without_a_country_layer_sees_masters_bytes(box: dict[str, Any]) -> None:
+    """The test box is in Taipei: no layer, no lines. The section is master's, byte for byte, in the three languages
+    (``site_profile_section_master.json``: rendered from master 0de6b1d0 with this file's night and profile)."""
+    master = json.loads(MASTER.read_text(encoding="utf-8"))
     bid = _night(box, PROFILE)
     c, csrf = _steward(box)
     for lang in WORDS:
         c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"})
-        with_layers = c.get(f"/data-ops/batches/{bid}").text
-        with _layers({}):
-            without = c.get(f"/data-ops/batches/{bid}").text
-        assert 'data-testid="profile-layer' not in with_layers
-        assert with_layers.replace(_csrf(with_layers), "") == without.replace(_csrf(without), "")
+        assert _section(c.get(f"/data-ops/batches/{bid}").text) == master[lang], lang
     assert not country_layer.layer("TW").on
+
+
+def test_a_japanese_site_whose_layer_is_broken_is_told_so_in_red(box: dict[str, Any], tmp_path: Path,
+                                                                  monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """No rows of values from nowhere: one red line naming the file and what is wrong, in each language."""
+    monkeypatch.setattr(derived, "country_of", lambda tz=None, locale=None: "JP")
+    bid = _night(box, PROFILE)
+    c, csrf = _steward(box)
+    with _tampered(tmp_path, b"{"):
+        for lang in WORDS:
+            c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"})
+            sec = _section(c.get(f"/data-ops/batches/{bid}").text)
+            broken = re.search(r'<p class="error" role="alert" data-testid="profile-layer-broken">(.*?)</p>', sec)
+            assert broken and "japan_profile.json: not UTF-8 JSON" in html.unescape(broken.group(1)), lang
+            assert "profile-layer-rows" not in sec
 
 
 def test_a_night_read_without_a_profile_has_no_layer_lines_either(
@@ -92,9 +108,3 @@ def test_a_night_read_without_a_profile_has_no_layer_lines_either(
     bid = _night(box, None)
     c, _ = _steward(box)
     assert 'data-testid="profile-layer' not in c.get(f"/data-ops/batches/{bid}").text
-
-
-def _csrf(page: str) -> str:
-    """The page's form token (a new one may be drawn per request): left out of the comparison."""
-    i = page.find('name="csrf" value="')
-    return page[i + 19 : page.index('"', i + 19)] if i >= 0 else "\0"

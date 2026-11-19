@@ -272,8 +272,14 @@ WEEKDAYS_ONLY = Calendar()
 def for_country(country: str, environ: Mapping[str, str] | None = None) -> Calendar:
     """The calendar of a site of ``country`` with the site's changes from ``environ`` (default: the process's)."""
     code = (country or "").strip().upper()
+    from tb_common.country_layer import LayerBroken
+
     try:
         hol = holidays(code)
+    except LayerBroken as exc:  # the country's layer cannot be used (D-1250): said in red, naming its file
+        return Calendar(code, problems=(f"the {code} country layer {exc.file} cannot be used ({exc.reason[:160]}): "
+                                        "its holiday list and New Year break are not read, Monday to Friday only",),
+                        broken=True)  # fmt: skip
     except Exception as exc:  # a damaged file never stops a mail or a window: Monday to Friday, said in red
         why = f"{type(exc).__name__}: {str(exc)[:80]}"
         return Calendar(code, problems=(f"the {code} holiday list cannot be read ({why}): Monday to Friday only",),

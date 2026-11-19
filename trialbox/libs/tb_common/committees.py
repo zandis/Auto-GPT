@@ -79,10 +79,14 @@ def profile() -> dict[str, Any]:
 
 
 def on(country: str) -> bool:
-    """Is the committees part on for a site of ``country`` (``JP``, ``TW``, "")? Its country's layer carries it."""
+    """Is the committees part on for a site of ``country`` (``JP``, ``TW``, "")? Its country's layer carries it. A
+    site whose country's layer is broken stays under its rule (True): :func:`profile` then raises
+    ``country_layer.LayerBroken``, so a move into open is refused and the lists are held, never opened without the
+    record (D-1250)."""
     from tb_common import country_layer
 
-    return country_layer.value(country, "P3", "committees") is not None
+    lay = country_layer.layer(country)
+    return lay.broken or lay.value("P3", "committees") is not None
 
 
 def committee_of(kind: str) -> str:

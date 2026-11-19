@@ -30,6 +30,7 @@ Standard library only: the host's ``python3`` imports it before any image is loa
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -77,7 +78,9 @@ class CountryDefaults:
 def from_layer(country: str) -> CountryDefaults:
     """A country's set-up defaults read from its country layer (10C-25, D-1250; ``tb_common.country_layer``): the
     report language (P5), the retention rules (P1), the source, mapping and zone (P14), printed dates and the year
-    (P9), consent by a representative (P11). Each is offered by the wizards and written into a new site's settings."""
+    (P9), consent by a representative (P11). Each is offered by the wizards and written into a new site's settings.
+    A country whose layer is broken raises ``country_layer.LayerBroken`` (a ``ValueError`` naming the file and what is
+    wrong): its set-up has no defaults to offer, never another country's."""
     v = country_layer.layer(country).value
     return CountryDefaults(
         country,
@@ -93,12 +96,34 @@ def from_layer(country: str) -> CountryDefaults:
     )
 
 
-TABLE: dict[str, CountryDefaults] = {
-    "jp": from_layer("jp"),
-    "tw": CountryDefaults("tw", "zh-TW", True, "tw", "csv", "mapping/tw_core/demo_his.yaml", TWPAS_QUESTIONS),
-    "us": CountryDefaults("us", "en", False, None, None, None, ()),
-    "other": CountryDefaults("other", None, False, None, None, None, ()),
-}
+class _Table(Mapping[str, CountryDefaults]):
+    """The set-up defaults by country answer. A country with a layer is read from it when asked (never at import), so
+    a layer that cannot be used reaches that country's set-up only."""
+
+    def __init__(self, fixed: dict[str, CountryDefaults]) -> None:
+        self._fixed = fixed
+
+    def __getitem__(self, key: str) -> CountryDefaults:
+        if key in self._fixed:
+            return self._fixed[key]
+        if key in COUNTRIES:
+            return from_layer(key)
+        raise KeyError(key)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(COUNTRIES)
+
+    def __len__(self) -> int:
+        return len(COUNTRIES)
+
+
+TABLE: Mapping[str, CountryDefaults] = _Table(
+    {
+        "tw": CountryDefaults("tw", "zh-TW", True, "tw", "csv", "mapping/tw_core/demo_his.yaml", TWPAS_QUESTIONS),
+        "us": CountryDefaults("us", "en", False, None, None, None, ()),
+        "other": CountryDefaults("other", None, False, None, None, None, ()),
+    }
+)  # every answer of COUNTRIES not written here is read from its country's layer (D-1250)
 
 # the wizard's defaults before 10K-1, for an answers file with no country: report language zh-TW, retention from the
 # report language (ja -> jp, else tw), source csv, the Taiwan mapping, the TWPAS questions asked; no zone (D-315)
@@ -129,7 +154,7 @@ def defaults(country: str | None) -> CountryDefaults:
     key = str(country or "").strip().lower()
     if not key:
         return LEGACY
-    if key not in TABLE:
+    if key not in COUNTRIES:
         raise ValueError(f"country {country!r}: one of {', '.join(COUNTRIES)}")
     return TABLE[key]
 

@@ -137,6 +137,12 @@ def test_the_layer_is_versioned_and_its_digest_is_the_files() -> None:
         (lambda d: d.update(country="Japan"), "two capital letters"),
         (lambda d: d.update(format="tb-site-profile/1"), "format is"),
         (lambda d: d["parts"]["P2"].update(cards=["C-4"]), "'C-4' is not one"),
+        (lambda d: d["parts"]["P8"]["values"].pop("egfr") and d["parts"]["P8"]["values"].update(x="y"),
+         "'egfr' is missing"),
+        (lambda d: d["parts"]["P7"]["values"].update(ingredient_stems="yes"), "ingredient_stems: 'yes' is not a bool"),
+        (lambda d: d["parts"]["P9"]["values"].update(holiday_list="../holidays_jp.csv"), "holiday_list: '../"),
+        (lambda d: d["parts"]["P9"]["values"].update(new_year_break="29 Dec"), "new_year_break: '29 Dec'"),
+        (lambda d: d["parts"]["P3"]["values"].update(committees={}), "committees: {} is not a dict"),
     ],
 )  # fmt: skip
 def test_a_layer_that_cannot_be_used_is_refused_with_its_reason(edit: Callable[[dict[str, Any]], Any],
@@ -145,17 +151,6 @@ def test_a_layer_that_cannot_be_used_is_refused_with_its_reason(edit: Callable[[
     edit(doc)
     with pytest.raises(LayerError, match=says.replace("(", r"\(").replace(")", r"\)")):
         country_layer.parse(json.dumps(doc).encode(), "japan_profile.json")
-
-
-def test_two_layers_for_one_country_are_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(country_layer, "FILES", ("japan_profile.json", "japan_profile.json"))
-    country_layer.layers.cache_clear()
-    try:
-        with pytest.raises(LayerError, match="a second layer for JP"):
-            country_layer.layers()
-    finally:
-        monkeypatch.undo()
-        country_layer.layers.cache_clear()
 
 
 # ------------------------------------------------------------------------- the values moved, unchanged
@@ -205,13 +200,33 @@ def test_the_set_up_row_for_japan_is_masters_whole() -> None:
 @contextmanager
 def _layers(found: dict[str, country_layer.Layer]) -> Iterator[None]:
     """The shipped layers replaced by ``found`` for the block (the readers' caches cleared before and after)."""
-    saved = country_layer.layers
-    country_layer.layers = lambda: found  # type: ignore[assignment]
+    saved = country_layer._shipped, country_layer.FILES
+    country_layer._shipped = lambda code: found.get(code, country_layer.NONE)  # type: ignore[assignment]
+    country_layer.FILES = {code: lay.file for code, lay in found.items()}
     workdays.holidays.cache_clear()
     try:
         yield
     finally:
-        country_layer.layers = saved
+        country_layer._shipped, country_layer.FILES = saved
+        workdays.holidays.cache_clear()
+
+
+@contextmanager
+def _tampered(tmp_path: Path, raw: bytes | None) -> Iterator[None]:
+    """The shipped Japan layer's file replaced by ``raw`` (None: no file at all) for the block."""
+    folder = tmp_path / "layer"
+    folder.mkdir(exist_ok=True)
+    if raw is not None:
+        (folder / "japan_profile.json").write_bytes(raw)
+    saved = country_layer.ROOT
+    country_layer.ROOT = folder
+    country_layer._shipped.cache_clear()
+    workdays.holidays.cache_clear()
+    try:
+        yield
+    finally:
+        country_layer.ROOT = saved
+        country_layer._shipped.cache_clear()
         workdays.holidays.cache_clear()
 
 
@@ -401,6 +416,127 @@ def test_the_ingredient_stems_switch_and_the_sites_own_file_are_read_as_before(m
         assert resolver.jp_ingredients(term).ingredients is None
 
 
+# ------------------------------------------------------------------------------- a layer that cannot be used
+def _without(part: str) -> bytes:
+    doc = json.loads(LAYER.read_text(encoding="utf-8"))
+    doc["parts"][part].pop("values")
+    return json.dumps(doc, ensure_ascii=False).encode()
+
+
+def _with(edit: Callable[[dict[str, Any]], Any]) -> bytes:
+    doc = json.loads(LAYER.read_text(encoding="utf-8"))
+    edit(doc)
+    return json.dumps(doc, ensure_ascii=False).encode()
+
+
+GOOD = LAYER.read_bytes()
+# what is done to the shipped file, and what the red line then says of it
+TAMPERED: dict[str, tuple[bytes | None, str]] = {
+    "missing": (None, "cannot be read (FileNotFoundError"),
+    "empty": (b"", "not UTF-8 JSON"),
+    "truncated": (GOOD[: len(GOOD) // 2], "not UTF-8 JSON"),
+    "bad JSON": (b"{", "not UTF-8 JSON"),
+    "BOM": (b"\xef\xbb\xbf" + GOOD, "not UTF-8 JSON"),
+    "extra key": (_with(lambda d: d.update(colour="red")), "unknown key 'colour'"),
+    "country TW": (_with(lambda d: d.update(country="TW")), "country 'TW': the file is the layer of JP"),
+    "country US": (_with(lambda d: d.update(country="US")), "country 'US': the file is the layer of JP"),
+    **{f"{part} values removed": (_without(part), "values and readers go together")
+       for part in sorted({pid for pid, _key in country_layer.READ}, key=lambda x: int(x[1:]))},
+    "bad holiday list": (_with(lambda d: d["parts"]["P9"]["values"].update(holiday_list="holidays_jp.txt")),
+                         "holiday_list: 'holidays_jp.txt'"),
+}  # fmt: skip
+
+
+def _everything(country: str, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Every reader of the layer for a site of ``country``, as it answers (or the error it raises)."""
+    from criteria_compiler.terminology import resolver
+    from datacore import lifecycle
+
+    def ask(f: Callable[[], Any]) -> Any:
+        try:
+            return f()
+        except Exception as exc:
+            return f"raised {type(exc).__name__}: {exc}"
+
+    tz = {"JP": "Asia/Tokyo", "TW": "Asia/Taipei", "US": "America/New_York", "": "UTC"}[country]
+
+    class Cfg:
+        class env:  # noqa: N801
+            pass
+
+        class settings:  # noqa: N801
+            class site:  # noqa: N801
+                locale = "en"
+
+    Cfg.env.tz = tz  # type: ignore[attr-defined]
+    monkeypatch.setattr("tb_common.config.get_config", lambda: Cfg)
+    cal = workdays.for_country(country, {})
+    term = type("T", (), {"ingredients": None})()
+    return {
+        "calls": ask(lambda: _calls(country) if country else None),
+        "health": workdays.health(cal, __import__("datetime").date(2026, 11, 19)),
+        "clock": ask(lambda: lifecycle.clock_rules(tz=tz)),
+        "defaults": ask(lambda: site_country.defaults(country.lower())),
+        "ssmix2": site_country.reads_ssmix2(country.lower()),
+        "stems": ask(lambda: resolver.jp_ingredients(term).ingredients is not None),
+        "stamp": country_layer.stamp(country),
+        "committees_on": committees.on(country),
+        "layer_on": country_layer.layer(country).on,
+    }
+
+
+@pytest.mark.parametrize("case", list(TAMPERED))
+def test_a_bad_japan_layer_reaches_japanese_sites_only_and_says_so(case: str, tmp_path: Path,
+                                                                   monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """D-1250: Taiwan, the United States and a box with no country answer exactly as with the shipped file. Japan is
+    not quietly another country: one red health line names the file and what is wrong, and each value is not
+    available in its own safe way."""
+    raw, says = TAMPERED[case]
+    good = {c: _everything(c, monkeypatch) for c in ("TW", "US", "")}
+    with _tampered(tmp_path, raw):
+        for c in ("TW", "US", ""):
+            assert _everything(c, monkeypatch) == good[c], c
+        lay = country_layer.layer("JP")
+        assert lay.broken and not lay.on and says in lay.problem, lay.problem
+        jp = _everything("JP", monkeypatch)
+        # one red line on the box's health, naming the file and the reason; Monday to Friday, said there
+        level, line = jp["health"]
+        assert level == "red" and "JP country layer japan_profile.json cannot be used" in line and says in line
+        # eGFR: none, never CKD-EPI; the drug lists: the compiler does not start; the SAE clock: no regulator, the study
+        # names its set; the committees: on, and their record cannot be read (a move into open is refused, lists held)
+        with pytest.raises(country_layer.LayerBroken, match="japan_profile.json"):
+            derived.egfr_for_site("JP")
+        assert jp["stems"].startswith("raised LayerBroken: japan_profile.json")
+        assert jp["clock"]["problems"] == ["unconfirmed"] and jp["clock"]["regulator"] == ""
+        assert jp["committees_on"]
+        with pytest.raises(country_layer.LayerBroken):
+            committees.profile()
+        # the set-up: no defaults to offer (the wizard says why), no SS-MIX2 offered; the profile's record: no layer
+        assert jp["defaults"].startswith("raised LayerBroken: japan_profile.json") and not jp["ssmix2"]
+        assert jp["stamp"] is None and jp["layer_on"] is False
+    assert not country_layer.layer("JP").broken  # the shipped file again
+
+
+def test_nothing_reads_a_layer_at_import(tmp_path: Path) -> None:
+    """The console, the compiler and the orchestrator import with no Japan layer file at all, and import reads none."""
+    import subprocess
+
+    code = (
+        "import sys, pathlib\n"
+        "from tb_common import country_layer\n"
+        f"country_layer.ROOT = pathlib.Path({str(tmp_path)!r})\n"
+        "import console.app, criteria_compiler.app, orchestrator.scheduler, tools.settings_wizard\n"
+        "from tb_common import site_country\n"
+        "assert site_country.TABLE['tw'].locale == 'zh-TW'\n"
+        "assert country_layer._shipped.cache_info().currsize == 0, country_layer._shipped.cache_info()\n"
+        "print('ok')\n"
+    )
+    env = {**__import__("os").environ, "PYTHONPATH": f"{ROOT / 'libs'}:{ROOT / 'services'}:{ROOT}"}
+    got = subprocess.run([sys.executable, "-c", code], check=False, cwd=ROOT, env=env, capture_output=True, text=True,
+                         timeout=300)  # fmt: skip
+    assert got.returncode == 0 and got.stdout.strip().endswith("ok"), got.stderr[-3000:]
+
+
 # ---------------------------------------------------------------------------------- versions and audit
 def _profile(tmp_path: Path, country: str) -> Any:
     from tb_common import site_profile
@@ -439,13 +575,13 @@ def test_the_layers_version_is_in_the_site_profiles_record_and_not_in_the_audit_
     events = _load_events(audit)
     assert len(events) == 1 and set(events[0]["detail"]) == EVENT_DETAIL  # the event exactly as master's shape
     assert asp.activate(p, lake, site_id=p.site_id, by="steward-a", audit_dir=audit) is None  # nothing new
-    # the same profile under the release's next layer: the record says so; no event (the layer is the release's)
+    # the same profile under the release's next layer: nothing is written, as on master (the record keeps the layer
+    # read at the load; no event, no write without one)
+    before = (lake / asp.RECORD).read_bytes()
     newer = dataclasses.replace(_jp(), version="1.1.0", digest="f" * 64)
     with _layers({"JP": newer}):
         assert asp.activate(p, lake, site_id=p.site_id, by="steward-b", audit_dir=audit) is None
-    rec = asp.read_record(lake)
-    assert rec["active"]["layer"]["version"] == "1.1.0" and rec["active"]["digest"] == p.digest
-    assert len(rec["history"]) == 1 and len(_load_events(audit)) == 1
+    assert (lake / asp.RECORD).read_bytes() == before and len(_load_events(audit)) == 1
 
 
 def test_a_country_without_a_layer_records_exactly_what_it_did_before(tmp_path: Path) -> None:
@@ -486,7 +622,9 @@ ALLOWED: dict[tuple[str, str], tuple[int, str]] = {
     ("libs/tb_common/retention.py", '"jp": {**_COMMON, "mail_log_days": 5 * 365},'):
         (1, "P1: the retention rules the layer names (P1 retention_rules: jp)"),
     ("libs/tb_common/site_country.py", 'COUNTRIES = ("jp", "tw", "us", "other")'): (1, "the wizards' country answers"),
-    ("libs/tb_common/site_country.py", '"jp": from_layer("jp"),'): (2, "the answer jp reads its set-up from the layer"),
+    ("libs/tb_common/country_layer.py",
+     'FILES = {"JP": "japan_profile.json"}  # the layers shipped: a country and its file (the file must name that country)'):
+        (1, "the layer's own index: which country each shipped layer file is"),
     ("services/console/i18n_firstrun.py", '"firstrun.country.jp": "Japan",'): (1, "the country question's words"),
     ("services/datacore/lifecycle.py",
      'RULE_ALIASES = {"jp": "jp_gcp_ii", "tw": "tw_trial"}  # the box-wide names before D-277 (TB_SAE_RULES)'):

@@ -224,10 +224,20 @@ _HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
 def country_default(country: str) -> str:
     """The rule set whose regulator is shown for a site of ``country`` before a study chooses one: its layer's (P2
-    ``sae_rule_set``), else :data:`COUNTRY_DEFAULT`; "" for none."""
+    ``sae_rule_set``), else :data:`COUNTRY_DEFAULT`; "" for none, and "" for a site whose country's layer is broken
+    (no regulator is shown: :func:`clock_rules` says ``unconfirmed``, the study names its set; D-1250)."""
     from tb_common import country_layer
 
-    return str(country_layer.value(country, "P2", "sae_rule_set") or COUNTRY_DEFAULT.get(country, ""))
+    try:
+        return str(country_layer.value(country, "P2", "sae_rule_set") or COUNTRY_DEFAULT.get(country, ""))
+    except country_layer.LayerBroken:
+        return ""
+
+
+def _layer_broken(country: str) -> bool:
+    from tb_common import country_layer
+
+    return country_layer.layer(country).broken
 
 
 def _site_country(tz: str) -> str:
@@ -277,7 +287,7 @@ def clock_rules(study_set: str = "", tz: str = "", override: str = "", box_set: 
             problems.append("unknown_rules")
     else:  # NEW-LIFE-8 (D-766): no deadline until the study names its set
         rs = None
-        problems.append("unconfirmed" if country_default(country) else "no_country")
+        problems.append("unconfirmed" if country_default(country) or _layer_broken(country) else "no_country")
     if rs is not None and country and rs.country != country:
         problems.append("other_country")
     parties = dict(rs.parties) if rs is not None else {}
