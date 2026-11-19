@@ -74,7 +74,7 @@
         <a href="/pilot/request">{{ t('nav.request') }}</a>
         <a href="/pilot/protocol">{{ tp('nav.protocol') }}</a>
         <a href="/pilot/consent">{{ tp('nav.consent') }}</a>
-        {% if not user.studies and settings.source_dir is not none and settings.source_dir.joinpath('patient.csv').is_file() %}<a href="/pilot/cascade" data-testid="more-cascade">{{ t('nav.cascade') }}</a>{% endif %}
+        {% if not user.studies and cascade_available() %}<a href="/pilot/cascade" data-testid="more-cascade">{{ t('nav.cascade') }}</a>{% endif %}
         {% endif %}
         {% if not user.aggregate_only %}<a href="/pilot/case">{{ tp('nav.case') }}</a>{% endif %}{% endif %}
         {% if not user.aggregate_only and not top_registry %}<a href="/pilot/registry">{{ tp('nav.registry') }}</a>{% endif %}

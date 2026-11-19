@@ -16,7 +16,7 @@
 <div class="firstrow" data-testid="first-row">
 {% set f_fold %}{% if step >= 2 %}<details class="stepsfold" data-testid="steps-fold"><summary>{{ t('steps.fold', n=step + 1, of=steps|length, name=t('steps.' + steps[step])) }}</summary>{{ steps_bar(steps, step) }}</details>{% endif %}{% endset %}{% if not pf %}{{ f_fold }}{% endif %}
 {{ sae_banner(sae, 'week', compact=true) }}{{ report_banner(sae_reports, compact=true) }}
-{% set f_due %}{% if team_due %}<p class="warn" data-testid="team-due"><a href="/studies/{{ rs }}/team#check">{{ t('team.log.check_due') }}</a></p>{% endif %}{% endset %}{% if not pf %}{{ f_due }}{% endif %}
+{% set f_due %}{% if team_due %}<p class="warn" data-testid="team-due">{#J7#}{% if pm %}{{ t('team.log.check_due') }} <a href="/studies/{{ rs }}/team#check">{{ t('team.log.check') }}</a>{% else %}{#/J7#}<a href="/studies/{{ rs }}/team#check">{{ t('team.log.check_due') }}</a>{#J7#}{% endif %}{#/J7#}</p>{% endif %}{% endset %}{% if not pf %}{{ f_due }}{% endif %}
 </div>
 {% set f_team %}{% include "_team_nav.html" %}
 {% for j in approvals or [] %}<p class="warn" data-testid="approval-waiting"><a href="/pilot/jobs/{{ j.job_id }}/approval">{{ t('s20.waiting', rs=j.ruleset, v=j.ruleset_version) }}</a></p>{% endfor %}{% endset %}{% if not pf %}{{ f_team }}{% endif %}

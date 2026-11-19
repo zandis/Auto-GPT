@@ -44,7 +44,7 @@ from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
-from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_rights
+from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
@@ -884,7 +884,11 @@ def create_app(
             "t": t,
             "tp": tp,
             "pm": plain,
-            "may_act": (lambda target: may_act(sess, target)) if sess else (lambda target: False),
+            "job_type_word": plain_menu.job_type_word,
+            "next_go_key": plain_menu.next_go_key,
+            # J-7: the cascade's own answer (CascadeRuns.available: the site drop is mounted), asked by the menu
+            "cascade_available": lambda: cascades is not None and cascades.available,
+            "may_act": (lambda target: link_may_act(sess, target)) if sess else (lambda target: False),
             "t_or": t_or,
             "population": lambda value: population_words(lang, value, plain),
             "lang": lang,
@@ -2079,7 +2083,7 @@ def create_app(
     def _request_rulesets(sess: Session) -> tuple[list[Any], list[Any], list[Any]]:
         approved = [
             r
-            for r in bk.rulesets()
+            for r in _rulesets_once()
             if r.status == "approved"
             and (not settings.studies or r.id in settings.studies)
             and sess.user.sees_study(r.id)
@@ -2093,20 +2097,41 @@ def create_app(
 
         return approved, runs(("trial",), "FEAS"), runs(("trial", "cohort"), "SCREEN")
 
+    def _rulesets_once() -> list[Any]:
+        """The studies' criteria list (``bk.rulesets``), read once per page view (J-7, D-1251: a page that carries a
+        link and the rule behind it ask the same list)."""
+        return list(person_state.per_view("j7:rulesets", "", lambda: list(bk.rulesets())))
+
     def may_act(sess: Session, target: str) -> bool:
         """Whether the account may act on the page ``target`` (the page's own rule: its forms, or its enabled button);
-        J-7 (D-1251): a link that takes the place of a menu entry asks this, as the page does."""
+        J-7 (D-1251): a link that takes the place of a menu entry asks this, as the page does. An account that
+        prepares requests, and one whose role may never start the page's runs (``role_allowed``, the matrix's best
+        case), is answered without a read."""
         u = sess.user
         if target == "request":
-            if u.can_request:  # an account that prepares requests: no read
+            if u.can_request:
                 return True
+            if not (role_allowed(u.role, "FEAS") or role_allowed(u.role, "SCREEN")):
+                return False
             _, feas, screen = _request_rulesets(sess)
             return bool(feas or screen)
         if target == "consent":
             return bool(u.can_request)
         if target == "case":
-            return bool(u.can_request or _case_rulesets(sess))  # the review of D-767: a coordinator with no trial yet
+            if u.can_request:
+                return True
+            if not role_allowed(u.role, "CASE"):
+                return False
+            return bool(_case_rulesets(sess))  # the review of D-767: a coordinator with no trial yet
         raise ValueError(f"no page {target!r}")
+
+    def link_may_act(sess: Session, target: str) -> bool:
+        """``may_act`` for a link on another page: when the criteria list or the delegation log cannot be read, the
+        link is not shown and the page renders (fails closed; the target page itself still asks ``may_act``)."""
+        try:
+            return may_act(sess, target)
+        except Exception:  # the backend or the delegation store is down: no link, never a broken page
+            return False
 
     def _request_page(request: Request, sess: Session, status: int = 200, **ctx: Any) -> HTMLResponse:
         approved, feas, screen = _request_rulesets(sess)
@@ -2294,7 +2319,7 @@ def create_app(
         """Approved trial rulesets: a single-case check is against a trial, never a cohort or NHI ruleset (M8).
         SEC-SCOPE (D-769): only this site's studies the account sees, as the request page lists them (D-120, D-104):
         a scoped account is not shown other studies' names (the CASE page and the registry's home)."""
-        return [r for r in bk.rulesets() if r.status == "approved" and r.kind in ("trial", "")
+        return [r for r in _rulesets_once() if r.status == "approved" and r.kind in ("trial", "")
                 and (not settings.studies or r.id in settings.studies) and sess.user.sees_study(r.id)]  # fmt: skip
 
     def _case_rulesets(sess: Session) -> list[Any]:

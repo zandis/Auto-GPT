@@ -494,7 +494,7 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
         _assigned("services/datacore/lifecycle.py", "visit_status", "status"),
     ),
     "life.state.": _values("datacore.lifecycle", "STATES"),
-    "pm.jobtype.": _values("console.plain_menu", "JOB_TYPES"),  # J-7 (D-1251): the job types a clinical role starts
+    "pm.jobtype.": _values("console.plain_menu", "JOB_TYPE_WORDS"),  # J-7 (D-1251): every job type, and "other"
     "life.reason.sf.": _values("datacore.lifecycle", "SCREEN_FAIL_REASONS"),
     "life.reason.wd.": _values("datacore.lifecycle", "WITHDRAW_REASONS"),
     "life.anchor.": _values("datacore.lifecycle", "ANCHORS"),

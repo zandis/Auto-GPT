@@ -24,7 +24,7 @@ import html
 import re
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from console import phone
@@ -81,10 +81,6 @@ def menu(page: str) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     return top, under
 
 
-def _name_parts(text: str) -> list[str]:
-    return [p.strip() for p in text.split(" · ") if p.strip()]
-
-
 # ------------------------------------------------------------------------------------------- the flag
 def test_the_flag_is_declared_off_and_described_in_three_languages(box: dict[str, Any]) -> None:
     from console import i18n_flags
@@ -114,17 +110,53 @@ def test_the_layout_flags_are_read_together_in_one_read(box: dict[str, Any], mon
 
 
 # ------------------------------------------------------------------------------------------- one name per page (R18)
+#: catalogue words that stand for a value of the page's context in a heading (the site workspace's own name: the
+#: hospital's, or the practice one), read as data like the study code
+CONTEXT_KEYS = ("site.ws.main", "site.ws.practice")
+#: menu entries that answer 403 with the flag on, as with it off: the investigator in no delegation log reads no
+#: patient-level list (master's menu links them the same; the page says why). Listed, never skipped silently
+REFUSED_MENU_ENTRIES = frozenset(
+    {("pi", "/week"), ("pi", f"/studies/{RS}/candidates"), ("pi", f"/studies/{RS}/conflicts"),
+     ("pi", f"/studies/{RS}/entry"), ("pi", f"/studies/{RS}/referrals")}
+)  # fmt: skip
+
+
+def _context_words(lang: str) -> set[str]:
+    from console.i18n import CATALOGUES
+
+    from tests.console.plain_text_walk import unmark
+
+    return {unmark(CATALOGUES[lang][k]) for k in CONTEXT_KEYS}
+
+
+def name_of(text: str, lang: str) -> str:
+    """A label's or a heading's name: its " · " parts without the data values (a study code, a year, an id, an
+    account name) and the context's own name (:data:`CONTEXT_KEYS`)."""
+    from tests.console.plain_text_walk import data_value, unmark
+
+    ctx = _context_words(lang)
+    parts = [p.strip() for p in unmark(text).split(" · ") if p.strip()]
+    return " · ".join(p for p in parts if p not in ctx and not data_value(p))
+
+
+def _heading(page_text: str, tag: str = "h1") -> list[str]:
+    """The texts of a page's ``tag`` headings, without a hint inside one (a date, "not entered yet")."""
+    found = re.findall(rf"<{tag}[^>]*>(.*?)</{tag}>", page_text, re.S)
+    return [_text(re.sub(r'<span class="hint[^"]*">.*?</span>', "", h, flags=re.S)) for h in found]
+
+
 def test_every_menu_entry_has_one_name_its_label_title_and_heading_in_three_languages(box: dict[str, Any]) -> None:
     """For every role, every entry of its menu (top bar and "More") on the opening page and on a study page, in each
-    language: the page the entry opens has the entry's label as its title's first part and as one part of its main
-    heading (the parts are joined by " · "; the others are data: the study code, a year, the site's name). A page
-    that refuses the account (403) is not that account's page and is left out."""
+    language: the page the entry opens has the entry's label as its main heading and as its title's first part (each
+    without its data values: the study code, a year, the site's name). A page that refuses the account is listed
+    (:data:`REFUSED_MENU_ENTRIES`), never skipped silently."""
     _orchestrator_routes(box)  # the steward's clinical conflicts ask the orchestrator (D-865)
     _done_feas(box["backend"])
     _done_screen(box["backend"], _ulid(990))
     clients = _clients(box)
     _flag(box, "on")
     differ: list[str] = []
+    refused: set[tuple[str, str]] = set()
     for col in COLUMNS:
         page, csrf, _ = clients[col]
         for lang in LANGS:
@@ -137,20 +169,119 @@ def test_every_menu_entry_has_one_name_its_label_title_and_heading_in_three_lang
                         continue
                     entries.setdefault(href, label)
             for href, label in sorted(entries.items()):
-                name = label.split(" · ", 1)[1] if label.startswith(f"{RS} · ") else label
                 _for(box, href)
                 r = page.get(href)
                 if r.status_code == 403:
+                    refused.add((col, href))
                     continue
                 assert r.status_code == 200, (col, lang, href, r.status_code)
                 title = re.search(r"<title>(.*?)</title>", r.text, re.S)
-                h1 = re.search(r"<h1[^>]*>(.*?)</h1>", r.text, re.S)
-                t_parts = _name_parts(_text(title.group(1))) if title else []
-                h_parts = _name_parts(_text(h1.group(1))) if h1 else []
-                if not t_parts or t_parts[0] != name or name not in h_parts:
-                    differ.append(f"{col} [{lang}] {href}: menu {name!r} · title {t_parts} · heading {h_parts}")
+                t_first = _text(title.group(1)).split(" · ")[0] if title else ""
+                h1 = _heading(r.text)
+                name = name_of(label, lang)
+                if len(h1) != 1 or name_of(h1[0], lang) != name or name_of(t_first, lang) != name:
+                    differ.append(f"{col} [{lang}] {href}: menu {name!r} · title {t_first!r} · heading {h1}")
         _lang(page, csrf, "en")
     assert not differ, "a page's menu label, title and heading differ:\n" + "\n".join(differ)
+    assert refused == REFUSED_MENU_ENTRIES, sorted(refused ^ REFUSED_MENU_ENTRIES)
+    _flag(box, "off")
+    for col, href in REFUSED_MENU_ENTRIES:  # the same entries on master's menu: not a link this card adds
+        page, _, _ = clients[col]
+        top, under = menu(page.get("/home").text)
+        top2, under2 = menu(page.get(MENU_PAGES[1]).text)
+        assert href in {h for h, _ in top + under + top2 + under2}, (col, href)
+
+
+#: pages a link check opens besides the menu's: the pages that carry a link the coordinator's review named
+LINK_PAGES = (f"/pilot/registry/{RS}", "/site/start?step=1", "/home?view=studies")
+#: a heading that names one thing: a pseudonym, or a run's id (a person's chart, a candidate, a run)
+THING = re.compile(r"\b[0-9a-f]{8}\b|\b[0-9a-f]{32}\b|…[0-9A-Z]{8}\b")
+#: a link to a section the test box does not show (the study store of S28 is not wired here, so the set-up page has no
+#: "Who to screen"): its words must be that section's heading (the key), as the page shows it where the store is
+ABSENT_SECTIONS = {f"/studies/{RS}/setup#who": "setup.who.title"}
+
+
+def test_every_link_says_the_name_of_the_page_or_section_it_opens(box: dict[str, Any], monkeypatch: Any) -> None:
+    """The coordinator's review of J-7: a link's words are the name of the page it opens (its main heading, without
+    data values), or, for a link to an action or a section, the heading of that section on the page it opens. Read on
+    every page each role's menu opens (and :data:`LINK_PAGES`), in each language, inside the page (not the menu: the
+    test above). A link that carries a data value (a person, a study code, an id, a count) names that thing, not a
+    page, and is not checked; nor is a link to the page itself (a tab already open, a filter)."""
+    from tests.console.plain_text_walk import CLOSE, OPEN, mark_catalogues
+
+    _orchestrator_routes(box)
+    _done_feas(box["backend"])
+    _done_screen(box["backend"], _ulid(990))
+    clients = _clients(box)
+    _flag(box, "on")
+    mark_catalogues(monkeypatch)
+    differ: set[str] = set()
+    checked = 0
+    for col in COLUMNS:
+        page, csrf, _ = clients[col]
+        for lang in LANGS:
+            _lang(page, csrf, lang)
+            pages: set[str] = set(LINK_PAGES)
+            for p in MENU_PAGES:
+                top, under = menu(page.get(p).text)
+                pages |= {h for h, _ in top + under if not h.startswith("/help")}
+            names: dict[str, set[str] | None] = {}  # a target's names, and (key + "#ids") its element ids
+            for src in sorted(pages):
+                _for(box, src)
+                r = page.get(src)
+                if r.status_code != 200:
+                    continue
+                main = re.search(r"<main.*?</main>", r.text, re.S)
+                for href, inner in re.findall(r'<a [^>]*href="(/[^"]*)"[^>]*>(.*?)</a>', main.group(0) if main else "",
+                                              re.S):  # fmt: skip
+                    href = html.unescape(href)
+                    path = href.split("#")[0].split("?")[0]
+                    words = _text(inner)
+                    if path == src.split("?")[0] or not words or href.startswith(("/help", "/ask", "/lang", "/logout")):
+                        continue
+                    if not (words.startswith(OPEN) and words.endswith(CLOSE) and words.count(OPEN) == 1):
+                        continue  # a data value, or no catalogue text: names a thing, not a page
+                    target, _, anchor = href.partition("#")
+                    if target not in names:
+                        _for(box, path)
+                        t = page.get(target)
+                        ok = t.status_code == 200 and "text/html" in t.headers.get("content-type", "")
+                        h1 = [name_of(h, lang) for h in _heading(t.text)] if ok else []
+                        if any(THING.search(h) for h in _heading(t.text)):
+                            h1 = []  # a person's or a run's own page
+                        own = re.search(r"<main.*?</main>", t.text, re.S) if ok else None
+                        tabs = {  # the target's own entry on its tab bar (a tab has no heading of its own)
+                            name_of(_text(i), lang)
+                            for h, i in re.findall(
+                                r'<a [^>]*href="([^"]*)"[^>]*>(.*?)</a>', own.group(0) if own else "", re.S
+                            )
+                            if html.unescape(h) == target
+                        }
+                        # no page name: a file, a page the account may not open (the role walks), or a thing's own
+                        # page (its heading is a data value: a person's chart, a candidate, a run)
+                        names[target] = (
+                            {*h1, *(name_of(h, lang) for h in _heading(t.text, "h2")), *tabs}
+                            if ok and any(h1)
+                            else None
+                        )
+                        names[target + "#ids"] = set(re.findall(r'\sid="([^"]+)"', t.text)) if ok else set()
+                    found = names[target]
+                    if found is None:
+                        continue
+                    if anchor and anchor not in (names[target + "#ids"] or set()):
+                        assert href in ABSENT_SECTIONS, f"{col} [{lang}] on {src}: {href} opens no section"
+                        from console.i18n import CATALOGUES
+
+                        from tests.console.plain_text_walk import unmark
+
+                        assert name_of(words, lang) == unmark(CATALOGUES[lang][ABSENT_SECTIONS[href]]), (col, href)
+                        continue
+                    checked += 1
+                    if name_of(words, lang) not in found:
+                        differ.add(f"{col} [{lang}] on {src}: {name_of(words, lang)!r} -> {href} {sorted(found)}")
+        _lang(page, csrf, "en")
+    assert checked > 100, checked
+    assert not differ, "a link's words are not the name of the page it opens:\n" + "\n".join(sorted(differ))
 
 
 # ------------------------------------------------------------------------------------------- the pruned menu (R17)
@@ -164,7 +295,7 @@ WANT: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]] = {
     "admin": (
         ("/home", "/home?view=studies", "/ops/users"),
         ("/account", _HELP, "/site", "/notices/received", "/breakglass", "/jobs", "/pilot/request", "/pilot/protocol",
-         "/pilot/consent", "/pilot/case", "/pilot/registry", "/pilot/mailbox", "/settings/notices", "/admin/redcap",
+         "/pilot/consent", "/pilot/cascade", "/pilot/case", "/pilot/registry", "/pilot/mailbox", "/settings/notices", "/admin/redcap",
          "/reports/research-office"),
         (),
     ),
@@ -247,10 +378,6 @@ def test_each_role_s_menu_is_the_ruled_one_and_the_steward_s_bar_has_four(box: d
 
 
 #: entries that leave the menu of every role but the administrator and are reached by no click on purpose, as ruled:
-#: the test mailbox (a test box's page) and the cascade (shown only where the synthetic site drop is mounted; it is
-#: not on the test box, so the administrator's menu leaves it out too: test_the_cascade_is_listed_only_when_mounted)
-ADMIN_ONLY = ("/pilot/mailbox", "/pilot/cascade")
-NOT_MOUNTED = ("/pilot/cascade",)
 #: pages that exist to act (start a request, draft a consent guide, check one patient): linked where the account may
 #: act there (``may_act``); an account the page offers nothing (its button disabled) is not sent there
 ACTION_PAGES = ("/pilot/request", "/pilot/consent", "/pilot/case")
@@ -260,11 +387,26 @@ def _links(html_text: str) -> set[str]:
     return {html.unescape(h) for h in re.findall(r'<a [^>]*href="(/[^"#]*)"', html_text)}
 
 
+#: what leaves a role's menu and is linked from no page, though the account may still open it by its address (the
+#: routing table is unchanged): ruled at the checkpoint, named in D-1251 for the owner, the site drop mounted. An
+#: action page (Q4) is listed only where it offers the account nothing to do
+STILL_ALLOWED_NOT_LINKED: tuple[tuple[str, str], ...] = (
+    ("crc", "/pilot/cascade"),  # the cascade: the administrator's menu only (a demonstration of the site drop)
+    ("crc", "/pilot/mailbox"),  # the test mailbox: the administrator's menu only (a test box's page)
+    ("lpi", "/pilot/mailbox"),
+    ("pi", "/pilot/mailbox"),
+    ("steward", "/pilot/mailbox"),
+    ("privacy", "/pilot/mailbox"),
+    ("pi", "/pilot/request"),  # the investigator in no delegation log: both pages offer it nothing (Q4)
+    ("pi", "/pilot/case"),
+)
+
+
 def test_nothing_that_leaves_more_becomes_unreachable(box: dict[str, Any]) -> None:
     """Every entry a role's menu had on master (the flag off) and has no longer (the flag on) is still reached by
     clicks: a link on a page the new menu opens, or one click further (the Admin page's tabs; a study's IRB page from
-    the study's menu). The only exceptions: :data:`ADMIN_ONLY`, still in the administrator's menu, and an
-    :data:`ACTION_PAGES` page that offers the account nothing to do."""
+    the study's menu), with the synthetic site drop mounted (the cascade available). The only exceptions are the
+    named pairs of :data:`STILL_ALLOWED_NOT_LINKED`, each still answered as on master."""
     off = _menus(box, on=False)
     on = _menus(box, on=True)
     clients = _clients(box)
@@ -294,41 +436,42 @@ def test_nothing_that_leaves_more_becomes_unreachable(box: dict[str, Any]) -> No
                 nxt += sorted(links - seen)
             frontier = [h for h in nxt if not h.startswith(("/help", "/ask", "/cmd", "/logout", "/lang"))][:200]
         for href in sorted(gone):
-            if href in found or (href in ADMIN_ONLY and col != "admin") or href in NOT_MOUNTED:
-                continue
-            if href in ACTION_PAGES:  # a page that offers this account nothing to do is not linked (Q4)
-                t = page.get(href)
-                if t.status_code == 200 and not _acts(href, t.text):
-                    continue
-            unreached.append(f"{col}: {href}")
-        assert all(h in after for h in ADMIN_ONLY if h in before and col == "admin" and h not in NOT_MOUNTED), col
-    assert not unreached, "left the menu and no click reaches it:\n" + "\n".join(unreached)
+            if href not in found:
+                unreached.append((col, href))
+    assert sorted(unreached) == sorted(STILL_ALLOWED_NOT_LINKED), (
+        "left the menu and no click reaches it:\n"
+        + "\n".join(f"{c}: {h}" for c, h in sorted(set(unreached) ^ set(STILL_ALLOWED_NOT_LINKED)))
+    )
+    for col, href in STILL_ALLOWED_NOT_LINKED:  # still allowed: the page answers the account as on master
+        page, _, _ = clients[col]
+        r = page.get(href)
+        assert r.status_code == 200, (col, href, r.status_code)
+        if href in ACTION_PAGES:  # Q4: an action page is linked only where it offers the account its action
+            assert not _acts(href, r.text), (col, href)
 
 
-def test_the_cascade_is_listed_only_when_the_site_drop_is_mounted(box: dict[str, Any], tmp_path: Any) -> None:
-    """R17 (D-M3): the administrator's menu lists the cascade only where the synthetic site drop is mounted; a menu
-    rule only: the page answers the same either way."""
+def test_the_cascade_is_listed_only_when_the_site_drop_is_mounted(box: dict[str, Any]) -> None:
+    """R17 (D-M3): the administrator's menu lists the cascade exactly when the cascade says it works
+    (``CascadeRuns.available``: the synthetic site drop is mounted); a menu rule only: the page answers the same."""
     clients = _clients(box)
     _flag(box, "on")
     admin, _, _ = clients["admin"]
-    settings = box["app"].state.settings
+    drop = box["dir"] / "site-a" / "patient.csv"  # the test box's mounted site drop
+    kept = drop.read_bytes()
     before = admin.get("/pilot/cascade").status_code
-    assert "/pilot/cascade" not in _hrefs(menu(admin.get("/home").text)[1])  # not mounted on the test box
-    (tmp_path / "patient.csv").write_text("id\n", encoding="utf-8")
-    old = settings.source_dir
-    object.__setattr__(settings, "source_dir", tmp_path)
+    assert "/pilot/cascade" in _hrefs(menu(admin.get("/home").text)[1])  # mounted
+    for col in COLUMNS:  # never in a clinical or a register role's menu
+        if col != "admin":
+            page, _, _ = clients[col]
+            assert "/pilot/cascade" not in _hrefs(menu(page.get("/home").text)[1]), col
+    drop.unlink()
     try:
-        assert "/pilot/cascade" in _hrefs(menu(admin.get("/home").text)[1])
-        for col in COLUMNS:  # never in a clinical or a register role's menu
-            if col != "admin":
-                page, _, _ = clients[col]
-                assert "/pilot/cascade" not in _hrefs(menu(page.get("/home").text)[1]), col
+        assert "/pilot/cascade" not in _hrefs(menu(admin.get("/home").text)[1])  # not mounted
+        assert admin.get("/pilot/cascade").status_code == before
     finally:
-        object.__setattr__(settings, "source_dir", old)
-    assert admin.get("/pilot/cascade").status_code == before
+        drop.write_bytes(kept)
 
 
-#: the links that take the place of an entry that left "More" (Q4): (the page, the link's test id, its target)
 NEW_LINKS = (
     ("/reports", "link-request", "/pilot/request"),
     (f"/studies/{RS}/irb", "link-consent", "/pilot/consent"),
@@ -601,9 +744,11 @@ def test_every_plain_key_exists_in_three_languages_and_the_swap_follows_the_flag
         assert plain_menu.key(False, "coordinator", k) == k  # off: the key itself, whoever reads
         assert plain_menu.key(True, "admin", k) == plain_menu.SAME_FOR_ALL[k]
     for k in plain_menu.CLINICAL_ONLY:
-        assert plain_menu.key(True, "admin", k) == k  # the administrator keeps the setting's name
-        for role in plain_menu.CLINICAL:
-            assert plain_menu.key(True, role, k) == plain_menu.CLINICAL_ONLY[k]
+        for role in ("admin", "steward", "privacy"):  # the setting's name and the data class, kept
+            assert plain_menu.key(True, role, k) == k, role
+        for role in ("coordinator", "investigator", "viewer", "cro"):
+            assert plain_menu.key(True, role, k) == plain_menu.CLINICAL_ONLY[k], role
+        assert plain_menu.key(True, None, k) == k  # signed out: as before
 
 
 #: per column, what each action page offers the account on master (recorded on origin/master 0de6b1d0): its action
@@ -663,25 +808,26 @@ def _recorded(calls: list[str], name: str, fn: Any) -> Any:
 
 
 def _backend_calls(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Every call a page makes to the console's backend and to the delegation log's standing (``Helpers.permit``)."""
-    from console.home import Helpers
-
+    """Every call a page makes to the console's backend, and every read of an account's standing in a study's
+    delegation log (``Helpers.stand``, the store behind ``Helpers.permit``: ``standing``)."""
     calls: list[str] = []
     bk = box["backend"]
     for name in dir(type(bk)):
         attr = getattr(bk, name, None)
         if not name.startswith("_") and callable(attr):
             monkeypatch.setattr(bk, name, _recorded(calls, name, attr))
-    real = Helpers.permit
-    monkeypatch.setattr(Helpers, "permit", _recorded(calls, "permit", real))
+    h = box["app"].state.helpers
+    if h.stand is not None:
+        monkeypatch.setattr(h, "stand", _recorded(calls, "standing", h.stand))
     return calls
 
 
-#: what a page that carries a new link reads more with the flag on, at most: the list of studies' criteria
+#: what a page that carries a new link reads more with the flag on, at most: the list of studies' criteria, once
 #: (``backend.rulesets``: each ruleset's id, version, status and kind, no patient data; the same list the target page
-#: reads for the account) and the account's standing in a study's delegation log (``Helpers.permit``), only for an
-#: account that does not prepare requests (it alone needs them to know whether it may act)
-ADDED_READS = {"rulesets": 1, "permit": 2}
+#: reads for the account) and the account's standing in the delegation log of each approved study it sees
+#: (``Helpers.stand``, read once per study and page view), only for an account whose role may start a run in some
+#: study (``tb_common.authz.role_allowed``) and that does not prepare requests: the investigator
+ADDED_READS = {"rulesets": 1, "standing": 1}  # standing: per approved study the account sees (the fixture has one)
 
 
 def test_a_page_with_a_new_link_adds_only_the_named_reads(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -705,5 +851,94 @@ def test_a_page_with_a_new_link_adds_only_the_named_reads(box: dict[str, Any], m
         added = by["on"] - by["off"]
         assert not by["off"] - by["on"], k  # nothing read less
         assert set(added) <= set(ADDED_READS) and all(added[n] <= ADDED_READS[n] for n in added), (k, dict(added))
-        if k.split()[0] in ("admin", "crc", "smo"):  # accounts that prepare requests: no read added
+        if COLUMNS[k.split()[0]][1] != "investigator":  # prepares requests, or may never start a run: no read
             assert not added, (k, dict(added))
+    _flag(box, "on")
+    for col in COLUMNS:  # the action pages themselves read the list once (master's request page read it twice)
+        page, _, _ = clients[col]
+        for target in ACTION_TARGETS:
+            calls.clear()
+            page.get(target)
+            assert calls.count("rulesets") <= 1, (col, target, calls.count("rulesets"))
+
+
+def test_the_list_of_runs_names_every_run_type_in_words_never_by_its_code(
+    box: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R22: every job type the orchestrator runs (its own registry, not the fixtures) is named in words on the list of
+    runs in each language; a type the console does not know is "Other run", never its code."""
+    import datetime as dt
+
+    from console import plain_menu
+    from console.i18n import CATALOGUES
+    from orchestrator.scenarios import registry
+    from tb_contracts import Job
+
+    assert set(plain_menu.JOB_TYPES) == set(registry()), "a run type the list of runs would show as a code"
+    types = (*plain_menu.JOB_TYPES, "NEWTYPE")
+    when = dt.datetime(2026, 1, 5, 9, 0, tzinfo=dt.UTC)
+    fields: dict[str, Any] = dict(ruleset=RS, ruleset_version="1.0.0", requested_by="crc@hospa.test",
+                                  received_at=when, updated_at=when, state="done", options={}, inputs=[], outputs=[])  # fmt: skip
+    jobs = [Job(job_id=_ulid(800 + i), type=cast(Any, t), **fields) for i, t in enumerate(plain_menu.JOB_TYPES)]
+    unknown: Any = "NEWTYPE"  # a type the contract may add later
+    jobs.append(Job.model_construct(job_id=_ulid(899), type=unknown, **fields))
+    monkeypatch.setattr(box["backend"], "list_jobs", lambda **_: jobs)
+    _flag(box, "on")
+    page, csrf, _ = _clients(box)["crc"]
+    for lang in LANGS:
+        _lang(page, csrf, lang)
+        r = page.get("/jobs")
+        assert r.status_code == 200, lang
+        cells = re.findall(r"<tr data-job=[^>]*>\s*<td[^>]*>.*?</td>\s*<td>(.*?)</td>", r.text, re.S)
+        assert len(cells) == len(types), lang
+        for t, cell in zip(types, cells, strict=True):
+            word = CATALOGUES[lang][f"pm.jobtype.{plain_menu.job_type_word(t)}"]
+            assert html.unescape(cell).strip() == word, (lang, t, cell)
+            assert t not in cell, (lang, t, cell)
+        assert html.unescape(cells[-1]).strip() == CATALOGUES[lang]["pm.jobtype.other"], lang
+    _lang(page, csrf, "en")
+    _flag(box, "off")
+    assert ">FEAS<" in page.get("/jobs").text  # the flag off: the code, as on master
+
+
+@pytest.mark.parametrize("broken", ["delegation log", "criteria list"])
+def test_a_link_whose_rule_cannot_be_read_is_not_shown_and_the_page_still_renders(
+    box: dict[str, Any], monkeypatch: pytest.MonkeyPatch, broken: str
+) -> None:
+    """The coordinator's review of J-7: when the delegation store (``Helpers.permit``) or the criteria list
+    (``backend.rulesets``) fails, a page that carries a new link answers as it does with the flag off, without the
+    link: the flag adds no way for a page to fail."""
+    _done_feas(box["backend"])
+    _done_screen(box["backend"], _ulid(990))
+    clients = _clients(box)
+
+    def down(*_a: Any, **_k: Any) -> Any:
+        raise ConnectionError(f"{broken} is down (test)")
+
+    if broken == "delegation log":
+        assert box["app"].state.helpers.stand is not None
+        monkeypatch.setattr(box["app"].state.helpers, "stand", down)
+    else:
+        monkeypatch.setattr(box["backend"], "rulesets", down)
+
+    def outcome(page: Any, where: str) -> tuple[int | str, str]:
+        try:
+            r = page.get(where)
+        except ConnectionError:  # the page itself needs the store: it fails with the flag off as well
+            return "raised", ""
+        return r.status_code, r.text
+
+    checked = 0
+    for col in COLUMNS:
+        page, _, _ = clients[col]
+        for where, testid, _target in NEW_LINKS:
+            _flag(box, "off")
+            off, _ = outcome(page, where)
+            _flag(box, "on")
+            on, text = outcome(page, where)
+            assert on == off, (broken, col, where, off, on)
+            if col in ("pi", "lpi") and on == 200:  # the accounts whose link needs the read
+                assert f'data-testid="{testid}"' not in text, (broken, col, where)
+                checked += 1
+    assert checked, "no page with a link that needs the read was rendered"
+    print(f"{broken} down: {checked} investigator pages rendered without the link")
