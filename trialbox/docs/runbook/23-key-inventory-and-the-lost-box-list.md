@@ -6,9 +6,10 @@
 tools.keys inventory` (D-347) prints them, and SECURITY §4 says where each secret is kept. This page adds what that
 list does not cover: what to revoke **outside** the box when the box, a disk or a backup is lost, and who does it.*
 
-**Drill (T-213b):** `test_runbook_23_lost_box` (tabletop: the box is reported stolen at 10:00; every row of the
-lost-box list is assigned, and the time each would take is written; Docker part: `python -m tools.keys inventory
---json` lists every key this page names).
+**Drill (T-213b):** `test_runbook_23_lost_box` (in process: `python -m tools.keys inventory --json` lists every
+key of the box this page names, each command the lost-box list gives for one is the inventory's own and the
+tools take it, and `site_hmac.key` is never rotated). The tabletop (the box reported stolen at 10:00; every
+row assigned and timed) is a meeting and is not rehearsed by a test.
 
 ## The inventory on the box
 

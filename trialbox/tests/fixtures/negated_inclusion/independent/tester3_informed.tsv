@@ -1,0 +1,86 @@
+text	concept	expect	lang	hold_class	domain	others
+Pulmonary embolism, but excluded on CT pulmonary angiography.	pulmonary embolism	held	en	clause_split		
+Asthma. Ruled out by methacholine challenge.	asthma	held	en	clause_split		
+Hypertension; not confirmed.	hypertension	held	en	clause_split		
+Tuberculosis, although IGRA negative and chest X-ray normal.	tuberculosis	held	en	clause_split		
+Deep vein thrombosis. Not applicable.	deep vein thrombosis	held	en	clause_split		
+Hypertension [ ]	hypertension	held	en	empty_tickbox		
+Hypertension: —	hypertension	held	en	blank_field		
+Hepatitis B (NEGATIVE)	hepatitis B	held	en	abbrev_smuggle		
+Colorectal cancer (FH)	colorectal cancer	held	en	abbrev_smuggle		
+Colorectal cancer (Z80.0)	colorectal cancer	held	en	icd_smuggle		
+Breast cancer (Z12.31)	breast cancer	held	en	icd_smuggle		
+Myocardial infarction (Z03.89)	myocardial infarction	held	en	icd_smuggle		
+Hepatitis C viral load below detectable level.	hepatitis C	held	en	below_detectable		
+Hypoglycaemia episodes less than 3 per month.	hypoglycaemia	held	en	count_zero_ok		
+Asthma exacerbations up to 2 in the past 12 months.	asthma	held	en	count_zero_ok		
+Prednisone up to 10 mg/day.	prednisone	held	en	dose_zero_ok	medication	
+Either atrial fibrillation or atrial flutter.	atrial fibrillation	held	en	alternative_arm	condition	atrial flutter
+Type 2 diabetes mellitus and/or obesity.	type 2 diabetes mellitus	held	en	alternative_arm	condition	obesity
+Vaccination for hepatitis B.	hepatitis B	held	en	other_concept_link	condition	vaccination
+Colonoscopy for colorectal cancer every 10 years.	colorectal cancer	held	en	test_order	condition	colonoscopy
+Hepatitis B serology at screening.	hepatitis B	held	en	test_order		
+Sputum culture for tuberculosis.	tuberculosis	held	en	test_order		
+Sepsis definition per the 2016 criteria.	sepsis	held	en	definition		
+Hypertension criteria per WHO.	hypertension	held	en	definition		
+Familial history of colorectal cancer.	colorectal cancer	held	en	family		
+Breast cancer gene mutation (BRCA1 or BRCA2).	breast cancer	held	en	carrier		
+Currently taking malaria medication.	malaria	held	en	drug_for_disease		
+Adults undergoing elective coronary artery bypass grafting.	coronary artery bypass grafting	held	en	planned	procedure	
+5.2 Hepatitis B	hepatitis B	held	en	heading		
+Hypertension (±)	hypertension	held	en	equivocal_mark		
+Hypertension (-)	hypertension	held	en	minus_mark		
+Hypertension (+)	hypertension	runs	en			
+Type 2 diabetes mellitus defined by HbA1c ≥ 6.5%.	type 2 diabetes mellitus	runs	en			
+Heart failure with left ventricular ejection fraction ≤ 40%.	heart failure	runs	en			
+Atrial fibrillation documented on 12-lead ECG.	atrial fibrillation	runs	en			
+Rheumatoid arthritis diagnosed at least 6 months before screening.	rheumatoid arthritis	runs	en			
+肺塞栓症。造影CTで否定。	肺塞栓症	held	ja	clause_split		
+結核の既往があるが、精査で否定された。	結核	held	ja	clause_split		
+高血圧症。ただし未確定。	高血圧症	held	ja	clause_split		
+高血圧（－）	高血圧	held	ja	minus_mark		
+糖尿病（±）	糖尿病	held	ja	equivocal_mark		
+B型肝炎の抗体陽性	B型肝炎	held	ja	antibody_immunity		
+麻疹抗体陽性	麻疹	held	ja	antibody_immunity		
+てんかん発作が週4回を超えない	てんかん	held	ja	count_zero_ok		
+低血糖発作は週に2回を超えない	低血糖	held	ja	count_zero_ok		
+プレドニゾロン10 mg/日以下	プレドニゾロン	held	ja	dose_zero_ok	medication	
+結核の喀痰培養	結核	held	ja	test_order		
+肝細胞癌に対する超音波（6か月）	肝細胞癌	held	ja	test_order		
+心房細動又は心房粗動	心房細動	held	ja	alternative_arm	condition	心房粗動
+B型肝炎に対するワクチン接種	B型肝炎	held	ja	other_concept_link	condition	ワクチン接種
+大腸癌（Z80.0）	大腸癌	held	ja	icd_smuggle		
+肺塞栓症（NEGATIVE）	肺塞栓症	held	ja	abbrev_smuggle		
+【　】高血圧	高血圧	held	ja	empty_tickbox		
+高血圧：－	高血圧	held	ja	blank_field		
+4.2 糖尿病	糖尿病	held	ja	heading		
+高血圧（＋）	高血圧	runs	ja			
+2型糖尿病と診断されてから6か月以上経過している。	2型糖尿病	runs	ja			
+心房細動を有する患者（心電図で確認）	心房細動	runs	ja			
+関節リウマチと診断された患者	関節リウマチ	runs	ja			
+ステージIVの非小細胞肺癌	非小細胞肺癌	runs	ja			
+肺栓塞，但經CT排除。	肺栓塞	held	zh	clause_split		
+心房顫動。已排除。	心房顫動	held	zh	clause_split		
+高血壓；未確認。	高血壓	held	zh	clause_split		
+結核培養	結核	held	zh	test_order		
+肝細胞癌超音波（6個月）	肝細胞癌	held	zh	test_order		
+B型肝炎血清學	B型肝炎	held	zh	test_order		
+肺栓塞診斷影像	肺栓塞	held	zh	test_order		
+癲癇發作每週不超過四次	癲癇	held	zh	count_zero_ok		
+低血糖發作每週不大於2次	低血糖	held	zh	count_zero_ok		
+泼尼松每日不大于10毫克	泼尼松	held	zh	dose_zero_ok	medication	
+心房顫動或心房撲動	心房顫動	held	zh	alternative_arm	condition	心房撲動
+符合第二型糖尿病或肥胖症診斷標準	第二型糖尿病	held	zh	alternative_arm	condition	肥胖症
+高血壓（-）	高血壓	held	zh	minus_mark		
+糖尿病（±）	糖尿病	held	zh	equivocal_mark		
+大腸癌（Z80.0）	大腸癌	held	zh	icd_smuggle		
+乙肝（NEGATIVE）	乙肝	held	zh	abbrev_smuggle		
+【　】高血壓	高血壓	held	zh	empty_tickbox		
+高血压：—	高血压	held	zh	blank_field		
+針對B型肝炎之疫苗接種	B型肝炎	held	zh	other_concept_link	condition	疫苗接種
+乙肝抗体阳性	乙肝	held	zh	antibody_immunity		
+高血壓（+）	高血壓	runs	zh			
+經病理證實之非小細胞肺癌	非小細胞肺癌	runs	zh			
+確診第二型糖尿病至少6個月	第二型糖尿病	runs	zh			
+患有慢性阻塞性肺病之成人	慢性阻塞性肺病	runs	zh			
+依DSM-5診斷為重度憂鬱症	重度憂鬱症	runs	zh			

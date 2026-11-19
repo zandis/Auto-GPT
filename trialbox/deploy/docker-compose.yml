@@ -31,6 +31,16 @@ x-py: &py
   env_file: [.env]
   init: true
   restart: unless-stopped
+  # 10G-1 (D-1323): the four container controls. tb (10001:10001) is python.Dockerfile's own user, so the named
+  # volumes the image seeds stay its own; the root filesystem is read-only and the one path the services write
+  # outside their volumes is /tmp (tempfile, the audit-writer heartbeat, MPLCONFIGDIR, HF_HOME, extra_ca's bundle,
+  # the JVM's hsperfdata): a tmpfs, charged to the service's mem_limit. No capability is added back.
+  # tests/unit/test_container_hardening.py checks every service of every stack.
+  user: "10001:10001"
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
   networks: [trialbox-net]
   depends_on:   # services open the trial database at start; a gateway that raced the db exited (box rehearsal, D-176)
     db: {condition: service_healthy}
@@ -107,6 +117,22 @@ services:
       - -c
       - idle_in_transaction_session_timeout=${TB_PG_IDLE_TX_TIMEOUT:-0}
     shm_size: ${TB_PG_SHM:-64m}
+    # 10G-1 (D-1323): started as postgres (999, the Debian image's own uid), so the entrypoint never needs root, its
+    # chown or the setpriv shim; db-pg and the pgBackRest repo are postgres's already (the server and archive_command
+    # ran as postgres before). A numeric user:group gets no supplementary group from /etc/group, so group_add gives
+    # postgres's own one, ssl-cert (the TLS key, D-993), by name: Docker resolves it in the image's /etc/group, and
+    # PID 1 has exactly postgres's groups, as the box rehearsal's SC-1b check wants. Read-only root: the socket
+    # folder and /tmp are tmpfs; pgBackRest logs to no file (log-level-file=off). /tmp holds only bytes of
+    # bookkeeping (pgBackRest's lock, the nightly's script, snapshot id, exit code and stream index): the nightly's
+    # dump and rows stream through exec, and an update rollback's plain script goes to $PGDATA/tb-rollback on db-pg
+    # (update.RESTORE_SH). A tmpfs is memory under mem_limit, so it is capped: a runaway writer gets "no space left",
+    # never db OOM-killed (10G-1 review D1).
+    user: "999:999"
+    group_add: [ssl-cert]
+    read_only: true
+    tmpfs: ["/tmp:size=64m", "/var/run/postgresql:uid=999,gid=999,mode=2775"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     environment:
       POSTGRES_DB: hapi
       POSTGRES_USER: hapi
@@ -167,6 +193,13 @@ services:
       HAPI_FHIR_BULK_EXPORT_ENABLED: "false"
       HAPI_FHIR_TESTER_HOME_ENABLED: "false"
       JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-3g} -Duser.timezone=${TB_TZ:?set TB_TZ in deploy/.env to site.tz (D-315)}"
+    # 10G-1 (D-1323): the upstream image is distroless and runs as its nonroot user (65532); named here so it is
+    # fixed. HAPI keeps its data in PostgreSQL; embedded Tomcat writes only under java.io.tmpdir (/tmp, a tmpfs).
+    user: "65532:65532"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     networks: [trialbox-net]
     restart: unless-stopped
     mem_limit: ${TB_MEM_FHIR:-5g}   # the heap (HAPI_XMX, 3g) plus the JVM's own; raise both together
@@ -248,6 +281,11 @@ services:
     image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
     mem_limit: ${TB_MEM_ADAPTER:-6g}   # the validator's heap (TB_VALIDATOR_XMX, 3g) plus the service
     pids_limit: 1024   # JVM threads
+    # 10G-1 exception (D-1323): the root filesystem stays writable. The HL7 validator (adapter.validate.validator, run
+    # here) writes indexes into, and renames packages in, its package cache /opt/hl7/home, an image path; it fails on
+    # a read-only root ("Unable to rename directory ... for atomic delete", tried 2026-11-19). The cache is 399 MB, too
+    # much for a tmpfs under this cap. User, cap_drop and no-new-privileges hold.
+    read_only: false
     command: ["uvicorn", "adapter.app:app", "--host", "0.0.0.0", "--port", "8016"]
     environment: {<<: *nodb, PORT: "8016", TB_SERVICE_NAME: adapter,
                   TB_DB_URL: "postgresql://tb_adapter:${TB_DB_PW_ADAPTER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
@@ -292,6 +330,11 @@ services:
     image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
     mem_limit: ${TB_MEM_ORCH:-4g}
     pids_limit: 1024   # JVM threads
+    # 10G-1 exception (D-1323): the root filesystem stays writable. The HL7 validator (adapter.validate.validator, run
+    # here) writes indexes into, and renames packages in, its package cache /opt/hl7/home, an image path; it fails on
+    # a read-only root ("Unable to rename directory ... for atomic delete", tried 2026-11-19). The cache is 399 MB, too
+    # much for a tmpfs under this cap. User, cap_drop and no-new-privileges hold.
+    read_only: false
     command: ["uvicorn", "orchestrator.app:app", "--host", "0.0.0.0", "--port", "8010"]
     environment: {<<: *nodb, PORT: "8010", TB_SERVICE_NAME: orchestrator,
                   TB_DB_URL: "postgresql://tb_orchestrator:${TB_DB_PW_ORCHESTRATOR:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
@@ -434,6 +477,12 @@ services:
       VLLM_LOGGING_LEVEL: WARNING   # no request or prompt lines in the log at any vLLM version (T-605, LLM-042)
     volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
     ipc: host
+    # 10G-1 (D-1323): no privilege gain. Exceptions written in tests/unit/test_container_hardening.py (EXCEPTIONS):
+    # the upstream image runs as root and writes its compile and kernel caches under /root/.cache and /tmp, gigabytes
+    # a memory tmpfs would take from the model; user and read_only wait for a GPU box. cap_drop too, for rc1: root
+    # without DAC_OVERRIDE cannot read model files of any mode (a site's copy, a cache's 0600/0640 files of another
+    # owner), and no rehearsal leg runs this profile; to be closed with H10G1-02 on a GPU box.
+    security_opt: ["no-new-privileges:true"]
     networks: {model-backend-net: {aliases: [llm-service-vllm]}}   # behind model-guard (D-177)
     restart: unless-stopped
     # host memory, not the card's: the process, its pinned buffers and, with sleep mode, the weights while asleep
