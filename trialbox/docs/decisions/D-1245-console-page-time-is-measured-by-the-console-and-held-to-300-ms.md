@@ -9,13 +9,21 @@
   rendered page included, was ready. Numbers only: no path, account, study, patient or description field. No backend
   share: the console has no single seam where it waits on the orchestrator (the backend, the workspace's helpers and
   the study calls each call out), and a share timed at some calls and not others would mislead.
-- **Refused and not found answer alike** (as D-1241 asks of the header search): the header is written on a `200`
-  answer only. A refusal (401, 403), a not-found (404), a redirect (sign-in, a page sent home) and an error carry
-  none, so the header says no more than the status code already says. **No answer of the header search** (`/cmd`,
-  `console.timing.UNTIMED`) carries it, whatever its status. D-1241 holds that field to answer an account off the
-  delegation log exactly as it answers a number that does not exist, every header included, and the two take
-  different times. The whole-tree run on this card's merged head found it: D-1241's tests failed on the header's
-  value, and pass with the search untimed.
+- **An allow-list, and refused and not found answer alike** (as D-1241 asks of the header search). The header is
+  written only on a `200` answer of a route in `console.timing.TIMED`. The list names each route by its template (the
+  matched route's path, never the request's path, never a prefix) and holds exactly the walk's ten pages. Next to each
+  route it says why its `200` cannot differ between a refused and a missing thing. Every other route, and any route
+  added later, carries no header until someone adds it on purpose with its reason. A route is listed only when it
+  answers a refused or a missing thing with a 403, a 404 or a redirect, none of which carries the header. The header
+  search (`/cmd`) answers `200` in both cases, so it stays out by construction. The first version kept only `/cmd`
+  out (a deny-list). The whole-tree run on this card's merged head found the leak: D-1241's tests failed on the header's
+  value. The coordinator asked for the allow-list. Tests: every registered route, asked with every method by a
+  coordinator and an administrator, carries the header only if listed; the list equals the walk's pages; each listed
+  route with an identifier answers a missing one (the account may open the page) and another study's one (an account
+  scoped to another study) with no `200`.
+- **What the header tells a signed-in user.** It tells them how long the console took to build a page they were
+  allowed to open, which their own clock already shows to within the network's delay. It tells them nothing about a
+  page they were refused or that does not exist, because those answers carry no header.
 - **The walk** (`tools.console_timing`). These ten pages, opened by an account that may open each one (all taken
   from the life-cycle walks, `tests/e2e/life_cycle_walk_plan.py`, and review 13's list):
   1. the home page (`/home`, coordinator);

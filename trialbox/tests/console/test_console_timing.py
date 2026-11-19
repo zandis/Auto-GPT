@@ -24,7 +24,7 @@ from console import timing
 from fastapi.responses import HTMLResponse
 
 from tests.console.test_console_app import box, login  # noqa: F401
-from tests.console.timing_walk import TEN, clients, getter, ten_pages
+from tests.console.timing_walk import JOB, PID, TEN, clients, getter, ten_pages
 from tools import console_timing as ct
 
 
@@ -72,7 +72,7 @@ def test_the_header_search_carries_no_timing_whatever_it_finds(box: dict[str, An
 def test_the_header_changes_no_page_body(box: dict[str, Any]) -> None:
     app = box["app"]
     pages = ten_pages(box)
-    cs, who = clients(box), {name: role for name, _, role in TEN}
+    cs, who = clients(box), {name: role for name, _, role, _ in TEN}
 
     def getter_body(page: ct.Page) -> bytes:
         return bytes(cs[who[page.name]].get(page.path, follow_redirects=False).content)
@@ -153,7 +153,7 @@ PLANTED_S = 0.31  # just over the budget: the walk's p95 must catch a page a few
 
 
 @pytest.fixture
-def planted(box: dict[str, Any]) -> ct.Page:
+def planted(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> ct.Page:
     """A page slower than the budget, added to this test's own app (never to the console's routes)."""
 
     async def slow() -> HTMLResponse:
@@ -162,6 +162,8 @@ def planted(box: dict[str, Any]) -> ct.Page:
 
     box["app"].add_api_route("/_planted_slow_page", slow, methods=["GET"])
     box["app"].middleware_stack = None
+    # timed as a page of the walk would be: allow-listed in this test alone (the shipped list is the walk's ten)
+    monkeypatch.setitem(timing.TIMED, "/_planted_slow_page", "a test-only page, never shipped")
     cs = clients(box)
     return ct.Page("planted", "/_planted_slow_page", getter(cs["coordinator"]))
 
@@ -177,3 +179,55 @@ def test_a_planted_slow_page_fails_the_walk_and_the_ten_pages_pass(box: dict[str
     rep.write(tmp_path)
     assert "| planted | `/_planted_slow_page` |" in (tmp_path / "console_timing.md").read_text()
     assert '"passed": false' in (tmp_path / "console_timing.json").read_text()
+
+
+# ---------------------------------------------------------------------------------------------- the allow-list
+def test_the_allow_list_is_exactly_the_walks_pages() -> None:
+    assert set(timing.TIMED) == {template for _, _, _, template in TEN}
+    assert all(why.strip() for why in timing.TIMED.values())  # each with its reason
+    assert "/cmd" not in timing.TIMED
+
+
+def _fill(template: str) -> str:
+    values = {"rs": "GZQO", "pid": PID, "job_id": JOB}
+    return re.sub(r"\{(\w+)(?::\w+)?\}", lambda m: values.get(m.group(1), "x0"), template)
+
+
+def test_no_route_outside_the_allow_list_ever_carries_the_header(box: dict[str, Any]) -> None:
+    """Every registered route of the console, asked by the coordinator and the administrator with every method it
+    takes: only a route of ``TIMED`` may carry the header. A route added later is untimed until listed on purpose."""
+    from fastapi.routing import APIRoute
+
+    cs = clients(box)
+    routes = sorted((r for r in box["app"].routes if isinstance(r, APIRoute)),
+                    key=lambda r: ("logout" in r.path or r.path in ("/lang", "/role"), r.path))  # fmt: skip
+    served = timed = 0
+    for route in routes:
+        for c in (cs["coordinator"], cs["admin"]):
+            for method in sorted(route.methods or ()):
+                r = c.request(method, _fill(route.path), follow_redirects=False)
+                served += r.status_code == 200
+                if "server-timing" in r.headers:
+                    timed += 1
+                    assert route.path in timing.TIMED and r.status_code == 200, (method, route.path, r.status_code)
+    assert len(routes) > 100 and served > 50 and timed >= len(timing.TIMED) - 2  # the walk was not vacuous
+
+
+@pytest.mark.parametrize("template", [t for t in timing.TIMED if "{" in t])
+def test_each_timed_route_answers_a_refused_and_a_missing_thing_without_a_200(box: dict[str, Any],
+                                                                             template: str) -> None:  # fmt: skip
+    """The reason next to each listed route, checked. A thing that does not exist, asked by an account that opens the
+    page, and the thing that exists, asked by an account scoped to another study (it is not theirs), are both answered
+    by something other than a 200, so neither carries the header."""
+    from tests.console.test_role_pages import _user
+
+    own = clients(box)["coordinator"]
+    missing = {"rs": "ZZZQ", "pid": "f" * 32, "job_id": "0" * 26}
+    for name in re.findall(r"\{(\w+)\}", template):
+        path = _fill(template.replace("{" + name + "}", missing[name]))
+        r = own.get(path, follow_redirects=False)
+        assert r.status_code != 200 and "server-timing" not in r.headers, (template, name, r.status_code)
+    other = _user(box, "tw-other", "coordinator", affiliation="smo", studies="RA-BIO", expires="2099-12-31")
+    assert other.get("/home", follow_redirects=False).status_code == 200  # signed in: its refusals are refusals
+    r = other.get(_fill(template), follow_redirects=False)
+    assert r.status_code != 200 and "server-timing" not in r.headers, (template, r.status_code)

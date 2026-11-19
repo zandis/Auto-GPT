@@ -19,18 +19,19 @@ from tools.console_timing import Answer, Page
 PID = "a" * 32  # the synthetic patient of the finished screening run (``_done_screen``)
 JOB = _ulid(900)
 
-#: (name, path, account): the account is a role of the test box
-TEN: tuple[tuple[str, str, str], ...] = (
-    ("home", "/home", "coordinator"),
-    ("week", "/studies/GZQO/week", "coordinator"),
-    ("patient sheet", f"/studies/GZQO/patients/{PID}", "coordinator"),
-    ("candidates", "/studies/GZQO/candidates", "coordinator"),
-    ("participants", "/studies/GZQO/subjects", "coordinator"),
-    ("study state", "/studies/GZQO/state", "coordinator"),
-    ("job page", f"/pilot/jobs/{JOB}", "coordinator"),
-    ("protocol upload", "/pilot/protocol", "coordinator"),
-    ("audit trail", "/audit", "privacy"),
-    ("health tab", "/admin/ops", "admin"),
+#: (name, path, account, route template): the account is a role of the test box; the template is the route's own
+#: (``console.timing.TIMED`` must hold exactly these, and the test file holds it so)
+TEN: tuple[tuple[str, str, str, str], ...] = (
+    ("home", "/home", "coordinator", "/home"),
+    ("week", "/studies/GZQO/week", "coordinator", "/studies/{rs}/week"),
+    ("patient sheet", f"/studies/GZQO/patients/{PID}", "coordinator", "/studies/{rs}/patients/{pid}"),
+    ("candidates", "/studies/GZQO/candidates", "coordinator", "/studies/{rs}/candidates"),
+    ("participants", "/studies/GZQO/subjects", "coordinator", "/studies/{rs}/subjects"),
+    ("study state", "/studies/GZQO/state", "coordinator", "/studies/{rs}/state"),
+    ("job page", f"/pilot/jobs/{JOB}", "coordinator", "/pilot/jobs/{job_id}"),
+    ("protocol upload", "/pilot/protocol", "coordinator", "/pilot/protocol"),
+    ("audit trail", "/audit", "privacy", "/audit"),
+    ("health tab", "/admin/ops", "admin", "/admin/ops"),
 )
 
 
@@ -56,4 +57,4 @@ def clients(box: dict[str, Any]) -> dict[str, TestClient]:
 
 def ten_pages(box: dict[str, Any]) -> list[Page]:
     cs = clients(box)
-    return [Page(name, path, getter(cs[who])) for name, path, who in TEN]
+    return [Page(name, path, getter(cs[who])) for name, path, who, _ in TEN]

@@ -620,9 +620,8 @@ def create_app(
     async def server_timing(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         t0 = time.perf_counter()
         resp = await call_next(request)
-        if server_time.timed(
-            resp.status_code, request.url.path
-        ):  # a served page only: a refusal and a not-found answer alike
+        route = getattr(request.scope.get("route"), "path", None)  # the matched route's template, set by routing
+        if server_time.timed(resp.status_code, route):  # an allow-listed page's 200 only (console.timing.TIMED)
             resp.headers[server_time.HEADER] = server_time.value((time.perf_counter() - t0) * 1000)
         return resp
 
