@@ -7,10 +7,15 @@ same file with a clear message and exit 3.
 
 from __future__ import annotations
 
+import json
 import os
+import socket
 import subprocess
 import sys
+import threading
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from tb_common import tier_value
@@ -58,13 +63,54 @@ def test_nan_and_bool_are_measured_but_never_a_count(tmp_path: Path) -> None:
         tv.line(16)
 
 
-def test_a_directory_or_a_link_loop_is_malformed(tmp_path: Path) -> None:
-    (tmp_path / "rtxpro6000.json").mkdir()
-    assert tier_value.measured("x", ENV, tmp_path).why == "rtxpro6000.json: not readable (IsADirectoryError)"
-    (tmp_path / "rtxpro6000.json").rmdir()
-    os.symlink(tmp_path / "rtxpro6000.json", tmp_path / "rtxpro6000.json")
-    tv = tier_value.measured("x", ENV, tmp_path)
-    assert tv.case == "malformed" and tv.why.startswith("rtxpro6000.json: not readable (")
+def _within_a_second(call: Callable[[], Any]) -> Any:
+    """``call()`` in a thread; a call that blocks (a regression to a blocking open) fails here, not the suite."""
+    out: list[Any] = []
+    t = threading.Thread(target=lambda: out.append(call()), daemon=True)
+    t.start()
+    t.join(1.0)
+    assert not t.is_alive(), "the reader blocked for over a second"
+    return out[0]
+
+
+def _special(kind: str, at: Path) -> None:
+    if kind == "fifo":
+        os.mkfifo(at)
+    elif kind == "dev_zero_link":
+        os.symlink("/dev/zero", at)
+    elif kind == "directory":
+        at.mkdir()
+    elif kind == "link_loop":
+        os.symlink(at, at)
+    else:
+        s = socket.socket(socket.AF_UNIX)
+        s.bind(str(at))
+        s.close()
+
+
+@pytest.mark.parametrize(
+    ("kind", "why"),
+    [
+        ("fifo", "rtxpro6000.json: not a regular file"),
+        ("dev_zero_link", "rtxpro6000.json: not a regular file"),  # refused before a byte is read, not by size
+        ("directory", "rtxpro6000.json: not a regular file"),
+        ("link_loop", "rtxpro6000.json: not readable (OSError)"),
+        ("socket", "rtxpro6000.json: not readable (OSError)"),
+    ],
+)
+def test_a_record_that_is_not_a_regular_file_is_malformed_at_once(tmp_path: Path, kind: str, why: str) -> None:
+    p = tmp_path / "rtxpro6000.json"
+    _special(kind, p)
+    tv = _within_a_second(lambda: tier_value.measured("x", ENV, tmp_path))
+    assert (tv.case, tv.why) == ("malformed", why)
+    said = _within_a_second(lambda: tier_record.check([p])[p])
+    assert said == [f"not readable JSON ({why})"]
+
+
+def test_a_symlink_to_a_regular_record_still_reads(tmp_path: Path) -> None:
+    (tmp_path / "real.json").write_text('{"fields":{"x":{"basis":"measured","value":8}}}')
+    os.symlink(tmp_path / "real.json", tmp_path / "rtxpro6000.json")
+    assert tier_value.positive_int(tier_value.measured("x", ENV, tmp_path)) == 8
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads a file whatever its mode")
@@ -108,3 +154,86 @@ def test_the_checker_fails_loudly_on_a_hostile_record(tmp_path: Path, data: byte
     )
     assert r.returncode == tier_record.REFUSED
     assert f"tier record: refused: {p}: {said or ''}" in r.stderr and "Traceback" not in r.stderr
+
+
+def _shipped(tmp_path: Path, change: Callable[[dict[str, Any]], None]) -> Path:
+    """A copy of a shipped record (rtx5090, all its sources in the repository) with one change, under its own name."""
+    rec = json.loads((ROOT / "models/tiers/rtx5090.json").read_text(encoding="utf-8"))
+    change(rec)
+    p = tmp_path / "rtx5090.json"
+    p.write_text(json.dumps(rec), encoding="utf-8")
+    return p
+
+
+def _run_check(p: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "tools/tier_record.py", "check", str(p)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize("const", [float("nan"), float("inf"), float("-inf")])
+def test_the_checker_refuses_nan_and_infinity_the_reader_keeps_its_fallback(tmp_path: Path, const: float) -> None:
+    def nan(rec: dict[str, Any]) -> None:
+        rec["fields"]["judge_sequences"]["value"] = const
+
+    p = _shipped(tmp_path, nan)
+    why = tier_record.check([p])[p]
+    assert len(why) == 1 and "is not a number (NaN and Infinity are not JSON numbers)" in why[0]
+    r = _run_check(p)
+    assert r.returncode == tier_record.REFUSED and "complete" not in r.stdout and "Traceback" not in r.stderr
+    tv = tier_value.measured("judge_sequences", {"TB_PROFILE": "P-5090"}, tmp_path)
+    assert tv.case == "declared" and tier_value.positive_int(tv) is None
+
+
+@pytest.mark.parametrize(
+    ("source", "said"),
+    [
+        ("deploy/docker-compose.rtx5090.yml:" + "9" * 5000, "are not n, n-m or a list of them"),
+        ("deploy/docker-compose.rtx5090.yml:1-" + "9" * 5000, "are not n, n-m or a list of them"),
+        ("deploy/docker-compose.rtx5090.yml:999999999", "has "),
+        ("x" * 5000 + ":1", "no file"),
+        ("deploy/" + "y/" * 3000 + "z:1", "no file"),
+        ("a\x00b:1", "no file"),
+    ],
+)
+def test_the_checker_reports_a_hostile_source_as_a_problem(tmp_path: Path, source: str, said: str) -> None:
+    def bad(rec: dict[str, Any]) -> None:
+        rec["fields"]["judge_sequences"]["source"] = source
+
+    p = _shipped(tmp_path, bad)
+    why = tier_record.check([p])[p]
+    assert why and said in why[0] and len(why[0]) < 400
+    r = _run_check(p)
+    assert r.returncode == tier_record.REFUSED and "Traceback" not in r.stderr
+
+
+def test_summary_survives_a_record_swapped_after_its_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    p = _shipped(tmp_path, lambda rec: None)
+    real = tier_record.load
+    calls: list[Path] = []
+
+    def swapped(path: Path) -> Any:
+        calls.append(path)
+        if len(calls) > 1:
+            raise tier_value.TierRecordUnreadable(f"{path.name}: over 1000000 bytes")
+        return real(path)
+
+    monkeypatch.setattr(tier_record, "load", swapped)
+    assert tier_record.main(["summary", str(p)]) == tier_record.REFUSED and len(calls) == 2
+
+
+def test_the_shipped_records_still_check_complete() -> None:
+    r = subprocess.run(
+        [sys.executable, "tools/tier_record.py", "check"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert r.returncode == 0 and r.stdout.count(": complete") == 2, r.stderr

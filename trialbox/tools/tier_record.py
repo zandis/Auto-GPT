@@ -84,17 +84,37 @@ def _strings(node: Any) -> list[str]:
     return []
 
 
+def _is_file(target: Path) -> bool:
+    """``target.is_file()``, False where the name cannot be asked about (too long, a NUL: card H-51)."""
+    try:
+        return target.is_file()
+    except (OSError, ValueError):
+        return False
+
+
+def _short(text: str, n: int = 120) -> str:
+    return text if len(text) <= n else text[: n - 3] + "..."
+
+
+def _bounded(path: Path) -> Any:
+    """A record a tier record points to, read the bounded, strict way (``tier_value.read_record``)."""
+    return tier_value.read_record(path, constants=False)
+
+
 def _source_problem(source: str, root: Path) -> str | None:
     """Why ``path[:line or lines] ...`` does not point into the repository; None when it does."""
     head = source.split(maxsplit=1)[0] if source.split() else ""
     path, _, lines = head.partition(":")
     target = root / path
-    if not path or not target.is_file():
-        return f"source {source!r}: no file {path!r} in the repository"
+    if not path or not _is_file(target):
+        return f"source {_short(source)!r}: no file {_short(path)!r} in the repository"
     if lines:
-        m = re.fullmatch(r"(\d+)(?:-(\d+))?(?:,(\d+)(?:-(\d+))?)*", lines)
+        m = re.fullmatch(r"(\d{1,9})(?:-(\d{1,9}))?(?:,(\d{1,9})(?:-(\d{1,9}))?)*", lines)
         if not m:
-            return f"source {source!r}: lines {lines!r} are not n, n-m or a list of them"
+            return (
+                f"source {_short(source)!r}: lines {_short(lines)!r} are not n, n-m or a list of them "
+                "(n of 1 to 9 digits)"
+            )
         count = len(target.read_text(encoding="utf-8", errors="replace").splitlines())
         nums = [int(n) for n in re.findall(r"\d+", lines)]
         if any(n < 1 or n > count for n in nums):
@@ -106,9 +126,11 @@ def _serving_problems(path: str, profile: str, root: Path) -> list[str]:
     """Why the serving record at ``path`` is not a measurement of ``profile`` on its own card."""
     target = root / path
     try:
-        rec = json.loads(target.read_text(encoding="utf-8"))
+        rec = _bounded(target)
     except (OSError, ValueError) as exc:
         return [f"serving record {path} is not readable JSON ({exc})"]
+    if not isinstance(rec, dict):
+        return [f"serving record {path} is not a JSON object"]
     card = rec.get("card") or {}
     capped = str(card.get("capped_to") or "")
     if BALLAST.search(capped):
@@ -187,11 +209,11 @@ def _peak_problems(pr: Any, profile: Any, serving: Any, root: Path) -> tuple[lis
     if not isinstance(pr, dict) or set(pr) != {"path", "origin"}:
         return ["measured_on.peak_record must be {path, origin}"], None
     path, origin = pr["path"], pr["origin"]
-    if not isinstance(path, str) or not (root / path).is_file():
+    if not isinstance(path, str) or not _is_file(root / path):
         return [f"measured_on.peak_record.path {path!r} is not a file in the repository"], None
     why: list[str] = []
     try:
-        doc = json.loads((root / path).read_text(encoding="utf-8"))
+        doc = _bounded(root / path)
     except (OSError, ValueError) as exc:
         return [f"peak record {path} is not readable JSON ({exc})"], None
     nums = {k: doc.get(k) if isinstance(doc, dict) else None for k in ("peak_mib", "total_mib")}
@@ -215,7 +237,7 @@ def _peak_problems(pr: Any, profile: Any, serving: Any, root: Path) -> tuple[lis
     if not isinstance(origin.get("not"), str) or not origin["not"].strip():
         why.append(f"peak record {path}: origin.not missing (say what the peak is not)")
     try:
-        srec = json.loads((root / serving).read_text(encoding="utf-8")) if isinstance(serving, str) else None
+        srec = _bounded(root / serving) if isinstance(serving, str) else None
     except (OSError, ValueError):
         srec = None
     if not isinstance(srec, dict):
@@ -277,8 +299,11 @@ def _field_problems(
     if basis == "measured":
         path = src.split()[0].partition(":")[0]
         if name in PEAK_FIELDS and peak is not None and path == peak:
-            doc = json.loads((root / peak).read_text(encoding="utf-8"))
-            free = doc["total_mib"] - doc["peak_mib"]
+            try:  # _peak_problems read it already (positive integers, else no peak); a swapped file is a problem
+                doc = _bounded(root / peak)
+                free = doc["total_mib"] - doc["peak_mib"]
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                return [*out, f"peak record {peak} changed while it was checked ({type(exc).__name__})"]
             if f.get("value") != free:
                 out.append(f"measured from {peak}: the value must be total_mib - peak_mib ({free})")
         elif path != serving:
@@ -296,8 +321,9 @@ def counts(rec: dict[str, Any]) -> dict[str, int]:
 
 
 def load(path: Path) -> Any:
-    """The record at ``path``, read the same bounded way the services read it (``tier_value.read_record``)."""
-    return tier_value.read_record(path)
+    """The record at ``path``, read the same bounded way the services read it (``tier_value.read_record``), but
+    strict: ``NaN`` and ``Infinity`` are refused (card H-51)."""
+    return tier_value.read_record(path, constants=False)
 
 
 TOO_DEEP = "nested too deep to check (a tier record is a flat object of fields)"
@@ -330,7 +356,10 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     if a.cmd == "summary":
         why = check([a.record])[a.record]
-        rec = load(a.record) if why[:1] != [TOO_DEEP] and not (why and why[0].startswith("not readable")) else None
+        try:  # read again for the summary: a file swapped since the check is no record, not a traceback
+            rec = load(a.record) if why[:1] != [TOO_DEEP] and not (why and why[0].startswith("not readable")) else None
+        except (OSError, ValueError) as exc:
+            why, rec = [f"not readable JSON ({exc})"], None
         fields = rec.get("fields") if isinstance(rec, dict) else None
         if isinstance(fields, dict):  # a record that is not one is refused below with its problems, unsummarized
             n = counts(rec)  # type: ignore[arg-type]

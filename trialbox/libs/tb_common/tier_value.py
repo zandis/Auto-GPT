@@ -13,7 +13,8 @@ was, for the reader's start-up log line. A box never fails to start because of i
 **Never raises (card H-51, finding H51-01).** An operator can replace the file, so :func:`measured` answers
 ``malformed`` with a fixed reason (never the file's content) for any file it cannot read as a record: over
 :data:`TIER_RECORD_MAX_BYTES` (refused before it is parsed), not UTF-8, not JSON, nested too deep for the parser
-(``RecursionError``), a directory, a symbolic-link loop, no permission. :func:`read_record` is the one bounded read;
+(``RecursionError``), a directory, a named pipe or a device (not a regular file: refused without blocking), a
+symbolic-link loop, no permission. :func:`read_record` is the one bounded read;
 the checker (``tools/tier_record.py``) uses it too and fails loudly where this reader keeps its fallback.
 """
 
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,29 +43,50 @@ class TierRecordUnreadable(ValueError):
     """A tier record file that is not readable as one; the message is fixed words and the file's name only."""
 
 
-def read_record(path: Path, max_bytes: int = TIER_RECORD_MAX_BYTES) -> Any:
+def _no_constant(name: str) -> Any:
+    raise ValueError(f"{name} is not a number")
+
+
+def read_record(path: Path, max_bytes: int = TIER_RECORD_MAX_BYTES, *, constants: bool = True) -> Any:
     """The parsed JSON of the tier record at ``path``, read at most ``max_bytes`` bytes.
 
+    The file is opened without blocking (``O_NONBLOCK``) and must be a regular file after any symbolic link is
+    followed, so a named pipe, a device or a socket at the path is refused at once instead of hanging the reader.
+    ``constants=False`` (the checker) refuses ``NaN`` and ``Infinity``; the services keep them readable and
+    :func:`positive_int` turns them into no value.
+
     Raises ``FileNotFoundError`` when there is no file, and :class:`TierRecordUnreadable` for any other file that
-    cannot be read as JSON (the other ``OSError`` cases, a file over the cap, not UTF-8, not JSON, nested too deep).
+    cannot be read as JSON (the other ``OSError`` cases, not a regular file, a file over the cap, not UTF-8, not JSON,
+    nested too deep).
     """
     try:
-        with path.open("rb") as fh:
-            raw = fh.read(max_bytes + 1)
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
     except FileNotFoundError:
         raise
-    except OSError as exc:
-        raise TierRecordUnreadable(f"{path.name}: not readable ({type(exc).__name__})") from None
-    if len(raw) > max_bytes:
-        raise TierRecordUnreadable(f"{path.name}: over {max_bytes} bytes")
+    except (OSError, ValueError) as exc:  # ValueError: a NUL in the path
+        raise TierRecordUnreadable(f"{path.name[:80]}: not readable ({type(exc).__name__})") from None
     try:
-        return json.loads(raw.decode("utf-8"))
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise TierRecordUnreadable(f"{path.name[:80]}: not a regular file")
+        with os.fdopen(fd, "rb", closefd=False) as fh:
+            raw = fh.read(max_bytes + 1)
+    except OSError as exc:
+        raise TierRecordUnreadable(f"{path.name[:80]}: not readable ({type(exc).__name__})") from None
+    finally:
+        os.close(fd)
+    if len(raw) > max_bytes:
+        raise TierRecordUnreadable(f"{path.name[:80]}: over {max_bytes} bytes")
+    try:
+        text = raw.decode("utf-8")
+        return json.loads(text) if constants else json.loads(text, parse_constant=_no_constant)
     except UnicodeDecodeError:
-        raise TierRecordUnreadable(f"{path.name}: not UTF-8") from None
+        raise TierRecordUnreadable(f"{path.name[:80]}: not UTF-8") from None
     except RecursionError:
-        raise TierRecordUnreadable(f"{path.name}: nested too deep to read") from None
+        raise TierRecordUnreadable(f"{path.name[:80]}: nested too deep to read") from None
     except ValueError as exc:
-        raise TierRecordUnreadable(f"{path.name}: not JSON ({type(exc).__name__})") from None
+        if not constants and str(exc).endswith("is not a number"):
+            raise TierRecordUnreadable(f"{path.name[:80]}: {exc} (NaN and Infinity are not JSON numbers)") from None
+        raise TierRecordUnreadable(f"{path.name[:80]}: not JSON ({type(exc).__name__})") from None
 
 
 def _shown(v: Any) -> str:

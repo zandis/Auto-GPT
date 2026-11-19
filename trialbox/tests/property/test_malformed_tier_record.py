@@ -4,7 +4,8 @@ A replaced ``models/tiers/<profile>.json`` is read, or answered ``malformed``/``
 exception leaves ``measured``, ``positive_int`` or the start-up line (D-1322; the gateway and console pages call it on
 a file an operator can replace). The checker (``tools.tier_record.check``) is strict instead: on the same inputs it
 returns problems and never a traceback. Inputs: bytes built from JSON pieces (deep brackets, NaN, huge numbers,
-duplicate keys, wrong types where a mapping or number is expected, bools), raw bytes, and not-UTF-8 bytes.
+duplicate keys, wrong types where a mapping or number is expected, bools), raw bytes, and not-UTF-8 bytes; and the
+checker's ``source`` parse on long digit runs and long or broken names.
 """
 
 from __future__ import annotations
@@ -62,3 +63,31 @@ def _read(data: bytes) -> str:
 @example(b'{"fields":{"judge_sequences":{"basis":{}}}}')
 def test_tier_record_reads_or_says_malformed(data: bytes) -> None:
     returns_or_refuses(lambda: _read(data), ())
+
+
+_SOURCE_PIECES = [
+    "deploy/docker-compose.rtx5090.yml",
+    "x" * 300,
+    "y/" * 200,
+    "..",
+    "/",
+    ":",
+    "-",
+    ",",
+    " ",
+    "\x00",
+    "é",
+]
+sources = st.lists(
+    st.sampled_from(_SOURCE_PIECES) | st.text(max_size=4) | st.integers(1, 6000).map(lambda n: "9" * n), max_size=8
+).map("".join)
+
+
+@SETTINGS
+@given(sources)
+@example("deploy/docker-compose.rtx5090.yml:" + "9" * 5000)
+@example("x" * 5000 + ":1")
+@example("a\x00b:1")
+def test_a_source_is_a_problem_or_none_never_a_traceback(source: str) -> None:
+    out = returns_or_refuses(lambda: tier_record._source_problem(source, tier_record.ROOT), ())
+    assert out is None or (isinstance(out, str) and len(out) < 400)

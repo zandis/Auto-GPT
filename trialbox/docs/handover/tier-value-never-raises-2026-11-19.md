@@ -16,7 +16,9 @@ pages, on a file an operator can replace; its docstring promised "never raises".
 | over 1000000 bytes | read whole into memory | `malformed`, "over 1000000 bytes", refused unread |
 | not UTF-8 | `malformed` (`UnicodeDecodeError`) | `malformed`, "not UTF-8" |
 | not JSON, integer over 4300 digits | `malformed` (exception name) | `malformed`, "not JSON (...)" |
-| directory, link loop, no permission | `malformed` (exception name) | `malformed`, "not readable (...)" |
+| a named pipe | blocked the gateway's start | `malformed`, "not a regular file", at once (opened `O_NONBLOCK`) |
+| directory, device (`/dev/zero` through a link) | `malformed` (directory); a device read to the cap | `malformed`, "not a regular file" |
+| link loop, socket, no permission | `malformed` (exception name) | `malformed`, "not readable (...)" |
 | top level not an object, wrong types | `malformed`, "no readable field" | unchanged |
 | NaN, Infinity, bool, negative value | `measured`, `positive_int` None | unchanged |
 | a deep or long declared value in the log line | unbounded `repr` | at most 80 characters |
@@ -28,7 +30,11 @@ The reasons are fixed words and the file's name, never its content. The cap is `
 
 `tools/tier_record.py check` and `summary` read through `read_record` and refuse the same files with exit 3 and
 `tier record: refused: <file>: not readable JSON (<file>: nested too deep to read)` (or the size, or the encoding);
-a record parsed but too deep to walk is refused as "nested too deep to check". No traceback.
+a record parsed but too deep to walk is refused as "nested too deep to check". No traceback. The checker also
+refuses `NaN` and `Infinity` (the reader still reads them, and `positive_int` gives the fallback), reads the serving
+and peak records a tier record points to through the same bounded read, and reports a `source` with a line number of
+more than 9 digits or a name the system cannot look up (too long, a NUL) as a problem. A symbolic link to a regular
+record still reads (no `O_NOFOLLOW`; nothing in the repository links there, but an operator may).
 
 ## Tests
 
