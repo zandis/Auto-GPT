@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "24d6a78f44cbf94542108343570279d3d093fce2",
+  "head": "2496a125f252da782e4be1d59091715c811a53e9",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "lane G B1 (P1b review): public-en birth date = visit minus stated age; chart 70000014 (sigir-201414, 85-year-old) is 85 at the run date, not 86, so df261f5f meets AD-MAB-INC-01 (50-85) and is a candidate",
+  "reason": "10B-6 (D-1233): a fact whose standard code comes from a site-profile row still to verify carries D-135's basis tag 'verify' and is listed in site_fact (coordinator's ruling on #1128); only site_fact of ssmix2-jp and synthetic-tw-a moves, no funnel or coded table",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy+omop"
@@ -475,23 +475,23 @@
     },
     "site_fact": {
      "columns": {
-      "basis": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "code": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "d": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "domain": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "fid": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "ingested_at": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "mapping_version": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "pid": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "src_row_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "src_table": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "system": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "unit": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "value_num": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "value_text": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      "basis": "00e8927b74beba14d93bb07c8213aebd004d07bd64e0b483047e017e89d418c3",
+      "code": "33bc1dde37e0251654108bec8ef80666b7ad12cbc525587371ce0f761195416a",
+      "d": "be9115cb886e4a8ac90e2bf0d8dd2383efd143c2b99ca0b7b6618abeb9581313",
+      "domain": "7b95924e932cf2ec8c75521c2e99844a18bd86d86a9841fcfb17bc08b911aac6",
+      "fid": "1b7faa9e976bfb026bb0f82eabf3ef4f58b6725c8a130fb72da9a90c84392e6a",
+      "ingested_at": "b9f8b9d9812afdba9d62abb563336deac5f9a5aef794f08b24f3cdf3525858c1",
+      "mapping_version": "c888c3055c5db83aa01575a770f1373d75ca6b4fbb1f0e5d7eed315a8900453d",
+      "pid": "a719ca76f66cd4e92d597bdb0fde9befd0210be697256b3910815376dc5887fe",
+      "src_row_hash": "2e6b192e9506a65a5db8fd229d823ec4704652cc21e7ada3cc5adef0f31528ab",
+      "src_table": "cfa90e1b0247b7f8239ae01f22d205dd609b0d076b47cdece67766b3ebe6ed21",
+      "system": "efd9de8078fba4fcea916f368408c868657f9bea593254ab08a96ea8b2c2841d",
+      "unit": "d17973a71bb64fbac17151e850dbbe33a4990507b05e4f3bd1a5236c46d0be0e",
+      "value_num": "48c4e85111a267c1f86910ceb1f7a53875032d6e9c03095caf15b9364c84791c",
+      "value_text": "ce6ebf132d9e40bf1de1ee915fe12ac599520a2618ba07c1a06131037096d07b"
      },
-     "rows": 0,
-     "sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+     "rows": 6687,
+     "sha": "25952983b97551f46aeb6c1b273823ca2d08d6d597eb979e7fca62f4b237720b"
     }
    },
    "tz": "Asia/Tokyo"
@@ -1471,23 +1471,23 @@
     },
     "site_fact": {
      "columns": {
-      "basis": "5b0d7441ffbf7d96acd2bddafef86028d2171552cd6e6cf06cd71b17eb63d920",
-      "code": "53a14c262531d26e9c47b2834f553e1d3a84bcf4c559aff0cab025040d45386c",
-      "d": "52555b8f39b69d871c59ac39e65a90074eeefd06317f831d9dde5eff7ee4ac69",
-      "domain": "e104314b836ccb100f2c15a7f6bdeb15ebda0c764693780af1950cbf6d095f73",
-      "fid": "4f94ce622d21de7d3b77cf85b160217eddd2ced18b3f1ef9efa9babac1185e64",
-      "ingested_at": "bb8432a3283eb0b270bf5520641941b98641cd86ac33ae09b8f5bcc84497104a",
-      "mapping_version": "bb8432a3283eb0b270bf5520641941b98641cd86ac33ae09b8f5bcc84497104a",
-      "pid": "9a8c4896808482474cd557155fb245daaf41678aa7ea428b483677c54aab6667",
-      "src_row_hash": "bb8432a3283eb0b270bf5520641941b98641cd86ac33ae09b8f5bcc84497104a",
-      "src_table": "bb8432a3283eb0b270bf5520641941b98641cd86ac33ae09b8f5bcc84497104a",
-      "system": "7a6d4907d62ef35724a3e222daa684ad2899b147dd592b4d48dd6f97090f4676",
-      "unit": "ca189c26fab5686ba03982ccd1c0e02ef780bcdde665bafadf733ae71a2efa3e",
-      "value_num": "1c5542ab3ae5515478785b0aa73fdf3063d735c3b46f8f8944ce63f6c1eee377",
-      "value_text": "f443dbe01f5dc20f6d657fa6f6d0c8edc9e3508f4ef420bb244a9a40473c2615"
+      "basis": "731cd7b180b2528eca3c871b35a88fafbd3ba213cf0fee7dadcd7de4a41c5384",
+      "code": "7e23dde802fcbb3c96456941802fc517c2f6b8fde6855a4adc6e8b642685a41e",
+      "d": "dcf66b77821520b976d7729f6b916431d4b6d309f696545061cad7877b08dc1b",
+      "domain": "d29a67ea2ca961e4430bc666cd5802202bee61013206446913ff5e307f172f33",
+      "fid": "a5c9f48eacb15f932f91724f59f824d649398b7468542687d6421059dbe4137a",
+      "ingested_at": "68f663188b49ffdc9d14f1fca93b5117f3cd8e29c6ea455dc7648958119dff20",
+      "mapping_version": "11d01d75fd8d0e23a7b651217015653ac994110a9fa0e9f38db17f928a34d39a",
+      "pid": "02ae91c07099dbe0a195b0fc5b50b1a0f0c02f1fe40109e648dd75ffc4ee024a",
+      "src_row_hash": "e8aa00d21a4e9ccd07082b910bd180b6b01dc3c4d9e385e79b0befedff364b43",
+      "src_table": "c786783edc20cc25e15af9b6a63ce71f0d3e617173b7dbf18731286a427e9a08",
+      "system": "ffd68dc94f5420dd6536f74f306751f196a0106151e12eeb268c75e31aa1724e",
+      "unit": "4b4567e77a3bd1c6252b65666d731ab0d10e16fa6466ffe3308faa3b86edfa31",
+      "value_num": "e35ddd594c0b32885f2ddc71efaccbd2bba9db784b7f77344f172f670a5b09d8",
+      "value_text": "46dfedecf801e1aa51842b04ab6f560ee420c3a8a8dcf9a5c34a4d9827453be4"
      },
-     "rows": 180,
-     "sha": "3f3864a98bf4e11052ddc92cb1efdb7a6aabf60e1aa2b7aea1d916a62a061a44"
+     "rows": 4287,
+     "sha": "6cb4b50ae807403a43ae8eb7cf4152d14e21ccef796c9cd489e20a19ea7d288e"
     }
    },
    "tz": "Asia/Taipei"

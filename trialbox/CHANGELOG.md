@@ -10,6 +10,13 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- ClinicalTrials.gov intake widened (10D-15, D-1367): a study read from the registry (live, offline pack or
+  cassette) now carries its sites with their recruitment status, its secondary ids (a jRCT, JapicCTI or UMIN-CTR
+  number is recognised as such), arms, interventions, primary and secondary outcomes and the design (allocation,
+  masking, model). Contact persons, officials, investigators, a person named as sponsor or collaborator, and
+  citations are no longer kept: the reference data store drops them from the records it holds when the box upgrades
+  (refdata schema version 4, which rewrites only the records holding one). Free text in a record is not cleaned.
+  Nothing to do.
 - A rule set from the head box in a vendor update bundle (10D-28, interim, for the dry run only): the box that
   compiled and approved a study exports it as a rule-set part (`python -m criteria_compiler.export_part`, audited):
   the protocol's criteria, codes and compiled files, with the routing, scope, approver and reviewer records, IRB

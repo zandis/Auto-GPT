@@ -67,6 +67,7 @@ for _p in (ROOT / "libs", ROOT / "services"):
 from tb_common import refdata as rd  # noqa: E402
 from tb_common import refdata_jp as jp  # noqa: E402
 from tb_common import refdata_tw as tw  # noqa: E402
+from tb_common.ctgov_record import strip_names  # noqa: E402
 
 SAMPLES = ROOT / "tests" / "fixtures" / "refdata"
 OGDL, OGDL_URL = tw.OGDL, tw.OGDL_URL
@@ -540,17 +541,19 @@ def _unzip_one(path: Path, suffix: str = ".csv") -> bytes:
 
 
 def parse_ctgov(path: Path) -> Iterator[dict[str, Any]]:
-    """The bulk zip (one ``NCTxxxxxxxx.json`` per study), an API page ``{"studies": [...]}`` or a cached record."""
+    """The bulk zip (one ``NCTxxxxxxxx.json`` per study), an API page ``{"studies": [...]}`` or a cached record.
+    D-1367: the pack's record carries no personal names (``tb_common.ctgov_record.strip_names``)."""
     if zipfile.is_zipfile(path):
         with zipfile.ZipFile(path) as z:
             for name in sorted(n for n in z.namelist() if n.endswith(".json")):
                 study = json.loads(z.read(name))
-                yield {"nct_id": study["protocolSection"]["identificationModule"]["nctId"], "study": study}
+                yield {"nct_id": study["protocolSection"]["identificationModule"]["nctId"],
+                       "study": strip_names(study)}  # fmt: skip
         return
     doc = json.loads(path.read_text(encoding="utf-8"))
     studies: list[Any] = doc["studies"] if isinstance(doc, dict) and "studies" in doc else [doc.get("study", doc)]
     for study in studies:
-        yield {"nct_id": study["protocolSection"]["identificationModule"]["nctId"], "study": study}
+        yield {"nct_id": study["protocolSection"]["identificationModule"]["nctId"], "study": strip_names(study)}
 
 
 def _tw_date(s: str) -> str:

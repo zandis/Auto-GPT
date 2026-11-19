@@ -327,6 +327,18 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "instrument.switch": ("Instrument switched", "評価尺度の切替", "切換評估量表"),
     "instrument.switch_refused": ("Instrument switch refused", "評価尺度切替の拒否", "拒絕切換評估量表"),
     "terminology.load": ("Terminology loaded", "用語集の読込", "載入術語集"),
+    "terminology.site_profile_load": ("Site profile loaded", "施設プロファイルの読込", "載入院所設定檔"),  # 10B-6
+    "terminology.site_profile_removed": ("Site profile taken off", "施設プロファイルの取り外し", "移除院所設定檔"),
+    "terminology.site_profile_not_loaded": (
+        "Site profile folder not loaded",
+        "未読込の施設プロファイル",
+        "院所設定檔資料夾未載入",
+    ),
+    "terminology.site_profile_copy_refused": (
+        "Site profile copy refused",
+        "施設プロファイル控えの拒否",
+        "院所設定檔副本遭拒",
+    ),
     "terminology.remove": ("Site code list removed", "施設コード表の削除", "移除院內代碼表"),
     "ingest.backfill": ("Past records loaded", "過去記録の取込", "匯入過往紀錄"),
     "ingest.failed": ("Nightly load failed", "夜間取込の失敗", "夜間匯入失敗"),
