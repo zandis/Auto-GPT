@@ -130,29 +130,48 @@ def tree_files(root: Path) -> list[str]:
 
 def pack(root: Path, out: Path, files: Iterable[str] | None = None) -> dict[str, Any]:
     """Write the host tree of ``root`` to ``out``: ``HOST-SHA256SUMS`` first, then every file sorted, owner 0, a fixed
-    mtime, mode 0755 for an executable and 0644 for the rest."""
+    mtime, mode 0755 for an executable and 0644 for the rest.
+
+    Each file is read ONCE: hashed while it is copied into a private snapshot beside ``out``, and the tar is written
+    from that snapshot. A file that changes while the tree is packed (an editor's save, a parallel test writing into
+    the checkout) can no longer give a tar whose bytes differ from its own sums (H-56: the box-run rehearsal's build
+    cases were refused at b06 with "sha256 differs from HOST-SHA256SUMS" on a CI runner)."""
     names = sorted(files) if files is not None else tree_files(root)
     for n in REQUIRED:
         if n not in names:
             raise HostTreeError(f"the host tree has no {n}")
-    sums = {}
     for n in names:
         if is_state(n) or not _allowed(n):
             raise HostTreeError(f"{n} may not be in a host tree")
-        with (root / n).open("rb") as fh:
-            sums[n] = _sha(fh)
-    body = "".join(f"{sums[n]}  {n}\n" for n in names).encode()
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(out.name + ".part")
-    with tarfile.open(tmp, "w", format=tarfile.PAX_FORMAT) as tf:
-        tf.addfile(_info(SUMS, len(body), 0o644), io.BytesIO(body))
-        for n in names:
+    snap = out.with_name(out.name + ".snap")
+    shutil.rmtree(snap, ignore_errors=True)
+    try:
+        snap.mkdir(mode=0o700)
+        sums: dict[str, str] = {}
+        modes: dict[str, int] = {}
+        for i, n in enumerate(names):
             p = root / n
-            mode = 0o755 if os.access(p, os.X_OK) else 0o644
-            with p.open("rb") as fh:
-                tf.addfile(_info(n, p.stat().st_size, mode), fh)
+            modes[n] = 0o755 if os.access(p, os.X_OK) else 0o644
+            h = hashlib.sha256()
+            with p.open("rb") as src, (snap / str(i)).open("wb") as dst:
+                while chunk := src.read(1 << 20):
+                    h.update(chunk)
+                    dst.write(chunk)
+            sums[n] = h.hexdigest()
+        body = "".join(f"{sums[n]}  {n}\n" for n in names).encode()
+        with tarfile.open(tmp, "w", format=tarfile.PAX_FORMAT) as tf:
+            tf.addfile(_info(SUMS, len(body), 0o644), io.BytesIO(body))
+            for i, n in enumerate(names):
+                s = snap / str(i)
+                with s.open("rb") as fh:
+                    tf.addfile(_info(n, s.stat().st_size, modes[n]), fh)
+    finally:
+        shutil.rmtree(snap, ignore_errors=True)
     tmp.replace(out)
     return {"files": len(names), "sha256": hashlib.sha256(out.read_bytes()).hexdigest()}
+
 
 
 def _info(name: str, size: int, mode: int) -> tarfile.TarInfo:
