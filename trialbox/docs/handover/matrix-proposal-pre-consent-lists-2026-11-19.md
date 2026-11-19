@@ -177,6 +177,34 @@ The steward and the privacy office read the audit trail by patient (pseudonyms a
 the opt-out register. Both are oversight duties. The proposal keeps them and asks C2 to confirm that a pseudonym in
 the audit trail is not a "pre-consent list" in the card's sense.
 
+### 4.7 The other lookups, each run once
+
+Asked by the lane J coordinator: could any other lookup confirm to a person off the log that a pseudonym or a
+screening number exists? Each was **run once** on the console's test box with synthetic data, by throwaway probes that
+were deleted, not committed. The person: an investigator on study A's log only (RA-BIO), with study B (GZQO) holding a
+finished SCREEN run (synthetic pseudonym `aaaa…a`, 32 characters) and screening number `GZQO-0001`. "Same" means the
+answer for the existing pseudonym and for an absent one (`eeee…e`, `GZQO-9999`) had the same status and the same body
+once the identifier itself was swapped out.
+
+| Lookup | Observed | Leak? |
+| --- | --- | --- |
+| Command field, 8 or 12 characters of a pseudonym; the screening number in either case | `303` to `/studies/GZQO/patients/<full pseudonym>` | **yes** (4.1) |
+| Command field, 4 characters; `0001` alone; `patient aaaaaaaa` | `200`, no full pseudonym, no screening number in the page | no |
+| Every console page keyed by `{pid}` or `{record}` in study B (candidate, patient, subject, EDC copy, review and trail, monitor, SAE, audit by patient) | `403` for both, same body | no |
+| The same through `/api/v1` with a bearer token (candidate, twin, records, subjects, monitor, EDC trail) | `403` for both, same body | no |
+| `/api/v1/studies/GZQO/patients`, `/candidates`, `/screening-log` | `403` | no |
+| The two reveal posts (candidate, patient) | `403` for both, same body | no |
+| The ask page with `pid=` | `200` for both, same body | no |
+| `/notices/received`, `/settings/notices`, `/jobs`, the SCREEN job page, `/reports`, feasibility | `200`; no full pseudonym, no screening number | no |
+| `/week` | `303` to `/studies/GZQO/week` (then `403`) | no patient; it shows that study B has a screening run |
+| N1 (investigator's mail) built for that day | no N1 for the investigator (study B left out by the log check) | no |
+| N2 (coordinator's mail) for a coordinator off study B's log | an N2 was built; it held no candidate row, because the box had no visit today, no mark and no row new since the last digest | not shown by this run; S19 stays read from code |
+| Autocomplete, suggestions, "recent" lists | none exist in the console (no such route; the command field is the only lookup) | – |
+| Exports of study B (screening-log, study export `.xlsx` and `.csv`, enrolment, registry workbook, EDC copy and ODM) and the research-office workbook | `403` before a file or a file name is given | no |
+| SCREEN job files of study B | the patient-level candidate list `404`; the two `aggregate` files (the run's count summary and its PDF) `200`, counts only, no pseudonym | no |
+
+So the command field is the one lookup that leaks to an investigator off the log.
+
 ## 5. Proposed rows
 
 ```yaml
@@ -315,6 +343,8 @@ These pages were cited from the public texts and were not re-opened in this sess
 
 ## 13. Not verified
 
-- S19 (N2) and S21 (mailed workbook) are read from the code, not run. S18 is run by a committed test (4.1).
+- S21 (mailed workbook) is read from the code, not run. S19 (N2) was run once, but the box had no row for N2 to
+  carry (4.7), so its row path is read from the code. S18 is run by a committed test (4.1); the lookups of 4.7 were run
+  once by probes that were not kept.
 - Whether any site's log lists coordinators with "screen" today (needed before section 5 is adopted).
 - The legal readings of section 12: our reading only.
