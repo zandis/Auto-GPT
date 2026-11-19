@@ -6,7 +6,15 @@
 One row per third-party (or own) source: standard, version, source, licence and SPDX id, obligation, who holds the
 licence, status, the date it was checked, the evidence, the licence text's sha256 (models), the Athena vocabularies
 it covers and the shipped files it covers (``paths``: ``;``-separated patterns relative to ``trialbox/``, ``*`` is
-one path segment or part of one, ``**`` any number of segments).
+one path segment or part of one, ``**`` any number of segments), its licence ``class`` and the Athena vocabularies
+it says must never load or ship (``athena_never``: entries ``ID|alias|alias``, the other names, URIs and OIDs the
+vocabulary goes by).
+
+**Classes** (root review 22, section 2): ``a`` open, may ship; ``b`` free with terms, may ship if the terms are met;
+``c`` a licence the vendor does not hold, must not ship (a site loads it under its own licence); ``d`` OMOP
+structural; ``open`` not settled (ATC codes as identifiers, TB-LIC-02). The Athena loader reads them
+(``omop.vocab_load.athena_register``, card 22-2): it loads the vocabularies of column ``athena`` and never one of column
+``athena_never``; ``tools.vocab_bundle_check`` (card 22-4) fails a bundle artefact that carries the latter.
 
 The check fails when:
 
@@ -22,6 +30,11 @@ The check fails when:
   row whose source is the build's repository, whose SPDX id is the build's, and whose status is ``cleared`` or
   ``own-work``; a build past ``candidate`` needs ``verified: true``;
 * a vocabulary the OMOP Athena loader allows (``omop.vocab_load.ATHENA_ALLOW``, when it exists) has no row;
+* a ``bundle-exception`` row (card 22-4: files ``tools.vocab_bundle_check`` warns about instead of failing, while an
+  owner decision is pending) lacks status ``decision-pending`` or paths, or has a class or vocabularies;
+* a row's class is not one of ``a b c d open``; a row naming Athena vocabularies has no class; a class ``c`` row names
+  a vocabulary in ``athena`` (the loader would load it) or a row of another class names one in ``athena_never``; a
+  vocabulary is named twice;
 * a ``software`` row (a third-party program inside an image, D-968: restic) disagrees with its pin in
   ``deploy/docker/backup.Dockerfile``: ``ARG <ID>_VERSION`` must be the row's version and every
   ``ARG <ID>_SHA256_<PART>`` (the source archive, or one release file per architecture) must be written in the row's
@@ -50,15 +63,20 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from tb_common.vocabfold import fold
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTER = ROOT / "docs/licences/register.csv"
 MODELS = ROOT / "models/registry.yaml"
 COLUMNS = ("id", "kind", "standard", "version", "source", "licence", "spdx", "obligation", "holder", "status",
-           "checked", "evidence", "text_sha256", "athena", "paths")  # fmt: skip
-KINDS = frozenset({"code-system", "map", "data-set", "fhir", "model", "software"})
+           "checked", "evidence", "text_sha256", "athena", "paths", "class", "athena_never")  # fmt: skip
+CLASSES = frozenset({"a", "b", "c", "d", "open"})  # root review 22, section 2; empty: not an Athena vocabulary row
+MUST_NOT_SHIP = "c"
+KINDS = frozenset({"code-system", "map", "data-set", "fhir", "model", "software", "bundle-exception"})
+# card 22-4: a reviewed exception to tools.vocab_bundle_check for shipped files whose owner decision is pending
+EXCEPTION_KIND, PENDING = "bundle-exception", "decision-pending"
 IMAGE = ROOT / "deploy/docker/backup.Dockerfile"  # where a software row's tool is pinned (D-968)
-STATUSES = frozenset({"cleared", "own-work", "synthetic", "site-loaded", "permission-to-ask", "removed"})
+STATUSES = frozenset({"cleared", "own-work", "synthetic", "site-loaded", "permission-to-ask", "removed", PENDING})
 SHIPS_NOTHING = frozenset({"site-loaded", "removed"})
 MODEL_OK = frozenset({"cleared", "own-work"})
 PAST_CANDIDATE = frozenset({"qualified", "champion", "shadow"})
@@ -85,6 +103,8 @@ class Row:
     athena: tuple[str, ...]
     paths: tuple[str, ...]
     raw: dict[str, str]
+    klass: str = ""
+    never: tuple[str, ...] = ()
 
 
 def load(path: Path = REGISTER) -> list[Row]:
@@ -94,7 +114,18 @@ def load(path: Path = REGISTER) -> list[Row]:
             raise ValueError(f"{path.name}: columns must be {', '.join(COLUMNS)}")
         rows = [{k: (v or "").strip() for k, v in r.items()} for r in reader]
     return [
-        Row(r["id"], r["kind"], r["status"], r["source"], r["spdx"], _split(r["athena"]), _split(r["paths"]), r)
+        Row(
+            r["id"],
+            r["kind"],
+            r["status"],
+            r["source"],
+            r["spdx"],
+            _split(r["athena"]),
+            _split(r["paths"]),
+            r,
+            r["class"],
+            tuple(e.split("|")[0].strip() for e in _split(r["athena_never"])),
+        )
         for r in rows
     ]
 
@@ -233,6 +264,33 @@ def row_problems(rows: list[Row]) -> list[str]:
         sha = r.raw["text_sha256"]
         if sha and not re.fullmatch(r"[0-9a-f]{64}", sha):
             out.append(f"{where}: text_sha256 is not a sha256")
+        out += _class_problems(r, where)
+    named: dict[str, str] = {}  # folded name (ids and aliases) -> the row that names it
+    for r in rows:
+        aliases = (n.strip() for e in _split(r.raw.get("athena_never", "")) for n in e.split("|"))
+        names = [*r.athena, *r.never, *aliases]
+        for v in dict.fromkeys(n for n in names if n):
+            key = fold(v)
+            if key in named and named[key] != r.id:
+                out.append(f"Athena vocabulary {v!r} named by rows {named[key]} and {r.id}")
+            named.setdefault(key, r.id)
+    return out
+
+
+def _class_problems(r: Row, where: str) -> list[str]:
+    out = []
+    if r.klass and r.klass not in CLASSES:
+        out.append(f"{where}: class {r.klass!r} not one of {', '.join(sorted(CLASSES))}")
+    if (r.athena or r.never) and not r.klass:
+        out.append(f"{where}: names Athena vocabularies but has no class")
+    if r.athena and (r.klass == MUST_NOT_SHIP or r.status == "removed"):
+        out.append(f"{where}: class {r.klass}, status {r.status}: its vocabularies go in athena_never, not athena")
+    if r.never and r.klass != MUST_NOT_SHIP:
+        out.append(f"{where}: athena_never on a row of class {r.klass or '(none)'} (only class c never loads)")
+    if (r.kind == EXCEPTION_KIND) != (r.status == PENDING):
+        out.append(f"{where}: kind {EXCEPTION_KIND} and status {PENDING} go together")
+    if r.kind == EXCEPTION_KIND and (not r.paths or r.klass or r.athena or r.never):
+        out.append(f"{where}: a {EXCEPTION_KIND} row names the files it excepts in paths, and no class or vocabulary")
     return out
 
 
