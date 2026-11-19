@@ -101,6 +101,12 @@ def _ended(lang: str) -> tuple[tuple[re.Pattern[str], re.Pattern[str] | None], .
     return tuple(out)
 
 
+@lru_cache(maxsize=8)
+def _non_fact(lang: str) -> re.Pattern[str] | None:
+    p = (_data().get("non_fact") or {}).get(lang)
+    return re.compile(str(p)) if p else None
+
+
 @lru_cache(maxsize=16)
 def _holds(domain: str) -> tuple[re.Pattern[str], ...]:
     """Patterns of listed words that together say something else; an entry may name the domains it applies to."""
@@ -325,12 +331,19 @@ def recognised(
         if not s.strip(" \t.,;:、，。"):
             continue
         names_it = CONCEPT in s
+        # the clause with only this concept masked: another named concept's words are read as written, so naming
+        # "remission", "father" or "last infusion" as a concept never hides what it says
+        s_open = _read_as(u, a, z, own, [])
         # every clause counts: what follows a full stop, "but" or 但 may say the line is not a fact ("Pending central
         # review.", "Father, aged 52.", "但目前完全緩解")
         ending = [(p, unless) for lng in {lang, "en"} for p, unless in _ended(lng)]
-        if not past and any(p.search(s) and not (unless is not None and unless.search(s)) for p, unless in ending):
+        if not past and any(
+            p.search(x) and not (unless is not None and unless.search(x)) for p, unless in ending for x in (s, s_open)
+        ):
             return False  # it ended or lies in the past, which an atom with no past window cannot say
-        if s.strip(" \t.").endswith(":") or any(h.search(s) for h in holds):
+        if any((p := _non_fact(lng)) is not None and p.search(s_open) for lng in ("en", "ja", "zh")):
+            return False  # not a present fact of this patient (another person, remission, a plan, a doubt)
+        if s.strip(" \t.").endswith(":") or any(h.search(x) for h in holds for x in (s, s_open)):
             return False  # a heading ("Diabetes:"), or listed words that together say otherwise
         if not _clause_recognised(s, lang, domain, history, subject=not names_it):
             return False
@@ -371,9 +384,13 @@ def unrecognised_presence(
     """Whether an inclusion's ``logic`` asks the presence of a concept its ``text`` is not recognised as asserting
     (card 10A-1d). Arguments as :func:`negation_scope.negated_presence`; ``codes_for(valueset)`` gives the codes of a
     value set (a code in the line is recognised only when it is one of the concept's own). A concept the logic itself
-    joins by "or" to this one is read as one of its names: the line's "or" is then carried by the logic."""
+    joins by "or" to this one is read as one of its names: the line's "or" is then carried by the logic.
+
+    Another concept counts as one only when the criterion's own logic codes it: a name the extractor gave but the
+    logic does not use (``other_terms``) is read as the words it is, so a line whose second condition the logic
+    never checks is held, and naming "spouse" or "remission" as a concept never lets a line run."""
+    del other_terms  # kept for the caller's signature; see above
     every = [x for a in atoms_of(logic) for x in (*terms_for(a.valueset or ""), *_slug_words(a.valueset))]
-    every += list(other_terms)
     for atom in presence_atoms(logic):
         siblings = _or_siblings(logic, atom)
         terms = [x for a in (atom, *siblings) for x in (*terms_for(a.valueset or ""), *_slug_words(a.valueset))]

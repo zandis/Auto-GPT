@@ -683,3 +683,15 @@ ja	2型糖尿病と診断されてから1年以上	2型糖尿病			condition	run
 ja	6か月以上前に診断された2型糖尿病	2型糖尿病			condition	runs	date
 ja	心電図で記録された心房細動	心房細動			condition	runs	method
 ja	化学療法の前に採血	化学療法			procedure	held	temporal
+en	Vaccination for hepatitis B.	hepatitis B		vaccination	condition	held	object
+en	Colonoscopy for colorectal cancer every 10 years.	colorectal cancer		colonoscopy	condition	held	object
+ja	B型肝炎に対するワクチン接種	B型肝炎		ワクチン接種	condition	held	object
+zh	針對B型肝炎之疫苗接種	B型肝炎		疫苗接種	condition	held	object
+en	Prophylaxis against tuberculosis	tuberculosis		prophylaxis	condition	held	object
+en	Surgery to rule out appendicitis	appendicitis		surgery	condition	held	object
+en	Biopsy to assess for lung cancer	lung cancer		biopsy	condition	held	object
+ja	大腸癌に対する手術	大腸癌		手術	condition	held	object
+zh	針對大腸癌之手術	大腸癌		手術	condition	held	object
+en	Spouse with COVID-19	COVID-19		spouse	condition	held	other_person
+ja	配偶者がHIV感染症	HIV感染症		配偶者	condition	held	other_person
+zh	伴侶患有HIV感染	HIV感染		伴侶	condition	held	other_person

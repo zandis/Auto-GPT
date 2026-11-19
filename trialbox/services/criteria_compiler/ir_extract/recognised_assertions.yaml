@@ -71,6 +71,10 @@ holds:  # regular expressions over a clause as read ({X} this concept, {O} anoth
   definition_after: '(?i)^(?:(?!\b(?:meet|meets|meeting|fulfil\w*|satisf\w*|according)\b).)*\x00\s*(?:diagnostic\s+)?(?:definition|criteria|classification)\b'  # "Sepsis definition per the 2016 criteria"
   below_detection: '(?i)(?:below|under|less\s+than|<)\s*(?:the\s+)?(?:lower\s+)?(?:limit\s+of\s+)?(?:detect\w*|quantif\w*|lloq|lod)\b|\bundetect\w*|\bnot\s+detect\w*|検出(?:限界)?(?:未満|以下|せず)|檢測(?:下限|不到)|检测不到|测不到|檢測不出'
   test_of_for: '(?i)\b(?:vaccin\w*|immuni[sz]\w*|prophylaxis|screen\w*|surveillance|tests?|testing|serology|cultures?|monitoring)\s+(?:for|against|of)\s+(?:the\s+)?\x00'  # "Vaccination for hepatitis B"
+  object_of_another:  # the concept is the object of another named concept: that one is about it, not a fact of it
+    # ("Vaccination for hepatitis B", "Colonoscopy for colorectal cancer", B型肝炎に対するワクチン接種, 針對B型肝炎之疫苗接種)
+    # and the concept belongs to another named one ("Spouse with COVID-19", ドナーが高血圧, 配偶者がHIV感染症)
+    pattern: '(?i)\x01(?:\s+[a-z\-]+){0,2}\s+(?:with|having|has|had|diagnosed\s+with|who\s+(?:has|had))\s+(?:a\s+|an\s+)?\x00|\x01\s*(?:が|に|には|は)\s*\x00|\x01\s*(?:患有|罹患|有|為|为|是)\s*\x00|\x01[\s\-]*(?:(?:for|against|of|to\s+(?:rule\s+out|assess|exclude|evaluate|detect|prevent|treat|screen\s+for))\s+(?:the\s+)?(?:[a-z\-]+\s+){0,2}?)\x00|\x01[\s\-]*\x00|\x00[\s\-]*\x01|\x00\s*(?:に対する|に対して|への|のための|の)\s*\x01|(?:針對|针对|為了|为了|為|为|因)\s*\x00\s*(?:之|的|而)?\s*\x01|\x00\s*(?:之|的)\s*\x01'
   non_fact_after:  # a word after a disease name that makes it something else ("malaria medication", "breast cancer gene")
     domains: [condition]
     pattern: '(?i)\x00[\s\-]*(?:medications?|medicines?|drugs?|therap(?:y|ies)|treatments?|agents?|regimens?|vaccin\w*|immuni[sz]ation|prophylaxis|prevention|screening|surveillance|tests?|testing|serology|cultures?|antibod(?:y|ies)|carriers?|genes?|risk|education|clinic|programmes?|programs?|guidelines?)\b|\x00(?:に対する|の)?(?:ワクチン|予防接種|治療薬|スクリーニング|検査|抗体|血清|培養)|\x00[之的]?(?:疫苗|藥物|药物|篩檢|筛检|檢查|检查|檢測|检测|抗體|抗体|血清學|血清学|培養|培养|影像)'
@@ -84,6 +88,13 @@ ended:  # regular expressions over a clause as read: the concept ended or lies i
     - '最終投与|最終使用|最終|中止|終了|休薬|完了|離脱|前に(?:投与|使用|服用|施行)'
   zh:
     - '停用|停藥|停药|停止|結束|结束|最後一次|最后一次|末次|已完成|完成|已停'
+
+non_fact:  # a second net, read over each clause with only this concept's own name masked (another named concept's
+  # words are read as written): a word that says the line is not a present fact of this patient. Naming "remission",
+  # "father" or "pending review" as a concept never hides it. Every line is read with all three lists
+  en: '(?i)\b(?:remission|remitted|cured|resolved|recovered|eradicated|cleared|father|mother|parents?|siblings?|brothers?|sisters?|spouse|partners?|husband|wife|sons?|daughters?|child(?:ren)?|relatives?|famil\w*|donors?|fetus|foetus|household|contacts?|pending|awaiting|planned|scheduled|booked|candidates?|eligible|suspected|possible|probable|query|considered|recommended|offered|referr\w*|on\s+hold|withheld)\b'
+  ja: '(?<!再発)寛解(?!型)|治癒|回復|父|母|親|兄|姉|弟|妹|配偶者|夫|妻|子供|家族|近親者|ドナー|胎児|接触|予定|待ち|疑い|可能性|検討|勧め|紹介|精査|候補'
+  zh: '(?<!復發)緩解(?!型)|(?<!复发)缓解(?!型)|治癒|治愈|痊癒|痊愈|康復|康复|清除|父|母|親|亲|兄|姐|弟|妹|配偶|伴侶|伴侣|丈夫|妻子|子女|家族|家屬|家属|捐贈|捐赠|胎兒|胎儿|接觸|接触|預計|预计|計畫|计划|等待|疑似|懷疑|怀疑|可能為|可能为|考慮|考虑|建議|建议|轉介|转介|候選|候选'
 
 exceptions:  # regular expressions: an exception and what it names, cut out of a clause (D-1248)
   en_after: '(?i)\b(?:except(?:\s+for)?|other\s+than|excluding|apart\s+from|aside\s+from|but\s+not)\b[^;.\n]*'

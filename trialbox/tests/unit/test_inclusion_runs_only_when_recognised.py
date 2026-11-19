@@ -7,13 +7,15 @@ clause naming the concept is made of that concept's names and the words listed i
 ``services/criteria_compiler/ir_extract/recognised_assertions.yaml``. Each rule below has a line it holds and a near
 line it lets run; removing the rule (or the words it relies on) fails one of them.
 
-The development set ``tests/fixtures/negated_inclusion/card_10a1d_development.tsv`` is synthetic: 684 lines in
+The development set ``tests/fixtures/negated_inclusion/card_10a1d_development.tsv`` is synthetic: 696 lines in
 English, Japanese and Chinese. The first 471 were labelled before the rule was written; each later round came with
 the frames it tests and their nearest must-hold lines. No patients.
 """
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +52,15 @@ HELD_ALL_THE_SAME = {
     "進行肺癌",
     "去勢抵抗性前立腺癌",
     "症候性心不全",
+    # its other concept is only the extractor's candidate: the scorer's logic codes one atom, so the line's second
+    # condition would go unchecked (it runs when the logic codes it: test_another_concept_counts_when_the_logic_codes_it)
+    "HIV infection on stable antiretroviral therapy",
+    "Underwent surgery for colorectal cancer",
+    "Ulcerative colitis requiring mesalazine",
+    "大腸癌に対する手術を受けた",
+    "曾因大腸癌接受手術",
+    "透析を要する慢性腎臓病",
+    "需要透析之慢性腎臟病",
 }
 _HELD: list[list[bool]] = []
 
@@ -61,8 +72,8 @@ def _dev_held() -> list[bool]:
 
 
 def test_the_development_set_is_what_d1248_counts() -> None:
-    assert len(ROWS) == 684
-    assert sum(r["expect"] == "held" for r in ROWS) == 400
+    assert len(ROWS) == 696
+    assert sum(r["expect"] == "held" for r in ROWS) == 412
     assert {r["lang"] for r in ROWS} == {"en", "ja", "zh"}
 
 
@@ -246,6 +257,148 @@ def test_a_clause_that_says_it_ended_runs_only_when_the_atom_asks_the_past() -> 
     # every clause counts: an ending said of another concept holds the line too (the logic would have to say it)
     assert not recognised("Taking rituximab; last dose of methotrexate 2 years ago", ["rituximab"],
                           ["methotrexate"], "medication")  # fmt: skip
+
+
+_SPLIT_EN = re.compile(r"[,;:.()\[\]{}\"'/?!]+")
+_STOP = set(
+    [
+        "for",
+        "against",
+        "of",
+        "to",
+        "in",
+        "on",
+        "with",
+        "and",
+        "or",
+        "nor",
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "at",
+        "by",
+        "from",
+        "after",
+        "before",
+        "but",
+        "not",
+        "no",
+        "without",
+        "who",
+        "which",
+        "that",
+        "as",
+        "per",
+        "if",
+        "unless",
+        "every",
+        "each",
+        "any",
+        "all",
+        "this",
+        "its",
+        "it",
+        "has",
+        "have",
+        "had",
+        "must",
+        "should",
+        "will",
+        "may",
+        "can",
+    ]
+)
+_SPLIT_CJK = re.compile(
+    r"[、。，,；;：:（）()\[\]【】「」\s]+|の|を|に|が|は|で|と|へ|や|から|まで|之|的|及|或|和|與|与|且|為|为|於|于|對|对|針對|"
+    r"针对|並|并|但|曾|已|未|無|无|不|ない|なし|あり|ある|する|した|して|された|されて|いる"
+)
+
+
+def _other_phrases(text: str, concept: str) -> list[str]:
+    """The line's other noun phrases, found mechanically: runs of words between function words and marks."""
+    u = unicodedata.normalize("NFKC", text)
+    if re.search(r"[぀-ヿ㐀-鿿]", u):
+        parts = _SPLIT_CJK.split(u.replace(unicodedata.normalize("NFKC", concept), "|"))
+        out = [x.strip() for p in parts for x in p.split("|") if len(x.strip()) >= 2]
+    else:
+        out = []
+        for part in _SPLIT_EN.split(re.sub(re.escape(concept), "|", u, flags=re.I)):
+            for chunk in part.split("|"):
+                run: list[str] = []
+                for w in [*chunk.split(), "the"]:
+                    if w.lower() in _STOP or re.fullmatch(r"[\d.\-–%≥≤<>=+±]+", w):
+                        out += [" ".join(run), *(run if len(run) > 1 else [])] if run else []
+                        run = []
+                    else:
+                        run.append(w)
+    return list(dict.fromkeys(x for x in out if x and x.lower() != concept.lower()))
+
+
+def test_a_held_line_stays_held_whatever_else_in_it_is_named_as_a_concept() -> None:
+    """Every must-hold line of the development set, with each other noun phrase in it (and all of them) named as
+    another concept, and then coded as an atom of an "and" logic beside the concept: none runs. Naming "spouse",
+    "remission" or "pending review" as a concept never lets a line run."""
+    variants, crits = [], []
+    for r in (r for r in ROWS if r["expect"] == "held"):
+        ps = _other_phrases(r["text"], r["concept"])
+        dom = r.get("domain") or "condition"
+        for sub in [[p] for p in ps] + ([ps] if len(ps) > 1 else []):
+            variants.append({**r, "others": list(dict.fromkeys([*r["others"], *sub]))})
+            names = [r["concept"], *sub]
+            crits.append({"kind": "inclusion", "class": "structured", "text": r["text"],
+                          "logic": {"op": "and", "args": [{"domain": dom, "concept": n} for n in names]},
+                          "concept_candidates": [{"domain": dom, "name": n} for n in names]})  # fmt: skip
+    named = [h for k in range(0, len(variants), 900) for h in score(variants[k : k + 900])]
+    assert [v["text"] for v, h in zip(variants, named, strict=True) if not h] == []
+    coded = []
+    for k in range(0, len(crits), 900):
+        out = pp.postprocess(
+            "SWEEP", LlmExtractOutput.model_validate({"criteria": crits[k : k + 900]}), Terminology(), "1.0.0"
+        )
+        coded += [FLAG in (c.flags or []) for c in out.criteria]
+    assert [c["text"] for c, h in zip(crits, coded, strict=True) if not h] == []
+
+
+def _and(text: str, coded: str, other: str, dom: str = "condition", odom: str = "condition") -> c.CriterionIR:
+    crit = {"kind": "inclusion", "class": "structured", "text": text,
+            "logic": {"op": "and", "args": [{"domain": dom, "concept": coded}, {"domain": odom, "concept": other}]},
+            "concept_candidates": [{"domain": dom, "name": coded}, {"domain": odom, "name": other}]}  # fmt: skip
+    (out,) = pp.postprocess("T", LlmExtractOutput.model_validate({"criteria": [crit]}), Terminology(), "1.0.0").criteria
+    return out
+
+
+def test_another_concept_counts_when_the_logic_codes_it() -> None:
+    """A second concept the logic codes may stand in the line, joined by a link word; one it does not code is words.
+    Each atom the logic asks the presence of is read in its turn, so each must be a plain fact of the patient."""
+    for text, coded, other in [
+        ("HIV infection on stable antiretroviral therapy", "HIV infection", "antiretroviral therapy"),
+        ("Type 2 diabetes and hypertension", "type 2 diabetes", "hypertension"),
+        ("2型糖尿病及び高血圧", "2型糖尿病", "高血圧"),
+        ("第二型糖尿病及高血壓", "第二型糖尿病", "高血壓"),
+    ]:
+        assert _and(text, coded, other).class_ == "structured", text
+    assert score(_rows(("HIV infection on stable antiretroviral therapy", "HIV infection", "condition"))) == [True]
+
+
+def test_the_concept_as_the_object_of_another_is_held() -> None:
+    """When the coded concept is what another named concept is for, against or of, or belongs to it, the line is
+    held for the concept, even with both coded."""
+    for text, coded, other in [
+        ("Vaccination for hepatitis B", "hepatitis B", "vaccination"),
+        ("Colonoscopy for colorectal cancer", "colorectal cancer", "colonoscopy"),
+        ("Underwent surgery for colorectal cancer", "colorectal cancer", "surgery"),
+        ("B型肝炎に対するワクチン接種", "B型肝炎", "ワクチン接種"),
+        ("針對B型肝炎之疫苗接種", "B型肝炎", "疫苗接種"),
+        ("Spouse with COVID-19", "COVID-19", "spouse"),
+        ("配偶者がHIV感染症", "HIV感染症", "配偶者"),
+    ]:
+        assert _and(text, coded, other).class_ == "human", text
 
 
 def test_a_code_counts_only_when_it_is_one_of_the_concepts_own() -> None:
