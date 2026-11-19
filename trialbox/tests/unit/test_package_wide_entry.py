@@ -115,7 +115,7 @@ def test_the_shipped_list_has_the_one_entry_the_owner_ruled_on() -> None:
     allow, errors = allowlist.load(today=ON)
     assert errors == []
     wide = [(e.package, e.image, e.review_by) for e in allow.vulnerabilities if e.id == "*"]
-    assert wide == [(PKG, IMAGE, dt.date(2026, 12, 10))]
+    assert wide == [(PKG, IMAGE, dt.date(2027, 1, 10))]
     assert not [e for e in allow.vulnerabilities if e.package == PKG and e.id != "*"]  # the 257 per-id entries
 
 

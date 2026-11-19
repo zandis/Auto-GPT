@@ -23,6 +23,7 @@ STARTERS = [
     "deploy/docker-compose.gb10.yml",
     "deploy/docker-compose.rtx5090.yml",
     "deploy/docker-compose.shared-quota.yml",
+    "deploy/docker-compose.dgpu48.yml",  # the UNMEASURED 48 GB draft (card 24-5): its measuring run serves the judge
     "deploy/platform/components/gpu-pair/llm.yaml",
 ]
 

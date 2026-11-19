@@ -433,7 +433,7 @@ def run(ctx: Ctx) -> Outcome:
     to = sorted(set(phi_to) | ({job.requested_by.lower()} if job.requested_by.lower() in phi_to else set()))
     rec["recipients"] = to
     stem = f"case_{rs.id}_{job.job_id}"
-    sheet = ctx.publish(f"{stem}.html", case_html.sheet(rec), "phi", to)
+    sheet = ctx.publish(f"{stem}.html", case_html.sheet(rec, dates.site_dates(ctx.cfg.settings.site)[0]), "phi", to)
     ctx.publish(f"{stem}.json", json.dumps(rec, ensure_ascii=False, indent=1, sort_keys=True).encode(), "phi", to)
     if judge is not None:
         ctx.metrics(llm_calls=judge.calls, tokens_in=judge.tokens_in, tokens_out=judge.tokens_out)

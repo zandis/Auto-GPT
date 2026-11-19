@@ -1,0 +1,29 @@
+{
+  "card": "H40",
+  "title": "wasted model calls in launch P2b and P3, counted from the stored traces",
+  "date": "2026-11-19",
+  "source": "docs/plan/measurements/trace-waste-2026-11-19.md",
+  "findings": [
+    {
+      "id": "H40-01",
+      "severity": "Low",
+      "claim": "The verifier loops on 5 of 477 tcga judge calls on P2b and 4 of 67 on P3 (the same inputs): it repeats a carriage return and two spaces inside a JSON string until the answer stops with the JSON open; a retry with more room repeats the loop",
+      "lane": "A2",
+      "basis": "shown"
+    },
+    {
+      "id": "H40-02",
+      "severity": "Medium",
+      "claim": "10 ir_extract calls on sigir (7 on P2b, 3 on P3) timed out with no text, each at least the 180 s read timeout by the gateway's default; what the model was doing in them is not recorded",
+      "lane": "A2",
+      "basis": "shown"
+    },
+    {
+      "id": "H40-03",
+      "severity": "Low",
+      "claim": "The stored traces record no finish reason, no tokens and no per-call time, so a cut answer, a call's model time and a timeout's cause can only be inferred from the text",
+      "lane": "H",
+      "basis": "shown"
+    }
+  ]
+}
