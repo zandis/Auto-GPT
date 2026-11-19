@@ -1,0 +1,349 @@
+text	concept	expect	lang	hold_class
+Diagnosis of pulmonary embolism has been excluded by CT pulmonary angiography.	pulmonary embolism	held	en	excluded
+Histologically confirmed absence of lymph node metastasis.	lymph node metastasis	held	en	confirmed_absence
+Patients with HER2-negative breast cancer.	HER2-positive breast cancer	held	en	negative_marker
+Hepatitis C-free status confirmed by negative HCV RNA.	hepatitis C	held	en	confirmed_free
+Documented resolution of pneumonia on chest X-ray prior to enrolment.	pneumonia	held	en	resolved
+Deep vein thrombosis verified absent on duplex ultrasound.	deep vein thrombosis	held	en	verified_absent
+Status post Pneumocystis pneumonia prophylaxis with trimethoprim-sulfamethoxazole.	Pneumocystis pneumonia	held	en	prophylaxis
+Currently undergoing evaluation for multiple sclerosis.	multiple sclerosis	held	en	under_evaluation
+Requiring exclusion of acute coronary syndrome before randomisation.	acute coronary syndrome	held	en	requiring_exclusion
+Based on Wells criteria, pulmonary embolism is unlikely.	pulmonary embolism	held	en	unlikely
+Meets criteria for type 2 diabetes mellitus or is a healthy volunteer.	type 2 diabetes mellitus	held	en	alt_healthy
+Atrial fibrillation or no atrial fibrillation (both strata eligible).	atrial fibrillation	held	en	x_or_no_x
+Adults with or without chronic kidney disease.	chronic kidney disease	held	en	with_or_without
+Hypertension (if applicable).	hypertension	held	en	if_applicable
+Brain metastases, where present, must have been treated.	brain metastases	held	en	where_present
+Colorectal cancer in a first-degree relative.	colorectal cancer	held	en	family
+Patients whose partners have HIV infection.	HIV infection	held	en	partner
+Diagnosed with hypothyroidism by another name: subclinical thyroid dysfunction, not overt hypothyroidism.	hypothyroidism	held	en	not_x
+Influenza-like symptoms within 7 days.	influenza	held	en	like_symptoms
+Stroke mimic confirmed by MRI.	stroke	held	en	mimic
+Pseudogout of the knee.	gout	held	en	pseudo
+Subclinical hypothyroidism (TSH 4.5-10 mIU/L with normal free T4).	hypothyroidism	held	en	subclinical
+Borderline hypertension (systolic 130-139 mmHg).	hypertension	held	en	borderline
+Prediabetes defined by HbA1c 5.7-6.4%.	diabetes	held	en	pre
+Latent tuberculosis infection with a positive interferon-gamma release assay.	tuberculosis	held	en	latent
+Impending fracture of the femur (Mirels score ≥ 9).	fracture	held	en	impending
+Threatened miscarriage at 8-12 weeks' gestation.	miscarriage	held	en	threatened
+At risk for osteoporotic fracture (FRAX ≥ 20%).	osteoporotic fracture	held	en	at_risk
+Susceptible to malignant hyperthermia per family history.	malignant hyperthermia	held	en	susceptible
+Carrier of a pathogenic CFTR variant for cystic fibrosis (heterozygous).	cystic fibrosis	held	en	carrier
+Screening for hepatocellular carcinoma by ultrasound every 6 months.	hepatocellular carcinoma	held	en	screening
+Recipient of herpes zoster vaccine within the past year.	herpes zoster	held	en	vaccine
+Hodgkin lymphoma survivor in complete remission for at least 5 years.	Hodgkin lymphoma	held	en	survivor_remission
+Treated melanoma with no evidence of disease for 3 years.	melanoma	held	en	ned
+History of cataract surgery in either eye.	cataract	held	en	surgery_history
+Ductal carcinoma in situ of the breast (stage 0, Tis N0 M0).	breast cancer	held	en	stage0
+Allergy to penicillin documented in the chart.	penicillin	held	en	allergy
+Intolerance to metformin (gastrointestinal).	metformin	held	en	intolerance
+Contraindication to warfarin therapy.	warfarin	held	en	contraindication
+Patient has refused insulin therapy.	insulin	held	en	refusal
+Discontinued methotrexate due to hepatotoxicity at least 3 months ago.	methotrexate	held	en	discontinued
+Completed a 4-week washout of all SSRIs including sertraline.	sertraline	held	en	washout
+Treatment-naive to biologic DMARDs, including adalimumab.	adalimumab	held	en	naive
+Planned initiation of apixaban after randomisation.	apixaban	held	en	planned
+Eligible for treatment with pembrolizumab per label.	pembrolizumab	held	en	eligible
+Candidate for liver transplantation.	liver transplantation	held	en	candidate
+Number of hypoglycaemic episodes in the past month ≤ 2.	hypoglycaemia	held	en	count_zero_ok
+Seizure frequency of no more than 4 per month.	seizure	held	en	count_zero_ok
+Serum potassium within normal range (hyperkalaemia excluded).	hyperkalaemia	held	en	normal
+Either chronic heart failure or chronic obstructive pulmonary disease.	chronic heart failure	held	en	alternative_arm
+Cohort B - Renal impairment:	renal impairment	held	en	group_header
+Section 5.2: Hepatitis B	hepatitis B	held	en	heading
+Definition: Sepsis is defined as life-threatening organ dysfunction caused by a dysregulated host response to infection.	sepsis	held	en	definition
+Investigator to confirm that the patient does not have active hepatitis B before dosing.	hepatitis B	held	en	staff_instruction
+Does the patient have rheumatoid arthritis?	rheumatoid arthritis	held	en	question
+[ ] Asthma  [ ] COPD  [ ] None	asthma	held	en	tickbox
+| Diabetes mellitus | Yes / No |	diabetes mellitus	held	en	table_fragment
+Negative for COVID-19 by PCR within 72 hours.	COVID-19	held	en	negative_test
+Patients with metastatic disease ruled out by PET-CT.	metastatic disease	held	en	ruled_out
+Confirmed diagnosis of no active infection, including tuberculosis.	tuberculosis	held	en	confirmed_no
+History of suspected myocardial infarction, subsequently disproved.	myocardial infarction	held	en	disproved
+Prophylactic anticoagulation for venous thromboembolism.	venous thromboembolism	held	en	prophylaxis
+Clinically diagnosed Parkinson's disease, later revised to essential tremor.	Parkinson's disease	held	en	revised_dx
+Possible Alzheimer's disease (NIA-AA criteria).	Alzheimer's disease	held	en	uncertain
+Rule out appendicitis.	appendicitis	held	en	rule_out
+Maternal history of gestational diabetes.	gestational diabetes	held	en	family
+HBsAg-negative and anti-HBc-negative (no hepatitis B).	hepatitis B	held	en	negative_test
+Previously eligible for but did not receive rituximab.	rituximab	held	en	not_received
+Histologically confirmed adenocarcinoma of the pancreas, stage III or IV per AJCC 8th edition.	adenocarcinoma of the pancreas	runs	en	
+Diagnosis of type 2 diabetes mellitus (T2DM) for at least 6 months prior to screening, with HbA1c ≥ 7.0% and ≤ 10.5%.	type 2 diabetes mellitus	runs	en	
+Chronic heart failure, NYHA class II-IV, with left ventricular ejection fraction (LVEF) ≤ 40% on echocardiography within 12 months.	chronic heart failure	runs	en	
+Rheumatoid arthritis fulfilling the 2010 ACR/EULAR classification criteria, with disease duration ≥ 3 months.	rheumatoid arthritis	runs	en	
+Major depressive disorder (MDD) as defined by DSM-5 criteria, current episode of at least 8 weeks' duration.	major depressive disorder	runs	en	
+Moderate-to-severe plaque psoriasis with Psoriasis Area and Severity Index (PASI) ≥ 12 and body surface area involvement ≥ 10%.	plaque psoriasis	runs	en	
+Paroxysmal or persistent non-valvular atrial fibrillation documented by 12-lead ECG or Holter monitoring.	atrial fibrillation	runs	en	
+Chronic obstructive pulmonary disease (COPD) with post-bronchodilator FEV1/FVC < 0.70 and FEV1 30-80% predicted.	chronic obstructive pulmonary disease	runs	en	
+History of myocardial infarction more than 3 months before screening.	myocardial infarction	runs	en	
+Relapsing-remitting multiple sclerosis according to the 2017 revised McDonald criteria.	multiple sclerosis	runs	en	
+Chronic kidney disease stage 3b or 4 (eGFR 15-44 mL/min/1.73 m² by CKD-EPI).	chronic kidney disease	runs	en	
+Biopsy-proven non-alcoholic steatohepatitis (NASH) with fibrosis stage F2 or F3.	non-alcoholic steatohepatitis	runs	en	
+Currently receiving metformin at a stable dose of ≥ 1500 mg/day for at least 8 weeks.	metformin	runs	en	
+Has undergone total knee arthroplasty of the left knee within the past 12 months.	total knee arthroplasty	runs	en	
+Newly diagnosed glioblastoma (WHO grade 4, IDH-wildtype) confirmed by central pathology review.	glioblastoma	runs	en	
+Moderate-to-severe ulcerative colitis with a modified Mayo score of 5-9 and an endoscopic subscore ≥ 2.	ulcerative colitis	runs	en	
+Asthma diagnosed by a physician at least 12 months prior, with documented reversibility (FEV1 increase ≥ 12% and ≥ 200 mL).	asthma	runs	en	
+Essential hypertension treated with at least two antihypertensive agents.	hypertension	runs	en	
+Schizophrenia (DSM-5), with a PANSS total score of 70-120 at screening.	schizophrenia	runs	en	
+Measurable metastatic colorectal cancer per RECIST 1.1.	colorectal cancer	runs	en	
+Type 1 diabetes mellitus with positive GAD65 autoantibodies, diagnosed at least 1 year ago.	type 1 diabetes mellitus	runs	en	
+Chronic hepatitis B infection (HBsAg-positive for > 6 months) with HBV DNA ≥ 2,000 IU/mL.	hepatitis B	runs	en	
+Obstructive sleep apnoea with apnoea-hypopnoea index (AHI) ≥ 15 events/hour on polysomnography.	obstructive sleep apnoea	runs	en	
+Osteoarthritis of the knee (Kellgren-Lawrence grade 2-3) confirmed radiographically.	osteoarthritis of the knee	runs	en	
+Generalised myasthenia gravis, MGFA class II-IV, with positive anti-acetylcholine receptor antibodies.	myasthenia gravis	runs	en	
+Systemic lupus erythematosus meeting 2019 EULAR/ACR classification criteria with SLEDAI-2K ≥ 6.	systemic lupus erythematosus	runs	en	
+History of ischaemic stroke at least 6 months before randomisation.	ischaemic stroke	runs	en	
+Postmenopausal women with osteoporosis (BMD T-score ≤ -2.5 at lumbar spine or femoral neck).	osteoporosis	runs	en	
+Moderate to severe atopic dermatitis (EASI ≥ 16, IGA ≥ 3) for at least 1 year.	atopic dermatitis	runs	en	
+Parkinson's disease (Hoehn and Yahr stage 2-3 in the ON state) diagnosed per MDS clinical diagnostic criteria.	Parkinson's disease	runs	en	
+Relapsed or refractory multiple myeloma after at least three prior lines of therapy.	multiple myeloma	runs	en	
+Non-small cell lung cancer (NSCLC) harbouring an activating EGFR mutation (exon 19 deletion or L858R).	non-small cell lung cancer	runs	en	
+Currently treated with warfarin with a target INR of 2.0-3.0.	warfarin	runs	en	
+Right-sided inguinal hernia confirmed on physical examination.	inguinal hernia	runs	en	
+Chronic migraine (≥ 15 headache days per month, ≥ 8 of which meet migraine criteria) for more than 3 months per ICHD-3.	chronic migraine	runs	en	
+Ankylosing spondylitis fulfilling the modified New York criteria, with BASDAI ≥ 4.	ankylosing spondylitis	runs	en	
+Prior coronary artery bypass grafting (CABG).	coronary artery bypass grafting	runs	en	
+Diabetic macular oedema involving the centre of the macula in the study eye, with central subfield thickness ≥ 300 µm on OCT.	diabetic macular oedema	runs	en	
+Alcohol use disorder (moderate or severe, DSM-5).	alcohol use disorder	runs	en	
+Heart failure with preserved ejection fraction (HFpEF; LVEF ≥ 50%) and NT-proBNP ≥ 300 pg/mL.	heart failure with preserved ejection fraction	runs	en	
+Iron deficiency anaemia (haemoglobin < 11 g/dL and ferritin < 30 ng/mL).	iron deficiency anaemia	runs	en	
+Hidradenitis suppurativa, Hurley stage II or III, with at least 3 abscesses and inflammatory nodules.	hidradenitis suppurativa	runs	en	
+Attention-deficit/hyperactivity disorder (ADHD), combined presentation, per DSM-5 and confirmed by K-SADS-PL.	attention-deficit/hyperactivity disorder	runs	en	
+Chronic spontaneous urticaria for at least 6 months with UAS7 ≥ 16 despite H1-antihistamines.	chronic spontaneous urticaria	runs	en	
+Has received at least one dose of nivolumab within the previous 12 weeks.	nivolumab	runs	en	
+Gout with at least 2 flares in the past 12 months and serum urate ≥ 6.0 mg/dL.	gout	runs	en	
+Pulmonary arterial hypertension (WHO Group 1) confirmed by right heart catheterisation (mPAP > 20 mmHg, PVR ≥ 3 WU).	pulmonary arterial hypertension	runs	en	
+Patient is on maintenance haemodialysis three times weekly for end-stage renal disease.	end-stage renal disease	runs	en	
+Documented diagnosis of HIV-1 infection on stable antiretroviral therapy.	HIV-1 infection	runs	en	
+Acute ischaemic stroke with NIHSS 6-25, treatable within 4.5 hours of last known well.	acute ischaemic stroke	runs	en	
+肺塞栓症は造影CTにて否定された。	肺塞栓症	held	ja	excluded
+病理組織学的にリンパ節転移を認めない。	リンパ節転移	held	ja	negation_finding
+HER2陰性乳癌の患者	HER2陽性乳癌	held	ja	negative_marker
+C型肝炎ウイルス陰性が確認されている。	C型肝炎	held	ja	negative_test
+肺炎は胸部X線で消失を確認済み。	肺炎	held	ja	resolved
+下肢静脈エコーにて深部静脈血栓症なし。	深部静脈血栓症	held	ja	negation
+ニューモシスチス肺炎の予防投与中	ニューモシスチス肺炎	held	ja	prophylaxis
+多発性硬化症の精査中	多発性硬化症	held	ja	under_evaluation
+急性冠症候群の除外が必要な患者	急性冠症候群	held	ja	requiring_exclusion
+Wellsスコアより肺塞栓症の可能性は低い。	肺塞栓症	held	ja	unlikely
+2型糖尿病患者又は健康成人	2型糖尿病	held	ja	alt_healthy
+心房細動の有無を問わない。	心房細動	held	ja	x_or_no_x
+慢性腎臓病の有無は問わない	慢性腎臓病	held	ja	with_or_without
+高血圧症（該当する場合）	高血圧症	held	ja	if_applicable
+脳転移がある場合は治療済みであること。	脳転移	held	ja	where_present
+一親等以内に大腸癌の家族歴を有する。	大腸癌	held	ja	family
+パートナーがHIV感染者である患者	HIV感染	held	ja	partner
+インフルエンザ様症状を呈する患者	インフルエンザ	held	ja	like_symptoms
+脳卒中類似疾患（stroke mimic）と診断された患者	脳卒中	held	ja	mimic
+偽痛風の既往	痛風	held	ja	pseudo
+潜在性甲状腺機能低下症（TSH 4.5〜10 μIU/mL、FT4正常）	甲状腺機能低下症	held	ja	subclinical
+境界型糖尿病（空腹時血糖110〜125 mg/dL）	糖尿病	held	ja	borderline
+糖尿病予備群	糖尿病	held	ja	pre
+潜在性結核感染症（IGRA陽性）	結核	held	ja	latent
+切迫流産と診断された妊婦	流産	held	ja	threatened
+骨粗鬆症性骨折のリスクが高い患者	骨粗鬆症性骨折	held	ja	at_risk
+嚢胞性線維症の保因者	嚢胞性線維症	held	ja	carrier
+肝細胞癌のスクリーニングとして6か月毎に腹部超音波を施行中	肝細胞癌	held	ja	screening
+帯状疱疹ワクチン接種歴あり	帯状疱疹	held	ja	vaccine
+ホジキンリンパ腫治療後、5年以上完全寛解を維持している。	ホジキンリンパ腫	held	ja	survivor_remission
+悪性黒色腫術後、再発所見なし。	悪性黒色腫	held	ja	ned
+白内障手術歴（両眼）	白内障	held	ja	surgery_history
+非浸潤性乳管癌（Stage 0, Tis）	乳癌	held	ja	stage0
+ペニシリンアレルギーあり	ペニシリン	held	ja	allergy
+メトホルミン不耐の患者	メトホルミン	held	ja	intolerance
+ワルファリンが禁忌の患者	ワルファリン	held	ja	contraindication
+インスリン導入を拒否している。	インスリン	held	ja	refusal
+メトトレキサートを肝障害のため中止した患者	メトトレキサート	held	ja	discontinued
+セルトラリンを含むSSRIを4週間以上休薬していること。	セルトラリン	held	ja	washout
+アダリムマブ未投与の患者	アダリムマブ	held	ja	naive
+無作為化後にアピキサバンの投与開始を予定している。	アピキサバン	held	ja	planned
+ペムブロリズマブの投与対象となる患者	ペムブロリズマブ	held	ja	eligible
+肝移植の待機患者	肝移植	held	ja	candidate
+過去1か月の低血糖発作が2回以下	低血糖	held	ja	count_zero_ok
+てんかん発作の頻度が月4回以下	てんかん発作	held	ja	count_zero_ok
+血清カリウム値が基準範囲内（高カリウム血症を認めない）	高カリウム血症	held	ja	normal
+慢性心不全又は慢性閉塞性肺疾患のいずれかを有する。	慢性心不全	held	ja	alternative_arm
+コホートB：腎機能障害	腎機能障害	held	ja	group_header
+5.2 B型肝炎について	B型肝炎	held	ja	heading
+定義：敗血症とは、感染症に対する制御不能な宿主反応による生命を脅かす臓器障害をいう。	敗血症	held	ja	definition
+治験責任医師は投与前に活動性B型肝炎がないことを確認すること。	B型肝炎	held	ja	staff_instruction
+関節リウマチの既往はありますか？	関節リウマチ	held	ja	question
+□喘息　□COPD　□なし	喘息	held	ja	tickbox
+｜糖尿病｜有・無｜	糖尿病	held	ja	table_fragment
+ＰＣＲ検査でＣＯＶＩＤ－１９陰性（７２時間以内）	COVID-19	held	ja	negative_test
+ＰＥＴ－ＣＴで遠隔転移は否定的。	遠隔転移	held	ja	ruled_out
+心筋梗塞疑いであったが、後に否定された。	心筋梗塞	held	ja	disproved
+静脈血栓塞栓症予防目的の抗凝固療法	静脈血栓塞栓症	held	ja	prophylaxis
+パーキンソン病と診断されたが、本態性振戦に診断変更された。	パーキンソン病	held	ja	revised_dx
+アルツハイマー病の疑い	アルツハイマー病	held	ja	uncertain
+虫垂炎除外目的にCT施行	虫垂炎	held	ja	rule_out
+母親に妊娠糖尿病の既往あり	妊娠糖尿病	held	ja	family
+HBs抗原陰性かつHBc抗体陰性	B型肝炎	held	ja	negative_test
+結核の既往なし。	結核	held	ja	negation
+心房細動は認められなかった	心房細動	held	ja	negation
+組織学的に確認された膵腺癌（AJCC第8版でStage III又はIV）を有する患者	膵腺癌	runs	ja	
+スクリーニングの6か月以上前に2型糖尿病と診断され、HbA1cが7.0%以上10.5%以下の患者	2型糖尿病	runs	ja	
+NYHA心機能分類II〜IV度の慢性心不全を有し、12か月以内の心エコーで左室駆出率（LVEF）が40%以下の患者	慢性心不全	runs	ja	
+2010年ACR/EULAR分類基準を満たす関節リウマチ患者（罹病期間3か月以上）	関節リウマチ	runs	ja	
+DSM-5の診断基準を満たす大うつ病性障害で、現エピソードが8週間以上持続している。	大うつ病性障害	runs	ja	
+尋常性乾癬（PASI 12以上、病変面積BSA 10%以上）を有する。	尋常性乾癬	runs	ja	
+12誘導心電図又はホルター心電図で記録された非弁膜症性心房細動	心房細動	runs	ja	
+気管支拡張薬投与後のFEV1/FVCが0.70未満の慢性閉塞性肺疾患（COPD）	慢性閉塞性肺疾患	runs	ja	
+スクリーニングの3か月以上前に心筋梗塞の既往を有する。	心筋梗塞	runs	ja	
+2017年改訂McDonald診断基準による再発寛解型多発性硬化症	多発性硬化症	runs	ja	
+CKDステージ3b又は4（eGFR 15〜44 mL/min/1.73m²）の慢性腎臓病患者	慢性腎臓病	runs	ja	
+生検で確認された非アルコール性脂肪肝炎（NASH）、線維化ステージF2又はF3	非アルコール性脂肪肝炎	runs	ja	
+メトホルミン1500 mg/日以上を8週間以上安定用量で服用中である。	メトホルミン	runs	ja	
+過去12か月以内に左人工膝関節全置換術を受けた患者	人工膝関節全置換術	runs	ja	
+中央病理診断で確認された初発膠芽腫（WHOグレード4、IDH野生型）	膠芽腫	runs	ja	
+中等症から重症の潰瘍性大腸炎（Mayoスコア5〜9、内視鏡サブスコア2以上）	潰瘍性大腸炎	runs	ja	
+医師により気管支喘息と診断されてから12か月以上経過している患者	気管支喘息	runs	ja	
+2剤以上の降圧薬で治療中の本態性高血圧症	本態性高血圧症	runs	ja	
+DSM-5で統合失調症と診断され、スクリーニング時のPANSS総スコアが70〜120である。	統合失調症	runs	ja	
+RECIST 1.1に基づく測定可能病変を有する転移性大腸癌	大腸癌	runs	ja	
+GAD抗体陽性の1型糖尿病で、診断から1年以上経過している。	1型糖尿病	runs	ja	
+慢性B型肝炎（HBs抗原陽性が6か月以上持続）でHBV DNA 2,000 IU/mL以上	B型肝炎	runs	ja	
+終夜睡眠ポリグラフ検査でAHI 15以上の閉塞性睡眠時無呼吸症候群	閉塞性睡眠時無呼吸症候群	runs	ja	
+X線でKellgren-Lawrence分類グレード2〜3の変形性膝関節症が確認されている。	変形性膝関節症	runs	ja	
+抗アセチルコリン受容体抗体陽性の全身型重症筋無力症（MGFA分類II〜IV）	重症筋無力症	runs	ja	
+2019年EULAR/ACR分類基準を満たす全身性エリテマトーデス（SLEDAI-2K 6以上）	全身性エリテマトーデス	runs	ja	
+無作為化の6か月以上前に虚血性脳卒中の既往がある。	虚血性脳卒中	runs	ja	
+腰椎又は大腿骨頸部の骨密度Tスコアが−2.5以下の閉経後骨粗鬆症	骨粗鬆症	runs	ja	
+1年以上持続する中等症〜重症のアトピー性皮膚炎（EASI 16以上、IGA 3以上）	アトピー性皮膚炎	runs	ja	
+MDS臨床診断基準によりパーキンソン病と診断されたHoehn-Yahr重症度2〜3度の患者	パーキンソン病	runs	ja	
+3レジメン以上の前治療歴を有する再発又は難治性の多発性骨髄腫	多発性骨髄腫	runs	ja	
+EGFR遺伝子変異（エクソン19欠失又はL858R）陽性の非小細胞肺癌	非小細胞肺癌	runs	ja	
+目標PT-INR 2.0〜3.0でワルファリンを服用中	ワルファリン	runs	ja	
+身体診察で確認された右鼠径ヘルニア	鼠径ヘルニア	runs	ja	
+ICHD-3に基づく慢性片頭痛（月15日以上の頭痛が3か月超）	慢性片頭痛	runs	ja	
+改訂ニューヨーク基準を満たす強直性脊椎炎（BASDAI 4以上）	強直性脊椎炎	runs	ja	
+冠動脈バイパス術（CABG）の既往	冠動脈バイパス術	runs	ja	
+試験眼にOCTで中心窩網膜厚300μm以上の糖尿病黄斑浮腫を有する。	糖尿病黄斑浮腫	runs	ja	
+DSM-5でアルコール使用障害（中等度又は重度）と診断されている。	アルコール使用障害	runs	ja	
+左室駆出率50%以上の心不全（HFpEF）でNT-proBNP 300 pg/mL以上	心不全	runs	ja	
+鉄欠乏性貧血（Hb 11 g/dL未満かつフェリチン30 ng/mL未満）	鉄欠乏性貧血	runs	ja	
+HurleyステージII又はIIIの化膿性汗腺炎	化膿性汗腺炎	runs	ja	
+12週間以内にニボルマブを1回以上投与された。	ニボルマブ	runs	ja	
+過去12か月に2回以上の痛風発作があり、血清尿酸値6.0 mg/dL以上	痛風	runs	ja	
+右心カテーテル検査で確定診断された肺動脈性肺高血圧症（WHO第1群）	肺動脈性肺高血圧症	runs	ja	
+末期腎不全のため週3回の維持血液透析を受けている。	末期腎不全	runs	ja	
+抗レトロウイルス療法で安定しているHIV-1感染症患者	HIV-1感染症	runs	ja	
+慢性特発性蕁麻疹（6か月以上持続、UAS7 16以上）	慢性特発性蕁麻疹	runs	ja	
+２型糖尿病の診断を受けている患者	２型糖尿病	runs	ja	
+組織学的に胃癌（腺癌）と診断された切除不能進行・再発例	胃癌	runs	ja	
+經電腦斷層血管攝影排除肺栓塞診斷。	肺栓塞	held	zh	excluded
+病理證實無淋巴結轉移。	淋巴結轉移	held	zh	confirmed_absence
+HER2陰性乳癌患者	HER2陽性乳癌	held	zh	negative_marker
+C型肝炎病毒RNA陰性，確認無C型肝炎。	C型肝炎	held	zh	confirmed_free
+胸部X光證實肺炎已痊癒。	肺炎	held	zh	resolved
+下肢靜脈超音波確認無深部靜脈血栓。	深部靜脈血栓	held	zh	verified_absent
+正接受肺囊蟲肺炎預防性治療。	肺囊蟲肺炎	held	zh	prophylaxis
+目前正在評估是否罹患多發性硬化症。	多發性硬化症	held	zh	under_evaluation
+須先排除急性冠心症者。	急性冠心症	held	zh	requiring_exclusion
+依Wells評分，肺栓塞可能性低。	肺栓塞	held	zh	unlikely
+符合第二型糖尿病診斷標準或為健康受試者。	第二型糖尿病	held	zh	alt_healthy
+不論有無心房顫動皆可納入。	心房顫動	held	zh	x_or_no_x
+有或無慢性腎臟病之成人。	慢性腎臟病	held	zh	with_or_without
+高血壓（如適用）	高血壓	held	zh	if_applicable
+如有腦轉移，須已接受治療。	腦轉移	held	zh	where_present
+一等親有大腸癌病史。	大腸癌	held	zh	family
+伴侶為HIV感染者之患者。	HIV感染	held	zh	partner
+出現類流感症狀七日內。	流感	held	zh	like_symptoms
+經MRI確認為類中風（stroke mimic）。	中風	held	zh	mimic
+膝關節假性痛風。	痛風	held	zh	pseudo
+亞臨床甲狀腺功能低下（TSH 4.5–10 mIU/L，游離T4正常）。	甲狀腺功能低下	held	zh	subclinical
+臨界高血壓（收縮壓130–139 mmHg）。	高血壓	held	zh	borderline
+糖尿病前期（HbA1c 5.7–6.4%）。	糖尿病	held	zh	pre
+潛伏結核感染（IGRA陽性）。	結核	held	zh	latent
+先兆流產之孕婦。	流產	held	zh	threatened
+骨質疏鬆性骨折高風險者（FRAX ≥ 20%）。	骨質疏鬆性骨折	held	zh	at_risk
+囊腫性纖維化基因帶因者。	囊腫性纖維化	held	zh	carrier
+每六個月接受肝細胞癌超音波篩檢。	肝細胞癌	held	zh	screening
+曾接種帶狀疱疹疫苗。	帶狀疱疹	held	zh	vaccine
+何杰金氏淋巴瘤治療後完全緩解達五年以上。	何杰金氏淋巴瘤	held	zh	survivor_remission
+黑色素瘤術後，無疾病證據。	黑色素瘤	held	zh	ned
+曾接受白內障手術。	白內障	held	zh	surgery_history
+乳管原位癌（第0期，Tis）。	乳癌	held	zh	stage0
+對青黴素過敏。	青黴素	held	zh	allergy
+對二甲雙胍不耐受。	二甲雙胍	held	zh	intolerance
+有使用華法林之禁忌症。	華法林	held	zh	contraindication
+病人拒絕胰島素治療。	胰島素	held	zh	refusal
+因肝毒性已停用甲氨蝶呤至少三個月。	甲氨蝶呤	held	zh	discontinued
+已停用包括舍曲林在內之SSRI類藥物達四週洗脫期。	舍曲林	held	zh	washout
+未曾使用阿達木單抗。	阿達木單抗	held	zh	naive
+預計隨機分配後開始使用阿哌沙班。	阿哌沙班	held	zh	planned
+適合接受帕博利珠單抗治療者。	帕博利珠單抗	held	zh	eligible
+肝臟移植候選者。	肝臟移植	held	zh	candidate
+過去一個月低血糖發作次數≤2次。	低血糖	held	zh	count_zero_ok
+癲癇發作頻率每月不超過4次。	癲癇發作	held	zh	count_zero_ok
+血鉀值在正常範圍（無高血鉀症）。	高血鉀症	held	zh	normal
+患有慢性心衰竭或慢性阻塞性肺病其中之一。	慢性心衰竭	held	zh	alternative_arm
+B組：腎功能不全	腎功能不全	held	zh	group_header
+5.2 B型肝炎	B型肝炎	held	zh	heading
+定義：敗血症係指宿主對感染之失調反應所致之危及生命的器官功能障礙。	敗血症	held	zh	definition
+試驗主持人應於給藥前確認病人無活動性B型肝炎。	B型肝炎	held	zh	staff_instruction
+病人是否患有類風濕性關節炎？	類風濕性關節炎	held	zh	question
+□氣喘　□慢性阻塞性肺病　□無	氣喘	held	zh	tickbox
+｜糖尿病｜是／否｜	糖尿病	held	zh	table_fragment
+ＰＣＲ檢測ＣＯＶＩＤ－１９陰性（７２小時內）	COVID-19	held	zh	negative_test
+PET-CT排除遠處轉移。	遠處轉移	held	zh	ruled_out
+曾疑似心肌梗塞，後經證實並非。	心肌梗塞	held	zh	disproved
+预防静脉血栓栓塞症之抗凝治疗。	静脉血栓栓塞症	held	zh	prophylaxis
+原诊断帕金森病，后更正为特发性震颤。	帕金森病	held	zh	revised_dx
+疑似阿尔茨海默病。	阿尔茨海默病	held	zh	uncertain
+为排除阑尾炎行CT检查。	阑尾炎	held	zh	rule_out
+母亲有妊娠糖尿病史。	妊娠糖尿病	held	zh	family
+乙肝表面抗原阴性且核心抗体阴性。	乙肝	held	zh	negative_test
+否認結核病史。	結核	held	zh	negation
+未發現心房顫動。	心房顫動	held	zh	negation
+經組織學證實之胰臟腺癌，依AJCC第八版為第III期或第IV期。	胰臟腺癌	runs	zh	
+篩選前已診斷第二型糖尿病至少6個月，且HbA1c介於7.0%至10.5%。	第二型糖尿病	runs	zh	
+慢性心衰竭，NYHA功能分級II至IV級，且12個月內心臟超音波左心室射出分率（LVEF）≤40%。	慢性心衰竭	runs	zh	
+符合2010年ACR/EULAR分類標準之類風濕性關節炎，病程至少3個月。	類風濕性關節炎	runs	zh	
+依DSM-5診斷為重度憂鬱症，目前發作持續至少8週。	重度憂鬱症	runs	zh	
+中重度斑塊型乾癬（PASI ≥ 12，體表面積≥10%）。	斑塊型乾癬	runs	zh	
+經12導程心電圖或Holter記錄之非瓣膜性心房顫動。	心房顫動	runs	zh	
+支氣管擴張劑後FEV1/FVC < 0.70之慢性阻塞性肺病（COPD）。	慢性阻塞性肺病	runs	zh	
+篩選前3個月以上曾發生心肌梗塞。	心肌梗塞	runs	zh	
+依2017年修訂McDonald準則診斷之復發緩解型多發性硬化症。	多發性硬化症	runs	zh	
+慢性腎臟病第3b或4期（eGFR 15–44 mL/min/1.73 m²）。	慢性腎臟病	runs	zh	
+經肝臟切片證實之非酒精性脂肪肝炎（NASH），纖維化F2或F3。	非酒精性脂肪肝炎	runs	zh	
+目前每日服用二甲雙胍≥1500 mg且劑量穩定至少8週。	二甲雙胍	runs	zh	
+過去12個月內曾接受左膝全人工膝關節置換術。	全人工膝關節置換術	runs	zh	
+經中央病理確認之新診斷膠質母細胞瘤（WHO第4級，IDH野生型）。	膠質母細胞瘤	runs	zh	
+中重度潰瘍性結腸炎（Mayo分數5–9，內視鏡分項≥2）。	潰瘍性結腸炎	runs	zh	
+經醫師診斷氣喘已滿12個月，並有支氣管可逆性證據。	氣喘	runs	zh	
+原發性高血壓，目前使用至少兩種降血壓藥物。	高血壓	runs	zh	
+依DSM-5診斷為思覺失調症，篩選時PANSS總分70–120。	思覺失調症	runs	zh	
+依RECIST 1.1具可測量病灶之轉移性大腸直腸癌。	大腸直腸癌	runs	zh	
+GAD抗體陽性之第一型糖尿病，診斷已逾1年。	第一型糖尿病	runs	zh	
+慢性B型肝炎（HBsAg陽性逾6個月），HBV DNA ≥ 2,000 IU/mL。	B型肝炎	runs	zh	
+多項睡眠生理檢查AHI ≥ 15次/小時之阻塞型睡眠呼吸中止症。	阻塞型睡眠呼吸中止症	runs	zh	
+X光確認之膝關節退化性關節炎（Kellgren-Lawrence第2–3級）。	退化性關節炎	runs	zh	
+抗乙醯膽鹼受體抗體陽性之全身型重症肌無力（MGFA II–IV級）。	重症肌無力	runs	zh	
+符合2019年EULAR/ACR分類標準之全身性紅斑性狼瘡，SLEDAI-2K ≥ 6。	全身性紅斑性狼瘡	runs	zh	
+隨機分配前至少6個月有缺血性中風病史。	缺血性中風	runs	zh	
+停經後骨質疏鬆症（腰椎或股骨頸T值≤−2.5）。	骨質疏鬆症	runs	zh	
+中重度異位性皮膚炎（EASI ≥ 16、IGA ≥ 3）持續至少1年。	異位性皮膚炎	runs	zh	
+依MDS臨床診斷標準診斷之巴金森氏症，Hoehn-Yahr第2–3期。	巴金森氏症	runs	zh	
+曾接受至少三線治療之復發或難治性多發性骨髓瘤。	多發性骨髓瘤	runs	zh	
+帶有EGFR活化突變（exon 19缺失或L858R）之非小細胞肺癌。	非小細胞肺癌	runs	zh	
+目前使用華法林，目標INR 2.0–3.0。	華法林	runs	zh	
+理學檢查確認之右側腹股溝疝氣。	腹股溝疝氣	runs	zh	
+依ICHD-3診斷之慢性偏頭痛，每月頭痛≥15天持續逾3個月。	慢性偏頭痛	runs	zh	
+符合修訂紐約標準之僵直性脊椎炎，BASDAI ≥ 4。	僵直性脊椎炎	runs	zh	
+曾接受冠狀動脈繞道手術（CABG）。	冠狀動脈繞道手術	runs	zh	
+研究眼經OCT顯示中心視網膜厚度≥300 µm之糖尿病黃斑部水腫。	糖尿病黃斑部水腫	runs	zh	
+依DSM-5診斷為中度或重度酒精使用障礙症。	酒精使用障礙症	runs	zh	
+射出分率保留型心衰竭（HFpEF；LVEF ≥ 50%），NT-proBNP ≥ 300 pg/mL。	心衰竭	runs	zh	
+缺鐵性貧血（血紅素<11 g/dL且鐵蛋白<30 ng/mL）。	缺鐵性貧血	runs	zh	
+Hurley第II或III期之化膿性汗腺炎。	化膿性汗腺炎	runs	zh	
+過去12週內曾接受至少一劑nivolumab治療。	nivolumab	runs	zh	
+過去12個月內痛風發作≥2次且血清尿酸≥6.0 mg/dL。	痛風	runs	zh	
+經右心導管確診之肺動脈高壓（WHO第1類）。	肺動脈高壓	runs	zh	
+因末期腎病每週接受三次維持性血液透析。	末期腎病	runs	zh	
+已確診HIV-1感染且接受穩定之抗反轉錄病毒治療。	HIV-1感染	runs	zh	
+经组织学确诊的晚期胃腺癌。	胃腺癌	runs	zh	
+确诊2型糖尿病至少6个月，正在接受二甲双胍治疗。	2型糖尿病	runs	zh	
+符合DSM-5诊断标准的广泛性焦虑障碍，HAM-A总分≥20。	广泛性焦虑障碍	runs	zh	
