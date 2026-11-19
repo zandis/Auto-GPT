@@ -222,35 +222,47 @@ def _edc_tables(db: Any) -> tuple[str, ...]:
     return tuple(t for t in TRAIL_TABLES if _has(db, t))
 
 
-def _edc_frozen(db: Any, d: str = "d") -> str:
-    """A draft that freezes its study: EDC's own definition (``edc.store.cites_old_rows``), never a second one."""
+def _edc_frozen(db: Any, d: str = "d") -> Any:
+    """A draft that freezes its study: EDC's own definition (``edc.store.cites_old_rows``), never a second one; as a
+    psycopg ``Composable`` (EDC composes it with psycopg's quoting)."""
     from edc.store import cites_old_rows
+    from psycopg import sql
 
-    return cites_old_rows(d, _edc_tables(db))
+    return sql.SQL(cites_old_rows(d, _edc_tables(db)))
 
 
-def _edc_open(db: Any, d: str = "d") -> str:
-    """An open draft (no trail): EDC's own definition (``edc.store.has_trail``)."""
+def _edc_open(db: Any, d: str = "d") -> Any:
+    """An open draft (no trail): EDC's own definition (``edc.store.has_trail``), negated."""
     from edc.store import has_trail
+    from psycopg import sql
 
-    return f"NOT {has_trail(d, _edc_tables(db))}"
+    return sql.SQL("NOT {}").format(sql.SQL(has_trail(d, _edc_tables(db))))
 
 
-def _edc_old(db: Any) -> str:
+def _edc_old(db: Any) -> Any:
     """A draft of a study not of the current rule (a study with no rule row has no draft: the migration stamped every
     study that had one)."""
+    from psycopg import sql
+
     if not _has(db, "tb_id_rule_study"):
-        return "TRUE"
-    return f"d.study IN (SELECT study FROM tb_id_rule_study WHERE rule < {id_rule.RULE})"
+        return sql.SQL("TRUE")
+    return sql.SQL("d.study IN (SELECT study FROM tb_id_rule_study WHERE rule < {})").format(sql.Literal(id_rule.RULE))
+
+
+def _edc_q(template: str, *parts: Any) -> str:
+    """A statement over EDC's drafts with each ``{}`` filled by a composed clause (:func:`_edc_frozen`,
+    :func:`_edc_open`, :func:`_edc_old`), as the text the box's database wrapper takes."""
+    from psycopg import sql
+
+    return sql.SQL(template).format(*parts).as_string(None)
 
 
 def _edc_plan(db: Any) -> dict[str, Any]:
     frozen_q, open_q, old = _edc_frozen(db), _edc_open(db), _edc_old(db)
-    frozen = db.fetchall(f"SELECT d.study, count(*) FROM draft d WHERE {frozen_q} AND {old} GROUP BY d.study "
-                         "ORDER BY d.study")  # fmt: skip
+    per_study = "SELECT d.study, count(*) FROM draft d WHERE {} AND {} GROUP BY d.study ORDER BY d.study"
+    frozen = db.fetchall(_edc_q(per_study, frozen_q, old))
     frozen_studies = {str(s): int(n) for s, n in frozen}
-    waiting = db.fetchall(f"SELECT d.study, count(*) FROM draft d WHERE {open_q} AND {old} GROUP BY d.study "
-                          "ORDER BY d.study")  # fmt: skip
+    waiting = db.fetchall(_edc_q(per_study, open_q, old))
     return {
         "frozen_studies": frozen_studies,
         "open_drafts": {str(s): int(n) for s, n in waiting if str(s) not in frozen_studies},
@@ -505,11 +517,11 @@ def _stores(lake: Path, url: str, before: dict[str, Any]) -> dict[str, Any]:
                 with db.transaction() as tx:
                     # a rule-1 study no draft of which freezes it: its open drafts go (a decided value that cites no
                     # lake row stays, as it is), then the study is rule 2 (review round 3: one definition with EDC)
-                    waiting = [str(r[0]) for r in tx.fetchall(
-                        f"SELECT DISTINCT d.study FROM draft d WHERE {old} AND NOT EXISTS (SELECT 1 FROM draft d2 "
-                        f"WHERE d2.study = d.study AND {frozen_q})")]  # fmt: skip
-                    n = (tx.execute(f"DELETE FROM draft d WHERE d.study = ANY(?) AND {open_q}", (waiting,))
-                         if waiting else 0)  # fmt: skip
+                    not_frozen = ("SELECT DISTINCT d.study FROM draft d WHERE {} AND NOT EXISTS (SELECT 1 FROM draft "
+                                  "d2 WHERE d2.study = d.study AND {})")  # fmt: skip
+                    waiting = [str(r[0]) for r in tx.fetchall(_edc_q(not_frozen, old, frozen_q))]
+                    clear = "DELETE FROM draft d WHERE d.study = ANY(?) AND {}"
+                    n = tx.execute(_edc_q(clear, open_q), (waiting,)) if waiting else 0
                     if waiting and _has(db, "tb_id_rule_study"):
                         tx.execute("UPDATE tb_id_rule_study SET rule = ?, recorded_at = now() WHERE study = ANY(?)",
                                    (id_rule.RULE, waiting))  # fmt: skip
