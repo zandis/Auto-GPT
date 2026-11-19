@@ -24,7 +24,7 @@ from tb_common import prefilter
 from tb_common.smallcell import funnel_drops_publishable
 from tb_contracts import CriterionVerdict, Evidence, JobMetrics, PrefilterRecord
 
-from tests.unit.test_microbatch_cadence import FRI, WED, _Box, _new
+from tests.unit.test_microbatch_cadence import FRI, GZQO, WED, _Box, _new
 
 CODED = "GZQO-EXC-01"  # a structured exclusion the weekly re-check answers again
 NOTE = "GZQO-INC-05"  # a note inclusion
@@ -69,6 +69,8 @@ def test_an_evaluation_stage_is_never_given_without_an_evaluation() -> None:
          "opted_out"),
         ({"consent_out": False, "at_index": True, "coded_fail": True, "listed": False, "model_read": True},
          "coded_excluded"),
+        ({"consent_out": False, "at_index": True, "coded_fail": True, "listed": True, "model_read": False},
+         "coded_excluded"),  # the coded filter comes before the list
         ({"consent_out": False, "at_index": True, "coded_fail": False, "listed": True, "model_read": True}, "listed"),
         ({"consent_out": False, "at_index": True, "coded_fail": False, "listed": False, "model_read": False},
          "no_model"),
@@ -202,8 +204,8 @@ def test_the_budget_carries_and_the_ingest_run_counts_the_pool_as_not_in_its_sco
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     box = _Night(
-        pool=["P-POOL"],
-        booked={"P-POOL": FRI},
+        pool=["P-POOL", "P-OLD"],  # P-OLD is in the pool and not in the scope: not the after-ingest run's
+        booked={"P-POOL": FRI, "P-OLD": FRI},
         scope=[_new("P-POOL", FRI), _new("P-N1", FRI), _new("P-N2", FRI), _new("P-LATE", None)],
         options={"trigger": "ingest"},
         budget=1,
@@ -216,3 +218,15 @@ def test_the_budget_carries_and_the_ingest_run_counts_the_pool_as_not_in_its_sco
     # the budget of one takes P-N1 (the nearest), P-N2 waits
     assert (rec.in_scope, rec.not_due, rec.carried, rec.listed) == (4, 2, 1, 1)
     assert box.evaluated == []  # the after-ingest run re-checks nobody
+
+
+def test_the_re_checks_own_answers_say_whether_the_model_read_the_notes_tonight() -> None:
+    """A re-checked pool row keeps its stored note answer (read on an earlier night); tonight's re-check asked the
+    codes only. Not listed, past the codes: answered without the model, not "notes read"."""
+    stored = [_v(NOTE, "pass", "note"), _v(CODED, "pass", "coded")]
+    pv = PatientVerdicts("P1", stored, "excluded", [], 0)
+    assert microbatch.prefilter_stage(GZQO, pv, frozenset(), [_v(CODED, "pass", "coded")]) == "no_model"
+    assert microbatch.prefilter_stage(GZQO, pv, frozenset(), [_v(NOTE, "pass", "note")]) == "model_not_listed"
+    assert microbatch.prefilter_stage(GZQO, pv, frozenset()) == "model_not_listed"  # a full screen: its own answers
+    assert microbatch.prefilter_stage(GZQO, pv, frozenset({"P1"})) == "opted_out"  # a refusal or contact denial
+    assert microbatch.prefilter_stage(GZQO, None, frozenset()) == "opted_out"  # removed inside the screen
