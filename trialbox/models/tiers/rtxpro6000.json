@@ -4,7 +4,23 @@
   "tier": "large",
   "measured_on": {
     "serving_record": "deploy/measured/serving_config.rtxpro6000.json",
-    "qualification_record": null
+    "qualification_record": null,
+    "peak_record": {
+      "path": "eval/parity/gpu-run-2026-11-08-pro6000/gpu_peak.json",
+      "origin": {
+        "profile": "rtxpro6000",
+        "run": "tb-gpu-sim started by deploy/gcp/gpu-pro6000-run.sh, the same run as the serving record (eval/parity/gpu-run-2026-11-08-pro6000/README.md:5-8,12-13)",
+        "date": "2026-11-08 (the file's at, 2026-11-08T14:04:18Z, is its last sample, not the time of the peak)",
+        "commit_or_bundle": "not stated in the file (eval/parity/gpu-run-2026-11-08-pro6000/README.md:3 says only: a commit before trains 15-45)",
+        "card": "not stated in the file; eval/parity/gpu-run-2026-11-08-pro6000/README.md:5 names one RTX PRO 6000 Blackwell Server Edition of 97,887 MiB, the file's total_mib",
+        "driver": "not stated in the file; the serving record of the same run names 580.178.04",
+        "capped": "uncapped",
+        "workload": "not stated in the file; eval/parity/gpu-run-2026-11-08-pro6000/README.md:13 says both models loaded and under load, and the run's load was the pair canary and public_e2e --lang en (eval/parity/gpu-run-2026-11-08-pro6000/README.md:15-16)",
+        "sampling": "not stated in the file; deploy/gcp/gpu-pro6000-run.sh:48-61 (today's copy) reads nvidia-smi memory.used every 2 s and keeps the maximum",
+        "configuration": {"context_tokens": 32768, "judge_sequences": 16, "verifier_sequences": 16, "gpu_memory_utilization": {"judge": 0.4, "verifier": 0.2}, "source": "eval/parity/gpu-run-2026-11-08-pro6000/README.md:5-7"},
+        "not": "not a peak on the product path (eval/parity/gpu-run-2026-11-08-pro6000/README.md:3, D-918: benchmark prompts sent straight to the model servers, no gateway); not of the Workstation or Max-Q editions; not at 48 to 64 sequences (plan 10 row 10E-19)"
+      }
+    }
   },
   "fields": {
     "box_role": {
@@ -88,9 +104,9 @@
       "measured_by": "a throughput record of this profile on its own card (plan 10 rows 10E-16, 10E-20); the serving record carries no rate"
     },
     "free_memory_at_peak_mib": {
-      "basis": "not_measured",
-      "value": null,
-      "measured_by": "a peak reading under load in this profile's own record (plan 10 row 10E-19); the serving record's memory_used_mib is at capture, not at peak"
+      "basis": "measured",
+      "value": 35299,
+      "source": "eval/parity/gpu-run-2026-11-08-pro6000/gpu_peak.json total_mib - peak_mib (origin in measured_on.peak_record)"
     },
     "wake_seconds_p95": {
       "basis": "declared",

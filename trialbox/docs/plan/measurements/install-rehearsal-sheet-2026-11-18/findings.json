@@ -1,0 +1,44 @@
+{
+ "card": "W2",
+ "title": "the trial install from the tag by runbook 27 alone, on paper (lane H, 2026-11-19)",
+ "date": "2026-11-19",
+ "source": "docs/plan/measurements/install-rehearsal-sheet-2026-11-18.md",
+ "runbook": ["docs/runbook/27-workstation-rtx-pro-6000.md"],
+ "note": "Read from the repository on master a44a39da; nothing was run on a GPU, a VM or the hub. Lane J wrote runbook 27 and owns these; the register has no lane J, so they are filed under D for the integrator to route. The follower (tools/runbook_workstation.py) records each when W-2 runs.",
+ "findings": [
+  {
+   "id": "W2-db-image",
+   "severity": "High",
+   "claim": "Runbook 27 step 11 on a machine without Maven: deploy/poc.sh builds the Python and JVM images but not trialbox-postgres:16-1, which compose's db service names with no build entry and no registry, so the start stops (fix in #1130, a draft)",
+   "lane": "D",
+   "basis": "hypothesis",
+   "place": "deploy/poc.sh:202-221; deploy/docker-compose.yml:77; docs/runbook/27-workstation-rtx-pro-6000.md:26",
+   "expected": "the start builds every image it needs, as runbook 28 step 6 does by hand",
+   "happened": "not run: read in the code; card 24-2 (#1130) states the same fault"
+  },
+  {
+   "id": "W2-step-1-before-driver",
+   "severity": "Low",
+   "claim": "Runbook 27 step 1 runs nvidia-smi before step 2 installs Ubuntu and step 4 the driver: on a plain Ubuntu the command is not found",
+   "lane": "D",
+   "basis": "hypothesis",
+   "place": "docs/runbook/27-workstation-rtx-pro-6000.md:16"
+  },
+  {
+   "id": "W2-outside-pages",
+   "severity": "Low",
+   "claim": "Runbook 27 steps 5 and 7 give no install command, only an outside page (step 7 names NVIDIA's apt steps without an address), so the guide alone cannot be followed there",
+   "lane": "D",
+   "basis": "shown",
+   "place": "docs/runbook/27-workstation-rtx-pro-6000.md:20, :22"
+  },
+  {
+   "id": "W2-compose-version",
+   "severity": "Low",
+   "claim": "Runbook 27 step 5 expects docker compose v2.x; the version Docker's page installs today may differ while the start needs only the plugin",
+   "lane": "D",
+   "basis": "hypothesis",
+   "place": "docs/runbook/27-workstation-rtx-pro-6000.md:20"
+  }
+ ]
+}

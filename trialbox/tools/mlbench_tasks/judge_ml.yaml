@@ -1,5 +1,6 @@
 # judge_ml: multilingual criterion judging (spec v4 §8.10, §16; S1-14). Items come from tools/mlbench.sample over
-# eval/criterion_ml (D0, public domain + TrialBox translations); the request is tools/mlbench.messages.
+# eval/criterion_ml (D0; SIGIR notes and their translations CC BY-SA 4.0, NCBI labels public domain notice); the
+# request is tools/mlbench.messages.
 id: judge_ml
 gateway_role: bakeoff
 purpose: evaluation

@@ -25,7 +25,13 @@ The check fails when:
 * a ``software`` row (a third-party program inside an image, D-968: restic) disagrees with its pin in
   ``deploy/docker/backup.Dockerfile``: ``ARG <ID>_VERSION`` must be the row's version and every
   ``ARG <ID>_SHA256_<PART>`` (the source archive, or one release file per architecture) must be written in the row's
-  evidence. A software row ships no path of its own.
+  evidence. A software row ships no path of its own;
+* an ``eval/DATASETS.yaml`` entry disagrees with the register (card 10H-1): an open data set names no row in its
+  ``register:`` list, a row named does not exist, the entry's licence lacks the words of a row's SPDX id
+  (``SPDX_WORDS``), it says "public domain" with no public-domain row, or it names SIGIR without row
+  ``pubacc-sigir-2016`` or calls SIGIR material plain public domain;
+* a file that holds SIGIR 2016 note text (CC BY-SA 4.0, CSIRO), or a README, NOTICE.md or PROVENANCE.md beside it,
+  says "public domain" (NCBI's own "public domain notice" excepted), or such a README names SIGIR without its licence.
 
 The rows are rendered by hand into ``NOTICE`` (T-617a); the register is the data behind it.
 """
@@ -35,6 +41,7 @@ from __future__ import annotations
 import argparse
 import csv
 import gzip
+import json
 import re
 import sys
 from collections.abc import Iterable
@@ -294,10 +301,289 @@ def athena_problems(rows: list[Row]) -> list[str]:
             for v in sorted(set(ATHENA_ALLOW) - covered)]  # fmt: skip
 
 
+# ------------------------------------------------------------------------------------------------ evaluation data
+# Card 10H-1 (review 20, finding 1): each data set of eval/DATASETS.yaml names its register rows (``register:``), and
+# the licence it states must carry each row's licence; a file that holds SIGIR 2016 note text (CC BY-SA 4.0, CSIRO)
+# must never be called "public domain". NCBI's own "public domain notice" (the criterion labels) is the one allowed
+# use of the words beside SIGIR material.
+DATASETS = "eval/DATASETS.yaml"
+SIGIR_ROW = "pubacc-sigir-2016"
+SIGIR_NOTES = "eval/criterion_ml"  # notes_en.json and its ja, zh-TW and mixed translations
+#: the words a data set's stated licence must contain for a row of that SPDX id
+SPDX_WORDS = {
+    "CC-BY-SA-4.0": "CC BY-SA 4.0",
+    "CC-BY-4.0": "CC BY 4.0",
+    "ODbL-1.0": "ODbL 1.0",
+    "Apache-2.0": "Apache",
+    "LicenseRef-US-Public-Domain": "public domain",
+    "LicenseRef-ClinicalTrials.gov-Terms": "ClinicalTrials.gov",
+    "LicenseRef-NIST-TREC-no-terms": "NIST",
+    "LicenseRef-OGDL-Taiwan-1.0": "Open Government Data License",
+    "LicenseRef-PDL-1.0-Japan": "Public Data License 1.0",
+}
+# "public domain", in any spelling ("public-domain", "public_domain", "Public Domain")
+PUBLIC_DOMAIN = re.compile(r"public[\s_-]*domain", re.I)
+# "public domain notice" names NCBI's notice; "license_name: public-domain" quotes NCBI's dataset card
+BARE_PUBLIC_DOMAIN = re.compile(r"(?<!license_name: )public[\s_-]*domain(?![\s_-]*notice)", re.I)
+#: words that put a line about the SIGIR notes (or their adaptations) in context
+SIGIR_SUBJECT = re.compile(
+    r"sigir|criterion_ml|notes_(?:en|ja|zh-TW|mixed)|patient (?:notes|descriptions)|renderings|translations", re.I
+)
+SUBJECT_WORDS = (
+    "sigir",
+    "criterion_ml",
+    "notes_",
+    "patient notes",
+    "patient descriptions",
+    "renderings",
+    "translations",
+)
+#: words that say the public domain notice is about NCBI's labels, not the notes
+NCBI_LABELS = re.compile(r"label|annotation|LICENSE\.NCBI|NCBI code|the code|corpora", re.I)
+SPDX_PD = re.compile(r"LicenseRef-US-Public-Domain")
+#: the sentence NCBI's benchmark appends to every note: NCBI's text, not CSIRO's (the same index in the translations)
+NCBI_ADDED = "The patient will provide informed consent, and will comply with the trial protocol"
+#: text files that can hold note text or state a licence; a .gz is read decompressed
+TEXT = (".json", ".jsonl", ".jsonl.gz", ".json.gz", ".ndjson", ".md", ".csv", ".tsv", ".txt", ".yaml", ".yml", ".py",
+        ".html", ".xml", ".toml", ".sh")  # fmt: skip
+LICENCE_FILES = ("README.md", "NOTICE.md", "PROVENANCE.md")
+DATA_DOC_ROOTS = ("eval", "tests/fixtures")  # where data sets and their READMEs live
+#: records that quote the old labels as history (reviews, hand-overs, decisions); not labels of the data
+RECORDS = (
+    "docs/reviews/",
+    "docs/handover/",
+    "docs/decisions/",
+    "docs/DECISIONS.md",
+    "CHANGELOG.md",
+    "docs/plan/measurements/eval-licence-labels-2026-11-18.md",
+)  # H-37's before-and-after table
+#: the check and its tests, which must spell out the words they look for
+CHECK_FILES = (
+    "tools/licence_register.py",
+    "tests/unit/test_eval_licence_labels.py",
+    "tests/unit/test_sigir_notes_licence.py",
+)
+SKIP_SCAN = frozenset({"build", "dist", "data"})  # local outputs and the box's data folder (.dockerignore'd)
+
+
+def dataset_problems(root: Path, rows: list[Row]) -> list[str]:
+    """Each eval/DATASETS.yaml entry against its register rows: an open data set names at least one row, every row
+    named exists and its licence words are in the entry's licence, "public domain" needs a row that says so, and an
+    entry naming SIGIR names row pubacc-sigir-2016 and calls nothing about it plain public domain."""
+    f = root / DATASETS
+    if not f.is_file():
+        return []
+    by_id = {r.id: r for r in rows}
+    out = []
+    for key, d in ((yaml.safe_load(f.read_text(encoding="utf-8")) or {}).get("datasets") or {}).items():
+        where = f"{DATASETS} {key}"
+        licence, regs = str(d.get("licence") or ""), [str(x) for x in d.get("register") or []]
+        if d.get("kind") == "open" and not regs:
+            out.append(f"{where}: an open data set names no register row (register:)")
+        named = [by_id[r] for r in regs if r in by_id]
+        out += [f"{where}: register row {r} does not exist" for r in regs if r not in by_id]
+        for r in named:
+            words = SPDX_WORDS.get(r.spdx)
+            if words is None:
+                out.append(f"{where}: register row {r.id} has SPDX id {r.spdx!r}, which has no words in SPDX_WORDS")
+            elif words.lower() not in licence.lower():
+                out.append(f"{where}: licence does not say {words!r}, as register row {r.id} ({r.spdx}) does")
+        if PUBLIC_DOMAIN.search(licence) and not any(PUBLIC_DOMAIN.search(r.raw["licence"]) for r in named):
+            out.append(f"{where}: says public domain, but no register row it names does")
+        if "sigir" in licence.lower() or SIGIR_ROW in regs:
+            if SIGIR_ROW not in regs:
+                out.append(f"{where}: names SIGIR material but not register row {SIGIR_ROW}")
+            if BARE_PUBLIC_DOMAIN.search(licence):
+                out.append(f"{where}: calls SIGIR-derived material public domain (CC BY-SA 4.0, CSIRO)")
+    return out
+
+
+def _read_text(p: Path) -> str:
+    try:
+        raw = p.read_bytes()
+        if p.name.endswith(".gz"):
+            raw = gzip.decompress(raw)
+    except (OSError, EOFError, gzip.BadGzipFile):
+        return ""
+    return raw.decode("utf-8", errors="replace")
+
+
+def sigir_probes(root: Path) -> dict[str, str]:
+    """The opening characters of the SIGIR notes' sentences (English 40, the three translations 15), each with its
+    whole sentence, without the consent sentence NCBI's benchmark appended to every note (and its translations)."""
+    en_file = root / SIGIR_NOTES / "notes_en.json"
+    if not en_file.is_file():
+        return {}
+    en = json.loads(en_file.read_text(encoding="utf-8"))
+    added = {(k, i) for k, ss in en.items() for i, s in enumerate(ss) if str(s).startswith(NCBI_ADDED)}
+    out: dict[str, str] = {}
+    for lang, n in (("en", 40), ("ja", 15), ("zh-TW", 15), ("mixed", 15)):
+        p = root / SIGIR_NOTES / f"notes_{lang}.json"
+        if p.is_file():
+            for k, sentences in json.loads(p.read_text(encoding="utf-8")).items():
+                out.update((s[:n], s) for i, s in enumerate(sentences)
+                           if (k, i) not in added and isinstance(s, str) and len(s) >= n + 5)  # fmt: skip
+    return out
+
+
+def _text_files(root: Path) -> Iterable[tuple[str, str]]:
+    stack = [root]
+    while stack:
+        here = stack.pop()
+        for p in sorted(here.iterdir()):
+            if p.name in SKIP_DIRS or (p.is_dir() and (p.name.startswith(".") or p.name in SKIP_SCAN)):
+                continue
+            if p.is_dir() and not p.is_symlink():
+                stack.append(p)
+            elif p.is_file() and p.name.lower().endswith(TEXT):
+                yield p.relative_to(root).as_posix(), _read_text(p)
+
+
+_SCANS: dict[str, tuple[list[str], list[str]]] = {}
+
+
+def _scan(root: Path) -> tuple[list[str], list[str]]:
+    """(the files that hold SIGIR note text, the problems of their labels): one read of every text file. The
+    repository's own scan is kept for the process (the tests call the check several times)."""
+    if root == ROOT and str(root) in _SCANS:
+        return _SCANS[str(root)]
+    probes = sigir_probes(root)
+    texts = dict(_text_files(root)) if probes else {}
+    prints = _fingerprints(probes)
+    files = sorted(f for f, t in texts.items() if _holds(t, prints))
+    out = [f"{f}: {line}" for f, t in sorted(texts.items()) if not f.startswith(RECORDS) and f not in CHECK_FILES
+           for line in _public_domain_lines(t)]  # fmt: skip
+    for f in files:
+        if not _attributed(root, f, texts.get(f, "")):
+            out.append(f"{f}: holds SIGIR 2016 note text without its attribution (CC BY-SA 4.0, CSIRO), in the "
+                       "file or in a README.md or NOTICE.md of its folder")  # fmt: skip
+    result = (files, out)
+    if root == ROOT:
+        _SCANS[str(root)] = result
+    return result
+
+
+WORD = re.compile(r"[A-Za-z]{4,}")
+
+
+def _fingerprints(probes: dict[str, str]) -> list[tuple[bool, frozenset[str], str]]:
+    """Each probe with the words (English, the first 70 characters) or characters (translations, the first 30) of its
+    sentence that a text must hold before the probe is looked for: a quote of the sentence's opening holds them."""
+    return [(p.isascii(), frozenset(WORD.findall(s[:70].rsplit(" ", 1)[0])) if p.isascii() else frozenset(s[:30]), p)
+            for p, s in sorted(probes.items())]  # fmt: skip
+
+
+def _holds(text: str, prints: list[tuple[bool, frozenset[str], str]]) -> bool:
+    """Does the text hold one of the probes? A probe is looked for only when its words or characters are all in the
+    text, which keeps the scan of the whole tree to seconds."""
+    words: set[str] | None = None
+    chars: set[str] | None = None
+    for ascii_, need, p in prints:
+        if ascii_:
+            words = set(WORD.findall(text)) if words is None else words
+            if not need <= words:
+                continue
+        else:
+            chars = set(text) if chars is None else chars
+            if not need <= chars:
+                continue
+        if p in text:
+            return True
+    return False
+
+
+def _public_domain_lines(text: str) -> list[str]:
+    """Lines that call the SIGIR notes (or their adaptations) public domain: a "public domain" line whose paragraph
+    (two lines either side) is about the notes. Plain "public domain" passes only on a line that also says CC BY-SA;
+    NCBI's "public domain notice" passes only on a line that names the labels, LICENSE.NCBI or NCBI's code or
+    corpora, and whose clause does not put it on the notes. The SPDX id LicenseRef-US-Public-Domain is not a claim
+    about the notes."""
+    low = text.lower()  # cheap tests first: most files name neither
+    if "domain" not in low or not any(k in low for k in SUBJECT_WORDS):
+        return []
+    lines = [SPDX_PD.sub("", x) for x in text.splitlines()]
+    out = []
+    for i, line in enumerate(lines):
+        if not PUBLIC_DOMAIN.search(line):
+            continue
+        lo, hi = i, i
+        while lo > 0 and i - lo < 2 and lines[lo - 1].strip():
+            lo -= 1
+        while hi < len(lines) - 1 and hi - i < 2 and lines[hi + 1].strip():
+            hi += 1
+        window = "\n".join(lines[lo : hi + 1])
+        if not PUBLIC_DOMAIN.search(line) or not SIGIR_SUBJECT.search(window):
+            continue
+        if "cc by-sa" in line.lower() or "license_name: public-domain" in line:
+            continue
+        if not BARE_PUBLIC_DOMAIN.search(line) and NCBI_LABELS.search(line) and not _notice_on_notes(line):
+            continue
+        out.append(f"line {i + 1} calls SIGIR 2016 material public domain (CC BY-SA 4.0, CSIRO): {line.strip()[:80]}")
+    return out
+
+
+NOTES_WORDS = re.compile(r"sigir|notes?\b|descriptions|translations|renderings|cohort", re.I)
+
+
+def _notice_on_notes(line: str) -> bool:
+    """Does the clause before a "public domain notice" put the notice on the notes ("the SIGIR notes carry NCBI's
+    public domain notice")? The clause runs back to the last ;, ., | or (."""
+    m = PUBLIC_DOMAIN.search(line)
+    head = line[: m.start()] if m else ""
+    clause = re.split(r"[;.|(]", head)[-1]
+    return bool(NOTES_WORDS.search(clause))
+
+
+def _attributed(root: Path, f: str, text: str) -> bool:
+    def says(t: str) -> bool:
+        return "cc by-sa" in t.lower() and ("csiro" in t.lower() or "koopman" in t.lower())
+
+    if says(text):
+        return True
+    parts = f.split("/")[:-1]
+    return any(says(_read_text(root / Path(*parts[:i], name)))
+               for i in range(len(parts), 0, -1) for name in LICENCE_FILES)  # fmt: skip
+
+
+def sigir_derived_files(root: Path = ROOT) -> list[str]:
+    """Every text file outside .cache that holds a sentence of the SIGIR notes (en, ja, zh-TW or mixed)."""
+    return _scan(root)[0]
+
+
+def sigir_problems(root: Path = ROOT) -> list[str]:
+    """No text file calls the SIGIR notes or their adaptations public domain (records under RECORDS excepted); every
+    file holding their text carries the attribution; every README, NOTICE.md or PROVENANCE.md under eval/ or
+    tests/fixtures/ that names SIGIR says CC BY-SA 4.0."""
+    out = list(_scan(root)[1])
+    for top in DATA_DOC_ROOTS:
+        for p in sorted((root / top).rglob("*")) if (root / top).is_dir() else []:
+            if p.name in LICENCE_FILES:
+                text = _read_text(p).lower()
+                if "sigir" in text and "cc by-sa 4.0" not in text:
+                    out.append(f"{p.relative_to(root).as_posix()}: names SIGIR 2016 but not its licence, CC BY-SA 4.0")
+    return out
+
+
+def dataset_file_problems(root: Path, files: list[str]) -> list[str]:
+    """A file under eval/ or tests/fixtures/ that holds SIGIR note text lies in a data set of eval/DATASETS.yaml
+    (the first word of its ``path``) that names register row pubacc-sigir-2016."""
+    f = root / DATASETS
+    if not f.is_file():
+        return []
+    entries = (yaml.safe_load(f.read_text(encoding="utf-8")) or {}).get("datasets") or {}
+    covered = [str(d.get("path") or "").split(" ")[0].rstrip("/") + "/" for d in entries.values()
+               if SIGIR_ROW in (d.get("register") or [])]  # fmt: skip
+    return [f"{x}: holds SIGIR 2016 note text but no eval/DATASETS.yaml entry naming {SIGIR_ROW} covers it"
+            for x in files if x.startswith(tuple(f"{t}/" for t in DATA_DOC_ROOTS))
+            and not any(x.startswith(c) for c in covered)]  # fmt: skip
+
+
 def check(root: Path = ROOT, register: Path | None = None, models: Path | None = None) -> list[str]:
     rows = load(register or root / "docs/licences/register.csv")
     files = shipped_data_files(root)
     out = row_problems(rows) + file_problems(rows, files) + snomed_problems(root, files)
+    out += dataset_problems(root, rows) + sigir_problems(root)
+    out += dataset_file_problems(root, sigir_derived_files(root))
     mfile = models or root / "models/registry.yaml"
     if mfile.is_file():
         out += model_problems(rows, list((yaml.safe_load(mfile.read_text(encoding="utf-8")) or {}).get("builds") or []))
