@@ -674,3 +674,67 @@ def test_the_previous_release_is_named_and_not_offered_as_a_button(ob: dict[str,
     assert 'data-testid="ops-previous-id">2026.11-1<' in prev and f.name in prev and "RUNBOOK §5" in prev
     assert "<form" not in prev and not [a for a in ops_pages.ACTIONS if "roll" in a or "downgrade" in a]
     assert c.post("/admin/ops/update_rollback", data={"csrf": csrf, "confirm": "yes"}).status_code == 404
+
+
+# ------------------------------------------- 10K-7 review B and C: an unreadable status, a bad name on the stick
+def _bad_status(ob: dict[str, Any], kind: str) -> None:
+    p = ob["dir"] / "ops" / "status.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.unlink(missing_ok=True)
+    if kind == "64 KiB + 1":
+        head = b'{"at": "2026-11-19T00:00:00+00:00", "pad": "'
+        p.write_bytes(head + b"a" * (tb_ops.MAX_JSON + 1 - len(head) - 2) + b'"}')
+    elif kind == "a FIFO":
+        os.mkfifo(p)
+    elif kind == "a folder":
+        p.mkdir()
+    elif kind == "not UTF-8":
+        p.write_bytes(b'{"at": "\xff\xfe"}')
+    elif kind == "deep nesting":
+        p.write_bytes(b'{"stick": ' + b"[" * 30000 + b"]" * 30000 + b"}")
+
+
+@pytest.mark.parametrize("kind", ["64 KiB + 1", "a FIFO", "a folder", "not UTF-8", "deep nesting"])
+def test_an_unreadable_status_file_is_said_plainly_and_never_shown(ob: dict[str, Any], kind: str) -> None:
+    c, _csrf = login(ob["app"])
+    _bad_status(ob, kind)
+    for tab in ("overview", "update"):
+        r = c.get(f"/admin/ops?tab={tab}")
+        assert r.status_code == 200, (tab, r.status_code)
+        assert 'data-testid="ops-status-unreadable"' in r.text and "Status unreadable" in r.text
+        assert 'data-testid="ops-stick-bundles"' not in r.text and "aaaaaaaa" not in r.text
+    if kind == "a FIFO":
+        os.unlink(ob["dir"] / "ops" / "status.json")
+    elif kind == "a folder":
+        (ob["dir"] / "ops" / "status.json").rmdir()
+    else:
+        (ob["dir"] / "ops" / "status.json").unlink()
+    assert 'data-testid="ops-status-unreadable"' not in c.get("/admin/ops?tab=update").text  # written again
+
+
+@pytest.mark.parametrize("name", ["trialbox-1.tar\n", "trialbox-1\r.tar", "trialbox-\x01.tar", "trialbox..1.tar",
+                                  "-rf.tar", "t" * 200 + ".tar"])  # fmt: skip
+def test_a_bad_bundle_name_is_refused_before_it_is_shown_or_audited(ob: dict[str, Any], name: str) -> None:
+    c, csrf = login(ob["app"])
+    for action in ("update_stick_check", "update_check", "update_quiet", "update_apply"):
+        r = c.post(f"/admin/ops/{action}", data={"csrf": csrf, "bundle": name, "confirm": "yes"})
+        assert r.status_code == 400, (action, r.status_code)
+    assert not _events(ob["audit"], "console.ops")
+    assert not list((ob["dir"] / "ops" / "requests").glob("*.json"))
+
+
+def test_a_newline_in_a_name_on_the_stick_never_reaches_the_page(ob: dict[str, Any]) -> None:
+    c, _csrf = login(ob["app"])
+    stick = ob["dir"] / "stick"
+    stick.mkdir()
+    (stick / "trialbox-2026.12-1.tar").write_bytes(b"a bundle")
+    (stick / "trialbox-2026.12-1.tar\n").write_bytes(b"a spoof")
+    (stick / "trialbox-spoof\r.tar").write_bytes(b"a spoof")
+    (ob["dir"] / "outside.tar").write_bytes(b"outside")
+    (stick / "trialbox-outside.tar").symlink_to(ob["dir"] / "outside.tar")
+    _fresh_status(ob)
+    page = c.get("/admin/ops?tab=update").text
+    listing = page[page.index('data-testid="ops-stick-bundles"') :]
+    listing = listing[: listing.index("</ul>")]
+    assert listing.count("<li>") == 1 and "trialbox-2026.12-1.tar" in listing
+    assert "trialbox-2026.12-1.tar\n" not in listing and "spoof" not in listing and "outside" not in listing

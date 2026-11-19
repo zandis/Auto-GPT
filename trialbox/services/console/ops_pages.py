@@ -61,7 +61,6 @@ RUNS: dict[str, tuple[str, dict[str, str]]] = {
 }
 SECRET_KEYS = ("name", "present", "age_days", "registered")  # what a secrets row may show; never a value
 _SHEET = re.compile(r"^network-sheet\.(en|ja|zh-TW)\.(html|md)$")
-_BUNDLE = re.compile(r"^[A-Za-z0-9][\w.\-]{0,120}\.tar$")
 _REQ = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{6}$")
 
 
@@ -115,10 +114,15 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return sess
 
     def status() -> dict[str, Any]:
-        st = ops.status()
-        if st is None and runner is not None:
+        st, why = ops.status_state()
+        if why == "missing" and runner is not None:
             st = runner.write_status()
         return st or {}
+
+    def status_unreadable() -> bool:
+        """10K-7 review B: the status file is there but not a small JSON object (over 64 KiB, a pipe or a folder,
+        not UTF-8, nested too deep): the page says so plainly; nothing of it is shown or guessed."""
+        return ops.status_state()[1] == "unreadable"
 
     def summary() -> dict[str, Any]:
         """The health tab's Operations tile and the overview: version, last backup and its age, the agent."""
@@ -179,6 +183,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             history=ops.history(30),
             pending=[a for a in ACTIONS if RUNS.get(a, (a, {}))[0] in busy],
             checks=checks,
+            status_unreadable=status_unreadable(),
             running=[r.get("id") for r in ops.running()],
             mine=mine,
             secrets_rows=secrets_rows,
@@ -203,7 +208,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         run_as, extra = RUNS.get(action, (action, {}))
         args: dict[str, str] = {}
         if run_as in ("update_check", "update_apply"):
-            if not _BUNDLE.match(bundle):
+            if not tb_ops.BUNDLE.match(bundle):  # 10K-7 review C: the runner's own strict name check
                 raise h.problem(400, "request.refused", reason="choose a staged bundle")
             args["bundle"] = bundle
         if action == "backup":  # D-455: the snapshot backup; no service is stopped or paused

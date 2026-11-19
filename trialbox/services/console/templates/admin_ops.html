@@ -13,6 +13,8 @@
 {% endfor %}</pre></details>{% endif %}
 {% else %}<p><span class="pill warn">{{ t('ops.waiting') }}</span> {{ t('ops.waiting.help') }}</p>{% endif %}
 </section>{% endif %}
+{# 10K-7 review B: a status file that is not a small JSON object is said plainly; nothing of it is shown #}
+{% if status_unreadable %}<p class="warn" role="alert" data-testid="ops-status-unreadable">{{ t('ops.status.unreadable') }}</p>{% endif %}
 {% if sm.agent_late %}<p class="warn" data-testid="ops-agent-late">{{ t('ops.agent.late') if sm.agent_seen_h is not none else t('ops.agent.never') }}</p>{% endif %}
 
 {% if tab == 'overview' %}
@@ -107,7 +109,8 @@
 <tbody>{% for r in sh.classes %}<tr data-class="{{ r['class'] }}" data-changed="{{ 'yes' if r.changed else 'no' }}"><td>{{ r['class'] }} {{ t('ops.update.cc.' ~ r['class']) }}</td><td>{{ t('ops.yes') if r.changed else t('ops.no') }}</td><td lang="ja">{{ r.what_ja or '–' }}</td></tr>{% endfor %}</tbody></table></div>
 <ul class="plain" data-testid="ops-impact-facts"><li>{{ t('ops.update.impact.downtime', n=sh.downtime_minutes) }}</li><li>{{ t('ops.update.impact.migration') }}: {{ t('ops.yes') if sh.database_migration else t('ops.no') }}</li><li>{{ t('ops.update.impact.reapproval') }}: {{ t('ops.yes') if sh.ruleset_reapproval else t('ops.no') }}</li></ul>{% endif %}
 {% if nt.note_ja %}<details open><summary>{{ t('ops.update.note') }}</summary><pre class="mono" lang="ja" data-testid="ops-note">{{ nt.note_ja }}</pre></details>{% endif %}
-{% if not sh or not nt.note_ja %}<p class="warn" data-testid="ops-note-none">{{ t('ops.update.note.none') }}</p>{% endif %}
+{% if nt.note_trimmed %}<p class="hint" data-testid="ops-note-trimmed">{{ t('ops.update.note.trimmed') }}</p>{% endif %}
+{% if not sh or (not nt.note_ja and not nt.note_trimmed) %}<p class="warn" data-testid="ops-note-none">{{ t('ops.update.note.none') }}</p>{% endif %}
 {% elif not ck or not ck.ok %}<p class="hint">{{ t('ops.update.note.verify_first') }}</p>{% endif %}
 <br>{{ act('update_check', t('ops.action.update_check'), 'secondary', b.name) }} {{ act('update_quiet', t('ops.action.update_quiet'), '', b.name) }} {{ act('update_apply', t('ops.action.update_apply'), 'danger', b.name) }}</li>{% endfor %}</ul>
 {% else %}<p class="hint" data-testid="ops-incoming-none">{{ t('ops.update.incoming.none') }}</p>{% endif %}

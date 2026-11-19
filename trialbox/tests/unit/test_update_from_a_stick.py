@@ -243,3 +243,143 @@ def test_the_status_says_the_quiet_hour_and_the_setting_that_does_not_read(tmp_p
     assert q == {"at": "05:00", "hours": "2", "zone": "", "wait_h": tb_ops.QUIET_WAIT_H, "bad": "TB_TZ"}
     r.box.env.update(update_drill.STICK_ENV)
     assert r.write_status()["quiet"]["bad"] == "" and r.write_status()["quiet"]["zone"] == "Asia/Tokyo"
+
+
+# ------------------------------------------------------- review C: a file name on the stick is checked before use
+GOOD = "trialbox-2026.12-1.tar"
+BAD_NAMES = {
+    "newline at the end": "trialbox-1.tar\n",
+    "newline inside": "trialbox-1\n.tar",
+    "carriage return": "trialbox-1\r.tar",
+    "a control character (NUL-like)": "trialbox-\x01.tar",
+    "DEL": "trialbox-\x7f.tar",
+    "two dots": "trialbox..1.tar",
+    "leading dash": "-rf.tar",
+    "leading dot": ".hidden.tar",
+    "not ASCII": "trialbox-１.tar",
+    "very long": "t" * 200 + ".tar",
+}
+
+
+@pytest.mark.parametrize("name", list(BAD_NAMES.values()), ids=list(BAD_NAMES))
+def test_a_bad_name_is_not_a_bundle_name(name: str) -> None:
+    assert tb_ops.BUNDLE.match(name) is None
+    assert tb_ops.BUNDLE.match(GOOD) is not None
+
+
+def _stick_with_bad_names(tmp: Path) -> Path:
+    stick = tmp / "stick"
+    stick.mkdir()
+    (stick / GOOD).write_bytes(b"a bundle")
+    for name in BAD_NAMES.values():
+        (stick / name).write_bytes(b"x")
+    outside = tmp / "outside.tar"
+    outside.write_bytes(b"a file outside the stick")
+    (stick / "link-outside.tar").symlink_to(outside)
+    (stick / f"{GOOD}.sha256").unlink(missing_ok=True)
+    (stick / "folder.tar").mkdir()
+    return stick
+
+
+def test_the_stick_lists_only_regular_files_with_a_bundle_name(tmp_path: Path) -> None:
+    _stick_with_bad_names(tmp_path)
+    r, _ = _runner(tmp_path)
+    st = r.write_status()
+    assert [b["name"] for b in st["stick"]["bundles"]] == [GOOD]
+    text = (tmp_path / "ops" / "status.json").read_text(encoding="utf-8")
+    for name in [*BAD_NAMES.values(), "link-outside.tar", "folder.tar"]:
+        assert json.dumps(name)[1:-1] not in text, repr(name)
+
+
+def test_a_linked_sidecar_does_not_count(tmp_path: Path) -> None:
+    stick = _stick_with_bad_names(tmp_path)
+    (stick / f"{GOOD}.sha256").symlink_to(tmp_path / "outside.tar")
+    r, _ = _runner(tmp_path)
+    assert r.write_status()["stick"]["bundles"][0]["sidecar"] is False
+
+
+def test_more_than_fifty_other_files_do_not_hide_a_bundle(tmp_path: Path) -> None:
+    stick = tmp_path / "stick"
+    stick.mkdir()
+    for i in range(60):
+        (stick / f"0-not-a-bundle-{i:02}\n.tar").write_bytes(b"x")
+    (stick / "zz-trialbox.tar").write_bytes(b"a bundle")
+    r, _ = _runner(tmp_path)
+    assert [b["name"] for b in r.write_status()["stick"]["bundles"]] == ["zz-trialbox.tar"]
+
+
+@pytest.mark.parametrize("name", [*BAD_NAMES.values(), "link-outside.tar", "folder.tar"],
+                         ids=[*BAD_NAMES, "a link to a file outside the stick", "a folder"])  # fmt: skip
+def test_a_bad_file_on_the_stick_is_never_copied_or_passed_to_a_command(tmp_path: Path, name: str) -> None:
+    _stick_with_bad_names(tmp_path)
+    r, calls = _runner(tmp_path)
+    res = _check(r, name)
+    assert res["ok"] is False and calls == []
+    assert not (tmp_path / "incoming").exists() or list((tmp_path / "incoming").iterdir()) == []
+    assert "\n" not in res["summary"] and "\r" not in res["summary"] and "\x01" not in res["summary"]
+
+
+# ---------------------------------------------- review B: the status file is read bounded, and unreadable is said
+def _status_file(tmp: Path, kind: str) -> Path:
+    p = tmp / "ops" / "status.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if kind == "64 KiB + 1":
+        head = b'{"at": "x", "pad": "'
+        p.write_bytes(head + b"a" * (tb_ops.MAX_JSON + 1 - len(head) - 2) + b'"}')
+        assert p.stat().st_size == tb_ops.MAX_JSON + 1
+    elif kind == "a FIFO":
+        os.mkfifo(p)
+    elif kind == "a folder":
+        p.mkdir()
+    elif kind == "not UTF-8":
+        p.write_bytes(b'{"at": "\xff\xfe"}')
+    elif kind == "nested past the recursion limit":
+        p.write_bytes(b'{"a": ' + b"[" * 30000 + b"]" * 30000 + b"}")
+        assert p.stat().st_size <= tb_ops.MAX_JSON
+    elif kind == "nested deeper than the runner writes":
+        p.write_bytes(b'{"a": ' + b"[" * 40 + b"]" * 40 + b"}")
+    elif kind == "not an object":
+        p.write_bytes(b"[1, 2]")
+    elif kind == "a link":
+        (tmp / "elsewhere.json").write_text('{"at": "x"}')
+        p.symlink_to(tmp / "elsewhere.json")
+    return p
+
+
+STATUS_KINDS = ["64 KiB + 1", "a FIFO", "a folder", "not UTF-8", "nested past the recursion limit",
+                "nested deeper than the runner writes", "not an object", "a link"]  # fmt: skip
+
+
+@pytest.mark.timeout(20)
+@pytest.mark.parametrize("kind", STATUS_KINDS)
+def test_a_status_file_that_is_not_a_small_object_is_unreadable_never_a_crash(tmp_path: Path, kind: str) -> None:
+    p = _status_file(tmp_path, kind)
+    assert tb_ops.OpsDir(tmp_path / "ops").status() is None  # the old reader raised RecursionError on deep nesting
+    assert tb_ops.read_json_state(p) == (None, "unreadable")
+    assert tb_ops.OpsDir(tmp_path / "ops").status_state() == (None, "unreadable")
+
+
+def test_a_missing_status_is_missing_and_a_good_one_reads(tmp_path: Path) -> None:
+    ops = tb_ops.OpsDir(tmp_path / "ops")
+    assert ops.status_state() == (None, "missing")
+    p = tmp_path / "ops" / "status.json"
+    p.parent.mkdir(parents=True)
+    p.write_text('{"at": "2026-11-19T00:00:00+00:00"}', encoding="utf-8")
+    assert ops.status_state() == ({"at": "2026-11-19T00:00:00+00:00"}, "")
+
+
+def test_a_status_with_long_release_notes_stays_readable(tmp_path: Path) -> None:
+    r, _ = _runner(tmp_path)
+    big = {f"trialbox-{i}.tar": {"bundle_id": f"2026.12-{i}", "note_ja": "長い説明。" * 4000, "impact": None,
+                                 "warnings": []} for i in range(3)}  # fmt: skip
+    r._notes = lambda incoming: json.loads(json.dumps(big))  # type: ignore[method-assign]
+    st = r.write_status()
+    p = tmp_path / "ops" / "status.json"
+    assert p.stat().st_size <= tb_ops.MAX_JSON
+    got, why = r.ops.status_state()
+    assert why == "" and got is not None and got["notes"]["trialbox-0.tar"]["note_trimmed"] is True
+    assert st["notes"]["trialbox-0.tar"]["note_ja"] is None
+    huge = {f"trialbox-{i}.tar": {"bundle_id": "x" * 2000, "warnings": ["w" * 2000] * 4} for i in range(20)}
+    r._notes = lambda incoming: json.loads(json.dumps(huge))  # type: ignore[method-assign]
+    st = r.write_status()
+    assert p.stat().st_size <= tb_ops.MAX_JSON and st["notes"] == {} and st["notes_trimmed"] is True

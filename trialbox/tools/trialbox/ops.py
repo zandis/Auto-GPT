@@ -60,7 +60,10 @@ ACTIONS: tuple[str, ...] = (
 )
 COMPOSE_ONLY = frozenset({"update_apply", "logs_collect"})
 REQ_ID = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{6}$")
-BUNDLE = re.compile(r"^[A-Za-z0-9][\w.\-]{0,120}\.tar$")
+# A bundle's file name, checked before it is shown, logged, audited or passed to any command (10K-7 review C): ASCII
+# letters, digits, ``.``, ``_`` and ``-`` only, a letter or digit first (never ``-`` or ``.``), no ``..``, ``.tar`` at
+# the end of the string (``\Z``: ``$`` would also match before a trailing newline), at most 125 characters.
+BUNDLE = re.compile(r"\A[A-Za-z0-9](?!.*\.\.)[A-Za-z0-9._-]{0,120}\.tar\Z", re.ASCII)
 BACKUP_FILE = re.compile(r"^trialbox-[\w\-]+-(\d{8}T\d{6}Z)\.tbbak$")
 SERVICE_UID = 10001  # the ``tb`` user of the trialbox-py image (svc_secrets.SERVICE_UID)
 STALE_HOURS = 36  # WS-08.5: the backup tile turns red 36 hours after the last backup
@@ -113,27 +116,54 @@ def _write_json(path: Path, data: Mapping[str, Any]) -> None:
 
 
 MAX_JSON = 64 * 1024  # a request, a result or the status is a few kilobytes
+MAX_JSON_DEPTH = 32  # nothing the runner writes nests deeper than a few levels
 
 
-def _read_json(path: Path) -> dict[str, Any] | None:
-    """A small JSON object from a regular file. The runner reads ``requests/`` as root and the console's user can
-    write there, so a link (to a file it may not read), a pipe (the timer would wait for ever) or a huge file is
-    skipped, never followed."""
+def _depth_ok(data: Any, limit: int = MAX_JSON_DEPTH) -> bool:
+    """Whether ``data`` nests no deeper than ``limit`` (walked without recursion)."""
+    todo: list[tuple[Any, int]] = [(data, 1)]
+    while todo:
+        d, n = todo.pop()
+        if isinstance(d, dict | list):
+            if n > limit:
+                return False
+            todo.extend((v, n + 1) for v in (d.values() if isinstance(d, dict) else d))
+    return True
+
+
+def read_json_state(path: Path) -> tuple[dict[str, Any] | None, str]:
+    """A small JSON object from a regular file, and why not: ``(data, "")``, ``(None, "missing")`` or
+    ``(None, "unreadable")``. The runner reads ``requests/`` as root and the console's user can write there, so a
+    link (to a file it may not read), a pipe or a folder (never waited on), a file over :data:`MAX_JSON` (at most
+    that much is read, never parsed when cut), text that is not UTF-8, JSON nested deeper than
+    :data:`MAX_JSON_DEPTH` or anything but an object is unreadable; nothing here raises."""
     try:
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    except FileNotFoundError:
+        return None, "missing"
     except OSError:
-        return None
+        return None, "unreadable"
     try:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_JSON:
-            return None
+            return None, "unreadable"
         with os.fdopen(fd, "rb", closefd=False) as f:
-            data = json.loads(f.read(MAX_JSON + 1).decode("utf-8"))
-    except (OSError, ValueError):
-        return None
+            raw = f.read(MAX_JSON + 1)
+        if len(raw) > MAX_JSON:  # it grew after the size was read: never parse a cut file
+            return None, "unreadable"
+        data = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError, RecursionError, MemoryError):
+        return None, "unreadable"
     finally:
         os.close(fd)
-    return data if isinstance(data, dict) else None
+    if not isinstance(data, dict) or not _depth_ok(data):
+        return None, "unreadable"
+    return data, ""
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    """:func:`read_json_state`'s object, or None when it is missing or unreadable."""
+    return read_json_state(path)[0]
 
 
 def _quiet_setting(env: Mapping[str, str]) -> tuple[Any, int, int, float] | str:
@@ -252,6 +282,11 @@ class OpsDir:
 
     def status(self) -> dict[str, Any] | None:
         return _read_json(self.root / "status.json")
+
+    def status_state(self) -> tuple[dict[str, Any] | None, str]:
+        """10K-7 review B: the status and why it is not there (``missing`` or ``unreadable``: :func:`read_json_state`),
+        so the console can say "status unreadable" instead of showing nothing or misreading a cut file."""
+        return read_json_state(self.root / "status.json")
 
     def write_result(
         self, req: Mapping[str, Any], ok: bool, summary: str, lines: Sequence[str], started: str, state: str = ""
@@ -763,6 +798,7 @@ class OpsRunner:
             for r in self.ops.pending()
             if _args(r).get("when") == "quiet" and r.get("action") == "update_apply"
         ]  # fmt: skip
+        _bound_status(st)
         _write_json(self.ops.root / "status.json", st)
         return st
 
@@ -778,6 +814,25 @@ class OpsRunner:
                     out[name] = {k: rec.get(k) for k in ("bundle_id", "release_seq", "note_ja", "impact", "warnings",
                                                           "verified_at")}  # fmt: skip
         return out
+
+
+def _status_bytes(st: Mapping[str, Any]) -> int:
+    return len(json.dumps(st, indent=1, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+
+
+def _bound_status(st: dict[str, Any]) -> None:
+    """10K-7 review B: the status stays readable (at most :data:`MAX_JSON` with room to spare). The release notes are
+    its only large part: their Japanese text goes first (``note_trimmed``; the verify result still shows the sheet),
+    then the notes altogether (``notes_trimmed``)."""
+    room = MAX_JSON - 4096
+    notes = st.get("notes") or {}
+    if _status_bytes(st) <= room or not notes:
+        return
+    for rec in notes.values():
+        if isinstance(rec, dict) and rec.get("note_ja"):
+            rec["note_ja"], rec["note_trimmed"] = None, True
+    if _status_bytes(st) > room:
+        st["notes"], st["notes_trimmed"] = {}, True
 
 
 def _sha_stream(fh: Any) -> str:
@@ -806,20 +861,31 @@ def quiet_facts(env: Mapping[str, str]) -> dict[str, Any]:
             "bad": got if isinstance(got, str) else ""}  # fmt: skip
 
 
+def _regular(p: Path) -> bool:
+    """A regular file itself, never through a link (a link on the stick may point anywhere on the box)."""
+    try:
+        return stat.S_ISREG(p.lstat().st_mode)
+    except OSError:
+        return False
+
+
 def stick_listing(box: Box) -> dict[str, Any]:
-    """10K-7 (D-1363): the bundles directly on the update stick (regular files of a bundle's name; a link is not
-    listed), and whether the vendor's ``.sha256`` sidecar is beside each. No file on the stick is opened here."""
+    """10K-7 (D-1363): the bundles directly on the update stick (regular files whose name passes :data:`BUNDLE`; a
+    link, a folder or any other name is not listed, so no name with a newline or a control character reaches the
+    page, a log or a command), and whether the vendor's ``.sha256`` sidecar is beside each (itself a regular file).
+    No file on the stick is opened here."""
     root = box.stick()
     out: dict[str, Any] = {"path": str(root), "mounted": root.is_dir(), "bundles": []}
     if not out["mounted"]:
         return out
-    with contextlib.suppress(OSError):
-        for p in sorted(root.iterdir())[:50]:
+    with contextlib.suppress(OSError):  # the names checked first, so other files cannot push a bundle off the list
+        for p in sorted(q for q in root.iterdir() if BUNDLE.match(q.name))[:50]:
             with contextlib.suppress(OSError):
                 st = p.lstat()
                 if BUNDLE.match(p.name) and stat.S_ISREG(st.st_mode):
-                    out["bundles"].append({"name": p.name, "bytes": st.st_size, "at": _mtime(p),
-                                           "sidecar": (root / f"{p.name}.sha256").is_file()})  # fmt: skip
+                    out["bundles"].append({"name": p.name, "bytes": st.st_size,
+                                           "at": datetime.fromtimestamp(st.st_mtime, UTC).isoformat(timespec="seconds"),
+                                           "sidecar": _regular(root / f"{p.name}.sha256")})  # fmt: skip
     return out
 
 
