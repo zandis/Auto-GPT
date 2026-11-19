@@ -144,6 +144,13 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ),
     ("tls_cert_file", "Hospital certificate and chain, PEM (hospital mode)", "", "str"),
     ("tls_key_file", "Its key, PEM (hospital mode)", "", "str"),
+    # 10K-21 (D-1365): asked for Caddy's own CA only; recorded with today's date (tls_root_confirmed_on in a file)
+    (
+        "tls_root_confirmed_by",
+        "Name of the hospital IT person who confirmed Caddy's root certificate is on every clinic PC (empty: not yet)",
+        "",
+        "str",
+    ),
     # D-138: log retention per country (tb_common.retention.DEFAULTS); "" = from the report language (ja -> jp)
     (
         "retention_rules",
@@ -251,6 +258,17 @@ COUNTRY_KEYS = {
     "year_basis": "year_basis",
 }
 NO_DEFAULT = "no default for this country: please answer"
+# 10K-21 (D-1365): a PRODUCTION site answers the chart-number question; asis is an answer, Enter is not
+CHARTNO_REQUIRED = "required in PRODUCTION: asis, digits:<width> or hex:<width>"
+HEALTH_PAGE = "health-page"  # tools.trialbox.backup_schedule.PAGE_ROUTE (D-735)
+
+
+def production(environment: str) -> bool:
+    """10K-21: the guards of a PRODUCTION site apply. The wizard is told (``--environment``, from deploy/install.sh);
+    not told, it reads answers as before (a test, a rehearsal, the box's apply step after its first-run page)."""
+    return environment.strip().upper() == "PRODUCTION"
+
+
 NO_RULES_DAYS = ("outputs_days", "attachments_days")  # asked only where the country has no retention rules here
 RULE_DAYS = ("logs_days", "mail_log_days", *NO_RULES_DAYS)
 
@@ -259,9 +277,12 @@ def _no_rules(cd: site_country.CountryDefaults, out: dict[str, Any]) -> bool:
     return cd is not site_country.LEGACY and not cd.retention_rules and not out.get("retention_rules")
 
 
-def _required(key: str, cd: site_country.CountryDefaults, out: dict[str, Any]) -> bool:
+def _required(key: str, cd: site_country.CountryDefaults, out: dict[str, Any], prod: bool = False) -> bool:
     """10K-1: a question with no default for this site, so an empty answer is asked again: a country value the table
-    does not hold, the SS-MIX2 storage's root folder, and the retention days where TrialBox has no rules."""
+    does not hold, the SS-MIX2 storage's root folder, and the retention days where TrialBox has no rules. 10K-21: the
+    chart-number rule on a PRODUCTION site."""
+    if prod and key == "chartno_rule":
+        return True
     if cd is site_country.LEGACY:
         return False
     if key in COUNTRY_KEYS and key != "retention_rules":
@@ -279,6 +300,8 @@ def _asked(key: str, cd: site_country.CountryDefaults, out: dict[str, Any]) -> b
         return str(out.get("data_source_type")) == "ssmix2"
     if key in NO_RULES_DAYS:
         return _no_rules(cd, out)
+    if key == "tls_root_confirmed_by":  # 10K-21: Caddy's own CA only
+        return str(out.get("tls_mode") or "").strip().lower() == "internal"
     return True
 
 
@@ -290,8 +313,9 @@ def _reply(prompt: Callable[[str], str], text: str, key: str) -> str:
         raise WizardError(f"{key}: no answer (the input ended)") from None
 
 
-def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[str, Any]:
+def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input, *, environment: str = "") -> dict[str, Any]:
     base = defaults()
+    prod = production(environment)  # 10K-21
     out: dict[str, Any] = {}
     cd = site_country.LEGACY
     preset = os.environ.get("TB_CTGOV_MODE", "").strip().lower()  # install.sh --ctgov: already answered
@@ -316,7 +340,7 @@ def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[s
         d = default if default is not None else base.get(key, "")
         if key in COUNTRY_KEYS and cd is not site_country.LEGACY:
             d = getattr(cd, COUNTRY_KEYS[key]) or ""
-        required = _required(key, cd, out)
+        required = _required(key, cd, out, prod)
         if required:  # review of #1088, items 3 and 5: no default; Enter is not an answer here
             d = ""
         if key in RULE_DAYS and required:
@@ -325,13 +349,13 @@ def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[s
         if isinstance(d, dict):
             shown = ", ".join(f"{k}=…" for k in d)
         if required:
-            shown = NO_DEFAULT
+            shown = CHARTNO_REQUIRED if prod and key == "chartno_rule" else NO_DEFAULT
         for _ in range(5):
             reply = _reply(prompt, f"{question} [{shown}]: ", key)
             if reply or not required:
                 break
         else:
-            raise WizardError(f"{key}: {NO_DEFAULT}")
+            raise WizardError(f"{key}: {shown}")
         out[key] = reply if reply else d
     out.update(answers)
     return out
@@ -436,10 +460,12 @@ def find_mapping(mapping: str, mapping_dirs: list[Path] | None = None) -> Path:
 
 
 def build(
-    a: dict[str, Any], mapping_dirs: list[Path] | None = None
+    a: dict[str, Any], mapping_dirs: list[Path] | None = None, *, environment: str = ""
 ) -> tuple[dict[str, Any], dict[str, str], list[str]]:
-    """Answers -> (settings dict, env dict, warnings). Raises WizardError on inconsistent answers."""
+    """Answers -> (settings dict, env dict, warnings). Raises WizardError on inconsistent answers. ``environment``:
+    the site's TB_ENV when the caller knows it; PRODUCTION refuses what 10K-21 (D-1365) says may not stay silent."""
     base = defaults()
+    prod = production(environment)
 
     def get(k: str) -> Any:
         return a.get(k, base.get(k))
@@ -476,6 +502,13 @@ def build(
     except re.error as exc:
         errors.append(f"mrn_regex does not compile: {exc}")
     chart_rule = chartno_rule(a.get("chartno_rule"), mrn_regex, errors, warnings)
+    chart_answered = bool(str(a.get("chartno_rule") or "").strip())  # 10K-21: asis typed is an answer
+    if prod and not chart_answered:
+        errors.append(
+            "chartno_rule is required in PRODUCTION: the rule cannot be changed once patients are loaded. Answer "
+            "digits:<width> or hex:<width> with the hospital's chart-number format, or asis where chart numbers are "
+            "taken exactly as written (D-1365)"
+        )
     if not mrn_regex:
         warnings.append(
             "mrn_regex was not answered: nothing checks what a chart number looks like, and a chart number written "
@@ -578,6 +611,7 @@ def build(
                 "policy), and personal devices cannot open the console; the hospital's certificate is the first "
                 "choice (RUNBOOK §12)"
             )
+            tls_env |= root_confirmation(a, errors, warnings)
     else:
         warnings.append("tls_hostname is empty: install.sh asks for it (a PRODUCTION box runs only behind https)")
     sae_to = str(a.get("sae_office_mailbox") or "").strip()
@@ -621,6 +655,7 @@ def build(
         elif v:
             dated[k] = v
     extra = env_extra(a.get("env_extra"), errors)
+    watcher_problem(extra, prod, errors, warnings)  # 10K-21
     if errors:
         raise WizardError("; ".join(errors))
     site_id = str(get("site_id")).upper()
@@ -696,6 +731,7 @@ def build(
         "TB_SITE_ID": site_id,
         "TB_TZ": settings["site"]["tz"],
         "TB_CHARTNO_RULE": chart_rule,  # NEW-DIN-3 (D-579): every service reads .env (tb_common.chartno)
+        **({"TB_CHARTNO_RULE_ANSWERED": "yes"} if chart_answered else {}),  # 10K-21: doctor tells chosen from silent
         "COMPOSE_PROFILES": "gpu" if str(a.get("llm_mode", "gpu")) == "gpu" else "stub",
         "TB_LLM_MODE": "vllm" if str(a.get("llm_mode", "gpu")) == "gpu" else "stub",
         "TB_EMBED_MODE": embed_mode,
@@ -740,6 +776,48 @@ def build(
         env["TB_SAE_OFFICE_MAILBOX"] = sae_to
     env.update(extra)
     return settings, env, warnings
+
+
+def root_confirmation(a: dict[str, Any], errors: list[str], warnings: list[str]) -> dict[str, str]:
+    """10K-21 (D-1365): with Caddy's own CA, who in hospital IT confirmed its root certificate is on every clinic PC,
+    and on which day (``tls_root_confirmed_on``, else today). Not answered is a warning, never a refusal: a new box
+    makes its root at Caddy's first start; ``doctor`` (named_choices) reports it until it is recorded."""
+    from tb_common.box_answers import confirmed_on, person_name
+
+    by = person_name(a.get("tls_root_confirmed_by"))
+    if by is None:
+        errors.append("tls_root_confirmed_by is not one plain name (one line; no quote, $, backquote, backslash or #)")
+        return {}
+    if not by:
+        warnings.append(
+            "tls_mode internal: nobody from hospital IT has confirmed that Caddy's root certificate is on every clinic "
+            "PC (tls_root_confirmed_by is empty); doctor warns until TB_TLS_ROOT_CONFIRMED_BY and "
+            "TB_TLS_ROOT_CONFIRMED_ON are in deploy/.env (RUNBOOK §12)"
+        )
+        return {}
+    on = confirmed_on(a.get("tls_root_confirmed_on"))
+    if on is None:
+        errors.append("tls_root_confirmed_on must be a day (YYYY-MM-DD), today or before")
+        return {}
+    return {"TB_TLS_ROOT_CONFIRMED_BY": by, "TB_TLS_ROOT_CONFIRMED_ON": on}
+
+
+def watcher_problem(extra: dict[str, str], prod: bool, errors: list[str], warnings: list[str]) -> None:
+    """10K-21 (D-1365): the health page as the backup alert route (``TB_BACKUP_ALERT_ROUTE=health-page``, D-735)
+    names the person who opens it every working day (``TB_BACKUP_ALERT_WATCHER``). Unnamed: refused in PRODUCTION,
+    a warning elsewhere. A box's first-run page asks it (``health_page_person``)."""
+    from tb_common.box_answers import person_name
+
+    if extra.get("TB_BACKUP_ALERT_ROUTE", "").strip().lower() != HEALTH_PAGE:
+        return
+    who = person_name(extra.get("TB_BACKUP_ALERT_WATCHER"))
+    if who is None:
+        errors.append("env_extra: TB_BACKUP_ALERT_WATCHER is not one plain name (one line; no quote, $, backquote, "
+                      "backslash or #)")  # fmt: skip
+    elif not who:
+        why = ("the backup alert route is the health page and nobody is named to open it every working day: give "
+               "TB_BACKUP_ALERT_WATCHER (a box: health_page_person) (D-1365)")  # fmt: skip
+        (errors if prod else warnings).append(why)
 
 
 def env_extra(raw: Any, errors: list[str]) -> dict[str, str]:
@@ -804,6 +882,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, default=ROOT / "deploy" / "settings.yaml")
     ap.add_argument("--env-out", type=Path, help="also write the .env (mode 0600)")
     ap.add_argument("--check", type=Path, help="only validate an existing settings.yaml")
+    ap.add_argument(  # 10K-21 (D-1365): deploy/install.sh says it; PRODUCTION refuses a silent chart-number rule
+        "--environment",
+        type=str.upper,
+        choices=("DEV", "TEST", "VALIDATION", "PRODUCTION"),
+        default="",
+        help="the site's TB_ENV (deploy/install.sh gives it); PRODUCTION asks what may not stay silent",
+    )
     ap.add_argument(
         "--mapping-dir",
         type=Path,
@@ -824,13 +909,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     answers = yaml.safe_load(args.answers.read_text(encoding="utf-8")) if args.answers else {}
     try:
-        a = answers if args.answers else ask({})
+        a = answers if args.answers else ask({}, environment=args.environment)
     except WizardError as exc:  # 10K-1: a refused or missing answer, said as every other refusal
         print(f"not written: {exc}", file=sys.stderr)
         return 1
     try:
         dirs = list(args.mapping_dir) + ([args.answers.parent / "mapping"] if args.answers else [])
-        settings, env, warnings = build(a, dirs)
+        settings, env, warnings = build(a, dirs, environment=args.environment)
         write(settings, env, args.out, args.env_out)
     except (WizardError, ConfigError) as exc:
         print(f"not written: {exc}", file=sys.stderr)

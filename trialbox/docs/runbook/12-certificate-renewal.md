@@ -9,7 +9,9 @@
 
 **Internal CA** (`TB_TLS_MODE` not `hospital`). Caddy renews its own server certificate by itself; nothing to do. The
 root certificate on the staff PCs lasts for years; when Caddy makes a new root (the `caddy-data` volume was lost),
-hospital IT must push the new root to the PCs again (§12, TLS step 3).
+hospital IT must push the new root to the PCs again (§12, TLS step 3). Record who in IT confirmed the root is on the
+PCs, and the day, as `TB_TLS_ROOT_CONFIRMED_BY` and `TB_TLS_ROOT_CONFIRMED_ON` (YYYY-MM-DD) in `deploy/.env` (the
+wizards ask it at set-up); `doctor` (`named_choices`) WARNs on a PRODUCTION box until both are there (D-1365).
 
 **The hospital's certificate** (`TB_TLS_MODE=hospital`).
 

@@ -74,7 +74,8 @@ keeps the shipped cap. The machine needs that memory beside the other services'.
 is to be taken exactly as written. The wizard writes it to `deploy/.env` as `TB_CHARTNO_RULE`, and every service
 writes a chart number that way before it becomes a pseudonym, so `123456` from a sheet that dropped the zeros and
 `00123456` are one patient. The wizard refuses a rule the MRN pattern does not fit (the pattern must say one fixed
-width, with both anchors). With no answer it keeps `asis` and warns; it never reads a rule from the pattern. Set
+width, with both anchors). With no answer it keeps `asis` and warns, except on a PRODUCTION site, where it refuses
+to finish until the question is answered (`asis` is an answer; D-1365); it never reads a rule from the pattern. Set
 it at install: once the box has loaded patients the tools refuse another rule, because it would change the
 pseudonym of every chart number that is not already written the new way.
 

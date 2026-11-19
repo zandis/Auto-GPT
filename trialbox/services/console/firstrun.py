@@ -60,11 +60,13 @@ def country_on(env: Mapping[str, str]) -> bool:
 
 
 # 10K-1 (review of #1088): the answers a re-shown form carries back, by name: the form's own non-secret fields only
-# (an allowlist; a password, a code, a passphrase or a field the form does not have is never sent back)
+# (an allowlist; a password, a code, a passphrase or a field the form does not have is never sent back). 10K-21: the
+# two named people (operational contact names, not secrets)
 SS_FIELDS = ("ssmix2_root", "ssmix2_order_numbers")
 FORM_FIELDS = ("site_name", "tz", "language", "owner_full_name", "owner_username", "owner_email", "box_name",
                "backup_kind", "backup_disk", "backup_share", "source", "chartno_kind", "chartno_width", *SS_FIELDS,
-               *OVERRIDABLE, "printed_dates", "year_basis")  # fmt: skip
+               *OVERRIDABLE, "printed_dates", "year_basis",
+               "health_page_person", "tls_root_confirmed_by")  # fmt: skip
 
 
 def offered_sources(country: str, asks_country: bool) -> list[str]:
@@ -140,6 +142,7 @@ class FirstRunHooks:
     secure: bool
     folder: Path | None
     country: bool = False  # 10K-1: the country asked first (country_on); off by default
+    production: bool = False  # 10K-21 (D-1365): a PRODUCTION box (TB_ENV): what may not stay silent is required
 
 
 def _sha(text: str) -> str:
@@ -206,7 +209,7 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
             countries=site_country.COUNTRIES, ss_orders=site_country.SSMIX2_ORDER_NUMBERS,
             ask_retention=ask_retention, retention_keys=OVERRIDABLE, printed_styles=dates.PRINTED_STYLES,
             country_dates=(cd.printed_dates, cd.year_basis),
-            year_bases=dates.YEAR_BASES, **ctx,
+            year_bases=dates.YEAR_BASES, production=h.production, **ctx,
         )  # fmt: skip
 
     @app.get(PATH)
@@ -295,6 +298,10 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
             held = box_holds_patients()
             if held is not False:  # D-710: "could not be read" is said as that, not as "holds patients"
                 errors["chartno_rule"] = "chartno_locked" if held else "chartno_unread"
+        if answers is not None and h.production:  # 10K-21 (D-1365): what a PRODUCTION box may not leave silent
+            asked = bool(answers.chartno_rule) or box_holds_patients() is False  # not asked: the box's rule stays
+            for gap in box_answers.production_gaps(answers, chartno_asked=asked):
+                errors.setdefault(gap.field, gap.code)
         pw = data.get("password", "")
         try:
             check_password_policy(pw)

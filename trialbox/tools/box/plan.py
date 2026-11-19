@@ -526,6 +526,12 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         warnings.append("backups: none yet; the box's health stays red until a second disk or a share is set (T-730)")
     env["TB_BACKUP_MAILTO"] = email  # OD-16: the owner is told (the message path itself is T-730's)
     env["TB_BACKUP_ALERT_ROUTE"] = "health-page"  # D-735: without a mail agent the health tab carries the alert
+    # 10K-21 (D-1365): the first-run page's answers, written only when given (a box that was not asked: as before)
+    if a.health_page_person:
+        env["TB_BACKUP_ALERT_WATCHER"] = a.health_page_person  # who opens the health tab every working day
+    if a.tls_root_confirmed_by:  # who in hospital IT confirmed the box's root certificate is on the PCs, and when
+        env["TB_TLS_ROOT_CONFIRMED_BY"] = a.tls_root_confirmed_by
+        env["TB_TLS_ROOT_CONFIRMED_ON"] = a.tls_root_confirmed_on
     env["TB_ENV"] = a.environment  # D-822: the owner's answer, PRODUCTION unless VALIDATION
     wizard: dict[str, Any] = {
         "site_id": site_id(a.site_name),

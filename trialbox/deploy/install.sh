@@ -315,6 +315,16 @@ MAPPING_MOUNT=(-v "$ROOT/deploy/site/mapping:/etc/trialbox/mapping:ro")
 if [ -n "$ANSWERS" ] && [ -d "$(dirname "$ANSWERS")/mapping" ] && [ "$(cd "$(dirname "$ANSWERS")/mapping" && pwd)" != "$ROOT/deploy/site/mapping" ]; then
   cp -rn "$(dirname "$ANSWERS")/mapping/." deploy/site/mapping/ && echo "    site mapping folder: deploy/site/mapping (from $(dirname "$ANSWERS")/mapping)"
 fi
+# WIZARD-ENV (D-1365): the wizard is told the site's environment, so PRODUCTION refuses a silent chart-number rule
+# and an unnamed health-page watcher. As ENVIRONMENT below decides it: --environment, a rehearsal's VALIDATION, a
+# TB_ENV written before, else PRODUCTION (D-127). A box's first-run page asks them itself (TB_BOX=1): not told there
+WIZ_ARGS=()
+if [ "${TB_BOX:-0}" != 1 ]; then
+  WIZ_ENV="$ENVIRONMENT"; [ -n "$WIZ_ENV" ] || { [ "$REHEARSAL" != 1 ] || WIZ_ENV=VALIDATION; }
+  WIZ_ENV="$(printf '%s' "${WIZ_ENV:-${PRE_ENV:-PRODUCTION}}" | tr '[:lower:]' '[:upper:]')"
+  case "$WIZ_ENV" in DEV|TEST|VALIDATION|PRODUCTION) WIZ_ARGS=(--environment "$WIZ_ENV") ;; esac
+fi
+# ---- end of WIZARD-ENV (D-1365)
 SETTINGS_NEW=0
 if [ ! -f deploy/settings.yaml ]; then
   SETTINGS_NEW=1  # D-736: a fresh install (a re-run keeps the site's settings and never stops a running site)
@@ -322,12 +332,12 @@ if [ ! -f deploy/settings.yaml ]; then
     [ -f "$ANSWERS" ] || die "no such answers file: $ANSWERS"
     tree_args
     docker run --rm -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" -v "$(cd "$(dirname "$ANSWERS")" && pwd)/$(basename "$ANSWERS"):/in/answers.yaml:ro" \
-      --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.settings_wizard --answers /in/answers.yaml --out /out/settings.yaml --env-out /out/.env
+      --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.settings_wizard --answers /in/answers.yaml --out /out/settings.yaml --env-out /out/.env ${WIZ_ARGS[@]+"${WIZ_ARGS[@]}"}
   else
     [ -t 0 ] || die "no deploy/settings.yaml and no terminal for the questions: pass --answers site.yaml (RUNBOOK §1 step 3)"
     tree_args
     docker run --rm -it -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
-      python -m tools.settings_wizard --out /out/settings.yaml --env-out /out/.env
+      python -m tools.settings_wizard --out /out/settings.yaml --env-out /out/.env ${WIZ_ARGS[@]+"${WIZ_ARGS[@]}"}
   fi
 else
   echo "    keeping deploy/settings.yaml (re-validating)"
