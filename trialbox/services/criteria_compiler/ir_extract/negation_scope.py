@@ -134,7 +134,9 @@ _EN_PSEUDO = (
     r"\b(?:no|without)\s+(?:known\s+)?contraindications?\b"  # its noun form (card 10A-1c)
 )
 # a cue inside the concept word itself ("non-pregnant", "nonsmoker", "untreated", "ex-smoker")
-_EN_PREFIX = r"(?:non-?|un|ex-)"
+# a negating prefix in the same word as the concept: the word is not that concept ("non-small cell", "non small cell",
+# "untreated", "asymptomatic" and "atypical" with "symptomatic" / "typical …" coded; card 10A-1c added "non " and "a")
+_EN_PREFIX = r"(?:non[-\s]?|un-?|a-?|ex-)"
 _EN_PREFIXED = (
     r"\b(?:non-?(?:pregnan|lactat|breast-?feed|smok|drink|user|respond)|un(?:treated|exposed|vaccinated|diagnosed)|"
     r"ex-?(?:smok|drink|user))\w*"

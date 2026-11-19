@@ -270,6 +270,15 @@ RULES: dict[str, tuple[list[Line], list[Line]]] = {
             ("月經不規則之婦女。", ["月經不規則"], []),
             ("原因不明之發燒。", ["發燒"], []),
             ("不孕症患者。", ["不孕症"], []),
+            # card 10A-1c: a negating prefix on another word, or a name that holds the prefix itself, runs
+            ("Nonspecific interstitial pneumonia.", ["interstitial pneumonia"], []),
+            ("Nonspecific interstitial pneumonia.", ["nonspecific interstitial pneumonia"], []),
+            ("Asymptomatic gallstones.", ["asymptomatic gallstones"], []),
+            ("Patients with a symptomatic hernia.", ["symptomatic hernia"], []),
+            ("Typical pneumonia.", ["typical pneumonia"], []),
+            ("Anemia.", ["anemia"], []),
+            ("非常に重症の喘息。", AS, []),
+            ("無症候性脳梗塞。", ["脳梗塞"], []),
             ("ナイアシン投与中の脂質異常症。", ["脂質異常症"], []),
             # card 10A-1c: a coded name that holds a descriptor whole is found in the line
             ("非小細胞肺癌の患者。", ["非小細胞肺癌"], []),
@@ -298,6 +307,16 @@ RULES: dict[str, tuple[list[Line], list[Line]]] = {
             ("非小細胞肺癌の患者。", ["小細胞肺癌"], []),
             ("Non-Hodgkin lymphoma.", ["Hodgkin lymphoma"], []),
             ("非何杰金淋巴瘤。", ["何杰金淋巴瘤"], []),
+            # card 10A-1c: a coded name right after a negating prefix in the same word is not that concept
+            ("Asymptomatic gallstones.", ["symptomatic gallstones"], []),
+            ("Atypical pneumonia.", ["typical pneumonia"], []),
+            ("Unresectable pancreatic cancer.", ["resectable pancreatic cancer"], []),
+            ("Non smokers with asthma.", ["smoker"], []),
+            ("Non small cell lung cancer.", ["small cell lung cancer"], []),
+            ("Ｎｏｎ－ｓｍａｌｌ ｃｅｌｌ ｌｕｎｇ ｃａｎｃｅｒ.", ["small cell lung cancer"], []),
+            ("非ＳＴ上昇型心筋梗塞。", ["ST上昇型心筋梗塞"], []),
+            ("無症候性脳梗塞。", ["症候性脳梗塞"], []),
+            ("無症候性脳梗塞。", ["症候"], []),
             # card 10A-1c: なし in katakana, full width and half width
             ("化学療法歴：ナシ", CH, []),
             ("化学療法歴：ﾅｼ", CH, []),
