@@ -142,20 +142,20 @@ def _norm(text: str) -> str:
     return _canon(_sorted_lists(json.loads(text)))
 
 
-def _is_sorted(xs: list[Any]) -> bool:
-    keys = [_canon(x) for x in xs]
-    return keys == sorted(keys)
+def _holds_ids(x: Any) -> bool:
+    return bool(TOKEN.search(_canon(x)))
 
 
 def _ordered(raw: Any, mapped: Any) -> Any:
-    """``mapped`` (``raw`` with its ids mapped, same shape) with each list kept in its order, except a list that is
-    in sorted order in ``raw``: its order follows the ids, so it is sorted again after the mapping (D-1253 review H:
-    a list whose order changed for any other reason is a difference, never compared as a set)."""
+    """``mapped`` (``raw`` with its ids mapped, same shape) with each list kept in its order, except a list whose items
+    hold record ids: the lake and the engine list those in the order of the ids (storage order), so with new ids the
+    order may change; it is compared as a multiset. D-1253 review H: any other list whose order changed is a
+    difference, never compared as a set."""
     if isinstance(raw, dict) and isinstance(mapped, dict):
         return {k: _ordered(raw[k], mapped[k]) for k in mapped}
     if isinstance(raw, list) and isinstance(mapped, list):
         items = [_ordered(r, m) for r, m in zip(raw, mapped, strict=True)]
-        return sorted(items, key=_canon) if _is_sorted(raw) else items
+        return sorted(items, key=_canon) if any(_holds_ids(r) for r in raw) else items
     return mapped
 
 

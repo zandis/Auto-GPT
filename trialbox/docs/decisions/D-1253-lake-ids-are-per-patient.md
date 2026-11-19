@@ -228,8 +228,8 @@
     - on an empty dump;
     - on a data set or file with nothing compared;
     - on a file found on one side only;
-    - on a list whose order changed. Only a list in sorted order on both sides (its order follows the ids) may be
-      re-sorted after the mapping.
+    - on a list whose order changed. Only a list whose items hold record ids (the lake and the engine list them in
+      the order of the ids) may be in another order after the mapping.
   - **The new golden set** `ssmix2-jp-per-patient` holds the same 400 synthetic patients, with every number a
     running number per patient (`tools.synth_hospital.per_patient_numbers`). So the goldens hold the repeated-number
     case from now on.

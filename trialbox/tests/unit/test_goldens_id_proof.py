@@ -1,7 +1,7 @@
 """D-1253 review H: the goldens id proof (``tools/goldens_id_proof.py compare``) never passes with nothing compared.
 
 It fails on an empty dump, a data set with no file or no row in both dumps, a file only in the new dump or only in
-the old one, and a list whose order changed. A list whose order follows the ids (in sorted order on both sides) may
+the old one, and a list whose order changed. A list whose items hold record ids (listed in the order of the ids) may
 be in another order once the ids are mapped; any other list keeps its order. Synthetic dumps only."""
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def test_ids_that_map_one_to_one_and_nothing_else_moved_is_proved(tmp_path: Path
     outcome = "s1/rulesets/R.outcomes.jsonl.gz"
     old, new = _old_new(tmp_path, {outcome: [{"evidence": [A, B], "steps": ["z", "a"]}]},
                         {outcome: [{"evidence": [Y, X], "steps": ["z", "a"]}]})  # fmt: skip
-    assert proof.compare(old, new) == 0  # the id-sorted list is sorted again; the other keeps its order
+    assert proof.compare(old, new) == 0  # the list of ids may change order; the other keeps its order
 
 
 def test_empty_dumps_prove_nothing(tmp_path: Path) -> None:

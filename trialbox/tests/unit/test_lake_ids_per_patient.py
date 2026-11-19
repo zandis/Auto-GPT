@@ -383,6 +383,14 @@ def test_a_merged_chart_keeps_its_records_under_its_own_ids_now_the_surviving_pa
     assert all(PID[A] not in json.dumps(r) for rs in held.values() for r in rs)
 
 
+def _night_mapper(path: Path) -> Mapper:
+    """A mapper as the night builds it: each record says its source row (``meta.source``), as the counts read it."""
+    from adapter.pipeline import ingest_instant
+
+    m = Mapping.load(path)
+    return Mapper(m, KEY, "T", ingest_instant("2026-10-01", m.tz))
+
+
 def _unique_site(tmp_path: Path) -> Path:
     return _site(tmp_path, [{"type": "Condition", "table": "thing", "id": {"hid": "no", "unique": "site"},
                              "elements": SUBJECT}])  # fmt: skip
@@ -394,7 +402,7 @@ def test_a_number_declared_unique_across_the_site_is_one_record_whichever_patien
     from adapter.mapping.engine import resource_id
     from adapter.ndjson import write_snapshot
 
-    _m, mp = _mapper(_unique_site(tmp_path))
+    mp = _night_mapper(_unique_site(tmp_path))
     (a,) = list(mp.map_table("thing", iter([{"no": "N1", "mrn": A}])))
     (b,) = list(mp.map_table("thing", iter([{"no": "N1", "mrn": B}])))
     assert a["id"] == b["id"] == resource_id(KEY, "Condition", "N1")
@@ -403,11 +411,34 @@ def test_a_number_declared_unique_across_the_site_is_one_record_whichever_patien
     refiled: dict[str, int] = {}
     write_snapshot(tmp_path / "delta", {"Condition": [b]}, base=tmp_path / "s1", refiled=refiled)
     write_snapshot(tmp_path / "full", {"Condition": [b, *other]})
-    assert refiled == {"Condition": 1}
+    assert refiled == {"thing": 1}  # per source table, as the night's other table counts
     assert (tmp_path / "delta/Condition.ndjson").read_text() == (tmp_path / "full/Condition.ndjson").read_text()
     again: dict[str, int] = {}
     write_snapshot(tmp_path / "same", {"Condition": [a]}, base=tmp_path / "s1", refiled=again)
     assert again == {}
+
+
+def test_a_wrong_unique_site_declaration_shows_in_the_counts_when_two_patients_share_a_number(tmp_path: Path) -> None:
+    """The lane lead's condition on ``unique: site``: a wrong declaration is the original fault again, so it must show.
+    Patients A and B genuinely share number N1, under a mapping that wrongly says N1 is the site's. The same night
+    counts a collision (two rows, one id, other content); a night that sends B's N1 over a snapshot holding A's
+    counts a move. Both reach the night's counts and the console card."""
+    from adapter.ndjson import write_snapshot
+
+    mp = _night_mapper(_unique_site(tmp_path))
+    rows_a = list(mp.map_table("thing", iter([{"no": "N1", "mrn": A}])))
+    rows_b = list(mp.map_table("thing", iter([{"no": "N1", "mrn": B}])))
+    clashes: dict[str, int] = {}
+    write_snapshot(tmp_path / "one-night", {"Condition": [*rows_a, *rows_b]}, collisions=clashes)
+    assert clashes == {"Condition": 1}
+    write_snapshot(tmp_path / "s1", {"Condition": rows_a})
+    moved: dict[str, int] = {}
+    write_snapshot(tmp_path / "s2", {"Condition": rows_b}, base=tmp_path / "s1", refiled=moved)
+    assert moved == {"thing": 1}
+    from console import dataops_page
+
+    got = dataops_page.ids_of({"id_collisions": clashes, "moved_to_another_patient": moved})
+    assert ("moved", "thing", 1) in got and ("collisions", "Condition", 1) in got
 
 
 def test_an_undeclared_number_re_filed_to_another_patient_is_corrected_by_the_next_full_night(tmp_path: Path) -> None:

@@ -143,11 +143,13 @@ def _snapshots(lake: Path) -> list[str]:
 
 
 def month_ends(lake: Path, today: date) -> list[str]:
-    """The snapshots retention keeps as month-ends (not the nightly ones): moved aside, never deleted."""
+    """Every completed month's month-end snapshot (not the nightly ones): moved aside, never deleted. Every month, not
+    only those the site's retention keeps: the nightly prune applies the site's own setting to the aside folder
+    (``adapter.pipeline._prune_aside``), so nothing the site keeps is lost here."""
     from tb_common.retention import snapshots_to_keep
 
     snaps = _snapshots(lake)
-    months = int(os.environ.get("TB_KEEP_MONTH_END_MONTHS") or 36)
+    months = 12 * 100  # every completed month on the box
     # with what an earlier run (cut short) moved already: a month keeps its own month-end, never a second one
     return sorted(snapshots_to_keep(set(snaps) | set(_aside(lake)), today, 0, months) & set(snaps))
 

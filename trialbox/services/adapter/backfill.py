@@ -68,10 +68,10 @@ from adapter.pipeline import (
     completeness_check,
     ingest_instant,
     make_source,
+    map_or_reject,
     merge_base,
     reference_maps,
     refuse_future_night,
-    reject_key,
 )
 from adapter.sources.base import has_table
 from adapter.validate.validator import Hl7Validator, StructuralValidator, missing_required
@@ -298,10 +298,8 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                             if idents:
                                 pm.upsert_identity(idents)
                             pairs, idents = [], []
-                    try:
-                        mapped = list(mapper.map_table(table, iter([row])))
-                    except (ValueError, ArithmeticError) as exc:  # D-527: as the night does, by reason (STD-025)
-                        bad[reject_key(exc)] += 1
+                    mapped = map_or_reject(mapper, table, row, bad)  # D-527, STD-025: as the night, by reason
+                    if mapped is None:
                         continue
                     for res in mapped:
                         emit(res)

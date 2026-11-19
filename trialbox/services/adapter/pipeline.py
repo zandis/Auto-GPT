@@ -881,13 +881,10 @@ def _run_ingest(
             # the table goes on, and the night is held only when rejects pass REJECT_MAX_PCT % of the table's rows
             rejected: Counter[str] = Counter()
             for row in rows:
-                try:
-                    mapped = list(mapper.map_table(table, iter([row])))
-                except (ValueError, ArithmeticError) as exc:
-                    # NEW-B-6 (D-527): a number the mapper reads and cannot compute with (thirty digits:
-                    # decimal.InvalidOperation) is a row it cannot read, as a ValueError is; it ended the night before
-                    rejected[reject_key(exc)] += 1
+                mapped_or_none = map_or_reject(mapper, table, row, rejected)
+                if mapped_or_none is None:
                     continue
+                mapped = mapped_or_none
                 for res in mapped:
                     to_spool(res)
                 if since:
@@ -1672,6 +1669,19 @@ def refuse_future_night(snap: str, today: date) -> None:
             f"night {snap} is dated after today ({today.isoformat()} at the site): it is not ingested. Check the "
             "date given to the run and the box's clock"
         )
+
+
+def map_or_reject(mapper: Mapper, table: str, row: dict[str, Any], rejected: Counter[str]) -> list[Resource] | None:
+    """One source row mapped, or None when the mapping cannot read it: then it is counted in ``rejected`` under its
+    reason (:func:`reject_key`). The night and the back-fill reject alike (D-1253 review F).
+
+    NEW-B-6 (D-527): a number the mapper reads and cannot compute with (thirty digits: decimal.InvalidOperation) is a
+    row it cannot read, as a ValueError is; it ended the night before."""
+    try:
+        return list(mapper.map_table(table, iter([row])))
+    except (ValueError, ArithmeticError) as exc:
+        rejected[reject_key(exc)] += 1
+        return None
 
 
 def reject_key(exc: BaseException) -> str:
