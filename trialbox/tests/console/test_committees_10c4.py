@@ -14,12 +14,17 @@ Synthetic data only: committees, establishing bodies and versions are samples (�
 
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
 from console.i18n import CATALOGUES
 from tb_common import committees as cm
 
+from tests.console.test_cjk_layout import PHONE, SCRIPT, _node_playwright
 from tests.console.test_console_app import box, login, name_pi  # noqa: F401 - box is a fixture
 from tests.console.test_role_pages import PW, _csrf, _user
 from tests.console.test_t102b_roles import _api
@@ -286,3 +291,35 @@ def test_every_key_in_the_three_languages() -> None:
             assert f"cmt.f.{code}" in CATALOGUES[lang]
             if code not in ("kind_unset", "no_contract"):
                 assert f"sid.cmt.{code}" in CATALOGUES[lang]
+
+
+# ---------------------------------------------------------------------------------------------- a phone
+@pytest.mark.skipif(not _node_playwright(), reason="Node Playwright is not installed")
+def test_the_pages_fit_a_phone_in_three_languages(jbox: dict[str, Any], tmp_path: Path) -> None:
+    """The committee page (form, findings), the IRB page with its committee card and the state page's refusal, at
+    390 px in en, ja and zh-TW, measured in Chromium (``tests/console/cjk_layout.js``: no sideways scroll, no label
+    broken to one character)."""
+    _startup(jbox)
+    crc = _user(jbox, "crc1", "coordinator")
+    _record(crc, kind="shishin", external="1", establisher="見本大学", current_version="1.0")
+    out = tmp_path / "pages"
+    out.mkdir()
+    pages: list[dict[str, Any]] = []
+    for lang in ("en", "ja", "zh-TW"):
+        crc.post("/lang", data={"csrf": _csrf(crc.get("/").text), "lang": lang, "back": "/"})
+        for name, text in (
+            ("committee", crc.get("/studies/GZQO/committee").text),
+            ("irb", crc.get("/studies/GZQO/irb").text),
+            ("state", _open(crc).text),
+        ):
+            assert CATALOGUES[lang]["cmt.title"] in text or name == "state", (name, lang)
+            f = f"{name}-{lang}.html"
+            (out / f).write_text(text.replace('href="/static/console.css"', 'href="console.css"'), encoding="utf-8")
+            pages.append({"file": f, "lang": lang, "width": PHONE[0], "height": PHONE[1], "checks": []})
+    (out / "console.css").write_text(crc.get("/static/console.css").text, encoding="utf-8")
+    r = subprocess.run(
+        [shutil.which("node") or "node", str(SCRIPT), json.dumps({"dir": str(out), "pages": pages, "shots": ""})],
+        cwd=Path(__file__).resolve().parents[2], capture_output=True, text=True, timeout=600, check=False,
+    )  # fmt: skip
+    res = json.loads(r.stdout.strip().splitlines()[-1])
+    assert r.returncode == 0 and res["failed"] == 0, (res.get("results"), r.stderr[-2000:])
