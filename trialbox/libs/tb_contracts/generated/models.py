@@ -2143,11 +2143,11 @@ class StudyProtocol(BaseModel):
         Any,
     ]
     """
-    the protocol fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (defaults explicit, nulls left out); models carries only judge_prompt, the judge's prompt pin of a manifest without prompt_pins (which model serves is the site's)
+    the protocol fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (as the file writes it, no default added, nulls left out); models carries only judge_prompt, the judge's prompt pin of a manifest without prompt_pins (which model serves is the site's)
     """
     files: dict[str, str]
     """
-    the protocol's files of rulesets/<ID>/ by relative path (ir/*.json, valuesets/*.json, cql/elm/*.json, cql/*.cql, sql/*.sql, labels.yaml, tests/patients.ndjson, tests/expected.json, and the file docx_template names), each the sha256 of its canonical bytes (D-1366); a criterion IR file without the site's review record (who, when, comment, approved or draft); no other file is hashed
+    the protocol's files of rulesets/<ID>/ by relative path (ir/*.json, valuesets/*.json, every file under cql/elm/, cql/*.cql, sql/*.sql, labels.yaml, tests/patients.ndjson, tests/expected.json, and the file docx_template names), each the sha256 of its canonical bytes (D-1366); a criterion IR file without the site's review record (who, when, comment, approved or draft); no other file is hashed
     """
 
 
@@ -2182,7 +2182,7 @@ class StudySite(BaseModel):
         Any,
     ]
     """
-    the site fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (defaults explicit, nulls left out); models without judge_prompt, which is the protocol's
+    the site fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (as the file writes it, no default added, nulls left out); models without judge_prompt, which is the protocol's
     """
     criterion_reviews: dict[str, CriterionReview] | None = None
     """

@@ -236,15 +236,68 @@ def test_a_path_outside_the_folder_is_refused() -> None:
 
 # ---------------------------------------------------------------------------------------------- the review's cases
 #: RA-JAK's criteria hash as shipped: 10D-3 must reproduce it byte for byte from the canonical form of D-1366
-RA_JAK_CRITERIA_SHA256 = "16e7b313accd9b1d0c3fa579949823963b1d333b1f925093a1912ab651e04b87"
+RA_JAK_CRITERIA_SHA256 = "69ae60cdf2d49dd0e903228af12699009b6ed3da5157cda281485d976c7d69d1"
 
 
 def test_the_criteria_hash_of_a_shipped_study_is_its_golden() -> None:
     assert sm.split(_files("RA-JAK")).criteria_sha256 == RA_JAK_CRITERIA_SHA256
 
 
+class _Recorded(bytes):
+    """A file's bytes that note their path when the reader decodes them (``json.loads`` of bytes decodes too)."""
+
+    opened: set[str]
+    path: str
+
+    def decode(self, *args: Any, **kwargs: Any) -> str:
+        self.opened.add(self.path)
+        return super().decode(*args, **kwargs)
+
+
+def _opened_by_from_files(files: dict[str, bytes]) -> set[str]:
+    opened: set[str] = set()
+    recorded: dict[str, bytes] = {}
+    for path, data in files.items():
+        b = _Recorded(data)
+        b.opened, b.path = opened, path
+        recorded[path] = b
+    Ruleset.from_files(recorded)
+    return opened - {"manifest.yaml"}
+
+
+def _planted(files: dict[str, bytes]) -> dict[str, bytes]:
+    """Files the engine would read that a careless hash would miss, and files nobody reads."""
+    lib = next(p for p in files if p.startswith("cql/elm/"))
+    stem = lib.removeprefix("cql/elm/").rsplit(".", 1)[0]
+    return {
+        **files,
+        f"cql/elm/{stem}.xml": b"<library>planted</library>",
+        "cql/elm/sub/Other.cql": b"library Other",
+        "cql/Extra.cql": b"library Extra",
+        "notes.txt~": b"a stray editor file",
+    }
+
+
+@pytest.mark.parametrize("ruleset", SHIPPED)
+def test_every_file_the_engine_reads_is_in_the_criteria_hash(ruleset: str) -> None:
+    for files in (_files(ruleset), _planted(_files(ruleset))):
+        opened = _opened_by_from_files(files)
+        assert opened, ruleset
+        assert opened <= sm.hashed_paths(files)
+        assert opened <= set(sm.split(files).protocol["files"])
+
+
+def test_a_planted_elm_file_changes_the_criteria_hash() -> None:
+    files = _files("RA-JAK")
+    planted = {**files, "cql/elm/TB_RA_JAK_v1_0.xml": b"<library>planted</library>"}
+    assert sm.split(planted).criteria_sha256 != sm.split(files).criteria_sha256
+    assert "cql/elm/TB_RA_JAK_v1_0.xml" in sm.split(planted).protocol["files"]
+
+
 def test_the_canonical_form_sorts_keys_at_every_depth() -> None:
     assert sm.dumps({"b": {"y": 1, "x": 2}, "a": [3, {"d": 4, "c": 5}]}) == b'{"a":[3,{"c":5,"d":4}],"b":{"x":2,"y":1}}'
+    # RFC 8785: by UTF-16 code units, so U+1F600 (a surrogate pair) sorts before U+FB01
+    assert sm.dumps({"ﬁ": 1, "\U0001f600": 2}) == '{"\U0001f600":2,"ﬁ":1}'.encode()
     parts = sm.split(_files("RA-JAK")).protocol
     shuffled = {k: parts[k] for k in reversed(list(parts))}
     shuffled["manifest"] = {k: parts["manifest"][k] for k in reversed(list(parts["manifest"]))}
@@ -252,37 +305,82 @@ def test_the_canonical_form_sorts_keys_at_every_depth() -> None:
     assert sm.protocol_refusal(shuffled) is None
 
 
-def test_the_canonical_form_of_numbers_and_text() -> None:
-    assert sm.dumps({"a": 5.0, "b": 0.75, "c": 1e-05, "d": 2.0**60, "e": "é"}) == (
-        '{"a":5,"b":0.75,"c":1e-05,"d":1.152921504606847e+18,"e":"é"}'.encode()
-    )
-    assert sm.dumps("é") == sm.dumps("é")
-    with pytest.raises(ValueError):
-        sm.dumps(float("nan"))
-    assert sm.text(b"a\r\nb\rc\n\n\n") == b"a\nb\nc\n" == sm.text(b"a\nb\nc")
+@pytest.mark.parametrize(
+    ("value", "written"),
+    [
+        (5.0, "5"),
+        (0.75, "0.75"),
+        (-0.5, "-0.5"),
+        (1e-06, "0.000001"),
+        (1e-07, "1e-7"),
+        (1.5e-10, "1.5e-10"),
+        (1e20, "100000000000000000000"),
+        (1e21, "1e+21"),
+        (1.23e22, "1.23e+22"),
+        (2.0**60, "1152921504606847000"),  # the shortest digits, padded with zeros (ECMAScript)
+        (123.456, "123.456"),
+        (2**53, "9007199254740992"),
+        (-0.0, "0"),
+    ],
+)
+def test_numbers_are_written_as_rfc_8785_writes_them(value: float, written: str) -> None:
+    assert sm.dumps(value) == written.encode()
 
 
-def _same_hash(changed: dict[str, bytes]) -> None:
-    assert sm.split(changed).criteria_sha256 == sm.split(_files("RA-JAK")).criteria_sha256
+def test_what_json_cannot_say_exactly_is_refused() -> None:
+    for bad in (2**53 + 2, float("nan"), float("inf"), "\ud800"):
+        with pytest.raises(ValueError):
+            sm.dumps(bad)
+    with pytest.raises(ValueError, match="twice"):
+        sm.load_json(b'{"a": 1, "a": 2}')
+    with pytest.raises(ValueError, match="NaN"):
+        sm.load_json(b'{"a": NaN}')
+
+
+def test_strings_keep_their_exact_code_points() -> None:
+    assert sm.dumps('a bé\x01\n"\\') == '"a bé\\u0001\\n\\"\\\\"'.encode()
+    assert sm.dumps("é") != sm.dumps("é")
+    assert sm.dumps({"é": 1, "é": 2}) == '{"é":1,"é":2}'.encode()
+
+
+def test_text_files_lose_only_a_byte_order_mark_and_cr() -> None:
+    assert sm.text(b"\xef\xbb\xbfa\r\nb\rc\n\n") == b"a\nb\nc\n\n"
+    assert sm.text("é".encode()) == "é".encode()
+    assert sm.load_json(b'\xef\xbb\xbf{"a": 1}') == {"a": 1}
+
+
+def _same_hash(changed: dict[str, bytes]) -> bool:
+    return sm.split(changed).criteria_sha256 == sm.split(_files("RA-JAK")).criteria_sha256
 
 
 def test_what_the_engine_reads_alike_hashes_alike() -> None:
     files = _files("RA-JAK")
     vs = json.loads(files["valuesets/VS_METHOTREXATE.json"])
-    _same_hash({**files, "valuesets/VS_METHOTREXATE.json": json.dumps(dict(reversed(list(vs.items())))).encode()})
-    _same_hash({**files, "notes.txt~": b"a stray editor file", "sql/.RA-JAK.sql.swp": b"x"})
-    _same_hash(_with_manifest(files, thresholds={"tier_high_confidence": 0.75}))  # small_cell 5 is the default
-    title = yaml.safe_load(files["manifest.yaml"])["title"]
-    nfd = unicodedata.normalize("NFD", title + " é")
-    assert nfd != unicodedata.normalize("NFC", nfd)
-    assert (
-        sm.split(_with_manifest(files, title=nfd)).criteria_sha256
-        == sm.split(_with_manifest(files, title=unicodedata.normalize("NFC", nfd))).criteria_sha256
+    assert _same_hash(
+        {**files, "valuesets/VS_METHOTREXATE.json": json.dumps(dict(reversed(list(vs.items())))).encode()}
     )
-    _same_hash({**files, "sql/RA-JAK.sql": files["sql/RA-JAK.sql"].replace(b"\n", b"\r\n")})
+    assert _same_hash(
+        {**files, "valuesets/VS_METHOTREXATE.json": b"\xef\xbb\xbf" + files["valuesets/VS_METHOTREXATE.json"]}
+    )
+    assert _same_hash({**files, "notes.txt~": b"a stray editor file", "sql/.RA-JAK.sql.swp": b"x"})
+    assert _same_hash({**files, "sql/RA-JAK.sql": files["sql/RA-JAK.sql"].replace(b"\n", b"\r\n")})
     ir = json.loads(files["ir/RA-JAK-INC-01.json"])
     ir["logic"]["age"] = {"min": 18, "max": 75}
-    _same_hash({**files, "ir/RA-JAK-INC-01.json": json.dumps(ir, indent=4).encode()})
+    assert _same_hash({**files, "ir/RA-JAK-INC-01.json": json.dumps(ir, indent=4).encode()})
+
+
+def test_what_the_engine_reads_differently_hashes_differently() -> None:
+    files = _files("RA-JAK")
+    title = yaml.safe_load(files["manifest.yaml"])["title"] + " é"
+    nfd, nfc = (
+        sm.split(_with_manifest(files, title=unicodedata.normalize(form, title))).criteria_sha256
+        for form in ("NFD", "NFC")
+    )
+    assert nfd != nfc  # different code points: the hash covers exact text, no normalisation
+    sql = files["sql/RA-JAK.sql"]
+    assert not _same_hash({**files, "sql/RA-JAK.sql": sql + "-- é\n".encode()})
+    # the hash covers what the manifest writes: an omitted default is not the same text as a written one
+    assert not _same_hash(_with_manifest(files, thresholds={"tier_high_confidence": 0.75}))
 
 
 def test_a_site_part_carrying_a_protocol_field_is_refused() -> None:
@@ -307,12 +405,15 @@ def test_the_judge_prompt_is_the_protocols_and_the_serving_model_the_sites() -> 
     assert "judge_prompt" not in parts.site["manifest"]["models"]
     got = sm.site_edit(parts.protocol, parts.site, {"models": {"judge": "m", "judge_prompt": "judge_v3"}})
     assert isinstance(got, str) and 'the prompt pin models.judge_prompt from "judge_v4" to "judge_v3"' in got
-    assert isinstance(sm.site_edit(parts.protocol, parts.site, {"models": {"judge": "m"}}), str)
-    new = sm.apply_site_edit(parts.protocol, parts.site, {"models": {"judge": "m", "judge_prompt": "judge_v4"}})
+    got = sm.site_edit(parts.protocol, parts.site, {"models": {"judge": "m", "judge_prompt": None}})
+    assert isinstance(got, str) and "models.judge_prompt" in got
     before = RulesetManifest.model_validate(sm.merge(parts.protocol, parts.site))
-    after = RulesetManifest.model_validate(sm.merge(parts.protocol, new))
-    assert after.models is not None and after.models.judge == "m"
-    assert manifest_pins(after) == manifest_pins(before) == {"judge": {"version": 4}}
+    for edit in ({"judge": "m"}, {"judge": "m", "judge_prompt": "judge_v4"}):
+        new = sm.apply_site_edit(parts.protocol, parts.site, {"models": edit})
+        assert new["manifest"]["models"] == {"judge": "m"}
+        after = RulesetManifest.model_validate(sm.merge(parts.protocol, new))
+        assert after.models is not None and after.models.judge == "m" and after.models.judge_prompt == "judge_v4"
+        assert manifest_pins(after) == manifest_pins(before) == {"judge": {"version": 4}}
     b = sm.split(_with_manifest(_files("RA-BIO"), models={"judge": "other", "judge_prompt": "judge_v4"}))
     assert b.criteria_sha256 == parts.criteria_sha256
     c = sm.split(_with_manifest(_files("RA-BIO"), models={"judge": "other", "judge_prompt": "judge_v3"}))

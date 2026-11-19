@@ -30,16 +30,14 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import ValidationError
-from tb_contracts import CriterionIR, RulesetManifest, StudyProtocol, StudySite
+from tb_contracts import RulesetManifest, StudyProtocol, StudySite
 
 PROTOCOL_SCHEMA = "tb-study-protocol/1"
 SITE_SCHEMA = "tb-study-site/1"
@@ -97,11 +95,12 @@ PROTOCOL_FILES = (
     ("ir/", ".json", "ir"),
     ("valuesets/", ".json", "json"),
     ("cql/elm/", ".json", "json"),
+    ("cql/elm/", "", "text"),
     ("cql/", ".cql", "text"),
     ("sql/", ".sql", "text"),
-    ("labels.yaml", "", "yaml"),
-    ("tests/patients.ndjson", "", "ndjson"),
-    ("tests/expected.json", "", "json"),
+    ("labels.yaml", None, "text"),
+    ("tests/patients.ndjson", None, "text"),
+    ("tests/expected.json", None, "json"),
 )
 #: the files of the folder that are the site's own: its equivalence run on its box
 SITE_FILES = frozenset({"tests/equivalence.json"})
@@ -117,6 +116,7 @@ _WORDS = {
 }
 _HINT = "the coordinating centre issues a new protocol version for that"
 _MAX_INT = 2**53
+_BOM = b"\xef\xbb\xbf"
 
 
 class SiteEditRefused(ValueError):
@@ -136,33 +136,80 @@ class StudyParts:
 
 
 # ---------------------------------------------------------------------------------------------- canonical form
-def normal(value: Any) -> Any:
-    """A JSON value in canonical form (D-1366): every string (keys too) in Unicode NFC; a float with no fraction and
-    under 2**53 as an integer, any other float as Python's shortest round-trip text; a date as ISO text; NaN and
-    infinity refused."""
-    if isinstance(value, str):
-        return unicodedata.normalize("NFC", value)
-    if isinstance(value, bool) or value is None:
-        return value
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            raise ValueError("a study's protocol holds no NaN or infinity")
-        return int(value) if value.is_integer() and abs(value) < _MAX_INT else value
+def _number(value: int | float) -> str:
+    """A number as RFC 8785 (JCS) writes it, i.e. ECMAScript's Number-to-String: an integer outside ±2**53 refused
+    (another reader would not read it back exactly); NaN and infinity refused."""
     if isinstance(value, int):
-        return value
-    if isinstance(value, (datetime, date)):
-        return value.isoformat()
-    if isinstance(value, Mapping):
-        return {unicodedata.normalize("NFC", str(k)): normal(v) for k, v in value.items()}
+        if abs(value) > _MAX_INT:
+            raise ValueError("a study's protocol holds no integer beyond 2**53")
+        return str(value)
+    if not math.isfinite(value):
+        raise ValueError("a study's protocol holds no NaN or infinity")
+    if value == 0:
+        return "0"
+    mantissa, _, exp = repr(abs(value)).partition("e")  # the shortest digits that read back to the same double
+    whole, _, frac = mantissa.partition(".")
+    digits = (whole + frac).lstrip("0")
+    stripped = digits.rstrip("0")
+    k = len(stripped)
+    n = k + int(exp or 0) - len(frac) + (len(digits) - k)  # value = 0.<stripped> x 10**n
+    if k <= n <= 21:
+        out = stripped + "0" * (n - k)
+    elif 0 < n <= 21:
+        out = f"{stripped[:n]}.{stripped[n:]}"
+    elif -6 < n <= 0:
+        out = "0." + "0" * -n + stripped
+    else:
+        e = n - 1
+        out = (stripped if k == 1 else f"{stripped[0]}.{stripped[1:]}") + ("e+" if e >= 0 else "e-") + str(abs(e))
+    return ("-" if value < 0 else "") + out
+
+
+def _jcs(value: Any) -> str:
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if isinstance(value, (int, float)):
+        return _number(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
     if isinstance(value, (list, tuple)):
-        return [normal(v) for v in value]
+        return "[" + ",".join(_jcs(v) for v in value) + "]"
+    if isinstance(value, Mapping):
+        if not all(isinstance(k, str) for k in value):
+            raise ValueError("a study's protocol holds only text keys")
+        keys = sorted(value, key=lambda k: k.encode("utf-16-be", "surrogatepass"))
+        return "{" + ",".join(f"{_jcs(k)}:{_jcs(value[k])}" for k in keys) + "}"
     raise ValueError(f"a study's protocol holds no {type(value).__name__}")
 
 
 def dumps(value: Any) -> bytes:
-    """The canonical bytes of a JSON value: :func:`normal`, keys sorted, no spaces, UTF-8 (not escaped)."""
-    return json.dumps(normal(value), sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode(
-        "utf-8"
+    """The canonical bytes of a JSON value: RFC 8785 (JCS), UTF-8. No Unicode normalisation: strings, codes and keys
+    are written as their exact code points; a lone surrogate is refused."""
+    return _jcs(value).encode("utf-8")
+
+
+def _no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for k, v in pairs:
+        if k in out:
+            raise ValueError(f"a study's JSON file names the key {k!r} twice")
+        out[k] = v
+    return out
+
+
+def _refuse_constant(name: str) -> Any:
+    raise ValueError(f"a study's JSON file holds {name}, which JSON does not have")
+
+
+def load_json(data: bytes) -> Any:
+    """A JSON file as the hash reads it: UTF-8 with a leading byte-order mark removed; a key twice, NaN or infinity
+    refused."""
+    return json.loads(
+        data.removeprefix(_BOM).decode("utf-8"), object_pairs_hook=_no_duplicates, parse_constant=_refuse_constant
     )
 
 
@@ -177,15 +224,16 @@ def criteria_sha256(protocol: Mapping[str, Any]) -> str:
 
 
 def text(data: bytes) -> bytes:
-    """A text file in canonical form: UTF-8, NFC, LF line ends, trailing line ends cut to one."""
-    t = unicodedata.normalize("NFC", data.decode("utf-8")).replace("\r\n", "\n").replace("\r", "\n")
-    return (t.rstrip("\n") + "\n").encode("utf-8")
+    """A text file as the hash reads it: its bytes, a leading UTF-8 byte-order mark removed, CR LF and then a lone CR
+    written as LF. Nothing else is changed."""
+    return data.removeprefix(_BOM).replace(b"\r\n", b"\n").replace(b"\r", b"\n")
 
 
 def _manifest_json(raw: Mapping[str, Any] | RulesetManifest) -> dict[str, Any]:
-    """The manifest as its schema reads it, defaults made explicit: JSON form (dates as ISO text), nulls left out."""
+    """The manifest as its schema reads what the file writes: JSON form (dates as ISO text), nulls left out, no
+    default added."""
     model = raw if isinstance(raw, RulesetManifest) else RulesetManifest.model_validate(dict(raw))
-    return model.model_dump(mode="json", exclude_none=True, by_alias=True)
+    return model.model_dump(mode="json", exclude_unset=True, exclude_none=True, by_alias=True)
 
 
 def _check_path(path: str) -> None:
@@ -197,15 +245,21 @@ def _kind(path: str, docx: str | None) -> str | None:
     if docx and path == docx:
         return "bytes"
     for prefix, suffix, kind in PROTOCOL_FILES:
-        if path == prefix if not suffix else path.startswith(prefix) and path.endswith(suffix):
+        if path == prefix if suffix is None else path.startswith(prefix) and path.endswith(suffix):
             return kind
     return None
 
 
+def hashed_paths(files: Mapping[str, bytes]) -> set[str]:
+    """The paths of a study folder the criteria hash covers (with ``manifest.yaml``, split by field)."""
+    docx = (yaml.safe_load(files[MANIFEST].decode("utf-8")) or {}).get("docx_template") if MANIFEST in files else None
+    return {p for p in files if p not in SITE_FILES and _kind(p, docx) is not None}
+
+
 def _ir_split(data: bytes) -> tuple[bytes, str, dict[str, Any] | None]:
-    """A criterion IR file as its schema reads it (defaults explicit), without the site's review record, canonical;
+    """A criterion IR file as written, without the site's review record (``{"status": "rejected"}`` kept), canonical;
     its criterion id; that record."""
-    doc = CriterionIR.model_validate(json.loads(data)).model_dump(mode="json", exclude_none=True, by_alias=True)
+    doc = load_json(data)
     review = doc.pop("review", None)
     if isinstance(review, Mapping) and review.get("status") == "rejected":
         doc["review"] = {"status": "rejected"}
@@ -215,12 +269,7 @@ def _ir_split(data: bytes) -> tuple[bytes, str, dict[str, Any] | None]:
 def file_bytes(kind: str, data: bytes) -> bytes:
     """A protocol file's canonical bytes by its kind (:data:`PROTOCOL_FILES`); an IR file through :func:`_ir_split`."""
     if kind == "json":
-        return dumps(json.loads(data))
-    if kind == "yaml":
-        return dumps(yaml.safe_load(data.decode("utf-8")))
-    if kind == "ndjson":
-        lines = [ln for ln in data.decode("utf-8").splitlines() if ln.strip()]
-        return b"".join(dumps(json.loads(ln)) + b"\n" for ln in lines)
+        return dumps(load_json(data))
     if kind == "text":
         return text(data)
     return data
@@ -264,7 +313,7 @@ def split(files: Mapping[str, bytes]) -> StudyParts:
                 reviews[cid] = review
         else:
             body = file_bytes(kind, data)
-        protocol_files[unicodedata.normalize("NFC", path)] = hashlib.sha256(body).hexdigest()
+        protocol_files[path] = hashlib.sha256(body).hexdigest()
     pm, sm = _parts_of(manifest)
     protocol: dict[str, Any] = {"schema": PROTOCOL_SCHEMA, "manifest": pm, "files": protocol_files}
     protocol["criteria_sha256"] = criteria_sha256(protocol)
@@ -366,9 +415,17 @@ def _protocol_sentence(field_name: str, old: Any, new: Any, chash: str) -> str:
     )
 
 
+def _same(a: Any, b: Any) -> bool:
+    try:
+        return dumps(a) == dumps(b)
+    except ValueError:
+        return bool(a == b)
+
+
 def site_edit(protocol: Mapping[str, Any], site: Mapping[str, Any], changes: Mapping[str, Any]) -> dict[str, Any] | str:
     """A site's edit of its study manifest: ``changes`` maps manifest fields to their whole new value (None removes a
-    site field). Returns the new site part, or the sentence refusing the edit: a change to a protocol field or key (a
+    site field); in ``models`` the protocol's key (``judge_prompt``) stays as the protocol has it when the edit leaves
+    it out. Returns the new site part, or the sentence refusing the edit: a change to a protocol field or key (a
     value equal to the protocol's is no change), a field the manifest does not have, or a value the manifest's schema
     refuses."""
     try:
@@ -386,7 +443,7 @@ def site_edit(protocol: Mapping[str, Any], site: Mapping[str, Any], changes: Map
             new = _manifest_json({**current, key: changes[key]}).get(key)
         except ValidationError:
             new = changes[key]
-        if new != old:
+        if not _same(new, old):
             refusals.append(_protocol_sentence(key, old, new, chash))
     edited = dict(site["manifest"])
     for key in (k for k in SITE_FIELDS if k in changes):
@@ -394,10 +451,11 @@ def site_edit(protocol: Mapping[str, Any], site: Mapping[str, Any], changes: Map
         if key in PROTOCOL_SUBFIELDS:
             whole = dict(value or {}) if isinstance(value, Mapping) or value is None else value
             if isinstance(whole, dict):
-                old_sub = protocol["manifest"].get(key) or {}
-                new_sub = {k: whole.pop(k) for k in PROTOCOL_SUBFIELDS[key] if k in whole}
-                if normal(new_sub) != normal(old_sub):
-                    refusals.append(_protocol_sentence(key, old_sub, new_sub, chash))
+                # per key: a protocol key the edit leaves out stays as the protocol has it
+                old_sub = dict(protocol["manifest"].get(key) or {})
+                sent = {k: whole.pop(k) for k in PROTOCOL_SUBFIELDS[key] if k in whole}
+                if not _same({**old_sub, **sent}, old_sub):
+                    refusals.append(_protocol_sentence(key, old_sub, {**old_sub, **sent}, chash))
                 value = whole or None
         if value is None:
             edited.pop(key, None)
@@ -412,7 +470,7 @@ def site_edit(protocol: Mapping[str, Any], site: Mapping[str, Any], changes: Map
         where = ".".join(str(p) for p in first.get("loc", ()))
         return f"the site's change to {where} is not a value a study manifest takes: {first.get('msg', '')}"
     pm, sm = _parts_of(full)
-    if normal(pm) != normal(protocol["manifest"]):
+    if dumps(pm) != dumps(protocol["manifest"]):
         return _protocol_sentence("models", protocol["manifest"].get("models"), pm.get("models"), chash)
     return {**site, "manifest": sm}
 
@@ -447,7 +505,7 @@ def differences(adopted: Mapping[str, Any], written: StudyParts) -> list[str]:
     out = [
         _protocol_sentence(k, old_m.get(k), new_m.get(k), chash)
         for k in (*PROTOCOL_FIELDS, *PROTOCOL_SUBFIELDS)
-        if normal(old_m.get(k)) != normal(new_m.get(k))
+        if not _same(old_m.get(k), new_m.get(k))
     ]
     old_f, new_f = adopted["files"], written.protocol["files"]
     for path in sorted(set(old_f) | set(new_f)):

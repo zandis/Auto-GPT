@@ -11,7 +11,7 @@
     "criteria_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the canonical serialisation of schema, manifest and files (every key but this one)"},
     "manifest": {
       "type": "object",
-      "description": "the protocol fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (defaults explicit, nulls left out); models carries only judge_prompt, the judge's prompt pin of a manifest without prompt_pins (which model serves is the site's)",
+      "description": "the protocol fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (as the file writes it, no default added, nulls left out); models carries only judge_prompt, the judge's prompt pin of a manifest without prompt_pins (which model serves is the site's)",
       "propertyNames": {
         "enum": [
           "id", "kind", "title", "trial_alias", "sponsor", "version", "source_documents", "protocol_version",
@@ -23,7 +23,7 @@
     },
     "files": {
       "type": "object",
-      "description": "the protocol's files of rulesets/<ID>/ by relative path (ir/*.json, valuesets/*.json, cql/elm/*.json, cql/*.cql, sql/*.sql, labels.yaml, tests/patients.ndjson, tests/expected.json, and the file docx_template names), each the sha256 of its canonical bytes (D-1366); a criterion IR file without the site's review record (who, when, comment, approved or draft); no other file is hashed",
+      "description": "the protocol's files of rulesets/<ID>/ by relative path (ir/*.json, valuesets/*.json, every file under cql/elm/, cql/*.cql, sql/*.sql, labels.yaml, tests/patients.ndjson, tests/expected.json, and the file docx_template names), each the sha256 of its canonical bytes (D-1366); a criterion IR file without the site's review record (who, when, comment, approved or draft); no other file is hashed",
       "additionalProperties": {"type": "string", "description": "lowercase hex sha256; the key is a path relative to rulesets/<ID>/, never absolute and never with .."}
     }
   }

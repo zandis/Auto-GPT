@@ -11,7 +11,7 @@
     "criteria_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "the criteria hash of the protocol part this site part goes with"},
     "manifest": {
       "type": "object",
-      "description": "the site fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (defaults explicit, nulls left out); models without judge_prompt, which is the protocol's",
+      "description": "the site fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (as the file writes it, no default added, nulls left out); models without judge_prompt, which is the protocol's",
       "propertyNames": {
         "enum": [
           "status", "effective_from", "irb_reference", "irb_approved_on", "scopes", "routing", "models", "review",

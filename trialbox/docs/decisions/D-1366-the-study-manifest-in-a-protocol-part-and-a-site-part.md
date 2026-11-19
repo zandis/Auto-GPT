@@ -26,7 +26,9 @@
     (`judge_v4`), and SCREEN runs that prompt. So `models` is split by key: `judge_prompt` is in the protocol part
     and in the criteria hash; `judge` and `extract` (which model serves, the box's tier) are the site's. A site edit
     that changes `models.judge_prompt` is refused like a threshold; one that changes `models.judge` is taken, and
-    `manifest_pins` of the merged manifest is unchanged. A verifier prompt pin does not exist yet; 10D-26 adds it to
+    `manifest_pins` of the merged manifest is unchanged. The edit is merged per key: `{"models": {"judge": "x"}}`
+    leaves `judge_prompt` as the protocol has it (taken); naming `judge_prompt` with another value, or null, is
+    refused. A verifier prompt pin does not exist yet; 10D-26 adds it to
     the protocol part.
   - **The compiled SQL and ELM are in the protocol part.** Review 14 calls the SQL "derived; the same at every site
     given the same IR and expansion", and 10D-4 has a partner screen with a rule set compiled elsewhere: the compiled
@@ -49,29 +51,45 @@
     edit. `apply_site_edit` raises the same sentence as `SiteEditRefused`. `differences(adopted, written)` first
     checks that the adopted part holds its own hash (else its one sentence says it cannot be trusted), then names each
     protocol field and file a folder written at the site changed.
-- **The canonical form** (what 10D-3 reproduces byte for byte; `study_manifest.normal`, `dumps`, `text`,
-  `file_bytes`, `canonical`):
-  1. **JSON values.** Every string, object keys included, in Unicode NFC. A float with no fractional part and an
-     absolute value under 2^53 is written as an integer (`5.0` → `5`); any other float as Python's `repr` (the
-     shortest text that reads back to the same double: `0.75`, `1e-05`, `1.152921504606847e+18`); NaN and infinity
-     are refused. Booleans `true`/`false`, `null` as is. A date or date-time as its ISO text. Serialised as JSON with
-     the keys of every object sorted by code point, no spaces (`,` and `:`), non-ASCII written as UTF-8 (not
-     `\u` escapes), encoded UTF-8.
-  2. **The manifest's fields** are read through the ruleset manifest schema with **defaults made explicit** and
-     nulls left out (`thresholds` without `small_cell` reads as `small_cell: 5`), in its JSON form, then split by the
-     field lists above.
-  3. **Files hashed** (paths relative to the folder, NFC; no other file is hashed, so a stray `notes.txt~` changes
-     nothing): `ir/**.json` (a criterion: read through the criterion IR schema, defaults explicit, nulls left out,
-     the `review` record removed, or replaced by `{"status":"rejected"}` when rejected, then rule 1);
-     `valuesets/**.json`, `cql/elm/**.json`, `tests/expected.json` (parsed, rule 1); `cql/**.cql`, `sql/**.sql`
-     (text: UTF-8, NFC, CRLF and CR to LF, trailing line ends cut to exactly one `\n`); `labels.yaml` (parsed as
-     YAML, rule 1); `tests/patients.ndjson` (each non-blank line parsed and written by rule 1, each followed by
-     `\n`); and the file `docx_template` names when it is in the folder (its bytes). Each file's entry is the
-     lowercase hex sha256 of those bytes.
-  4. **The criteria hash** is the lowercase hex sha256 of rule 1 applied to the object `{"schema":
+- **The canonical form** (what 10D-3 reproduces byte for byte, in any language; `study_manifest.dumps`,
+  `load_json`, `text`, `file_bytes`, `canonical`, `hashed_paths`). It is the simplest rule that holds: no Unicode
+  normalisation anywhere, nothing read through a schema, no Python-specific formatting.
+  1. **JSON is written as RFC 8785 (JSON Canonicalization Scheme)**: no insignificant whitespace; object keys sorted by
+     their UTF-16 code units; strings as ECMAScript's `JSON.stringify` writes them (`"` and `\` escaped, U+0000 to
+     U+001F as `\b \t \n \f \r` or `\u00xx` in lowercase hex, every other code point, U+2028 included, written as
+     itself in UTF-8; a lone surrogate refused); numbers as ECMAScript's Number-to-String writes a double (`5.0` →
+     `5`, `1e-6` → `0.000001`, `1e-7` → `1e-7`, `1e21` → `1e+21`, `2^60` → `1152921504606847000`, `-0` → `0`); the
+     result encoded as UTF-8. Two further refusals, so that every reader reads the same value: an integer beyond
+     ±2^53 (`2^53 + 2` is refused; a JSON number with a fraction or exponent is a double), and NaN or infinity. **No
+     Unicode normalisation**: strings, codes and keys are their exact code points, so NFC and NFD text hash
+     differently, as the engine and the lake (which compare bytes) treat them differently.
+  2. **Reading a JSON file:** its bytes, a leading UTF-8 byte-order mark (EF BB BF) removed, decoded as UTF-8 and
+     parsed as RFC 8259 JSON; an object naming a key twice, and the literals `NaN`/`Infinity`, are refused.
+  3. **Reading a text file:** its bytes, a leading UTF-8 byte-order mark removed, every CR LF and then every lone CR
+     written as LF; nothing else changes (no decoding, no normalisation, no trailing-newline rule).
+  4. **Files hashed** (paths relative to the folder, as written): every file `Ruleset.from_files` reads, plus what the
+     console reads for a study and the package's tests:
+     - `ir/**.json`: rule 2, the key `review` removed (or set to `{"status":"rejected"}` when its status is
+       `rejected`), then rule 1;
+     - `valuesets/**.json`, `cql/elm/**.json`, `tests/expected.json`: rule 2, then rule 1;
+     - every other file under `cql/elm/` whatever its extension (`from_files` reads them all, by stem),
+       `cql/**.cql`, `sql/**.sql`, `labels.yaml`, `tests/patients.ndjson`: rule 3 (YAML and NDJSON are hashed as
+       text, so no YAML 1.1 reading and no line-splitting rule enters the hash);
+     - the file `docx_template` names, when it is in the folder: its bytes as they are.
+     No other file is hashed (a stray `notes.txt~` changes nothing; `tests/equivalence.json` is the site's). A test
+     derives the set of files `Ruleset.from_files` actually opens for each shipped study, with planted files, and
+     holds it inside the hashed set, so the two cannot drift. Each file's entry is the lowercase hex sha256 of its
+     bytes after its rule.
+  5. **The manifest's fields** are what the file writes, read as the engine reads it (PyYAML `safe_load`, then the
+     ruleset manifest schema) and written in that schema's JSON form (a date as `YYYY-MM-DD`), nulls left out, **no
+     default added**: `thresholds` without `small_cell` hashes differently from one that writes `small_cell: 5`.
+     Expanding defaults was dropped because it bound the hash to the schema's defaults, which a later release may
+     change; hashing what is written binds it only to the text. A second implementation does not read the YAML: the
+     package (10D-3) carries the protocol part as JSON, and the hash is taken over that JSON.
+  6. **The criteria hash** is the lowercase hex sha256 of rule 1 applied to the object `{"schema":
      "tb-study-protocol/1", "manifest": {…}, "files": {path: sha256}}` (every key of the protocol part but
      `criteria_sha256`). RA-JAK as shipped hashes to
-     `16e7b313accd9b1d0c3fa579949823963b1d333b1f925093a1912ab651e04b87` (held by a test).
+     `69ae60cdf2d49dd0e903228af12699009b6ed3da5157cda281485d976c7d69d1` (held by a test).
 - **Limits for 10D-5, said plainly:**
   - `scopes` is site side (review 14), and it decides who is looked at: two sites with the same criteria hash screen
     different people. That is intended; it is not a difference in who is eligible.
