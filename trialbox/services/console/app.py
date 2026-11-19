@@ -260,9 +260,13 @@ class _LoginRequired(Exception):
     pass
 
 
+#: D-1370 (9g-19): the two pages the idle warning asks (``data-stay-url``); ``keep=1`` means nothing anywhere else
+STAY_PAGES = frozenset({"/help", "/"})
+
+
 class _KeepAlive(Exception):
-    """D-1370 (9g-19): the idle warning's own request to a page (``keep=1``): the session is checked as for the page,
-    and then answered with its times only (no page, no route's reads, no notice taken)."""
+    """D-1370 (9g-19): the idle warning's own request (``keep=1`` on a stay page, which every signed-in person may open
+    and which checks nothing further): answered with the session's times only (no page, no notice taken)."""
 
     def __init__(self, token_sha: str) -> None:
         super().__init__("keep")
@@ -696,9 +700,9 @@ def create_app(
                 raise _MustChange()
             raise _Problem(403, "account.must_change")
         _scope_check(request, sess)
-        # D-1370: answered only on the warning's own pages (data-stay-url), which make no check of their own after
-        # this one; on any other page keep=1 is ignored and that page's own checks answer
-        if request.method == "GET" and request.query_params.get("keep") == "1" and request.url.path in ("/", "/help"):
+        if request.method == "GET" and request.url.path in STAY_PAGES and request.query_params.get("keep") == "1":
+            # D-1370: only on the two stay pages, which check nothing past need(); on every other page the parameter is
+            # ignored and the request runs as without it (its own role checks, its denials and their audit lines)
             raise _KeepAlive(sess.token_sha)
         bind_session(sess.token_sha[:16])  # S-09: the actor this request names to the orchestrator is signed with it
         if reader:  # NEW-SEC-1 (D-717): this account signs the patient reads of its pages (the workspace's helpers)

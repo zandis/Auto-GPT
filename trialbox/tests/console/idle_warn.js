@@ -17,7 +17,8 @@ const PAGES = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const CSS = fs.readFileSync(path.join(__dirname, "..", "..", "services", "console", "static", "console.css"), "utf8");
 let BOX = "http://127.0.0.1";
 const state = { ended: false, stay: 0, checks: 0, idleLeft: 600, absLeft: 28000 };
-const reset = () => Object.assign(state, { ended: false, stay: 0, checks: 0, idleLeft: 600, absLeft: 28000 });
+const reset = () => Object.assign(state, { ended: false, elsewhere: false, stay: 0, checks: 0, idleLeft: 600,
+  absLeft: 28000 });
 
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, BOX);
@@ -27,6 +28,7 @@ const server = http.createServer((req, res) => {
   if (u.pathname === "/help" && u.searchParams.get("keep") === "1") {
     if (u.searchParams.get("auto") === "1") state.checks += 1; else state.stay += 1;
     if (state.ended) { res.writeHead(303, { location: "/login?why=idle" }); return res.end(); }
+    if (state.elsewhere) { res.writeHead(303, { location: "/account?must_change=1" }); return res.end(); }
     res.writeHead(204, { "x-tb-idle-left": String(state.idleLeft), "x-tb-abs-left": String(state.absLeft) });
     return res.end();
   }
@@ -34,6 +36,7 @@ const server = http.createServer((req, res) => {
     return setTimeout(() => send("text/html; charset=utf-8", PAGES.en, { "content-security-policy": PAGES.csp }), 3000);
   }
   if (u.pathname === "/login") return send("text/html", "<!doctype html><title>sign in</title>");
+  if (u.pathname === "/account") return send("text/html", "<!doctype html><title>password</title>");
   const name = u.pathname.slice(1) || "en";
   if (!PAGES[name] || name === "csp") { res.writeHead(404); return res.end(); }
   return send("text/html; charset=utf-8", PAGES[name], { "content-security-policy": PAGES.csp, "cache-control": "no-store" });
@@ -146,6 +149,27 @@ const CASES = {
       at_lock: { hidden: lock.hidden, state: lock.state, checks: state.checks }, before_that: before,
       warned_again: { hidden: again.hidden, state: again.state },
     };
+  },
+  async sent_to_the_password_page(browser) {
+    reset();
+    const { ctx, p } = await fresh(browser, "en");
+    state.elsewhere = true; // an account that must change its password: signed in, sent to its password page
+    await p.clock.runFor("10:01");
+    await pause(500);
+    const got = await look(p);
+    await ctx.close();
+    return { hidden: got.hidden, state: got.state, checks: state.checks };
+  },
+  async woke_up(browser) {
+    reset();
+    const { ctx, p } = await fresh(browser, "en");
+    state.idleLeft = 30; // the device slept and its clock did not count it: the server has 30 s left
+    await p.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await pause(500); // let the quiet question come back
+    await p.clock.runFor("00:01");
+    const got = await look(p);
+    await ctx.close();
+    return { checks: state.checks, state: got.state };
   },
   async late_page(browser) {
     reset();
