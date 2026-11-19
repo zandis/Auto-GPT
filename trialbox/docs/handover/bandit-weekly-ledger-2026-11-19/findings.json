@@ -1,0 +1,20 @@
+{
+ "card": "H10G39",
+ "title": "bandit weekly with no filter and the inline-suppression ledger (plan 10 row 10G-39, OT-1 of review 21)",
+ "date": "2026-11-19",
+ "source": "docs/handover/bandit-weekly-ledger-2026-11-19.md",
+ "note": "found while reviewing the 14 nosec and 8 noqa: S lines on master f6c42230 for tools/inline_suppressions.yaml; the code line is unchanged and its ledger entry is a finding, not safe",
+ "findings": [
+  {
+   "id": "H10G39-01",
+   "severity": "Low",
+   "claim": "the DTD and entity guard of the ICD-10 XML reader checks the raw bytes for <!DOCTYPE and <!ENTITY; a UTF-16 document holds neither as bytes, passes the guard, and ElementTree expands its internal entity",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "services/criteria_compiler/terminology/installed.py:141 (_xml)",
+   "expected": "a document that declares a DTD or an entity is refused whatever its encoding",
+   "happened": "a UTF-16 document with an internal entity is parsed and the entity expanded (expat 2.9.0); external entities are not fetched by ElementTree and expat's amplification limits still apply"
+  }
+ ]
+}
