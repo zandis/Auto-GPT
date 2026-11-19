@@ -359,6 +359,9 @@ def register(app: FastAPI, rules: Rules, h: Hooks) -> None:
             us.fail_request(str(req["id"]), me)
             au.append("console.account_refused", actor=f"console:{me}", detail={**detail, "reason": "not_applied"})
             raise h.problem(409, "request.refused", reason=str(exc)) from exc
+        except Exception:  # D-1159 (its review): the change rolled back with its event; the request is not "confirmed"
+            us.fail_request(str(req["id"]), me)
+            raise
         au.append("console.account_confirmed", actor=f"console:{me}", detail=detail)
         # shown once, on this answer only, to the person who confirmed (never in a URL, a log or the audit)
         return _list(request, sess, done="confirmed", secret=secret, secret_kind=kind, secret_user=name)

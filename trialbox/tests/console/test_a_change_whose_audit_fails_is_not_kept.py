@@ -156,3 +156,23 @@ def test_the_protected_account_changes_are_not_kept_when_their_event_fails(box: 
         us.issue_enrol_code("attotp", before_commit=_fail)
     after = us.db.fetchone("SELECT enrol_code_sha FROM users WHERE username = ?", ("attotp",))
     assert after == before, "an enrolment code was issued with no audit event"
+
+
+def test_a_confirmed_request_whose_change_is_not_kept_is_not_left_confirmed(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The review of D-1159: a second person's confirm whose account change rolls back (its event failed) leaves the
+    request failed, not "confirmed" with nothing applied, and no account."""
+    from tests.console.test_console_app import ADMIN_PW
+    from tests.console.test_no_one_holds_both_factors import STEWARD_PW, _add, _box, _request_ids, _requests, _signin
+
+    app, users, _audit, _clock = _box(tmp_path, steward=True)
+    admin, csrf = _signin(app, "admin", ADMIN_PW)
+    _add(admin, csrf, "atwait", "coordinator")
+    rid = _request_ids(_requests(admin))[-1]
+    stew, scsrf = _signin(app, "stew", STEWARD_PW)
+    with _audit_full(monkeypatch):
+        stew.post("/ops/accounts/requests", data={"csrf": scsrf, "request": rid, "decision": "confirm"})
+    req = users.get_request(rid)
+    assert req is not None and req["state"] != "confirmed", req
+    assert not users.role_of("atwait")
