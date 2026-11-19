@@ -31,6 +31,11 @@ The loader and its checks are :mod:`tb_common.site_profile`; this module is wher
     python -m adapter.site_profile which --lake <lake dir> --snapshot <YYYY-MM-DD>
     python -m adapter.site_profile coverage --night <snapshot folder> [--profile <folder>] [--json]
     python -m adapter.site_profile worklist --night <snapshot folder> [--profile <folder>] [--setup-db <url>] --out f
+    python -m adapter.site_profile fill --answers <answers.yaml> --out <new folder> [--check-only] [--lang ja]
+    python -m adapter.site_profile fill --template [--lang ja]
+
+``fill`` is the site questionnaire's form (10B-19, D-1249, :mod:`adapter.site_questionnaire`): it writes a profile
+folder from the answers, into a new folder outside the site's mapping folders, and never loads it.
 """
 
 from __future__ import annotations
@@ -647,7 +652,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     wl.add_argument("--profile", type=Path, help="the profile folder (default: the site's)")
     wl.add_argument("--setup-db", help="the trial database URL: compare with the site set-up store's maps (D-135)")
     wl.add_argument("--out", type=Path, required=True)
+    fl = sub.add_parser("fill", help="write a profile folder from the site questionnaire's answers (never loads it)")
+    fl.add_argument("--answers", type=Path, help="the answers file (fill --template prints one to fill)")
+    fl.add_argument("--out", type=Path, help="the new folder to write (it must not exist)")
+    fl.add_argument("--check-only", action="store_true", help="say what is refused; write nothing")
+    fl.add_argument("--template", action="store_true", help="print the answers file to fill")
+    fl.add_argument("--lang", choices=("en", "ja", "zh-TW"), default="en", help="the language of the messages")
     a = ap.parse_args(argv)
+    if a.cmd == "fill":
+        return fill(a.answers, a.out, lang=a.lang, check_only=a.check_only, template=a.template)
     try:
         if a.cmd == "check":
             p = load(a.folder)
@@ -715,6 +728,62 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ProfileError as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
+
+
+def live_folders() -> list[Path]:
+    """The folders a profile is read from or shipped in: every site mapping folder (``TB_MAPPING_DIR``, the mount),
+    the repository's ``deploy/site/mapping`` and the image's mapping folder. The form never writes into one."""
+    from adapter.mapping.site import PACKAGED, site_dirs
+
+    return [*site_dirs(), Path(__file__).resolve().parents[2] / "deploy" / "site" / "mapping", PACKAGED]
+
+
+def _inside(path: Path, folder: Path) -> bool:
+    try:
+        path.resolve().relative_to(folder.resolve())
+    except (ValueError, OSError):
+        return False
+    return True
+
+
+def fill(answers: Path | None, out: Path | None, *, lang: str, check_only: bool, template: bool) -> int:
+    """``fill``: the questionnaire's answers to a new profile folder (:mod:`adapter.site_questionnaire`). Every
+    refusal is printed in ``lang``; nothing is written when one is found, nor with ``--check-only``."""
+    from adapter import site_questionnaire as sq
+
+    if template:
+        print(sq.template(lang), end="")
+        return 0
+    if answers is None or out is None:
+        print(sq.text(lang, "usage"), file=sys.stderr)
+        return 2
+    refused: list[sq.Problem] = []
+    if out.exists() or out.is_symlink():
+        refused.append(sq.Problem("out_exists", str(out)))
+    elif any(_inside(out, d) for d in live_folders()):
+        refused.append(sq.Problem("out_live", str(out)))
+    try:
+        raw = answers.read_bytes()
+    except OSError:
+        got: sq.Form | list[sq.Problem] = [sq.Problem("unreadable", "answers")]
+    else:
+        got = sq.parse_text(raw)
+    refused += [] if isinstance(got, sq.Form) else got
+    for p in refused:
+        print(sq.message(p, lang), file=sys.stderr)
+    if refused or not isinstance(got, sq.Form):
+        print(sq.text(lang, "refused", count=len(refused)), file=sys.stderr)
+        return 2
+    if check_only:
+        print(sq.text(lang, "would_write", tables=len(got.tables), rows=got.rows()))
+        return 0
+    try:
+        sq.write(got, out)
+    except ProfileError as exc:  # a fault of the form: its own output must pass the loader
+        print(sq.message(sq.Problem("loader", exc.where, {"why": exc.why}), lang), file=sys.stderr)
+        return 2
+    print(sq.text(lang, "written", folder=str(out), tables=len(got.tables), rows=got.rows()))
+    return 0
 
 
 if __name__ == "__main__":

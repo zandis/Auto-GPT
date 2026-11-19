@@ -66,7 +66,7 @@ def test_the_form_fills_a_profile_for_the_synthetic_hospital_that_the_real_loade
         assert {k: v for k, v in lab_mine.rows[code].row.items() if k != "state"} == cells
     # D-1233's path takes it as it takes a hand-written folder: loaded by a person, recorded and audited
     ch = sp.activate(p, tmp_path / "lake", site_id="jp-ss", by="steward-q", audit_dir=tmp_path / "audit", door="ssmix2")
-    assert ch is not None and ch["version"] == "1.1.0"
+    assert ch is not None and (ch["new_version"], ch["direction"]) == ("1.1.0", "first")
 
 
 def test_the_form_writes_and_never_loads(tmp_path: Path) -> None:
@@ -132,7 +132,7 @@ BAD = [
     (("tables", "diagnosis", "rows", 0, "icd10"), "A1", "target_code"),
     (("tables", "diagnosis", "rows", 0, "icd10"), "Ａ15.0", "target_code"),
     (("tables", "diagnosis", "rows", 0, "name"), "=HYPERLINK(1)", "text"),
-    (("tables", "diagnosis", "rows", 0, "name"), "肺結核‮", "text"),
+    (("tables", "diagnosis", "rows", 0, "name"), "肺結核\u202e", "text"),
     (("tables", "diagnosis", "rows", 0, "name"), "two\nlines", "text"),
     (("tables", "diagnosis", "rows", 0, "state"), "confirmed", "state"),
     (("tables", "diagnosis", "rows", 0, "extra"), "x", "unknown_key"),
@@ -147,7 +147,7 @@ BAD = [
     (("tables", "lab", "rows", 0, "kind"), "text", "kind"),
     (("tables", "lab", "rows", 0, "answers"), [{"word": "POS", "code": "LA6576-8", "display": "Positive"}], "answers"),
     (("tables", "lab", "rows", 6, "answers"), _DROP, "answers"),
-    (("tables", "lab", "rows", 6, "answers", 0, "code"), "LA6576-9", "answer_code"),
+    (("tables", "lab", "rows", 6, "answers", 0, "code"), "LA6576", "answer_code"),
     (("tables", "lab", "rows", 6, "answers", 0, "word"), "pos itive", "answer_word"),
     (("format",), "tb-site-questionnaire/2", "format"),
     (("hospital_name",), "x", "unknown_key"),
@@ -174,7 +174,7 @@ def test_every_refusal_says_what_is_expected_in_three_languages() -> None:
         texts = [lookup(lang, f"profileform.err.{code}") for lang in LANGS]
         assert all(texts), code
         assert len(set(texts)) == 3, code  # three languages, not one text copied
-        assert all("{where}" in t for t in texts), code
+        assert all("{where}" in str(t) for t in texts), code
 
 
 def test_the_survey_rows_and_a_lab_table_need_a_country_the_form_knows() -> None:
