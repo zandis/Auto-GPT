@@ -2,7 +2,7 @@
  "card": "H10G4",
  "title": "the threat model, reviewed per release (plan 10 row 10G-4)",
  "date": "2026-11-19",
- "source": "docs/security/11-threat-model.md",
+ "source": "docs/security/12-threat-model.md",
  "note": "Open threats of the threat model that no row of the findings register named. Basis 'hypothesis': read from the code and the review, not run.",
  "findings": [
   {

@@ -3,7 +3,7 @@
 - **Task:** lane H, plan 10 row 10G-4 (review 16, item 16-16): a threat model file, reviewed per release; ASVS 1.1.2
   to "meets". · **Date:** 2026-11-19
 - **Decision:**
-  - The threat model is section 11 of the security document, `docs/security/11-threat-model.md`, in the section
+  - The threat model is section 12 of the security document, `docs/security/12-threat-model.md`, in the section
     files' plain form (D-352): assets, actors, the trust boundaries of the compose services and networks, and per
     boundary each threat with its control and the file or test that proves it, or the open finding.
   - A control counts as proved only with a test (or a file whose check runs in CI) that the page names; otherwise the

@@ -1,4 +1,4 @@
-# 11. Threat model
+# 12. Threat model
 
 **Reader:** the security owner, the hospital's security officer and the outside tester. **Reviewed for release:**
 1.0.0 (2026-11-19, lane H, card 10G-4). Decision: D-1327.

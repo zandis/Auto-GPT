@@ -1,6 +1,6 @@
 """10G-4 (review 16 item 16-16, D-1327): the threat model is reviewed per release and cites only what exists.
 
-``docs/security/11-threat-model.md`` names the release it was reviewed for; the version is written in one place
+``docs/security/12-threat-model.md`` names the release it was reviewed for; the version is written in one place
 (``[project] version`` in ``pyproject.toml``, ``tools.release.version``), so the pull request that sets a new version
 fails here until the threat model is reviewed and names it, as ``test_changelog_has_the_current_version`` holds the
 changelog. Every path, test and finding the page cites must exist: a control is never claimed by a test that is gone.
@@ -21,7 +21,7 @@ import yaml
 from tools import release
 
 ROOT = Path(__file__).resolve().parents[2]
-PAGE = ROOT / "docs" / "security" / "11-threat-model.md"
+PAGE = ROOT / "docs" / "security" / "12-threat-model.md"
 REGISTER = ROOT / "docs" / "handover" / "findings-register.md"
 OWN_FINDINGS = (
     ROOT / "docs" / "handover" / "threat-model-2026-11-19" / "findings.json",
@@ -44,7 +44,7 @@ def test_threat_model_names_the_current_release() -> None:
     assert m, "the threat model has no '**Reviewed for release:** <version> (<date>, ...' line"
     assert m.group(1) == release.version(), (
         f"the version moved to {release.version()}; the threat model was reviewed for {m.group(1)}: review "
-        "docs/security/11-threat-model.md for this release and move its 'Reviewed for release' line"
+        "docs/security/12-threat-model.md for this release and move its 'Reviewed for release' line"
     )
 
 
