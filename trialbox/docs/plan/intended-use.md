@@ -72,4 +72,4 @@ Any of these makes TrialBox, or the module, a likely device in both countries an
 | --- | --- | --- |
 | 0.1 | 2026-11-09 | First draft: statement from TB-PLAN-05 §1.2 kept, ja and zh-TW extended; conditions C1 to C12 mapped to the Japan and Taiwan questions; consultant items R1 to R5 |
 | 0.2 | 2026-11-09 | Review TB-REV-SA-01: C2 describes the clinician own-patient view as planned (S-07); "consultant's opinion" and "authority's written answer" named apart, C6 needs the authority's answer in both countries, MHLW route written as checked (S-08); C9 and §5 cover a clinician narrative |
-| 0.3 | 2026-11-18 | Card 10C-5: the Japan part, why TrialBox is not a device under the Japanese rules and what it must never say, in `docs/plan/intended-use-jp.md`; §2 names the Japanese claim words |
+| 0.3 | 2026-11-18 | Card 10C-5: the Japan part, the device question as the project reads it (to be confirmed with the regulatory adviser and the ministry) and what TrialBox must never say, in `docs/plan/intended-use-jp.md`; §2 names the Japanese claim words |

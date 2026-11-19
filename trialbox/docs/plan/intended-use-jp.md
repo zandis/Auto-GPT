@@ -5,7 +5,7 @@
 | Document ID | TB-IU-01-JP (the Japan part of TB-IU-01, `docs/plan/intended-use.md`) |
 | Version | 0.3, draft (2026-11-19; card 10C-5, source JP-4 of `docs/reviews/2026-11-root/11-japan.md` section 3; decision D-1228) |
 | Status | **Not legal advice.** The project's own reading, to be confirmed with the regulatory adviser (TB-IU-01 R1, R5) and with the ministry through the free 該当性 consultation filed after this card (plan 10 decision 65) |
-| Enforced by | `libs/tb_common/wording.py` (`FORBIDDEN` and the `CLAIM_*_JA` lists, `check`), tested in `tests/unit/test_wording.py` |
+| Checked by | a lint in `libs/tb_common/wording.py` (`FORBIDDEN` and the `CLAIM_*_JA` lists, `check`), tested in `tests/unit/test_wording.py` |
 
 ## 1. The question
 
@@ -97,9 +97,12 @@ Measured by the lane coordinator on independent sets of Japanese sentences the r
 | --- | --- | --- |
 | 82f4c721 | 10 of 35 | 5 of 25 |
 | 0a5b7170 | 14 of 40 | 7 of 40 |
+| efbc8b42 | 3 of 30 | 1 of 30 (1 of 20 denials, 0 of 10 harmless lines) |
 
-The commit after 0a5b7170 fixes the denial forms, the 候補者 false alarm, invisible characters and inline tags (the
-items marked *fixed* below); it has not been re-measured. What a word list cannot catch stays a known limit:
+The commit after 0a5b7170 fixes the listed denial forms, the 候補者 false alarm, invisible characters and inline tags
+(the items marked *fixed* below). Re-measured at efbc8b42 on an independent set of 60: denials 19 of 20 passed,
+claims 27 of 30 flagged, harmless lines 10 of 10 passed. Of the caught claims about half were caught only by the
+outright ban on two words, not by the claim rule. What a word list cannot catch stays a known limit:
 
 - other spellings and inflections of the listed verbs (kana for kanji, conjugated stems), unlisted verbs of finding,
   estimating, deciding, ranking, early intervention or risk, and disease names not on the disease list;

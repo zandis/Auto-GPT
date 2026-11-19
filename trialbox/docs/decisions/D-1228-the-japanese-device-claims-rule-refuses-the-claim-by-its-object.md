@@ -32,7 +32,9 @@ the product's purpose.
    読み取り. The catalogue strings that let a model or TrialBox be the implied judge are reworded so.
 3. **Allowed contexts are data**, each pinned by a test: named clinical scales (a list, not any Latin word),
    バイアスのリスク, a lab's 検出限界, a study's enrolment forecast. A real denial (claim words and a negative verb that
-   ends the clause) is not a claim; a double negative is.
+   ends the clause) is masked, so it raises no hit. The rule can err both ways: a denial whose negative sits in a
+   later clause after a comma is still flagged, and a double negative is caught today mainly because the words it
+   contains stay banned outright, not because the rule reads it.
 4. **Denial is read by structure**, not from a list of phrasings: a claim word is denied when the rest of its clause
    carries an odd number of negative endings (「…機能はありません」, 「…ものではありません」 and a list of claim words
    with one negative verb all qualify; two negatives cancel). **Text is cleaned first**: NFKC, and zero-width and
