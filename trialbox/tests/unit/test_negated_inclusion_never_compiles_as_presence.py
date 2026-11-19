@@ -216,6 +216,155 @@ def test_a_reused_approved_line_reads_the_rulesets_concepts() -> None:
     assert pp.approved_negated(listed, {"VS_RADIO": radio, "VS_CHEMO": chemo})
 
 
+# Card 10A-1b: each rule that lets a cue go, with lines it must let run (removing the rule fails them) and the
+# near-miss shapes it must hold in en, ja and zh-TW (a rule that releases too much fails them): cue + modifier +
+# concept; cue + modifier + list; a list with a modifier on a later item; the 之 / 的 / の and "of" / "with" joins.
+CH = ["chemotherapy", "化学療法", "化學治療"]
+HT = ["hypertension", "高血圧", "高血壓"]
+ST = ["stroke", "脳卒中", "中風"]
+LC = ["lung cancer", "肺癌"]
+SU = ["surgery", "手術"]
+RULES = {
+    "R0 the concept is not named: any cue holds": (
+        [],
+        [
+            ("No prior CTX or surgery.", CH, ["surgery"]),
+            ("抗がん剤の使用歴はない。", CH, []),
+            ("從未接受過化療的肺癌患者。", CH, []),
+        ],
+    ),
+    "R1 a bound or a descriptor is not a cue": (
+        [
+            ("Non-small cell lung cancer, stage IV.", LC, []),
+            ("非小細胞肺癌の患者。", LC, []),
+            ("非小細胞肺癌患者。", LC, []),
+        ],
+        [
+            ("No non-small cell lung cancer.", LC, []),
+            ("No history of hypertension, non-small cell lung cancer, or stroke.", LC, []),
+            ("非小細胞肺癌がない。", LC, []),
+            ("無非小細胞肺癌。", LC, []),
+        ],
+    ),
+    "R2 a word the cue negates, a link word, then the concept": (
+        [
+            ("No progression after chemotherapy.", CH, []),
+            ("No response to chemotherapy.", CH, []),
+            ("化学療法後に増悪が認められない。", CH, []),
+        ],
+        [
+            ("No poorly controlled hypertension.", HT, []),
+            ("No poorly controlled hypertension, diabetes, or stroke.", ST, []),
+            ("No hypertension, poorly controlled diabetes, or stroke.", ST, []),
+            ("No history of poorly controlled hypertension.", HT, []),
+            ("No disease controlled with surgery or chemotherapy.", CH, []),
+            ("コントロール不良の高血圧がない。", HT, []),
+            ("高血圧、コントロール不良の糖尿病、脳卒中がないこと。", HT, []),
+            ("無控制不良的高血壓。", HT, []),
+            ("無控制不良之高血壓、糖尿病或中風。", ST, []),
+            ("無高血壓、控制不良的糖尿病或中風。", ST, []),
+        ],
+    ),
+    "R3 a verbal negator closing a modifier with 的 or 之": (
+        [
+            ("未經治療的晚期肺癌。", LC, []),
+            ("未經治療之肺癌患者。", LC, []),
+        ],
+        [
+            ("無未控制之高血壓、不穩定心絞痛或中風。", HT, []),
+            ("無未控制之高血壓、不穩定心絞痛或中風。", ST, []),
+            ("無控制不良的高血壓。", HT, []),
+            ("未曾接受化學治療的患者。", CH, []),
+            ("未經治療之高血壓、糖尿病或中風。", ST, []),
+            ("No untreated hypertension.", HT, []),
+            ("未治療の高血圧がない。", HT, []),
+        ],
+    ),
+    "R4 another named concept the cue reaches instead": (
+        [
+            ("Hypertension; no prior chemotherapy.", HT, ["chemotherapy"]),
+            ("化学療法歴はない。高血圧がある。", HT, ["化学療法"]),
+            ("第二型糖尿病。無酮酸中毒。", ["type 2 diabetes", "第二型糖尿病"], ["酮酸中毒"]),
+        ],
+        [
+            ("No smoking during chemotherapy.", CH, ["smoking"]),
+            ("No uncontrolled hypertension, diabetes or stroke.", ST, ["hypertension"]),
+            ("No prior surgery or chemotherapy.", CH, ["surgery"]),
+            ("手術及び化学療法の治療歴がない。", SU, ["化学療法"]),
+            ("高血圧、コントロール不良の糖尿病がないこと。", HT, ["糖尿病"]),
+            ("未曾接受手術或化學治療。", CH, ["手術"]),
+            ("無高血壓、控制不良的糖尿病或中風。", ST, ["高血壓", "糖尿病"]),
+        ],
+    ),
+    "R5 the cue's own words say what it negates": (
+        [
+            ("Hypertension has not responded to treatment.", HT, []),
+            ("化學治療後未見惡化。", CH, []),
+        ],
+        [
+            ("Chemotherapy has not been given.", CH, []),
+            ("Poorly controlled hypertension has not been diagnosed.", HT, []),
+            ("未曾接受化學治療。", CH, []),
+            ("化学療法を受けていない。", CH, []),
+        ],
+    ),
+    "R6 a word the cue negates right before it": (
+        [
+            ("化学療法歴があり、手術適応がない。", CH, []),
+            ("化学療法を受け、効果がない。", CH, []),
+        ],
+        [
+            ("コントロール不良の高血圧がない。", HT, []),
+            ("Poorly controlled hypertension was not seen.", HT, []),
+            ("高血圧、コントロール不良の糖尿病がない。", HT, []),
+            ("無控制不良的高血壓。", HT, []),
+        ],
+    ),
+    "R7 another named concept in another clause": (
+        [
+            ("Prior surgery is required; no prior radiotherapy.", SU, ["radiotherapy"]),
+            ("手術歴はあるが、放射線治療歴はない。", SU, ["放射線治療"]),
+            ("曾接受手術,但未曾接受放射線治療。", SU, ["放射線治療"]),
+        ],
+        [
+            ("Prior surgery is required; no prior radiotherapy.", SU, []),
+            ("Eligible for chemotherapy; no prior cytotoxic treatment.", CH, []),
+            ("Prior surgery; no prior radiotherapy; or chemotherapy.", CH, ["surgery", "radiotherapy"]),
+            ("化学療法；放射線療法：なし", CH, ["放射線療法"]),
+            ("手術歴はあるが化学療法歴はない。", CH, ["手術"]),
+            ("適合接受化學治療，但未曾接受化療。", CH, []),
+            ("未曾接受化學治療,但曾接受手術。", CH, ["手術"]),
+        ],
+    ),
+}
+
+
+RULE_RUNS = [(r, *x) for r, (runs, _) in RULES.items() for x in runs]
+RULE_HELD = [(r, *x) for r, (_, held) in RULES.items() for x in held]
+
+
+def _rule_atom() -> Atom:
+    return Atom(domain="condition", valueset="VS_X", quantifier="any")
+
+
+@pytest.mark.parametrize(
+    ("rule", "text", "terms", "others"), RULE_RUNS, ids=[f"{r[:2]}-{x[0][:24]}" for r, *x in RULE_RUNS]
+)
+def test_each_release_rule_lets_its_shape_run(rule: str, text: str, terms: list[str], others: list[str]) -> None:
+    from criteria_compiler.ir_extract.negation_scope import negated_presence
+
+    assert not negated_presence(text, _rule_atom(), lambda vs: terms, others), (rule, text)
+
+
+@pytest.mark.parametrize(
+    ("rule", "text", "terms", "others"), RULE_HELD, ids=[f"{r[:2]}-{x[0][:24]}" for r, *x in RULE_HELD]
+)
+def test_each_release_rule_holds_its_near_misses(rule: str, text: str, terms: list[str], others: list[str]) -> None:
+    from criteria_compiler.ir_extract.negation_scope import negated_presence
+
+    assert negated_presence(text, _rule_atom(), lambda vs: terms, others), (rule, text)
+
+
 def test_an_age_or_sex_alone_and_an_exclusion_are_not_this_rule() -> None:
     age = _one("No younger than 18 years", {"domain": "demographic", "age": {"min": 18}}, concepts=[])
     assert age.class_ in FILTERED and FLAG not in (age.flags or [])

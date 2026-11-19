@@ -6,18 +6,31 @@ exclude. :func:`negated_presence` says whether such an inclusion must go to a pe
 **The rule fails safe.** An inclusion whose logic asks the presence of a concept is held when its line carries ANY
 negation cue that is not explained. A cue is explained only when it is shown to be about something else:
 
-* a bound on a value ("no more than 2", "not greater than 1.5 mg/dL", "超えない", "以上でない", "無…大於") or another
-  phrase that negates nothing ("no longer", "non-small cell", "無法", "未満"): these are blanked before reading;
-* a cue followed, before the concept, by a word it negates instead ("not *responded* to chemotherapy", "no
-  *restriction* on", "化学療法後に*増悪*が認められない", "未經治療*的*晚期肺癌");
-* a cue that clearly governs another concept the line names, and not this one: not when that concept is listed with
-  this one under the cue ("no prior surgery or chemotherapy", "手術及び化学療法の治療歴がない": both negated);
-* (card 10A-1b) a cue that governs another extracted concept in another clause: the cue and every mention of this
-  concept are in clauses split by a coordinating boundary (";", a sentence end, "but", "however", が、, て、, 但, 且),
-  no mention's clause carries a cue, goes on with a list or is this concept alone, and the cue's clause names
-  another of the line's extracted concepts as what it negates. An object the extractor did not name never releases
-  a cue: "no prior cytotoxic treatment", "化療", "抗悪性腫瘍薬" may be this concept by another name. When the cue's
-  clause comes first the boundary must be adversative ("but", が、, 但). Anything less clear stays held.
+Card 10A-1b lists every rule that lets a cue go; nothing else does, and none applies unless the line names the coded
+concept (R0: a cue in a line that never names it holds, as it may be that concept under another name):
+
+* R1, a bound on a value ("no more than 2", "not greater than 1.5 mg/dL", "超えない", "以上でない", "無…大於") or
+  another phrase that negates nothing ("no longer", "non-small cell", "無法", "未満", "not contraindicated"): blanked
+  before reading;
+* R2, a word the cue negates instead, joined to the concept by a link word, with no list mark or other cue between
+  ("not *responded to* chemotherapy", "no *progression after* chemotherapy", "化学療法*後に増悪が*認められない"; not
+  "no poorly controlled hypertension", which is held);
+* R3, in Chinese, a verbal negator (未, 未曾, 尚未 …) closing a modifier with 的 or 之 before the concept, with no list
+  mark or other cue between ("未經治療*的*晚期肺癌"; not "無未控制之高血壓", "無控制不良的高血壓": held);
+* R4, a cue that does not reach the concept (a list goes on across commas and 、) and reaches a word it negates
+  instead or another named concept; another concept never releases a cue that also reaches this one ("no prior
+  surgery or chemotherapy", "no smoking during chemotherapy": held);
+* R5, a backward cue whose own words say what it negates ("has not *responded*", "未見*惡化*");
+* R6, a backward cue right after a word it negates instead, a particle apart ("手術*適応*がない");
+* R7, a cue in another clause that names another extracted concept: the cue and every mention of this concept are
+  in clauses split by a coordinating boundary (";", a sentence end, "but", "however", が、, て、, 但, 且), no
+  mention's clause carries a cue, goes on with a list or is this concept alone, and the cue's clause names another
+  of the line's extracted concepts as what it negates. An object the extractor did not name never releases a cue:
+  "no prior cytotoxic treatment", "化療", "抗悪性腫瘍薬" may be this concept by another name. When the cue's clause
+  comes first the boundary must be adversative ("but", が、, 但).
+
+Anything less clear stays held. Each rule has, in the test, lines it lets run and near-miss lines it must hold in
+English, Japanese and Chinese.
 
 The scope reading (ConText's: a cue before the concept, or after it for "not allowed", "なし", "未曾…", in the same
 clause and within a few words; Harkema H, Dowling JN, Thornblade T, Chapman WW. ConText: an algorithm for determining
@@ -359,68 +372,111 @@ def _filler(s: str, cjk: bool) -> bool:
     return bool((_CJK_FILLER if cjk else _EN_FILLER).match(s))
 
 
-def _listed_after(reach: str, own: list[re.Pattern[str]], others: list[re.Pattern[str]], cjk: bool) -> bool:
-    """A forward cue's reach names another concept, then this one with only list words between: the cue governs
-    both ("no prior surgery or chemotherapy", "diabetes, hypertension, or stroke")."""
-    stop = _first(own, reach)
-    if stop is None:
+# Card 10A-1b, the release rules. Each rule below lets a cue go (the line may run) for one shape only, and none
+# applies unless the line names the coded concept. Where a cue reaches the coded concept (its list reach: commas and
+# 、 do not end it), nothing between them may be a list mark or another cue, and only two shapes release it: a word
+# the cue negates instead, joined to the concept by a link word ("no response *to* chemotherapy", "化学療法*後に*増悪が
+# 認められない"), and in Chinese a verbal negator closing a modifier with 的 or 之 before the concept ("未經治療*的*晚期
+# 肺癌"). Another named concept never releases a cue that reaches the coded one ("No smoking during chemotherapy",
+# "no uncontrolled hypertension, diabetes or stroke"); "no uncontrolled X", "無控制不良的X", "無未控制之X" are held.
+_EN_LIST = re.compile(r"[,;/]|\b(?:or|and|nor|plus)\b", _FLAGS)
+_CJK_LIST = re.compile(
+    r"[,、;/・]|及び|および|並びに|ならびに|または|又は|もしくは|若しくは|以及|或是|或者|や|と|及|或|和|與|与|並|并|暨"
+)
+_EN_LINK = re.compile(r"\b(?:to|after|following|despite|with|for|on|from|by|of|in|since|during)\b", _FLAGS)
+_CJK_LINK = re.compile(r"之後|之后|以後|以后|の後|後に|後|后|への|に対する|に対して|による|に|於|于|對|对")
+_ZH_VERBAL = re.compile(r"^(?:從未|从未|未曾|不曾|尚未|並未|并未|須未|须未|必須未|必须未|未)$")
+
+
+def _clean_stretch(s: str, cjk: bool) -> bool:
+    """Nothing between a cue and the concept it reaches may be a list mark or another cue."""
+    if (_CJK_LIST if cjk else _EN_LIST).search(s):
         return False
-    ends = [m.end() for p in others for m in p.finditer(reach[:stop])]
-    return bool(ends) and _filler(reach[max(ends) : stop], cjk)
+    return not any(p.search(s) for p in _ANY_CUE)
 
 
-def _listed_before(reach: str, own: list[re.Pattern[str]], others: list[re.Pattern[str]], cjk: bool) -> bool:
-    """A backward cue's reach names this concept, then another with only list words between ("手術及び化学療法の
-    治療歴がない", "chemotherapy and radiotherapy are not permitted")."""
-    for p in own:
-        for m in p.finditer(reach):
-            starts = [o.start() for q in others for o in q.finditer(reach, m.end())]
-            if starts and _filler(reach[m.end() : min(starts)], cjk):
+def _block_linked(head: str, cjk: bool) -> bool:
+    """Rule R2 (forward): a word the cue negates instead, then a link word, then the concept, a few words on
+    ("not responded to chemotherapy", "no progression after chemotherapy")."""
+    blk = [_ZH_BLK, _JA_BLK] if cjk else [_EN_BLK]
+    for b in blk:
+        for m in b.finditer(head):
+            rest = head[m.end() :]
+            link = (_CJK_LINK if cjk else _EN_LINK).search(rest)
+            if link is None:
+                continue
+            after = rest[link.end() :]
+            if (len(after.strip()) <= 6) if cjk else (len(_WORD.findall(after)) <= 3):
                 return True
     return False
 
 
-def _explained_forward(
-    after: str, own: list[re.Pattern[str]], others: list[re.Pattern[str]], cjk: bool, reach: str = ""
-) -> bool:
-    """A forward cue is explained when what it reaches, before this concept, is a word it negates instead or another
-    named concept not listed with this one."""
-    stop = _first(own, after)
-    head = after if stop is None else after[:stop]
+_JA_PARTICLES = re.compile(r"^[\sがはもをの]*$")
+_EN_AUX = re.compile(r"^(?:is|are|was|were|has|have|had|been|be|being)$", _FLAGS)
+
+
+def _block_object(before: str, cjk: bool) -> bool:
+    """Rule R1b (backward): the word right before the cue, a particle or an auxiliary apart, is one the cue negates
+    instead ("化学療法歴があり、手術*適応*がない", "chemotherapy; *response* was not seen")."""
     if cjk:
-        if re.search(r"[的之]", head[:6]):  # "未經治療的晚期肺癌": the cue negates the modifier 的 closes
-            return True
-        if _ZH_BLK.search(head) or _JA_BLK.search(head):
-            return True
-        return _first(others, head) is not None and not _listed_after(reach or after, own, others, cjk)
-    near = " ".join(_WORD.findall(head)[: _EN_WINDOW + 1])
-    if _EN_BLK.search(near):
+        ends = [m.end() for b in (_JA_BLK, _ZH_BLK) for m in b.finditer(before)]
+        return bool(ends) and _JA_PARTICLES.match(before[max(ends) :]) is not None
+    words = _WORD.findall(before)
+    while words and _EN_AUX.match(words[-1]):
+        words.pop()
+    return bool(words) and _EN_BLK.fullmatch(words[-1]) is not None
+
+
+def _explained_forward(
+    after: str, own: list[re.Pattern[str]], others: list[re.Pattern[str]], cjk: bool, reach: str = "", cue: str = ""
+) -> bool:
+    """A forward cue is explained when it does not reach this concept and what it reaches is a word it negates
+    instead (R1) or another named concept (R4), or when it reaches this concept only through rule R2 or R3."""
+    reach = reach or after
+    stop = _first(own, reach)
+    if stop is None:  # the cue's list never names this concept
+        if cjk:
+            return bool(_ZH_BLK.search(after) or _JA_BLK.search(after)) or _first(others, after) is not None
+        near = " ".join(_WORD.findall(after)[: _EN_WINDOW + 1])
+        return bool(_EN_BLK.search(near)) or _first(others, near) is not None
+    head = reach[:stop]
+    if not _clean_stretch(head, cjk):
+        return False
+    if _block_linked(head, cjk):
         return True
-    return _first(others, near) is not None and not _listed_after(reach or after, own, others, cjk)
+    # R3: "未經治療的晚期肺癌": a verbal negator, its modifier closed by 的 or 之, then the concept
+    return cjk and bool(_ZH_VERBAL.match(cue)) and re.search(r"[的之]", head[:6]) is not None
 
 
 def _explained_backward(
     before: str, cue: str, after: str, own: list[re.Pattern[str]], others: list[re.Pattern[str]], cjk: bool,
     reach: str = "",
 ) -> bool:  # fmt: skip
-    """A backward cue is explained when, between this concept (or the clause's start) and the cue, the line names
-    another concept not listed with this one, or a word the cue negates instead ("化学療法後に増悪が認められない"), or
-    when the cue's own words say what it negates ("has not *responded*", "未見*惡化*", "未受*控制*")."""
-    last = [m.end() for p in own for m in p.finditer(before)]
-    tail = before[max(last) :] if last else before
+    """A backward cue is explained when its own words say what it negates (R5: "has not *responded*", "未見*惡化*",
+    "未受*控制*"), or when it does not reach this concept and what it reaches is a word it negates instead or another
+    named concept (R1, R4), or when it reaches this concept only through a link word then such a word (R2:
+    "化学療法*後に増悪が*認められない")."""
     if cjk:
         said = cue + after[:4]
         if _JA_BLK.search(said) or _ZH_BLK.search(said):
             return True
-        if _JA_BLK.search(tail) or _ZH_BLK.search(tail):
-            return True
-        return _first(others, tail) is not None and not _listed_before(reach or before, own, others, cjk)
-    if _EN_BLK.search(cue):
+    elif _EN_BLK.search(cue):
         return True
-    near = " ".join(_WORD.findall(tail)[-4:])
-    if _EN_BLK.search(near):
+    if _block_object(before, cjk):
         return True
-    return _first(others, near) is not None and not _listed_before(reach or before, own, others, cjk)
+    reach = reach or before
+    last = [m.end() for p in own for m in p.finditer(reach)]
+    if not last:  # the cue's list never names this concept
+        if cjk:
+            return bool(_JA_BLK.search(before) or _ZH_BLK.search(before)) or _first(others, before) is not None
+        near = " ".join(_WORD.findall(before)[-4:])
+        return bool(_EN_BLK.search(near)) or _first(others, near) is not None
+    tail = reach[max(last) :]
+    if not _clean_stretch(tail, cjk):
+        return False
+    if cjk:
+        return _CJK_LINK.match(tail) is not None and bool(_JA_BLK.search(tail) or _ZH_BLK.search(tail))
+    return _EN_LINK.match(tail.strip()) is not None and _EN_BLK.search(tail) is not None
 
 
 # Card 10A-1b: a cue whose negated thing the line does not name as a concept ("Prior surgery is required; no prior
@@ -569,6 +625,8 @@ def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] 
     others = _others(terms, other_terms)
     t = _prepare(text)
     found = _mentions(t, own)
+    if not found:  # R0: the line never names the coded concept: a cue may be about it under another name
+        return any(p.search(t) for p in _ANY_CUE)
     lang = "ja" if _KANA.search(t) else "zh" if _CJK.search(t) else "en"
     built: list[_Structure] = []
 
@@ -602,16 +660,16 @@ def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] 
                 return True
         for m in _JA_FWD.finditer(t):
             reach = _list_after(t, m.end(), True, True)
-            if not _explained_forward(_clause_after(t, m.end(), True, True), own, others, True, reach) and not (
-                elsewhere(m, True)
-            ):
+            if not _explained_forward(
+                _clause_after(t, m.end(), True, True), own, others, True, reach, m.group(0)
+            ) and not (elsewhere(m, True)):
                 return True
         return False
     for m in _ZH_FWD.finditer(t):
         reach = _list_after(t, m.end(), True, False)
-        if not _explained_forward(_clause_after(t, m.end(), cjk=True), own, others, True, reach) and not elsewhere(
-            m, True
-        ):
+        if not _explained_forward(
+            _clause_after(t, m.end(), cjk=True), own, others, True, reach, m.group(0)
+        ) and not elsewhere(m, True):
             return True
     for m in _ZH_BWD.finditer(t):
         before, after = _clause_before(t, m.start(), cjk=True), _clause_after(t, m.end(), cjk=True)

@@ -40,9 +40,16 @@ concept explains a cue only when it is not listed with the coded one under that 
 但, 且; with the cue's clause first, only an adversative) is about something else only when its clause names another
 extracted concept and the coded concept's clause carries no cue and is more than the concept alone. An object the
 extractor did not name never releases a cue: it may be the coded concept by another name ("cytotoxic treatment",
-化療). (4) The reused approved path reads the ruleset's ValueSet titles (each a candidate's name) as the line's other
+化療). Every rule that lets a cue go is listed, with its shape, in `negation_scope.py` (R0 to R7), and is safe by
+construction: none applies unless the line names the coded concept; where a cue reaches the coded concept (a list
+goes on across commas and 、) nothing between them may be a list mark or another cue, and only a word the cue negates
+joined by a link word ("no response to X") or, in Chinese, a verbal negator closing a 的 / 之 modifier ("未經治療的
+肺癌") lets it go: "no poorly controlled X", "無控制不良的X", "無未控制之X、Y或Z", "コントロール不良のXがない" are held
+(the lane J lead's independent measurement found the Chinese list form running at the previous head). (4) The
+reused approved path reads the ruleset's ValueSet titles (each a candidate's name) as the line's other
 concepts. (5) "No. 17" is a number. Measured, missed and held unnecessarily, before and after: card 10A-1's table
 0/116 and 8/69, unchanged; the lines unseen at design 0/21 and 20/23, unchanged; card 10A-1b's 80 lines 12/40 and
 18/40 to 0/40 and 17/40; the coordinator's 44 lines 34/36 and 0/8 to 0/36 and 0/8; P2b's stored `ir_extract` replies
-(377 coded inclusions) 14 held, 6 unnecessarily, to 13 and 5. Exclusions are byte for byte the same with the rule on
+(377 coded inclusions) 14 held, 6 unnecessarily, to 14 and 6 ("No. 17" runs; a line whose coded name is
+written in another word order is held by R0). Exclusions are byte for byte the same with the rule on
 and off. Lines: `tests/fixtures/negated_inclusion/card_10a1b.json`, `review_10a1b.json`.
