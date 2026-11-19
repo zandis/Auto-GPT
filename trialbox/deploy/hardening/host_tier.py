@@ -65,7 +65,7 @@ def classify(label: str, tiers_dir: Path | None = None) -> tuple[str, str]:
     if stated is True:
         return "desk-side", (
             f"PASS  tier: {shown}, a desk-side box (models/tiers/{desk.profile}.json): "
-            "a TPM-only disk unlock FAILs in VALIDATION and PRODUCTION"
+            "a TPM-only disk unlock is refused in VALIDATION and PRODUCTION"
         )
     if stated is False:
         return "server-room", f"PASS  tier: {shown}, a server-room box (models/tiers/{desk.profile}.json)"
@@ -76,7 +76,7 @@ def classify(label: str, tiers_dir: Path | None = None) -> tuple[str, str]:
     }.get(desk.case, f"{shown}: desk_side not stated")
     return "unknown", (
         f"WARN  tier unknown ({why}): treated as a desk-side box, the stricter case: "
-        "a TPM-only disk unlock FAILs in VALIDATION and PRODUCTION"
+        "a TPM-only disk unlock is refused in VALIDATION and PRODUCTION"
     )
 
 
