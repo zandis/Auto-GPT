@@ -30,6 +30,16 @@
 </form>
 {% elif step == 'answers' %}
 <p>{{ t('firstrun.form.intro') }}</p>
+{# 10K-3 (D-1361): the live preflight the installer ran (tb_common.preflight): each line, a red one with what to do #}
+<section data-testid="firstrun-preflight" aria-labelledby="pf-title">
+<h2 id="pf-title">{{ t('firstrun.preflight') }}</h2>
+{% if preflight[lang] %}<p class="hint">{{ t('firstrun.preflight.help', at=preflight_at) }}</p>
+<ul>{% for ln in preflight[lang] %}
+  <li data-testid="pf-{{ ln.id }}" data-status="{{ ln.status }}"><p class="{% if ln.status == 'FAIL' %}error{% elif ln.status == 'WARN' %}warn{% else %}ok{% endif %}"><strong>{% if ln.status == 'FAIL' %}{{ t('firstrun.preflight.fail') }}{% elif ln.status == 'WARN' %}{{ t('firstrun.preflight.warn') }}{% else %}{{ t('firstrun.preflight.pass') }}{% endif %}</strong> {{ ln.group }}: {{ ln.label }}</p>
+  {% if ln.action %}<p data-testid="pf-action-{{ ln.id }}">{{ t('firstrun.preflight.action') }} {{ ln.action }}</p>{% endif %}
+  <p class="hint" lang="en">{{ ln.detail }}</p></li>{% endfor %}
+</ul>{% else %}<p class="warn" data-testid="firstrun-preflight-none">{{ t('firstrun.preflight.none') }}</p>{% endif %}
+</section>
 {% if errors %}<p class="error" role="alert" data-testid="firstrun-errors">{{ t('firstrun.errors') }}</p>{% endif %}
 {% macro err(name) %}{% if errors.get(name) %}<span class="error" data-testid="err-{{ name }}">{{ t('firstrun.err.' + errors[name]) }}</span>{% endif %}{% endmacro %}
 <form{% if ask_country %} id="fr-form"{% endif %} method="post" action="/login/first-run/answers" autocomplete="off">

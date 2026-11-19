@@ -1,0 +1,49 @@
+{
+ "card": "H10G1",
+ "title": "container hardening: the four controls on the 15 services (plan 10 row 10G-1)",
+ "date": "2026-11-19",
+ "source": "docs/handover/container-hardening-2026-11-19.md",
+ "note": "basis 'shown' for H10G1-01: the HL7 validator was run as uid 10001 against an unwritable and a writable copy of its package cache; nothing was brought up under Docker (no daemon).",
+ "findings": [
+  {
+   "id": "H10G1-01",
+   "severity": "Medium",
+   "claim": "the adapter and the orchestrator cannot run with a read-only root filesystem: the HL7 validator (services/adapter/validate/validator.py, -Duser.home=/opt/hl7/home) writes .index.json files into and renames packages in its package cache, an image path, and stops with 'Unable to rename directory ... for atomic delete' when it cannot; the fix is a writable package home in the validator, then the two read_only exceptions of D-1323 go",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10G1-02",
+   "severity": "Medium",
+   "claim": "llm-service (vLLM) runs as root with a writable root filesystem and, for rc1, without cap_drop (D-1323 exceptions): its compile and kernel caches are under /root/.cache and /tmp, and root must read model files of any mode (without DAC_OVERRIDE it cannot read a 0600/0640 file of another owner); a fixed user, read_only and cap_drop need the caches on a volume and readable weights, proved on a GPU box",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H10G1-03",
+   "severity": "Low",
+   "claim": "the overlay services outside the base file's 15 carry none or only some of the four controls: llm-verifier, judge-sleep-init, judge-wake-init, model-swap-init, caddy, authelia, prometheus, doctor (tests/unit/test_container_hardening.py OUTSIDE_THE_15)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 2e3febfb6abea4eb67949f64b09a3711b04aafeb"
+  },
+  {
+   "id": "H10G1-04",
+   "severity": "Medium",
+   "claim": "a reference data pack that fails to load at install is only a stderr warning (deploy/install.sh, the deploy/refdata/pending loop's 'install: warning: reference data ... not loaded' line) and install goes on; under the 10G-1 read-only root the pack's 'compose cp' into criteria-compiler failed that way and only the box rehearsal's later check noticed (CI run 44458900188); the load is fixed (a one-off compose run with the pack bind-mounted), the quiet failure is open",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 6fdb1319fb4d41baadd0c8c0635c333ce3d8b8df"
+  },
+  {
+   "id": "H10G1-05",
+   "severity": "Medium",
+   "claim": "update's rollback (tools/trialbox/update.py RESTORE_SH, mktemp in the db container) wrote the dump's whole plain SQL script into db's tmpfs /tmp, which counts against db's memory limit (TB_MEM_DB, 4g by default) and is capped at 64m; fixed by moving the file onto the db-pg volume (${PGDATA:?}/tb-rollback, 0700, removed on exit), the logic as on master, and the update's preflight counts its space; not yet run on a box",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "fixed 37250175"
+  }
+ ]
+}

@@ -76,6 +76,54 @@ def test_links_and_paths_only_warn_unless_strict(fake_root: Path, monkeypatch: p
     assert doclint.main([]) == 1
 
 
+def test_a_drill_name_with_no_test_fails(fake_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """10K-9 (D-1362): a drill a page names must be a ``def`` under tests/; a planted name with no test fails the run,
+    in the runbook and in the site tabletops; the records (reviews, plan measurements, decisions) are history."""
+    (fake_root / "tests" / "unit").mkdir(parents=True)
+    (fake_root / "tests" / "unit" / "test_x.py").write_text("import os\n\n\ndef test_runbook_12_real(tmp_path):\n    "
+                                                            "assert os\n", encoding="utf-8")  # fmt: skip
+    (fake_root / "docs" / "runbook").mkdir()
+    (fake_root / "docs" / "plan" / "sites").mkdir(parents=True)
+    (fake_root / "docs" / "plan" / "measurements").mkdir()
+    (fake_root / "docs" / "decisions").mkdir()
+    page = fake_root / "docs" / "runbook" / "12-x.md"
+    page.write_text("# 12. X\n\n**Drill (T-213b):** `test_runbook_12_real` (in process).\n", encoding="utf-8")
+    old = "it named `test_runbook_22_gone_long_ago`, which did not exist\n"
+    (fake_root / "docs" / "plan" / "measurements" / "m.md").write_text(old, encoding="utf-8")
+    (fake_root / "docs" / "decisions" / "D-1.md").write_text(old, encoding="utf-8")
+    assert doclint.check_drills() == []
+    # a planted name on a runbook page fails, with the page and line
+    page.write_text(page.read_text(encoding="utf-8") + "\nSee also `test_runbook_12_planted_drill`.\n",
+                    encoding="utf-8")  # fmt: skip
+    errs = doclint.check_drills()
+    assert len(errs) == 1 and errs[0].startswith("docs/runbook/12-x.md:5: drill: test_runbook_12_planted_drill")
+    # in a site tabletop too
+    tab = fake_root / "docs" / "plan" / "sites" / "tabletop.md"
+    tab.write_text("| 1 | x | `test_runbook_04_tabletop_only` |\n", encoding="utf-8")
+    assert any("tabletop.md:1: drill: test_runbook_04_tabletop_only" in e for e in doclint.check_drills())
+    # a name mentioned but not defined (a call, a string) is no test
+    (fake_root / "tests" / "unit" / "test_y.py").write_text(
+        'NAME = "test_runbook_12_planted_drill"\n', encoding="utf-8"
+    )
+    assert len(doclint.check_drills()) == 2
+    # the run fails on it (a failing kind, not a warning)
+    monkeypatch.setattr(doclint, "DOCS", [])
+    monkeypatch.setattr(doclint, "HUBS", {})
+    monkeypatch.setattr(doclint, "check_gone", lambda: [])
+    monkeypatch.setattr(doclint, "handover_problems", lambda: [])
+    assert doclint.main([]) == 1
+    page.write_text("# 12. X\n\n**Drill (T-213b):** `test_runbook_12_real` (in process).\n", encoding="utf-8")
+    tab.write_text("| 1 | x | none (not rehearsed by a test) |\n", encoding="utf-8")
+    assert doclint.main([]) == 0
+
+
+def test_every_drill_the_runbook_names_is_a_test() -> None:
+    """The repository as it is: each drill named in docs/runbook has its def under tests/."""
+    names = {n for p in (REPO / "docs" / "runbook").glob("*.md")
+             for n in doclint.DRILL_NAME.findall(p.read_text(encoding="utf-8"))}  # fmt: skip
+    assert names and names <= doclint.drill_defs(), sorted(names - doclint.drill_defs())
+
+
 # --- T-669, D-352: the hot documents as section files ---------------------------------------------------------------
 
 REPO = Path(__file__).resolve().parents[2]

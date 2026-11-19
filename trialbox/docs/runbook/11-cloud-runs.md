@@ -558,3 +558,49 @@ Owner's yes first for anything but `--estimate` and `--dry-run`.
   the traces and the score are one record of the attempts ("attempts: 2; protocols finished in attempt 1: a; in
   attempt 2: b; still cut: c"). `deploy/gcp/box-run.sh --preflight --resume <run id> --acc-deadline ...` says,
   free, what the resume would take up (from the last `--collect`). See the GPU VM handover, section 4.10.
+
+**The 48 GB measuring run, unattended** (lane H, H-53; H-47's sheet run without SSH:
+`docs/plan/measurements/48gb-measuring-run-2026-11-19.md`, section "Unattended, through the driver (H-53)"). The
+draft 48 GB class (lane J) measured under the ballast on a NEW Spot VM made for the run (default `tb-h47-48gb`,
+asia-east1-a, g4-standard-48 with one RTX PRO 6000, a 100 GB `hyperdisk-balanced` disk: the region's
+`HDB_TOTAL_GB` is 500 GB and `tb-gpu-sim` holds 400). `deploy/gcp/measure48-run.sh` is the driver; the work runs on
+the VM as its start-up script (`tools/measure48-vm.sh`, with `tools/measure48_vm.py` as its helper: the
+estimate, the stop-line gate, the ladder, the disk guard, the upload allow-list, the summary). The kept VMs
+(`tb-gpu-sim`, `tb-demo-vm`, `tb-preview-vm`, `tb-steps-vm`) are refused by name. Owner's yes first for anything but
+`--estimate` and `--preflight`. Only `tb-h47-...` and `tb-h53-...` names are taken; `--collect` (its delete),
+`--stop`, `--resume` and `--delete <run id>` act only on a VM with label `trialbox=h53-48gb` and metadata
+`tb-run-id=<run id>`.
+
+    deploy/gcp/measure48-run.sh --estimate                       # free, no gcloud: US$6.30 (2.3 h), line 3.5 h, cap 4 h
+    deploy/gcp/measure48-run.sh --preflight --commit <sha>       # read-only gcloud: quota (GPU, CPUs, HDB_TOTAL_GB), VM name, bucket
+    deploy/gcp/measure48-run.sh --commit <sha>                   # the launch; returns at once
+    deploy/gcp/measure48-run.sh --collect <run id>               # as often as wanted; the one that finds it ended deletes the VM
+
+- **The disk quota (H-59).** `regions describe` may not list `HDB_TOTAL_GB` at all (asia-east1, 2026-11-19: 113
+  rows, none of it). Then `--preflight` says so in one line (`quota: asia-east1: HDB_TOTAL_GB is not in the region's
+  quota list (113 rows), so the 100 GB disk quota cannot be checked beforehand; ...`) and goes on; the create call
+  itself refuses if the disk quota is short, and the launch then ends with gcloud's reason, exit 5, and no VM or
+  disk. A row that is listed and short is refused (exit 4). `--hdb-free-gb N` gives the free figure by hand (from a
+  refused create's message, say); it is checked like a listed row, and a non-number is refused. A gcloud call that
+  fails, or output that is not a quota list, is refused (exit 4).
+
+- **Unattended.** The VM does H-47's steps 2 to 10 by itself: the driver with one reboot, Docker and the toolkit
+  (gpu-sim-startup.sh's lines), the commit's archive from the bucket (sha256 and HEAD checked), the weights from the
+  public hub with no token (a gated file fails the step, nothing waits), the stub started once for `deploy/.env` and
+  the images (poc.sh builds the database image itself since #1130); the driver is D-966's
+  `nvidia-driver-580-server-open`, the engine image, the ballast at 49,140 MiB, the
+  ladder (pair-32k, else pair-16k, else judge-alone, `--keep`), the small screen on a kept pair, stage O on a kept
+  pair-32k, `down`, pair-32k-host53, the ballast released. Every choice is in `decisions.json`.
+- **The clock.** A stage starts only when its high estimate ends before the stop line (204 minutes of the VM's own
+  clock, every boot counted: 3.5 h less stage 1's 0.10 h); at the line the running command gets SIGINT (lane J's
+  measure writes what it has) and the end runs. The VM's own cap (240 minutes) and the cloud's `--max-run-duration
+  4h` power it off whatever runs. A pre-emption stops it (STOP); its SIGTERM saves the records without ending the
+  run. `--resume <run id>` starts it again with the cap left (240 minutes less the VM's clock less 8 a boot), and
+  refuses when the run's `steps.json` has no clock.
+- **The records.** After every step (and every minute of a long one) the allow-listed files go to
+  `$TB_BUCKET/m48runs/<run id>/`, redacted and with the servers' key and every value of `deploy/.env` and
+  `deploy/secrets/` masked. Never uploaded: the stub's output (it holds the administrator's password), `deploy/.env`,
+  `deploy/secrets/`, `down.json`, `verifier-flag.yml`, the screen's work folders.
+- **Rehearsal (free).** `tests/unit/test_measure48_vm_h53.py` runs the VM script unchanged on stand-ins (the reboot,
+  the ladder, a refused flag, the stop line, the disk guard, a gated weight); `tests/unit/test_measure48_run_h53.py`
+  the decisions and the driver against a stand-in gcloud. Nothing of it has run on a VM.

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ t('nav.cascade') }}{% endblock %}
 {% block content %}
-<h1>{{ t('cascade.title') }}</h1>
+{#J7#}{% if pm %}<h1>{{ t('nav.cascade') }}</h1><p class="lead">{{ t('cascade.title') }}</p>{% else %}{#/J7#}<h1>{{ t('cascade.title') }}</h1>{#J7#}{% endif %}{#/J7#}
 <section class="card">
 <p>{{ t('cascade.help') }}</p>
 {% if available %}

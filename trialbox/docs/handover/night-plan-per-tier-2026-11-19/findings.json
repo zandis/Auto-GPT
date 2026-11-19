@@ -1,0 +1,85 @@
+{
+  "card": "N11",
+  "title": "the night plan follows the tier",
+  "date": "2026-11-19",
+  "source": "docs/handover/night-plan-per-tier-2026-11-19.md",
+  "findings": [
+    {
+      "id": "N11-01",
+      "severity": "High",
+      "claim": "the night chain wrote the tier's pass order, concurrency and residency into MICROBATCH options the worker never reads; the tests stopped at the options",
+      "lane": "H",
+      "basis": "hypothesis",
+      "state": "fixed 27c417b5",
+      "place": "services/orchestrator/night.py _create (PR #1203)",
+      "expected": "the plan states only steps a job runs and writes no option",
+      "happened": "options passes, screen_concurrency, models_resident on the job; the worker ran its usual evaluation"
+    },
+    {
+      "id": "N11-02",
+      "severity": "High",
+      "claim": "a coded-only plan still dispatched the ordinary MICROBATCH, which can ask the configured note judge",
+      "lane": "H",
+      "basis": "hypothesis",
+      "state": "fixed 27c417b5",
+      "place": "services/orchestrator/night_plan.py dispatch (PR #1203)",
+      "expected": "no coded-only claim the screen step does not keep; a record measuring no model is warned as differing from the configuration",
+      "happened": "models_on_card none stated while MICROBATCH could send notes to the judge"
+    },
+    {
+      "id": "N11-03",
+      "severity": "High",
+      "claim": "the 06:00 CPU note cutoff cancelled jobs, then advanced the chain with CPU note dispatch still on",
+      "lane": "H",
+      "basis": "hypothesis",
+      "state": "fixed 27c417b5",
+      "place": "services/orchestrator/scheduler.py advance_night (PR #1203)",
+      "expected": "no job is started or cancelled by the plan",
+      "happened": "a fresh night_pass=note_cpu job could start in the backup window"
+    },
+    {
+      "id": "N11-04",
+      "severity": "Medium",
+      "claim": "the cutoff searched only the 200 newest jobs of every type",
+      "lane": "H",
+      "basis": "hypothesis",
+      "state": "fixed 27c417b5",
+      "place": "services/orchestrator/scheduler.py _stop_cpu_notes (PR #1203)",
+      "expected": "no cutoff (no job runs a CPU note pass)",
+      "happened": "a note job behind 200 newer jobs was never cancelled"
+    },
+    {
+      "id": "N11-05",
+      "severity": "Medium",
+      "claim": "the backup window wrote no request on the shipped Compose, which mounts no operations folder in the orchestrator",
+      "lane": "H",
+      "basis": "hypothesis",
+      "state": "fixed 27c417b5",
+      "place": "services/orchestrator/scheduler.py _open_backup_window (PR #1203)",
+      "expected": "the scheduler opens no backup window it cannot start",
+      "happened": "the day was marked handled with no request written"
+    },
+    {
+      "id": "N11-06",
+      "severity": "Medium",
+      "claim": "the plan read gb10.json and cpu.json for labels the worker's budget lookup does not know: the stated budget differed from the enforced one",
+      "lane": "H",
+      "basis": "hypothesis",
+      "state": "fixed 27c417b5",
+      "place": "services/orchestrator/night_plan.py _load_record (PR #1203)",
+      "expected": "one reader and one budget on every label",
+      "happened": "TB_PROFILE=P-GB10 with a gb10.json of 750: 750 stated, 2000 enforced"
+    },
+    {
+      "id": "N11-07",
+      "severity": "Medium",
+      "claim": "two first-load slices had the same name and the second depended on that name",
+      "lane": "H",
+      "basis": "hypothesis",
+      "state": "fixed 27c417b5",
+      "place": "services/orchestrator/night_plan.py _slices (PR #1203)",
+      "expected": "step names are unique",
+      "happened": "first_load after first_load"
+    }
+  ]
+}

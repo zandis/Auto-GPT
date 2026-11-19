@@ -394,6 +394,22 @@ def run_holidays_import(tmp: Path) -> None:
     assert bad.returncode == 2 and "not the one recorded" in bad.stderr
 
 
+def run_preflight(tmp: Path) -> None:
+    """10K-3: the live preflight as §1 writes it, on a box folder of its own (an empty .env): it runs, every line of
+    the list is there, and a line that is not green has its Japanese action under it."""
+    from tb_common import preflight as text
+
+    deploy = tmp / "deploy"
+    deploy.mkdir()
+    (deploy / ".env").write_text("TB_ENV=PRODUCTION\nTB_LLM_MODE=stub\n", encoding="utf-8")
+    cmd = next(c for c in commands() if "doctor --preflight" in c).split()
+    out = _run([sys.executable if a == "python3" else a for a in cmd], cwd=tmp)
+    assert out.returncode in (0, 1), out.stderr
+    for cid in text.IDS:
+        assert re.search(rf"^(PASS|WARN|FAIL)\s+{cid} ", out.stdout, re.M), (cid, out.stdout)
+    assert f"-> {text.action('backup_share', 'ja')}" in out.stdout
+
+
 # command (as §1 writes it, a regular expression) -> its runner
 RUNNERS: list[tuple[str, Callable[[Path], None]]] = [
     (r"tools/serving_config\.py measured", run_serving_measured),
@@ -432,6 +448,7 @@ RUNNERS: list[tuple[str, Callable[[Path], None]]] = [
         run_ingest_report,
     ),
     (r"deploy/check_host\.sh \[--gb10\]", run_check_host),
+    (r"python3 -m tools\.trialbox doctor --preflight --env-file deploy/\.env --lang ja", run_preflight),
     (r"systemctl enable trialbox-.*", run_systemctl_enable),
     (r"python -m tools\.trialbox\.memcaps --measure", run_memcaps_measure),
     (r"python3 -m tools\.holidays_import syukujitsu\.csv --sha256 <hex> --years <first>-<last>", run_holidays_import),

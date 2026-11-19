@@ -27,6 +27,7 @@ WRITERS = {
     "services/adapter/backfill.py",
     "services/adapter/licensed.py",
     "services/adapter/pipeline.py",
+    "services/adapter/site_profile.py",  # 10B-6 (D-1233): site_profile.load
     "services/console/app.py",
     "services/console/cli.py",
     "services/console/steps_roles.py",  # STEPS-ROLE (D-877): the boot tool's flag change on a test box

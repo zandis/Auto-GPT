@@ -1,0 +1,188 @@
+# Reviewed inline security suppressions (10G-39, OT-1 of review 21; D-1338; tools/inline_suppressions.py).
+# One entry = one line of code that carries a `# nosec` (bandit) or `# noqa: S...` (ruff security rules) comment:
+# the file, the codes the comment names, the line's code (spaces collapsed; the entry follows the line when it moves),
+# the verdict (`safe`, or `finding` with its id: a defect is never filed as safe), why, who reviewed it and when, and
+# the date by which it is reviewed again (at most 180 days ahead, as deploy/supply-chain-allowlist.yaml dates its
+# entries). `make lint` fails on a suppressed line with no entry and on an entry that matches no line.
+# This ledger does not change what `make security-scan` gates on (tools/security_scan_ignores.yaml): the weekly
+# report-only run (`make bandit-weekly`, .github/workflows/trialbox-bandit-weekly.yml) reads past every `nosec`.
+# Change it in a pull request the security officer approves (review 21 section 5.2).
+
+suppressions:
+  - path: libs/sitecustomize.py
+    rule: S110
+    code: "except Exception:"
+    verdict: safe
+    reason: "the interpreter-start hook only adds a mounted hospital CA; a broken CA file must not stop a service from starting, and the public CAs stay trusted when it is skipped"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: libs/tb_common/extra_ca.py
+    rule: S108
+    code: "tmp = tmpdir or env.get(\"TMPDIR\") or \"/tmp\""
+    verdict: safe
+    reason: "the bundle holds public certificates only, and it is written only when a CA is mounted at /run/tb-extra-ca.pem, i.e. inside a service container whose /tmp is its own tmpfs (D-1323), not a shared /tmp"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: libs/tb_common/kek.py
+    rule: S310
+    code: "req = urllib.request.Request("
+    verdict: safe
+    reason: "the URL comes from _kms_endpoint, which refuses any scheme but https (plain http only to a loopback test KMS) and any key name outside KMS_KEY_NAME"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: libs/tb_common/kek.py
+    rule: B310
+    code: "with opener.open(req, timeout=KMS_TIMEOUT) as r:"
+    verdict: safe
+    reason: "opens the request built from _kms_endpoint (https, or http to loopback only; no file: or other scheme); no proxy, a timeout"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: libs/tb_common/llm.py
+    rule: S701
+    code: "_env = Environment(undefined=StrictUndefined, autoescape=False, keep_trailing_newline=False)"
+    verdict: safe
+    reason: "renders model prompts (plain text sent to the model), never HTML; HTML escaping would corrupt the prompt; data blocks go through tojson_block (D-346)"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: libs/tb_llm/prompt_registry.py
+    rule: S506
+    code: "return yaml.load(text, Loader=_UniqueKeyLoader)"
+    verdict: safe
+    reason: "_UniqueKeyLoader subclasses yaml.SafeLoader and only adds a duplicate-key refusal; no Python object can be constructed"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: services/console/breakglass_store.py
+    rule: B608
+    code: "f\"({marks}) ORDER BY id\", tuple(gids))"
+    verdict: safe
+    reason: "the interpolated text is a list of `?` placeholders only; every grant id is a bound parameter"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: services/console/firstrun.py
+    rule: B608
+    code: "if pm.fetchval(f'SELECT EXISTS (SELECT 1 FROM \"{schema}\".{table})'):"
+    verdict: safe
+    reason: "table from the fixed tuple (pid_map, pending); schema made by the code from the console's own schema name (operator's TB_DB_URL prefix) and checked to exist first; no request data"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: services/console/step4.py
+    rule: S112
+    code: "except Exception:"
+    verdict: safe
+    reason: "the registry is optional for search: a failing registry skips that study's registry rows; nothing is granted or written on the error path"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: services/criteria_compiler/terminology/installed.py
+    rule: S314
+    code: "return ET.fromstring(data)"
+    verdict: finding
+    finding: H10G39-01
+    reason: "the byte guard above looks for <!DOCTYPE and <!ENTITY in the raw bytes; a UTF-16 document holds neither as bytes, passes the guard, and its internal entity is expanded (shown with expat 2.9.0); expat's own limits still apply. Kept out of safe: H10G39-01"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: services/rc_sim/app.py
+    rule: S314
+    code: "root = ET.fromstring(text)"
+    verdict: safe
+    reason: "test simulator of REDCap; the input is already a decoded str, so the <!DOCTYPE / <!ENTITY guard above sees the characters whatever the encoding; nothing to expand or fetch"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: services/sitesetup/service.py
+    rule: B608
+    code: "own.execute(f'DROP SCHEMA \"{full}\" CASCADE')"
+    verdict: safe
+    reason: "name is omop_ plus 10 hex of the space's own folder path (schema_for), checked above not to be the hospital's omop, after the operator's URL prefix; it must exist in the catalogue first"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: tools/box/__main__.py
+    rule: B608
+    code: "total += int(run([*psql, f\"SELECT count(*) FROM {table}\"]).strip())"
+    verdict: safe
+    reason: "table from the fixed tuple PID_TABLES (pidmap.pid_map, pidmap.pending), never a caller's text"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: tools/trialbox/db_secrets.py
+    rule: B404
+    code: "import subprocess"
+    verdict: safe
+    reason: "the module runs docker commands as argv lists (no shell); the import itself does nothing"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: tools/trialbox/db_secrets.py
+    rule: B506
+    code: "doc = yaml.load(f.read_text(encoding=\"utf-8\"), Loader=_Loader) or {}"
+    verdict: safe
+    reason: "_Loader subclasses yaml.SafeLoader; its one added constructor turns any `!tag` (compose `!reset`, `!override`) into a plain _Tagged marker holding safe-loaded data, never a Python object named by the document"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: tools/trialbox/db_secrets.py
+    rule: B603
+    code: "return subprocess.run(argv, capture_output=True, text=True, timeout=60, check=True).stdout"
+    verdict: safe
+    reason: "argv list, no shell, a timeout; the callers pass fixed docker commands with the compose project name"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: tools/trialbox/noisy_neighbour.py
+    rule: B310
+    code: "with opener.open(req, timeout=timeout) as r:"
+    verdict: safe
+    reason: "operator's measurement tool; the URL is the operator's own --url to the model server, no proxy, a timeout; nothing on a box calls it with outside input"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: tools/trialbox/noisy_neighbour.py
+    rule: B603
+    code: "proc = subprocess.Popen(shlex.split(start), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)"
+    verdict: safe
+    reason: "runs the operator's own --neighbour command by design, split into argv with no shell; an operator tool, no outside input"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: tools/trialbox/noisy_neighbour.py
+    rule: B603
+    code: "subprocess.run(shlex.split(stop), check=False, capture_output=True, timeout=300)"
+    verdict: safe
+    reason: "runs the operator's own --neighbour-stop command by design, argv with no shell and a timeout; an operator tool, no outside input"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: tools/two_device.py
+    rule: B104
+    code: "ANY_ADDRESS = (\"\", \"0.0.0.0\", \"::\", \"[::]\")"
+    verdict: safe
+    reason: "the list of any-addresses a published port must NOT bind to; it is used to refuse them, never to bind"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: tools/two_device.py
+    rule: B603
+    code: "proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=True)"
+    verdict: safe
+    reason: "fixed docker compose argv (role checked against ROLES, services from the profile), no shell, a timeout"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18
+  - path: tools/two_device.py
+    rule: B104
+    code: "bind: str = \"0.0.0.0\""
+    verdict: safe
+    reason: "the relay listens inside the link container; compose publishes its port on TB_LINK_ADDR only, and the link is TLS 1.3 with a client certificate (D-1328)"
+    reviewer: lane H (code read on master f6c42230)
+    reviewed: 2026-11-19
+    review_by: 2027-05-18

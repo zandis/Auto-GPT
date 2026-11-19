@@ -17,7 +17,12 @@ written, so the loser of an override is seen too, and fails on:
   "x.y")``, a key handed to a nav macro) that the catalogue does not have;
 * **a dynamic family** (``t('life.vstate.' + v.status)``, ``translate(lang, f"life.state.{s}")``) that is neither
   checked member by member (``FAMILIES``: every value the code can produce has its key) nor listed in
-  ``UNCHECKED_FAMILIES`` with the reason; and a family no catalogue key starts with (a misspelled prefix).
+  ``UNCHECKED_FAMILIES`` with the reason; and a family no catalogue key starts with (a misspelled prefix);
+* **a refused spelling** of one of the twenty core words (``tools.core_words``, ``services/console/core_words.yaml``;
+  it also reads the job mails, the report titles and the refusal sentences, ``core_words.SERVICE_CATALOGUES``).
+
+It also checks the live preflight's texts (``tb_common.preflight``, :func:`preflight_problems`): the host's
+``python3`` prints them, so they are not in the console's catalogue, and each is checked in all three languages.
 
 It reads the source with ``ast`` and ``ast.literal_eval`` only (no code of a module runs, apart from importing the
 console to read the served catalogue); a definition that is not a literal is a problem of its own.
@@ -343,14 +348,15 @@ class Use:
     family: bool = False
 
 
-_TPL_LITERAL = re.compile(r"""\bt\(\s*(['"])([^'"{}]+?)\1\s*[,)]""")
-_TPL_FAMILY = re.compile(r"""\bt\(\s*(['"])([^'"{}]*?)\1\s*[+~]""")  # t_or has its own fallback
+#: ``t`` and J-7's ``tp`` (D-1251: the plain key with ``layout.plain_menu`` on, the key itself with it off)
+_TPL_LITERAL = re.compile(r"""\btp?\(\s*(['"])([^'"{}]+?)\1\s*[,)]""")
+_TPL_FAMILY = re.compile(r"""\btp?\(\s*(['"])([^'"{}]*?)\1\s*[+~]""")  # t_or has its own fallback
 #: macros whose second argument is a key the macro hands to ``t`` (``_nav.html`` item)
 _TPL_MACRO = re.compile(r"""\bitem\(\s*(['"])[^'"]*\1\s*,\s*(['"])([^'"]+)\2""")
 
 
 #: ``t('a' if x else 'b')``: both branches are keys
-_TPL_IF = re.compile(r"""\bt\(\s*(['"])([^'"{}]+?)\1\s+if\s+[^()]*?\s+else\s+(['"])([^'"{}]+?)\3\s*[,)]""")
+_TPL_IF = re.compile(r"""\btp?\(\s*(['"])([^'"{}]+?)\1\s+if\s+[^()]*?\s+else\s+(['"])([^'"{}]+?)\3\s*[,)]""")
 #: ``{% set k = 'x.' + … %}`` later asked as ``t(k)``: a family of its own
 _TPL_SET = re.compile(r"""\{%-?\s*set\s+\w+\s*=\s*(['"])([a-z][a-z0-9_.]*\.)\1\s*[+~]""")
 _TPL_SET_IF = re.compile(
@@ -493,12 +499,15 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
         _assigned("services/datacore/lifecycle.py", "visit_status", "status"),
     ),
     "life.state.": _values("datacore.lifecycle", "STATES"),
+    "pm.jobtype.": _values("console.plain_menu", "JOB_TYPE_WORDS"),  # J-7 (D-1251): every job type, and "other"
     "life.reason.sf.": _values("datacore.lifecycle", "SCREEN_FAIL_REASONS"),
     "life.reason.wd.": _values("datacore.lifecycle", "WITHDRAW_REASONS"),
     "life.anchor.": _values("datacore.lifecycle", "ANCHORS"),
     # 10C-14: how a visit window counts, and why a day is off at the site (the schedule page)
     "life.unit.": lambda: ("days", "working"),
     "life.daysoff.why.": _values("tb_common.workdays", "DAY_OFF_KINDS"),
+    "dataops.layer.row.": _values("console.country_profile", "KEYS"),  # 10C-25 (D-1250)
+    "dataops.layer.source.": _values("console.country_profile", "SOURCES"),
     "life.daysoff.end.": lambda: ("soon", "past"),  # Calendar.runs_out
     "registry.status.": _values("orchestrator.candidates", "STATUSES"),
     "sstate.": _values("console.sitestore", "STUDY_STATES"),
@@ -509,7 +518,13 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "prov.f.": lambda: ("model", "build_sha", "prompt_sha", "prompt_id", "prompt_version"),
     "prov.event.": lambda: ("used", "confirmed"),
     # the study state page's list of what comes before Open (WALK-2, D-1154): the SAE type and the IRB record
-    "sstate.before.": lambda: ("sae", "irb"),
+    "sstate.before.": lambda: ("sae", "irb", "committee"),  # 10C-4 (D-1227): the Japan profile's committee
+    # 10C-4 (D-1227): the Japan profile's committee page (kinds, committees, findings, refused fields)
+    "cmt.kind.": _union(_values("tb_common.committees", "KINDS"), lambda: ["none"]),
+    "cmt.permission_is.": _values("tb_common.committees", "KINDS"),
+    "cmt.committee.": _values("tb_common.committees", "COMMITTEES"),
+    "cmt.f.": _values("tb_common.committees", "CODES"),
+    "cmt.bad.": _values("tb_common.committees", "BAD_FIELDS"),
     "help.page.": _union(_values("console.step4", "HELP_SLUGS"), _guide_pages),
     "guide.page.": _guide_pages,
     "life.gloss.": _values("console.guides", "GLOSSARY"),
@@ -537,6 +552,7 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "people.": _values("console.people_lists", "LISTS"),
     "people.view.": _view_keys,
     "people.side.": _values("console.people_lists", "LISTS"),
+    "tier.lacks.": _values("console.tier_words", "WORDED"),  # 10E-17 (D-1244): the tier's worded absences
 }
 
 _RUN = "a value of stored data or of a service's answer (a state, a kind, a source): no one list in the code holds it"
@@ -777,6 +793,29 @@ def problems() -> list[str]:
     used = {u.key for u in uses if u.family}
     out += [
         f"dynamic family {p!r} is listed but nothing uses it" for p in sorted({*FAMILIES, *UNCHECKED_FAMILIES} - used)
+    ]
+    from tools import core_words  # 9k-16 (D-1371): a core word has one spelling per language
+
+    out += core_words.problems(defs)
+    return out + preflight_problems()
+
+
+def preflight_problems() -> list[str]:
+    """10K-3 (D-1361): the preflight's own texts (``tb_common.preflight``: the groups, each check's label and next
+    action, the time-out's, the summary). They live outside the console's catalogue because the host's ``python3``
+    prints them too; the first-run page, ``doctor --preflight`` and later the console's doctor page (10K-5) and the IT
+    one-page (10K-18) show them. Each must be there, non-empty, in en, ja and zh-TW, and a ja or zh-TW text must not
+    be the English one."""
+    from tb_common import preflight
+
+    where = "libs/tb_common/preflight.py"
+    texts = preflight.all_texts()
+    out = [f"preflight text {name} has no {lg} words ({where})" for name, lg, t in texts if not t.strip()]
+    en = {name: t for name, lg, t in texts if lg == "en"}
+    out += [
+        f"preflight text {name} {lg} is the English text ({where})"
+        for name, lg, t in texts
+        if lg != "en" and t.strip() and t == en.get(name)
     ]
     return out
 

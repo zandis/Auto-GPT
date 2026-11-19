@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -551,7 +552,13 @@ def _shims(tmp_path: Path, restore_rc: int) -> dict[str, str]:
     (bin_ / "psql").write_text(f'#!/bin/sh\necho "$@" > {tmp_path}/psql_args; cat > {tmp_path}/psql_in\n')
     for f in bin_.iterdir():
         f.chmod(0o755)
-    return {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "TMPDIR": str(tmp_path)}
+    (tmp_path / "pgdata").mkdir()  # 10G-1 (H10G1-05): the script's folder is on the db volume, under PGDATA
+    return {
+        **os.environ,
+        "PATH": f"{bin_}:{os.environ['PATH']}",
+        "TMPDIR": str(tmp_path),
+        "PGDATA": str(tmp_path / "pgdata"),
+    }
 
 
 @pytest.mark.parametrize("restore_rc", [0, 1])
@@ -568,6 +575,9 @@ def test_compose_rollback_restore_resets_the_role_first_and_never_runs_a_cut_off
                              stdin=stdin, env=_shims(tmp_path, restore_rc), capture_output=True, check=False)  # fmt: skip
     script = Path((tmp_path / "script_path").read_text().strip())
     assert not script.exists()  # the plaintext script is deleted whatever happened
+    assert (
+        script.parent == tmp_path / "pgdata" / "tb-rollback" and not script.parent.exists()
+    )  # H10G1-05: its folder too
     if restore_rc:
         assert res.returncode != 0 and not (tmp_path / "psql_args").exists()  # psql never saw a cut-off script
         return
@@ -577,6 +587,80 @@ def test_compose_rollback_restore_resets_the_role_first_and_never_runs_a_cut_off
     body = (tmp_path / "psql_in").read_text()
     assert body.startswith("DO $tb$") and body.rstrip().endswith("SELECT 1;")
     assert "DROP SCHEMA %I CASCADE" in up.RESET_SQL and "deptype = 'e'" in up.RESET_SQL
+
+
+def test_the_rollback_restore_runs_a_real_dump_under_dash_and_a_failed_one_changes_nothing(
+    tmp_path: Path, db_url: str
+) -> None:
+    """10G-1 review A1: the real pg_restore needs -f or -d (PostgreSQL 12+ refuses otherwise), so its argv in
+    RESTORE_SH always names one. Then a real -Fc dump, with a large object (pg_restore's plain script carries its own
+    BEGIN/COMMIT for them), restored through RESTORE_SH under dash with RESET_SQL, in a database of its own: the state
+    of the dump comes back and the migration's table is gone. A pg_restore that fails (a cut-off dump) leaves the
+    database as it was, and psql is never run."""
+    from urllib.parse import unquote, urlsplit
+
+    import psycopg
+    from psycopg.conninfo import conninfo_to_dict
+    from tb_common.db import split_url
+
+    need = {b: shutil.which(b) for b in ("pg_dump", "pg_restore", "psql")}
+    if not all(need.values()):
+        pytest.skip(f"no PostgreSQL client binaries here: {sorted(b for b, w in need.items() if not w)}")
+    shell = shutil.which("dash") or "/bin/sh"
+    restore_cmd = up.RESTORE_SH[up.RESTORE_SH.index("pg_restore") :].split("||", 1)[0].split()
+    assert "-f" in restore_cmd or "-d" in restore_cmd or "--file" in restore_cmd  # A1: never neither
+    dsn, _ = split_url(db_url)
+    u = urlsplit(dsn)
+    name = f"tb_rollback_{os.getpid()}_{tmp_path.name[-6:].replace('-', '_')}".lower()
+    info = conninfo_to_dict(dsn)
+    env = {**os.environ, "PGDATA": str(tmp_path / "pgdata"),
+           **{f"PG{k.upper()}": str(info[k]) for k in ("host", "port", "password") if info.get(k)}}  # fmt: skip
+    (tmp_path / "pgdata").mkdir()
+    user = str(info.get("user") or unquote(u.username or ""))
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(f'CREATE DATABASE "{name}"')
+    try:
+        target = u._replace(path=f"/{name}").geturl()
+        with psycopg.connect(target, autocommit=True) as con:
+            con.execute("CREATE SCHEMA app")
+            con.execute("CREATE TABLE app.marks (pid TEXT PRIMARY KEY, doc OID)")
+            con.execute("INSERT INTO app.marks VALUES ('P1', lo_from_bytea(0, 'synthetic large object'))")
+        dump = tmp_path / "wf.dump"
+        subprocess.run([str(need["pg_dump"]), "-Fc", "--no-owner", "-f", str(dump), "-d", target], check=True, env=env)
+        with psycopg.connect(target, autocommit=True) as con:  # what the failed release did after the dump
+            con.execute("CREATE TABLE app.added (n int)")
+            con.execute("INSERT INTO app.marks VALUES ('P2', NULL)")
+
+        def restore(f: Path) -> subprocess.CompletedProcess[bytes]:
+            with f.open("rb") as stdin:
+                return subprocess.run([shell, "-c", up.RESTORE_SH, "tb-restore", user, name, up.RESET_SQL],
+                                      stdin=stdin, env=env, capture_output=True, check=False)  # fmt: skip
+
+        def state() -> tuple[list[str], list[str], bytes | None]:
+            with psycopg.connect(target, autocommit=True) as con:
+                tables = [
+                    r[0]
+                    for r in con.execute(
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'app' ORDER BY 1"
+                    )
+                ]
+                pids = [r[0] for r in con.execute("SELECT pid FROM app.marks ORDER BY 1")]
+                lo = con.execute("SELECT lo_get(doc) FROM app.marks WHERE pid = 'P1'").fetchone()
+                return tables, pids, (bytes(lo[0]) if lo and lo[0] is not None else None)
+
+        cut = tmp_path / "cut.dump"
+        cut.write_bytes(dump.read_bytes()[: dump.stat().st_size // 2])
+        before = state()
+        bad = restore(cut)
+        assert bad.returncode != 0 and state() == before  # pg_restore failed: nothing ran, nothing changed
+        assert not (tmp_path / "pgdata" / "tb-rollback").exists()
+        good = restore(dump)
+        assert good.returncode == 0, good.stderr.decode(errors="replace")[-600:]
+        assert state() == (["marks"], ["P1"], b"synthetic large object")
+        assert not (tmp_path / "pgdata" / "tb-rollback").exists()  # the plaintext script and its folder are gone
+    finally:
+        with psycopg.connect(dsn, autocommit=True) as admin:
+            admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
 
 
 # ------------------------------------------------------------------------------------------------ review fixes

@@ -44,7 +44,10 @@ def _storage(root: Path, patient: str, order: str, segs: list[str]) -> None:
     msh = f"MSH|^~\\&|HIS||TB||20261101||PPR^ZD1|{order}|P|2.5||||||~ISO IR87"
     d = storage_dir(root, patient, "20260101", "PPR-01")
     d.mkdir(parents=True, exist_ok=True)
-    text = "\r".join([msh, *segs]) + "\r"
+    pid = (
+        [] if any(s.startswith("PID|") for s in segs) else [f"PID|||{patient}^^^^PI"]
+    )  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
+    text = "\r".join([msh, *pid, *segs]) + "\r"
     (d / f"{patient}_20260101_PPR-01_{order}_20261101000000000_-_1").write_bytes(text.encode("iso2022_jp"))
 
 
@@ -58,7 +61,8 @@ def test_ssmix2_reader_reads_the_prb13_flag_and_the_name_modifier(tmp_path: Path
         _storage(tmp_path, "10000001", f"D{n}", ["PV1||O", prb])
     rows = list(Ssmix2Source(tmp_path, licensed=EMPTY).rows("diagnosis", "diagnosis", None, None))
     got = {r["diag_no"]: r["suspected"] for r in rows}
-    assert got == {"D1": "Y", "D2": "Y", "D3": "", "D4": ""}
+    # D-1252: a JHSD0005 "0" is not a value of the published code table (表95: only "1 疑いあり"): unknown, not confirmed
+    assert got == {"D1": "Y", "D2": "Y", "D3": "", "D4": "U"}
 
 
 def test_mapping_writes_provisional_only_for_a_suspected_diagnosis() -> None:

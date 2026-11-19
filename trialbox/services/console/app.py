@@ -44,7 +44,7 @@ from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
-from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_rights
+from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
@@ -55,8 +55,20 @@ from tb_common.ulid import new_ulid
 from tb_common.verdict_word import shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
-from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page, person_state, phone
+from console import (
+    acting,
+    api_first,
+    demo_guard,
+    feedback,
+    firstrun,
+    i18n_roles,
+    next_page,
+    person_state,
+    phone,
+    plain_menu,
+)
 from console import actor as console_actor
+from console import timing as server_time
 from console.account_rules import Hooks as AccountHooks
 from console.account_rules import Rules as AccountRules
 from console.account_rules import account_class, protected, protected_account
@@ -91,6 +103,8 @@ from console.refusals import localize as localize_refusal
 from console.timefmt import local_time, local_today, site_zone
 
 HERE = Path(__file__).resolve().parent
+#: D-1245: how far back a protocol's audit rows are read while it is compiled (the model answers since its start)
+COMPILE_ROWS = 5000
 COOKIE = "tb_console"
 LOGIN_COOKIE = "tb_console_login"
 LANG_COOKIE = "tb_console_lang"  # D-133: the language picked on the sign-in page (a preference, not a secret)
@@ -108,20 +122,25 @@ PROPOSAL_TTL = 3600.0
 # page works without it (a progressive enhancement).
 CONSOLE_JS = (HERE / "static" / "console.js").read_text(encoding="utf-8").strip()
 _JS_HASH = base64.b64encode(hashlib.sha256(CONSOLE_JS.encode("utf-8")).digest()).decode("ascii")
+# D-1370 (9f-11, review 02/J-11): ``worker-src 'none'``: the browser registers no service worker (nor any worker) from
+# the console, whatever a page or a file might ask; nothing of a clinical page is kept for offline use.
 CSP = (
     f"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'sha256-{_JS_HASH}'; "
-    "object-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
+    "object-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'; worker-src 'none'"
 )
 # DEMO-JA: feas_compute.population_label's words, read back to show them in the page language
 _POPULATION = re.compile(r"(hospital|departments ([\w,-]+)): patients with ≥1 encounter in the last (\d+) months")
 
 
-def population_words(lang: str, value: object) -> str:
+def population_words(lang: str, value: object, plain: bool = False) -> str:
     """DEMO-JA: the FEAS report's population (``feas_compute.population_label``, English in the report file) in the
-    page language; any other text as it is."""
+    page language; any other text as it is (J-7, D-1251: with ``layout.plain_menu`` on, the bare value "hospital" in
+    the page language too)."""
     text = str(value or "")
     m = _POPULATION.fullmatch(text)
     if m is None:
+        if plain and text == "hospital":
+            return translate(lang, "pm.pop.hospital")
         return text or "–"
     if m.group(1) == "hospital":
         return translate(lang, "feas.pop.hospital", months=m.group(3))
@@ -256,6 +275,19 @@ class ConsoleSettings:
 
 class _LoginRequired(Exception):
     pass
+
+
+#: D-1370 (9g-19): the two pages the idle warning asks (``data-stay-url``); ``keep=1`` means nothing anywhere else
+STAY_PAGES = frozenset({"/help", "/"})
+
+
+class _KeepAlive(Exception):
+    """D-1370 (9g-19): the idle warning's own request (``keep=1`` on a stay page, which every signed-in person may open
+    and which checks nothing further): answered with the session's times only (no page, no notice taken)."""
+
+    def __init__(self, token_sha: str) -> None:
+        super().__init__("keep")
+        self.token_sha = token_sha
 
 
 class _MustChange(Exception):
@@ -535,6 +567,7 @@ def create_app(
     # D-776: the box's own public address for a one-time sign-in link (never the request's Host); "" when not set
     templates.env.globals["public_url"] = (_env_map(env).get("TB_CONSOLE_PUBLIC_URL") or "").strip().rstrip("/")
     templates.env.globals["BEST"] = BEST_STANDING
+    templates.env.globals["theme_color"] = phone.THEME  # 9k-1 (D-1368): no colour in a page
     bk: Backend = backend
     au: AuditLog = audit
     us: UserStore = users
@@ -615,6 +648,17 @@ def create_app(
             resp.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie)
         return resp
 
+    @app.middleware("http")  # added last, so the outermost: its time holds every other middleware's (D-1245)
+    async def server_timing(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        t0 = time.perf_counter()
+        resp = await call_next(request)
+        route = getattr(request.scope.get("route"), "path", None)  # the matched route's template, set by routing
+        if server_time.timed(
+            resp.status_code, route, request.method
+        ):  # an allow-listed page's 200 only (console.timing.TIMED)
+            resp.headers[server_time.HEADER] = server_time.value((time.perf_counter() - t0) * 1000)
+        return resp
+
     def _trusted_peer(request: Request) -> bool:
         host = request.client.host if request.client else None
         if not host:
@@ -685,6 +729,10 @@ def create_app(
                 raise _MustChange()
             raise _Problem(403, "account.must_change")
         _scope_check(request, sess)
+        if request.method == "GET" and request.url.path in STAY_PAGES and request.query_params.get("keep") == "1":
+            # D-1370: only on the two stay pages, which check nothing past need(); on every other page the parameter is
+            # ignored and the request runs as without it (its own role checks, its denials and their audit lines)
+            raise _KeepAlive(sess.token_sha)
         bind_session(sess.token_sha[:16])  # S-09: the actor this request names to the orchestrator is signed with it
         if reader:  # NEW-SEC-1 (D-717): this account signs the patient reads of its pages (the workspace's helpers)
             console_actor.bind_reader(reader["h"], sess)
@@ -826,6 +874,11 @@ def create_app(
         def t(key: str, **values: object) -> str:
             return translate(lang, key, **values)
 
+        plain = bool(getattr(request.state, "plain_menu", False))  # J-7 (D-1251, flag layout.plain_menu)
+
+        def tp(key: str, **values: object) -> str:  # the plain words of a key with the flag on; t's with it off
+            return translate(lang, plain_menu.key(plain, sess.user.role if sess else None, key), **values)
+
         def t_or(key: str, fallback: str) -> str:  # a translation when the catalogue has one, else the fallback
             text = lookup(lang, key)
             return fallback if text is None else text
@@ -849,8 +902,15 @@ def create_app(
 
         base = {
             "t": t,
+            "tp": tp,
+            "pm": plain,
+            "job_type_word": plain_menu.job_type_word,
+            "next_go_key": plain_menu.next_go_key,
+            # J-7: the cascade's own answer (CascadeRuns.available: the site drop is mounted), asked by the menu
+            "cascade_available": lambda: cascades is not None and cascades.available,
+            "may_act": (lambda target: link_may_act(sess, target)) if sess else (lambda target: False),
             "t_or": t_or,
-            "population": lambda value: population_words(lang, value),
+            "population": lambda value: population_words(lang, value, plain),
             "lang": lang,
             "langs": LANGS,
             "sess": sess,
@@ -873,6 +933,8 @@ def create_app(
             # NEW-JRN-8 (D-772): a CRO account's monitor grants, read only by the pages that show them (the menu)
             "monitoring": _once(lambda: helpers.monitor_grants(sess.user) if sess and helpers.monitor_grants else []),
             "account_notices": _account_notices(sess, lang),  # D-719 (a): read once, on the next page
+            # D-1370 (9g-19): the idle warning's clock (idle limit, seconds to the idle lock and to the absolute end)
+            "session_left": _once(lambda: us.session_left(sess.token_sha) if sess else None),
             # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake
             "refresh_url": request.url.path
             + "?"
@@ -886,8 +948,16 @@ def create_app(
         why, and the page the person was on is kept to return to after sign-in."""
         ended = bool(request.cookies.get(COOKIE))
         resp = RedirectResponse("/login?why=idle" if ended else "/login", status_code=303)
-        next_page.remember(resp, next_page.page_of(request), settings.secure_cookie)
+        if request.query_params.get("keep") != "1":  # D-1370: the idle warning's request is no page to return to
+            next_page.remember(resp, next_page.page_of(request), settings.secure_cookie)
         return resp
+
+    @app.exception_handler(_KeepAlive)
+    async def _kept(request: Request, exc: _KeepAlive) -> Response:
+        """D-1370 (9g-19): "Stay signed in" (activity, as the page would be) and, with ``auto=1``, the check before
+        the lock (not activity): the seconds to the idle lock and to the absolute end, read without touching."""
+        left = us.session_left(exc.token_sha) or (0, 0, 0)
+        return Response(status_code=204, headers={"x-tb-idle-left": str(left[1]), "x-tb-abs-left": str(left[2])})
 
     @app.exception_handler(_MustChange)
     async def _to_account(request: Request, _exc: _MustChange) -> Response:
@@ -1404,7 +1474,7 @@ def create_app(
         audit_hooks.doors["provenance"] = prov_db
     app.state.audit_hooks = audit_hooks
     audit_page.register(app, audit_hooks)
-    phone.register(app)  # J-3 (D-1222): the phone-first flag per request, the web manifest and the icons
+    phone.register(app, boot)  # J-3 (D-1222): the layout flags per request (D-1225: read at start), manifest, icons
 
     # ------------------------------------------------------------------ pilot workspace
     if not settings.pilot:
@@ -1413,6 +1483,7 @@ def create_app(
     from console import (
         admin_flags,
         approval,
+        committee_pages,
         data_pages,
         edc_pages,
         entry_pages,
@@ -1467,6 +1538,7 @@ def create_app(
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
     raw_env = _env_map(env)
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
+    committee_pages.register(app, helpers)  # 10C-4 (D-1227): the Japan profile's committees, after team (its store)
     if helpers.chart_to_pid is not None:  # NEW-JRN-6 (D-771): the audit browser's chart number door
         audit_hooks.doors["chart_to_pid"] = helpers.chart_to_pid
     account_team["h"] = helpers  # D-719: the account notices find each study's PI here
@@ -1682,7 +1754,19 @@ def create_app(
         review_html = next(
             (o for o in job.outputs or [] if o.filename.startswith("review_") and o.filename.endswith(".html")), None
         )
-        audit_recs = bk.audit(job_id, 200)
+        # D-1245: while a protocol is read, the model answers since the compile started are counted from the job's own
+        # audit rows, read further back than the table's 200 so a long compile's line never drops out of the window;
+        # the table shows the newest 200, as before
+        reading = job.type == "FEAS" and job.state in ("parsing", "compiling")
+        recs_all = bk.audit(job_id, COMPILE_ROWS if reading else 200)
+        audit_recs = recs_all[:200]  # newest first: the newest 200 are the table's rows
+        budget_read: list[dict[str, Any] | None] = []
+
+        def budget_event() -> dict[str, Any] | None:  # the run's microbatch.budget event, read at most once a page
+            if not budget_read:
+                budget_read.append(bk.recheck_share(job_id))
+            return budget_read[0]
+
         subjects = [str(r.detail.get("subject", "")) for r in audit_recs if r.event == "mail.received"]
         thread = bk.thread(job_id)
         raw_rows: list[tuple[MailItem | None, str]] = [
@@ -1718,11 +1802,14 @@ def create_app(
             consent=_consent_card(job),
             case=case,
             screen=_screen_card(job, sess, revealed, bg=grant is not None),
-            recheck=_recheck_share(job, sess, bg=grant is not None),
+            recheck=_recheck_share(job, sess, bg=grant is not None, read=budget_event),
+            first_load=_first_load(job, sess, read=budget_event),
+            compile_answers=_compile_answers(job, recs_all) if reading else None,
             breakglass=grant,
         )
 
-    def _recheck_share(job: Job, sess: Session, bg: bool = False) -> dict[str, Any] | None:
+    def _recheck_share(job: Job, sess: Session, bg: bool = False,
+                       read: Callable[[], dict[str, Any] | None] | None = None) -> dict[str, Any] | None:  # fmt: skip
         """NEW-RUN-1 (D-558): how far a finished weekly screening run got with the patients whose records did not
         match a criterion before (D-646's share of the night budget), from the run's ``microbatch.budget`` event.
         For the accounts that read the study's list (the rule of the screening card's rows). None when the run was
@@ -1737,7 +1824,7 @@ def create_app(
             return None
         if not (helpers.reads(sess.user, job.ruleset) or bg):
             return None
-        ev = bk.recheck_share(job.job_id)
+        ev = read() if read is not None else bk.recheck_share(job.job_id)
         if ev is None or ev.get("trigger") != "weekly":
             return None
         scope, again = ev.get("excluded_in_scope"), ev.get("excluded_rescreened")
@@ -1752,6 +1839,48 @@ def create_app(
             after = "nopass" if runs is None else "pass" if runs > 1 else None
         return {"n": again, "scope": scope, "carried": carried, "share": share, "kept": kept, "percent": percent,
                 "after": after, "runs": runs}  # fmt: skip
+
+    def _compile_answers(job: Job, recs: list[Any]) -> int | None:
+        """D-1245 (review 13 item 13-14): while a protocol is read, how many answers the language model has given for
+        it so far: the ``llm.call`` rows after the job's latest ``compile.start`` among the job's own audit rows (the
+        rows the page's table shows, read up to :data:`COMPILE_ROWS` back so the count does not drop out of the
+        table's window of 200 during a long compile; the same accounts). Not parts: the rows do not say which prompt a
+        call was for, and the number of parts is known to the compiler alone (the page says so). None when the job is
+        not reading a protocol or its compile.start is not among those rows: no line, never a wrong count.
+        10E-13b: "after" is the audit log's own order (the reader returns the rows newest first, in the order they were
+        written: day file, then line), never their timestamps, whose millisecond a compile.start and the answers
+        after it can share."""
+        if job.type != "FEAS" or job.state not in ("parsing", "compiling"):
+            return None
+        ordered = list(reversed(recs))  # oldest first, as written
+        starts = [i for i, r in enumerate(ordered) if r.event == "compile.start"]
+        if not starts:
+            return None
+        return sum(1 for r in ordered[starts[-1] + 1 :] if r.event == "llm.call")
+
+    def _first_load(job: Job, sess: Session, read: Callable[[], dict[str, Any] | None]) -> dict[str, int] | None:
+        """D-1245 (review 13 item 13-14): how far the study's new patients have come on a finished screening run, from
+        the run's ``microbatch.budget`` event (the event the re-check card reads, read once a page). Only to an account
+        the study's own candidate list admits (its check, ``Helpers.admits_candidates``; no break-glass grant opens
+        it), asked before the event is read. Only when new patients are still waiting and both figures are there: the
+        new patients this run screened and those still waiting. The estimate of the nights left is at this run's own
+        pace (waiting / screened on this run, rounded up), never from the box's night budget, which the night's
+        re-checks, version re-screens and the excluded share divide first (D-646): the pace is what the run reached.
+        When the run screened no new patient there is no pace and no estimate. None otherwise: the page shows
+        nothing."""
+        if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done" or not job.ruleset:
+            return None
+        admits = helpers.admits_candidates
+        if admits is None or not admits(sess.user, job.ruleset):
+            return None
+        ev = read() or {}
+        n, waiting = ev.get("new_screened"), ev.get("new_carried")
+        if n is None or waiting is None or waiting == 0:
+            return None
+        out = {"n": n, "waiting": waiting}
+        if n > 0:
+            out["nights"] = -(-waiting // n)
+        return out
 
     _case_pids: dict[str, str] = {}  # job id -> its subject's pseudonym: a job's chart number never changes
 
@@ -1984,10 +2113,10 @@ def create_app(
             headers={"Content-Disposition": f'attachment; filename="{filename}"', "X-Download-Options": "noopen"},
         )
 
-    def _request_page(request: Request, sess: Session, status: int = 200, **ctx: Any) -> HTMLResponse:
+    def _request_rulesets(sess: Session) -> tuple[list[Any], list[Any], list[Any]]:
         approved = [
             r
-            for r in bk.rulesets()
+            for r in _rulesets_once()
             if r.status == "approved"
             and (not settings.studies or r.id in settings.studies)
             and sess.user.sees_study(r.id)
@@ -1999,9 +2128,48 @@ def create_app(
         def runs(kinds: tuple[str, ...], command: str) -> list[Any]:
             return [r for r in approved if r.kind in kinds and (u.can_request or helpers.may_run(u, r.id, command))]
 
-        feas, screen = runs(("trial",), "FEAS"), runs(("trial", "cohort"), "SCREEN")
+        return approved, runs(("trial",), "FEAS"), runs(("trial", "cohort"), "SCREEN")
+
+    def _rulesets_once() -> list[Any]:
+        """The studies' criteria list (``bk.rulesets``), read once per page view (J-7, D-1251: a page that carries a
+        link and the rule behind it ask the same list)."""
+        return list(person_state.per_view("j7:rulesets", "", lambda: list(bk.rulesets())))
+
+    def may_act(sess: Session, target: str) -> bool:
+        """Whether the account may act on the page ``target`` (the page's own rule: its forms, or its enabled button);
+        J-7 (D-1251): a link that takes the place of a menu entry asks this, as the page does. An account that
+        prepares requests, and one whose role may never start the page's runs (``role_allowed``, the matrix's best
+        case), is answered without a read."""
+        u = sess.user
+        if target == "request":
+            if u.can_request:
+                return True
+            if not (role_allowed(u.role, "FEAS") or role_allowed(u.role, "SCREEN")):
+                return False
+            _, feas, screen = _request_rulesets(sess)
+            return bool(feas or screen)
+        if target == "consent":
+            return bool(u.can_request)
+        if target == "case":
+            if u.can_request:
+                return True
+            if not role_allowed(u.role, "CASE"):
+                return False
+            return bool(_case_rulesets(sess))  # the review of D-767: a coordinator with no trial yet
+        raise ValueError(f"no page {target!r}")
+
+    def link_may_act(sess: Session, target: str) -> bool:
+        """``may_act`` for a link on another page: when the criteria list or the delegation log cannot be read, the
+        link is not shown and the page renders (fails closed; the target page itself still asks ``may_act``)."""
+        try:
+            return may_act(sess, target)
+        except Exception:  # the backend or the delegation store is down: no link, never a broken page
+            return False
+
+    def _request_page(request: Request, sess: Session, status: int = 200, **ctx: Any) -> HTMLResponse:
+        approved, feas, screen = _request_rulesets(sess)
         return page(request, "request.html", sess, status, rulesets=approved, feas_rulesets=feas,
-                    screen_rulesets=screen, may_start=u.can_request or bool(feas or screen), **ctx)  # fmt: skip
+                    screen_rulesets=screen, may_start=may_act(sess, "request"), **ctx)  # fmt: skip
 
     @app.get("/pilot/request", response_class=HTMLResponse)
     def request_form(request: Request, ruleset: str = "") -> Response:
@@ -2184,7 +2352,7 @@ def create_app(
         """Approved trial rulesets: a single-case check is against a trial, never a cohort or NHI ruleset (M8).
         SEC-SCOPE (D-769): only this site's studies the account sees, as the request page lists them (D-120, D-104):
         a scoped account is not shown other studies' names (the CASE page and the registry's home)."""
-        return [r for r in bk.rulesets() if r.status == "approved" and r.kind in ("trial", "")
+        return [r for r in _rulesets_once() if r.status == "approved" and r.kind in ("trial", "")
                 and (not settings.studies or r.id in settings.studies) and sess.user.sees_study(r.id)]  # fmt: skip
 
     def _case_rulesets(sess: Session) -> list[Any]:
@@ -2197,8 +2365,9 @@ def create_app(
     def case_form(request: Request, ruleset: str = "") -> Response:
         sess = need(request)
         rs = _case_rulesets(sess)
-        may = sess.user.can_request or bool(rs)  # the review of D-767: a coordinator with no trial yet, as before
-        return page(request, "case.html", sess, rulesets=rs, selected=ruleset, langs=LANGS, may_case=may)
+        return page(
+            request, "case.html", sess, rulesets=rs, selected=ruleset, langs=LANGS, may_case=may_act(sess, "case")
+        )
 
     @app.post("/pilot/case")
     async def case_submit(

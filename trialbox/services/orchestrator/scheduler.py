@@ -158,6 +158,29 @@ def recorded_close(ruleset: str, url: str | None = None) -> tuple[str, str, int 
     return str(row[0]), str(row[1]), (int(row[2]) if row[2] is not None else None)
 
 
+def committee_held(ruleset: str, url: str | None = None) -> list[str]:
+    """10C-4 (D-1227): what of the Japan profile's committee record holds this study's lists at this site, or [].
+    The same rule as the console's moves into open (``tb_common.committees``): a study neither opened under the rule
+    nor marked open before it is held as a move into open would be; see the module for the rest. The site and its
+    country come from ``tb_common.committees.here`` (``TB_SITE_ID``, ``TB_TZ``), as the console's do. Outside the
+    Japan profile, with no trial database, or before the console took this site's baseline (the rule has not
+    arrived here), always []. A database error is raised: the caller decides."""
+    from tb_common import committees as cm
+    from tb_common.timeutil import today as site_today
+
+    url = url or os.environ.get("TB_DB_URL")
+    site, country = cm.here()
+    if not url or not cm.on(country):
+        return []
+    got = cm.read(url, ruleset, site)
+    if got is None:
+        return []
+    rec, perm, opened, taken = got
+    if not taken:
+        return []
+    return cm.held(country, rec, perm, opened, site_today())
+
+
 def require_open(ruleset: str | None) -> None:
     """A list scenario's first check (D-386): refuse to make a list for a study that is not open. The job fails
     with the reason; nothing is listed or mailed. An unreachable trial database is logged and left to the run's own
@@ -180,6 +203,17 @@ def require_open(ruleset: str | None) -> None:
             f"Study {ruleset.upper()} is {state}: lists run only for an open study. "
             "The study coordinator changes the state on the study's set-up page.",
         )
+    try:
+        held = committee_held(ruleset)
+    except DatabaseError as exc:  # as above: the run that follows needs the same database and fails there
+        log.warning("committee record of %s not read: %s", ruleset, exc)
+        return
+    if held:  # 10C-4 (D-1227): the Japan profile's committee record
+        raise StepFailed(
+            "ruleset",
+            f"Study {ruleset.upper()} lacks part of its committee record at this site: lists run only once it is "
+            "recorded. A hospital coordinator or the study's PI records it on the study's committee page.",
+        )
 
 
 def _held(orch: Orchestrator, jtype: str, ruleset: str | None) -> bool:
@@ -200,7 +234,14 @@ def _held(orch: Orchestrator, jtype: str, ruleset: str | None) -> bool:
         log.error("%s for %s held: the study state could not be read: %s", jtype, ruleset, exc)
         return True
     if state == OPEN:
-        return False
+        try:
+            held = committee_held(ruleset)  # 10C-4 (D-1227): the Japan profile's committee record
+        except Exception as exc:  # as the state: a record that cannot be read holds the list
+            log.error("%s for %s held: the committee record could not be read: %s", jtype, ruleset, exc)
+            return True
+        if not held:
+            return False
+        state = "committee: " + ",".join(held)
     log.info("%s for %s held: the study is %s", jtype, ruleset, state)
     try:
         orch.audit.append("scheduler.held", ruleset=ruleset, detail={"job": jtype, "state": state})
@@ -357,6 +398,11 @@ def start(orch: Orchestrator) -> Any:
     from apscheduler.schedulers.background import BackgroundScheduler
     from tb_common.config import SCHEDULER_JOB_DEFAULTS, schedule_on_demand, tb_env
 
+    from orchestrator import night_plan
+
+    # 10E-11 (D-1336): the night this box runs, with its tier's measured figures, said once at start
+    orch.night_plan = night_plan.build(orch.cfg)  # type: ignore[attr-defined]
+    night_plan.say(orch.night_plan)  # type: ignore[attr-defined]
     if schedule_on_demand(orch.cfg.settings, tb_env(orch.cfg.env)):
         log.info("schedule is on demand (TB_ENV=%s): no timed jobs", tb_env(orch.cfg.env))
         return None

@@ -17,6 +17,13 @@ here when a card picks it up.
 - **Closing.** The owning lane proposes the new state in the pull request that does it: `card issued #<pr>` when a card
   is open for it, `fixed <sha>` with the commit that fixes it, or `not a defect: <why>`. Lane R re-checks a fix and
   adds ", seen closed by <who> on <date>". A row is never deleted and an id is never reused.
+- **States that follow a findings file.** `--add-from` refuses an id already here, so a state written later in a
+  card's `findings.json` does not reach its row by itself. `python -m tools.findings_register --sync-states` reads
+  every findings file under `trialbox/docs/` and rewrites only the state cell of each row whose file gives a later
+  state, printing `<id>: <old> -> <new>`. It moves a row only forward (`open`, `card issued`, then `fixed` or
+  `not a defect`), never touches a row seen closed and never moves a row back; a row it leaves is printed as
+  `not synced`, and a state the register cannot take is refused. A row with no findings file, or whose finding has no
+  `state`, is left as it is. `--check` fails on a row the sync would move, so a stale row cannot stay unnoticed.
 - **Checking.** `python -m tools.findings_register --check` runs in `make lint` and in CI's `checks` job. It is strict:
   below the first card heading every line must be a card heading, a blank line, a table's header or rule, or a row,
   so a malformed line or row turns the fast tier red and no row can be skipped unseen. A parse error names its line;
@@ -316,7 +323,7 @@ mapped by the rule above from what the finding says; the source's own word is no
 | H33-07 | 2026-11-18 | [restore-drill-2026-11-18.md](../plan/measurements/restore-drill-2026-11-18.md) | Low | Step 2 ends 'Start them again after the restore.' with no command, and does not say that the role script and migrate of the paragraph after the steps come first | D | shown | open |
 | H33-08 | 2026-11-18 | [restore-drill-2026-11-18.md](../plan/measurements/restore-drill-2026-11-18.md) | Low | The restore page's numbered steps have two step 4s (a missing pack, and events after the backup), so its steps 5 and 6 are its sixth and seventh | D | shown | open |
 | H33-09 | 2026-11-18 | [restore-drill-2026-11-18.md](../plan/measurements/restore-drill-2026-11-18.md) | Low | Section 5's list of what a backup leaves out on purpose does not name the lake's older generations (db/gen/), its reader links (db/.open/) or its lock file, which the backup's manifest lists as left out and which are missing after a restore | D | shown | open |
-| H33-10 | 2026-11-18 | [restore-drill-2026-11-18.md](../plan/measurements/restore-drill-2026-11-18.md) | Medium | RUNBOOK section 22 names its drills test_runbook_22_restore_timed and test_runbook_22_replacing_hardware, and no such test exists in the repository; plan 8 section 8c says to stop writing 'Drill: test_...' before the test exists | D | shown | open |
+| H33-10 | 2026-11-18 | [restore-drill-2026-11-18.md](../plan/measurements/restore-drill-2026-11-18.md) | Medium | RUNBOOK section 22 names its drills test_runbook_22_restore_timed and test_runbook_22_replacing_hardware, and no such test exists in the repository; plan 8 section 8c says to stop writing 'Drill: test_...' before the test exists | D | shown | fixed bd7138a2a |
 
 ## H34: imperfect hospital data through the nightly ingest
 
@@ -470,7 +477,7 @@ mapped by the rule above from what the finding says; the source's own word is no
 
 | Id | Date found | Source | Severity | Claim | Lane | Basis | State |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| H41-01 | 2026-11-19 | [approve-profile-2026-11-19.md](../plan/measurements/approve-profile-2026-11-19.md) | High | At least about 53 s of each 71 s P3 approval on one stream is in steps the compile does not share (audit records, repository write, tag and promotion, the orchestrator's part); the compiler's own steps take 4.45 s on a local stub run, and no record names the step on the box | A2 | shown | open |
+| H41-01 | 2026-11-19 | [approve-profile-2026-11-19.md](../plan/measurements/approve-profile-2026-11-19.md) | High | At least about 53 s of each 71 s P3 approval on one stream is in steps the compile does not share (audit records, repository write, tag and promotion, the orchestrator's part); the compiler's own steps take 4.45 s on a local stub run, and no record names the step on the box | A2 | shown | fixed 08eab5571d57d86e10eb3336526f845cce9f747e |
 | H41-02 | 2026-11-19 | [approve-profile-2026-11-19.md](../plan/measurements/approve-profile-2026-11-19.md) | Medium | An approval with nothing edited or rejected translates its CQL again (3 cold JVM runs, 4.3 s of 4.45 s locally) and loads FHIRHelpers and TB_Common (1.54 MB) to the FHIR server again, both unchanged since the compile | A2 | shown | open |
 | H41-03 | 2026-11-19 | [approve-profile-2026-11-19.md](../plan/measurements/approve-profile-2026-11-19.md) | Low | refresh_installed reads, hashes and parses every installed table again on each compile and approval, about 30 us per row (3.1 s at 100,000 rows) | E | shown | open |
 
@@ -522,3 +529,108 @@ mapped by the rule above from what the finding says; the source's own word is no
 | H21-P-14 | 2026-11-17 | [life-cycle-walk-390-findings-2026-11-17.md](life-cycle-walk-390-findings-2026-11-17.md) | Medium (mapped) | On a phone the audit trail's table (/audit) is 1,355 to 1,383 px wide, a row's time on the left and its detail on the right; the table scrolls sideways inside its own frame | C2 | shown | open |
 | H21-P-15 | 2026-11-17 | [life-cycle-walk-390-findings-2026-11-17.md](life-cycle-walk-390-findings-2026-11-17.md) | Medium (mapped) | On a phone the audit filter's "Clear" link (/audit) is 32 to 40 by 24 px, under the 44 px the card asks of phone controls | C2 | shown | open |
 | H21-P-16 | 2026-11-17 | [life-cycle-walk-390-findings-2026-11-17.md](life-cycle-walk-390-findings-2026-11-17.md) | Medium (mapped) | On a phone the Participants list (/studies/{rs}/subjects) is a table 413 to 423 px wide (en, ja), seen since train 79; the table scrolls sideways inside its own frame | C2 | shown | open |
+
+## H10G1: container hardening: the four controls on the 15 services (plan 10 row 10G-1)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H10G1-01 | 2026-11-19 | [container-hardening-2026-11-19.md](container-hardening-2026-11-19.md) | Medium | the adapter and the orchestrator cannot run with a read-only root filesystem: the HL7 validator (services/adapter/validate/validator.py, -Duser.home=/opt/hl7/home) writes .index.json files into and renames packages in its package cache, an image path, and stops with 'Unable to rename directory ... for atomic delete' when it cannot; the fix is a writable package home in the validator, then the two read_only exceptions of D-1323 go | Int | shown | open |
+| H10G1-02 | 2026-11-19 | [container-hardening-2026-11-19.md](container-hardening-2026-11-19.md) | Medium | llm-service (vLLM) runs as root with a writable root filesystem and, for rc1, without cap_drop (D-1323 exceptions): its compile and kernel caches are under /root/.cache and /tmp, and root must read model files of any mode (without DAC_OVERRIDE it cannot read a 0600/0640 file of another owner); a fixed user, read_only and cap_drop need the caches on a volume and readable weights, proved on a GPU box | H | hypothesis | open |
+| H10G1-03 | 2026-11-19 | [container-hardening-2026-11-19.md](container-hardening-2026-11-19.md) | Low | the overlay services outside the base file's 15 carry none or only some of the four controls: llm-verifier, judge-sleep-init, judge-wake-init, model-swap-init, caddy, authelia, prometheus, doctor (tests/unit/test_container_hardening.py OUTSIDE_THE_15) | H | shown | fixed 2e3febfb6abea4eb67949f64b09a3711b04aafeb |
+| H10G1-04 | 2026-11-19 | [container-hardening-2026-11-19.md](container-hardening-2026-11-19.md) | Medium | a reference data pack that fails to load at install is only a stderr warning (deploy/install.sh, the deploy/refdata/pending loop's 'install: warning: reference data ... not loaded' line) and install goes on; under the 10G-1 read-only root the pack's 'compose cp' into criteria-compiler failed that way and only the box rehearsal's later check noticed (CI run 44458900188); the load is fixed (a one-off compose run with the pack bind-mounted), the quiet failure is open | H | shown | fixed 6fdb1319fb4d41baadd0c8c0635c333ce3d8b8df |
+| H10G1-05 | 2026-11-19 | [container-hardening-2026-11-19.md](container-hardening-2026-11-19.md) | Medium | update's rollback (tools/trialbox/update.py RESTORE_SH, mktemp in the db container) wrote the dump's whole plain SQL script into db's tmpfs /tmp, which counts against db's memory limit (TB_MEM_DB, 4g by default) and is capped at 64m; fixed by moving the file onto the db-pg volume (${PGDATA:?}/tb-rollback, 0700, removed on exit), the logic as on master, and the update's preflight counts its space; not yet run on a box | H | hypothesis | fixed 37250175 |
+
+## H10G4: the threat model, reviewed per release (plan 10 row 10G-4)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H10G4-01 | 2026-11-19 | [12-threat-model.md](../security/12-threat-model.md) | Medium | The egress table leaves Docker's embedded DNS alone (deploy/egress.py), so a container's name lookups still reach the hospital's resolver (review 16's J-M7); the decision waits on card 10G-49 | H | hypothesis | open |
+| H10G4-02 | 2026-11-19 | [12-threat-model.md](../security/12-threat-model.md) | Medium | The vendor's update key is one file passed as --key to tools/make_bundle.sh: one person can sign a release (card 10G-7) | H | hypothesis | open |
+| H10G4-03 | 2026-11-19 | [12-threat-model.md](../security/12-threat-model.md) | High | The audit signing key sits in the box's own secrets folder (tools/trialbox/audit_heads.py): root can change the events written since the last signed head before the next night signs them, and holds the key that signs (review 16, section 2.2; card 10G-2) | H | hypothesis | open |
+
+## H10G48: the TLS policy and its per-release check (plan 10 row 10G-48)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H10G48-01 | 2026-11-19 | [12-tls-check-per-release.md](../runbook/12-tls-check-per-release.md) | Medium | The TLS the box serves on 443 and the two-device link serves has never been scanned: TLS is right by configuration (deploy/identity/Caddyfile, tools/two_device.py) and by test of that configuration only; the first testssl.sh run per RUNBOOK 12 (the TLS check per release) closes it | Int | not_run | open |
+| H10G48-02 | 2026-11-19 | [12-tls-check-per-release.md](../runbook/12-tls-check-per-release.md) | Medium | No supported setting relaxes the TLS policy for a hospital's old client: TB_TLS_MODE chooses only the certificate and the Caddyfile has no placeholder for protocols or cipher suites, so a client that can do only TLS 1.0/1.1, CBC or static RSA gets a handshake failure on 443 and the only way round is a hand edit of deploy/identity/Caddyfile that the policy check fails | H | shown | fixed 80804b6 |
+
+## H51: the tier record reader never raises
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H51-01 | 2026-11-19 | [tier-value-never-raises-2026-11-19.md](tier-value-never-raises-2026-11-19.md) | Medium | tier_value.measured raised RecursionError on a tier record nested about 200000 deep and read a record of any size, against its never-raises promise (D-1322) | H | shown | fixed 0ccaa83 |
+
+## H55: two open High findings of lane J, registered on the integrator's ruling (lane H, 2026-11-19)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H55-01 | 2026-11-19 | [open-high-from-lane-j-2026-11-19.md](open-high-from-lane-j-2026-11-19.md) | High | On master an inclusion that negates or forbids something (不可, 禁止, 不允許, forbidden, exception forms, bare 不 and 以外 in zh-TW, a negating prefix such as Non-small cell with small cell coded) can compile as requiring it, so a patient can be wrongly listed with the reviewer's sheet the only guard; per D-1246 (branch of #1180, not on master) master ran 60 of 186, 53 of 57, 121 of 194 and 62 of 73 synthetic must-hold lines; #1117 (10A-1b) is on master, #1180 (10A-1c) is not | J | shown | open |
+| H55-02 | 2026-11-19 | [open-high-from-lane-j-2026-11-19.md](open-high-from-lane-j-2026-11-19.md) | High | On master the lake can attach one patient's order or diagnosis to another patient and the first is lost, because a record's id is not per patient (HMAC of type and number only); lane J's red of 2026-11-19 12:27 UTC, taken by the integrator at 12:48 UTC as in rc1's scope; fix: lane J's card lake ids are per patient (D-1253, not on master); synthetic data only | J | shown | open |
+
+## H52: a one-shot Parquet read that aborts at interpreter exit
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H52-01 | 2026-11-19 | [parquet-exit-abort-2026-11-19.md](parquet-exit-abort-2026-11-19.md) | Medium | a one-shot process that reads a Parquet table with pyarrow's threaded reader can abort at exit (status 134) after the read succeeded: the box rehearsal's terminology check fails in CI, and `trialbox doctor` (run by deploy/check_host.sh as a one-shot container judged by its exit status) can show a false FAIL on a real box after every line said PASS | H | shown | fixed 8019265063365d199606b0a20401a697e05bd8ee |
+
+## H54: the rehearsal's host image is cached, pinned and bounded
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H54-01 | 2026-11-19 | [rehearsal-host-image-2026-11-19.md](rehearsal-host-image-2026-11-19.md) | Medium | the box rehearsal's step host-image built its Ubuntu image from Docker Hub and archive.ubuntu.com on every run, unpinned, uncached and with no cap, so a mirror outage failed it (500 s, 112 s on train 98) and a slow mirror took 46 minutes; CI only, it reddens trains | H | shown | fixed da0e32d0 |
+
+## H57: three wrong-patient faults of the SS-MIX2 reader, registered on the integrator's ruling (lane H, 2026-11-19)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H57-01 | 2026-11-19 | [open-high-ssmix2-wrong-patient-2026-11-19.md](open-high-ssmix2-wrong-patient-2026-11-19.md) | High | On master the SS-MIX2 reader stores an extended-storage file whose standardized name belongs to another patient as a note of the folder's patient (services/adapter/sources/ssmix2/source.py:1674; reviewer B also at :1665); reproduced by reviewer A on synthetic data: folder 10000001's file 10000002_..._DSC-01_... became a note of mrn 10000001 | J | shown | open |
+| H57-02 | 2026-11-19 | [open-high-ssmix2-wrong-patient-2026-11-19.md](open-high-ssmix2-wrong-patient-2026-11-19.md) | High | On master the SS-MIX2 reader's diagnosis supersession treats a 病名番号 as one diagnosis for every patient: one patient's delta tombstone deletes another patient's still-current Condition of that number, a second patient's removal is omitted once the number is tombstoned, and both patients' copies get one Condition id (services/adapter/sources/ssmix2/source.py:1208; reviewer B also at :900); reproduced by reviewer A on synthetic data | J | shown | open |
+| H57-03 | 2026-11-19 | [open-high-ssmix2-wrong-patient-2026-11-19.md](open-high-ssmix2-wrong-patient-2026-11-19.md) | High | On master the SS-MIX2 reader's per-day lab fallback key omits the patient, so two patients' distinct results can overwrite one another (the mapper hashes lab_no alone): two patients' ALL9 files on 20261001 with OBX-1=1 and no OBX-21 both give ALL9@20261001-1 (services/adapter/sources/ssmix2/source.py:1565); read by reviewer B, not run | J | hypothesis | open |
+
+## H56: a torn host tree in tools/host_tree.pack (reproduced locally; not the cause of the box-run build-case failures in CI)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H56-01 | 2026-11-19 | [box-run-build-cases-reset-2026-11-19.md](box-run-build-cases-reset-2026-11-19.md) | Low | tools/host_tree.pack read each file twice (hash, then tar): a file that changed in between gave a host tree that did not match its own HOST-SHA256SUMS, and verify_update.py refused the signed bundle at b06 (reproduced locally with a concurrent writer; make_bundle.sh packs with the same function, so a tree edited during a vendor's pack fails closed on every box); pack now hashes while copying into a snapshot and tars the snapshot. It was not the cause of the rehearsal's build-case failures on trains 99 and 100: those came only on runs carrying lane K's update-from-a-stick card (#1177, #1202) | H | shown | fixed e781866e46d17609d2afb6acae96b8dbdaf2bef1 |
+
+## H10G37: sampling weights in the scorer: the review of PR #1200, closed by lane H's rewrite (plan 10 row 10G-37)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H10G37-01 | 2026-11-19 | [sampling-weights-2026-11-19.md](sampling-weights-2026-11-19.md) | High | on PR #1200's branch the weighted 95 % interval under-covers when low-probability events go undrawn: 90 certain non-events and 10 events at 0.02 give [0, 0.0402] for a rate of 0.10, missing it in 831 of 1000 seeded draws | H | shown | fixed f2e6b938 |
+| H10G37-02 | 2026-11-19 | [sampling-weights-2026-11-19.md](sampling-weights-2026-11-19.md) | Medium | on PR #1200's branch a declared sampling frame disappears when the set draws no rows (empty pairs.jsonl, frame of 100: the pair figure is omitted) | H | not_run | fixed f2e6b938 |
+| H10G37-03 | 2026-11-19 | [sampling-weights-2026-11-19.md](sampling-weights-2026-11-19.md) | Medium | on PR #1200's branch the pair scorer keeps a stored wrong-exclusions denominator on a replay that excludes fewer pairs (1/10 instead of 1/1) | H | not_run | fixed f2e6b938 |
+| H10G37-04 | 2026-11-19 | [sampling-weights-2026-11-19.md](sampling-weights-2026-11-19.md) | Medium | on PR #1200's branch the criterion scorer keeps a stored wrong-exclusion denominator on a replay that answers fewer criteria (1/10 instead of 1/5) | H | not_run | fixed f2e6b938 |
+| H10G37-05 | 2026-11-19 | [sampling-weights-2026-11-19.md](sampling-weights-2026-11-19.md) | Medium | on PR #1200's branch the pathology scorer keeps a stored eligible-loss denominator on a replay that answers fewer pairs (1/10 instead of 1/5) | H | not_run | fixed f2e6b938 |
+| H10G37-06 | 2026-11-19 | [sampling-weights-2026-11-19.md](sampling-weights-2026-11-19.md) | Low | on PR #1200's branch summing inverse weights overflows for accepted tiny probabilities (two events at 1e-308 raise OverflowError) | H | shown | fixed f2e6b938 |
+| H10G37-07 | 2026-11-19 | [sampling-weights-2026-11-19.md](sampling-weights-2026-11-19.md) | Low | on PR #1200's branch the replay calls float(None) on a weighted block with no estimated events | H | not_run | fixed f2e6b938 |
+| H10G37-08 | 2026-11-19 | [sampling-weights-2026-11-19.md](sampling-weights-2026-11-19.md) | Low | on PR #1200's branch the pathology prose gives raw sample counts beside weighted structured fields (1 of 1 beside 4 of 20) | H | not_run | fixed f2e6b938 |
+
+## H10E5: tier C split by memory: a DGX Spark under 96 GiB is refused, not guessed (plan 10 row 10E-5)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H10E5-01 | 2026-11-19 | [tier-c-by-memory-2026-11-19.md](tier-c-by-memory-2026-11-19.md) | Medium | plan 10 row 10E-5 is closed by a refusal, not by a profile: a 64 GB DGX Spark has no measured profile and cannot be shown to fit from recorded numbers (D-1335), so tier C still has one size (128 GB); a 64 GB profile needs a run on that hardware (10E-6, C-1) that records the pair's and the services' peaks | Int | shown | open |
+| H10E5-02 | 2026-11-19 | [tier-c-by-memory-2026-11-19.md](tier-c-by-memory-2026-11-19.md) | Low | tools/serving_config.py measured_for(rec, 'gb10') does not check the card's memory: a record captured on a 64 GB Spark would pass as a gb10 measurement; install.sh, poc.sh and the tier check refuse that host before the record is read, so it is not reachable through them, but the record rule alone does not tell the two classes apart (on a GB10, nvidia-smi's memory.total is not a reliable stand-in for MemTotal) | H | shown | open |
+| H10E5-03 | 2026-11-19 | [tier-c-by-memory-2026-11-19.md](tier-c-by-memory-2026-11-19.md) | Low | deploy/check_host.sh --gb10 does not report a host under 96 GiB: it was left unchanged because a memory check there would read the live host's memory inside its existing tests (tests/unit/test_images_lock.py, test_runbook_install_commands.py, which pass --gb10) and fail them on a CI runner under 96 GiB unless those tests are given a stand-in; install.sh, poc.sh and spark_e2e.sh refuse that host before or instead of it | H | shown | open |
+
+## H58: hardening follow-ups: the overlay services and a pack that does not load (card H-58)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H58-01 | 2026-11-19 | [hardening-follow-ups-2026-11-19.md](hardening-follow-ups-2026-11-19.md) | Low | the overlay services' written exceptions stay open (D-1337): llm-verifier read_only, user and cap_drop (closed with H10G1-02 on a GPU box), the rtx5090 swap helpers' user (the vLLM image's python runs as root), caddy's user and cap_drop (root on 443; the hospital's key file of an owner and mode the installer does not set), authelia's user, cap_drop and read_only (its entrypoint changes owners and user at start; it writes /app/.healthcheck.env), mailpit's read_only (its message database in /tmp) | H | shown | open |
+| H58-02 | 2026-11-19 | [hardening-follow-ups-2026-11-19.md](hardening-follow-ups-2026-11-19.md) | Low | the controls added to the overlay services that no CI job starts (authelia, prometheus, the platform doctor, the acceptance services, the test bench, the two-device link, the rtx5090 swap helpers) are shown only statically (YAML and docker compose config); each overlay is to be brought up on a compose box before they are trusted there | H | hypothesis | open |
+| H58-03 | 2026-11-19 | [hardening-follow-ups-2026-11-19.md](hardening-follow-ups-2026-11-19.md) | Low | tests/unit/test_compose_limits.py lints no two-device compose file: its list of compose files globs deploy/ only (the platform file is added by name), so the link service's limits, log cap, health check and watchdog rule are not checked there | H | shown | open |
+
+## N11: the night plan follows the tier
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| N11-01 | 2026-11-19 | [night-plan-per-tier-2026-11-19.md](night-plan-per-tier-2026-11-19.md) | High | the night chain wrote the tier's pass order, concurrency and residency into MICROBATCH options the worker never reads; the tests stopped at the options | H | hypothesis | fixed 27c417b5 |
+| N11-02 | 2026-11-19 | [night-plan-per-tier-2026-11-19.md](night-plan-per-tier-2026-11-19.md) | High | a coded-only plan still dispatched the ordinary MICROBATCH, which can ask the configured note judge | H | hypothesis | fixed 27c417b5 |
+| N11-03 | 2026-11-19 | [night-plan-per-tier-2026-11-19.md](night-plan-per-tier-2026-11-19.md) | High | the 06:00 CPU note cutoff cancelled jobs, then advanced the chain with CPU note dispatch still on | H | hypothesis | fixed 27c417b5 |
+| N11-04 | 2026-11-19 | [night-plan-per-tier-2026-11-19.md](night-plan-per-tier-2026-11-19.md) | Medium | the cutoff searched only the 200 newest jobs of every type | H | hypothesis | fixed 27c417b5 |
+| N11-05 | 2026-11-19 | [night-plan-per-tier-2026-11-19.md](night-plan-per-tier-2026-11-19.md) | Medium | the backup window wrote no request on the shipped Compose, which mounts no operations folder in the orchestrator | H | hypothesis | fixed 27c417b5 |
+| N11-06 | 2026-11-19 | [night-plan-per-tier-2026-11-19.md](night-plan-per-tier-2026-11-19.md) | Medium | the plan read gb10.json and cpu.json for labels the worker's budget lookup does not know: the stated budget differed from the enforced one | H | hypothesis | fixed 27c417b5 |
+| N11-07 | 2026-11-19 | [night-plan-per-tier-2026-11-19.md](night-plan-per-tier-2026-11-19.md) | Medium | two first-load slices had the same name and the second depended on that name | H | hypothesis | fixed 27c417b5 |

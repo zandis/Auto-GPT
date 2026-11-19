@@ -1,0 +1,3 @@
+# 9k-17 (D-1377): the reviewed differences of the visual regression (tools/visual_regression.py).
+# One line per picture a person looked at and meant: "<shot> <hash>  # why". The job prints the lines to add.
+# A line accepts that one picture only (the hash is of its pixels); the next change to the page differs again.

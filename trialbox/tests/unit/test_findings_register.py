@@ -703,6 +703,16 @@ def test_add_from_refuses_and_writes_nothing(area: Path, over: dict[str, object]
     assert reg.read_text(encoding="utf-8") == before
 
 
+@pytest.mark.parametrize("lane", ["J", "K"])
+def test_add_from_takes_lanes_j_and_k(area: Path, lane: str) -> None:
+    # lanes J and K own findings (H-55); lane H registers them, so the tool takes them as a row's lane
+    reg = reg_of(area)
+    assert fr.add_from(findings_file(area, "V2", ["V2-01"], over={"f_lane": lane}), reg, area) == []
+    row = next(r for r in fr.parse(reg).rows if r.id == "V2-01")
+    assert row.cells["Lane"] == lane
+    assert fr.check(fr.parse(reg)) == []
+
+
 def test_add_from_refuses_an_id_twice_in_its_file(area: Path) -> None:
     problems = fr.add_from(findings_file(area, "V2", ["V2-01", "V2-01"]), reg_of(area), area)
     assert problems == ["findings.json: V2-01: twice in the file: nothing written"]
@@ -743,3 +753,99 @@ def test_the_check_runs_in_make_lint_and_in_ci() -> None:
     assert ".venv/bin/python -m tools.findings_register --check\n" in checks
     assert "--release" not in checks  # criterion 11's mode is not wired into CI now
     assert "docs/handover/findings-register.md merge=union" in (ROOT / ".gitattributes").read_text(encoding="utf-8")
+
+
+# --- --sync-states (H-57) --------------------------------------------------------------------------------------------
+
+
+def synced_area(area: Path, states: dict[str, str]) -> tuple[Path, Path]:
+    """The area with card V2's rows added from a findings file under docs/, then that file's states set to ``states``."""
+    src = findings_file(area / "docs" / "plan", "V2", ["V2-01", "V2-02", "V2-03"])
+    reg = reg_of(area)
+    assert fr.add_from(src, reg, area) == []
+    data = json.loads(src.read_text(encoding="utf-8"))
+    for f in data["findings"]:
+        if f["id"] in states:
+            f["state"] = states[f["id"]]
+    src.write_text(json.dumps(data), encoding="utf-8")
+    return reg, src
+
+
+def sync(reg: Path, area: Path) -> int:
+    return fr.main(["--sync-states", "--register", str(reg), "--root", str(area)])
+
+
+def test_sync_states_moves_a_changed_state_and_nothing_else(area: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    reg, _ = synced_area(area, {"V2-02": "fixed 0123abcd"})
+    before = reg.read_bytes().split(b"\n")
+    assert sync(reg, area) == 0
+    assert "synced V2-02: open -> fixed 0123abcd" in capsys.readouterr().out
+    after = reg.read_bytes().split(b"\n")
+    assert len(after) == len(before)
+    changed = [i for i, (a, b) in enumerate(zip(before, after, strict=True)) if a != b]
+    assert len(changed) == 1
+    old, new = before[changed[0]], after[changed[0]]
+    assert old.startswith(b"| V2-02 ") and old.endswith(b"| open |")
+    assert new == old[: -len(b"| open |")] + b"| fixed 0123abcd |"  # the rest of the row, byte for byte
+    assert fr.check(fr.parse(reg), area) == []
+
+
+def test_sync_states_leaves_an_unchanged_state_untouched(area: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    reg, _ = synced_area(area, {"V2-01": "open"})
+    before = reg.read_bytes()
+    assert sync(reg, area) == 0
+    assert reg.read_bytes() == before
+    assert "no state to sync" in capsys.readouterr().out
+
+
+def test_sync_states_refuses_an_unknown_state(area: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    reg, _ = synced_area(area, {"V2-01": "closed, probably"})
+    before = reg.read_bytes()
+    assert sync(reg, area) == 1
+    assert reg.read_bytes() == before
+    assert "V2-01: the state 'closed, probably'" in capsys.readouterr().err
+    assert any("closed, probably" in e for e in fr.check(fr.parse(reg), area))
+
+
+def test_sync_states_never_moves_back_or_past_seen_closed(area: Path) -> None:
+    reg, src = synced_area(area, {})
+    text = reg.read_text(encoding="utf-8")
+    text = text.replace("| hypothesis | open |", "| hypothesis | fixed 0123abcd |", 1)  # V2-01 closed in the register
+    seen = "fixed 0123abcd, seen closed by R on 2026-11-19"
+    lines = text.split("\n")
+    i = next(n for n, x in enumerate(lines) if x.startswith("| V2-02 "))
+    lines[i] = lines[i].replace("| open |", f"| {seen} |")
+    reg.write_text("\n".join(lines), encoding="utf-8")
+    data = json.loads(src.read_text(encoding="utf-8"))
+    data["findings"][0]["state"] = "open"
+    data["findings"][1]["state"] = "fixed 4567cdef"
+    src.write_text(json.dumps(data), encoding="utf-8")
+    before = reg.read_bytes()
+    changed, refused, left = fr.sync_states(reg, area)
+    assert (changed, refused) == ([], [])
+    assert len(left) == 2 and "not moved back" in left[0] and "seen closed" in left[1]
+    assert reg.read_bytes() == before
+    assert fr.check(fr.parse(reg), area) == []  # left rows are printed, not errors
+
+
+def test_check_fails_on_a_planted_stale_row(area: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    reg, _ = synced_area(area, {"V2-03": "card issued #42"})
+    errors = fr.check(fr.parse(reg), area)
+    assert len(errors) == 1 and "row V2-03" in errors[0] and "run --sync-states" in errors[0]
+    assert fr.main(["--check", "--register", str(reg), "--root", str(area)]) == 1
+    assert sync(reg, area) == 0
+    assert fr.check(fr.parse(reg), area) == []
+
+
+def test_a_row_without_a_source_state_is_not_synced(area: Path) -> None:
+    reg, src = synced_area(area, {})
+    data = json.loads(src.read_text(encoding="utf-8"))
+    del data["findings"][0]["claim"]  # any file; the findings carry no state field at all
+    src.write_text(json.dumps(data), encoding="utf-8")
+    before = reg.read_bytes()
+    assert fr.sync_states(reg, area) == ([], [], [])
+    assert reg.read_bytes() == before
+
+
+def test_the_committed_register_is_not_behind_its_findings_files() -> None:
+    assert fr.sync_plan(fr.parse(REGISTER), ROOT).changes == []

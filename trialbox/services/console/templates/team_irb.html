@@ -5,7 +5,7 @@
 {% block content %}
 <div class="headrow"><h1>{{ rs }} · {{ t('team.irb.title') }}</h1></div>
 {% include "_team_nav.html" %}
-<p class="hint">{{ t('team.irb.help') }}</p>
+<p class="hint">{{ t('team.irb.help') }}</p>{#J7#}{% if pm and may_act('consent') %}<p><a class="button secondary" href="/pilot/consent" data-testid="link-consent">{{ tp('nav.consent') }}</a></p>{% endif %}{#/J7#}
 {% if request.query_params.get('done') %}<p class="ok" role="status" data-testid="irb-saved">{{ t('team.irb.saved') }}</p>{% endif %}
 {% if warnings %}<p class="warn" role="alert" data-testid="irb-warning">{{ t('team.irb.warn.page') }} {% for w in warnings %}<span class="pill warn">{{ t('team.irb.w.' + w) }}</span> {% endfor %}</p>{% else %}<p class="ok" data-testid="irb-ok">{{ t('team.irb.ok') }}</p>{% endif %}
 <section class="card">
@@ -28,7 +28,8 @@
 <button type="submit" data-testid="irb-save">{{ t('team.irb.save') }}</button>
 </form>{% endif %}
 </section>
-{% include "_icf_list.html" %}
+{% include "_icf_list.html" %}{% if committee is not none %}{# 10C-4 (D-1227): the Japan profile's committee record #}
+<section class="card" data-testid="committee-link"><h2>{{ t('cmt.title') }}</h2>{% for code, level in committee.findings %}<p class="{{ 'error' if code in committee.open else 'warn' }}" data-testid="cmt-finding-{{ code }}">{{ t('cmt.f.' + code) }}</p>{% else %}<p class="ok">{{ t('cmt.f.none') }}</p>{% endfor %}{% if committee.held %}<p class="error" data-testid="cmt-held">{{ t('cmt.held') }}</p>{% endif %}{% if committee.waiting %}<p class="warn" data-testid="cmt-waiting">{{ t('cmt.waiting') }}{% if committee.due_on %} {{ t('cmt.due', day=committee.due_on) }}{% endif %}</p>{% endif %}<p><a href="/studies/{{ rs }}/committee" data-testid="to-committee">{{ t('cmt.open') }}</a></p></section>{% endif %}
 <section class="card"><h2>{{ t('team.irb.overrides', n=overrides|length) }}</h2>
 {% if not overrides %}<p class="empty">{{ t('team.irb.no_overrides') }}</p>{% else %}<ul class="plain hint" data-testid="overrides">{% for pid, ws, by, at in overrides|reverse %}<li>{{ at|local }} · {{ by }} · {{ t('week.patient', p=pid[:8]) }} · {% for w in ws %}{{ t('team.irb.w.' + w) }}{% if not loop.last %}, {% endif %}{% endfor %}</li>{% endfor %}</ul>{% endif %}
 </section>

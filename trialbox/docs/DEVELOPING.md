@@ -82,6 +82,11 @@ Three rules keep the billed runner minutes down (D-578):
   tests and, where the plan asks, its adversarial review. On a draft the check `unit` shows as skipped, never as
   success: nothing merges on it.
 * A new push cancels the older run of the same pull request.
+* A pull request that touches the console (`services/console/`), `tools/visual_regression.py`,
+  `tests/console/visual_accepted.txt` or its own workflow also runs the visual regression
+  (`trialbox-visual.yml`, 9k-17, D-1377), draft or not: 72 first screens against the base branch. A changed screen
+  fails it until a person has looked at the side-by-side page in the job's files and committed the line the job
+  prints to `tests/console/visual_accepted.txt`. It is not a required check.
 * **The merge train.** The integrator builds `train/<n>` from `master` by merging the heads of several reviewed
   pull requests (`git merge --no-ff <head>` for each) and opens it as a pull request. The full tier runs once on
   it. A green train is merged with a merge commit, not a squash, so the card pull requests show as merged. A red
@@ -120,6 +125,9 @@ measured speed or the size of the data, or it is a declared setting with a reaso
 
 ## Operations drills
 
-Every site page of the RUNBOOK names its drill, in a line `**Drill (T-213b):**` with the name of a test. T-213b
-writes those tests (Docker drills as code, `tests/integration/`); a drill whose recovery step is missing from its
-page fails. `tests/unit/test_operations_docs.py` holds the pages of T-635 to that rule until then.
+Every site page of the RUNBOOK has a line `**Drill (T-213b):**`. It names the test that rehearses the page's
+procedure, or says "none" and, in words, that no test rehearses it (card 10K-9, D-1362). A name is written only once
+its test exists: `python tools/doclint.py` fails a drill name that no `def` under `tests/` defines (its **drill**
+check), and `tests/unit/test_operations_docs.py` holds the pages of T-635 to the one line and the site tabletops to
+the names. The drills on master run in process (the commands of the page, on synthetic data); the Docker drills of
+T-213b (a filled disk, a stopped model server, a power cut, a timed restore, a second machine) are not written yet.

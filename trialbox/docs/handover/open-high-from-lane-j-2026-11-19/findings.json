@@ -1,0 +1,30 @@
+{
+  "card": "H55",
+  "title": "two open High findings of lane J, registered on the integrator's ruling (lane H, 2026-11-19)",
+  "date": "2026-11-19",
+  "source": "docs/handover/open-high-from-lane-j-2026-11-19.md",
+  "findings": [
+    {
+      "id": "H55-01",
+      "severity": "High",
+      "claim": "On master an inclusion that negates or forbids something (不可, 禁止, 不允許, forbidden, exception forms, bare 不 and 以外 in zh-TW, a negating prefix such as Non-small cell with small cell coded) can compile as requiring it, so a patient can be wrongly listed with the reviewer's sheet the only guard; per D-1246 (branch of #1180, not on master) master ran 60 of 186, 53 of 57, 121 of 194 and 62 of 73 synthetic must-hold lines; #1117 (10A-1b) is on master, #1180 (10A-1c) is not",
+      "lane": "J",
+      "basis": "shown",
+      "state": "open",
+      "place": "the criteria compiler's negation hold (10A-1, 10A-1b on master)",
+      "expected": "a negated inclusion is held for a person, never run as presence",
+      "happened": "lane J's and the independent testers' synthetic must-hold lines ran on master (D-1246 on agent/10A-1c-unnecessary-holds at 65f0753c)"
+    },
+    {
+      "id": "H55-02",
+      "severity": "High",
+      "claim": "On master the lake can attach one patient's order or diagnosis to another patient and the first is lost, because a record's id is not per patient (HMAC of type and number only); lane J's red of 2026-11-19 12:27 UTC, taken by the integrator at 12:48 UTC as in rc1's scope; fix: lane J's card lake ids are per patient (D-1253, not on master); synthetic data only",
+      "lane": "J",
+      "basis": "shown",
+      "state": "open",
+      "place": "Mapper.row_id (adapter mapping engine), id specs {hid: <column>}",
+      "expected": "a patient's record keeps its own id; one patient's never takes another's place",
+      "happened": "two patients' order RX1 were one id: the lake kept one MedicationRequest, under the second patient (D-1253 on agent/lake-ids-per-patient at 44973dfc)"
+    }
+  ]
+}

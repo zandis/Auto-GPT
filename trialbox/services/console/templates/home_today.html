@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% from "_today.html" import today_block, next_line with context %}
+{% block title %}{{ t('today.home') }}{% endblock %}
+{% block content %}
+{# J-6 (D-1225, flag layout.home_today): the opening page of the investigator, the CRO and the viewer #}
+<div class="headrow"><h1>{{ t('today.home') }}</h1></div>
+{{ today_block(lines, more, total, every, today_failed) }}
+<section class="card" data-testid="nexts">
+  <div class="headrow"><h2>{{ t('today.next.title') }}</h2><span class="hint">{{ t('today.next.help') }}</span></div>
+  {% if not nexts %}<p class="empty hint">{{ t('today.no_studies') }}</p>{% endif %}
+  {% for n in nexts %}{{ next_line(n) }}{% endfor %}
+  <p class="chartlinks">{% if week_href %}<a href="{{ week_href }}" data-testid="to-week">{{ t('today.to.week') }}</a>{% elif not user.can_view_phi %}<a href="/reports" data-testid="to-reports">{{ t('today.to.reports') }}</a>{% endif %}</p>
+</section>
+{% endblock %}
