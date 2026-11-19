@@ -19,7 +19,8 @@
     the take-over of a run and the export), Participants' on the participants page (`/studies/{rs}/subjects`, whose
     read of the people already included the screening log). A default only leaves rows out; a participant the log
     names before a record exists is shown with its state and day, without a pseudonym (the participants page shows
-    none).
+    none), and only to an account the screening log's own page admits (`Helpers.rows_ok`, the question `need_rows`
+    asks); anyone else gets the participant records only, and no read the participants page did not make on master.
   - **The other views are working views**: the old page as it was, which can show people from both sides of consent,
     and the strip says so on each. Candidates: "This week" (`/week`, its `list=` filters, the contact outcomes),
     "New members" (`/cohort`, a registry study), "Doctors and referrals" (`/candidates`, `show=`), "Screening log",
