@@ -407,7 +407,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             waiting=waiting,
             rows=rows,
             counts=read(ops.counts),
-            full_night=full_night_of([*sources, *rows], datetime.now(ZoneInfo(site_tz())).date()),  # 10B-20 (D-1254)
+            full_night=full_night_of([*sources, *rows], h.today()),  # 10B-20 (D-1254): the site's date
             state=state,
             source=source,
             next_before=nxt,
