@@ -13,7 +13,7 @@ Plan 10 row 10G-1 (review 16-17 and 9l-18), decision D-1323. Findings in the reg
 
 | Service | cap_drop ALL | no-new-privileges | read_only (tmpfs) | user |
 | --- | --- | --- | --- | --- |
-| db | yes | yes | yes (`/tmp`, `/var/run/postgresql`) | 999:999 |
+| db | yes | yes | yes (`/tmp`, `/var/run/postgresql`) | 999:999, group_add ssl-cert |
 | fhir-store | yes | yes | yes (`/tmp`) | 65532:65532 |
 | lake, embed-service, doc-parser, criteria-compiler, audit-writer, mail-gateway, gateway, console, llm-stub | yes | yes | yes (`/tmp`) | 10001:10001 |
 | adapter | yes | yes | **exception** (H10G1-01) | 10001:10001 |
@@ -32,7 +32,16 @@ No Docker daemon in the container where this was made: nothing was brought up. S
 configuration of every stack; the HL7 validator against an unwritable and a writable copy of its package cache (as
 uid 10001). Not shown: that each service starts and works under the controls. To be run on a compose box before the
 row is trusted: every stack up and healthy, `trialbox doctor`, the four walks, backup and restore, an update, and the
-box rehearsal's SC-1b check.
+box rehearsal's later steps.
+
+The box rehearsal ran in CI on #1142 (run 44449244254, both legs): the hardened stack came up ("doctor passed", 17
+containers running and healthy), then the SC-1b / D-993 identity check failed. db PID 1 had uid and gid 999 but groups
+`999` only, where `id -G postgres` is `999 101`: started as numeric `999:999`, it no longer goes through the setpriv
+shim's `--init-groups` and lost postgres's `ssl-cert` group (the TLS key). The fix gives db `group_add: [ssl-cert]` (by
+name, resolved in the image's `/etc/group`; user `999:999`, cap_drop, no-new-privileges and read_only unchanged), and
+the YAML test pins it. No Docker daemon here, so only the rendered configuration shows it; the rehearsal on the pushed
+head is the proof. The rehearsal's later steps (terminology, screen, power-cycle, restore) have NOT yet run under the
+hardening: the check aborted before them.
 
 ## Findings
 

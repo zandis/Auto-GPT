@@ -117,11 +117,14 @@ services:
       - -c
       - idle_in_transaction_session_timeout=${TB_PG_IDLE_TX_TIMEOUT:-0}
     shm_size: ${TB_PG_SHM:-64m}
-    # 10G-1 (D-1323): started as postgres (999, the Debian image's own uid; Docker adds its ssl-cert group from
-    # /etc/group), so the entrypoint never needs root, its chown or the setpriv shim; db-pg and the pgBackRest repo
-    # are postgres's already (the server and archive_command ran as postgres before). Read-only root: the socket
+    # 10G-1 (D-1323): started as postgres (999, the Debian image's own uid), so the entrypoint never needs root, its
+    # chown or the setpriv shim; db-pg and the pgBackRest repo are postgres's already (the server and archive_command
+    # ran as postgres before). A numeric user:group gets no supplementary group from /etc/group, so group_add gives
+    # postgres's own one, ssl-cert (the TLS key, D-993), by name: Docker resolves it in the image's /etc/group, and
+    # PID 1 has exactly postgres's groups, as the box rehearsal's SC-1b check wants. Read-only root: the socket
     # folder and /tmp (pgBackRest's lock, update's restore file) are tmpfs; pgBackRest logs to no file (log-level-file=off).
     user: "999:999"
+    group_add: [ssl-cert]
     read_only: true
     tmpfs: [/tmp, "/var/run/postgresql:uid=999,gid=999,mode=2775"]
     cap_drop: [ALL]

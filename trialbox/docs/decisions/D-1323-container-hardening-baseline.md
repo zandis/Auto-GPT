@@ -13,8 +13,11 @@
     volumes the image seeds stay theirs, and `install.sh` already gives `settings.yaml` to group 10001. Their one
     write outside a volume is `/tmp` (tempfile, the audit-writer heartbeat, `MPLCONFIGDIR`, `HF_HOME`, the extra CA
     bundle, the JVM's hsperfdata): a tmpfs, charged to the service's `mem_limit`.
-  - db runs as `999:999`, postgres of the Debian PostgreSQL image (Docker adds its `ssl-cert` group from
-    `/etc/group`): the entrypoint no longer starts as root, so it skips its chown and the setpriv shim (D-993); db-pg
+  - db runs as `999:999`, postgres of the Debian PostgreSQL image, with `group_add: [ssl-cert]`: a numeric
+    user:group gets no supplementary group from `/etc/group`, and postgres's own one is `ssl-cert` (the TLS key,
+    D-993), by name so Docker resolves it in the image's `/etc/group` (gid 101 in today's base by Debian's
+    order; no build step or test pins the number, so a number here could drift). The box rehearsal's first CI run without it
+    showed PID 1 with group 999 only, where postgres has 999 and 101. The entrypoint no longer starts as root, so it skips its chown and the setpriv shim (D-993); db-pg
     and the pgBackRest repository were written by postgres already. tmpfs `/tmp` (pgBackRest's lock, the update's
     restore file) and `/var/run/postgresql` (the socket, owned 999); pgBackRest writes no log file
     (`log-level-file=off`).
@@ -35,7 +38,9 @@
 - **Not proved here:** no Docker daemon in the container where this was made. Before 10G-1 is trusted, on a compose
   box: every stack up (stub, gpu, test, identity, box, monitoring, acceptance, platform) and healthy; `trialbox
   doctor`; `make walk-new-study walk-life-cycle walk-life-cycle-390 walk-modules`; a backup and a restore; an update
-  (its db restore runs `exec db` as postgres now); the box rehearsal's SC-1b check (db PID 1 as 999 with postgres's
-  own groups).
+  (its db restore runs `exec db` as postgres now). The box rehearsal ran in CI on #1142 (run 44449244254): the stack
+  came up healthy and the SC-1b check failed (PID 1 had group 999 only, postgres has 999 and 101); `group_add` is the
+  fix, and the rehearsal on the next head is its proof. Its later steps (terminology, screen, power-cycle, restore)
+  have not yet run under the hardening: the check aborted before them.
 - **Held by:** `tests/unit/test_container_hardening.py` (the YAML of every stack, and `docker compose config` where
   the plugin is).

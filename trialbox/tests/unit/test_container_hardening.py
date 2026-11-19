@@ -129,6 +129,10 @@ def test_the_users_match_the_images_and_the_installer() -> None:
     assert "--uid 10001" in (DEPLOY / "docker" / "python.Dockerfile").read_text(encoding="utf-8")
     assert 'chown "$(id -u):10001" deploy/settings.yaml' in (DEPLOY / "install.sh").read_text(encoding="utf-8")
     assert base["db"]["user"] == "999:999"
+    # a numeric user gets no supplementary group: postgres's own ssl-cert (D-993) is added by name, so PID 1 has
+    # exactly postgres's groups (the box rehearsal's SC-1b check), and nothing else is added
+    assert base["db"]["group_add"] == ["ssl-cert"]
+    assert all("group_add" not in base[s] for s in THE_15 if s != "db")
     assert base["fhir-store"]["user"] == "65532:65532"
 
 
@@ -163,5 +167,7 @@ def _compose() -> bool:
 def test_compose_config_renders_the_controls(tmp_path: Path, stack: tuple[str, ...], profiles: tuple[str, ...]) -> None:
     services = _render(tmp_path, stack, profiles)["services"]
     assert problems(services, profiles) == []
+    if "db" in services:
+        assert services["db"]["group_add"] == ["ssl-cert"]  # rendered by name, resolved in the image at start
     if stack == (BASE,):
         assert set(services) == THE_15  # both profiles: 15 of 15
