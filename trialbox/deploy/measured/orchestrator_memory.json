@@ -1,0 +1,29 @@
+{
+ "commits": [
+  "312eca7c",
+  "57263236"
+ ],
+ "format": "tb-orchestrator-memory/1",
+ "how": "python -m tools.trialbox.memcaps --from-ladder: the orchestrator's peak resident memory per patient count over every stage of the size ladder (tools/size_ladder.py; SCREEN and FEAS of the whole hospital), a count with a stage killed at its cap left out, the least-squares slope, the fixed part raised until the line lies on or above every peak",
+ "left_out": [
+  "100000 patients: SCREEN x1, cascade (gate, GZQO) killed at the cap",
+  "200000 patients: SCREEN x1, cascade (gate, GZQO) killed at the cap",
+  "50000 patients: SCREEN x1 killed at the cap"
+ ],
+ "measured_at": "2026-11-17T15:28:51+00:00",
+ "services": {
+  "orchestrator": {
+   "fixed_mb": 558.2,
+   "peak_mb": {
+    "100000": 8422.2,
+    "20000": 2133.9,
+    "5000": 926.0,
+    "50000": 4470.2
+   },
+   "per_patient_kb": 80.682
+  }
+ },
+ "sources": [
+  "size-test-2026-11-17.json"
+ ]
+}

@@ -53,7 +53,7 @@ import re
 import socket
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -433,7 +433,8 @@ def capture(containers: list[tuple[str, str]], models_dir: Path, capped_to: str 
     card["capped_to"] = capped_to
     return {
         "schema": SCHEMA,
-        "captured_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        # timezone.utc, not datetime.UTC (3.11): capture runs with the GPU host's own python3 (Ubuntu 22.04: 3.10)
+        "captured_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),  # noqa: UP017
         "host": socket.gethostname(),
         "card": card,
         "memory_used_mib": used,

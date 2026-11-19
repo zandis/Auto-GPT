@@ -117,8 +117,8 @@ extend-exclude = ["libs/tb_contracts/generated", "docs/plan/design/tools"]  # de
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "PL", "S"]
 ignore = [
   "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004", "PLC0415",
-  "S101", "S603", "S607", "S608", "S311", "RUF001", "RUF002", "RUF003",
-  "N815", "SIM108", "PLW2901", "S104", "S324", "S105", "S106", "PLR0917", "PLW0603", "N818", "N812", "RUF043",
+  "S101", "S603", "S607", "S311", "RUF001", "RUF002", "RUF003",
+  "N815", "SIM108", "PLW2901", "S104", "S324", "PLR0917", "PLW0603", "N818", "N812", "RUF043",
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -136,6 +136,52 @@ ignore = [
 "services/console/i18n_step4.py" = ["E501"]
 "services/criteria_compiler/compile_cql/generator.py" = ["E501", "S701"]
 "tools/**" = ["PLR", "S"]
+# 10G-42 (a), D-928: SQL built from strings (S608) and hard-coded password names (S105), ignored per file with the
+# count, not for the whole tree; tools/sql_from_strings.json holds each count and its test fails a new one
+"deploy/windows/wsl2_policy.py" = ["S608"]  # S608 x2
+"libs/tb_common/config.py" = ["S105"]  # S105 x1
+"libs/tb_common/db.py" = ["S608"]  # S608 x1
+"libs/tb_common/derived_store.py" = ["S608"]  # S608 x3
+"libs/tb_common/flags.py" = ["S608"]  # S608 x2
+"libs/tb_common/lakeprobe.py" = ["S608"]  # S608 x1
+"libs/tb_common/notmatched.py" = ["S608"]  # S608 x2
+"libs/tb_common/refdata.py" = ["S608"]  # S608 x5
+"libs/tb_common/service_auth.py" = ["S105"]  # S105 x1
+"services/adapter/licensed.py" = ["S608"]  # S608 x1
+"services/adapter/pidmap.py" = ["S608"]  # S608 x1
+"services/adapter/sources/cgrd_sql/source.py" = ["S608"]  # S608 x2
+"services/console/auth.py" = ["S608"]  # S608 x8
+"services/console/breakglass_store.py" = ["S608"]  # S608 x5
+"services/console/demo_guard.py" = ["S608"]  # S608 x1
+"services/console/feedback.py" = ["S608"]  # S608 x1
+"services/console/firstrun.py" = ["S608"]  # S608 x1
+"services/console/sitestore.py" = ["S608"]  # S608 x2
+"services/console/teamstore.py" = ["S608"]  # S608 x5
+"services/criteria_compiler/compile_sql/generator.py" = ["S608"]  # S608 x18
+"services/criteria_compiler/library/repository.py" = ["S608"]  # S608 x1
+"services/datacore/optout_worker.py" = ["S608"]  # S608 x1
+"services/datacore/store.py" = ["S608"]  # S608 x1
+"services/edc/store.py" = ["S608"]  # S608 x2
+"services/edc_backend/config.py" = ["S105"]  # S105 x2
+"services/lake/store.py" = ["S608"]  # S608 x8
+"services/mail_gateway/store.py" = ["S608"]  # S608 x3
+"services/matching/carried.py" = ["S608"]  # S608 x2
+"services/matching/recorded.py" = ["S608"]  # S608 x1
+"services/omop/__main__.py" = ["S608"]  # S608 x1
+"services/omop/dqd.py" = ["S608"]  # S608 x17
+"services/omop/export.py" = ["S608"]  # S608 x14
+"services/omop/load.py" = ["S608"]  # S608 x11
+"services/omop/partitions.py" = ["S608"]  # S608 x4
+"services/omop/vocab_load.py" = ["S608"]  # S608 x1
+"services/orchestrator/db.py" = ["S608"]  # S608 x18
+"services/orchestrator/recall/ledger.py" = ["S608"]  # S608 x4
+"services/orchestrator/scenarios/feas_compute.py" = ["S105", "S608"]  # S105 x1, S608 x3
+"services/orchestrator/scenarios/twpas.py" = ["S608"]  # S608 x1
+"services/orchestrator/scheduler.py" = ["S608"]  # S608 x1
+"services/orchestrator/studystore.py" = ["S105", "S608"]  # S105 x1, S608 x1
+"services/patient_profile/twin.py" = ["S608"]  # S608 x1
+"services/sitesetup/store.py" = ["S608"]  # S608 x5
+"services/vec/store.py" = ["S608"]  # S608 x2
 
 [tool.mypy]
 python_version = "3.12"
