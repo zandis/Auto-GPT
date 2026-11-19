@@ -2,11 +2,11 @@
 {% from "_steps.html" import steps_bar with context %}
 {% from "_person.html" import person_pill with context %}
 {% from "_life.html" import sae_banner, sae_failed, report_banner, visit_row with context %}{#J6#}{% from "_today.html" import today_block, next_line with context %}{#/J6#}
-{% block title %}{{ t('home.studies') }}{% endblock %}
+{% block title %}{{ tp('home.studies') }}{% endblock %}
 {% block content %}
 <div class="headrow">
-  <h1>{{ t('wb.crc.title') }}</h1>
-  {% if user.can_request %}<a class="button" href="/pilot/protocol" data-testid="send-protocol">{{ t('home.send_protocol') }}</a>{% endif %}
+  <h1>{{ tp('wb.crc.title') }}</h1>
+  {% if user.can_request %}<a class="button" href="/pilot/protocol" data-testid="send-protocol">{{ tp('home.send_protocol') }}</a>{% endif %}
 </div>
 {% if user.affiliation == 'smo' %}<p class="warn" data-testid="smo-banner">{{ t('home.smo_banner', studies=(user.studies|join(', ') or t('users.studies.all')), until=(user.expires or '–')) }}</p>{% endif %}
 {#J6#}{#- J-6 (D-1225, flag layout.home_today): "Needs you today" in place of the SAE cards, the visits, the tasks and the clinic visits; each study's Next line in place of its old one. Every J-6 part sits between these markers and writes nothing with the flag off (tests/console/test_home_today.py renders the page with and without them) -#}{% if today is defined and today %}{{ today_block(lines, more, total, every, today_failed) }}{% endif %}{#/J6#}{% if life %}{{ sae_failed(life.sae_failed) }}{{ sae_banner(life.sae) }}{{ report_banner(life.reports) }}{% endif %}
@@ -55,14 +55,14 @@
       {% set s = c.feas %}
       {% if s.reading %}<span class="pill rd-{{ s.reading }}">{{ t('reading.' + s.reading) }}</span>{% endif %}
       {{ t('home.feas.line', mid=s.per_month[1], low=s.per_month[0], high=s.per_month[2], pool=s.pool_now, potential=s.potential) }}
-      · <a href="/studies/{{ c.id }}/feasibility">{{ t('home.open_report') }}</a>
+      · <a href="/studies/{{ c.id }}/feasibility">{{ tp('home.open_report') }}</a>
       {% else %}{{ t('home.feas.none') }}{% endif %}</dd>
     <dt>{{ t('home.week') }}</dt>
-    <dd>{% if c.week %}{{ t('home.week.line', n=c.week.counts.total, new=c.week.counts.new, marked=c.week.counts.marked) }} · <a href="/studies/{{ c.id }}/week">{{ t('home.open_week') }}</a>
+    <dd>{% if c.week %}{{ t('home.week.line', n=c.week.counts.total, new=c.week.counts.new, marked=c.week.counts.marked) }} · <a href="/studies/{{ c.id }}/week">{{ tp('home.open_week') }}</a>
       {% else %}{{ t('home.week.none') }}{% endif %}</dd>
   </dl>
   <p class="chartlinks">{% if user.can_request %}<a href="/studies/{{ c.id }}/setup" data-testid="setup-{{ c.id }}">{{ t('home.setup') }}</a> {% endif %}{% if user.can_view_phi %}<a href="/studies/{{ c.id }}/subjects" data-testid="subjects-{{ c.id }}">{{ t('life.to.subjects') }}</a> <a href="/studies/{{ c.id }}/visits" data-testid="visits-{{ c.id }}">{{ t('life.to.visits') }}</a> <a href="/studies/{{ c.id }}/enrolment" data-testid="enrolment-{{ c.id }}">{{ t('life.to.report') }}</a> <a href="/studies/{{ c.id }}/not-matched" data-testid="excluded-{{ c.id }}">{{ t('ex.link') }}</a>{% endif %}</p>
-  {#J6#}{% if today is defined and today %}{% for n in nexts if n.rs == c.id %}{{ next_line(n) }}{% endfor %}{% else %}{#/J6#}<div class="next" data-testid="next-{{ c.id }}"><span>{{ t('next.' + c.next[0]) }}</span><a class="button small-btn" href="{{ c.next[1] }}">{{ t('next.go') }}</a></div>{#J6#}{% endif %}{#/J6#}
+  {#J6#}{% if today is defined and today %}{% for n in nexts if n.rs == c.id %}{{ next_line(n) }}{% endfor %}{% else %}{#/J6#}<div class="next" data-testid="next-{{ c.id }}"><span>{{ t('next.' + c.next[0]) }}</span><a class="button small-btn" href="{{ c.next[1] }}">{#J7#}{% if pm %}{{ t(next_go_key(c.next[0])) }}{% else %}{#/J7#}{{ t('next.go') }}{#J7#}{% endif %}{#/J7#}</a></div>{#J6#}{% endif %}{#/J6#}
 </section>
 {% endfor %}
 {#J6#}{% if today is defined and today %}{% set carded = cards|map(attribute='id')|list %}{% set rest = nexts|rejectattr('rs', 'in', carded)|list %}{% if rest %}<section class="card" data-testid="nexts">{% for n in rest %}{{ next_line(n) }}{% endfor %}</section>{% endif %}{% endif %}{#/J6#}<p class="hint">{{ t('home.more') }}</p>
