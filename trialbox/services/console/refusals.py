@@ -108,10 +108,6 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "請選擇全院或部分醫師的病人",
     ),
     "choose a staged bundle": ("取り込み済みの更新ファイルを選んでください", "請選擇已放入的更新檔"),  # D-178
-    "choose an update that waits for the quiet hour": (  # 10K-7 (D-1363): update_cancel
-        "静かな時間帯を待っている更新を選んでください",
-        "請選擇等待安靜時段的更新",
-    ),
     "choose an approved ruleset": ("承認済みの基準を選んでください", "請選擇已核准的條件"),
     "choose en, ja or zh-TW": ("英語・日本語・中国語（繁体字）から選んでください", "請選擇英文、日文或繁體中文"),
     "choose one of the contact outcomes": ("連絡結果を一つ選んでください", "請選擇一項聯絡結果"),
@@ -203,7 +199,7 @@ REFUSALS: dict[str, tuple[str, str]] = {
     "no such entry in this study's log": ("この試験の委任リストにその行はありません", "本試驗的授權紀錄表沒有這一筆"),
     "say whether the copy matches the signed log": (
         "署名済みリストと一致しているかを選んでください",
-        "請選擇是否與已簽署的授權表一致",
+        "請選擇是否與已簽署的授權紀錄表一致",
     ),
     "no such person in the directory": ("職員名簿にその人はいません", "人員名冊中沒有此人"),
     "give the department and who answers for it": (

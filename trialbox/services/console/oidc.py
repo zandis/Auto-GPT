@@ -63,6 +63,16 @@ class OidcError(Exception):
     """A sign-in through the identity provider was refused; the message is safe to audit (no token content)."""
 
 
+class OidcRoleClash(OidcError):
+    """D-1370 (9f-6, review 02/J-6): the person's groups map to two different roles. ``groups`` names two of them
+    that clash, as the site configured them (``TB_OIDC_GROUP_ROLES``), so the refusal page can tell the person which
+    two groups their hospital's IT must choose between. The message, which is audited, is unchanged."""
+
+    def __init__(self, groups: tuple[str, str]) -> None:
+        super().__init__("groups map to more than one role")
+        self.groups = groups
+
+
 class OidcConfigError(ValueError):
     """The OIDC settings are incomplete or unsafe; the console refuses to start."""
 
@@ -150,7 +160,8 @@ class OidcSettings:
         return value
 
     def role_for(self, groups: object) -> str:
-        """The one role the person's groups map to; OidcError when none or more than one."""
+        """The one role the person's groups map to; OidcError when none, OidcRoleClash when more than one (naming the
+        first two of the person's groups, in the order of the configured map, that give different roles)."""
         if isinstance(groups, str):
             names = {groups}
         elif isinstance(groups, list):
@@ -161,7 +172,10 @@ class OidcSettings:
         if not roles:
             raise OidcError("no mapped group")
         if len(roles) > 1:
-            raise OidcError("groups map to more than one role")
+            mine = [(group, role) for group, role in self.group_roles if group in names]
+            first = mine[0]
+            other = next(group for group, role in mine if role != first[1])
+            raise OidcRoleClash((first[0], other))
         return roles.pop()
 
 

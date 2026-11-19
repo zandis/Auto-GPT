@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from console import ops_pages
 from console.app import create_app
 from console.auth import UserStore
 from console.i18n import CATALOGUES
@@ -77,7 +76,6 @@ def ob(tmp_path: Path) -> dict[str, Any]:
         "TB_BACKUP_DIRS": f"data={data}",
         "TB_DB_URL": os.environ["TB_DB_URL"],
         "TB_SITE_ID": "TEST",
-        "TB_UPDATE_STICK": str(tmp_path / "stick"),  # 10K-7: not there until a test inserts it
     }
     app = create_app(env, backend=backend, audit=audit, users=users)
     return {"app": app, "audit": tmp_path / "audit", "users": users, "dir": tmp_path, "deploy": deploy,
@@ -96,17 +94,7 @@ def test_every_operations_page_and_action_is_refused_to_other_roles(ob: dict[str
     c, csrf = login(ob["app"], role[:5], PW)
     for path in ("/admin/ops", "/admin/ops?tab=secrets", "/admin/ops/network/network-sheet.en.html"):
         assert c.get(path).status_code == 403, (role, path)
-    for action in (
-        "backup",
-        "backup_check",
-        "update_check",
-        "update_apply",
-        "logs_collect",
-        "network_sheet",
-        "update_stick_check",
-        "update_quiet",
-        "update_cancel",
-    ):
+    for action in ("backup", "backup_check", "update_check", "update_apply", "logs_collect", "network_sheet"):
         r = c.post(f"/admin/ops/{action}", data={"csrf": csrf, "confirm": "yes", "bundle": "x.tar"})
         assert r.status_code == 403, (role, action)
     tok = c.post("/api/v1/session", json={"username": role[:5], "password": PW}).json()["token"]
@@ -176,9 +164,7 @@ def test_update_check_and_apply_ask_first_and_apply_is_refused_off_a_site_box(ob
     inc.mkdir(parents=True)
     (inc / "trialbox-1.0.1.tar").write_bytes(b"not a real bundle")
     page = c.get("/admin/ops?tab=update").text
-    assert "trialbox-1.0.1.tar" in page  # 10K-7: an unverified bundle is offered "verify" only, never "apply"
-    assert 'data-testid="ops-update_check-trialbox-1.0.1.tar"' in page
-    assert 'data-testid="ops-update_apply-trialbox-1.0.1.tar"' not in page
+    assert "trialbox-1.0.1.tar" in page and 'data-testid="ops-update_apply-trialbox-1.0.1.tar"' in page
     r = c.post("/admin/ops/update_apply", data={"csrf": csrf, "bundle": "trialbox-1.0.1.tar"})
     assert 'data-testid="confirm-text"' in r.text and "rolls back" in r.text
     assert 'name="bundle" value="trialbox-1.0.1.tar"' in r.text  # the sheet posts the same bundle again
@@ -552,246 +538,3 @@ def test_the_backups_tile_shows_the_last_restore_drill_and_the_command_to_type(o
     tile = c.get("/admin/ops").text
     drill = tile[tile.index('data-testid="ops-drill"') :][:400]
     assert "failed" in drill and 'class="pill bad"' in drill
-
-
-# ---------------------------------------------------------------------------------------------- 10K-7: the stick
-def _stage(ob: dict[str, Any], name: str, body: bytes = b"not a real bundle") -> Path:
-    inc: Path = ob["deploy"] / "updates" / "incoming"
-    inc.mkdir(parents=True, exist_ok=True)
-    (inc / name).write_bytes(body)
-    return inc / name
-
-
-def _fresh_status(ob: dict[str, Any]) -> None:
-    """The host's runner writes the status every minute; inline, the console writes it when there is none."""
-    (ob["dir"] / "ops" / "status.json").unlink(missing_ok=True)
-
-
-def test_the_update_stick_is_shown_and_a_bundle_is_verified_from_it(ob: dict[str, Any]) -> None:
-    """10K-7 (D-1363): the stick inserted at the box, as the runner reads it; verify copies the bundle to the box and
-    checks it (here the in-process box has no vendor key: the check fails, and the copy does not stay)."""
-    c, csrf = login(ob["app"])
-    page = c.get("/admin/ops?tab=update").text
-    assert 'data-testid="ops-stick-none"' in page and str(ob["dir"] / "stick") in page  # nothing inserted
-    stick = ob["dir"] / "stick"
-    stick.mkdir()
-    (stick / "trialbox-2026.12-1.tar").write_bytes(b"not a real bundle")
-    (stick / "trialbox-link.tar").symlink_to(stick / "trialbox-2026.12-1.tar")
-    _fresh_status(ob)
-    page = c.get("/admin/ops?tab=update").text
-    assert 'data-testid="ops-stick-bundles"' in page and "trialbox-link.tar" not in page
-    assert 'data-testid="ops-update_stick_check-trialbox-2026.12-1.tar"' in page
-    r = c.post("/admin/ops/update_stick_check", data={"csrf": csrf, "bundle": "trialbox-2026.12-1.tar"})
-    assert 'data-testid="confirm-text"' in r.text and "update stick" in r.text and "only read" in r.text
-    assert 'name="from"' not in r.text  # the source is the route's, never a form field
-    assert not _events(ob["audit"], "console.ops")
-    r = c.post("/admin/ops/update_stick_check", data={"csrf": csrf, "bundle": "trialbox-2026.12-1.tar",
-                                                      "confirm": "yes"}, follow_redirects=True)  # fmt: skip
-    assert 'data-action="update_check"' in r.text and 'data-testid="ops-result">failed' in r.text
-    assert "vendor public key not installed" in r.text
-    assert not (ob["deploy"] / "updates" / "incoming" / "trialbox-2026.12-1.tar").exists()  # refused: not kept
-    assert (stick / "trialbox-2026.12-1.tar").read_bytes() == b"not a real bundle"
-    ev = [e["detail"] for e in _events(ob["audit"], "console.ops")]
-    assert ev[0] == {"action": "update_stick_check", "request": ev[0]["request"], "bundle": "trialbox-2026.12-1.tar",
-                     "from": "stick"}  # fmt: skip
-    assert ev[1]["action"] == "update_stick_check.done" and ev[1]["ok"] is False
-    assert c.post("/admin/ops/update_stick_check", data={"csrf": csrf, "bundle": "../x"}).status_code == 400
-
-
-def _verified_by_the_host(ob: dict[str, Any], f: Path, got: dict[str, Any]) -> str:
-    """What the host's runner writes after a passed check of ``f`` (``OpsRunner._keep``): the verified record and the
-    note record, both carrying the file's sha256; then the status is written again from them."""
-    import hashlib
-
-    runner = tb_ops.OpsRunner(tb_ops.Box.local(ob["deploy"], {}), tb_ops.OpsDir(ob["dir"] / "ops"))
-    sha = hashlib.sha256(f.read_bytes()).hexdigest()
-    st = f.stat()
-    runner._keep(f, sha, (st.st_size, st.st_mtime_ns, st.st_ino, st.st_dev),
-                 {"bundle_id": None, "release_seq": None, "note_ja": None, "impact": None, "warnings": [], **got})  # fmt: skip
-    _fresh_status(ob)
-    return sha
-
-
-SHEET = {"format": "trialbox-change-impact/1", "bundle_id": "2026.12-1", "release_seq": 7,
-         "classes": [{"class": cc, "name_ja": "x", "changed": cc == "CC4", "what_ja": "画面の文言を変更" if cc == "CC4"
-                      else ""} for cc in ("CC1", "CC2", "CC3", "CC4", "CC5", "CC6")],
-         "downtime_minutes": 20, "database_migration": False, "ruleset_reapproval": True}  # fmt: skip
-
-
-def test_a_verified_bundle_shows_its_result_its_japanese_note_and_its_change_classes(ob: dict[str, Any]) -> None:
-    c, _csrf = login(ob["app"])
-    f = _stage(ob, "trialbox-2026.12-1.tar")
-    page = c.get("/admin/ops?tab=update").text
-    item = page[page.index(f'data-bundle="{f.name}"') :]
-    assert "not verified yet" in item and "Verify the bundle to see its release note" in item
-    assert f'ops-update_apply-{f.name}"' not in item and f'ops-update_quiet-{f.name}"' not in item  # review 9
-    sha = _verified_by_the_host(ob, f, {"bundle_id": "2026.12-1", "release_seq": 7, "impact": SHEET,
-                                        "note_ja": "# 合成リリース\n<script>alert(1)</script>\n"})  # fmt: skip
-    page = c.get("/admin/ops?tab=update").text
-    item = page[page.index(f'data-bundle="{f.name}"') :]
-    assert '<span class="pill ok">verified</span>' in item and sha[:12] in item
-    assert 'data-testid="ops-note"' in item and "# 合成リリース" in item
-    assert "<script>alert(1)</script>" not in page and "&lt;script&gt;" in item  # the vendor's text, escaped
-    assert re.findall(r'data-class="(CC\d)"', item) == ["CC1", "CC2", "CC3", "CC4", "CC5", "CC6"]
-    assert 'data-class="CC4" data-changed="yes"' in item and "UI and text" in item and "about 20 minutes" in item
-    assert 'data-testid="ops-note-none"' not in item
-    assert f'ops-update_apply-{f.name}"' in item and f'ops-update_quiet-{f.name}"' in item  # verified: offered
-    status = json.loads((ob["dir"] / "ops" / "status.json").read_text())
-    assert "note_ja" not in json.dumps(status) and status["verified"][f.name]["sha256"] == sha  # review 2
-    f.write_bytes(b"another file of the same name")  # replaced since it was verified: neither note nor "verified"
-    _fresh_status(ob)
-    item = c.get("/admin/ops?tab=update").text
-    assert 'data-testid="ops-note"' not in item and '<span class="pill ok">verified</span>' not in item
-    assert f'ops-update_apply-{f.name}"' not in item  # review 8, 9
-
-
-def test_a_verified_bundle_without_a_readable_note_says_so(ob: dict[str, Any]) -> None:
-    """Review 7: a passed check with no note (an older bundle), or a note record too large, is said, never blank."""
-    c, _csrf = login(ob["app"])
-    f = _stage(ob, "trialbox-2026.11-1.tar")
-    _verified_by_the_host(ob, f, {"bundle_id": "2026.11-1", "warnings": ["no RELEASE-NOTE.ja.md in this bundle"]})
-    item = c.get("/admin/ops?tab=update").text
-    assert 'data-testid="ops-note-none"' in item and "Ask the vendor for them" in item
-    (ob["dir"] / "ops" / "notes" / f"{f.name}.json").unlink()  # no record at all
-    item = c.get("/admin/ops?tab=update").text
-    assert 'data-testid="ops-note-none"' in item
-    (ob["dir"] / "ops" / "notes" / f"{f.name}.json").write_text(" " * (tb_ops.NOTE_RECORD_MAX + 1))
-    item = c.get("/admin/ops?tab=update").text
-    assert 'data-testid="ops-note-too-large"' in item and "too large to show" in item
-
-
-@pytest.mark.parametrize("name", ["trialbox-1.tar\n", "aリリース.tar", "trialbox-1.tar\r"])
-def test_a_bundle_name_with_a_newline_or_a_look_alike_is_refused(ob: dict[str, Any], name: str) -> None:
-    c, csrf = login(ob["app"])
-    for action in ("update_check", "update_stick_check", "update_apply", "update_quiet"):
-        r = c.post(f"/admin/ops/{action}", data={"csrf": csrf, "bundle": name, "confirm": "yes"})
-        assert r.status_code == 400, (action, name)
-    assert not (ob["dir"] / "ops" / "requests").exists() or not list((ob["dir"] / "ops" / "requests").glob("*"))
-
-
-def test_apply_in_the_quiet_hour_asks_first_waits_is_audited_and_can_be_cancelled(ob: dict[str, Any]) -> None:
-    c, csrf = login(ob["app"])
-    f = _stage(ob, "trialbox-2026.12-1.tar")
-    sha = _verified_by_the_host(ob, f, {"bundle_id": "2026.12-1", "impact": SHEET, "note_ja": "# 合成\n"})
-    page = c.get("/admin/ops?tab=update").text
-    assert f'data-testid="ops-update_quiet-{f.name}"' in page
-    r = c.post("/admin/ops/update_quiet", data={"csrf": csrf, "bundle": f.name})
-    assert 'data-testid="confirm-text"' in r.text and "quiet hour (05:00, for 2 hours)" in r.text
-    assert "without anyone at the box" in r.text and f"within {tb_ops.QUIET_WAIT_H} hours" in r.text
-    assert 'name="when"' not in r.text and 'name="sha256"' not in r.text and not _events(ob["audit"], "console.ops")
-    r = c.post("/admin/ops/update_quiet", data={"csrf": csrf, "bundle": f.name, "confirm": "yes"},
-               follow_redirects=True)  # fmt: skip
-    assert 'data-action="update_apply" data-state="waiting"' in r.text  # not run now: the runner takes it then
-    reqs = [json.loads(p.read_text()) for p in (ob["dir"] / "ops" / "requests").glob("*.json")]
-    assert [(q["action"], q["args"]) for q in reqs] == [
-        ("update_apply", {"bundle": f.name, "when": "quiet", "sha256": sha})  # the verified file only (review 3)
-    ]
-    rq = reqs[0]["id"]
-    page = c.get("/admin/ops?tab=update").text
-    waiting = page[page.index('data-testid="ops-waiting"') :][:1500]
-    assert f.name in waiting and "waits" in waiting and f'data-testid="ops-update_cancel-{rq}"' in waiting
-    assert re.search(rf'disabled data-testid="ops-update_quiet-{re.escape(f.name)}"', page)  # busy while it waits
-    assert c.post("/admin/ops/update_quiet", data={"csrf": csrf, "bundle": f.name, "confirm": "yes"}).status_code == 409
-    # review 10: withdrawn on the console, under the same right (ops.update_apply), audited
-    assert c.post("/admin/ops/update_cancel", data={"csrf": csrf, "target": "20990101T000000Z-abcdef",
-                                                    "confirm": "yes"}).status_code == 400  # fmt: skip
-    r = c.post("/admin/ops/update_cancel", data={"csrf": csrf, "target": rq})
-    assert 'data-testid="confirm-text"' in r.text and f.name in r.text and "will not run" in r.text
-    assert f'name="target" value="{rq}"' in r.text
-    r = c.post("/admin/ops/update_cancel", data={"csrf": csrf, "target": rq, "confirm": "yes"}, follow_redirects=True)
-    assert 'data-action="update_cancel" data-state="done"' in r.text
-    res = tb_ops.OpsDir(ob["dir"] / "ops").result(rq)
-    assert res is not None and res["state"] == "cancelled" and res["ok"] is False
-    page = c.get("/admin/ops?tab=update").text
-    assert 'data-testid="ops-waiting"' not in page
-    ev = [e["detail"] for e in _events(ob["audit"], "console.ops")]
-    assert [e["action"] for e in ev] == ["update_quiet", "update_cancel", "update_cancel.done"]
-    assert ev[0] == {"action": "update_quiet", "request": rq, "bundle": f.name, "when": "quiet", "sha256": sha}
-    assert ev[1] == {"action": "update_cancel", "request": ev[1]["request"], "target": rq} and ev[1]["request"] != rq
-    assert ev[2]["ok"] is True
-    assert all(e["actor"] == "console:admin" for e in _events(ob["audit"], "console.ops"))
-
-
-def test_the_previous_release_is_named_and_not_offered_as_a_button(ob: dict[str, Any]) -> None:
-    """D-1363: "return to the previous release" says which release and whether its bundle is here; applying an older
-    release from the console waits on the owner's decision, so there is no such button or route."""
-    c, csrf = login(ob["app"])
-    page = c.get("/admin/ops?tab=update").text
-    assert 'data-testid="ops-previous"' in page and "the one installed at set-up" in page
-    upd = ob["deploy"] / "updates"
-    upd.mkdir(parents=True, exist_ok=True)
-    lines = [{"at": f"2026-11-1{i}T05:30:00+00:00", "bundle": b, "step": "audited update.applied", "ok": True}
-             for i, b in ((5, "2026.11-1"), (8, "2026.12-1"))]  # fmt: skip
-    (upd / "history.jsonl").write_text("\n".join(json.dumps(x) for x in lines), encoding="utf-8")
-    f = _stage(ob, "trialbox-2026.11-1.tar")
-    _verified_by_the_host(ob, f, {"bundle_id": "2026.11-1", "release_seq": 1,
-                                  "warnings": ["no RELEASE-NOTE.ja.md in this bundle"]})  # fmt: skip
-    page = c.get("/admin/ops?tab=update").text
-    prev = page[page.index('data-testid="ops-previous"') :][:900]
-    assert 'data-testid="ops-previous-id">2026.11-1<' in prev and f.name in prev and "RUNBOOK §5" in prev
-    assert "<form" not in prev and not [a for a in ops_pages.ACTIONS if "roll" in a or "downgrade" in a]
-    assert c.post("/admin/ops/update_rollback", data={"csrf": csrf, "confirm": "yes"}).status_code == 404
-
-
-# ------------------------------------------- 10K-7 review B and C: an unreadable status, a bad name on the stick
-def _bad_status(ob: dict[str, Any], kind: str) -> None:
-    p = ob["dir"] / "ops" / "status.json"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.unlink(missing_ok=True)
-    if kind == "64 KiB + 1":
-        head = b'{"at": "2026-11-19T00:00:00+00:00", "pad": "'
-        p.write_bytes(head + b"a" * (tb_ops.MAX_JSON + 1 - len(head) - 2) + b'"}')
-    elif kind == "a FIFO":
-        os.mkfifo(p)
-    elif kind == "a folder":
-        p.mkdir()
-    elif kind == "not UTF-8":
-        p.write_bytes(b'{"at": "\xff\xfe"}')
-    elif kind == "deep nesting":
-        p.write_bytes(b'{"stick": ' + b"[" * 30000 + b"]" * 30000 + b"}")
-
-
-@pytest.mark.parametrize("kind", ["64 KiB + 1", "a FIFO", "a folder", "not UTF-8", "deep nesting"])
-def test_an_unreadable_status_file_is_said_plainly_and_never_shown(ob: dict[str, Any], kind: str) -> None:
-    c, _csrf = login(ob["app"])
-    _bad_status(ob, kind)
-    for tab in ("overview", "update"):
-        r = c.get(f"/admin/ops?tab={tab}")
-        assert r.status_code == 200, (tab, r.status_code)
-        assert 'data-testid="ops-status-unreadable"' in r.text and "Status unreadable" in r.text
-        assert 'data-testid="ops-stick-bundles"' not in r.text and "aaaaaaaa" not in r.text
-    if kind == "a FIFO":
-        os.unlink(ob["dir"] / "ops" / "status.json")
-    elif kind == "a folder":
-        (ob["dir"] / "ops" / "status.json").rmdir()
-    else:
-        (ob["dir"] / "ops" / "status.json").unlink()
-    assert 'data-testid="ops-status-unreadable"' not in c.get("/admin/ops?tab=update").text  # written again
-
-
-@pytest.mark.parametrize("name", ["trialbox-1.tar\n", "trialbox-1\r.tar", "trialbox-\x01.tar", "trialbox..1.tar",
-                                  "-rf.tar", "t" * 200 + ".tar"])  # fmt: skip
-def test_a_bad_bundle_name_is_refused_before_it_is_shown_or_audited(ob: dict[str, Any], name: str) -> None:
-    c, csrf = login(ob["app"])
-    for action in ("update_stick_check", "update_check", "update_quiet", "update_apply"):
-        r = c.post(f"/admin/ops/{action}", data={"csrf": csrf, "bundle": name, "confirm": "yes"})
-        assert r.status_code == 400, (action, r.status_code)
-    assert not _events(ob["audit"], "console.ops")
-    assert not list((ob["dir"] / "ops" / "requests").glob("*.json"))
-
-
-def test_a_newline_in_a_name_on_the_stick_never_reaches_the_page(ob: dict[str, Any]) -> None:
-    c, _csrf = login(ob["app"])
-    stick = ob["dir"] / "stick"
-    stick.mkdir()
-    (stick / "trialbox-2026.12-1.tar").write_bytes(b"a bundle")
-    (stick / "trialbox-2026.12-1.tar\n").write_bytes(b"a spoof")
-    (stick / "trialbox-spoof\r.tar").write_bytes(b"a spoof")
-    (ob["dir"] / "outside.tar").write_bytes(b"outside")
-    (stick / "trialbox-outside.tar").symlink_to(ob["dir"] / "outside.tar")
-    _fresh_status(ob)
-    page = c.get("/admin/ops?tab=update").text
-    listing = page[page.index('data-testid="ops-stick-bundles"') :]
-    listing = listing[: listing.index("</ul>")]
-    assert listing.count("<li>") == 1 and "trialbox-2026.12-1.tar" in listing
-    assert "trialbox-2026.12-1.tar\n" not in listing and "spoof" not in listing and "outside" not in listing

@@ -734,9 +734,11 @@ def _stage13(work: Path, box: Any, gout: dict[str, Any]) -> Stage:
     s.check("the synthetic SS-MIX2 hospital has ADT-52, OMP-02/11/12 and extended-storage documents",
             all(sent[k] > 0 for k in ("ADT-52", "OMP-02", "OMP-11", "OMP-12", "document")), sent)  # fmt: skip
 
-    # -- the licensed lists: "not loaded" first, then the three 10-row samples
+    # -- the licensed lists: "not loaded" first, then the four 10-row samples
     samples = ROOT / "tests" / "fixtures" / "licensed"
-    files = {"medis": "medis_byomei_sample.txt", "jlac10": "jlac10_sample.tsv", "yj": "yj_hot_sample.txt"}
+    # D-1252: the modifier table too, so the GOUT-COH funnel below runs with both MEDIS tables loaded
+    files = {"medis": "medis_byomei_sample.txt", "medis_modifier": "medis_modifier_sample.txt",
+             "jlac10": "jlac10_sample.tsv", "yj": "yj_hot_sample.txt"}  # fmt: skip
     s.check("without the files the box says which lists are not loaded",
             {x["kind"]: x["state"] for x in licensed.status()} == dict.fromkeys(files, "not_loaded"))  # fmt: skip
     st = licensed.TermStore()
@@ -747,7 +749,8 @@ def _stage13(work: Path, box: Any, gout: dict[str, Any]) -> Stage:
         st.close()
     s.check("the loader reads each 10-row sample in its own encoding and layout",
             {k: (v["rows"], v["encoding"]) for k, v in loaded.items()}
-            == {"medis": (10, "cp932"), "jlac10": (10, "utf-8"), "yj": (10, "cp932")}, loaded)  # fmt: skip
+            == {"medis": (10, "cp932"), "medis_modifier": (10, "cp932"), "jlac10": (10, "utf-8"), "yj": (10, "cp932")},
+            loaded)  # fmt: skip
     status = {x["kind"]: (x["state"], x["version"], x["source"]) for x in licensed.status()}
     s.check("each list is loaded with its version and source",
             all(v[0] == "loaded" and v[1] == "sample-2026" and v[2] == files[k] for k, v in status.items()),

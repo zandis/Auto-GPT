@@ -124,9 +124,11 @@ def tables_dir(tables: dict[str, list[dict[str, Any]]], release: str) -> Path:
 
 
 def jp_ingredients(term: Terminology) -> Terminology:
-    """At a Japanese site (time zone or locale) the drug ValueSets the live compiler builds carry YJ ingredient stems
-    (T-610): the shipped
-    ingredient-to-ATC table and the site's own (``TB_JP_INGREDIENT_ATC``, a file in the same columns)."""
+    """At a site whose country layer says so (part P7 ``ingredient_stems``, D-1250: the Japan profile; the country
+    from the time zone or locale) the drug ValueSets the live compiler builds carry YJ ingredient stems (T-610): the
+    shipped ingredient-to-ATC table and the site's own (``TB_JP_INGREDIENT_ATC``, a file in the same columns). At a
+    site whose country's layer is broken ``country_layer.LayerBroken`` is raised: the compiler does not start without
+    knowing whether its drug lists need the stems (D-1250), never quietly without them."""
     try:
         from tb_common.config import get_config
         from tb_common.derived import country_of
@@ -135,7 +137,9 @@ def jp_ingredients(term: Terminology) -> Terminology:
         country = country_of(cfg.env.tz, cfg.settings.site.locale)
     except Exception:  # no settings (a tool, a test): no stems
         return term
-    if country == "JP":
+    from tb_common import country_layer
+
+    if country_layer.value(country, "P7", "ingredient_stems"):
         from tb_common import refdata_jp
 
         site = os.environ.get("TB_JP_INGREDIENT_ATC", "")

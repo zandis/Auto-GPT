@@ -214,6 +214,7 @@ class _Call:
     alias: str = ""
     build_id: str = ""
     build_sha: str = ""
+    thinking_control: str | None = None
     endpoint: str = ""
     zone: str = ""
     tokens_in: int = 0
@@ -598,7 +599,13 @@ class Gateway:
         upstream_errors: list[str] = []
         for cand in candidates:
             try:
-                res = self.registry.resolve(cand.alias, cand.endpoint.name, role=call.role, env=cfg.environment)
+                res = self.registry.resolve(
+                    cand.alias,
+                    cand.endpoint.name,
+                    role=call.role,
+                    env=cfg.environment,
+                    qualification_probe=route.id == "qualify" and label.data_class == DataClass.D0,
+                )
             except RegistryError as e:
                 registry_refusals.append(e)
                 call.fallbacks += 1
@@ -685,6 +692,7 @@ class Gateway:
     ) -> GatewayResponse | None:
         ep = cand.endpoint
         call.alias, call.build_id, call.build_sha = cand.alias, res.build.build_id, res.build.model_sha
+        call.thinking_control = res.build.thinking_control
         call.endpoint, call.zone = ep.name, ep.zone
         call.context = int(res.build.context_length) if res.build.context_length else None
         max_tokens = body.get("max_tokens")
@@ -947,6 +955,8 @@ class Gateway:
             "fallbacks": call.fallbacks,
             "retries": call.retries,
         }
+        if call.thinking_control is not None:
+            payload["tb"]["thinking_control"] = call.thinking_control
         if self.traces is not None:
             self.traces.write(
                 {

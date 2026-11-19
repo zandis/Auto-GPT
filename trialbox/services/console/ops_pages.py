@@ -13,17 +13,6 @@ The console never runs an operation itself: it writes a request into the operati
 command the runbook names and writes the result and the status back (``tools/trialbox/ops.py``). With
 ``TB_OPS_RUNNER=inline`` (the in-process box, the demo, the tests) the same runner runs at once in this process.
 
-10K-7 (D-1363, review 18 SO-7): the update tab also shows the **update stick** inserted at the box (the bundles the
-host's runner finds on its read-only mount), verifies a bundle from it (the runner copies it into the incoming folder
-first: ``update_stick_check``, the right ``ops.update_check``), shows each verified bundle's result, its Japanese
-release note and change-impact sheet, and asks for the apply **in the quiet hour** (``update_quiet``: D-731's
-``when: quiet``, the right ``ops.update_apply``); the updates waiting for it are listed with why. "Return to the
-previous release" is shown (which release, whether its bundle is here) but not offered as a button: an older
-release's apply from the console needs the owner's decision (D-1363). After the review: "verified" is the runner's
-record of that very file (its sha256), the note is read per bundle from ``<ops>/notes/`` (never from the status),
-apply is offered only for a verified file and sends its sha256, and a waiting quiet apply can be cancelled
-(``update_cancel``, under ``ops.update_apply``).
-
 Who may: :func:`tb_common.authz.admin_allowed` (the administrator only); everyone else gets 403 on every page, action
 and ``/api/v1/admin/ops``, audited as ``console.denied``.
 """
@@ -52,20 +41,12 @@ ACTIONS: dict[str, tuple[str, str]] = {
     "backup_check": ("ops.backup_check", "backups"),
     "update_check": ("ops.update_check", "update"),
     "update_apply": ("ops.update_apply", "update"),
-    "update_stick_check": ("ops.update_check", "update"),  # 10K-7: the same verify, the bundle copied from the stick
-    "update_quiet": ("ops.update_apply", "update"),  # 10K-7: the same apply, in the quiet hour (D-731)
-    "update_cancel": ("ops.update_apply", "update"),  # 10K-7: withdraw one's quiet-hour apply before it runs
     "logs_collect": ("ops.logs", "logs"),
     "network_sheet": ("ops.network", "network"),
 }
-# 10K-7 (D-1363): a console action the runner knows by another name, with the arguments that make it so
-RUNS: dict[str, tuple[str, dict[str, str]]] = {
-    "update_stick_check": ("update_check", {"from": "stick"}),
-    "update_quiet": ("update_apply", {"when": "quiet"}),
-}
 SECRET_KEYS = ("name", "present", "age_days", "registered")  # what a secrets row may show; never a value
 _SHEET = re.compile(r"^network-sheet\.(en|ja|zh-TW)\.(html|md)$")
-# 10K-7 (review B3): the runner's pattern, matched whole (``tools.trialbox.ops.bundle_name``): ASCII, no newline
+_BUNDLE = re.compile(r"^[A-Za-z0-9][\w.\-]{0,120}\.tar$")
 _REQ = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{6}$")
 
 
@@ -119,15 +100,10 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return sess
 
     def status() -> dict[str, Any]:
-        st, why = ops.status_state()
-        if why == "missing" and runner is not None:
+        st = ops.status()
+        if st is None and runner is not None:
             st = runner.write_status()
         return st or {}
-
-    def status_unreadable() -> bool:
-        """10K-7 (the second review, B): the status file is there but not a small JSON object (over 64 KiB, a pipe or
-        a folder, not UTF-8, nested too deep): the page says so plainly; nothing of it is shown or guessed."""
-        return ops.status_state()[1] == "unreadable"
 
     def summary() -> dict[str, Any]:
         """The health tab's Operations tile and the overview: version, last backup and its age, the agent."""
@@ -171,20 +147,6 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             mine = next((r for r in ops.history(200) if r.get("id") == req), None)
         secrets_rows = [{k: r.get(k) for k in SECRET_KEYS} for r in st.get("secrets") or []]
         sheets = sorted(p.name for p in ops.network.glob("network-sheet.*") if _SHEET.match(p.name))
-        busy = {str(r.get("action")) for r in ops.pending()}
-        checks: dict[str, Any] = {}  # 10K-7: each staged bundle's newest finished verification, by name
-        for r in ops.history(200):
-            b = str((r.get("args") or {}).get("bundle") or "")
-            if r.get("action") == "update_check" and r.get("result") and b not in checks:
-                checks[b] = r["result"]
-        # 10K-7 (D-1363): "verified" is the runner's record of THIS file (its sha256, while size, time and inode are
-        # unchanged), and the note is read from notes/<bundle>.json only when it carries that same sha256
-        verified = {k: v for k, v in (st.get("verified") or {}).items() if isinstance(v, dict)}
-        notes: dict[str, Any] = {}
-        if tab == "update":
-            for name, v in verified.items():
-                state, rec = ops.note_record(name, str(v.get("sha256") or ""))
-                notes[name] = {"state": state, "rec": rec}
         return h.page(
             request,
             "admin_ops.html",
@@ -194,11 +156,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             st=st,
             sm=summary(),
             history=ops.history(30),
-            pending=[a for a in ACTIONS if RUNS.get(a, (a, {}))[0] in busy],
-            checks=checks,
-            status_unreadable=status_unreadable(),
-            verified=verified,
-            notes=notes,
+            pending=[r.get("action") for r in ops.pending()],
             running=[r.get("id") for r in ops.running()],
             mine=mine,
             secrets_rows=secrets_rows,
@@ -213,7 +171,6 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         csrf: str = Form(""),
         confirm: str = Form(""),
         bundle: str = Form(""),
-        target: str = Form(""),  # 10K-7: the waiting update a cancel withdraws
     ) -> Response:
         if action not in ACTIONS:
             raise h.problem(404, "notfound")
@@ -221,43 +178,25 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         sess = need_ops(request, perm)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
-        run_as, extra = RUNS.get(action, (action, {}))
         args: dict[str, str] = {}
-        if run_as in ("update_check", "update_apply"):
-            if not tb_ops.bundle_name(bundle):  # the runner's own whole-name check
+        if action in ("update_check", "update_apply"):
+            if not _BUNDLE.match(bundle):
                 raise h.problem(400, "request.refused", reason="choose a staged bundle")
             args["bundle"] = bundle
-        if run_as == "update_cancel":  # 10K-7: only an update that waits for the quiet hour and has not started
-            waiting = {str(r.get("id")): r for r in ops.pending() if r.get("action") == "update_apply"
-                       and (r.get("args") or {}).get("when") == "quiet"
-                       and not ops.marker(str(r.get("id"))).is_file()}  # fmt: skip
-            if not _REQ.fullmatch(target) or target not in waiting:
-                raise h.problem(400, "request.refused", reason="choose an update that waits for the quiet hour")
-            args["target"] = target
-            bundle = str((waiting[target].get("args") or {}).get("bundle") or "")
         if action == "backup":  # D-455: the snapshot backup; no service is stopped or paused
             args["mode"] = "running"
-        if run_as in [r.get("action") for r in ops.pending()]:
+        if action in [r.get("action") for r in ops.pending()]:
             raise h.problem(409, "ops.busy")
         if confirm != "yes" and h.confirm is not None:  # WS-14.7: each action names its consequence first
-            q = status().get("quiet") or {}
-            at, hours = q.get("at") or tb_ops.QUIET_DEFAULT_AT, q.get("hours") or tb_ops.QUIET_DEFAULT_HOURS
-            text = translate(sess.lang, f"ops.confirm.{action}", bundle=bundle, at=at, hours=hours,
-                             wait=tb_ops.QUIET_WAIT_H)  # fmt: skip
+            text = translate(sess.lang, f"ops.confirm.{action}", bundle=bundle)
             return h.confirm(request, sess, text, request.url.path, args, f"/admin/ops?tab={tab}")
-        args.update(extra)  # 10K-7: ``from: stick`` or ``when: quiet``, never from the form
-        sha = ((status().get("verified") or {}).get(bundle) or {}).get("sha256")
-        if run_as == "update_apply" and isinstance(sha, str) and tb_ops.SHA256.fullmatch(sha):
-            args["sha256"] = sha  # 10K-7 (review B3): the runner applies the file that was verified, or refuses
         try:
-            rid = ops.submit(run_as, h.actor(sess), args)
+            rid = ops.submit(action, h.actor(sess), args)
         except OSError as exc:  # the folder is not there or not writable: the host runner has never prepared it
             raise h.problem(503, "ops.unavailable") from exc
         au.append("console.ops", actor=h.actor(sess), detail={"action": action, "request": rid, **args})
-        if runner is not None and args.get("when") == "quiet":
-            runner.write_status()  # D-731: it waits for the quiet hour; the host's runner takes it then
-        elif runner is not None:
-            res = runner.run_one({"id": rid, "action": run_as, "by": h.actor(sess), "args": args})
+        if runner is not None:
+            res = runner.run_one({"id": rid, "action": action, "by": h.actor(sess), "args": args})
             runner.write_status()
             au.append("console.ops", actor=h.actor(sess),
                       detail={"action": f"{action}.done", "request": rid, "ok": bool(res.get("ok"))})  # fmt: skip

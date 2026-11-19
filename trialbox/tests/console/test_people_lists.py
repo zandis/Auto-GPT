@@ -202,8 +202,9 @@ def test_with_the_flag_off_every_page_is_byte_for_byte_as_without_j5(box: dict[s
             env.loader = loader
             env.cache.clear()
         for p in pages:
-            a = re.sub(r'name="csrf" value="[^"]+"', "", with_j5[p])
-            b = re.sub(r'name="csrf" value="[^"]+"', "", without[p])
+            # the CSRF token, and the idle warning's live seconds (D-1370), differ from one rendering to the next
+            a = re.sub(r'name="csrf" value="[^"]+"|data-(?:idle|abs)-left="\d+"', "", with_j5[p])
+            b = re.sub(r'name="csrf" value="[^"]+"|data-(?:idle|abs)-left="\d+"', "", without[p])
             assert a == b, (col, p)
             assert 'data-testid="people-tabs"' not in a, (col, p)
 

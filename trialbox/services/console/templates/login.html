@@ -9,6 +9,7 @@
 {% if sso %}<p class="hint" data-testid="sso-hint">{{ t('login.sso') }}</p>{% endif %}
 {% if failed and wait %}<p class="error" role="alert" data-testid="login-slowed">{{ t('login.slowed', n=wait) }}</p>
 {% elif failed and until %}<div class="error" role="alert" data-testid="login-locked"><p><strong>{{ t('login.locked', n=left, until=until|local) }}</strong></p><p>{{ t('login.locked.wait') }}</p></div>
+{% elif failed and oidc_clash %}<div class="error" role="alert" data-testid="login-oidc-clash">{# D-1370 (9f-6): the person's own two groups, escaped #}<p>{{ t('login.oidc.clash', a=oidc_clash[0], b=oidc_clash[1]) }}</p><p>{{ t('login.oidc.clash.do') }}</p></div>
 {% elif failed and oidc_failed %}<p class="error" role="alert" data-testid="login-oidc-error">{{ t('login.oidc.failed') }}</p>
 {% elif failed %}<p class="error" role="alert" data-testid="login-error">{{ t('login.failed') }}</p>{% endif %}
 {% if idle_minutes and not failed %}<p class="notice" role="status" data-testid="login-idle">{{ t('login.idle', n=idle_minutes) }}</p>{% endif %}{# D-777 (UX-007) #}

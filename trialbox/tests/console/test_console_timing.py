@@ -78,7 +78,8 @@ def test_the_header_changes_no_page_body(box: dict[str, Any]) -> None:
     cs, who = clients(box), {name: role for name, _, role, _ in TEN}
 
     def getter_body(page: ct.Page) -> bytes:
-        return bytes(cs[who[page.name]].get(page.path, follow_redirects=False).content)
+        body = bytes(cs[who[page.name]].get(page.path, follow_redirects=False).content)
+        return re.sub(rb'data-(?:idle|abs)-left="\d+"', b"", body)  # the idle warning's live seconds (D-1370)
 
     with_header = {p.name: getter_body(p) for p in pages}
     for p in pages:  # each page but the volatile one answers the same body twice
