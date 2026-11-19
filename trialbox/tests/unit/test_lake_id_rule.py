@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from adapter.ndjson import read_type, snapshot_dir, write_snapshot
@@ -154,10 +155,12 @@ def test_the_omop_store_refuses_a_feed_of_the_new_rule_over_records_of_the_earli
     from omop import schema
     from omop.load import load_batch
 
-    feed = {"Patient": [{"resourceType": "Patient", "id": "P1", "birthDate": "1960-01-01", "gender": "female"}],
-            "Condition": [{"resourceType": "Condition", "id": "c1", "subject": {"reference": "Patient/P1"},
-                           "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "E11.9"}]},
-                           "onsetDateTime": "2024-07-01"}]}  # fmt: skip
+    feed: dict[str, list[dict[str, Any]]] = {
+        "Patient": [{"resourceType": "Patient", "id": "P1", "birthDate": "1960-01-01", "gender": "female"}],
+        "Condition": [{"resourceType": "Condition", "id": "c1", "subject": {"reference": "Patient/P1"},
+                       "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "E11.9"}]},
+                       "onsetDateTime": "2024-07-01"}],
+    }  # fmt: skip
     db = schema.connect(db_url, "omop_idrule")
     try:
         load_batch(db, "feed", "2026-10-01", feed, tz="Asia/Taipei")  # an empty store: stamped

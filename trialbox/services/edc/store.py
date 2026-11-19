@@ -142,10 +142,11 @@ CREATE TABLE IF NOT EXISTS tb_id_rule_study (study TEXT PRIMARY KEY, rule INTEGE
 MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9)
 #: D-1253: a study's drafts whose citations carry a trail (a decision, a signature, a send): its records
 TRAILED = (
-    "SELECT 1 FROM draft d WHERE d.study = ? AND (d.citation IS NOT NULL OR d.final_citation IS NOT NULL) AND "
+    "SELECT EXISTS (SELECT 1 FROM draft d WHERE d.study = ? AND (d.citation IS NOT NULL OR d.final_citation IS NOT "
+    "NULL) AND "
     "(d.fate IN ('confirmed', 'edited') OR d.signature_id IS NOT NULL OR d.sent_at IS NOT NULL OR EXISTS "
     "(SELECT 1 FROM decision x WHERE x.draft_id = d.id) OR EXISTS (SELECT 1 FROM sent x WHERE x.draft_id = d.id) OR "
-    "EXISTS (SELECT 1 FROM copy_tick x WHERE x.draft_id = d.id)) LIMIT 1"
+    "EXISTS (SELECT 1 FROM copy_tick x WHERE x.draft_id = d.id)))"
 )
 ID_RULE_FROZEN = (
     "prefill is stopped for this study: its decided, signed or sent values cite lake records of the earlier id "
@@ -548,7 +549,7 @@ class EdcStore:
     @staticmethod
     def _frozen(tx: Any, study: str) -> bool:
         stamped = tx.fetchval("SELECT 1 FROM tb_id_rule_study WHERE study = ? AND rule = ?", (study, id_rule.RULE))
-        return stamped is None and tx.fetchval(TRAILED, (study,)) is not None
+        return stamped is None and bool(tx.fetchval(TRAILED, (study,)))
 
     def _study_rule(self, tx: Any, study: str) -> None:
         """In a draft run's transaction: a study of the current rule goes on; one with no trail is stamped and goes
