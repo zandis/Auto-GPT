@@ -494,6 +494,8 @@ _STATE_WORDS_ZH: tuple[str, ...] = (
     "患有",
     "得了",
     "會得",
+    "有沒有得",
+    "是否得",
     "感染",
     "發病",
     "病情",
@@ -544,6 +546,7 @@ CLAIM_DISEASE_ZH: tuple[str, ...] = (
     "死亡",
     "存活",
     "結節",
+    "低血糖",
     "高血壓",
     "氣喘",
     "糖尿",
@@ -694,6 +697,7 @@ _AUX_LIST_ZH = (
     "另外",
     "任何",
     "為",
+    "自行",
 )
 _LIGHT_LIST_ZH = (
     "用於",
@@ -729,7 +733,7 @@ _LIGHT_LIST_ZH = (
     "有",
 )
 # "miss": a negated miss (沒有漏掉, 不會遺漏) claims completeness, it denies nothing
-_MISS_LIST_ZH = ("漏掉", "遺漏", "錯過", "漏看", "放過", "漏")
+_MISS_LIST_ZH = ("漏掉", "遺漏", "錯過", "漏看", "放過", "漏", "誤診")
 _CLAUSE_WORDS_ZH = ("但", "卻", "然而")
 _ATTRIBUTIVE_LIST_ZH = ("的", "之", "所", "產生", "輸出", "結果")
 
@@ -752,7 +756,7 @@ _SAME_ZH = (
     "可台史同名向含和品喘在型塞外天失好存定察就尿工差平年床度建律得心性患您情意感慧成我房所找折招持指挖掉"
     "掘接推提揪援支收放整族日早明是智更曾有期未本果染查案梗模止死比毫民治法活派流涉漏演灶炎然率理生用疑疾"
     "病症瘤癌的益直看研示禁程究竭等算管糖系罕罹群者而能自藏血行衰被要警辨送造重限非骨高"
-    "了代低先免刀去取告套少尚已往手效方既替根正此知硬物策置醒量防降避"
+    "了代低先免刀去取告套少尚已往手效方既替根正此知硬物策置醒量防降避否"
 )
 # words that differ in Simplified by more than their characters
 _ZH_LEXICAL: dict[str, str] = {"人工智慧": "人工智能", "演算法": "算法", "軟體": "软件", "醫師": "医生", "篩檢": "筛查"}
@@ -807,6 +811,7 @@ _NEG_VERBAL_ZH = re.compile(
 # an existential, copular or prohibitive negator covers the rest of its clause
 _NEG_WHOLE_ZH = re.compile(_zh_alt(_NEG_WHOLE_LIST_ZH))
 # a negator AFTER the claim word, at the end of its clause: 與病人的疾病風險無關
+_A_NOT_A_ZH = re.compile(r"(能|會|会|可|是|有|要)(?:不|沒|没)\1")
 _NEG_AFTER_ZH = re.compile(_zh_alt(("無關", "無涉", "不相關", "沒有關係", "毫無關係")))
 _ACTORS_ZH = "(?<![A-Za-z])" + _zh_alt(CLAIM_ACTORS_ZH) + "(?!性)"
 _NOT_ATTRIBUTIVE_ZH = r"(?!\s*" + _zh_alt(_ATTRIBUTIVE_LIST_ZH) + ")"
@@ -817,6 +822,32 @@ _PERSON_SUBJECT_ZH = re.compile(_PERSONS_ZH + _NOT_ATTRIBUTIVE_ZH)
 _PERSON_POSSESSOR_ZH = re.compile(_PERSONS_ZH + r"\s*" + _zh_alt(("的", "之")) + r"\s*$")
 # the product helping a person (協助醫師判斷) is still the product's act
 _HELPS_ZH = re.compile(_zh_alt(("協助", "輔助", "幫助", "幫", "支援")))
+# a person as the subject yields to a product that does the judgement in the same sentence: as the subject of
+# the word's own clause (本系統可取代醫師做出診斷), by replacing the person (系統全部代勞), as a cause
+# (讓 AI 為您判斷) or as the source of the judgement (依本系統的判斷); a product that only shows or reads what a
+# person recorded
+# (本系統顯示的病歷, 本系統只讀取), or is denied (本系統不取代醫師的判斷), does nothing
+_ACTOR_IDLE_ZH = re.compile(
+    r"\s*"
+    + _zh_alt(("只", "僅", "只會", "僅會", "並", "也", "亦"))
+    + r"?\s*"
+    + _AUX_ZH
+    + r"\s*(?:"
+    + _zh_alt(("顯示", "讀取", "原文顯示", "列出", "呈現", *_NEG_WHOLE_LIST_ZH, *_NEG_VERBAL_LIST_ZH))
+    + ")"
+)
+_ACTOR_SHOWS_ZH = re.compile(
+    r"\s*"
+    + _zh_alt(("只", "僅", "只會", "僅會"))
+    + r"?\s*"
+    + _AUX_ZH
+    + r"\s*"
+    + _zh_alt(("顯示", "讀取", "原文顯示", "列出", "呈現"))
+)
+_REPLACES_ZH = re.compile(_zh_alt(("取代", "代替", "替代", "代勞")))
+_CAUSES_ZH = re.compile(_zh_alt(("讓",)) + r"\s*" + _ACTORS_ZH)
+_ACTOR_POSSESSOR_ZH = re.compile(_ACTORS_ZH + r"\s*" + _zh_alt(("的", "之")) + r"\s*$")
+_SENTENCE_MARKS_ZH = "。！？!?\n"
 _DISEASE_ZH = re.compile(_zh_alt(CLAIM_DISEASE_ZH) + "|" + _DISEASE_CLASS_ZH)  # the class names both scripts
 _EARLY_ZH = re.compile(_zh_alt(CLAIM_EARLY_ZH))
 # a patient or a disease straight before an existential negator: 病人沒有風險 is said about the patient
@@ -850,11 +881,42 @@ def _zh_subject(s: str, start: int, end: int) -> str | None:
     earlier clause holds unless a person is a subject in the word's own clause (本系統僅顯示資料，判斷由人負責). A
     person's own act (醫師的判斷) is the person's; the product helping a person (協助醫師判斷) is still the
     product's."""
+    cs = max(s.rfind(c, 0, start) for c in _CLAUSE_MARKS_ZH) + 1
+    if _ACTOR_POSSESSOR_ZH.search(s, cs, start):
+        return "actor"  # 依本系統的判斷
+    who = _zh_subject_by_position(s, start, end, cs)
+    if who == "person" and _zh_product_acts(s, start, cs):
+        return "actor"
+    return who
+
+
+def _zh_acting(s: str, a: re.Match[str]) -> bool:
+    return not _ACTOR_IDLE_ZH.match(s, a.end())
+
+
+def _zh_product_acts(s: str, start: int, cs: int) -> bool:
+    """Whether a product does the judgement at ``start`` although a person is its nearest subject: an acting product
+    in the word's own clause before it, or anywhere in its sentence with a verb of replacing, or as a cause."""
+    ss = max(s.rfind(c, 0, start) for c in _SENTENCE_MARKS_ZH) + 1
+    se = min((i for i in (s.find(c, start) for c in _SENTENCE_MARKS_ZH) if i >= 0), default=len(s))
+    if any(_zh_acting(s, a) for a in _ACTOR_SUBJECT_ZH.finditer(s, cs, start)):
+        return True
+    if _CAUSES_ZH.search(s, ss, se):
+        return True
+    acting = any(_zh_acting(s, a) for a in _ACTOR_SUBJECT_ZH.finditer(s, ss, se))
+    return acting and any(
+        not re.search(_zh_alt(_NEG_VERBAL_LIST_ZH + _NEG_WHOLE_LIST_ZH) + r"\s*$", s[ss : r.start()])
+        for r in _REPLACES_ZH.finditer(s, ss, se)
+    )
+
+
+def _zh_subject_by_position(s: str, start: int, end: int, cs: int) -> str | None:
     if _PERSON_POSSESSOR_ZH.search(s, 0, start):
         return "person"
-    cs = max(s.rfind(c, 0, start) for c in _CLAUSE_MARKS_ZH) + 1
     ce = min((i for i in (s.find(c, end) for c in _CLAUSE_MARKS_ZH) if i >= 0), default=len(s))
-    actors = [a.end() for a in _ACTOR_SUBJECT_ZH.finditer(s, 0, start)]
+    found = list(_ACTOR_SUBJECT_ZH.finditer(s, 0, start))
+    # an actor of an earlier clause that only shows or reads holds nothing (本系統顯示病歷，醫師參考後自行判斷)
+    actors = [a.end() for a in found if a.end() > cs or not _ACTOR_SHOWS_ZH.match(s, a.end())]
     persons = [p.end() for p in _PERSON_SUBJECT_ZH.finditer(s, cs, start)]
     last_actor = actors[-1] if actors else -1
     if persons and persons[-1] > last_actor:
@@ -905,10 +967,15 @@ def deny_masked_zh(text: str) -> str:
             if neg.start() < m.start()
             and not any(a <= neg.start() < b for a, b in whole)
             and not _MISS_ZH.match(text, neg.end())
+            and not _A_NOT_A_ZH.match(text, max(0, neg.start() - 1))
         )
         for neg in _NEG_WHOLE_ZH.finditer(before):
             # 病人沒有風險 is said about the patient; 沒有漏掉 (did not miss) is a claim, not a denial
-            if not _ABOUT_ZH.search(before[: neg.start()]) and not _MISS_ZH.match(text, start + neg.end()):
+            if (
+                not _ABOUT_ZH.search(before[: neg.start()])
+                and not _MISS_ZH.match(text, start + neg.end())
+                and not _A_NOT_A_ZH.match(text, max(0, start + neg.start() - 1))
+            ):
                 n += 1
         # 非 alone is copular only straight after the product's name (本軟體非醫療器材); 非小細胞肺癌 is a disease name
         n += len(_ACTOR_NON_ZH.findall(before))
@@ -1025,6 +1092,7 @@ _ACT_RECORD_AFTER_RX_ZH = re.compile(
     r"\s*(?:" + _zh_alt(_ACT_RECORD_AFTER_ZH) + "|" + _zh_alt(("的", "之")) + r"\s*" + _zh_alt(CLAIM_PATIENTS_ZH) + ")"
 )
 _STATE_ZH = re.compile(_zh_alt(_STATE_WORDS_ZH))
+_CLAUSE_END_AT_ZH = re.compile(r"\s*(?:[" + _CLAUSE_MARKS_ZH + "]|$)")
 _TREATMENT_RX_ZH = re.compile(_zh_alt(_TREATMENT_ZH))
 
 
@@ -1097,6 +1165,7 @@ def _claims_in(sentence: str, table: ClaimTable) -> list[Hit]:
             if _ACT_RECORD_ZH.search(masked, 0, m.start()) or _ACT_RECORD_AFTER_RX_ZH.match(masked, m.end()):
                 continue  # a treatment the record holds (接受糖尿病治療, 治療紀錄)
             on_disease = near(m, table.disease) or near(m, table.early)
+            on_disease = on_disease or (word == "確診" and _CLAUSE_END_AT_ZH.match(masked, m.end()) is not None)
             if re.search(table.actor_before, masked[: m.start()]) or (
                 on_disease and _zh_subject(masked, m.start(), m.end()) == "actor"
             ):

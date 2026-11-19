@@ -576,6 +576,7 @@ def test_the_known_limits_are_what_d1247_says() -> None:
     assert zh("揪出藏在病歷裡的病人。") == []  # a metaphor with no claim word, not seen
     assert zh("可治療憂鬱症。") == []  # an act on a disease with no subject, not seen
     assert zh("已診斷類風濕關節炎。") != []  # a criterion's 診斷 with no subject, still refused by FORBIDDEN
+    assert zh("病人罹患癌症的可能性，會由模型算出。") == []  # a state before its verb, outside the window, not seen
 
 
 def test_a_catalogue_instrument_is_named_by_its_own_name() -> None:
@@ -700,6 +701,69 @@ def test_a_claim_of_the_second_review_fails(text: str, word: str) -> None:
 
 @pytest.mark.parametrize("text", REVIEW_2_LEGITIMATE)
 def test_an_honest_line_of_the_second_review_passes(text: str) -> None:
+    assert zh(text) == []
+    assert zh_page(f"<p>{text}</p>") == []
+
+
+# The lead's re-run on dc72bb45: a person as the subject cleared a judgement the product does in the same sentence
+# (it replaces the person, is the cause, or supplies the judgement). Those claims and more in kind, the misses the
+# re-run listed that one line each fixes, then the honest lines on both sides.
+REVIEW_3_CLAIMS = [
+    # the product replaces, causes or supplies a person's judgement
+    ("本系統可取代醫師做出診斷。", "診斷"),
+    ("讓醫師不必再自己診斷，系統全部代勞。", "診斷"),
+    ("本系統可以發現醫師遺漏的診斷。", "診斷"),
+    ("讓 AI 為您判斷病人是否有心臟病。", "判斷"),
+    ("本系統可代替醫師判讀病理報告並做出診斷。", "診斷"),
+    ("醫師依本系統的判斷做出診斷。", "判斷"),
+    ("系統可替代醫師判定病人是否罹病。", "判定"),
+    ("醫師只需確認，AI 會代替醫師診斷。", "診斷"),
+    ("由本系統為醫師判斷病人是否中風。", "判斷"),
+    ("醫師依 AI 的診斷開立處方。", "診斷"),
+    ("讓 AI 先看影像，醫師即可診斷肺癌。", "診斷"),
+    # misses one line each fixes: a disease the act class lacked, a state word, 確診 with no object, a negated
+    # misdiagnosis, an A-not-A question
+    ("本系統能監測病人的血糖並預防低血糖發作。", "預防"),
+    ("這個AI能告訴你病人有沒有得癌症。", "告訴"),
+    ("不用醫師，本系統就能確診。", "確診"),
+    ("本系統不會誤診。", "誤診"),
+    ("本系統絕不誤診。", "誤診"),
+    ("能不能診斷糖尿病？能。", "診斷"),
+    ("系統會不會診斷癌症？會。", "診斷"),
+]
+REVIEW_3_LEGITIMATE = [
+    # the product only shows or reads what a person recorded, or is denied
+    "本系統只讀取醫師已記錄的診斷碼，不自行產生診斷。",
+    "醫師參考本系統顯示的病歷文字後，自行判斷。",
+    "本系統整理病歷後，醫師自行判斷。",
+    "由醫師診斷，本系統只顯示診斷碼。",
+    "本系統列出候選人供醫師判斷。",
+    "本系統篩選候選受試者，由醫師判斷是否納入。",
+    "研究團隊依計畫書判定，本系統只記錄結果。",
+    "本系統不取代醫師，診斷由醫師負責。",
+    "本系統篩選候選人，但不取代醫師的判斷。",
+    "由本系統篩選後，醫師判斷是否納入。",
+    "本系統篩選候選人而不取代醫師，由醫師自行判斷是否納入。",
+    # the new lines' ordinary words
+    "本系統列出確診的病人。",
+    "本系統列出已確診糖尿病的病人。",
+    "醫師確診後，本系統才列出該病人。",
+    "病人有沒有得糖尿病，由醫師判斷。",
+    "本系統列出低血糖的檢驗紀錄。",
+    "本系統顯示病人的低血糖紀錄。",
+    "本系統不會也不能診斷疾病。",
+]
+
+
+@pytest.mark.parametrize(("text", "word"), REVIEW_3_CLAIMS)
+def test_a_claim_of_the_third_review_fails(text: str, word: str) -> None:
+    hits = zh(text)
+    assert hits and any(word in h.word or word in h.context.replace(" ", "") for h in hits), hits
+    assert zh_page(f"<p>{text}</p>") != []
+
+
+@pytest.mark.parametrize("text", REVIEW_3_LEGITIMATE)
+def test_an_honest_line_of_the_third_review_passes(text: str) -> None:
     assert zh(text) == []
     assert zh_page(f"<p>{text}</p>") == []
 

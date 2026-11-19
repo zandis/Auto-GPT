@@ -99,6 +99,13 @@ survey's method is not recorded, so the gap is not explained. Its five false ala
      product clears it (本系統提供資料，由醫師判斷), and so does a person's own judgement (本系統不取代醫師的判斷) or a
      person as the subject later in the word's own clause (本系統僅顯示資料，判斷由人負責). The product helping a
      person (AI 協助醫師判斷病情) is still the product's act. So only the product as the subject is refused.
+     A person as the subject **yields to a product that does the judgement in the same sentence**: an acting product
+     before the word in its own clause (本系統可取代醫師做出診斷, 本系統可以發現醫師遺漏的診斷), an acting product
+     anywhere in the sentence with a verb of replacing that is not denied (讓醫師不必再自己診斷，系統全部代勞), a
+     causative 讓 + product (讓 AI 為您判斷), or the product's own judgement (依本系統的判斷). A product only showing
+     or reading what a person recorded (顯示, 讀取, 列出, 呈現), or straight after a negator (本系統不取代醫師),
+     does nothing. 由 and 使 are not read as causatives: 由本系統篩選後，醫師判斷 has the product do the screening,
+     not the judgement.
    - **FORBIDDEN's 診斷 and 判定, in text named zh-TW**, are blanked where they are not the product's verdict: a record
      field (診斷日期, 診斷碼), a passive by a qualified person (經診斷為, 經醫師診斷) and a person as the nearest subject
      (醫師依病歷診斷, 研究團隊依計畫書判定). The product as the subject (本系統依病歷診斷, AI 協助醫師診斷) is still
@@ -169,10 +176,24 @@ survey's method is not recorded, so the gap is not explained. Its five false ala
 | the second review's set (150 + 150), written before reading the code | an independent tester | 8f2bc3db | 116 / 150 (34 passed) | 123 / 150 (27 refused) |
 | `REVIEW_2` (32 + 30): the second review's sentences and more in kind, by class | the reviewer and the card worker | 8f2bc3db | 0 / 32 | 16 / 30 |
 | the same | | after its round | 32 / 32 | 30 / 30 |
-| four honest lines added after, for the two parts a mutation run found untested (接受…治療 and 醫師的判斷 with the product as subject) | the card worker | the head | | 4 / 4 |
+| four honest lines added after, for the two parts a mutation run found untested (接受…治療 and 醫師的判斷 with the product as subject) | the card worker | 8f2bc3db's round | | 4 / 4 |
+| the second review's set (150 + 150), re-run by the lane lead | the lane lead | dc72bb45 | 138 / 150 (12 passed; six of them refused at 8f2bc3db) | 144 / 150 (6 refused) |
+| `REVIEW_3` (18 + 18): the re-run's six regressions, its listed misses that one line each fixes, and more in kind; the honest lines on both sides | the lead and the card worker | dc72bb45 | 0 / 18 | 16 / 18 |
+| the same | | after its round | 18 / 18 | 18 / 18 |
 
-The two independent runs are the figures to quote: at cc197e3b 23 of 82 claims passed; at 8f2bc3db 34 of 150 claims
-passed and 27 of 150 honest lines were refused. Neither has been run on the head after the second round.
+The independent runs are the figures to quote: at cc197e3b 23 of 82 claims passed; at 8f2bc3db 34 of 150 claims
+passed and 27 of 150 honest lines were refused; the lead's re-run of that set at dc72bb45 found 12 of 150 claims passing
+and 6 of 150 honest lines refused. Six of those 12 had been refused at 8f2bc3db: the second round's person-as-subject
+allowance let a product that replaces or supplies the judgement pass. The third round below fixes those six. No
+independent run has been made on the head after it.
+
+The lead's re-run found these, addressed in `REVIEW_3`: the six regressions above; two honest lines refused (a product
+that only reads a record, 不自行產生診斷, where 自行 now counts as an auxiliary; a product that only shows, in an earlier
+clause, before a person judges); and five of its six listed misses, one line each: 低血糖 as a disease, 有沒有得 and
+是否得 as states, 確診 used absolutely at the end of its clause with the product as subject, a negated 誤診 counted as a
+claim of accuracy (as a negated miss is), and an A-not-A question (能不能, 會不會, 是不是) read as a question, not a
+denial. On every catalogue string and criterion label (29,644 items in ja, en and zh-TW) the result is the same as on
+dc72bb45.
 
 The second set found these faults, all fixed:
 - five claims missed: unlisted verbs 察覺, 分辨, 標示, 推估; 提前 / 更早 as "early"; 症, 結節 and 存活 not disease
@@ -249,6 +270,8 @@ Known limits, stated here rather than chased:
   own act. Other forms are still refused as on master: a criterion with no subject (已診斷類風濕關節炎, 懷孕診斷 in
   RA-JAK's labels), and anything in text not named zh-TW;
 - the new classes need the product as the subject: 可治療憂鬱症 with no subject is not seen;
+- a state before its verb and outside the window: 病人罹患癌症的可能性，會由模型算出 is not seen;
+- an A-not-A question about a claim (能不能診斷糖尿病？) is refused as the claim it asks about, whatever the answer;
 - the Japanese table has no treat, prevent, state, decide or remind class, and English has no claim table. A test
   records it; widening them is a follow-up.
 
