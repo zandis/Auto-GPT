@@ -10,6 +10,11 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- A live preflight (10K-3, D-1361): the box's name and certificate, the clock, the backup share, the audit share, the
+  data feed (a count of files), the mail relay, the disk, the TPM or Tang and the graphics card against the tier
+  record, each line with what to do next in English, Japanese and Chinese. `trialbox doctor --preflight --lang ja`
+  prints it, the settings wizard prints it with `--preflight`, and the box's first-run page shows it (a red line says
+  whom to ask: hospital IT or the box's supplier). Read-only; plain `doctor` is unchanged.
 - Dates on printed pages and the fiscal year 年度 (10C-13, 10C-15): a site may print dates in Western form (ISO, as
   before), Japanese era (令和8年11月18日) or both (2026年（令和8年）11月18日) on the feasibility report, the NHI
   navigation summary and application form, the CASE sheet and the released consent page (`site.printed_dates`); the

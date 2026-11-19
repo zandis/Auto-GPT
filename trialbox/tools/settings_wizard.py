@@ -17,6 +17,7 @@ hardware; its ``env_extra`` (declared ``TB_*`` settings only: the memory caps, t
 
     python -m tools.settings_wizard                                   # interactive
     python -m tools.settings_wizard --answers site_c.yaml --out deploy/settings.yaml --env-out deploy/.env
+    python -m tools.settings_wizard ... --env-out deploy/.env --preflight [--lang ja]   # then the preflight (10K-3)
 """
 
 from __future__ import annotations
@@ -811,6 +812,12 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="a site mapping folder to look in first (default: mapping/ beside --answers, deploy/site/mapping)",
     )
+    ap.add_argument(
+        "--preflight",
+        action="store_true",
+        help="after writing, run the box's live preflight on what was written; exit 1 on a red line (10K-3)",
+    )
+    ap.add_argument("--lang", default="", help="--preflight: en, ja or zh-TW (default: the report language)")
     args = ap.parse_args(argv)
     from tb_common.config import ConfigError, load_settings
 
@@ -838,7 +845,21 @@ def main(argv: list[str] | None = None) -> int:
     for w in warnings:
         print(f"warning: {w}")
     print(f"wrote {args.out}" + (f" and {args.env_out} (0600)" if args.env_out else ""))
+    if args.preflight:
+        return preflight(args.out, args.env_out, args.lang or str(a.get("locale") or ""))
     return 0
+
+
+def preflight(settings: Path, env_file: Path | None, lang: str) -> int:
+    """10K-3 (D-1361): the box's live preflight (``tools.trialbox.preflight``, the list of ``tb_common.preflight``) on
+    the files just written, each line with its next action in ``lang``; 1 when a line is red."""
+    from tools.trialbox import doctor
+    from tools.trialbox import preflight as pf
+
+    inp = doctor.inputs_from(env_file=env_file, settings=settings, routing=None, lake=None)
+    checks = pf.run(inp)
+    print(pf.render(checks, lang, color=pf.color_on()))
+    return 0 if doctor.ok(checks) else 1
 
 
 if __name__ == "__main__":

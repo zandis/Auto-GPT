@@ -191,6 +191,21 @@ show_code() {
   say "open https://$HOST/login/first-run on a computer of the team (or this box) and type the code"
   printf '%s\n\n' "$text"
 }
+box_preflight() {  # 10K-3 (D-1361): the live preflight the first-run page shows (tb_common.preflight); never stops the set-up
+  if [ -n "${TB_BOX_PREFLIGHT:-}" ]; then
+    # shellcheck disable=SC2086 # a command line on purpose (tests)
+    $TB_BOX_PREFLIGHT --out "$FR/preflight.json" >/dev/null 2>&1 || true
+  elif [ -n "${TB_BOX_PY:-}" ]; then
+    :  # the tests' stand-in for the image (TB_BOX_PY): no checks of this host
+  elif python3 -c 'import yaml' 2>/dev/null; then
+    PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" python3 -m tools.trialbox doctor --preflight --env-file "$ROOT/deploy/.env" \
+      --settings "$ROOT/deploy/settings.yaml" --out "$FR/preflight.json" >/dev/null 2>&1 || true
+  else
+    echo "    the preflight is not shown on the set-up page (no python3-yaml on this host): run 'python3 -m tools.trialbox doctor --preflight --env-file deploy/.env' after the set-up"
+  fi
+  chown 10001:10001 "$FR/preflight.json" 2>/dev/null || true
+}
+box_preflight
 show_code
 while [ ! -f "$FR/answers.json" ]; do
   [ -f "$FR/code.json" ] || { echo "    the code was voided (five wrong codes): a new one"; show_code; }
