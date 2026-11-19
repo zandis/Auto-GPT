@@ -121,7 +121,7 @@ def test_an_opinion_says_where_it_came_from(monkeypatch: pytest.MonkeyPatch) -> 
 # ---------------------------------------------------------------------------------------------- the pages
 WORDS = {
     "en": ("synthetic example", "the two checks disagree", "First check", "test model"),
-    "ja": ("合成した例", "2 つの確認で判断が分かれています", "1回目の確認", "テスト用モデル"),
+    "ja": ("合成した例", "2 つの確認で読み取りが分かれています", "1回目の確認", "テスト用モデル"),
     "zh-TW": ("合成範例", "兩次確認的判斷不一致", "第一次確認", "測試用模型"),
 }
 

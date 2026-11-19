@@ -13,6 +13,7 @@ import re
 from typing import Any
 
 import pytest
+from console import people_lists
 from console.auth import ROLES
 from fastapi.routing import APIRoute
 from tb_common.wording import FORBIDDEN, STATEMENT, check_page
@@ -104,6 +105,8 @@ def test_no_forbidden_word_on_any_role_page(box: dict[str, Any], role: str, lang
         name_pi(box, "walker")  # D-380 (ROLE-008): the steward names the PI
     seen, bad, unstated = _walk(box, "walker", lang)
     for must in MUST_REACH[role]:
+        if people_lists.flag_now():  # J-5 (D-1223): with the flag on, the weekly page is a view of Candidates
+            must = must.replace("/studies/GZQO/week", "/studies/GZQO/people/candidates/week")
         assert must in seen, f"the walk did not reach {must}"
     assert bad == []
     # NEW-IU-1 (D-703): every page this role can open carries the intended-use statement, in the reader's language

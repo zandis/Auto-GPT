@@ -24,18 +24,20 @@ import base64
 import contextlib
 import logging
 import re
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 from urllib.parse import quote, urlencode
 
+from datacore import proxy_consent
 from datacore.lifecycle import ON_STUDY
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
+from tb_common import workdays
 from tb_common.csvfile import for_spreadsheet
 from tb_common.erased import is_erased
 
-from console import actor, s28
+from console import actor, people_lists, s28
 from console import person_state as ps
 from console.api_first import before_body, page_twin
 from console.auth import Session
@@ -76,6 +78,7 @@ class ApiVisit(BaseModel):
     after: int = 0
     anchor: str = "enrolment"
     labels: dict[str, str] = Field(default_factory=dict)
+    working_days: bool = False  # 10C-14: carried through, so a GET then PUT keeps a working-days window
 
 
 class ApiSchedule(BaseModel):
@@ -427,8 +430,31 @@ def register(app: FastAPI, h: Helpers) -> None:
         for s in subs:
             s["person"] = people.of(str(s.get("pid") or "") or f"#{s.get('record')}")
         counts = ps.counts(s["person"] for s in subs)  # one per row: a kept record of an opted-out person too
-        return h.page(request, "life_subjects.html", sess, rs=rid, subjects=subs, err=err,
-                      shown=ps.shown_counts(counts, ps.STATES), readable=people.readable or not subs)  # fmt: skip
+        # J-5 (D-1223, flag layout.people_lists), only when the page is served as a view of Participants (off: as
+        # before). The default view divides at consent by the one state: the people who have consented, none opted out
+        # or erased, and (for whom the log's page admits) a participant the log names first; the working view "every
+        # record" is the page as it was. Either filters by the one state (``?state=``), never by the record's own step
+        lst = people_lists.default_of(request)
+        view = getattr(request.state, "people", None)
+        readable = people.readable or not subs
+        keep: tuple[str, ...] = ps.STATES
+        if lst == "participants":
+            on_side = people_lists.side(people, "participants")
+            keys = {str(s.get("pid") or "") or f"#{s.get('record')}" for s in subs}
+            subs = [s for s in subs if (str(s.get("pid") or "") or f"#{s.get('record')}") in on_side]
+            # a participant the screening log names before a record exists: only for whom the log's own page admits
+            # (``Helpers.rows_ok``, the screening log's question); anyone else sees the participant records only
+            if h.rows_ok(sess.user, rid):
+                subs += [{"record": "", "pid": pid, "since": st.since[:10], "visits": {}, "person": st,
+                          "log_only": True} for pid, st in sorted(on_side.items()) if pid not in keys]  # fmt: skip
+            counts = ps.counts(s["person"] for s in subs)
+            keep = ps.PARTICIPANT
+        only = request.query_params.get("state", "") if view else ""
+        only = only if only in keep else ""
+        if only:
+            subs = [s for s in subs if s["person"].name == only]
+        return h.page(request, "life_subjects.html", sess, rs=rid, subjects=subs, err=err, only=only,
+                      shown=ps.shown_counts(counts, keep), readable=readable)  # fmt: skip
 
     def subject_page(request: Request, sess: Session, rid: str, rec: str, status: int = 200,
                      refused: str = "", done: str = "") -> Response:  # fmt: skip
@@ -452,6 +478,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return h.page(request, "life_subject.html", sess, status=status, rs=rid, record=rec, one=one, err=err,
                       sheet_pid=sheet_pid,
                       editable=can_enter(sess.user), refused=refused, done=done, sf_reasons=SF_REASONS,
+                      proceed_reasons=proxy_consent.PROCEED_REASONS,
                       wd_reasons=WD_REASONS, today=today().isoformat(), sf_criteria=sf_criteria,
                       sf_version=sf_version, person=person)  # fmt: skip
 
@@ -474,6 +501,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         rec = record_key(record[:64])
         to, on_day, reason, note = (str(data.get(k) or "").strip()[:300] for k in ("to", "on_day", "reason", "note"))
+        proceed = str(data.get("proceed") or "").strip()[:40]
+        if proceed and to in proxy_consent.FORWARD:  # D-1232: why a person goes on after a declined assent
+            reason = proceed
         criterion = str(data.get("criterion") or "").strip()[:48] if reason == "not_eligible" else ""
         reasons = WD_REASONS if to == "withdrawn" else SF_REASONS
         if (to in FINAL_STEPS and reason in reasons and str(data.get("confirm") or "") != "yes"
@@ -557,7 +587,15 @@ def register(app: FastAPI, h: Helpers) -> None:
             conns = [c["token_ref"] for c in (get("/redcap/connections") or {}).get("connections", [])]
         except (Problem, Unavailable):
             pass
+        # 10C-14: the site's days off for the next 90 days (public holidays and the site's own: no patient data);
+        # nothing for a site of a country with no holiday list
+        cal, day = workdays.for_zone(str(getattr(tz, "key", "") or "")), today()
+        off = cal.days_off(day, day + timedelta(days=90)) if cal.has_days_off else None
+        until = cal.holidays.until.isoformat() if cal.holidays and cal.holidays.until else ""
         return h.page(request, "life_schedule.html", sess, rs=rid, schedule=sched, blank=SCHEDULE_ROWS, conns=conns,
+                      days_off=off, days_off_until=until, days_off_problems=list(cal.problems),
+                      days_off_first=cal.holidays.first.isoformat() if cal.holidays and cal.holidays.first else "",
+                      days_off_runs_out=cal.runs_out(day), units=cal.has_days_off,
                       editable=can_enter(sess.user), saved=saved[:10], refused=err[:300])  # fmt: skip
 
     @app.post("/studies/{rs}/schedule")
@@ -574,7 +612,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 visits = []
                 names, labels = data.getlist("visit"), data.getlist("label")
                 days, before, after = data.getlist("day"), data.getlist("before"), data.getlist("after")
-                anchors = data.getlist("anchor")
+                anchors, units = data.getlist("anchor"), data.getlist("unit")
                 lang = lang_of(sess)
                 for i, raw in enumerate(names):
                     name = str(raw).strip().lower()
@@ -590,7 +628,9 @@ def register(app: FastAPI, h: Helpers) -> None:
                     label = str(labels[i]).strip()[:80] if i < len(labels) else ""
                     visits.append({"visit": name[:41], "day": num(days), "before": num(before), "after": num(after),
                                    "anchor": str(anchors[i]) if i < len(anchors) else "enrolment",
-                                   "labels": {lang: label} if label else {}})  # fmt: skip
+                                   "labels": {lang: label} if label else {},
+                                   **({"working_days": True} if i < len(units) and str(units[i]) == "working"
+                                      else {})})  # fmt: skip
                 out = apply_schedule(sess, request.url.path, rid, visits)
         except Problem as exc:
             q = urlencode({"err": why_text(lang_of(sess), exc) if exc.code == "LIFE-STEP" else exc.code})
@@ -788,7 +828,10 @@ def register(app: FastAPI, h: Helpers) -> None:
     def api_schedule_put(request: Request, rs: str, body: ApiSchedule) -> Any:
         sess = api_session(request)
         try:
-            return apply_schedule(sess, request.url.path, rs, [v.model_dump() for v in body.visits])
+            return apply_schedule(sess, request.url.path, rs,
+                                  [{**v.model_dump(exclude={"working_days"}),
+                                    **({"working_days": True} if v.working_days else {})}
+                                   for v in body.visits])  # fmt: skip
         except (Problem, Unavailable) as exc:
             return refused(sess, exc)
 
