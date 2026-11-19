@@ -1,0 +1,472 @@
+lang	text	concept	synonyms	others	domain	expect	hold_class
+en	No type 2 diabetes	type 2 diabetes			condition	held	negation
+en	Patients without hypertension	hypertension			condition	held	negation
+en	Absence of asthma	asthma			condition	held	negation
+en	Never diagnosed with epilepsy	epilepsy			condition	held	negation
+en	Not known to have HIV infection	HIV infection			condition	held	negation
+en	Metformin discontinued at least 3 months before screening	metformin			medication	held	stopped
+en	Stopped methotrexate because of liver toxicity	methotrexate			medication	held	stopped
+en	Previously on warfarin, switched to apixaban	warfarin			medication	held	stopped
+en	Insulin withdrawn during the run-in period	insulin			medication	held	stopped
+en	Off tamoxifen for at least 6 months	tamoxifen			medication	held	stopped
+en	Metformin on hold since admission	metformin			medication	held	stopped
+en	Interrupted methotrexate for surgery	methotrexate			medication	held	stopped
+en	Warfarin replaced by heparin bridging	warfarin			medication	held	stopped
+en	Failed metformin monotherapy	metformin			medication	held	failed
+en	Inadequate response to methotrexate	methotrexate			medication	held	failed
+en	Refractory to rituximab	rituximab			medication	held	failed
+en	Methotrexate-intolerant	methotrexate			medication	held	failed
+en	Rituximab-refractory disease	rituximab			medication	held	failed
+en	Declined chemotherapy	chemotherapy			procedure	held	refused
+en	Refused radiotherapy	radiotherapy			procedure	held	refused
+en	Unwilling to take insulin	insulin			medication	held	refused
+en	Allergic to penicillin	penicillin			medication	held	allergy
+en	Known hypersensitivity to rituximab	rituximab			medication	held	allergy
+en	Metformin allergy	metformin			medication	held	allergy
+en	Anaphylaxis after tamoxifen	tamoxifen			medication	held	allergy
+en	Planned kidney transplant	kidney transplant			procedure	held	plan
+en	Scheduled to start chemotherapy	chemotherapy			procedure	held	plan
+en	Booked for hip replacement surgery	surgery			procedure	held	plan
+en	Awaiting radiotherapy	radiotherapy			procedure	held	plan
+en	Will receive insulin as part of the study	insulin			medication	held	plan
+en	Intends to start methotrexate	methotrexate			medication	held	plan
+en	On the waiting list for kidney transplant	kidney transplant			procedure	held	plan
+en	Insulin to be started after randomisation	insulin			medication	held	plan
+en	Chemotherapy offered	chemotherapy			procedure	held	plan
+en	Radiotherapy recommended	radiotherapy			procedure	held	plan
+en	Referral for kidney transplant	kidney transplant			procedure	held	plan
+en	Metformin prescribed but never taken	metformin			medication	held	plan
+en	Candidate for kidney transplant	kidney transplant			procedure	held	candidate
+en	Eligible for chemotherapy	chemotherapy			procedure	held	candidate
+en	Suitable for radiotherapy	radiotherapy			procedure	held	candidate
+en	Fit for surgery	surgery			procedure	held	candidate
+en	Indication for warfarin	warfarin			medication	held	candidate
+en	Considered for surgery	surgery			procedure	held	candidate
+en	Kidney donor with hypertension	hypertension			condition	held	other_person
+en	Partner diagnosed with HIV infection	HIV infection			condition	held	other_person
+en	Fetus with congenital heart disease	congenital heart disease			condition	held	other_person
+en	Child of a mother with chronic hepatitis B	chronic hepatitis B			condition	held	other_person
+en	Mother had breast cancer	breast cancer			condition	held	other_person
+en	Family history of colorectal cancer	colorectal cancer			condition	held	other_person
+en	First-degree relative with type 2 diabetes	type 2 diabetes			condition	held	other_person
+en	Household contact of a person with tuberculosis	tuberculosis			condition	held	other_person
+en	Spouse with COVID-19	COVID-19			condition	held	other_person
+en	Crohn's disease in remission	Crohn's disease			condition	held	remission
+en	Breast cancer in complete remission for 5 years	breast cancer			condition	held	remission
+en	Hepatitis C eradicated after antiviral therapy	hepatitis C			condition	held	remission
+en	Recovered from COVID-19	COVID-19			condition	held	remission
+en	Tuberculosis, cured	tuberculosis			condition	held	remission
+en	Resolved atrial fibrillation	atrial fibrillation			condition	held	remission
+en	Asthma outgrown in childhood	asthma			condition	held	remission
+en	Hepatitis C with sustained virological response	hepatitis C			condition	held	remission
+en	Former smoker	smoking			condition	held	remission
+en	Healed duodenal ulcer	duodenal ulcer			condition	held	remission
+en	Vaccinated against hepatitis B	hepatitis B			condition	held	vaccination
+en	Received COVID-19 vaccine	COVID-19			condition	held	vaccination
+en	Tuberculosis vaccination (BCG) in childhood	tuberculosis			condition	held	vaccination
+en	Immunised against influenza	influenza			condition	held	vaccination
+en	Diabetes:	diabetes			condition	held	heading
+en	Section 4 - Hypertension	hypertension			condition	held	heading
+en	Asthma cohort	asthma			condition	held	heading
+en	Hypertension is defined as blood pressure of 140/90 mmHg or more	hypertension			condition	held	definition
+en	Definition of heart failure: see appendix B	heart failure			condition	held	definition
+en	Record any epilepsy in the case report form	epilepsy			condition	held	instruction
+en	Screen for tuberculosis with an interferon-gamma release assay	tuberculosis			condition	held	instruction
+en	Ask the patient about migraine	migraine			condition	held	instruction
+en	Test for HIV infection at screening	HIV infection			condition	held	instruction
+en	⊖ HIV infection	HIV infection			condition	held	symbol
+en	ø type 2 diabetes	type 2 diabetes			condition	held	symbol
+en	Hepatitis B: ⊖	hepatitis B			condition	held	symbol
+en	Asthma Ø	asthma			condition	held	symbol
+en	Type 2 diabetes ☐ Yes ☒ No	type 2 diabetes			condition	held	checkbox
+en	Hypertension: [ ] yes [x] no	hypertension			condition	held	checkbox
+en	Asthma - Yes □ No ■	asthma			condition	held	checkbox
+en	Pre-diabetes	diabetes			condition	held	prefix
+en	Prehypertension	hypertension			condition	held	prefix
+en	Borderline hypertension	hypertension			condition	held	prefix
+en	Latent tuberculosis	tuberculosis			condition	held	prefix
+en	Diabetes insipidus	diabetes			condition	held	prefix
+en	Suspected tuberculosis	tuberculosis			condition	held	uncertain
+en	Possible multiple sclerosis	multiple sclerosis			condition	held	uncertain
+en	Rule out pulmonary embolism	pulmonary embolism			condition	held	uncertain
+en	Query epilepsy	epilepsy			condition	held	uncertain
+en	Asthma?	asthma			condition	held	uncertain
+en	Clinical suspicion of lung cancer awaiting biopsy	lung cancer			condition	held	uncertain
+en	Pending confirmation of rheumatoid arthritis	rheumatoid arthritis			condition	held	uncertain
+en	Differential diagnosis includes Crohn's disease	Crohn's disease			condition	held	uncertain
+en	Hypertension history unavailable	hypertension			condition	held	uncertain
+en	Unknown HIV infection status	HIV infection			condition	held	uncertain
+en	At high risk of breast cancer	breast cancer			condition	held	risk
+en	Risk factors for heart failure	heart failure			condition	held	risk
+en	Exposure to tuberculosis	tuberculosis			condition	held	risk
+en	Predisposition to atrial fibrillation	atrial fibrillation			condition	held	risk
+en	Prevention of osteoporosis	osteoporosis			condition	held	risk
+en	HIV infection pre-exposure prophylaxis	HIV infection			condition	held	risk
+en	Tested for hepatitis C	hepatitis C			condition	held	test
+en	Hepatitis B screening	hepatitis B			condition	held	test
+en	Tuberculosis excluded by chest X-ray	tuberculosis			condition	held	test
+en	Asthma-like symptoms	asthma			condition	held	lookalike
+en	Symptoms suggestive of heart failure	heart failure			condition	held	lookalike
+en	Attending a diabetes education programme	diabetes			condition	held	lookalike
+en	If hypertension, blood pressure must be controlled	hypertension			condition	held	conditional
+en	Unless type 2 diabetes is present	type 2 diabetes			condition	held	conditional
+en	Type 2 diabetes. Diagnosis pending confirmation.	type 2 diabetes			condition	held	other_clause
+en	Type 2 diabetes	type 2 diabetes			condition	runs	plain
+en	Diagnosis of type 2 diabetes	type 2 diabetes			condition	runs	frame
+en	Patients with type 2 diabetes	type 2 diabetes			condition	runs	frame
+en	Adults with type 2 diabetes for at least 6 months	type 2 diabetes			condition	runs	frame
+en	Type 2 diabetes diagnosed at least 1 year before screening	type 2 diabetes			condition	runs	frame
+en	Established type 2 diabetes with HbA1c 7.0-10.5%	type 2 diabetes			condition	runs	measure
+en	Documented diagnosis of hypertension	hypertension			condition	runs	frame
+en	Essential hypertension, stage 1 or 2	hypertension			condition	runs	stage
+en	Persistent asthma	asthma			condition	runs	plain
+en	Moderate to severe asthma	asthma			condition	runs	severity
+en	Physician-diagnosed asthma for at least 12 months	asthma			condition	runs	frame
+en	Asthma confirmed by spirometry	asthma			condition	runs	method
+en	Rheumatoid arthritis according to the 2010 ACR/EULAR criteria	rheumatoid arthritis			condition	runs	criteria
+en	Active rheumatoid arthritis	rheumatoid arthritis			condition	runs	status
+en	Seropositive rheumatoid arthritis	rheumatoid arthritis			condition	runs	type
+en	Histologically confirmed breast cancer	breast cancer			condition	runs	method
+en	Stage II-III breast cancer	breast cancer			condition	runs	stage
+en	HER2-positive breast cancer	breast cancer			condition	runs	type
+en	Metastatic breast cancer	breast cancer			condition	runs	stage
+en	Left-sided breast cancer	breast cancer			condition	runs	laterality
+en	Cytologically or histologically confirmed non-small cell lung cancer	non-small cell lung cancer			condition	runs	method
+en	Advanced lung cancer	lung cancer			condition	runs	stage
+en	Lung cancer, stage IV	lung cancer			condition	runs	stage
+en	Chronic hepatitis B infection	chronic hepatitis B			condition	runs	type
+en	HBsAg-positive chronic hepatitis B for at least 6 months	chronic hepatitis B			condition	runs	measure
+en	Chronic hepatitis C, genotype 1	chronic hepatitis C			condition	runs	type
+en	HIV infection on stable antiretroviral therapy	HIV infection		antiretroviral therapy	condition	runs	treated
+en	Confirmed HIV-1 infection	HIV infection	HIV-1 infection		condition	runs	frame
+en	Paroxysmal atrial fibrillation	atrial fibrillation			condition	runs	type
+en	Atrial fibrillation documented by ECG	atrial fibrillation			condition	runs	method
+en	Heart failure with reduced ejection fraction (LVEF 40% or less)	heart failure			condition	runs	measure
+en	NYHA class II-III heart failure	heart failure			condition	runs	stage
+en	Chronic heart failure for at least 3 months	heart failure			condition	runs	duration
+en	COPD with FEV1 below 50% predicted	COPD			condition	runs	measure
+en	Moderate COPD (GOLD 2)	COPD			condition	runs	severity
+en	Crohn's disease involving the ileum	Crohn's disease			condition	runs	site
+en	Moderately to severely active Crohn's disease	Crohn's disease			condition	runs	severity
+en	Plaque psoriasis covering at least 10% of body surface area	psoriasis			condition	runs	measure
+en	Chronic plaque psoriasis for at least 6 months	psoriasis			condition	runs	duration
+en	Focal epilepsy	epilepsy			condition	runs	type
+en	Drug-resistant epilepsy	epilepsy			condition	runs	type
+en	Migraine with aura	migraine			condition	runs	type
+en	Relapsing-remitting multiple sclerosis	multiple sclerosis			condition	runs	type
+en	Active pulmonary tuberculosis	tuberculosis			condition	runs	site
+en	Laboratory-confirmed COVID-19	COVID-19			condition	runs	method
+en	COVID-19 confirmed by RT-PCR within 72 hours	COVID-19			condition	runs	method
+en	Postmenopausal osteoporosis	osteoporosis			condition	runs	type
+en	Osteoporosis with a T-score of -2.5 or lower	osteoporosis			condition	runs	measure
+en	Gout flare within the past 2 weeks	gout			condition	runs	event
+en	Major depressive disorder, single or recurrent episode	major depressive disorder			condition	runs	type
+en	Castration-resistant prostate cancer	prostate cancer			condition	runs	type
+en	Colorectal cancer with liver metastases	colorectal cancer			condition	runs	site
+en	Currently receiving metformin	metformin			medication	runs	drug
+en	On metformin 1000 mg twice daily	metformin			medication	runs	drug
+en	Stable dose of methotrexate for at least 8 weeks	methotrexate			medication	runs	drug
+en	Treated with insulin	insulin			medication	runs	drug
+en	Taking warfarin with a target INR of 2-3	warfarin			medication	runs	drug
+en	Prior chemotherapy	chemotherapy			procedure	runs	history
+en	Has received at least one prior line of chemotherapy	chemotherapy			procedure	runs	history
+en	Radiotherapy to the chest at least 4 weeks before enrolment	radiotherapy			procedure	runs	history
+en	Underwent surgery for colorectal cancer	surgery		colorectal cancer	procedure	runs	history
+en	Kidney transplant recipient	kidney transplant			procedure	runs	frame
+en	Maintenance haemodialysis three times weekly for at least 3 months	haemodialysis			procedure	runs	duration
+en	History of asthma	asthma			condition	runs	history
+en	Previous myocardial infarction	myocardial infarction			condition	runs	history
+en	Known history of epilepsy	epilepsy			condition	runs	history
+en	Multiple sclerosis; no relapse in the past 30 days	multiple sclerosis		relapse	condition	runs	other_clause
+en	Type 2 diabetes. Not pregnant.	type 2 diabetes			condition	runs	other_clause
+en	Hypertension, but no history of stroke	hypertension		stroke	condition	runs	other_clause
+en	Diagnosed with hypertension at age 40 or older	hypertension			condition	runs	date
+en	Asthma (GINA step 3-4)	asthma			condition	runs	stage
+en	Type 2 diabetes mellitus (T2DM)	type 2 diabetes	T2DM;type 2 diabetes mellitus		condition	runs	synonym
+en	T2DM with HbA1c of 7.5% or more	type 2 diabetes	T2DM		condition	runs	synonym
+en	Patients aged 18-75 years with type 2 diabetes	type 2 diabetes			condition	runs	frame
+en	Men or women with hypertension	hypertension			condition	runs	frame
+en	Bilateral knee osteoarthritis	knee osteoarthritis			condition	runs	laterality
+en	Right-sided colon cancer	colon cancer			condition	runs	laterality
+en	Grade 3 follicular lymphoma	follicular lymphoma			condition	runs	grade
+en	Newly diagnosed multiple myeloma	multiple myeloma			condition	runs	date
+en	Recurrent glioblastoma	glioblastoma			condition	runs	type
+en	Biopsy-proven lupus nephritis class III or IV	lupus nephritis			condition	runs	method
+en	Severe aortic stenosis by echocardiography	aortic stenosis			condition	runs	method
+en	Symptomatic heart failure	heart failure			condition	runs	severity
+en	Uncontrolled hypertension	hypertension			condition	runs	severity
+ja	2型糖尿病なし	2型糖尿病			condition	held	negation
+ja	高血圧の既往がない	高血圧			condition	held	negation
+ja	喘息を認めない	喘息			condition	held	negation
+ja	メトホルミンを中止した患者	メトホルミン			medication	held	stopped
+ja	メトトレキサートを3か月以上前に中止	メトトレキサート			medication	held	stopped
+ja	ワルファリン休薬中	ワルファリン			medication	held	stopped
+ja	インスリン投与を終了した	インスリン			medication	held	stopped
+ja	メトトレキサートで効果不十分	メトトレキサート			medication	held	failed
+ja	リツキシマブ抵抗性	リツキシマブ			medication	held	failed
+ja	メトホルミン不耐容	メトホルミン			medication	held	failed
+ja	化学療法を拒否した患者	化学療法			procedure	held	refused
+ja	放射線治療を希望しない	放射線治療			procedure	held	refused
+ja	ペニシリンにアレルギーがある	ペニシリン			medication	held	allergy
+ja	リツキシマブに対する過敏症の既往	リツキシマブ			medication	held	allergy
+ja	メトホルミンアレルギー	メトホルミン			medication	held	allergy
+ja	腎移植を予定している	腎移植			procedure	held	plan
+ja	化学療法開始予定	化学療法			procedure	held	plan
+ja	手術待機中	手術			procedure	held	plan
+ja	放射線治療の予約がある	放射線治療			procedure	held	plan
+ja	インスリン導入予定	インスリン			medication	held	plan
+ja	メトホルミンを処方されたが服用していない	メトホルミン			medication	held	plan
+ja	化学療法を勧められた	化学療法			procedure	held	plan
+ja	手術を検討中	手術			procedure	held	plan
+ja	腎移植目的で紹介された	腎移植			procedure	held	plan
+ja	腎移植の候補者	腎移植			procedure	held	candidate
+ja	化学療法の適応がある	化学療法			procedure	held	candidate
+ja	手術適応あり	手術			procedure	held	candidate
+ja	ドナーが高血圧を有する	高血圧			condition	held	other_person
+ja	配偶者がHIV感染症	HIV感染症			condition	held	other_person
+ja	胎児に先天性心疾患を認める	先天性心疾患			condition	held	other_person
+ja	母親が乳癌	乳癌			condition	held	other_person
+ja	大腸癌の家族歴	大腸癌			condition	held	other_person
+ja	第一度近親者に2型糖尿病	2型糖尿病			condition	held	other_person
+ja	結核患者との接触歴	結核			condition	held	other_person
+ja	寛解期のクローン病	クローン病			condition	held	remission
+ja	C型肝炎ウイルス排除後	C型肝炎			condition	held	remission
+ja	COVID-19から回復した	COVID-19			condition	held	remission
+ja	結核治癒後	結核			condition	held	remission
+ja	乳癌完全寛解	乳癌			condition	held	remission
+ja	治癒した喘息	喘息			condition	held	remission
+ja	B型肝炎ワクチン接種済み	B型肝炎			condition	held	vaccination
+ja	COVID-19ワクチンを接種した	COVID-19			condition	held	vaccination
+ja	インフルエンザ予防接種歴	インフルエンザ			condition	held	vaccination
+ja	糖尿病：	糖尿病			condition	held	heading
+ja	第4章 高血圧	高血圧			condition	held	heading
+ja	喘息コホート	喘息			condition	held	heading
+ja	高血圧の定義：血圧140/90mmHg以上	高血圧			condition	held	definition
+ja	てんかんの有無を記録する	てんかん			condition	held	instruction
+ja	結核のスクリーニングを行う	結核			condition	held	instruction
+ja	HIV感染症の検査を実施する	HIV感染症			condition	held	instruction
+ja	⊖ HIV感染症	HIV感染症			condition	held	symbol
+ja	B型肝炎：⊖	B型肝炎			condition	held	symbol
+ja	ø 2型糖尿病	2型糖尿病			condition	held	symbol
+ja	2型糖尿病 □あり ■なし	2型糖尿病			condition	held	checkbox
+ja	高血圧：[ ]有 [x]無	高血圧			condition	held	checkbox
+ja	境界型糖尿病	糖尿病			condition	held	prefix
+ja	前糖尿病状態	糖尿病			condition	held	prefix
+ja	潜在性結核感染症	結核			condition	held	prefix
+ja	結核の疑い	結核			condition	held	uncertain
+ja	多発性硬化症疑い	多発性硬化症			condition	held	uncertain
+ja	肺塞栓症を除外する	肺塞栓症			condition	held	uncertain
+ja	関節リウマチの可能性	関節リウマチ			condition	held	uncertain
+ja	肺癌疑いで生検待ち	肺癌			condition	held	uncertain
+ja	HIV感染状況不明	HIV感染			condition	held	uncertain
+ja	乳癌の高リスク	乳癌			condition	held	risk
+ja	心不全のリスク因子を有する	心不全			condition	held	risk
+ja	結核への曝露	結核			condition	held	risk
+ja	HIV検査陰性	HIV			condition	held	test
+ja	C型肝炎の検査を受けた	C型肝炎			condition	held	test
+ja	B型肝炎スクリーニング	B型肝炎			condition	held	test
+ja	喘息様症状	喘息			condition	held	lookalike
+ja	心不全を示唆する症状	心不全			condition	held	lookalike
+ja	高血圧であれば血圧がコントロールされていること	高血圧			condition	held	conditional
+ja	2型糖尿病	2型糖尿病			condition	runs	plain
+ja	2型糖尿病と診断された患者	2型糖尿病			condition	runs	frame
+ja	2型糖尿病を有する患者	2型糖尿病			condition	runs	frame
+ja	2型糖尿病の診断から6か月以上経過している	2型糖尿病			condition	runs	duration
+ja	HbA1cが7.0%以上の2型糖尿病	2型糖尿病			condition	runs	measure
+ja	高血圧症と診断されている	高血圧症			condition	runs	frame
+ja	本態性高血圧（I度またはII度）	高血圧			condition	runs	stage
+ja	持続型喘息	喘息			condition	runs	type
+ja	中等症から重症の喘息	喘息			condition	runs	severity
+ja	スパイロメトリーで確認された喘息	喘息			condition	runs	method
+ja	2010年ACR/EULAR分類基準を満たす関節リウマチ	関節リウマチ			condition	runs	criteria
+ja	活動性関節リウマチ	関節リウマチ			condition	runs	status
+ja	組織学的に確認された乳癌	乳癌			condition	runs	method
+ja	病期II〜IIIの乳癌	乳癌			condition	runs	stage
+ja	HER2陽性乳癌	乳癌			condition	runs	type
+ja	転移性乳癌	乳癌			condition	runs	stage
+ja	左側乳癌	乳癌			condition	runs	laterality
+ja	細胞診または組織診で確定した非小細胞肺癌	非小細胞肺癌			condition	runs	method
+ja	進行肺癌	肺癌			condition	runs	stage
+ja	慢性B型肝炎	慢性B型肝炎			condition	runs	plain
+ja	HBs抗原陽性の慢性B型肝炎（6か月以上）	慢性B型肝炎			condition	runs	measure
+ja	ジェノタイプ1の慢性C型肝炎	慢性C型肝炎			condition	runs	type
+ja	HIV-1感染症が確認されている	HIV-1感染症			condition	runs	frame
+ja	発作性心房細動	心房細動			condition	runs	type
+ja	心電図で確認された心房細動	心房細動			condition	runs	method
+ja	左室駆出率40%以下の心不全	心不全			condition	runs	measure
+ja	NYHA心機能分類II〜III度の心不全	心不全			condition	runs	stage
+ja	回腸に病変を有するクローン病	クローン病			condition	runs	site
+ja	中等症から重症の活動性クローン病	クローン病			condition	runs	severity
+ja	体表面積の10%以上の局面型乾癬	乾癬			condition	runs	measure
+ja	焦点てんかん	てんかん			condition	runs	type
+ja	薬剤抵抗性てんかん	てんかん			condition	runs	type
+ja	前兆のある片頭痛	片頭痛			condition	runs	type
+ja	再発寛解型多発性硬化症	多発性硬化症			condition	runs	type
+ja	活動性肺結核	結核			condition	runs	site
+ja	RT-PCRで確認されたCOVID-19	COVID-19			condition	runs	method
+ja	閉経後骨粗鬆症	骨粗鬆症			condition	runs	type
+ja	Tスコア-2.5以下の骨粗鬆症	骨粗鬆症			condition	runs	measure
+ja	うつ病（単一エピソードまたは反復性）	うつ病			condition	runs	type
+ja	去勢抵抗性前立腺癌	前立腺癌			condition	runs	type
+ja	肝転移を有する大腸癌	大腸癌			condition	runs	site
+ja	メトホルミンを服用中	メトホルミン			medication	runs	drug
+ja	メトホルミン1日1000mgを服用している	メトホルミン			medication	runs	drug
+ja	メトトレキサートを8週間以上安定用量で投与中	メトトレキサート			medication	runs	drug
+ja	インスリン治療中	インスリン			medication	runs	drug
+ja	化学療法の治療歴がある	化学療法			procedure	runs	history
+ja	1レジメン以上の化学療法歴を有する	化学療法			procedure	runs	history
+ja	胸部への放射線治療歴	放射線治療			procedure	runs	history
+ja	大腸癌に対する手術を受けた	手術		大腸癌	procedure	runs	history
+ja	腎移植レシピエント	腎移植			procedure	runs	frame
+ja	3か月以上の維持血液透析	血液透析			procedure	runs	duration
+ja	喘息の既往	喘息			condition	runs	history
+ja	心筋梗塞の既往	心筋梗塞			condition	runs	history
+ja	2型糖尿病の患者。妊娠していない。	2型糖尿病			condition	runs	other_clause
+ja	高血圧を有するが、脳卒中の既往はない。	高血圧		脳卒中	condition	runs	other_clause
+ja	両側変形性膝関節症	変形性膝関節症			condition	runs	laterality
+ja	右側結腸癌	結腸癌			condition	runs	laterality
+ja	グレード3の濾胞性リンパ腫	濾胞性リンパ腫			condition	runs	grade
+ja	新たに診断された多発性骨髄腫	多発性骨髄腫			condition	runs	date
+ja	再発膠芽腫	膠芽腫			condition	runs	type
+ja	生検で確認されたループス腎炎（クラスIIIまたはIV）	ループス腎炎			condition	runs	method
+ja	心エコーで確認された重症大動脈弁狭窄症	大動脈弁狭窄症			condition	runs	method
+ja	症候性心不全	心不全			condition	runs	severity
+ja	18歳以上75歳以下の2型糖尿病患者	2型糖尿病			condition	runs	frame
+zh	無第二型糖尿病	第二型糖尿病			condition	held	negation
+zh	沒有高血壓病史	高血壓			condition	held	negation
+zh	未患有氣喘	氣喘			condition	held	negation
+zh	已停用二甲雙胍至少三個月	二甲雙胍			medication	held	stopped
+zh	停止使用甲氨蝶呤	甲氨蝶呤			medication	held	stopped
+zh	暫停華法林	華法林			medication	held	stopped
+zh	已停用胰岛素	胰岛素			medication	held	stopped
+zh	對甲氨蝶呤反應不佳	甲氨蝶呤			medication	held	failed
+zh	對利妥昔單抗無效	利妥昔單抗			medication	held	failed
+zh	二甲雙胍治療失敗	二甲雙胍			medication	held	failed
+zh	不耐受二甲双胍	二甲双胍			medication	held	failed
+zh	拒絕接受化學治療	化學治療			procedure	held	refused
+zh	不願意接受放射治療	放射治療			procedure	held	refused
+zh	對青黴素過敏	青黴素			medication	held	allergy
+zh	對利妥昔單抗過敏	利妥昔單抗			medication	held	allergy
+zh	二甲雙胍過敏史	二甲雙胍			medication	held	allergy
+zh	預計接受腎臟移植	腎臟移植			procedure	held	plan
+zh	計畫開始化學治療	化學治療			procedure	held	plan
+zh	等待手術	手術			procedure	held	plan
+zh	已預約放射治療	放射治療			procedure	held	plan
+zh	拟行手术	手术			procedure	held	plan
+zh	開立二甲雙胍但未服用	二甲雙胍			medication	held	plan
+zh	建議接受化學治療	化學治療			procedure	held	plan
+zh	考慮手術	手術			procedure	held	plan
+zh	轉介接受腎臟移植評估	腎臟移植			procedure	held	plan
+zh	将开始使用胰岛素	胰岛素			medication	held	plan
+zh	腎臟移植候選人	腎臟移植			procedure	held	candidate
+zh	適合接受化學治療	化學治療			procedure	held	candidate
+zh	符合手術條件	手術			procedure	held	candidate
+zh	捐贈者患有高血壓	高血壓			condition	held	other_person
+zh	伴侶為HIV感染者	HIV感染			condition	held	other_person
+zh	胎兒患有先天性心臟病	先天性心臟病			condition	held	other_person
+zh	母親患有乳癌	乳癌			condition	held	other_person
+zh	大腸癌家族史	大腸癌			condition	held	other_person
+zh	一等親有第二型糖尿病	第二型糖尿病			condition	held	other_person
+zh	與結核病患者有接觸史	結核病			condition	held	other_person
+zh	緩解期之克隆氏症	克隆氏症			condition	held	remission
+zh	C型肝炎已清除	C型肝炎			condition	held	remission
+zh	已從COVID-19康復	COVID-19			condition	held	remission
+zh	結核病已治癒	結核病			condition	held	remission
+zh	乳癌完全缓解	乳癌			condition	held	remission
+zh	曾患氣喘，已痊癒	氣喘			condition	held	remission
+zh	已接種B型肝炎疫苗	B型肝炎			condition	held	vaccination
+zh	接種過COVID-19疫苗	COVID-19			condition	held	vaccination
+zh	流感疫苗接種	流感			condition	held	vaccination
+zh	糖尿病：	糖尿病			condition	held	heading
+zh	第四章 高血壓	高血壓			condition	held	heading
+zh	氣喘世代	氣喘			condition	held	heading
+zh	高血壓定義為血壓≥140/90 mmHg	高血壓			condition	held	definition
+zh	記錄是否有癲癇	癲癇			condition	held	instruction
+zh	篩檢結核病	結核病			condition	held	instruction
+zh	進行HIV感染檢測	HIV感染			condition	held	instruction
+zh	⊖ HIV感染	HIV感染			condition	held	symbol
+zh	B型肝炎：⊖	B型肝炎			condition	held	symbol
+zh	ø 第二型糖尿病	第二型糖尿病			condition	held	symbol
+zh	第二型糖尿病 □是 ■否	第二型糖尿病			condition	held	checkbox
+zh	高血壓：[ ]有 [x]無	高血壓			condition	held	checkbox
+zh	糖尿病前期	糖尿病			condition	held	prefix
+zh	高血壓前期	高血壓			condition	held	prefix
+zh	潛伏性結核感染	結核			condition	held	prefix
+zh	疑似結核病	結核病			condition	held	uncertain
+zh	可能為多發性硬化症	多發性硬化症			condition	held	uncertain
+zh	排除肺栓塞	肺栓塞			condition	held	uncertain
+zh	懷疑肺癌，待切片確認	肺癌			condition	held	uncertain
+zh	HIV感染狀態不明	HIV感染			condition	held	uncertain
+zh	乳癌高風險	乳癌			condition	held	risk
+zh	具心衰竭危險因子	心衰竭			condition	held	risk
+zh	曾暴露於結核病	結核病			condition	held	risk
+zh	HIV檢驗陰性	HIV			condition	held	test
+zh	接受C型肝炎篩檢	C型肝炎			condition	held	test
+zh	B型肝炎檢測	B型肝炎			condition	held	test
+zh	類氣喘症狀	氣喘			condition	held	lookalike
+zh	疑似心衰竭之症狀	心衰竭			condition	held	lookalike
+zh	若有高血壓，血壓須控制良好	高血壓			condition	held	conditional
+zh	第二型糖尿病	第二型糖尿病			condition	runs	plain
+zh	診斷為第二型糖尿病	第二型糖尿病			condition	runs	frame
+zh	患有第二型糖尿病之病人	第二型糖尿病			condition	runs	frame
+zh	確診第二型糖尿病至少6個月	第二型糖尿病			condition	runs	duration
+zh	糖化血色素7.0%以上之第二型糖尿病	第二型糖尿病			condition	runs	measure
+zh	确诊为高血压	高血压			condition	runs	frame
+zh	原發性高血壓第一或第二期	高血壓			condition	runs	stage
+zh	持續性氣喘	氣喘			condition	runs	type
+zh	中度至重度氣喘	氣喘			condition	runs	severity
+zh	經肺功能檢查確認之氣喘	氣喘			condition	runs	method
+zh	符合2010年ACR/EULAR分類標準之類風濕性關節炎	類風濕性關節炎			condition	runs	criteria
+zh	活動性類風濕性關節炎	類風濕性關節炎			condition	runs	status
+zh	經組織學確診之乳癌	乳癌			condition	runs	method
+zh	第II至III期乳癌	乳癌			condition	runs	stage
+zh	HER2陽性乳癌	乳癌			condition	runs	type
+zh	轉移性乳癌	乳癌			condition	runs	stage
+zh	左側乳癌	乳癌			condition	runs	laterality
+zh	經細胞學或組織學確診之非小細胞肺癌	非小細胞肺癌			condition	runs	method
+zh	晚期肺癌	肺癌			condition	runs	stage
+zh	慢性B型肝炎	慢性B型肝炎			condition	runs	plain
+zh	HBsAg陽性之慢性B型肝炎6個月以上	慢性B型肝炎			condition	runs	measure
+zh	基因型1之慢性C型肝炎	慢性C型肝炎			condition	runs	type
+zh	确诊HIV-1感染	HIV-1感染			condition	runs	frame
+zh	陣發性心房顫動	心房顫動			condition	runs	type
+zh	經心電圖記錄之心房顫動	心房顫動			condition	runs	method
+zh	左心室射出分率≤40%之心衰竭	心衰竭			condition	runs	measure
+zh	NYHA第II至III級心衰竭	心衰竭			condition	runs	stage
+zh	侵犯迴腸之克隆氏症	克隆氏症			condition	runs	site
+zh	中度至重度活動性克隆氏症	克隆氏症			condition	runs	severity
+zh	斑塊型乾癬，體表面積≥10%	乾癬			condition	runs	measure
+zh	局部性癲癇	癲癇			condition	runs	type
+zh	藥物難治型癲癇	癲癇			condition	runs	type
+zh	有先兆之偏頭痛	偏頭痛			condition	runs	type
+zh	復發緩解型多發性硬化症	多發性硬化症			condition	runs	type
+zh	活動性肺結核	結核			condition	runs	site
+zh	經RT-PCR確認之COVID-19	COVID-19			condition	runs	method
+zh	停經後骨質疏鬆症	骨質疏鬆症			condition	runs	type
+zh	T值≤-2.5之骨質疏鬆症	骨質疏鬆症			condition	runs	measure
+zh	去勢抗性前列腺癌	前列腺癌			condition	runs	type
+zh	合併肝轉移之大腸癌	大腸癌			condition	runs	site
+zh	正在服用二甲雙胍	二甲雙胍			medication	runs	drug
+zh	每日服用二甲雙胍1000毫克	二甲雙胍			medication	runs	drug
+zh	甲氨蝶呤穩定劑量至少8週	甲氨蝶呤			medication	runs	drug
+zh	目前接受胰島素治療	胰島素			medication	runs	drug
+zh	曾接受化學治療	化學治療			procedure	runs	history
+zh	曾接受至少一線化學治療	化學治療			procedure	runs	history
+zh	曾接受胸部放射治療	放射治療			procedure	runs	history
+zh	曾因大腸癌接受手術	手術		大腸癌	procedure	runs	history
+zh	腎臟移植受者	腎臟移植			procedure	runs	frame
+zh	規則接受血液透析3個月以上	血液透析			procedure	runs	duration
+zh	有氣喘病史	氣喘			condition	runs	history
+zh	心肌梗塞病史	心肌梗塞			condition	runs	history
+zh	第二型糖尿病。未懷孕。	第二型糖尿病			condition	runs	other_clause
+zh	高血壓，但無中風病史	高血壓		中風	condition	runs	other_clause
+zh	雙側膝骨關節炎	膝骨關節炎			condition	runs	laterality
+zh	右側結腸癌	結腸癌			condition	runs	laterality
+zh	第3級濾泡性淋巴瘤	濾泡性淋巴瘤			condition	runs	grade
+zh	新診斷之多發性骨髓瘤	多發性骨髓瘤			condition	runs	date
+zh	復發性膠質母細胞瘤	膠質母細胞瘤			condition	runs	type
+zh	經切片證實之第III或IV類狼瘡腎炎	狼瘡腎炎			condition	runs	method
+zh	症狀性心衰竭	心衰竭			condition	runs	severity
+zh	控制不佳之高血壓	高血壓			condition	runs	severity
+zh	年齡18至75歲之第二型糖尿病患者	第二型糖尿病			condition	runs	frame
+zh	新诊断的2型糖尿病	2型糖尿病			condition	runs	frame
