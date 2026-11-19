@@ -1,44 +1,315 @@
 {
-  "_what": "The Japan profile layer (plan 10, commitment C-7): data switched on by the site's country (JP, from site.tz). Card 10C-4 (D-1227) adds its committees part; 10C-25 gathers the other parts here. Each rule and source is the project's reading of the public text named, to be confirmed by the first site's trial office; what is recorded here is not the complete set of a site's requirements (see 'elsewhere').",
+  "format": "tb-country-layer/1",
+  "_what": "The Japan profile layer (plan 10, commitment C-7, card 10C-25, D-1250): the one description of what a site in Japan gets. The site's country (JP: tb_common.derived.country_of, the same reading the site profile is checked against, D-1233) turns it on; every behaviour reads its part here (tb_common.country_layer). Parts P1 to P16 are review 11 section 8's. A part 'declared, not built' carries no values: the card that builds it adds them here. Each rule and source is the project's reading of the public text named, to be confirmed by the first site's trial office; what is recorded here is not the complete set of a site's requirements (see 'elsewhere').",
   "country": "JP",
-  "committees": {
-    "study_kinds": {
-      "chiken": {
-        "committee": "irb",
-        "needs": [
-          "approval",
-          "permission"
-        ],
-        "source": "GCP省令 (平成9年厚生省令第28号) 第27条 (the IRB), 第32条 (its review): the IRB's opinion before the trial. Article numbers as read 2026-11-18, not re-verified",
-        "elsewhere": "Also needed, not recorded here (the site's own): the trial contract (GCP省令 第13条). To be confirmed by the site's trial office",
-        "permission_is": "実施医療機関の長の指示・決定 (the head of the institution's decision after the IRB), GCP省令 第27条, 統一書式5"
+  "version": "1.0.0",
+  "parts": {
+    "P1": {
+      "name": "Legal pack",
+      "kind": "document",
+      "state": "partly built",
+      "cards": [
+        "10C-2",
+        "10C-3"
+      ],
+      "decisions": [
+        "D-138",
+        "D-1238"
+      ],
+      "values": {
+        "retention_rules": "jp"
       },
-      "tokutei": {
-        "committee": "crb",
-        "needs": [
-          "approval",
-          "permission"
-        ],
-        "source": "臨床研究法 (平成29年法律第16号) 第5条 (実施計画 with the CRB's opinion), 第23条 (certified committees). Article numbers as read 2026-11-18, not re-verified",
-        "elsewhere": "Also needed, not recorded here (the site's own): the 実施計画 submitted to the Minister and published in jRCT (臨床研究法 第5条). To be confirmed by the site's trial office",
-        "permission_is": "実施医療機関の管理者の承認 (the administrator's approval after the CRB), 臨床研究法施行規則"
-      },
-      "shishin": {
-        "committee": "ethics",
-        "needs": [
-          "approval",
-          "permission"
-        ],
-        "source": "人を対象とする生命科学・医学系研究に関する倫理指針 第6 (研究計画書に関する手続): the 研究機関の長's permission after the 倫理審査委員会's review; 一括審査 for multicentre research (article numbers as read 2026-11-18, not verified against the 2026 consolidated text)",
-        "elsewhere": "Not recorded here: an external ethics committee is not always under a contract (the 指針 asks for the committee's procedures, not a contract); the no_contract warning is the project's reading. To be confirmed by the site's trial office",
-        "permission_is": "研究機関の長の許可 (実施許可, the head of the research institution's permission after the ethics committee), 生命・医学系指針 第6"
-      }
+      "readers": [
+        "tb_common.site_country:TABLE"
+      ],
+      "not_built": "the 利用目的 line, the 指針 2026 opt-out template, the study-kind memo, the PPC leak path (10C-2, waits for decision 21); the access rule is proposed to lane C2 (10C-3, D-1238)"
     },
-    "committee_kinds": [
-      "irb",
-      "crb",
-      "ethics"
-    ]
+    "P2": {
+      "name": "Study kinds",
+      "kind": "behaviour",
+      "state": "partly built",
+      "cards": [
+        "10C-4",
+        "10C-6",
+        "10C-17",
+        "10C-21"
+      ],
+      "decisions": [
+        "D-277",
+        "D-766",
+        "D-1227"
+      ],
+      "values": {
+        "sae_rule_set": "jp_gcp_ii"
+      },
+      "readers": [
+        "datacore.lifecycle:country_default"
+      ],
+      "not_built": "each kind's words (10C-6), forms (10C-17) and registry (10C-21)"
+    },
+    "P3": {
+      "name": "Committees",
+      "kind": "behaviour",
+      "state": "built",
+      "cards": [
+        "10C-4"
+      ],
+      "decisions": [
+        "D-1227"
+      ],
+      "values": {
+        "committees": {
+          "study_kinds": {
+            "chiken": {
+              "committee": "irb",
+              "needs": [
+                "approval",
+                "permission"
+              ],
+              "source": "GCP省令 (平成9年厚生省令第28号) 第27条 (the IRB), 第32条 (its review): the IRB's opinion before the trial. Article numbers as read 2026-11-18, not re-verified",
+              "elsewhere": "Also needed, not recorded here (the site's own): the trial contract (GCP省令 第13条). To be confirmed by the site's trial office",
+              "permission_is": "実施医療機関の長の指示・決定 (the head of the institution's decision after the IRB), GCP省令 第27条, 統一書式5"
+            },
+            "tokutei": {
+              "committee": "crb",
+              "needs": [
+                "approval",
+                "permission"
+              ],
+              "source": "臨床研究法 (平成29年法律第16号) 第5条 (実施計画 with the CRB's opinion), 第23条 (certified committees). Article numbers as read 2026-11-18, not re-verified",
+              "elsewhere": "Also needed, not recorded here (the site's own): the 実施計画 submitted to the Minister and published in jRCT (臨床研究法 第5条). To be confirmed by the site's trial office",
+              "permission_is": "実施医療機関の管理者の承認 (the administrator's approval after the CRB), 臨床研究法施行規則"
+            },
+            "shishin": {
+              "committee": "ethics",
+              "needs": [
+                "approval",
+                "permission"
+              ],
+              "source": "人を対象とする生命科学・医学系研究に関する倫理指針 第6 (研究計画書に関する手続): the 研究機関の長's permission after the 倫理審査委員会's review; 一括審査 for multicentre research (article numbers as read 2026-11-18, not verified against the 2026 consolidated text)",
+              "elsewhere": "Not recorded here: an external ethics committee is not always under a contract (the 指針 asks for the committee's procedures, not a contract); the no_contract warning is the project's reading. To be confirmed by the site's trial office",
+              "permission_is": "研究機関の長の許可 (実施許可, the head of the research institution's permission after the ethics committee), 生命・医学系指針 第6"
+            }
+          },
+          "committee_kinds": [
+            "irb",
+            "crb",
+            "ethics"
+          ]
+        }
+      },
+      "readers": [
+        "tb_common.committees:on",
+        "tb_common.committees:profile"
+      ],
+      "open_questions": [
+        "Does the head-of-institution permission apply to all three Japanese study kinds? The layer keeps today's 'needs' (both records for every kind, the lane J lead's ruling of 2026-11-19).",
+        "Is a running study stopped when the Japan rule arrives? The layer keeps today's behaviour: a study open before the rule is marked before_rule and not held for a kind not chosen (D-1227)."
+      ]
+    },
+    "P4": {
+      "name": "Roles",
+      "kind": "behaviour",
+      "state": "declared, not built",
+      "cards": [
+        "10C-16",
+        "10C-3"
+      ],
+      "decisions": [],
+      "not_built": "治験事務局, 記録保存責任者, the CRC's employer: lane C2 decides (10C-16)"
+    },
+    "P5": {
+      "name": "Words",
+      "kind": "wording",
+      "state": "partly built",
+      "cards": [
+        "10C-5",
+        "10C-6",
+        "10C-7"
+      ],
+      "decisions": [
+        "D-1228"
+      ],
+      "values": {
+        "report_language": "ja"
+      },
+      "readers": [
+        "tb_common.site_country:TABLE"
+      ],
+      "everywhere": "On everywhere, not switched by country: the Japanese device-claims rule (D-1228) is a lint over the project's own Japanese texts, by their language",
+      "not_built": "the term set per study kind and the 治験参加者 switch (10C-6), the polite register (10C-7)"
+    },
+    "P6": {
+      "name": "Forms",
+      "kind": "document",
+      "state": "declared, not built",
+      "cards": [
+        "10C-17"
+      ],
+      "decisions": [],
+      "not_built": "統一書式-shaped prints (10C-17)"
+    },
+    "P7": {
+      "name": "Masters",
+      "kind": "behaviour",
+      "state": "partly built",
+      "cards": [
+        "10C-9",
+        "10C-20"
+      ],
+      "decisions": [
+        "D-137"
+      ],
+      "values": {
+        "ingredient_stems": true
+      },
+      "readers": [
+        "criteria_compiler.terminology.resolver:jp_ingredients"
+      ],
+      "everywhere": "On everywhere, not switched by country: the licensed MEDIS, JLAC10 and YJ releases are read from the terminology store (D-137) wherever a site loads them",
+      "not_built": "MEDIS modifiers as attributes (10C-9), JLAC11 (10C-20)"
+    },
+    "P8": {
+      "name": "Chart reading",
+      "kind": "behaviour",
+      "state": "partly built",
+      "cards": [
+        "10A-10",
+        "10C-10",
+        "10C-11",
+        "10C-12",
+        "10C-22",
+        "10C-23"
+      ],
+      "decisions": [],
+      "values": {
+        "egfr": "egfr_jsn"
+      },
+      "readers": [
+        "tb_common.derived:egfr_for_site"
+      ],
+      "not_built": "one ja cue table (10A-10), the abbreviation table (10C-11), the 保険病名 flag (10C-10), suspected-is-not-present by default (10C-12), the older-records boundary (10C-22), note sections (10C-23)"
+    },
+    "P9": {
+      "name": "Dates and calendar",
+      "kind": "behaviour",
+      "state": "partly built",
+      "cards": [
+        "10C-13",
+        "10C-14",
+        "10C-15"
+      ],
+      "decisions": [
+        "D-1229",
+        "D-1230"
+      ],
+      "values": {
+        "printed_dates": "both",
+        "year_basis": "fiscal",
+        "holiday_list": "holidays_jp.csv",
+        "new_year_break": "12-29/01-03"
+      },
+      "readers": [
+        "tb_common.site_country:TABLE",
+        "tb_common.workdays:holidays",
+        "tb_common.workdays:for_country"
+      ],
+      "not_built": "the PI's clinic days (no card)"
+    },
+    "P10": {
+      "name": "Privacy guard",
+      "kind": "behaviour",
+      "state": "built",
+      "cards": [
+        "10C-1"
+      ],
+      "decisions": [],
+      "everywhere": "On everywhere, not switched by country: the guard's Japanese rules (10C-1) are keyed by the characters of the text and run at every site"
+    },
+    "P11": {
+      "name": "Patient approach",
+      "kind": "behaviour",
+      "state": "partly built",
+      "cards": [
+        "10C-19",
+        "10C-18",
+        "10C-8"
+      ],
+      "decisions": [
+        "D-1232"
+      ],
+      "values": {
+        "consent_proxy": true
+      },
+      "readers": [
+        "tb_common.site_country:TABLE"
+      ],
+      "not_built": "approach outcomes (10C-18), letters through the 主治医 (10C-8)",
+      "open_questions": [
+        "What does a missing assent do? The layer keeps today's behaviour: a minor's record without assent warns (D-1232)."
+      ]
+    },
+    "P12": {
+      "name": "Money",
+      "kind": "behaviour",
+      "state": "declared, not built",
+      "cards": [],
+      "decisions": [],
+      "not_built": "負担軽減費 per visit and the 医事課 list: no card in plan 10"
+    },
+    "P13": {
+      "name": "Registries",
+      "kind": "behaviour",
+      "state": "declared, not built",
+      "cards": [
+        "10C-21"
+      ],
+      "decisions": [],
+      "not_built": "jRCT and UMIN-CTR loaders (10C-21)"
+    },
+    "P14": {
+      "name": "Interoperability",
+      "kind": "behaviour",
+      "state": "partly built",
+      "cards": [
+        "10C-20",
+        "10B-1",
+        "10B-2"
+      ],
+      "decisions": [
+        "D-1233"
+      ],
+      "values": {
+        "data_source_type": "ssmix2",
+        "mapping": "mapping/jp_core/ssmix2_site.yaml",
+        "one_zone": true
+      },
+      "readers": [
+        "tb_common.site_country:TABLE"
+      ],
+      "not_built": "JP Core 1.2.0 and JP-CLINS (10C-20)"
+    },
+    "P15": {
+      "name": "Procurement and security",
+      "kind": "document",
+      "state": "declared, not built",
+      "cards": [
+        "10G-13"
+      ],
+      "decisions": [],
+      "not_built": "the Japanese vendor pack (10G-13)"
+    },
+    "P16": {
+      "name": "Accessibility and type",
+      "kind": "document",
+      "state": "partly built",
+      "cards": [
+        "10F-8"
+      ],
+      "decisions": [],
+      "everywhere": "On everywhere, not switched by country: the CJK layout rules apply to every page in ja, by its language",
+      "not_built": "the JIS X 8341-3 statement (10F-8)"
+    }
   },
-  "_ruling": "Each kind needs both records to open: the committee's approval and the site's head-of-institution record (permission_is). The lane J lead's ruling of 2026-11-19, following the card, until the owner says otherwise: to change it, edit 'needs' (one line per kind)."
+  "_ruling": "Each kind needs both records to open: the committee's approval and the site's head-of-institution record (permission_is). The lane J lead's ruling of 2026-11-19, following the card, until the owner says otherwise: to change it, edit parts.P3.values.committees 'needs' (one line per kind)."
 }

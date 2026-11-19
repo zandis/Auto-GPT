@@ -62,7 +62,8 @@ def test_ssmix2_reader_reads_the_prb13_flag_and_the_name_modifier(tmp_path: Path
         _storage(tmp_path, "10000001", f"D{n}", ["PV1||O", prb])
     rows = list(Ssmix2Source(tmp_path, licensed=EMPTY).rows("diagnosis", "diagnosis", None, None))
     got = {r["diag_no"]: r["suspected"] for r in rows}
-    assert got == {"D1": "Y", "D2": "Y", "D3": "", "D4": ""}
+    # D-1252: a JHSD0005 "0" is not a value of the published code table (表95: only "1 疑いあり"): unknown, not confirmed
+    assert got == {"D1": "Y", "D2": "Y", "D3": "", "D4": "U"}
 
 
 def test_mapping_writes_provisional_only_for_a_suspected_diagnosis() -> None:

@@ -409,6 +409,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             err=err if err in ERRORS else "",
         )
 
+    def country_card() -> dict[str, Any] | None:
+        from console.country_profile import card
+
+        return card(h.bk)
+
     @app.get("/data-ops/batches/{bid}", response_class=HTMLResponse)
     def dataops_batch(request: Request, bid: int) -> Response:
         sess = guard(request, VIEW)
@@ -425,6 +430,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             unmapped=unmapped_of(b.detail),
             ids=ids_of(b.detail),  # D-1253
             profile=site_profile_of(b.detail),  # 10B-6 (D-1233)
+            layer=country_card() if site_profile_of(b.detail) else None,  # 10C-25 (D-1250): the country layer's lines
             may_decide=permit(sess.user.role, DECIDE),
             can_accept=read(ops.can_publish),  # NEW-ARCH-3: the orchestrator says whether an accept can publish
         )

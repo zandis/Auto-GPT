@@ -190,6 +190,7 @@ class QClient(LlmClient):
                 "alias": str(tb.get("alias") or ""),
                 "build_id": str(tb.get("build_id") or ""),
                 "build_sha": str(tb.get("build_sha") or ""),
+                "thinking_control": tb.get("thinking_control"),
                 "cache": str(tb.get("cache") or ""),
                 "finish": str((payload.get("choices") or [{}])[0].get("finish_reason") or ""),
                 "in": int(usage.get("prompt_tokens") or 0),
@@ -421,6 +422,14 @@ def step_pin(ctx: Ctx) -> StepResult:
             problems.append(f"the {role} answer came from build {c['build_id'] or '?'}, not {b.build_id}")
         if ctx.opts.profile != "ci" and c["build_sha"] != b.weights_sha256:
             problems.append(f"the {role} answer carries build sha {c['build_sha'][:16]}, not the pinned weights")
+        if (
+            c["build_id"] == b.build_id
+            and (ctx.opts.profile == "ci" or c["build_sha"] == b.weights_sha256)
+            and c["cache"] != "hit"
+            and c["thinking_control"] == "thinking_only"
+        ):
+            # The build that answered declares it can only run with thinking enabled.
+            detail[role]["thinking_mode"] = "on"
     detail["answer_build_sha"] = seen
     return bad("; ".join(problems), detail) if problems else ok(detail)
 
@@ -1267,6 +1276,7 @@ def qualify(opts: Options, target: Target | None = None, *, steps: tuple[str, ..
         results = _run_steps(opts, tgt, builds, work, steps or STEPS)
         serving = results.pop("_serving", {})
     head, _ = git_head()
+    pin = results.get("pin") or {}
     doc: dict[str, Any] = {
         "format": RECORD_FORMAT,
         "record_id": f"{opts.profile}-{builds['judge'].build_id}-{started.strftime('%Y%m%dT%H%M%SZ')}",
@@ -1294,6 +1304,10 @@ def qualify(opts: Options, target: Target | None = None, *, steps: tuple[str, ..
         "steps": results,
         "change_protocol": change_protocol(opts.change),
     }
+    if pin.get("status") == "passed":
+        for role, build in doc["builds"].items():
+            if (pin.get("detail", {}).get(role) or {}).get("thinking_mode") == "on":
+                build["thinking_mode"] = "on"
     return finalize(doc)
 
 
