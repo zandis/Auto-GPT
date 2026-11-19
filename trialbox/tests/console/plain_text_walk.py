@@ -47,6 +47,9 @@ FIXTURE_DATA = frozenset(
         "Identified pre-screening across departments by the investigator before referral",
         # the test box's account names (tests.console.test_role_route_matrix.COLUMNS)
         "admin", "crc", "pi", "lpi", "smo", "cra", "viewer", "stw", "dpo",
+        # the test box's environment label (the footer keeps it: a person sees this is a test box), an example study
+        # code, two example doctor ids of a form's placeholder
+        "TEST", "GZQO-DEMO", "P12345", "P23456",
     }
 )  # fmt: skip
 #: the language names of the language switch, written in their own language on every page
@@ -60,6 +63,7 @@ _DATA = re.compile(
     r"|[\w.+-]+@[\w.-]+"  # an e-mail address
     r"|…[0-9A-Z]{4,26}|(?=[0-9A-Z]*\d)[0-9A-HJKMNP-TV-Z]{26}"  # an id cut short, an id
     r"|[A-Z]"  # a key of the keyboard (an access key)
+    r"|#\d+"  # an entry's number
     r"|[^\w\s]+"  # punctuation and symbols only
 )
 
@@ -116,11 +120,29 @@ def _fixture_words() -> frozenset[str]:
     return FIXTURE_DATA | frozenset(w for v in FIXTURE_DATA for w in v.split())
 
 
+PINNED = "\ue002"
+
+
+def pin(monkeypatch: pytest.MonkeyPatch, keys: Iterable[str]) -> None:
+    """Each of ``keys`` shows as a mark of its own in every language: a page that still shows the key's old words (a
+    word a later card must not bring back on a clinical page) is found by :func:`problems`."""
+    from console.i18n import CATALOGUES
+
+    for cat in CATALOGUES.values():
+        for key in keys:
+            assert key in cat, key
+            monkeypatch.setitem(cat, key, f"{PINNED}{key}{PINNED}")
+
+
 def problems(text: str) -> list[str]:
     """What ``text`` (one visible text, marked) shows that is neither plain catalogue text nor a data value."""
-    out: list[str] = []
+    out: list[str] = [f"the pinned key {k!r} is shown" for k in re.findall(f"{PINNED}(.*?){PINNED}", text)]
+    text = re.sub(f"{PINNED}.*?{PINNED}", " ", text)
     for m in re.finditer(f"{OPEN}(.*?){CLOSE}", text, re.S):
-        for code in _CODE.findall(m.group(1)):
+        words = m.group(1)
+        for value in sorted(FIXTURE_DATA, key=len, reverse=True):  # a data value a catalogue text names (a study code)
+            words = words.replace(value, " ")
+        for code in _CODE.findall(words):
             if code not in ACRONYMS and code not in FIXTURE_DATA:
                 out.append(f"code {code!r} in catalogue text {unmark(text)[:120]!r}")
     rest = re.sub(f"{OPEN}.*?{CLOSE}", " ", text, flags=re.S)
@@ -137,9 +159,21 @@ WALK_SKIP = re.compile(
 )
 
 
-def walk(client: Any, seeds: Iterable[str] = ("/home",), depth: int = 2, limit: int = 150) -> dict[str, list[str]]:
+#: the one named exception (Q3 of the J-7 checkpoint): on the study set-up page, the codes a person types into the
+#: EDC mapping are shown in code style (``<code>``) and read as data values: "type this"
+TYPED_CODES = re.compile(r"^/studies/[^/]+/setup$")
+
+
+def walk(
+    client: Any,
+    seeds: Iterable[str] = ("/home",),
+    depth: int = 2,
+    limit: int = 150,
+    skip: re.Pattern[str] | None = None,
+    every_page: str = "",
+) -> dict[str, list[str]]:
     """Every page reached from ``seeds`` by the links of the pages (``depth`` links deep, at most ``limit`` pages, each
-    once), with what each shows that it may not."""
+    once, none that ``skip`` matches), with what each shows that it may not; ``every_page`` must be on each."""
     out: dict[str, list[str]] = {}
     queue = [(s, 0) for s in seeds]
     seen = {s for s in seeds}
@@ -148,13 +182,18 @@ def walk(client: Any, seeds: Iterable[str] = ("/home",), depth: int = 2, limit: 
         r = client.get(path)
         if r.status_code != 200 or "text/html" not in r.headers.get("content-type", ""):
             continue
-        found = sorted({p for t in visible(r.text) for p in problems(t)})
+        text = r.text
+        if TYPED_CODES.match(urlsplit(path).path):
+            text = re.sub(r"<code>[^<]*</code>", "", text)
+        found = sorted({p for t in visible(text) for p in problems(t)})
+        if every_page and every_page not in r.text:
+            found.append(f"{every_page!r} is not on the page")
         out[path] = found
         if d >= depth:
             continue
         for href in re.findall(r'<a [^>]*href="(/[^"#]*)"', r.text):
             href = html.unescape(href)
-            if WALK_SKIP.search(href) or href in seen or urlsplit(href).path.startswith("//"):
+            if WALK_SKIP.search(href) or (skip and skip.search(href)) or href in seen or href.startswith("//"):
                 continue
             seen.add(href)
             queue.append((href, d + 1))

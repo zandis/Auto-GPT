@@ -5,7 +5,15 @@ or variable name on a clinical page, behind the flag ``layout.plain_menu``.
 * the flag is declared, off by default, described in three languages, read with the other layout flags in one read;
 * one name per page: for every menu entry of every role, on the opening page and on a study page, in en, ja and
   zh-TW, the menu's label, the page's title and its main heading are the same words (the study code and other data
-  segments set aside).
+  segments set aside);
+* the pruned menu: each role's top bar and "More" as the checkpoint ruled, the steward's bar at four, nothing twice;
+  nothing that leaves "More" becomes unreachable by clicks; each new link is shown exactly where its page answers 200
+  and offers the account its action; the cascade only where the site drop is mounted;
+* the clinical pages (R22), decided by an allow-list (``plain_text_walk.py``) in three languages, with the test-site
+  banner on each and the hand-fixed keys pinned;
+* the flag off: every page byte for byte the page without this card's parts; the flag on: every route answers every
+  role as the committed tables say (the role-by-route matrix and the V-2 walk, signed out included); every
+  combination with the other three layout flags.
 
 Synthetic data only (the test box's study GZQO)."""
 
@@ -14,6 +22,7 @@ from __future__ import annotations
 import html
 import re
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -368,3 +377,229 @@ def test_each_new_link_is_shown_exactly_when_its_page_opens_for_the_account(box:
         page, _, _ = clients[col]
         for where, testid, _target in NEW_LINKS:
             assert f'data-testid="{testid}"' not in page.get(where).text, (col, where)
+
+
+# ------------------------------------------------------------------------------------------- the clinical pages (R22)
+#: the clinical roles' columns of the matrix (the coordinator, a study-scoped coordinator, the investigator logged and
+#: not, the viewer)
+CLINICAL_COLUMNS = ("crc", "smo", "lpi", "pi", "viewer")
+#: where a clinical person's walk starts: the opening page, the menu's lists and the study's pages
+SEEDS = ("/home", "/week", "/reports", "/pilot/registry", "/jobs", f"/studies/{RS}/week",
+         f"/studies/{RS}/feasibility", f"/studies/{RS}/subjects", f"/studies/{RS}/setup", f"/studies/{RS}/team",
+         "/sae")  # fmt: skip
+#: a run's own page keeps its job id and type code: the record a person reports a problem by (the card's point 4),
+#: the administrator's page; a clinical person reaches it from the list of runs and is not walked into it
+RUN_RECORD = re.compile(r"^/pilot/jobs/")
+#: the keys whose old words were fixed by hand (plain-English jargon the allow-list cannot see, and job words): with
+#: the flag on no clinical page shows one of them, so a later card cannot bring the old word back (ruling e)
+PINNED_KEYS = ("col.ruleset", "col.job", "reports.run", "week.meta", "feas.meta", "request.feas", "request.screen",
+               "request.free.help", "request.version", "request.no_rulesets", "registry.help", "registry.promote",
+               "registry.promote.help", "registry.source.screen", "registry.source.case", "case.title", "case.help",
+               "consent.help", "protocol.help", "protocol.ruleset", "nav.case", "nav.jobs", "jobs.title",
+               "wb.crc.title", "footer", "sae.no_mailbox", "feas.ct.none.unset", "feas.ct.none.unknown",
+               "rc.sf_map.help")  # fmt: skip
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_a_clinical_page_shows_only_catalogue_text_and_data_values(
+    box: dict[str, Any], lang: str, monkeypatch: pytest.MonkeyPatch
+) -> None:  # fmt: skip
+    """R22, decided by an allow-list (``tests/console/plain_text_walk.py``): every page a clinical role reaches by
+    links from its opening page, its menu and the study's pages, in each language, with the flag on, shows only
+    catalogue text with no identifier-shaped word and data values; none shows a pinned key's old words; each carries
+    the test-site banner (ruling a)."""
+    from tests.console import plain_text_walk as w
+
+    _done_feas(box["backend"])
+    _done_screen(box["backend"], _ulid(990))
+    clients = _clients(box)
+    _flag(box, "on")
+    w.mark_catalogues(monkeypatch)
+    w.pin(monkeypatch, PINNED_KEYS)
+    found, pages = [], 0
+    for col in CLINICAL_COLUMNS:
+        page, csrf, _ = clients[col]
+        _lang(page, csrf, lang)
+        walked = w.walk(page, SEEDS, depth=2, limit=120, skip=RUN_RECORD, every_page='data-testid="banner"')
+        pages += len(walked)
+        found += [f"{col} {p}: {x}" for p, xs in walked.items() for x in xs]
+    assert pages > 100, pages  # the walk reached the clinical pages
+    assert not found, "\n".join(sorted(set(found)))
+
+
+# ------------------------------------------------------------------------------------------- the flag off
+#: the pages compared byte for byte with the flag off (each role's opening page, its lists, the study's pages, the
+#: pages whose words or links this card changes)
+OFF_PAGES = ("/home", "/week", "/reports", "/pilot/registry", f"/pilot/registry/{RS}", "/jobs", f"/studies/{RS}/week",
+             f"/studies/{RS}/feasibility", f"/studies/{RS}/cohort", f"/studies/{RS}/setup", f"/studies/{RS}/team",
+             f"/studies/{RS}/irb", "/sae", "/pilot/request", "/pilot/case", "/pilot/consent", "/pilot/protocol",
+             "/pilot/cascade", "/account", "/site", "/breakglass", "/site/opt-outs", "/ops/flags")  # fmt: skip
+#: (the audit trail is left out: it lists the page views themselves, so no two renders are alike)
+
+
+def without_j7(text: str) -> str:
+    """A template as it was before this card: every J-7 part (between ``{#J7#}`` and ``{#/J7#}``) taken out and each
+    ``tp(`` read as ``t(``."""
+    return re.sub(r"\{#J7#\}.*?\{#/J7#\}", "", text, flags=re.S).replace("tp(", "t(")
+
+
+def test_with_the_flag_off_every_page_is_byte_for_byte_the_page_without_this_card(
+    box: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:  # fmt: skip
+    """Every page is rendered twice with the flag off: from the console's templates, and from the same templates with
+    every J-7 part taken out (:func:`without_j7`). The two are the same, byte for byte, for every role of the matrix,
+    in three languages."""
+    import jinja2
+
+    form = ["with"]
+    real = jinja2.FileSystemLoader.get_source
+
+    def source(self: Any, env: Any, name: str) -> Any:
+        text, path, _uptodate = real(self, env, name)
+        if form[0] == "without":
+            text = without_j7(text)
+        return text, path, lambda: False  # never kept: each render reads the form asked for
+
+    monkeypatch.setattr(jinja2.FileSystemLoader, "get_source", source)
+    _done_feas(box["backend"])
+    _done_screen(box["backend"], _ulid(990))
+    clients = _clients(box)
+    _flag(box, "off")
+    compared = 0
+    for col in COLUMNS:
+        page, csrf, _ = clients[col]
+        for lang in LANGS:
+            _lang(page, csrf, lang)
+            for p in OFF_PAGES:
+                if col == "admin" and p == "/home":  # the administrator's home shows live figures
+                    continue
+                got = {}
+                for f in ("with", "without"):  # one after the other: nothing happens between the two
+                    form[0] = f
+                    got[f] = re.sub(r'name="csrf" value="[^"]+"', "", page.get(p).text)
+                assert got["with"] == got["without"], (col, lang, p)
+                assert 'data-plain="on"' not in got["with"], (col, lang, p)
+                compared += 1
+        _lang(page, csrf, "en")
+    assert compared == len(COLUMNS) * len(LANGS) * len(OFF_PAGES) - len(LANGS)
+    templates = Path(__file__).parents[2] / "services/console/templates"
+    assert "{#J7#}" in (templates / "_nav.html").read_text("utf-8")  # the test reads the parts it takes out
+    assert "{#J7#}" not in without_j7((templates / "_nav.html").read_text("utf-8"))
+
+
+# ------------------------------------------------------------------------------------------- no route answers otherwise
+def test_with_the_flag_on_every_role_gets_every_route_s_answer_of_the_committed_table(box: dict[str, Any]) -> None:
+    """A menu is not a permission. With the flag on, the role-by-route walk (``test_role_route_matrix``: every route,
+    every column of the matrix, GET and the changing methods) equals the committed table
+    ``tests/console/data/role_route_matrix.md``, which equals the walk on master with the flag off."""
+    from tests.console import test_role_route_matrix as rrm
+
+    _flag(box, "on")
+    walked = rrm.walk(box)
+    assert phone.read_now()[FLAG]  # still on at the end of the walk
+    have = rrm.parse(rrm.render(walked))
+    want = rrm.parse(rrm.TABLE.read_text(encoding="utf-8"))
+    diff = [f"{k}: table {want.get(k)} walk {have.get(k)}" for k in sorted(set(want) | set(have))
+            if want.get(k) != have.get(k)]  # fmt: skip
+    assert not diff, "\n".join(diff)
+    pairs = sum(len(c) for c in have.values())
+    assert pairs == len(have) * len(rrm.COLUMNS) and len(have) > 150
+    print(f"role-route matrix with {FLAG} on: {len(have)} routes x {len(rrm.COLUMNS)} columns = {pairs} pairs")
+
+
+def test_with_the_flag_on_the_role_walk_answers_every_route_as_its_declared_row(
+    box: dict[str, Any], tmp_path: Path
+) -> None:  # fmt: skip
+    """The walk of card V-2 (every route as every column: the roles, signed out, in- and out-of-scope accounts, the
+    PI, a sub-investigator, a monitor grant) with the flag on: every route answers every column as its declared row,
+    and no role without patient rows sees a seeded pseudonym."""
+    from tests.console import test_matrix_role_walk as mw
+    from tools import role_walk as rw
+
+    _flag(box, "on")
+    rows = rw.judge_declared(mw.run_walk(box, tmp_path), rw.load_declared())
+    assert phone.read_now()[FLAG]
+    mw.test_every_console_route_answers_every_column_as_its_declared_row(rows)
+    cells = sum(len(r["cells"]) for r in rows)
+    print(f"role walk (V-2) with {FLAG} on: {len(rows)} routes, {cells} (column, route) answers judged")
+
+
+# ------------------------------------------------------------------------------------------- with the other layout flags
+OTHERS = ("layout.phone_first", "layout.people_lists", "layout.home_today")
+
+
+def _set(b: dict[str, Any], name: str, value: str) -> None:
+    from console import people_lists
+
+    fl.clear_cache()
+    if fl.Flags().row(name) != value:
+        fl.Flags(audit=b["audit"]).set(name, value, actor="console:admin", reason="J-7 test (D-1251)")
+    fl.clear_cache()
+    phone.clear_cache()
+    phone.read_now()
+    people_lists.clear_cache()
+    people_lists.flag_on()
+
+
+@pytest.mark.parametrize("plain", ["on", "off"])
+def test_the_flag_reads_with_the_other_layout_flags_in_every_combination(
+    box: dict[str, Any], plain: str, monkeypatch: pytest.MonkeyPatch
+) -> None:  # fmt: skip
+    """The three other layout flags change what a phone shows first (D-1222), the lists of people (D-1223) and the
+    opening page (D-1225); this one prunes the menu and plain words. For every combination of the three, with this
+    flag on and off, every role's opening page and study page answer as before, the menu lists nothing twice and no
+    top bar holds more than four entries. With this flag on: no "Overview" and no Admin tab under More, the lists of
+    people's entries where people_lists puts them, and the candidate registry under More where the top bar no longer
+    links it. With it off: the menu as each other flag makes it (no plain menu)."""
+    from console import people_lists
+
+    monkeypatch.setattr(people_lists, "flag_now", people_lists._flag.now)
+    _done_feas(box["backend"])
+    _done_screen(box["backend"], _ulid(990))
+    clients = _clients(box)
+    _set(box, FLAG, plain)
+    base = {col: {p: clients[col][0].get(p).status_code for p in MENU_PAGES} for col in COLUMNS}
+    for n in range(8):
+        values = {name: "on" if n >> i & 1 else "off" for i, name in enumerate(OTHERS)}
+        for name, value in values.items():
+            _set(box, name, value)
+        pl = values["layout.people_lists"] == "on"
+        for col in COLUMNS:
+            page, _, _ = clients[col]
+            for p in MENU_PAGES:
+                r = page.get(p)
+                assert r.status_code < 500, (values, col, p, r.status_code)
+                if p == "/home" and values["layout.home_today"] == "off":
+                    assert r.status_code == base[col][p], (values, col, p)
+                top, under = menu(r.text)
+                hrefs = _hrefs(top) + _hrefs(under)
+                assert len(top) <= (4 if plain == "on" or col != "steward" else 8), (values, col, top)
+                assert ('data-plain="on"' in r.text) == (plain == "on"), (values, col, p)
+                if plain == "off":
+                    continue
+                assert len(set(hrefs)) == len(hrefs), (values, col, p, hrefs)
+                assert "/" not in hrefs and not any(h.startswith("/admin?tab=") for h in hrefs), (values, col, p)
+                if col in ("crc", "lpi"):
+                    assert ("/people/candidates" in _hrefs(top)) == pl, (values, col, p)
+                    assert ("/pilot/registry" in _hrefs(under)) == pl, (values, col, p)
+    for name in OTHERS:
+        _set(box, name, "off")
+
+
+def test_every_plain_key_exists_in_three_languages_and_the_swap_follows_the_flag_and_the_role(
+    box: dict[str, Any],
+) -> None:  # the box: the pages that join their own words (the flags page, the SAE pages) are registered
+    from console import i18n_plain, plain_menu
+    from console.i18n import CATALOGUES
+
+    assert set(i18n_plain.EN) == set(i18n_plain.JA) == set(i18n_plain.ZH)
+    for old, new in (*plain_menu.SAME_FOR_ALL.items(), *plain_menu.CLINICAL_ONLY.items()):
+        for lang in LANGS:
+            assert CATALOGUES[lang].get(old) and CATALOGUES[lang].get(new), (lang, old, new)
+    for k in plain_menu.SAME_FOR_ALL:
+        assert plain_menu.key(False, "coordinator", k) == k  # off: the key itself, whoever reads
+        assert plain_menu.key(True, "admin", k) == plain_menu.SAME_FOR_ALL[k]
+    for k in plain_menu.CLINICAL_ONLY:
+        assert plain_menu.key(True, "admin", k) == k  # the administrator keeps the setting's name
+        for role in plain_menu.CLINICAL:
+            assert plain_menu.key(True, role, k) == plain_menu.CLINICAL_ONLY[k]
