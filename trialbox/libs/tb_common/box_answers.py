@@ -17,6 +17,7 @@ is a message key the console translates (``firstrun.err.<code>``).
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import asdict, dataclass
 from datetime import date
 from enum import StrEnum
@@ -153,18 +154,36 @@ def _s(raw: Any, limit: int = 200) -> str:
     return str(raw if raw is not None else "").strip()[:limit]
 
 
-# 10K-21 (D-1365): a staff member's name as deploy/.env, compose and the installer's shell read a value: one line,
-# no quote, no $, no backquote, no backslash and no # (any script's letters, spaces, dots, dashes and the like)
-_PERSON = re.compile(r"[^\x00-\x1f\x7f\"'`$\\#]{1,100}")
+# 10K-21 (D-1365): a staff member's name, written as one plain value in deploy/.env, which compose (it substitutes
+# $ and reads a leading quote), the Python readers (they split lines and strip) and the installer's shell all read.
+# An allow-list, not a deny-list: letters, combining marks and digits of any script (山田 太郎, 陳 大文, José Ñúñez),
+# single spaces between words (the ASCII or the ideographic space) and the few marks a name, or a role beside it,
+# holds. Everything else is refused: control characters (CR, LF, NUL, tab), the Unicode line and paragraph
+# separators, quotes, $, backquote, backslash, #, =, ;, &, |, <, >, braces and the like
+PERSON_MAX = 100
+_PERSON_MARKS = frozenset(".,-()/’・·")  # dot, comma, hyphen, brackets, slash, ’ (O’Brien), the two middle dots
+_PERSON_SPACES = frozenset(" 　")  # the ASCII space and the ideographic space
 
 
 def person_name(raw: Any) -> str | None:
-    """10K-21: a named person (operational contact data, never patient data). Empty: not answered. None: it cannot
-    be written as one plain value (a line break, a quote, ``$``, a backquote, a backslash, ``#``, or too long)."""
-    text = str(raw if raw is not None else "").strip()
+    """10K-21: a named person (operational contact data, never patient data). Empty: not answered. None: refused
+    (a character outside the allow-list above, two spaces in a row, or longer than ``PERSON_MAX``)."""
+    text = str(raw if raw is not None else "").strip(" 　")
     if not text:
         return ""
-    return text if _PERSON.fullmatch(text) else None
+    if len(text) > PERSON_MAX:
+        return None
+    prev_space = False
+    for ch in text:
+        if ch in _PERSON_SPACES:
+            if prev_space:
+                return None
+            prev_space = True
+        elif ch in _PERSON_MARKS or unicodedata.category(ch)[0] in "LMN":
+            prev_space = False
+        else:
+            return None
+    return text
 
 
 def confirmed_on(raw: Any, today: date | None = None) -> str | None:

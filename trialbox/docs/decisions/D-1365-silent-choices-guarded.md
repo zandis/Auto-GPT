@@ -43,6 +43,13 @@
     numbers are taken as written (another rule only on a box with no patient loaded); set
     `TB_BACKUP_ALERT_WATCHER`; set `TB_TLS_ROOT_CONFIRMED_BY` and `_ON` once IT has pushed the root. It PASSes
     outside PRODUCTION and says what is open.
+- **A typed name never adds or changes a setting (review of #1175).** The names a person types (the health page's
+  watcher, IT's confirmer) are checked where they enter, by an allow-list (`tb_common.box_answers.person_name`):
+  letters, marks and digits of any script, single spaces and `. , - ( ) / ’ ・ ·`, at most 100 characters; a line
+  break, a control character, a quote, `$`, a backquote, a backslash, `=` or `#` is refused. The `.env` writer
+  (`tools.settings_wizard.env_text`, used by `write`) refuses every value, typed or not, holding a control character
+  or a Unicode line break, or a leading or trailing space, and writes nothing then; `env_extra` applies the same to
+  each value and the name check to the name keys. No reader unescapes, so a value is refused, never escaped.
 - **Not in this card:** a console page or command to record IT's confirmation after the install (the next action is
   a line in `deploy/.env`); mail for the health page's watcher (a box has no mail agent, D-735).
 - **Held by:** `tests/unit/test_silent_choices_guarded.py` (the terminal wizard, the installer's block, the box plan,

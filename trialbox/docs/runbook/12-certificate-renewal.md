@@ -9,9 +9,7 @@
 
 **Internal CA** (`TB_TLS_MODE` not `hospital`). Caddy renews its own server certificate by itself; nothing to do. The
 root certificate on the staff PCs lasts for years; when Caddy makes a new root (the `caddy-data` volume was lost),
-hospital IT must push the new root to the PCs again (§12, TLS step 3). Record who in IT confirmed the root is on the
-PCs, and the day, as `TB_TLS_ROOT_CONFIRMED_BY` and `TB_TLS_ROOT_CONFIRMED_ON` (YYYY-MM-DD) in `deploy/.env` (the
-wizards ask it at set-up); `doctor` (`named_choices`) WARNs on a PRODUCTION box until both are there (D-1365).
+hospital IT must push the new root to the PCs again (§12, TLS step 3).
 
 **The hospital's certificate** (`TB_TLS_MODE=hospital`).
 
@@ -24,3 +22,8 @@ wizards ask it at set-up); `doctor` (`named_choices`) WARNs on a PRODUCTION box 
 4. `docker compose up -d --force-recreate caddy`. Open the console from a clinic PC: no warning; the browser shows
    the new end date.
 5. Delete the old key file. If the old key may have been copied, ask hospital IT to revoke the old certificate.
+
+**Internal CA: IT's confirmation (D-1365).** Record who in hospital IT confirmed Caddy's root is on the clinic PCs,
+and the day, as `TB_TLS_ROOT_CONFIRMED_BY` and `TB_TLS_ROOT_CONFIRMED_ON` (YYYY-MM-DD) in `deploy/.env` (the wizards
+ask it at set-up; the name follows the same rule as `TB_BACKUP_ALERT_WATCHER`, page 05). `doctor` (`named_choices`)
+WARNs on a PRODUCTION box until both are there.

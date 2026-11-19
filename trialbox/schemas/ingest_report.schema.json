@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/ingest_report.schema.json",
   "title": "IngestReport",
-  "description": "adapter ingest_report.json (SPEC 4.6). Schema version 1.5.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread).",
+  "description": "adapter ingest_report.json (SPEC 4.6). Schema version 1.6.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread; 1.6.0: connector).",
   "type": "object",
   "required": [
     "snapshot",
@@ -100,6 +100,13 @@
         }
       }
     },
+    "connector": {
+      "description": "10E-9 (review 13-10): how long the connector took per message (a CSV or SQL row, an SS-MIX2 message, a FHIR resource), per table and for the whole source: counts and times only, never a value of a row. Absent in a report written before 1.6.0",
+      "anyOf": [
+        {"$ref": "#/$defs/connector_report"},
+        {"type": "null"}
+      ]
+    },
     "omop": {
       "description": "the dual write of the night into the OMOP store of record (flag omop.dual_write, T-106, D-339); null when the flag is off or the night was held",
       "anyOf": [
@@ -113,6 +120,34 @@
     }
   },
   "$defs": {
+    "read_times": {
+      "title": "TableReadTimes",
+      "description": "10E-9: one table's (or the whole source's) read: messages, the connector's own seconds, the 95th percentile per message read from the histogram as its bucket's upper bound (null with no message, or when it falls above the last bound, which the histogram then shows), and the histogram by upper bound in milliseconds",
+      "type": "object",
+      "required": ["messages", "seconds", "p95_ms", "histogram"],
+      "additionalProperties": false,
+      "properties": {
+        "messages": {"type": "integer", "minimum": 0},
+        "seconds": {"type": "number", "minimum": 0},
+        "p95_ms": {"type": ["number", "null"]},
+        "histogram": {"type": "object", "additionalProperties": {"type": "integer"}}
+      }
+    },
+    "connector_report": {
+      "title": "ConnectorReport",
+      "description": "10E-9: the night's connector (the source kind), its whole read and each table's",
+      "type": "object",
+      "required": ["kind", "messages", "seconds", "p95_ms", "histogram", "tables"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"type": "string"},
+        "messages": {"type": "integer", "minimum": 0},
+        "seconds": {"type": "number", "minimum": 0},
+        "p95_ms": {"type": ["number", "null"]},
+        "histogram": {"type": "object", "additionalProperties": {"type": "integer"}},
+        "tables": {"type": "object", "additionalProperties": {"$ref": "#/$defs/read_times"}}
+      }
+    },
     "validation_summary": {
       "title": "ValidationSummary",
       "type": "object",

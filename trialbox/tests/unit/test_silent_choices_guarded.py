@@ -251,3 +251,114 @@ def test_a_site_with_the_answers_passes_and_says_them() -> None:
 def test_outside_production_the_check_passes_and_names_what_is_open() -> None:
     c = doctor.check_named_choices(doctor.DoctorInputs(env={**LEGACY_PROD, "TB_ENV": "VALIDATION"}))
     assert c.status == "PASS" and c.detail.startswith("VALIDATION: not required")
+
+
+# ---------------------------------------------------- review of #1175: a typed name never adds or changes a setting
+# The names an operator types (the health page's watcher, IT's confirmer) are checked at the boundary by an
+# allow-list (tb_common.box_answers.person_name), and the .env writer (settings_wizard.env_text) refuses any value
+# that would not read back as exactly one variable with exactly that value
+HOSTILE = {
+    "newline": "Dr Owner\nTB_ENV=DEV",
+    "crlf": "Dr Owner\r\nTB_ENV=DEV",
+    "line separator": "Dr Owner TB_ENV=DEV",
+    "next line (C1)": "Dr Owner\x85TB_ENV=DEV",
+    "nul": "Dr\x00Owner",
+    "tab": "Dr\tOwner",
+    "command substitution": "x $(id)",
+    "backticks": "x `id`",
+    "variable": "${TB_SERVICE_TOKEN}",
+    "double quotes": '"Dr Owner"',
+    "single quotes": "'Dr Owner'",
+    "trailing backslash": "Dr Owner\\",
+    "equals": "Dr=Owner",
+    "hash": "Dr #Owner",
+    "two spaces": "Dr  Owner",
+    "too long": "山" * 101,
+}
+NAMES = (
+    "山田 太郎",
+    "山田　太郎",
+    "ヤマダ・タロウ",
+    "陳 大文",
+    "José Ñúñez",
+    "O’Brien",
+    "Dr. Lin (IT), 3F",
+    "山" * 100,
+)
+
+
+def _read_back(text: str) -> tuple[dict[str, str], dict[str, str]]:
+    """The file as tb_common.config reads it (it unquotes) and as the tools read it (split on the first =)."""
+    from tb_common.config import _read_dotenv
+
+    f = Path(os.environ.get("TMPDIR", "/tmp")) / f"tb-k21-{os.getpid()}.env"
+    try:
+        f.write_text(text, encoding="utf-8")
+        config = _read_dotenv(f)
+    finally:
+        f.unlink(missing_ok=True)
+    tools = {}
+    for line in text.splitlines():
+        if "=" in line and not line.lstrip().startswith("#"):
+            k, _, v = line.partition("=")
+            tools[k.strip()] = v.strip()
+    return config, tools
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_a_name_in_any_script_is_written_and_reads_back_as_one_variable(name: str, tmp_path: Path) -> None:
+    from tb_common.box_answers import person_name
+
+    assert person_name(name) == name
+    env, _ = _build("PRODUCTION", tls_mode="internal", tls_root_confirmed_by=name,
+                    env_extra={**PAGE, "TB_BACKUP_ALERT_WATCHER": name})  # fmt: skip
+    text = settings_wizard.env_text(env)
+    for got in _read_back(text):
+        assert got == env  # every variable once, each with exactly its value: nothing added or changed
+        assert got["TB_BACKUP_ALERT_WATCHER"] == name and got["TB_TLS_ROOT_CONFIRMED_BY"] == name
+
+
+@pytest.mark.parametrize("case", sorted(HOSTILE))
+def test_a_hostile_name_is_refused_at_every_entry(case: str) -> None:
+    from tb_common.box_answers import person_name
+
+    from tests.unit.test_box_plan import OWNER
+
+    name = HOSTILE[case]
+    assert person_name(name) is None
+    with pytest.raises(settings_wizard.WizardError, match="TB_BACKUP_ALERT_WATCHER"):
+        _build("", env_extra={**PAGE, "TB_BACKUP_ALERT_WATCHER": name})  # the route or not: checked
+    with pytest.raises(settings_wizard.WizardError, match="TB_BACKUP_ALERT_WATCHER"):
+        _build("", env_extra={"TB_BACKUP_ALERT_WATCHER": name})
+    with pytest.raises(settings_wizard.WizardError, match="TB_TLS_ROOT_CONFIRMED_BY"):
+        _build("", env_extra={"TB_TLS_ROOT_CONFIRMED_BY": name})
+    with pytest.raises(settings_wizard.WizardError, match="tls_root_confirmed_by"):
+        _build("", tls_mode="internal", tls_root_confirmed_by=name)
+    for field in ("health_page_person", "tls_root_confirmed_by"):  # the box's first-run page
+        a, problems = parse(OWNER | {field: name}, disks=("/dev/sdb",))
+        assert a is None and (field, "person_name") in [(p.field, p.code) for p in problems]
+
+
+@pytest.mark.parametrize("value", ["a\nTB_ENV=DEV", "a\r\nTB_ENV=DEV", "a\rTB_ENV=DEV", "a\x00b", "a b",
+                                   "a\x1eb", "a\x85b", " a", "a "])  # fmt: skip
+def test_the_env_writer_refuses_what_would_not_read_back_as_written(value: str, tmp_path: Path) -> None:
+    with pytest.raises(settings_wizard.WizardError, match="TB_SITE_CONTACT_NOTE"):
+        settings_wizard.env_text({"TB_ENV": "PRODUCTION", "TB_SITE_CONTACT_NOTE": value})
+    with pytest.raises(settings_wizard.WizardError):
+        settings_wizard.env_text({"TB_X\nTB_ENV": "x"})
+    settings, env, _ = settings_wizard.build(_answers(), [REHEARSAL / "mapping"])
+    env["TB_CONSOLE_URL"] = value  # any operator-typed value, at the writer itself: nothing is written
+    with pytest.raises(settings_wizard.WizardError, match="nothing was written"):
+        settings_wizard.write(settings, env, tmp_path / "settings.yaml", tmp_path / ".env")
+    assert not (tmp_path / ".env").exists() and not (tmp_path / "settings.yaml").exists()
+    errors: list[str] = []
+    assert settings_wizard.env_extra({"TB_CONSOLE_URL": value}, errors) == {} and errors
+
+
+@pytest.mark.parametrize("value", ["x $(id)", "x `id`", "${TB_SERVICE_TOKEN}", '"q"', "a=b=c", "end\\", "#x"])
+def test_a_value_the_writer_takes_reads_back_exactly_by_the_tools(value: str) -> None:
+    """Values that are not names (a command, a passphrase) may hold these; the tools' reader gets them exactly and
+    no second variable appears. Names never get here (the allow-list above)."""
+    text = settings_wizard.env_text({"TB_ENV": "PRODUCTION", "TB_BACKUP_ALERT_CMD": value})
+    _config, tools = _read_back(text)
+    assert tools == {"TB_ENV": "PRODUCTION", "TB_BACKUP_ALERT_CMD": value}

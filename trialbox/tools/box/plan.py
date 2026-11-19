@@ -533,6 +533,8 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         env["TB_TLS_ROOT_CONFIRMED_BY"] = a.tls_root_confirmed_by
         env["TB_TLS_ROOT_CONFIRMED_ON"] = a.tls_root_confirmed_on
     env["TB_ENV"] = a.environment  # D-822: the owner's answer, PRODUCTION unless VALIDATION
+    if a.country and site_country.defaults(a.country).consent_proxy:
+        env["TB_CONSENT_PROXY"] = "on"  # 10C-19 (D-1232): the Japan profile: the representative and the assent
     wizard: dict[str, Any] = {
         "site_id": site_id(a.site_name),
         "site_name": a.site_name,

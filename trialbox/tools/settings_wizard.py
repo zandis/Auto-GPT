@@ -26,6 +26,7 @@ import os
 import re
 import secrets
 import sys
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -35,7 +36,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 for _p in ("libs", "services"):
     sys.path.insert(0, str(ROOT / _p))
-from tb_common import site_country  # noqa: E402 - libs is on the path only from here
+from tb_common import site_country, workdays  # noqa: E402 - libs is on the path only from here
 from tb_common.dates import PRINTED_STYLES, YEAR_BASES  # noqa: E402
 
 EXAMPLE = ROOT / "deploy" / "settings.example.yaml"
@@ -134,6 +135,9 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("tls_hostname", "Console DNS name for https (from hospital IT)", "", "str"),
     # D-736 (LIFE-007): told at once when a serious adverse event is entered (no AE term); a PRODUCTION install needs it
     ("sae_office_mailbox", "Trial office mailbox, told at once when a serious adverse event is entered", "", "str"),
+    # 10C-14 (JP-15): asked only for a country with a holiday list (Japan); the default is the country's 年末年始.
+    # More days off or days open: env_extra TB_DAYS_OFF and TB_DAYS_OPEN (tb_common.workdays)
+    ("new_year_break", "New Year break: the hospital's first and last day off (MM-DD/MM-DD, or none)", "", "str"),
     # OPS-060: the hospital's certificate is the first choice; Caddy's own CA needs its root on every clinic PC by
     # group policy and never works on a personal device
     (
@@ -302,6 +306,8 @@ def _asked(key: str, cd: site_country.CountryDefaults, out: dict[str, Any]) -> b
         return _no_rules(cd, out)
     if key == "tls_root_confirmed_by":  # 10K-21: Caddy's own CA only
         return str(out.get("tls_mode") or "").strip().lower() == "internal"
+    if key == "new_year_break":
+        return workdays.holidays(cd.country) is not None
     return True
 
 
@@ -340,6 +346,8 @@ def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input, *, enviro
         d = default if default is not None else base.get(key, "")
         if key in COUNTRY_KEYS and cd is not site_country.LEGACY:
             d = getattr(cd, COUNTRY_KEYS[key]) or ""
+        if key == "new_year_break":
+            d = new_year_default(cd.country)
         required = _required(key, cd, out, prod)
         if required:  # review of #1088, items 3 and 5: no default; Enter is not an answer here
             d = ""
@@ -620,6 +628,7 @@ def build(
     elif not sae_to:
         warnings.append("sae_office_mailbox is empty: nobody is mailed when a serious adverse event is entered; a "
                         "PRODUCTION install stops without it (D-736)")  # fmt: skip
+    break_env = new_year_env(cd.country, a.get("new_year_break"), errors)
     twpas = _bool(a.get("twpas_enabled", "no"))
     if twpas and "twpas_enabled" not in cd.insurer_questions:
         errors.append(f"TWPAS is Taiwan's National Health Insurance: not offered for country {cd.country}")
@@ -655,7 +664,10 @@ def build(
         elif v:
             dated[k] = v
     extra = env_extra(a.get("env_extra"), errors)
-    watcher_problem(extra, prod, errors, warnings)  # 10K-21
+    raw_extra = a.get("env_extra")
+    given: dict[str, Any] = raw_extra if isinstance(raw_extra, dict) else {}
+    refused = frozenset(k for k in NAME_KEYS if k in given and k not in extra)
+    watcher_problem(extra, prod, errors, warnings, refused)  # 10K-21
     if errors:
         raise WizardError("; ".join(errors))
     site_id = str(get("site_id")).upper()
@@ -774,8 +786,15 @@ def build(
     env.update(ssmix2_env)
     if sae_to:
         env["TB_SAE_OFFICE_MAILBOX"] = sae_to
+    env.update(break_env)
     env.update(extra)
     return settings, env, warnings
+
+
+NAME_KEYS = ("TB_BACKUP_ALERT_WATCHER", "TB_TLS_ROOT_CONFIRMED_BY")  # 10K-21: the people a site names in .env
+NAME_RULE = (  # 10K-21: tb_common.box_answers.person_name, said
+    "letters and digits of any script, single spaces, and . , - ( ) / ’ ・ · only; at most 100 characters"
+)
 
 
 def root_confirmation(a: dict[str, Any], errors: list[str], warnings: list[str]) -> dict[str, str]:
@@ -786,7 +805,7 @@ def root_confirmation(a: dict[str, Any], errors: list[str], warnings: list[str])
 
     by = person_name(a.get("tls_root_confirmed_by"))
     if by is None:
-        errors.append("tls_root_confirmed_by is not one plain name (one line; no quote, $, backquote, backslash or #)")
+        errors.append(f"tls_root_confirmed_by is not one plain name ({NAME_RULE})")
         return {}
     if not by:
         warnings.append(
@@ -802,7 +821,9 @@ def root_confirmation(a: dict[str, Any], errors: list[str], warnings: list[str])
     return {"TB_TLS_ROOT_CONFIRMED_BY": by, "TB_TLS_ROOT_CONFIRMED_ON": on}
 
 
-def watcher_problem(extra: dict[str, str], prod: bool, errors: list[str], warnings: list[str]) -> None:
+def watcher_problem(
+    extra: dict[str, str], prod: bool, errors: list[str], warnings: list[str], bad: frozenset[str] = frozenset()
+) -> None:
     """10K-21 (D-1365): the health page as the backup alert route (``TB_BACKUP_ALERT_ROUTE=health-page``, D-735)
     names the person who opens it every working day (``TB_BACKUP_ALERT_WATCHER``). Unnamed: refused in PRODUCTION,
     a warning elsewhere. A box's first-run page asks it (``health_page_person``)."""
@@ -810,14 +831,34 @@ def watcher_problem(extra: dict[str, str], prod: bool, errors: list[str], warnin
 
     if extra.get("TB_BACKUP_ALERT_ROUTE", "").strip().lower() != HEALTH_PAGE:
         return
-    who = person_name(extra.get("TB_BACKUP_ALERT_WATCHER"))
-    if who is None:
-        errors.append("env_extra: TB_BACKUP_ALERT_WATCHER is not one plain name (one line; no quote, $, backquote, "
-                      "backslash or #)")  # fmt: skip
-    elif not who:
+    if "TB_BACKUP_ALERT_WATCHER" in bad:  # env_extra refused the name already
+        return
+    if not person_name(extra.get("TB_BACKUP_ALERT_WATCHER")):
         why = ("the backup alert route is the health page and nobody is named to open it every working day: give "
                "TB_BACKUP_ALERT_WATCHER (a box: health_page_person) (D-1365)")  # fmt: skip
         (errors if prod else warnings).append(why)
+
+
+def new_year_default(country: str) -> str:
+    """The country's New Year break as the question shows it (``12-29/01-03`` for Japan); "" for none."""
+    nb = workdays.NEW_YEAR_BREAK.get((country or "").upper())
+    return f"{nb[0][0]:02d}-{nb[0][1]:02d}/{nb[1][0]:02d}-{nb[1][1]:02d}" if nb else ""
+
+
+def new_year_env(country: str, answer: Any, errors: list[str]) -> dict[str, str]:
+    """10C-14: ``TB_NEW_YEAR_BREAK`` when the site's break is not its country's (nothing is written otherwise)."""
+    text = str(answer or "").strip()
+    if not text or text == new_year_default(country):
+        return {}
+    if workdays.holidays(country) is None:
+        errors.append(f"new_year_break: country {country or '(none)'} has no holiday list, so no working-day calendar")
+        return {}
+    try:
+        workdays.parse_break(text)
+    except ValueError as exc:
+        errors.append(f"new_year_break: {exc}")
+        return {}
+    return {"TB_NEW_YEAR_BREAK": text}
 
 
 def env_extra(raw: Any, errors: list[str]) -> dict[str, str]:
@@ -827,6 +868,7 @@ def env_extra(raw: Any, errors: list[str]) -> dict[str, str]:
     if not isinstance(raw, dict):
         errors.append("env_extra must be a mapping of TB_* settings")
         return {}
+    from tb_common.box_answers import confirmed_on, person_name
     from tb_common.config import DECLARED, DECLARED_FAMILIES
 
     out: dict[str, str] = {}
@@ -836,15 +878,59 @@ def env_extra(raw: Any, errors: list[str]) -> dict[str, str]:
             name in DECLARED or any(name.startswith(f) for f in DECLARED_FAMILIES)
         ):
             errors.append(f"env_extra: {name} is not a declared TB_* setting")
-        elif "\n" in str(v) or "\r" in str(v):
-            errors.append(f"env_extra: {name} has a line break")
+        elif why := env_value_problem(str(v)):
+            errors.append(f"env_extra: {name} {why}")
+        elif name in NAME_KEYS:  # 10K-21 (review of #1175): a person's name, by the allow-list, whatever the route
+            who = person_name(v)
+            if who is None:
+                errors.append(f"env_extra: {name} is not one plain name ({NAME_RULE})")
+            else:
+                out[name] = who
+        elif name == "TB_TLS_ROOT_CONFIRMED_ON" and str(v).strip() and confirmed_on(v) is None:
+            errors.append(f"env_extra: {name} must be a day (YYYY-MM-DD), today or before")
         else:
             out[name] = str(v)
+    # 10C-14: the working-day settings are refused at entry, whatever the route (a box never stops on them)
+    errors += [f"env_extra: {p}" for p in workdays.settings_problems(out)]
     return out
+
+
+# 10K-21 (review of #1175): what may never stand in a deploy/.env value, whoever typed it. Each line of the file is
+# one ``KEY=value``, and every reader (compose, tb_common.config._read_dotenv, the tools' own readers) splits the file
+# into lines first, with str.splitlines, which also breaks on the C0/C1 controls and U+2028/U+2029. A value holding
+# one of them would add or override a variable, so it is refused, not escaped (no reader unescapes)
+_ENV_KEY = re.compile(r"[A-Z][A-Z0-9_]*")
+
+
+def env_value_problem(value: str) -> str:
+    """Why ``value`` cannot be one ``deploy/.env`` value ("" when it can): a control character (CR, LF, NUL, tab,
+    and the rest of Unicode's Cc), a line or paragraph separator, or a leading or trailing space (every reader strips
+    it, so the value read back would not be the one written)."""
+    for ch in value:
+        if unicodedata.category(ch) in ("Cc", "Zl", "Zp"):
+            return f"holds a control character or line break (U+{ord(ch):04X})"
+    if value != value.strip():
+        return "starts or ends with a space"
+    return ""
+
+
+def env_text(env: dict[str, str]) -> str:
+    """The ``deploy/.env`` lines, one ``KEY=value`` per variable; refuses (WizardError) any key or value that would
+    not read back as exactly that one variable with exactly that value (:func:`env_value_problem`)."""
+    lines = []
+    for k, v in env.items():
+        if not _ENV_KEY.fullmatch(k):
+            raise WizardError(f"deploy/.env: {k!r} is not a setting name")
+        if why := env_value_problem(str(v)):
+            raise WizardError(f"deploy/.env: {k} {why}; nothing was written")
+        lines.append(f"{k}={v}\n")
+    return "".join(lines)
 
 
 def write(settings: dict[str, Any], env: dict[str, str], out: Path, env_out: Path | None) -> None:
     from tb_common.config import load_settings
+
+    body = env_text(env) if env_out is not None else ""  # 10K-21: refused before any file is written
 
     # D-579: a box that is installed (it has an .env) keeps its chart-number rule. The wizard writes the whole
     # file and cannot ask the database whether patients are loaded; another rule would change their pseudonyms
@@ -869,8 +955,7 @@ def write(settings: dict[str, Any], env: dict[str, str], out: Path, env_out: Pat
     if env_out is not None:
         env_out.parent.mkdir(parents=True, exist_ok=True)
         env_out.write_text(
-            "# TrialBox environment — written by tools/settings_wizard.py (secrets generated); root only.\n"
-            + "".join(f"{k}={v}\n" for k, v in env.items()),
+            "# TrialBox environment — written by tools/settings_wizard.py (secrets generated); root only.\n" + body,
             encoding="utf-8",
         )
         env_out.chmod(0o600)

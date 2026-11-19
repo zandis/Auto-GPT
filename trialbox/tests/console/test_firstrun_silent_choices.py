@@ -82,7 +82,11 @@ def test_a_name_that_is_not_one_plain_value_is_refused(tmp_path: Path, field: st
     c = _with_code(b)
     over = {"chartno_kind": "asis", "health_page_person": "Dr Owner", field: "A $(id) #x"}
     r, _ = _answers(c, **over)
-    assert r.status_code == 422 and f'data-testid="err-{field}"' in r.text and "one name on one line" in r.text
+    assert (
+        r.status_code == 422
+        and f'data-testid="err-{field}"' in r.text
+        and "Write one name: letters and digits" in r.text
+    )
 
 
 def test_outside_production_the_page_reads_the_answers_as_before(tmp_path: Path) -> None:
