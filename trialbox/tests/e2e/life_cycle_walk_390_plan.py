@@ -170,18 +170,6 @@ FINDINGS: tuple[Finding, ...] = (
             "the Participants list is a table 413 to 423 px wide (en, ja), seen since train 79; " + TABLES,
             "not among the phone's pages: no expectation for a phone", SPEC + " §10 (phone's pages)",
             "cosmetic", "C2"),
-    Finding("P-17", 15, "coordinator", "/studies/{rs}/subjects/{record}", "table wider than the screen",
-            "in en, the participant's step trail (the card \"life-trail\", a table of day, step, who, source and note) "
-            "is 394 to 406 px wide where the walk's text font is DejaVu Sans, as on the nightly's runner, and grows by "
-            "each step recorded; 370 to 387 px where it is Inter (this container), which fits; zh-TW and ja fit; "
-            "seen in the nightly of 2026-11-18 (H-39); " + TABLES,
-            "data entry is desktop only: no expectation for a phone", SPEC + " §10 (\"data entry and reveal are "
-            "desktop only\")", "cosmetic", "C2", also=(16, 17)),
-    Finding("P-18", 16, "coordinator", "/studies/{rs}/subjects/{record}/step", "table wider than the screen",
-            "in en, the participant page as the console returns it at the step's /step address: the step trail "
-            "397 px wide with DejaVu Sans (373 px with Inter); seen in the nightly of 2026-11-18 (H-39); " + TABLES,
-            "data entry is desktop only: no expectation for a phone", SPEC + " §10 (\"data entry and reveal are "
-            "desktop only\")", "cosmetic", "C2"),
 )  # fmt: skip
 
 #: the steps the phone could not complete, and why (read from the logs)

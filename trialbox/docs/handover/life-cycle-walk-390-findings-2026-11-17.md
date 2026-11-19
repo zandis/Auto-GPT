@@ -62,8 +62,6 @@ the top bar, the language or More, and "← Back to the list" where the patient 
 | P-10 | 12 | coordinator | `/studies/{rs}/week` | not shown on the phone | the coordinator's line "The investigator decides here; you get a task when they mark Approach…" (its words since train 79, J-4) is only in the patient sheet, which a phone shows after a row is tapped; the desktop shows it beside the list | the list first on a phone, the sheet after a tap (D-133 (the phone's sheet)) | cosmetic | C2 |
 | P-11 | 15 | coordinator | `/studies/{rs}/week` | covered | with a patient's sheet open, the sheet's bar ("← Back to the list") covers "☰ Menu": the coordinator taps Back first to reach the menu and My studies | the menu reachable from every page (D-133 (Back, Next and the menu on the phone's sheet)) | slows the tester | C2 |
 | P-16 | 15 | coordinator | `/studies/{rs}/subjects` | table wider than the screen | the Participants list is a table 413 to 423 px wide (en, ja), seen since train 79; the table scrolls sideways inside its own frame, the page does not | not among the phone's pages: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
-| P-17 | 15, 16, 17 | coordinator | `/studies/{rs}/subjects/{record}` | table wider than the screen | in en, the participant's step trail (the card "life-trail", a table of day, step, who, source and note) is 394 to 406 px wide where the walk's text font is DejaVu Sans, as on the nightly's runner, and grows by each step recorded; 370 to 387 px where it is Inter (this container), which fits; zh-TW and ja fit; seen in the nightly of 2026-11-18 (H-39); the table scrolls sideways inside its own frame, the page does not | data entry is desktop only: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 ("data entry and reveal are desktop only")) | cosmetic | C2 |
-| P-18 | 16 | coordinator | `/studies/{rs}/subjects/{record}/step` | table wider than the screen | in en, the participant page as the console returns it at the step's /step address: the step trail 397 px wide with DejaVu Sans (373 px with Inter); seen in the nightly of 2026-11-18 (H-39); the table scrolls sideways inside its own frame, the page does not | data entry is desktop only: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 ("data entry and reveal are desktop only")) | cosmetic | C2 |
 | P-13 | 19, 21 | steward | `/site/opt-outs` | table wider than the screen | the opt-out register's list is 467 to 565 px wide; the table scrolls sideways inside its own frame, the page does not | not among the phone's pages: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
 | P-14 | 21 | steward | `/audit` | table wider than the screen | the audit trail's table is 1,355 to 1,383 px wide; the worker's run sits in its first row, its time on the left and its detail on the right; the table scrolls sideways inside its own frame, the page does not | not among the phone's pages: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
 | P-15 | 21 | steward | `/audit` | target under 44 px | the audit filter's "Clear" link ("清除", "クリア") is 32 to 40 by 24 px | 44 px controls on a phone (the card's size; the spec asks 24 px except for the PI's marks) (`docs/plan/design/09-ui-ux-spec.md` (2.5.8)) | cosmetic | C2 |
@@ -96,21 +94,6 @@ pages are now reached:
 - P-05 and P-06 are also seen at step 10.
 - P-07 moves from step 11 to step 10: the administrator's refusal is now there.
 - P-12 is seen at steps 9 and 10 too, where the study is opened, in every language.
-
-## Changed with the nightly of 2026-11-18 (H-39)
-
-The nightly's phone walk failed in en only, on four measures no finding named: a table wider than the screen on the
-participant page (`/studies/{rs}/subjects/{record}`) at steps 15, 16 and 17, and on the same page at its `/step`
-address at step 16. The console did not change; the fonts did. The English pages ask for `system-ui`, which is Inter
-in the containers the walk was first run in and DejaVu Sans on the nightly's runner, a wider font. Run again here
-with `system-ui` and `sans-serif` set to DejaVu Sans (a fontconfig file outside the repository), the step trail on
-the participant page is 394 to 406 px wide; with Inter it is 370 to 387 px and fits. zh-TW and ja use their own
-fonts and fit in both runs.
-
-- **New P-17 and P-18:** the participant's step trail is wider than the screen, named as a finding. The fix is the
-  console's (lane C2); the walk is not loosened.
-- **Wider with DejaVu Sans:** other tables the findings already name are 16 to 31 px wider too (the worklist, P-08:
-  453 to 472 px; the state history, P-12: 430 to 476 px). They are named already, so the walk does not fail on them.
 
 ## Beside lane J's phone walk
 
@@ -171,4 +154,4 @@ a desktop: step 21 sees the worker's run after the opt-out, and step 22 reads it
 | --- | --- |
 | blocks the step | 0 |
 | slows the tester | 3 |
-| cosmetic | 15 |
+| cosmetic | 13 |
