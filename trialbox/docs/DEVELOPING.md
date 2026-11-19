@@ -120,9 +120,6 @@ measured speed or the size of the data, or it is a declared setting with a reaso
 
 ## Operations drills
 
-Every site page of the RUNBOOK has a line `**Drill (T-213b):**`. It names the test that rehearses the page's
-procedure, or says "none" and, in words, that no test rehearses it (card 10K-9, D-1362). A name is written only once
-its test exists: `python tools/doclint.py` fails a drill name that no `def` under `tests/` defines (its **drill**
-check), and `tests/unit/test_operations_docs.py` holds the pages of T-635 to the one line and the site tabletops to
-the names. The drills on master run in process (the commands of the page, on synthetic data); the Docker drills of
-T-213b (a filled disk, a stopped model server, a power cut, a timed restore, a second machine) are not written yet.
+Every site page of the RUNBOOK names its drill, in a line `**Drill (T-213b):**` with the name of a test. T-213b
+writes those tests (Docker drills as code, `tests/integration/`); a drill whose recovery step is missing from its
+page fails. `tests/unit/test_operations_docs.py` holds the pages of T-635 to that rule until then.

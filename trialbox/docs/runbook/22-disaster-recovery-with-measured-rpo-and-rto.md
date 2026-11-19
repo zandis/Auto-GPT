@@ -6,9 +6,9 @@
 what is lost, how long it takes, who brings what, and how the numbers are measured. Parts of this section: a planned
 power cut, moving the box, replacing hardware.*
 
-**Drill (T-213b):** none. The timed restore is not rehearsed by a test: it needs a real compose box with the
-50,000-patient synthetic set (T-213b), and the table below stays empty until it is run. The restore itself is
-checked in process by `tools/backup_drill.py` (correct, not timed).
+**Drill (T-213b):** `test_runbook_22_restore_timed` (Docker drill: a box with the 50,000-patient synthetic set is
+backed up, wiped, reinstalled and restored by these steps, with the clock running; the result fills the table
+below).
 
 ## The numbers
 

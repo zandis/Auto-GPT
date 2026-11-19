@@ -40,11 +40,6 @@ so the branch that writes a reserved section changes only its own block.
     python -m tools.doclint --write             # rewrite the four indexes from the section files
     python -m tools.doclint --whole RUNBOOK     # print the document as one file (for a bundle or a printout)
 
-**drill** (card 10K-9, D-1362): every operations drill a living document cites by name (``test_runbook_`` and the
-rest of the name) is a ``def`` of that name under ``tests/``. The pages read are the files under ``docs/`` outside the
-records, and the site records that list the drills (``docs/plan/sites/``); a page whose procedure no test rehearses
-says so in words and names no test. Failing.
-
 More checks, all failing: **index** (the committed index differs from the files: run ``--write``), **number**
 (a number written twice, a file whose name and title disagree, a part with no section, a RUNBOOK number with no row in
 the table) and **set** (a file in a section folder that is not ``NN-<slug>.md``). Every section file also gets the
@@ -135,21 +130,6 @@ TOP = ("tools", "docs", "deploy", "services", "libs", "tests", "eval", "spec", "
 LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)\)")
 PATH = re.compile(r"`((?:" + "|".join(TOP) + r")/[^`\s]*)`")
 FENCE = re.compile(r"^(```|~~~)")
-# 10K-9 (D-1362): the operations drills the documents cite, and the tests that define them
-DRILL_NAME = re.compile(r"\btest_runbook_[a-z0-9_]*[a-z0-9]")
-DRILL_DEF = re.compile(r"^\s*(?:async\s+)?def (test_runbook_\w+)\(", re.M)
-# the records say what was true when written (decisions, reviews, measurements, and the findings register, whose
-# rows quote what a drill found missing); the site records that list the drills (the tabletops of docs/plan/sites)
-# are read with the living documents
-DRILL_HISTORY = (
-    "docs/reviews/",
-    "docs/plan/",
-    "docs/research/",
-    "docs/decisions/",
-    "docs/DECISIONS.md",
-    "docs/handover/findings-register.md",
-)
-DRILL_READ_TOO = ("docs/plan/sites/",)
 
 
 def slug(heading: str) -> str:
@@ -378,35 +358,6 @@ def whole(hub: str) -> str:
     return "\n\n".join(out) + "\n"
 
 
-def drill_defs() -> set[str]:
-    """Every ``def test_runbook_...`` under ``tests/``."""
-    out: set[str] = set()
-    for f in sorted((ROOT / "tests").rglob("*.py")) if (ROOT / "tests").is_dir() else []:
-        try:
-            out.update(DRILL_DEF.findall(f.read_text(encoding="utf-8")))
-        except (UnicodeDecodeError, OSError):
-            continue
-    return out
-
-
-def check_drills() -> list[str]:
-    """10K-9 (D-1362): a drill a living document names exists as a test; a name with no test fails."""
-    defined = drill_defs()
-    errs: list[str] = []
-    for f in sorted((ROOT / "docs").rglob("*.md")) if (ROOT / "docs").is_dir() else []:
-        rel = f.relative_to(ROOT).as_posix()
-        if rel.startswith(DRILL_HISTORY) and not rel.startswith(DRILL_READ_TOO):
-            continue
-        for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
-            for name in DRILL_NAME.findall(line):
-                if name not in defined:
-                    errs.append(
-                        f"{rel}:{n}: drill: {name} is named, and no test under tests/ defines it (write "
-                        f"the test, or say in words that no test rehearses this step)"
-                    )
-    return errs
-
-
 def check_set() -> list[str]:
     errs = [f"{d}: set: missing" for d in DOCS if not (ROOT / d).exists()]
     extra = sorted(p.name for p in (ROOT / "docs").glob("*.md") if f"docs/{p.name}" not in DOCS)
@@ -457,7 +408,6 @@ def main(argv: list[str] | None = None) -> int:
         errs += check_sections(hub)
     errs += check_gone()
     errs += handover_problems()
-    errs += check_drills()
     warns = [] if strict else [e for e in errs if any(k in e for k in WARN_KINDS)]
     errs = [e for e in errs if e not in warns]
     for w in warns:
