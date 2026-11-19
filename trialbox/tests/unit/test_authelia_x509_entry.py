@@ -30,7 +30,7 @@ def test_there_is_one_dated_entry_for_the_pinned_image() -> None:
     assert len(got) == 1
     e = got[0]
     assert e["package"] == "stdlib"
-    assert e["review_by"] == dt.date(2026, 12, 10)
+    assert e["review_by"] == dt.date(2027, 1, 10)
     lock = json.loads((ROOT / "deploy" / "images.lock").read_text(encoding="utf-8"))
     digest = lock["third_party"]["authelia"]["digest"]
     assert digest.startswith("sha256:") and digest in str(e["reason"])  # this image, not whatever is pinned next
@@ -43,7 +43,7 @@ def test_the_reason_is_the_fact_d722_makes_true_and_its_limit() -> None:
     assert "LDAPS" in reason and "directory" in reason  # the one connection the flaw could matter on
     assert "hospital's directory CA only" in reason and "TB_LDAP_CA" in reason and "D-722" in reason  # the fix
     assert "does not start without a usable file" in reason  # where the guarantee comes from (D-722 point 3)
-    assert e_owner() == "security owner (to assign)"
+    assert e_owner() == "Chang-Fu Kuo (the owner, D-1067)"
 
 
 def e_owner() -> str:

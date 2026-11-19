@@ -1,0 +1,97 @@
+# DRAFT, UNMEASURED: one 48 GB discrete card (cards 24-5 and 24-6, root review 24; the class of review 19's "head box":
+# RTX A6000, RTX 6000 Ada, RTX PRO 5000). NOT A PROFILE. No record was taken with it on any card; deploy/install.sh and
+# deploy/poc.sh refuse the word `dgpu48` whatever is set; deploy/gpu_profile.sh never prints it. Its one use is the
+# measuring run of RUNBOOK §29 on the owner's machine:
+#
+#   TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure --option pair-32k
+#
+# which starts llm-service and llm-verifier from this file (nothing else of the box), takes the serving record with
+# tools/serving_config.py capture and runs the pair canary (tools/canary.py). That record, filed, is what a later card
+# turns into a profile; deploy/dgpu48-profile.yaml holds the options, their arithmetic and what is unknown.
+#
+# The pair is the same pinned builds as every profile (j-workhorse and v-verifier of models/registry.yaml; the weights
+# folders of deploy/models, RUNBOOK §27 "The weights"). The defaults below are option pair-32k: both resident at 32k,
+# review 19's split of a 49,140 MiB card (fractions of the whole card, as vLLM counts them):
+#   llm-service   JUDGE_GPU_MEM_UTIL 0.57     28,010 MiB: 18,920 non-cache (Blackwell figure), ~9,090 cache (~84k tokens)
+#   llm-verifier  VERIFIER_GPU_MEM_UTIL 0.27  13,268 MiB:  9,000 non-cache, ~4,268 cache (~96k tokens)
+#   outside the budgets (CUDA contexts)       ~3,850 MiB;  spare ~4,012 MiB
+# Every figure is the 96 GB card's (docs/plan/measurements/gpu-run-2026-11-08/fit.json) carried to 48 GB: on an Ampere
+# card the judge's 4-bit format is not native and runs a weight-only path whose memory and arithmetic are unmeasured.
+# The other options are the same file with other values (tools/dgpu48.py OPTIONS sets them).
+#
+# Engine: the pinned vLLM image of deploy/images.lock. On a driver older than it needs (the IGX's 535), the engine
+# probe (tools/engine_probe.py) says which form runs; the measuring run passes VLLM_ENABLE_CUDA_COMPATIBILITY or another
+# VLLM_IMAGE from the probe's verdict, and records it. Host memory caps (TB_MEM_LLM, TB_MEM_VERIFIER) are the
+# repository's floor for a model server (32 GiB, T-108a), ceilings and not reservations; what each server really takes
+# on a 53 GB host is unmeasured: the measuring run samples each container's peak, which a profile's caps then follow.
+
+x-vllm-dgpu48: &vllm48
+  logging:
+    driver: json-file
+    options: {max-size: "${TB_LOG_MAX_SIZE:-100m}", max-file: "${TB_LOG_MAX_FILE:-10}"}  # D-389
+  profiles: [gpu]
+  image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
+  env_file: [{path: ./secrets/model/vllm.env, required: false}]   # D-177 / D-450, as every profile
+  environment:
+    HF_HUB_OFFLINE: "1"
+    VLLM_NO_USAGE_STATS: "1"
+    VLLM_LOGGING_LEVEL: WARNING   # no request or prompt lines in the log (T-605, LLM-042)
+    # the engine probe's verdict (tools/engine_probe.py): 1 only when the pinned image runs this driver only so
+    VLLM_ENABLE_CUDA_COMPATIBILITY: "${VLLM_ENABLE_CUDA_COMPATIBILITY:-0}"
+  volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
+  ipc: host
+  pids_limit: 4096   # T-108a (D-360)
+  labels: {tb.watchdog: restart, tb.profile: dgpu48-UNMEASURED}
+  restart: unless-stopped   # as every profile; the measuring run counts restarts (one is a failed start)
+  deploy:
+    resources:
+      reservations:
+        devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+  healthcheck:
+    test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+    interval: 30s
+    timeout: 10s
+    retries: 60   # Ampere's weight-only path may load slower than the measured card: up to 35 minutes
+    start_period: 300s
+
+services:
+  llm-service:
+    <<: *vllm48
+    mem_limit: ${TB_MEM_LLM:-32g}   # host memory, not the card's: T-108a's floor for a model server (unmeasured here)
+    networks: {model-backend-net: {aliases: [llm-service-vllm]}}   # behind model-guard (D-177)
+    command:
+      - --model=/models/${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}
+      - --served-model-name=${JUDGE_MODEL:-local/gemma-4-26b-a4b-nvfp4}
+      - --chat-template=/models/${JUDGE_CHAT_TEMPLATE:-chat-templates/gemma-4-26b-a4b-it/chat_template.jinja}
+      - --chat-template-content-format=string  # D-880
+      - --max-model-len=${JUDGE_MAX_LEN:-32768}
+      - --max-num-seqs=${JUDGE_MAX_SEQS:-16}
+      - --enforce-eager
+      - --gpu-memory-utilization=${JUDGE_GPU_MEM_UTIL:-0.57}
+      - --limit-mm-per-prompt={"image":0,"audio":0,"video":0}
+
+  llm-verifier:
+    <<: *vllm48
+    mem_limit: ${TB_MEM_VERIFIER:-32g}   # host memory, not the card's: the same floor (unmeasured here)
+    networks: {model-backend-net: {aliases: [llm-verifier-vllm]}}   # behind model-guard (D-177)
+    command:
+      - --model=/models/${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}
+      - --served-model-name=${VERIFIER_MODEL:-local/qwen3.5-9b-awq}
+      - --max-model-len=${VERIFIER_MAX_LEN:-32768}
+      - --max-num-seqs=${VERIFIER_MAX_SEQS:-16}
+      - --enforce-eager
+      - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.27}
+      - --limit-mm-per-prompt={"image":0,"video":0}
+      - --default-chat-template-kwargs={"enable_thinking":false}
+    depends_on:
+      llm-service: {condition: service_healthy}  # vLLM checks free memory at start
+
+  gateway:
+    environment:
+      TB_MODEL_SWAP: "off"
+      TB_PROFILE: P-DGPU48-UNMEASURED
+
+  orchestrator:
+    environment:
+      TB_MODEL_SWAP: "off"
+      TB_SCREEN_LLM_CONCURRENCY: "${JUDGE_MAX_SEQS:-16}"

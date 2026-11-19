@@ -65,7 +65,7 @@ import argparse
 import hashlib
 import sys
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -325,7 +325,8 @@ def pin(
             "files": m.files,
             "bytes": m.bytes,
             "model_dir": model_dir.name,
-            "pinned_at": (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            # timezone.utc, not datetime.UTC (3.11): tools.fetch_weights imports this module on the host's python3
+            "pinned_at": (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ"),  # noqa: UP017
             "trust": PLACEHOLDER_TRUST if placeholder else "expected" if want_sha else "first_use",
         },
     }
@@ -798,7 +799,7 @@ def promote(
         "profile": rec["profile"],
         "weights_sha256": entry["sha256"],
         "qualifies_production": bool(rec.get("qualifies_production")),
-        "promoted_at": (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "promoted_at": (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ"),  # noqa: UP017
     }
     committed, _ = _committed()
     Registry(apply_override(committed, doc))  # validates the merged registry; raises before writing
