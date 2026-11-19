@@ -169,8 +169,8 @@ class BreakGlassStore:
             rows = tx.fetchall(f"SELECT {_COLS} FROM grants WHERE username = ? AND ended_at IS NULL AND ends_at > ?",
                                (username, _iso(now)))  # fmt: skip
             ended = [_grant(r) for r in rows]
-            same = next((g for g in ended if (g.kind, g.ruleset, g.pid, g.job_id) == (kind, ruleset, pid, job_id)),
-                        None)  # fmt: skip
+            want = (kind, ruleset, pid, job_id, reason, note)  # a new reason or note is a new open, audited
+            same = next((g for g in ended if (g.kind, g.ruleset, g.pid, g.job_id, g.reason, g.note) == want), None)
             if same is not None:
                 return same, []
             for g in ended:

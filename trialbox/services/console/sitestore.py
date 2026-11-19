@@ -753,30 +753,43 @@ class SiteStore:
             (p.username, p.practitioner_id, p.digest_time, int(p.enabled), p.lang),
         )
 
-    def notice_sent(self, kind: str, username: str, day: str) -> bool:
+    def notice_sent(self, kind: str, username: str, day: str, stale_before: str = "") -> bool:
+        """Sent, or claimed by a sender now sending (D-1160). A claim older than ``stale_before`` whose send never
+        finished (its sender died) is not sent: the next run sends it."""
         row = self.db.fetchone(
-            "SELECT 1 FROM notify_log WHERE kind = ? AND username = ? AND day = ?", (kind, username, day)
+            "SELECT subject, at FROM notify_log WHERE kind = ? AND username = ? AND day = ?", (kind, username, day)
         )
-        return row is not None
+        if row is None:
+            return False
+        return bool(row[0]) or not stale_before or str(row[1]) >= stale_before
 
     def last_notice(self, kind: str, username: str) -> str | None:
-        at = self.db.fetchval("SELECT MAX(at) FROM notify_log WHERE kind = ? AND username = ?", (kind, username))
+        at = self.db.fetchval(
+            "SELECT MAX(at) FROM notify_log WHERE kind = ? AND username = ? AND subject <> ''", (kind, username)
+        )
         return str(at) if at else None
 
-    def claim_notice(self, kind: str, username: str, day: str, at: str, subject: str) -> bool:
-        """The once-a-day notice is this sender's to send: True when no other sender has logged (or claimed) it
-        for the day. Taken before the send (V11-03, D-1160), so two senders at once send it once."""
+    def claim_notice(self, kind: str, username: str, day: str, at: str, stale_before: str = "") -> bool:
+        """The once-a-day notice is this sender's to send (V11-03, D-1160): True when no other sender has sent or is
+        sending it for the day. The claim is a row with no subject (not shown as received) until
+        :meth:`finish_notice`; a claim older than ``stale_before`` (its sender died before the send) is taken over."""
         n = self.db.execute(
-            "INSERT INTO notify_log (kind, username, day, at, subject) VALUES (?,?,?,?,?) "
-            "ON CONFLICT (kind, username, day) DO NOTHING",
-            (kind, username, day, at, subject),
+            "INSERT INTO notify_log (kind, username, day, at, subject) VALUES (?,?,?,?,'') "
+            "ON CONFLICT (kind, username, day) DO UPDATE SET at = excluded.at "
+            "WHERE notify_log.subject = '' AND notify_log.at < ?",
+            (kind, username, day, at, stale_before),
         )
         return n == 1
 
+    def finish_notice(self, kind: str, username: str, day: str, at: str, subject: str) -> None:
+        """The claimed notice was sent: it is shown as received from now."""
+        self.db.execute("UPDATE notify_log SET at = ?, subject = ? WHERE kind = ? AND username = ? AND day = ?",
+                        (at, subject, kind, username, day))  # fmt: skip
+
     def unclaim_notice(self, kind: str, username: str, day: str, at: str) -> None:
         """A claim whose send failed is given back, so the next run sends it."""
-        self.db.execute("DELETE FROM notify_log WHERE kind = ? AND username = ? AND day = ? AND at = ?",
-                        (kind, username, day, at))  # fmt: skip
+        self.db.execute("DELETE FROM notify_log WHERE kind = ? AND username = ? AND day = ? AND at = ? "
+                        "AND subject = ''", (kind, username, day, at))  # fmt: skip
 
     def log_notice(self, kind: str, username: str, day: str, at: str, subject: str) -> None:
         self.db.execute(
@@ -788,7 +801,8 @@ class SiteStore:
     def notices_for(self, username: str, limit: int = 50) -> list[tuple[str, str, str, str]]:
         """S37 Notices received (step 4, FR-PLAT-17): (kind, day, at, subject) of one person, newest first."""
         rows = self.db.fetchall(
-            "SELECT kind, day, at, subject FROM notify_log WHERE username = ? ORDER BY at DESC LIMIT ?",
+            "SELECT kind, day, at, subject FROM notify_log WHERE username = ? AND subject <> '' "
+            "ORDER BY at DESC LIMIT ?",
             (username, limit),
         )
         return [(str(r[0]), str(r[1]), str(r[2]), str(r[3])) for r in rows]

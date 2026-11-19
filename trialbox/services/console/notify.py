@@ -363,7 +363,7 @@ def _collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[N
         if not person.enabled:
             continue
         if u.is_admin:  # T-209a: the daily health mail
-            if "HEALTH" in kinds and not store.notice_sent("HEALTH", u.username, today.isoformat()):
+            if "HEALTH" in kinds and not store.notice_sent("HEALTH", u.username, today.isoformat(), stale_before(h)):
                 hl = health_now()
                 if hl is not None:
                     out.append(build_health(u, person, today, hl, accounts_now(today)))
@@ -372,9 +372,9 @@ def _collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[N
         # T-102c (D-425): N1 to who marks the weekly list (the investigator), N2 to who prepares requests (the
         # coordinator; the administrator got the health mail above)
         kind = "N1" if u.can_mark else "N2" if u.can_request else None
-        if kind is None or kind not in kinds or store.notice_sent(kind, u.username, today.isoformat()):
+        if kind is None or kind not in kinds or store.notice_sent(kind, u.username, today.isoformat(), stale_before(h)):
             continue
-        if kind == "N2" and store.notice_sent(WEEKEND_N2, u.username, today.isoformat()):
+        if kind == "N2" and store.notice_sent(WEEKEND_N2, u.username, today.isoformat(), stale_before(h)):
             continue  # D-764: today's weekend digest went
         studies: list[Any] = []
         life: dict[str, dict[str, Any]] = {}
@@ -421,18 +421,27 @@ def _collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[N
     return out
 
 
+#: a claim this old whose send never finished is a sender that died (D-1160): the next run sends the notice
+CLAIM_STALE = timedelta(minutes=15)
+
+
+def stale_before(h: Any) -> str:
+    return str((h.clock() - CLAIM_STALE).isoformat())
+
+
 def send_all(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2"), by: str = "console:notify") -> list[Notice]:
     sent = []
     for n in collect(h, today, kinds):
         # V11-03 (D-1160): the day's log row is claimed before the send, so two senders at once send it once
         kind, at = n.log_kind or n.kind, h.clock().isoformat()
-        if not h.store.claim_notice(kind, n.username, n.day, at, n.subject):
+        if not h.store.claim_notice(kind, n.username, n.day, at, stale_before(h)):
             continue
         try:
             h.bk.send_notice(n.kind, [n.to], n.subject, n.body, actor.NOTIFY)  # T-715: the timer's own name
         except BaseException:
             h.store.unclaim_notice(kind, n.username, n.day, at)
             raise
+        h.store.finish_notice(kind, n.username, n.day, h.clock().isoformat(), n.subject)
         h.au.append("console.notice", actor=by, detail={"action": n.kind, "to": n.to, "subject": n.subject})
         sent.append(n)
     return sent

@@ -1250,7 +1250,13 @@ def register(app: FastAPI, h: Helpers) -> None:
             and prev is not None
             and prev.mark == "approach"
             and (prev.job_id or "", prev.version or "") == (wk["job"].job_id, version or "")
-        ):  # V11-01 (D-1160): an Approach on an Approach of the same list is no new decision, so no second override
+            and prev.by == sess.user.username
+            and h.team is not None
+            and any(
+                o[0] == pid and o[1] == warned and o[2] == prev.by and o[3] >= prev.at for o in h.team.overrides(rid)
+            )
+        ):  # V11-01 (D-1160): the same person's Approach again on the same list, already an override under the same
+            # warnings, is no new decision, so no second override (an earlier Approach that was none writes one)
             warned = []
             detail.pop("irb_override", None)
         store.mark(rid, Mark(pid, value, stored_reason, stored_note, sess.user.username, now, wk["job"].job_id,
