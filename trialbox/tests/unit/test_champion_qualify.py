@@ -246,6 +246,33 @@ def test_promote_needs_a_passing_record_for_exactly_the_pinned_weights(
     assert "status" not in entry and "qualification" not in entry
 
 
+@pytest.mark.parametrize("thinking_mode", [None, "off", "on"])
+def test_promote_carries_explicit_thinking_on_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, thinking_mode: str | None
+) -> None:
+    d = _folder(tmp_path / "models", "gemma-4-26b-a4b-it-4bit", b"synthetic judge release")
+    release = release_registry(tmp_path, {JUDGE: d}, monkeypatch)
+    doc = yaml.safe_load(release.read_text(encoding="utf-8"))
+    next(b for b in doc["builds"] if b["build_id"] == JUDGE)["thinking_control"] = "thinking_only"
+    release.write_text(yaml.safe_dump(doc), encoding="utf-8")
+    out = tmp_path / "site" / "registry.site.yaml"
+    manifest, _ = pin_model.pin(JUDGE, d, served_name=pin_model.JUDGE_SERVED, out=out)
+    record = _record(tmp_path, {"judge": (JUDGE, manifest.sha256)})
+    if thinking_mode is not None:
+        body = json.loads(record.read_text(encoding="utf-8"))
+        body["builds"]["judge"]["thinking_mode"] = thinking_mode
+        record.write_text(json.dumps(q.finalize(body)), encoding="utf-8")
+
+    pin_model.promote(JUDGE, record, out)
+    reg = Registry.load(release, out)
+    if thinking_mode == "on":
+        assert reg.resolve("j-workhorse", "serving", role="judge", env=Environment.PRODUCTION).build.build_id == JUDGE
+    else:
+        with pytest.raises(RegistryError) as exc:
+            reg.resolve("j-workhorse", "serving", role="judge", env=Environment.PRODUCTION)
+        assert exc.value.reason == "thinking_unmeasured"
+
+
 # ------------------------------------------------------------------------------------------------ the gateway rule
 def _doc(**judge: Any) -> dict[str, Any]:
     sha = "ab" * 32

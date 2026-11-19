@@ -37,6 +37,11 @@ writes the build's ``qualification`` reference (record id, record sha256, the we
 ``tools.qualify.check_record`` accepts the record. In PRODUCTION a champion without a reference that qualifies
 PRODUCTION for exactly the pinned weights is refused (``champion_unqualified``), whatever the override's status says.
 
+**Thinking control** (10E-25). A build can declare ``thinking_control: can_disable`` or ``thinking_only``.
+An omitted field leaves the capability unknown. Judge and verifier routes (including ``second_opinion``) require
+a thinking-only build to have a production qualification reference for the pinned weights and the same role.
+Promotion records that role only when the passing record explicitly reports ``thinking_mode: on`` for the build.
+
 **No build without a context** (LLM-007, D-568). The gateway refuses a prompt over the build's ``context_length`` and
 the callers size their reads from it; with no value both are off. In PRODUCTION a build served by a local model
 server (``serving: vllm``) whose context is unknown is refused (``context_unknown``). A row that cannot name it (the
@@ -81,11 +86,27 @@ OVERRIDE_FIELDS = frozenset(
 )
 EXPECTED_FIELDS = frozenset({"manifest_sha256", "revision", "source"})
 QUALIFICATION_FIELDS = frozenset(
-    {"record_id", "record", "sha256", "profile", "weights_sha256", "qualifies_production", "promoted_at"}
+    {
+        "record_id",
+        "record",
+        "sha256",
+        "profile",
+        "weights_sha256",
+        "qualifies_production",
+        "promoted_at",
+        "thinking_on_role",
+    }
 )
 # the refusal codes of :meth:`Registry.resolve`, most specific first: the code of a refused alias is the first that
 # any of its builds gave
-REFUSAL_ORDER = ("champion_unqualified", "weights_unexpected", "context_unknown", "build_unpinned")
+REFUSAL_ORDER = (
+    "thinking_unmeasured",
+    "champion_unqualified",
+    "weights_unexpected",
+    "context_unknown",
+    "build_unpinned",
+)
+SCREENING_ROLES = ("judge", "verifier")
 HOSTED = "hosted"
 PROVIDER_PIN_FIELDS = (
     "endpoint",
@@ -137,6 +158,7 @@ class Build:
     expected: dict[str, Any] = field(default_factory=dict)  # committed: manifest_sha256, revision of the release
     qualification: dict[str, Any] | None = None  # site: the qualification record that made it champion (T-012b)
     extra: dict[str, Any] = field(default_factory=dict)
+    thinking_control: str | None = None  # can_disable | thinking_only | unknown (omitted)
 
     @property
     def pinned(self) -> bool:
@@ -274,6 +296,17 @@ class Registry:
             if why:
                 reasons.append(f"{b.build_id}: {why} [weights_unexpected]")
                 continue
+            screening_role = role.removeprefix("shadow:")
+            if screening_role == "second_opinion":
+                screening_role = "verifier"
+            if b.thinking_control == "thinking_only" and screening_role in SCREENING_ROLES:
+                q = b.qualification or {}
+                if not b.qualified_for_production or q.get("thinking_on_role") != screening_role:
+                    reasons.append(
+                        f"{b.build_id}: thinking-on qualification required / 須有開啟推理模式的資格驗證 / "
+                        "推論モードを有効にした適格性確認が必要 [thinking_unmeasured]"
+                    )
+                    continue
             if env == Environment.PRODUCTION and b.status == Status.CHAMPION and not b.qualified_for_production:
                 # T-012b (LLM-029): champion only through qualify; an install or a hand edit cannot make one
                 reasons.append(
@@ -314,6 +347,7 @@ class Registry:
                 "expected": b.expected,
                 "weights_expected": b.pinned and not b.unexpected_weights() and bool(b.expected_sha256),
                 "qualification": b.qualification,
+                "thinking_control": b.thinking_control,
                 "qualified_for_production": b.qualified_for_production,
             }
             for b in self.builds
@@ -340,11 +374,18 @@ def _build(raw: dict[str, Any]) -> Build:
         "provider_pin",
         "expected",
         "qualification",
+        "thinking_control",
     }
     for key in ("build_id", "alias", "status", "serving", "licence", "origin"):
         if key not in raw:
             raise ValueError(f"registry: build {raw.get('build_id')!r} lacks {key}")
+    thinking_control = raw.get("thinking_control")
+    if thinking_control not in (None, "can_disable", "thinking_only"):
+        raise ValueError(
+            f"{raw['build_id']}: invalid thinking_control / thinking_control 無效 / thinking_control が無効です"
+        )
     return Build(
+        thinking_control=thinking_control,
         build_id=str(raw["build_id"]),
         alias=str(raw["alias"]),
         status=Status(raw["status"]),
@@ -390,6 +431,8 @@ def _qualification(raw: dict[str, Any]) -> dict[str, Any] | None:
             raise ValueError(f"{where}.{key} is not a lowercase hex SHA-256")
     if not q.get("record_id"):
         raise ValueError(f"{where} names no record_id")
+    if "thinking_on_role" in q and q["thinking_on_role"] not in SCREENING_ROLES:
+        raise ValueError(f"{where}: invalid thinking_on_role / thinking_on_role 無效 / thinking_on_role が無効です")
     return dict(q)
 
 

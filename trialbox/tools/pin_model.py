@@ -756,7 +756,7 @@ def promote(
     weights than the pinned ones. Returns the record id."""
     import json
 
-    from registry.registry import Registry, apply_override
+    from registry.registry import SCREENING_ROLES, Registry, apply_override
 
     from tools.qualify import check_record
 
@@ -785,7 +785,7 @@ def promote(
         raise PinError(
             f"{build_id}: weights trusted on first use cannot be promoted; name them in models/registry.yaml"
         )
-    qualified = next(b for b in rec["builds"].values() if b["build_id"] == build_id)
+    role, qualified = next((role, b) for role, b in rec["builds"].items() if b["build_id"] == build_id)
     if qualified.get("weights_sha256") != entry["sha256"]:
         raise PinError(
             f"{build_id}: the record qualified weights {str(qualified.get('weights_sha256'))[:12]}, "
@@ -801,6 +801,8 @@ def promote(
         "qualifies_production": bool(rec.get("qualifies_production")),
         "promoted_at": (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ"),  # noqa: UP017
     }
+    if role in SCREENING_ROLES and qualified.get("thinking_mode") == "on":
+        entry["qualification"]["thinking_on_role"] = role
     committed, _ = _committed()
     Registry(apply_override(committed, doc))  # validates the merged registry; raises before writing
     _write_override(out, doc)
