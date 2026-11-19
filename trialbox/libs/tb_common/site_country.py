@@ -51,6 +51,10 @@ class CountryDefaults:
     data_source_type: str | None  # None: asked, no default
     mapping: str | None  # None: asked, no default
     insurer_questions: tuple[str, ...]  # the wizard's insurer and registry questions asked for this country
+    # 10C-13, 10C-15 (D-1229): how printed pages write a date and what a yearly report's year is
+    # (tb_common.dates.PRINTED_STYLES, YEAR_BASES); written into a new site's settings, never into an installed one
+    printed_dates: str = "western"
+    year_basis: str = "calendar"
     # 10C-19 (D-1232): the consent record records consent by a representative and assent (the Japan profile:
     # GCP 第50条 代諾者 and アセント); the box's plan writes TB_CONSENT_PROXY=on for such a country
     consent_proxy: bool = False
@@ -69,7 +73,9 @@ class CountryDefaults:
 
 
 TABLE: dict[str, CountryDefaults] = {
-    "jp": CountryDefaults("jp", "ja", True, "jp", "ssmix2", "mapping/jp_core/ssmix2_site.yaml", (), True),
+    "jp": CountryDefaults(
+        "jp", "ja", True, "jp", "ssmix2", "mapping/jp_core/ssmix2_site.yaml", (), "both", "fiscal", consent_proxy=True
+    ),
     "tw": CountryDefaults("tw", "zh-TW", True, "tw", "csv", "mapping/tw_core/demo_his.yaml", TWPAS_QUESTIONS),
     "us": CountryDefaults("us", "en", False, None, None, None, ()),
     "other": CountryDefaults("other", None, False, None, None, None, ()),

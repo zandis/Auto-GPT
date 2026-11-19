@@ -1,0 +1,27 @@
+{
+ "note": "Survivors on an invariant path, picked by hand. Each id is a mutant of mutation.json whose status is survived or no-coverage; tools/test_trust.py --check fails otherwise. U: unknown never excludes. P: a proposed fact never counts. safe: the mutant moves an answer toward unknown, the safe direction. example: a test of tests/unit/test_v4_survivor_examples.py that fails under the mutant (run by hand on 2026-11-17, output in the page).",
+ "survivors": [
+  {"mutant": "services/matching/proposed.py:159:70:cmp:Eq->NotEq", "inv": "P", "untested": "a proposed sex under a sex criterion", "finding": "V4-06", "example": "test_v4_06_a_proposed_sex_makes_a_decided_sex_answer_unknown"},
+  {"mutant": "services/matching/proposed.py:159:90:cmp:IsNot->Is", "inv": "P", "untested": "the same", "finding": "V4-06", "example": ""},
+  {"mutant": "services/matching/proposed.py:187:16:flow:continue->break", "inv": "P", "untested": "an atom of the wrong sign before the one that matters", "finding": "V4-06", "example": "test_v4_06_an_atom_of_the_wrong_sign_does_not_stop_the_scan"},
+  {"mutant": "services/matching/proposed.py:166:16:bool:or->and", "inv": "P", "untested": "a value set with families only", "finding": "V4-06", "example": ""},
+  {"mutant": "services/matching/proposed.py:175:13:binop:Add->Sub", "inv": "P", "untested": "a window that ends after the index date", "finding": "V4-06", "example": ""},
+  {"mutant": "services/matching/proposed.py:97:11:cmp:Eq->NotEq", "inv": "P", "untested": "the WHO family extension of a value set", "finding": "V4-06", "example": ""},
+  {"mutant": "services/matching/coverage.py:146:20:flow:continue->break", "inv": "U", "untested": "a gap row after a row of another domain", "finding": "V4-05", "example": "test_v4_05_a_row_of_another_domain_does_not_stop_the_gap_scan"},
+  {"mutant": "services/matching/coverage.py:148:20:flow:continue->break", "inv": "U", "untested": "a gap row after a row outside the window", "finding": "V4-05", "example": "test_v4_05_a_row_outside_the_window_does_not_stop_the_gap_scan"},
+  {"mutant": "services/matching/coverage.py:143:17:binop:Add->Sub", "inv": "U", "untested": "a window that ends after the index date", "finding": "V4-05", "example": ""},
+  {"mutant": "services/matching/cascade/judge.py:212:11:not:drop", "inv": "U", "untested": "a reply that fails its schema", "finding": "V4-07", "example": ""},
+  {"mutant": "services/matching/cascade/judge.py:212:11:bool:or->and", "inv": "U", "untested": "the same", "finding": "V4-07", "example": ""},
+  {"mutant": "services/matching/cascade/judge.py:231:29:bool:or->and", "inv": "U", "untested": "a reply with no confidence", "finding": "V4-07", "example": ""},
+  {"mutant": "services/matching/cascade/judge.py:326:11:bool:or->and", "inv": "U", "untested": "a quote that is not in the excerpt", "finding": "V4-07", "example": ""},
+  {"mutant": "services/matching/cascade/judge.py:330:12:flow:continue->break", "inv": "U", "untested": "a quote in the second excerpt", "finding": "V4-07", "example": ""},
+  {"mutant": "services/matching/cascade/judge.py:336:19:binop:Add->Sub", "inv": "U", "untested": "the span's end", "finding": "V4-07", "example": ""},
+  {"mutant": "services/matching/cascade/judge.py:162:11:cmp:Is->IsNot", "inv": "U", "untested": "the gateway outage switch", "finding": "V4-07", "example": ""},
+  {"mutant": "services/matching/cascade/engine.py:1417:15:cmp:IsNot->Is", "inv": "tier", "untested": "a judged met under the floor is not strong (a tier, not an exclusion)", "finding": "V4-08", "example": ""},
+  {"mutant": "services/matching/cascade/engine.py:333:13:binop:Add->Sub", "inv": "U", "untested": "a note window narrower than a year", "finding": "V4-08", "example": ""},
+  {"mutant": "services/matching/cascade/engine.py:1432:49:cmp:Eq->NotEq", "inv": "U", "untested": "which unknowns the review queue calls a data gap", "finding": "V4-08", "example": ""},
+  {"mutant": "services/orchestrator/scenarios/evaluate.py:626:30:not:drop", "inv": "U", "untested": "a note fail given when note answers may not exclude carries final: false", "finding": "V4-02", "example": ""},
+  {"mutant": "libs/tb_common/pair.py:61:32:cmp:Lt->LtE", "inv": "safe", "untested": "a confidence exactly on the floor (the mutant makes it unknown: the safe direction)", "finding": "V4-09", "example": ""},
+  {"mutant": "libs/tb_common/pair.py:162:7:bool:or->and", "inv": "pair", "untested": "a pair where only one endpoint names its weights (the two-model check, not an invariant)", "finding": "V4-09", "example": ""}
+ ]
+}
