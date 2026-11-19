@@ -161,8 +161,8 @@ GOOD = {"system": "HL70241", "code": "F", "status": "R", "meaning": "治癒", "v
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("title", "review 12 §4.10 F2"), ("publisher", "TBD"), ("version", "-"), ("section", "n/a"),
-     ("publisher", "Internal Review 12"), ("document", ""), ("publisher", "TrialBox")],
+    [("document", "review 12 §4.10 F2"), ("document", "TBD"), ("version", "-"), ("version", "n/a"),
+     ("document", "Internal Review 12"), ("document", ""), ("publisher", "TrialBox")],
 )  # fmt: skip
 def test_e_a_verified_row_without_a_named_public_source_stops_the_reader(field: str, value: str) -> None:
     """The bad value also in the old free-text ``source`` column, which the guard at 91601b6f accepted."""

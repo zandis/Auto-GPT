@@ -10,10 +10,11 @@
   Word and PDF). What of the specification is read and what is not: `docs/data/01-what-the-box-reads.md`.
 * `prb14_outcome.csv` (PRB-14 転帰 code to the diagnosis status) and `document_loinc.csv` (an extended-storage
   LOINC document code to the note type): only codes a document in this repository records (review 12), every
-  row `verify`. A PRB-14 row is applied only once its `verified` column says `yes` and it names its public source
-  in `title`, `publisher`, `version`, `section` and `document` (URL or document id; none empty, a placeholder, an
-  internal review or this project; else the reader stops at start); until then its `status` is a proposal and the
-  code reads as unknown, never active.
+  row `verify`. A PRB-14 row is applied only once its `verified` column says `yes` and it names its public source:
+  `document` a well-formed https URL or a DOI, `version` a date or a version number, `title`, `publisher` and
+  `section` filled, the publisher not this project (else the reader stops at start). A person reviews each such row
+  in the pull request that adds it. Until then its `status` is a proposal and the code reads as unknown, never
+  active.
   Vitals, reports, claims and the
   registry come from the extended CSVs under `<root>/extended/`.
 * The mapping puts JP Core 1.1.0 profiles on the shared resource set (`profiles`) and adds what JP Core asks for

@@ -30,9 +30,8 @@ def verified_outcomes(monkeypatch: pytest.MonkeyPatch) -> None:
     table: dict[str, dict[str, str]] = {}
     with (source.JP_CORE / "prb14_outcome.csv").open(encoding="utf-8-sig", newline="") as fh:
         for r in csv.DictReader(fh):
-            table.setdefault(r["system"].upper(), {})[r["code"].upper()] = r["status"]
+            table.setdefault(r["system"].upper(), {})[r["code"]] = r["status"]
     monkeypatch.setattr(source, "_OUTCOME", table)
-    monkeypatch.setattr(source, "_OUTCOME_ANY", {c: st for t in table.values() for c, st in t.items()})
 
 
 def _source(st: kit.Storage, **kw: object) -> Ssmix2Source:
@@ -161,7 +160,9 @@ def test_f2_a_suspicion_written_only_as_a_modifier_is_suspected(storage: kit.Sto
     )
 
 
-def test_f2_the_japan_mapping_gives_each_status_its_fhir_word(storage: kit.Storage, verified_outcomes: None) -> None:
+def test_f2_the_japan_mapping_gives_each_status_its_fhir_word(
+    storage: kit.Storage, verified_outcomes: None, tmp_path: Path
+) -> None:
     """The reader's rows through ``jp_core/ssmix2_site.yaml``: each outcome its clinical status, E (ended) inactive, U
     none and unconfirmed (D-587), and the end day as the abatement of the cured diagnosis only."""
     from adapter.mapping.engine import Mapper, Mapping
@@ -185,7 +186,12 @@ def test_f2_the_japan_mapping_gives_each_status_its_fhir_word(storage: kit.Stora
         "infarct": ["inactive"],
         "stopped": ["inactive"],
     }
-    unknown = mp.map_row(spec, {**rows[kit.DX["gastritis"]], "status": "U"})
+    # a U row the reader itself produces (an outcome code of a table it does not know, no end or outcome day)
+    prb = ["PRB", "AD", "20261001", "99990009^胃炎^MDCDX2", "DX0009"] + [""] * 14
+    prb[10], prb[14] = "K297^^I10", "Z^x^JHSD0006"
+    row = _prb_row(tmp_path, "|".join(prb))
+    assert row["status"] == "U"
+    unknown = mp.map_row(spec, row)
     assert unknown is not None and "clinicalStatus" not in unknown
     assert "unconfirmed" in [c["code"] for c in unknown["verificationStatus"]["coding"] if c]
     assert out["uri"]["abatementDateTime"].startswith("2026-03-01")

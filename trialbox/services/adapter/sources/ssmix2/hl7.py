@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import re
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -440,7 +441,7 @@ def ts(value: str) -> str | None:
     Japanese era) is None and counted in :data:`REFUSED` (an impossible date is still passed on, for the mapping to
     reject the row, STD-025). A time with an offset is converted to the site's zone (``TB_TZ``); with no zone set,
     the time is not kept, only the day (second review of PR #1095 item 3: never a wrong time). Counted either way."""
-    raw = value.strip()
+    raw = unicodedata.normalize("NFKC", value).strip()  # full-width digits too (fifth review of PR #1095 item 4)
     v = raw.split("+", maxsplit=1)[0].split("-", maxsplit=1)[0].split(".", maxsplit=1)[0].strip()
     if not v:
         return None

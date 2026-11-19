@@ -28,7 +28,7 @@ fills: encounter `end_datetime`, `enc_status` (`finished`, `in-progress`), `prev
 (ADT-52); diagnosis `byomei_code`, `byomei_name` (the 標準病名 code beside the ICD-10), and from PPR-01 (10B-3)
 `written_name` (PRB-17), `modifiers` (ZPR 修飾語), `diagnosed_date` (PRB-7), `end_date` (PRB-9), `outcome` and
 `outcome_date` (PRB-14 転帰 and PRB-15), `main_diagnosis` (PRB-18: `Y` 主診断, `N` 副診断), with `status` also `I`
-inactive (転帰 死亡), `M` remission (寛解), `U` (anything not recognised: unconfirmed, never active, D-587) and `E` (an end or outcome day with no read outcome: ended, inactive, its end day kept); `end_date_text` / `outcome_date_text` hold a date the reader could not read; suspected also `X` (ruled out: refuted) and `U` (certainty not recognised: unconfirmed);
+inactive (転帰 死亡), `M` remission (寛解), `U` (anything not recognised: unconfirmed, never active, D-587) and `E` (an end or outcome day with no read outcome: ended, inactive, its end day kept); `end_date_text` / `outcome_date_text` / `date_text` (PRB-2, 7, 16) hold a date the reader could not read, or a repeated one; suspected also `X` (ruled out: refuted) and `U` (certainty not recognised: unconfirmed);
 a PRB-1 `DE` diagnosis is a tombstone, never a row; lab `jlac10_code`,
 `hosp_lab_code`, `specimen`; medication `hot_code`, `rp_no`, `rx_kind` (`prescription`, `injection`), `source_drug_code` (the code the order
 line carried, when the site's drug master turned a HOT or local code into `nhi_drug_code`'s YJ code) and `yj_stem`

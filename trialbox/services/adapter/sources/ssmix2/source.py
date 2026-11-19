@@ -305,8 +305,9 @@ def suspicion_in(text: str) -> bool:
 
 
 def _jhsd0005(system: str) -> bool:
-    """Whether a coding system names table JHSD0005, also with a local prefix (``99JHSD0005``)."""
-    return system.endswith("JHSD0005")
+    """Whether a coding system names table JHSD0005: exactly ``JHSD0005`` or ``99JHSD0005`` after NFKC, blanks
+    removed, upper case (fifth review of PR #1095 item 3: ``XYZJHSD0005`` is not it)."""
+    return "".join(unicodedata.normalize("NFKC", system).split()).upper() in ("JHSD0005", "99JHSD0005")
 
 
 def _suspected(prb: hl7.Segment) -> bool:
@@ -361,6 +362,8 @@ def certainty(prb: hl7.Segment, written: str, modifiers: list[str], unread_modif
     only when everything is positively recognised: PRB-13 empty or a recognised "not suspected"
     (:func:`flag_confirmed`), no ZPR modifier (its layout and table are not cited, so its meaning is not known), and
     PRB-17 empty or the same name as PRB-3. Anything else is ``U``."""
+    if len(prb.reps(13)) > 1 or len(prb.reps(17)) > 1:
+        return "U"  # a second certainty or written name is data, never dropped (fifth review item 2)
     texts = [written, *modifiers]
     suspected = _suspected(prb) or unread_modifier or any(map(suspicion_in, texts))
     refuted = any(map(refuted_in, [prb.comp(3, 2), *texts]))
@@ -372,7 +375,15 @@ def certainty(prb: hl7.Segment, written: str, modifiers: list[str], unread_modif
         return "Y"
     if not flag_confirmed(prb) or modifiers or (written and not same_text(written, prb.comp(3, 2))):
         return "U"
+    if not any(c.strip() for c, _t, _s in _triples(prb, 3) + _triples(prb, 10)):
+        return "U"  # a name with no code at all is never confirmed (fifth review item 6)
     return ""
+
+
+def diag_key(value: str) -> str:
+    """A diagnosis number as the duplicate check compares it (fifth review of PR #1095 item 5): NFKC, blanks removed,
+    case folded, so ``DX01``, ``ＤＸ０１``, ``DX01 `` and ``dx01`` are one number."""
+    return "".join(unicodedata.normalize("NFKC", value or "").split()).casefold()
 
 
 def patient_id(value: str) -> str:
@@ -386,9 +397,12 @@ _ACTIONS = ("AD", "UP", "CO", "UC")
 
 
 def real_date(value: str) -> bool:
-    """Whether a date field is empty, or a real calendar date (and time) :func:`hl7.ts` reads."""
+    """Whether a date field is empty, or one real calendar date (and time) :func:`hl7.ts` reads; a repeated date
+    (``~``) is not one (fifth review of PR #1095 item 2)."""
     if not value.strip():
         return True
+    if "~" in value:
+        return False
     got = hl7.ts(value)
     if not got:
         return False
@@ -418,69 +432,74 @@ def _table_rows(name: str) -> list[dict[str, str]]:
 # reads as unknown (U). No row is verified today.
 #: the fields a verified PRB-14 row must name its public source in (fourth review of PR #1095 item e)
 OUTCOME_SOURCE = ("title", "publisher", "version", "section", "document")
-_PLACEHOLDER = re.compile(r"^(?:-+|tbd|n/?a|none|unknown|\?+)$", re.IGNORECASE)
-_NOT_PUBLIC = re.compile(r"review\s*\d|internal|trialbox|this project", re.IGNORECASE)
+#: a document is a well-formed https URL or a DOI; a version a date or a version number (fifth review item 7)
+_URL = re.compile(r"^https://[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:[/?#][^\s]*)?$")
+_DOI = re.compile(r"^(?:doi:|https://doi\.org/)?10\.\d{4,9}/\S+$", re.IGNORECASE)
+_VERSION = re.compile(r"^(?:v(?:er\.?)?\s*)?\d+(?:\.\d+)*[a-z]?$|^\d{4}(?:-\d{2}(?:-\d{2})?)?$", re.IGNORECASE)
+
+
+def _this_project(name: str) -> bool:
+    return "trialbox" in "".join(ch for ch in unicodedata.normalize("NFKC", name).casefold() if ch.isalnum())
 
 
 def outcome_table(rows: list[dict[str, str]]) -> tuple[dict[str, dict[str, str]], set[str]]:
     """``(applied rows by table and code, every table named)`` of ``prb14_outcome.csv``. A row is applied only when
-    ``verified`` is ``yes``, and such a row must name its public source in every field of :data:`OUTCOME_SOURCE`
-    (title, publisher, version or date, section, and URL or document id; fourth review of PR #1095 item e): none may
-    be empty or a placeholder (``-``, ``TBD``, ``n/a``), none may name an internal review or this project as the
-    source. A verified row that does not stops the reader at start."""
+    ``verified`` is ``yes`` and it names its public source (fourth review item e, fifth review item 7): ``document``
+    a well-formed https URL or a DOI, ``version`` a date or a version number, ``title``, ``publisher`` and
+    ``section`` not empty, and the publisher not this project. A person reviews each row in the pull request that
+    adds it; this is the mechanical part. A verified row that fails stops the reader at start."""
     applied: dict[str, dict[str, str]] = {}
     tables: set[str] = set()
     for r in rows:
         tables.add(r["system"].strip().upper())
         if r.get("verified", "").strip().lower() != "yes":
             continue
-        source = {k: (r.get(k) or "").strip() for k in OUTCOME_SOURCE}
-        bad = [k for k, v in source.items() if not v or _PLACEHOLDER.match(v) or _NOT_PUBLIC.search(v)]
+        f = {k: unicodedata.normalize("NFKC", r.get(k) or "").strip() for k in OUTCOME_SOURCE}
+        bad = [k for k in ("title", "publisher", "section") if not f[k]]
+        if not (_URL.match(f["document"]) or _DOI.match(f["document"])):
+            bad.append("document")
+        if not _VERSION.match(f["version"]) or not re.search(r"[1-9]", f["version"]):  # "0" is no version
+            bad.append("version")
+        if _this_project(f["publisher"]) or _this_project(f["title"]):
+            bad.append("publisher")
         if bad:
             raise ValueError(
                 f"prb14_outcome.csv: {r['system']} {r['code']} is verified but cites no public source "
                 f"({', '.join(bad)})"
             )
-        applied.setdefault(r["system"].strip().upper(), {})[r["code"].strip().upper()] = r["status"].strip()
+        applied.setdefault(r["system"].strip().upper(), {})[r["code"].strip()] = r["status"].strip()
     return applied, tables
 
 
 _OUTCOME, _OUTCOME_TABLES = outcome_table(_table_rows("prb14_outcome.csv"))
 _LOINC_NOTE = {r["loinc"].strip(): r["note_type"].strip() for r in _table_rows("document_loinc.csv")}
-_OUTCOME_ANY = {code: st for table in _OUTCOME.values() for code, st in table.items()}
-_OUTCOME_WORDS = (("治癒", "R"), ("resolved", "R"), ("死亡", "I"), ("寛解", "M"), ("中止", "U"), ("継続", "A"))
 _DELETED = ("DE",)  # PRB-1 (HL7 table 0287): DE deletes the diagnosis (review 12 §4.4)
 _RANK = {"1": "Y", "2": "N"}  # PRB-18 (JHSD0007): 1 主診断, 2 副診断
 
 
+#: the reader's own legacy outcome words, PRB-14 ``A`` or ``R`` alone (no text, no table): what TrialBox's exporter
+#: and older tests write, read as they always were
+_LEGACY_OUTCOME = {"A": "A", "R": "R"}
+
+
 def outcome_status(prb: hl7.Segment) -> tuple[str, str]:
-    """``(status, outcome code)`` of PRB-14: the 転帰 read through :data:`_OUTCOME`. No 転帰 is active, as before; a
-    code no table lists, or one not verified, is ``U`` (never active, D-587); ``resolved``, and ``A`` or ``R`` with
-    no table named, read as they always did (the shape TrialBox's exporter and older tests write)."""
-    code, text, system = prb.comp(14, 1).strip(), prb.comp(14, 2), prb.comp(14, 3).strip().upper()
-    if not code and not text:
+    """``(status, outcome code)`` of PRB-14 by an exact allow-list (fifth review of PR #1095 item 1): active when
+    PRB-14 is empty; otherwise one repetition whose code and table are exactly a recognised pair, a verified row of
+    :data:`_OUTCOME` (none is today) or the reader's legacy ``A`` / ``R`` alone. Anything else (another table, a
+    local or unknown one, text with no code, a lower-case code, a second repetition) is ``U``: never active."""
+    raw = prb.field(14)
+    if not raw.strip():
         return "A", ""
-    status, code = _outcome_code(code, text, system)
-    said = next((st for w, st in _OUTCOME_WORDS if w in text), "")
-    if code and said and said != status:  # A^治癒: the code and its own text disagree, third review item 7
+    code = unicodedata.normalize("NFKC", prb.comp(14, 1)).strip()
+    text = unicodedata.normalize("NFKC", prb.comp(14, 2)).strip()
+    system = unicodedata.normalize("NFKC", prb.comp(14, 3)).strip().upper()
+    if len(prb.reps(14)) != 1:
         return "U", code
-    return status, code
-
-
-def _outcome_code(code: str, text: str, system: str) -> tuple[str, str]:
-    table = _OUTCOME.get(system, {}) if system in _OUTCOME_TABLES else _OUTCOME_ANY
-    if code.upper() in table:
-        return table[code.upper()], code
-    if code.lower() == "resolved":
-        return "R", code
-    # the reader's own legacy words, A and R with no table named (TrialBox's exporter and older tests write them):
-    # read as they always were; a code R that names table 0241 is not verified and is U
-    if code.upper() in ("A", "R") and system not in _OUTCOME_TABLES:
-        return code.upper(), code
-    if system in _OUTCOME_TABLES:  # a code of a named table that is not verified: never active
-        return "U", code
-    word = next((st for w, st in _OUTCOME_WORDS if w in text or w == code), "")
-    return word or "U", code
+    if system and code in _OUTCOME.get(system, {}):
+        return _OUTCOME[system][code], code
+    if not system and not text and raw.strip() == code and code in _LEGACY_OUTCOME:
+        return _LEGACY_OUTCOME[code], code
+    return "U", code
 
 
 def _alt(seg: hl7.Segment, n: int, systems: tuple[str, ...]) -> str:
@@ -1181,7 +1200,7 @@ class Ssmix2Source:
         ``DE``."""
         mark = len(self._dx_dead)
         rows = list(self._diagnosis_rows(sf, msg))
-        numbers = [r["diag_no"] for r in rows] + [r["diag_no"] for r in self._dx_dead[mark:]]
+        numbers = [diag_key(str(r["diag_no"])) for r in [*rows, *self._dx_dead[mark:]]]
         if len(numbers) != len(set(numbers)):  # two diagnoses under one key: which is which (fourth review item f)
             del self._dx_dead[mark:]
             self._quarantine(sf.type, sf, "duplicate key", "two diagnoses carry one diagnosis number (PRB-4)")
@@ -1254,6 +1273,16 @@ class Ssmix2Source:
             elif not all(real_date(d) for d in dates):
                 status = "U"  # a date that cannot be read: unknown, its text kept (``*_text``)
                 self.stats["PPR-01:a date not read (unknown)"] += 1
+            elif any(len(prb.reps(n)) > 1 for n in (3, 14)):
+                status = "U"  # a second 病名 or 転帰 is data, never dropped (fifth review of PR #1095 item 2)
+                self.stats["PPR-01:a repeated name or outcome (unknown)"] += 1
+            elif any(
+                (hl7.ts(prb.field(n)) or "")[:10] > (hl7.ts(sf.stamp[:8]) or "")
+                for n in (2, 7, 16)
+                if prb.field(n).strip()
+            ):
+                status = "U"  # onset, diagnosis or record after the file was written (fifth review item 4)
+                self.stats["PPR-01:a date after its file was written (unknown)"] += 1
             elif status in ("A", "U") and (prb.field(9).strip() or prb.field(15).strip()):
                 # an end day or an outcome day says the diagnosis is over, whatever 転帰 says or does not: E, ended
                 # with its outcome unknown, never active; the days kept (third review item 4, fourth review item a)
@@ -1283,9 +1312,14 @@ class Ssmix2Source:
                 "byomei_name": prb.comp(3, 2),
                 "written_name": written,
                 "modifiers": "、".join(modifiers),
-                "diag_date": hl7.ts(prb.field(16)) or "",
-                "diagnosed_date": hl7.ts(prb.field(7)) or "",
-                "recorded_date": hl7.ts(prb.field(2)) or hl7.ts(prb.field(7)) or "",
+                "diag_date": hl7.ts(prb.field(16)) if real_date(prb.field(16)) else "",
+                "diagnosed_date": hl7.ts(prb.field(7)) if real_date(prb.field(7)) else "",
+                "recorded_date": (hl7.ts(prb.field(2)) if real_date(prb.field(2)) else "")
+                or (hl7.ts(prb.field(7)) if real_date(prb.field(7)) else ""),
+                # a date that cannot be read (or is repeated) keeps its text, never dropped (fifth review item 2, 4)
+                "date_text": "; ".join(
+                    f"PRB-{n} {prb.field(n).strip()}" for n in (2, 7, 16) if not real_date(prb.field(n))
+                ),
                 "end_date": hl7.ts(prb.field(9)) if real_date(prb.field(9)) else "",
                 "end_date_text": "" if real_date(prb.field(9)) else prb.field(9).strip(),  # never dropped
                 "status": status,

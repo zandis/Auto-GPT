@@ -326,7 +326,7 @@ def test_11_an_outcome_row_is_applied_only_with_a_named_public_source() -> None:
     row = {"system": "HL70241", "code": "F", "status": "R", "meaning": "治癒", "verified": "yes", "title": "T",
            "publisher": "P", "version": "1.0", "section": "3.1", "document": "https://example.org/t"}  # fmt: skip
     with pytest.raises(ValueError, match="no public source"):
-        outcome_table([{**row, "title": "proposal from review 12 (an internal review)"}])
+        outcome_table([{**row, "document": "proposal from review 12 (an internal review)"}])
     with pytest.raises(ValueError):
         outcome_table([{**row, "section": ""}])
     applied, _ = outcome_table([row])
