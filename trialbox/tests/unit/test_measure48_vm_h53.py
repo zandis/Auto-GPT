@@ -180,6 +180,9 @@ class Rig:
                   "TB_M48_SERIAL": str(self.tmp / "serial"), "TB_M48_MD_DIR": str(self.md), "TB_M48_POLL_S": "0.2",
                   "TB_M48_STANDIN": str(self.bin / "standin"), "TB_M48_POWEROFF": str(self.bin / "off"),
                   "TB_M48_REBOOT": str(self.bin / "reboot"), "TB_M48_NO_TIMER": "1", "TB_M48_ETC": str(self.tmp / "etc"),
+                  # the disk guard sees a fixed 200 GB, not the host's / (a CI runner has far less than the 30 GB
+                  # the weights need); the disk guard's own case sets less
+                  "TB_M48_FREE_BYTES": str(200 * 10**9),
                   "M48_CALLS": str(self.calls), "M48_GCS": str(self.gcs), "M48_CK": str(self.w / "src" / "trialbox")})  # fmt: skip
         e.update(env)
         return e
