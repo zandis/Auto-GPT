@@ -221,7 +221,8 @@ def examples(role: str, lang: str) -> list[str]:
 def keys(role: str) -> list[str]:
     """Every catalogue key the role's guide uses (a test holds each to every language's own catalogue)."""
     out = [f"role.{role}", "guide.title", "guide.intro", "guide.install", "guide.what", f"help.role.{role}",
-           "guide.rights", "guide.pages", "guide.commands", "guide.commands.help", "guide.ask", "guide.ask.text"]  # fmt: skip
+           "guide.rights", "guide.pages", "guide.commands", "guide.commands.help",
+           "guide.ask", "guide.ask.text"]  # fmt: skip
     out += ["guide.cond"] if any(c for _s, c in ROLE_PAGES[role]) else []
     out += [k for s, _c in ROLE_PAGES[role] for k in (f"guide.page.{s}", help_key(s, role))]
     out += ["guide.words", *[f"life.gloss.{w}" for w in GLOSSARY]] if sees_patients(role) else []
