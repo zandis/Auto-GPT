@@ -354,3 +354,141 @@ def test_the_data_core_upgrade_adds_the_working_days_column(db_url: str) -> None
         assert life.schedule("UPG")[0].working_days and life.schedule_on("UPG", date(2027, 1, 1))[0].working_days
     finally:
         dc.close()
+
+
+# ---------------------------------------------------------------------------------------------- the second review
+def _wd_subject(lb: dict[str, Any]) -> str:  # noqa: F811
+    """A participant enrolled 2027-04-02 with v4 (day 28 = Friday 2027-04-30, 2 working days before, 3 after)."""
+    no, _other = lb["nos"]
+    c, csrf = login(lb["app"], "crc", PW)
+    c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})
+    c.get("/studies/GZQO/subjects")
+    for values in ({"ic_date": "2027-03-30", "ic_version": "v1", "ic_copy": "1"},
+                   {"en_date": "2027-04-02", "en_eligible": "1"}):  # fmt: skip
+        lb["oc"].put(f"/studies/GZQO/data/{no}", json={"event": "", "values": values, "by": "crc"})
+    lb["oc"].put("/studies/GZQO/schedule", json={"visits": [{"visit": "v4", "day": 28, "before": 2, "after": 3,
+                                                            "working_days": True}]})  # fmt: skip
+    lb["clock"]["now"] = datetime(2027, 5, 6, 9, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+    lb["oc"].post("/studies/GZQO/subjects/refresh", json={})
+    return str(no)
+
+
+def test_every_route_passes_the_sites_calendar(lb: dict[str, Any]) -> None:  # noqa: F811
+    """The second review (H): a hand mutation that dropped the calendar from /visits, /subjects, the possible
+    deviations, their decision or the old-schedule judgement of a done visit went unseen. Each is held here, on a
+    Tokyo site in Golden Week: in working days v4's window ends 2027-05-10; in Monday-to-Friday days 05-05."""
+    no = _wd_subject(lb)
+    rows = lb["oc"].get("/studies/GZQO/visits?today=2027-05-06").json()["rows"]
+    assert [(r["visit"], r["end"], r["status"]) for r in rows] == [("v4", "2027-05-10", "open")]
+    sub = next(s for s in lb["oc"].get("/studies/GZQO/subjects?today=2027-05-06").json()["subjects"]
+               if s["record"] == no)  # fmt: skip
+    assert sub["visits"]["open"] == 1 and sub["visits"]["overdue"] == 0
+    # done on 05-07: inside the working-days window, outside a Monday-to-Friday one
+    lb["oc"].put(f"/studies/GZQO/data/{no}", json={"event": "v4", "values": {"vs_status": "1",
+                                                                           "vs_date": "2027-05-07"}, "by": "crc"})  # fmt: skip
+    lb["clock"]["now"] = datetime(2027, 5, 11, 9, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+    props = lb["oc"].get("/studies/GZQO/deviations/possible?today=2027-05-11").json()["rows"]
+    assert not [p for p in props if p["kind"] == "visit_window"]
+    r = lb["oc"].post("/studies/GZQO/deviations/possible", json={"record": no, "key": "visit_window:v4",
+                                                                 "decision": "dismiss", "reason": "x",
+                                                                 "today": "2027-05-11"})  # fmt: skip
+    assert r.status_code == 409 and "proposal" in r.text  # no such proposal with the site's calendar
+    # a later schedule (from 05-08, no days after): the done visit is judged by the one in force on 05-07
+    lb["oc"].put("/studies/GZQO/schedule", json={"effective_from": "2027-05-08", "visits": [
+        {"visit": "v4", "day": 28, "before": 2, "after": 0, "working_days": True}]})  # fmt: skip
+    v = next(x for x in lb["oc"].get(f"/studies/GZQO/subjects/{no}?today=2027-05-11").json()["visits"]
+             if x["visit"] == "v4")  # fmt: skip
+    assert v["status"] == "done" and v["in_window"] is True and v["end"] == "2027-05-10"
+
+
+def test_a_get_then_put_keeps_working_days_and_redcap_keeps_them(lb: dict[str, Any]) -> None:  # noqa: F811
+    """The second review (C): the JSON route and the REDCap import dropped the field."""
+    from fastapi.testclient import TestClient
+
+    c = TestClient(lb["app"])
+    c.headers["Authorization"] = (
+        "Bearer " + c.post("/api/v1/session", json={"username": "crc", "password": PW}).json()["token"]
+    )
+    lb["oc"].put("/studies/GZQO/schedule", json={"visits": [{"visit": "v4", "day": 28, "before": 2, "after": 3,
+                                                            "working_days": True}, {"visit": "v5", "day": 56}]})  # fmt: skip
+    got = c.get("/api/v1/studies/GZQO/schedule").json()["visits"]
+    assert c.put("/api/v1/studies/GZQO/schedule", json={"visits": got}).status_code == 200
+    again = lb["oc"].get("/studies/GZQO/schedule").json()["visits"]
+    assert [(v["visit"], v.get("working_days", False)) for v in again] == [("v4", True), ("v5", False)]
+    # REDCap's events read again: the visit counted in working days keeps it; a new event counts calendar days
+    from fastapi import FastAPI
+    from orchestrator.datacore_api import DataService
+    from orchestrator.lifecycle_api import router as life_router
+
+    from tests.actor3 import SignedClient
+
+    class Rc:
+        def __enter__(self) -> Any:
+            return self
+
+        def __exit__(self, *_a: Any) -> None:
+            return None
+
+        def events(self) -> list[dict[str, Any]]:
+            return [
+                {"unique_event_name": "v4", "day_offset": 28, "offset_min": 2, "offset_max": 3, "arm_num": 1},
+                {"unique_event_name": "v6", "day_offset": 84, "offset_min": 7, "offset_max": 7, "arm_num": 1},
+            ]
+
+    svc = DataService(lb["dc"], lb["audit"], lambda: lb["clock"]["now"], lambda _ref: Rc(), None, lb["reg"])  # type: ignore[arg-type,return-value]
+    api = FastAPI()
+    api.include_router(life_router(lambda: svc))
+    r = SignedClient(api).post("/studies/GZQO/schedule/redcap", json={"token_ref": "main"})
+    assert r.status_code == 200, r.text
+    assert [(v["visit"], v.get("working_days", False)) for v in r.json()["visits"]] == [("v4", True), ("v6", False)]
+
+
+def test_a_window_whose_calendar_fails_counts_calendar_days_and_a_safety_mail_survives_overflow() -> None:
+    class NoDays(workdays.Calendar):
+        def add_working_days(self, d: date, n: int) -> date:
+            raise ValueError("no working day")
+
+    class Overflow(workdays.Calendar):
+        def next_working_day(self, d: date) -> date:
+            raise OverflowError("date value out of range")
+
+    row = visit_status(Visit("v4", 28, 2, 3, working_days=True), date(2027, 4, 2), {}, "on_study", date(2027, 5, 6),
+                       NoDays("JP", workdays.holidays("JP")))  # fmt: skip
+    assert (row["start"], row["end"], row["status"]) == ("2027-04-28", "2027-05-03", "overdue")
+    life = {"GZQO": {"today": [], "week": [], "overdue": [], "reports": [], "sae": 1}}
+    n1 = notify.build_n1(PI, NotifyPerson("pi", None, lang="en"), date(9999, 12, 27), [("GZQO", [])], life,
+                         cal=Overflow("JP", workdays.holidays("JP")))  # fmt: skip
+    assert n1 is not None and n1.counts["sae"] == 1
+
+
+def test_a_damaged_holiday_file_never_stops_the_round(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The second review (A): a bad kind in the file raised inside ``site_calendar`` before any mail was built."""
+    (tmp_path / "holidays_jp.csv").write_text("date,name,kind\n2026-11-23,勤労感謝の日,festival\n", encoding="utf-8")
+    monkeypatch.setattr(workdays, "SRC", tmp_path)
+    workdays.holidays.cache_clear()
+    try:
+        life = {"today": [], "week": [], "overdue": [], "sae": 1,
+                "reports": [{"short": "aaaaaaaa", "due": "2026-11-22", "party": "sponsor"}]}  # fmt: skip
+        h = _tokyo(life)
+        cal = notify.site_calendar(h)
+        assert cal.broken and workdays.health(cal, date(2026, 11, 23))[0] == "red"  # type: ignore[index]
+        got = {n.kind: n for n in notify.collect(h, date(2026, 11, 23))}  # Monday to Friday: a working day
+        assert got["N1"].counts["sae"] == 1 and got["N2"].counts["sae_reports"] == 1
+    finally:
+        monkeypatch.undo()
+        workdays.holidays.cache_clear()
+
+
+def test_a_window_past_the_list_says_its_holidays_are_not_known() -> None:
+    """The second review (D): a working-days window reaching 2028 (after the list) or 2024 (before it)."""
+    late = visit_status(Visit("v9", 28, 2, 5, working_days=True), date(2027, 12, 1), {}, "on_study",
+                        date(2027, 12, 1), JP)  # fmt: skip
+    assert late["end"] > "2027-12-31" and late["days_off_unknown"] is True
+    early = visit_status(Visit("v1", 7, 2, 2, working_days=True), date(2024, 12, 20), {}, "on_study",
+                         date(2024, 12, 20), JP)  # fmt: skip
+    assert early["days_off_unknown"] is True
+    inside = visit_status(Visit("v4", 28, 2, 3, working_days=True), date(2027, 4, 2), {}, "on_study",
+                          date(2027, 5, 6), JP)  # fmt: skip
+    assert "days_off_unknown" not in inside
+    plain = visit_status(Visit("v9", 28, 2, 5), date(2027, 12, 1), {}, "on_study", date(2027, 12, 1), JP)
+    assert "days_off_unknown" not in plain  # a calendar-day window reads as before

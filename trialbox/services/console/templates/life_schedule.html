@@ -30,7 +30,7 @@
 </section>
 {% if days_off is not none %}<section class="card" data-testid="days-off">
 <h2>{{ t('life.daysoff.title') }}</h2>
-<p class="hint">{{ t('life.daysoff.help', until=days_off_until) }}</p>
+<p class="hint">{{ t('life.daysoff.help', first=days_off_first, until=days_off_until) }}</p>
 {% if days_off_runs_out %}<p class="error" role="alert" data-testid="days-off-runs-out">{{ t('life.daysoff.end.' + days_off_runs_out, until=days_off_until) }}</p>{% endif %}
 {% if days_off_problems %}<p class="error" role="alert" data-testid="days-off-problems">{{ t('life.daysoff.problem', what=days_off_problems|join(', ')) }}</p>{% endif %}
 {% if days_off %}<ul class="plain">{% for d, why, name in days_off %}<li data-testid="day-off">{{ d.isoformat() }} · {{ t('life.daysoff.why.' + why) }}{% if name %} · {{ name }}{% endif %}</li>{% endfor %}</ul>

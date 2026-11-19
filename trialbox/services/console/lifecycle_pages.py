@@ -77,6 +77,7 @@ class ApiVisit(BaseModel):
     after: int = 0
     anchor: str = "enrolment"
     labels: dict[str, str] = Field(default_factory=dict)
+    working_days: bool = False  # 10C-14: carried through, so a GET then PUT keeps a working-days window
 
 
 class ApiSchedule(BaseModel):
@@ -565,6 +566,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         until = cal.holidays.until.isoformat() if cal.holidays and cal.holidays.until else ""
         return h.page(request, "life_schedule.html", sess, rs=rid, schedule=sched, blank=SCHEDULE_ROWS, conns=conns,
                       days_off=off, days_off_until=until, days_off_problems=list(cal.problems),
+                      days_off_first=cal.holidays.first.isoformat() if cal.holidays and cal.holidays.first else "",
                       days_off_runs_out=cal.runs_out(day), units=cal.has_days_off,
                       editable=can_enter(sess.user), saved=saved[:10], refused=err[:300])  # fmt: skip
 
@@ -798,7 +800,10 @@ def register(app: FastAPI, h: Helpers) -> None:
     def api_schedule_put(request: Request, rs: str, body: ApiSchedule) -> Any:
         sess = api_session(request)
         try:
-            return apply_schedule(sess, request.url.path, rs, [v.model_dump() for v in body.visits])
+            return apply_schedule(sess, request.url.path, rs,
+                                  [{**v.model_dump(exclude={"working_days"}),
+                                    **({"working_days": True} if v.working_days else {})}
+                                   for v in body.visits])  # fmt: skip
         except (Problem, Unavailable) as exc:
             return refused(sess, exc)
 

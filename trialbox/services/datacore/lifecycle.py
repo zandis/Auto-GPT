@@ -1052,7 +1052,7 @@ def visit_status(v: Visit, anchor: date | None, vals: dict[str, str], state: str
     if due is not None and v.working_days:
         try:
             start, end = cal.add_working_days(due, -v.before), cal.add_working_days(due, v.after)
-        except ValueError:  # a site's days off leave no working day (TB_DAYS_OFF): calendar days, never no window
+        except (ValueError, OverflowError):  # no working day to count to (or past 9999): calendar days, never none
             start, end = due - timedelta(days=v.before), due + timedelta(days=v.after)
     else:
         start = due - timedelta(days=v.before) if due else None
@@ -1087,6 +1087,13 @@ def visit_status(v: Visit, anchor: date | None, vals: dict[str, str], state: str
         "in_window": in_window,
         "missed_reason": vals.get("vs_missed_reason", "") if status == "missed" else "",
         "days_late": (today - end).days if status == "overdue" and end else 0,
+        # 10C-14: a working-days window reaching a year the holiday list does not know (after its last day, or before
+        # its first year): its holidays there are not skipped. Only on such a row, so other rows read as before.
+        **(
+            {"days_off_unknown": True}
+            if v.working_days and start and end and cal.has_days_off and not (cal.covers(start) and cal.covers(end))
+            else {}
+        ),
     }
 
 

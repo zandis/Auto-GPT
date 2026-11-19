@@ -597,13 +597,15 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
             raise HTTPException(status_code=409, detail={"code": "LIFE-STEP", "why": "no_events",
                                                          "message": "the REDCap project has no events"})  # fmt: skip
         arm = min(int(e.get("arm_num") or 1) for e in events)
+        # 10C-14: REDCap has no "working days"; a visit already counted so keeps it when its event is read again
+        kept = {v.name for v in Lifecycle(svc.dc).schedule(rid) if v.working_days}
         visits = []
         for e in sorted((e for e in events if int(e.get("arm_num") or 1) == arm),
                         key=lambda e: float(e.get("day_offset") or 0)):  # fmt: skip
             name = str(e["unique_event_name"])
             visits.append(Visit(name, round(float(e.get("day_offset") or 0)), round(float(e.get("offset_min") or 0)),
                                 round(float(e.get("offset_max") or 0)), body.anchor,
-                                {"en": str(e.get("event_name") or name)}))  # fmt: skip
+                                {"en": str(e.get("event_name") or name)}, name in kept))  # fmt: skip
         return put(rid, visits, "redcap", who.name)
 
     @r.get("/studies/{rs}/visits", dependencies=[NOTIFY_READ])

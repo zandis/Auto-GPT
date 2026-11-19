@@ -107,7 +107,7 @@ def test_a_site_changes_its_break_and_its_own_days() -> None:
 def test_settings_that_cannot_be_read_are_shown_not_guessed() -> None:
     cal = for_country("JP", {"TB_NEW_YEAR_BREAK": "29 Dec", "TB_DAYS_OFF": "2027-02-30,2027-08-13"})
     assert len(cal.problems) == 2 and cal.problems[0].startswith("TB_NEW_YEAR_BREAK: the New Year break is MM-DD")
-    assert cal.problems[1] == "TB_DAYS_OFF/TB_DAYS_OPEN: '2027-02-30' is not a day (YYYY-MM-DD)"
+    assert cal.problems[1] == "TB_DAYS_OFF: '2027-02-30' is not a day (YYYY-MM-DD)"
     assert cal.day_off(date(2026, 12, 29)) == "new_year"  # the country's break stands
     assert cal.day_off(date(2027, 8, 13)) == "site"  # the readable part is used
 
@@ -136,7 +136,7 @@ def test_the_longest_break_allowed() -> None:
 def test_a_day_off_is_written_yyyy_mm_dd_on_every_python(text: str) -> None:
     """3.11 widened ``date.fromisoformat`` (20261228, 2026-W52-1); 3.10 refuses them. One strict pattern for both."""
     cal = for_country("JP", {"TB_DAYS_OFF": text})
-    assert cal.off == frozenset() and cal.problems == (f"TB_DAYS_OFF/TB_DAYS_OPEN: {text!r} is not a day (YYYY-MM-DD)",)
+    assert cal.off == frozenset() and cal.problems == (f"TB_DAYS_OFF: {text!r} is not a day (YYYY-MM-DD)",)
 
 
 def test_a_day_both_off_and_open_is_a_problem() -> None:
@@ -144,14 +144,59 @@ def test_a_day_both_off_and_open_is_a_problem() -> None:
     assert cal.problems == ("TB_DAYS_OFF and TB_DAYS_OPEN both name 2027-08-13",)
 
 
-def test_the_box_does_not_start_with_an_unreadable_working_day_setting() -> None:
-    from tb_common.config import ConfigError, load_env
+def test_a_mistyped_working_day_setting_never_stops_the_box() -> None:
+    """The second review of #1126 (B): a start that stops leaves no SAE entry at all. A bad value is ignored (the
+    default calendar) with a red health line naming the variable; the wizard refuses it at entry (below)."""
+    from tb_common.config import load_env
 
-    for env in ({"TB_NEW_YEAR_BREAK": "01-03/12-29"}, {"TB_DAYS_OFF": "20261228"},
+    for env in ({"TB_NEW_YEAR_BREAK": "01-03/12-29"}, {"TB_DAYS_OFF": "20261228"}, {"TB_DAYS_OPEN": "x"},
                 {"TB_DAYS_OFF": "2027-08-13", "TB_DAYS_OPEN": "2027-08-13"}):  # fmt: skip
-        with pytest.raises(ConfigError, match="TB_"):
-            load_env(environ=env)
-    load_env(environ={"TB_NEW_YEAR_BREAK": "12-30/01-03", "TB_DAYS_OFF": "2027-08-13", "TB_DAYS_OPEN": "2027-01-04"})
+        load_env(environ=env)  # starts
+        cal = for_country("JP", env)
+        line = workdays.health(cal, date(2027, 6, 1))
+        assert line is not None and line[0] == "red" and next(iter(env)) in line[1]
+    assert for_country("JP", {"TB_NEW_YEAR_BREAK": "01-03/12-29"}).new_year == ((12, 29), (1, 3))
+
+
+def test_full_width_digits_are_refused_for_the_break_and_the_days_alike() -> None:
+    with pytest.raises(ValueError):
+        workdays.parse_break("１２-２９/０１-０３")
+    assert for_country("JP", {"TB_DAYS_OFF": "２０２７-０８-１３"}).off == frozenset()
+
+
+def test_more_than_30_site_days_off_in_a_year_are_not_used() -> None:
+    """The second review (E): every weekday of a year off would silence the digest with no problem said. More than
+    30 site days in one year: the list is not used and a red line names it."""
+    many = ",".join(f"2027-{m:02d}-{d:02d}" for m in (9, 10) for d in range(1, 17))  # 32 days
+    cal = for_country("JP", {"TB_DAYS_OFF": many})
+    assert cal.off == frozenset() and cal.problems == (
+        "TB_DAYS_OFF: 32 days in 2027, more than 30: the list is not used",
+    )
+    assert cal.is_working_day(date(2027, 9, 1))
+    ok = ",".join(f"2027-08-{d:02d}" for d in range(1, 31))  # 30: used
+    assert len(for_country("JP", {"TB_DAYS_OFF": ok}).off) == 30
+
+
+def test_a_damaged_holiday_file_gives_monday_to_friday_and_a_red_line(monkeypatch: pytest.MonkeyPatch,
+                                                                      tmp_path: Path) -> None:  # fmt: skip
+    """The second review (A): a bad kind or a missing column raised and stopped the round."""
+    for body in ("date,name,kind\n2027-01-01,元日,festival\n", "date,name\n2027-01-01,元日\n"):
+        (tmp_path / "holidays_jp.csv").write_text(body, encoding="utf-8")
+        monkeypatch.setattr(workdays, "SRC", tmp_path)
+        workdays.holidays.cache_clear()
+        cal = for_country("JP", {})
+        assert cal.broken and not cal.has_days_off and cal.is_working_day(date(2027, 1, 1))
+        line = workdays.health(cal, date(2027, 6, 1))
+        assert line is not None and line[0] == "red" and "holiday list cannot be read" in line[1]
+    monkeypatch.undo()
+    workdays.holidays.cache_clear()
+    assert not for_country("JP", {}).broken
+
+
+def test_the_list_says_which_dates_it_knows() -> None:
+    assert JP.covers(date(2025, 1, 1)) and JP.covers(date(2027, 12, 31))
+    assert not JP.covers(date(2024, 12, 31)) and not JP.covers(date(2028, 1, 1))
+    assert not WEEKDAYS_ONLY.covers(date(2026, 1, 1))
 
 
 # ---------------------------------------------------------------------------------------------- the list runs out
@@ -170,11 +215,11 @@ def test_the_holiday_list_says_before_it_runs_out(today: date, runs_out: str, le
     assert JP.is_working_day(date(2028, 3, 20))  # 春分の日 2028: not in the list, hence the red line
 
 
-def test_unreadable_settings_are_a_health_warning() -> None:
+def test_unreadable_settings_are_a_red_health_line() -> None:
     cal = for_country("JP", {"TB_DAYS_OFF": "x"})
     assert workdays.health(cal, date(2027, 6, 1)) == (
-        "warn",
-        "working-day settings not used: TB_DAYS_OFF/TB_DAYS_OPEN: 'x' is not a day (YYYY-MM-DD)",
+        "red",
+        "working-day settings not used: TB_DAYS_OFF: 'x' is not a day (YYYY-MM-DD)",
     )
 
 
@@ -242,6 +287,28 @@ def test_the_wizard_asks_the_new_year_break_for_japan_only() -> None:
     assert sw.new_year_env("tw", "12-28/01-04", errors) == {} and "no holiday list" in errors[-1]
     for bad in ("01-03/12-29", "12-28/12-27"):  # the review of #1126 (1): never written
         assert sw.new_year_env("jp", bad, errors) == {} and "at most 14 days" in errors[-1]
+    # every route: env_extra too (the second review, B)
+    for name, bad in (("TB_DAYS_OFF", "2027/08/13"), ("TB_NEW_YEAR_BREAK", "01-03/12-29"), ("TB_DAYS_OPEN", "x")):
+        errs: list[str] = []
+        assert sw.env_extra({name: bad}, errs) == {name: bad} and errs and errs[0].startswith(f"env_extra: {name}")
+
+
+def test_the_wizard_writes_the_break_into_the_env(tmp_path: Path) -> None:
+    """The second review (H): the answer reaches ``deploy/.env``; the country's own break writes nothing."""
+    from tests.unit.test_site_country import SITE
+    from tools import settings_wizard as sw
+
+    storage = tmp_path / "ssmix2"
+    storage.mkdir()
+    base = {**SITE, "country": "jp", "data_source_host_dir": str(storage)}
+    _s, env, _w = sw.build({**base, "new_year_break": "12-28/01-04"})
+    assert env["TB_NEW_YEAR_BREAK"] == "12-28/01-04"
+    _s, env, _w = sw.build({**base, "new_year_break": "12-29/01-03"})
+    assert "TB_NEW_YEAR_BREAK" not in env
+    with pytest.raises(sw.WizardError, match="new_year_break"):
+        sw.build({**base, "new_year_break": "01-03/12-29"})
+    with pytest.raises(sw.WizardError, match="env_extra: TB_DAYS_OFF"):
+        sw.build({**base, "env_extra": {"TB_DAYS_OFF": "2027/08/13"}})
 
 
 # ---------------------------------------------------------------------------------------------- the yearly import

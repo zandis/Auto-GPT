@@ -31,10 +31,12 @@ holiday list existed only for plan dates (`tools/gen_calendar.py`).
 3. **The New Year break** is the country's default (Japan: 12-29 to 01-03) and the site's to change, with its own
    days off and the holidays it works: `TB_NEW_YEAR_BREAK` (`MM-DD/MM-DD` or `none`), `TB_DAYS_OFF`,
    `TB_DAYS_OPEN` (declared settings in `deploy/.env`). A break starts in December, ends in January and lasts at
-   most 14 days; days are strict `YYYY-MM-DD`; a day both off and open is a problem. The settings wizard asks the
-   break for a country with a holiday list and writes it only when it differs; the other two go through the answers
-   file's `env_extra`. A value that cannot be read is refused by the wizard and stops the box at start-up
-   (`tb_common.config`); a calendar built without it lists it and leaves it out.
+   most 14 days; days are strict ASCII `YYYY-MM-DD`; a day both off and open is a problem; more than 30 site days off
+   in one year is a mistake and that list is not used. The settings wizard asks the break for a country with a
+   holiday list and writes it only when it differs; the other two go through the answers file's `env_extra`; every
+   route refuses a value it cannot read. A running box never stops on one (a start that stops would leave no SAE
+   entry at all): the value is left out, the default calendar used, and the health line is red naming it. A holiday
+   file that cannot be read gives Monday to Friday and a red health line, never a stopped round.
 4. **The mails.** On a day off the coordinator's digest is what a weekend gives (the overdue SAE reports only, logged
    `N2-SAE`), and the full digest comes on the next working day; the investigator's weekly list (clinic days
    unknown) goes on the week's first working day. The administrators' health mail stays daily.
@@ -49,6 +51,11 @@ holiday list existed only for plan dates (`tools/gen_calendar.py`).
    possible-deviation check reads the same windows.
 
 ## Consequences
+
+Known limit: a done visit's in-window verdict is recomputed from the calendar in force today, so a day off added or
+removed later can turn a past verdict (keeping the calendar with each done visit is a follow-up). A working-days window
+that reaches outside the holiday list's years says so on the visit lists ("holidays not known for these dates").
+With the widest break allowed (14 days) the coordinator receives reduced (SAE-only) digests up to 16 days in a row.
 
 A fuller page (a site editing its days off in the console, with an audit trail) is not built: the settings are set at
 installation, as the other site settings are. Taiwan or another country is one more file and, where it has one, a

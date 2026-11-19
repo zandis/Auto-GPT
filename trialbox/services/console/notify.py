@@ -160,14 +160,14 @@ def build_n1(
         try:  # Monday, or the week's first working day after a holiday (10C-14)
             first = cal.next_working_day(monday)
             week_day = today == first and first - monday < timedelta(days=7)
-        except ValueError:  # the calendar cannot say: Monday, as before; the SAE alert below never waits on it
+        except (ValueError, OverflowError):  # the calendar cannot say: Monday, as before; the SAE alert never waits
             week_day = today.weekday() == 0
         if not week_day and not alert:
             return None
         mine = all_rows if week_day else []
         why_key = "n1.why.monday" if today.weekday() == 0 else "n1.why.firstday"
         why = translate(lang, why_key) if mine else translate(lang, "n1.why.sae")
-    end = today + timedelta(days=7)
+    end = today + timedelta(days=7) if today < date.max - timedelta(days=7) else date.max  # never an OverflowError
     today_rows = [(rs, r) for rs, r in mine if r.get("visit") and r["visit"].date() == today]
     week_rows = [(rs, r) for rs, r in mine if r.get("visit") and today < r["visit"].date() < end]
     if known is False:  # the Monday mail is the whole week, in one list
@@ -353,7 +353,11 @@ def site_calendar(h: Any) -> Calendar:
         zone = site_zone(h.bk)
     except Exception:  # no readable zone: the box does not start (D-270); a bare test app has no days off
         return WEEKDAYS_ONLY
-    return for_zone(str(getattr(zone, "key", "") or ""))
+    try:
+        return for_zone(str(getattr(zone, "key", "") or ""))
+    except Exception:  # never stops a round: Monday to Friday (the health line says why, ``workdays.health``)
+        log.exception("the site's working days could not be built: Monday to Friday this round")
+        return WEEKDAYS_ONLY
 
 
 def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[Notice]:

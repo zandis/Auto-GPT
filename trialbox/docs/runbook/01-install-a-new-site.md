@@ -95,8 +95,9 @@ Year break: no coordinator digest on those days (the overdue SAE reports still g
 counts in working days skips them. The break is 12-29 to 01-03 unless the answers say otherwise (`new_year_break`,
 written as `TB_NEW_YEAR_BREAK`: `MM-DD/MM-DD` from December to January, at most 14 days, or `none`); the hospital's
 own days off and the holidays it works go in the answers' `env_extra` as `TB_DAYS_OFF` and `TB_DAYS_OPEN`
-(`YYYY-MM-DD`, comma separated). A value that cannot be read stops the box with a plain message. The schedule page
-lists the coming days off. The holiday list ships in the update bundle; each year, when the Cabinet Office publishes
+(`YYYY-MM-DD`, comma separated, at most 30 days a year). The wizard refuses a value it cannot read; a running box never
+stops on one: it leaves the value out and the health line is red until it is put right. The schedule page lists the
+coming days off. The holiday list ships in the update bundle; each year, when the Cabinet Office publishes
 the next year (February), the vendor downloads `syukujitsu.csv`, records its sha256 in the licence register row
 `jp-holidays` and runs `python3 -m tools.holidays_import syukujitsu.csv --sha256 <hex> --years <first>-<last>`; the
 health line warns 90 days before the list runs out and is red after it.

@@ -767,6 +767,8 @@ def env_extra(raw: Any, errors: list[str]) -> dict[str, str]:
             errors.append(f"env_extra: {name} has a line break")
         else:
             out[name] = str(v)
+    # 10C-14: the working-day settings are refused at entry, whatever the route (a box never stops on them)
+    errors += [f"env_extra: {p}" for p in workdays.settings_problems(out)]
     return out
 
 
