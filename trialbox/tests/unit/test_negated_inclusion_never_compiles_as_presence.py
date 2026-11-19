@@ -224,7 +224,8 @@ HT = ["hypertension", "高血圧", "高血壓"]
 ST = ["stroke", "脳卒中", "中風"]
 LC = ["lung cancer", "肺癌"]
 SU = ["surgery", "手術"]
-RULES = {
+Line = tuple[str, list[str], list[str]]  # text, the coded concept's names, the line's other candidates
+RULES: dict[str, tuple[list[Line], list[Line]]] = {
     "R0 the concept is not named: any cue holds": (
         [],
         [
