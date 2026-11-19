@@ -18,6 +18,7 @@ from tb_common.authz import (
     BREAK_GLASS_REASONS,
     BREAK_GLASS_REVIEW_DAYS,
 )
+from tb_common.visible_text import visible
 
 from console.storedb import open_db
 
@@ -137,7 +138,7 @@ class BreakGlassStore:
     def open(self, username: str, *, reason: str, note: str, kind: str, ruleset: str = "", pid: str = "",
              job_id: str = "", now: datetime) -> tuple[Grant, list[Grant]]:  # fmt: skip
         """Open one grant for ``username``; returns it and the grants it ended (one at a time)."""
-        note = " ".join((note or "").split())
+        note = visible(note)  # D-1232: as before, and a note of invisible characters only has no length
         if reason not in BREAK_GLASS_REASONS:
             raise BreakGlassError("bg.err.reason")
         if len(note) < BREAK_GLASS_NOTE_MIN:
