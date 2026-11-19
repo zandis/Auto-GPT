@@ -10,21 +10,26 @@
   speaks of a registry connection.
 - **Decision:**
   - **The mode is the one the box already has**: `TB_CTGOV_MODE`, `live`, `offline` or `cassette`
-    (`services/criteria_compiler/ctgov.py`, D-140), unset read as `offline`, as the compiler reads it. No mode is
-    added. A value the compiler refuses reads as `unknown`, and the page then says the setting is not one of the
-    three and sends the reader to the administrator; it never guesses a mode.
-  - **One sentence per mode, in en, ja and zh-TW** (`feas.ct.none.live`, `.offline`, `.cassette`, `.unknown`;
+    (`services/criteria_compiler/ctgov.py`, D-140), read as the compiler reads it (lower case). No mode is added.
+    **Not set** (empty or absent) is said as such: the page says the mode is not set, asks for the administrator, and
+    names what the compiler does then (its default, offline, no connection). A value the compiler refuses reads as
+    `unknown`: the page names the setting and sends the reader to the administrator. The page never guesses a mode.
+  - **One sentence per mode, in en, ja and zh-TW** (`feas.ct.none.live`, `.offline`, `.cassette`, `.unset`, `.unknown`;
     `feas.ct.none` is removed). Each says what this box reaches: live, clinicaltrials.gov, no jRCT; offline and
     cassette, neither, by design, and "nothing is wrong". It also says where the box's ClinicalTrials.gov records come
     from (offline: the reference data in each signed update; cassette: synthetic records shipped with the software,
     a demonstration or test box). Every mode keeps the fact that matters for the list: no registry fills it, and the
     coordinator types the trials.
   - **No new read, route or reader.** The console takes the value from its environment, where `deploy/.env` already
-    put it through `env_file`. `deploy/docker-compose.yml` now also gives the console `TB_CTGOV_MODE` from the same
-    expression as the criteria compiler (`${TB_CTGOV_MODE:-offline}`), so the two services cannot differ. The page,
-    its route, who may open it and the sponsor copy are unchanged, apart from this sentence (the sponsor copy shows the
-    same sentence it showed before, now true).
+    puts it through `env_file`, as for every service. No deploy file changes. The page, its route, who may open it and
+    the sponsor copy are unchanged, apart from this sentence (the sponsor copy shows the same sentence slot it showed
+    before, now true).
+  - **Where the two services could differ** (a note for the integrator, not changed here): the compiler is given
+    `${TB_CTGOV_MODE:-offline}` by compose interpolation, which reads the shell of whoever runs `docker compose` as
+    well as `deploy/.env`; the console reads `deploy/.env` only. A value exported in that shell wins over
+    `deploy/.env` for the compiler only, so the page would state the `.env` value. The installer writes the value into `deploy/.env`
+    (`deploy/install.sh`), so an installed box does not hit this unless someone overrides it by hand.
   - **Nothing else depends on the mode.** The home page, the reports page and the feasibility page in both views
     render the same bytes in every mode, apart from the one sentence.
-- **Held by:** `tests/console/test_ctgov_mode_text.py` (one text test per mode per language, the unknown value, the
-  console's modes equal to the compiler's, the compose value shared with the compiler, and the render check).
+- **Held by:** `tests/console/test_ctgov_mode_text.py` (one text test per mode per language, not set and the unknown
+  value per language, the console's reading against the compiler's own `CtGov` for nine values, and the render check).

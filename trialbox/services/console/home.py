@@ -89,16 +89,20 @@ def data_as_of(job: Job, today: date) -> dict[str, Any]:
 
 
 # 10D-17 (D-1242, review 14 M14-16): the ClinicalTrials.gov modes of services/criteria_compiler/ctgov.py (MODES; the
-# console does not import the compiler, tests/console/test_ctgov_mode_text.py holds the two equal) and its default
+# console does not import the compiler, tests/console/test_ctgov_mode_text.py holds the two equal)
 CTGOV_MODES = ("live", "offline", "cassette")
 
 
 def ctgov_mode(environ: Mapping[str, str] | None = None) -> str:
-    """The box's ClinicalTrials.gov mode as the compiler reads it (``TB_CTGOV_MODE``, unset: ``offline``, D-140), or
-    ``unknown`` for a value the compiler refuses: the feasibility page never states a mode the box is not in. The
-    console receives the setting from ``deploy/.env`` like every service; it reads no data for it."""
-    value = ((os.environ if environ is None else environ).get("TB_CTGOV_MODE") or "offline").strip().lower()
-    return value if value in CTGOV_MODES else "unknown"
+    """The box's ClinicalTrials.gov mode, read from ``TB_CTGOV_MODE`` as the compiler reads it (lower case, D-140):
+    one of :data:`CTGOV_MODES`; ``unset`` when the variable is empty or absent (the compiler then works ``offline``, its
+    default, and the page says both); ``unknown`` for a value the compiler refuses. The page never states a mode the
+    setting does not name. The console receives the setting from ``deploy/.env`` like every service (``env_file``);
+    it reads no data for it."""
+    raw = (os.environ if environ is None else environ).get("TB_CTGOV_MODE") or ""
+    if not raw:
+        return "unset"
+    return raw.lower() if raw.lower() in CTGOV_MODES else "unknown"
 
 
 @dataclass

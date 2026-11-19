@@ -370,9 +370,6 @@ services:
                   TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",
                   TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-}",
                   TB_OPS_DIR: /data/ops,  # D-178: the mount below; the host's TB_OPS_DIR in .env is the host path
-                  # 10D-17 (D-1242): the feasibility page states the ClinicalTrials.gov mode; the same value the
-                  # criteria-compiler is given below, so the page never names a mode the compiler is not in
-                  TB_CTGOV_MODE: "${TB_CTGOV_MODE:-offline}",
                   # NEW-STD-2 (D-562), D-638: the anchor folders are host paths; with the host's name set and no folder
                   # mounted the audit page's Verify called an intact chain broken ("no signed heads found"). Cleared
                   # here; the installer's deploy/site/compose.anchors.yml mounts each folder read-only and sets the

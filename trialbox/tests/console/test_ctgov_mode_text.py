@@ -1,6 +1,7 @@
 # ruff: noqa: F811 - the box fixture is imported from test_console_app and taken by name
 """10D-17 (D-1242, review 14 M14-16): the feasibility report's "no competing trials" sentence states the box's
-ClinicalTrials.gov mode (``TB_CTGOV_MODE``: live, offline or cassette, D-140) in three languages, instead of saying
+ClinicalTrials.gov mode (``TB_CTGOV_MODE``: live, offline or cassette, D-140; not set or unrecognised said
+so) in three languages, instead of saying
 that TrialBox has no ClinicalTrials.gov connection, which was untrue on a box with CT.gov live or offline.
 
 One text test per mode per language; the other pages, and the rest of this page, do not depend on the mode. All data
@@ -10,11 +11,9 @@ from __future__ import annotations
 
 import html
 import re
-from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 from console import home
 from console.i18n import CATALOGUES, translate
 from criteria_compiler import ctgov
@@ -46,12 +45,32 @@ def _hint(page: str) -> tuple[str, str]:
     return found[0][0], html.unescape(found[0][1])
 
 
-def test_the_console_knows_the_compilers_three_modes_and_its_default() -> None:
+def test_the_console_knows_the_compilers_three_modes() -> None:
     assert home.CTGOV_MODES == ctgov.MODES  # the console does not import the compiler; the same names, checked here
-    assert home.ctgov_mode({}) == home.ctgov_mode({"TB_CTGOV_MODE": ""}) == "offline"  # the compiler's default too
-    for m in MODES:
-        assert home.ctgov_mode({"TB_CTGOV_MODE": m.upper()}) == m  # read as the compiler reads it (lower case)
-    assert home.ctgov_mode({"TB_CTGOV_MODE": "online"}) == "unknown"  # never guessed into a mode it is not
+
+
+@pytest.mark.parametrize("value", [None, "", "live", "LIVE", "offline", "Offline", "cassette", "online", " live"])
+def test_the_console_and_the_compiler_read_one_variable_alike(
+    monkeypatch: pytest.MonkeyPatch, value: str | None
+) -> None:
+    """Both read ``TB_CTGOV_MODE`` from their own environment, in the same way: a mode the compiler runs in is the mode
+    the page states; unset, the compiler's default is offline and the page says "not set" (and that default); a value
+    the compiler refuses is "unknown" on the page."""
+    if value is None:
+        monkeypatch.delenv("TB_CTGOV_MODE", raising=False)
+    else:
+        monkeypatch.setenv("TB_CTGOV_MODE", value)
+    shown = home.ctgov_mode()
+    try:
+        compiler: str | None = ctgov.CtGov().mode
+    except ctgov.CtgovError:
+        compiler = None
+    if not value:
+        assert (shown, compiler) == ("unset", "offline")
+    elif compiler is None:
+        assert shown == "unknown"
+    else:
+        assert shown == compiler
 
 
 @pytest.mark.parametrize("lang", LANGS)
@@ -88,12 +107,30 @@ def test_an_unknown_setting_is_named_and_sent_to_the_administrator(
     assert shown == "unknown" and text == translate(lang, "feas.ct.none.unknown") and "TB_CTGOV_MODE" in text
 
 
-def test_the_four_texts_exist_in_three_languages_and_the_untrue_one_is_gone() -> None:
+@pytest.mark.parametrize("lang", LANGS)
+@pytest.mark.parametrize("value", [None, ""])
+def test_an_unset_mode_is_said_to_be_not_set(
+    box: dict[str, Any], monkeypatch: pytest.MonkeyPatch, lang: str, value: str | None
+) -> None:
+    _done_feas(box["backend"])
+    if value is None:
+        monkeypatch.delenv("TB_CTGOV_MODE", raising=False)
+    else:
+        monkeypatch.setenv("TB_CTGOV_MODE", value)
+    shown, text = _hint(_crc(box, lang).get("/studies/GZQO/feasibility").text)
+    assert shown == "unset" and text == translate(lang, "feas.ct.none.unset") and "TB_CTGOV_MODE" in text
+    assert {"en": "is not set", "ja": "未設定です", "zh-TW": "尚未設定"}[lang] in text  # never guessed into a mode
+    assert {"en": "works offline", "ja": "オフラインで動作", "zh-TW": "離線方式運作"}[
+        lang
+    ] in text  # the default, so named
+
+
+def test_the_five_texts_exist_in_three_languages_and_the_untrue_one_is_gone() -> None:
     for lang in LANGS:
         cat = CATALOGUES[lang]
         assert "feas.ct.none" not in cat
-        texts = [cat[f"feas.ct.none.{m}"] for m in (*MODES, "unknown")]
-        assert len(set(texts)) == 4 and not any(OLD[lang] in t for t in texts)
+        texts = [cat[f"feas.ct.none.{m}"] for m in (*MODES, "unset", "unknown")]
+        assert len(set(texts)) == 5 and not any(OLD[lang] in t for t in texts)
 
 
 def test_only_the_one_sentence_depends_on_the_mode(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -111,12 +148,5 @@ def test_only_the_one_sentence_depends_on_the_mode(box: dict[str, Any], monkeypa
     for p, pages in seen.items():
         assert len(pages) == 1, p
     monkeypatch.delenv("TB_CTGOV_MODE")
-    assert c.get("/home").text in seen["/home"]  # unset reads as the default, offline
-
-
-def test_the_console_is_given_the_same_mode_as_the_compiler() -> None:
-    """The base compose file hands both services one value, so the page cannot state a mode the compiler is not in."""
-    root = Path(__file__).resolve().parents[2]
-    services = yaml.safe_load((root / "deploy" / "docker-compose.yml").read_text(encoding="utf-8"))["services"]
-    console, compiler = (services[s]["environment"]["TB_CTGOV_MODE"] for s in ("console", "criteria-compiler"))
-    assert console == compiler == "${TB_CTGOV_MODE:-offline}"
+    for p in paths:
+        assert HINT.sub("<p>CT-MODE</p>", c.get(p).text) in seen[p], p  # unset too
