@@ -201,11 +201,12 @@ class DataCore:
             cur = rows[0] if rows else None
             if cur is not None and cur["value"] == value and (seen is None or cur["seen"] == seen):
                 return False
-            if field in proxy_consent.read_only_now() and value != (cur["value"] if cur else ""):
+            why = proxy_consent.refused_write(event, field) if value != (cur["value"] if cur else "") else None
+            if why is not None:
                 # 10C-19 (D-1232): the last door: with the setting on, the earlier free-text relation takes no new
-                # value from any path (a form, a source's read-back, a resolved conflict, a sheet)
-                raise DataError("DATA-READONLY", f"{field} is read only: the relation is recorded as a code",
-                                [{"field": field, "code": "read_only"}])  # fmt: skip
+                # value, and the consent form is written only on a canonical consent version, from any path (a
+                # form, data entry, a source's read-back, a resolved conflict, a sheet)
+                raise DataError("DATA-READONLY", why, [{"field": field, "code": "read_only"}])
             new_seen = seen if seen is not None else (cur["seen"] if cur and keep_seen else None)
             tx.execute(
                 "INSERT INTO value (study, record, event, field, value, changed_by, changed_at, seen, pushed) "

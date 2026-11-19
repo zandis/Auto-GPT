@@ -613,6 +613,8 @@ class Lifecycle:
           saved with the assent obtained. A correction of a version that existed then lifts nothing.
 
         It holds whatever the setting: a recorded decline is never released by switching it off."""
+        from datacore import proxy_consent
+
         decline = self.last_decline(study, record)
         if not decline:
             return False
@@ -620,8 +622,8 @@ class Lifecycle:
         now = self.dc.record(study, record, "")
         events = {str(h["event"]) for h in hist if str(h["field"]) == "ic_date"}
         for ev in events:
-            if ev != "" and not RC_EVENT.match(ev):
-                continue  # only the consent form's own events
+            if not proxy_consent.consent_event(ev):
+                continue  # only a canonical consent version (the first consent or rc1, rc2...; never rc02, a visit)
             born = min(int(h["id"]) for h in hist if str(h["event"]) == ev and str(h["field"]) == "ic_date")
             vals = now if ev == "" else self.dc.record(study, record, ev)
             if born > decline and vals.get("ic_assent") == "1" and vals.get("ic_date"):

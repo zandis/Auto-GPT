@@ -34,7 +34,9 @@ consent in force, so a re-consent recorded by the participant at that point clea
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
+from functools import cache
 from typing import Any
 
 ENV = "TB_CONSENT_PROXY"
@@ -67,6 +69,36 @@ def is_on(environ: Mapping[str, str] | None = None) -> bool:
     ``TB_CONSENT_PROXY=on`` for a country whose ``consent_proxy`` is set), never from the time zone."""
     env = os.environ if environ is None else environ
     return (env.get(ENV) or "").strip().lower() in ("on", "1", "true", "yes")
+
+
+#: a consent version's event, canonical: the baseline ("") or a re-consent ``rc1`` to ``rc999`` with no leading zero
+#: (the lifecycle's own ``RC_EVENT`` is wider and stays as it is, for the data written before and with the setting off)
+CONSENT_EVENT = re.compile(r"^rc[1-9][0-9]{0,2}$")
+
+
+def consent_event(event: str) -> bool:
+    """``event`` is a canonical consent version's name."""
+    return event == "" or bool(CONSENT_EVENT.fullmatch(event))
+
+
+@cache
+def consent_fields() -> frozenset[str]:
+    """The built-in consent form's fields (every item it can have)."""
+    from datacore.builtin import fields
+
+    return frozenset(f.name for f in fields(proxy=True) if f.form == "tb_consent")
+
+
+def refused_write(event: str, field: str) -> str | None:
+    """With the setting on, why a write of ``field`` on ``event`` is refused at the data core's last door, or None:
+    the earlier free-text relation, or a consent-form field on an event that is no canonical consent version."""
+    if not is_on():
+        return None
+    if field in READ_ONLY:
+        return f"{field} is read only: the relation is recorded as a code"
+    if field in consent_fields() and not consent_event(event):
+        return f"{event!r} is not a consent event: the consent form goes on the first consent or rc1, rc2, ..."
+    return None
 
 
 def read_only_now() -> tuple[str, ...]:

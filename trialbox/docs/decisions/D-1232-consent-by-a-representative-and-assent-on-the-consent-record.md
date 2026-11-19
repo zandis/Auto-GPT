@@ -38,7 +38,13 @@
     - **a new consent version with the assent obtained**: one that did not exist when the decline was saved (its
       first save comes later in the history), on a consent event only (the first consent or a re-consent `rcN`,
       never a visit or another event). A correction of a version that existed then lifts nothing, whatever it
-      changes: the answer, its reason code or a date (the simpler choice: no separate correction route).
+      changes: the answer, its reason code or a date (the simpler choice: no separate correction route). A consent
+      version's event name is canonical: the first consent, or `rc` and a number from 1 to 999 with no leading zero.
+      With the setting on, a consent-form value on any other event name (`rc02`, `rc0`, `RC2`, ` rc2`, `rc1000`, a
+      visit) is refused at the data core's last door, whatever the route; with the setting off nothing changes (the
+      lifecycle's wider event pattern stays, for the data written before). After a decline with no baseline consent
+      yet, an import that creates the baseline with the assent obtained lifts the hold: by the rule it is a new
+      version.
     It holds whatever the setting: switching it off never releases a recorded decline (the alert is shown only
     with the setting on; the step still needs the code and the note). This follows how a declined consent is
     treated today: never implied, a person's recorded step. A REDCap read-back can write the screening-log row

@@ -612,7 +612,17 @@ def test_c_a_visit_event_is_never_a_consent(lb: dict[str, Any], monkeypatch: pyt
     _save(c, csrf, no, "tb_consent", {**CONSENT, **DECLINE})
     _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-11-08", "en_eligible": "1"})
     r = _put(lb, no, "v1", {"ic_date": "2026-11-07", "ic_assent": "1"})
-    assert r.status_code == 200, r.text
+    assert r.status_code == 409, r.text  # the consent form is written on a consent event only (the last door)
+    lb["dc"].db.execute(
+        "INSERT INTO value (study, record, event, field, value, changed_by, changed_at) VALUES (?,?,?,?,?,?,?)",
+        ("GZQO", no, "v1", "ic_date", "2026-11-07", "x", "2026-11-08T00:00:00Z"),
+    )
+    lb["dc"].db.execute("INSERT INTO history (study, record, event, field, old, new, \"by\", at, source) VALUES "
+                        "(?,?,?,?,?,?,?,?,?)", ("GZQO", no, "v1", "ic_date", None, "2026-11-07", "x",
+                                                "2026-11-08T00:00:00Z", "x"))  # fmt: skip
+    lb["dc"].db.execute("INSERT INTO value (study, record, event, field, value, changed_by, changed_at) VALUES "
+                        "(?,?,?,?,?,?,?)", ("GZQO", no, "v1", "ic_assent", "1", "x", "2026-11-08T00:00:00Z"))  # fmt: skip
+    # and were it in the store by another way (an older box), a visit still never counts as a consent
     c.get("/studies/GZQO/subjects")
     assert _state(c, no) == "contacted"
 
@@ -688,3 +698,42 @@ def test_g_no_source_writes_the_earlier_relation(lb: dict[str, Any], monkeypatch
         dc.write("GZQO", no, "", "ic_lar_relation", name, "x", "2026-11-08T00:00:02+00:00", "trialbox")
     assert "ic_lar_relation" not in dc.record("GZQO", no)
     assert name not in c.get("/studies/GZQO/export.csv").text
+
+
+@pytest.mark.parametrize("event", ["rc02", "rc0", "RC2", " rc2", "rc1 ", "Rc3", "rc1000", "consent"])
+def test_a_consent_goes_on_a_canonical_event_only(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+                                                  event: str) -> None:  # fmt: skip
+    """A consent version is the first consent or rc1, rc2, ... (no leading zero, at most rc999); a consent-form
+    value on any other event name is refused at the data core's last door, whatever the route."""
+    from datacore.store import DataError
+
+    _, _, no, _ = _ready(lb, monkeypatch)
+    with pytest.raises(DataError) as e:
+        lb["dc"].write("GZQO", no, event, "ic_date", "2026-10-06", "crc", "2026-11-08T00:00:00+00:00", "trialbox")
+    assert e.value.code == "DATA-READONLY"
+    if event.strip() == event and event.isascii() and event.isalnum():  # names the routes' own patterns accept
+        assert _put(lb, no, event, {"ic_date": "2026-10-06", "ic_assent": "1"}).status_code in (409, 422)
+    assert all(str(r["event"]) != event for r in lb["dc"].values("GZQO", no))
+
+
+@pytest.mark.parametrize("alias", ["rc02", "rc0"])
+def test_a_re_consent_copied_under_another_name_never_lifts(lb: dict[str, Any],  # noqa: F811
+                                                            monkeypatch: pytest.MonkeyPatch, alias: str) -> None:  # fmt: skip
+    c, csrf, no, _ = _ready(lb, monkeypatch)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, **DECLINE})
+    _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-11-08", "en_eligible": "1"})
+    copy = {"ic_date": "2026-10-06", "ic_version": "v1", "ic_copy": "1", "ic_age": "12", "ic_lar": "1",
+            "ic_lar_rel": "1", "ic_assent": "1", "ic_assent_date": "2026-10-06"}  # fmt: skip
+    assert _put(lb, no, alias, copy).status_code == 409
+    r = lb["oc"].post(f"/studies/GZQO/entry/{no}", json={"form": "tb_consent", "event": alias, "values": copy})
+    assert r.status_code == 409
+    _save(c, csrf, no, "tb_consent", copy, alias)
+    c.get("/studies/GZQO/subjects")
+    assert _state(c, no) == "contacted"
+    assert all(str(r["event"]) != alias for r in lb["dc"].values("GZQO", no))
+
+
+def test_with_the_setting_off_any_event_name_is_stored_as_before(lb: dict[str, Any],  # noqa: F811
+                                                                 monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    _, _, no, _ = _ready(lb, monkeypatch, on=False)
+    assert lb["dc"].write("GZQO", no, "rc02", "ic_date", "2026-10-06", "crc", "2026-11-08T00:00:00+00:00", "trialbox")
