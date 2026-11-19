@@ -29,8 +29,7 @@ EN: dict[str, str] = {
     "ops.update.note.none": "This bundle carries no Japanese release note or change-impact sheet that could be read "
     "(a bundle built before they were required). Ask the vendor for them before you apply it.",
     "ops.update.note.verify_first": "Verify the bundle to see its release note and change-impact sheet.",
-    "ops.update.note.trimmed": "The release note is too long to show here; it is in the bundle "
-    "(RELEASE-NOTE.ja.md).",
+    "ops.update.note.trimmed": "The release note is too long to show here; it is in the bundle (RELEASE-NOTE.ja.md).",
     "ops.status.unreadable": "Status unreadable: the box's operations status file is too large or damaged, so nothing "
     "of it is shown. It is written again within a minute; if this stays, see RUNBOOK §5.",
     "ops.update.impact": "Change-impact sheet",
@@ -85,8 +84,8 @@ JA: dict[str, str] = {
     "ops.update.note.verify_first": "バンドルを検証すると、リリースノートと変更影響シートが表示されます。",
     "ops.update.note.trimmed": "リリースノートが長すぎるため、ここには表示しません。バンドル内の RELEASE-NOTE.ja.md "
     "を参照してください。",
-    "ops.status.unreadable": "状態を読み取れません。機器の運用状態ファイルが大きすぎるか壊れているため、何も表示しません。"
-    "1分以内に書き直されます。この表示が続く場合は RUNBOOK §5 を参照してください。",
+    "ops.status.unreadable": "状態を読み取れません。機器の運用状態ファイルが大きすぎるか壊れているため、"
+    "何も表示しません。1分以内に書き直されます。この表示が続く場合は RUNBOOK §5 を参照してください。",
     "ops.update.impact": "変更影響シート",
     "ops.update.impact.class": "変更区分",
     "ops.update.impact.changed": "変更",

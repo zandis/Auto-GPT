@@ -370,7 +370,7 @@ def test_a_missing_status_is_missing_and_a_good_one_reads(tmp_path: Path) -> Non
 
 def test_a_status_with_long_release_notes_stays_readable(tmp_path: Path) -> None:
     r, _ = _runner(tmp_path)
-    big = {f"trialbox-{i}.tar": {"bundle_id": f"2026.12-{i}", "note_ja": "長い説明。" * 4000, "impact": None,
+    big: dict[str, Any] = {f"trialbox-{i}.tar": {"bundle_id": f"2026.12-{i}", "note_ja": "長い説明。" * 4000, "impact": None,
                                  "warnings": []} for i in range(3)}  # fmt: skip
     r._notes = lambda incoming: json.loads(json.dumps(big))  # type: ignore[method-assign]
     st = r.write_status()
