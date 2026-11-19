@@ -40,3 +40,23 @@ put it in the schema's `identifiers.chart_number` and run `python -m tools.synth
 <schema.yaml>`. A form with letters or a check digit gives a pattern for a bare chart number (no label), to add to
 `tools/data_scan_patterns.yaml` with its planted positive (D-203). A form of digits only, with no check digit, gives
 none: such a pattern would hit every date and count, and the labelled `chart_number` pattern stays the control.
+
+## The site profile from the site questionnaire (10B-19, D-1249)
+
+The hospital's answers to the site questionnaire (review 12 section 9) fill the site profile, the folder of its code
+tables and habits (DATA §15). The form is a command on the box, run by the same person who loads the profile. It
+writes a folder and never loads it.
+
+1. **Print the answers file** in the language of the person filling it:
+   `python -m adapter.site_profile fill --template --lang ja > answers.yaml`. Fill it from the questionnaire and from
+   the hospital's code tables (9.2 sample 3). Synthetic or public codes only in a test.
+2. **Check the answers:**
+   `python -m adapter.site_profile fill --answers answers.yaml --out /var/tmp/profile-new --check-only --lang ja`.
+   Each refused answer is named, with what is expected. Correct them and run it again until nothing is refused.
+3. **Write the folder:** the same command without `--check-only`. The folder must be new, and it must be outside the
+   site mapping folders; the command refuses both. A row you did not mark `verified` is stored as `verify`.
+4. **Check it against the site mapping:**
+   `python -m adapter.site_profile check /var/tmp/profile-new --mapping <the site mapping>`.
+5. **Put it in place and load it by name.** Copy the folder to `deploy/site/mapping/profile/` (keep the previous one in
+   the backup), then run `python -m adapter.site_profile load <folder> --lake <lake> --by <your name>` as DATA §15
+   says. A changed profile needs a new `version` in the answers.

@@ -59,9 +59,9 @@ The profile keeps the *codes and habits*.
 | The data types the site stores | Nowhere | `data_types`, read by the coverage lines | **Moved here** |
 | The standard versions the site writes | Comments in the mapping; `settings.profiles` for TW Core | `standards`, a declaration. Where both name a standard (`tw_core`, `twpas_version`), they must agree: the night and `load` refuse otherwise | Here, as a declaration. `settings.profiles` stays the value the code reads until 10C-25 sets the layer |
 | The site's country | `settings` (the zone, else the page language: `tb_common.derived.country_of`; the set-up defaults in `tb_common/site_country.py`) | `country` must be the one the settings give: the night and `load` refuse otherwise | Stays in settings; the profile is checked against it |
-| Lab codes a person mapped in site set-up (D-135) | The `local_code` store of site set-up (`sitesetup/store.py`, with who and when): it maps the codes of sheets and charts. **It does not reach the nightly feed at all**: only tests call `lab_lookup_rows` and `merge_lookup`, so a mapping recorded on the console's Local codes page does not change what the night reads | Unchanged. Where it and the profile's lab table map one code differently, **the store wins** (a named person's recorded act; `adapter.site_profile.store_wins`) and the work list lists each disagreement (`worklist --setup-db`). **Not yet applied at night**: the adapter does not read the set-up store, and giving it that right is lane C2's (a read right on the `sitesetup` schema) | 10B-19 makes the form the one way to fill both |
-| Character set of the export | `settings.data_source.encoding` | Unchanged | 10B-19 (the questionnaire asks it) |
-| SS-MIX2 order-number (visit-key) habit | `TB_SSMIX2_ORDER_NUMBERS` (D-594) | Unchanged | 10B-2 (the specification's key by default), then 10B-19 |
+| Lab codes a person mapped in site set-up (D-135) | The `local_code` store of site set-up (`sitesetup/store.py`, with who and when): it maps the codes of sheets and charts. **It does not reach the nightly feed at all**: only tests call `lab_lookup_rows` and `merge_lookup`, so a mapping recorded on the console's Local codes page does not change what the night reads | Unchanged. Where it and the profile's lab table map one code differently, **the store wins** (a named person's recorded act; `adapter.site_profile.store_wins`) and the work list lists each disagreement (`worklist --setup-db`). **Not yet applied at night**: the adapter does not read the set-up store, and giving it that right is lane C2's (a read right on the `sitesetup` schema) | 10B-19's form fills the profile only; the store stays the Local codes page's (the form has no route, D-1249) |
+| Character set of the export | `settings.data_source.encoding` | Unchanged | The questionnaire asks it (9.1 question 8); no profile field, so 10B-19 does not move it |
+| SS-MIX2 order-number (visit-key) habit | `TB_SSMIX2_ORDER_NUMBERS` (D-594) | Unchanged | 10B-2 (the specification's key by default); the questionnaire asks it (question 7), no profile field |
 | Usage (用法) codes → doses per day | Not modelled | Unchanged | 10B-4 (`codes/usage.csv`, a new `used_by`) |
 | Hospital drug master and ingredient → ATC (T-610) | `drug_master.csv` and `ingredient_atc.csv` beside the image's `jp_core` mapping | Unchanged | 10B-4 |
 | Document types (`_DOC_KINDS`) and extended-storage folders | In code, in the SS-MIX2 reader | Unchanged | 10B-5, then 10B-15 (`documents.csv`) |
@@ -72,9 +72,9 @@ The profile keeps the *codes and habits*.
 | National calendar, words, legal pack | Spread across the code | Unchanged | 10C-25 (the Japan profile, the layer above this one) |
 | Non-working days of the site | Not modelled anywhere | Unchanged | 10C-25 (national calendar), with site days as an override after it |
 | Unit spellings and default units per analyte | The mapping's `unit_spellings` (D-590) and `unit_defaults` (D-149) | Unchanged | No card names it; proposed with 10B-16 (the second synthetic profile) |
-| Department codes → names | `settings.departments` | Unchanged | 10B-19 |
-| Site set-up's suggestions | Read the image's `jp_core` and `tw_core` samples | Unchanged, but a suggestion from a `verify` row says so (below) | 10B-19 (read the site's profile instead) |
-| `settings.data_source.lab_local_to_loinc` | In the settings schema; **dead**: no code reads it | Unchanged (removing a settings key is a schema change of its own) | Remove with 10B-19 (the lab table is the profile's) |
+| Department codes → names | `settings.departments` | Unchanged | No profile field (10B-19 asks no new one: 9.2 sample 3's 診療科 table is listed as filling none) |
+| Site set-up's suggestions | Read the image's `jp_core` and `tw_core` samples | Unchanged, but a suggestion from a `verify` row says so (below) | Not moved by 10B-19 (a command, not a page): still open |
+| `settings.data_source.lab_local_to_loinc` | In the settings schema; **dead**: no code reads it | Unchanged (removing a settings key is a schema change of its own) | Not removed by 10B-19 (a settings schema change of its own): still open |
 | Licensed MEDIS, JLAC10 and YJ releases | The terminology store (`adapter.licensed`, D-137) | Unchanged: national releases the site buys, not habits | Stays |
 | Regimens and order sets | Not modelled | Unchanged | 10A-8 (regimens), 10B-15 |
 
@@ -215,8 +215,93 @@ The work list is `python -m adapter.site_profile worklist --night <dir> --out <f
 codes, most rows first; with `--setup-db <url>` every lab code the site set-up store maps otherwise than the
 profile (`disagree`, the store's code marked as the one that wins); then every `verify` row with its file and line.
 A cell that a spreadsheet would run as a formula (starting with `=`, `+`, `-`, `@`, a tab or a carriage return) is
-quoted. **A page for the work list is not built here.** It belongs with 10B-19's site-setup form, which
-is where a steward edits the rows.
+quoted. **A page for the work list is not built.** 10B-19's form is a command, not a page (D-1249); a console page for
+the questionnaire and the work list would be a new route, and it is with the owner.
+
+## The questionnaire form
+
+Card 10B-19, decision D-1249. The questionnaire is review 12 section 9 (`docs/reviews/2026-11-root/12-ssi-data.md`):
+9.1 holds thirty questions for the hospital's IT and 9.2 lists the sample exports to ask for. A hospital's answers,
+written in one answers file, become a profile folder in this section's format, so that nobody hand-writes the
+folder. (`docs/plan/sites/site-survey.md` is TB-SITE-01's survey for a site mapping, not this questionnaire.)
+
+```
+python -m adapter.site_profile fill --template --lang ja > answers.yaml       # the answers file, its questions as comments
+python -m adapter.site_profile fill --answers answers.yaml --out <new folder> --check-only   # what is refused, nothing written
+python -m adapter.site_profile fill --answers answers.yaml --out <new folder>                # writes; does not load
+python -m adapter.site_profile check <new folder> --mapping <the site mapping>               # then load --by, as above
+```
+
+**A command, not a page.** No site-setup page managed the profile, so a page would have been a new route. Its account
+would then write code tables that the night reads once they are loaded. The lane lead ruled for a command: the people
+who may run it are the people who run `load` on the box. No route, role or permission row changes.
+
+**It writes and never loads.** The folder is built beside `--out`, read back by `tb_common.site_profile.load`, and only
+then renamed into place. A form fault never leaves a folder the loader refuses, nor half a folder. Loading is still
+`load --by` (versioned, audited, refused when the content changes under the same version), and a profile that cannot
+be applied still stops the night. The command refuses:
+
+- a folder that exists;
+- a folder inside a site mapping folder the box reads (`TB_MAPPING_DIR`, the mount, `deploy/site/mapping`);
+- a folder inside the image's mapping folder.
+
+The steward checks the new folder and puts it in place.
+
+**Validation by allow-list** (`adapter.site_questionnaire.parse`). An answer is accepted only when it is recognised:
+
+- a key of the form;
+- a name from a list: a country, a door, a data type, a standard, a master, a category, a kind of result, or a UCUM
+  unit `tb_common.labunit` knows;
+- a value of a fixed shape: a profile name, a version, a date, a local code (1 to 32 ASCII letters, digits, `.`, `_`
+  and `-`), a YJ code, a standard code checked exactly as the loader checks it, or a LOINC answer code;
+- a bounded number.
+
+Anything else is refused by a message in en, ja and zh-TW from the console's catalogue (`profileform.err.<code>`) that
+names the answer (`tables.lab.rows[3].unit`) and says what is expected. All refusals are listed at once. The answers
+file is read without YAML aliases and without a key written twice, at most 5 MB. A code must be quoted text: an
+unquoted `0123` is refused, never read as a number.
+
+**No free text unescaped, no path from an answer.**
+
+- A name or a display is printable text: 1 to 120 characters, starting with a letter, a digit or a bracket (never
+  `=`, `+`, `-` or `@`), with no control or format character such as a line break or a direction override. The csv
+  module writes it, so commas and quotes are quoted.
+- The manifest holds no answer text. The table files are always `codes/diagnosis.csv`, `codes/drug.csv` and
+  `codes/lab.csv`, and a table's `source` is the form's own words for a master from the list, with its checked date.
+
+**An unchecked mapping stays unchecked.** A row is `verified` only when the answer says exactly `verified`. A row with
+no state is `verify`, as this section stores a row nobody checked. The open question above (may such a fact exclude a
+patient?) is not touched.
+
+**What the form fills.** Diagnoses and medicines are for the SS-MIX2 door only. A lab table needs the country `jp` or
+`tw`, the countries whose result profiles the product writes.
+
+| Field | Filled from |
+| --- | --- |
+| `door` | 9.1 question 4 (SS-MIX2 running: `ssmix2`; otherwise `csv` or `cgrd_sql`) |
+| `data_types` | 9.1 questions 6, 12, 14 and 15 |
+| `standards` | 9.1 questions 8 (SS-MIX2 version), 9 (ICD-10 version) and 21 (each master's release date) |
+| `tables.diagnosis` | 9.2 sample 3 (病名 → ICD-10), with question 21's master |
+| `tables.drug` | 9.1 question 10 and 9.2 sample 3 (YJ → ATC) |
+| `tables.lab` | 9.1 question 11 and 9.2 sample 3 (local or JLAC10 → LOINC, unit, factor, coded answers) |
+| `format`, `id`, `site_id`, `country`, `version`, `synthetic` | No question: the form's header, asked of the steward (`site_id` and `country` are the settings'; `load` refuses others) |
+
+The questions that fill no field, each with its reason, are in `adapter.site_questionnaire.QUESTIONS`:
+
+- 9.1 questions 1 to 3, 5, 7, 13, 16 to 20 and 22 to 30;
+- 9.2 samples 1, 2 and 4 to 7;
+- the parts of questions 8 to 12 and 21 that no field holds: the character set, the order-number habit, PRB and RXE
+  habits, the share of codes mapped, and document types;
+- 9.2 sample 3's 用法 and 診療科 tables.
+
+Where a card gives one of these a field (10B-4 usage, 10B-5 and 10B-15 documents and templates), that card adds the
+question to the form.
+
+**The worked example** is the repository's synthetic Japanese hospital, and only it:
+`tests/fixtures/site_questionnaire/synthetic-jp-ss.answers.yaml`. These are the same codes as the shipped sample
+tables, every row `verify`, as version 1.1.0 of `synthetic-jp-ss`. The profile the form writes from it passes the
+loader, the mapping check and `activate`, and reads every code to the same standard code as the shipped profile
+(`tests/unit/test_site_questionnaire.py`).
 
 ## The proof
 
@@ -255,7 +340,6 @@ mapper's `verify` rule if its codes reach the lake):
 | 10C-23 | Note sections: a `sections.yaml` named in the manifest, and the matcher's heading pattern read from it |
 | 10C-22 | The older-records boundary per source: a key per door, and the engine's look-back reading it |
 | (none yet) | Calendar overrides of the site: a key after 10C-25's national calendar exists |
-| 10B-19 | The questionnaire: a form that writes `profile.yaml` and `codes/` and then loads them by the person's name; the work list's page goes there |
 
 ## Known limits
 
