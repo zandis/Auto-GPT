@@ -275,6 +275,19 @@ def file_bytes(kind: str, data: bytes) -> bytes:
     return data
 
 
+def carried(path: str, data: bytes, docx: str | None = None) -> bytes | None:
+    """A protocol file as the study package carries it (10D-3, D-1372): its bytes after its rule of the canonical form
+    (an IR file without the site's review record, ``{"status": "rejected"}`` kept), so that their sha256 is the file's
+    entry in the protocol part's ``files``. None for a file outside the protocol part. The form is a fixed point:
+    ``carried(path, carried(path, b))`` is ``carried(path, b)``."""
+    if path in SITE_FILES:
+        return None
+    kind = _kind(path, docx)
+    if kind is None:
+        return None
+    return _ir_split(data)[0] if kind == "ir" else file_bytes(kind, data)
+
+
 def _parts_of(manifest: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """A manifest's fields as the protocol part's and the site part's."""
     pm = {k: manifest[k] for k in PROTOCOL_FIELDS if k in manifest}
