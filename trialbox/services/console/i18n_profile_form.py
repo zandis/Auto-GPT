@@ -247,7 +247,7 @@ ZH = {
     "profileform.err.interrupted": "中途停止。未寫出任何內容。",
     "profileform.err.loader": "院所設定檔的載入程式拒絕了表單寫出的內容。這是表單的錯誤，請回報。未寫出任何內容。",
     "profileform.tpl.head": "院所問卷的回答（審查 12 第 9 節）。用法：python -m adapter.site_profile fill --answers <本檔> --out <新資料夾>\n請在每題冒號後填寫答案。所有回答皆以文字讀取。只填代碼及其名稱：絕不可填入病人資料或密碼（表單不會偵測）。\n本表單寫出院所設定檔資料夾，但不會載入。",
-    "profileform.tpl.profile": "設定檔（由資料管理人員而非醫院回答）：名稱、本機的院所代碼、國家、您的版本號，以及是否為合成資料。均無預設值。",
+    "profileform.tpl.profile": "設定檔（由資料管理員而非醫院回答）：名稱、本機的院所代碼、國家、您的版本號，以及是否為合成資料。均無預設值。",
     "profileform.tpl.door": "第 4 題：SS-MIX2 輸出是否運作中？是則填 ssmix2；若為 CSV 匯出或 SQL 檢視表，填 csv 或 cgrd_sql。",
     "profileform.tpl.data_types": "第 6、12、14、15 題：院所儲存的資料類型，例如 [ADT-00, PPR-01, OML-11, document, vital]。",
     "profileform.tpl.standards": "第 8、9、21 題：院所寫出的標準版本，以及各主檔的發行日期（YYYY-MM-DD）。名稱：{names}",
