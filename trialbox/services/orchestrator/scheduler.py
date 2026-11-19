@@ -208,8 +208,8 @@ def require_open(ruleset: str | None) -> None:
     if held:  # 10C-4 (D-1227): the Japan profile's committee record
         raise StepFailed(
             "ruleset",
-            f"Study {ruleset.upper()} lacks its committee record at this site ({', '.join(held)}): lists run only "
-            "once it is recorded. A hospital coordinator or the study's PI records it on the study's committee page.",
+            f"Study {ruleset.upper()} lacks part of its committee record at this site: lists run only once it is "
+            "recorded. A hospital coordinator or the study's PI records it on the study's committee page.",
         )
 
 

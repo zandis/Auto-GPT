@@ -352,7 +352,7 @@ def _held_now(rid: str = "GZQO") -> list[str]:
     try:
         _scheduler().require_open(rid)
     except StepFailed as exc:
-        return [str(exc)]
+        return [str(exc), *_scheduler().committee_held(rid)]
     return []
 
 
@@ -385,7 +385,7 @@ def test_a_study_with_no_recorded_state_is_held(jbox: dict[str, Any]) -> None:
     team.save_committee("GZQO", cm.Committee("shishin", current_version="1.0", approved_version="1.0",
                                              approved_on="2026-10-01"), "crc0", AT)  # fmt: skip
     held = _held_now()
-    assert held and "no_permission" in held[0] and "committee page" in held[0]
+    assert held and "no_permission" in held and "committee page" in held[0]
     orch = _Orch()
     sch._submit(orch, "MICROBATCH", "GZQO")
     assert orch.created == [] and orch.events[-1][1]["detail"]["state"] == "committee: no_permission"
@@ -402,7 +402,7 @@ def test_the_kind_set_after_the_study_opened_holds_its_lists(jbox: dict[str, Any
     assert _open(crc).status_code == 303 and _held_now() == []
     r = _record(crc, **SHISHIN, reason="it is a guideline study after all")
     assert r.status_code == 303
-    assert "no_permission" in _held_now()[0]
+    assert "no_permission" in _held_now()
     state = crc.get("/studies/GZQO/state").text
     assert 'data-testid="cmt-held-no_permission"' in state
     assert 'data-testid="cmt-held"' in crc.get("/studies/GZQO/irb").text
