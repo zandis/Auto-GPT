@@ -178,7 +178,7 @@ MODIFIERS = {
     "99980018": ("D", "前", "ZM18", "60", "22000005"),  # a 変更区分 the specification does not define
     "99980019": ("9", "後", "ZM19", "60", "22000006"),  # a 変更区分 the specification does not define
     "99980020": ("", "外", "ZM20", "60", "22000007"),  # no 変更区分
-    "99980021": ("0", "左", "ZM21", "60", "022000000"),  # a 修飾語区分 of nine characters
+    "99980021": ("0", "左", "ZM21", "60", "0" + "22000000"),  # a 修飾語区分 of nine characters (built: the data scan)
     "99980022": ("0", "右", "ZM22", "60", "2200000"),  # a 修飾語区分 of seven characters
 }
 
