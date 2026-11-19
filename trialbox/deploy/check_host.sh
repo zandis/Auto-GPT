@@ -126,6 +126,23 @@ wsl2_checks() {
   printf '%s\n' "$out" | grep -E '^(PASS|WARN|FAIL) ' || fail "Windows host not judged: $out"
   FAILS=$((FAILS + $(printf '%s\n' "$out" | grep -c '^FAIL ')))
 }
+# the box's tier (10G-11, D-1342): TB_PROFILE as the installer wrote it, read by deploy/hardening/host_tier.py through
+# the tier record's reader. A desk-side box (review 16 section 2.8: the RTX 5090 and RTX PRO 6000 workstations; their
+# records say desk_side) or an unknown tier (the stricter case) may not open its disk by the TPM alone in VALIDATION
+# or PRODUCTION, under the poc profile too. TB_TEST_TIERS_DIR moves the tier records: the tests only
+TIER_OUT="$(python3 "$ROOT_DIR/deploy/hardening/host_tier.py" --env "$ENV_FILE" \
+  ${TB_TEST_TIERS_DIR:+--tiers-dir "$TB_TEST_TIERS_DIR"} 2>/dev/null)"
+TIER_CLASS="$(printf '%s\n' "$TIER_OUT" | head -1)"
+case "$TIER_CLASS" in
+  desk-side|server-room|unknown) printf '%s\n' "$TIER_OUT" | grep -E '^(PASS|WARN) ' ;;
+  *) TIER_CLASS=unknown
+     warn "tier unknown (deploy/hardening/host_tier.py gave no answer): treated as a desk-side box, the stricter case" ;;
+esac
+DESK_RULE=0; [ "$TIER_CLASS" != server-room ] && [ "$STRICT" = 1 ] && DESK_RULE=1
+DESK_WHY="[desk-side rule] this box is not in a locked server room"
+[ "$TIER_CLASS" = unknown ] && DESK_WHY="[desk-side rule] the tier is unknown, so the box is taken as desk-side"
+DESK_WHY="$DESK_WHY: the TPM alone may not open its disk. Add a Tang server (deploy/hardening/disk-unlock.sh bind), \
+or a PIN to the TPM (systemd-cryptenroll --tpm2-device=auto --tpm2-with-pin=yes), or keep the passphrase alone"
 DOCKER_ROOT="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
 DOCKER_ROOT="${DOCKER_ROOT:-/var/lib/docker}"
 if [ "$WSL2" = 1 ]; then
@@ -154,8 +171,12 @@ done
 # the unlock: no way into the volume that needs neither the hospital network nor a person (OPS-043)
 for dev in $LUKS_DEVS; do
   out="$(python3 "$ROOT_DIR/deploy/hardening/luks_policy.py" "$dev" 2>&1)"
+  if [ "$DESK_RULE" = 1 ]; then  # a TPM-only way in: the desk-side reason and what to do (10G-11)
+    out="$(printf '%s\n' "$out" | sed "/^FAIL .*\(TPM2 without a PIN\|opens the disk without the hospital network\)/s|\$| $DESK_WHY|")"
+  fi
   if [ "$HOST_PROFILE" = poc ] && [ "$TBENV" != PRODUCTION ]; then
-    echo "$out" | grep -E '^(PASS|WARN|FAIL) ' | sed 's/^FAIL /WARN /; s/$/ [host profile poc]/' || warn "LUKS unlock of $dev not judged: $out"
+    echo "$out" | grep -E '^(PASS|WARN|FAIL) ' | sed '/^FAIL .*\[desk-side rule\]/!{s/^FAIL /WARN /; s/$/ [host profile poc]/;}' || warn "LUKS unlock of $dev not judged: $out"
+    FAILS=$((FAILS + $(echo "$out" | grep -c '^FAIL .*\[desk-side rule\]')))
     FACILITIES="$FACILITIES, LUKS unlock"
   else
     echo "$out" | grep -E '^(PASS|WARN|FAIL) ' || fail "LUKS unlock of $dev not judged: $out"
