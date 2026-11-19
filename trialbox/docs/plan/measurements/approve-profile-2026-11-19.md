@@ -160,3 +160,74 @@ sigir launch on three streams needs about 104 s per protocol (H-36), 10,800 s fo
 
 The page's three findings (H41-01 to H41-03) are in `approve-profile-2026-11-19/findings.json`, in the form
 `python -m tools.findings_register --add-from` reads. They are not rows of the register; lane V adds them.
+
+## What the next launch records (card H-45)
+
+Fix (1) of section 4 is built (card H-45, lane H by the integrator's ruling of 2026-11-19 03:19 UTC; fixes (2) and (3)
+are lane J's and are not built). Each APPROVE job's record now holds `metrics.step_seconds`: the seconds of each step,
+on the monotonic clock, by a fixed name, numbers only. The steps of the run plus `orch.unaccounted` add up to the
+job's `metrics.wall_seconds`, so the launch's `box-calls.log` (each job's record) names where an approval's time goes.
+The names are `tb_common.steptime.APPROVE_STEPS`; the compiler sends its own in `ApproveResult.step_seconds`. Both
+fields are optional in the schemas (`schemas/job.schema.json`, `schemas/compile.schema.json`): absent on every other
+job, and absent from a compiler that sends none.
+
+The orchestrator's job (`services/orchestrator/scenarios/approve.py`, `services/orchestrator/core.py`):
+
+| Step | What it times |
+|---|---|
+| `orch.target` | the ruleset and version found, the job updated, the approved ruleset looked for |
+| `orch.resume_awaiting` | the jobs waiting for this version resumed |
+| `orch.state` | the job's state set to compiling (its record and its audit line) |
+| `orch.read_workbook` | the review workbook read from the object store |
+| `orch.parse_review` | the workbook parsed |
+| `orch.compiler_transport` | the HTTP round trip to the compiler less the compiler's own `approve` (transport, serialisation, the compiler's route and thread pool) |
+| `orch.compiler_call` | the whole compiler call, only when the compiler sent no steps (it failed) |
+| `orch.publish` | the approved manifest stored, hashed and audited |
+| `orch.review_delivery` | the next review round's mail assembled |
+| `orch.fail_awaiting` | the waiting jobs failed (rejected, or out of rounds) |
+| `orch.deliver` | the job's mail sent |
+| `orch.earlier_runs` | the wall seconds of a run before a restart, carried in |
+| `orch.unaccounted` | the rest of the job's wall time |
+
+The compiler's `Compiler.approve` (`services/criteria_compiler/service.py`):
+
+| Step | What it times |
+|---|---|
+| `compiler.draft_read` | the draft branch found, and its equivalence report read |
+| `compiler.refresh_installed` | the installed terminology tables read again |
+| `compiler.audit_confirmed` | the `ai.confirmed` audit records (the audit journal) |
+| `compiler.apply_decisions` | the reviewer's decisions applied |
+| `compiler.extract_edits` | edited criterion text extracted again (an edit round only) |
+| `compiler.build_artifacts` | CQL generation and the CQL-to-ELM translation |
+| `compiler.equivalence` | the equivalence gate run again, or the compile's report enforced |
+| `compiler.checks` | flags, blocking, terminology stamp and site lists, the manifest |
+| `compiler.files` | the ruleset's files assembled |
+| `compiler.fhir_load` | the load to the FHIR server, the server's handling included |
+| `compiler.repo_write` | the draft branch written (the rulesets volume) |
+| `compiler.repo_tag` | the version tagged |
+| `compiler.repo_promote` | the tag promoted to release |
+| `compiler.package` | the review package of a further round |
+| `compiler.audit_done` | the `approve.done`, `approve.needs_review` or `approve.max_rounds` audit record (the audit journal) |
+| `compiler.unaccounted` | the rest of `Compiler.approve` |
+
+- **A failed APPROVE job** keeps the steps before the failure in `metrics.step_seconds`, written by the failure's own
+  record write (no extra write); a failure writes no `wall_seconds`, as before, so its steps add up to that run's
+  time. A failed compiler call is `orch.compiler_call` whole: the compiler's 422 carries no steps.
+- **Outside the wall time, and not recorded:** the job's wait in the queue and for its lease (before the run starts;
+  the job's `received_at` and its `job.state` audit lines give it), and waits inside a named step (the audit writer's
+  lock is inside `compiler.audit_*`, the repository's inside `compiler.repo_*`).
+- **The reader:** `python -m tools.public_accuracy.approve_profile --steps P3/sigir.tgz [--json OUT]` (a launch set, a
+  `box-calls.log`, or a job record saved as JSON) prints each step's median, mean and largest seconds over the APPROVE
+  jobs, its share of their time, and the jobs whose steps do not add up to their `wall_seconds`. The stub run
+  (`--runs N`) prints the compiler's recorded steps beside the wrapped ones.
+- **What the next launch will show:** which named step holds the ≥ 53 s per approval (H41-01), or, if it is
+  `orch.unaccounted` or `orch.compiler_transport`, that it is outside every step the code runs. Nothing local can show
+  it. The test is `tests/unit/test_h45_approve_step_seconds_2026_11_19.py`.
+- **A local stub approval (shown, local, not the box):** `--runs 3` with the real translator, while the test suite ran
+  beside it, mean seconds the compiler recorded itself: `compiler.build_artifacts` 8.116, `compiler.audit_confirmed`
+  0.284, `compiler.repo_write` 0.036, `compiler.draft_read` 0.029, `compiler.repo_promote` 0.026, `compiler.files`
+  0.015, `compiler.audit_done` 0.015, `compiler.unaccounted` 0.011, `compiler.repo_tag` 0.007, `compiler.fhir_load`
+  0.005 (the recording stand-in), every other step under 0.002; 8.547 s in all, the same split as the wrapped steps
+  of section 2 (the machine was busier than H-41's).
+- **H41-01** is marked `fixed` in `approve-profile-2026-11-19/findings.json` by this card's code commit: the records
+  now name the step. It is seen closed when the next launch's `--steps` table names where the ≥ 53 s go.
