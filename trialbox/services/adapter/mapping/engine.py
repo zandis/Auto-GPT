@@ -543,7 +543,10 @@ class Mapping:
         return doc
 
     @classmethod
-    def load(cls, path: Path) -> Mapping:
+    def load(cls, path: Path, lookup_files: dict[str, Path] | None = None) -> Mapping:
+        """``lookup_files`` (10B-6, D-1233): a site profile's code table read in place of the look-up of that name
+        (``used_by: [mapping.<name>]``); the mapping must declare the look-up, and its key column stays the mapping's.
+        The mapping's version is its YAML's (as before): the profile's digest is recorded beside each night."""
         doc = cls._read(path)
         digest = hashlib.sha256(path.read_bytes())
         lookup_dirs = {name: path.parent for name in (doc.get("lookups") or {})}
@@ -578,9 +581,12 @@ class Mapping:
                 raise MappingError(f"{path}: overlay for {ov['type']}/{ov['table']} matches no resource")
             for r in hits:
                 r["elements"] = {**(r.get("elements") or {}), **(ov.get("elements") or {})}
+        declared = doc.get("lookups") or {}
+        for name in sorted(set(lookup_files or {}) - set(declared)):
+            raise MappingError(f"{path}: the site profile names look-up {name!r}, which this mapping does not declare")
         lookups = {
-            name: Lookup.load(name, lookup_dirs[name] / spec["file"], spec["key"])
-            for name, spec in (doc.get("lookups") or {}).items()
+            name: Lookup.load(name, (lookup_files or {}).get(name) or lookup_dirs[name] / spec["file"], spec["key"])
+            for name, spec in declared.items()
         }
         resources = [
             ResourceSpec(

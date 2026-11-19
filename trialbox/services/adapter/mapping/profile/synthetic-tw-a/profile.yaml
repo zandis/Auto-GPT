@@ -1,0 +1,36 @@
+# Site profile of the synthetic Taiwan hospital (10B-6, D-1233; design: docs/data/site-profile.md). Synthetic: site
+# tw-a of `tools.synth_hospital` (CGRD-style CSV feed, the goldens' synthetic-tw-a set). Its lab table is the sample
+# shipped in the image's tw_core folder, named here, not copied. A site's own profile is
+# deploy/site/mapping/profile/profile.yaml with its tables in codes/ beside it.
+format: tb-site-profile/1
+id: synthetic-tw-a
+site_id: tw-a
+country: tw
+version: 1.0.0
+synthetic: true
+door: csv
+standards:
+  tw_core: 1.0.0       # settings.profiles.tw_core's default
+  icd10cm: "2023"      # NHI codes diagnoses in ICD-10-CM (ICD-9-CM before 2016, the mapping's icd9cm_before)
+data_types:            # the source tables of the CSV export, by their canonical names
+  - patient
+  - practitioner
+  - encounter
+  - appointment
+  - diagnosis
+  - lab
+  - vital
+  - medication
+  - procedure
+  - report
+  - note
+  - claim
+  - registry
+tables:
+  lab:
+    file: shipped:tw_core/lab_local_to_loinc.csv
+    key: local_code
+    target: code
+    state: verified
+    source: synthetic hospital lab codes of tools.synth_hospital
+    used_by: [mapping.lab]

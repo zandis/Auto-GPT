@@ -151,6 +151,12 @@ def load_ruleset(directory: Path) -> Any:
 
 
 # ------------------------------------------------------------------------------------------------ data sets
+#: 10B-6 (D-1233): the synthetic sites read through their site profiles (services/adapter/mapping/profile/); a site
+#: not listed reads without one, as before profiles
+PROFILES_OF = {"tw-a": "synthetic-tw-a", "jp-ss": "synthetic-jp-ss"}
+PROFILE_DIR = ROOT / "services" / "adapter" / "mapping" / "profile"
+
+
 def _ingest(work: Path, kind: str, src: Path, snapshot: str, tz: str, mapping: str, site_id: str) -> Path:
     from adapter.pipeline import AdapterConfig, run_ingest
 
@@ -170,6 +176,7 @@ def _ingest(work: Path, kind: str, src: Path, snapshot: str, tz: str, mapping: s
         audit_dir=work / "audit",
         db_url=pglocal.for_work(work),
         validation_max_pct=100.0,
+        site_profile=PROFILE_DIR / PROFILES_OF[site_id] if site_id in PROFILES_OF else None,
     )
     rep = run_ingest(cfg, kind, str(src), snapshot=snapshot, load_fhir=False, rebuild_lake=False, validate=False)
     if rep.errors:

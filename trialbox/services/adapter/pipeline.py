@@ -22,6 +22,7 @@ from tb_common import chartno, feedguard, labvalue, refdata
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
+from tb_common.site_profile import Profile as SiteProfile
 from tb_common.unmapped import KINDS
 from tb_contracts import IngestReport, RebuildResult, ValidationSummary, dump
 from tb_contracts.landing import Severity
@@ -95,6 +96,9 @@ class AdapterConfig:
     # FIT-U09 (T-629): settings.mrn_regex, the site's chart-number pattern; a column whose all-digit values match it
     # only with leading zeros put back is refused (``tb_common.chartno.column_refusal``)
     mrn_regex: str | None = None
+    # 10B-6 (D-1233): the site profile's folder (adapter.site_profile.find; None: no profile, the night reads as it
+    # did before profiles). Its code tables replace the mapping's look-ups and the SS-MIX2 reader's tables it names
+    site_profile: Path | None = None
 
     def __post_init__(self) -> None:
         from tb_common.config import site_tz
@@ -164,7 +168,31 @@ def check_site_key(cfg: AdapterConfig, key: bytes) -> str:
     return fp
 
 
-def make_source(kind: str, path: str, db_url: str | None = None, encoding: str | None = None) -> Source:
+def load_site_profile(cfg: AdapterConfig, source_kind: str) -> SiteProfile | None:
+    """10B-6 (D-1233): the site's profile, checked and made the box's (a new one is recorded and audited), or None
+    when the box has none. A profile that fails its checks, or is of another site or door, ends the night here."""
+    if cfg.site_profile is None:
+        return None
+    from tb_common.site_profile import load as load_profile
+
+    from adapter import site_profile as sp
+
+    profile = load_profile(cfg.site_profile)
+    sp.activate(profile, cfg.lake_dir, site_id=cfg.site_id, by="adapter", audit_dir=cfg.audit_dir, tz=cfg.tz,
+                door=source_kind)  # fmt: skip
+    return profile
+
+
+def profile_lookups(profile: SiteProfile | None) -> dict[str, Path] | None:
+    """The mapping look-ups a profile's tables replace (``used_by: [mapping.<name>]``)."""
+    if profile is None:
+        return None
+    return {u.split(".", 1)[1]: t.path for t in profile.tables.values() for u in t.used_by if u.startswith("mapping.")}
+
+
+def make_source(
+    kind: str, path: str, db_url: str | None = None, encoding: str | None = None, profile: SiteProfile | None = None
+) -> Source:
     if kind == "csv":
         from adapter.sources.csv.source import CsvSource
 
@@ -177,8 +205,15 @@ def make_source(kind: str, path: str, db_url: str | None = None, encoding: str |
         from adapter import licensed
         from adapter.sources.ssmix2.source import Ssmix2Source
 
-        # SS-MIX2 standardized and extended storage (D-122, D-137), with the site's licensed code lists
-        return Ssmix2Source(Path(path), licensed=licensed.tables(db_url))
+        # SS-MIX2 standardized and extended storage (D-122, D-137), with the site's licensed code lists; a site
+        # profile's tables in place of the shipped samples (10B-6, D-1233)
+        tables = {
+            arg: t.path
+            for use, arg in (("ssmix2.diagnosis", "byomei_to_icd10"), ("ssmix2.drug", "yj_to_atc"),
+                             ("ssmix2.lab", "lab_lookup"))
+            if profile is not None and (t := profile.used_by(use)) is not None
+        }  # fmt: skip
+        return Ssmix2Source(Path(path), licensed=licensed.tables(db_url), **tables)
     raise ValueError(f"unknown source {kind!r}")
 
 
@@ -593,6 +628,8 @@ def _run_ingest(
     gate_facts = governance.NightFacts(night=snap, current_before=current_before)
     completeness_msgs: list[str] = []
     validation_msgs: list[str] = []
+    at["step"] = "site profile"
+    profile = load_site_profile(cfg, source_kind)  # 10B-6 (D-1233)
     at["step"] = "read"
     if source_kind == "fhir_bulk":
         from adapter.sources.fhir_bulk.source import FhirBulkSource
@@ -605,7 +642,7 @@ def _run_ingest(
             if rtype != "Patient":  # removing a person is the opt-out path's job, never a feed delta's
                 tombstones.setdefault(rtype, set()).add(bulk_id(key, rtype, rid))
     else:
-        mapping = Mapping.load(cfg.mapping_path)
+        mapping = Mapping.load(cfg.mapping_path, profile_lookups(profile))
         if since:
             at["step"] = "delta check"
             check_delta(mapping, source_kind)
@@ -620,7 +657,7 @@ def _run_ingest(
             mrn_regex=cfg.mrn_regex,  # CGRD-A4 (D-816, lane E's hunk): a masked text uses the site's pattern
         )  # fmt: skip
         fhir_profiles = mapping.fhir_profiles
-        source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
+        source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding, profile)
         for res in mapper.static_resources():
             to_spool(res)
         whole: set[str] = set()
@@ -990,6 +1027,20 @@ def _run_ingest(
         (out_dir / "reader.json").write_text(
             json.dumps(reader_summary(source), ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8"
         )
+    profile_said: dict[str, Any] | None = None
+    if profile is not None:  # 10B-6 (D-1233): which profile read this night, and its coverage lines
+        from adapter import site_profile as sp
+
+        cov = sp.coverage(profile, out_dir)
+        cov["night_profile"] = profile.stamp()
+        (out_dir / sp.RECORD).write_text(
+            json.dumps({"profile": profile.stamp(), "coverage": cov}, ensure_ascii=False, indent=1, sort_keys=True)
+            + "\n",
+            encoding="utf-8",
+        )
+        profile_said = sp.summary(cov)
+        for line in sp.lines(cov):
+            log.info("%s", line)
     if vsum.error_pct > cfg.validation_max_pct:
         errors.append(f"validation error rate {vsum.error_pct:.2f}% exceeds {cfg.validation_max_pct}%")
         validation_msgs.append(errors[-1])
@@ -1119,6 +1170,7 @@ def _run_ingest(
                 "lake_busy": lake_busy or None,  # D-462: run again once the lake is free
                 "publish": publish_steps,  # T-723: each publish step's state (None: the night was held at the gate)
                 "unit_defaults_applied": defaulted,
+                "site_profile": profile_said,  # 10B-6 (D-1233): id, version, digest and the coverage counts
                 "presence_words_read": presence_read,
                 "instants_to_site_offset": shifted,
                 "drop_override": "; ".join(overrides) or None,

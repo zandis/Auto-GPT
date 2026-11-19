@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import date as date_aliased
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
 
 
 class AgeRange(BaseModel):
@@ -1881,6 +1881,53 @@ class SiteLabItem(BaseModel):
     range: list[float] | None = Field(None, max_length=2, min_length=2)
 
 
+class Standards(RootModel[str]):
+    root: str = Field(..., max_length=32, min_length=1)
+
+
+class DataType(RootModel[str]):
+    root: str = Field(..., pattern="^[A-Za-z][A-Za-z0-9_-]{0,31}$")
+
+
+class UsedBy(RootModel[str]):
+    root: str = Field(..., pattern="^mapping\\.[a-z][a-z0-9_]{0,31}$")
+
+
+class SiteProfileTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    file: str = Field(
+        ..., pattern="^(codes/[A-Za-z0-9_.-]+\\.csv|shipped:[A-Za-z0-9_./-]+\\.csv)$"
+    )
+    """
+    codes/<name>.csv inside the profile folder, or shipped:<path under services/adapter/mapping> for a synthetic profile
+    """
+    key: str = Field(..., min_length=1)
+    """
+    The column holding the site's own code
+    """
+    target: str = Field(..., min_length=1)
+    """
+    The column holding the standard code it maps to
+    """
+    state: str | None = Field(None, min_length=1)
+    """
+    The column holding each row's state, verified or verify (default: state)
+    """
+    source: str | None = Field(None, max_length=200)
+    """
+    Where the rows came from (the hospital's master and its date, a public release, synthetic)
+    """
+    used_by: list[Literal["ssmix2.diagnosis", "ssmix2.drug", "ssmix2.lab"] | UsedBy] = (
+        Field(..., min_length=1)
+    )
+    """
+    Where the product reads this table: mapping.<look-up> replaces the site mapping's look-up of that name (the mapping must declare it); ssmix2.diagnosis, ssmix2.drug and ssmix2.lab are the SS-MIX2 reader's 病名 to ICD-10, YJ to ATC and known-lab-code tables
+    """
+
+
 class SiteFeed(BaseModel):
     """
     questions 24, 28 and 29: the input, its character set, its date format and its delimiter
@@ -2947,6 +2994,57 @@ class ScreenFeedback(BaseModel):
     )
     ruleset: str
     rows: list[ScreenFeedbackRow]
+
+
+class SiteProfile(BaseModel):
+    """
+    A site profile's manifest, profile.yaml (10B-6, commitment C-6, D-1233): one hospital's habits as data. Schema version 1.0.0. Nothing secret and no patient data: credentials stay in the environment, the site's name and addresses in settings, everything per study in the study package.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    format: Literal["tb-site-profile/1"]
+    """
+    The manifest's format; a reader refuses a format it does not know
+    """
+    id: str = Field(..., pattern="^[a-z0-9][a-z0-9-]{0,47}$")
+    """
+    The profile's name. A profile shipped in the repository is synthetic and its id starts with synthetic-
+    """
+    site_id: str = Field(..., pattern="^[A-Za-z0-9_-]{1,32}$")
+    """
+    settings.site.id of the box this profile is for; a night of another site refuses it
+    """
+    country: Literal["jp", "tw", "us", "other"]
+    """
+    The country layer above this profile (commitment C-7, card 10C-25); tb_common.site_country.COUNTRIES
+    """
+    version: str = Field(..., pattern="^[0-9]{1,4}\\.[0-9]{1,4}\\.[0-9]{1,4}$")
+    """
+    The steward's version of this profile, MAJOR.MINOR.PATCH; changed content needs a new version
+    """
+    synthetic: bool | None = None
+    """
+    True for a profile of synthetic data (every profile in the repository)
+    """
+    door: Literal["csv", "cgrd_sql", "ssmix2"]
+    """
+    The data source this profile describes: settings.data_source.type
+    """
+    standards: dict[str, Standards] = Field(..., min_length=1)
+    """
+    The standard versions the site writes and this profile targets, e.g. {ssmix2: '1.2h', jp_core: '1.1.0'} (names: lower-case letters, digits and _, checked by tb_common.site_profile)
+    """
+    data_types: list[DataType] = Field(..., min_length=1)
+    """
+    The data types the site's source stores (an SS-MIX2 data type such as ADT-00, or a source table of a csv door). The coverage lines count each one on every night
+    """
+    tables: dict[str, SiteProfileTable]
+    """
+    The site's code tables, by name. Each is a CSV in codes/ (or, for a synthetic profile, a file shipped in the image's mapping folder, written shipped:<path>) with a state on every row (names: lower-case letters, digits and _, checked by tb_common.site_profile)
+    """
 
 
 class TrialSimResult(BaseModel):

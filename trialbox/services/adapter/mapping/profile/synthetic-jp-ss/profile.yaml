@@ -1,0 +1,56 @@
+# Site profile of the synthetic Japanese hospital (10B-6, D-1233; design: docs/data/site-profile.md). Synthetic: the
+# 400 patients of `tools.synth_hospital` written as SS-MIX2 storage by `tools.ssmix2_export` (the goldens' ssmix2-jp
+# set). Its code tables are the samples shipped in the image's jp_core folder, named here, not copied: every row says
+# `verify` (synthetic codes, never checked against the MEDIS, JLAC10 or YJ releases). A site's own profile is
+# deploy/site/mapping/profile/profile.yaml with its tables in codes/ beside it.
+format: tb-site-profile/1
+id: synthetic-jp-ss
+site_id: jp-ss
+country: jp
+version: 1.0.0
+synthetic: true
+door: ssmix2
+standards:
+  ssmix2: "1.2"        # the storage layout tools.ssmix2_export writes (review 12 section 4: not yet every 1.2i shape)
+  jp_core: 1.1.0       # the profiles the mapping puts on the resources (mapping/jp_core/ssmix2_site.yaml)
+  icd10: WHO-2013      # through MEDIS 標準病名 (D-314)
+data_types:            # SS-MIX2 data types of the standardized storage, then what the extended storage holds
+  - ADT-00
+  - ADT-12
+  - ADT-22
+  - ADT-52
+  - PPR-01
+  - OMP-01
+  - OMP-02
+  - OMP-11
+  - OMP-12
+  - OML-11
+  - document
+  - vital
+  - report
+  - procedure
+  - appointment
+  - claim
+  - registry
+tables:
+  diagnosis:
+    file: shipped:jp_core/byomei_to_icd10.csv
+    key: code
+    target: icd10
+    state: verified
+    source: synthetic 病名 codes of tools.synth_hospital (never a MEDIS release)
+    used_by: [ssmix2.diagnosis]
+  drug:
+    file: shipped:jp_core/yj_to_atc.csv
+    key: yj_code
+    target: atc
+    state: verified
+    source: synthetic YJ codes of tools.synth_hospital (never a YJ release)
+    used_by: [ssmix2.drug]
+  lab:
+    file: shipped:jp_core/jlac10_to_loinc.csv
+    key: local_code
+    target: code
+    state: verified
+    source: synthetic JLAC10 codes of tools.synth_hospital (never a JLAC10 release)
+    used_by: [mapping.lab, ssmix2.lab]
