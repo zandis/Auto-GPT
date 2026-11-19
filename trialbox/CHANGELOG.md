@@ -10,6 +10,12 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- Dates on printed pages and the fiscal year 年度 (10C-13, 10C-15): a site may print dates in Western form (ISO, as
+  before), Japanese era (令和8年11月18日) or both (2026年（令和8年）11月18日) on the feasibility report, the NHI
+  navigation summary and application form, the CASE sheet and the released consent page (`site.printed_dates`); the
+  research office counts may count by 年度, 1 April to 31 March in the site's time zone, and say which year they count
+  in three languages (`site.year_basis`). Unset, both follow the country: a site in Japan gets both forms and 年度; any
+  other site prints and counts exactly as before. The first-run page asks both with the country.
 - Set-up follows the site's country (10K-1): the settings wizard asks the country first (Japan, Taiwan, United
   States, other) and takes the report language, time zone, retention rules, source type, mapping and the TWPAS
   questions from one table; a Japan site gets Japanese reports, Japan's retention and an SS-MIX2 source (the
