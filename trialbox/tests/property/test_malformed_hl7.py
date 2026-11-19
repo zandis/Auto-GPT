@@ -8,12 +8,11 @@ accessor the walker uses (``field``, ``comp``, ``reps``, ``pick``, ``ts``) answe
 
 from __future__ import annotations
 
-from tests.malformed_kit import MAX_INPUT, SETTINGS, returns_or_refuses
-
+from adapter.sources.ssmix2 import hl7
 from hypothesis import example, given
 from hypothesis import strategies as st
 
-from adapter.sources.ssmix2 import hl7
+from tests.malformed_kit import MAX_INPUT, SETTINGS, returns_or_refuses
 
 # bytes that steer the decoder into each of its branches: ESC sequences (ISO-2022-JP and its extensions), SO/SI,
 # Shift_JIS lead bytes, UTF-8 lead bytes, a BOM, segment ends and the HL7 delimiters

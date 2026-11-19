@@ -13,13 +13,12 @@ import zipfile
 
 import pytest
 import yaml
-from tests.malformed_kit import Escaped, SETTINGS, returns_or_refuses
-
+from criteria_compiler.import_ruleset import ImportRefused, read_zip
 from hypothesis import example, given
 from hypothesis import strategies as st
-
-from criteria_compiler.import_ruleset import ImportRefused, read_zip
 from tb_common.zipcap import ZipRefused, check_ruleset_zip
+
+from tests.malformed_kit import SETTINGS, Escaped, returns_or_refuses
 
 _NAMES = st.one_of(
     st.sampled_from(["manifest.yaml", "r1/manifest.yaml", "r1/ir.json", "r1/", "../x", "/abs", "a\\b", "r1/r1/x",
@@ -109,6 +108,8 @@ def test_h10g43_01_bytes_that_are_no_zip(data: bytes) -> None:
 @example(_zip({"manifest.yaml": b"- a\n"}))
 @example(_zip({"manifest.yaml": b"\xff"}))
 @example(_zip({"manifest.yaml": b"id: ["}))
-@pytest.mark.xfail(strict=True, raises=Escaped, reason="H10G43-02: a manifest.yaml that is no YAML mapping escapes read_zip")
+@pytest.mark.xfail(
+    strict=True, raises=Escaped, reason="H10G43-02: a manifest.yaml that is no YAML mapping escapes read_zip"
+)
 def test_h10g43_02_a_manifest_that_is_no_mapping(data: bytes) -> None:
     returns_or_refuses(lambda: read_zip(data), _REFUSAL)

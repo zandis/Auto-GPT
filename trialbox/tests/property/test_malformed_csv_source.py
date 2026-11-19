@@ -11,12 +11,11 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from tests.malformed_kit import MAX_INPUT, SETTINGS, returns_or_refuses
-
+from adapter.sources.csv.source import CsvSource
 from hypothesis import example, given
 from hypothesis import strategies as st
 
-from adapter.sources.csv.source import CsvSource
+from tests.malformed_kit import MAX_INPUT, SETTINGS, returns_or_refuses
 
 _PIECES = [
     b"id,updated_at,name\r\n", b"id,updated_at\n", b",", b",,", b"\"", b"\"\"", b"\"a,b\"", b"\r\n", b"\n", b"\r",
@@ -45,7 +44,7 @@ def _read(data: bytes, enc: str | None, delta: str | None, when: str | None) -> 
 @SETTINGS
 @given(files, declared, st.sampled_from([None, "updated_at", "missing"]), since)
 @example(b"", None, None, None)
-@example(b"id\r\n\"open", None, None, None)
+@example(b'id\r\n"open', None, None, None)
 @example(b"id,updated_at\r\n1,2026-13-45\r\n", "utf-8", "updated_at", "2026-01-01")
 @example(b"id\r\n" + b"a" * 131073 + b"\r\n", None, None, None)
 @example(b"id\r\n\x00\r\n", "big5", None, None)

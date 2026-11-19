@@ -22,11 +22,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from tests.malformed_kit import Escaped, SETTINGS, returns_or_refuses
-
 from hypothesis import example, given
 from hypothesis import strategies as st
 
+from tests.malformed_kit import SETTINGS, Escaped, returns_or_refuses
 from tools import verify_update as vu
 from tools.sign_bundle import build, keygen
 

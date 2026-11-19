@@ -12,12 +12,11 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from tests.malformed_kit import SETTINGS, returns_or_refuses
-
+from adapter.sources.ssmix2.source import CHANGES, TYPES, Ssmix2Source, reader_summary, storage_dir
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
-from adapter.sources.ssmix2.source import CHANGES, TYPES, Ssmix2Source, reader_summary, storage_dir
+from tests.malformed_kit import SETTINGS, returns_or_refuses
 
 _SEGS = ["EVN", "PID", "PV1", "PRB", "ORC", "RXE", "RXA", "TQ1", "OBR", "OBX", "SPM", "NTE", "ZZZ", "MSH", ""]
 _TYPES = [t for ts in (*TYPES.values(), *CHANGES.values()) for t in ts] + ["ZZZ-99", ""]

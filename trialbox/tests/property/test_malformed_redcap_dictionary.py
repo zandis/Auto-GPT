@@ -12,20 +12,19 @@ import csv
 import io
 
 import pytest
-from tests.malformed_kit import Escaped, SETTINGS, returns_or_refuses
-
+from datacore import forms
 from hypothesis import example, given
 from hypothesis import strategies as st
 
-from datacore import forms
+from tests.malformed_kit import SETTINGS, Escaped, returns_or_refuses
 
 _COLUMNS = sorted(set(forms._COLS) | set(forms._COLS.values()) | {f"field_label:{g}" for g in forms.LANGS}
                   | {f"select_choices_or_calculations:{g}" for g in forms.LANGS})  # fmt: skip
 _TYPES = ["text", "notes", "radio", "dropdown", "checkbox", "yesno", "truefalse", "calc", "slider", "file", "descriptive",
           "sql", "", "RADIO", "bogus"]  # fmt: skip
 _CELL = st.one_of(
-    st.sampled_from(_TYPES + ["a", "f", "a1", "1, Yes | 2, No", "|", ",", "y", "Y", "@TB-DECIMALS=2", "number_2dp",
-                              "date_ymd", "integer", "[a] = '1'", "", " ", "﻿", "\"", "山田"]),
+    st.sampled_from([*_TYPES, "a", "f", "a1", "1, Yes | 2, No", "|", ",", "y", "Y", "@TB-DECIMALS=2", "number_2dp",
+                              "date_ymd", "integer", "[a] = '1'", "", " ", "\ufeff", "\"", "山田"]),
     st.text(max_size=12),
 )  # fmt: skip
 
@@ -44,7 +43,7 @@ def dictionaries(draw: st.DrawFn) -> str:
     w.writerows(rows)
     text = buf.getvalue()
     if draw(st.booleans()):
-        text = draw(st.sampled_from(["", "﻿"])) + text.replace("\r\n", draw(st.sampled_from(["\n", "\r\n"])))
+        text = draw(st.sampled_from(["", "\ufeff"])) + text.replace("\r\n", draw(st.sampled_from(["\n", "\r\n"])))
     return text
 
 
@@ -59,7 +58,7 @@ def _import(text: str) -> None:
 @example("field_name,form_name\n")
 @example("field_name,form_name,field_type\na,f,radio\n")
 @example("Variable / Field Name,Form Name\nrecord_id,f\nrecord_id,f\n")
-@example("field_name,form_name,field_type,select_choices_or_calculations\na,f,checkbox,\"1, A|1, B\"\n")
+@example('field_name,form_name,field_type,select_choices_or_calculations\na,f,checkbox,"1, A|1, B"\n')
 def test_read_dictionary_returns_fields_or_refuses(text: str) -> None:
     """Dictionaries written by the csv module's own writer, and any text without a CR: a bare CR in a cell is
     H10G43-03 (its own test below), so it is the one thing left out here."""

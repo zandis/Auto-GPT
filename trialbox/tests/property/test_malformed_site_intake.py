@@ -8,16 +8,16 @@ dates, numbers, formulas, empty sheets), with generated column roles. Synthetic 
 
 from __future__ import annotations
 
+import contextlib
 import io
 from datetime import date, datetime
 
 import pytest
-from tests.malformed_kit import Escaped, MAX_INPUT, SETTINGS, returns_or_refuses
-
 from hypothesis import example, given
 from hypothesis import strategies as st
-
 from sitesetup import intake, messy
+
+from tests.malformed_kit import MAX_INPUT, SETTINGS, Escaped, returns_or_refuses
 
 _CSV_PIECES = [
     b"chart,birth,sex,dx,date\r\n", b"\xe7\x97\x85\xe6\xad\xb4\xe8\x99\x9f,\xe6\x80\xa7\xe5\x88\xa5\r\n", b",", b"\"",
@@ -39,7 +39,7 @@ def xlsxs(draw: st.DrawFn) -> bytes:
     from openpyxl import Workbook
 
     wb = Workbook()
-    ws = wb.active
+    ws = wb.worksheets[0]
     for row in draw(st.lists(st.lists(_CELL, max_size=6), max_size=6)):
         clean = []
         for v in row:  # openpyxl refuses control characters in a cell; the reader never sees such a file
@@ -48,10 +48,8 @@ def xlsxs(draw: st.DrawFn) -> bytes:
     for _ in range(draw(st.integers(0, 2))):
         r1, c1 = draw(st.integers(1, 6)), draw(st.integers(1, 6))
         r2, c2 = r1 + draw(st.integers(0, 3)), c1 + draw(st.integers(0, 3))
-        try:
+        with contextlib.suppress(ValueError):
             ws.merge_cells(start_row=r1, start_column=c1, end_row=r2, end_column=c2)
-        except ValueError:
-            pass
     if draw(st.booleans()):
         wb.create_sheet("second")
     buf = io.BytesIO()
@@ -80,9 +78,14 @@ def _intake(name: str, data: bytes, roles: dict[str, str], pattern: str | None) 
 
 @SETTINGS
 @given(
-    st.one_of(st.tuples(st.just("sheet.csv"), csvs), st.tuples(st.sampled_from(["sheet.xlsx", "sheet.csv"]), xlsxs()),
-              st.tuples(st.sampled_from(["sheet.csv", "sheet.xlsx", "x"]),
-                        st.binary(max_size=200).map(lambda b: b.replace(b"\r", b"")))),  # fmt: skip
+    st.one_of(
+        st.tuples(st.just("sheet.csv"), csvs),
+        st.tuples(st.sampled_from(["sheet.xlsx", "sheet.csv"]), xlsxs()),
+        st.tuples(
+            st.sampled_from(["sheet.csv", "sheet.xlsx", "x"]),
+            st.binary(max_size=200).map(lambda b: b.replace(b"\r", b"")),
+        ),
+    ),
     _ROLES,
     st.sampled_from([None, r"^\d{8}$", r"^[A-Z]\d+$"]),
 )
