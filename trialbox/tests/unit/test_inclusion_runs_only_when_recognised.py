@@ -7,7 +7,7 @@ clause naming the concept is made of that concept's names and the words listed i
 ``services/criteria_compiler/ir_extract/recognised_assertions.yaml``. Each rule below has a line it holds and a near
 line it lets run; removing the rule (or the words it relies on) fails one of them.
 
-The development set ``tests/fixtures/negated_inclusion/card_10a1d_development.tsv`` is synthetic: 590 lines in
+The development set ``tests/fixtures/negated_inclusion/card_10a1d_development.tsv`` is synthetic: 684 lines in
 English, Japanese and Chinese. The first 471 were labelled before the rule was written; each later round came with
 the frames it tests and their nearest must-hold lines. No patients.
 """
@@ -23,21 +23,33 @@ from criteria_compiler.ir_extract import postprocess as pp
 from criteria_compiler.ir_extract import recognition as rec
 from criteria_compiler.ir_extract.recognition import recognised, unrecognised_presence
 from criteria_compiler.terminology.mapper import Terminology
-from tb_contracts import Atom, LlmExtractOutput
+from tb_contracts import Atom, BoolExpr, LlmExtractOutput
 
 from tools.negated_inclusion_score import read_rows, score
 
 FLAG, UNREAD = "negated_inclusion_presence", "presence_not_recognised"
 DEV = Path(__file__).resolve().parents[1] / "fixtures/negated_inclusion/card_10a1d_development.tsv"
 ROWS = read_rows(DEV)
-# the five must-run lines the cue rules (the second net) already held at 71e85bbc, before this card: a second
-# sentence with a negation the cue rules cannot explain, and the ACR/EULAR lines whose "満たす" / "符合" clause they hold
+# the must-run lines held all the same, each for a reason D-1248 names: the five the cue rules (the second net) held
+# at 71e85bbc already; a second clause that is not a plain assertion (every clause counts); a test named without a
+# confirming word; a line of kanji alone read as Chinese, whose Japanese words are not Chinese ones
 CUED_BEFORE = {
     "Type 2 diabetes. Not pregnant.",
     "2型糖尿病の患者。妊娠していない。",
     "第二型糖尿病。未懷孕。",
     "2010年ACR/EULAR分類基準を満たす関節リウマチ",
     "符合2010年ACR/EULAR分類標準之類風濕性關節炎",
+}
+HELD_ALL_THE_SAME = {
+    *CUED_BEFORE,
+    "Multiple sclerosis; no relapse in the past 30 days",
+    "Hypertension, but no history of stroke",
+    "高血圧を有するが、脳卒中の既往はない。",
+    "高血壓，但無中風病史",
+    "Severe aortic stenosis by echocardiography",
+    "進行肺癌",
+    "去勢抵抗性前立腺癌",
+    "症候性心不全",
 }
 _HELD: list[list[bool]] = []
 
@@ -49,8 +61,8 @@ def _dev_held() -> list[bool]:
 
 
 def test_the_development_set_is_what_d1248_counts() -> None:
-    assert len(ROWS) == 590
-    assert sum(r["expect"] == "held" for r in ROWS) == 337
+    assert len(ROWS) == 684
+    assert sum(r["expect"] == "held" for r in ROWS) == 400
     assert {r["lang"] for r in ROWS} == {"en", "ja", "zh"}
 
 
@@ -60,10 +72,10 @@ def test_every_must_hold_line_of_the_development_set_is_held() -> None:
     assert missed == []
 
 
-def test_every_must_run_line_of_the_development_set_runs_but_the_five_the_cue_rules_hold() -> None:
+def test_every_must_run_line_of_the_development_set_runs_but_those_held_all_the_same() -> None:
     """The frames and qualifiers are pinned by the lines they let run: a word dropped from the data fails here."""
     held = {r["text"] for r, h in zip(ROWS, _dev_held(), strict=True) if r["expect"] == "runs" and h}
-    assert held == CUED_BEFORE
+    assert held == HELD_ALL_THE_SAME
 
 
 def _rows(*lines: tuple[str, str, str]) -> list[dict[str, Any]]:
@@ -72,17 +84,15 @@ def _rows(*lines: tuple[str, str, str]) -> list[dict[str, Any]]:
 
 @pytest.mark.parametrize(
     "line",
-    [r for r in ROWS if r["lang"] == "en" and r["expect"] == "runs" and r["text"] not in CUED_BEFORE],
+    [r for r in ROWS if r["lang"] == "en" and r["expect"] == "runs" and r["text"] not in HELD_ALL_THE_SAME],
     ids=lambda r: r["text"][:40],
 )
-def test_an_unknown_word_in_the_concepts_clause_holds_it_and_one_in_another_clause_does_not(
-    line: dict[str, Any],
-) -> None:
-    """An unknown word is a reason to hold, never a reason to run. A clause ends at ";": a word there that names no
-    concept and does not point back at this one is not this concept's clause."""
+def test_an_unknown_word_in_any_clause_holds_the_line(line: dict[str, Any]) -> None:
+    """An unknown word is a reason to hold, never a reason to run, in the concept's clause or in any other: what
+    follows a ";" may say the line is not a fact ("Pending central review")."""
     inside = {**line, "text": "Zorblatic " + line["text"]}
     apart = {**line, "text": line["text"].rstrip(".") + "; zorblatic"}
-    assert score([inside, apart]) == [True, False]
+    assert score([line, inside, apart]) == [False, True, True]
 
 
 @pytest.mark.parametrize(
@@ -136,7 +146,32 @@ def test_an_unknown_word_in_the_concepts_clause_holds_it_and_one_in_another_clau
         # a class applies to its domains: "refractory" qualifies a disease, says a drug failed
         (("Refractory rituximab", "rituximab", "medication"), ("Refractory epilepsy", "epilepsy", "condition")),
         # a bracketed abbreviation right after the name, not a chart's answer
-        (("Diabetes (NO)", "diabetes", "condition"), ("Diabetes (DM)", "diabetes", "condition")),
+        (("Diabetes (NO)", "diabetes", "condition"), ("Colorectal cancer (CRC)", "colorectal cancer", "condition")),
+        # an abbreviation the line does not define as the concept's: its letters do not follow the name's
+        (
+            ("Colorectal cancer (FH)", "colorectal cancer", "condition"),
+            ("Type 2 diabetes mellitus (T2DM)", "type 2 diabetes mellitus", "condition"),
+        ),
+        # a numbered heading, and a numbered list item
+        (("5.2 Hepatitis B", "hepatitis B", "condition"), ("1. Hepatitis B", "hepatitis B", "condition")),
+        # a blank, a dash or ± is not a positive mark
+        (("Hypertension (±)", "hypertension", "condition"), ("Hypertension (+)", "hypertension", "condition")),
+        (("Hypertension [ ]", "hypertension", "condition"), ("Hypertension [x]", "hypertension", "condition")),
+        # a test named as a test, and as what confirmed the concept
+        (
+            ("Hepatitis B serology at screening", "hepatitis B", "condition"),
+            ("Hepatitis B confirmed by serology", "hepatitis B", "condition"),
+        ),
+        # "ago" on a diagnosis date is not an ending
+        (
+            ("Prednisone, last dose 1 year ago", "prednisone", "medication"),
+            ("Hypertension diagnosed at least 1 year ago", "hypertension", "condition"),
+        ),
+        # a measure by its shape, after the concept; never a risk
+        (
+            ("Heart failure risk score ≥ 3", "heart failure", "condition"),
+            ("Schizophrenia with PANSS total score ≥ 70", "schizophrenia", "condition"),
+        ),
         # a line of kanji alone is read with the Japanese and the Chinese words
         (("寛解期乳癌", "乳癌", "condition"), ("転移性乳癌", "乳癌", "condition")),
         # a bound on a count of the concept itself: zero meets it
@@ -208,9 +243,29 @@ def test_a_clause_that_says_it_ended_runs_only_when_the_atom_asks_the_past() -> 
                                 "window": {"anchor": "index", "to_days": -365}})  # fmt: skip
     assert unrecognised_presence(line, now, lambda vs: ["rituximab"])
     assert not unrecognised_presence(line, past, lambda vs: ["rituximab"])
-    # a clause that names another concept is about that one
-    assert recognised("Taking rituximab; last dose of methotrexate 2 years ago", ["rituximab"], ["methotrexate"],
-                      "medication")  # fmt: skip
+    # every clause counts: an ending said of another concept holds the line too (the logic would have to say it)
+    assert not recognised("Taking rituximab; last dose of methotrexate 2 years ago", ["rituximab"],
+                          ["methotrexate"], "medication")  # fmt: skip
+
+
+def test_a_code_counts_only_when_it_is_one_of_the_concepts_own() -> None:
+    assert recognised("Colorectal cancer (C18.9)", ["colorectal cancer"], codes=["C18.9"])
+    assert not recognised("Colorectal cancer (Z80.0)", ["colorectal cancer"], codes=["C18.9"])
+    assert not recognised("Colorectal cancer (C18.9)", ["colorectal cancer"])
+
+
+def test_an_alternative_runs_only_when_the_logic_carries_it() -> None:
+    """How it is told: the other concept is an arm of an "or" above this atom in the criterion's own logic."""
+    af = Atom(domain="condition", valueset="VS_AF", quantifier="any")
+    afl = Atom(domain="condition", valueset="VS_AFL", quantifier="any")
+    names = {"VS_AF": ["atrial fibrillation"], "VS_AFL": ["atrial flutter"]}
+    line = "Either atrial fibrillation or atrial flutter"
+    assert not unrecognised_presence(line, BoolExpr(op="or", args=[af, afl]), lambda vs: names.get(vs, []))
+    assert unrecognised_presence(line, BoolExpr(op="and", args=[af, afl]), lambda vs: names.get(vs, []))
+    assert unrecognised_presence(line, af, lambda vs: names.get(vs, []), ["atrial flutter"])
+    # an "or" between two tests that confirmed the concept is not an alternative of the concept
+    assert recognised("Chronic subdural hematoma verified on cranial CT or MRI", ["chronic subdural hematoma"],
+                      ["CT", "MRI"])  # fmt: skip
 
 
 def test_a_past_occurrence_counts_only_when_the_logic_allows_it() -> None:

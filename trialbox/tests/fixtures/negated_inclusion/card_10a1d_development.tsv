@@ -587,5 +587,99 @@ en	Meeting DSM-5 diagnostic criteria for schizophrenia	schizophrenia			condition
 en	Status after kidney transplant	kidney transplant			procedure	runs	history
 en	At least 6 months post-hysterectomy	hysterectomy			procedure	runs	history
 en	Has experienced migraine for at least 1 year	migraine			condition	runs	history
-en	Patients undergoing elective hip replacement	hip replacement			procedure	runs	undergoing
+en	Patients undergoing elective hip replacement	hip replacement			procedure	held	plan
 en	Histologically verified gastric cancer according to the UICC definition	gastric cancer			condition	runs	criteria
+en	Hypertension. Pending central review.	hypertension			condition	held	other_clause
+en	Colorectal cancer. Father, aged 52.	colorectal cancer			condition	held	other_clause
+en	Tuberculosis, but IGRA and chest imaging unremarkable.	tuberculosis			condition	held	other_clause
+en	Pulmonary embolism; CTPA performed, awaiting report.	pulmonary embolism			condition	held	other_clause
+en	Hodgkin lymphoma. In complete remission since 2015.	Hodgkin lymphoma			condition	held	other_clause
+ja	肺塞栓症。精査予定。	肺塞栓症			condition	held	other_clause
+ja	糖尿病。父親。	糖尿病			condition	held	other_clause
+ja	悪性リンパ腫。2015年より完全寛解。	悪性リンパ腫			condition	held	other_clause
+zh	大腸癌。父親，52歲。	大腸癌			condition	held	other_clause
+zh	淋巴瘤，但目前完全緩解。	淋巴瘤			condition	held	other_clause
+en	Hypertension. Diagnosed in 2015.	hypertension			condition	runs	other_clause
+en	Pulmonary embolism; confirmed by CT angiography.	pulmonary embolism			condition	runs	other_clause
+ja	肺塞栓症。CTで確認された。	肺塞栓症			condition	runs	other_clause
+zh	淋巴瘤，目前為活動性。	淋巴瘤			condition	runs	other_clause
+en	Either atrial fibrillation or atrial flutter.	atrial fibrillation		atrial flutter	condition	held	alternative
+en	Type 2 diabetes mellitus and/or obesity.	type 2 diabetes mellitus		obesity	condition	held	alternative
+ja	心房細動又は心房粗動	心房細動		心房粗動	condition	held	alternative
+zh	心房顫動或心房撲動	心房顫動		心房撲動	condition	held	alternative
+zh	符合第二型糖尿病或肥胖症診斷標準	第二型糖尿病		肥胖症	condition	held	alternative
+en	Atrial fibrillation, paroxysmal or persistent	atrial fibrillation			condition	runs	alternative
+en	Colorectal cancer (Z80.0)	colorectal cancer			condition	held	code
+en	Breast cancer (Z12.31)	breast cancer			condition	held	code
+ja	大腸癌（Z80.0）	大腸癌			condition	held	code
+en	Colorectal cancer (FH)	colorectal cancer			condition	held	abbreviation
+en	Colorectal cancer (CRC)	colorectal cancer			condition	runs	abbreviation
+en	Hypertension [ ]	hypertension			condition	held	mark
+en	Hypertension: —	hypertension			condition	held	mark
+en	Hypertension (±)	hypertension			condition	held	mark
+ja	糖尿病（±）	糖尿病			condition	held	mark
+ja	【　】高血圧	高血圧			condition	held	mark
+zh	高血压：—	高血压			condition	held	mark
+en	Hypertension [x]	hypertension			condition	runs	mark
+en	Hypertension (+)	hypertension			condition	runs	mark
+en	5.2 Hepatitis B	hepatitis B			condition	held	heading
+ja	4.2 糖尿病	糖尿病			condition	held	heading
+zh	5.2 B型肝炎	B型肝炎			condition	held	heading
+en	Hepatitis B serology at screening.	hepatitis B			condition	held	test
+en	Sputum culture for tuberculosis.	tuberculosis			condition	held	test
+en	Colonoscopy for colorectal cancer every 10 years.	colorectal cancer			condition	held	test
+ja	結核の喀痰培養	結核			condition	held	test
+ja	肝細胞癌に対する超音波（6か月）	肝細胞癌			condition	held	test
+zh	結核培養	結核			condition	held	test
+zh	B型肝炎血清學	B型肝炎			condition	held	test
+zh	肺栓塞診斷影像	肺栓塞			condition	held	test
+en	Hepatitis B confirmed by serology	hepatitis B			condition	runs	method
+ja	喀痰培養で確認された結核	結核			condition	runs	method
+zh	經血清學證實之B型肝炎	B型肝炎			condition	runs	method
+en	Vaccination for hepatitis B.	hepatitis B			condition	held	vaccination
+ja	B型肝炎に対するワクチン接種	B型肝炎			condition	held	vaccination
+zh	針對B型肝炎之疫苗接種	B型肝炎			condition	held	vaccination
+en	Currently taking malaria medication.	malaria			condition	held	lookalike
+en	Adults undergoing elective coronary artery bypass grafting.	coronary artery bypass grafting			procedure	held	plan
+en	Sepsis definition per the 2016 criteria.	sepsis			condition	held	definition
+en	Hypertension criteria per WHO.	hypertension			condition	held	definition
+en	Familial history of colorectal cancer.	colorectal cancer			condition	held	other_person
+en	Breast cancer gene mutation (BRCA1 or BRCA2).	breast cancer			condition	held	risk
+ja	B型肝炎の抗体陽性	B型肝炎			condition	held	test
+ja	麻疹抗体陽性	麻疹			condition	held	test
+en	Hepatitis C viral load below detectable level.	hepatitis C			condition	held	remission
+en	Sepsis meeting the 2016 criteria	sepsis			condition	runs	definition
+en	Hepatitis C with detectable viral load	hepatitis C			condition	runs	measure
+en	Malaria confirmed by PCR	malaria			condition	runs	method
+en	Hypoglycaemia episodes less than 3 per month.	hypoglycaemia			condition	held	count_bound
+en	Asthma exacerbations up to 2 in the past 12 months.	asthma exacerbations			condition	held	count_bound
+en	Prednisone up to 10 mg/day.	prednisone			medication	held	count_bound
+ja	プレドニゾロン10 mg/日以下	プレドニゾロン			medication	held	count_bound
+zh	低血糖發作每週不大於2次	低血糖發作			condition	held	count_bound
+zh	泼尼松每日不大于10毫克	泼尼松			medication	held	count_bound
+en	Hypoglycaemia episodes at least 3 per month	hypoglycaemia			condition	runs	count_bound
+en	Prednisone at least 10 mg/day	prednisone			medication	runs	drug
+ja	プレドニゾロン10 mg/日以上	プレドニゾロン			medication	runs	drug
+zh	泼尼松每日至少10毫克	泼尼松			medication	runs	drug
+zh	確診睡眠呼吸中止症	睡眠呼吸中止症			condition	runs	frame
+en	Hypertension diagnosed at least 1 year ago	hypertension			condition	runs	date
+en	Prednisone, last dose 1 year ago	prednisone			medication	held	ended
+en	Heart failure with left ventricular ejection fraction ≤ 40%	heart failure			condition	runs	measure
+en	Schizophrenia with PANSS total score ≥ 70	schizophrenia			condition	runs	measure
+en	Parkinson's disease, Hoehn and Yahr stage 2-3	Parkinson's disease			condition	runs	stage
+ja	統合失調症でPANSS総得点70点以上	統合失調症			condition	runs	measure
+zh	思覺失調症，PANSS總分≥70	思覺失調症			condition	runs	measure
+en	Heart failure risk score ≥ 3	heart failure			condition	held	risk
+en	Breast cancer screening score ≥ 2	breast cancer			condition	held	test
+en	Type 2 diabetes as defined by WHO criteria	type 2 diabetes			condition	runs	frame
+en	Type 2 diabetes is defined as HbA1c ≥ 6.5%	type 2 diabetes			condition	held	definition
+en	Lung adenocarcinoma harbouring an EGFR mutation	lung adenocarcinoma			condition	runs	frame
+en	Lung adenocarcinoma possibly harbouring an EGFR mutation	lung adenocarcinoma			condition	held	uncertain
+zh	已確診第二型糖尿病	第二型糖尿病			condition	runs	frame
+zh	帶有HER2突變之乳癌	乳癌			condition	runs	frame
+zh	已排除第二型糖尿病	第二型糖尿病			condition	held	uncertain
+zh	疑似帶有HER2突變之乳癌	乳癌			condition	held	uncertain
+ja	2型糖尿病と診断されてから1年以上	2型糖尿病			condition	runs	duration
+ja	6か月以上前に診断された2型糖尿病	2型糖尿病			condition	runs	date
+ja	心電図で記録された心房細動	心房細動			condition	runs	method
+ja	化学療法の前に採血	化学療法			procedure	held	temporal

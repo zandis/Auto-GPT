@@ -1,8 +1,8 @@
 # Card 10A-1d (D-1248): what a plain assertion looks like, the only shape of inclusion line that runs as "the
 # patient has the coded concept". Read by criteria_compiler.ir_extract.recognition.
 #
-# A structured inclusion asks the presence of a concept. Its line runs only when every clause that names the concept
-# is made of the concept's name (or a listed synonym) and the words below, and nothing else. One word not listed here
+# A structured inclusion asks the presence of a concept. Its line runs only when every clause of it is made of the
+# concept's name (or a listed synonym), other named concepts, and the words below, and nothing else. One word not listed here
 # (a new verb, a person, a symbol, a plan, a prefix) and the line is held for a person: an unknown word is a reason to
 # hold, never a reason to run. The cue rules of cards 10A-1 to 10A-1c still run as a second net: a line recognised
 # here and cued there is held.
@@ -25,11 +25,19 @@
 # * `{X}` and `{O}` inside a word stand for this concept and for another named one: "requiring {O}" lets "heart
 #   failure requiring dialysis" run (dialysis named) but never "patients requiring chemotherapy" (chemotherapy coded).
 # * `ended`: words that say the concept ended or lies in the past ("last dose", "ago", 最終投与, 停用). A clause
-#   with one (this concept's clause, or one that names no other concept) holds the line, unless the criterion's own
+#   with one (any clause; a word inside the coded name never counts) holds the line, unless the criterion's own
 #   logic asks a past occurrence: its atom has a window that ends before the index day. Without one, it cannot be
 #   told from the atom, so the line is held.
-# * `anaphora`: a clause that does not name the concept or any other named concept but contains one of these words
-#   ("Diagnosis pending confirmation") points back at the concept: it must be recognised as well.
+# * every clause of the line must be recognised, not only those that name the concept: what follows a full stop,
+#   "but" or 但 may say the line is not a fact ("Pending central review.", "Father, aged 52."). In a clause that does
+#   not name the concept, another named concept may stand alone.
+# * `alternatives`: "or", 又は, 或 joining another named concept make it one arm of a choice. The clause is held,
+#   unless the criterion's logic itself carries that arm: a concept the logic joins to this one by "or" is read as
+#   one of this concept's names.
+# * an abbreviation in brackets right after the name is recognised when its letters follow the name's in order
+#   ("Type 2 diabetes mellitus (T2DM)"), never otherwise ("Colorectal cancer (FH)").
+# * a line of kanji alone is read once, as Chinese when it has a character written only in Chinese, else as
+#   Japanese; a word inside the coded name never counts.
 # * exceptions: what "except", "other than", を除く, 以外, 除…外 name is cut out of the clause before it is read
 #   ("any malignancy except basal cell carcinoma"); a line whose concept is the excepted one is held.
 # * a class with `needs` counts only in a clause that also holds one of those words: "criteria" is an assertion in
@@ -42,54 +50,86 @@
 # A word that would let one must-hold line run does not go in. Never add a word that says the concept is absent,
 # doubtful, planned, stopped, someone else's, or only a heading, a definition or an instruction.
 
-marks: ",()[]{}/-–—~〜:'\"%≥≤<>=+±・、，（）「」『』【】×"
+marks: ",(){}/-–~〜:'\"%≥≤<>=+・、，（）「」『』×"  # no empty box "[ ]", blank 【　】, dash "—" or "±": those hold
 
-holds:  # regular expressions over a clause as read ({X} is the concept): listed words that together say otherwise
+holds:  # regular expressions over a clause as read ({X} this concept, {O} another named one): listed words that
+  # together say otherwise. An entry may be {pattern, domains} to apply to some domains only.
   form_value: '{X}\s*[:=]\s*[-+]?\d+(?:[.,]\d+)?\s*$'  # a form's field and its coded value ("Asthma: 0", "高血圧：2")
+  blank_field: '[:：]\s*[-−–—]\s*$|^\s*[-−–—]\s*$'  # a blank or dashed field ("Hypertension: —")
   zero: '(?<![A-Za-z\d.,\-−])0+(?:[.,]0+)?(?![\d.,])(?!\s*(?:-|–|to\b|〜|~|至|到|から))'  # a count or a value of zero
   schedule_day: '(?i)\b(?:days?|cycles?|weeks?|visits?)\s*[-−]?\d'  # a schedule ("on day 1", "cycle 1 day 1")
+  schedule_cjk: '第\s*\d+\s*(?:天|日|週|周|次|個?療程|週期|周期|サイクル|コース|回)|\d+\s*日目'
+  numbered_heading: '^\s*\d+(?:[.．]\d+)+[.)]?\s*\x00\s*[.。]?\s*$'  # a section number and a bare name ("5.2 Hepatitis B")
   count_upper_bound: '(?i)(?:\bup\s+to|\bat\s+most|\bno\s+more\s+than|\bnot\s+more\s+than|\bfewer\s+than|\bless\s+than|\bmaximum(?:\s+of)?|≤|<|至多|最多|不超過|不超过|少於|少于|未滿|未满|最大)\s*(?:\d+|one|two|three|four|five|[一二兩两三四五])\s*(?:prior\s+|previous\s+)?(?:lines?\b|regimens?\b|cycles?\b|courses?\b|doses?\b|times\b|ライン|レジメン|コース|サイクル|回|線|线|次|個?療程|个?疗程|週期|周期)|\d+\s*(?:lines?|regimens?|cycles?|courses?|doses?|ライン|レジメン|コース|サイクル|回|線|线|次|個?療程|週期)\s*(?:or\s+(?:less|fewer)|at\s+most|以下|未満|まで|以内|以內)'  # "up to 2 prior lines of X" includes none
   count_from_zero: '(?i)(?<![\d.])0\s*(?:-|–|to|〜|~|至|到|から)\s*\d+\s*(?:prior\s+|previous\s+)?(?:lines?|regimens?|cycles?|courses?|doses?|times|ライン|レジメン|コース|サイクル|回|線|线|次)'
-  count_bound_concept: '(?i)(?:<=|=<|≤|<|\bat\s+most|\bup\s+to|\bfewer\s+than|\bless\s+than|\bno\s+more\s+than|\bnot\s+more\s+than|\bmaximum(?:\s+of)?|\bmax\b\.?)\s*(?:\d+|one|two|three|four|five)\s*(?:[a-z]+\s+){0,2}?\x00'  # "<=2 hospitalizations for heart failure" with those coded: zero meets it
-  count_bound_concept_after: '(?i)\x00(?:\s*(?:episodes?|attacks?|admissions?|hospitali[sz]ations?|events?|exacerbations?|flares?|relapses?|cycles?|lines?|doses?|courses?|times|number))?\s*[:=]?\s*(?:<=|=<|≤|<)\s*\d|\x00[^;。]{0,12}?\d+\s*or\s+(?:fewer|less)\b'
-  count_bound_concept_cjk: '\x00[^。；;，,]{0,8}?\d+\s*(?:回|件|次|度|例)?\s*(?:以下|未満|まで|以內|以内)|\x00[^。；;，,]{0,8}?(?:不超過|不超过|至多|最多|少於|少于|未滿|未满|≤|<)\s*\d|(?:至多|最多|不超過|不超过|最大)\s*\d+\s*\S{0,3}\x00'
+  # an upper bound on a count or a dose of the concept itself, which zero meets ("<=2 hospitalizations for heart
+  # failure", "Prednisone up to 10 mg/day", "プレドニゾロン10 mg/日以下", "低血糖發作每週不大於2次")
+  count_bound_concept: '(?i)(?:<=|=<|≤|<|\bat\s+most|\bup\s+to|\bfewer\s+than|\bless\s+than|\bno\s+more\s+than|\bnot\s+more\s+than|\bnot\s+exceeding|\bmaximum(?:\s+of)?|\bmax\b\.?)\s*(?:\d+|one|two|three|four|five)\s*(?:[a-zµμ/]+\s+){0,2}?(?:of\s+)?\x00'
+  count_bound_concept_after: '(?i)\x00(?:\s*(?:episodes?|attacks?|admissions?|hospitali[sz]ations?|events?|exacerbations?|flares?|relapses?|cycles?|lines?|doses?|dosage|courses?|times|number))?\s*[:=]?\s*(?:<=|=<|≤|<|less\s+than|fewer\s+than|up\s+to|at\s+most|no\s+more\s+than|not\s+more\s+than|not\s+exceeding|not\s+to\s+exceed|maximum(?:\s+of)?|max\b\.?)\s*\d|\x00[^;。]{0,12}?\d+\s*or\s+(?:fewer|less)\b'
+  count_bound_concept_cjk: '\x00[^。；;，,]{0,10}?\d+(?:\.\d+)?\s*[^\d。；;，,]{0,6}?(?:以下|未満|まで|以內|以内|を超えない|超えない)|\x00[^。；;，,]{0,10}?(?:不超過|不超过|不大於|不大于|不多於|不多于|不高於|不高于|至多|最多|少於|少于|未滿|未满|≤|<)\s*\d|(?:至多|最多|不超過|不超过|最大)\s*\d+\s*\S{0,3}\x00'
   criteria_for: '(?i)^(?:(?!\b(?:meet|meets|meeting|fulfil\w*|satisf\w*|according|based)\b).)*\b(?:diagnostic\s+|classification\s+)?(?:criteria|classification|definition)\s+(?:for|of)\s+(?:the\s+)?(?:diagnosis\s+of\s+)?\x00'  # a definition, not the patient (unless the patient meets it)
-  schedule_cjk: '第\s*\d+\s*(?:天|日|週|周|次|個?療程|週期|周期|サイクル|コース|回)|\d+\s*日目'
+  definition_after: '(?i)^(?:(?!\b(?:meet|meets|meeting|fulfil\w*|satisf\w*|according)\b).)*\x00\s*(?:diagnostic\s+)?(?:definition|criteria|classification)\b'  # "Sepsis definition per the 2016 criteria"
+  below_detection: '(?i)(?:below|under|less\s+than|<)\s*(?:the\s+)?(?:lower\s+)?(?:limit\s+of\s+)?(?:detect\w*|quantif\w*|lloq|lod)\b|\bundetect\w*|\bnot\s+detect\w*|検出(?:限界)?(?:未満|以下|せず)|檢測(?:下限|不到)|检测不到|测不到|檢測不出'
+  test_of_for: '(?i)\b(?:vaccin\w*|immuni[sz]\w*|prophylaxis|screen\w*|surveillance|tests?|testing|serology|cultures?|monitoring)\s+(?:for|against|of)\s+(?:the\s+)?\x00'  # "Vaccination for hepatitis B"
+  non_fact_after:  # a word after a disease name that makes it something else ("malaria medication", "breast cancer gene")
+    domains: [condition]
+    pattern: '(?i)\x00[\s\-]*(?:medications?|medicines?|drugs?|therap(?:y|ies)|treatments?|agents?|regimens?|vaccin\w*|immuni[sz]ation|prophylaxis|prevention|screening|surveillance|tests?|testing|serology|cultures?|antibod(?:y|ies)|carriers?|genes?|risk|education|clinic|programmes?|programs?|guidelines?)\b|\x00(?:に対する|の)?(?:ワクチン|予防接種|治療薬|スクリーニング|検査|抗体|血清|培養)|\x00[之的]?(?:疫苗|藥物|药物|篩檢|筛检|檢查|检查|檢測|检测|抗體|抗体|血清學|血清学|培養|培养|影像)'
 
-ended:  # regular expressions over a clause as read: the concept ended or lies in the past (see the head)
-  en: '(?i)\blast\s+(?:dose|administration|infusion|injection|cycle|course|treatment|use)\b|\bago\b|\bstopped\b|\bdiscontinu\w*|\bcompleted\b|\bended\b|\bceased\b|\bfinished\b|\bwash-?\s?out\b|\bno\s+longer\b|\bwithdrawn\b|\btapered\s+off\b|\bdeprescribed\b'
-  ja: '最終投与|最終使用|最終|中止|終了|休薬|完了|離脱|前に(?:投与|使用|服用|施行)'
-  zh: '停用|停藥|停药|停止|結束|结束|最後一次|最后一次|末次|已完成|完成|已停'
+ended:  # regular expressions over a clause as read: the concept ended or lies in the past (see the head). An entry
+  # may be {pattern, unless}: "ago" after a diagnosis date is not an ending
+  en:
+    - '(?i)\blast\s+(?:dose|administration|infusion|injection|cycle|course|treatment|use)\b|\bstopped\b|\bdiscontinu\w*|\bcompleted\b|\bended\b|\bceased\b|\bfinished\b|\bwash-?\s?out\b|\bno\s+longer\b|\bwithdrawn\b|\btapered\s+off\b|\bdeprescribed\b'
+    - {pattern: '(?i)\bago\b', unless: '(?i)\b(?:diagnos\w*|onset|first\s+(?:noted|seen|documented))\b'}
+  ja:
+    - '最終投与|最終使用|最終|中止|終了|休薬|完了|離脱|前に(?:投与|使用|服用|施行)'
+  zh:
+    - '停用|停藥|停药|停止|結束|结束|最後一次|最后一次|末次|已完成|完成|已停'
 
 exceptions:  # regular expressions: an exception and what it names, cut out of a clause (D-1248)
   en_after: '(?i)\b(?:except(?:\s+for)?|other\s+than|excluding|apart\s+from|aside\s+from|but\s+not)\b[^;.\n]*'
   cjk_before: '[^,，、。；;（(\n]*(?:を除く|を除き|を除いた|以外の|以外之|以外的|以外)'
   zh_around: '除(?:了)?[^,，。；;\n]{1,20}?(?:以外|之外|外)[之的]?'
 
-patterns:  # regular expressions (Python), matched at a position; each describes a number or a code, nothing more
+patterns:  # regular expressions (Python), matched at a position; each describes a number, nothing more. A code is
+  # recognised only when it is one of the concept's own codes (from its value set), read as the concept itself
   number: '[-−+]?\d+(?:[.,]\d+)?(?:\s*(?:-|–|〜|~|to|至|到|から)\s*[-−+]?\d+(?:[.,]\d+)?)?'
   roman: '(?<![A-Za-z])(?:i{1,3}|iv|vi{0,3}|ix)[abc]?(?![A-Za-z])'
   tnm: '(?<![A-Za-z])[ytpc]?[tnm](?:[0-4]|x|is)[a-d]?(?![A-Za-z])'
   cjk_number: '[一二兩两三四五六七八九十百]+'
-  abbreviation: '(?<=\x00)\s*[（(]\s*(?-i:(?!(?:NO|NA|N/A|ND|NEG|NIL|NONE|YES|Y|N|UNK)\s*[)）])[A-Z][A-Z0-9\-]{1,9})\s*[）)]'  # "X (MCI)"
-  icd_code: '(?<![A-Za-z0-9])(?:icd-?(?:9|10|11)(?:-?cm)?\s*)?[A-Z]\d{2}(?:\.[0-9A-Z]{1,4})?(?![A-Za-z0-9])'
+
+after_concept:  # measures recognised by their shape, only after the concept's own mention: a name ending in a
+  # measure's head word, then a number ("left ventricular ejection fraction ≤ 40%", "PANSS total score ≥ 70", "Hoehn
+  # and Yahr stage 2-3", 骨密度, 總分). A name about risk, prediction, screening or family is never one
+  en_head: '(?i)(?:(?!(?:risk|probab\w*|likelihood|predict\w*|screen\w*|family|dose|dosage|use|exposure|duration|is|are|was|were|be|been|being|as|defined|define|definition|if|when|unless|not|no|to|at|by|for|with|in|on|or)\b)[a-z][a-z0-9''\-]*\s+){0,5}(?:total\s+)?(?:score|scale|stage|grade|class|index|fraction|level|count|ratio|volume|rate|density|pressure|clearance|saturation|concentration|percentile)\s*(?:of\s+)?(?:<=|>=|=<|=>|[<>≤≥=])?\s*[-−]?\d+(?:[.,]\d+)?(?:\s*(?:-|–|to)\s*[-−]?\d+(?:[.,]\d+)?)?\s*(?:%|[a-zµμ/²]+(?:/[a-z0-9.²]+)*)?'
+  en_compare: '(?i)(?:(?!(?:risk|probab\w*|likelihood|predict\w*|screen\w*|family|dose|dosage|use|exposure|duration|of|and|the|is|are|was|were|be|been|being|as|defined|define|definition|if|when|unless|not|no|to|at|by|for|with|in|on|or)\b)[a-z][a-z0-9''\-]*\s+){1,5}(?:<=|>=|=<|=>|[<>≤≥])\s*[-−]?\d+(?:[.,]\d+)?\s*(?:%|[a-zµμ/²]+(?:/[a-z0-9.²]+)*)?'
+  cjk_head: '[^\s、。，,；;：:()（）]{0,10}?(?:値|率|量|スコア|点|濃度|密度|指数|指數|总分|總分|評分|评分|分數|分数|分類|分期)\s*[:：はが]?\s*(?:[<>≤≥=]\s*)?[-−]?\d+(?:\.\d+)?\s*(?:%|[a-zA-Zµμ/²]+(?:/[a-zA-Z0-9.²]+)*|点|分)?\s*(?:以上|以下|未満|超)?'
 
 common:  # every language: names of measures, markers, methods and units, as written in any of them
   measure:
     domains: [any]
-    words: [hbs, hbe, hbc, hbs-ag, hba1c, a1c, fev1, fvc, lvef, egfr, bmi, inr, psa, cd4, ldl, ldl-c, alt, ast, bnp, nt-probnp, crp, esr,
-      hbsag, hbeag, hbv dna, hcv rna, hiv rna, hiv-1 rna, das28, cdai, sdai, sledai, pasi, easi, edss, mmse, nihss,
-      t-score, z-score, nyha, gold, gina, ecog, kps, ckd, uln, x uln, mmhg, mg/dl, mmol/l, mmol/mol, ml/min,
-      ml/min/1.73 m2, kg/m2, kg, cm, mg, g, mcg, µg, ml, iu, units, copies/ml, cells/µl, cells/mm3, mg/kg, mg/m2]
+    words: [hbs, hbe, hbc, hbs-ag, hba1c, a1c, fev1, fvc, lvef, egfr, bmi, inr, psa, cd4, ldl, ldl-c, alt, ast, bnp,
+      nt-probnp, crp, esr, hbsag, hbeag, hbv dna, hcv rna, hiv rna, hiv-1 rna, das28, cdai, sdai, sledai, pasi,
+      easi, edss, mmse, nihss, t-score, z-score, nyha, gold, gina, ecog, kps, ckd, uln, x uln, mmhg, mg/dl, mmol/l,
+      mmol/mol, ml/min, ml/min/1.73 m2, kg/m2, kg, cm, mg, g, mcg, µg, ml, iu, units, copies/ml, cells/µl,
+      cells/mm3, mg/kg, mg/m2]
   marker:
     domains: [condition]
     words: [her2, er, pr, hr, egfr, alk, ros1, kras, braf, brca1, brca2, pd-l1, msi-h, dmmr, hla-b27, jak2, idh,
       flt3, npm1, bcr-abl, rf, acpa, anti-ccp, ana, anca]
-  method:
+  positive_mark:  # a box ticked or a positive result; an empty box, a blank, a dash or "±" is not listed
     domains: [any]
-    words: [uicc, tnm, tnm7, tnm8, sonographic, sonographically, as evidenced by, evidenced by, angiography,
-      ct angiography, troponin, blood culture, central, ecg, ekg, ct, mri, pet, pet-ct, x-ray, pcr, rt-pcr, naat, recist, recist 1.1, irecist, acr, eular,
-      acr/eular, dsm-5, dsm-iv, icd-10, icd-11, iwg, iwg-2, mcdonald, rome iv, who, ihc, fish, ngs]
+    words: ["[x]", "☑", "✓", "✔", "(+)"]
+  standard:  # a named standard or classification, and a code system's name
+    domains: [any]
+    words: [uicc, tnm, tnm7, tnm8, recist, recist 1.1, irecist, acr, eular, acr/eular, dsm-5, dsm-iv, iwg, iwg-2,
+      mcdonald, rome iv, who, icd-9, icd-10, icd-10-cm, icd-11, icd9, icd10, central]
+  method:  # a test is recognised only as what confirmed the concept, never as a test of or for it
+    domains: [any]
+    needs: [confirm, confirmed, confirmation, verified, diagnosed, documented, proven, demonstrated, shown,
+      established, evidenced, 確認, 確定, 診断, 証明, 記録, 確診, 确诊, 確認, 确认, 證實, 证实, 診斷為, 诊断为, 記錄,
+      记录]
+    words: [sonographic, sonographically, angiography, ct angiography, troponin, blood culture, ecg, ekg, ct, mri,
+      pet, pet-ct, x-ray, pcr, rt-pcr, naat, ihc, fish, ngs]
 
 languages:
   en:
@@ -103,7 +143,8 @@ languages:
         individuals, cases of, case of, who have, who has, having, has, have, must have, must, should have, should,
         is, are, be, been, has been, have been, was, were, the, a, an, any, all, at least one, either, both, or,
         and, and/or, including, of, for, by, in, "on", at, as, per, according to, that, which, who, meeting,
-        meets, meet, fulfilling, fulfils, fulfills, fulfil, satisfying, satisfies, consistent with]
+        meets, meet, fulfilling, fulfils, fulfills, fulfil, satisfying, satisfies, consistent with, defined by,
+        as defined by, harbouring, harboring]
     history:
       domains: [any]
       words: [history of, history, prior, previous, previously, past, had, has had, have had, received,
@@ -114,7 +155,7 @@ languages:
       words: [status after, status post, s/p, post]
     treatment:
       domains: [any]
-      words: [undergoing elective, undergoing surgical, undergoing, undergoes, "requiring {O}", "requires {O}", receiving, receives, taking, takes, treated with, treated, treatment with, treatment, therapy,
+      words: [undergoing, undergoes, "requiring {O}", "requires {O}", receiving, receives, taking, takes, treated with, treated, treatment with, treatment, therapy,
         therapies, stable, stable dose of, stable dose, stable doses, dose of, dose, doses, dosage, maintenance,
         regular, regularly, daily, once daily, twice daily, three times daily, weekly, twice weekly,
         three times weekly, monthly, every, oral, orally, intravenous, intravenously, iv, subcutaneous,
@@ -144,7 +185,7 @@ languages:
         clinically significant, significant, overt, clinically, clinical, frequent, high, low, very high]
     type:
       domains: [condition]
-      words: [of any cause, due to any cause, any cause, other, others, type, types, subtype, subtypes, form, forms, essential, primary, secondary, idiopathic, familial,
+      words: [of any cause, due to any cause, any cause, other, others, type, types, subtype, subtypes, form, forms, essential, primary, secondary, idiopathic,
         congenital, acquired, paroxysmal, permanent, long-standing, longstanding, focal, generalised, generalized,
         plaque, plaque-type, seropositive, erosive, drug-resistant, treatment-resistant, resistant, refractory,
         castration-resistant, hormone-sensitive, castration-sensitive, postmenopausal, premenopausal,
@@ -192,34 +233,38 @@ languages:
         time, once, twice, three times, one, two, three, four, five, six, ten, twelve, first, second, third,
         consecutive, documented on, separate, occasions, visits, visit, measurements, readings, refill, refills,
         apart, continuous, continuously, uninterrupted, gap, gaps]
-    method:
+    method_word:  # how it was confirmed, said with the confirming word itself
       domains: [any]
-      words: [histologically, histological, histology, cytologically, cytological, cytology, pathologically,
-        pathological, pathology, histopathologically, histopathological, biopsy, biopsy-proven, biopsy-confirmed,
-        radiologically, radiological, imaging, ultrasound, echocardiography, echocardiogram, echo, electrocardiogram,
-        holter, spirometry, spirometrically, endoscopy, endoscopically, colonoscopy, serology, serologically,
-        laboratory, laboratory-confirmed, lab, lab-confirmed, culture, culture-confirmed, sputum, smear-positive,
-        cytologically or histologically, histologically or cytologically, physician, doctor, specialist,
-        investigator, physician-diagnosed, doctor-diagnosed, test-confirmed, assay, confirmed by, documented by, diagnosed by,
-        determined by, assessed by, measured by, demonstrated by, shown by, proven by]
+      words: [histologically, cytologically, pathologically, histopathologically, radiologically, endoscopically,
+        spirometrically, serologically, biopsy-proven, biopsy-confirmed, laboratory-confirmed, lab-confirmed,
+        culture-confirmed, cytologically or histologically, histologically or cytologically, physician, doctor,
+        specialist, investigator, physician-diagnosed, doctor-diagnosed, test-confirmed, confirmed by, documented by,
+        diagnosed by, determined by, assessed by, measured by, demonstrated by, shown by, proven by,
+        as evidenced by, evidenced by]
+    method:  # a test: only beside a confirming word (see common.method)
+      domains: [any]
+      needs: [confirm, confirmed, confirmation, verified, diagnosed, documented, proven, demonstrated, shown,
+        established, evidenced]
+      words: [histological, histology, cytological, cytology, pathological, pathology, histopathological, biopsy,
+        radiological, imaging, ultrasound, echocardiography, echocardiogram, echo, electrocardiogram, holter,
+        spirometry, endoscopy, colonoscopy, serology, laboratory, lab, culture, sputum, smear, assay]
     criteria:
       domains: [any]
-      needs: [according to, based on, diagnosed, meeting, meets, meet, fulfilling, fulfils, fulfills, fulfil, satisfying,
-        satisfies, by,
-        per, using]
+      needs: [according to, based on, defined by, diagnosed, meeting, meets, meet, fulfilling, fulfils, fulfills, fulfil, satisfying,
+        satisfies]
       words: [criteria, classification criteria, classification, diagnostic criteria, definition]
     links:
       domains: [any]
       words: [with, and, or, for, "on", due to, secondary to, caused by, associated with, including, plus, in, of, by,
         treated with, receiving, and/or]
-    anaphora:
+    alternatives:
       domains: [any]
-      words: [diagnosis, diagnosed, disease, condition, it, this, the diagnosis]
+      words: [or, and/or, either, nor]
 
   ja:
     frames:
       domains: [any]
-      words: [者, の者, である, であり, 現在, している, 陽性, 有り, アリ, と診断された, と診断されている, と診断され, と診断, の診断, 診断された, 確定診断された, 確定診断, で確定した,
+      words: [と診断されてから, 診断されてから, 前に診断された, 前に診断, 記録された, で記録された, 者, の者, である, であり, 現在, している, 陽性, 有り, アリ, と診断された, と診断されている, と診断され, と診断, の診断, 診断された, 確定診断された, 確定診断, で確定した,
         確定した, で確認された, 確認された, 確認されている, が確認されている, で確認, を有する, を有し, を有している, 有する,
         がある, があり, のある, ある, あり, を認める, を合併する, 合併, に罹患している, 罹患, 患者, の患者, 症例, の症例,
         成人, 男性, 女性, 男女, の, を, が, に, で, と, は, も, および, 及び, または, 又は, もしくは, ならびに, 並びに, 等]
@@ -246,7 +291,7 @@ languages:
         症候性, コントロール不良, 増悪, 急性増悪, 発作, 臨床的に]
     type:
       domains: [condition]
-      words: [その他, その他の, 血管性, 持続型, 発作性, 永続性, 本態性, 二次性, 原発性, 特発性, 先天性, 家族性, 局面型, 尋常性, 焦点, 全般,
+      words: [その他, その他の, 血管性, 持続型, 発作性, 永続性, 本態性, 二次性, 原発性, 特発性, 先天性, 局面型, 尋常性, 焦点, 全般,
         薬剤抵抗性, 治療抵抗性, 去勢抵抗性, ホルモン感受性, 閉経後, 閉経前, 再発寛解型, 二次進行型, 一次進行型,
         前兆のある, 前兆を伴う, 単一エピソード, 反復性, エピソード, 感染症, 感染, 疾患, 症候群, 陽性, 腺癌, 扁平上皮癌,
         小細胞, 非小細胞, ジェノタイプ, 遺伝子型, 変異, 変異陽性, 遺伝子変異, 融合遺伝子, 型, 駆出率の低下した,
@@ -266,25 +311,28 @@ languages:
       words: [年, か月, ヶ月, カ月, ケ月, 箇月, 週間, 週, 日, 時間, 歳, 才, まで, 新たに, 新規, 診断から, 診断後, 経過している,
         経過した, 経過, 最近, 直近, 過去, 登録前, 登録時, 同意取得時, 同意取得前, スクリーニング時,
         スクリーニング前, 割付前, 初回投与前, 治験薬投与開始前, 発症, 罹病期間, 罹患期間, 回]
-    method:
+    method_word:
       domains: [any]
-      words: [組織学的に, 組織学的, 細胞学的に, 細胞学的, 病理学的に, 病理学的, 組織診, 細胞診, 生検, 画像, 画像診断,
-        心電図, 心エコー, 心臓超音波検査, 超音波, スパイロメトリー, 呼吸機能検査, 内視鏡, 培養, 喀痰, 血清学的, 医師,
-        医師により, 専門医, により, による, で]
+      words: [組織学的に, 組織学的, 細胞学的に, 細胞学的, 病理学的に, 病理学的, 医師, 医師により, 専門医, により, による, で]
+    method:  # a test: only beside a confirming word
+      domains: [any]
+      needs: [確認, 確定, 診断, 証明, 記録]
+      words: [組織診, 細胞診, 生検, 画像, 画像診断, 心電図, 心エコー, 心臓超音波検査, 超音波, スパイロメトリー, 呼吸機能検査,
+        内視鏡, 培養, 喀痰, 血清学的]
     criteria:
       domains: [any]
       words: [基準を満たす, 診断基準を満たす, 分類基準を満たす, 基準に合致する]
     links:
       domains: [any]
       words: [に対する, に対して, による, を伴う, と, および, 及び, または, 又は, で, の, に, を, が]
-    anaphora:
+    alternatives:
       domains: [any]
-      words: [診断, 本疾患, 当該疾患, 同疾患]
+      words: [または, 又は, もしくは, 若しくは, あるいは, 或いは]
 
   zh:
     frames:
       domains: [any]
-      words: [陽性, 阳性, 診斷為, 诊断为, 經診斷, 经诊断, 被診斷, 被诊断, 診斷之, 诊断之, 確診為, 确诊为, 確診, 确诊, 確診之, 确诊之,
+      words: [依, 已, 帶有, 带有, 陽性, 阳性, 診斷為, 诊断为, 經診斷, 经诊断, 被診斷, 被诊断, 診斷之, 诊断之, 確診為, 确诊为, 確診, 确诊, 確診之, 确诊之,
         證實為, 证实为, 證實之, 证实之, 經證實, 经证实, 確認為, 确认为, 確認之, 确认之, 確定為, 确定为,
         患有, 罹患, 之病人, 的病人, 病人, 之患者, 的患者, 患者, 病患, 受試者, 受试者, 成人, 男性, 女性, 有, 具有, 具,
         合併, 合并, 併有, 并有, 之, 的, 且, 及, 和, 或, 與, 与, 並, 并, 為, 为, 於, 于, 或是, 以及, 包括]
@@ -309,7 +357,7 @@ languages:
         症状性, 控制不佳, 控制不良, 急性發作, 急性发作, 發作, 发作, 惡化, 恶化, 臨床, 临床]
     type:
       domains: [condition]
-      words: [其他, 陣發性, 阵发性, 永久性, 原發性, 原发性, 繼發性, 继发性, 特發性, 特发性, 先天性, 家族性, 斑塊型, 斑块型,
+      words: [其他, 陣發性, 阵发性, 永久性, 原發性, 原发性, 繼發性, 继发性, 特發性, 特发性, 先天性, 斑塊型, 斑块型,
         局部性, 全身性, 藥物難治型, 药物难治型, 難治型, 难治型, 去勢抗性, 去势抵抗性, 荷爾蒙敏感性, 停經後, 绝经后,
         停經前, 復發緩解型, 复发缓解型, 有先兆, 先兆, 單次發作, 反覆發作, 感染, 疾病, 症候群, 综合征, 陽性, 阳性, 腺癌,
         鱗狀細胞癌, 小細胞, 非小細胞, 非小细胞, 基因型, 突變, 突变, 型, 非何杰金氏, 非何杰金, 非霍奇金, 非酒精性,
@@ -330,11 +378,14 @@ languages:
       words: [年, 個月, 个月, 月, 週, 周, 天, 日, 小時, 小时, 歲, 岁, 年齡, 年龄, 新診斷, 新诊断, 新確診, 新确诊, 診斷後,
         诊断后, 內, 内, 以內, 以内, 最近, 近期, 篩選時, 筛选时, 篩選前, 筛选前, 收案前, 入組前, 入组前, 隨機分配前,
         首次給藥前, 次, 至少, 期間, 期间, 發病, 发病, 病程, 達, 达]
-    method:
+    method_word:
       domains: [any]
-      words: [經, 经, 經由, 经由, 組織學, 组织学, 組織病理學, 组织病理学, 細胞學, 细胞学, 病理, 切片, 活檢, 活检, 影像,
-        心電圖, 心电图, 心臟超音波, 心脏超声, 超音波, 肺功能檢查, 肺功能检查, 內視鏡, 内镜, 培養, 培养, 血清學, 醫師,
-        医师, 醫生, 医生, 心電圖記錄, 心电图记录, 以]
+      words: [經, 经, 經由, 经由, 醫師, 医师, 醫生, 医生, 以]
+    method:  # a test: only beside a confirming word
+      domains: [any]
+      needs: [確診, 确诊, 確認, 确认, 證實, 证实, 診斷為, 诊断为, 記錄, 记录, 確定, 确定]
+      words: [組織學, 组织学, 組織病理學, 组织病理学, 細胞學, 细胞学, 病理, 切片, 活檢, 活检, 影像, 心電圖, 心电图, 心臟超音波,
+        心脏超声, 超音波, 肺功能檢查, 肺功能检查, 內視鏡, 内镜, 培養, 培养, 血清學, 心電圖記錄, 心电图记录]
     criteria:
       domains: [any]
       needs: [符合, 滿足, 满足, 依據, 依据, 根據, 根据]
@@ -342,6 +393,6 @@ languages:
     links:
       domains: [any]
       words: [合併, 合并, 併, 并, 及, 和, 或, 與, 与, 因, 因為, 之, 的, 以, 針對, 针对, 接受, 使用]
-    anaphora:
+    alternatives:
       domains: [any]
-      words: [診斷, 诊断, 該疾病, 该疾病, 本病, 此病]
+      words: [或, 或是, 或者, 抑或]

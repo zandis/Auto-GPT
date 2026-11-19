@@ -6,10 +6,13 @@
   reader on other lines.
 - **Decision:**
   - **The default turns round.** A structured or mixed inclusion whose logic asks the presence of a concept runs only
-    when every clause of its line that names the concept is made of nothing but:
-    - the concept's name or a listed synonym (as the extractor gave them);
+    when every clause of its line is made of nothing but:
+    - the concept's name or a listed synonym (as the extractor gave them), an abbreviation the line defines for it
+      (its letters follow the name's in order: "T2DM", not "FH"), and the codes of its own value set;
+    - other concepts the extractor named;
     - words listed in `services/criteria_compiler/ir_extract/recognised_assertions.yaml`;
-    - numbers, Roman numerals, TNM and ICD codes, and listed marks.
+    - numbers, Roman numerals, TNM codes, and listed marks. An empty box "[ ]", a blank 【　】, a dash or "±" is not
+      a mark; "[x]", "☑" and "(+)" are listed.
 
     Any other word in that clause holds the line for a person: an unknown word is a reason to hold, never a reason to
     run. A line that never names its concept is held. The hold is the one cards 10A-1 to 10A-1c use (class `human`,
@@ -37,7 +40,18 @@
     (`{O}`): "requiring {O}" lets "heart failure requiring dialysis" run (dialysis named) and never "patients
     requiring chemotherapy" (chemotherapy coded); "{X}診斷" lets "合併高血壓診斷" run and not "高血壓診斷標準".
   - **Clauses.** A clause ends at ";", a sentence's end, "but", "however", が、, 但 and the like. A comma does not end
-    one. A clause that ends in a colon is a heading. What an exception names ("except", "other than", を除く, 以外,
+    one. Every clause must be recognised, not only those that name the concept: what follows may say the line is not
+    a fact ("Hypertension. Pending central review.", "淋巴瘤，但目前完全緩解。"). A clause that ends in a colon is a
+    heading, and so is a section number and a bare name ("5.2 Hepatitis B"; a list item "1. Hepatitis B" runs).
+  - **Alternatives.** "or", "and/or", 又は, 或 between this concept and another named one make it one arm of a
+    choice: held, unless the logic itself carries it. That is told from the logic: a concept that an "or" above this
+    atom joins to it is read as one of its names. An "or" between two tests ("CT or MRI") is not an alternative of
+    the concept.
+  - **Tests and non-facts.** A test is recognised only as what confirmed the concept, beside a confirming word
+    ("confirmed by serology", 喀痰培養で確認, 經血清學證實): "Hepatitis B serology at screening", "結核の喀痰培養" are
+    held. So are a vaccination, a test or screening for the concept, and, for a condition, a word after its name
+    that makes it something else ("malaria medication", "breast cancer gene", B型肝炎の抗体陽性). A level "below the
+    limit of detection" is held. "undergoing elective" is a plan. What an exception names ("except", "other than", を除く, 以外,
     除…外) is cut out of the clause before it is read; a line whose coded concept is the excepted one is held.
   - **Known words that together say otherwise** are listed as patterns (`holds`) and hold the line:
     - a form's field and its value ("Asthma: 0", "高血圧：2");
@@ -47,13 +61,22 @@
     - a range of counts from zero;
     - a bound on a count of the concept itself, before or after it, in words or symbols ("<=2 hospitalizations for
       heart failure" with those coded, "≤1 prior myocardial infarction", 喘息発作が年2回以下, 心衰竭住院不超過2次);
-    - "criteria for X", "definition of X", unless a word before them says the patient meets them.
+    - "criteria for X", "definition of X", "X definition per …", unless a word before them says the patient meets
+      them (and "per" alone does not);
+    - an upper bound on a dose of a drug ("Prednisone up to 10 mg/day", 泼尼松每日不大于10毫克), with or without a
+      unit between the number and the bound.
   - **A clause that says the concept ended or lies in the past** ("last dose", "ago", "completed", "no longer",
     最終投与, 終了, 停用, 末次) holds the line, in the concept's clause or in a clause that names no other concept,
     unless the criterion's own logic asks a past occurrence. That is told from the atom alone: a window that ends
     before the index day (`window.to_days < 0`). An atom without one cannot say it, so the line is held. Plain
     history frames ("history of", "prior") still run on an atom that does not ask the concept active only, because
-    such an atom counts any record.
+    such an atom counts any record. Every clause counts here too; "ago" after a diagnosis date ("diagnosed at least
+    1 year ago") is not an ending. A word inside the coded name never counts (中止 in 睡眠呼吸中止症).
+  - **One language per line.** A line with kana is Japanese; a line of kanji alone is Japanese when it has a
+    character written only in Japanese (転, 発, 続, 両 …), else Chinese.
+  - **Measures by shape**, only after the concept's own mention: a name ending in a measure's head word, then a
+    number ("left ventricular ejection fraction ≤ 40%", "PANSS total score ≥ 70", "Hoehn and Yahr stage 2-3",
+    PANSS總分≥70). A name about risk, prediction, screening, family, a dose or a definition is never one.
     Time anchors that may lie after the study starts ("at randomisation", "of the first dose") are not listed; "before
     randomisation" is.
   - **How a frame is added.** Add the words to the right class and language of the YAML file. Then add to
@@ -65,19 +88,27 @@
     definition or an instruction. A word in the YAML must be a string: YAML reads a bare `on` as true, so it is quoted,
     and a non-string word fails the compile.
 - **Measured:**
-  - **Development set** (`card_10a1d_development.tsv`, 590 synthetic lines: 337 must-hold, 253 must-run). The
+  - **Development set** (`card_10a1d_development.tsv`, 684 synthetic lines: 400 must-hold, 284 must-run). The
     first 471 were labelled and scored on #1180's head (71e85bbc) before any of this code existed; each later round
-    (58, 47 and 14 lines) came with the frames it tests and their nearest must-hold lines.
+    (58, 47, 14 and 94 lines) came with the frames it tests and their nearest lines both ways. The fourth round
+    holds the lane J lead's third tester's lines, now seen.
     - On 71e85bbc, of the first 529: 201 of 297 must-hold lines ran; 5 of 232 must-run lines were held.
-    - With this rule: 0 of the 337 must-hold lines run; 5 of the 253 must-run lines are held, all by the cue rules,
-      not by recognition: "Type 2 diabetes. Not pregnant." and its ja and zh twins, and the ja and zh ACR/EULAR
-      criteria lines.
-  - **The lane J lead's two unseen sets,** scored at 46170f53 by the lead: first tester 0 of 186 and 0 of 57 missed;
-    second tester 1 of 194 and 1 of 73 missed. The two lines that ran are closed by rule, not by copying them: the
-    bound on a count of the concept, and the clause that says it ended (above).
+    - With this rule: 0 of the 400 must-hold lines run; 13 of the 284 must-run lines are held. 5 are held by the cue
+      rules ("Type 2 diabetes. Not pregnant." and its twins, the ja and zh ACR/EULAR lines); 4 by a second clause
+      that is not a plain assertion ("Hypertension, but no history of stroke" and its twins, "Multiple sclerosis; no
+      relapse in the past 30 days"); 1 by a test without a confirming word ("Severe aortic stenosis by
+      echocardiography"); 3 Japanese lines of kanji alone read as Chinese ("進行肺癌", "去勢抵抗性前立腺癌",
+      "症候性心不全").
+  - **The lane J lead's unseen sets,** scored by the lead:
+    - at 46170f53: first tester 0 of 186 and 0 of 57 missed; second tester 1 of 194 and 1 of 73 missed. Both
+      closed by rule (the bound on a count of the concept, the clause that says it ended);
+    - at ed1ef1a7: those four sets 0, 0, 0 and 0 missed; a third tester's 348 blind lines, 1 of 198 missed (a
+      numbered heading) and 127 of 150 plain assertions held; the same tester, attacking the listed words, 48 of
+      70 and 10 of 12 ran. Each shape is closed by rule in this round (clauses, alternatives, codes,
+      abbreviations, marks, headings, tests, non-facts, bounds, the language, "ago"); those lines are now seen.
   - **The existing fixture sets** (same scorer). Misses are 0 on each, before and after. Unnecessary holds, before →
-    after: `card_10a1b` 17 → 28 of 40; `card_10a1c_after` 25 → 52 of 63; `card_10a1c_before` 82 → 108 of 120;
-    `card_10a1c_third` 12 → 36 of 63; `independent_set_1` 0 → 5 of 26; `lines` 12 → 32 of 68; `review_10a1b` 0 → 7
+    after: `card_10a1b` 17 → 36 of 40; `card_10a1c_after` 25 → 54 of 63; `card_10a1c_before` 82 → 108 of 120;
+    `card_10a1c_third` 12 → 38 of 63; `independent_set_1` 0 → 5 of 26; `lines` 12 → 34 of 68; `review_10a1b` 0 → 8
     of 8; `unseen_at_design` 19 → 23 of 23. Most of the new holds are a second, negated thing in the concept's own
     clause ("Type 2 diabetes without ketoacidosis", "インスリン未使用の2型糖尿病患者"). No frame was added for them:
     "Hepatitis C without detectable HCV RNA" has the same structure and means cleared.
@@ -86,12 +117,12 @@
     rule:
     - the 15 stored replies under `services/llm_stub/cassettes/ir_extract/` (the seed rulesets and the fixtures):
       67 inclusion lines, 58 coded; 2 → 7;
-    - the stored P2b replies (`integrator/p2b-artefacts`): sigir 470 inclusion lines, 331 coded, 16 → 96; jmed 1
+    - the stored P2b replies (`integrator/p2b-artefacts`): sigir 470 inclusion lines, 331 coded, 16 → 98; jmed 1
       line, 0 → 0; tcga 1 line, 0 → 0;
-    - in all, 539 inclusion lines: 18 → 103.
+    - in all, 539 inclusion lines: 18 → 105.
 
-    The 85 newly held lines, each labelled by hand:
-    - 26 rightly held, not a plain assertion: a plan or a start ("Must be starting either STELARA…"), eligibility
+    The 87 newly held lines, each labelled by hand:
+    - 28 rightly held, not a plain assertion: a plan or a start ("Must be starting either STELARA…"), eligibility
       ("Subject eligible for implantation of a CRT-D device…"), a group or list heading ("Group C: Healthy smokers who
       elect to stop smoking Inclusion:", "Phase 1 & 2: COPD & ONE of the following criteria:"), a condition ("…if
       receiving urate-lowering therapy"), time since an event ("Minimum of two weeks since any major surgery");

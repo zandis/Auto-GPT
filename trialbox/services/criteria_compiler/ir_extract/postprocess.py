@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -503,6 +504,17 @@ def approved_negated(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) -> bo
     return negated_presence(c.text, c.logic, terms_for, titles)
 
 
+def _codes_in(valuesets: dict[str, dict[str, Any]]) -> Callable[[str], list[str]]:
+    """A value set's codes (card 10A-1d: the only codes its concept's line may carry)."""
+
+    def codes_for(vs: str) -> list[str]:
+        v = valuesets.get(vs) or {}
+        return [str(x["code"]) for inc in (v.get("compose") or {}).get("include") or []
+                for x in inc.get("concept") or [] if x.get("code")]  # fmt: skip
+
+    return codes_for
+
+
 def approved_unrecognised(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) -> bool:
     """Card 10A-1d for a criterion already compiled: whether it is an inclusion whose line is not recognised as a
     plain assertion of what its logic asks the presence of (``recognition``). Names as :func:`approved_negated`."""
@@ -516,7 +528,7 @@ def approved_unrecognised(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) 
         return [str(v["title"])] * bool(v.get("title")) + shown
 
     titles = [str(v["title"]) for v in valuesets.values() if v.get("title")]
-    return unrecognised_presence(c.text, c.logic, terms_for, titles)
+    return unrecognised_presence(c.text, c.logic, terms_for, titles, _codes_in(valuesets))
 
 
 def hold_reused_negated(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) -> tuple[CriterionIR, str | None]:
@@ -634,7 +646,11 @@ def postprocess(
         # (``recognition``); any other line is held the same way, flagged ``presence_not_recognised`` as well
         filtered_inc = ir.kind == "inclusion" and ir.class_ in FILTERED
         cued = filtered_inc and negated_presence(ir.text, ir.logic, terms_for, named_terms)
-        unread = filtered_inc and not cued and unrecognised_presence(ir.text, ir.logic, terms_for, named_terms)
+        unread = (
+            filtered_inc
+            and not cued
+            and unrecognised_presence(ir.text, ir.logic, terms_for, named_terms, _codes_in(valuesets))
+        )
         if cued or unread:
             flags.append("negated_inclusion_presence")
             if unread:

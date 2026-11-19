@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from tb_contracts import Atom
+from tb_contracts import Atom, BoolExpr
 from tb_contracts.criterion_ir import ACTIVE_STATUSES
 
 from criteria_compiler.ir_extract.negation_scope import (
@@ -91,14 +91,32 @@ def _exceptions() -> tuple[re.Pattern[str], ...]:
 
 
 @lru_cache(maxsize=8)
-def _ended(lang: str) -> re.Pattern[str] | None:
-    p = (_data().get("ended") or {}).get(lang)
-    return re.compile(str(p)) if p else None
+def _ended(lang: str) -> tuple[tuple[re.Pattern[str], re.Pattern[str] | None], ...]:
+    """The words that say the concept ended or lies in the past, each with what makes it not an ending ("ago" after
+    a diagnosis date)."""
+    out = []
+    for e in (_data().get("ended") or {}).get(lang) or []:
+        e = e if isinstance(e, dict) else {"pattern": e}
+        out.append((re.compile(str(e["pattern"])), re.compile(str(e["unless"])) if e.get("unless") else None))
+    return tuple(out)
+
+
+@lru_cache(maxsize=16)
+def _holds(domain: str) -> tuple[re.Pattern[str], ...]:
+    """Patterns of listed words that together say something else; an entry may name the domains it applies to."""
+    out = []
+    for h in (_data().get("holds") or {}).values():
+        h = h if isinstance(h, dict) else {"pattern": h}
+        doms = set(h.get("domains") or ["any"])
+        if "any" in doms or domain in doms:
+            out.append(re.compile(str(h["pattern"]).replace("{X}", CONCEPT).replace("{O}", OTHER)))
+    return tuple(out)
 
 
 @lru_cache(maxsize=1)
-def _holds() -> tuple[re.Pattern[str], ...]:
-    return tuple(re.compile(str(p).replace("{X}", CONCEPT)) for p in (_data().get("holds") or {}).values())
+def _after_concept() -> tuple[re.Pattern[str], ...]:
+    """Measures recognised by their shape (a name, then a number or a grade), only after the concept's own mention."""
+    return tuple(re.compile(str(p)) for p in (_data().get("after_concept") or {}).values())
 
 
 def _classes(lang: str) -> dict[str, dict[str, Any]]:
@@ -150,12 +168,17 @@ def _made_of_listed_words(s: str, v: _Vocab) -> bool:
     n = len(s)
     ok = [False] * (n + 1)
     ok[0] = True
+    first = s.find(CONCEPT)
     for i in range(n):
         if not ok[i]:
             continue
         c = s[i]
         if c.isspace() or c in v.marks or c in (CONCEPT, OTHER):
             ok[i + 1] = True
+        for p in _after_concept() if 0 <= first < i else ():
+            m = p.match(s, i)
+            if m and m.end() > i:
+                ok[m.end()] = True
         for p in v.patterns:
             m = p.match(s, i)
             if m and m.end() > i:
@@ -195,9 +218,22 @@ def _positional(lang: str) -> list[re.Pattern[str]]:
             if "{O}" in str(w)]  # fmt: skip
 
 
-def _linked(s: str, lang: str) -> bool:
+def _linked(s: str, lang: str, subject: bool) -> bool:
     """Each other named concept in the clause is joined to the mention before it or after it by a link word or a
-    list mark between them ("surgery *for* colorectal cancer"; not "metformin allergy")."""
+    list mark between them ("surgery *for* colorectal cancer"; not "metformin allergy"). In a clause that does not
+    name this concept, another concept may stand alone (``subject``). Never by an alternative: "or", 又は, 或 make
+    the other concept an arm the logic would have to carry as well (it is then this concept's sibling, read as its
+    own name), so the clause is held."""
+    if OTHER not in s:
+        return True
+    for p in _words(lang, "alternatives"):
+        for m in p.finditer(s):  # an "or" whose nearest mentions are this concept on one side and another on the other
+            before = [c for c in s[: m.start()] if c in (CONCEPT, OTHER)][-1:]
+            after = [c for c in s[m.end() :] if c in (CONCEPT, OTHER)][:1]
+            if {*before, *after} == {CONCEPT, OTHER}:
+                return False
+    if subject:
+        return True
     links = _words(lang, "links")
     marks = (",", "、", "，", "/", "・")
     covered = {i for p in _positional(lang) for m in p.finditer(s) for i in range(m.start(), m.end())}
@@ -210,15 +246,43 @@ def _linked(s: str, lang: str) -> bool:
     return True
 
 
-def _langs(u: str) -> tuple[str, ...]:
-    """The vocabularies a line is read with: Japanese when it has kana, English when it has no CJK at all, and both
-    Japanese and Chinese for a line of kanji alone ("転移性乳癌")."""
-    return ("ja",) if _KANA.search(u) else ("ja", "zh") if _CJK.search(u) else ("en",)
+# characters written only in Japanese (shinjitai): a line of kanji alone with one of them is Japanese
+_JA_MARK = re.compile(r"[転発歴臓剤検経継続薬図様対応実単価気読円売済拠悪覧駆両圧弁鉄栄労帰処拡収歯脳嚢広黒戦]")
 
 
-def _clause_recognised(s: str, lang: str, domain: str, history: bool) -> bool:
+def _lang(u: str) -> str:
+    """The one vocabulary a line is read with (decided once per line): Japanese when it has kana; for kanji alone,
+    Japanese when it has a character written only in Japanese ("転移性乳癌"), else Chinese; English when it has no
+    CJK. A Japanese criterion line nearly always has kana; a Chinese one never does."""
+    if _KANA.search(u):
+        return "ja"
+    if not _CJK.search(u):
+        return "en"
+    return "ja" if _JA_MARK.search(u) else "zh"
+
+
+def _clause_recognised(s: str, lang: str, domain: str, history: bool, subject: bool) -> bool:
     v = _vocab(lang, domain, history, _needs_met(lang, s))
-    return _made_of_listed_words(s, v) and _linked(s, lang)
+    return _made_of_listed_words(s, v) and _linked(s, lang, subject)
+
+
+_ABBR_AFTER = re.compile(r"\s*[（(]\s*([A-Z][A-Za-z0-9\-]{1,9})\s*[）)]")
+
+
+def _defines(name: str, abbr: str) -> bool:
+    """Whether ``abbr`` is an abbreviation of ``name``: its letters and digits in order, the first one first."""
+    a, n = re.sub(r"[^a-z0-9]", "", abbr.lower()), name.lower()
+    if not a or not n or a[0] != n[0]:
+        return False
+    k = 0
+    for ch in n:
+        if k < len(a) and ch == a[k]:
+            k += 1
+    return k == len(a)
+
+
+def _code_patterns(codes: Iterable[str]) -> list[re.Pattern[str]]:
+    return [re.compile(rf"(?<![A-Za-z0-9.]){re.escape(c.strip())}(?![A-Za-z0-9])", re.I) for c in codes if c.strip()]
 
 
 def recognised(
@@ -228,45 +292,47 @@ def recognised(
     domain: str = "condition",
     history: bool = True,
     past: bool = False,
+    codes: Iterable[str] = (),
 ) -> bool:
     """Whether ``text`` reads as a plain assertion that the patient has the concept named by ``terms`` (its name and
-    synonyms). ``other_terms`` are the line's other named concepts; ``history``: whether a past occurrence counts (it
-    does not when the criterion's logic asks the concept active only); ``past``: whether the logic itself asks a past
-    occurrence (a window that ends before the index day), so that a clause saying it ended may run."""
+    synonyms, and the names of the alternatives the logic itself carries with it). ``other_terms`` are the line's
+    other named concepts; ``history``: whether a past occurrence counts (it does not when the criterion's logic asks
+    the concept active only); ``past``: whether the logic itself asks a past occurrence (a window that ends before
+    the index day), so that a clause saying it ended may run; ``codes``: the codes of the concept's value set, the
+    only codes a line may carry."""
     terms = list(terms)
     u = unicodedata.normalize("NFKC", text)
     found = _mentions(u, _patterns(terms))
     if not found or any(neg for _, _, neg in found):
         return False  # never named (it may be named otherwise), or named with a negating prefix
-    own = _merge((s, e) for s, e, _ in found)
+    # an abbreviation the line defines for the concept ("Type 2 diabetes mellitus (T2DM)") is one of its names
+    defined = [m.group(1) for s, e, _ in found if (m := _ABBR_AFTER.match(u, e)) and _defines(u[s:e], m.group(1))]
+    found = _mentions(u, _patterns([*terms, *defined]))
+    spans = [(s, e) for s, e, _ in found] + [m.span() for p in _code_patterns(codes) for m in p.finditer(u)]
+    own = _merge(spans)
     other = [(s, e) for s, e in _merge((s, e) for s, e, _ in _mentions(u, _others(terms, other_terms)))
              if not any(s < e2 and s2 < e for s2, e2 in own)]  # fmt: skip
-    langs = _langs(u)
+    lang = _lang(u)
     cut_out = _merge(m.span() for p in _exceptions() for m in p.finditer(u) if m.end() > m.start())
     if any(a <= s < z for s, _ in own for a, z in cut_out):
         return False  # the coded concept is what an exception names ("any immunosuppressant other than prednisolone")
     if cut_out:  # each exception and what it names is read as a clause boundary
         u = "".join("\n" if any(a <= i < z for a, z in cut_out) else ch for i, ch in enumerate(u))
     cuts = [0, *[x for m in _CLAUSE_END.finditer(u) for x in (m.start(), m.end())], len(u)]
-    anaphora = [p for lang in langs for p in _words(lang, "anaphora")]
+    holds = _holds(domain)
     for a, z in zip(cuts[::2], cuts[1::2], strict=False):
-        names_it = any(a <= s < z for s, _ in own)
-        names_other = any(a <= s < z for s, _ in other)
-        clause = u[a:z]
-        if (
-            not past
-            and (names_it or not names_other)
-            and any((p := _ended(lang)) is not None and p.search(clause) for lang in {*langs, "en"})
-        ):
-            return False  # it ended or lies in the past, which an atom with no past window cannot say
-        if not names_it:
-            points_back = not names_other and any(p.search(clause) for p in anaphora)
-            if not points_back:
-                continue
         s = _read_as(u, a, z, own, other)
-        if s.strip(" \t.").endswith(":") or any(h.search(s) for h in _holds()):
+        if not s.strip(" \t.,;:、，。"):
+            continue
+        names_it = CONCEPT in s
+        # every clause counts: what follows a full stop, "but" or 但 may say the line is not a fact ("Pending central
+        # review.", "Father, aged 52.", "但目前完全緩解")
+        ending = [(p, unless) for lng in {lang, "en"} for p, unless in _ended(lng)]
+        if not past and any(p.search(s) and not (unless is not None and unless.search(s)) for p, unless in ending):
+            return False  # it ended or lies in the past, which an atom with no past window cannot say
+        if s.strip(" \t.").endswith(":") or any(h.search(s) for h in holds):
             return False  # a heading ("Diabetes:"), or listed words that together say otherwise
-        if not any(_clause_recognised(s, lang, domain, history) for lang in langs):
+        if not _clause_recognised(s, lang, domain, history, subject=not names_it):
             return False
     return True
 
@@ -282,15 +348,36 @@ def _asks_the_past(atom: Atom) -> bool:
     return w is not None and w.to_days is not None and w.to_days < 0
 
 
+def _or_siblings(logic: object, atom: Atom) -> list[Atom]:
+    """The atoms that are alternatives of ``atom`` in the logic itself: the other arms of each "or" above it."""
+    if not isinstance(logic, BoolExpr):
+        return []
+    for arg in logic.args:
+        if arg is atom or atom in atoms_of(arg):
+            inner = _or_siblings(arg, atom)
+            if logic.op == "or":
+                inner += [a for other in logic.args if other is not arg for a in atoms_of(other)]
+            return inner
+    return []
+
+
 def unrecognised_presence(
-    text: str, logic: object, terms_for: Callable[[str], list[str]], other_terms: Iterable[str] = ()
+    text: str,
+    logic: object,
+    terms_for: Callable[[str], list[str]],
+    other_terms: Iterable[str] = (),
+    codes_for: Callable[[str], list[str]] | None = None,
 ) -> bool:
     """Whether an inclusion's ``logic`` asks the presence of a concept its ``text`` is not recognised as asserting
-    (card 10A-1d). Arguments as :func:`negation_scope.negated_presence`."""
+    (card 10A-1d). Arguments as :func:`negation_scope.negated_presence`; ``codes_for(valueset)`` gives the codes of a
+    value set (a code in the line is recognised only when it is one of the concept's own). A concept the logic itself
+    joins by "or" to this one is read as one of its names: the line's "or" is then carried by the logic."""
     every = [x for a in atoms_of(logic) for x in (*terms_for(a.valueset or ""), *_slug_words(a.valueset))]
     every += list(other_terms)
     for atom in presence_atoms(logic):
-        terms = [*terms_for(atom.valueset or ""), *_slug_words(atom.valueset)]
-        if not recognised(text, terms, every, atom.domain, _history_counts(atom), _asks_the_past(atom)):
+        siblings = _or_siblings(logic, atom)
+        terms = [x for a in (atom, *siblings) for x in (*terms_for(a.valueset or ""), *_slug_words(a.valueset))]
+        codes = [c for a in (atom, *siblings) for c in (codes_for(a.valueset or "") if codes_for else [])]
+        if not recognised(text, terms, every, atom.domain, _history_counts(atom), _asks_the_past(atom), codes):
             return True
     return False
