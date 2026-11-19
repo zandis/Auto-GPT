@@ -82,6 +82,8 @@ def _e(v: str | None) -> str:
 
 
 def _write(root: Path, patient: str, day: str, typ: str, order: str, dept: str, segments: list[str]) -> None:
+    if not any(s.startswith("PID|") for s in segments):  # every SS-MIX2 message carries its patient (PR #1095)
+        segments = [segments[0], f"PID|||{_e(patient)}^^^^PI", *segments[1:]]
     msh = segments[0]
     body = "\r".join(segments) + "\r"
     try:
@@ -192,7 +194,10 @@ def export(src: Path, out: Path) -> dict[str, int]:
         orc = ["ORC", "NW", _e(m["rx_no"]), "", str(k % 3 + 1), status, "", "", "", ""]
         orc[9] = hl7.hl7_ts(m.get("order_date"))
         rxe = ["RXE", "", drug, _e(m.get("daily_dose")), "", _e(m.get("dose_unit"))]
-        tq1 = ["TQ1", "", "", "", "", "", "", hl7.hl7_ts(m.get("start_date")), hl7.hl7_ts(m.get("end_date"))]
+        # RXE-3 is one dose and TQ1-3 the 用法 (10B-4): the CSV knows only the daily dose, so it is written as one dose
+        # once a day ("1日1回", a local usage code with no code), which the reader multiplies back to the same number
+        tq1 = ["TQ1", "", "", "&1日1回&99XYZ", "", "", "", hl7.hl7_ts(m.get("start_date"))]
+        tq1.append(hl7.hl7_ts(m.get("end_date")))
         rxa = [
             "RXA",
             "0",
@@ -386,6 +391,7 @@ def hard_cases(root: Path) -> dict[str, str]:
     hbs, cre, crp, a1c = "5F016141002305911", "3C015000002327101", "5C070000002306001", "3D046000001906202"
     lab = seg(
         _hmsh("OUL^R22", "L1", jis),
+        "PID|||99000008^^^^PI",  # every SS-MIX2 message carries its patient (PR #1095)
         "SPM|1|||" + "|" * 13 + "20261001080000",
         "OBR|1|ORD-1|FIL-1||||202610010830",
         obx(1, "CWE", hbs, "HBs抗原", "1^陰性^JHSD0001", "", lab_no="H-CWE"),
@@ -413,12 +419,18 @@ def hard_cases(root: Path) -> dict[str, str]:
     )
     spm_only = seg(
         _hmsh("OUL^R22", "L2", jis),
+        "PID|||99000008^^^^PI",
         "SPM|1|||" + "|" * 13 + "20261002070000",
         "OBR|1|ORD-2",
         obx(1, "NM", crp, "CRP", "0.10", "mg/dL", lab_no="H-SPM"),
     )
     made[_put(root, "99000008", "20261002", "OML-11", "L2", spm_only.encode("iso2022_jp"))] = "SPM-17 time"
-    folder = seg(_hmsh("OUL^R22", "L3", jis), "OBR|1|ORD-3", obx(1, "NM", crp, "CRP", "0.20", "mg/dL", lab_no="H-DIR"))
+    folder = seg(
+        _hmsh("OUL^R22", "L3", jis),
+        "PID|||99000008^^^^PI",
+        "OBR|1|ORD-3",
+        obx(1, "NM", crp, "CRP", "0.20", "mg/dL", lab_no="H-DIR"),
+    )
     made[_put(root, "99000008", "20261003", "OML-11", "L3", folder.encode("iso2022_jp"))] = "the folder's date"
     return made
 

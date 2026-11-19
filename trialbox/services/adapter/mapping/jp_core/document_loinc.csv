@@ -1,0 +1,16 @@
+loinc,note_type,name,source,verified
+18842-5,discharge,退院時サマリ,review 12 §3 row 15 (S25),verify
+34108-1,progress,外来診療録,review 12 §3 row 14 (S25),verify
+34112-3,progress,入院診療録,review 12 §3 row 14 (S25),verify
+11506-3,progress,経過記録,review 12 §3 row 14 (S25),verify
+28623-7,nursing,看護記録,review 12 §3 row 13 (S25),verify
+11526-1,report,病理検査報告書,review 12 §3 row 8 (S25),verify
+47526-9,report,細胞診,review 12 §3 row 8 (S25),verify
+18725-2,report,微生物学的検査報告書,review 12 §3 row 7 (S25),verify
+18748-4,report,画像診断報告書,review 12 §3 row 10 (S25),verify
+18747-6,report,CT,review 12 §3 row 10 (S25),verify
+18755-9,report,MRI,review 12 §3 row 10 (S25),verify
+18758-3,report,PET,review 12 §3 row 10 (S25),verify
+28010-7,report,生理検査報告書,review 12 §3 row 9 (S25),verify
+12132-7,report,生理検査報告書,review 12 §3 row 9 (S25),verify
+59281-6,report,生理検査報告書,review 12 §3 row 9 (S25),verify
