@@ -80,7 +80,7 @@ systems, so this page names none.
 
 To turn it on, hospital IT or the integrator sets `TB_TLS_OLD_CLIENTS=cbc` in `deploy/.env` and runs
 `deploy/install.sh` again. The installer refuses any other value before Caddy reads it; Caddy then serves the
-`tls_<mode>_cbc` snippet of `deploy/identity/Caddyfile`; the switch is written to the box's audit chain as
+`suites_<mode>_cbc` snippet of `deploy/identity/Caddyfile`; the switch is written to the box's audit chain as
 `update.tls_relaxed` (with the value and the one before), and `trialbox doctor` shows a `tls_old_clients` WARN line on
 every run while it is on. If the audit event cannot be sent the install ends with a FAIL line and the event is sent
 by the next install. To turn it off, set `TB_TLS_OLD_CLIENTS=off` (or remove the line) and run `deploy/install.sh`

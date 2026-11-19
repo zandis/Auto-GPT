@@ -80,9 +80,13 @@ def _snippet(name: str) -> str:
 # ------------------------------------------------------------------------------------------------ off: as before
 def test_off_serves_what_the_box_served_before(policy: dict[str, Any]) -> None:
     # the snippets for off are the ones shipped before H-48: Caddy's own suites (AEAD with ECDHE), no ciphers line
-    assert _snippet("tls_internal_off").strip() == "tls internal"
-    assert "ciphers" not in _snippet("tls_hospital_off") and "protocols tls1.2 tls1.3" in _snippet("tls_hospital_off")
-    assert "\timport tls_{$TB_TLS_MODE:internal}_{$TB_TLS_OLD_CLIENTS:off}\n" in CADDY
+    assert _snippet("suites_internal_off").strip() == "tls internal"
+    assert "ciphers" not in _snippet("suites_hospital_off") and "protocols tls1.2 tls1.3" in _snippet(
+        "suites_hospital_off"
+    )
+    assert "\timport tls_{$TB_TLS_MODE:internal}\n" in CADDY  # the edge's import as before H-48
+    for mode in ("internal", "hospital"):
+        assert _snippet(f"tls_{mode}").strip() == f"import suites_{mode}_{{$TB_TLS_OLD_CLIENTS:off}}"
     assert 'TB_TLS_OLD_CLIENTS: "${TB_TLS_OLD_CLIENTS:-off}"' in COMPOSE  # unset in deploy/.env: off
     assert tls_policy.caddyfile_problems(CADDY, policy) == []
     p = _cli("caddyfile")
@@ -121,7 +125,7 @@ def test_the_relaxed_snippets_add_exactly_the_policys_four_cbc_suites(policy: di
     assert list(policy["relaxation"]["levels"]) == ["cbc"] and level["targets"] == ["box"]
     iana = {c for c in level["ciphers_allowed"] if c.startswith("TLS_")}
     assert len(iana) == 4 and all(re.fullmatch(r"TLS_ECDHE_(ECDSA|RSA)_WITH_AES_(128|256)_CBC_SHA", c) for c in iana)
-    for name in ("tls_internal_cbc", "tls_hospital_cbc"):
+    for name in ("suites_internal_cbc", "suites_hospital_cbc"):
         body = _snippet(name)
         assert "protocols tls1.2 tls1.3" in body, name
         suites = set(next(ln for ln in body.splitlines() if "ciphers" in ln).split()[1:])
@@ -157,7 +161,7 @@ def test_on_plus_another_weakening_of_the_scan_fails(name: str, policy: dict[str
 
 def _cbc_swap(old: str, new: str) -> str:
     """The Caddyfile with ``old`` replaced by ``new`` inside the internal CA's relaxed snippet only."""
-    body = _snippet("tls_internal_cbc")
+    body = _snippet("suites_internal_cbc")
     assert old in body, old
     return CADDY.replace(body, body.replace(old, new, 1), 1)
 
@@ -174,8 +178,8 @@ WEAKER_CADDY = {
         "ciphers",
     ),
     "hsts dropped": (CADDY.replace('\t\tStrict-Transport-Security "max-age=31536000"\n', "", 1), "site"),
-    "no relaxed snippet": (CADDY.replace("(tls_internal_cbc) {", "(tls_internal_old) {", 1).replace(
-        "(tls_hospital_cbc) {", "(tls_hospital_old) {", 1), "import"),
+    "no relaxed snippet": (CADDY.replace("(suites_internal_cbc) {", "(suites_internal_old) {", 1).replace(
+        "(suites_hospital_cbc) {", "(suites_hospital_old) {", 1), "import"),
 }  # fmt: skip
 
 
@@ -192,8 +196,8 @@ def test_on_plus_another_weakening_of_the_caddyfile_fails(name: str, policy: dic
 
 def test_the_cbc_suites_outside_the_setting_still_fail(policy: dict[str, Any]) -> None:
     # a hand edit that puts the relaxed suites in the snippet served with off is the weakening it always was
-    body = _snippet("tls_hospital_off")
-    cbc_line = next(ln for ln in _snippet("tls_hospital_cbc").splitlines() if "ciphers" in ln)
+    body = _snippet("suites_hospital_off")
+    cbc_line = next(ln for ln in _snippet("suites_hospital_cbc").splitlines() if "ciphers" in ln)
     text = CADDY.replace(body, body.replace("protocols tls1.2 tls1.3", "protocols tls1.2 tls1.3\n" + cbc_line), 1)
     assert any(p.startswith("ciphers:") for p in tls_policy.caddyfile_problems(text, policy))
 

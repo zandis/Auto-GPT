@@ -33,13 +33,21 @@ http://127.0.0.1:2020 {
 	respond 404
 }
 
-# the snippet is tls_<TB_TLS_MODE>_<TB_TLS_OLD_CLIENTS>; with TB_TLS_OLD_CLIENTS=off the two below are what Caddy
-# serves, as before H-48 (Caddy's own suites: AEAD with ECDHE)
-(tls_internal_off) {
+# tls_<TB_TLS_MODE> takes suites_<TB_TLS_MODE>_<TB_TLS_OLD_CLIENTS>
+(tls_internal) {
+	import suites_internal_{$TB_TLS_OLD_CLIENTS:off}
+}
+
+(tls_hospital) {
+	import suites_hospital_{$TB_TLS_OLD_CLIENTS:off}
+}
+
+# TB_TLS_OLD_CLIENTS=off: what Caddy served before H-48 (Caddy's own suites: AEAD with ECDHE)
+(suites_internal_off) {
 	tls internal
 }
 
-(tls_hospital_off) {
+(suites_hospital_off) {
 	tls /etc/caddy/certs/site.crt /etc/caddy/certs/site.key {
 		protocols tls1.2 tls1.3
 	}
@@ -47,14 +55,14 @@ http://127.0.0.1:2020 {
 
 # TB_TLS_OLD_CLIENTS=cbc: Caddy's AEAD suites as above plus the four ECDHE AES-CBC-SHA suites (TLS 1.2 only; TLS 1.3
 # is unchanged). tools/tls_policy.py reports this as the named exception, never as a pass
-(tls_internal_cbc) {
+(suites_internal_cbc) {
 	tls internal {
 		protocols tls1.2 tls1.3
 		ciphers TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
 	}
 }
 
-(tls_hospital_cbc) {
+(suites_hospital_cbc) {
 	tls /etc/caddy/certs/site.crt /etc/caddy/certs/site.key {
 		protocols tls1.2 tls1.3
 		ciphers TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
@@ -62,7 +70,7 @@ http://127.0.0.1:2020 {
 }
 
 (edge) {
-	import tls_{$TB_TLS_MODE:internal}_{$TB_TLS_OLD_CLIENTS:off}
+	import tls_{$TB_TLS_MODE:internal}
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff

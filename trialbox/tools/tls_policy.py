@@ -20,7 +20,7 @@ the test laptop at release (RUNBOOK §12, the TLS check per release).
 
 H-48 (D-1328, amended 2026-11-19): ``--old-clients`` is the box's ``TB_TLS_OLD_CLIENTS`` (``off``, the default, or
 ``cbc``; the policy's ``relaxation``). With ``cbc`` the box's 443 may also offer the four TLS 1.2 ECDHE AES-CBC-SHA
-suites (and so the testssl.sh category ``cipherlist_OBSOLETED``), and the Caddyfile's ``tls_<mode>_cbc`` snippet is
+suites (and so the testssl.sh category ``cipherlist_OBSOLETED``), and the Caddyfile's ``suites_<mode>_cbc`` snippet is
 the one held to the policy. A result or Caddyfile that meets the policy so relaxed is not a pass: it prints
 ``EXCEPTION relaxed by setting TB_TLS_OLD_CLIENTS=cbc: ...`` and exits 3, so a release record shows it; any other
 weakening still fails (exit 1). Another value, or a relaxation of the two-device link, is refused (exit 2).
