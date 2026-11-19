@@ -23,7 +23,7 @@ from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
 from tb_common.unmapped import KINDS
-from tb_contracts import IngestReport, RebuildResult, ValidationSummary, dump
+from tb_contracts import ConnectorReport, IngestReport, RebuildResult, ValidationSummary, dump
 from tb_contracts.landing import Severity
 
 from adapter import governance
@@ -594,12 +594,16 @@ def _run_ingest(
     completeness_msgs: list[str] = []
     validation_msgs: list[str] = []
     at["step"] = "read"
+    from adapter.read_timing import ReadTimes
+
+    read_times = ReadTimes()  # 10E-9 (review 13-10): the connector's own time per message, for the report
     if source_kind == "fhir_bulk":
         from adapter.sources.fhir_bulk.source import FhirBulkSource
 
         bulk = FhirBulkSource(Path(source_path))
         inputs += [p for p in Path(source_path).iterdir() if p.is_file()]
-        for r in pseudonymise_bulk(bulk.resources(), key):
+        timed = read_times.timed(lambda r: str(r.get("resourceType") or "?"), bulk.resources())
+        for r in pseudonymise_bulk(timed, key):
             to_spool(r)
         for rtype, rid in bulk.deleted():
             if rtype != "Patient":  # removing a person is the opt-out path's job, never a feed delta's
@@ -657,7 +661,7 @@ def _run_ingest(
             # T-692 (D-473): the table's rows go to disk as they are read and are read back for each pass; only the
             # data contracts (off unless TB_DATA_CONTRACTS) still need the raw rows in memory
             raw: list[Row] = []
-            got = src.rows(table, src_name, delta, since_t)
+            got = read_times.timed(table, src.rows(table, src_name, delta, since_t))
             if contracts is not None:
                 got = _kept(got, raw)
             others = [0]  # CGRD-A2 (D-813, lane E's hunk): rows of a shared source that are another table's
@@ -1056,6 +1060,7 @@ def _run_ingest(
         held=held,
         omop=omop_load,
         fhir_unread=night.unread.result(),  # T-616: the inbound contract, what each resource carries unread
+        connector=ConnectorReport.model_validate(read_times.summary(source_kind)),  # 10E-9: per message, per table
     )
     body = json.dumps(dump(report), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     (out_dir / "ingest_report.json").write_bytes(body)
