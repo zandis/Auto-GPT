@@ -74,6 +74,7 @@ class _Box:
         self.pool = [_pool_row(p) for p in pool]
         self.booked = booked  # pool pid -> next visit (in the window)
         self.scope = scope
+        self.removed: list[str] = []  # the scope's patients the opt-out register removed (10E-12)
         self.evaluated: list[list[str]] = []  # each evaluate_scope call (the re-check)
         self.screened: list[str] = []  # the new-patient screen
         self.persisted: list[str] = []
@@ -183,7 +184,7 @@ class _Box:
             ("drop_opted_out", lambda ctx, scoped: scoped),
             ("evaluate_scope", self.evaluate_scope),
             ("run_screen", self.run_screen),
-            ("screen_scope", lambda ctx, rs, run_date, snapshot: list(self.scope)),  # D-646
+            ("screen_scope_read", lambda ctx, rs, run_date, snapshot: (list(self.scope), list(self.removed))),  # D-1259
             ("persist_pool", self.persist),
             ("practitioners_of", lambda ctx, rs: ["D1"]),
             ("deliver_lists", self.deliver),
