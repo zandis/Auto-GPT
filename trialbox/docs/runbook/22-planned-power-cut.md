@@ -5,8 +5,8 @@
 *T-635 (OPS-074). Japanese hospitals have a yearly legal electrical inspection (法定点検) with the power off for some
 hours; any hospital may have planned work on its power.*
 
-**Drill (T-213b):** `test_runbook_22_power_cut` (Docker drill: stop by these steps, a hard host restart, start; the
-egress table is closed before Docker starts, the stack comes back, `doctor` has no FAIL).
+**Drill (T-213b):** none. This procedure is not rehearsed by a test: it needs a host that is stopped and
+started again, with its egress unit and Docker, and no such drill runs yet.
 
 ## Before (a week ahead)
 
