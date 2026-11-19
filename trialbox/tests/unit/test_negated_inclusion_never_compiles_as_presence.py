@@ -259,6 +259,7 @@ RULES: dict[str, tuple[list[Line], list[Line]]] = {
             # card 10A-1c: words that only contain 不 (a bare 不 is a cue now)
             ("控制不良之第二型糖尿病。", ["第二型糖尿病"], []),
             ("心律不整患者。", ["心律不整"], []),
+            ("ナイアシン投与中の脂質異常症。", ["脂質異常症"], []),
             # card 10A-1c: a coded name that holds a descriptor whole is found in the line
             ("非小細胞肺癌の患者。", ["非小細胞肺癌"], []),
         ],
@@ -275,6 +276,9 @@ RULES: dict[str, tuple[list[Line], list[Line]]] = {
             ("非小細胞肺癌の患者。", ["小細胞肺癌"], []),
             ("Non-Hodgkin lymphoma.", ["Hodgkin lymphoma"], []),
             ("非何杰金淋巴瘤。", ["何杰金淋巴瘤"], []),
+            # card 10A-1c: なし in katakana, full width and half width
+            ("化学療法歴：ナシ", CH, []),
+            ("化学療法歴：ﾅｼ", CH, []),
         ],
     ),
     "R2 a word the cue negates, a link word, then the concept": (

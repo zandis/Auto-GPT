@@ -146,7 +146,10 @@ _JA_BACKWARD = (
     r"な[しいく]|無[しいく]|ません|おらず|せず|認めず|認めない|否定|除外|ではない|でない|ゼロ|"
     r"未(?:施行|実施|投与|治療|経験|使用|受診)|ナイーブ|禁煙|禁酒|断酒|"
     # card 10A-1b: a prohibition or an exception after the concept ("化学療法は不可", "禁止", "を除き", "以外")
-    r"不可(?!欠|避)|禁止|禁忌|許可しない|許容しない|認められない|除き|を除く|以外"
+    r"不可(?!欠|避)|禁止|禁忌|許可しない|許容しない|認められない|除き|を除く|以外|"
+    # card 10A-1c: なし / ない written in katakana ("化学療法歴：ナシ"; half-width ﾅｼ reads the same after NFKC), not
+    # inside a katakana word ("ナイアシン", "ナイロン")
+    r"(?<![ァ-ヿ])ナ[シイ](?![ァ-ヿ])"
 )
 _JA_FORWARD = r"未|非|無"  # "未治療", "非妊娠", "無治療": a prefix right before the concept
 _JA_TERMINATE = r"ただし|但し|除き|を除く|以外"
