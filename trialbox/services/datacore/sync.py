@@ -77,8 +77,11 @@ def detach(dc: DataCore, study: str, source: Source) -> None:
 
 
 def sync(dc: DataCore, study: str, source: Source, by: str, at: str, push: bool = True) -> SyncResult:
+    from datacore import proxy_consent
+
     res = SyncResult(source.name)
-    carried = set(source.fields())
+    # 10C-19 (D-1232): a mapping made before the setting was on carries the earlier free-text relation: never taken
+    carried = set(source.fields()) - set(proxy_consent.read_only_now())
     owners = dc.owners(study)
     rows = source.pull()
     res.refused = list(getattr(source, "refused", []) or [])
@@ -182,6 +185,11 @@ def resolve(dc: DataCore, cid: int, keep: str, by: str, at: str) -> dict[str, An
     if keep not in ("theirs", "trialbox"):
         raise DataError("DATA-CONFLICT", "keep is theirs or trialbox")
     s, rec, ev, f = c["study"], c["record"], c["event"], c["field"]
+    from datacore import proxy_consent
+
+    if keep == "theirs" and f in proxy_consent.read_only_now():  # D-1232: refused before the conflict is closed
+        raise DataError("DATA-READONLY", f"{f} is read only: the relation is recorded as a code",
+                        [{"field": f, "code": "read_only"}])  # fmt: skip
     # D-582: the conflict is closed first, and only an open one can be. Of two people who resolve at once the
     # second is refused here, before any value is written (the value and the conflict row never disagree)
     if not dc.close_conflict(cid, keep, by, at):

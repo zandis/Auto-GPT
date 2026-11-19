@@ -281,7 +281,12 @@ def router(get: Callable[[], DataService]) -> APIRouter:
     @r.put("/studies/{rs}/sources/redcap")
     def put_redcap(rs: str, body: RedcapSourceBody, who: Claim = AS_SETUP) -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
+        from datacore import proxy_consent
+
         known = svc.dc.fields(rid)
+        kept = [f for f in body.field_map.values() if f in proxy_consent.read_only_now()]
+        if kept:  # D-1232: the earlier free-text relation is mapped from no source while the setting is on
+            raise HTTPException(status_code=409, detail={"code": "DATA-FIELD", "message": "read only", "fields": kept})
         bad = [f for f in [*body.field_map.values(), *body.owned] if f not in known]
         if bad or any(f not in body.field_map.values() for f in body.owned):
             raise HTTPException(status_code=409, detail={"code": "DATA-FIELD", "message": "unknown or unmapped field",

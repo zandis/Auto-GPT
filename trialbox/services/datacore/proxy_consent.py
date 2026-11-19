@@ -21,7 +21,8 @@ in the assent age range (by default :data:`DEFAULT_ASSENT_FROM` to the year befo
 warns ``no_assent``; an assent declined (reason 3) on the consent in force is ``assent_declined``, shown as an alert.
 A declined assent holds the participant (``datacore.lifecycle.Lifecycle.assent_hold``): no form then moves the
 participant to "consented" or any later step, whatever the order of the saves, the corrections or the setting; only
-a person's reasoned step (:func:`reasoned`: a code of :data:`PROCEED_REASONS` and a note) moves the participant on,
+a person's reasoned step (a code of :data:`PROCEED_REASONS` and a note, :func:`proceed_problem`) moves the
+participant on,
 audited ``life.assent_proceed``.
 
 **Age.** The participant record holds no date of birth (it is de-identified), so the age is the age at consent the
@@ -111,19 +112,13 @@ def declined(once: Mapping[str, str]) -> bool:
     return once.get("ic_assent") == "0" and once.get("ic_assent_why") == DECLINED
 
 
-def reasoned(step: Mapping[str, Any]) -> bool:
-    """A step that goes on after a declined assent: a person's (manual) step forward, with a reason code of
-    :data:`PROCEED_REASONS` and a note."""
-    if str(step.get("source")) != "manual" or str(step.get("new")) not in FORWARD:
-        return False
-    return str(step.get("reason") or "") in PROCEED_REASONS and bool(str(step.get("note") or "").strip())
-
-
 def proceed_problem(reason: str, note: str) -> str | None:
     """Why a step after a declined assent is refused (a code and a real note are needed), or None."""
     if reason not in PROCEED_REASONS:
         return "assent_reason"
-    if len(" ".join(note.split())) < PROCEED_NOTE_MIN:
+    from tb_common.visible_text import visible
+
+    if len(visible(note)) < PROCEED_NOTE_MIN:
         return "assent_note"
     return None
 

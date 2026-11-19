@@ -541,6 +541,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
             raise _refused(exc) from exc
         why = mirror(svc.registry, rid, str(sub["pid"]), str(sub["state"]), who.name, svc.now())
         if proceed:  # the note stays in the trail (subject_step), not in the audit event
+            life.record_proceed(rid, rec)
             svc.audit.append("life.assent_proceed", ruleset=rid, actor=who.name,
                              detail={"record": rec, "to": body.to, "reason": body.reason})  # fmt: skip
         crit = {"criterion": body.criterion.strip(), "criteria_version": body.criteria_version.strip()}

@@ -124,10 +124,13 @@ CREATE TABLE IF NOT EXISTS deviation_call (study TEXT NOT NULL, record TEXT NOT 
 # the lifecycle's migrations after its base schema, in order (the name is from the first two; never edit an applied one)
 SAE_MIGRATIONS = (SAE_SCHEMA, SAE_SCHEMA_V2, SCHEDULE_VERSIONS, SCREEN_FAIL_DETAIL, CONTACT_AND_DEVIATIONS)
 # 10C-19 (D-1232): the study's ages for consent by a representative and for assent (version 10, after the sponsor's
-# layout and the history's reason); a study with no row has the default (``datacore.proxy_consent.rule``)
+# layout and the history's reason); a study with no row has the default (``datacore.proxy_consent.rule``). And which
+# recorded decline of assent each reasoned step answered (the store's own order: the history's id, the step's id)
 CONSENT_AGE_RULE = """
 CREATE TABLE IF NOT EXISTS consent_age_rule (study TEXT NOT NULL PRIMARY KEY, majority INTEGER NOT NULL,
-  assent_from INTEGER NOT NULL, assent_to INTEGER NOT NULL, set_by TEXT NOT NULL, set_at TEXT NOT NULL)
+  assent_from INTEGER NOT NULL, assent_to INTEGER NOT NULL, set_by TEXT NOT NULL, set_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS assent_proceed (study TEXT NOT NULL, record TEXT NOT NULL, step_id BIGINT NOT NULL,
+  decline_id BIGINT NOT NULL, PRIMARY KEY (study, record, step_id))
 """
 
 # D-407 (LIFE-017): contact attempts per study. An attempt is a contact outcome that tried to reach the patient; the
@@ -589,39 +592,50 @@ class Lifecycle:
                 out[want] = {"day": "", "source": "screening_log", "reason": reason, "note": ""}
         return out
 
-    def assent_hold(self, study: str, record: str) -> bool:
-        """10C-19 (D-1232): the participant is held when any consent on the record had its assent recorded as declined
-        and no consent dated later than that decline records the assent obtained, until a person goes on with the
-        reasoned step (:func:`datacore.proxy_consent.reasoned`). While held, no form and no screening-log row moves the
-        participant to "consented" or any later step.
-
-        * A decline is read from the record's history, so correcting or blanking the answer later does not lift the
-          hold by itself (the reasoned step does); nor does switching the setting off: a recorded decline holds.
-        * The days are the consents' own dates (a back-dated consent that declines holds when nothing later
-          obtains assent); a re-consent with no assent entry lifts nothing.
-        * The reasoned step counts when it still stands (an undo takes it back, and the hold with it) and was taken
-          after the last decline was recorded: a later correction of a consent date never turns the hold back on,
-          and a decline recorded after the step holds again."""
+    def last_decline(self, study: str, record: str) -> int:
+        """The history id of the last declined assent ever saved on the participant (0 for none): any consent event,
+        dated or not, later corrected or blanked."""
         from datacore import proxy_consent
 
-        hist = [h for h in self.dc.history(study, record)
-                if str(h["field"]) == "ic_assent_why" and str(h["new"]) == proxy_consent.DECLINED]  # fmt: skip
-        if not hist:
-            return False
-        vals: dict[str, dict[str, str]] = {}
-        for r in self.dc.values(study, record):
-            vals.setdefault(str(r["event"]), {})[str(r["field"])] = str(r["value"])
+        ids = [int(h["id"]) for h in self.dc.history(study, record)
+               if str(h["field"]) == "ic_assent_why" and str(h["new"]) == proxy_consent.DECLINED]  # fmt: skip
+        return max(ids, default=0)
 
-        def day(ev: str) -> str:
-            return str(vals.get(ev, {}).get("ic_date", ""))[:10]
+    def assent_hold(self, study: str, record: str) -> bool:
+        """10C-19 (D-1232): from the moment a declined assent is saved on the participant (:meth:`last_decline`),
+        the participant is held: no form and no screening-log row moves them to "consented" or any later step. Typed
+        dates play no part; the order is the store's own (ids). Only two things lift the hold:
 
-        declined = {str(h["event"]) for h in hist}
-        last = max(day(ev) for ev in declined)
-        if any(ev not in declined and day(ev) > last and v.get("ic_assent") == "1" for ev, v in vals.items()):
+        * the reasoned step (a code of ``PROCEED_REASONS`` and a note, ``proxy_consent.proceed_problem``) taken after
+          that decline was saved, while the step still stands (an undo takes it back, and the hold returns); or
+        * a consent version that did not exist when the decline was saved (its first save comes later in the
+          history), on a consent event (the first consent or a re-consent ``rcN``, never a visit or another event),
+          saved with the assent obtained. A correction of a version that existed then lifts nothing.
+
+        It holds whatever the setting: a recorded decline is never released by switching it off."""
+        decline = self.last_decline(study, record)
+        if not decline:
             return False
-        recorded = max(str(h["at"]) for h in hist)
-        return not any(proxy_consent.reasoned(st) and str(st["at"]) >= recorded
-                       for st in live_steps(self.steps(study, record)))  # fmt: skip
+        hist = self.dc.history(study, record)
+        now = self.dc.record(study, record, "")
+        events = {str(h["event"]) for h in hist if str(h["field"]) == "ic_date"}
+        for ev in events:
+            if ev != "" and not RC_EVENT.match(ev):
+                continue  # only the consent form's own events
+            born = min(int(h["id"]) for h in hist if str(h["event"]) == ev and str(h["field"]) == "ic_date")
+            vals = now if ev == "" else self.dc.record(study, record, ev)
+            if born > decline and vals.get("ic_assent") == "1" and vals.get("ic_date"):
+                return False
+        live = {int(st["id"]) for st in live_steps(self.steps(study, record))}
+        rows = self.db.fetchdicts("SELECT step_id, decline_id FROM assent_proceed WHERE study = ? AND record = ?",
+                                  (study, record))  # fmt: skip
+        return not any(int(r["step_id"]) in live and int(r["decline_id"]) >= decline for r in rows)
+
+    def record_proceed(self, study: str, record: str) -> None:
+        """The reasoned step just taken answers the last decline saved (the store's order, never a clock)."""
+        step = self.steps(study, record)[-1]
+        self.db.execute("INSERT INTO assent_proceed (study, record, step_id, decline_id) VALUES (?,?,?,?)",
+                        (study, record, int(step["id"]), self.last_decline(study, record)))  # fmt: skip
 
     def consent_missing(self, study: str, record: str, state: str) -> str:
         """T-516 (LIFE-019): the form that shows enrolment or a visit while no consent form exists and the subject is

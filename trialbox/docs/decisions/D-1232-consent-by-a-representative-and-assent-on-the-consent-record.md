@@ -22,32 +22,32 @@
     `no_age` (never guessed from a later age). Each warning names what is missing and links to the consent form (to
     the record for a reader who may not enter). The ages are whole numbers: the age of majority 16 to 21, the assent
     ages from 0 and below it; they are not saved while the setting is off.
-  - **A declined assent holds the participant.** The participant is held whenever any consent on the record had its
-    assent recorded as declined and no consent dated later than that decline records the assent obtained. While
-    held, no form and no screening-log row moves the participant to "consented" or any later step, whatever the
-    order of the saves. Nothing lifts the hold but a later-dated consent that obtains assent, or the reasoned step:
-    - a re-consent with no assent entry lifts nothing; a back-dated consent that declines holds when nothing dated
-      later obtains assent;
-    - **a correction does not lift it** (the simpler choice): a decline is read from the record's history, so
-      changing the answer or its reason code, or blanking it, is kept with its reason as every change is, and the
-      hold stays until the reasoned step;
-    - **the setting does not lift it**: a recorded decline holds with the setting off too;
-    - **the reasoned step** is a person's step to consented, enrolled or later with a reason code (the ethics
-      committee decided, the investigator's judgement in the participant's interest, the participant gave assent
-      later on paper, other) and a note of at least 10 characters (as break-glass and the IRB record's reason); it is
-      audited apart (`life.assent_proceed`: record, step, code; the note stays in the trail, not the audit event);
-      without both it is refused (`life.refused`, `assent_reason` or `assent_note`);
-    - **an undo** of the reasoned step takes the hold back with it, and it stays;
-    - **a date correction** after the reasoned step never turns the hold back on: the step counts when it was taken
-      after the decline was recorded (by when it was recorded, not by the consent's date); a decline recorded after
-      the step holds again.
-    This follows how a declined consent is treated today: never implied, a person's recorded step. A REDCap
-    read-back can write the screening-log row "consented" (the site's REDCap says so); the participant record is
-    still held, and its page shows the alert. Data entry and export go on while held, as they do on master for a
-    missing consent.
-  - **The earlier free-text relation takes no new value** while the setting is on, on every route: the console's
-    form (read only), the orchestrator's form save and data entry, and a sheet import (refused); a value saved before
-    stays and is exported. Off, nothing changes.
+  - **A declined assent holds the participant.** A decline is any declined-assent answer ever saved on the
+    participant, read from the change history: on any consent event, dated or undated, later corrected or blanked.
+    From the moment it is saved the participant is held: no form and no screening-log row moves them to
+    "consented" or any later step. **Typed dates play no part in lifting the hold**; the order is the store's own
+    (the history's and the steps' ids, never a clock and never a consent date). Only two things lift it:
+    - **the reasoned step** taken after the decline was saved: a person's step to consented, enrolled or later,
+      with a reason code (the ethics committee decided, the investigator's judgement in the participant's interest,
+      the participant gave assent later on paper, other) and a note of at least 10 visible characters (format and
+      invisible characters and white space do not count: `tb_common.visible_text`, which break-glass now uses too,
+      unchanged for a real note). It records which decline it answers (`assent_proceed`), is audited apart
+      (`life.assent_proceed`: record, step, code; the note stays in the trail, not the audit event), and counts
+      only while it stands: an undo takes it back and the hold returns. A decline saved after it holds again.
+      Without the code and the note the step is refused (`life.refused`, `assent_reason` or `assent_note`);
+    - **a new consent version with the assent obtained**: one that did not exist when the decline was saved (its
+      first save comes later in the history), on a consent event only (the first consent or a re-consent `rcN`,
+      never a visit or another event). A correction of a version that existed then lifts nothing, whatever it
+      changes: the answer, its reason code or a date (the simpler choice: no separate correction route).
+    It holds whatever the setting: switching it off never releases a recorded decline (the alert is shown only
+    with the setting on; the step still needs the code and the note). This follows how a declined consent is
+    treated today: never implied, a person's recorded step. A REDCap read-back can write the screening-log row
+    "consented" (the site's REDCap says so); the participant record is still held. Data entry and export go on
+    while held, as they do on master for a missing consent.
+  - **The earlier free-text relation takes no new value** while the setting is on, on every path: the console's
+    form (read only), the orchestrator's form save and data entry and a sheet import (refused), a REDCap source
+    mapping (refused) and its sync (skipped), a conflict kept as the source's (refused), and the last door every
+    writer goes through (`DataCore.write`). A value saved before stays and is exported. Off, nothing changes.
   - **A missing assent where one is expected warns, never blocks** (intended; the owner confirms): a participant of
     10 with no assent entry can reach "enrolled" with the `no_assent` warning shown.
   - **Age.** The participant record is de-identified and holds no date of birth, so the age is the age at consent on

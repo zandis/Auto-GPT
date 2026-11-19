@@ -569,3 +569,122 @@ def test_the_earlier_free_text_relation_takes_no_new_value_on_any_route(lb: dict
     assert (r1.status_code, r2.status_code, r3.status_code) == (409, 409, 409)
     assert "ic_lar_relation" not in lb["dc"].record("GZQO", no)
     assert name not in c.get("/studies/GZQO/export.csv").text
+
+
+# ---------------------------------------------------------------------------------------------- the third review (a-g)
+def _put(lb: dict[str, Any], no: str, event: str, values: dict[str, str]) -> Any:  # noqa: F811
+    return lb["oc"].put(f"/studies/GZQO/data/{no}", json={"event": event, "values": values, "reason": "probe"})
+
+
+def test_a_correcting_an_older_consents_date_past_the_decline_does_not_lift(lb: dict[str, Any],  # noqa: F811
+                                                                            monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    c, csrf, no, _ = _ready(lb, monkeypatch)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, "ic_date": "2026-11-03", "ic_age": "12", "ic_lar": "1",
+                                       "ic_lar_rel": "1", "ic_assent": "1", "ic_assent_date": "2026-11-03"})  # fmt: skip
+    _save(c, csrf, no, "tb_consent", {"ic_date": "2026-11-05", "ic_version": "v2", "ic_copy": "1", **DECLINE}, "rc1")
+    _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-11-08", "en_eligible": "1"})
+    before = _state(c, no)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, "ic_date": "2026-11-07", "ic_age": "12", "ic_lar": "1",
+                                       "ic_lar_rel": "1", "ic_assent": "1", "ic_assent_date": "2026-11-07"},
+          reason="the signed date")  # fmt: skip
+    assert _state(c, no) == before == "consented"  # held where it stood; the correction moved nothing
+    assert not _orch(lb, "life.assent_proceed")
+
+
+def test_b_correcting_the_declining_consents_own_date_does_not_lift(lb: dict[str, Any],  # noqa: F811
+                                                                   monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    c, csrf, no, other = _ready(lb, monkeypatch)
+    for rec in (no, other):
+        _save(c, csrf, rec, "tb_consent", {**CONSENT, "ic_date": "2026-11-03", "ic_age": "12", "ic_lar": "1",
+                                            "ic_lar_rel": "1", "ic_assent": "1", "ic_assent_date": "2026-11-03"})  # fmt: skip
+        _save(c, csrf, rec, "tb_consent", {"ic_date": "2026-11-05", "ic_version": "v2", "ic_copy": "1", **DECLINE},
+              "rc1")  # fmt: skip
+        _save(c, csrf, rec, "tb_enrolment", {"en_date": "2026-11-08", "en_eligible": "1"})
+    _save(c, csrf, no, "tb_consent", {"ic_date": "2026-11-01", "ic_version": "v2", "ic_copy": "1", **DECLINE}, "rc1",
+          reason="the signed date")  # fmt: skip
+    assert _put(lb, other, "rc1", {"ic_date": "2026-11-01"}).status_code == 200
+    c.get("/studies/GZQO/subjects")
+    assert _state(c, no) == _state(c, other) == "consented"
+
+
+def test_c_a_visit_event_is_never_a_consent(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    c, csrf, no, _ = _ready(lb, monkeypatch)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, **DECLINE})
+    _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-11-08", "en_eligible": "1"})
+    r = _put(lb, no, "v1", {"ic_date": "2026-11-07", "ic_assent": "1"})
+    assert r.status_code == 200, r.text
+    c.get("/studies/GZQO/subjects")
+    assert _state(c, no) == "contacted"
+
+
+def test_d_an_undated_decline_holds(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    c, csrf, no, _ = _ready(lb, monkeypatch)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, "ic_age": "12", "ic_lar": "1", "ic_lar_rel": "1", "ic_assent": "1",
+                                       "ic_assent_date": "2026-10-06"})  # fmt: skip
+    assert _state(c, no) == "consented"
+    assert _put(lb, no, "rc1", {"ic_assent": "0", "ic_assent_why": "3"}).status_code == 200  # no ic_date at all
+    _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-11-08", "en_eligible": "1"})
+    c.get("/studies/GZQO/subjects")
+    assert _state(c, no) == "consented"
+
+
+ZERO_WIDTH = "\u200b" * 12
+
+
+def test_e_a_note_of_invisible_characters_is_no_note(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    from tb_common.visible_text import visible
+
+    assert visible(ZERO_WIDTH) == "" and visible("ㅤ" * 12 + " ﻿") == ""
+    assert visible("the committee's ruling") == "the committee's ruling"  # a real note is unchanged
+    c, csrf, no, _ = _ready(lb, monkeypatch)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, **DECLINE})
+    assert _step(c, csrf, no, "consented", proceed="committee", note=ZERO_WIDTH).status_code == 409
+    r = lb["oc"].post(f"/studies/GZQO/subjects/{no}/step", json={"to": "consented", "reason": "committee",
+                                                                  "note": ZERO_WIDTH})  # fmt: skip
+    assert r.status_code == 409 and r.json()["detail"]["why"] == "assent_note"
+    assert _state(c, no) == "contacted"
+
+
+def test_f_a_new_decline_after_the_reasoned_step_holds_again(lb: dict[str, Any],  # noqa: F811
+                                                             monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """The order is the store's, not the clock's: here everything happens in the same second."""
+    c, csrf, no, _ = _ready(lb, monkeypatch)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, **DECLINE})
+    assert _step(c, csrf, no, "consented", **GO_ON).status_code == 200
+    _save(c, csrf, no, "tb_consent", {"ic_date": "2026-10-07", "ic_version": "v2", "ic_copy": "1", **DECLINE}, "rc1")
+    _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-11-08", "en_eligible": "1"})
+    assert _state(c, no) == "consented"
+    assert _step(c, csrf, no, "enrolled").status_code == 409
+
+
+def test_g_no_source_writes_the_earlier_relation(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    from datacore import sync
+    from datacore.store import DataError
+
+    c, _, no, _ = _ready(lb, monkeypatch)
+    dc, name = lb["dc"], "Hanako Example, the aunt"  # synthetic
+    r = lb["oc"].put("/studies/GZQO/sources/redcap", json={"token_ref": "main", "field_map": {
+        "rel": "ic_lar_relation"}, "owned": ["ic_lar_relation"]})  # fmt: skip
+    assert r.status_code == 409 and r.json()["detail"]["fields"] == ["ic_lar_relation"]
+
+    class Old:  # a mapping made while the setting was off
+        name = "redcap"
+
+        def fields(self) -> list[str]:
+            return ["ic_lar_relation", "ic_version"]
+
+        def pull(self) -> list[sync.Row]:
+            return [sync.Row(no, "", {"ic_lar_relation": name, "ic_version": "v1"})]
+
+        def push(self, rows: list[sync.Row]) -> dict[str, str]:
+            return {}
+
+    sync.sync(dc, "GZQO", Old(), "redcap", "2026-11-08T00:00:00+00:00", push=False)
+    cid = dc.add_conflict("GZQO", no, "", "ic_lar_relation", "redcap", "redcap", None, name, "2026-11-08T00:00:00Z")
+    with pytest.raises(DataError) as e:
+        sync.resolve(dc, int(cid or 0), "theirs", "crc", "2026-11-08T00:00:01+00:00")
+    assert e.value.code == "DATA-READONLY" and dc.conflict(int(cid or 0))["resolved"] is None
+    with pytest.raises(DataError):  # the last door, whatever path calls it
+        dc.write("GZQO", no, "", "ic_lar_relation", name, "x", "2026-11-08T00:00:02+00:00", "trialbox")
+    assert "ic_lar_relation" not in dc.record("GZQO", no)
+    assert name not in c.get("/studies/GZQO/export.csv").text

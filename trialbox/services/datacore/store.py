@@ -20,7 +20,7 @@ from typing import Any
 
 from tb_common.db import ENV, Database
 
-from datacore import pgfunc
+from datacore import pgfunc, proxy_consent
 from datacore.forms import XML_ILLEGAL, Field, fields_of
 
 SCHEMA = """
@@ -201,6 +201,11 @@ class DataCore:
             cur = rows[0] if rows else None
             if cur is not None and cur["value"] == value and (seen is None or cur["seen"] == seen):
                 return False
+            if field in proxy_consent.read_only_now() and value != (cur["value"] if cur else ""):
+                # 10C-19 (D-1232): the last door: with the setting on, the earlier free-text relation takes no new
+                # value from any path (a form, a source's read-back, a resolved conflict, a sheet)
+                raise DataError("DATA-READONLY", f"{field} is read only: the relation is recorded as a code",
+                                [{"field": field, "code": "read_only"}])  # fmt: skip
             new_seen = seen if seen is not None else (cur["seen"] if cur and keep_seen else None)
             tx.execute(
                 "INSERT INTO value (study, record, event, field, value, changed_by, changed_at, seen, pushed) "
