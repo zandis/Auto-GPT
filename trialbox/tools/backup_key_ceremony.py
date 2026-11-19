@@ -22,8 +22,8 @@ Refused, before anything is written: not root; the operator or the witness not n
 folder; a box that has a backup key already (a ceremony is run once; a new pair is the key's rotation, RUNBOOK §25,
 not this command); no secrets folder to check the stick against; no stick at the folder named; a folder on the box's
 disks or inside the secrets folder; a stick that cannot be written; a stick that already holds a backup key. A stick
-that fails while written or read back keeps nothing. Every text is in en, ja and zh-TW (``--lang``, else
-``TB_LANG``).
+that fails while written or read back keeps nothing. Every text is in en, ja and zh-TW (``--lang``; no
+setting is read for it).
 
 Not here (D-1379): reading the paper sheet into a restore (``restore --key`` takes the stick's file), a console page,
 a printer.
@@ -411,12 +411,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     ap.add_argument("--public", help="where the box keeps the public key (TB_BACKUP_PUBKEY; deploy/secrets/backup.pub)")
     ap.add_argument("--secrets", help="the secrets folder (TB_SECRETS_DIR): the stick may not be on its disk")
     ap.add_argument("--audit-dir", help="the audit folder (TB_AUDIT_DIR)")
-    ap.add_argument("--lang", help="en, ja or zh-TW (TB_LANG)")
+    ap.add_argument("--lang", help="en (the default), ja or zh-TW")
     a = ap.parse_args(argv)
     from tools import key_ceremony as kc
     from tools.keys import secrets_dir
 
-    lang = lang_of(a.lang or env.get("TB_LANG"))
+    lang = lang_of(a.lang)
     deploy = Path(a.deploy)
     pub = Path(a.public) if a.public else kc.default_backup_pub(env, deploy)
     audit = Path(a.audit_dir) if a.audit_dir else Path(env["TB_AUDIT_DIR"]) if env.get("TB_AUDIT_DIR") else None

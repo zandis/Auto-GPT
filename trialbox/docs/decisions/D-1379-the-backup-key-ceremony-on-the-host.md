@@ -39,7 +39,7 @@
     Never the key, a line of the sheet, or a path on the stick. No audit folder (`--audit-dir`, `TB_AUDIT_DIR`):
     refused before anything is made. No key is written to a database or a log; the screen shows the fingerprint,
     the two file names, the public key's path and the two names.
-  - **Words:** every refusal and the closing line in en, ja and zh-TW (`--lang`, else `TB_LANG`), with the same
+  - **Words:** every refusal and the closing line in en, ja and zh-TW (`--lang`, English by default; no new setting), with the same
     placeholders in each; the core words as the catalogues spell them.
 - **Not in this card (open for the owner):** reading the paper sheet back into a restore (`restore --key` takes the
   stick's file; `read_paper` exists and the ceremony uses it for its read-back, but no restore command reads a typed

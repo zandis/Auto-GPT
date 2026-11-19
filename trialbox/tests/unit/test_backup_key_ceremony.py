@@ -357,10 +357,10 @@ def test_the_command_line_refuses_a_folder_that_is_not_a_stick(tmp_path: Path) -
     for d in (folder, audit, deploy, tmp_path / "secrets"):
         d.mkdir()
     env = {k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"}
-    env.update(PYTHONPATH=os.pathsep.join(str(ROOT / p) for p in ("libs", "services", ".")), TB_LANG="ja")
+    env.update(PYTHONPATH=os.pathsep.join(str(ROOT / p) for p in ("libs", "services", ".")))
     r = subprocess.run([sys.executable, "-m", "tools.backup_key_ceremony", "--stick", str(folder), "--operator", OP,
                         "--witness", WIT, "--deploy", str(deploy), "--secrets", str(tmp_path / "secrets"),
-                        "--audit-dir", str(audit)], cwd=ROOT, env=env, capture_output=True, text=True,
+                        "--audit-dir", str(audit), "--lang", "ja"], cwd=ROOT, env=env, capture_output=True, text=True,
                        timeout=120, check=False)  # fmt: skip
     assert r.returncode == 1, r.stdout + r.stderr
     want = bkc.NOT_ROOT["ja"] if os.geteuid() != 0 else bkc.NOT_A_STICK["ja"].format(path=folder)
