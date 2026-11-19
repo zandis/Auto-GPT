@@ -115,7 +115,9 @@ def _icd10cm() -> frozenset[str]:
     path = Path(__file__).resolve().parents[2] / "criteria_compiler" / "terminology" / "icd10cm_full.parquet"
     if not path.exists():
         return frozenset()
-    return frozenset(str(c) for c in pq.read_table(path, columns=["code"]).column("code").to_pylist())
+    return frozenset(
+        str(c) for c in pq.read_table(path, columns=["code"], use_threads=False).column("code").to_pylist()
+    )
 
 
 def loinc_ok(code: str) -> bool:
