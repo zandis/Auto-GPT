@@ -391,26 +391,22 @@ def flag_confirmed(prb: hl7.Segment) -> bool:
 
 
 def same_text(a: str, b: str) -> bool:
-    """Two names the same after NFKC and with their blanks removed."""
-
-    def norm(t: str) -> str:
-        return "".join(unicodedata.normalize("NFKC", t or "").split())
-
-    return norm(a) == norm(b)
+    """Two names the same after the reader's one normalisation (:func:`key_part`: NFKC, blanks removed)."""
+    return key_part(a) == key_part(b)
 
 
-def certainty(prb: hl7.Segment, written: str, modifiers: list[str], unread_modifier: bool) -> str:
-    """The canonical ``suspected`` column (third review of PR #1095 item 7, fourth review item a): ``Y`` suspected
-    (provisional), ``X`` ruled out (refuted: the lake leaves it out), ``U`` certainty unknown (unconfirmed, never
-    confirmed), empty confirmed. A suspicion in the flag (:func:`_suspected`), the name, PRB-17 or a modifier, or a
-    modifier with only a code, is ``Y``; a "疑いなし" or "ruled out" there is ``X``; both at once ``U``. Confirmed
-    only when everything is positively recognised: PRB-13 empty (:func:`flag_confirmed`; a "0" is not a value of
-    JHSD0005), no ZPR modifier (its layout and table are not cited, so its meaning is not known), and PRB-17 empty
-    or the same name as PRB-3. Anything else is ``U``."""
+def certainty(prb: hl7.Segment, written: str, modifiers: list[str], unrecognised: str) -> str:
+    """The canonical ``suspected`` column (third review of PR #1095 item 7, fourth review item a, D-1252): ``Y``
+    suspected (provisional), ``X`` ruled out (refuted: the lake leaves it out), ``U`` certainty unknown
+    (unconfirmed, never confirmed), empty confirmed. A suspicion in the flag (:func:`_suspected`), the name, PRB-17
+    or a modifier's text is ``Y``; a "疑いなし" or "ruled out" there is ``X``; both at once ``U``. Confirmed only
+    when everything is positively recognised: PRB-13 empty (:func:`flag_confirmed`; a "0" is not a value of
+    JHSD0005), the ZPR segment and the display name recognised (``unrecognised`` empty, :meth:`Ssmix2Source.
+    _modifiers`), and PRB-17 empty or the same name as PRB-3. Anything else is ``U``."""
     if len(prb.reps(13)) > 1 or len(prb.reps(17)) > 1:
         return "U"  # a second certainty or written name is data, never dropped (fifth review item 2)
     texts = [written, *modifiers]
-    suspected = _suspected(prb) or unread_modifier or any(map(suspicion_in, texts))
+    suspected = _suspected(prb) or any(map(suspicion_in, texts))
     refuted = any(map(refuted_in, [prb.comp(3, 2), *texts]))
     if suspected and refuted:
         return "U"
@@ -418,11 +414,65 @@ def certainty(prb: hl7.Segment, written: str, modifiers: list[str], unread_modif
         return "X"
     if suspected:
         return "Y"
-    if not flag_confirmed(prb) or modifiers or (written and not same_text(written, prb.comp(3, 2))):
+    if not flag_confirmed(prb) or unrecognised or (written and not same_text(written, prb.comp(3, 2))):
         return "U"
     if not any(c.strip() for c, _t, _s in _triples(prb, 3) + _triples(prb, 10)):
         return "U"  # a name with no code at all is never confirmed (fifth review item 6)
     return ""
+
+
+#: 修飾語区分 classes (the second character, ICD10対応標準病名マスター Ver.5.18 仕様書 (2)⑦, MEDIS-DC) a modifier may
+#: carry and leave the diagnosis confirmed and active (D-1252, lane J's ruling): 1 部位, 2 位置, 9 歯科. Class 3 病因
+#: names which disease it is: recognised unless the master gives the modified name a code of its own. 4 経過表現 and
+#: 5 状態表現 can say "old", "after", "in remission"; 6 患者帰属, 7 その他 and 8 接尾語 (where "の疑い" is) cannot be
+#: bounded: unknown. A class is read from the master's own column, never from a modifier's words
+MODIFIER_CLASSES_KEPT = ("1", "2", "9")
+MODIFIER_CLASS_CAUSE = "3"
+_MDCDX2 = "MDCDX2"
+
+
+@dataclass(frozen=True)
+class Master:
+    """The site's licensed MEDIS 標準病名マスター as the reader uses it (``adapter.licensed`` kinds ``medis`` and
+    ``medis_modifier``): never in the repository, loaded by the site."""
+
+    diseases: dict[str, tuple[str, str]]  # 病名管理番号 -> (病名表記, 病名交換用コード)
+    names: dict[str, str]  # 病名表記 (normalised) -> 病名管理番号
+    modifiers: dict[str, dict[str, str]]  # 修飾語管理番号 -> word, exchange, position, class, change
+
+
+def _extra(row: dict[str, Any]) -> dict[str, str]:
+    extra = row.get("extra") or {}
+    if isinstance(extra, str):
+        try:
+            extra = json.loads(extra)
+        except ValueError:
+            extra = {}
+    return {str(k): str(v) for k, v in extra.items()} if isinstance(extra, dict) else {}
+
+
+def medis_master(licensed: dict[str, dict[str, dict[str, str]]]) -> Master | None:
+    """The disease table (keyed by its 病名交換用コード in the store) indexed by 病名管理番号, and the modifier table;
+    None when the site has loaded no disease table."""
+    diseases: dict[str, tuple[str, str]] = {}
+    for exchange, row in (licensed.get("medis") or {}).items():
+        number = key_part(_extra(row).get("management_no", ""))
+        if number:
+            diseases[number] = (str(row.get("display") or ""), key_part(exchange))
+    if not diseases:
+        return None
+    names = {key_part(name): number for number, (name, _x) in diseases.items()}
+    modifiers: dict[str, dict[str, str]] = {}
+    for number, row in (licensed.get("medis_modifier") or {}).items():
+        ex = _extra(row)
+        modifiers[key_part(number)] = {
+            "word": str(row.get("display") or ""),
+            "exchange": key_part(ex.get("exchange_code", "")),
+            "position": ex.get("position", "").strip(),
+            "class": key_part(ex.get("modifier_class", "")),
+            "change": ex.get("change", "").strip(),
+        }
+    return Master(diseases, names, modifiers)
 
 
 def diag_key(value: str) -> str:
@@ -772,6 +822,7 @@ class Ssmix2Source:
 
             licensed = lic.tables()
         self.licensed = licensed
+        self.master = medis_master(licensed)  # D-1252: the disease names and modifier codes, when the site has them
         # T-610 (STD-042): order line -> ingredient (YJ stem) -> ATC, through the site's drug master and the
         # ingredient-to-ATC table (shipped stems, then the site's own); both site files are optional
         master = drug_master or JP_CORE / "drug_master.csv"
@@ -1532,20 +1583,9 @@ class Ssmix2Source:
                 # with its outcome unknown, never active; the days kept (third review item 4, fourth review item a)
                 status = "E"
                 self.stats["PPR-01:end or outcome date without a read outcome (ended)"] += 1
-            # a modifier keeps its text, else its code; one with only a code cannot be read: a doubt, so the
-            # diagnosis is suspected (never confirmed when in doubt, review of PR #1095 item 3)
-            # (a first field of digits alone is taken for a set id, as HL7 segments begin)
-            triples = [
-                t
-                for z in zprs
-                for n in range(1, len(z.fields))
-                if not (n == 1 and z.field(1).strip().isdigit())
-                for t in _triples(z, n)
-            ]
-            modifiers = [t or c for c, t, _s in triples if t or c]
-            unread = [c for c, t, _s in triples if c and not t]
-            if unread:
-                self.stats["PPR-01:modifier code without text (read as suspected)"] += 1
+            modifiers, unrecognised = self._modifiers(prb, zprs)
+            if unrecognised:
+                self.stats[f"PPR-01:certainty unknown ({unrecognised})"] += 1
             written = prb.comp(17, 1).strip()
             row: Row = {
                 "diag_no": prb.comp(4, 1),
@@ -1572,7 +1612,7 @@ class Ssmix2Source:
                 "outcome_date_text": "" if real_date(prb.field(15)) else prb.field(15).strip(),
                 "main_diagnosis": _RANK.get(prb.comp(18, 1).strip(), ""),
                 "_changed": hl7.ts(sf.stamp[:14]) or "",  # the snapshot file's 発生日時 (not a column)
-                "suspected": certainty(prb, written, modifiers, bool(unread)),
+                "suspected": certainty(prb, written, modifiers, unrecognised),
             }
             if (
                 unicodedata.normalize("NFKC", prb.field(1)).strip().upper() in _DELETED
@@ -1584,6 +1624,90 @@ class Ssmix2Source:
             if not icd:
                 self.missed[f"diagnosis:{code}"] += 1
             yield row
+
+    def _modifiers(self, prb: hl7.Segment, zprs: list[hl7.Segment]) -> tuple[list[str], str]:
+        """The ZPR segment of a diagnosis, read by its fields (SS-MIX2 標準化ストレージ仕様書 Ver.1.2j 3.7.4, 表3-48;
+        D-1252): ZPR-1 the prefix 修飾語管理番号 (repeating), ZPR-2 the 病名管理番号 (``MDCDX2``), ZPR-3 the suffix
+        修飾語管理番号, ZPR-4 / ZPR-6 their 修飾語交換用コード, ZPR-5 the 病名交換用コード, ZPR-7 a comment. Returns the
+        modifiers' texts (else codes) and comment, and why the diagnosis is not positively recognised (empty when it
+        is).
+
+        Without the site's licensed master: ZPR-2 and ZPR-5 must name PRB-3's own disease (ZPR-2 the same code as an
+        ``MDCDX2`` PRB-3; ZPR-5 the same text), and any modifier or comment makes the certainty unknown. With
+        it, the display name must be exactly the prefixes' 修飾語表記, the 病名表記 and the suffixes' 修飾語表記 (the
+        master's own tables, :func:`key_part`); every modifier must be a current row of its class
+        (:data:`MODIFIER_CLASSES_KEPT`, or class 3 when the modified name has no code of its own) in its own
+        position (接続位置区分: 10 and over before the name, 9 and under after it); and the exchange codes must be
+        the master's for the codes given."""
+        if len(zprs) > 1:
+            return [t or c for z in zprs for n in range(1, 8) for c, t, _s in _triples(z, n)], "two ZPR segments"
+        zpr = zprs[0] if zprs else None
+
+        def codes(n: int) -> list[str]:
+            return [key_part(c) for c, _t, _s in _triples(zpr, n) if c.strip()] if zpr else []
+
+        texts = [t or c for n in (1, 3, 4, 6) for c, t, _s in (_triples(zpr, n) if zpr else [])]
+        comment = zpr.field(7).strip() if zpr else ""
+        if comment:
+            texts.append(comment)
+        name, code = prb.comp(3, 2), key_part(prb.comp(3, 1))
+        coded = prb.comp(3, 3).strip().upper() == _MDCDX2
+        disease = codes(2)
+        # ZPR-2 / ZPR-5 naming another disease are kept as text too: never dropped
+        for n in (2, 5):
+            for c, txt, _s in _triples(zpr, n) if zpr else []:
+                other_text = bool(txt) and not same_text(txt, name)
+                other_code = n == 2 and bool(c.strip()) and coded and key_part(c) != code
+                if other_text or other_code:
+                    texts.append(txt or c)
+        master = self.master
+        if master is None:
+            if zpr is None:
+                return texts, ""
+            if any(codes(n) for n in (1, 3, 4, 6)):
+                return texts, "a modifier, no licensed master to read it"
+            if comment:
+                return texts, "a ZPR comment"
+            if disease and not (coded and disease == [code]):
+                return texts, "ZPR-2 is not PRB-3's disease"
+            if any(not same_text(t, name) for _c, t, _s in _triples(zpr, 5)):
+                return texts, "ZPR-5 is not PRB-3's disease"
+            self.stats["PPR-01:ZPR names only the diagnosis's own disease"] += 1
+            return texts, ""
+        number = disease[0] if len(disease) == 1 else (code if coded and not disease else "")
+        if len(disease) > 1 or (disease and coded and disease != [code]):
+            return texts, "ZPR-2 is not PRB-3's disease"
+        if number not in master.diseases:
+            return texts, "the disease is not in the licensed master"
+        base, exchange = master.diseases[number]
+        if zpr is not None and codes(5) and codes(5) != [exchange]:
+            return texts, "ZPR-5 is not the disease's exchange code"
+        if comment:
+            return texts, "a ZPR comment"
+        words: list[str] = []
+        for field, exchange_field, before in ((1, 4, True), (3, 6, False)):
+            given = codes(field)
+            for mod in given:
+                row = master.modifiers.get(mod)
+                if row is None or row["change"] == "1":
+                    return texts, "a modifier the licensed master does not hold"
+                if not row["position"].isdigit() or (int(row["position"]) >= 10) != before:
+                    return texts, "a modifier in the other position"
+                cls = row["class"][1:2]
+                if cls not in (*MODIFIER_CLASSES_KEPT, MODIFIER_CLASS_CAUSE):
+                    return texts, f"a modifier of class {cls or '?'}"
+            if codes(exchange_field) and codes(exchange_field) != [master.modifiers[m]["exchange"] for m in given]:
+                return texts, "a modifier exchange code that is not the master's"
+            words.append("".join(master.modifiers[m]["word"] for m in given))
+        full = words[0] + base + words[1]
+        if not same_text(full, name):
+            return texts, "the display name is not the coded name and its modifiers"
+        causes = [m for f in (1, 3) for m in codes(f) if master.modifiers[m]["class"][1:2] == MODIFIER_CLASS_CAUSE]
+        if causes and master.names.get(key_part(full), number) != number:
+            return texts, "the modified name has a code of its own"
+        if words != ["", ""]:
+            self.stats["PPR-01:modifiers recognised through the licensed master"] += 1
+        return texts, ""
 
     def _resolve_drug(self, codes: dict[str, str]) -> dict[str, str]:
         """The line's ingredient (STD-042): the YJ (or local) code first, then the HOT code."""

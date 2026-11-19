@@ -330,15 +330,22 @@ def _prb_row(tmp_path: Path, prb: str, extra: tuple[str, ...] = ()) -> dict[str,
 
 
 @pytest.mark.parametrize(
-    ("name", "flag", "zpr"),
-    [("肺癌疑", "", ()), ("肺癌(疑)", "", ()), ("肺癌", "1^疑い^99ZZZ", ()), ("肺癌", "", ("ZPR|1|8002",))],
+    ("name", "flag", "zpr", "want"),
+    [
+        ("肺癌疑", "", (), "Y"),
+        ("肺癌(疑)", "", (), "Y"),
+        ("肺癌", "1^疑い^99ZZZ", (), "Y"),
+        ("肺癌", "", ("ZPR|1|8002",), "U"),
+    ],
 )
 def test_review_3_every_way_of_writing_a_suspicion_reads_as_suspected(
-    tmp_path: Path, name: str, flag: str, zpr: tuple[str, ...]
+    tmp_path: Path, name: str, flag: str, zpr: tuple[str, ...], want: str
 ) -> None:
+    """D-1252: ZPR is read by its fields (仕様書 Ver.1.2j 表3-48): "ZPR|1|8002" is a prefix modifier "1" and a
+    disease number that is not PRB-3's, not a suspicion: unknown (U), never confirmed (was Y)."""
     prb = ["PRB", "AD", "20261001", f"99990009^{name}^MDCDX2", "DX0009"] + [""] * 14
     prb[13], prb[10] = flag, "C349^^I10"
-    assert _prb_row(tmp_path, "|".join(prb), zpr)["suspected"] == "Y"
+    assert _prb_row(tmp_path, "|".join(prb), zpr)["suspected"] == want
 
 
 @pytest.mark.parametrize(

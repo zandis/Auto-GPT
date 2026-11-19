@@ -662,12 +662,16 @@ def modifier_cases() -> list[Case]:
         ("a comment in ZPR-7", pneu, "肺炎", [zpr(dis=pneu, comment="経過観察")]),
         ("two ZPR segments", pneu, "肺炎", [zpr(dis=pneu), zpr(dis=pneu)]),
         ("a retired modifier", pneu, "旧左肺炎", [zpr(pre=["99980013"], dis=pneu, pre_ex=["ZM13"])]),
-        ("a modifier code with no text", pneu, "左肺炎", ["ZPR|99980002|99990001^肺炎^MDCDX2"]),
         ("the old loose ZPR of #1095's kit", pneu, "肺炎", ["ZPR|1|9999^の疑い^99XYZ"]),
         ("a modifier with only an exchange code, in the master", pneu, "左肺炎", [zpr(dis=pneu, pre_ex=["ZM02"])]),
     ]
     for what, no, text, zs in bad:
         specs.append((what, no, text, zs, "NC", "NC", ""))
+    # a modifier code with no text: the master gives its word (左, class 2, before the name), and the display is
+    # exactly that word and the coded name; without the master nothing reads it
+    specs.append(
+        ("a modifier code with no text", pneu, "左肺炎", ["ZPR|99980002|99990001^肺炎^MDCDX2"], "NC", "CA", "")
+    )
     # without the master a code it does not hold, or a local code, cannot be told from a known one (as #1095 reads
     # them); with it, a name the reader cannot find in the master is not positively recognised
     specs.append(("PRB-3 code not in the master", "99991234", "肺炎", [], "CA", "NC", ""))

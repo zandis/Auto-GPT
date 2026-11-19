@@ -27,7 +27,7 @@ SAMPLES = ROOT / "tests" / "fixtures" / "licensed"
 JP_MAPPING = ROOT / "services/adapter/mapping/jp_core/ssmix2_site.yaml"
 TW_MAPPING = ROOT / "services/adapter/mapping/tw_core/demo_his.yaml"
 FILES = {"medis": "medis_byomei_sample.txt", "jlac10": "jlac10_sample.tsv", "yj": "yj_hot_sample.txt"}
-EMPTY: dict[str, dict[str, dict[str, str]]] = {"medis": {}, "jlac10": {}, "yj": {}}
+EMPTY: dict[str, dict[str, dict[str, str]]] = {"medis": {}, "jlac10": {}, "yj": {}, "medis_modifier": {}}
 
 
 def _load_all(store: licensed.TermStore, audit: Path | None = None) -> dict[str, dict[str, Any]]:
@@ -41,7 +41,7 @@ def _load_all(store: licensed.TermStore, audit: Path | None = None) -> dict[str,
 def test_licensed_loader_reads_the_three_10_row_samples(tmp_path: Path) -> None:
     st = licensed.TermStore()
     try:
-        assert {s["kind"]: s["state"] for s in st.status()} == dict.fromkeys(FILES, "not_loaded")
+        assert {s["kind"]: s["state"] for s in st.status()} == dict.fromkeys(licensed.KINDS, "not_loaded")
         out = _load_all(st, tmp_path / "audit")
         assert {k: (v["rows"], v["encoding"], v["delimiter"]) for k, v in out.items()} == {
             "medis": (10, "cp932", "comma"),
@@ -51,8 +51,11 @@ def test_licensed_loader_reads_the_three_10_row_samples(tmp_path: Path) -> None:
         assert all(not v["skipped"] for v in out.values())
         status = {s["kind"]: s for s in st.status()}
         assert all(
-            s["state"] == "loaded" and s["version"] == "2026-sample" and s["rows"] == 10 for s in status.values()
+            s["state"] == "loaded" and s["version"] == "2026-sample" and s["rows"] == 10
+            for k, s in status.items()
+            if k in FILES
         )
+        assert status["medis_modifier"]["state"] == "not_loaded"  # D-1252: no sample of it is shipped
         assert status["medis"]["source"] == "medis_byomei_sample.txt"
         medis = st.concepts("medis")
         assert medis["ZB26"]["target_code"] == "M10.9" and medis["ZB26"]["display"] == "痛風"
@@ -520,7 +523,7 @@ def test_validate_api_and_terminology_api(tmp_path: Path) -> None:
     many = c.post("/$validate", json={"resources": [_ok_lab(), bad, _ok_rx()]}).json()
     assert not many["ok"] and many["sampled"] == 3 and many["failed"] == 1
     assert many["messages"][0].startswith("Observation/o1 Observation.specimen")
-    assert {s["kind"]: s["state"] for s in c.get("/terminology").json()} == dict.fromkeys(FILES, "not_loaded")
+    assert {s["kind"]: s["state"] for s in c.get("/terminology").json()} == dict.fromkeys(licensed.KINDS, "not_loaded")
     data = base64.b64encode((SAMPLES / FILES["jlac10"]).read_bytes()).decode()
     r = c.post(
         "/terminology/load", json={"kind": "jlac10", "version": "v1", "by": "admin", "b64": data, "name": "jlac10.tsv"}
