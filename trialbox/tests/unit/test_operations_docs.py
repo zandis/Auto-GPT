@@ -1,4 +1,6 @@
-"""The operations documents of T-635 (D-390): every page names its T-213b drill, and each site's tabletop lists it."""
+"""The operations documents of T-635 (D-390): every page has its T-213b drill line, and each site's tabletop lists the
+drill it names. Since card 10K-9 (D-1362) the line either names one test (``tools/doclint.py`` fails a name no test
+under ``tests/`` defines) or says "none" and, in words, that the procedure is not rehearsed by a test."""
 
 from __future__ import annotations
 
@@ -8,7 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 RUNBOOK = ROOT / "docs" / "runbook"
 SITES = ROOT / "docs" / "plan" / "sites"
+DRILL_LINE = re.compile(r"^\*\*Drill \(T-213b\):\*\* ", re.M)
 DRILL = re.compile(r"^\*\*Drill \(T-213b\):\*\* `(test_runbook_(\d{2})_[a-z0-9_]+)`", re.M)
+NONE = re.compile(r"^\*\*Drill \(T-213b\):\*\* none\b[^\n]*(?:\n(?!\n)[^\n]*)*", re.M)
 # the T-635 pages: the five sections and the parts written for OPS-074
 PAGES = (
     "21-support-model-and-the-supervised-remote-session.md",
@@ -29,11 +33,19 @@ TABLETOPS = ("tabletop-record-japan.md", "tabletop-record-cgmh.md")
 
 
 def drills() -> dict[str, str]:
-    """page -> its drill name; each page names exactly one, numbered like the page."""
+    """page -> its drill name; each page has one drill line, which names one test numbered like the page or says
+    plainly that none rehearses it (those pages are left out)."""
     out: dict[str, str] = {}
     for page in PAGES:
-        found = DRILL.findall((RUNBOOK / page).read_text(encoding="utf-8"))
-        assert len(found) == 1, f"{page}: names {len(found)} drills, not one"
+        text = (RUNBOOK / page).read_text(encoding="utf-8")
+        assert len(DRILL_LINE.findall(text)) == 1, f"{page}: has {len(DRILL_LINE.findall(text))} drill lines, not one"
+        found = DRILL.findall(text)
+        if not found:
+            said = NONE.findall(text)
+            assert said and "not rehearsed by a test" in " ".join(said[0].split()), (
+                f"{page}: names no drill and does not say so"
+            )
+            continue
         name, number = found[0]
         assert number == page[:2], f"{page}: drill {name} is numbered for another section"
         out[page] = name
@@ -43,6 +55,7 @@ def drills() -> dict[str, str]:
 def test_every_page_names_one_drill() -> None:
     names = list(drills().values())
     assert len(names) == len(set(names)), "two pages name the same drill"
+    assert names, "no page names a drill"
 
 
 def test_each_site_tabletop_lists_every_drill() -> None:
