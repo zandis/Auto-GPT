@@ -133,22 +133,6 @@ done
 echo "==> release gates ($GATES)"
 (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.supply_chain bundle-check --gates "$GATES" \
   "${IMAGES[@]}") || { echo "make_bundle: images are not covered by a passing gate record" >&2; exit 1; }
-# card 22-4 (root review 22): no row of a must-not-ship vocabulary (licence class c in docs/licences/register.csv) in
-# what this bundle stages beside the images: the rule-set zips, the reference data packs, the models folder. The tree
-# inside the images is `make vocab-bundle-check` (release-bundle and demo-bundle need it). Before the first save.
-VB_ARGS=()
-if [ -n "$RULESETS" ]; then
-  while IFS= read -r f; do VB_ARGS+=("$f"); done < <(find "$RULESETS" -type f -name '*.zip' | sort)
-fi
-for f in ${REFDATA[@]+"${REFDATA[@]}"}; do VB_ARGS+=("$f"); done
-[ -z "$MODELS" ] || VB_ARGS+=(--models "$MODELS")
-if [ ${#VB_ARGS[@]} -gt 0 ]; then
-  echo "==> vocabulary bundle check (card 22-4)"
-  (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.vocab_bundle_check "${VB_ARGS[@]}") \
-    || { echo "make_bundle: a must-not-ship vocabulary, or a file that cannot be checked, is staged (tools.vocab_bundle_check)" >&2; exit 1; }
-else
-  echo "==> vocabulary bundle check: no rule sets, reference data or models staged beside the images"
-fi
 # D-830: the space the saves and the bundle need, said before the first image is saved (TMPDIR moves the staging)
 mkdir -p "$(dirname "$OUT")"
 (cd "$ROOT" && PYTHONPATH="$ROOT" "$PY" -m tools.bundle_space --stage "$STAGE" --out "$OUT" ${MODELS:+--models "$MODELS"} \

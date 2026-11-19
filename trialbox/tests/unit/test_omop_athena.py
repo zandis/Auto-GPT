@@ -88,7 +88,7 @@ def test_a_bundle_with_a_vocabulary_off_the_allow_list_is_refused(db: Any, tmp_p
     with (bad / "CONCEPT.csv").open("a", encoding="utf-8") as f:
         f.write("4000001\tSynthetic disorder\tCondition\tSNOMED\tClinical Finding\tS\t1000001\t19700101\t20991231\t\n")
     with pytest.raises(OmopError, match="not on the allow-list: SNOMED"):
-        vocab_load.load_athena(db, bad, strict=True)  # a release build (card 22-2): refused whole
+        vocab_load.load_athena(db, bad)
     assert vocab_load.athena_loaded(db) == {}
     high = tmp_path / "high"
     shutil.copytree(ATHENA, high)
