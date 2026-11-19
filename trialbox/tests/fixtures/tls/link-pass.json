@@ -1,0 +1,290 @@
+[
+ {
+  "id": "SSLv2",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not offered"
+ },
+ {
+  "id": "SSLv3",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not offered"
+ },
+ {
+  "id": "TLS1",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "INFO",
+  "cve": "",
+  "cwe": "",
+  "finding": "not offered"
+ },
+ {
+  "id": "TLS1_1",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "INFO",
+  "cve": "",
+  "cwe": "",
+  "finding": "not offered"
+ },
+ {
+  "id": "TLS1_2",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "INFO",
+  "cve": "",
+  "cwe": "",
+  "finding": "not offered"
+ },
+ {
+  "id": "TLS1_3",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "offered with final"
+ },
+ {
+  "id": "cipherlist_NULL",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not offered"
+ },
+ {
+  "id": "cipherlist_aNULL",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not offered"
+ },
+ {
+  "id": "cipherlist_EXPORT",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not offered"
+ },
+ {
+  "id": "cipherlist_LOW",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not offered"
+ },
+ {
+  "id": "cipherlist_3DES_IDEA",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not offered"
+ },
+ {
+  "id": "cipherlist_OBSOLETED",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not offered"
+ },
+ {
+  "id": "cipherlist_STRONG_FS",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "offered"
+ },
+ {
+  "id": "cipher-tls1_3_x1301",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "TLSv1.3   x1301   TLS_AES_128_GCM_SHA256           ECDH 253   AESGCM      128      TLS_AES_128_GCM_SHA256"
+ },
+ {
+  "id": "cipher-tls1_3_x1302",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "TLSv1.3   x1302   TLS_AES_256_GCM_SHA384           ECDH 253   AESGCM      256      TLS_AES_256_GCM_SHA384"
+ },
+ {
+  "id": "cipher-tls1_3_x1303",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "TLSv1.3   x1303   TLS_CHACHA20_POLY1305_SHA256     ECDH 253   ChaCha20    256      TLS_CHACHA20_POLY1305_SHA256"
+ },
+ {
+  "id": "FS",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "offered"
+ },
+ {
+  "id": "cert_signatureAlgorithm",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "ECDSA with SHA256"
+ },
+ {
+  "id": "cert_keySize",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "INFO",
+  "cve": "",
+  "cwe": "",
+  "finding": "EC 256 bits (curve P-256)"
+ },
+ {
+  "id": "cert_expirationStatus",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": ">= 60 days"
+ },
+ {
+  "id": "cert_chain_of_trust",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "passed."
+ },
+ {
+  "id": "clientAuth",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "INFO",
+  "cve": "",
+  "cwe": "",
+  "finding": "required"
+ },
+ {
+  "id": "heartbleed",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not vulnerable"
+ },
+ {
+  "id": "CCS",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not vulnerable"
+ },
+ {
+  "id": "ticketbleed",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not vulnerable"
+ },
+ {
+  "id": "ROBOT",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not vulnerable"
+ },
+ {
+  "id": "secure_renego",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "supported"
+ },
+ {
+  "id": "SWEET32",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not vulnerable"
+ },
+ {
+  "id": "POODLE_SSL",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not vulnerable"
+ },
+ {
+  "id": "BEAST",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not vulnerable"
+ },
+ {
+  "id": "LOGJAM",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not vulnerable"
+ },
+ {
+  "id": "DROWN",
+  "ip": "spark.link.test/192.0.2.10",
+  "port": "8443",
+  "severity": "OK",
+  "cve": "",
+  "cwe": "",
+  "finding": "not vulnerable"
+ }
+]

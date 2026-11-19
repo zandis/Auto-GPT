@@ -1441,13 +1441,16 @@
    "chapter": "V1",
    "level": "L2",
    "requirement": "A threat model exists for the design and its changes.",
-   "verdict": "does not meet",
-   "basis": "hypothesis",
-   "file": "docs/security/01-the-host.md",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "docs/security/12-threat-model.md",
    "line": 1,
    "also": [],
-   "test": [],
-   "note": "No threat model in docs/security/ (ten files) or docs/validation/ (grep for 'threat model', 'STRIDE').",
+   "test": [
+    "tests/unit/test_threat_model_per_release.py::test_threat_model_names_the_current_release",
+    "tests/unit/test_threat_model_per_release.py::test_every_path_and_test_the_threat_model_cites_exists"
+   ],
+   "note": "10G-4 (D-1327): the threat model is security section 12, reviewed per release: the test fails when the version moves past the release it names, or a path or test it cites is gone. Was 'does not meet' (V3-16).",
    "finding": "V3-16",
    "id_check": false,
    "delegate": ""

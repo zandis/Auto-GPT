@@ -10,6 +10,8 @@
 * mail logs (the mail gateway's intake / sent tables, finished sends, the console's morning-mail log) older than
   ``retention.mail_log_days`` are deleted (D-138; a send that never finished stays);
 * lake / NDJSON snapshots are pruned by the adapter after each ingest (``tb_common.retention.snapshots_to_keep``);
+* the answer store's rows of a snapshot the site's retention no longer keeps are deleted (D-1360; each screening
+  run sweeps too, and this sweep keeps a study that stopped screening from holding its rows past D-452);
 * the audit chain itself is never touched (archived every night by ``trialbox logs daily``, D-138); container logs
   rotate by size in compose and are collected and pruned on the host (``retention.logs_days``).
 """
@@ -25,6 +27,7 @@ from typing import Any
 from tb_common.retention import expired, held_after_close
 from tb_common.ruleset import list_rulesets
 
+from orchestrator import answer_store
 from orchestrator.core import Ctx, Outcome
 from orchestrator.scenarios.review import approved_or_none
 
@@ -128,6 +131,21 @@ def held_for_running_studies(ctx: Ctx, now: datetime) -> Callable[[str], str]:
     return held
 
 
+def answer_rows_swept(ctx: Ctx, now: datetime) -> int:
+    """D-1360: the answer store's rows of every snapshot the site's retention no longer keeps, counted against the
+    lake's current snapshot (none read: nothing swept; the next screening run sweeps)."""
+    try:
+        snapshot = ctx.services.lake.snapshot()
+    except Exception:
+        return 0
+    if not snapshot:
+        return 0
+    ret = ctx.cfg.settings.retention
+    nightly = int(ret.nightly_snapshots if ret and ret.nightly_snapshots is not None else 3)
+    months = int(ret.month_end_snapshots_months if ret and ret.month_end_snapshots_months is not None else 36)
+    return answer_store.retain(ctx.orch.db, snapshot, now.date(), nightly, months)
+
+
 def run(ctx: Ctx) -> Outcome:
     ret = ctx.cfg.settings.retention
     days = {
@@ -179,6 +197,7 @@ def run(ctx: Ctx) -> Outcome:
     pools = ctx.orch.db.prune_inactive(approved, cutoff)
     if pools["pool"] or pools["feedback"]:
         ctx.orch.audit.append("retention.pools", job_id=ctx.job.job_id, detail=pools)
+    answers = answer_rows_swept(ctx, now)
     report: dict[str, Any] = {
         "run_at": now.isoformat(timespec="seconds"),
         "objects_deleted": count,
@@ -189,6 +208,7 @@ def run(ctx: Ctx) -> Outcome:
         "pool_rows_deleted": pools["pool"],
         "feedback_rows_deleted": pools["feedback"],
         "mail_log_rows_deleted": mail,
+        "answer_rows_deleted": answers,
         "limits": {**days, "pool_months_after_ruleset": pool_months, "mail_log_days": mail_days},
     }
     ctx.metrics(patients_scoped=0)
