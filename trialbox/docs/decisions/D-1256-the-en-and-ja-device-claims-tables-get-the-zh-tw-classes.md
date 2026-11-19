@@ -149,21 +149,47 @@ Before this card, the Japanese table had none of these classes. English had no c
    - "record contact outcomes" ("outcomes" now only clinical, treatment, health or patient outcomes);
    - RA-JAK and GZQO's スクリーニング前 (now a point in time);
    - "1GPUのモデルの組で…日本語2例を見落としました" (a miss word was its own early word).
-5. **Mutation check.** 71 parts of the new rule were each removed in turn. Each removal fails at least one test in
-   `tests/unit/test_wording_en_ja_classes.py`, `test_wording_zh_tw.py` or `test_wording.py`.
+5. **Mutation check.** 81 parts of the new rule were each removed in turn: 71 for the classes and 10 for §7. Each
+   removal fails at least one test in `tests/unit/test_wording_en_ja_classes.py`, `test_wording_zh_tw.py` or
+   `test_wording.py`.
    - The first run showed 17 parts that no test needed. Tests were added for 16 of them (`PARTS_EN`, `PARTS_JA`),
      and English's causative pattern was removed as redundant.
    - The run also found a bug: the English "a denied replacement" pattern lacked a group, so any "no" in a sentence
      denied a replacement. It is fixed.
    - The new tests run against master: 187 of 390 fail. The 203 that pass are honest lines and denials that master
      already passed.
-6. **zh-TW is unchanged.** Its fixtures and D-1247's sets run untouched. Two tests of `test_wording_zh_tw.py`
-   recorded the gap this card closes, and are updated to say so:
+6. **zh-TW reads as before, except for §7's six fixes.** Its fixtures and D-1247's sets run untouched. Two tests of
+   `test_wording_zh_tw.py` recorded the gap this card closes, and are updated to say so:
    - `test_one_rule_two_tables` now lists three tables;
    - `test_the_new_classes_are_zh_tw_only_and_the_japanese_table_lacks_them` now asserts the classes in all three
      tables, and that text with no language still has none of them.
 
-   On the 29,775 items, every zh-TW verdict and hit is the same as on master.
+   On the 29,775 items, every zh-TW verdict and hit is the same as on master. Read again after §7 and on the merge
+   with master d28f6c03 (30,045 items: en 9,893, ja 10,156, zh-TW 9,996), the one verdict change is still
+   RA-JAK-INC-02.
+7. **From the second review of #1179.** The integrator's second review of #1179 (10C-5b, head 111f5cf6) left 4
+   Medium and 2 Low findings on the claims-class code this card extends. Each was reproduced on this card's head
+   before the fix, and each has a test that fails without its fix. Where the fault was in the shared code, the fix is
+   made for all three tables.
+   - **Medium, the record-field exception** (reproduced: yes). 本系統的診斷時間只需一秒 passed: the field word 時間
+     after 診斷 cleared the product as its possessor. Now a field or a passive is a record only when the product does
+     not act as its subject: as a possessor (本系統的), or as a subject that does more than show or read.
+     本系統只顯示診斷碼 still passes. The same holds for "the tool's diagnosis date" in English.
+   - **Medium, an existential negation over a later affirmative claim** (reproduced: yes). In
+     本系統沒有副作用也能預防肺炎, 沒有 covered the whole clause. Now 也 / 還 / 仍 / 就 / 卻 / 照樣 with 能 / 會 / 可
+     after a negator's object starts an affirmative predicate, and the negation stops there. 本系統沒有預防肺炎的功能
+     is still a denial.
+   - **Medium, a tense marker read as a record** (reproduced: yes). 本系統正在治療肺炎 passed because 正在 counted as
+     a record. Now a tense marker (正在, 曾, 已, 先前 ...) straight after the product (with its auxiliaries) is the
+     product's act. 接受 is still a record, and so are 病人正在接受肺炎治療 and 曾治療肺炎的病人.
+   - **Medium, a clause-final confirmation in one script only** (reproduced: yes). 本系統可確診 was refused and
+     本系统可确诊 was not: the rule compared the word with its Traditional spelling. Both spellings now count.
+   - **Low, data-lang read as the page's language** (reproduced: yes). `<html lang="zh-TW" data-lang="en">` was read
+     as English. The pattern now needs `lang` not preceded by a word character or a hyphen.
+   - **Low, a medication record read as a treatment** (reproduced: yes). 系統建議先匯出用藥紀錄 was refused. Now a
+     treatment word followed by a record word (紀錄, 記錄, 史, 清單, 資料, 欄位, 歷程) is not the object of a
+     decision. Japanese has 歴, 記録, 履歴, 一覧, データ, 欄, and English has records, history, list, data, fields,
+     log. 系統建議病人的用藥 is still refused.
 
 ## Measured (the development set; not independent)
 

@@ -823,3 +823,56 @@ def test_the_known_limits_are_what_d1256_says() -> None:
     assert check("TrialBox prevents strokes.") == []  # English text the caller does not name en: not read
     assert ja("本システムは外来記録からうつ病の兆候を読み取ります。") == []  # 読み取り is the product's word
     assert en("A pregnancy diagnosis within 280 days.") != []  # a criterion's diagnosis with no subject: refused
+
+
+# ------------------------------------------------------------- from the second review of #1179 (zh-TW, D-1256 §7)
+# The integrator's second review of #1179 (10C-5b) found six faults in the claims-class code this card extends; each
+# was reproduced on this card's head before the fix. The record-field and treatment-object fixes are made once, for
+# the three tables.
+def zh(text: str) -> list[Hit]:
+    return check(text, lang="zh-TW")
+
+
+def test_a_record_field_of_the_products_own_diagnosis_is_a_claim() -> None:
+    """Medium (wording.py:940): 本系統的診斷時間只需一秒 claims the system diagnoses; a field word after 診斷 does not
+    clear the product as its possessor. A record's field (診斷日期) and a person's (醫師的診斷時間) still pass."""
+    assert zh("本系統的診斷時間只需一秒。") != []
+    assert zh("診斷日期與診斷碼。") == [] and zh("醫師的診斷時間已記錄。") == []
+    assert en("The tool's diagnosis date is shown.") != [] and en("The diagnosis date is shown.") == []
+
+
+def test_an_existential_negation_does_not_deny_a_later_affirmative_claim() -> None:
+    """Medium (wording.py:972): in 本系統沒有副作用也能預防肺炎 the negation is of 副作用; 也能 starts an affirmative
+    predicate. 本系統沒有預防肺炎的功能 is still a denial."""
+    assert zh("本系統沒有副作用也能預防肺炎。") != []
+    assert zh("本系統沒有預防肺炎的功能。") == []
+
+
+def test_a_tense_marker_after_the_product_is_the_products_act() -> None:
+    """Medium (wording.py:1165): 本系統正在治療肺炎 says the system is treating pneumonia; 正在 after the product is
+    its act, not a record. A record's treatment (病人正在接受治療, 曾治療肺炎的病人) still passes."""
+    assert zh("本系統正在治療肺炎。") != []
+    assert zh("病人正在接受肺炎治療。") == [] and zh("系統列出曾治療肺炎的病人。") == []
+
+
+def test_a_clause_final_confirmation_is_read_in_both_scripts() -> None:
+    """Medium (wording.py:1168): 本系統可確診 was refused and its Simplified 本系统可确诊 was not."""
+    assert zh("本系統可確診。") != []
+    assert zh("本系统可确诊。") != []
+
+
+def test_data_lang_is_not_the_pages_language() -> None:
+    """Low (wording.py:1270): <html lang="zh-TW" data-lang="en"> read data-lang as the page's language."""
+    assert check_page('<html lang="zh-TW" data-lang="en"><p>本系統治療肺炎。</p></html>') != []
+    assert check_page('<html data-lang="zh-TW" lang="ja"><p>本系統治療肺炎。</p></html>') == []
+
+
+def test_a_medication_record_is_not_the_object_of_a_recommendation() -> None:
+    """Low (wording.py:1182): 系統建議先匯出用藥紀錄 suggests exporting the medication record, not a treatment. A
+    recommendation of the medication itself is still refused, in the three languages."""
+    assert zh("系統建議先匯出用藥紀錄。") == []
+    assert zh("系統建議病人的用藥。") != []
+    assert en("The system recommends exporting the medication records first.") == []
+    assert en("The system recommends a medication for each patient.") != []
+    assert ja("システムが投薬記録の書き出しを提案します。") == []
+    assert ja("システムが投薬を提案します。") != []

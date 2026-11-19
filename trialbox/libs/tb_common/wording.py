@@ -978,6 +978,10 @@ _NEG_VERBAL_ZH = re.compile(
 _NEG_WHOLE_ZH = re.compile(_zh_alt(_NEG_WHOLE_LIST_ZH))
 # a negator AFTER the claim word, at the end of its clause: 與病人的疾病風險無關
 _A_NOT_A_ZH = re.compile(r"(能|會|会|可|是|有|要)(?:不|沒|没)\1")
+# an affirmative predicate after an existential negator's object: 沒有副作用也能預防, 沒有費用還會診斷
+_AFFIRMS_AGAIN_ZH = re.compile(
+    _zh_alt(("也", "還", "仍", "仍然", "就", "卻", "照樣")) + r"\s*" + _zh_alt(("能", "會", "可", "可以", "能夠", "將"))
+)
 _NEG_AFTER_ZH = re.compile(_zh_alt(("無關", "無涉", "不相關", "沒有關係", "毫無關係")))
 _ACTORS_ZH = "(?<![A-Za-z])" + _zh_alt(CLAIM_ACTORS_ZH) + "(?!性)"
 _NOT_ATTRIBUTIVE_ZH = r"(?!\s*" + _zh_alt(_ATTRIBUTIVE_LIST_ZH) + ")"
@@ -1180,11 +1184,14 @@ def _record_masked(
     out = list(text)
     for m in verdict.finditer(text):
         cs = _clause_start(g, text, m.start())
-        if (
-            field_after.match(text, m.end())
-            or passive(text, cs, m)
-            or _subject(g, text, m.start(), m.end()) == "person"
-        ):
+        who = _subject(g, text, m.start(), m.end())
+        # a field or a passive is a record unless the product acts as its subject: 本系統的診斷時間只需一秒 claims the
+        # system diagnoses (the second review of #1179); 本系統只顯示診斷碼 only shows a record's field
+        acts = who == "actor" and (
+            g.actor_possessor.search(text, cs, m.start()) is not None
+            or any(_acting(g, text, a) for a in g.actor_subject.finditer(text, cs, m.start()))
+        )
+        if who == "person" or (not acts and (field_after.match(text, m.end()) or passive(text, cs, m))):
             out[m.start() : m.end()] = _MASK * (m.end() - m.start())
     return "".join(out)
 
@@ -1225,9 +1232,12 @@ def deny_masked_zh(text: str) -> str:
             and not _A_NOT_A_ZH.match(text, max(0, neg.start() - 1))
         )
         for neg in _NEG_WHOLE_ZH.finditer(before):
-            # 病人沒有風險 is said about the patient; 沒有漏掉 (did not miss) is a claim, not a denial
+            # 病人沒有風險 is said about the patient; 沒有漏掉 (did not miss) is a claim, not a denial; in
+            # 本系統沒有副作用也能預防肺炎 the negation ends where 也能 starts an affirmative predicate (the second
+            # review of #1179)
             if (
-                not _ABOUT_ZH.search(before[: neg.start()])
+                not _AFFIRMS_AGAIN_ZH.search(before, neg.end())
+                and not _ABOUT_ZH.search(before[: neg.start()])
                 and not _MISS_ZH.match(text, start + neg.end())
                 and not _A_NOT_A_ZH.match(text, max(0, start + neg.start() - 1))
             ):
@@ -1545,7 +1555,9 @@ _TREATMENT_EN = re.compile(
             r"take\s+part",
             r"taking\s+part",
         )
-    ),
+    )
+    # a record of a treatment (the medication records, treatment history) is not a treatment the product decides
+    + r"(?!\s+(?:records?|history|histories|lists?|data|fields?|logs?)(?![A-Za-z]))",
     re.I,
 )
 _ACTOR_CORE_EN = (
@@ -1790,6 +1802,8 @@ class ClaimTable:
     act_record_before: re.Pattern[str] | None = None  # searched up to the word: 接受…治療, received treatment
     act_record_after: re.Pattern[str] | None = None  # matched after the word: 治療紀錄, 治療歴, treatment arm
     act_actor_before: str = ""  # the product straight before an act (本產品的療效, TrialBoxの糖尿病改善)
+    # a tense marker straight after the product is its act, not a record (本系統正在治療肺炎; review of #1179)
+    act_product_tense: re.Pattern[str] | None = None
     state_words: re.Pattern[str] | None = None
     state_both_sides: bool = False  # Japanese puts the object before the verb, English a passive's subject
     treatment: re.Pattern[str] | None = None
@@ -1834,7 +1848,10 @@ _ACT_RECORD_AFTER_RX_ZH = re.compile(
 )
 _STATE_ZH = re.compile(_zh_alt(_STATE_WORDS_ZH))
 _CLAUSE_END_AT_ZH = re.compile(r"\s*(?:[" + _CLAUSE_MARKS_ZH + "]|$)")
-_TREATMENT_RX_ZH = re.compile(_zh_alt(_TREATMENT_ZH))
+# a record of a treatment (用藥紀錄, 治療史) is not a treatment the product decides (the second review of #1179)
+_TREATMENT_RX_ZH = re.compile(
+    _zh_alt(_TREATMENT_ZH) + r"(?!\s*" + _zh_alt(("紀錄", "記錄", "史", "清單", "資料", "欄位", "歷程")) + ")"
+)
 _ZH_ACTOR_BEFORE = (
     _ACTORS_ZH + r"\s*(?:" + _zh_alt(("的", "之", "所", "產生的", "計算的", "給出的", "提供的")) + r")?\s*$"
 )
@@ -1925,7 +1942,9 @@ CLAIM_TABLES: tuple[ClaimTable, ...] = (
         act_actor_before=_ACTORS_JA + r"\s*(?:の|による|により|で|を使うと|を使えば|のおかげで|なら)\s*$",
         state_words=re.compile("|".join(re.escape(w) for w in _STATE_WORDS_JA)),
         state_both_sides=True,
-        treatment=re.compile("|".join(re.escape(w) for w in _TREATMENT_JA)),
+        treatment=re.compile(
+            "(?:" + "|".join(re.escape(w) for w in _TREATMENT_JA) + ")(?!歴|記録|履歴|一覧|データ|欄)"
+        ),
         candidate=_CANDIDATE_JA,
         candidate_after=False,
         object_in_clause=True,
@@ -1951,6 +1970,9 @@ CLAIM_TABLES: tuple[ClaimTable, ...] = (
         decide=_zh_both(CLAIM_DECIDE_ZH),
         grammar=GRAMMAR_ZH,
         act_record_before=_ACT_RECORD_ZH,
+        act_product_tense=re.compile(
+            _ACTORS_ZH + r"\s*" + _AUX_ZH + r"\s*" + _zh_alt(_ACT_RECORD_BEFORE_ZH[1:]) + r"\s*" + _AUX_ZH + r"\s*$"
+        ),
         act_record_after=_ACT_RECORD_AFTER_RX_ZH,
         act_actor_before=_ZH_ACTOR_BEFORE,
         state_words=_STATE_ZH,
@@ -2122,12 +2144,15 @@ def _claims_in(sentence: str, table: ClaimTable) -> list[Hit]:
     for word in table.act:
         for m in table.rx(word).finditer(masked):
             rec_before, rec_after = table.act_record_before, table.act_record_after
-            if (rec_before is not None and rec_before.search(masked, 0, m.start())) or (
+            product_tense = table.act_product_tense is not None and table.act_product_tense.search(masked, 0, m.start())
+            if (rec_before is not None and rec_before.search(masked, 0, m.start()) and not product_tense) or (
                 rec_after is not None and rec_after.match(masked, m.end())
             ):
                 continue  # a treatment the record holds (接受糖尿病治療, 治療歴, received treatment)
             on_disease = near(m, table.disease) or near(m, table.early)
-            on_disease = on_disease or (word == "確診" and _CLAUSE_END_AT_ZH.match(masked, m.end()) is not None)
+            on_disease = on_disease or (
+                word in ("確診", "确诊") and _CLAUSE_END_AT_ZH.match(masked, m.end()) is not None
+            )
             if re.search(table.act_actor_before, masked[: m.start()]) or (on_disease and subject(m) == "actor"):
                 hit(m, word)
     for word in table.state:
@@ -2238,7 +2263,7 @@ def sentences_of_page(page: str) -> str:
     return html.unescape(page).replace("\x00", "\n")
 
 
-_HTML_LANG = re.compile(r"<html\b[^>]*\blang\s*=\s*[\"']?([A-Za-z-]+)", re.I)
+_HTML_LANG = re.compile(r"<html\b[^>]*(?<![\w-])lang\s*=\s*[\"']?([A-Za-z-]+)", re.I)
 
 
 def check_page(page: str, words: Iterable[str] = FORBIDDEN, lang: str | None = None) -> list[Hit]:
