@@ -13,12 +13,13 @@ It also reads the catalogues of user-visible text outside the console's i18n mod
 refusal sentences, the job mails with the report and PDF titles, the eligibility sheet, the opportunity board and
 the site-setup sheet's help), from the source with ``ast`` only.
 
-Matching: every text and every spelling is first folded to NFKC, so a full-width or half-width form (ｽﾎﾟﾝｻｰ,
-ｅｎｒｏｌｌ) is the same as the plain one. en is matched as whole words, ignoring case, a plural ``s``/``es`` included and
-a hyphen counting as a word boundary (``Sub-Is``, ``re-enroll`` and ``enrollment-based`` are found; ``enrolled`` and
-``sub-investigator`` are not); ja and zh-TW anywhere in the text, since they have no spaces. Before a word's refused spellings are looked for, its own spelling and its
-``allowed`` phrases are masked, so a refused spelling inside the right one (授權紀錄 inside 授權紀錄表) or inside a
-listed phrase (篩檢 inside 預篩檢查) is not a finding. The longest refused spelling is looked for first and masked
+Matching: every text and every spelling is first folded to NFKC, so a full-width or half-width form
+(ｽﾎﾟﾝｻｰ, ｅｎｒｏｌｌ) is the same as the plain one. en is matched as whole words, ignoring case, a plural
+``s``/``es`` included and a hyphen counting as a word boundary (``Sub-Is``, ``re-enroll`` and ``enrollment-based``
+are found; ``enrolled`` and ``sub-investigator`` are not); ja and zh-TW anywhere in the text, since they have no
+spaces. Before a word's refused spellings are looked for, its own spelling and its ``allowed`` phrases are masked,
+so a refused spelling inside the right one (授權紀錄 inside 授權紀錄表) or inside a listed phrase (篩檢 inside
+預篩檢查) is not a finding. The longest refused spelling is looked for first and masked
 when found, so 責任分担表 is one finding, not two.
 """
 
@@ -277,18 +278,20 @@ def _module_texts(rel: str, tree: ast.Module) -> list[ServiceText]:
                     continue
                 key = f"REFUSALS[{en!r}]"
                 out.append(ServiceText("en", key, en, f"{rel}:{k.lineno}" if k is not None else rel))
-                out += [ServiceText(lang, key, t, f"{rel}:{v.lineno}") for lang, t in zip(("ja", "zh-TW"), pair, strict=True)]
+                for lang, t in zip(("ja", "zh-TW"), pair, strict=True):
+                    out.append(ServiceText(lang, key, t, f"{rel}:{v.lineno}"))
             continue
         if len(keys) < 2 or not all(isinstance(k, str) and k in LANGS for k in keys):
             continue
-        for lang, v in zip(keys, value.values, strict=True):
+        for lk, v in zip(keys, value.values, strict=True):
+            lang_of = str(lk)
             if isinstance(v, ast.Dict):
                 for kk, vv in zip(v.keys, v.values, strict=True):
-                    key, text = (lit(kk) if kk is not None else None), lit(vv)
-                    if isinstance(key, str) and isinstance(text, str):
-                        out.append(ServiceText(lang, f"{name}.{key}", text, f"{rel}:{vv.lineno}"))
-            elif isinstance(text := lit(v), str):
-                out.append(ServiceText(lang, name, text, f"{rel}:{v.lineno}"))
+                    inner, words = (lit(kk) if kk is not None else None), lit(vv)
+                    if isinstance(inner, str) and isinstance(words, str):
+                        out.append(ServiceText(lang_of, f"{name}.{inner}", words, f"{rel}:{vv.lineno}"))
+            elif isinstance(one := lit(v), str):
+                out.append(ServiceText(lang_of, name, one, f"{rel}:{v.lineno}"))
     return out
 
 

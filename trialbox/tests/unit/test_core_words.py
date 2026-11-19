@@ -199,7 +199,9 @@ def test_an_empty_or_malformed_file_is_one_plain_problem(tmp_path: Any, text: st
     assert any(says in p for p in out) and all("\n" not in p for p in out), out
 
 
-def test_the_null_refused_file_gives_a_problem_line_through_the_whole_check(tmp_path: Any, data: dict[str, Any]) -> None:
+def test_the_null_refused_file_gives_a_problem_line_through_the_whole_check(
+    tmp_path: Any, data: dict[str, Any]
+) -> None:
     import yaml
 
     d = copy.deepcopy(data)
@@ -234,7 +236,9 @@ def test_the_command_on_a_broken_file_exits_non_zero_without_a_traceback(tmp_pat
         ("zh-TW", "癌症篩檢的結果不影響收案。", "篩檢"),  # cancer screening, the ordinary word
     ],
 )
-def test_an_allowed_ordinary_word_is_not_reported(data: dict[str, Any], lang: str, text: str, refused_inside: str) -> None:
+def test_an_allowed_ordinary_word_is_not_reported(
+    data: dict[str, Any], lang: str, text: str, refused_inside: str
+) -> None:
     assert cw.refused([Row(lang, "x", text)], data) == []
     without = copy.deepcopy(data)
     for w in without["words"]:
