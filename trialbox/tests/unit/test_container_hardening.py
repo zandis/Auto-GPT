@@ -69,7 +69,7 @@ def _has(body: dict[str, Any], control: str) -> bool:
     if control == "read_only":
         return body.get("read_only") is True
     m = NUMERIC_USER.match(str(body.get("user") or ""))
-    return bool(m) and m.group(1) != "0" and m.group(2) != "0"
+    return m is not None and m.group(1) != "0" and m.group(2) != "0"
 
 
 def problems(services: dict[str, dict[str, Any]], profiles: tuple[str, ...]) -> list[str]:
