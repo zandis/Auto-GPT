@@ -86,7 +86,7 @@ def dump(root: Path, out: Path, work: Path, source: str) -> int:
         for b in built:
             base = out / b.name
             for name in SCHEMAS:
-                t = pq.read_table(b.lake / "parquet" / f"snapshot={b.snapshot}" / f"{name}.parquet")
+                t = pq.read_table(b.lake / "parquet" / f"snapshot={b.snapshot}" / f"{name}.parquet", use_threads=False)
                 _write(base / "tables" / f"{name}.jsonl.gz", t.to_pylist())
             con = duckdb.connect(str(b.lake / "db" / f"{b.snapshot}.duckdb"), read_only=True)
             try:
