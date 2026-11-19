@@ -62,7 +62,7 @@
 <section class="card" data-testid="life-visits">
 <h2>{{ t('life.visits.title') }}</h2>
 {% if not one.visits %}<p class="empty">{{ t('life.visits.none_scheduled') }} <a href="/studies/{{ rs }}/schedule">{{ t('life.to.schedule') }}</a></p>{% else %}
-{% set pf = request is defined and request.state is defined and request.state.phone_first %}<div class="scroll" tabindex="0"><table class="candidates{{ ' pf-cards' if pf else ' stack' }}">
+{% set pf = request is defined and request.state is defined and request.state.phone_first %}<div class="scroll" tabindex="0"><table class="candidates{{ ' pf-cards' if pf else '' }}">
 <thead><tr><th>{{ t('life.col.visit') }}</th><th>{{ t('life.col.status') }}</th><th>{{ t('life.col.window') }}</th><th><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>
 <tbody>{% for v in one.visits %}<tr data-testid="sv-{{ v.visit }}" data-status="{{ v.status }}">
 <td{% if pf %} data-label="{{ t('life.col.visit') }}"{% endif %}>{{ vlabel(v) }}</td>
@@ -93,7 +93,7 @@
 <section class="card" data-testid="life-trail">
 <h2>{{ t('life.trail.title') }}</h2>
 <p class="hint">{{ t('life.trail.help') }}</p>
-{% set pf = request is defined and request.state is defined and request.state.phone_first %}<div class="scroll" tabindex="0"><table class="candidates{{ ' pf-cards' if pf else ' stack' }}">
+{% set pf = request is defined and request.state is defined and request.state.phone_first %}<div class="scroll" tabindex="0"><table class="candidates{{ ' pf-cards' if pf else '' }}">
 <thead><tr><th>{{ t('life.col.day') }}</th><th>{{ t('life.col.step') }}</th><th>{{ t('life.col.who') }}</th><th>{{ t('life.col.source') }}</th><th>{{ t('life.col.note') }}</th></tr></thead>
 <tbody>{% for s in one.steps %}<tr data-testid="step-{{ s.id }}">
 <td class="nowrap"{% if pf %} data-label="{{ t('life.col.day') }}"{% endif %}>{{ s.on_day }}</td>
