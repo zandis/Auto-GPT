@@ -57,6 +57,9 @@ closed). Checks:
   map's: an opt-out registered by such a service would be filed under a pseudonym the feed never produces. Where
   the running containers or the pid map were not read (no docker, no database from here) the line says NOT CHECKED
   and is a WARN on a box that may hold real data; ``deploy/check_host.sh`` hands both in to the doctor's container;
+* ``negated_inclusions`` (card 10A-1): an approved ruleset on ``main`` with an inclusion whose line may negate what
+  its logic asks the presence of is a WARN that names it: it keeps running until a person recompiles and approves
+  it. Read-only; NOT CHECKED without a ruleset repository or the compiler package;
 * ``key_custody`` (T-210b, CR-041, D-347): the site keys are wrapped under the KEK (``tb_common.kek``). FAIL when a key
   is both plain and wrapped, a wrapped key has no ``kek.json`` or names another KEK, the KEK file is in the secrets
   folder or is not this box's KEK, or (in VALIDATION and PRODUCTION) a site key is a plain file; WARN for a plain key
@@ -1989,6 +1992,30 @@ def check_provenance_index(inp: DoctorInputs) -> Check:
     return Check("provenance_index", "PASS", "equal to the audit chain")
 
 
+def check_negated_inclusions(inp: DoctorInputs) -> Check:
+    """Card 10A-1: the approved rulesets on ``main`` with an inclusion whose line may negate what its logic asks the
+    presence of ("No prior chemotherapy" approved as "any of chemotherapy" before the compiler held such lines). Such
+    a line keeps running until a person recompiles the protocol and approves the draft, where it comes back held.
+    WARN naming each (ruleset, version, criterion); the check changes nothing. No repository here, or no compiler
+    package in this image, is NOT CHECKED (``make negated-inclusion-scan`` on the box)."""
+    path = Path(str(inp.env.get("TB_RULESETS_DIR") or "/data/rulesets"))
+    if not (path / ".git").exists():
+        return Check("negated_inclusions", "PASS", f"NOT CHECKED: no ruleset repository at {path}")
+    try:
+        from criteria_compiler.negated_inclusions import scan
+        from criteria_compiler.repo import RulesetRepo
+    except ImportError:
+        return Check("negated_inclusions", "PASS", "NOT CHECKED: the compiler is not in this image "
+                     "(make negated-inclusion-scan)")  # fmt: skip
+    hits = scan(RulesetRepo(path))
+    if not hits:
+        return Check("negated_inclusions", "PASS", "no approved inclusion negates what its logic asks")
+    named = "; ".join(f"{h.ruleset} v{h.version} {h.criterion}" for h in hits[:20])
+    more = f" and {len(hits) - 20} more" if len(hits) > 20 else ""
+    return Check("negated_inclusions", "WARN", f"{len(hits)} approved inclusion(s) may negate what their logic asks "
+                 f"and keep running until recompiled and approved: {named}{more}")  # fmt: skip
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -2027,6 +2054,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_backup_speed,
     check_terminology,
     check_provenance_index,
+    check_negated_inclusions,
 )
 
 
