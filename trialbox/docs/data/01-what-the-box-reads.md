@@ -83,8 +83,11 @@ pins any of it as right:
   such a name is not the coded name and its modifiers, and reads as unknown. No word list is kept.
 - The modifier classes 4 経過表現 and 5 状態表現 read as unknown even where a modifier leaves the diagnosis current:
   the master's documentation defines no finer class than the second character of 修飾語区分.
-- The unknown reading of a record with no version in force covers PPR-01 and OMP-01/02; ADT and OML-11 keep the
-  earlier reading (set aside or skipped), and an OML-11 order number on several days is counted only.
+- **Scope:** the unknown reading of a record with no version in force (D-1252 P3 to P6) applies to PPR-01, OMP-01
+  and OMP-02 only. The other types read keep #1095's reading: ADT-00, ADT-12, ADT-22 and ADT-52 (a newest file of
+  flag 2 is set aside; a newest file that cannot be read is skipped, so a visit stored on an earlier night stays as
+  it was), OMP-11 and OMP-12 (administrations, the same), OML-11 (the same; an order number on several days is
+  counted only), and the extended storage's documents (versioned by content folder, as before).
 - Encoding cases that cannot be told from valid text: EUC-JP bytes under a Shift_JIS declaration that decode as
   half-width katakana (lead bytes below 0xE0); a lead byte cut before `^`, `~`, `\` or an ASCII letter (it forms a
   valid character); one byte dropped in the middle of a name; EUC-JP declared as UTF-8 and the reverse only when the
