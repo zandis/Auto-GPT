@@ -176,8 +176,13 @@ def check_site_key(cfg: AdapterConfig, key: bytes) -> str:
 def check_id_rule(cfg: AdapterConfig) -> None:
     """D-1253: refuse the night, before anything is read or written, when the lake or a store this role reads holds
     lake ids of an earlier rule (:mod:`tb_common.id_rule`): the lake's snapshots, the OMOP store of record and the
-    derived store. The stores the adapter's role does not read (D-378: vec, the patient twin, the candidate pool, the
-    EDC drafts) refuse at their own first write. :class:`tb_common.id_rule.IdRuleError` names what holds old ids."""
+    derived store. :class:`tb_common.id_rule.IdRuleError` names what holds old ids.
+
+    Review round 3: the adapter's role is meant to read the OMOP and the derived store, so a rule it cannot read
+    there ("not readable": no privilege, or the probe failed) refuses the night as an old rule does. The stores the
+    adapter's role is not meant to read (D-378: vec, the patient twin, the candidate pool, the EDC drafts) are never
+    probed here: for them "not readable" is expected, and each refuses at its own first write
+    (:func:`tb_common.id_rule.ensure`)."""
     from tb_common import id_rule
 
     old: list[str] = []
@@ -205,7 +210,10 @@ def check_id_rule(cfg: AdapterConfig) -> None:
                 raise id_rule.IdRuleError(
                     [f"the {store.name} store (its id rule could not be read: {type(exc).__name__})"]
                 ) from exc
-            if state == id_rule.OLD:
+            if state == id_rule.UNREAD:  # a store this role reads, whose rule it cannot read: never let through
+                log.error("id rule of %s not readable by this role", store.name)
+                old.append(f"the {store.name} store (its id rule is not readable by this role)")
+            elif state == id_rule.OLD:
                 old.append(f"the {store.name} store")
             elif state == id_rule.NEWER:
                 newer.append(f"the {store.name} store")
@@ -1023,11 +1031,9 @@ def _run_ingest(
     removed: dict[str, int] = {}
     carried_moved: dict[str, int] = {}
     collisions: dict[str, int] = {}  # D-1253: two of tonight's rows, one id, other content
-    refiled: dict[str, int] = {}  # D-1253 review C: a site-unique number given again under another patient
     full_counts = write_snapshot(
         out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed,
         aliases=aliases if base is not None else None, moved=carried_moved, collisions=collisions,
-        refiled=refiled,
     )  # fmt: skip
     # D-1253: order-free, over the merged snapshot, in bounded memory
     absent = absent_links(out_dir, site_wide=mapping.site_wide if mapping is not None else ())
@@ -1060,8 +1066,6 @@ def _run_ingest(
         completeness["id_collisions"] = dict(sorted(collisions.items()))
     if absent:  # D-1253: links to a patient's record the snapshot does not hold, per table and type
         completeness["links_to_absent_records"] = absent
-    if refiled:  # D-1253 review C: a record of a site-unique number, given again under another patient
-        completeness["moved_to_another_patient"] = dict(sorted(refiled.items()))
     (out_dir / COMPLETENESS).write_text(
         json.dumps(completeness, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -1309,7 +1313,6 @@ def _run_ingest(
                 # D-1253: two of tonight's rows with one id and other content (the last kept), per record type; links
                 # by number left out because the number was only another patient's; deletes that named no patient
                 "id_collisions": dict(sorted(collisions.items())) or None,
-                "moved_to_another_patient": dict(sorted(refiled.items())) or None,
                 "links_to_absent_records": {t: sum(by.values()) for t, by in sorted(absent.items())} or None,
                 "rejected_no_patient": {
                     t: v["rejected_no_patient"] for t, v in sorted(tables.items()) if v.get("rejected_no_patient")
@@ -2040,19 +2043,19 @@ ID_RULE_ASIDE = "id_rule_1"
 def _prune_aside(lake_dir: Path, today: date, months: int) -> list[str]:
     """D-1253: a month-end of the earlier id rule, kept aside by the one rebuild and never read, goes when retention
     no longer keeps it, as any month-end does. Returns the snapshots that went."""
+    from tb_common.id_rule import snapshot_names
     from tb_common.retention import snapshots_to_keep
 
     aside = lake_dir / "id_rule_1"  # ID_RULE_ASIDE, spelt out: the erasure registry's scan reads the name here
-    nd = aside / "ndjson"
-    snaps = sorted(p.name for p in nd.iterdir() if p.is_dir()) if nd.is_dir() else []
+    snaps = sorted(snapshot_names(aside))  # every place: a month-end may be kept aside without its NDJSON
     keep = snapshots_to_keep(snaps, today, 0, months)
     gone = []
     for s in snaps:
         if s in keep:
             continue
-        shutil.rmtree(nd / s, ignore_errors=True)
+        shutil.rmtree(aside / "ndjson" / s, ignore_errors=True)
         shutil.rmtree(aside / "parquet" / f"snapshot={s}", ignore_errors=True)
-        for f in (aside / "db").glob(f"{s}.duckdb*"):
+        for f in [*(aside / "db").glob(f"{s}.duckdb*"), *(aside / "db" / "gen").glob(f"{s}.g*")]:
             f.unlink(missing_ok=True)
         gone.append(s)
     return gone

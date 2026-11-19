@@ -383,74 +383,26 @@ def test_a_merged_chart_keeps_its_records_under_its_own_ids_now_the_surviving_pa
     assert all(PID[A] not in json.dumps(r) for rs in held.values() for r in rs)
 
 
-def _night_mapper(path: Path) -> Mapper:
-    """A mapper as the night builds it: each record says its source row (``meta.source``), as the counts read it."""
-    from adapter.pipeline import ingest_instant
-
-    m = Mapping.load(path)
-    return Mapper(m, KEY, "T", ingest_instant("2026-10-01", m.tz))
-
-
-def _unique_site(tmp_path: Path) -> Path:
-    return _site(tmp_path, [{"type": "Condition", "table": "thing", "id": {"hid": "no", "unique": "site"},
-                             "elements": SUBJECT}])  # fmt: skip
-
-
-def test_a_number_declared_unique_across_the_site_is_one_record_whichever_patient_names_it(tmp_path: Path) -> None:
-    """``id: {hid: no, unique: site}``: the source guarantees the number is the site's, so a record re-filed to
-    another chart keeps its id (``<type>|<number>``) and moves; the snapshot merge counts it."""
-    from adapter.mapping.engine import resource_id
-    from adapter.ndjson import write_snapshot
-
-    mp = _night_mapper(_unique_site(tmp_path))
-    (a,) = list(mp.map_table("thing", iter([{"no": "N1", "mrn": A}])))
-    (b,) = list(mp.map_table("thing", iter([{"no": "N1", "mrn": B}])))
-    assert a["id"] == b["id"] == resource_id(KEY, "Condition", "N1")
-    other = list(mp.map_table("thing", iter([{"no": "N2", "mrn": A}])))
-    write_snapshot(tmp_path / "s1", {"Condition": [a, *other]})
-    refiled: dict[str, int] = {}
-    write_snapshot(tmp_path / "delta", {"Condition": [b]}, base=tmp_path / "s1", refiled=refiled)
-    write_snapshot(tmp_path / "full", {"Condition": [b, *other]})
-    assert refiled == {"thing": 1}  # per source table, as the night's other table counts
-    assert (tmp_path / "delta/Condition.ndjson").read_text() == (tmp_path / "full/Condition.ndjson").read_text()
-    again: dict[str, int] = {}
-    write_snapshot(tmp_path / "same", {"Condition": [a]}, base=tmp_path / "s1", refiled=again)
-    assert again == {}
-
-
-def test_a_wrong_unique_site_declaration_shows_in_the_counts_when_two_patients_share_a_number(tmp_path: Path) -> None:
-    """The lane lead's condition on ``unique: site``: a wrong declaration is the original fault again, so it must show.
-    Patients A and B genuinely share number N1, under a mapping that wrongly says N1 is the site's. The same night
-    counts a collision (two rows, one id, other content); a night that sends B's N1 over a snapshot holding A's
-    counts a move. Both reach the night's counts and the console card."""
-    from adapter.ndjson import write_snapshot
-
-    mp = _night_mapper(_unique_site(tmp_path))
-    rows_a = list(mp.map_table("thing", iter([{"no": "N1", "mrn": A}])))
-    rows_b = list(mp.map_table("thing", iter([{"no": "N1", "mrn": B}])))
-    clashes: dict[str, int] = {}
-    write_snapshot(tmp_path / "one-night", {"Condition": [*rows_a, *rows_b]}, collisions=clashes)
-    assert clashes == {"Condition": 1}
-    write_snapshot(tmp_path / "s1", {"Condition": rows_a})
-    moved: dict[str, int] = {}
-    write_snapshot(tmp_path / "s2", {"Condition": rows_b}, base=tmp_path / "s1", refiled=moved)
-    assert moved == {"thing": 1}
-    from console import dataops_page
-
-    got = dataops_page.ids_of({"id_collisions": clashes, "moved_to_another_patient": moved})
-    assert ("moved", "thing", 1) in got and ("collisions", "Condition", 1) in got
-
-
-def test_an_undeclared_number_re_filed_to_another_patient_is_corrected_by_the_next_full_night(tmp_path: Path) -> None:
-    """Undeclared (the default: per patient), a record the source moves to another chart is a new record of that
-    patient; a delta night keeps the first patient's until the next full night, which holds the moved one only."""
+def test_a_record_re_filed_to_another_chart_is_corrected_by_the_next_full_night_not_by_a_delta(tmp_path: Path) -> None:
+    """The stated limit (D-1253 round 3; ``unique: site`` is no choice): a record the hospital re-files from chart A
+    to chart B is a new record of B. A delta night does not see that A's copy left (the delta sends changed rows
+    only), so the lake holds both until the next full night, which holds B's only. Pinned, not hidden: the night
+    deletes and links within one patient only, so A's stale copy never takes B's place or B's links."""
     moved = canonical(A)
     moved["diagnosis"] = []
     to_b = canonical(B)
     rows = {t: moved[t] + (to_b[t] if t in ("patient", "diagnosis") else []) for t in moved}
     night(tmp_path, "csv", canonical(A), "2026-10-01")
-    night(tmp_path, "csv", rows, "2026-10-02")
-    conditions = lake(tmp_path, "2026-10-02")["Condition"]
+    delta = {t: (to_b[t] if t in ("patient", "diagnosis") else []) for t in moved}
+    for r in delta["diagnosis"]:
+        r["updated_at"] = "2026-10-02"  # changed at the source: a delta sends it
+    rep = night(tmp_path, "csv", delta, "2026-10-02", since="2026-10-01")
+    assert not rep.errors, rep.errors
+    stale = lake(tmp_path, "2026-10-02")["Condition"]
+    assert sorted(min(owner(c)) for c in stale) == sorted([PID[A], PID[B]])  # A's stale copy and B's, each its own
+    assert all(len(owner(c)) == 1 for c in stale)
+    night(tmp_path, "csv", rows, "2026-10-03")
+    conditions = lake(tmp_path, "2026-10-03")["Condition"]
     assert [owner(c) for c in conditions] == [{PID[B]}]
 
 
@@ -573,12 +525,24 @@ STAFF = {"performer.reference": {"ref": {"type": "Practitioner", "hid": "staff_i
         # one type, two id rules
         ([{"type": "Device", "table": "thing", "id": {"hid": "no", "site_wide": True}, "elements": {}},
           {"type": "Device", "table": "thing", "id": {"hid": "no2"}, "elements": SUBJECT}], "id rules"),
-        # a suffix that would blur the parts of the HMAC input; a unique that is not 'site'
+        # a suffix that would blur the parts of the HMAC input
         ([{"type": "Condition", "table": "thing", "id": {"hid": "no", "suffix": "a|b"}, "elements": SUBJECT}], "suffix"),
-        ([{"type": "Condition", "table": "thing", "id": {"hid": "no", "unique": "ward"}, "elements": SUBJECT}], "unique"),
+        # round 3: unique is no choice at all (a site-wide id of a patient's record lets a delete, a link and a
+        # suffix reach another patient's record)
+        ([{"type": "Condition", "table": "thing", "id": {"hid": "no", "unique": "site"}, "elements": SUBJECT}],
+         "not a choice"),
+        ([{"type": "Encounter", "table": "thing", "id": {"hid": "no", "unique": "site"}, "elements": SUBJECT}],
+         "not a choice"),
+        # round 3: a site-wide id has no suffix, nor does a link to one
+        ([{"type": "Location", "table": "thing", "id": {"hid": "no", "site_wide": True, "suffix": "-W"},
+           "elements": {}}], "no suffix"),
+        ([{"type": "Location", "table": "practitioner", "id": {"hid": "staff_id", "site_wide": True}, "elements": {}},
+          {"type": "Encounter", "table": "thing", "id": {"hid": "no"},
+           "elements": {**SUBJECT, "location.0.location.reference": {"ref": {"type": "Location", "hid": "ward",
+                                                                              "suffix": "-W"}}}}], "no suffix"),
     ],
     ids=["column", "template", "patient-not-named", "site-names-patient-record", "practitioner", "site-drug-per-order",
-         "two-rules", "suffix", "unique"],
+         "two-rules", "suffix", "unique-site", "unique-site-encounter", "site-wide-suffix", "site-wide-link-suffix"],
 )  # fmt: skip
 def test_a_mapping_that_would_let_two_patients_share_an_id_is_refused_at_load(
     tmp_path: Path, resources: list[dict[str, Any]], words: str

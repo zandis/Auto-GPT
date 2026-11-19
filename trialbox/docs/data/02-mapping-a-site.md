@@ -26,17 +26,19 @@ a visit "E1" keep two visits of one patient.
 
 The loader refuses a mapping that could give a patient's record an id without its patient: `id: {column: ...}` on a
 patient's record, an `id.patient` the record does not name as its patient (`{ref: {type: Patient, pid: <col>}}`), a
-record of no patient that names a patient's record by number, and an `hid` id whose record names no patient and is
-not declared site-wide. A record of no patient says so: `id: {hid: <column>, site_wide: true}`. A clinician, an
+record of no patient that names a patient's record by number, an `hid` id whose record names no patient and is
+not declared site-wide, any `id.unique`, and a suffix on a site-wide id or on a link to one. A record of no patient says so: `id: {hid: <column>, site_wide: true}`. A clinician, an
 organisation, a place must; a drug, a device, a substance or a group may, unless a patient's record names it by
 number (then it is that patient's, per order).
 
-**Choosing `unique: site`.** Leave it out (the default) unless the source system guarantees that the number is
-unique across the whole site for that record type, for all time. Declared (`id: {hid: <column>, unique: site}`), the
-id is the number's alone: a record the source re-files to another chart keeps its id, moves to that patient, and is
-counted (`moved_to_another_patient`). Left out, a re-filed record is a new record of the new patient, and the old one
-stays under the first patient until the next full night. When unsure, leave it out: a wrong `unique: site` merges two
-patients' records, the fault D-1253 ends. The shipped mappings (`tw_core/demo_his.yaml`, `jp_core/ssmix2_site.yaml`,
-the CSV and SQL templates) declare none: their sources do not promise site-wide numbers.
+**A record the hospital re-files to another chart** (D-1253, review round 3) is a new record of that chart's patient,
+with that patient's id; there is no site-wide id for a patient's record, and the loader refuses `id.unique`. So a
+delete, a link and a suffix never reach another patient's record. The limit: a **delta night** (one asked for with
+`since`: `adapter run --since`, or an ingest job's `since` option) sends the changed rows only and cannot see that the
+row left the first chart, so the lake keeps the first patient's stale copy beside the new one until the next **full
+night**, which holds the new one only. The same holds after a chart merge when the hospital also re-files the
+absorbed chart's rows under the surviving chart: duplicate visits and diagnoses of one patient until the next full
+night. The box's scheduled night reads every table whole (it sends no `since`). A site that runs delta nights runs a
+full night, a scheduled night without `since`, at least once a week. There is no separate interval setting.
 
 A box that ran a release before D-1253 is rebuilt once (RUNBOOK §5, "Lake ids per patient").

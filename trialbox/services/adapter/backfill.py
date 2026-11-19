@@ -49,8 +49,9 @@ from zoneinfo import ZoneInfo
 from tb_common import feedguard
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import pid_for_mrn
+from tb_common.id_rule import IdRuleError
 
-from adapter.ndjson import is_deleted_flag, snapshot_dir
+from adapter.ndjson import absent_links, is_deleted_flag, snapshot_dir
 from adapter.pipeline import (
     COMPLETENESS,
     PASSED,
@@ -120,6 +121,9 @@ class BackfillReport:
     # D-1253 (review F), as the night counts them: per record type, two source rows with one id and other content
     # (the last kept); per table, rows rejected for no chart number, deleted rows that named no patient
     id_collisions: dict[str, int] = field(default_factory=dict)
+    # D-1253 (review round 3), as the night: per source table and type, links to a patient's record the snapshot does
+    # not hold (counted over the published snapshot)
+    links_to_absent_records: dict[str, dict[str, int]] = field(default_factory=dict)
     rejected_no_patient: dict[str, int] = field(default_factory=dict)
     deletes_without_patient: dict[str, int] = field(default_factory=dict)
     # D-535: rows with a value the mapping could not use, per table (the codes: unmapped_codes.json)
@@ -506,7 +510,19 @@ def backfill(
     refuse_future_night(snap, datetime.now(zone).date())  # D-529
     key = cfg.site_key()
     check_site_key(cfg, key)
-    check_id_rule(cfg)  # D-1253
+    try:  # D-1253: as the night, refused before anything is read or written, with one audit event saying why
+        check_id_rule(cfg)
+    except IdRuleError as exc:
+        log.error("back-fill refused: %s", exc)
+        if cfg.audit_dir:
+            open_audit(cfg.audit_dir, cfg.tz).append(
+                "ingest.backfill", snapshot=snap, actor="adapter",
+                detail={"state": "failed", "source": source_kind, "refused": "id_rule", "reason": str(exc)},
+            )  # fmt: skip
+        raise
+    from adapter.mapping.engine import Mapping
+
+    site_wide = frozenset() if source_kind == "fhir_bulk" else Mapping.load(cfg.mapping_path).site_wide
     work = work_dir or cfg.lake_dir / "backfill" / snap
     work.mkdir(parents=True, exist_ok=True)
     spool, runs = work / "spool", work / "runs"
@@ -604,7 +620,18 @@ def backfill(
                     on_bucket(bucket)
             rep.done.append(bucket)
             if i == publish_at and i < len(rep.years) and not rep.errors and not _published(cfg, snap, rep.done):
-                _publish(cfg, rep, work, runs, list(rep.done), validate, validator, rebuild_lake, final=False)
+                _publish(
+                    cfg,
+                    rep,
+                    work,
+                    runs,
+                    list(rep.done),
+                    validate,
+                    validator,
+                    rebuild_lake,
+                    final=False,
+                    site_wide=site_wide,
+                )
                 if rep.state == "held":
                     break
     except BackfillStop:
@@ -615,7 +642,9 @@ def backfill(
     if rep.errors and rep.state != "held":
         rep.state = "held"
     elif rep.state != "held":
-        _publish(cfg, rep, work, runs, list(rep.done), validate, validator, rebuild_lake, final=True)
+        _publish(
+            cfg, rep, work, runs, list(rep.done), validate, validator, rebuild_lake, final=True, site_wide=site_wide
+        )
     rep.seconds = round(time.perf_counter() - t0, 2)
     _progress(work, rep, rep.state)
     _audit(cfg, rep)
@@ -642,8 +671,10 @@ def _publish(
     rebuild_lake: bool,
     *,
     final: bool,
+    site_wide: frozenset[str] = frozenset(),
 ) -> None:
-    """Phase 3: the done years as the snapshot's NDJSON, checked, loaded and rebuilt (see the module docstring)."""
+    """Phase 3: the done years as the snapshot's NDJSON, checked, loaded and rebuilt (see the module docstring).
+    ``site_wide``: the mapping's types of no patient (``Mapping.site_wide``), never counted as an absent link."""
     snap = rep.snapshot
     _progress(work, rep, f"publish {'all' if final else 'first'} years")
     stage = work / "publish"
@@ -651,6 +682,7 @@ def _publish(
     clashes: dict[str, int] = {}
     counts = _write_merged(runs, buckets, stage, clashes)
     rep.id_collisions = clashes  # D-1253 review F: over the years of this publish
+    rep.links_to_absent_records = absent_links(stage, site_wide=site_wide)  # D-1253 round 3: as the night counts
     years = [b for b in buckets if b != BASE]
     _atomic_json(stage / REPORT, {"snapshot": snap, "years": years, "complete": final})
     # D-535: the snapshot's completeness record and its unknown codes, as a night's snapshot has them. The table
@@ -663,6 +695,8 @@ def _publish(
         completeness["first_load"] = {"years": years, "complete": final}
         if clashes:  # D-1253: as a night's completeness record has them
             completeness["id_collisions"] = dict(sorted(clashes.items()))
+        if rep.links_to_absent_records:
+            completeness["links_to_absent_records"] = rep.links_to_absent_records
         _atomic_json(stage / COMPLETENESS, completeness)
     if facts.get("unmapped_codes"):
         _atomic_json(stage / UNMAPPED_CODES, facts["unmapped_codes"])
@@ -739,6 +773,8 @@ def _audit(cfg: AdapterConfig, rep: BackfillReport) -> None:
             "counts": rep.counts,
             "rejected": rep.rejected or None,
             "id_collisions": rep.id_collisions or None,  # D-1253 review F: as the night's detail
+            "links_to_absent_records": {t: sum(by.values()) for t, by in sorted(rep.links_to_absent_records.items())}
+            or None,
             "rejected_no_patient": rep.rejected_no_patient or None,
             "deletes_without_patient": rep.deletes_without_patient or None,
             "errors": rep.errors or None,

@@ -30,6 +30,7 @@ keeps such ids and was written under rule 1 would hold ids no rule-2 night gives
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -196,6 +197,16 @@ def check_snapshot(directory: Path, what: str) -> None:
         raise IdRuleError([what])
 
 
+def open_snapshot(directory: Path, what: str | None = None) -> Path:
+    """D-1253 review round 3: the one way a lake snapshot's NDJSON is opened to be read. Every entry point goes
+    through it (D-1253 lists them): the night and the back-fill (their base), the lake build
+    (``lake.store.Lake._source_or_refuse``), the OMOP load (``python -m omop load``, ``adapter.dual_write``), the
+    FHIR load (``adapter.load_fhir.load_snapshot``) and the snapshot validation (``adapter.validate.jpcore``).
+    Refuses (:class:`IdRuleError`) a snapshot of another rule; returns ``directory``."""
+    check_snapshot(directory, what or f"the lake snapshot {directory.name}")
+    return directory
+
+
 def old_snapshots(ndjson_root: Path) -> list[str]:
     """The snapshots under ``ndjson_root`` (``<lake>/ndjson``) whose ids are not :data:`RULE`'s."""
     if not ndjson_root.is_dir():
@@ -203,3 +214,19 @@ def old_snapshots(ndjson_root: Path) -> list[str]:
     return sorted(
         p.name for p in ndjson_root.iterdir() if p.is_dir() and not p.name.startswith(".") and snapshot_rule(p) != RULE
     )
+
+
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def snapshot_names(root: Path) -> set[str]:
+    """Every snapshot (an ISO date) ``root`` holds in any of its places: the NDJSON folder, the DuckDB file and its
+    generations, the Parquet folder. A month-end may be served with no NDJSON (the byte budget takes the NDJSON
+    first: NEW-B-38), and a rebuild cut short may have moved one part of it and not the others."""
+    found: set[str] = set()
+    if (root / "ndjson").is_dir():
+        found |= {p.name for p in (root / "ndjson").iterdir() if p.is_dir()}
+    found |= {p.name[: -len(".duckdb")] for p in (root / "db").glob("*.duckdb")}
+    found |= {p.name.split(".g", 1)[0] for p in (root / "db" / "gen").glob("*.g*")}  # <s>.g<n>.duckdb, .json
+    found |= {p.name.split("=", 1)[1] for p in (root / "parquet").glob("snapshot=*") if p.is_dir()}
+    return {s for s in found if _DATE.fullmatch(s)}

@@ -7,8 +7,9 @@ rebuilt once, from its sources, after the update and with the services stopped:
     python -m tools.id_rule_rebuild --lake /data/lake          # the plan: what is kept, moved, cleared; changes nothing
     python -m tools.id_rule_rebuild --lake /data/lake --yes    # does it; the first night after it is a full night
 
-**Before anything.** It refuses, changing nothing, unless the writers are stopped. It checks this itself and does
-not trust the runbook:
+**Before anything.** It refuses, changing nothing, when a later release wrote anything on the box (a snapshot, a store
+or an EDC study of a rule above this one, or a snapshot record that cannot be read): "update the box" (:func:`newer`).
+It refuses, changing nothing, unless the writers are stopped. It checks this itself and does not trust the runbook:
 
 - it takes the adapter's run lock, so no night runs during it and none can start;
 - no lake build runs;
@@ -19,15 +20,16 @@ It holds the lake lock for the whole lake part.
 **What it never deletes**: what cannot be made again or what a person decided.
 
 - The month-end snapshots that retention keeps are **moved aside** to ``<lake>/id_rule_1/``, where no reader looks.
-  They are kept, not read, and pruned there by retention as before.
+  They are kept, not read, and pruned there by retention as before. Each is chosen from every place a snapshot is
+  (:func:`tb_common.id_rule.snapshot_names`) and moved whole, one file or folder at a time (:func:`_parts`).
 - Each resolved conflict of the derived store, with the score row it names, is **kept**. It is marked ``id_rule =
   1`` and its row is superseded, so screening never reads it again.
 - EDC's trail stays: append-only, D-281.
 - The site key, the pid map, the site set-up's facts, the embedding cache and the FHIR ledger stay. The ledger is how
   the next load deletes the old ids from fhir-store.
 
-**What it clears**, in this order. A crash after any step leaves a box that serves nothing of the old rule, and a
-second run finishes the work.
+**What it clears**, in this order. A crash after any step, or between any two moves aside, loses nothing kept and
+leaves a box that serves nothing of the old rule, and a second run finishes the work.
 
 1. **Moved aside**: the month-end snapshots (above).
 2. **What is served**: ``CURRENT``, the DuckDB and Parquet copies, the job holds. From here no reader serves an old
@@ -42,12 +44,13 @@ second run finishes the work.
      (above) stay.
    - the note chunks, the twin's documents and the pool.
    - the data-ops records of what each artefact was built from (``built``, ``built_kept``).
-   - in EDC, the open drafts of each rule-1 study that has no trail. The plan lists them by count. Such a study is
-     then stamped rule 2.
+   - in EDC, the open drafts of each rule-1 study that is not frozen. The plan lists them by count. Such a study is
+     then stamped rule 2; a decided value that cites no lake row stays as it is.
 
    Each store is stamped rule 2 in the same transaction.
 
-A rule-1 EDC study with a decided, signed or sent value stays **frozen**. The plan and the rebuild name it, with its
+A rule-1 EDC study with a decided, signed or sent value that cites a lake row stays **frozen** (EDC's own
+definition, ``edc.store.cites_old_rows``). The plan and the rebuild name it, with its
 count and its ODM export. No removal is offered.
 
 Published job outputs and the audit chain are not touched. The rebuild writes one audit event of a kind the box
@@ -96,12 +99,6 @@ COUNTS: dict[str, tuple[str, ...]] = {
     "orch": ("pool",),
 }
 OMOP_FEED = "source_kind = 'feed' AND resource_type <> 'Patient'"
-#: EDC: a draft's trail is every append-only table with a ``draft_id`` (read from the schema, so a trail table added
-#: later is never missed) and the draft's own decided, signed or sent marks
-EDC_TRAIL_TABLES = (
-    "SELECT DISTINCT table_name FROM information_schema.columns WHERE table_schema = current_schema() AND "
-    "column_name = 'draft_id' AND table_name <> 'draft' ORDER BY table_name"
-)
 #: the derived conflicts a person resolved, and every conflict they were carried from: kept
 KEPT_CONFLICTS = (
     "WITH RECURSIVE k(id) AS (SELECT id FROM conflict WHERE resolution IS NOT NULL UNION SELECT c.carried_from FROM "
@@ -153,27 +150,90 @@ def _snapshots(lake: Path) -> list[str]:
 def month_ends(lake: Path, today: date) -> list[str]:
     """Every completed month's month-end snapshot (not the nightly ones): moved aside, never deleted. Every month, not
     only those the site's retention keeps: the nightly prune applies the site's own setting to the aside folder
-    (``adapter.pipeline._prune_aside``), so nothing the site keeps is lost here."""
+    (``adapter.pipeline._prune_aside``), so nothing the site keeps is lost here.
+
+    Chosen from every place a snapshot is (:func:`snapshot_names`) and from what an earlier run, cut short, moved
+    aside already: a month keeps its own month-end, never a second one, and a part already aside never makes the
+    parts left behind look like a nightly snapshot to clear (review round 3)."""
     from tb_common.retention import snapshots_to_keep
 
-    snaps = _snapshots(lake)
     months = 12 * 100  # every completed month on the box
-    # with what an earlier run (cut short) moved already: a month keeps its own month-end, never a second one
-    return sorted(snapshots_to_keep(set(snaps) | set(_aside(lake)), today, 0, months) & set(snaps))
+    return sorted(
+        snapshots_to_keep(id_rule.snapshot_names(lake) | id_rule.snapshot_names(lake / ASIDE), today, 0, months)
+    )
+
+
+def _parts(lake: Path, s: str) -> list[tuple[Path, Path]]:
+    """Every file and folder of the snapshot ``s`` under the lake, each with its place under ``id_rule_1``: the NDJSON
+    folder, the Parquet folder, the DuckDB file and its sidecars (``.sha256``, ``.source``, ``.siteonly``), and its
+    generations' files and records (``db/gen/<s>.g<n>.*``)."""
+    to = lake / ASIDE
+    parts = [(lake / "ndjson" / s, to / "ndjson" / s), (lake / "parquet" / f"snapshot={s}",
+             to / "parquet" / f"snapshot={s}")]  # fmt: skip
+    parts += [(f, to / "db" / f.name) for f in sorted((lake / "db").glob(f"{s}.duckdb*"))]
+    parts += [(f, to / "db" / "gen" / f.name) for f in sorted((lake / "db" / "gen").glob(f"{s}.g*"))]
+    return parts
+
+
+def newer(lake: Path, url: str | None) -> list[str]:
+    """What a later release wrote (empty: the rebuild may run): a snapshot whose record says a rule above this one's
+    or cannot be read (a snapshot of rule 1 has no record), a store or an EDC study stamped by a later release. The
+    rebuild never treats them as rule 1: the box is updated instead (review round 3)."""
+    found: list[str] = []
+    for folder in ("ndjson", "ndjson-rerun", "backfill", f"{ASIDE}/ndjson"):
+        root = lake / folder
+        if not root.is_dir():
+            continue
+        for snap in sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")):
+            rule = id_rule.snapshot_rule(snap)
+            if rule > id_rule.RULE:
+                found.append(f"the lake snapshot {folder}/{snap.name} is of id rule {rule}")
+            elif rule == 0:
+                found.append(f"the lake snapshot {folder}/{snap.name} has an id-rule record that cannot be read")
+    if not url:
+        return found
+    from omop.schema import schema_for
+    from tb_common.db import Database, split_url
+
+    present = _schemas(url)
+    omop_url = _omop_url(url) or url
+    for store in id_rule.STORES:
+        where = omop_url if store is id_rule.OMOP else url
+        name = schema_for(lake) if store is id_rule.OMOP else store.schema
+        if id_rule.probe(where, store, name) == id_rule.NEWER:
+            found.append(f"the {store.name} store is stamped by a later release")
+    if split_url(url)[1] + "edc" in present:
+        with Database.connect(url, "edc") as db:
+            if _has(db, "tb_id_rule_study"):
+                ahead = db.fetchall("SELECT study, rule FROM tb_id_rule_study WHERE rule > ? ORDER BY study",
+                                    (id_rule.RULE,))  # fmt: skip
+                found += [f"the EDC study {s} is stamped id rule {r}" for s, r in ahead]
+    return found
 
 
 def _omop_url(url: str | None) -> str | None:
     return os.environ.get("TB_OMOP_DB_URL") or url
 
 
-def _edc_clauses(db: Any) -> str:
-    """The trail of ``draft d``, as SQL."""
-    trail = " OR ".join(
-        f"EXISTS (SELECT 1 FROM {t} x WHERE x.draft_id = d.id)" for (t,) in db.fetchall(EDC_TRAIL_TABLES)
-    )
-    return "(d.fate IN ('confirmed', 'edited') OR d.signature_id IS NOT NULL OR d.sent_at IS NOT NULL" + (
-        f" OR {trail})" if trail else ")"
-    )
+def _edc_tables(db: Any) -> tuple[str, ...]:
+    """The trail tables (``edc.store.TRAIL_TABLES``) this EDC store has."""
+    from edc.store import TRAIL_TABLES
+
+    return tuple(t for t in TRAIL_TABLES if _has(db, t))
+
+
+def _edc_frozen(db: Any, d: str = "d") -> str:
+    """A draft that freezes its study: EDC's own definition (``edc.store.cites_old_rows``), never a second one."""
+    from edc.store import cites_old_rows
+
+    return cites_old_rows(d, _edc_tables(db))
+
+
+def _edc_open(db: Any, d: str = "d") -> str:
+    """An open draft (no trail): EDC's own definition (``edc.store.has_trail``)."""
+    from edc.store import has_trail
+
+    return f"NOT {has_trail(d, _edc_tables(db))}"
 
 
 def _edc_old(db: Any) -> str:
@@ -185,11 +245,11 @@ def _edc_old(db: Any) -> str:
 
 
 def _edc_plan(db: Any) -> dict[str, Any]:
-    trail, old = _edc_clauses(db), _edc_old(db)
-    frozen = db.fetchall(f"SELECT d.study, count(*) FROM draft d WHERE {trail} AND {old} GROUP BY d.study "
+    frozen_q, open_q, old = _edc_frozen(db), _edc_open(db), _edc_old(db)
+    frozen = db.fetchall(f"SELECT d.study, count(*) FROM draft d WHERE {frozen_q} AND {old} GROUP BY d.study "
                          "ORDER BY d.study")  # fmt: skip
     frozen_studies = {str(s): int(n) for s, n in frozen}
-    waiting = db.fetchall(f"SELECT d.study, count(*) FROM draft d WHERE NOT {trail} AND {old} GROUP BY d.study "
+    waiting = db.fetchall(f"SELECT d.study, count(*) FROM draft d WHERE {open_q} AND {old} GROUP BY d.study "
                           "ORDER BY d.study")  # fmt: skip
     return {
         "frozen_studies": frozen_studies,
@@ -207,6 +267,7 @@ def plan(lake: Path, url: str | None, today: date | None = None) -> dict[str, An
     snaps = _snapshots(lake)
     aside = month_ends(lake, today or date.today())
     out: dict[str, Any] = {
+        "newer": newer(lake, url),
         "lake": {
             "dir": str(lake),
             "snapshots": len(snaps),
@@ -214,7 +275,7 @@ def plan(lake: Path, url: str | None, today: date | None = None) -> dict[str, An
             "moved_aside": aside,
             "cleared": [e for e in LAKE_ENTRIES if (lake / e).exists()],
             "kept": ["site_key.json", "pid map", "site", "embed_cache.duckdb", "fhir_ledger", ASIDE],
-        }
+        },
     }
     if not url:
         out["database"] = "no TB_DB_URL: the stores of the trial database were not read"
@@ -312,30 +373,31 @@ def _remove(lake: Path, entries: tuple[str, ...]) -> list[str]:
     return gone
 
 
-def _move_aside(lake: Path, snaps: list[str]) -> list[str]:
-    """Each month-end's NDJSON, DuckDB and Parquet to ``<lake>/id_rule_1/``, as they are (they say no rule: 1).
-    Again after a crash: what is already there stays, what is left is moved."""
+def _move_aside(lake: Path, snaps: list[str], after_move: Callable[[Path], None] | None = None) -> list[str]:
+    """Each month-end, every part of it (:func:`_parts`), to ``<lake>/id_rule_1/``, as it is (it says no rule: 1).
+    One file or folder at a time; again after a crash between any two moves: what is already there stays, what is
+    left is moved (:func:`month_ends` sees both). ``after_move`` (tests) is called after each move."""
     moved = []
     to = lake / ASIDE
     for s in snaps:
-        parts = [(lake / "ndjson" / s, to / "ndjson" / s), (lake / "parquet" / f"snapshot={s}",
-                 to / "parquet" / f"snapshot={s}")]  # fmt: skip
-        parts += [(f, to / "db" / f.name) for f in sorted((lake / "db").glob(f"{s}.duckdb*"))]
-        for src, dst in parts:
+        for src, dst in _parts(lake, s):
             if src.exists() and not dst.exists():
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 src.replace(dst)
+                if after_move is not None:
+                    after_move(dst)
         moved.append(s)
     if moved:
-        (to / "README.json").write_text(json.dumps({
+        tmp = to / ".README.json.tmp"
+        tmp.write_text(json.dumps({
             "rule": 1, "why": "D-1253: month-end snapshots of the earlier id rule, kept under retention, never read",
-            "snapshots": sorted(set(moved) | set(_aside(lake)))}, indent=1) + "\n", encoding="utf-8")  # fmt: skip
+            "snapshots": _aside(lake)}, indent=1) + "\n", encoding="utf-8")  # fmt: skip
+        tmp.replace(to / "README.json")
     return moved
 
 
 def _aside(lake: Path) -> list[str]:
-    nd = lake / ASIDE / "ndjson"
-    return sorted(p.name for p in nd.iterdir() if p.is_dir()) if nd.is_dir() else []
+    return sorted(id_rule.snapshot_names(lake / ASIDE))
 
 
 def _stamp(tx: Any) -> None:
@@ -439,12 +501,15 @@ def _stores(lake: Path, url: str, before: dict[str, Any]) -> dict[str, Any]:
     if prefix + "edc" in present:
         with Database.connect(url, "edc") as db:
             if _has(db, "draft"):
-                trail, old = _edc_clauses(db), _edc_old(db)
-                with db.transaction() as tx:  # open drafts of a rule-1 study with no trail; then the study is rule 2
+                old, frozen_q, open_q = _edc_old(db), _edc_frozen(db, "d2"), _edc_open(db)
+                with db.transaction() as tx:
+                    # a rule-1 study no draft of which freezes it: its open drafts go (a decided value that cites no
+                    # lake row stays, as it is), then the study is rule 2 (review round 3: one definition with EDC)
                     waiting = [str(r[0]) for r in tx.fetchall(
                         f"SELECT DISTINCT d.study FROM draft d WHERE {old} AND NOT EXISTS (SELECT 1 FROM draft d2 "
-                        f"WHERE d2.study = d.study AND {trail.replace('d.', 'd2.')})")]  # fmt: skip
-                    n = tx.execute("DELETE FROM draft d WHERE d.study = ANY(?)", (waiting,)) if waiting else 0
+                        f"WHERE d2.study = d.study AND {frozen_q})")]  # fmt: skip
+                    n = (tx.execute(f"DELETE FROM draft d WHERE d.study = ANY(?) AND {open_q}", (waiting,))
+                         if waiting else 0)  # fmt: skip
                     if waiting and _has(db, "tb_id_rule_study"):
                         tx.execute("UPDATE tb_id_rule_study SET rule = ?, recorded_at = now() WHERE study = ANY(?)",
                                    (id_rule.RULE, waiting))  # fmt: skip
@@ -454,15 +519,21 @@ def _stores(lake: Path, url: str, before: dict[str, Any]) -> dict[str, Any]:
 
 
 def rebuild(lake: Path, url: str | None, today: date | None = None,
-            after_step: Callable[[str], None] | None = None) -> dict[str, Any]:  # fmt: skip
-    """Check, then the steps in order (module docstring); ``after_step`` (tests) is called after each step."""
+            after_step: Callable[[str], None] | None = None,
+            after_move: Callable[[Path], None] | None = None) -> dict[str, Any]:  # fmt: skip
+    """Check, then the steps in order (module docstring); ``after_step`` (tests) is called after each step and
+    ``after_move`` after each file or folder moved aside."""
     lake.mkdir(parents=True, exist_ok=True)
     with _stopped(lake, url):
         before = plan(lake, url, today)
+        if before["newer"]:
+            said = "; ".join(before["newer"])
+            raise Refused(f"{said}: a later release wrote these. Update the box to that release; this rebuild is "
+                          f"for a box that ran an earlier one ({id_rule.RUNBOOK})")  # fmt: skip
         done: dict[str, Any] = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "rule": id_rule.RULE}
         for step in STEPS:
             if step == "aside":
-                done["moved_aside"] = _move_aside(lake, before["lake"]["moved_aside"])
+                done["moved_aside"] = _move_aside(lake, before["lake"]["moved_aside"], after_move)
             elif step == "served":
                 done["served_cleared"] = _remove(lake, SERVED)
             elif step == "lake":
@@ -498,6 +569,10 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     before = plan(a.lake, a.db_url)
     print(json.dumps({"plan": before}, indent=1, sort_keys=True))
+    if before["newer"]:
+        print(f"refused, nothing changed: {'; '.join(before['newer'])}. A later release wrote these: update the box "
+              f"to that release ({id_rule.RUNBOOK})", file=sys.stderr)  # fmt: skip
+        return 2
     for study, n in sorted(((before.get("edc") or {}).get("open_drafts") or {}).items()):
         print(f"EDC study {study}: {n} open drafts (nothing decided, signed or sent) are cleared; the study goes on")
     if not a.yes:

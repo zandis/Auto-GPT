@@ -69,11 +69,9 @@ DETAIL_KEYS = (
     "orphans",
     "quarantined",
     "duplicate_keys",
-    # D-1253: per record type or table, counts only: rows of one id with other content, records of a site-unique
-    # number moved to another patient, links to a patient's record the lake does not hold, deletes that named no
-    # patient, rows with no chart number
+    # D-1253: per record type or table, counts only: rows of one id with other content, links to a patient's record
+    # the lake does not hold, deletes that named no patient, rows with no chart number
     "id_collisions",
-    "moved_to_another_patient",
     "links_to_absent_records",
     "deletes_without_patient",
     "rejected_no_patient",

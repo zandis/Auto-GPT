@@ -112,6 +112,27 @@ def test_a_store_rule_that_cannot_be_read_refuses_the_night(tmp_path: Path) -> N
         check_id_rule(cfg)
 
 
+@pytest.mark.parametrize("unread", ["omop", "derived"])
+def test_a_store_the_adapter_reads_whose_rule_it_cannot_read_refuses_the_night(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unread: str
+) -> None:
+    """Review round 3, item 5: the adapter's role is meant to read the OMOP and the derived store (D-378). When it
+    cannot read their rule ("not readable"), the night refuses, as for an old rule; it is never passed over. The
+    stores it is not meant to read (vec, twin, pool) are never probed by the night: they refuse at their own first
+    write (``test_a_store_stamps_itself_when_empty_and_refuses_when_it_holds_ids_of_the_earlier_rule``)."""
+    asked: list[str] = []
+
+    def probe(url: str, store: id_rule.Store, schema: str | None = None) -> str:
+        asked.append(store.name)
+        return id_rule.UNREAD if store.name == unread else id_rule.CURRENT
+
+    monkeypatch.setattr(id_rule, "probe", probe)
+    cfg = _cfg(tmp_path, "postgresql://synthetic@127.0.0.1:9/none")
+    with pytest.raises(id_rule.IdRuleError, match=f"the {unread} store \\(its id rule is not readable by this role"):
+        check_id_rule(cfg)
+    assert sorted(asked) == ["derived", "omop"]  # never vec, profile or orch
+
+
 # ------------------------------------------------------------------------------------------------ the stores
 def _store_table(url: str, store: id_rule.Store, rows: int, stamped: bool | None) -> None:
     """The store's table with the columns its question reads, ``rows`` lake-id rows; ``stamped``: a ``tb_id_rule``

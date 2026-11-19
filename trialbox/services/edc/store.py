@@ -143,14 +143,29 @@ CREATE TABLE IF NOT EXISTS tb_id_rule_study (study TEXT PRIMARY KEY, rule INTEGE
 INSERT INTO tb_id_rule_study (study, rule) SELECT DISTINCT study, 1 FROM draft ON CONFLICT (study) DO NOTHING
 """
 MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9)
-#: D-1253: a study's drafts whose citations carry a trail (a decision, a signature, a send): its records
-TRAILED = (
-    "SELECT EXISTS (SELECT 1 FROM draft d WHERE d.study = ? AND (d.citation IS NOT NULL OR d.final_citation IS NOT "
-    "NULL) AND "
-    "(d.fate IN ('confirmed', 'edited') OR d.signature_id IS NOT NULL OR d.sent_at IS NOT NULL OR EXISTS "
-    "(SELECT 1 FROM decision x WHERE x.draft_id = d.id) OR EXISTS (SELECT 1 FROM sent x WHERE x.draft_id = d.id) OR "
-    "EXISTS (SELECT 1 FROM copy_tick x WHERE x.draft_id = d.id)))"
-)
+#: D-1253: every table that records an act on a draft (``draft_id``): ``tests/unit/test_edc_id_rule_freeze.py`` holds
+#: it to the migrated schema, so a trail table added later is never missed
+TRAIL_TABLES = ("copy_tick", "decision", "sent", "signature_void")
+
+
+def has_trail(d: str = "d", tables: tuple[str, ...] = TRAIL_TABLES) -> str:
+    """D-1253 (review round 3): the one definition, as SQL over ``draft {d}``, of a draft with a trail: decided,
+    signed or sent, or named by any act (``tables``: the rebuild passes those the store has). A draft without one is
+    open. The EDC store and the one rebuild (``tools/id_rule_rebuild.py``) both use it."""
+    acts = " OR ".join(f"EXISTS (SELECT 1 FROM {t} x WHERE x.draft_id = {d}.id)" for t in tables)
+    return (f"({d}.fate IN ('confirmed', 'edited') OR {d}.signature_id IS NOT NULL OR {d}.sent_at IS NOT NULL"
+            + (f" OR {acts})" if acts else ")"))  # fmt: skip
+
+
+def cites_old_rows(d: str = "d", tables: tuple[str, ...] = TRAIL_TABLES) -> str:
+    """D-1253 (review round 3): a draft with a trail whose value cites a lake row (``citation`` or
+    ``final_citation``). Only such a draft freezes a study of an earlier rule: a decided value with no citation
+    ("not found") cites no old row, and its study is not frozen."""
+    return f"(({d}.citation IS NOT NULL OR {d}.final_citation IS NOT NULL) AND {has_trail(d, tables)})"
+
+
+#: D-1253: whether a study has a draft that freezes it (:func:`cites_old_rows`)
+TRAILED = f"SELECT EXISTS (SELECT 1 FROM draft d WHERE d.study = ? AND {cites_old_rows()})"
 ID_RULE_FROZEN = (
     "prefill is stopped for this study: its decided, signed or sent values cite lake records of the earlier id "
     "rule (D-1253), which the rebuilt lake does not hold. They stay as the study's kept record, readable and "

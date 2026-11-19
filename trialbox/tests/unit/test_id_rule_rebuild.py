@@ -280,6 +280,118 @@ def test_a_crash_after_any_step_serves_nothing_old_and_a_second_run_finishes_the
     assert _state(cfg.lake_dir, db_url) == {**want, "omop": want["omop"]}
 
 
+def _served_month_end(cfg: AdapterConfig, s: str = "2026-09-30", ndjson: bool = True) -> list[str]:
+    """The month-end ``s`` with every part a box has: the DuckDB file, its sidecar and its generation's file and
+    record, the Parquet folder; without its NDJSON when the byte budget took it (NEW-B-38). Returns its files, as
+    paths under the lake."""
+    lake = cfg.lake_dir
+    (lake / "db" / f"{s}.duckdb").write_bytes(b"served " + s.encode())
+    (lake / "db" / f"{s}.duckdb.sha256").write_text(f"x  {s}.duckdb\n")
+    (lake / "db" / "gen").mkdir(parents=True, exist_ok=True)
+    (lake / "db" / "gen" / f"{s}.g1.duckdb").write_bytes(b"served " + s.encode())
+    (lake / "db" / "gen" / f"{s}.g1.json").write_text(json.dumps({"generation": f"{s}.g1", "snapshot": s}))
+    pq = lake / "parquet" / f"snapshot={s}"
+    pq.mkdir(parents=True, exist_ok=True)
+    (pq / "condition.parquet").write_bytes(b"PAR1")
+    (pq / "condition.parquet.sha256").write_text("x  condition.parquet\n")
+    if not ndjson:
+        import shutil
+
+        shutil.rmtree(lake / "ndjson" / s)
+    return sorted(str(p.relative_to(lake)) for d in ("ndjson", "db", "parquet") for p in (lake / d).rglob("*")
+                  if p.is_file() and s in p.name + str(p.parent.name))  # fmt: skip
+
+
+def _aside_files(lake: Path) -> dict[str, bytes]:
+    root = lake / rb.ASIDE
+    return {str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+def test_a_month_end_served_without_its_ndjson_is_moved_aside_whole_with_its_sidecars(tmp_path: Path) -> None:
+    """Review round 3, item 2: the byte budget may have taken a month-end's NDJSON and left it served. It is still a
+    month-end: its DuckDB file, sidecar, generation and Parquet go aside, none is cleared as a served copy."""
+    cfg = _old_lake(tmp_path, NIGHTS)
+    files = _served_month_end(cfg, ndjson=False)
+    assert rb.plan(cfg.lake_dir, None, TODAY)["lake"]["moved_aside"] == ["2026-09-30"]
+    rb.rebuild(cfg.lake_dir, None, TODAY)
+    kept = _aside_files(cfg.lake_dir)
+    assert sorted(f for f in kept if f != "README.json") == files  # each file where it was, under id_rule_1
+    assert kept["db/2026-09-30.duckdb"] == b"served 2026-09-30"
+    assert json.loads(kept["README.json"])["snapshots"] == ["2026-09-30"]
+
+
+def test_a_crash_between_any_two_moves_aside_loses_nothing_and_a_second_run_finishes_the_same(
+    tmp_path: Path,
+) -> None:
+    """Review round 3, item 2: the rebuild is killed after each single file or folder it moves aside, in turn. The
+    second run sees what is aside already and what is left, takes the month-end as one, and ends with the same
+    aside folder as a run never killed: no served copy, sidecar or generation of a kept month-end is cleared."""
+    clean = _old_lake(tmp_path / "clean", NIGHTS)
+    _served_month_end(clean)
+    moves: list[Path] = []
+    rb.rebuild(clean.lake_dir, None, TODAY, after_move=moves.append)
+    want = _aside_files(clean.lake_dir)
+    assert len(moves) == 6 and "ndjson/2026-09-30/Condition.ndjson" in want and "db/gen/2026-09-30.g1.json" in want
+    for k in range(len(moves)):
+        cfg = _old_lake(tmp_path / f"crash{k}", NIGHTS)
+        _served_month_end(cfg)
+        seen: list[Path] = []
+
+        def crash(dst: Path, n: int = k, seen: list[Path] = seen) -> None:
+            seen.append(dst)
+            if len(seen) == n + 1:
+                raise RuntimeError(f"killed after move {n + 1}")
+
+        with pytest.raises(RuntimeError, match="killed"):
+            rb.rebuild(cfg.lake_dir, None, TODAY, after_move=crash)
+        rb.rebuild(cfg.lake_dir, None, TODAY)
+        got = _aside_files(cfg.lake_dir)  # the same files (a night's own records hold its times and paths)
+        assert sorted(got) == sorted(want), f"killed after move {k + 1} of {len(moves)}"
+        assert got["db/2026-09-30.duckdb"] == got["db/gen/2026-09-30.g1.duckdb"] == b"served 2026-09-30"
+        assert not (cfg.lake_dir / "db").exists() and not (cfg.lake_dir / "parquet").exists()
+
+
+@pytest.mark.parametrize("record", ['{"rule": 3}', "not json"], ids=["rule-3", "unreadable"])
+def test_a_lake_a_later_release_wrote_is_never_rebuilt_as_rule_1(tmp_path: Path, record: str) -> None:
+    """Review round 3, item 3: a snapshot whose record says a rule above this release's, or cannot be read (a rule-1
+    snapshot has none), is a later release's. The plan names it; the rebuild refuses and changes nothing: nothing
+    is moved aside under a README that says rule 1, nothing served is cleared. The words say: update the box."""
+    cfg = _old_lake(tmp_path, NIGHTS)
+    (snapshot_dir(cfg.lake_dir, "2026-11-01") / id_rule.SNAPSHOT_RECORD).write_text(record)
+    before = sorted(str(p.relative_to(cfg.lake_dir)) for p in cfg.lake_dir.rglob("*") if "locks" not in str(p))
+    assert rb.plan(cfg.lake_dir, None, TODAY)["newer"] == [
+        "the lake snapshot ndjson/2026-11-01 "
+        + ("is of id rule 3" if "3" in record else "has an id-rule record that cannot be read")
+    ]
+    with pytest.raises(rb.Refused, match="Update the box"):
+        rb.rebuild(cfg.lake_dir, None, TODAY)
+    assert rb.main(["--lake", str(cfg.lake_dir), "--yes"]) == 2
+    after = sorted(str(p.relative_to(cfg.lake_dir)) for p in cfg.lake_dir.rglob("*") if "locks" not in str(p))
+    assert after == before and not (cfg.lake_dir / rb.ASIDE).exists()
+
+
+@pytest.mark.parametrize("where", ["derived", "edc"])
+def test_a_store_or_a_study_a_later_release_stamped_refuses_the_rebuild(
+    tmp_path: Path, db_url: str, where: str
+) -> None:
+    """Review round 3, item 3: a store stamped by a later release, or an EDC study of a later rule, refuses the
+    rebuild before any step; the lake and every store are as they were."""
+    cfg = _old_lake(tmp_path, NIGHTS)
+    _tables(db_url)
+    with Database.connect(db_url, where) as db:
+        if where == "edc":
+            db.execute("CREATE TABLE tb_id_rule_study (study TEXT PRIMARY KEY, rule INTEGER NOT NULL)")
+            db.execute("INSERT INTO tb_id_rule_study VALUES ('S9', 3)")
+        else:
+            db.execute(id_rule.DDL)
+            db.execute("INSERT INTO tb_id_rule (rule) VALUES (3)")
+    with pytest.raises(rb.Refused, match="later release"):
+        rb.rebuild(cfg.lake_dir, db_url, TODAY)
+    assert (cfg.lake_dir / "CURRENT").exists() and not (cfg.lake_dir / rb.ASIDE).exists()
+    with Database.connect(db_url, "derived") as db:
+        assert db.fetchval("SELECT count(*) FROM score_row") == 1
+
+
 def test_a_resolved_derived_conflict_is_kept_marked_and_never_read_and_built_is_reset(
     tmp_path: Path, db_url: str
 ) -> None:

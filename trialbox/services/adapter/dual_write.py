@@ -102,9 +102,15 @@ def _load(
     from omop import dqd
     from omop.load import load_batch
     from omop.schema import OmopError
+    from tb_common import id_rule
 
     from adapter.ndjson import readers
 
+    try:
+        id_rule.open_snapshot(ndjson_dir)  # D-1253 round 3: before anything is written to the store
+    except id_rule.IdRuleError as exc:
+        log.error("omop dual write %s refused: %s", snap, exc)
+        return done("refused", error=str(exc)[:2000])
     try:
         feed = readers(ndjson_dir)  # read a chunk at a time by the load, never held whole (D-678)
         files = {k: f"ndjson/{snap}/{k}.ndjson" for k in feed}

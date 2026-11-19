@@ -11,6 +11,7 @@ Layout under ``<lake_dir>``::
     CURRENT                                  snapshot served by default
     FEED                                     the lake has held a hospital feed: an empty rebuild is refused (D-271)
     db/<snapshot>.duckdb.siteonly            the snapshot was built from the site's own inputs only (D-271)
+    db/<snapshot>.duckdb.id_rule             the id rule of the ids the file holds (D-1253): read when no NDJSON is left
     holds/<holder>.json                      a running job reads this snapshot: never rebuilt or pruned (T-305b)
     .rebuild.lock                            ``flock``: hold, release, pruning and a rebuild's start and swap (D-462)
     locks/<snapshot>.build.lock              ``flock`` held by the one rebuild of the snapshot that runs (D-462)
@@ -471,6 +472,7 @@ def held_generations(lake_dir: Path, now: float | None = None) -> dict[str, str]
 
 
 # ------------------------------------------------------------------------------------------ generations (T-724)
+ID_RULE_SIDECAR = ".id_rule"  # db/<snapshot>.duckdb.id_rule: the id rule of the ids the file holds (D-1253)
 GEN_ID = re.compile(r"^(?P<snap>[^/\\]+)\.g(?P<seq>[1-9][0-9]*)$")
 GENERATION_HEADER = "X-TB-Lake-Generation"  # over HTTP the generation's number travels beside the request's date
 
@@ -1037,12 +1039,24 @@ class Lake:
         and promote resolves its file here (:meth:`db_path`)."""
         from tb_common import id_rule
 
-        nd = self.dir / "ndjson" / snapshot
-        if nd.is_dir():
-            try:
-                id_rule.check_snapshot(nd, f"the lake snapshot {snapshot}")
-            except id_rule.IdRuleError as exc:  # 503: the lake cannot serve it (never "no data")
-                raise LakeSchemaError(str(exc)) from exc
+        what = f"the lake snapshot {snapshot}"
+        nd = self._source(snapshot)
+        side = self.dir / "db" / f"{snapshot}.duckdb{ID_RULE_SIDECAR}"
+        try:
+            if nd.is_dir():
+                id_rule.check_snapshot(nd, what)
+            elif (self.dir / "db" / f"{snapshot}.duckdb").exists():
+                # review round 3: served with no NDJSON left (the byte budget takes it first, NEW-B-38): the rule
+                # the build wrote beside the file; none is the earlier rule (written before D-1253)
+                rule = int(side.read_text(encoding="utf-8").strip()) if side.exists() else 1
+                if rule > id_rule.RULE:
+                    raise id_rule.IdRuleError([], newer=[what])
+                if rule != id_rule.RULE:
+                    raise id_rule.IdRuleError([what])
+        except ValueError as exc:
+            raise LakeSchemaError(f"{what}: its id-rule record cannot be read") from exc
+        except id_rule.IdRuleError as exc:  # 503: the lake cannot serve it (never "no data")
+            raise LakeSchemaError(str(exc)) from exc
 
     def promote(self, snapshot: str) -> None:
         """Make ``snapshot`` the one served by default (``CURRENT``), atomically."""
@@ -1301,10 +1315,17 @@ class Lake:
     def _source_or_refuse(self, snapshot: str, ndjson_dir: Path | None, allow_empty: bool) -> tuple[Path, bool]:
         """The NDJSON folder of the rebuild and whether an empty one is allowed; a missing folder of a fed lake is
         refused (D-271) before anything is written."""
+        from tb_common import id_rule
+
         src = ndjson_dir or self._source(snapshot)
         allow_empty = allow_empty or not self.fed()
         if not src.is_dir() and not allow_empty:
             raise RebuildError(f"lake snapshot {snapshot}: no NDJSON folder {src}; nothing built, CURRENT unchanged")
+        if src.is_dir():
+            try:  # D-1253 round 3: no lake is built from a snapshot of another id rule
+                id_rule.open_snapshot(src, f"the lake snapshot {snapshot}")
+            except id_rule.IdRuleError as exc:
+                raise RebuildError(f"{exc}; nothing built, CURRENT unchanged") from exc
         return src, allow_empty
 
     def _rebuild(
@@ -1395,6 +1416,11 @@ class Lake:
             write_sidecar(db_path, digest)  # hashed before the lock: holds and releases never wait for a hash
             self._drop_generations(snapshot, gen)
             drop_reader_links(self.dir, snapshot)
+            # D-1253 round 3: the rule of the ids it holds, read when no NDJSON is left (``check_id_rule``); pruned
+            # and moved aside with the snapshot (``<snap>.duckdb*``)
+            from tb_common import id_rule
+
+            (self.dir / "db" / f"{snapshot}.duckdb{ID_RULE_SIDECAR}").write_text(f"{id_rule.RULE}\n", encoding="utf-8")
             rec = self.dir / "db" / f"{snapshot}.duckdb.source"  # pruned with the snapshot (``<snap>.duckdb*``)
             if src.is_dir() and src.resolve() != (self.dir / "ndjson" / snapshot).resolve():
                 rec.write_text(str(src.resolve()) + "\n", encoding="utf-8")

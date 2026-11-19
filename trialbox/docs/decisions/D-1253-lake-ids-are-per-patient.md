@@ -38,26 +38,43 @@
     - a drug, device, substance or group declared site-wide that a patient's record names by number (it is per
       order, so the patient's);
     - one record type under two id rules;
-    - a suffix with `|`, and a `unique` other than `site`.
+    - a suffix with `|`;
+    - any `id.unique` (review round 3, below);
+    - a suffix on a site-wide id, or on a link by number to a site-wide record (round 3: a suffix never runs into
+      a number).
   - **Records of no patient.**
     - A clinician, a role, an organisation, a place or a service must say `id: {hid: <col>, site_wide: true}`. Its
       id is `HMAC("<type>|<number>")`.
     - A Medication, Device, Substance or Group may say it, when it names no patient. One that names its patient has
       its patient's per-patient id.
-  - **A number unique across the site (review C).**
-    - A mapping may declare `id: {hid: <col>, unique: site}` when the source guarantees the number is the site's,
-      for all time. The id is then the number's alone.
-    - A record the source re-files to another chart keeps its id and moves to that patient. The merge counts it
-      (`moved_to_another_patient`).
-    - Undeclared (the default), a re-filed record is a new record of the new patient. The old one stays under the
-      first patient until the next full night.
-    - The shipped mappings declare none; when unsure, leave it out (`docs/data/02-mapping-a-site.md`).
+  - **No site-wide id for a patient's record (review round 3).**
+    - Review C offered `id: {hid: <col>, unique: site}`; round 3 removed it, with its count, its card line and its
+      docs. It was the original fault by opt-in. It let a delete for one chart remove the record now under another,
+      let a link name another patient's record uncounted, and let a suffix run into a number again.
+    - The loader refuses `id.unique`. A patient's record is always its patient's, without exception: a delete, a
+      link by number and a suffix can never reach another patient's record.
+  - **A record the hospital re-files to another chart: the stated limit (review round 3).**
+    - A record re-filed from chart A to chart B is a new record of B, with B's id.
+    - A **full night** (every table read whole) holds B's record only.
+    - A **delta night** sends the changed rows only. It does not see that A's row left, so the lake holds A's stale
+      copy beside B's until the next full night. The stale copy is A's own record: it is never deleted by B's rows,
+      and no link of B's names it. This holds for every source.
+    - Pinned, not hidden:
+      `test_a_record_re_filed_to_another_chart_is_corrected_by_the_next_full_night_not_by_a_delta`.
+    - **The advice.** The box's scheduled night reads every table whole: the timer's ingest job sends no `since`. A
+      delta night is one asked for with `since` (`adapter run --since`, or an ingest job's `since` option). A site
+      that runs delta nights runs a full night (a scheduled night, without `since`) at least once a week. There is
+      no separate interval setting, and none is added here.
   - **Merged charts (review C).**
     - A chart merged into another (`pidmap.merge`) keeps making its records' ids under its own pid. The merge moves
       every reference to the patient, and the Patient, to the surviving pid as the snapshot is written (NEW-B-36,
       unchanged).
     - So a delta night after a merge holds what a full night holds. Two charts that each had a visit "E1" keep two
       visits of one patient.
+    - The exception is the limit above. When the hospital also re-files the absorbed chart's rows under the surviving
+      chart, a delta night holds the carried-over records (ids under the absorbed chart) and the re-filed ones (ids
+      under the surviving chart): duplicate Encounters and Conditions of one patient, until the next full night,
+      which holds the re-filed ones only.
     - Ids under the surviving pid were tried and dropped, for three reasons:
       - a lake record keeps no source number, so a delta night could not make the ids of the records it carries
         over again;
@@ -95,9 +112,8 @@
       (DATA-017).
     - The same row sent twice is not a collision.
     - A record that changes from one night to the next is an update, never counted.
-  - **Where a person reads the counts.** There are five counts:
+  - **Where a person reads the counts.** There are four counts:
     - `id_collisions`;
-    - `moved_to_another_patient`;
     - `links_to_absent_records`;
     - `deletes_without_patient`;
     - `rejected_no_patient`.
@@ -105,7 +121,8 @@
     Where they appear:
     - a night's counts are in `completeness.json`, the night's audit detail, the data-ops batch row
       (`datacore.dataops.DETAIL_KEYS`) and a log warning;
-    - the back-fill's three (review F) are in its report, its completeness record and its audit event;
+    - the back-fill counts all four (review F; `links_to_absent_records` since round 3), in its report, its
+      completeness record and its audit event;
     - the console's data-ops batch page shows them in a card, counts only, in en, ja and zh-TW, only when one is
       above zero. Otherwise the page is as before.
 
@@ -140,20 +157,47 @@
       - a store of a newer rule refuses with "update the box", never "rebuild".
     - The derived store's documented-score check refuses too.
   - **The night fails closed.** Before it reads or writes anything, a night (and a back-fill) is refused when the
-    lake's snapshots, the OMOP store or the derived store hold ids of another rule, or when that cannot be read.
+    lake's snapshots, the OMOP store or the derived store hold ids of another rule.
+    - The adapter's role is meant to read the OMOP and the derived store (D-378). When their rule cannot be read
+      there ("not readable", or the probe fails), the night refuses as for an old rule (review round 3).
     - A snapshot is never merged over another rule's base.
     - The night's data-ops batch row is opened first. The refusal is **one** `ingest.failed` event
-      (`refused: id_rule`), which closes that row as failed.
-    - The adapter's role reads only its own schemas (D-378). So the vector store, the twin and the pool are caught
-      **at their own first write after the night, not before it**: a night can complete while those three still
-      hold old ids.
+      (`refused: id_rule`), which closes that row as failed. A back-fill's refusal is one `ingest.backfill` event
+      (`state: failed`, `refused: id_rule`).
+    - The adapter's role is not meant to read the vector store, the twin or the pool (D-378): "not readable" is
+      expected there, so the night never probes them. Each is caught **at its own first write after the night,
+      not before it** (`tb_common.id_rule.ensure`): a night can complete while those three still hold old ids.
   - **Readers refuse (review G1).** No lake reader opens a snapshot whose NDJSON is not rule 2 (`Lake.db_path`: every
     query, pin, hold and promote). It answers 503: "the lake cannot serve it", never "no data".
+    - A snapshot served with no NDJSON left (the byte budget takes the NDJSON first, NEW-B-38) is checked by
+      `db/<snapshot>.duckdb.id_rule`, which every build writes (round 3). A file without one was built before
+      D-1253, so it is of the earlier rule.
+  - **One place where a snapshot is opened (review round 3).** Every entry point that reads a lake snapshot's NDJSON
+    goes through `tb_common.id_rule.open_snapshot`, which refuses a snapshot of another rule before anything is
+    read or written:
+    - the night and the back-fill: their merge base (`adapter.ndjson.write_snapshot`);
+    - the lake build (`lake.store.Lake._source_or_refuse`), whoever asks for it: the night's publish, a re-publish
+      of a held night, the lake service's rebuild, a build from a folder of its own;
+    - the OMOP load: `python -m omop load` and the dual write (`adapter.dual_write`);
+    - the FHIR load (`adapter.load_fhir.load_snapshot`);
+    - the snapshot validation (`adapter validate`, the adapter's validate route: `adapter.validate.jpcore`).
+
+    Not entry points:
+    - the night's site-profile stamp (`adapter.site_profile`), which reads no record id;
+    - the backup and restore, which copy files as they are (a restored lake of the earlier rule is refused by the
+      above);
+    - the development tools that build a synthetic lake of their own in a scratch folder: `tools/scale_gate.py`,
+      `scenarios.py`, `e2e_simple.py`, `omop_parity.py`, `backup_drill.py`, `build_rulesets.py`, `ingest_local.py`,
+      `imperfect_feed.py`, `trialbox/memcaps.py`.
   - **EDC keeps the rule per study** (`edc.tb_id_rule_study`). EDC is the one place old ids stay on a box, by design.
     - The migration stamps rule 1 on every study that has drafts when it runs. A study with none starts at rule 2
       at its first draft run.
-    - **Frozen studies.** A rule-1 study with a decided, signed or sent value is frozen for prefill. Every write of
-      its values is refused with the reason, in that write's own transaction:
+    - **What freezes a study** has one definition, used by EDC and by the rebuild alike (`edc.store.cites_old_rows`,
+      review round 3): a draft that cites a lake row (`citation` or `final_citation`) and is decided, signed, sent
+      or named by any act on a draft (`edc.store.TRAIL_TABLES`, held to the schema by a test). A value decided
+      "not found" cites no lake row, so it freezes nothing.
+    - **Frozen studies.** A rule-1 study with such a draft is frozen for prefill. Every write of its values is
+      refused with the reason, in that write's own transaction:
       - a draft run;
       - an ODM import;
       - a decision;
@@ -166,10 +210,14 @@
       - nothing marks a value `source_changed` because of the change of rule;
       - its EDC page says why prefill is stopped, in one line in en, ja and zh-TW, shown only for a frozen study.
     - A person closes a frozen study in EDC or starts it again under a new study key.
-    - A rule-1 study with open drafts only waits for the rebuild, which clears those drafts and stamps it rule 2.
+    - Any other rule-1 study waits for the rebuild. The rebuild clears its open drafts (no trail), keeps a decided
+      value that cites no lake row as it is, and stamps the study rule 2. No study is left waiting for good.
   - **The rebuild is one explicit operator step** after the update: `python3 -m tools.trialbox id-rule-rebuild`
     shows the plan, and `--yes` does it. It is `tools/id_rule_rebuild.py`, run in a one-off adapter container as the
     box's admin, and written up in RUNBOOK §5, "Lake ids per patient".
+    - **A later release's box.** It refuses, changing nothing, when anything says a rule above 2: a snapshot
+      record, or one that cannot be read (a rule-1 snapshot has none), a store, or an EDC study. It says "update
+      the box" (review round 3), and never moves such a snapshot aside as rule 1.
     - **Writers stopped.** It refuses, changing nothing, unless the writers are stopped. It checks this itself:
       - it takes the adapter's run lock;
       - no lake build runs;
@@ -179,6 +227,11 @@
     - **Kept, never deleted:** what cannot be made again or what a person decided.
       - Retention's month-end snapshots are moved aside to `<lake>/id_rule_1/`. They are kept, never read, pruned by
         retention as before, and registered for erasure (`lake:id_rule_1`).
+        - They are chosen from every place a snapshot is: its NDJSON, its DuckDB file and generations, its Parquet
+          folder. A month-end served without its NDJSON is a month-end too. What an earlier run cut short moved
+          already counts as well (round 3).
+        - Every part moves, one file or folder at a time: the NDJSON, the Parquet, the DuckDB file with its
+          sidecars, and its generations' files and records (`db/gen/<s>.g<n>.*`).
       - A resolved derived conflict and its score row stay, marked `id_rule = 1`; the row is superseded, so it is
         never read as a score.
       - EDC's trail stays.
@@ -195,7 +248,8 @@
          - the data-ops `built` and `built_kept` rows;
          - the rule-1 EDC studies' open drafts.
 
-      A crash after any step serves nothing of the old rule, and a second run finishes the work.
+      A crash after any step, or between any two moves aside, loses nothing kept and serves nothing of the old
+      rule, and a second run finishes the work.
     - The plan names every kind of thing kept, moved and cleared, with counts.
     - The rebuild writes one audit event of a kind the box already has, `lake.rebuild.source` (`source: id_rule`),
       with counts only. There is no audit schema or role change; the rebuild runs as the admin.
@@ -241,23 +295,30 @@
       content, tombstones, references);
     - the mapper's rules and each load-time refusal;
     - links in any order, and absent links;
-    - `unique: site` and re-filing, merged charts (full and delta);
+    - re-filing to another chart (the delta limit pinned), merged charts (full and delta), the refusal of
+      `unique` and of a site-wide suffix;
     - collisions, and the fhir_bulk pin.
   - `tests/unit/test_lake_id_rule.py`:
     - snapshots and integer-only rules;
-    - the night's one refusal, a newer rule, a probe that fails;
+    - the night's one refusal, a newer rule, a probe that fails, a store the adapter reads but cannot read;
     - each store's stamp and refusal, through the OMOP load, the derived recompute and documented check, the twin's
       put and the pool's upsert.
   - `tests/unit/test_id_rule_rebuild.py`:
     - the plan, the rebuild and the writer checks;
     - month-ends aside and their pruning;
-    - a crash after each step;
+    - a month-end served without its NDJSON, with its sidecars;
+    - a crash after each step, and between each two moves aside;
+    - a lake, a store or an EDC study of a later release, refused;
     - resolved conflicts kept, the data-ops reset;
     - `TB_OMOP_DB_URL`, the audit event;
     - the frozen EDC study, the host command.
   - `tests/unit/test_edc_id_rule_freeze.py`: the migration's stamp, every write path of a frozen study, no
-    `source_changed`, open drafts waiting.
-  - `tests/unit/test_backfill_completeness.py::test_the_first_load_counts_what_the_night_counts_of_record_ids`.
+    `source_changed`, open drafts waiting, a study whose decided value cites no lake row (not frozen, freed by the
+    rebuild), the trail tables held to the schema.
+  - `tests/unit/test_backfill_completeness.py`: the back-fill's counts (`id_collisions`, `rejected_no_patient`,
+    `deletes_without_patient`, `links_to_absent_records`) and its one event when refused for the id rule.
+  - `tests/unit/test_lake_snapshot_opened_once.py`: every entry point above refuses a snapshot of the earlier rule
+    and of a later one; a served snapshot without NDJSON.
   - `tests/unit/test_ssmix2_third_review.py::test_8_one_patients_tombstones_never_hide_anothers_diagnosis_gone_from_a_newer_snapshot`.
   - `tests/unit/test_goldens_id_proof.py`.
   - `tests/console/test_id_rule_pages.py`.

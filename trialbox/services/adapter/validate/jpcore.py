@@ -455,9 +455,12 @@ def validate_snapshot(
     ndjson_dir: Path, per_type: int = DEFAULT_PER_TYPE, licensed: dict[str, dict[str, dict[str, str]]] | None = None
 ) -> ValidationReport:
     """``$validate`` over a sample of a written NDJSON snapshot (``<lake>/ndjson/<snapshot>/``)."""
+    from tb_common import id_rule
+
     from adapter.ndjson import read_type
 
     if not ndjson_dir.is_dir():
         raise FileNotFoundError(f"no snapshot at {ndjson_dir}")
+    id_rule.open_snapshot(ndjson_dir)  # D-1253 round 3
     resources = (r for p in sorted(ndjson_dir.glob("*.ndjson")) for r in read_type(ndjson_dir, p.stem))
     return JpCoreValidator(licensed).validate(sample_per_type(resources, per_type))

@@ -107,3 +107,50 @@ def test_a_study_of_the_earlier_rule_with_open_drafts_only_waits_for_the_rebuild
         _draft(svc)
     assert caught.value.code == "edc.id_rule_frozen" and ID_RULE_WAITING in str(caught.value)
     assert id_rule.COMMAND in ID_RULE_WAITING
+
+
+def test_a_study_whose_only_decided_value_cites_no_lake_row_is_not_frozen_and_the_rebuild_frees_it(
+    tmp_path: Path, db_url: str
+) -> None:
+    """Review round 3, item 6: one definition of "has a trail" (``edc.store.cites_old_rows``), used by EDC and by the
+    rebuild. A draft decided "not found" cites no lake row, so its rule-1 study is not frozen: EDC says it waits, the
+    rebuild's plan counts it as waiting, never as frozen. The rebuild clears its open drafts, keeps the decided one
+    as it is, and stamps the study rule 2; then every write path goes on. Never stuck between the two."""
+    import os
+
+    from tools import id_rule_rebuild as rb
+
+    svc, _sim, _token = k.service(tmp_path)
+    k.ready(svc)
+    _draft(svc)
+    drafts = [int(d["id"]) for d in svc.store.drafts(k.STUDY, k.RECORD, current=False)]
+    first = drafts[0]
+    svc.store.db.execute("UPDATE draft SET citation = NULL, final_citation = NULL WHERE id = ?", (first,))  # not found
+    svc.decide(k.STUDY, first, "reject", reason="not in the chart", by="crc")
+    _as_before_d1253(svc)
+    assert _rule(svc) == 1 and svc.status(k.STUDY)["id_rule_frozen"] is False
+    with pytest.raises(EdcError) as caught:
+        _draft(svc)
+    assert ID_RULE_WAITING in str(caught.value)  # waiting, as the rebuild sees it too
+    url = os.environ["TB_DB_URL"]
+    got = rb.plan(tmp_path / "lake", url)["edc"]
+    assert got["frozen_studies"] == {} and got["open_drafts"] == {k.STUDY: len(drafts) - 1}
+    done = rb.rebuild(tmp_path / "lake", url)["edc"]
+    assert done["studies_now_rule_2"] == [k.STUDY] and done["open_drafts_cleared"] == len(drafts) - 1
+    assert _rule(svc) == id_rule.RULE and svc.status(k.STUDY)["id_rule_frozen"] is False
+    kept = svc.store.db.fetchall("SELECT id, fate FROM draft WHERE study = ?", (k.STUDY,))
+    assert [(int(i), f) for i, f in kept] == [(first, "rejected")]  # the decided value, as it was
+    _draft(svc)  # the study goes on
+
+
+def test_the_trail_tables_are_every_table_that_names_a_draft(tmp_path: Path) -> None:
+    """Review round 3, item 6: ``TRAIL_TABLES`` is held to the migrated schema, so EDC and the rebuild never miss an
+    act on a draft added by a later migration."""
+    from edc.store import TRAIL_TABLES
+
+    svc, _sim, _token = k.service(tmp_path)
+    got = svc.store.db.fetchall(
+        "SELECT DISTINCT table_name FROM information_schema.columns WHERE table_schema = current_schema() AND "
+        "column_name = 'draft_id' ORDER BY table_name"
+    )
+    assert tuple(str(r[0]) for r in got) == TRAIL_TABLES

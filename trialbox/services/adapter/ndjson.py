@@ -274,7 +274,6 @@ def write_snapshot(
     aliases: Mapping[str, str] | None = None,
     moved: dict[str, int] | None = None,
     collisions: dict[str, int] | None = None,
-    refiled: dict[str, int] | None = None,
 ) -> dict[str, int]:
     """Write all resource types; with ``base`` (previous snapshot) resources are merged by id.
 
@@ -298,11 +297,7 @@ def write_snapshot(
 
     ``collisions`` (D-1253): per type, how many of the night's records had an id an earlier record of the same night
     had, with other content (two different source rows, one id). The last still wins (DATA-017); it is counted, never
-    silent. The same row sent twice is the same record, not a collision.
-
-    ``refiled`` (D-1253 review C): per source table, the records of ``base`` the night gives again under one id with
-    another patient (a number the mapping declares unique across the site, re-filed to another chart at the
-    source)."""
+    silent. The same row sent twice is the same record, not a collision."""
     from tb_common import id_rule
 
     if base is not None and base.exists():
@@ -337,15 +332,13 @@ def write_snapshot(
                 )
             left = [0]
             clash = [0]
-            shift: Counter[str] = Counter()
             try:
                 n, gone = _write_type(
                     directory, rtype, night, base if has_base else None, dead, True, budget, work, out.get(rtype), left,
-                    aliases, moved, clash, shift,
+                    aliases, moved, clash,
                 )  # fmt: skip
             except _Unsorted:
                 left[0] = clash[0] = 0
-                shift.clear()
                 if moved is not None:
                     moved.pop(rtype, None)
                 n, gone = _write_type(
@@ -362,7 +355,6 @@ def write_snapshot(
                     aliases,
                     moved,
                     clash,
-                    shift,
                 )
         finally:
             shutil.rmtree(work, ignore_errors=True)
@@ -373,9 +365,6 @@ def write_snapshot(
             removed[rtype] = removed.get(rtype, 0) + left[0]
         if collisions is not None and clash[0]:
             collisions[rtype] = collisions.get(rtype, 0) + clash[0]
-        if refiled is not None:
-            for table, n in shift.items():
-                refiled[table] = refiled.get(table, 0) + n
         counts[rtype] = n
     marker = directory / TOMBSTONES
     if dropped:
@@ -399,7 +388,6 @@ def _write_type(
     aliases: Mapping[str, str] | None = None,
     moved: dict[str, int] | None = None,
     clash: list[int] | None = None,
-    shift: Counter[str] | None = None,
 ) -> tuple[int, list[str]]:
     """One type: the previous snapshot's records and the night's, by id; per id the night's last record, else the
     previous snapshot's last one unless the source deleted it. Returns (records written, ids dropped).
@@ -407,8 +395,7 @@ def _write_type(
     ``left_out`` (D-528): ids written from neither side, the night's record included (the caller takes an id out
     of the set when a later row gives the record again: the last row of a key decides). ``left[0]`` counts those
     that were in the previous snapshot. ``clash[0]`` counts the night's records whose id an earlier record of the
-    night had, with other content (D-1253). ``shift`` counts, per source table, the previous snapshot's records the
-    night gives again under the same id naming another patient (D-1253 review C: re-filed at the source)."""
+    night had, with other content (D-1253)."""
     old: Iterable[_Item] = ()
     if base is not None:
         old = (
@@ -449,9 +436,6 @@ def _write_type(
                 cur, from_night, from_base = rid, False, False
             elif seq >= 0 and from_night and body != line and clash is not None:
                 clash[0] += 1  # D-1253: two of tonight's rows, one id, other content (the last wins, counted)
-            elif seq >= 0 and from_base and not from_night and shift is not None and _owner(body) != _owner(line):
-                m = _SOURCE_TABLE.search(body)  # D-1253 review C: a site-unique number re-filed to another patient
-                shift[m.group(1) if m else rtype] += 1
             line = body
             from_night = from_night or seq >= 0
             from_base = from_base or seq < 0
@@ -469,13 +453,6 @@ _SOURCE_TABLE = re.compile(r'"source":"[^"/]*/([^"#/]+)#')
 _NOT_LINKED = frozenset(
     {"Patient", "Practitioner", "PractitionerRole", "Organization", "Location", "HealthcareService"}
 )
-_PATIENT_LINK = re.compile(r'"reference":"Patient/([^"]+)"')
-
-
-def _owner(body: str) -> str | None:
-    """The first patient a canonical line names (its subject): what a re-filed record changes."""
-    m = _PATIENT_LINK.search(body)
-    return m.group(1) if m else None
 
 
 def absent_links(

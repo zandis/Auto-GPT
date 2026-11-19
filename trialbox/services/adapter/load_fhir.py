@@ -87,7 +87,11 @@ def post_batches(base_url: str, resources: Iterable[dict[str, Any]], workers: in
 
 
 def load_snapshot(base_url: str, directory: Path, workers: int = 4, only: dict[str, set[str]] | None = None) -> int:
-    """PUT the snapshot's resources (all, or per type only the ids in ``only``)."""
+    """PUT the snapshot's resources (all, or per type only the ids in ``only``). A snapshot of another id rule is
+    refused before anything is sent (D-1253 round 3)."""
+    from tb_common import id_rule
+
+    id_rule.open_snapshot(directory)
     total = 0
     present = {p.stem for p in directory.glob("*.ndjson")}
     for rtype in LOAD_ORDER + sorted(present - set(LOAD_ORDER)):

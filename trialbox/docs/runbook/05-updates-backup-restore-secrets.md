@@ -290,8 +290,8 @@ and two patients with the same order number were one record. Every such id chang
 - No lake reader serves a snapshot of the earlier rule.
 - The vector store, the patient twin and the candidate pool are not read by the night (each service reads its own
   stores only). Each refuses at its own **first write**, in the same words.
-- A store or snapshot of a **newer** rule (a later release's) is refused with "update the box". Never rebuild for
-  that.
+- A store, a snapshot or an EDC study of a **newer** rule (a later release's) is refused with "update the box", by
+  the night and by the rebuild alike. Never rebuild for that: the rebuild refuses it, changing nothing.
 
 Nothing is half-migrated, and nothing goes on until the box is rebuilt once, from its sources.
 
@@ -310,8 +310,8 @@ Nothing is half-migrated, and nothing goes on until the box is rebuilt once, fro
 
 2. **EDC values a person decided.** The update stamps every study that has drafts with the earlier rule.
    - **Frozen studies.** A value a person confirmed, edited, signed or sent is a record, and its trail is
-     append-only (D-281): nothing of it is ever cleared or rewritten. A study with such a value is **frozen for
-     prefill**:
+     append-only (D-281): nothing of it is ever cleared or rewritten. A study with such a value **that cites a lake
+     record** is **frozen for prefill** (a value decided "not found" cites none and freezes nothing):
      - every write of its values is refused, with the reason on its EDC page: a draft run, an ODM import, a
        decision, a copy tick, a send, REDCap's erase of hidden values;
      - its records stay, readable and exportable, and its signatures still verify;
@@ -322,11 +322,15 @@ Nothing is half-migrated, and nothing goes on until the box is rebuilt once, fro
      1. export the study's EDC values (`GET /api/v1/studies/<study>/edc/export/odm`);
      2. keep the file with the study's records;
      3. close the study in EDC, or start it again under a new study key.
-   - **Studies with open drafts only.** The plan lists their open drafts (nothing decided, signed or sent) by count.
-     The rebuild clears those drafts and the study goes on under the new rule.
+   - **Every other study of the earlier rule.** The plan lists its open drafts (nothing decided, signed or sent) by
+     count. The rebuild clears those drafts, keeps a decided value that cites no lake record as it is, and the study
+     goes on under the new rule. EDC and the rebuild judge "frozen" by one definition, so no study is left
+     waiting.
 3. **The rebuild**, in this order:
-   1. It **moves aside** the month-end snapshots retention keeps, to `/data/lake/id_rule_1/`. They are kept, never
-      read, pruned by retention as before, and erased as the lake's snapshots are.
+   1. It **moves aside** the month-end snapshots retention keeps, to `/data/lake/id_rule_1/`, every part of each:
+      its NDJSON, its DuckDB file with its sidecars and generations, its Parquet folder. A month-end served without
+      its NDJSON (the byte budget took it) is moved too. They are kept, never read, pruned by retention as before,
+      and erased as the lake's snapshots are.
    2. It clears what is **served**: the served snapshot's name, the DuckDB and Parquet copies, the job holds.
    3. It clears the rest of the lake's snapshots.
    4. It clears the **stores** and stamps each one with the new rule:
@@ -339,7 +343,8 @@ Nothing is half-migrated, and nothing goes on until the box is rebuilt once, fro
       - the open drafts of step 2.
 
    These stay: the site key, the pid map, the site set-up's facts, the embedding cache and the FHIR ledger. A crash
-   after any step leaves a box that serves nothing of the old rule; run the command again and it finishes.
+   after any step, or between any two files moved aside, loses nothing kept and leaves a box that serves nothing of
+   the old rule; run the command again and it finishes.
 
    What the rebuild did goes to two places, with counts only:
    - `/data/lake/id_rule_rebuild.json`;
@@ -368,13 +373,17 @@ Nothing is half-migrated, and nothing goes on until the box is rebuilt once, fro
 **What the night shows from then on.** The night's data-ops page shows a card with counts only, when one is above
 zero:
 - rows of one patient and number with other content;
-- records the source moved to another patient (a number declared unique across the site);
 - links to a patient's record the lake does not hold;
 - deletes and rows without a chart number.
 
 **For sites.** A site whose export sends a deleted row as its bare key (no chart number) must now send the chart
 number with it. A delete without its patient removes nothing and is counted (`deletes_without_patient`), since the
 same number may be another patient's.
+
+**A record the hospital re-files to another chart** is corrected by the next **full night** (every table read whole),
+for every source. A delta night (one asked for with `since`) keeps the first patient's stale copy beside the new one
+until then; it never deletes or links across patients. The scheduled night reads whole; a site that runs delta
+nights runs a scheduled night without `since` at least once a week (`docs/data/02-mapping-a-site.md`).
 
 ## Secrets (D-128, D-138): the one place to rotate them
 

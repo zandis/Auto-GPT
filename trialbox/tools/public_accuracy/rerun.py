@@ -411,6 +411,9 @@ class AgeTable:
             pats.append({"resourceType": "Patient", "id": f"NOBIRTHS{sex or 'x'}", **({"gender": sex} if sex else {})})
         (nd / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p in pats) + "\n", encoding="utf-8")
         (nd / "Observation.ndjson").write_text("", encoding="utf-8")
+        from tb_common import id_rule
+
+        id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release says its id rule
         self.lake = tmp / "lake"
         Lake(self.lake, tz=tz).rebuild(on.isoformat(), HashEmbedder(), nd)
         self.cache: dict[str, dict[tuple[int | None, str], Any]] = {}
