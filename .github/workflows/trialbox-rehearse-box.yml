@@ -118,10 +118,27 @@ jobs:
       - name: Python environment, scanners, Trivy DB
         run: make venv scanners trivy-db
 
+      # H-54: the rehearsal's host image (step host-image) from the cache, keyed on its Dockerfile's hash: a changed
+      # Dockerfile is a new key and a cold build; a hit fetches nothing from the Ubuntu archive or Docker Hub. The tar
+      # holds public layers only (rehearse.sh never saves an image built with a CA)
+      - id: hostcache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: trialbox/.cache/rehearsal-host
+          key: tb-rehearsal-host-${{ hashFiles('trialbox/tools/rehearse_box/host.Dockerfile') }}
+
       - name: Box rehearsal (${{ matrix.variant }})
         env:
           TB_REHEARSE_VARIANT: ${{ matrix.variant }}
+          TB_REHEARSE_HOST_CACHE: ${{ github.workspace }}/trialbox/.cache/rehearsal-host
         run: TB_REHEARSE_DIR="$RUNNER_TEMP/tb/rehearse-box" make rehearse-box
+
+      # saved even when a later step of the rehearsal failed: the host image it built is good for the next run
+      - if: always() && steps.hostcache.outputs.cache-hit != 'true' && hashFiles('trialbox/.cache/rehearsal-host/host-*.tar') != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: trialbox/.cache/rehearsal-host
+          key: tb-rehearsal-host-${{ hashFiles('trialbox/tools/rehearse_box/host.Dockerfile') }}
 
       - name: Report in the job summary
         if: always()

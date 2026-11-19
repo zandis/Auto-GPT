@@ -322,3 +322,55 @@ def test_answers_is_not_for_a_prepared_or_a_rehearsal_box(tmp_path: Path) -> Non
     r = subprocess.run(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--answers"], cwd=tmp_path,
                        env=t["env"], capture_output=True, text=True, timeout=30, check=False)  # fmt: skip
     assert r.returncode == 2 and "--answers needs" in r.stderr
+
+
+def _stale(t: dict[str, Any]) -> Path:
+    from tb_common import preflight as text
+
+    t["fr"].mkdir()
+    f: Path = t["fr"] / text.FILE
+    f.write_text('{"format": "stale"}', encoding="utf-8")
+    return f
+
+
+def test_the_installer_writes_the_preflight_for_the_first_run_page(tmp_path: Path) -> None:
+    """10K-3 (D-1361): before the code is shown the installer runs the live preflight (TB_BOX_PREFLIGHT: the python
+    that runs it, here this one) and writes its file into the first-run folder: owner-only, given to the console's
+    user; an earlier run's file is removed first."""
+    from tb_common import preflight as text
+
+    t: dict[str, Any] = _tree(tmp_path)
+    f = _stale(t)
+    proc = subprocess.Popen(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--yes"], cwd=tmp_path,
+                            env={**t["env"], "TB_BOX_WSL2": "1", "TB_BOX_PREFLIGHT": sys.executable},
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)  # fmt: skip
+    try:
+        _until_code(proc, 150)
+        doc = json.loads(f.read_text(encoding="utf-8"))
+        assert doc["format"] == text.FORMAT and [ln["id"] for ln in doc["lines"]] == list(text.IDS)
+        assert oct(f.stat().st_mode & 0o777) == "0o600"
+        if os.geteuid() == 0:  # chown works as root only (the box's installer runs as root)
+            assert (f.stat().st_uid, f.stat().st_gid) == (10001, 10001)
+    finally:
+        proc.kill()
+        proc.communicate()
+
+
+def test_a_preflight_that_hangs_never_holds_the_code_back(tmp_path: Path) -> None:
+    """10K-3: the preflight is stopped at its time limit; the code is shown and no earlier run's lines are left."""
+    t: dict[str, Any] = _tree(tmp_path)
+    f = _stale(t)
+    hangs = tmp_path / "hangs"
+    hangs.write_text("#!/bin/sh\nexec sleep 60\n", encoding="utf-8")
+    hangs.chmod(0o755)
+    env = {**t["env"], "TB_BOX_WSL2": "1", "TB_BOX_PREFLIGHT": str(hangs), "TB_BOX_PREFLIGHT_S": "1"}
+    proc = subprocess.Popen(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--yes"], cwd=tmp_path,
+                            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)  # fmt: skip
+    t0 = time.monotonic()
+    try:
+        out = _until_code(proc)
+        assert time.monotonic() - t0 < 50
+        assert "the preflight did not finish in 1 s" in out and not f.exists()
+    finally:
+        proc.kill()
+        proc.communicate()
