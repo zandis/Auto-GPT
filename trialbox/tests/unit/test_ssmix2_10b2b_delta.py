@@ -190,3 +190,40 @@ def test_a_discharge_written_tonight_reaches_its_admission_on_a_delta_night(tmp_
     full, delta = _two_nights(tmp_path, "encounter", night1, night2)
     assert [r["enc_status"] for r in full.values()] == ["finished"]
     assert delta == full
+
+
+def test_a_late_older_day_file_with_an_old_stamp_never_drops_the_newer_days_order(tmp_path: Path) -> None:
+    """Lane J at 9253347e: an older day's file arrives late with an old 発生日時. The plain key is tombstoned that night,
+    so every day-keyed row replacing it is sent that night, the newer day's too."""
+
+    def night1(st: kit.Storage) -> None:
+        _rx(st, "RX07", D1, f"{D1}090000000", [("NW", "1", "999000001")])
+
+    def night2(st: kit.Storage) -> None:
+        _rx(st, "RX07", "20261105", "20261105090000000", [("NW", "1", "999000001")])
+
+    full, delta = _two_nights(tmp_path, "medication", night1, night2)
+    assert set(full) == {f"{P}/RX07@20261105", f"{P}/RX07@{D1}"}
+    assert delta == full
+
+
+def test_two_live_lab_versions_with_one_stamp_are_unknown_on_every_night(tmp_path: Path) -> None:
+    """P5 applied to OML-11 (lane J at 9253347e): which of two live versions with one 発生日時 is in force cannot be
+    told; the result is read with status unknown, never one value chosen by file name."""
+
+    def lab(value: str) -> list[str]:
+        return [kit._msh(f"{D1}090000", "OUL^R22^OUL_R22", "L"), kit._pid(P), f"SPM|1|||||||||||||||||{D1}0800",
+                f"OBR|1|L02|L02||||{D1}0800",
+                f"OBX|1|NM|3D010000001927201^HbA1c^JC10||{value}|%|||||F|||{D1}0800"]  # fmt: skip
+
+    def night1(st: kit.Storage) -> None:
+        kit._write(st, P, D1, "OML-11", "L02", f"{D1}090000000", lab("5.1"))
+
+    def night2(st: kit.Storage) -> None:
+        kit._write(st, P, D1, "OML-11", "L02", f"{D1}090000000", lab("9.9"), dept="02")
+
+    full, delta = _two_nights(tmp_path, "lab", night1, night2)
+    assert [(r["result_status"], r["version_note"]) for r in full.values()] == [
+        ("unknown", "two versions with one 発生日時")
+    ]
+    assert delta == full

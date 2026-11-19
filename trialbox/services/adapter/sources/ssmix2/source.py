@@ -257,9 +257,11 @@ SNAPSHOT = "*"  # the day part of a PPR-01 snapshot group's key: every day folde
 #: the types whose records with no version in force are read as unknown (D-1252 P3, P4); the others keep #1095's
 #: reading (a newest flag 2 set aside, an unreadable newest skipped), stated as a limit
 VERSIONED_TYPES = ("PPR-01", "OMP-01", "OMP-02")
+#: P5 (two live versions with one 発生日時) is read as unknown for these too (lane J at 9253347e): a lab result
+TIE_TYPES = ("OML-11",)
 #: the order types whose number filed on several days makes the older day's record unknown (D-1252 P6)
 CROSS_DAY_TYPES = ("OMP-01", "OMP-02")
-_KEY_OF = {"diagnosis": "diag_no", "medication": "rx_no"}
+_KEY_OF = {"diagnosis": "diag_no", "medication": "rx_no", "lab": "lab_no"}
 DOUBT = {
     "tie": "two versions with one 発生日時",  # D-1252 P5
     "past": "no version in force (the newest carries flag 2)",  # D-1252 P3
@@ -1022,7 +1024,7 @@ class Ssmix2Source:
                     gone.setdefault(typ, []).append(sf)
                     self._older[sf.path] = older
                     continue
-                if typ in VERSIONED_TYPES:
+                if typ in VERSIONED_TYPES or (typ in TIE_TYPES and state == "tie"):
                     if state != "live":
                         self._doubt[sf.path] = DOUBT[state]
                         self.stats[f"{typ}:{DOUBT[state]} (read as unknown)"] += 1
@@ -1205,7 +1207,10 @@ class Ssmix2Source:
 
     def _version_rows(self, typ: str, sf: StoredFile) -> list[Row]:
         """The rows one version names, read quietly (nothing counted, quarantined or tombstoned)."""
-        build: Callable[[StoredFile, hl7.Message], Iterator[Row]] = getattr(self, f"_{_TABLE_OF[typ]}_rows")
+        table = _TABLE_OF[typ]
+        build: Callable[[StoredFile, hl7.Message], Iterator[Row]] = getattr(self, f"_{table}_rows", None) or getattr(
+            self, f"_{table}"
+        )
 
         def read() -> list[Row]:
             text, _codec = hl7.decode_bytes(sf.path.read_bytes())
@@ -1234,6 +1239,8 @@ class Ssmix2Source:
         for row in rows:
             if _TABLE_OF[typ] == "diagnosis":
                 row["status"], row["suspected"] = "U", "U"
+            elif _TABLE_OF[typ] == "lab":
+                row["result_status"] = "unknown"  # FHIR Observation.status unknown (the mapping's D-275 words)
             else:
                 row["status"] = "unknown"
             row["version_note"] = why
@@ -1296,7 +1303,7 @@ class Ssmix2Source:
         if table == "diagnosis":
             yield from list(self._dx_dead)
         if table == "medication":
-            yield from [{k: v for k, v in r.items() if k != "_placer"} for r in self._rx_dead]
+            yield from [{k: v for k, v in r.items() if k not in ("_placer", "_always")} for r in self._rx_dead]
         self._files()
         build: Callable[[StoredFile, hl7.Message], Iterator[Row]] = getattr(self, f"_{table}")
         # a deleted file is read only to name its records: what that read appends to the tombstone lists is taken
@@ -1330,7 +1337,7 @@ class Ssmix2Source:
                                 rows.append(row)
                                 self.stats[f"{typ}:deleted with the record (an older version named it)"] += 1
                 for row in rows:
-                    for internal in ("_same", "_order", "_changed", "_placer"):
+                    for internal in ("_same", "_order", "_changed", "_placer", "_always"):
                         row.pop(internal, None)
                     yield row
             if typ in CROSS_DAY_TYPES:
@@ -1344,7 +1351,7 @@ class Ssmix2Source:
                             for row in self._version_rows(typ, old):
                                 if str(row[col]) not in seen:
                                     seen.add(str(row[col]))
-                                    for internal in ("_order", "_changed", "_placer"):
+                                    for internal in ("_order", "_changed", "_placer", "_always"):
                                         row.pop(internal, None)
                                     self.stats[f"{typ}:plain key of an order number on several days tombstoned"] += 1
                                     yield row
@@ -1509,11 +1516,12 @@ class Ssmix2Source:
             changed = str(row.pop("_changed", "") or "")
             row.pop("_order", None)
             row.pop("_placer", None)
+            always = row.pop("_always", "")
             cols = (delta_column, "class_changed_at", "end_datetime", "end_date")
             stamp = max([str(row.get(c) or "") for c in cols if c] + [changed])
             # a row read as unknown (D-1252) is sent on every night: what an earlier night stored as in force must
             # change, whatever the dates the row itself carries
-            if delta_column and not row.get("version_note") and not after(stamp or None, since):
+            if delta_column and not always and not row.get("version_note") and not after(stamp or None, since):
                 continue
             yield row
 
@@ -2003,12 +2011,14 @@ class Ssmix2Source:
         if not atc:
             self.missed[f"medication:{source}"] += 1
         rx_no = order_no(sf, orc)
+        rekeyed = False
         placer = key_part(orc.comp(2, 1))
         filed = "" if no_order(sf.order) else key_part(sf.order)
         if rx_no and not self._plain_keys and (sf.patient, sf.type, key_part(sf.order)) in self._repeated:
             # one number on two days is two records: two keys, from the first night it is filed on a second day
             # (review of PR #1095 item 8, D-1252 P6; under ``unique`` the days are one record and nothing is added)
             rx_no = f"{rx_no}@{sf.day}"
+            rekeyed = True
         return {
             "rx_no": rx_no,
             "mrn": sf.patient,
@@ -2024,6 +2034,9 @@ class Ssmix2Source:
             "status": order_status(orc),
             "dept_code": "" if sf.dept == "-" else sf.dept,
             "_placer": placer if filed and placer and placer != filed else "",  # not a column
+            # its plain key is tombstoned every night (D-1252 P6), so the row replacing it is sent every night (not a
+            # column; lane J at 9253347e: a late older-day file with an old 発生日時 re-keys a record of another day)
+            "_always": "1" if rekeyed else "",
         }
 
     def _medication(self, sf: StoredFile, msg: hl7.Message) -> Iterator[Row]:

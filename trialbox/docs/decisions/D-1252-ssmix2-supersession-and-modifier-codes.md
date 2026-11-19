@@ -57,7 +57,8 @@ What G does not settle (lane J's rulings):
 - **P3** A newest file of flag 2 (no newer flag 1): no version is in force.
 - **P4** A newest file that cannot be read or is quarantined (bytes, another patient, no PID, a duplicate diagnosis
   number, a delete whose patient is not certain): the older version is never read as in force.
-- **P5** Two live files of one record with one 発生日時: no version is in force (a deletion still wins a tie).
+- **P5** Two live files of one record with one 発生日時: no version is in force (a deletion still wins a tie). For
+  OML-11 too: the result is read with status `unknown` (FHIR Observation.status unknown), counted.
 - In P3 to P5, for PPR-01 and OMP-01/02, every version that could be in force is read and its rows go out as unknown
   (diagnosis status `U`, certainty `U`; order status `unknown`) with the reason in `version_note`, their text kept,
   counted. They pass the delta window, so what an earlier night stored as confirmed and active changes on the night
@@ -153,7 +154,11 @@ table name, a one-character 修飾語区分, a repeated identical ZPR, a locally
   decide its record: its versions (flag 2 and deleted ones included), for an order number filed on several days all
   of them, and for ADT-52 and OMP-11/12 the record they change. A newer version written after the window opened is
   sent whatever its clinical dates (ORC-9, the sample time, the visit time), and a re-keyed record (two lines to
-  one; a number on a second day) is sent on the night its old key is tombstoned. Before this, a cancelled order or a
+  one; a number on a second day) is sent on the night its old key is tombstoned. The day-keyed rows of an order
+  number filed on several days are sent on every night, since their plain key is tombstoned on every night.
+  **Limit:** the reader knows "new since last night" only by the 発生日時 in the name, and keeps no state between
+  nights. A file that arrives late with a 発生日時 before the window (back-filed) is not seen by a delta night unless
+  it re-keys another record; a site that back-files runs full nights. Before this, a cancelled order or a
   corrected lab result written on a delta night was not sent (also on master `8bfebd70`). The proof is
   `tests/unit/test_ssmix2_10b2b_delta.py`: night 2 as a delta gives the lake night 2 in full gives, for orders, labs,
   a snapshot and a discharge (`pipeline.check_delta` keeps exempting SS-MIX2: these tests are why).
@@ -207,9 +212,8 @@ Part A: `resolve`, `_record_rows`, `_snapshots`, `_across_days` and `_uncertain_
 - Verifying `jp_core/prb14_outcome.csv` against C 表34 (HL7 0241) and 表96 (JHSD0006): it turns unknown outcomes into
   recognised ones and needs its own measurement (a follow-up card).
 - The other message types (ADT-00, 12, 22, 52, OMP-11/12, OML-11) keep #1095's reading of a newest flag 2 (set
-  aside) and of an unreadable newest file (skipped); a cross-day number of OML-11 is counted only; two OML-11 files
-  with one 発生日時 are read by file name order (not read as unknown). Their rows pass the delta window by the rule
-  of section D.
+  aside) and of an unreadable newest file (skipped); a cross-day number of OML-11 is counted only (OML-11's ties are
+  read as unknown, P5). Their rows pass the delta window by the rule of section D.
 - Field allow-lists for the order segments (ORC, RXE, TQ1); the MSH-9 check covers PPR-01 only.
 - The modifiers are kept as text in `modifiers`; FHIR `bodySite` and laterality are not written.
 - The lake's resource ids are made of the key column alone (`rx_no`, `diag_no`); SS-MIX2 numbers are unique only
