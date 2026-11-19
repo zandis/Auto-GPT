@@ -1,0 +1,156 @@
+{
+  "schema": "tb-tier-record/1",
+  "profile": "rtxpro6000",
+  "tier": "large",
+  "measured_on": {
+    "serving_record": "deploy/measured/serving_config.rtxpro6000.json",
+    "qualification_record": null
+  },
+  "fields": {
+    "box_role": {
+      "basis": "declared",
+      "value": "head_hospital",
+      "source": "deploy/docker-compose.rtxpro6000.yml:1 the box for the Japan head hospital and CGMH"
+    },
+    "card_names": {
+      "basis": "declared",
+      "value": ["RTX PRO 6000"],
+      "source": "deploy/gpu_profile.sh:35 the card name that gives this profile"
+    },
+    "arch": {
+      "basis": "declared",
+      "value": "x86_64",
+      "source": "deploy/docker-compose.rtxpro6000.yml:1 one RTX PRO 6000 (96 GB, x86-64)"
+    },
+    "card_memory_mib": {
+      "basis": "measured",
+      "value": 97887,
+      "source": "deploy/measured/serving_config.rtxpro6000.json card.memory_total_mib"
+    },
+    "driver": {
+      "basis": "measured",
+      "value": "580.178.04",
+      "source": "deploy/measured/serving_config.rtxpro6000.json card.driver"
+    },
+    "ecc": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "the card's ECC mode read by nvidia-smi on the box (plan 10 row 10E-36); the serving record does not carry it"
+    },
+    "desk_side": {
+      "basis": "declared",
+      "value": true,
+      "source": "docs/reviews/2026-11-root/16-security-certification-customisation.md:162 a desk-side 6000 Pro workstation"
+    },
+    "host_memory_gib_min": {
+      "basis": "declared",
+      "value": 192,
+      "source": "docs/plan/33-plan-v7.md:93 the reference workstation's memory, 192 to 256 GB"
+    },
+    "judge_sequences": {
+      "basis": "measured",
+      "value": 16,
+      "source": "deploy/measured/serving_config.rtxpro6000.json servers[judge].max_num_seqs"
+    },
+    "verifier_sequences": {
+      "basis": "measured",
+      "value": 16,
+      "source": "deploy/measured/serving_config.rtxpro6000.json servers[verifier].max_num_seqs"
+    },
+    "screen_concurrency": {
+      "basis": "declared",
+      "value": 16,
+      "source": "deploy/docker-compose.rtxpro6000.yml:98 TB_SCREEN_LLM_CONCURRENCY follows the judge's sequences"
+    },
+    "context_tokens": {
+      "basis": "measured",
+      "value": 32768,
+      "source": "deploy/measured/serving_config.rtxpro6000.json servers[*].max_model_len"
+    },
+    "gpu_memory_utilization": {
+      "basis": "measured",
+      "value": {"judge": 0.4, "verifier": 0.2},
+      "source": "deploy/measured/serving_config.rtxpro6000.json servers[*].gpu_memory_utilization"
+    },
+    "models_on_card": {
+      "basis": "measured",
+      "value": "pair_resident",
+      "source": "deploy/measured/serving_config.rtxpro6000.json both servers, neither with --enable-sleep-mode"
+    },
+    "note_rule": {
+      "basis": "declared",
+      "value": "both_agree",
+      "source": "deploy/install.sh:482 a note criterion excludes only when both models agree"
+    },
+    "judge_calls_per_second": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "a throughput record of this profile on its own card (plan 10 rows 10E-16, 10E-20); the serving record carries no rate"
+    },
+    "free_memory_at_peak_mib": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "a peak reading under load in this profile's own record (plan 10 row 10E-19); the serving record's memory_used_mib is at capture, not at peak"
+    },
+    "wake_seconds_p95": {
+      "basis": "declared",
+      "value": "no_swap",
+      "source": "deploy/docker-compose.rtxpro6000.yml:8-9 both stay resident: no sleep mode, no swap, no hold"
+    },
+    "startup_minutes": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "plan 10 row 10E-14 (start-up and idle memory per tier)"
+    },
+    "idle_memory_mib": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "plan 10 row 10E-14 (start-up and idle memory per tier)"
+    },
+    "power_limit_watts": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "a power reading on the box's own card; no row sets one for this tier yet"
+    },
+    "role_groups_on_box": {
+      "basis": "declared",
+      "value": ["patient", "converse", "protocol"],
+      "source": "docs/reviews/2026-11-root/13-tiers-and-tuning.md:310-311 the pair resident, protocol reading on the box"
+    },
+    "protocol_route": {
+      "basis": "declared",
+      "value": "on_box",
+      "source": "deploy/docker-compose.rtxpro6000.yml:9 protocol reading (ir_extract) runs on the box"
+    },
+    "interactive_lane": {
+      "basis": "declared",
+      "value": "shared_slots",
+      "source": "services/gateway/load.py:3-5 an interactive call waits for a slot of the endpoint, then gets model_busy"
+    },
+    "busy_wait_seconds": {
+      "basis": "declared",
+      "value": 0.5,
+      "source": "services/gateway/load.py:26 INTERACTIVE_SLOT_WAIT_S"
+    },
+    "night_budget_patients": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "plan 10 row 10E-11 (night plan per tier), sized from judge_calls_per_second once it is in a record; the code default of services/orchestrator/scenarios/microbatch.py is not a tier value"
+    },
+    "first_load_nights": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "plan 10 row 10E-20 (capacity statement per tier), from judge_calls_per_second once it is in a record"
+    },
+    "console_promises": {
+      "basis": "declared",
+      "value": [
+        {"capability": "protocol_reading", "status": "available", "because": "read_on_the_box_progress_per_part"},
+        {"capability": "note_exclusion", "status": "available", "because": "two_models_agree_both_resident"},
+        {"capability": "interactive_note_check", "status": "available", "because": "both_models_resident"},
+        {"capability": "card_memory_error_correction", "status": "not_measured", "because": "ecc_not_measured"}
+      ],
+      "source": "docs/reviews/2026-11-root/13-tiers-and-tuning.md:400-401 tier D: interactive note check offered, protocol upload read on the box"
+    }
+  }
+}
