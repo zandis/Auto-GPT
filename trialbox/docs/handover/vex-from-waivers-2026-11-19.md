@@ -1,6 +1,6 @@
 # The release VEX from the waivers (2026-11-19)
 
-**Reader:** the people who build and release TrialBox: lane H, the security owner, the integrator and whoever builds a
+**Reader:** the people who build TrialBox: lane H, the security owner, the integrator and whoever builds a
 release bundle. For builders, so in one language.
 
 Plan 10 row 10G-8 (review 16, item 16-9), decision D-1339. Done when a waiver without an owner fails CI: it does
