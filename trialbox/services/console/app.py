@@ -57,6 +57,7 @@ from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
 from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page, person_state, phone
 from console import actor as console_actor
+from console import timing as server_time
 from console.account_rules import Hooks as AccountHooks
 from console.account_rules import Rules as AccountRules
 from console.account_rules import account_class, protected, protected_account
@@ -613,6 +614,14 @@ def create_app(
         token = getattr(request.state, "sso_cookie", None)
         if token:
             resp.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie)
+        return resp
+
+    @app.middleware("http")  # added last, so the outermost: its time holds every other middleware's (D-1245)
+    async def server_timing(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        t0 = time.perf_counter()
+        resp = await call_next(request)
+        if server_time.timed(resp.status_code):  # a served page only: a refusal and a not-found answer alike
+            resp.headers[server_time.HEADER] = server_time.value((time.perf_counter() - t0) * 1000)
         return resp
 
     def _trusted_peer(request: Request) -> bool:
