@@ -101,7 +101,7 @@ _EN_FORWARD = (
     # card 10A-1b: a prohibition or an exception before the concept ("forbidden: X", "other than X", "except X")
     r"other\s+than|except(?:\s+for)?|contraindicat\w*|forbid\w*|prohibit\w*|disallow\w*|preclud\w*|"
     # card 10A-1c, the independent round: "absent X", "w/o X", "zero X", "wild-type" (no mutation)
-    r"absent|w/o|zero|wild[- ]?type"
+    r"absent|w/o|zero|wild[- ]?type|apart\s+from|aside\s+from"
 )
 _PARTICIPLE = r"[a-z]+(?:ed|en|wn|ne|ht)"  # administered, given, shown, done, brought
 _EN_BACKWARD = (
@@ -696,7 +696,7 @@ def _elsewhere(t: str, start: int, end: int, forward: bool, st: _Structure) -> b
 #   name and nothing else ("any prior chemotherapy *except* bevacizumab"); the concept outside that object runs. The
 #   object is read to the end of its list, or to 外.
 _EN_POSTMOD = re.compile(r"(?:without|not\s+(?:on|with|in|for|from|by))\s+", _FLAGS)
-_EN_EXCEPT = re.compile(r"except(?:\s+for)?|other\s+than", _FLAGS)
+_EN_EXCEPT = re.compile(r"except(?:\s+for)?|other\s+than|excluding|apart\s+from|aside\s+from", _FLAGS)
 _JA_EXCEPT = re.compile(r"除き|を除く|以外")
 _ZH_EXCEPT = re.compile(r"以外|除了|除")
 _JA_ABSENT = re.compile(r"(?:な|無)[しい]$")
@@ -842,8 +842,16 @@ def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] 
     lang = "ja" if _KANA.search(t) else "zh" if _CJK.search(t) else "en"
     if not found:  # R0: the line never names the coded concept: a cue may be about it under another name
         return any(p.search(t) for p in _ANY_CUE) or any(p.search(t) for p in _STATUS.values())
-    if _status_held(unicodedata.normalize("NFKC", text), t, found, lang):
+    u = unicodedata.normalize("NFKC", text)
+    if _status_held(u, t, found, lang):
         return True
+    # card 10A-1c: cues are found with the descriptors blanked, as before; what a cue reaches is read with the coded
+    # name as written, a descriptor inside it included ("non-melanoma skin cancer" coded), so the reach finds it
+    # ("any malignancy other than non-melanoma skin cancer" is held)
+    cues = t
+    for s, e, _ in found:
+        t = t[:s] + u[s:e] + t[e:]
+
     built: list[_Structure] = []
 
     def elsewhere(m: re.Match[str], forward: bool) -> bool:
@@ -851,7 +859,7 @@ def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] 
             built.append(_Structure(t, found, lang, others))
         return _elsewhere(t, m.start(), m.end(), forward, built[0])
 
-    for m in _EN_FWD.finditer(t):
+    for m in _EN_FWD.finditer(cues):
         reach = _list_after(t, m.end(), cjk=False, ja=False)
         if (
             not _explained_forward(_clause_after(t, m.end(), cjk=False), own, others, False, reach)
@@ -859,19 +867,19 @@ def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] 
             and not _scope_closed(t, m, found, own, lang, others)
         ):
             return True
-    for m in _EN_BWD_ANY.finditer(t):
+    for m in _EN_BWD_ANY.finditer(cues):
         before = _clause_before(t, m.start(), cjk=False)
         reach = _list_before(t, m.start(), cjk=False, ja=False)
         if not _explained_backward(before, m.group(0), "", own, others, False, reach) and not elsewhere(m, False):
             return True
-    for m in _EN_PRE.finditer(t):
+    for m in _EN_PRE.finditer(cues):
         # "Nonsmokers with asthma": the prefixed word negates itself; it is about something else only when this
         # concept is named elsewhere in the line, outside that word
         inside = any(s < m.end() and m.start() < e for s, e, _ in found)
         if inside or not found:
             return True
     if lang == "ja":
-        for m in _JA_BWD.finditer(t):
+        for m in _JA_BWD.finditer(cues):
             before, after = _clause_before(t, m.start(), True, True), _clause_after(t, m.end(), True, True)
             reach = _list_before(t, m.start(), True, True)
             if (
@@ -880,14 +888,14 @@ def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] 
                 and not _scope_closed(t, m, found, own, lang, others)
             ):
                 return True
-        for m in _JA_FWD.finditer(t):
+        for m in _JA_FWD.finditer(cues):
             reach = _list_after(t, m.end(), True, True)
             if not _explained_forward(
                 _clause_after(t, m.end(), True, True), own, others, True, reach, m.group(0)
             ) and not (elsewhere(m, True)):
                 return True
         return False
-    for m in _ZH_FWD.finditer(t):
+    for m in _ZH_FWD.finditer(cues):
         reach = _list_after(t, m.end(), True, False)
         if (
             not _explained_forward(_clause_after(t, m.end(), cjk=True), own, others, True, reach, m.group(0))
@@ -895,7 +903,7 @@ def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] 
             and not _scope_closed(t, m, found, own, lang, others)
         ):
             return True
-    for m in _ZH_BWD.finditer(t):
+    for m in _ZH_BWD.finditer(cues):
         before, after = _clause_before(t, m.start(), cjk=True), _clause_after(t, m.end(), cjk=True)
         if not before.strip():  # at the clause's start it is a forward cue, read above
             continue

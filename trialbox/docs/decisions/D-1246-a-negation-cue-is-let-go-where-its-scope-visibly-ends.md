@@ -17,7 +17,28 @@
     - round 2, 57 targeted must-hold lines: master missed 53, 227466c3 missed 49.
 
     227466c3 also added two misses that master held. The lines that ran at 227466c3 are now regression lines
-    (`independent_set_1.json`, seen). A fresh unseen set measures the final head.
+    (`independent_set_1.json`, seen).
+
+    The lead measured 71e85bbc on the first tester's full files (368 lines): 0 of 186 and 0 of 57 missed (master
+    60 and 53); 49 of 109 and 1 of 16 held unnecessarily.
+
+    A second tester wrote 420 new lines, 267 must-hold, wider than negation. At 71e85bbc 72 of 194 and 40 of 73
+    were missed (master 121 and 62); 44 of 122 and 21 of 31 were held unnecessarily (master 41 and 19). What still
+    runs is mostly not negation at all:
+    - drugs stopped, failed, refused or allergic to;
+    - plans, bookings and "candidate for";
+    - a donor's, partner's, fetus's or child's condition;
+    - remission, eradicated, recovered;
+    - vaccination against X;
+    - headings, definitions and instructions;
+    - ⊖, ø and a ticked "No" box.
+
+    These are left to the default-hold card. The same round found one regression at 71e85bbc, which is fixed: "any
+    malignancy other than non-melanoma skin cancer" with non-melanoma skin cancer coded ran. The coded name holds a
+    descriptor ("non-melanoma"), which was blanked, so the exception's reach did not find the name. A cue's reach is
+    now read with the coded name as written. "apart from" and "aside from" join the exception cues.
+  - **The hold is a fail-safe flag for the reviewer.** On lines written by people who had not seen it, it still lets
+    many not-present lines run. It is not evidence that a line it lets run is a plain assertion.
   - **Misses closed, each by a rule** (more holds, by design):
     - **Chinese 不 and 以外.** A bare 不 is a cue, except in 不良, 不全, 不穩定, 不明, 不足, 不整, 不規則, 不規律 or
       不佳 right after a noun and ending the word, and in 不孕症. 以外 is a backward cue, as in Japanese.
