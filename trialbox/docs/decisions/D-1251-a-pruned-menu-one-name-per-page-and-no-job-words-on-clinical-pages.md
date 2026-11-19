@@ -57,7 +57,7 @@
     studies' criteria once per page view (`backend.rulesets`: id, version, status, kind; no patient data; the list
     the target page reads for that account). It also reads its standing in the delegation log of each approved study
     it sees, once per study and page view (`Helpers.stand`). An account that prepares requests, or whose role may
-    never start a run, reads nothing more. The action pages read the list once (master's request page read it twice).
+    never start a run, reads nothing more. The action pages read the list once, as on master.
     If the criteria list or the delegation log cannot be read, the link is not shown and the page answers as it does
     with the flag off.
   - **The steward's bar has four entries** (D-104): Break-glass, Opt-out register, Data operations, Audit trail.

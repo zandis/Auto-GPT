@@ -854,7 +854,7 @@ def test_a_page_with_a_new_link_adds_only_the_named_reads(box: dict[str, Any], m
         if COLUMNS[k.split()[0]][1] != "investigator":  # prepares requests, or may never start a run: no read
             assert not added, (k, dict(added))
     _flag(box, "on")
-    for col in COLUMNS:  # the action pages themselves read the list once (master's request page read it twice)
+    for col in COLUMNS:  # the action pages themselves read the list once, as on master
         page, _, _ = clients[col]
         for target in ACTION_TARGETS:
             calls.clear()
