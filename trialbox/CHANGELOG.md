@@ -10,6 +10,11 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The one page for hospital IT (10K-18, D-1378) is made from the box's own preflight list, one page per delivered
+  form, in en, ja and zh-TW: for a box its supplier prepared it asks IT for six things (name and certificate, clock,
+  mail relay, backup share, audit share, data feed) with the words the box shows on a red line, and names the three
+  the supplier prepared; for a box IT installs (`it-one-page.it-form.<lang>.md`) it asks for all nine. It no longer
+  says "only three things".
 - The console's colours and type are named values (9k-1, 9k-2, D-1368): form fields have a darker border that meets
   the 3:1 contrast for controls, the amber "needs attention" row is readable in dark mode (and a little paler in
   light mode), and Japanese and Traditional Chinese pages have a taller line height (1.7) with strict line breaking.
