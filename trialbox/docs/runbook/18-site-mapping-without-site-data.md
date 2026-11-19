@@ -40,32 +40,3 @@ put it in the schema's `identifiers.chart_number` and run `python -m tools.synth
 <schema.yaml>`. A form with letters or a check digit gives a pattern for a bare chart number (no label), to add to
 `tools/data_scan_patterns.yaml` with its planted positive (D-203). A form of digits only, with no check digit, gives
 none: such a pattern would hit every date and count, and the labelled `chart_number` pattern stays the control.
-
-## The site profile from the site questionnaire (10B-19, D-1249)
-
-The hospital's answers to the site questionnaire (review 12 section 9) fill the site profile, the folder of its code
-tables and habits (DATA §15). The form is a command on the box, run by the same person who loads the profile. It
-writes a folder and never loads it.
-
-1. **Print the answers file** in the language of the person filling it:
-   `python -m adapter.site_profile fill --template --lang ja > answers.yaml`. Fill it from the questionnaire and from
-   the hospital's code tables (9.2 sample 3). Codes and their names only: never a patient's data or a password (the
-   form does not look for them). Synthetic or public codes only in a test. Every answer is read as text; the
-   template says what the form decides when an answer is left out.
-2. **Check the answers:**
-   `python -m adapter.site_profile fill --answers answers.yaml --out /var/tmp/profile-new --check-only --lang ja`.
-   Each refused answer is named by its key, its line and its length, with what is expected; what it said is not
-   repeated. Correct them and run it again until nothing is refused. Then read the summary it prints: rows stored as
-   `verify` because no state was given, rows given factor 1, and rows stored as `verify` because the product has no
-   factor for their units.
-3. **Write the folder:** the same command without `--check-only`. The folder must be new, in a folder you can write,
-   and outside the site mapping folders the box reads. The command knows the folders named by `TB_MAPPING_DIR` in
-   your shell, `/etc/trialbox/mapping` and `deploy/site/mapping`; a mapping folder mounted anywhere else is not known
-   to it, so do not aim `--out` at one. A row you did not mark `verified` is stored as `verify`. The folder is
-   written with mode `0755` (files `0644`) so the box can read it. If the disk refuses or you press Ctrl-C, nothing
-   of the folder is left.
-4. **Check it against the site mapping:**
-   `python -m adapter.site_profile check /var/tmp/profile-new --mapping <the site mapping>`.
-5. **Put it in place and load it by name.** Copy the folder to `deploy/site/mapping/profile/` (keep the previous one in
-   the backup), then run `python -m adapter.site_profile load <folder> --lake <lake> --by <your name>` as DATA §15
-   says. A changed profile needs a new `version` in the answers.
