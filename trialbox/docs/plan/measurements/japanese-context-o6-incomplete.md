@@ -1,6 +1,6 @@
 # O-6 Japanese SCREEN context comparison
 
-## 8k ballast stand-in
+## 8k by ballast
 
 - Context (tokens) — 8,192
 - Synthetic seed — 42 (JP=ja:1.0)

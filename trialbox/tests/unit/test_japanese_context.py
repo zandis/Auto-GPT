@@ -153,7 +153,11 @@ def test_over_budget_early_return_has_no_call(monkeypatch):
     assert arm.counts == Counts()
 
 
-def test_seeded_japanese_fixture_runs_through_both_screen_arms(tmp_path, db_url, monkeypatch):
+@pytest.mark.parametrize("plant_omissions", [False, True])
+def test_seeded_japanese_fixture_runs_through_both_screen_arms(tmp_path, db_url, monkeypatch, plant_omissions):
+    from matching.cascade.engine import _Run
+
+    excerpt_set = _Run.excerpt_set
     monkeypatch.setenv("TB_ENV", "VALIDATION")
     arms = []
     install = tmp_path / "installation"
@@ -167,9 +171,19 @@ def test_seeded_japanese_fixture_runs_through_both_screen_arms(tmp_path, db_url,
         arm = Arm(profile, provenance)
         sent = []
 
+        if plant_omissions:
+
+            def planted(*args, omitted=(4 if profile == "ballast" else 0), **kwargs):
+                shown, _ = excerpt_set(*args, **kwargs)
+                return [{**note, "text": "合成カルテのテスト印"} for note in shown], omitted
+
+            monkeypatch.setattr(_Run, "excerpt_set", staticmethod(planted))
+
         def gateway(role, sent=sent, context=context):
             def complete(body, labels):
                 sent.append(role)
+                if plant_omissions:
+                    assert "合成カルテのテスト印" in str(body["messages"])
                 return {
                     "model": role,
                     "tb": {"build_sha": role},
@@ -184,6 +198,8 @@ def test_seeded_japanese_fixture_runs_through_both_screen_arms(tmp_path, db_url,
         assert arm.counts.judge_calls == sent.count("judge") > 0
         assert arm.counts.input_tokens == 123 * arm.counts.judge_calls
         assert arm.counts.output_tokens == 4 * arm.counts.judge_calls
+        if plant_omissions:
+            assert arm.counts.truncated_calls == (sent.count("judge") if profile == "ballast" else 0)
         path = tmp_path / f"{profile}.json"
         arm.write(path)
         arms.append(Arm.read(path, profile))
@@ -194,6 +210,91 @@ def test_seeded_japanese_fixture_runs_through_both_screen_arms(tmp_path, db_url,
         assert "8,192" in output and "32,768" in output
         assert labels["ballast"] in output and labels["head-box"] in output
         assert "JP=ja:1.0" in output
+        assert "合成カルテのテスト印" not in output
         for private in ("synthetic-patient", "JP-A", "o6-synthetic", "verdict", "confidence", "measured"):
             assert private not in output
     assert install.read_bytes() == b"existing configuration\n"
+
+
+@pytest.mark.parametrize(
+    ("total", "low", "high", "gap", "passes"),
+    [(100, 5, 3, Fraction(2), True), (10000, 501, 300, Fraction(201, 100), False), (100, 0, 4, Fraction(-4), True)],
+)
+def test_paired_percentages(total, low, high, gap, passes):
+    arms = pair(total, low, high)
+    assert compare(*arms) == (gap, passes)
+    for locale, labels in TEXT.items():
+        report = render(*arms, locale)
+        for count in (low, high):
+            assert f"{labels['share']} — {100 * count / total:g}%" in report
+        assert f"{labels['difference']} — {float(gap):+g}" in report
+
+
+def test_measured_usage_only():
+    counts = Counts()
+    for omitted in (0, 1, 4):
+        counts.observe(omitted, {"prompt_tokens": 900, "completion_tokens": 20})
+    counts.observe(4, {"completion_tokens": 0})
+    counts.observe(4, {"prompt_tokens": 900, "completion_tokens": 20, "estimated": True})
+    assert counts == Counts(3, 2, 2700, 60, 2)
+
+
+def test_capture_preserves_completed_arm_on_refusal(tmp_path, monkeypatch):
+    from tools.japanese_context_rehearsal import capture
+
+    path = tmp_path / "ballast.json"
+    pair(100, 5, 3)[0].write(path)
+    previous = path.read_bytes()
+    monkeypatch.delenv("TB_ENV", raising=False)
+    assert not capture(tmp_path, "ballast", 42).complete
+    assert path.read_bytes() == previous
+    attempt = tmp_path / "ballast.incomplete.json"
+    assert attempt.exists() and not Arm.read(attempt, "ballast").complete
+
+
+def test_offline_cli_replays_only_aggregate_figures(tmp_path, monkeypatch, capsys):
+    import sys
+
+    from tools.japanese_context import main
+
+    labels = SimpleNamespace(study_id="synthetic-marker")
+    raw = {"usage": {"prompt_tokens": 900, "completion_tokens": 20}, "text": "synthetic-marker"}
+    for arm in pair(1, 0, 0):
+        arm.counts = Counts()
+        for role in ("judge", "verifier"):
+            gateway = ObservedGateway(SimpleNamespace(complete=lambda *_: raw), arm, role, labels.study_id, Lock())
+            with call_scope(role, 1):
+                gateway.complete({"prompt": "synthetic-marker"}, labels)
+        assert arm.counts == Counts(1, 1, 900, 20, verifier_calls=1)
+        arm.write(tmp_path / f"{arm.profile}.json")
+    monkeypatch.setattr(sys, "argv", ["o6", "report", str(tmp_path)])
+    for locale, text in TEXT.items():
+        monkeypatch.setenv("TB_REPORT_LANG", locale)
+        assert main() == 0
+        first = capsys.readouterr().out
+        assert main() == 0
+        assert capsys.readouterr().out == first
+        assert text["pass"] in first
+        assert "synthetic-marker" not in first
+        for field, count in vars(Counts(1, 1, 900, 20, verifier_calls=1)).items():
+            assert first.count(f"{text[field]} — {count}\n") == 2
+
+
+def test_gateway_reported_retry_has_one_unobserved_attempt():
+    arm, _ = pair(1, 0, 0)
+    arm.counts = Counts()
+    payload = {"tb": {"retries": 1}, "usage": {"prompt_tokens": 900, "completion_tokens": 20}}
+    labels = SimpleNamespace(study_id="synthetic")
+    gateway = ObservedGateway(SimpleNamespace(complete=lambda *_: payload), arm, "judge", labels.study_id, Lock())
+    with call_scope("judge", 4):
+        gateway.complete({}, labels)
+    assert arm.counts == Counts(1, 1, 900, 20, missing_judge_calls=1)
+    assert not arm.complete
+
+
+def test_absent_capture_files_have_no_verdict(tmp_path):
+    low, high = [Arm.read(tmp_path / f"{profile}.json", profile) for profile in ("ballast", "head-box")]
+    assert compare(low, high) == (None, None)
+    assert compare(pair(1, 0, 0)[0], high) == (None, None)
+    for locale, labels in TEXT.items():
+        assert render(low, high, locale).endswith(f"## A6\n\n{labels['incomplete']}\n")

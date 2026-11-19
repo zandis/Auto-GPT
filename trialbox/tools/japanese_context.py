@@ -8,6 +8,7 @@ import re
 import sys
 from contextlib import contextmanager
 from contextvars import ContextVar
+from copy import copy
 from dataclasses import asdict, dataclass, field
 from fractions import Fraction
 from pathlib import Path
@@ -132,6 +133,18 @@ def call_scope(role: str, left_out: int):
         _scope.reset(token)
 
 
+@dataclass
+class _PostCounter:
+    """Count transport attempts for one completion without retaining the request or its headers."""
+
+    http: Any
+    posts: int = 0
+
+    def post(self, *args, **kwargs):
+        self.posts += 1
+        return self.http.post(*args, **kwargs)
+
+
 class ObservedGateway:
     def __init__(self, gateway: Any, arm: Arm, role: str, study_id: str, lock: Lock) -> None:
         self.gateway = gateway
@@ -143,24 +156,48 @@ class ObservedGateway:
     def __getattr__(self, name: str) -> Any:
         return getattr(self.gateway, name)
 
+    def context(self) -> int | None:
+        value = self.gateway.context()
+        if value != PROFILES[self.arm.profile]:
+            self.arm.contexts_verified = False
+        return value
+
     def complete(self, body: dict, labels: Any) -> dict:
+        from tb_llm import GatewayClient
+
         scope = _scope.get()
         if scope is None or labels.study_id != self.study_id:
             return self.gateway.complete(body, labels)
         stage, left_out = scope
         judge = stage == self.role == "judge"
+        gateway = self.gateway
+        counter = None
+        if isinstance(gateway, GatewayClient):
+            # Each concurrent completion gets its own counter around the real client's retry loop.
+            counter = _PostCounter(gateway.http)
+            gateway = copy(gateway)
+            gateway.http = counter
         usage = None
+        retries = 0
         try:
-            payload = self.gateway.complete(body, labels)
-            if payload.get("tb", {}).get("cache") != "hit":
+            payload = gateway.complete(body, labels)
+            meta = payload.get("tb", {})
+            prior_attempts = meta.get("retries", 0)
+            if not count(prior_attempts):
+                raise ValueError
+            retries = prior_attempts
+            if meta.get("cache") != "hit":
                 usage = payload.get("usage")
             return payload
         finally:
+            if counter:
+                retries += max(0, counter.posts - 1)
             with self.lock:
                 if judge:
+                    self.arm.counts.missing_judge_calls += retries
                     self.arm.counts.observe(left_out, usage)
                 else:
-                    self.arm.counts.verifier_calls += 1
+                    self.arm.counts.verifier_calls += 1 + retries
 
 
 def main() -> int:

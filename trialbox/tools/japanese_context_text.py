@@ -34,7 +34,7 @@ TEXT = {
             _KEYS,
             (
                 "O-6 Japanese SCREEN context comparison",
-                "8k ballast stand-in",
+                "8k by ballast",
                 "32k unballasted head-box control",
                 "Context (tokens)",
                 "Synthetic seed",
