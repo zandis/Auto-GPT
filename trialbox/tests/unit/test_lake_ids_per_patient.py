@@ -439,9 +439,9 @@ def test_fhir_bulk_ids_stay_the_servers_unique_ids() -> None:
     """A FHIR server's id is unique per server and type: the bulk door's ids keep their rule (D-1253 leaves them)."""
     from adapter.mapping.engine import resource_id
 
-    res = [{"resourceType": "Condition", "id": "c1", "subject": {"reference": "Patient/p1"}},
-           {"resourceType": "Observation", "id": "o1", "subject": {"reference": "Patient/p2"},
-            "hasMember": [{"reference": "Condition/c1"}]}]  # fmt: skip
+    res: list[dict[str, Any]] = [{"resourceType": "Condition", "id": "c1", "subject": {"reference": "Patient/p1"}},
+                                  {"resourceType": "Observation", "id": "o1", "subject": {"reference": "Patient/p2"},
+                                   "hasMember": [{"reference": "Condition/c1"}]}]  # fmt: skip
     out = list(pseudonymise_bulk(iter(res), KEY))
     assert out[0]["id"] == bulk_id(KEY, "Condition", "c1") == resource_id(KEY, "Condition", "c1")
     assert out[1]["id"] == resource_id(KEY, "Observation", "o1")
