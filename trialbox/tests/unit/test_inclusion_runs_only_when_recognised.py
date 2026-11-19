@@ -7,9 +7,9 @@ clause naming the concept is made of that concept's names and the words listed i
 ``services/criteria_compiler/ir_extract/recognised_assertions.yaml``. Each rule below has a line it holds and a near
 line it lets run; removing the rule (or the words it relies on) fails one of them.
 
-The development set ``tests/fixtures/negated_inclusion/card_10a1d_development.tsv`` is synthetic: 529 lines in
-English, Japanese and Chinese, labelled before the rule was written (and, for the second round, with each frame's
-nearest must-hold lines). No patients.
+The development set ``tests/fixtures/negated_inclusion/card_10a1d_development.tsv`` is synthetic: 590 lines in
+English, Japanese and Chinese. The first 471 were labelled before the rule was written; each later round came with
+the frames it tests and their nearest must-hold lines. No patients.
 """
 
 from __future__ import annotations
@@ -49,13 +49,13 @@ def _dev_held() -> list[bool]:
 
 
 def test_the_development_set_is_what_d1248_counts() -> None:
-    assert len(ROWS) == 529
-    assert sum(r["expect"] == "held" for r in ROWS) == 297
+    assert len(ROWS) == 590
+    assert sum(r["expect"] == "held" for r in ROWS) == 337
     assert {r["lang"] for r in ROWS} == {"en", "ja", "zh"}
 
 
 def test_every_must_hold_line_of_the_development_set_is_held() -> None:
-    """At 71e85bbc (the cue reading alone) 201 of these 297 lines ran."""
+    """At 71e85bbc (the cue reading alone) 201 of the first 297 of these lines ran."""
     missed = [r["text"] for r, h in zip(ROWS, _dev_held(), strict=True) if r["expect"] == "held" and not h]
     assert missed == []
 
@@ -139,6 +139,37 @@ def test_an_unknown_word_in_the_concepts_clause_holds_it_and_one_in_another_clau
         (("Diabetes (NO)", "diabetes", "condition"), ("Diabetes (DM)", "diabetes", "condition")),
         # a line of kanji alone is read with the Japanese and the Chinese words
         (("寛解期乳癌", "乳癌", "condition"), ("転移性乳癌", "乳癌", "condition")),
+        # a bound on a count of the concept itself: zero meets it
+        (
+            ("≤1 prior myocardial infarction", "myocardial infarction", "condition"),
+            ("At least 1 prior myocardial infarction", "myocardial infarction", "condition"),
+        ),
+        (("喘息発作が年2回以下", "喘息発作", "condition"), ("喘息発作が年2回以上", "喘息発作", "condition")),
+        (("心衰竭住院不超過2次", "心衰竭住院", "encounter"), ("心衰竭住院至少2次", "心衰竭住院", "encounter")),
+        # `ended`: a clause that says it ended, with no past window in the atom (the scorer's atom has none)
+        (
+            ("Previously treated with tamoxifen; last dose 2 years ago", "tamoxifen", "medication"),
+            ("Previously treated with tamoxifen", "tamoxifen", "medication"),
+        ),
+        (
+            ("メトトレキサート最終投与から6か月以上経過", "メトトレキサート", "medication"),
+            ("メトトレキサートを6か月以上服用中", "メトトレキサート", "medication"),
+        ),
+        # "status after" and "post" are listed for procedures only
+        (
+            ("Post-COVID-19", "COVID-19", "condition"),
+            ("At least 6 months post-hysterectomy", "hysterectomy", "procedure"),
+        ),
+        # "criteria for X" is a definition unless the patient meets them
+        (
+            ("Diagnostic criteria for schizophrenia", "schizophrenia", "condition"),
+            ("Meeting DSM-5 diagnostic criteria for schizophrenia", "schizophrenia", "condition"),
+        ),
+        # "undergoing" is listed; "undergo" after a plan or an eligibility is not
+        (
+            ("Eligible to undergo carotid endarterectomy", "carotid endarterectomy", "procedure"),
+            ("Patients undergoing carotid endarterectomy", "carotid endarterectomy", "procedure"),
+        ),
         # a time anchor that may lie after the start of the study is not listed
         (
             ("Insulin at randomisation", "insulin", "medication"),
@@ -158,6 +189,28 @@ def test_another_named_concept_needs_a_link_word() -> None:
     assert recognised("Underwent surgery for colorectal cancer", ["surgery"], ["colorectal cancer"], "procedure")
     assert recognised("Type 2 diabetes and hypertension", ["type 2 diabetes"], ["hypertension"])
     assert not recognised("Metformin allergy", ["metformin"], ["allergy"], "medication")
+
+
+def test_requiring_is_listed_only_before_another_named_concept() -> None:
+    """ "requiring {O}": a treatment of the concept, named; never the coded concept itself ("requiring chemotherapy")."""
+    assert recognised("Heart failure requiring dialysis", ["heart failure"], ["dialysis"])
+    assert not recognised("Heart failure not requiring dialysis", ["heart failure"], ["dialysis"])
+    assert not recognised("Patients requiring chemotherapy", ["chemotherapy"], domain="procedure")
+    assert recognised("透析を要する慢性腎臓病", ["慢性腎臓病"], ["透析"])
+    assert not recognised("化学療法を要する患者", ["化学療法"], domain="procedure")
+
+
+def test_a_clause_that_says_it_ended_runs_only_when_the_atom_asks_the_past() -> None:
+    """How it is told: the atom's window ends before the index day. Without one the line is held."""
+    line = "Previously treated with rituximab; last dose more than 12 months ago"
+    now = Atom(domain="medication", valueset="VS_RTX", quantifier="any")
+    past = Atom.model_validate({"domain": "medication", "valueset": "VS_RTX", "quantifier": "any",
+                                "window": {"anchor": "index", "to_days": -365}})  # fmt: skip
+    assert unrecognised_presence(line, now, lambda vs: ["rituximab"])
+    assert not unrecognised_presence(line, past, lambda vs: ["rituximab"])
+    # a clause that names another concept is about that one
+    assert recognised("Taking rituximab; last dose of methotrexate 2 years ago", ["rituximab"], ["methotrexate"],
+                      "medication")  # fmt: skip
 
 
 def test_a_past_occurrence_counts_only_when_the_logic_allows_it() -> None:

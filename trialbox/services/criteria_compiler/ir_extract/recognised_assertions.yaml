@@ -22,6 +22,12 @@
 #   (clinical_status active, recurrence or relapse).
 # * `links`: may join another concept the extractor named in the same clause to this one ("surgery for colorectal
 #   cancer"). Another named concept with no link word before or after it holds the line.
+# * `{X}` and `{O}` inside a word stand for this concept and for another named one: "requiring {O}" lets "heart
+#   failure requiring dialysis" run (dialysis named) but never "patients requiring chemotherapy" (chemotherapy coded).
+# * `ended`: words that say the concept ended or lies in the past ("last dose", "ago", 最終投与, 停用). A clause
+#   with one (this concept's clause, or one that names no other concept) holds the line, unless the criterion's own
+#   logic asks a past occurrence: its atom has a window that ends before the index day. Without one, it cannot be
+#   told from the atom, so the line is held.
 # * `anaphora`: a clause that does not name the concept or any other named concept but contains one of these words
 #   ("Diagnosis pending confirmation") points back at the concept: it must be recognised as well.
 # * exceptions: what "except", "other than", を除く, 以外, 除…外 name is cut out of the clause before it is read
@@ -40,11 +46,20 @@ marks: ",()[]{}/-–—~〜:'\"%≥≤<>=+±・、，（）「」『』【】×"
 
 holds:  # regular expressions over a clause as read ({X} is the concept): listed words that together say otherwise
   form_value: '{X}\s*[:=]\s*[-+]?\d+(?:[.,]\d+)?\s*$'  # a form's field and its coded value ("Asthma: 0", "高血圧：2")
-  zero: '(?<![\d.,\-−])0+(?:[.,]0+)?(?![\d.,])(?!\s*(?:-|–|to\b|〜|~|至|到|から))'  # a count or a value of zero
+  zero: '(?<![A-Za-z\d.,\-−])0+(?:[.,]0+)?(?![\d.,])(?!\s*(?:-|–|to\b|〜|~|至|到|から))'  # a count or a value of zero
   schedule_day: '(?i)\b(?:days?|cycles?|weeks?|visits?)\s*[-−]?\d'  # a schedule ("on day 1", "cycle 1 day 1")
   count_upper_bound: '(?i)(?:\bup\s+to|\bat\s+most|\bno\s+more\s+than|\bnot\s+more\s+than|\bfewer\s+than|\bless\s+than|\bmaximum(?:\s+of)?|≤|<|至多|最多|不超過|不超过|少於|少于|未滿|未满|最大)\s*(?:\d+|one|two|three|four|five|[一二兩两三四五])\s*(?:prior\s+|previous\s+)?(?:lines?\b|regimens?\b|cycles?\b|courses?\b|doses?\b|times\b|ライン|レジメン|コース|サイクル|回|線|线|次|個?療程|个?疗程|週期|周期)|\d+\s*(?:lines?|regimens?|cycles?|courses?|doses?|ライン|レジメン|コース|サイクル|回|線|线|次|個?療程|週期)\s*(?:or\s+(?:less|fewer)|at\s+most|以下|未満|まで|以内|以內)'  # "up to 2 prior lines of X" includes none
   count_from_zero: '(?i)(?<![\d.])0\s*(?:-|–|to|〜|~|至|到|から)\s*\d+\s*(?:prior\s+|previous\s+)?(?:lines?|regimens?|cycles?|courses?|doses?|times|ライン|レジメン|コース|サイクル|回|線|线|次)'
+  count_bound_concept: '(?i)(?:<=|=<|≤|<|\bat\s+most|\bup\s+to|\bfewer\s+than|\bless\s+than|\bno\s+more\s+than|\bnot\s+more\s+than|\bmaximum(?:\s+of)?|\bmax\b\.?)\s*(?:\d+|one|two|three|four|five)\s*(?:[a-z]+\s+){0,2}?\x00'  # "<=2 hospitalizations for heart failure" with those coded: zero meets it
+  count_bound_concept_after: '(?i)\x00(?:\s*(?:episodes?|attacks?|admissions?|hospitali[sz]ations?|events?|exacerbations?|flares?|relapses?|cycles?|lines?|doses?|courses?|times|number))?\s*[:=]?\s*(?:<=|=<|≤|<)\s*\d|\x00[^;。]{0,12}?\d+\s*or\s+(?:fewer|less)\b'
+  count_bound_concept_cjk: '\x00[^。；;，,]{0,8}?\d+\s*(?:回|件|次|度|例)?\s*(?:以下|未満|まで|以內|以内)|\x00[^。；;，,]{0,8}?(?:不超過|不超过|至多|最多|少於|少于|未滿|未满|≤|<)\s*\d|(?:至多|最多|不超過|不超过|最大)\s*\d+\s*\S{0,3}\x00'
+  criteria_for: '(?i)^(?:(?!\b(?:meet|meets|meeting|fulfil\w*|satisf\w*|according|based)\b).)*\b(?:diagnostic\s+|classification\s+)?(?:criteria|classification|definition)\s+(?:for|of)\s+(?:the\s+)?(?:diagnosis\s+of\s+)?\x00'  # a definition, not the patient (unless the patient meets it)
   schedule_cjk: '第\s*\d+\s*(?:天|日|週|周|次|個?療程|週期|周期|サイクル|コース|回)|\d+\s*日目'
+
+ended:  # regular expressions over a clause as read: the concept ended or lies in the past (see the head)
+  en: '(?i)\blast\s+(?:dose|administration|infusion|injection|cycle|course|treatment|use)\b|\bago\b|\bstopped\b|\bdiscontinu\w*|\bcompleted\b|\bended\b|\bceased\b|\bfinished\b|\bwash-?\s?out\b|\bno\s+longer\b|\bwithdrawn\b|\btapered\s+off\b|\bdeprescribed\b'
+  ja: '最終投与|最終使用|最終|中止|終了|休薬|完了|離脱|前に(?:投与|使用|服用|施行)'
+  zh: '停用|停藥|停药|停止|結束|结束|最後一次|最后一次|末次|已完成|完成|已停'
 
 exceptions:  # regular expressions: an exception and what it names, cut out of a clause (D-1248)
   en_after: '(?i)\b(?:except(?:\s+for)?|other\s+than|excluding|apart\s+from|aside\s+from|but\s+not)\b[^;.\n]*'
@@ -72,14 +87,16 @@ common:  # every language: names of measures, markers, methods and units, as wri
       flt3, npm1, bcr-abl, rf, acpa, anti-ccp, ana, anca]
   method:
     domains: [any]
-    words: [troponin, blood culture, central, ecg, ekg, ct, mri, pet, pet-ct, x-ray, pcr, rt-pcr, naat, recist, recist 1.1, irecist, acr, eular,
+    words: [uicc, tnm, tnm7, tnm8, sonographic, sonographically, as evidenced by, evidenced by, angiography,
+      ct angiography, troponin, blood culture, central, ecg, ekg, ct, mri, pet, pet-ct, x-ray, pcr, rt-pcr, naat, recist, recist 1.1, irecist, acr, eular,
       acr/eular, dsm-5, dsm-iv, icd-10, icd-11, iwg, iwg-2, mcdonald, rome iv, who, ihc, fish, ngs]
 
 languages:
   en:
     frames:
       domains: [any]
-      words: [diagnosis of, diagnosis, diagnosed with, diagnosed, confirmed, confirmed diagnosis of, documented,
+      words: [disease characteristics, patient characteristics, that is, that are, which is, which are, verified on, diagnosed on, confirmed on, diagnosis of,
+        diagnosis, diagnosed with, diagnosed, confirmed, confirmed diagnosis of, documented,
         known, established, proven, verified, presence of, evidence of, positive for, positive, present, ongoing,
         current, currently, existing, pre-existing, with, patients, patient, subjects, subject, participants,
         participant, adults, adult, men, women, man, woman, male, female, males, females, people, persons,
@@ -91,10 +108,13 @@ languages:
       domains: [any]
       words: [history of, history, prior, previous, previously, past, had, has had, have had, received,
         has received, have received, underwent, undergone, has undergone, have undergone, at any time, ever,
-        lifetime]
+        lifetime, experienced, has experienced, have experienced]
+    history_after_procedure:
+      domains: [procedure]
+      words: [status after, status post, s/p, post]
     treatment:
       domains: [any]
-      words: [receiving, receives, taking, takes, treated with, treated, treatment with, treatment, therapy,
+      words: [undergoing elective, undergoing surgical, undergoing, undergoes, "requiring {O}", "requires {O}", receiving, receives, taking, takes, treated with, treated, treatment with, treatment, therapy,
         therapies, stable, stable dose of, stable dose, stable doses, dose of, dose, doses, dosage, maintenance,
         regular, regularly, daily, once daily, twice daily, three times daily, weekly, twice weekly,
         three times weekly, monthly, every, oral, orally, intravenous, intravenously, iv, subcutaneous,
@@ -141,7 +161,7 @@ languages:
         not otherwise specified, nos, compensated, decompensated]
     site:
       domains: [condition, procedure]
-      words: [covering, affecting, left, right, bilateral, unilateral, sided, left-sided, right-sided, side, upper, lower, proximal,
+      words: [cranial, head, covering, affecting, left, right, bilateral, unilateral, sided, left-sided, right-sided, side, upper, lower, proximal,
         distal, central, peripheral, pulmonary, hepatic, renal, cardiac, cerebral, spinal, bone, bones, liver,
         lung, lungs, brain, kidney, kidneys, skin, chest, breast, abdomen, abdominal, pelvis, pelvic, head and neck,
         neck, colon, colonic, rectum, rectal, ileum, ileal, joint, joints, knee, knees, hip, hips, hand, hands,
@@ -184,9 +204,10 @@ languages:
         determined by, assessed by, measured by, demonstrated by, shown by, proven by]
     criteria:
       domains: [any]
-      needs: [according to, meeting, meets, meet, fulfilling, fulfils, fulfills, fulfil, satisfying, satisfies, by,
+      needs: [according to, based on, diagnosed, meeting, meets, meet, fulfilling, fulfils, fulfills, fulfil, satisfying,
+        satisfies, by,
         per, using]
-      words: [criteria, classification criteria, classification, diagnostic criteria]
+      words: [criteria, classification criteria, classification, diagnostic criteria, definition]
     links:
       domains: [any]
       words: [with, and, or, for, "on", due to, secondary to, caused by, associated with, including, plus, in, of, by,
@@ -209,7 +230,7 @@ languages:
         受けており]
     treatment:
       domains: [any]
-      words: [を服用中, 服用中, を服用している, 服用している, 投与中, で治療中, 治療中, を使用中, 使用中, 安定用量,
+      words: ["{O}を要する", "{O}を必要とする", を服用中, 服用中, を服用している, 服用している, 投与中, で治療中, 治療中, を使用中, 使用中, 安定用量,
         一定用量, 1日, 1回, 週1回, 週3回, 毎日, 維持, 定期的, レジメン, ライン, コース, サイクル, 治療, 療法, 薬物療法,
         で治療, による治療, を受けている, 受けている, レシピエント, 経口, 静注, 皮下注, 吸入, 単剤, 併用, 継続中, 継続]
     stage:
@@ -272,7 +293,7 @@ languages:
       words: [病史, 既往, 既往史, 曾, 曾經, 曾经, 曾患, 曾接受, 先前, 過去, 过去, 治療史, 治疗史]
     treatment:
       domains: [any]
-      words: [正在服用, 服用, 目前, 正在, 接受, 治療中, 治疗中, 使用中, 服用中, 治療, 治疗, 使用, 每日, 每天, 每週, 每周, 毫克, 穩定劑量, 稳定剂量,
+      words: ["需要{O}", "{X}診斷", "{X}诊断", 正在服用, 服用, 目前, 正在, 接受, 治療中, 治疗中, 使用中, 服用中, 治療, 治疗, 使用, 每日, 每天, 每週, 每周, 毫克, 穩定劑量, 稳定剂量,
         劑量, 剂量, 規則, 规则, 持續, 持续, 維持, 维持, 受者, 線, 线, 療程, 疗程, 週期, 周期, 口服, 注射, 單一療法,
         单一疗法, 合併治療]
     stage:

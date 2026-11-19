@@ -69,10 +69,11 @@ class _Vocab:
 
 
 def _entry_rx(word: str) -> re.Pattern[str]:
-    """A listed word as a pattern: Latin words whole, a space or hyphen between them matching any run of both."""
-    w = unicodedata.normalize("NFKC", word).strip()
+    """A listed word as a pattern: Latin words whole, a space or hyphen between them matching any run of both;
+    ``{X}`` and ``{O}`` stand for a mention of this concept and of another named one."""
+    w = unicodedata.normalize("NFKC", word).strip().replace("{X}", CONCEPT).replace("{O}", OTHER)
     parts = [re.escape(p) for p in re.split(r"[\s\-]+", w) if p]
-    body = r"[\s\-]+".join(parts)
+    body = r"[\s\-]*".join(parts) if CONCEPT in w or OTHER in w else r"[\s\-]+".join(parts)
     head = r"(?<![a-z])" if _LATIN_EDGE.match(w[0]) else ""  # a unit may follow a number ("1000mg")
     tail = r"(?![a-z])" if _LATIN_EDGE.match(w[-1]) else ""
     return re.compile(head + body + tail, re.I)
@@ -87,6 +88,12 @@ def _data() -> dict[str, Any]:
 @lru_cache(maxsize=1)
 def _exceptions() -> tuple[re.Pattern[str], ...]:
     return tuple(re.compile(str(p)) for p in (_data().get("exceptions") or {}).values())
+
+
+@lru_cache(maxsize=8)
+def _ended(lang: str) -> re.Pattern[str] | None:
+    p = (_data().get("ended") or {}).get(lang)
+    return re.compile(str(p)) if p else None
 
 
 @lru_cache(maxsize=1)
@@ -107,7 +114,7 @@ def _vocab(lang: str, domain: str, history: bool, needs_met: frozenset[str]) -> 
     d = _data()
     entries: dict[str, list[_Entry]] = {}
     for cls, spec in _classes(lang).items():
-        if cls == "anaphora" or (cls == "history" and not history):
+        if cls == "anaphora" or (cls.startswith("history") and not history):
             continue
         doms = set(spec.get("domains") or ["any"])
         if "any" not in doms and domain not in doms:
@@ -119,7 +126,8 @@ def _vocab(lang: str, domain: str, history: bool, needs_met: frozenset[str]) -> 
                 raise ValueError(f"{DATA.name}: {lang}.{cls} lists {w!r}, not a word")
             w = unicodedata.normalize("NFKC", w).strip()
             if w:
-                entries.setdefault(w[0].lower(), []).append(_Entry(_entry_rx(w), cls))
+                first = w.replace("{X}", CONCEPT).replace("{O}", OTHER)[0].lower()
+                entries.setdefault(first, []).append(_Entry(_entry_rx(w), cls))
     pats = tuple(re.compile(p, re.I) for p in (d.get("patterns") or {}).values())
     marks = frozenset(unicodedata.normalize("NFKC", str(d.get("marks") or "")) + ".")
     return _Vocab({k: tuple(v) for k, v in entries.items()}, pats, marks)
@@ -182,13 +190,19 @@ def _read_as(u: str, a: int, z: int, own: list[tuple[int, int]], other: list[tup
     return "".join(out)
 
 
+def _positional(lang: str) -> list[re.Pattern[str]]:
+    return [_entry_rx(str(w)) for spec in _classes(lang).values() for w in spec.get("words") or []
+            if "{O}" in str(w)]  # fmt: skip
+
+
 def _linked(s: str, lang: str) -> bool:
     """Each other named concept in the clause is joined to the mention before it or after it by a link word or a
     list mark between them ("surgery *for* colorectal cancer"; not "metformin allergy")."""
     links = _words(lang, "links")
     marks = (",", "、", "，", "/", "・")
+    covered = {i for p in _positional(lang) for m in p.finditer(s) for i in range(m.start(), m.end())}
     for k, ch in enumerate(s):
-        if ch != OTHER:
+        if ch != OTHER or k in covered:
             continue
         sides = re.split(f"[{CONCEPT}{OTHER}]", s[:k])[-1], re.split(f"[{CONCEPT}{OTHER}]", s[k + 1 :])[0]
         if not any(any(m in side for m in marks) or any(p.search(side) for p in links) for side in sides):
@@ -208,11 +222,17 @@ def _clause_recognised(s: str, lang: str, domain: str, history: bool) -> bool:
 
 
 def recognised(
-    text: str, terms: Iterable[str], other_terms: Iterable[str] = (), domain: str = "condition", history: bool = True
+    text: str,
+    terms: Iterable[str],
+    other_terms: Iterable[str] = (),
+    domain: str = "condition",
+    history: bool = True,
+    past: bool = False,
 ) -> bool:
     """Whether ``text`` reads as a plain assertion that the patient has the concept named by ``terms`` (its name and
     synonyms). ``other_terms`` are the line's other named concepts; ``history``: whether a past occurrence counts (it
-    does not when the criterion's logic asks the concept active only)."""
+    does not when the criterion's logic asks the concept active only); ``past``: whether the logic itself asks a past
+    occurrence (a window that ends before the index day), so that a clause saying it ended may run."""
     terms = list(terms)
     u = unicodedata.normalize("NFKC", text)
     found = _mentions(u, _patterns(terms))
@@ -231,9 +251,16 @@ def recognised(
     anaphora = [p for lang in langs for p in _words(lang, "anaphora")]
     for a, z in zip(cuts[::2], cuts[1::2], strict=False):
         names_it = any(a <= s < z for s, _ in own)
+        names_other = any(a <= s < z for s, _ in other)
+        clause = u[a:z]
+        if (
+            not past
+            and (names_it or not names_other)
+            and any((p := _ended(lang)) is not None and p.search(clause) for lang in {*langs, "en"})
+        ):
+            return False  # it ended or lies in the past, which an atom with no past window cannot say
         if not names_it:
-            clause = u[a:z]
-            points_back = not any(a <= s < z for s, _ in other) and any(p.search(clause) for p in anaphora)
+            points_back = not names_other and any(p.search(clause) for p in anaphora)
             if not points_back:
                 continue
         s = _read_as(u, a, z, own, other)
@@ -249,6 +276,12 @@ def _history_counts(atom: Atom) -> bool:
     return not (status and set(status) <= set(ACTIVE_STATUSES))
 
 
+def _asks_the_past(atom: Atom) -> bool:
+    """The atom's own logic asks a past occurrence: a window that ends before the index day."""
+    w = atom.window
+    return w is not None and w.to_days is not None and w.to_days < 0
+
+
 def unrecognised_presence(
     text: str, logic: object, terms_for: Callable[[str], list[str]], other_terms: Iterable[str] = ()
 ) -> bool:
@@ -258,6 +291,6 @@ def unrecognised_presence(
     every += list(other_terms)
     for atom in presence_atoms(logic):
         terms = [*terms_for(atom.valueset or ""), *_slug_words(atom.valueset)]
-        if not recognised(text, terms, every, atom.domain, _history_counts(atom)):
+        if not recognised(text, terms, every, atom.domain, _history_counts(atom), _asks_the_past(atom)):
             return True
     return False

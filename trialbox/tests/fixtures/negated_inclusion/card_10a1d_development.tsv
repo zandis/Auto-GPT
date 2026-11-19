@@ -528,3 +528,64 @@ zh	非酒精性脂肪肝炎	脂肪肝炎			condition	runs	type
 zh	代償性肝硬化	肝硬化			condition	runs	type
 zh	B型肝炎表面抗原：陽性	B型肝炎表面抗原			observation	runs	frame
 zh	曾接受至少兩線化療	化療			procedure	runs	history
+en	No more than 3 asthma exacerbations in the past year	asthma exacerbations			condition	held	count_bound
+en	≤1 prior myocardial infarction	myocardial infarction			condition	held	count_bound
+en	Fewer than 2 episodes of pancreatitis	pancreatitis			condition	held	count_bound
+en	Pancreatitis episodes < 3 in total	pancreatitis			condition	held	count_bound
+ja	喘息発作が年2回以下	喘息発作			condition	held	count_bound
+ja	COPD増悪による入院が1回未満	COPD増悪による入院			encounter	held	count_bound
+zh	氣喘急性發作次數少於3次	氣喘急性發作			condition	held	count_bound
+zh	心衰竭住院不超過2次	心衰竭住院			encounter	held	count_bound
+en	Rituximab, last infusion more than 6 months before screening	rituximab			medication	held	ended
+en	Prior tamoxifen, completed 2 years ago	tamoxifen			medication	held	ended
+en	Treated with methotrexate; no longer taking it	methotrexate			medication	held	ended
+ja	メトトレキサート最終投与から6か月以上経過	メトトレキサート			medication	held	ended
+ja	インスリン治療歴あり、現在は終了	インスリン			medication	held	ended
+zh	曾使用利妥昔單抗，末次給藥超過12個月	利妥昔單抗			medication	held	ended
+zh	曾接受化學治療，已完成療程	化學治療			procedure	held	ended
+en	Heart failure not requiring dialysis	heart failure		dialysis	condition	held	requiring
+en	Heart failure possibly requiring dialysis	heart failure		dialysis	condition	held	requiring
+en	Patients requiring chemotherapy	chemotherapy			procedure	held	requiring
+ja	透析を要しない慢性腎臓病	慢性腎臓病		透析	condition	held	requiring
+ja	化学療法を要する患者	化学療法			procedure	held	requiring
+zh	不需要透析之慢性腎臟病	慢性腎臟病		透析	condition	held	requiring
+zh	需要化學治療之患者	化學治療			procedure	held	requiring
+en	Scheduled to undergo carotid endarterectomy	carotid endarterectomy			procedure	held	undergoing
+en	Eligible to undergo carotid endarterectomy	carotid endarterectomy			procedure	held	undergoing
+en	Patients about to undergo knee replacement	knee replacement			procedure	held	undergoing
+en	Lung cancer that is suspected	lung cancer			condition	held	that_is
+en	Breast cancer that is in remission	breast cancer			condition	held	that_is
+en	Subdural haematoma to be verified on CT	subdural haematoma			condition	held	verified
+en	Criteria for insomnia based on DSM-5	insomnia			condition	held	criteria
+en	Diagnostic criteria for asthma per GINA	asthma			condition	held	criteria
+zh	高血壓診斷標準	高血壓			condition	held	diagnosis_after
+zh	疑似高血壓診斷	高血壓			condition	held	diagnosis_after
+zh	高血壓診斷流程	高血壓			condition	held	diagnosis_after
+en	At least 3 asthma exacerbations in the past year	asthma exacerbations			condition	runs	count_bound
+en	Ulcerative colitis requiring mesalazine	ulcerative colitis		mesalazine	condition	runs	requiring
+en	Patients undergoing coronary artery bypass grafting	coronary artery bypass grafting			procedure	runs	undergoing
+en	Histologically confirmed gastric cancer that is stage II or III	gastric cancer			condition	runs	that_is
+en	Pulmonary embolism verified on CT angiography	pulmonary embolism			condition	runs	verified
+en	Diagnosis of generalised anxiety disorder based on DSM-5 criteria	generalised anxiety disorder			condition	runs	criteria
+en	Clinically diagnosed fibromyalgia	fibromyalgia			condition	runs	frame
+en	Prior tamoxifen for at least 2 years	tamoxifen			medication	runs	history
+ja	透析を要する慢性腎臓病	慢性腎臓病		透析	condition	runs	requiring
+ja	大腸癌と診断されている者	大腸癌			condition	runs	frame
+ja	喘息発作が年2回以上	喘息発作			condition	runs	count_bound
+zh	合併高血壓診斷	高血壓			condition	runs	diagnosis_after
+zh	需要透析之慢性腎臟病	慢性腎臟病		透析	condition	runs	requiring
+zh	氣喘急性發作至少2次	氣喘急性發作			condition	runs	count_bound
+en	DISEASE CHARACTERISTICS: Suspected lung cancer	lung cancer			condition	held	heading
+en	DISEASE CHARACTERISTICS:	disease			condition	held	heading
+en	Diagnostic criteria for schizophrenia	schizophrenia			condition	held	criteria
+en	Post-COVID-19	COVID-19			condition	held	remission
+en	Elective hip replacement	hip replacement			procedure	held	plan
+en	Has never experienced migraine	migraine			condition	held	negation
+en	Status after planned kidney transplant	kidney transplant			procedure	held	plan
+en	DISEASE CHARACTERISTICS: Histologically confirmed lung cancer	lung cancer			condition	runs	heading
+en	Meeting DSM-5 diagnostic criteria for schizophrenia	schizophrenia			condition	runs	criteria
+en	Status after kidney transplant	kidney transplant			procedure	runs	history
+en	At least 6 months post-hysterectomy	hysterectomy			procedure	runs	history
+en	Has experienced migraine for at least 1 year	migraine			condition	runs	history
+en	Patients undergoing elective hip replacement	hip replacement			procedure	runs	undergoing
+en	Histologically verified gastric cancer according to the UICC definition	gastric cancer			condition	runs	criteria
