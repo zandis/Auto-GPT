@@ -85,9 +85,12 @@ def test_lab_value_builder_quantity_conversion_and_coded(tmp_path: Path) -> None
             {
                 "type": "Observation",
                 "table": "t",
-                "id": {"hid": "id", "patient": "mrn"},  # D-1253: a result is its patient's
+                "id": {"hid": "id"},  # D-1253: a result is its patient's (the one it names)
                 "where": [{"lookup": {"name": "lab", "key": "local_code", "field": "code"}, "not_empty": True}],
-                "elements": {"$merge": {"builder": "lab_value", "lookup": "lab", "key": "local_code", "column": "v"}},
+                "elements": {
+                    "subject": {"ref": {"type": "Patient", "pid": "mrn"}},
+                    "$merge": {"builder": "lab_value", "lookup": "lab", "key": "local_code", "column": "v"},
+                },
             }
         ],
         lookups,

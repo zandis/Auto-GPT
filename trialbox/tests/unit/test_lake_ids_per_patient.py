@@ -432,6 +432,77 @@ def test_a_site_wide_hid_id_is_declared_and_only_for_a_record_of_no_patient(tmp_
         Mapping.load(bad)
 
 
+SUBJECT = {"subject.reference": {"ref": {"type": "Patient", "pid": "mrn"}}}
+STAFF = {"performer.reference": {"ref": {"type": "Practitioner", "hid": "staff_id"}}}
+
+
+@pytest.mark.parametrize(
+    ("resources", "words"),
+    [
+        # a raw source number as a patient's record id: two patients with one number would be one record
+        ([{"type": "Condition", "table": "thing", "id": {"column": "no"}, "elements": SUBJECT}], "column"),
+        # an id made by a template (no form of id carries the patient through one)
+        ([{"type": "Condition", "table": "thing", "id": {"template": "{mrn}-{no}"}, "elements": SUBJECT}], "one of"),
+        # id.patient that is not a chart number of a patient the record names (a clinician's id)
+        ([{"type": "Condition", "table": "thing", "id": {"hid": "no", "patient": "staff_id"},
+           "elements": {**SUBJECT, **STAFF}}], "not a chart number"),
+        # a record of no patient (site-wide) that names a patient's record by number
+        ([{"type": "Location", "table": "thing", "id": {"hid": "no", "site_wide": True},
+           "elements": {"partOf.reference": {"ref": {"type": "Encounter", "hid": "enc_no"}}}}], "names no patient"),
+        # a clinician is no patient's: its hid id says site-wide
+        ([{"type": "Practitioner", "table": "practitioner", "id": {"hid": "staff_id"},
+           "elements": {"name": {"column": "name"}}}], "site-wide"),
+        # a drug declared site-wide that a patient's order names by number (its record is per order)
+        ([{"type": "Medication", "table": "thing", "id": {"hid": "no", "site_wide": True},
+           "elements": {"code.text": {"column": "name"}}},
+          {"type": "MedicationRequest", "table": "thing", "id": {"hid": "no"},
+           "elements": {**SUBJECT, "medicationReference.reference": {"ref": {"type": "Medication", "hid": "no"}}}}],
+         "declares site-wide"),
+        # one type, two id rules
+        ([{"type": "Device", "table": "thing", "id": {"hid": "no", "site_wide": True}, "elements": {}},
+          {"type": "Device", "table": "thing", "id": {"hid": "no2"}, "elements": SUBJECT}], "id rules"),
+        # a suffix that would blur the parts of the HMAC input; a unique that is not 'site'
+        ([{"type": "Condition", "table": "thing", "id": {"hid": "no", "suffix": "a|b"}, "elements": SUBJECT}], "suffix"),
+        ([{"type": "Condition", "table": "thing", "id": {"hid": "no", "unique": "ward"}, "elements": SUBJECT}], "unique"),
+    ],
+    ids=["column", "template", "patient-not-named", "site-names-patient-record", "practitioner", "site-drug-per-order",
+         "two-rules", "suffix", "unique"],
+)  # fmt: skip
+def test_a_mapping_that_would_let_two_patients_share_an_id_is_refused_at_load(
+    tmp_path: Path, resources: list[dict[str, Any]], words: str
+) -> None:
+    """D-1253 review D: every form that would give a patient's record an id without its patient is refused when the
+    mapping loads, with words that say which."""
+    with pytest.raises(MappingError, match=words):
+        Mapping.load(_site(tmp_path, resources))
+
+
+def test_a_device_or_drug_that_names_its_patient_has_its_patients_id(tmp_path: Path) -> None:
+    """A Medication or Device of one patient's order (it names the patient) has a per-patient hid id; one of no
+    patient, that no patient's record names by number, may be declared site-wide."""
+    from adapter.mapping.engine import patient_resource_id, resource_id
+
+    path = _site(tmp_path, [
+        {"type": "Device", "table": "thing", "id": {"hid": "no"}, "elements": SUBJECT},
+        {"type": "Medication", "table": "thing", "id": {"hid": "drug", "site_wide": True},
+         "elements": {"code.text": {"column": "name"}}},
+    ])  # fmt: skip
+    _m, mp = _mapper(path)
+    out = list(mp.map_table("thing", iter([{"no": "D1", "drug": "M1", "name": "x", "mrn": A}])))
+    ids = {r["resourceType"]: r["id"] for r in out}
+    assert ids["Device"] == patient_resource_id(KEY, "Device", PID[A], "D1")
+    assert ids["Medication"] == resource_id(KEY, "Medication", "M1")
+
+
+def test_a_suffix_has_its_own_part_and_never_equals_a_plain_number() -> None:
+    """``<type>|<pid>|<suffix>|<number>``: number "1" with suffix "a" is not number "a1" (nor "1a") without one."""
+    from adapter.mapping.engine import patient_resource_id
+
+    pid = PID[A]
+    with_suffix = patient_resource_id(KEY, "Observation", pid, "1", "a")
+    assert with_suffix not in {patient_resource_id(KEY, "Observation", pid, v) for v in ("a1", "1a", "a|1", "1")}
+
+
 def test_two_rows_of_one_patient_with_one_number_and_other_content_are_counted(tmp_path: Path) -> None:
     """The source says two different things under one number of one patient tonight: still one record (the last
     row, as DATA-017 always had it), and now counted in the night's report, never silent."""

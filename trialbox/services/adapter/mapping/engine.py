@@ -274,10 +274,11 @@ def patient_resource_id(site_key: bytes, rtype: str, pid: str, value: str, suffi
 PID_SHAPE = re.compile(r"[0-9a-f]{16,64}")
 #: D-1253: the record types that belong to no patient. Their ``hid`` id is site-wide and is declared so
 #: (``id: {hid: <col>, site_wide: true}``); every other type's ``hid`` id is its patient's
-SITE_WIDE_TYPES = frozenset(
-    {"Practitioner", "PractitionerRole", "Organization", "Location", "HealthcareService", "Medication", "Device",
-     "Substance", "Group"}
-)  # fmt: skip
+NO_PATIENT_TYPES = frozenset({"Practitioner", "PractitionerRole", "Organization", "Location", "HealthcareService"})
+#: D-1253 (review D): records that may be the site's (a drug of the formulary, a device type) or a patient's (the
+#: syringe of one order): site-wide only when declared so and when no patient's record names them by number
+EITHER_TYPES = frozenset({"Medication", "Device", "Substance", "Group"})
+SITE_WIDE_TYPES = NO_PATIENT_TYPES | EITHER_TYPES  # the types an hid id may declare ``site_wide: true``
 
 
 _HALF_WIDTH = HALF_WIDTH  # tb_common.codekey: the one fold of a code (10B-6)
@@ -469,46 +470,99 @@ def _hid_targets(x: Any) -> set[str]:
 def _whose(path: Path, r: ResourceSpec) -> str | None:
     """D-1253: the patient column of ``r`` (checked here, when the mapping loads), or None for a record of no patient.
 
-    An ``hid`` id is its patient's: the record names its patient (one column), or the id says which (``patient``).
-    A record of no patient keeps a site-wide id and says so (``site_wide: true``); only a type of
-    :data:`SITE_WIDE_TYPES` may, and never one that names a patient. An ``hid`` id that is neither is refused: a
-    mapping cannot leave the patient out by forgetting it."""
+    * An ``hid`` id of a patient's record is its patient's: the record names its patient (one column, in a ``{ref:
+      {type: Patient, pid: <col>}}``), or ``id.patient`` says which of the columns it names; a column it does not
+      name (a clinician's id) is refused.
+    * A record of no patient keeps a site-wide id and says so (``site_wide: true``): a clinician, an organisation, a
+      place must; a drug, a device, a substance or a group may (:data:`EITHER_TYPES`), never one that names a
+      patient. ``unique: site`` says the source's numbers of this type are unique across the site.
+    * A raw source number as the id of a patient's record (``id: {column: <col>}``) is refused: two patients with
+      one number would be one record, the fault D-1253 ends, by another door. A suffix holds no ``|``.
+    * A mapping cannot leave the patient out by forgetting it: an ``hid`` id that is neither is refused."""
     where = f"{path}: {r.type} from {r.table}"
     named = _patient_columns(r.elements)
     said = r.id.get("patient")
     if said is not None and not (isinstance(said, str) and said):
         raise MappingError(f"{where}: id.patient names the column of the record's patient")
-    wide = r.id.get("site_wide")
-    if wide is not None and wide is not True:
-        raise MappingError(f"{where}: id.site_wide is true or left out")
-    if wide:
-        if "hid" not in r.id:
-            raise MappingError(f"{where}: site_wide is said of an hid id only")
+    if said is not None and said not in named:
+        raise MappingError(
+            f"{where}: id.patient {said!r} is not a chart number of a patient the record names "
+            "({ref: {type: Patient, pid: <col>}})"
+        )
+    forms = [k for k in ("pid", "hid", "column") if k in r.id]
+    if len(forms) != 1:
+        raise MappingError(
+            f"{where}: an id is one of pid, hid (a patient's or a declared site-wide record) or column (a record of "
+            f"no patient); {sorted(r.id)} is none of them"
+        )
+    suffix = r.id.get("suffix", "")
+    if not isinstance(suffix, str) or "|" in suffix:
+        raise MappingError(f"{where}: id.suffix is text without a '|'")
+    for word in ("site_wide",):
+        if r.id.get(word) is not None and r.id.get(word) is not True:
+            raise MappingError(f"{where}: id.{word} is true or left out")
+    unique = r.id.get("unique")
+    if unique is not None and unique != "site":
+        raise MappingError(f"{where}: id.unique is 'site' or left out")
+    if (r.id.get("site_wide") or unique) and "hid" not in r.id:
+        raise MappingError(f"{where}: site_wide and unique are said of an hid id only")
+    if "column" in r.id and r.type not in SITE_WIDE_TYPES and r.type != "Patient":
+        raise MappingError(
+            f"{where}: a {r.type} belongs to a patient: its id cannot be the source's number as it is "
+            "(id: {column: ...}): two patients with one number would be one record. Use id: {hid: <col>}"
+        )
+    if r.id.get("site_wide"):
         if r.type not in SITE_WIDE_TYPES:
             raise MappingError(
                 f"{where}: a {r.type} belongs to a patient: its id cannot be site-wide (site_wide is for a record "
                 f"of no patient: {', '.join(sorted(SITE_WIDE_TYPES))})"
             )
-        if named or said:
+        if named:
             raise MappingError(f"{where} names a patient: its id cannot be site-wide")
         return None
     col = said if said else (next(iter(named)) if len(named) == 1 else None)
-    if said and named and said not in named:
-        raise MappingError(f"{where}: id.patient {said!r} is not the column the record names its patient by")
-    if "hid" in r.id and r.type in SITE_WIDE_TYPES:
+    if "hid" in r.id and r.type in NO_PATIENT_TYPES:
         raise MappingError(
             f"{where}: a {r.type} belongs to no patient: declare its id site-wide (id: {{hid: ..., site_wide: true}})"
         )
-    if "hid" in r.id and col is None:
+    if "hid" in r.id and col is None and not unique:
         raise MappingError(
             f"{where}: an hid id is its patient's (D-1253), and "
             + (f"the record names {len(named)} patient columns: say which with id.patient" if named else
                "the record names no patient: name it ({ref: {type: Patient, pid: <col>}}), or declare a record of "
                "no patient site-wide")
         )  # fmt: skip
-    if col is None and any(t not in SITE_WIDE_TYPES for t in _hid_targets(r.elements)):
-        raise MappingError(f"{where} names a patient's record by number and names no patient of its own")
     return col
+
+
+def _id_rules(path: Path, resources: list[ResourceSpec]) -> frozenset[str]:
+    """D-1253: the checks across the mapping's resources; returns the types whose records are the site's (their
+    ``hid`` id and every link to them by number are ``<type>|<number>``): :data:`NO_PATIENT_TYPES`, a type declared
+    ``site_wide``, a type whose numbers are declared ``unique: site``. Refused: two definitions of one type that
+    disagree; a declared site-wide drug or device a patient's record names by number (its record is per order); a
+    record of no patient of its own that names a patient's record by number."""
+    site: set[str] = set(NO_PATIENT_TYPES)
+    for t in sorted({r.type for r in resources}):
+        specs = [r for r in resources if r.type == t and "hid" in r.id]
+        kinds = {("site_wide" if r.id.get("site_wide") else "unique" if r.id.get("unique") else "patient")
+                 for r in specs}  # fmt: skip
+        if len(kinds) > 1:
+            raise MappingError(f"{path}: the {t} records are made under {len(kinds)} id rules: one type, one rule")
+        if kinds & {"site_wide", "unique"}:
+            site.add(t)
+    for r in resources:
+        targets = _hid_targets(r.elements)
+        if r.patient is None and any(t not in site for t in targets):
+            raise MappingError(
+                f"{path}: {r.type} from {r.table} names a patient's record by number and names no patient of its own"
+            )
+        if r.patient is not None:
+            for t in sorted(targets & EITHER_TYPES & site):
+                raise MappingError(
+                    f"{path}: {r.type} from {r.table} names a {t} by number, which the mapping declares site-wide: a "
+                    f"{t} a patient's record names per order is that patient's (leave site_wide out)"
+                )
+    return frozenset(site)
 
 
 def _by_day_links(path: Path, order: list[str], resources: list[ResourceSpec]) -> list[tuple[str, str, dict[str, Any]]]:
@@ -573,6 +627,8 @@ class Mapping:
     version: str = ""
     # F7 (D-806): each ``{ref: {by_day: ...}}``, as (the table that links, the resource type, its by_day spec)
     by_day: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
+    #: D-1253: the record types whose ids are the site's, not a patient's (:func:`_id_rules`)
+    site_wide: frozenset[str] = NO_PATIENT_TYPES
 
     def keeps(self, table: str, row: Row) -> bool:
         """CGRD-A2 (D-813): whether a canonical row is the table's (``tables.<t>.rows: {column, in | not_in}``): one
@@ -752,6 +808,7 @@ class Mapping:
                 raise MappingError(f"{path}: resource {r.type} uses undeclared table {r.table!r}")
             _known_codes_are_the_maps(path, r)
             r.patient = _whose(path, r)  # D-1253
+        site_wide = _id_rules(path, resources)  # D-1253: the checks across the resources
         by_day = _by_day_links(path, list(doc.get("tables") or {}), resources)
         for name, lk in lookups.items():  # D-590: a range stated badly is found now, not row by row at night
             for row in lk.rows.values():
@@ -897,6 +954,7 @@ class Mapping:
             params=cls._params(path, doc),
             version=f"{doc.get('name', path.stem)}@{digest.hexdigest()[:12]}",
             by_day=by_day,
+            site_wide=site_wide,
         )
 
     @staticmethod
@@ -1076,7 +1134,6 @@ class Mapper:
         # Patient's own id is; the record types whose numbers the mapping declares unique across the site
         self.dead_without_patient: Counter[str] = Counter()
         self.aliases: dict[str, str] = dict(aliases or {})
-        self.site_unique = {r.type for r in mapping.resources if r.id.get("unique") == "site"}
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
@@ -1222,9 +1279,9 @@ class Mapper:
 
         * a patient's record is always the **row's own patient's** (``<type>|<pid>|<suffix>|<number>``): a link by
           number can never name another patient's record;
-        * a record of no patient (:data:`SITE_WIDE_TYPES`), or of a type whose numbers the mapping declares unique
-          across the site (``id: {hid: ..., unique: site}``), is the site's: ``<type>|<number><suffix>``."""
-        if rtype in SITE_WIDE_TYPES or rtype in self.site_unique:
+        * a record of no patient, or of a type whose numbers the mapping declares unique across the site
+          (``Mapping.site_wide``: :func:`_id_rules`), is the site's: ``<type>|<number><suffix>``."""
+        if rtype in self.m.site_wide:
             return resource_id(self.key, rtype, f"{value}{suffix}")
         return patient_resource_id(self.key, rtype, self.patient_of(rs, row), value, suffix)
 
