@@ -23,6 +23,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from tb_common import chartno, site_country
+from tb_common.dates import PRINTED_STYLES, YEAR_BASES
 from tb_common.retention import MAX_DAYS, OVERRIDABLE
 
 LANGUAGES = ("en", "ja", "zh-TW")  # the console's three catalogues
@@ -105,6 +106,10 @@ class OwnerAnswers:
     ssmix2_order_numbers: str = ""
     # 10K-1: the retention days, asked only for a country with no retention rules in TrialBox (tb_common.retention)
     retention_days: tuple[tuple[str, int], ...] = ()
+    # 10C-13, 10C-15: how printed pages write a date (tb_common.dates.PRINTED_STYLES) and what a yearly report's year
+    # is (YEAR_BASES); empty: follows the site's country (Japan: both and 年度; others: western and calendar)
+    printed_dates: str = ""
+    year_basis: str = ""
 
     @property
     def hostname(self) -> str:
@@ -116,7 +121,7 @@ class OwnerAnswers:
         d["source"] = self.source.value
         d["retention_days"] = dict(self.retention_days)
         # 10K-1: its keys only when answered, so a box that was not asked writes the file it wrote before
-        for k in ("country", "ssmix2_root", "ssmix2_order_numbers", "retention_days"):
+        for k in ("country", "ssmix2_root", "ssmix2_order_numbers", "retention_days", "printed_dates", "year_basis"):
             if not d[k]:
                 del d[k]
         return d
@@ -215,6 +220,14 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
                 problems.append(Problem(k, "retention_days"))
             else:
                 days.append((k, int(text)))
+    # 10C-13, 10C-15 (D-1229): with a country, the effective values (an omitted answer is the country's default, as
+    # the installer's wizard would write it), so the answers file and the audit record say what the site gets
+    printed_dates = _s(raw.get("printed_dates"), 16) or (cd.printed_dates if country else "")
+    if printed_dates not in ("", *PRINTED_STYLES):
+        problems.append(Problem("printed_dates", "printed_dates"))
+    year_basis = _s(raw.get("year_basis"), 16) or (cd.year_basis if country else "")
+    if year_basis not in ("", *YEAR_BASES):
+        problems.append(Problem("year_basis", "year_basis"))
     if problems or kind is None or rule is None:
         return None, problems
     backup = Backup(kind, disk if kind is BackupKind.SECOND_DISK else "", share if kind is BackupKind.SHARE else "")
@@ -234,6 +247,8 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
             ss_root,
             ss_order,
             tuple(days),
+            printed_dates,
+            year_basis,
         ),
         [],
     )

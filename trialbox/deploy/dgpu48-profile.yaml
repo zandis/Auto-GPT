@@ -1,0 +1,118 @@
+# DRAFT, UNMEASURED: the 48 GB discrete-card class as data (cards 24-5 and 24-6, root review 24; review 19's head box).
+#
+# NOT A PROFILE. Nothing here was measured on a 48 GB card. deploy/install.sh and deploy/poc.sh refuse `dgpu48`;
+# deploy/gpu_profile.sh never prints it; tools/serving_config.py has no measurement rule for it. The one thing that
+# starts it is the measuring run (tools/dgpu48.py measure, RUNBOOK §29), and only with the switch named in `switch`.
+# The record that run writes (tools/serving_config.py's shape) is what a later card turns into a profile: then
+# `status` becomes measured, `record` names the filed record, and the measured fields are filled.
+#
+# Every planning number is the 96 GB card's (the 2026-11-08 fit run, review 19 §1.3), carried to 48 GB by
+# tools/dgpu48.py (`python3 tools/dgpu48.py arith` prints the table). Only builds models/registry.yaml already names are
+# used: the pinned judge build (j-workhorse, NVFP4) and the pinned verifier build (v-verifier, AWQ 4-bit), the same
+# weights folders as every profile. tests/unit/test_dgpu48_draft.py holds this file, the overlay and the tool together.
+schema: tb-dgpu48-profile/1
+status: unmeasured
+record: null                      # the filed serving record once a measuring run exists
+switch: TB_UNMEASURED_DGPU48_MEASURING_RUN   # =1, for tools/dgpu48.py measure only
+overlay: deploy/docker-compose.dgpu48.yml
+
+card:
+  class: one discrete card of about 48 GB (RTX A6000, RTX 6000 Ada, RTX PRO 5000)
+  memory_total_mib: 49140         # the owner's nvidia-smi screen (an RTX A6000); vLLM's fractions are of this
+  memory_range_mib: [44000, 52000]  # the measuring run refuses a card outside it
+  memory_measured_mib: null
+
+# The 96 GB card's figures (Blackwell, the judge's 4-bit format native there). The cache per token is the models'
+# own (BF16 cache, kv_cache_dtype auto) and should carry over to any card; the memory outside the cache is the
+# engine's on that card and may differ on Ampere, where the judge's format runs a weight-only path (unmeasured).
+basis:
+  source: docs/plan/measurements/gpu-run-2026-11-08/fit.json   # superseded for evidence; kept as a memory reading
+  review: docs/reviews/2026-11-root/19-first-site-consumer-card.md   # section 1.3, the derivation of each figure
+  judge:    {inside_mib: 18920, outside_mib: 3170, cache_kib_per_token: 110.2}   # 10.19 GiB for 96,930 tokens
+  verifier: {inside_mib: 9000,  outside_mib: 680,  cache_kib_per_token: 45.4}    # 19.88 GiB for 459,124 tokens
+  min_free_mib: 1024              # review 19's A1: free card memory at peak
+
+# Each option: what it serves, the overlay's values, what it gives up and what is unknown. `order` is the order the
+# owner's page runs them in; `scripted: false` options are arithmetic only (the measuring run refuses them).
+options:
+  - id: pair-32k
+    order: 1
+    scripted: true
+    serves: [judge, verifier]
+    env: {JUDGE_GPU_MEM_UTIL: "0.57", VERIFIER_GPU_MEM_UTIL: "0.27", JUDGE_MAX_LEN: "32768", VERIFIER_MAX_LEN: "32768",
+          JUDGE_MAX_SEQS: "16", VERIFIER_MAX_SEQS: "16"}
+    what: both pinned models resident at 32k, review 19's split; a note excludes only when both agree, as on every box
+    gives_up: nothing of the product's rule; speed (an Ampere card, a weight-only path for the judge)
+    unknown:
+      - whether the judge loads at all on Ampere through the engine's weight-only fallback (no one has run it)
+      - the judge's memory outside the cache on that path (the arithmetic's slack says how much growth fits)
+      - the judge's answers on that path against the 96 GB card's (the canary is the first comparison)
+      - whether the card also drives the desktop (that memory is not in the arithmetic)
+  - id: pair-32k-host53
+    order: 2
+    scripted: true
+    serves: [judge, verifier]
+    env: {JUDGE_GPU_MEM_UTIL: "0.57", VERIFIER_GPU_MEM_UTIL: "0.27", JUDGE_MAX_LEN: "32768", VERIFIER_MAX_LEN: "32768",
+          JUDGE_MAX_SEQS: "16", VERIFIER_MAX_SEQS: "16", TB_MEM_LLM: "12g", TB_MEM_VERIFIER: "10g"}
+    what: pair-32k on the card, with the model servers' host memory capped at 12 + 10 GiB, the most a 53 GiB host can
+      give them beside the rest of the box at the planner's floor (tools/dgpu48.py arith --planner 53); run it after
+      pair-32k has started, to learn whether the servers live within those caps
+    gives_up: every other service at half its default memory cap (the planner's floor, never measured there); and it
+      needs a planner change (model caps held at measured values, not shrunk with the services), a later card
+    unknown:
+      - whether a model server loads within 12 or 10 GiB of host memory (an out-of-memory kill is the answer "no")
+      - everything pair-32k does not know
+  - id: pair-16k
+    order: 3
+    scripted: true
+    serves: [judge, verifier]
+    env: {JUDGE_GPU_MEM_UTIL: "0.57", VERIFIER_GPU_MEM_UTIL: "0.21", JUDGE_MAX_LEN: "16384", VERIFIER_MAX_LEN: "16384",
+          JUDGE_MAX_SEQS: "8", VERIFIER_MAX_SEQS: "8"}
+    what: the same pair at 16k when pair-32k does not start; the judge keeps its share (the likeliest failure is the
+      judge needing more memory on this card) and its 16k sequences leave it more room; only the verifier's share is
+      lower
+    gives_up: protocol reading at 32k (ir_extract wants 32k); fewer calls in flight; the verifier's margin is small
+    unknown: [the same as pair-32k]
+  - id: judge-alone
+    order: 4
+    scripted: true
+    serves: [judge]
+    env: {JUDGE_GPU_MEM_UTIL: "0.80", JUDGE_MAX_LEN: "32768", JUDGE_MAX_SEQS: "16"}
+    what: the judge alone resident (the 24 GB profile's rule, TB_NOTE_BLOCK=never); says whether the judge runs here
+    gives_up: a note answer never excludes a patient (one model, D-276)
+    unknown: [the judge on Ampere, as pair-32k]
+  - id: verifier-alone
+    order: 5
+    scripted: true
+    serves: [verifier]
+    env: {VERIFIER_GPU_MEM_UTIL: "0.40", VERIFIER_MAX_LEN: "32768", VERIFIER_MAX_SEQS: "16"}
+    what: the verifier alone; its 4-bit format is native on Ampere; a diagnostic of engine, card and driver with a model
+    gives_up: everything a judge does; not a way to run the product (the canary is the judge's and is not run)
+    unknown: [none beyond the engine on this driver]
+  - id: swap-32k
+    order: 6
+    scripted: false
+    serves: [judge, verifier]
+    env: {}
+    what: both with the engine's sleep mode, one awake at a time (the 32 GB profile's swap) at 32k
+    gives_up: speed (a swap per phase); host memory holds the sleeping model's weights (about 17 GiB for the judge)
+    unknown: [sleep and wake on Ampere and this driver; host memory on a 53 GB machine; not scripted in this card]
+  - id: challenger-w4a16
+    order: 7
+    scripted: false
+    serves: [judge]
+    env: {}
+    what: the registry's larger judge candidate in a 4-bit format Ampere computes natively (gemma-4-31b-it-qat-challenger)
+    gives_up: every measured figure; it is not a route today
+    unknown: [its revision is null, its licence is not verified, no manifest is expected: it cannot be fetched or pinned]
+
+# The host, said plainly (review of #1100): with the overlay's caps (32 + 32 GiB, the repository's floor for a model
+# server) the box planner refuses this class on a 53 GiB host: it needs at least 63.9 GiB with every cap at half its
+# default, 123.9 GiB with none shrunk. The developer kit's memory is soldered, so more memory is not an option on this
+# machine. The one way a measured record can become a profile for THIS machine is option pair-32k-host53: model
+# servers capped at 12 + 10 GiB (if the measuring run shows they live within that) and a planner rule that holds
+# measured model caps instead of shrinking them; then the rest of the box runs at the planner's floor.
+host:
+  memory_gib: 53                  # the owner's free -g
+  memory_caps_gib: {TB_MEM_LLM: 32, TB_MEM_VERIFIER: 32}   # the overlay's: T-108a's floor for a model server (ceilings)
+  measured_peak_gib: {llm-service: null, llm-verifier: null}

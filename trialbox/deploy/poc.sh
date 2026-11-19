@@ -7,8 +7,13 @@
 #   TB_LLM_MODE=gpu deploy/poc.sh          # the real pair on a plain GPU VM (D-839): rtxpro6000 or gb10 (deploy/
 #                                          #   gpu_profile.sh, or TB_GPU_PROFILE); the weights in deploy/models (the
 #                                          #   pinned builds of models/registry.yaml); checks, pins, starts, canary
+#   TB_POC_EMBED=model deploy/poc.sh       # the stub (or OpenRouter) judge with the REAL embedder (e-embed-1) on the
+#                                          #   CPU, from the pinned weights in deploy/models/embedder (card 24-7,
+#                                          #   RUNBOOK §28 and §29); kept in deploy/.env for later starts
 #   deploy/poc.sh down                     # stop (volumes kept);  deploy/poc.sh reset  # stop and delete volumes
 #   deploy/poc.sh status                   # URLs and container states
+#   deploy/poc.sh report                   # what to send back: states, memory, the embedder's mode and pin (no
+#                                          #   address, password, folder or host name)
 #
 # Steps: Docker check -> deploy/.env with random secrets (first run only) -> images (built when missing, or always with
 # TB_POC_BUILD=1) -> POC settings with the administrator's mailbox -> compose up (box + GreenMail + MailHog + console)
@@ -80,6 +85,7 @@ if [ "$MODE" = gpu ]; then
   GPU="${TB_GPU_PROFILE:-$(sh deploy/gpu_profile.sh)}"
   case "$GPU" in
     rtxpro6000|gb10) ok "GPU profile $GPU" ;;
+    dgpu48) die "gpu mode: dgpu48 is a DRAFT, UNMEASURED 48 GB profile: the PoC never starts it, whatever is set; its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;
     *) die "gpu mode: GPU profile '$GPU': the one-command PoC serves the pair on rtxpro6000 or gb10 (TB_GPU_PROFILE); others: deploy/install.sh" ;;
   esac
   OVR="deploy/docker-compose.$GPU.yml"
@@ -109,6 +115,37 @@ if [ "$MODE" = gpu ]; then
 fi
 # ---- end of GPU PREFLIGHT
 
+# EMBEDDER PREFLIGHT (card 24-7, root review 24): TB_POC_EMBED=model serves the real embedder (e-embed-1, on the CPU)
+# in place of the hash embedder the PoC overlay gives a synthetic stack. Kept in deploy/.env (TB_POC_EMBED) so a
+# later plain start does not fall back to the hash embedder over a lake embedded by the model, and checked before
+# anything is written: the folder, its weights' kind, and that the lake was not embedded by the other one.
+EMBED_BUILD=e-embed-1
+EMBED="${TB_POC_EMBED:-$(envfile_get TB_POC_EMBED)}"
+EMBED="${EMBED:-hash}"
+EMBED_DIR=""
+case "$EMBED" in
+  hash|model) ;;
+  *) die "TB_POC_EMBED must be hash or model (got $EMBED)" ;;
+esac
+if [ "$EMBED" = model ] && [ "$ACTION" = up ]; then
+  say "embedder check: the real embedder $EMBED_BUILD on the CPU (nothing is changed yet)"
+  [ "$MODE" != gpu ] || die "TB_POC_EMBED=model is for the stub and openrouter modes; gpu mode is not prepared for it (card 24-7)"
+  EMBED_MODELS="$(models_dir)"
+  EMBED_DIR="$EMBED_MODELS/${EMBED_MODEL_DIR:-embedder}"
+  [ -d "$EMBED_DIR" ] || die "TB_POC_EMBED=model: no embedder weights in $EMBED_DIR: fetch the pinned build $EMBED_BUILD there first (RUNBOOK §28, \"The real embedder\"), or start without TB_POC_EMBED"
+  [ -f "$EMBED_DIR/config.json" ] && [ -f "$EMBED_DIR/model.safetensors" ] \
+    || die "TB_POC_EMBED=model: $EMBED_DIR is not the pinned build $EMBED_BUILD (no config.json or no model.safetensors): fetch it again (RUNBOOK §28)"
+  # the embed service's own refused suffixes (services/embed_service/embedder.py REFUSED_SUFFIXES); hidden files skipped
+  pickles="$(find "$EMBED_DIR" -type f -not -path '*/.*' \( -iname '*.bin' -o -iname '*.pt' -o -iname '*.pth' -o -iname '*.pkl' -o -iname '*.pickle' -o -iname '*.ckpt' -o -iname '*.py' -o -iname '*.pyc' \) 2>/dev/null | head -3)"
+  [ -z "$pickles" ] || die "TB_POC_EMBED=model: $EMBED_DIR holds pickle or code files ($(echo "$pickles" | tr '\n' ' ')): the pinned build $EMBED_BUILD is the folder without them (D-429); remove them"
+  ok "embedder folder $EMBED_DIR (its manifest is checked against the release when it is pinned)"
+fi
+if [ "$ACTION" = up ] && docker volume inspect trialbox_lake-data >/dev/null 2>&1; then
+  kept="$(envfile_get TB_POC_EMBED)"
+  [ "${kept:-hash}" = "$EMBED" ] || die "the synthetic lake was embedded with the ${kept:-hash} embedder, not the $EMBED one: its sentence vectors would not match. Start again from nothing (deploy/poc.sh reset deletes all PoC data), then run this again"
+fi
+# ---- end of EMBEDDER PREFLIGHT
+
 export TB_SETTINGS_FILE="./poc/settings.yaml"
 export TB_POC_ADMIN_EMAIL="$ADMIN_EMAIL"
 export TB_DATA_CLASS=D0
@@ -118,6 +155,10 @@ export TB_HOST_CONSOLE_PORT="${TB_HOST_CONSOLE_PORT:-$(envfile_get TB_HOST_CONSO
 export TB_HOST_CONSOLE_PORT="${TB_HOST_CONSOLE_PORT:-8090}"
 export TB_CONSOLE_WEBMAIL_URL="http://127.0.0.1:$TB_HOST_MAILHOG_PORT"
 
+if [ "$EMBED" = model ]; then  # card 24-7: the embed service's image and mode (docker-compose.poc.yml reads both)
+  export TB_EMBED_IMAGE="${TB_EMBED_IMAGE:-trialbox-embed:1.0.0}" TB_EMBED_MODE=model
+  [ -z "$EMBED_DIR" ] || export TB_MODELS_DIR="${EMBED_DIR%/*}"
+fi
 COMPOSE=(docker compose --project-directory deploy -f deploy/docker-compose.yml)
 MAILPROF=(--profile test)
 if [ "${TB_POC_MAIL:-test}" = real ]; then  # your own mailbox (IMAP_*/SMTP_* in deploy/.env): no GreenMail/MailHog
@@ -142,7 +183,7 @@ urls() {
   local bind="${TB_POC_BIND:-127.0.0.1}"
   cat <<EOF
 
-  TrialBox POC ($MODE model)
+  TrialBox POC ($MODE model, $EMBED embedder)
   Console (sign in as admin):   http://$bind:$TB_HOST_CONSOLE_PORT
   Web mail (box's outgoing):    http://127.0.0.1:$TB_HOST_MAILHOG_PORT
   Send mail to the box:         SMTP 127.0.0.1:${TB_HOST_SMTP_PORT:-3025}, To: $(envfile_get MAIL_INTAKE_ADDR), From: $ADMIN_EMAIL
@@ -155,8 +196,20 @@ case "$ACTION" in
   down) "${COMPOSE[@]}" down; exit 0 ;;
   reset) "${COMPOSE[@]}" down -v; exit 0 ;;
   status) "${COMPOSE[@]}" ps --format 'table {{.Service}}\t{{.Status}}'; urls; exit 0 ;;
+  # card 24-7 (review of #1100): what to send back after the real-embedder start, and nothing else: no address, no
+  # password, no folder name, no host name. The services' states and memory, the embedder's mode and its pin.
+  report)
+    echo "TrialBox PoC report ($(date -u +%Y-%m-%dT%H:%MZ)): $MODE model, $EMBED embedder choice"
+    echo "embed-service TB_EMBED_MODE: $("${COMPOSE[@]}" exec -T embed-service printenv TB_EMBED_MODE 2>/dev/null || echo '?')"
+    pinned="$(python3 -c "import sys, yaml; d = yaml.safe_load(open(sys.argv[1])) or {}; print(((d.get('builds') or {}).get('e-embed-1') or {}).get('sha256') or 'none')" "deploy/${TB_SITE_DIR#./}/registry.site.yaml" 2>/dev/null || echo none)"
+    echo "e-embed-1 pin: ${pinned:0:12}"
+    "${COMPOSE[@]}" ps --format '{{.Service}} {{.Status}}'
+    ids="$("${COMPOSE[@]}" ps -q)"
+    # shellcheck disable=SC2086 # one word per container id
+    [ -z "$ids" ] || docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' $ids
+    exit 0 ;;
   up) ;;
-  *) die "usage: deploy/poc.sh [up|down|reset|status]" ;;
+  *) die "usage: deploy/poc.sh [up|down|reset|status|report]" ;;
 esac
 
 # ------------------------------------------------------------------------------------------------ secrets
@@ -214,6 +267,8 @@ build_images() {
       'apt-get update -qq && apt-get install -y -qq python3 python3-fonttools curl >/dev/null && PY=python3 bash tools/fetch_jvm_deps.sh && python3 tools/fetch_fonts.py'
     docker build -f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
     docker build -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
+    # card 24-7: the real embedder's image (trialbox-py plus its CPU library), only when it is asked for
+    [ "$EMBED" != model ] || docker build -f deploy/docker/embed.Dockerfile -t trialbox-embed:1.0.0 .
   fi
 }
 # card 24-2 (root review 24): the database image has no build: entry in compose and is on no registry, so a host
@@ -236,6 +291,10 @@ DB_WANTED="${POSTGRES_IMAGE:-$(envfile_get POSTGRES_IMAGE)}"
 if [ "$DB_BUILT" = 0 ] && [ "${DB_WANTED:-$IMAGE_DB}" = "$IMAGE_DB" ] \
    && { [ "${TB_POC_BUILD:-0}" = 1 ] || ! docker image inspect "$IMAGE_DB" >/dev/null 2>&1; }; then
   build_db_image
+fi
+if [ "$EMBED" = model ] && ! docker image inspect "$TB_EMBED_IMAGE" >/dev/null 2>&1; then
+  say "building the embedder image $TB_EMBED_IMAGE (card 24-7; a few minutes)"
+  docker build -f deploy/docker/embed.Dockerfile -t "$TB_EMBED_IMAGE" .
 fi
 
 # ------------------------------------------------------------------------------------------------ settings, model pin
@@ -260,6 +319,25 @@ elif [ "$MODE" = gpu ]; then
   alive_stop
   docker run --rm -v "$ROOT/deploy:/d:ro" "$IMAGE_PY" \
     python -m tools.pin_model --resolve --out "/d/${SITE#deploy/}/registry.site.yaml" 2>&1 | sed 's/^/    /' || true
+fi
+if [ "$EMBED" = model ]; then
+  # card 24-7: e-embed-1 pinned alone from its folder (the embedder-only pin of a box without a GPU, D-1066): a folder
+  # whose manifest is not the release's is refused here, and an existing pin is checked against the folder again
+  SITE_E="deploy/${TB_SITE_DIR#./}"; mkdir -p "$SITE_E"
+  say "pinning the embedder $EMBED_BUILD from $EMBED_DIR (tools/pin_model.py --install-embedder; hashing 2.3 GB)"
+  alive_start "hashing the embedder's weights"
+  docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d" -v "${EMBED_DIR%/*}:/m:ro" -e EMBED_MODEL_DIR \
+    "$IMAGE_PY" python -m tools.pin_model --install-embedder --models-root /m --out "/d/${SITE_E#deploy/}/registry.site.yaml" \
+    || { alive_stop; die "TB_POC_EMBED=model: the embedder could not be pinned (above): $EMBED_DIR is not the pinned build $EMBED_BUILD"; }
+  docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d:ro" -v "${EMBED_DIR%/*}:/m:ro" "$IMAGE_PY" \
+    python -m tools.pin_model --verify --build "$EMBED_BUILD" --model-dir "/m/${EMBED_DIR##*/}" --out "/d/${SITE_E#deploy/}/registry.site.yaml" \
+    || { alive_stop; die "TB_POC_EMBED=model: $EMBED_DIR differs from its pin (above): put the pinned build back, or delete deploy/${SITE_E#deploy/}/registry.site.yaml and pin again"; }
+  alive_stop
+fi
+# card 24-7: the embedder choice is kept for every later start (a lake embedded by the model is never read with the
+# hash embedder), and only once the pin above passed; hash is the default and is written only once model was kept
+if [ "$EMBED" = model ] || [ -n "$(envfile_get TB_POC_EMBED)" ]; then
+  [ "$(envfile_get TB_POC_EMBED)" = "$EMBED" ] || { envfile_set TB_POC_EMBED "$EMBED"; ok "the embedder choice ($EMBED) is kept in deploy/.env (TB_POC_EMBED)"; }
 fi
 
 # ------------------------------------------------------------------------------------------------ up
