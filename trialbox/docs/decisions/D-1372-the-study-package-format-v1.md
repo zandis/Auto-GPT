@@ -13,7 +13,8 @@
     and a coordinating-centre Ed25519 private key, and `verify` checks against the trusted public keys its caller
     passes. The tool: `keygen --out DIR` (`cc_ed25519.key`, PKCS8 PEM, mode 600; `cc_ed25519.pub`, SubjectPublicKeyInfo
     PEM: the formats of `tools/sign_bundle.py keygen` and `tb_common.crypto`), `write STUDY --key K --out F
-    [--created YYYY-MM-DD]` (a key file others may read is refused), `verify F --trust PUB [--trust PUB…]`, `show F`
+    [--created YYYY-MM-DD] [--force]` (a key file others may read, and an encrypted key, are refused; an existing
+    `F` is replaced only with `--force`), `verify F --trust PUB [--trust PUB…]`, `show F`
     (the header; the signature is not checked, and it says so). It prints key ids, never key material. No new
     dependency and no new cryptography: Ed25519 through `tb_common.crypto`.
   - **What a package carries:** the protocol part of D-1366 and the protocol's files, nothing else. No site part:
@@ -40,11 +41,14 @@
     - `protocol.json`: the protocol part with its `criteria_sha256`, RFC 8785 (`study_manifest.dumps`).
     - `hashes.json`: RFC 8785 of `{member name: lowercase hex sha256 of its bytes}` for `protocol.json` and every
       `files/` member (not the header, the hash list or the signature).
-    - `header.json`: RFC 8785 of an object with exactly these fields, all text but `pins`: `format`
+    - `header.json`: RFC 8785 of an object with exactly these fields, each a non-empty text but `pins`: `format`
       (`tb-study-package/1`), `package_id`, `study_id` (the manifest's `id`), `version` (the manifest's `version`),
       `protocol_version`, `criteria_sha256`, `created` (`YYYY-MM-DD`, given by the writer; the library reads no
       clock), `key_id` (`ed25519:` and the first 16 hex of the sha256 of the raw 32-byte public key, the update
-      bundle's `key_id`), and `pins` (an object). `package_id` is `<id>-<version>-` and the first 16 hex of the sha256
+      bundle's `key_id`), and `pins` (an object). `study_id`, `version` and `protocol_version` are texts in the
+      protocol part too, equal to the header's as texts: the manifest schema takes them only as strings (an unquoted
+      `1.0` in `manifest.yaml` is refused, not read as the number 1), and the writer refuses an empty one. `package_id`
+      is `<id>-<version>-` and the first 16 hex of the sha256
       of `hashes.json`: it names the content, so the same content signed on another day or by another key keeps its
       id. **A v1 header is closed:** a field it does not list is refused, and so is any key in `pins`, because a
       v1 reader knows none (`KNOWN_PINS` is empty). 10D-26 adds its pins as names a newer reader knows; an older box
@@ -54,19 +58,31 @@
       then the length of `header.json` as 8 bytes big-endian, then `header.json`, then `hashes.json`.
   - **The same study gives the same bytes** (a test): the same folder, date and key write the same file (Ed25519
     signatures are deterministic). The whole file has one hash because the framing is canonical: the reader
-    rebuilds the archive from its members and refuses any difference, so padding, an unused header byte, record
-    padding or bytes after the end blocks that an ordinary tar reader ignores are refused here.
+    compares each header block with the one v1 writes for that name and size, requires zero padding and names in
+    strictly increasing byte order, so padding, an unused header byte, record padding or bytes after the end blocks
+    that an ordinary tar reader ignores are refused here.
+  - **JSON nesting:** every JSON the verifier parses (`header.json`, `hashes.json`, `protocol.json`, and each
+    `files/…json`, which `study_manifest` parses) is refused, before it is parsed, when its arrays and objects nest
+    deeper than **200** (`STUDY_PACKAGE_MAX_JSON_DEPTH`; counted on the bytes, brackets inside strings not counted;
+    the deepest shipped file, RA-JAK's ELM, nests 87). The writer refuses such a file in the folder the same way.
+  - **Memory:** `verify` holds the package's bytes and a copy of its members, about twice the input, so at most
+    about 400 MB at the caps; the tool reads a file only after its size is checked.
   - **Verify, in this order, one sentence each** (`PackageRefused`, its `step`; nothing is written anywhere, a test
-    blocks every file open during it): (1) `tar`: at most 200,000,000 bytes (checked from the file's size before it
-    is read), whole blocks, intact checksums, ustar regular files, safe and unique names, at most 2,000 members,
-    a member at most 100,000,000 bytes (`hashes.json`, `header.json`, `protocol.json` 4 MiB), the canonical framing,
-    only the allowed names, the four fixed members present, a 64-byte signature, header and hash list in RFC 8785
-    with a valid v1 header; (2) `signature`: the header's `key_id` is one of the trusted keys and the signature
+    blocks every file open during it): (1) `tar`, its sub-checks in the order the code makes them: the whole package
+    at most 200,000,000 bytes (from the file's size before it is read); whole 512-byte blocks, at least two; then for
+    each block: the two end blocks and nothing after them, the checksum and size fields plain octal, the checksum,
+    the `ustar` magic, a regular file, an empty prefix field, an ASCII name, the name rules, no duplicate, at most
+    2,000 members, the member's size cap (100,000,000 bytes; 4 MiB for `hashes.json`, `header.json`, `protocol.json`
+    and `signature.ed25519`), all members together at most 200,000,000 bytes, the member's bytes present, the
+    canonical header block, zero padding and name order; then the four fixed members present, only allowed names, a
+    64-byte signature, the header's nesting, JSON, RFC 8785 form and v1 fields, the hash list's nesting, JSON, RFC 8785
+    form and entries; (2) `signature`: the header's `key_id` is one of the trusted keys and the signature
     verifies with it; (3) `hashes`: each member's sha256 is the listed one; (4) `members`: no member outside the list,
     none missing; (5) `protocol`: `protocol.json` is a protocol part that holds its own criteria hash
     (`study_manifest.protocol_refusal`), the header's `study_id`, `version`, `protocol_version` and
     `criteria_sha256` are its, each carried file is in its canonical form, the files' hashes are exactly the protocol
-    part's `files`, and the criteria hash computed again from them is the header's.
+    part's `files`, the criteria hash computed again from them is the header's, and the header's `package_id` is the
+    one its `study_id`, `version` and `hashes.json` give.
   - **"A changed byte fails verification"** is held by flipping every byte of a package (one bit, then all eight),
     and by named classes: header, hash list, signature, protocol part, a protocol file, a tar header's name, mode,
     mtime, owner, checksum and unused bytes, the padding, the end blocks, bytes appended, the archive cut short.
@@ -77,7 +93,8 @@
     lists. They are synthetic, and the criteria hash covers the file as it is, so the package carries them.
   - Two value sets are department codes used as a criterion (`https://trialbox.local/fhir/CodeSystem/department`):
     GZQO `VS_RHEUMATOLOGY_OR_METABOLISM_CLINIC_VISIT` (`META`, `RHEU`; also in GZQO's IR, CQL, ELM and SQL) and
-    NEUR-COH `VS_MEMORY_CLINIC_VISIT` (also in its SQL). A clinic visit is a protocol's criterion, but the code is a hospital's local code.
+    NEUR-COH `VS_MEMORY_CLINIC_VISIT` (also in its SQL). A clinic visit is a protocol's criterion, but the code is a
+    hospital's local code.
   - The file `docx_template` names is hashed as its bytes (D-1366); a .docx carries its author's name in its
     document properties. A v1 package does not carry it: `build` refuses a folder that holds the named file (none
     of the shipped folders does).
@@ -87,4 +104,11 @@
   decision with 10D-26's pins); the screen-only pins (10D-26); allowed adaptations (10D-5); a draft package at several
   sites (10D-12, the owner's decision 51: v1 packs whatever protocol the folder holds and says nothing of its status).
   10D-28 carries a rule set in a vendor-signed update bundle for the dry run only; it is not this format.
+- **For 10D-4, which v1 does not stop:**
+  - an older valid package, or the same content signed again with another `created`, verifies: import needs "not
+    older than the one installed" per study and coordinating-centre key;
+  - the register of coordinating-centre keys must refuse a key equal to the vendor's update key: the update bundle's
+    `sign-file` signs raw bytes with no prefix, so one key must not serve both channels;
+  - two member paths that differ only by case are distinct here and collide on a case-insensitive disk: extraction
+    must refuse them.
 - **Held by:** `tests/unit/test_study_package.py`.

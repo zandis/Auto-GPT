@@ -23,6 +23,7 @@ import struct
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
+from itertools import accumulate
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,9 @@ STUDY_PACKAGE_MAX_META_BYTES = 4 << 20
 #: a member's name: ASCII letters, digits, ``.``, ``_`` and ``-`` in parts joined by ``/``; at most 100 bytes
 #: (the ustar name field, no prefix field)
 NAME_MAX_BYTES = 100
+#: how deeply a JSON member may nest arrays and objects, checked on its bytes before it is parsed (the deepest shipped
+#: file, RA-JAK's ELM, nests 87)
+STUDY_PACKAGE_MAX_JSON_DEPTH = 200
 _PART = re.compile(r"^[A-Za-z0-9._-]+$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _KEY_ID = re.compile(r"^ed25519:[0-9a-f]{16}$")
@@ -74,6 +78,8 @@ _BLOCK = 512
 _ZERO = bytes(_BLOCK)
 _MAGIC = b"ustar\x0000"
 _META = frozenset({HASHES, HEADER, SIGNATURE})
+_JSON_STRING = re.compile(rb'"(?:[^"\\]++|\\.)*+"', re.DOTALL)
+_NOT_BRACKET = bytes(c for c in range(256) if c not in b"[]{}")
 
 
 class PackageRefused(ValueError):
@@ -104,6 +110,11 @@ def key_id(public_pem: bytes) -> str:
         raise ValueError("not an Ed25519 public key")
     raw = key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     return "ed25519:" + hashlib.sha256(raw).hexdigest()[:16]
+
+
+def package_id(study_id: str, version: str, hashes: bytes) -> str:
+    """``<study id>-<version>-`` and the first 16 hex of the sha256 of ``hashes.json``: it names the content."""
+    return f"{study_id}-{version}-{hashlib.sha256(hashes).hexdigest()[:16]}"
 
 
 def signed_bytes(header: bytes, hashes: bytes) -> bytes:
@@ -190,7 +201,10 @@ def read_tar(data: bytes) -> dict[str, bytes]:
             stored = _octal(head[148:156])
             size = _octal(head[124:136])
         except ValueError:
-            raise _refuse("has a damaged tar header (a number field is not octal)") from None
+            raise _refuse(
+                "has a damaged tar header: a number field is not plain octal (a base-256 size is not v1), or the "
+                "member before it declares a size that does not match its bytes"
+            ) from None
         if stored != sum(head[:148]) + 8 * 32 + sum(head[156:]):
             raise _refuse("has a damaged tar header (its checksum does not match)")
         if head[257:265] != _MAGIC:
@@ -221,13 +235,17 @@ def read_tar(data: bytes) -> dict[str, bytes]:
         end = start + size
         if end + (-size % _BLOCK) > len(data):
             raise _refuse("ends before the archive's end (it was cut short)")
+        if (
+            head != _block(name, size)
+            or any(data[end : end + (-size % _BLOCK)])
+            or (members and name.encode() <= list(members)[-1].encode())
+        ):
+            raise _refuse(
+                "is not in the canonical form of a v1 package (a tar field, the padding or the order of its members "
+                "differs from the one way v1 writes it)"
+            )
         members[name] = data[start:end]
         at = end + (-size % _BLOCK)
-    if tar_bytes(members) != data:
-        raise _refuse(
-            "is not in the canonical form of a v1 package (a tar field, the padding or the order of its members "
-            "differs from the one way v1 writes it)"
-        )
     return members
 
 
@@ -248,14 +266,30 @@ def _allowed(name: str, docx: str | None) -> bool:
     )
 
 
-def _canonical_json(name: str, data: bytes) -> Any:
+def json_depth(data: bytes) -> int:
+    """How deeply a JSON text nests arrays and objects, counted on its bytes without parsing it (brackets inside
+    strings do not count; an unterminated string's brackets do, which only over-counts)."""
+    brackets = _JSON_STRING.sub(b"", data).translate(None, _NOT_BRACKET)
+    return max(accumulate(1 if c in b"[{" else -1 for c in brackets), default=0)
+
+
+def _depth_refusal(name: str, data: bytes) -> str | None:
+    if json_depth(data) > STUDY_PACKAGE_MAX_JSON_DEPTH:
+        return f"{name} nests deeper than {STUDY_PACKAGE_MAX_JSON_DEPTH} arrays and objects"
+    return None
+
+
+def _canonical_json(name: str, data: bytes, step: str = "tar") -> Any:
+    why = _depth_refusal(name, data)
+    if why:
+        raise _refuse(f"is refused: {why}", step)
     try:
         value = sm.load_json(data)
         same = sm.dumps(value) == data
     except (ValueError, UnicodeDecodeError):
-        raise _refuse(f"holds {name}, which is not JSON a v1 package can carry") from None
+        raise _refuse(f"holds {name}, which is not JSON a v1 package can carry", step) from None
     if not same:
-        raise _refuse(f"holds {name} not in its canonical JSON form (RFC 8785)")
+        raise _refuse(f"holds {name} not in its canonical JSON form (RFC 8785)", step)
     return value
 
 
@@ -348,8 +382,10 @@ def verify(data: bytes, trusted_keys: Iterable[bytes]) -> Package:
     sentence (:class:`PackageRefused`): (1) a well-formed canonical archive within the caps, only allowed names; (2)
     the signature valid for a trusted key, the one the header names; (3) every member's sha256 the one in the hash
     list; (4) no member outside the list and none missing; (5) the protocol part holds its criteria hash, the carried
-    files are the protocol's files in their canonical form, and the criteria hash computed again from them by
-    ``tb_common.study_manifest`` is the header's. Writes nothing anywhere."""
+    files are the protocol's files in their canonical form, the criteria hash computed again from them by
+    ``tb_common.study_manifest`` is the header's, and the header's package id is the one its content gives. Every
+    JSON member is refused before it is parsed when it nests deeper than :data:`STUDY_PACKAGE_MAX_JSON_DEPTH`.
+    Writes nothing anywhere; it holds about twice the package's bytes in memory (the input and its members)."""
     trusted = _trusted(trusted_keys)
     members, header, hashes = _structure(data)
     # (2) the signature
@@ -387,7 +423,7 @@ def _protocol(members: Mapping[str, bytes], header: Mapping[str, Any]) -> Packag
     def refuse(sentence: str) -> PackageRefused:
         return PackageRefused("protocol", f"this study package {sentence}")
 
-    protocol = _canonical_json(PROTOCOL, members[PROTOCOL])
+    protocol = _canonical_json(PROTOCOL, members[PROTOCOL], "protocol")
     why = sm.protocol_refusal(protocol) if isinstance(protocol, dict) else "this is not a study's protocol part"
     if why:
         raise refuse(f"is refused: {why}")
@@ -395,7 +431,7 @@ def _protocol(members: Mapping[str, bytes], header: Mapping[str, Any]) -> Packag
     for field, value in (
         ("study_id", manifest.get("id")),
         ("version", manifest.get("version")),
-        ("protocol_version", None if manifest.get("protocol_version") is None else str(manifest["protocol_version"])),
+        ("protocol_version", manifest.get("protocol_version")),
         ("criteria_sha256", protocol["criteria_sha256"]),
     ):
         if header[field] != value:
@@ -408,6 +444,9 @@ def _protocol(members: Mapping[str, bytes], header: Mapping[str, Any]) -> Packag
         path = name[len(FILES) :]
         if path == docx:
             raise refuse(f"carries the template {path}, which a v1 package does not carry")
+        why = _depth_refusal(path, members[name]) if path.endswith(".json") else None
+        if why:
+            raise refuse(f"is refused: {why}")
         if sm.carried(path, members[name], docx) != members[name]:
             raise refuse(f"carries {path} not in the canonical form of its protocol file")
         files[path] = members[name]
@@ -420,6 +459,8 @@ def _protocol(members: Mapping[str, bytes], header: Mapping[str, Any]) -> Packag
     again = sm.criteria_sha256({"schema": protocol["schema"], "manifest": manifest, "files": recomputed})
     if again != header["criteria_sha256"]:
         raise refuse("has files whose criteria hash is not the one its header states")
+    if header["package_id"] != package_id(header["study_id"], header["version"], members[HASHES]):
+        raise refuse("has a header whose package_id is not the one its study, version and hash list give")
     return Package(dict(header), dict(protocol), files)
 
 
@@ -442,6 +483,16 @@ def build(files: Mapping[str, bytes], private_pem: bytes, created: str) -> bytes
     Ed25519 private key (PEM); ``created`` is the writer's date, YYYY-MM-DD (the library reads no clock). Refused
     (``ValueError``, one sentence) for a study whose folder holds its docx template, has no ``protocol_version``,
     or a protocol file whose path a v1 package cannot carry. The result is verified before it is returned."""
+    try:
+        public_pem = ed25519_public_of(private_pem)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "the private key is not an unencrypted Ed25519 private key (PEM, PKCS8); a v1 writer takes no passphrase"
+        ) from None
+    for path in sorted(files):
+        why = _depth_refusal(path, files[path]) if path.endswith(".json") and _allowed(FILES + path, None) else None
+        if why:
+            raise ValueError(f"the study folder cannot be packaged: {why}")
     parts = sm.split(files)
     protocol = parts.protocol
     manifest = protocol["manifest"]
@@ -451,8 +502,12 @@ def build(files: Mapping[str, bytes], private_pem: bytes, created: str) -> bytes
             f"the study folder holds its template {docx}: a v1 package does not carry a template (its bytes would "
             "travel as they are, with whatever names its document properties hold)"
         )
-    if not manifest.get("protocol_version"):
-        raise ValueError("a study is packaged with its protocol_version, and this manifest has none")
+    for field in ("id", "version", "protocol_version"):
+        if not (isinstance(manifest.get(field), str) and manifest[field]):
+            raise ValueError(
+                f"a study is packaged with its {field} written as a text (quoted in manifest.yaml, as '1.0'), and "
+                "this manifest's is not"
+            )
     carried: dict[str, bytes] = {}
     for path in sorted(protocol["files"]):
         body = sm.carried(path, files[path], docx)
@@ -466,7 +521,6 @@ def build(files: Mapping[str, bytes], private_pem: bytes, created: str) -> bytes
     carried[PROTOCOL] = sm.dumps(protocol)
     hashes = {name: hashlib.sha256(body).hexdigest() for name, body in carried.items()}
     hashes_bytes = sm.dumps(hashes)
-    public_pem = ed25519_public_of(private_pem)
     if not _DAY.match(created):
         raise ValueError("the created date is written YYYY-MM-DD")
     date.fromisoformat(created)
@@ -475,11 +529,11 @@ def build(files: Mapping[str, bytes], private_pem: bytes, created: str) -> bytes
         "criteria_sha256": protocol["criteria_sha256"],
         "format": FORMAT,
         "key_id": key_id(public_pem),
-        "package_id": f"{manifest['id']}-{manifest['version']}-{hashlib.sha256(hashes_bytes).hexdigest()[:16]}",
+        "package_id": package_id(manifest["id"], manifest["version"], hashes_bytes),
         "pins": {},
-        "protocol_version": str(manifest["protocol_version"]),
-        "study_id": str(manifest["id"]),
-        "version": str(manifest["version"]),
+        "protocol_version": manifest["protocol_version"],
+        "study_id": manifest["id"],
+        "version": manifest["version"],
     }
     header_bytes = sm.dumps(header)
     members = {

@@ -2,7 +2,7 @@
 
     python -m tools.study_package keygen --out keys/                 # cc_ed25519.key (mode 600, keep offline) + .pub
     python -m tools.study_package write rulesets/RA-JAK --key keys/cc_ed25519.key --out RA-JAK-1.0.0.tbstudy \\
-        [--created 2026-11-19]
+        [--created 2026-11-19] [--force]
     python -m tools.study_package verify RA-JAK-1.0.0.tbstudy --trust keys/cc_ed25519.pub [--trust other.pub]
     python -m tools.study_package show RA-JAK-1.0.0.tbstudy         # the header; the signature is NOT checked
 
@@ -61,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--key", type=Path, required=True, help="the coordinating centre's Ed25519 private key (PEM)")
     w.add_argument("--out", type=Path, required=True)
     w.add_argument("--created", help="the package's date, YYYY-MM-DD (default: today, UTC)")
+    w.add_argument("--force", action="store_true", help="replace --out when it exists")
     v = sub.add_parser("verify", help="check a package against trusted public keys")
     v.add_argument("package", type=Path)
     v.add_argument("--trust", type=Path, action="append", required=True, help="a trusted public key (PEM)")
@@ -72,6 +73,8 @@ def main(argv: list[str] | None = None) -> int:
             priv, pub = keygen(args.out)
             print(f"wrote {priv} (keep it offline, mode 600) and {pub} (key id {sp.key_id(pub.read_bytes())})")
         elif args.cmd == "write":
+            if args.out.exists() and not args.force:
+                raise ValueError(f"{args.out} exists; give --force to replace it")
             created = args.created or datetime.now(UTC).date().isoformat()
             data = sp.build_dir(args.study, _private_key(args.key), created)
             args.out.write_bytes(data)

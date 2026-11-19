@@ -79,7 +79,9 @@ def _resigned(members: dict[str, bytes], private: bytes = PRIV, header: dict[str
     trusted key that signs a wrong package, so that the later checks are reached)."""
     body = {k: v for k, v in members.items() if k not in (sp.HASHES, sp.HEADER, sp.SIGNATURE)}
     hashes = sm.dumps({k: hashlib.sha256(v).hexdigest() for k, v in body.items()})
-    head = header if header is not None else json.loads(members[sp.HEADER])
+    head = dict(header if header is not None else json.loads(members[sp.HEADER]))
+    if header is None or "package_id" not in header:
+        head["package_id"] = sp.package_id(str(head.get("study_id")), str(head.get("version")), hashes)
     head_b = sm.dumps(head)
     sig = ed25519_sign(private, sp.signed_bytes(head_b, hashes))
     return sp.tar_bytes({**body, sp.HASHES: hashes, sp.HEADER: head_b, sp.SIGNATURE: sig})
@@ -401,6 +403,78 @@ def test_the_writer_gives_the_date() -> None:
             sp.build(_small(), PRIV, bad)
 
 
+def _nested(depth: int) -> bytes:
+    return b"[" * depth + b"]" * depth
+
+
+def test_deep_json_is_refused_before_it_is_parsed(small: bytes) -> None:
+    """A JSON member nested past the limit is refused with a sentence, never a RecursionError: the header and the
+    hash list before the signature (no key needed), the protocol part and a carried file with a trusted signer."""
+    members = _members(small)
+    deep_header = sp.tar_bytes({**members, sp.HEADER: _nested(200_000)})
+    deep_hashes = sp.tar_bytes({**members, sp.HASHES: b'{"a":' * 100_000 + b"1" + b"}" * 100_000})
+    for data in (deep_header, deep_hashes):
+        got = _refused(data)
+        assert got.step == "tar" and "nests deeper than 200" in str(got)
+    deep_protocol = _resigned({**members, sp.PROTOCOL: _nested(100_000)})
+    deep_file = _resigned({**members, "files/valuesets/VS_HBSAG.json": b'{"a":' * 50_000 + b"1" + b"}" * 50_000})
+    for data in (deep_protocol, deep_file):
+        got = _refused(data)
+        assert got.step == "protocol" and "nests deeper than 200" in str(got)
+    # at the limit a JSON value is read and written; one deeper is refused; brackets in strings do not count
+    assert sm.dumps(sm.load_json(_nested(200))) == _nested(200)
+    assert sp.json_depth(_nested(200)) == 200 and sp.json_depth(_nested(201)) == 201
+    assert sp.json_depth(b'{"a":"[[[[\\\\\\"[[","b":[1]}') == 2
+    # the writer refuses a folder with such a file
+    files = {**_small(), "valuesets/VS_DEEP.json": _nested(201)}
+    with pytest.raises(ValueError, match="nests deeper than 200"):
+        sp.build(files, PRIV, DAY)
+
+
+def test_the_package_id_is_checked(small: bytes) -> None:
+    members = _members(small)
+    header = {**json.loads(members[sp.HEADER]), "package_id": "OTHER-9-0000000000000000"}
+    got = _refused(_resigned(members, header=header))
+    assert got.step == "protocol" and "package_id" in str(got)
+    assert sp.header_of(small)["package_id"] == sp.package_id("RA-JAK", "1.0.0", members[sp.HASHES])
+
+
+def _locked(private_pem: bytes) -> bytes:
+    from cryptography.hazmat.primitives import serialization
+
+    key = serialization.load_pem_private_key(private_pem, password=None)
+    return key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.BestAvailableEncryption(b"synthetic-test-passphrase"),
+    )
+
+
+def test_versions_are_texts_and_the_key_unencrypted() -> None:
+    # the manifest schema refuses a version or protocol_version that is not a text (an unquoted 1.0 in YAML); the
+    # writer refuses an empty one
+    for field, value, words in (("version", 1.0, "string"), ("protocol_version", 1.0, "string"),
+                                ("protocol_version", "", "its protocol_version written as a text")):  # fmt: skip
+        files = _small()
+        m = yaml.safe_load(files["manifest.yaml"])
+        m[field] = value
+        files["manifest.yaml"] = yaml.safe_dump(m, allow_unicode=True).encode()
+        with pytest.raises(ValueError, match=words):
+            sp.build(files, PRIV, DAY)
+    with pytest.raises(ValueError, match="not an unencrypted Ed25519 private key"):
+        sp.build(_small(), _locked(PRIV), DAY)
+
+
+def test_a_size_that_runs_into_the_next_header_says_so(small: bytes) -> None:
+    head = bytearray(small[:512])
+    size = int(head[124:135], 8)
+    head[124:136] = b"%011o\x00" % (size + 600)
+    head[148:156] = b" " * 8
+    head[148:156] = b"%06o\x00 " % sum(head)
+    got = _refused(bytes(head) + small[512:])
+    assert "declares a size that does not match its bytes" in str(got)
+
+
 # ---------------------------------------------------------------------------------------------- the tool
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
     # PYTHONUNBUFFERED out: a CI runner does not set it
@@ -442,13 +516,25 @@ def test_command_line(tmp_path: Path) -> None:
     flipped[1000] ^= 1
     out.write_bytes(bytes(flipped))
     assert _run("verify", str(out), "--trust", str(pub)).returncode == 1
+    # an existing --out is not replaced without --force
+    again = _run("write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY)
+    assert again.returncode == 1 and "--force" in again.stderr and out.read_bytes() == bytes(flipped)
+    forced = _run("write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY, "--force")
+    assert forced.returncode == 0 and _run("verify", str(out), "--trust", str(pub)).returncode == 0
+    # an encrypted key: one sentence, exit 1, no traceback
+    locked = tmp_path / "locked.key"
+    locked.write_bytes(_locked(priv.read_bytes()))
+    locked.chmod(0o600)
+    enc = _run("write", str(study), "--key", str(locked), "--out", str(tmp_path / "y"), "--created", DAY)
+    assert enc.returncode == 1 and enc.stderr.count("\n") == 1 and "Traceback" not in enc.stderr
+    assert "unencrypted" in enc.stderr
     # a key file others may read is not used
     priv.chmod(0o644)
     loose = _run("write", str(study), "--key", str(priv), "--out", str(tmp_path / "x"), "--created", DAY)
     assert loose.returncode == 1 and "make it 600" in loose.stderr and not (tmp_path / "x").exists()
     # no key material is ever printed
     secret = priv.read_bytes()
-    for result in (r, w, v, s, bad, loose):
+    for result in (r, w, v, s, bad, loose, again, forced, enc):
         text = result.stdout + result.stderr
         assert "PRIVATE KEY" not in text and "PUBLIC KEY" not in text
         assert not any(line in text for line in secret.decode().splitlines()[1:-1])
