@@ -203,7 +203,8 @@ def test_the_case_sheet_and_the_consent_page_print_dates_in_the_sites_style() ->
     assert case_html.sheet(rec) == case_html.sheet(rec, "western")  # unchanged for every other site
     page = case_html.sheet(rec, "both").decode()
     assert "2026年（令和8年）10月5日" in page  # checked on
-    assert "2026年（令和8年）9月1日 – 2026年（令和8年）9月18日" in page  # the chart's excerpts
+    one_line = '<span class="dt">{}</span>'.format  # an era date is kept on one line (390 px, D-1229)
+    assert f"{one_line('2026年（令和8年）9月1日')} – {one_line('2026年（令和8年）9月18日')}" in page  # the excerpts
     assert "2026年（令和8年）10月4日" in page  # the snapshot, as on the feasibility cover
     assert "2026-10-05" not in page.split("<footer")[0].split('class="meta"')[1].split("</p>")[0]
 

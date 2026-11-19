@@ -78,6 +78,27 @@ def test_the_answers_reach_the_installer_and_the_audit_record_and_an_unknown_one
     assert (detail["printed_dates"], detail["year_basis"]) == ("era", "fiscal")
 
 
+@pytest.mark.parametrize(
+    ("country", "extra", "want"),
+    [("jp", {}, ("both", "fiscal")), ("tw", {"tz": "Asia/Taipei", "language": "zh-TW"}, ("western", "calendar"))],
+)
+def test_a_post_that_omits_them_records_the_countrys_values_the_installer_will_write(
+    tmp_path: Path, country: str, extra: dict[str, str], want: tuple[str, str]
+) -> None:
+    """A scripted client posts the form without the two fields: the answers file and the audit record carry what the
+    site gets (the country's defaults), the same values the installer's wizard writes from those answers."""
+    b = _box(tmp_path, TB_FIRSTRUN_COUNTRY="1")
+    r = _answered(_with_code(b), country, **extra)
+    assert r.status_code == 200, r.text[-400:]
+    got = json.loads((b["folder"] / firstrun.ANSWERS).read_text(encoding="utf-8"))
+    assert (got["printed_dates"], got["year_basis"]) == want
+    detail = _done(b)
+    assert (detail["printed_dates"], detail["year_basis"]) == want
+    plan_over = {"country": country, **extra, **({"source": "spreadsheet"} if country == "jp" else {})}
+    _p, s, _ = _plan_box(tmp_path / "plan", **plan_over)
+    assert (s["site"]["printed_dates"], s["site"]["year_basis"]) == want  # what the installer writes: the same
+
+
 def test_with_the_flag_off_posted_answers_are_dropped_and_not_recorded(tmp_path: Path) -> None:
     from tests.console.test_firstrun import _answers
 
@@ -166,12 +187,33 @@ def test_an_upgraded_japanese_site_and_a_site_elsewhere_count_by_calendar_year_a
     study: dict[str, Any],  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """D-1229 (b): no key (an installed site, whatever its zone): the page and the export are master's."""
+    """D-1229 (b): no key (an installed site, whatever its zone): the page and the export are master's. The whole page
+    is compared with the same page rendered from master's template (``data/research_office_master.html``, copied from
+    master before 10C-15), byte for byte."""
+    from jinja2 import FileSystemLoader
+
+    master = (Path(__file__).parent / "data" / "research_office_master.html").read_text(encoding="utf-8")
+    real_source = FileSystemLoader.get_source
+
+    def as_on_master(c: Any, path: str) -> str:
+        def source(self: FileSystemLoader, env: Any, name: str) -> tuple[str, str | None, Any]:
+            if name == "research_office.html":
+                return master, None, lambda: False  # never cached: the next render reads the file again
+            return real_source(self, env, name)
+
+        with monkeypatch.context() as m:
+            m.setattr(FileSystemLoader, "get_source", source)
+            return str(c.get(path).text)
+
     bk = study["backend"]
     for site in ({"tz": "Asia/Tokyo", "locale": "ja"}, {"tz": "Asia/Taipei", "locale": "zh-TW"}):
         _site(bk, monkeypatch, **site)
         for lang in LANGS:
-            page = _as(study["app"], "crc", lang).get("/reports/research-office?year=2026").text
+            c = _as(study["app"], "crc", lang)
+            for path in ("/reports/research-office?year=2026", "/reports/research-office?year=2025"):
+                before = as_on_master(c, path)
+                assert c.get(path).text == before, (site, lang, path)
+            page = c.get("/reports/research-office?year=2026").text
             plain = html.unescape(page)
             assert f"{translate(lang, 'office.title')} · 2026</h1>" in plain, (site, lang)
             assert translate(lang, "office.help", k=SMALL_CELL) in plain and 'data-testid="office-year"' not in page

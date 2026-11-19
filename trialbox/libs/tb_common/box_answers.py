@@ -220,10 +220,12 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
                 problems.append(Problem(k, "retention_days"))
             else:
                 days.append((k, int(text)))
-    printed_dates = _s(raw.get("printed_dates"), 16)
+    # 10C-13, 10C-15 (D-1229): with a country, the effective values (an omitted answer is the country's default, as
+    # the installer's wizard would write it), so the answers file and the audit record say what the site gets
+    printed_dates = _s(raw.get("printed_dates"), 16) or (cd.printed_dates if country else "")
     if printed_dates not in ("", *PRINTED_STYLES):
         problems.append(Problem("printed_dates", "printed_dates"))
-    year_basis = _s(raw.get("year_basis"), 16)
+    year_basis = _s(raw.get("year_basis"), 16) or (cd.year_basis if country else "")
     if year_basis not in ("", *YEAR_BASES):
         problems.append(Problem("year_basis", "year_basis"))
     if problems or kind is None or rule is None:

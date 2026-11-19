@@ -60,8 +60,18 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("tz", "Time zone (IANA, e.g. Asia/Tokyo; the mapping's tz)", "", "str"),  # no default zone (D-315)
     ("locale", "Report language (en | ja | zh-TW)", "zh-TW", "str"),
     # 10C-13, 10C-15 (D-1229): the defaults are the country's (Japan: both, fiscal)
-    ("printed_dates", "Dates on printed pages (western = 2026-11-18 | era = 令和8年11月18日 | both)", "western", "str"),
-    ("year_basis", "The year in yearly reports (calendar | fiscal = 年度, 1 April to 31 March)", "calendar", "str"),
+    (
+        "printed_dates",
+        f"Dates on printed pages ({' | '.join(PRINTED_STYLES)}; era = 令和8年11月18日)",
+        "western",
+        "str",
+    ),
+    (
+        "year_basis",
+        f"The year in yearly reports ({' | '.join(YEAR_BASES)}; fiscal = 年度, 1 April to 31 March)",
+        "calendar",
+        "str",
+    ),
     ("contact", "Box contact e-mail (operations)", None, "str"),
     ("internal_domains", "Internal mail domains (comma separated)", None, "list"),
     ("intake_address", "Intake mailbox address of the box", None, "str"),

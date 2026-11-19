@@ -2,7 +2,7 @@
 {% block title %}{{ t('office.title') }}{% endblock %}
 {% block content %}
 {# 10C-15 (D-1229): a site counting by 年度 says so on the heading, the help and the year links; a calendar-year
-   site's page is as before #}
+   site's page is as before (whole page, byte for byte: test_dates_setting_and_nendo) -#}
 <div class="headrow"><h1>{{ t('office.title') }} · {% if basis == 'fiscal' %}<span data-testid="office-year">{{ t('office.year.fiscal', year=year, first=first, last=last) }}</span>{% else %}{{ year }}{% endif %}</h1>
 <a href="/reports/research-office.xlsx?year={{ year }}" data-testid="office-xlsx">{{ t('download') }} XLSX</a></div>
 <p class="hint">{{ t('office.help.fiscal' if basis == 'fiscal' else 'office.help', k=small) }}</p>
