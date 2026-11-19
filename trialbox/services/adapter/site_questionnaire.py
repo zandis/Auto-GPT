@@ -241,19 +241,22 @@ def text(lang: str, key: str, **values: object) -> str:
 
 
 # ------------------------------------------------------------------ reading the answers file
-class _Strict(yaml.SafeLoader):
-    """YAML with no alias (a document that grows as it is read) and no key written twice (silently the last)."""
-
-    def compose_node(self, parent: Any, index: Any) -> Any:
-        if self.check_event(yaml.AliasEvent):
-            raise yaml.YAMLError("an alias")
-        return super().compose_node(parent, index)
-
-    def construct_mapping(self, node: Any, deep: bool = False) -> Any:
-        keys = [self.construct_object(k, deep=True) for k, _ in node.value]
-        if len({repr(k) for k in keys}) != len(keys):
-            raise yaml.YAMLError("a key twice")
-        return super().construct_mapping(node, deep=deep)
+def _plain_yaml(raw: str | bytes) -> bool:
+    """No alias (a document that grows as it is read) and no key written twice in one mapping (YAML keeps the last
+    silently): asked of the event stream and the composed nodes, before the safe loader builds anything."""
+    if any(isinstance(e, yaml.AliasEvent) for e in yaml.parse(raw, Loader=yaml.SafeLoader)):
+        return False
+    todo = [yaml.compose(raw, Loader=yaml.SafeLoader)]
+    while todo:
+        node = todo.pop()
+        if isinstance(node, yaml.MappingNode):
+            keys = [(k.tag, k.value) for k, _ in node.value]
+            if len(set(keys)) != len(keys):
+                return False
+            todo += [v for _, v in node.value]
+        elif isinstance(node, yaml.SequenceNode):
+            todo += node.value
+    return True
 
 
 def parse_text(raw: str | bytes) -> Form | list[Problem]:
@@ -261,7 +264,7 @@ def parse_text(raw: str | bytes) -> Form | list[Problem]:
     if len(raw) > MAX_BYTES:
         return [Problem("unreadable", "answers")]
     try:
-        doc = yaml.load(raw, Loader=_Strict)  # noqa: S506 - a SafeLoader that also refuses aliases and doubled keys
+        doc = yaml.safe_load(raw) if _plain_yaml(raw) else None
     except (yaml.YAMLError, UnicodeDecodeError, RecursionError):
         return [Problem("unreadable", "answers")]
     if not isinstance(doc, dict):
