@@ -60,8 +60,8 @@
 {% if first_load %}<section class="card" data-testid="first-load">
 <h2>{{ t('job.firstload.title') }}</h2>
 <p data-testid="first-load-line">{{ t('job.firstload.line', n=first_load.n, waiting=first_load.waiting) }}</p>
-<p class="hint" data-testid="first-load-nights">{{ t('job.firstload.nights', budget=first_load.budget, nights=first_load.nights) }}</p>
-</section>
+{% if first_load.nights %}<p class="hint" data-testid="first-load-nights">{{ t('job.firstload.nights', n=first_load.n, nights=first_load.nights) }}</p>
+{% endif %}</section>
 {% endif %}{% if recheck %}
 <section class="card" data-testid="recheck-share">
 <h2>{{ t('job.recheck.title') }}</h2>

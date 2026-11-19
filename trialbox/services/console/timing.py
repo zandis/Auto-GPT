@@ -6,14 +6,19 @@ study, no patient, no description field. The console does not separate the time 
 orchestrator from its own (every backend call goes through ``console.backend`` and the workspace's helpers, with no
 single seam to time), so no backend share is written; a share timed at some calls and not others would mislead.
 
-**An allow-list.** The header is written only on a ``200`` answer of a route in :data:`TIMED`, named by its route
-template (the matched route's path, never the request's path and never a prefix): the ten pages the walk measures.
-Every other route, and any route added later, carries no header until someone adds it here on purpose, with the
-reason next to it. A route is in :data:`TIMED` only when its ``200`` cannot differ between a refused and a missing
-thing: it answers those with 403, 404 or a redirect, which carry no header, so the header's presence says no more than
-the status code. A route that answers ``200`` in both cases (the header search, ``/cmd``, D-1241) stays out: the time of
-the two answers would differ. ``tests/console/test_console_timing.py`` walks every registered route and holds
-:data:`TIMED` equal to the walk's page list.
+**An allow-list.** The header is written only on a ``200`` answer to a ``GET`` of a route in :data:`TIMED`, named by
+its route template (the matched route's path, never the request's path and never a prefix): the ten pages the walk
+measures. Every other route and method, and any route added later, carries no header until someone adds it here on
+purpose, with the reason next to it.
+
+The rule a listed route meets: **the header adds nothing to what the status already says**. A route is listed only
+when an account that gets a ``200`` for a thing that exists gets something other than a ``200`` (403, 404 or a
+redirect, none of which carries the header) for a thing that does not, or when the route names no thing at all. Who
+gets the ``200`` is the route's own rule, not this module's (a sub-investigator off a study's log opens that study's
+state and its jobs' pages, on master as here). A route that answers ``200`` both for a thing that exists and for one
+that does not (the header search, ``/cmd``, D-1241) stays out: the time of the two answers would differ where the
+status does not. ``tests/console/test_console_timing.py`` walks every registered route and holds :data:`TIMED` equal
+to the walk's page list.
 
 The walk (``tools.console_timing``) reads this header, not a client's clock: on a loaded CI runner the time between
 the client and the server's middleware (the test client's own work, the event loop's queue) is not the page's."""
@@ -36,19 +41,23 @@ def value(ms: float) -> str:
 #: route template -> why its 200 cannot differ between a refused and a missing thing (each is a page of the walk,
 #: ``tests/console/timing_walk.py``; the test file checks the 403/404 of each)
 TIMED: dict[str, str] = {
-    "/home": "no identifier in the path: each signed-in account gets its own home page; nothing can be missing",
-    "/studies/{rs}/week": "study_or_404: a study the account does not see and no such study are the same 404",
-    "/studies/{rs}/patients/{pid}": "a study not seen or missing: 404; a pseudonym not on the study's list: no 200",
-    "/studies/{rs}/candidates": "study_or_404 (the same 404 for not seen and missing), then the screen task (403)",
-    "/studies/{rs}/subjects": "study_or_404: a study the account does not see and no such study are the same 404",
-    "/studies/{rs}/state": "study_or_404: a study the account does not see and no such study are the same 404",
-    "/pilot/jobs/{job_id}": "no such job: 404; another study's job for a scoped account: refused, never a 200",
-    "/pilot/protocol": "no identifier in the path: a form; nothing can be missing",
-    "/audit": "no identifier in the path: refused accounts 403; its filters are query values on one page",
-    "/admin/ops": "no identifier in the path: refused accounts 403",
+    "/home": "names no thing: each signed-in account gets its own home page",
+    "/studies/{rs}/week": "a study that does not exist: 404; a study the account opens: 200; the status already "
+    "differs, the header adds nothing",
+    "/studies/{rs}/patients/{pid}": "a study or a pseudonym that does not exist: no 200; the status already differs",
+    "/studies/{rs}/candidates": "a study that does not exist: 404; the status already differs",
+    "/studies/{rs}/subjects": "a study that does not exist: 404; the status already differs",
+    "/studies/{rs}/state": "a study that does not exist: 404; an account that opens it (a sub-investigator off its "
+    "log included): 200; the status already differs, the header adds nothing",
+    "/pilot/jobs/{job_id}": "a job that does not exist: 404; an account that opens it (a sub-investigator off the "
+    "study's log included): 200; the status already differs, the header adds nothing",
+    "/pilot/protocol": "names no thing: a form",
+    "/audit": "names no thing in its path; its filters are query values on one page",
+    "/admin/ops": "names no thing",
 }
 
 
-def timed(status: int, route: str | None) -> bool:
-    """Whether an answer carries the header: a ``200`` of a route template in :data:`TIMED`, nothing else."""
-    return status == 200 and route is not None and route in TIMED
+def timed(status: int, route: str | None, method: str) -> bool:
+    """Whether an answer carries the header: a ``200`` to a ``GET`` of a route template in :data:`TIMED`, nothing
+    else (a ``POST`` to a listed path answers with its own page and stays untimed)."""
+    return status == 200 and method == "GET" and route is not None and route in TIMED

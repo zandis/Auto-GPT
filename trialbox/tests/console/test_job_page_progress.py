@@ -45,7 +45,7 @@ def test_the_run_page_says_the_first_load_in_the_readers_language(box: dict[str,
     cat = CATALOGUES[lang]
     assert str(escape(cat["job.firstload.title"])) in block
     assert str(escape(cat["job.firstload.line"].format(n=40, waiting=95))) in block
-    assert str(escape(cat["job.firstload.nights"].format(budget=40, nights=3))) in block
+    assert str(escape(cat["job.firstload.nights"].format(n=40, nights=3))) in block
     assert check_page(block) == [], lang
     assert "new_carried" not in block and "new_screened" not in block  # the event's field names are not its words
 
@@ -55,11 +55,9 @@ def test_the_run_page_says_the_first_load_in_the_readers_language(box: dict[str,
     [
         {"new_carried": 0},  # nobody waits: the first load is done
         {"new_carried": None},  # the run did not say
-        {"budget": None},  # no night budget on this box: no estimate to make
-        {"budget": 0},
         {"new_screened": None},
     ],
-    ids=["none-waiting", "no-waiting-figure", "no-budget", "zero-budget", "no-screened-figure"],
+    ids=["none-waiting", "no-waiting-figure", "no-screened-figure"],
 )
 def test_nothing_is_shown_when_a_number_is_missing_or_nobody_waits(box: dict[str, Any], detail: dict[str, Any]) -> None:
     jid = _run(box, 972, **detail)
@@ -133,7 +131,7 @@ def test_before_the_compile_starts_and_after_the_job_is_past_reading_nothing_is_
 #: the two blocks this card adds to job.html, as written there
 _ADDED = (
     re.compile(r"\{% if compile_answers is not none %\}.*?\{% endif %\}", re.S),
-    re.compile(r"\{% if first_load %\}.*?\{% endif %\}", re.S),
+    re.compile(r"\{% if first_load %\}<section.*?</section>\n\{% endif %\}", re.S),  # with its inner if
 )
 
 
@@ -222,3 +220,56 @@ def test_an_account_the_list_refuses_gets_none_of_the_numbers_and_no_read(
     reads.clear()
     shown = accounts["coordinator"][1].get(f"/pilot/jobs/{jid}").text
     assert _block(shown) is not None and "9587" in shown and reads  # the list admits the coordinator
+
+
+# ---------------------------------------------------------------------------------------------- the estimate
+def test_the_estimate_is_at_this_runs_pace_never_the_boxs_budget(box: dict[str, Any]) -> None:
+    """The review's probe: a box budget of 100 a night, of which this run reached 10 new patients, 500 waiting. At
+    the box's budget it would say 5 nights; at the pace the run reached it is 50."""
+    jid = _run(box, 976, budget=100, left=10, new_screened=10, new_carried=500)
+    c, _ = login_crc(box)
+    block = _block(c.get(f"/pilot/jobs/{jid}").text)
+    assert block is not None
+    assert str(escape(CATALOGUES["en"]["job.firstload.nights"].format(n=10, nights=50))) in block
+    assert "about 5 more" not in block and "100" not in block  # nothing from the box's night budget
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_a_run_that_screened_no_new_patient_gives_no_estimate(box: dict[str, Any], lang: str) -> None:
+    jid = _run(box, 977, new_screened=0, new_carried=500)
+    c, csrf = login_crc(box)
+    c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"})
+    block = _block(c.get(f"/pilot/jobs/{jid}").text)
+    assert block is not None and 'data-testid="first-load-nights"' not in block  # no pace, no estimate
+    assert str(escape(CATALOGUES[lang]["job.firstload.line"].format(n=0, waiting=500))) in block
+
+
+def test_the_runs_budget_event_is_read_once_a_page(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    jid = _run(box, 978, trigger="weekly", excluded_in_scope=8, excluded_rescreened=3, excluded_carried=5,
+               excluded_percent=25, excluded_kept=3, excluded_full_pass_runs=3, left=12)  # fmt: skip
+    reads: list[str] = []
+    real = box["backend"].recheck_share
+
+    def spy(job_id: str) -> Any:
+        reads.append(job_id)
+        return real(job_id)
+
+    monkeypatch.setattr(box["backend"], "recheck_share", spy)
+    c, _ = login_crc(box)
+    page = c.get(f"/pilot/jobs/{jid}").text
+    assert 'data-testid="recheck-share"' in page and _block(page) is not None  # both cards from the one read
+    assert reads == [jid]
+
+
+def test_a_long_compile_keeps_its_count_past_the_tables_window(box: dict[str, Any]) -> None:
+    """More model answers than the page's table shows (200): the count still starts at the compile's start."""
+    jid = _reading(box, 986)
+    au = box["audit"]
+    au.append("compile.start", job_id=jid, ruleset="GZQO", actor="criteria-compiler")
+    for _ in range(260):
+        au.append("llm.call", job_id=jid, actor="criteria-compiler")
+    c, _ = login_crc(box)
+    page = c.get(f"/pilot/jobs/{jid}").text
+    got = _answers(page)
+    assert got is not None and str(escape(CATALOGUES["en"]["job.compile.answers"].format(n=260))) in got
+    assert CATALOGUES["en"]["job.audit.show"].format(n=200) in page  # the table still shows its newest 200

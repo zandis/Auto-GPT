@@ -10,17 +10,22 @@
   share: the console has no single seam where it waits on the orchestrator (the backend, the workspace's helpers and
   the study calls each call out), and a share timed at some calls and not others would mislead.
 - **An allow-list, and refused and not found answer alike** (as D-1241 asks of the header search). The header is
-  written only on a `200` answer of a route in `console.timing.TIMED`. The list names each route by its template (the
-  matched route's path, never the request's path, never a prefix) and holds exactly the walk's ten pages. Next to each
-  route it says why its `200` cannot differ between a refused and a missing thing. Every other route, and any route
-  added later, carries no header until someone adds it on purpose with its reason. A route is listed only when it
-  answers a refused or a missing thing with a 403, a 404 or a redirect, none of which carries the header. The header
-  search (`/cmd`) answers `200` in both cases, so it stays out by construction. The first version kept only `/cmd`
+  written only on a `200` answer to a `GET` of a route in `console.timing.TIMED`. The list names each route by its
+  template (the matched route's path, never the request's path, never a prefix) and holds exactly the walk's ten
+  pages. Every other route and method, and any route added later, carries no header until someone adds it on purpose
+  with its reason. The rule a listed route meets: **the header adds nothing to what the status already says.** Either
+  the route names no thing, or a thing that does not exist gets a 403, a 404 or a redirect (none carries the header)
+  where an account that opens the thing gets a `200`. Who gets the `200` is the route's own rule, not this card's: a
+  sub-investigator off a study's delegation log opens that study's state page and its jobs' pages, on master as here,
+  and the list's reasons say so rather than claim a refusal. The header search (`/cmd`) answers `200` both for a thing
+  that exists and for one that does not, so it stays out by construction. The first version kept only `/cmd`
   out (a deny-list). The whole-tree run on this card's merged head found the leak: D-1241's tests failed on the header's
-  value. The coordinator asked for the allow-list. Tests: every registered route, asked with every method by a
-  coordinator and an administrator, carries the header only if listed; the list equals the walk's pages; each listed
-  route with an identifier answers a missing one (the account may open the page) and another study's one (an account
-  scoped to another study) with no `200`.
+  value. The coordinator asked for the allow-list. Tests: every registered route (FastAPI's, the plain ones and the
+  `/static` mount), asked with every method by a coordinator, an administrator, a viewer and a signed-out client,
+  carries the header only on a listed `GET`; a `POST` answered `200` on a listed path carries none; the list equals the
+  walk's pages; each listed route with an identifier answers a missing one (the account may open the page) and
+  another study's one (an account scoped to another study) with no `200`. Two independent reviews (340 routes, 12
+  accounts, 8,172 requests) found no leak.
 - **What the header tells a signed-in user.** It tells them how long the console took to build a page they were
   allowed to open, which their own clock already shows to within the network's delay. It tells them nothing about a
   page they were refused or that does not exist, because those answers carry no header.
@@ -71,12 +76,16 @@
 - **Tier** (the coordinator's ruling). Every pull request runs the rules and the planted page
   (`tests/console/test_console_timing.py`, a few seconds; no pull request gets slower). The walk itself
   (`tests/perf/test_console_timing_walk.py`, marker `perf`, `make console-timing`) is one more step of the nightly
-  `perf-5k` job (`trialbox-e2e.yml`), with its report in the step summary and the job's artifact. **The 300 ms budget
+  `perf-5k` job (`trialbox-e2e.yml`), with its report in the step summary and its own artifact `console-timing` (the
+  `bench-gate` artifact keeps its layout, so `bench.py --adopt` on a downloaded one is unchanged). **The 300 ms budget
   is held nightly, not per pull request.**
 - **Progress while a protocol is read** (review 13 section 7.1: "part 2 of 3 read"). While a FEAS job is parsing or
   compiling and its compile has started, the job page says how many answers the language model has given so far:
-  the `llm.call` rows after the job's latest `compile.start`, among the audit rows the page already shows the same
-  accounts. It says plainly that this is not a count of parts. **Known limit:** the page cannot say "part n of N".
+  the `llm.call` rows after the job's latest `compile.start`, among the job's own audit rows (the rows the page's
+  table shows, the same accounts). While a protocol is read those rows are read up to 5,000 back
+  (`console.app.COMPILE_ROWS`), so a long compile's line does not vanish when its start leaves the table's window of
+  200; the table still shows the newest 200. If the start is not among them, the page shows no line rather than a
+  wrong count. It says plainly that this is not a count of parts. **Known limit:** the page cannot say "part n of N".
   The audit rows the console keeps (`console.backend.read_audit`) do not carry a call's `prompt_version`, so an
   `ir_extract` call cannot be told from a `concept_map` call. The number of parts is known only inside
   `criteria_compiler.service._extract`. The one-integer change it would need: the compiler writes `parts: N` into the
@@ -84,11 +93,14 @@
   for whoever holds the audit area; this card does not touch the compiler or an audit event.
 - **Progress of the first load** (review 13: "first load: 1,840 of 60,000 patients, about 3 more nights"). A finished
   SCREEN or MICROBATCH run's page says how many new patients this run screened and how many are still waiting. It
-  also gives, as an estimate from this run's night budget, about how many more nights that is (waiting / budget,
-  rounded up). The page says the estimate changes with a night shared with other studies or with new patients
-  arriving. The figures come from the run's own `microbatch.budget` event, which the page already reads for the
-  re-check card. **What the page keeps changed:** `read_recheck_share` (`RECHECK_SHARE`) now also keeps `budget`,
-  `new_screened` and `new_carried`, whole numbers from the same event. **Who sees them** (the coordinator's ruling):
+  also gives an estimate of the nights left **at this run's own pace** (waiting / new patients this run screened,
+  rounded up), and says it is an estimate from this run alone. It does not use the event's `budget`. That figure is
+  the whole box's budget for one night (`night_budget`), which the night's micro-batches share after re-checks,
+  version re-screens and the excluded share (D-646), so an estimate from it was too low. The review's probe was a
+  budget of 100 with 10 reached and 500 waiting: the budget gives 5 nights, the pace 50. When the run screened no new
+  patient there is no pace, so the page gives no estimate. The figures come from the run's own `microbatch.budget` event, which the page already reads for the
+  re-check card. **What the page keeps changed:** `read_recheck_share` (`RECHECK_SHARE`) now also keeps `new_screened`
+  and `new_carried`, two whole numbers from the same event; the event is read once a page for both cards. **Who sees them** (the coordinator's ruling):
   only an account that the study's own candidate list admits, by that page's own check (`console.team`:
   `study_seen` and the `screen` task, the two questions of `study_or_404` and `need_task`, now also asked without a
   refusal as `Helpers.admits_candidates`). No break-glass grant opens them. The check comes before the event is read,

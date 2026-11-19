@@ -11,8 +11,9 @@ EN: dict[str, str] = {
     "its terms), not the parts themselves.",
     "job.firstload.title": "New patients not yet screened",
     "job.firstload.line": "New patients screened on this run: {n}. Still waiting: {waiting}.",
-    "job.firstload.nights": "At this run's night budget of {budget} patients, about {nights} more nights. This is an "
-    "estimate from this run's budget: a night shared with other studies, or new patients arriving, changes it.",
+    "job.firstload.nights": "At this run's pace ({n} new patients on one run), about {nights} more nights. This "
+    "is an estimate from this run alone: the night's re-checks, a night shared with other studies, or new patients "
+    "arriving change it.",
 }
 
 JA: dict[str, str] = {
@@ -21,8 +22,8 @@ JA: dict[str, str] = {
     "部分の数ではありません。",
     "job.firstload.title": "まだスクリーニングされていない新しい患者",
     "job.firstload.line": "この実行でスクリーニングした新しい患者：{n} 名。待機中：{waiting} 名。",
-    "job.firstload.nights": "この実行の夜間予算 {budget} 名のままなら、あと約 {nights} 夜かかります。"
-    "これはこの実行の予算からの見込みです。ほかの研究と夜を分け合うことや、新しい患者の追加で変わります。",
+    "job.firstload.nights": "この実行のペース（1 回の実行で新しい患者 {n} 名）なら、あと約 {nights} 夜です。"
+    "これはこの実行だけからの見込みです。その夜の再確認、ほかの研究と分け合う夜、新しい患者の追加で変わります。",
 }
 
 ZH: dict[str, str] = {
@@ -30,6 +31,6 @@ ZH: dict[str, str] = {
     "job.compile.answers.what": "這是本計畫書所有回答的數目（先是各部分，再是用語的代碼），不是部分的數目。",
     "job.firstload.title": "尚未篩選的新病人",
     "job.firstload.line": "本次執行篩選的新病人：{n} 位。仍在等待：{waiting} 位。",
-    "job.firstload.nights": "以本次執行的夜間額度 {budget} 位計，約還需 {nights} 個夜晚。"
-    "這是依本次執行的額度所做的估計：與其他研究共用夜晚，或有新病人加入，都會改變它。",
+    "job.firstload.nights": "以本次執行的速度（一次執行 {n} 位新病人）計，約還需 {nights} 個夜晚。"
+    "這只是依本次執行所做的估計：當晚的重新檢查、與其他研究共用夜晚，或有新病人加入，都會改變它。",
 }

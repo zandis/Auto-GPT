@@ -241,7 +241,7 @@ _SHOWN_DETAIL = (
 #: page asks for them here and shows them only to an account that reads the study's list.
 RECHECK_SHARE = ("left", "excluded_in_scope", "excluded_rescreened", "excluded_kept", "excluded_percent",
                  "excluded_full_pass_runs", "excluded_carried",
-                 "budget", "new_screened", "new_carried")  # fmt: skip  # the last three: the first load (D-1245)
+                 "new_screened", "new_carried")  # fmt: skip  # the last two: the first load (D-1245)
 
 
 def read_recheck_share(directory: Path, job_id: str) -> dict[str, Any] | None:

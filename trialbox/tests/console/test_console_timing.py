@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -66,7 +67,9 @@ def test_the_header_search_carries_no_timing_whatever_it_finds(box: dict[str, An
     for q in ("GZQO-0001", "ZZZZ-9999", "aaaaaaaa", "", "/home"):
         r = crc.get("/cmd", params={"q": q}, follow_redirects=False)
         assert "server-timing" not in r.headers, (q, r.status_code)
-    assert timing.timed(200, "/home") and not timing.timed(200, "/cmd") and not timing.timed(404, "/home")
+    assert timing.timed(200, "/home", "GET") and not timing.timed(200, "/cmd", "GET")
+    assert not timing.timed(404, "/home", "GET") and not timing.timed(200, "/home", "POST")
+    assert not timing.timed(200, None, "GET")
 
 
 def test_the_header_changes_no_page_body(box: dict[str, Any]) -> None:
@@ -106,6 +109,8 @@ def test_percentile_is_nearest_rank_and_the_header_is_read() -> None:
     assert ct.server_ms({"server-timing": "total;dur=12.5"}) == 12.5
     assert ct.server_ms({"server-timing": "db;dur=3, total;dur=7"}) == 7.0
     assert ct.server_ms({"server-timing": "total"}) is None and ct.server_ms({}) is None
+    for bad in ("nan", "NaN", "inf", "-1", "-0.5", "x"):  # no time: the walk must not pass on it
+        assert ct.server_ms({"server-timing": f"total;dur={bad}"}) is None, bad
 
 
 def _fake(times: list[float], status: int = 200) -> ct.Page:
@@ -194,23 +199,49 @@ def _fill(template: str) -> str:
 
 
 def test_no_route_outside_the_allow_list_ever_carries_the_header(box: dict[str, Any]) -> None:
-    """Every registered route of the console, asked by the coordinator and the administrator with every method it
-    takes: only a route of ``TIMED`` may carry the header. A route added later is untimed until listed on purpose."""
-    from fastapi.routing import APIRoute
+    """Every registered route of the console (FastAPI's, Starlette's plain ones and the ``/static`` mount), asked with
+    every method it takes by a coordinator, an administrator, a refused account (a viewer) and a signed-out client:
+    only a ``GET`` of a route of ``TIMED`` may carry the header. A route added later is untimed until listed."""
+    from fastapi.testclient import TestClient
+    from starlette.routing import Mount, Route
+
+    from tests.console.test_console_app import VIEWER_PW
 
     cs = clients(box)
-    routes = sorted((r for r in box["app"].routes if isinstance(r, APIRoute)),
-                    key=lambda r: ("logout" in r.path or r.path in ("/lang", "/role"), r.path))  # fmt: skip
+    signed_out = TestClient(box["app"])
+    askers = (cs["coordinator"], cs["admin"], login(box["app"], "viewer", VIEWER_PW)[0], signed_out)
+    asks: list[tuple[str, str, str]] = []  # (template, method, path)
+    for r in box["app"].routes:
+        if isinstance(r, Route):  # FastAPI's APIRoute is one too
+            asks += [(r.path, m, _fill(r.path)) for m in sorted(r.methods or ())]
+        elif isinstance(r, Mount):
+            static = sorted(p.name for p in Path(r.app.directory).iterdir() if p.is_file())  # type: ignore[attr-defined]
+            asks += [(r.path, "GET", f"{r.path}/{static[0]}"), (r.path, "HEAD", f"{r.path}/{static[0]}")]
+    asks.sort(key=lambda a: ("logout" in a[0] or a[0] in ("/lang", "/role"), a))
     served = timed = 0
-    for route in routes:
-        for c in (cs["coordinator"], cs["admin"]):
-            for method in sorted(route.methods or ()):
-                r = c.request(method, _fill(route.path), follow_redirects=False)
-                served += r.status_code == 200
-                if "server-timing" in r.headers:
-                    timed += 1
-                    assert route.path in timing.TIMED and r.status_code == 200, (method, route.path, r.status_code)
-    assert len(routes) > 100 and served > 50 and timed >= len(timing.TIMED) - 2  # the walk was not vacuous
+    for template, method, path in asks:
+        for c in askers:
+            r = c.request(method, path, follow_redirects=False)
+            served += r.status_code == 200
+            if "server-timing" in r.headers:
+                timed += 1
+                assert template in timing.TIMED and method == "GET" and r.status_code == 200, (method, template)
+    assert len(asks) > 300 and served > 100 and timed >= len(timing.TIMED) - 2  # the walk was not vacuous
+    assert any(t.startswith("/static") for t, _, _ in asks)
+
+
+def test_a_post_answered_200_on_a_listed_path_is_not_timed(box: dict[str, Any]) -> None:
+    """``timed`` asks for a ``GET``: a ``POST`` that answers with a page (200) on a listed template carries nothing.
+    The route is this test's own, at a listed path, never shipped."""
+
+    async def page_back() -> HTMLResponse:
+        return HTMLResponse("<p>the same page, after a post</p>")
+
+    box["app"].add_api_route("/home", page_back, methods=["POST"])
+    box["app"].middleware_stack = None
+    r = clients(box)["coordinator"].post("/home", follow_redirects=False)
+    assert r.status_code == 200 and "server-timing" not in r.headers
+    assert "server-timing" in clients(box)["coordinator"].get("/home").headers  # the GET still is
 
 
 @pytest.mark.parametrize("template", [t for t in timing.TIMED if "{" in t])

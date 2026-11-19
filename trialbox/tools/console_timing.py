@@ -96,9 +96,10 @@ def server_ms(headers: Mapping[str, str]) -> float | None:
             key, _, val = param.strip().partition("=")
             if key == "dur":
                 try:
-                    return float(val)
+                    ms = float(val)
                 except ValueError:
                     return None
+                return ms if math.isfinite(ms) and ms >= 0 else None  # nan, inf or a negative time is no time
     return None
 
 
