@@ -79,6 +79,7 @@ lint: contracts-check
 	$(PY) -m mypy libs services tools tests
 	$(PY) tools/doclint.py
 	PYTHONPATH=libs:services:. $(PY) -m tools.text_keys  # D-1220: no conflicting double, no missing key
+	$(PY) -m tools.form_fields  # D-1376: every POST form uses the field macro or is on the ratchet
 	$(PY) -m tools.findings_register --check
 
 FONTS := .cache/fonts/NotoSansTC-Regular.ttf

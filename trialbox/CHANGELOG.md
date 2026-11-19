@@ -10,6 +10,10 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- A form that is sent with a wrong value says so at the top of the page (9k-6a, D-1376): a box headed "There is a
+  problem" lists each field to fix as a link to it, each field shows its own message, and what was typed stays. First
+  on the study's identifiers and its IRB record; the console's other forms follow. Nothing changes on the box: no
+  setting, no new file installed.
 - The console's colours and type are named values (9k-1, 9k-2, D-1368): form fields have a darker border that meets
   the 3:1 contrast for controls, the amber "needs attention" row is readable in dark mode (and a little paler in
   light mode), and Japanese and Traditional Chinese pages have a taller line height (1.7) with strict line breaking.
