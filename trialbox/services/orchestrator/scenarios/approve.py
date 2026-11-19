@@ -8,6 +8,7 @@ from typing import Any
 
 from criteria_compiler.semantics import human_heavy
 from tb_common.ruleset import Ruleset, RulesetNotApproved, load_approved
+from tb_common.steptime import COMPILER_STEPS, StepClock, numbers_only
 from tb_contracts import ApproveRequest, JobFile
 
 from orchestrator.clients import StepFailed
@@ -55,16 +56,36 @@ def _approved(ctx: Ctx, ruleset: str, version: str) -> Ruleset | None:
         return None
 
 
+def _compiler_steps(clock: StepClock, steps: object) -> None:
+    """H-45: the compiler's own steps, and the rest of the call as the HTTP round trip; no steps (a compiler that
+    gave none): the whole call by its own name."""
+    call = clock.since_mark()
+    named = numbers_only(steps if isinstance(steps, dict) else None)
+    named = {k: v for k, v in named.items() if k in COMPILER_STEPS}
+    if named:
+        for k, v in named.items():
+            clock.add(k, v)
+        clock.add("orch.compiler_transport", call - sum(named.values()))
+    else:
+        clock.add("orch.compiler_call", call)
+    clock.mark()
+
+
 def run(ctx: Ctx) -> Outcome:
     from criteria_compiler.review import parse_review_xlsx
 
+    # H-45: each step's seconds on the monotonic clock; the job's run (core) adds the delivery and the remainder and
+    # writes them with the job's metrics, on the write it makes anyway (success or failure)
+    clock = ctx.step_clock = StepClock()
     ruleset, version = _target(ctx)
     ctx.update(ruleset=ruleset, ruleset_version=version)
     done = _approved(ctx, ruleset, version)
+    clock.lap("orch.target")
     if done is not None:
         # already tagged: this APPROVE was re-run after a restart that interrupted it after the compiler approved, or
         # the reviewer replied twice. Nothing to compile; the waiting jobs must still resume.
         resumed = ctx.orch.resume_awaiting(ruleset, version)
+        clock.lap("orch.resume_awaiting")
         body = f"Ruleset **{ruleset} v{version}** is already approved; nothing was changed.\n\n" + (
             f"Resumed waiting jobs: {', '.join(f'`{j}`' for j in resumed)}.\n" if resumed else ""
         )
@@ -81,10 +102,14 @@ def run(ctx: Ctx) -> Outcome:
                 )
             ],
         )
+    clock.mark()
     ctx.state("compiling")
+    clock.lap("orch.state")
     wb = _workbook(ctx)
     try:
-        decisions, meta = parse_review_xlsx(ctx.input_bytes(wb))
+        data = ctx.input_bytes(wb)
+        clock.lap("orch.read_workbook")
+        decisions, meta = parse_review_xlsx(data)
     except ValueError as exc:
         raise StepFailed("approve", f"{wb.filename}: {exc}") from exc
     except Exception as exc:  # not an xlsx at all
@@ -93,18 +118,25 @@ def run(ctx: Ctx) -> Outcome:
         raise StepFailed("approve", f"The workbook is for ruleset {meta['ruleset']}, not {ruleset}.")
     if meta.get("version") and meta["version"] != version:
         raise StepFailed("approve", f"The workbook is for version {meta['version']}, not the version= of the request.")
+    clock.lap("orch.parse_review")
     via = "web console" if (ctx.job.comment or "").startswith("web console") else "e-mail"
-    res = ctx.services.compiler.approve(
-        ApproveRequest(
-            ruleset=ruleset,
-            version=version,
-            by=ctx.job.requested_by,
-            job_id=ctx.job.job_id,
-            via=via,
-            decisions=decisions,
-            **amendment_options(ctx.job.options or {}),
-        )
+    compiler = ctx.services.compiler
+    req = ApproveRequest(
+        ruleset=ruleset,
+        version=version,
+        by=ctx.job.requested_by,
+        job_id=ctx.job.job_id,
+        via=via,
+        decisions=decisions,
+        **amendment_options(ctx.job.options or {}),
     )
+    clock.mark()
+    try:
+        res = compiler.approve(req)
+    except BaseException:
+        clock.lap("orch.compiler_call")
+        raise
+    _compiler_steps(clock, getattr(res, "step_seconds", None))
     routing = res.manifest.routing if res.manifest else None
     to = recipients(routing, ctx.job.requested_by)
     if res.status == "approved":
@@ -115,7 +147,9 @@ def run(ctx: Ctx) -> Outcome:
             res.manifest.model_dump(mode="json", by_alias=True, exclude_none=True), allow_unicode=True, sort_keys=False
         )
         out = ctx.publish(f"manifest_{ruleset}_v{version}.yaml", manifest.encode("utf-8"), "aggregate", to)
+        clock.lap("orch.publish")
         resumed = ctx.orch.resume_awaiting(ruleset, version)
+        clock.lap("orch.resume_awaiting")
         rev = res.manifest.review
         split = dict(rev.split.model_dump()) if rev and rev.split else {}
         split = {k: int(v or 0) for k, v in split.items()}
@@ -159,9 +193,11 @@ def run(ctx: Ctx) -> Outcome:
         )
     if res.status == "needs_review":
         assert res.review_html_key and res.review_xlsx_key and res.draft_zip_key
+        clock.mark()
         review = review_delivery(
             ctx, ruleset, version, routing, res.review_html_key, res.review_xlsx_key, res.draft_zip_key, res.round
         )
+        clock.lap("orch.review_delivery")
         if res.blocking:
             review.body_md = (
                 "**Not yet approvable:**\n\n"
@@ -175,5 +211,7 @@ def run(ctx: Ctx) -> Outcome:
         if res.status == "rejected"
         else f"Ruleset {ruleset} v{version} reached the maximum number of review rounds without approval."
     )
+    clock.mark()
     ctx.orch.fail_awaiting(ruleset, version, "approve", reason)
+    clock.lap("orch.fail_awaiting")
     return Outcome(summary_md=reason + (" " + "; ".join(res.blocking) if res.blocking else ""))

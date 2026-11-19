@@ -574,6 +574,10 @@ class JobMetrics(BaseModel):
     tokens_in: int = 0
     tokens_out: int = 0
     wall_seconds: float = 0
+    step_seconds: dict[str, float] | None = None
+    """
+    H-45: an APPROVE job's seconds by fixed step name (tb_common.steptime.APPROVE_STEPS), numbers only; with orch.unaccounted they add up to wall_seconds. Optional: absent on other jobs.
+    """
 
 
 class JobOutput(BaseModel):
@@ -3252,6 +3256,10 @@ class ApproveResult(BaseModel):
     review_html_key: str | None = None
     review_xlsx_key: str | None = None
     draft_zip_key: str | None = None
+    step_seconds: dict[str, float] | None = None
+    """
+    H-45: seconds of each step of Compiler.approve on the monotonic clock, by fixed step name (tb_common.steptime.COMPILER_STEPS); numbers only. Optional: absent from an older compiler.
+    """
     blocking: list[str] | None = None
 
 
