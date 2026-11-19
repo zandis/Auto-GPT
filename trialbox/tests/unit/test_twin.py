@@ -70,6 +70,9 @@ def _write(nd: Path, res: dict[str, list[dict[str, Any]]]) -> Path:
     nd.mkdir()
     for t, rows in res.items():
         (nd / f"{t}.ndjson").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    from tb_common import id_rule
+
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release says its id rule
     return nd
 
 

@@ -26,6 +26,7 @@ from matching.carried import NOT_CARRIED, Carried
 from matching.cascade.engine import CascadeConfig, run_cascade
 from matching.coverage import UNKNOWN_CODE_SYSTEM
 from orchestrator.scenarios.evaluate import SqlEngine
+from tb_common import id_rule
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR, LlmExtractOutput
 
@@ -106,6 +107,7 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     base = Ruleset.load(ROOT / "rulesets" / "GOUT-COH").manifest
     manifest = base.model_copy(update={"id": "OFFL", "library": None, "criteria": [c.id for c in crit]})
     tmp = tmp_path_factory.mktemp("empty-list")
+    id_rule.write_snapshot_record(FIX)  # D-1253: a snapshot of this release
     Lake(tmp / "lake").rebuild(SNAPSHOT, HashEmbedder(), FIX)
     lake = LakeLocal(tmp / "lake", HashEmbedder())
     pids = sorted({r["pid"] for r in lake.query("SELECT pid FROM patient", None, SNAPSHOT).to_pylist()})

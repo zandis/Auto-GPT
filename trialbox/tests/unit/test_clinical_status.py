@@ -29,6 +29,7 @@ from lake.client import LakeLocal
 from lake.store import Lake
 from orchestrator.scenarios.evaluate import SqlEngine, structured_verdict
 from pydantic import ValidationError
+from tb_common import id_rule
 from tb_common.reasons import LABELS, Reason
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR, LlmExtractOutput
@@ -102,6 +103,7 @@ def setup(tmp_path_factory: pytest.TempPathFactory) -> tuple[LakeLocal, Ruleset,
     (nd / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p in pats) + "\n", encoding="utf-8")
     (nd / "Condition.ndjson").write_text("\n".join(json.dumps(c) for c in CONDITIONS) + "\n", encoding="utf-8")
     (nd / "Observation.ndjson").write_text("", encoding="utf-8")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp / "lake").rebuild("2026-10-05", HashEmbedder(), nd)
     sql = SqlGenerator("CS", "1.0.0", ValueSets("CS", VS, Terminology())).render(CRIT)
     base = Ruleset.load(ROOT / "rulesets" / "GOUT-COH").manifest

@@ -111,6 +111,7 @@ def test_snapshot_age_on_a_frozen_clock() -> None:
 def test_lake_pin_refuses_a_stale_current(tmp_path: Path) -> None:
     lake = Lake(tmp_path / "lake", "Asia/Taipei")
     (tmp_path / "lake" / "db" / f"{NIGHT_1}.duckdb").write_bytes(b"")
+    (tmp_path / "lake" / "db" / f"{NIGHT_1}.duckdb.id_rule").write_text(f"{id_rule.RULE}\n")  # built by this release
     lake.promote(NIGHT_1)
     assert lake.pin(date(2026, 10, 6), 3) == NIGHT_1
     with pytest.raises(StaleSnapshotError):

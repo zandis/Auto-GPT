@@ -22,7 +22,7 @@ from lake.store import Lake
 from matching.stored_scores import NOT_STORED, VS_DOCUMENTED, StoredScores, compare, stored_scores
 from orchestrator.scenarios.evaluate import SqlEngine
 from tb_common import derived as d
-from tb_common import scores
+from tb_common import id_rule, scores
 from tb_common.derived_store import Batch, DerivedStore, Documented, Latest, current_defs, run_batch
 from tb_common.reasons import LABELS, Reason, code_of
 from tb_common.ruleset import Ruleset, approval_state
@@ -118,6 +118,7 @@ def _lake(tmp_path: Path) -> LakeLocal:
     ]  # fmt: skip
     (nd / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p in pats) + "\n")
     (nd / "Observation.ndjson").write_text("\n".join(json.dumps(o) for o in obs) + "\n")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp_path / "lake", "Asia/Taipei").rebuild(SNAP, HashEmbedder(), nd)
     return LakeLocal(tmp_path / "lake", HashEmbedder(), "Asia/Taipei")
 
@@ -454,6 +455,7 @@ def test_a_row_computed_under_18_never_says_adult_only_for_an_adult_at_the_index
            "valueQuantity": {"value": 0.8, "unit": "mg/dL", "code": "mg/dL"}}  # fmt: skip
     (nd / "Patient.ndjson").write_text(json.dumps(pat) + "\n")
     (nd / "Observation.ndjson").write_text(json.dumps(obs) + "\n")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp_path / "lake", "Asia/Taipei").rebuild(SNAP, HashEmbedder(), nd)
     lk = LakeLocal(tmp_path / "lake", HashEmbedder(), "Asia/Taipei")
     st = DerivedStore(db_url)
@@ -549,6 +551,7 @@ def test_a_leap_day_birth_has_one_age_in_the_three_engines(tmp_path: Path, day: 
            "valueQuantity": {"value": 0.8, "unit": "mg/dL", "code": "mg/dL"}}  # fmt: skip
     (nd / "Patient.ndjson").write_text(json.dumps(pat) + "\n")
     (nd / "Observation.ndjson").write_text(json.dumps(obs) + "\n")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp_path / "lake", "Asia/Taipei").rebuild("2026-03-02", HashEmbedder(), nd)
     lk = LakeLocal(tmp_path / "lake", HashEmbedder(), "Asia/Taipei")
     crit = _egfr_crit("egfr")

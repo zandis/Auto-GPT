@@ -23,6 +23,7 @@ from lake.store import Lake
 from matching.cascade.engine import NOT_AT_INDEX, CascadeConfig, run_cascade
 from orchestrator.scenarios import screen
 from orchestrator.scenarios.screen_cascade import held_in_snapshot, summary, verdicts_of
+from tb_common import id_rule
 from tb_common.reasons import LABELS, Reason
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR
@@ -62,6 +63,7 @@ def setup(tmp_path_factory: pytest.TempPathFactory) -> tuple[LakeLocal, Ruleset]
     (nd / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p in pats) + "\n", encoding="utf-8")
     (nd / "Observation.ndjson").write_text("\n".join(json.dumps(o) for o in obs) + "\n", encoding="utf-8")
     (nd / "Condition.ndjson").write_text("", encoding="utf-8")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp / "lake").rebuild(SNAP, HashEmbedder(), nd)
     crit = CriterionIR.model_validate(
         {

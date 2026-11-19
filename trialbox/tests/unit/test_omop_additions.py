@@ -323,6 +323,9 @@ def _ndjson(d: Path, feed: dict[str, list[dict[str, Any]]]) -> Path:
     d.mkdir(parents=True)
     for rtype, items in feed.items():
         (d / f"{rtype}.ndjson").write_text("".join(json.dumps(r) + "\n" for r in items), encoding="utf-8")
+    from tb_common import id_rule
+
+    id_rule.write_snapshot_record(d)  # D-1253: a snapshot of this release says its id rule
     return d
 
 

@@ -23,6 +23,7 @@ from lake.client import LakeLocal
 from matching.cascade.engine import CascadeConfig, run_cascade
 from matching.coverage import UNKNOWN_CODE_SYSTEM
 from orchestrator.scenarios.evaluate import SqlEngine
+from tb_common import id_rule
 from tb_common.ruleset import Ruleset
 
 from tests.offlist_fixture import FIX, SNAPSHOT, index_date, offlist_ruleset
@@ -58,6 +59,7 @@ def _lake(tmp: Path) -> LakeLocal:
                 "subject": {"reference": f"Patient/{pid}"}, "authoredOn": "2026-08-01",
                 "medicationCodeableConcept": {"coding": [{"system": s, "code": c} for s, c in codings]},
             }) + "\n")  # fmt: skip
+    id_rule.write_snapshot_record(src)  # D-1253: a snapshot of this release
     Lake(tmp / "lake").rebuild(SNAPSHOT, HashEmbedder(), src)
     return LakeLocal(tmp / "lake", HashEmbedder())
 

@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 from embed_service.embedder import HashEmbedder
 from lake.store import Lake
+from tb_common import id_rule
 from tb_common.ruleset import Ruleset
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -78,6 +79,7 @@ def _results(tmp: Path) -> dict[str, dict[str, Any]]:
             obs.append(r)
     for rtype, items in (("Patient", pts), ("Observation", obs)):
         (feed / f"{rtype}.ndjson").write_text("".join(json.dumps(r) + "\n" for r in items), "utf-8")
+    id_rule.write_snapshot_record(feed)  # D-1253: a snapshot of this release
     Lake(tmp / "lake", tz="Asia/Tokyo").rebuild("2026-11-09", HashEmbedder(), ndjson_dir=feed)
 
     cs = []

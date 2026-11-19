@@ -18,6 +18,7 @@ from edc.prefill import LakeFacts
 from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
 from lake.store import Lake
+from tb_common import id_rule
 
 from tests import edc_kit as k
 
@@ -51,6 +52,7 @@ def lake(tmp_path_factory: pytest.TempPathFactory) -> LakeLocal:
     }  # fmt: skip
     for name, rows in files.items():
         (nd / f"{name}.ndjson").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp / "lake", "Asia/Taipei").rebuild(SNAP, HashEmbedder(), nd)
     return LakeLocal(tmp / "lake", HashEmbedder(), "Asia/Taipei")
 

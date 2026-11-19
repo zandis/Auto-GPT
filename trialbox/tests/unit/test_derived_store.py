@@ -14,7 +14,7 @@ from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
 from lake.store import Lake
 from tb_common import derived as d
-from tb_common import scores
+from tb_common import id_rule, scores
 from tb_common.derived_store import DerivedError, DerivedStore, Documented, Report, rows_from_lake, run_batch
 
 V1 = date(2026, 9, 1)  # first visit
@@ -192,6 +192,7 @@ def test_the_nightly_batch_reads_the_lake(db_url: str, tmp_path: Path) -> None:
             obs(5, "crp", 1.0, "mg/dL"), obs(6, "creatinine", 1.1, "mg/dL")]  # fmt: skip
     (nd / "Patient.ndjson").write_text(json.dumps(pat) + "\n")
     (nd / "Observation.ndjson").write_text("\n".join(json.dumps(o) for o in rows) + "\n")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp_path / "lake", "Asia/Tokyo").rebuild("2026-11-09", HashEmbedder(), nd)
     lake = LakeLocal(tmp_path / "lake", HashEmbedder(), "Asia/Tokyo")
     got = rows_from_lake(lake, ["L-1"])
@@ -231,6 +232,7 @@ def _make_lake(tmp_path: Path, pids: list[str], feed: list[dict[str, Any]],
     lk = Lake(tmp_path / "lake", "Asia/Tokyo")
     if site:
         lk.put_site({"Observation": site})
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     lk.rebuild("2026-11-09", HashEmbedder(), nd)
     return LakeLocal(tmp_path / "lake", HashEmbedder(), "Asia/Tokyo")
 

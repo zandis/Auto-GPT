@@ -27,6 +27,7 @@ from matching.cascade.engine import CascadeConfig, run_cascade
 from orchestrator.scenarios.evaluate import SqlEngine
 from orchestrator.scenarios.screen_cascade import verdicts_of
 from tb_common import derived as d
+from tb_common import id_rule
 from tb_common.reasons import LABELS, code_of
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR
@@ -162,6 +163,7 @@ def lake(tmp_path_factory: pytest.TempPathFactory) -> LakeLocal:
     (nd / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p, _ in PATIENTS.values()) + "\n")
     obs = [o for _, os in PATIENTS.values() for o in os]
     (nd / "Observation.ndjson").write_text("\n".join(json.dumps(o, ensure_ascii=False) for o in obs) + "\n")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp / "lake", "Asia/Tokyo").rebuild("2026-11-09", HashEmbedder(), nd)
     return LakeLocal(tmp / "lake", HashEmbedder(), "Asia/Tokyo")
 

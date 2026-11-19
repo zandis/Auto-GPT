@@ -79,6 +79,7 @@ def test_a_build_without_promote_from_a_folder_of_its_own_is_built_and_not_serve
     other = lake_dir.parent / "feed" / NEXT
     other.mkdir(parents=True)
     (other / "Patient.ndjson").write_text(json.dumps({"resourceType": "Patient", "id": "p1"}) + "\n")
+    id_rule.write_snapshot_record(other)  # D-1253: a snapshot of this release
     argv, _ = _handed(lake_dir, NEXT, ndjson_dir=str(other), promote=False, check=True)
     assert build.main(argv) == 0
     end = read_rebuild_job(lake_dir, NEXT)

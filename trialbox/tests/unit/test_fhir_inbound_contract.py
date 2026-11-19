@@ -17,6 +17,7 @@ import pytest
 import yaml
 from adapter.mapping.engine import Mapper, Mapping
 from lake.flatten import SCHEMAS, Flattener, unread_elements
+from tb_common import id_rule
 
 ROOT = Path(__file__).resolve().parents[2]
 TZ = "Asia/Taipei"
@@ -246,6 +247,7 @@ def test_a_snapshot_built_before_schema_4_reads_deceased_as_unknown(tmp_path: Pa
     nd.mkdir()
     (nd / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p in _patients()) + "\n", encoding="utf-8")
     lake = Lake(tmp_path / "lake")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     lake.rebuild(SNAP, HashEmbedder(), nd)
     got = {r["pid"]: r["deceased"] for r in lake.query("SELECT pid, deceased FROM patient").to_pylist()}
     assert got["flagged"] is True

@@ -54,6 +54,7 @@ from orchestrator.scenarios.evaluate import (
     tier,
 )
 from tb_common import derived as d
+from tb_common import id_rule
 from tb_common.pair import Vote, combine
 from tb_common.reasons import MIN_CONFIDENCE, Reason
 from tb_common.ruleset import Ruleset
@@ -585,6 +586,7 @@ def _build(tmp: Path, name: str, resources: Iterable[dict[str, Any]]) -> LakeLoc
         by.setdefault(r["resourceType"], []).append(r)
     for t, rows in by.items():
         (nd / f"{t}.ndjson").write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp / name).rebuild(INDEX.isoformat(), HashEmbedder(), nd)
     return LakeLocal(tmp / name, HashEmbedder())
 

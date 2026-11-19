@@ -31,6 +31,7 @@ from lake.client import LakeLocal
 from matching.cascade.engine import CascadeConfig, run_cascade
 from matching.recorded import NO_RECORD, Recorded
 from orchestrator.scenarios.evaluate import SqlEngine
+from tb_common import id_rule
 from tb_common.reasons import CODES, LABELS
 from tb_common.ruleset import Ruleset
 from tb_contracts import Atom, CriterionIR
@@ -70,6 +71,7 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     src.mkdir()
     for f in FIX.glob("*.ndjson"):
         shutil.copy(f, src / f.name)
+    id_rule.write_snapshot_record(src)  # D-1253: a snapshot of this release
     Lake(tmp / "lake").rebuild(SNAPSHOT, HashEmbedder(), src)
     lake = LakeLocal(tmp / "lake", HashEmbedder())
     pids = sorted({r["pid"] for r in lake.query("SELECT pid FROM patient", None, SNAPSHOT).to_pylist()})

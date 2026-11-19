@@ -22,6 +22,7 @@ from lake.client import LakeLocal
 from matching.carried import NOT_CARRIED, Carried
 from matching.cascade.engine import CascadeConfig, run_cascade
 from orchestrator.scenarios.evaluate import SqlEngine
+from tb_common import id_rule
 from tb_common.reasons import CODES, LABELS
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR
@@ -48,6 +49,7 @@ def _lake(tmp: Path, with_drugs: bool) -> LakeLocal:
     for f in FIX.glob("*.ndjson"):
         if with_drugs or f.name != "MedicationRequest.ndjson":
             shutil.copy(f, src / f.name)
+    id_rule.write_snapshot_record(src)  # D-1253: a snapshot of this release
     Lake(tmp / "lake").rebuild(SNAPSHOT, HashEmbedder(), src)
     return LakeLocal(tmp / "lake", HashEmbedder())
 

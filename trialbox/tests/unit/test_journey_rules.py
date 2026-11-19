@@ -20,7 +20,7 @@ from orchestrator.core import Rejected
 from orchestrator.scenarios import screen
 from orchestrator.studystore import StudyStore
 from sitesetup import charts
-from tb_common import authz
+from tb_common import authz, id_rule
 from tb_common import service_auth as sa
 from tb_contracts import JobCreate
 
@@ -137,6 +137,7 @@ def _lake(tmp: Path) -> LakeLocal:
     docs: dict[str, list[dict[str, Any]]] = {"Patient": pts, "Encounter": enc, "Condition": []}
     for rtype, items in docs.items():
         (feed / f"{rtype}.ndjson").write_text("".join(json.dumps(r) + "\n" for r in items), "utf-8")
+    id_rule.write_snapshot_record(feed)  # D-1253: a snapshot of this release
     Lake(tmp / "lake", tz="Asia/Tokyo").rebuild(SNAP, HashEmbedder(), ndjson_dir=feed)
     return LakeLocal(tmp / "lake", HashEmbedder())
 

@@ -34,6 +34,9 @@ def _ndjson(folder: Path, by_type: dict[str, list[dict[str, Any]]]) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
     for rtype, items in by_type.items():
         (folder / f"{rtype}.ndjson").write_text("".join(json.dumps(r) + "\n" for r in items), "utf-8")
+    from tb_common import id_rule
+
+    id_rule.write_snapshot_record(folder)  # D-1253: a snapshot of this release says its id rule
     return folder
 
 

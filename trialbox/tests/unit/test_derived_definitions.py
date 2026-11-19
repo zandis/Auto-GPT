@@ -28,7 +28,7 @@ from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
 from lake.store import Lake
 from tb_common import derived as d
-from tb_common import scores
+from tb_common import id_rule, scores
 from tb_contracts import CriterionIR
 
 from tools import gen_score_defs
@@ -223,6 +223,7 @@ def lake(tmp_path_factory: pytest.TempPathFactory) -> LakeLocal:
     (nd / "Patient.ndjson").write_text("\n".join(json.dumps(_pat(p)) for p in VISITS) + "\n")
     obs = [o for os in VISITS.values() for o in os]
     (nd / "Observation.ndjson").write_text("\n".join(json.dumps(o) for o in obs) + "\n")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp / "lake", "Asia/Tokyo").rebuild("2026-11-09", HashEmbedder(), nd)
     return LakeLocal(tmp / "lake", HashEmbedder(), "Asia/Tokyo")
 
