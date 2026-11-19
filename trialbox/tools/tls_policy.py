@@ -267,7 +267,7 @@ def _expand(
         if parts[:1] == ["import"] and len(parts) > 1:
             name_pat = parts[1]
             for var, value in (fixed or {}).items():
-                name_pat = re.sub(r"\{\$" + re.escape(var) + r"(:[^}]*)?\}", lambda _m, v=value: v, name_pat)
+                name_pat = re.sub(r"\{\$" + re.escape(var) + r"(:[^}]*)?\}", value.replace("\\", r"\\"), name_pat)
             pat = re.escape(name_pat)
             pat = re.sub(r"\\\{\\\$[^}]*\\\}", ".+", pat)
             hits = [n for n in snippets if re.fullmatch(pat, n)]
