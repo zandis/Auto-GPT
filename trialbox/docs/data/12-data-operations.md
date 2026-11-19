@@ -19,6 +19,16 @@ that stopped is `FAILED`. `HELD` is left only by the data steward: **reject** (`
 - One night's page (`/data-ops/batches/<id>`): every step, who, when, why and the audit event.
 - The clinical conflicts are the next page, `/data/conflicts` (DATA §7); the two pages link to each other.
 
+**The last full night (10B-20, D-1254).** A delta night reads only a window, so it cannot see a record the hospital
+re-files from one patient to another, a chart merge followed by re-filing, or an SS-MIX2 file back-filed with an old
+発生日時 (D-1252 section D); the next full night corrects each. The lake keeps `full_nights.json` beside the snapshots:
+the date of the last full night that completed and the delta nights that completed since, written atomically, and
+only when a night ends published (on its own run, or on the steward's accept). A night that fails, is refused or is
+held changes nothing. Each night's event carries the record into its row (`full_night`), and the *Sources* card says
+"Last full night: <date> (N days ago), M nightly updates since". Older than 7 days with a nightly update since, or not
+known with one since (a lake installed before this record has none: it says "not known", never a date), the line is
+in the warning style with one sentence on what a full night corrects; run a full night (no `--since`) to clear it.
+
 **Accept is not available yet.** Publishing a held night means making its snapshot the one the lake serves, and the
 lake side of that promotion is not built (D-443, Open). Until it is, accept is refused with a message and the night
 stays held; reject works. To bring in a held night's data now, fix the source and run the night again (the next

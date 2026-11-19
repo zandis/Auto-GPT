@@ -257,8 +257,9 @@ def site_profile_of(detail: Any) -> dict[str, Any] | None:
             "pending": pending[:12] if pending else None}  # fmt: skip
 
 
-#: 10B-20 (D-1254): a full night older than this, with nightly (delta) updates since, is shown as a warning. A week
-#: is the longest a site goes without the weekly full night the runbook asks for; the reason is in D-1254
+#: 10B-20 (D-1254): a full night older than this, with nightly (delta) updates since, is shown as a warning. A week:
+#: the night's weekly work (the Monday micro-batch and NAV, D-492) then always has a full night within its own week;
+#: the reason in full is in D-1254. A constant, not a setting
 FULL_NIGHT_STALE_DAYS = 7
 
 

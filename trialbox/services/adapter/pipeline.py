@@ -544,7 +544,8 @@ def run_ingest(
                         "error": type(exc).__name__,
                         "step": at["step"],
                         "table": at["table"],
-                        "full_night": _full_night(cfg),  # 10B-20 (D-1254): as it stood; a failed night moves nothing
+                        # 10B-20 (D-1254): the record as it stood (a failed night moves nothing); none, no key
+                        **({"full_night": fnr} if (fnr := _full_night(cfg)) is not None else {}),
                     },
                 )
             except Exception:  # the audit's own failure must not hide the ingest's
