@@ -2,9 +2,9 @@
 
 This repository's maintained product is **TrialBox**, under [`trialbox/`](../trialbox/). The full vulnerability
 disclosure policy is
-[`trialbox/docs/security/12-vulnerability-disclosure.md`](../trialbox/docs/security/12-vulnerability-disclosure.md)
-([日本語](../trialbox/docs/security/12-vulnerability-disclosure-ja.md),
-[繁體中文](../trialbox/docs/security/12-vulnerability-disclosure-zh-tw.md)).
+[`trialbox/docs/security/13-vulnerability-disclosure.md`](../trialbox/docs/security/13-vulnerability-disclosure.md)
+([日本語](../trialbox/docs/security/13-vulnerability-disclosure-ja.md),
+[繁體中文](../trialbox/docs/security/13-vulnerability-disclosure-zh-tw.md)).
 
 ## Reporting a vulnerability
 

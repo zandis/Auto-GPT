@@ -19,7 +19,7 @@ Choosing the address is the owner's decision; this card may not invent one.
 
 ## Decision
 
-1. **The policy** is section 12 of SECURITY (`docs/security/12-vulnerability-disclosure.md`), with two parts in
+1. **The policy** is section 13 of SECURITY (`docs/security/13-vulnerability-disclosure.md`), with two parts in
    Japanese (polite register) and Traditional Chinese. It follows ISO/IEC 29147 and 30111, CISA's VDP template, RFC
    9116 and the IPA/JPCERT/CC guideline (2026 edition): scope, how to report, what to include, what not to do (no
    real patient data, no test against a hospital's box), target times until the owner confirms them (acknowledge 2 working days, as §A.7 already
@@ -34,7 +34,7 @@ Choosing the address is the owner's decision; this card may not invent one.
 3. **Where the files go.** GitHub reads a security policy from the repository root, `docs/` or `.github/`. The root
    and its `docs/` belong to the upstream project's layout, so the policy GitHub shows is `.github/SECURITY.md`: one
    added file, no upstream file edited, beside the TrialBox-owned `CODEOWNERS` and workflows. The full policy is a
-   numbered SECURITY section, section 12 (section 11 is taken by #1133, announced first, so the two cards never claim one number). The website serves `/.well-known/security.txt`, rendered by
+   numbered SECURITY section, section 13 (sections 11 and 12 are taken by the SSDF mapping of #1133 and the threat model, merged first, so no two cards claim one number). The website serves `/.well-known/security.txt`, rendered by
    `tools/build_site.py` at each build (Expires 180 days ahead).
 4. **One place for the contact.** `deploy/security/contact.json` holds it; every other file points there and repeats
    no address. It counts as set only when it is a `mailto:` or `https:` URI, so the placeholder string exists in that
