@@ -126,12 +126,12 @@ def test_the_counts_the_pull_request_reports() -> None:
     """Every negated line of the four tables held. Card 10A-1b held 12 of its own 40 negated lines that ran before it
     (a cue over a list) and the coordinator's 34 that ran (cue words such as "forbidden", 不可, 禁止, 不允許, "other
     than X"; a synonym of the coded concept). The lines that should run and are held: card 10A-1's table 8 of 69, the
-    lines unseen at design 20 of 23 (the same as before card 10A-1b), card 10A-1b's own 17 of 40 (18 before), the
+    lines unseen at design 20 of 23 (the same as before card 10A-1b; 19 since card 10A-1c's R8), card 10A-1b's own 17 of 40 (18 before), the
     coordinator's 0 of 8. Card 10A-1c's 241 lines: 4 of 121 negated lines ran on master (a bare 不, zh 以外), none
     now; 78 of 120 held that should run (109 on master). Its second set, written after its code was final: 7 of 63
     ran on master, none now; 22 of 63 held that should run (48 on master)."""
     assert _score(ROWS) == (116, 116, 8, 69)
-    assert _score(UNSEEN) == (21, 21, 20, 23)
+    assert _score(UNSEEN) == (21, 21, 19, 23)
     assert _score(CARD) == (40, 40, 17, 40)
     assert _score(REVIEW) == (36, 36, 0, 8)
     assert _score(BEFORE) == (121, 121, 78, 120)
@@ -218,8 +218,15 @@ def test_a_reused_approved_line_reads_the_rulesets_concepts() -> None:
                                              "logic": {"domain": "condition", "valueset": vs, "quantifier": "any"}})  # fmt: skip
 
     line = crit("Type 2 diabetes mellitus without ketoacidosis", "VS_T2DM")
-    assert pp.approved_negated(line, {"VS_T2DM": t2dm})  # the ketoacidosis not known: held
+    # card 10A-1c (R8): "without" takes only the noun after it, so the line runs whether the ketoacidosis is known
+    assert not pp.approved_negated(line, {"VS_T2DM": t2dm})
     assert not pp.approved_negated(line, {"VS_T2DM": t2dm, "VS_KETO": keto})
+    # the reused path still holds what R8 does not release: a cue not next to the concept, and the object of "without"
+    apart = crit("Type 2 diabetes mellitus, no ketoacidosis", "VS_T2DM")
+    assert pp.approved_negated(apart, {"VS_T2DM": t2dm})
+    assert pp.approved_negated(
+        crit("Type 2 diabetes mellitus without ketoacidosis", "VS_KETO"), {"VS_T2DM": t2dm, "VS_KETO": keto}
+    )
     listed = crit("No prior chemotherapy or radiotherapy", "VS_RADIO")
     assert pp.approved_negated(listed, {"VS_RADIO": radio, "VS_CHEMO": chemo})
 
@@ -385,6 +392,9 @@ RULES: dict[str, tuple[list[Line], list[Line]]] = {
         ],
         [
             ("Cirrhosis without chronic hepatitis B.", HB, []),
+            ("Type 2 diabetes mellitus without ketoacidosis.", ["ketoacidosis"], []),
+            ("Type 2 diabetes mellitus with or without ketoacidosis.", ["ketoacidosis"], []),
+            ("Without type 2 diabetes mellitus.", ["type 2 diabetes mellitus"], []),
             ("Chemotherapy is not on the formulary.", CH, []),
             ("No chronic hepatitis B without cirrhosis.", HB, []),
             ("Smoking not in the past year.", ["smoking"], []),

@@ -310,8 +310,7 @@
    "domain": "condition",
    "logic": "presence",
    "expect": "runs",
-   "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "source": "review-j3"
   },
   {
    "lang": "en",
