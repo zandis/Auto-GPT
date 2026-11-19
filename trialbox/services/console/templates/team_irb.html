@@ -5,7 +5,7 @@
 {% block content %}
 <div class="headrow"><h1>{{ rs }} · {{ t('team.irb.title') }}</h1></div>
 {% include "_team_nav.html" %}
-<p class="hint">{{ t('team.irb.help') }}</p>
+<p class="hint">{{ t('team.irb.help') }}</p>{#J7#}{% if pm and may_act('consent') %}<p><a class="button secondary" href="/pilot/consent" data-testid="link-consent">{{ tp('nav.consent') }}</a></p>{% endif %}{#/J7#}
 {% if request.query_params.get('done') %}<p class="ok" role="status" data-testid="irb-saved">{{ t('team.irb.saved') }}</p>{% endif %}
 {% if warnings %}<p class="warn" role="alert" data-testid="irb-warning">{{ t('team.irb.warn.page') }} {% for w in warnings %}<span class="pill warn">{{ t('team.irb.w.' + w) }}</span> {% endfor %}</p>{% else %}<p class="ok" data-testid="irb-ok">{{ t('team.irb.ok') }}</p>{% endif %}
 <section class="card">

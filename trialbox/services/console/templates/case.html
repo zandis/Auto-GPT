@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}{{ t('case.title') }}{% endblock %}
+{% block title %}{{ tp('case.title') }}{% endblock %}
 {% block content %}
-<h1>{{ t('case.title') }}</h1>
+<h1>{{ tp('case.title') }}</h1>
 {% if not may_case %}<p class="warn">{{ t('request.viewer') }}</p>{% endif %}
 {% if error %}<p class="error" role="alert" data-testid="case-error">{{ error }}</p>{% endif %}
 <p class="warn" role="note" data-testid="case-notice">{{ t('case.notice') }}</p>
 <section class="card">
-<p>{{ t('case.help') }}</p>
+<p>{{ tp('case.help') }}</p>
 <form method="post" action="/pilot/case" enctype="multipart/form-data">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <label for="ruleset">{{ t('case.ruleset') }}</label>
