@@ -350,16 +350,12 @@ def test_each_driven_route_succeeds_and_records_who_what_when_which(walked: dict
 
 
 @pytest.mark.parametrize("route", ["POST /data-ops/batches/{bid}/decide", "POST /api/v1/data/batches/{bid}/decide"])
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="V8-03: the data-ops decision's typed reason reaches the audit in clear")  # fmt: skip
 def test_the_data_ops_reason_is_not_in_clear_in_the_audit(walked: dict[str, Any], route: str) -> None:
     row = next(j for j in walked["judged"] if j["route"] == route)
     # only the leak counts: a fix may also refuse identifying text with a 4xx
     assert not row["leaks"], f"{route}: in clear in the audit: {row['leaks']}"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="V8-07: the IRB record's typed reason reaches the audit in clear (team.py:827)")  # fmt: skip
 def test_the_irb_reason_is_not_in_clear_in_the_audit(walked: dict[str, Any]) -> None:
     row = next(j for j in walked["judged"] if j["route"] == "POST /studies/{rs}/irb")
     assert not row["leaks"], f"in clear in the audit: {row['leaks']}"
@@ -367,7 +363,7 @@ def test_the_irb_reason_is_not_in_clear_in_the_audit(walked: dict[str, Any]) -> 
 
 def test_the_notes_that_are_masked_or_not_kept_stay_out(walked: dict[str, Any]) -> None:
     """Shown clean: the break-glass review note and the PI's mark note do not reach the audit in clear (the
-    break-glass opening note does: V3-14, cited, not filed again)."""
+    break-glass opening note is masked too since D-1158: V3-14)."""
     for route in ("POST /breakglass/{gid}/review", "POST /studies/{rs}/patients/{pid}/mark",
                   "POST /api/v1/studies/{rs}/patients/{pid}/mark"):  # fmt: skip
         row = next(j for j in walked["judged"] if j["route"] == route)
@@ -394,3 +390,11 @@ def test_an_account_is_not_made_when_its_audit_event_cannot_be_written(
     made = box["users"].get("atfull") is not None
     told = any(e.get("event") == "console.user" and "atfull" in json.dumps(e) for e in lines.new())
     assert not made or told, f"the account was made with no audit event ({r.status_code})"  # a refusal is a fix too
+
+
+def test_no_driven_route_writes_typed_text_in_clear(walked: dict[str, Any]) -> None:
+    """The register's V3-14, V8-03, V8-07 (D-1158): every route the walk drives with the identifying probe text
+    (a chart number, a labelled name, a phone, an e-mail) keeps none of it in clear in the audit, whatever key the
+    text was typed into."""
+    leaks = [f"{j['route']}: {j['leaks']}" for j in walked["judged"] if j["leaks"]]
+    assert not leaks, leaks

@@ -33,7 +33,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
@@ -43,6 +43,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
+from tb_common.audit_text import FreeTextMasked
 from tb_common.audit_writer import open_audit
 from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_rights
 from tb_common.config import environment_name
@@ -536,7 +537,8 @@ def create_app(
     templates.env.globals["public_url"] = (_env_map(env).get("TB_CONSOLE_PUBLIC_URL") or "").strip().rstrip("/")
     templates.env.globals["BEST"] = BEST_STANDING
     bk: Backend = backend
-    au: AuditLog = audit
+    # the register's V3-14, V8-03, V8-07: every note, reason or comment a person types is masked before the chain
+    au: AuditLog = cast(AuditLog, FreeTextMasked(audit))
     us: UserStore = users
     us.zone = site_tz  # an account's end date is a site day (D-270)
     us.enrol_ttl = timedelta(hours=settings.identity.enrol_hours)  # D-719: TB_CONSOLE_ENROL_CODE_HOURS

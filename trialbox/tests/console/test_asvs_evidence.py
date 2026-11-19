@@ -325,8 +325,6 @@ def _audit_text(b: dict[str, Any]) -> str:
     return "".join(f.read_text(encoding="utf-8") for f in sorted((b["dir"] / "audit").glob("*")) if f.is_file())
 
 
-@pytest.mark.xfail(strict=True, reason="V3-14: a chart number typed in a break-glass note is written into the audit "
-                   "in clear (ASVS 7.1.2; full review J-M1)")  # fmt: skip
 def test_v7_1_2_a_chart_number_in_a_break_glass_note_does_not_reach_the_audit(box: dict[str, Any]) -> None:  # noqa: F811
     _done_screen(box["backend"], _ulid(995))
     admin, _ = login(box["app"])

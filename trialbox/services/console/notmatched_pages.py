@@ -29,6 +29,7 @@ from typing import Any
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse, Response
+from tb_common.audit_text import mask_free_text
 from tb_common.notmatched import ANSWERS, NotMatchedError, NotMatchedStore, gate_on, iso_week, sample_week
 from tb_contracts import Job
 
@@ -203,7 +204,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str], store: NotMatched
 
         def before_commit() -> None:
             au.append("console.notmatched_check", ruleset=rid, actor=h.actor(sess),
-                      detail={"passed": passed, "record": record.strip()[:80], "note": note.strip()[:300]})  # fmt: skip
+                      detail={"passed": passed, "record": mask_free_text(record.strip()[:80]),
+                              "note": note.strip()[:300]})  # fmt: skip
 
         try:
             nm.store.record_check(rid, passed=passed, record=record, note=note, by=h.actor(sess),

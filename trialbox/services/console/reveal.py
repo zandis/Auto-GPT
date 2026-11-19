@@ -34,9 +34,9 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from tb_common.audit import ID_MASK, mask_ids
+from tb_common.audit import mask_ids
+from tb_common.audit_text import mask_free_text
 from tb_common.authz import conditional
-from tb_common.phi_guard import mask_note, site_mrn_regex
 from tb_common.service_auth import scope_of
 
 from console import actor
@@ -50,7 +50,6 @@ REVEAL_NOTE_MIN = 10  # D-273 (ROLE-016): the written "why" a reveal for "other"
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _PURPOSE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
-_DIGITS = re.compile(r"\d{6,}")  # a chart number written without its label, when the site's pattern is not readable
 
 
 def cap() -> int:
@@ -77,9 +76,7 @@ def note_words(note: str) -> int:
 def clean_note(note: str) -> str:
     """The note as the record keeps it: whitespace folded, at most 200 characters, identifiers masked (D-272's
     ``mask_ids``, the note masker with the site's chart-number pattern, and any long digit run)."""
-    text = " ".join((note or "").split())[:200]
-    text = mask_note(mask_ids(text), site_mrn_regex())
-    return _DIGITS.sub(ID_MASK, text)
+    return mask_free_text(" ".join((note or "").split())[:200])
 
 
 @dataclass(frozen=True)

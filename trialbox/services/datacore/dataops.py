@@ -40,6 +40,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from tb_common.audit_text import mask_free_text
 from tb_common.db import ENV, Database, DatabaseError
 
 from datacore import pgfunc
@@ -489,7 +490,7 @@ class DataOps:
             if hook is not None:
                 hook(cur)
             detail: dict[str, Any] = {"batch": batch_id, "source": cur.source, "attempt": cur.attempt,
-                                      "old": cur.state, "new": to, "reason": reason}  # fmt: skip
+                                      "old": cur.state, "new": to, "reason": mask_free_text(reason)}  # fmt: skip
             if decision:
                 detail["decision"] = decision
                 detail["shown"] = _shown(cur.detail)  # what the steward was shown: counts and names, no identifier
