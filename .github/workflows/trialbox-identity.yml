@@ -56,6 +56,14 @@ jobs:
             -v "$PWD/deploy/identity/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$RUNNER_TEMP/certs:/etc/caddy/certs:ro" \
             "$CADDY_IMAGE" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
+      - name: caddy validate (both modes, TB_TLS_OLD_CLIENTS=cbc; H-48)
+        run: |
+          for mode in internal hospital; do
+            docker run --rm -e TB_TLS_MODE=$mode -e TB_TLS_OLD_CLIENTS=cbc -e TB_TLS_HOSTNAME -e TB_AUTH_HOSTNAME=auth.hosp.test \
+              -v "$PWD/deploy/identity/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$RUNNER_TEMP/certs:/etc/caddy/certs:ro" \
+              "$CADDY_IMAGE" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          done
+
       - name: docker compose config (base + identity overlay)
         run: |
           touch deploy/.env

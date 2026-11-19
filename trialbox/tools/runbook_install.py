@@ -319,6 +319,7 @@ NOT_ON_PATH: list[tuple[str, str]] = [
     (r"python -m tools\.trialbox\.memcaps .*", "re-measuring or re-sizing the memory caps (the installer sizes them)"),
     (r"tools/make_bundle\.sh", "the vendor builds the bundle"),
     (r"make release-bundle", "the vendor builds the bundle"),
+    (r"python3 -m tools\.holidays_import .*", "the vendor's yearly holiday update (10C-14), not an install step"),
     (r"tools/apply_update\.sh trialbox-<version>\.tar", "step 2: the installer loads the bundle"),
     (r"make images(-multiarch)?", "step 2: a development host builds instead"),
     (r"docker compose exec criteria-compiler .*", "step 2: a synthetic run on a PRODUCTION box, optional"),
