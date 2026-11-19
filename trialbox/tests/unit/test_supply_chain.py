@@ -962,7 +962,7 @@ def test_known_image_findings_lists_every_report_mode_image() -> None:
     assert path.is_file()
     text = path.read_text(encoding="utf-8")
     assert "report mode" in text.lower().replace("\n", " ")
-    assert "2026-12-10" in text and "security owner (to assign)" in text
+    assert "2027-01-10" in text and "Chang-Fu Kuo, the owner (D-1067)" in text
     rows = {line.split("|")[1].strip() for line in text.splitlines() if line.startswith("| ") and "---" not in line}
     missing = sorted(name for name in release.VULN_REPORT_ONLY if name not in rows)
     assert missing == [], f"report-mode images without a row in {path.name}: {missing}"
