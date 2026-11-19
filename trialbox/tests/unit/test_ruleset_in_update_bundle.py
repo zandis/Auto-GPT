@@ -170,6 +170,13 @@ def site_box(tmp_path: Path, profile: bool = True, keep: tuple[str, ...] = ()) -
     return ScreenOnlyBox(tmp_path / "site", AuditLog(tmp_path / "audit")), updates
 
 
+def head_installed(tmp_path: Path) -> Path:
+    """A box on the release that compiled the part (release_seq 3): the bundle asks for at least that."""
+    f = tmp_path / "head-release-installed.json"
+    f.write_text(json.dumps(HEAD_RELEASE))
+    return f
+
+
 def members(zip_bytes: bytes) -> dict[str, bytes]:
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
         return {n: z.read(n) for n in z.namelist()}
@@ -263,7 +270,7 @@ def test_a_bundle_may_carry_a_rule_set_alone(head: RulesetRepo, keys: tuple[Path
     assert life == timedelta(days=30)  # S6: a dry-run bundle expires after a month
     with pytest.raises(SystemExit, match="1 to 90 days"):
         ruleset_bundle.build(priv, "x2", [part], tmp_path / "x.tar", release_seq=4, valid_days=365)
-    v = verify(tmp_path / "rs.tar", pub, tmp_path / "stage", installed_file=None)
+    v = verify(tmp_path / "rs.tar", pub, tmp_path / "stage", installed_file=head_installed(tmp_path))
     assert v["release"] is None and (tmp_path / "stage" / "ruleset" / "GZQO.part.zip").read_bytes() == part.read_bytes()
 
 
@@ -273,7 +280,7 @@ def test_the_vendor_command_line(head: RulesetRepo, keys: tuple[Path, Path], tmp
     argv = ["--key", str(keys[0]), "--id", "rs1", "--release-seq", "4", "--out", str(tmp_path / "rs.tar"), str(part)]
     assert ruleset_bundle.main(argv) == 0
     assert "1 rule-set part(s), bundle rs1, release_seq 4" in capsys.readouterr().out
-    assert verify(tmp_path / "rs.tar", keys[1])["bundle_id"] == "rs1"
+    assert verify(tmp_path / "rs.tar", keys[1], installed_file=head_installed(tmp_path))["bundle_id"] == "rs1"
 
 
 def test_the_vendor_tool_refuses_a_zip_that_is_no_part(keys: tuple[Path, Path], tmp_path: Path) -> None:
@@ -380,12 +387,12 @@ def test_the_bundle_carries_the_parts_pins_and_the_verifier_refuses_a_mismatch(
 ) -> None:
     """Review 2, item 2: compat.json from the part's terminology release, min_installed from the compiling release."""
     priv, pub = keys
-    part = _versioned(head, "1.0.1", tmp_path / "p" / "GZQO.part.zip", terminology="TR-2026-10")
+    part = _versioned(head, "1.0.1", tmp_path / "p" / "GZQO.part.zip", terminology="TR-0123456789ab")
     m = ruleset_bundle.build(priv, "rs1", [part], tmp_path / "rs.tar", release_seq=4)
     assert m["min_installed_version"] == 3
     for installed, why in (
-        ({"format": "trialbox-installed/1", "release_seq": 3, "state": {"vocabulary_release": "TR-2026-04"}},
-         "vocabulary_release 'TR-2026-04' is not one of"),
+        ({"format": "trialbox-installed/1", "release_seq": 3, "state": {"vocabulary_release": "TR-ba9876543210"}},
+         "vocabulary_release 'TR-ba9876543210' is not one of"),
         ({"format": "trialbox-installed/1", "release_seq": 2, "state": {}}, "needs at least 3 installed"),
     ):  # fmt: skip
         f = tmp_path / "installed.json"
@@ -393,7 +400,7 @@ def test_the_bundle_carries_the_parts_pins_and_the_verifier_refuses_a_mismatch(
         with pytest.raises(Rejected, match=why):
             verify(tmp_path / "rs.tar", pub, installed_file=f)
     f.write_text(json.dumps({"format": "trialbox-installed/1", "release_seq": 3,
-                             "state": {"vocabulary_release": "TR-2026-10"}}))  # fmt: skip
+                             "state": {"vocabulary_release": "TR-0123456789ab"}}))  # fmt: skip
     assert verify(tmp_path / "rs.tar", pub, installed_file=f)["bundle_id"] == "rs1"
 
 
@@ -404,13 +411,13 @@ def test_the_import_refuses_a_part_whose_pins_do_not_stand_on_the_box(
     from criteria_compiler.terminology import resolver
 
     box, _updates = site_box(tmp_path)
-    part = _versioned(head, "1.0.1", tmp_path / "p.zip", terminology="TR-2026-10").read_bytes()
-    monkeypatch.setattr(resolver, "current_release", lambda: "TR-2026-04")
-    with pytest.raises(ImportRefused, match="compiled against terminology release TR-2026-10; this box resolves "
-                                            "through TR-2026-04"):  # fmt: skip
+    part = _versioned(head, "1.0.1", tmp_path / "p.zip", terminology="TR-0123456789ab").read_bytes()
+    monkeypatch.setattr(resolver, "current_release", lambda: "TR-ba9876543210")
+    with pytest.raises(ImportRefused, match="compiled against terminology release TR-0123456789ab; this box resolves "
+                                            "through TR-ba9876543210"):  # fmt: skip
         install(RulesetRepo(box.repo_dir), part, "update:x", pins_problem=box_pins_problem)
     assert "GZQO/v1.0.1" not in RulesetRepo(box.repo_dir).tags()
-    monkeypatch.setattr(resolver, "current_release", lambda: "TR-2026-10")
+    monkeypatch.setattr(resolver, "current_release", lambda: "TR-0123456789ab")
     assert install(RulesetRepo(box.repo_dir), part, "update:x", pins_problem=box_pins_problem) == "GZQO/v1.0.1"
 
 
@@ -537,7 +544,7 @@ def test_a_bundle_changed_after_signing_is_rejected(head: RulesetRepo, keys: tup
             dst.addfile(m, io.BytesIO(data))
     stage = tmp_path / "stage"
     with pytest.raises(Rejected, match="sha256 mismatch"):
-        verify(tmp_path / "swapped.tar", pub, stage)
+        verify(tmp_path / "swapped.tar", pub, stage, installed_file=head_installed(tmp_path))
     assert not stage.exists() or not [p for p in stage.rglob("*") if p.is_file()]  # nothing staged
 
 
