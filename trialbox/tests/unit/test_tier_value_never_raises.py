@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -73,7 +75,29 @@ def _within_a_second(call: Callable[[], Any]) -> Any:
     return out[0]
 
 
-def _special(kind: str, at: Path) -> None:
+def _socket_at(at: Path, request: pytest.FixtureRequest) -> None:
+    """A UNIX socket reached through ``at``: bound in a short directory, ``at`` a symbolic link to it.
+
+    ``AF_UNIX`` paths are limited to about 104-108 bytes and a CI runner's temporary path can be longer, so the
+    socket is bound under a short ``/tmp`` directory (removed by a finalizer); the reader follows the link and meets
+    the socket exactly as if it sat at ``at``. Only if even that bind fails for the operating system's path limit is
+    the case skipped, with that reason.
+    """
+    short = Path(tempfile.mkdtemp(prefix="tb", dir="/tmp"))
+    request.addfinalizer(lambda: shutil.rmtree(short, ignore_errors=True))
+    s = socket.socket(socket.AF_UNIX)
+    try:
+        s.bind(str(short / "s"))
+    except OSError as e:
+        if "too long" in str(e):
+            pytest.skip(f"the operating system's AF_UNIX path limit: {e}")
+        raise
+    finally:
+        s.close()
+    os.symlink(short / "s", at)
+
+
+def _special(kind: str, at: Path, request: pytest.FixtureRequest) -> None:
     if kind == "fifo":
         os.mkfifo(at)
     elif kind == "dev_zero_link":
@@ -83,9 +107,7 @@ def _special(kind: str, at: Path) -> None:
     elif kind == "link_loop":
         os.symlink(at, at)
     else:
-        s = socket.socket(socket.AF_UNIX)
-        s.bind(str(at))
-        s.close()
+        _socket_at(at, request)
 
 
 @pytest.mark.parametrize(
@@ -98,9 +120,11 @@ def _special(kind: str, at: Path) -> None:
         ("socket", "rtxpro6000.json: not readable (OSError)"),
     ],
 )
-def test_a_record_that_is_not_a_regular_file_is_malformed_at_once(tmp_path: Path, kind: str, why: str) -> None:
+def test_a_record_that_is_not_a_regular_file_is_malformed_at_once(
+    tmp_path: Path, kind: str, why: str, request: pytest.FixtureRequest
+) -> None:
     p = tmp_path / "rtxpro6000.json"
-    _special(kind, p)
+    _special(kind, p, request)
     tv = _within_a_second(lambda: tier_value.measured("x", ENV, tmp_path))
     assert (tv.case, tv.why) == ("malformed", why)
     said = _within_a_second(lambda: tier_record.check([p])[p])
