@@ -730,12 +730,15 @@ jobs:
     if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 15
     # D-206: gating since 2026-11-10; the first findings were triaged as inline ignores with a reason in each Dockerfile
+    # D-1343 (10G-41): every Dockerfile under trialbox/, the Makefile's DOCKERFILES (tests/unit/test_image_config_scans.py)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: hadolint
         run: |
           rc=0
-          for f in deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile; do
+          for f in deploy/docker/python.Dockerfile deploy/docker/backup.Dockerfile deploy/docker/jvm.Dockerfile \
+              deploy/docker/embed.Dockerfile deploy/docker/db.Dockerfile demo/Dockerfile deploy/redcap-test/Dockerfile \
+              tools/rehearse_box/host.Dockerfile; do
             echo "== $f"
             docker run --rm -i hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e hadolint --failure-threshold warning - < "$f" || rc=1
           done

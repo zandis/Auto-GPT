@@ -242,7 +242,7 @@ ci: venv-check
 	$(MAKE) data-scan
 	$(MAKE) security-scan
 	git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning  # OPS-076: warnings gate, as in CI
-	@if command -v hadolint >/dev/null; then hadolint --failure-threshold warning deploy/docker/python.Dockerfile deploy/docker/backup.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile; else echo "ci: images: hadolint not installed, skipped"; fi
+	@if command -v hadolint >/dev/null; then hadolint --failure-threshold warning $(DOCKERFILES); else echo "ci: images: hadolint not installed, skipped"; fi
 	$(MAKE) lock-check allowlist-check
 
 HL7_ENV := TB_HL7_VALIDATOR_JAR=$(CURDIR)/.cache/jvm/validator_cli.jar TB_FHIR_PACKAGE_HOME=$(CURDIR)/.cache/jvm/fhir-home
@@ -654,7 +654,7 @@ lock-check:
 allowlist-check:
 	$(SC) allowlist-check
 
-# Syft and Trivy release archives with pinned sha256 (tools/supply_chain/scanners.py) into .cache/scanners/bin
+# Syft, Trivy and Dockle release archives with pinned sha256 (tools/supply_chain/scanners.py) into .cache/scanners/bin
 scanners:
 	$(SC) scanners --dest .cache/scanners
 
@@ -701,6 +701,27 @@ sc-images: deploy/.env
 	@printf '%s\n' $(SC_IMAGES)
 	@[ -n "$(SC_LOCAL_IMAGES)" ] || case " $(SC_IMAGES) " in *" registry:"*) ;; \
 		*) echo "sc-images: no third-party images (docker compose config gave none)" >&2; exit 1 ;; esac
+
+# D-1343 (10G-41, review 21 OT-3): every Dockerfile under trialbox/, linted by hadolint in `make ci` and the CI
+# `images` job (gating at warning, as D-206); tests/unit/test_image_config_scans.py holds the three lists equal to
+# the files in the tree. The hadolint image is the one the CI job runs, by digest.
+DOCKERFILES := deploy/docker/python.Dockerfile deploy/docker/backup.Dockerfile deploy/docker/jvm.Dockerfile \
+	deploy/docker/embed.Dockerfile deploy/docker/db.Dockerfile demo/Dockerfile deploy/redcap-test/Dockerfile \
+	tools/rehearse_box/host.Dockerfile
+HADOLINT_IMAGE := hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e
+# each image of SC_OWN_IMAGES and the Dockerfile it is built from
+IMAGE_SCAN_IMAGES ?= trialbox-py:1.0.0=deploy/docker/python.Dockerfile trialbox-backup:1.0.0=deploy/docker/backup.Dockerfile \
+	trialbox-jvm:1.0.0=deploy/docker/jvm.Dockerfile trialbox-embed:1.0.0=deploy/docker/embed.Dockerfile \
+	trialbox-postgres:16-1=deploy/docker/db.Dockerfile trialbox-demo:step5=demo/Dockerfile
+IMAGE_SCAN_DIR ?= build/image-scan
+# three tools per image (hadolint on its Dockerfile, Trivy secret+misconfig, Dockle) and `trivy config` over the
+# Dockerfile folders; JSON and summary.md in IMAGE_SCAN_DIR. Report-only (exit 0) until the date in D-1343, then
+# IMAGE_SCAN_ARGS="--fail-at HIGH". Needs Docker, `make images` and the demo image (trialbox-images.yml builds them).
+.PHONY: image-scan
+image-scan: scanners
+	PATH=$(SCANNERS):$$PATH $(SC) image-scan --out $(IMAGE_SCAN_DIR) --cache-dir $(TRIVY_CACHE) \
+		--hadolint-image $(HADOLINT_IMAGE) $(foreach i,$(IMAGE_SCAN_IMAGES),--image $(i)) \
+		--config-dir deploy/docker --config-dir demo $(IMAGE_SCAN_ARGS)
 
 # a bundle only from images that passed the gates (make_bundle.sh needs --gates, T-110b); the SBOMs of dist/sbom ride
 # inside it with release.json. BUNDLE_ARGS="--key ... --id ... --release-seq N --out ..."

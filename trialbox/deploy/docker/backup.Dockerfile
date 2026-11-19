@@ -29,6 +29,10 @@ ARG RESTIC_MODULE_BUMPS="github.com/go-jose/go-jose/v4@v4.1.6 github.com/klauspo
 ENV CGO_ENABLED=0 GOFLAGS="-mod=readonly -trimpath" GOTOOLCHAIN=local
 WORKDIR /src
 COPY deploy/docker/restic_bumps.sh /usr/local/bin/restic_bumps.sh
+# D-1343: DL4006, the pipes are `sha256sum -c` of the echoed sum (it fails on its own), the package list into
+# `grep -v` and the failure excerpt; the build shell is left as the Go image sets it. SC2046, the package list
+# from `go list` must split into one word per package.
+# hadolint ignore=DL4006,SC2046
 RUN --mount=type=secret,id=extra_ca,required=false \
     set -eux; if [ -f /run/secrets/extra_ca ]; then export SSL_CERT_FILE=/run/secrets/extra_ca; fi; \
     curl --fail --silent --show-error --location --retry 3 --retry-all-errors -o restic.tar.gz \
