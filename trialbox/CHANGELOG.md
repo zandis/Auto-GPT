@@ -10,6 +10,10 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The console's colours and type are named values (9k-1, 9k-2, D-1368): form fields have a darker border that meets
+  the 3:1 contrast for controls, the amber "needs attention" row is readable in dark mode (and a little paler in
+  light mode), and Japanese and Traditional Chinese pages have a taller line height (1.7) with strict line breaking.
+  Nothing else changes in how the pages look; no setting, no new file.
 - Dates on printed pages and the fiscal year 年度 (10C-13, 10C-15): a site may print dates in Western form (ISO, as
   before), Japanese era (令和8年11月18日) or both (2026年（令和8年）11月18日) on the feasibility report, the NHI
   navigation summary and application form, the CASE sheet and the released consent page (`site.printed_dates`); the
