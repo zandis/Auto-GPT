@@ -82,12 +82,12 @@ No read site is reached only from a long-running service, so none was left threa
 
 ## The test
 
-`tests/unit/test_parquet_read_exit_abort_h52.py`:
+Two files under `tests/unit`:
 
-- A `guard` test parses `libs/`, `services/` and `tools/`. It fails on any `pq.read_table` (any import alias of
+- `test_parquet_single_thread_guard_h52.py` (the `guard` step, no database) parses `libs/`, `services/` and `tools/`. It fails on any `pq.read_table` (any import alias of
   `pyarrow.parquet`) without `use_threads=False`. It also requires at least the 15 sites above, so an empty scan cannot
   pass. On master's tree it finds 15 of 15 threaded.
-- A `slow` test loads a synthetic table, then runs the rehearsal's exact command 40 times in 2 workers and requires
+- `test_parquet_read_exit_abort_h52.py`, a `slow` test, loads a synthetic table, then runs the rehearsal's exact command 40 times in 2 workers and requires
   exit 0 and the row line each time. It takes about 14 s. On a loaded machine it would likely catch a regression of
   that one site. On an idle machine it likely would not, and a pass never proves the abort absent. The static guard
   is the real protection.

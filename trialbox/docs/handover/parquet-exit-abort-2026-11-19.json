@@ -12,7 +12,7 @@
    "lane": "H",
    "basis": "shown",
    "state": "fixed 8019265063365d199606b0a20401a697e05bd8ee",
-   "fix": "use_threads=False on every pq.read_table in libs/, services/ and tools/; guarded by tests/unit/test_parquet_read_exit_abort_h52.py",
+   "fix": "use_threads=False on every pq.read_table in libs/, services/ and tools/; guarded by tests/unit/test_parquet_single_thread_guard_h52.py; the rehearsal command looped in tests/unit/test_parquet_read_exit_abort_h52.py",
    "from": "CI runs 44440588251, 44454437549, 44478886311; reproduced 40/600 under load, 0/600 with the fix"
   }
  ]
