@@ -512,6 +512,7 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "consent.proxy.short.": _values("datacore.proxy_consent", "FLAGS"),
     "consent.proxy.rel.": _values("datacore.proxy_consent", "RELATIONS"),
     "consent.proxy.why.": _values("datacore.proxy_consent", "ASSENT_WHY"),
+    "consent.proxy.proceed.": _values("datacore.proxy_consent", "PROCEED_REASONS"),
     "nav.grp.": _values("console.phone", "MENU_GROUPS"),  # J-3 (D-1222): the groups of "More" behind the flag
     # the box's first-run page (10K-1): the countries, the retention days asked where TrialBox has no rules, and the
     # SS-MIX2 order-number keys

@@ -73,7 +73,7 @@ def form_view(q: dict[str, Any]) -> dict[str, Any]:
     fields = []
     every = fields_of(q)
     # 10C-19 (D-1232): with the coded relation on the form, the earlier free-text relation is shown, never entered
-    kept = set(proxy_consent.READ_ONLY) if any(f.name == "ic_lar_rel" for f in every) else set()
+    kept = set(proxy_consent.read_only_now())
     for f in every:
         fields.append({
             "name": f.name, "kind": f.kind, "label": f.label or f.name, "labels": f.labels,

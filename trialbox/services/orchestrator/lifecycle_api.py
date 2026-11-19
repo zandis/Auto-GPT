@@ -519,13 +519,18 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         svc, rid, rec = get(), _rs(rs), _rec(record)
         life = Lifecycle(svc.dc)
         before = life.subject(rid, rec)
-        if body.to in lc.LINE[lc.LINE.index("consented") :] and not body.note.strip() and life.assent_hold(rid, rec):
+        from datacore import proxy_consent
+
+        proceed = body.to in proxy_consent.FORWARD and life.assent_hold(rid, rec)
+        if proceed:
             # 10C-19 (D-1232): going on after a declined assent (to consented, enrolled or later) is a person's
-            # deliberate step, with a reason; the step is audited (life.step) and its note kept in the trail
-            exc = LifeError("assent_reason", "the participant declined assent: give the reason to proceed in the note")
-            svc.audit.append("life.refused", ruleset=rid, actor=who.name,
-                             detail={"record": rec, "to": body.to, "why": exc.why})  # fmt: skip
-            raise _refused(exc)
+            # deliberate step: a reason code and a real note (as break-glass); audited apart (life.assent_proceed)
+            bad = proxy_consent.proceed_problem(body.reason, body.note)
+            if bad is not None:
+                exc = LifeError(bad, "the participant declined assent: choose why you go on and write the reason")
+                svc.audit.append("life.refused", ruleset=rid, actor=who.name,
+                                 detail={"record": rec, "to": body.to, "why": exc.why})  # fmt: skip
+                raise _refused(exc)
         try:
             sub = life.step(rid, rec, body.to, by=who.name, at=svc.stamp(), on_day=body.on_day, reason=body.reason,
                             note=body.note, today=_today(svc, body.today), criterion=body.criterion,
@@ -535,6 +540,9 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
                              detail={"record": rec, "to": body.to, "why": exc.why})  # fmt: skip
             raise _refused(exc) from exc
         why = mirror(svc.registry, rid, str(sub["pid"]), str(sub["state"]), who.name, svc.now())
+        if proceed:  # the note stays in the trail (subject_step), not in the audit event
+            svc.audit.append("life.assent_proceed", ruleset=rid, actor=who.name,
+                             detail={"record": rec, "to": body.to, "reason": body.reason})  # fmt: skip
         crit = {"criterion": body.criterion.strip(), "criteria_version": body.criteria_version.strip()}
         svc.audit.append("life.step", ruleset=rid, actor=who.name,
                          detail={"record": rec, "steps": [[before["state"] if before else None, sub["state"]]],

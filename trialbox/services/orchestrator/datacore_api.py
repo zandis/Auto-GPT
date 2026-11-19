@@ -336,7 +336,12 @@ def router(get: Callable[[], DataService]) -> APIRouter:
             except OSError as exc:
                 missing = {"code": "DATA-KEY", "message": "the site key is missing: run an ingest first"}
                 raise HTTPException(status_code=409, detail=missing) from exc
+        from datacore import proxy_consent
+
         known = svc.dc.fields(rid)
+        kept = [f for f in body.columns.values() if f in proxy_consent.read_only_now()]
+        if kept:  # D-1232: the earlier free-text relation takes no value from a sheet while the setting is on
+            raise HTTPException(status_code=409, detail={"code": "DATA-FIELD", "message": "read only", "fields": kept})
         bad = [f for f in body.columns.values() if f not in known]
         if bad:
             raise HTTPException(

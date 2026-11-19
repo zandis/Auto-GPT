@@ -64,7 +64,7 @@ EN: dict[str, str] = {
     # 10C-19 (D-1232): consent by a representative (代諾者) and assent (アセント), while the setting is on
     "consent.proxy.w.no_representative": "Age {age} at consent is under the study's age of majority ({majority}), and the consent form records no representative (legally acceptable representative).",
     "consent.proxy.w.no_assent": "Age {age} at consent is in the study's assent ages ({lo} to {hi}), and the consent form records no assent.",
-    "consent.proxy.w.assent_declined": "The participant declined assent. The consent form is not taken as consent to proceed: only the step Consent given, with the reason in its note, moves the participant on, and it is logged with your name.",
+    "consent.proxy.w.assent_declined": "The participant declined assent. No form moves the participant on (to consent, enrolment or later) until a person goes on with a reason; correcting the answer does not lift this. The step is logged with your name.",
     "consent.proxy.to_record": "Open the consent form",
     "consent.proxy.self": "Consent given by the participant",
     "consent.proxy.lar": "Consent given by a representative: {rel}",
@@ -96,7 +96,7 @@ EN: dict[str, str] = {
     "setup.consent_ages.from": "Assent from age",
     "setup.consent_ages.to": "Assent up to age",
     "setup.consent_ages.save": "Save the ages",
-    "life.why.assent_reason": "the participant declined assent: give the reason to proceed in the note.",
+    "life.why.assent_reason": "the participant declined assent: choose why you go on.",
     "life.why.assent_declined": "the participant declined assent; consent to proceed is a person's step with a reason.",
     "life.why.consent_ages": "ages are whole years from 0 to 30, and the assent ages run below the age of majority.",
     "log.xlsx.col.consent_given_by": "Consent given by",
@@ -110,7 +110,13 @@ EN: dict[str, str] = {
     "consent.proxy.assent_word.0": "not obtained",
     "consent.proxy.w.no_age": "The consent form records no age at consent, so the rules for a minor and for assent cannot be checked: record the age in whole years (TrialBox holds no date of birth).",
     "consent.proxy.short.no_age": "no age at consent",
-    "consent.proxy.note_required": "Note (required: the reason to go on despite the declined assent)",
+    "consent.proxy.note_required": "Note (required, at least 10 characters: the reason to go on despite the declined assent; no names)",
+    "consent.proxy.proceed_label": "Why you go on despite the declined assent (required)",
+    "consent.proxy.proceed.committee": "the ethics committee decided",
+    "consent.proxy.proceed.investigator": "the investigator's judgement in the participant's interest",
+    "consent.proxy.proceed.assent_given": "the participant gave assent later (on paper)",
+    "consent.proxy.proceed.other": "another reason (say it in the note)",
+    "life.why.assent_note": "the participant declined assent: write the reason in the note (at least 10 characters).",
 }
 
 JA: dict[str, str] = {
@@ -169,7 +175,7 @@ JA: dict[str, str] = {
     # 10C-19 (D-1232): consent by a representative (代諾者) and assent (アセント), while the setting is on
     "consent.proxy.w.no_representative": "同意取得時の年齢 {age} 歳は、この試験の成年年齢（{majority} 歳）未満ですが、同意書フォームに代諾者が記録されていません。",
     "consent.proxy.w.no_assent": "同意取得時の年齢 {age} 歳は、この試験のアセントの年齢（{lo}〜{hi} 歳）にありますが、同意書フォームにアセントが記録されていません。",
-    "consent.proxy.w.assent_declined": "本人がアセントを拒否しました。同意書フォームは試験を進める同意とはみなしません。「同意を得た」の操作に理由をメモで書いたときだけ次へ進み、あなたの名前で記録されます。",
+    "consent.proxy.w.assent_declined": "本人がアセントを拒否しました。理由を添えて人が進めるまで、どのフォームでも次の段階（同意・登録以降）へは進みません。回答を修正しても解除されません。この操作はあなたの名前で記録されます。",
     "consent.proxy.to_record": "同意書フォームを開く",
     "consent.proxy.self": "本人が同意",
     "consent.proxy.lar": "代諾者が同意：{rel}",
@@ -201,7 +207,7 @@ JA: dict[str, str] = {
     "setup.consent_ages.from": "アセントを求める年齢（下限）",
     "setup.consent_ages.to": "アセントを求める年齢（上限）",
     "setup.consent_ages.save": "年齢を保存",
-    "life.why.assent_reason": "本人がアセントを拒否しています。進める理由をメモに書いてください。",
+    "life.why.assent_reason": "本人がアセントを拒否しています。進める理由を選んでください。",
     "life.why.assent_declined": "本人がアセントを拒否しています。進める同意は、理由を添えた人の操作で記録します。",
     "life.why.consent_ages": "年齢は 0〜30 の整数で、アセントの年齢は成年年齢より下です。",
     "log.xlsx.col.consent_given_by": "同意した人",
@@ -215,7 +221,13 @@ JA: dict[str, str] = {
     "consent.proxy.assent_word.0": "得ていない",
     "consent.proxy.w.no_age": "同意書フォームに同意取得時の年齢が記録されていないため、未成年とアセントの確認ができません。年齢を満年齢で記録してください（TrialBox は生年月日を保持しません）。",
     "consent.proxy.short.no_age": "同意時年齢なし",
-    "consent.proxy.note_required": "メモ（必須：アセント拒否のまま進める理由）",
+    "consent.proxy.note_required": "メモ（必須・10 文字以上：アセント拒否のまま進める理由。氏名は書かない）",
+    "consent.proxy.proceed_label": "アセント拒否のまま進める理由（必須）",
+    "consent.proxy.proceed.committee": "倫理審査委員会が判断した",
+    "consent.proxy.proceed.investigator": "本人の利益を考えた研究責任者の判断",
+    "consent.proxy.proceed.assent_given": "本人が後からアセントした（紙で記録）",
+    "consent.proxy.proceed.other": "その他の理由（メモに書く）",
+    "life.why.assent_note": "本人がアセントを拒否しています。理由をメモに 10 文字以上で書いてください。",
 }
 
 ZH: dict[str, str] = {
@@ -274,7 +286,7 @@ ZH: dict[str, str] = {
     # 10C-19 (D-1232): consent by a representative (代諾者) and assent (アセント), while the setting is on
     "consent.proxy.w.no_representative": "簽署同意時年齡 {age} 歲，未達本試驗的成年年齡（{majority} 歲），但同意書表單未記錄法定代理人。",
     "consent.proxy.w.no_assent": "簽署同意時年齡 {age} 歲，在本試驗須取得贊同的年齡（{lo} 至 {hi} 歲）內，但同意書表單未記錄贊同。",
-    "consent.proxy.w.assent_declined": "受試者本人拒絕贊同。同意書表單不視為可繼續進行的同意：只有在「已簽署同意」步驟的備註中寫明理由，受試者才會往下一步，並以您的名字記錄。",
+    "consent.proxy.w.assent_declined": "受試者本人拒絕贊同。在人員附理由繼續之前，任何表單都不會讓受試者進入下一步（同意、收案或之後）；修改答案也不會解除。此步驟以您的名字記錄。",
     "consent.proxy.to_record": "開啟同意書表單",
     "consent.proxy.self": "由受試者本人同意",
     "consent.proxy.lar": "由法定代理人同意：{rel}",
@@ -306,7 +318,7 @@ ZH: dict[str, str] = {
     "setup.consent_ages.from": "須取得贊同的最低年齡",
     "setup.consent_ages.to": "須取得贊同的最高年齡",
     "setup.consent_ages.save": "儲存年齡",
-    "life.why.assent_reason": "受試者本人拒絕贊同：請在備註寫明繼續進行的理由。",
+    "life.why.assent_reason": "受試者拒絕贊同：請選擇繼續的理由。",
     "life.why.assent_declined": "受試者本人拒絕贊同；繼續進行的同意須由人員附理由記錄。",
     "life.why.consent_ages": "年齡為 0 至 30 的整數，且須取得贊同的年齡低於成年年齡。",
     "log.xlsx.col.consent_given_by": "由誰同意",
@@ -320,5 +332,11 @@ ZH: dict[str, str] = {
     "consent.proxy.assent_word.0": "未取得",
     "consent.proxy.w.no_age": "同意書表單未記錄簽署同意時年齡，因此無法確認未成年與贊同的規則：請以足歲記錄年齡（TrialBox 不保存出生日期）。",
     "consent.proxy.short.no_age": "無簽署同意時年齡",
-    "consent.proxy.note_required": "備註（必填：受試者拒絕贊同仍繼續的理由）",
+    "consent.proxy.note_required": "備註（必填，至少 10 個字：受試者拒絕贊同仍繼續的理由；不寫姓名）",
+    "consent.proxy.proceed_label": "受試者拒絕贊同仍繼續的理由（必填）",
+    "consent.proxy.proceed.committee": "倫理審查委員會決定",
+    "consent.proxy.proceed.investigator": "主持人為受試者利益所作的判斷",
+    "consent.proxy.proceed.assent_given": "受試者事後表示贊同（紙本記錄）",
+    "consent.proxy.proceed.other": "其他理由（請寫在備註）",
+    "life.why.assent_note": "受試者拒絕贊同：請在備註寫明理由（至少 10 個字）。",
 }

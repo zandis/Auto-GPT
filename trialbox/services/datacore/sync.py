@@ -221,13 +221,18 @@ def enter(dc: DataCore, study: str, record: str, event: str, values: dict[str, s
           reason: str = "") -> int:  # fmt: skip
     """A person enters values in TrialBox. A field owned by a source is changed in that source, never here. D-778: a
     ``reason`` given is kept with each change (the form save, the person's path, requires one; see ``save_form``)."""
+    from datacore import proxy_consent
     from datacore.forms import check_value
 
     fields = dc.fields(study)
     owners = dc.owners(study)
     problems = []
+    kept = proxy_consent.read_only_now()
+    current = dc.record(study, record, event)
     for f, v in values.items():
-        if f not in fields:
+        if f in kept and str(v) != current.get(f, ""):  # D-1232: the earlier free-text relation takes no new value
+            problems.append(f"{f}: read only (the relation is recorded as a code)")
+        elif f not in fields:
             problems.append(f"{f}: not a field of this study")
         elif owners.get(f, TRIALBOX) != TRIALBOX:
             problems.append(f"{f}: owned by {owners[f]}")
@@ -239,7 +244,6 @@ def enter(dc: DataCore, study: str, record: str, event: str, values: dict[str, s
         code = "DATA-OWNED" if any("owned by" in p for p in problems) else "DATA-VALUE"
         raise DataError(code, "; ".join(problems))
     # D-778: a change of a saved value with no reason is kept with the reason marked missing, never dropped
-    current = dc.record(study, record, event)
     reasons = {f: reason or (NO_REASON if current.get(f, "") not in ("", str(v)) else "") for f, v in values.items()}
     out = 0
     for f, v in values.items():
@@ -270,15 +274,24 @@ def save_form(dc: DataCore, study: str, record: str, event: str, form: str, valu
 
     Returns ``{changed, written, hidden, old}`` (``old``: each written field's value before, "" for a first entry);
     raises ``DataError("DATA-FORM", ..., problems)``."""
-    from datacore import branching
+    from datacore import branching, proxy_consent
     from datacore.forms import problem, reason
 
     fields = form_fields(dc, study, form)
     if not fields:
         raise DataError("DATA-FORM", f"no form {form}", [{"field": form, "code": "form"}])
+    current = dc.record(study, record, event)
+    # D-1232: with the setting on, the earlier free-text relation is never written nor required (a form added before
+    # the setting has it as an ordinary item): the value saved stays; a new one is refused
+    kept = proxy_consent.read_only_now()
+    if kept:
+        locked = [n for n in kept if n in values and str(values[n]) not in ("", current.get(n, ""))]
+        if locked:
+            raise DataError("DATA-FORM", "read only", [{"field": n, "code": "read_only"} for n in locked])
+        values = {k: v for k, v in values.items() if k not in kept}
+        fields = [f for f in fields if f.name not in kept]
     by_name = {f.name: f for f in fields}
     owners = dc.owners(study)
-    current = dc.record(study, record, event)
     merged = {**current, **{k: str(v) for k, v in values.items()}}
     problems: list[dict[str, str]] = [{"field": n, "code": "unknown"} for n in values if n not in by_name]
     write: dict[str, str] = {}

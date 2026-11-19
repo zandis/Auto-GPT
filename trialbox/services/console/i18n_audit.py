@@ -275,6 +275,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "registry.update": ("Registry updated", "レジストリの更新", "更新登錄"),
     "life.contact_rule": ("Contact rule changed", "連絡ルールの変更", "聯絡規則變更"),
     "life.consent_ages": ("Consent ages changed", "同意の年齢の変更", "同意年齡變更"),
+    "life.assent_proceed": ("Went on despite a declined assent", "アセント拒否のまま進めた", "受試者拒絕贊同仍繼續"),
     "life.deviation_call": (
         "Deviation decision recorded (service)",
         "逸脱の扱いの記録（サービス）",

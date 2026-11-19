@@ -230,23 +230,24 @@ def test_a_declined_assent_is_shown_and_not_taken_as_consent(
     assert 'data-state="contacted"' in page  # the consent form did not move the participant on
     assert 'data-testid="consent-missing"' not in page and "assent not obtained: declined" in page
     assert 'data-testid="go-consented-declined"' in page and 'data-testid="go-consented"' not in page
-    assert 'data-testid="step-note-required"' in page and "Note (required: the reason to go on" in page
+    assert 'data-testid="step-note-required"' in page and "Note (required, at least 10 characters" in page
     # an enrolment does not imply it either: the participant is held, and the reason is the declined assent
     _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-10-07", "en_eligible": "1"})
     assert 'data-state="contacted"' in c.get(f"/studies/GZQO/subjects/{no}").text
     # the deliberate step: refused without a reason (logged), taken with one, kept in the trail
     r = c.post(f"/studies/GZQO/subjects/{no}/step", data={"csrf": csrf, "to": "consented", "on_day": "2026-10-06"})
-    assert r.status_code == 409 and "give the reason to proceed in the note" in r.text
+    assert r.status_code == 409 and "choose why you go on" in r.text
     assert _orch(lb, "life.refused")[-1]["detail"]["why"] == "assent_reason"
     r = c.post(f"/studies/GZQO/subjects/{no}/step", data={"csrf": csrf, "to": "consented", "on_day": "2026-10-06",
+                                                         "proceed": "committee",
                                                          "note": "the ethics committee's ruling for this case"})  # fmt: skip
     assert r.status_code == 200 and 'data-state="enrolled"' in r.text  # consented, then the enrolment form stands
     step = [s for s in lb["dc"].db.fetchdicts("SELECT * FROM subject_step WHERE record = ?", (no,))
             if s["new"] == "consented"]  # fmt: skip
     assert step[-1]["source"] == "manual" and step[-1]["note"] == "the ethics committee's ruling for this case"
-    manual = [e["detail"] for e in _orch(lb, "life.step") if e["detail"]["record"] == no and e["detail"].get("source")
-              == "manual"]  # fmt: skip
-    assert manual[-1]["steps"] == [["approached", "consented"]] and manual[-1]["source"] == "manual"
+    assert step[-1]["reason"] == "committee"
+    went = [e["detail"] for e in _orch(lb, "life.assent_proceed")]  # its own audit event, without the note
+    assert went == [{"record": no, "to": "consented", "reason": "committee"}]
     assert 'data-testid="proxy-w-assent_declined"' in r.text  # still shown, prominently
 
 
@@ -279,6 +280,7 @@ def test_a_declined_assent_saved_after_the_consent_holds_every_later_step(lb: di
     assert r.status_code == 409 and _orch(lb, "life.refused")[-1]["detail"]["why"] == "assent_reason"
     _later(lb)
     r = c.post(f"/studies/GZQO/subjects/{no}/step", data={"csrf": csrf, "to": "enrolled", "on_day": "2026-10-07",
+                                                         "proceed": "committee",
                                                          "note": "the committee's ruling, recorded on paper"})  # fmt: skip
     assert r.status_code == 200 and _state(c, no) == "enrolled"
     assert "step-note-required" not in c.get(f"/studies/GZQO/subjects/{no}").text  # a person went on: no hold
@@ -442,3 +444,128 @@ def test_every_refusal_of_the_ages_has_japanese_and_chinese_words() -> None:
     for r in reasons:
         for lang in ("ja", "zh-TW"):
             assert localize_reason(str(r), lang) not in ("", UNTRANSLATED[lang]), (r, lang)
+
+
+DECLINE = {"ic_age": "12", "ic_lar": "1", "ic_lar_rel": "1", "ic_assent": "0", "ic_assent_why": "3"}
+GO_ON = {"proceed": "investigator", "note": "the investigator's documented judgement"}
+
+
+def _step(c: Any, csrf: str, no: str, to: str, **extra: str) -> Any:
+    return c.post(f"/studies/GZQO/subjects/{no}/step", data={"csrf": csrf, "to": to, "on_day": "2026-10-10", **extra})
+
+
+def test_a_later_re_consent_with_no_assent_entry_does_not_lift_the_hold(lb: dict[str, Any],  # noqa: F811
+                                                                        monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    c, csrf, no, _ = _ready(lb, monkeypatch)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, **DECLINE})
+    _later(lb)
+    _save(c, csrf, no, "tb_consent", {"ic_date": "2026-10-09", "ic_version": "v2", "ic_copy": "1", "ic_age": "12",
+                                       "ic_lar": "1", "ic_lar_rel": "1"}, "rc1")  # fmt: skip
+    _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-10-10", "en_eligible": "1"})
+    assert _state(c, no) == "contacted"
+    assert not _orch(lb, "life.assent_proceed")
+
+
+@pytest.mark.parametrize("now", ["1", ""])
+def test_correcting_a_declined_answer_does_not_lift_the_hold(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+                                                             now: str) -> None:  # fmt: skip
+    """The simpler choice (D-1232): a correction is kept with its reason as every change is, and the hold stays until
+    the reasoned step."""
+    c, csrf, no, _ = _ready(lb, monkeypatch)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, **DECLINE})
+    _later(lb)
+    fixed = {**CONSENT, **DECLINE, "ic_assent_why": now} if now else {**CONSENT, **DECLINE, "ic_assent": ""}
+    if not now:
+        fixed.pop("ic_assent_why")
+    _save(c, csrf, no, "tb_consent", fixed, reason="typed the wrong reason")
+    _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-10-10", "en_eligible": "1"})
+    assert _state(c, no) == "contacted"
+    assert _step(c, csrf, no, "consented", **GO_ON).status_code == 200
+
+
+def test_a_back_dated_consent_that_declines_holds(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    c, csrf, no, _ = _ready(lb, monkeypatch)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, "ic_age": "12", "ic_lar": "1", "ic_lar_rel": "1"})  # no assent entry
+    assert _state(c, no) == "consented"
+    _later(lb)
+    _save(c, csrf, no, "tb_consent", {"ic_date": "2026-10-05", "ic_version": "v1", "ic_copy": "1", **DECLINE}, "rc1")
+    _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-10-10", "en_eligible": "1"})
+    assert _state(c, no) == "consented"
+
+
+def test_switching_the_setting_off_does_not_release_a_recorded_decline(lb: dict[str, Any],  # noqa: F811
+                                                                       monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    c, csrf, no, _ = _ready(lb, monkeypatch)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, **DECLINE})
+    monkeypatch.setenv(proxy_consent.ENV, "off")
+    _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-10-10", "en_eligible": "1"})
+    assert _state(c, no) == "contacted"
+    assert _step(c, csrf, no, "consented").status_code == 409
+    assert _step(c, csrf, no, "consented", **GO_ON).status_code == 200
+
+
+def test_undoing_the_reasoned_step_restores_the_hold(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    c, csrf, no, _ = _ready(lb, monkeypatch)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, **DECLINE})
+    _later(lb)
+    assert _step(c, csrf, no, "consented", **GO_ON).status_code == 200
+    assert _state(c, no) == "consented"
+    _later(lb)
+    r = c.post(f"/studies/GZQO/subjects/{no}/undo", data={"csrf": csrf, "note": "recorded by mistake"})
+    assert r.status_code == 200 and _state(c, no) == "contacted"
+    c.get("/studies/GZQO/subjects")  # a refresh derives again: the consent form does not put it back
+    _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-10-10", "en_eligible": "1"})
+    assert _state(c, no) == "contacted"
+
+
+def test_a_corrected_consent_date_after_the_reasoned_step_keeps_the_decision(lb: dict[str, Any],  # noqa: F811
+                                                                            monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """The hold is judged by when the decline was recorded, not by the consent's date: a later date correction
+    never turns it back on."""
+    c, csrf, no, _ = _ready(lb, monkeypatch)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, **DECLINE})
+    _later(lb)
+    assert _step(c, csrf, no, "consented", **GO_ON).status_code == 200
+    _later(lb)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, **DECLINE, "ic_date": "2026-10-04"}, reason="the signed date")
+    _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-10-10", "en_eligible": "1"})
+    assert _state(c, no) == "enrolled"
+
+
+def test_the_reasoned_step_needs_a_code_and_a_real_note(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    c, csrf, no, _ = _ready(lb, monkeypatch)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, **DECLINE})
+    assert _step(c, csrf, no, "consented", note="a long enough note, but no code").status_code == 409
+    assert _step(c, csrf, no, "consented", proceed="not-a-code", note="a long enough note").status_code == 409
+    r = _step(c, csrf, no, "consented", proceed="other", note=".")
+    assert r.status_code == 409 and "at least 10 characters" in r.text
+    assert [e["detail"]["why"] for e in _orch(lb, "life.refused")][-3:] == ["assent_reason", "assent_reason",
+                                                                             "assent_note"]  # fmt: skip
+    page = c.get(f"/studies/GZQO/subjects/{no}").text
+    assert 'data-testid="step-proceed"' in page and 'minlength="10" required' in page
+    assert _state(c, no) == "contacted" and not _orch(lb, "life.assent_proceed")
+
+
+def test_the_earlier_free_text_relation_takes_no_new_value_on_any_route(lb: dict[str, Any],  # noqa: F811
+                                                                        monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """With the setting on, no route writes ``ic_lar_relation``: the orchestrator's form save, its data entry, a
+    sheet import, and the console on a study whose built-in forms were added before the setting was on."""
+    monkeypatch.setenv(proxy_consent.ENV, "off")
+    no, _ = lb["nos"]
+    c, csrf = login(lb["app"], "crc", PW)
+    c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})  # the forms as before the card
+    c.get("/studies/GZQO/subjects")
+    monkeypatch.setenv(proxy_consent.ENV, "on")
+    name = "Hanako Example 090-0000-0000"  # synthetic
+    form = c.get(f"/studies/GZQO/entry?record={no}&form=tb_consent").text
+    assert re.search(r'id="f_ic_lar_relation"[^>]* disabled', form)
+    _save(c, csrf, no, "tb_consent", {**CONSENT, "ic_lar": "1", "ic_lar_relation": name})
+    oc = lb["oc"]
+    r1 = oc.post(f"/studies/GZQO/entry/{no}", json={"form": "tb_consent", "values": {**CONSENT, "ic_lar": "1",
+                                                                                     "ic_lar_relation": name}})  # fmt: skip
+    r2 = oc.put(f"/studies/GZQO/data/{no}", json={"values": {"ic_lar_relation": name}})
+    r3 = oc.post("/studies/GZQO/import/sheet", json={"csv": f"record_id,rel\n{no},{name}\n",
+                                                     "columns": {"record_id": "record_id", "rel": "ic_lar_relation"}})  # fmt: skip
+    assert (r1.status_code, r2.status_code, r3.status_code) == (409, 409, 409)
+    assert "ic_lar_relation" not in lb["dc"].record("GZQO", no)
+    assert name not in c.get("/studies/GZQO/export.csv").text

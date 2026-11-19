@@ -43,8 +43,8 @@
     <label for="criterion">{{ t('life.step.criterion') }}</label>
     <select id="criterion" name="criterion" data-testid="step-criterion"><option value=""></option>{% for c in sf_criteria %}<option value="{{ c }}">{{ c }}</option>{% endfor %}</select>
     <p class="hint">{{ t('life.step.criterion.help', version=sf_version) }}</p>{% endif %}{% endif %}
-    {% set hold = sub.consent and sub.consent.proxy is defined and sub.consent.proxy and sub.consent.proxy.hold %}<label for="note">{{ t('consent.proxy.note_required') if hold else t('life.step.note') }}</label>
-    <input id="note" name="note" maxlength="300"{% if hold %} data-testid="step-note-required"{% endif %}>
+    {% set hold = sub.consent and sub.consent.proxy is defined and sub.consent.proxy and sub.consent.proxy.hold %}{% if hold %}<label for="proceed">{{ t('consent.proxy.proceed_label') }}</label><select id="proceed" name="proceed" required data-testid="step-proceed"><option value=""></option>{% for r in proceed_reasons %}<option value="{{ r }}">{{ t('consent.proxy.proceed.' + r) }}</option>{% endfor %}</select>{% endif %}<label for="note">{{ t('consent.proxy.note_required') if hold else t('life.step.note') }}</label>
+    <input id="note" name="note" maxlength="300"{% if hold %} minlength="10" required data-testid="step-note-required"{% endif %}>
     <div class="markbar" data-testid="step-bar">{% for s in sub.next %}{% if s == 'consented' and hold %}<button type="submit" name="to" value="consented" class="secondary danger" data-testid="go-consented-declined">{{ t('consent.proxy.go_declined') }}</button>{% elif s == 'consented' and sub.consent and sub.consent.here %}<a class="button" href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_consent&amp;back=subject" data-testid="go-consented">{{ t('consent.record.do') }}</a>{% else %}<button type="submit" name="to" value="{{ s }}"{% if s in ('withdrawn', 'screen_fail') %} class="secondary danger"{% endif %} data-testid="go-{{ s }}">{{ t('life.go.' + s) }}</button>{% endif %}{% endfor %}</div>
   </form>
   {% else %}<p class="hint" data-testid="life-readonly">{{ t('life.subject.readonly') }}</p>{% endif %}

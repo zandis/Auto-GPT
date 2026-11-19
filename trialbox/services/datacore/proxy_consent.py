@@ -18,10 +18,11 @@ hidden, and nothing new is written there. Who recorded each answer is the data c
 **The rules** (per study, :func:`rule`; :data:`DEFAULT_MAJORITY` 18, Japan's age of majority since 2022): a
 participant younger than the age of majority whose consent names no representative warns ``no_representative``; one
 in the assent age range (by default :data:`DEFAULT_ASSENT_FROM` to the year before majority) with no assent entry
-warns ``no_assent``; an assent declined (reason 3) on the consent in force is ``assent_declined``, shown as an alert,
-and no form then moves the participant to "consented" or any later step (``datacore.lifecycle``: :func:`declined_in`),
-whatever the order of the saves: only a person's step, with the reason in its note, moves the participant on, and
-the step is audited (``life.step``) as every step is.
+warns ``no_assent``; an assent declined (reason 3) on the consent in force is ``assent_declined``, shown as an alert.
+A declined assent holds the participant (``datacore.lifecycle.Lifecycle.assent_hold``): no form then moves the
+participant to "consented" or any later step, whatever the order of the saves, the corrections or the setting; only
+a person's reasoned step (:func:`reasoned`: a code of :data:`PROCEED_REASONS` and a note) moves the participant on,
+audited ``life.assent_proceed``.
 
 **Age.** The participant record holds no date of birth (it is de-identified), so the age is the age at consent the
 form records, in whole years. With no age at consent the record warns ``no_age`` (never guessed from a later age).
@@ -47,6 +48,13 @@ RELATIONS = ("1", "2", "3", "4", "9")  # parent (親権者), guardian (後見人
 ASSENT_WHY = ("1", "2", "3")
 DECLINED = "3"
 FLAGS = ("no_representative", "no_assent", "assent_declined", "no_age")
+#: 10C-19 (D-1232): why a person goes on after a declined assent (a code, as break-glass names its reason; the note
+#: says the rest, at least :data:`PROCEED_NOTE_MIN` characters): the ethics committee's decision, the investigator's
+#: judgement in the participant's interest, the participant's assent given later (recorded on paper), another reason
+PROCEED_REASONS = ("committee", "investigator", "assent_given", "other")
+PROCEED_NOTE_MIN = 10  # as BREAK_GLASS_NOTE_MIN and the IRB record's reason
+#: the main-line steps the reasoned step can go to
+FORWARD = ("consented", "enrolled", "on_study", "completed")
 DEFAULT_MAJORITY = 18
 DEFAULT_ASSENT_FROM = 7
 MAJORITY_BOUNDS = (16, 21)
@@ -58,6 +66,11 @@ def is_on(environ: Mapping[str, str] | None = None) -> bool:
     ``TB_CONSENT_PROXY=on`` for a country whose ``consent_proxy`` is set), never from the time zone."""
     env = os.environ if environ is None else environ
     return (env.get(ENV) or "").strip().lower() in ("on", "1", "true", "yes")
+
+
+def read_only_now() -> tuple[str, ...]:
+    """The fields no route may write while the setting is on (:data:`READ_ONLY`); none while it is off."""
+    return READ_ONLY if is_on() else ()
 
 
 def rule(row: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -98,16 +111,21 @@ def declined(once: Mapping[str, str]) -> bool:
     return once.get("ic_assent") == "0" and once.get("ic_assent_why") == DECLINED
 
 
-def in_force(consents: list[dict[str, str]]) -> str | None:
-    """The event of the consent in force (the last recorded: the first consent, the old re-consent slot or an rcN),
-    or None with no consent."""
-    return consents[-1].get("event", "") if consents else None
+def reasoned(step: Mapping[str, Any]) -> bool:
+    """A step that goes on after a declined assent: a person's (manual) step forward, with a reason code of
+    :data:`PROCEED_REASONS` and a note."""
+    if str(step.get("source")) != "manual" or str(step.get("new")) not in FORWARD:
+        return False
+    return str(step.get("reason") or "") in PROCEED_REASONS and bool(str(step.get("note") or "").strip())
 
 
-def declined_in(vals: Mapping[str, Mapping[str, str]], consents: list[dict[str, str]]) -> bool:
-    """The consent in force records the assent as declined (whatever the order of the saves that wrote it)."""
-    ev = in_force(consents)
-    return ev is not None and declined(vals.get(ev, {}))
+def proceed_problem(reason: str, note: str) -> str | None:
+    """Why a step after a declined assent is refused (a code and a real note are needed), or None."""
+    if reason not in PROCEED_REASONS:
+        return "assent_reason"
+    if len(" ".join(note.split())) < PROCEED_NOTE_MIN:
+        return "assent_note"
+    return None
 
 
 def review(vals: Mapping[str, Mapping[str, str]], consents: list[dict[str, str]], study_rule: Mapping[str, Any],

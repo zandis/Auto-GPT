@@ -590,29 +590,38 @@ class Lifecycle:
         return out
 
     def assent_hold(self, study: str, record: str) -> bool:
-        """10C-19 (D-1232): with the setting on, the consent in force records the participant's assent as declined
-        and no person has since moved the participant on with a reason. While it holds, no form and no screening-log
-        row moves the participant to "consented" or any later step of the main line, whatever the order of the saves
-        (a consent saved first and the assent declined later, or a re-consent that declines); only a person's step
-        with the reason in its note does (audited ``life.step`` as every step), and that step ends the hold. A later
-        consent with the assent obtained ends it too (the rules read the consent in force)."""
+        """10C-19 (D-1232): the participant is held when any consent on the record had its assent recorded as declined
+        and no consent dated later than that decline records the assent obtained, until a person goes on with the
+        reasoned step (:func:`datacore.proxy_consent.reasoned`). While held, no form and no screening-log row moves the
+        participant to "consented" or any later step.
+
+        * A decline is read from the record's history, so correcting or blanking the answer later does not lift the
+          hold by itself (the reasoned step does); nor does switching the setting off: a recorded decline holds.
+        * The days are the consents' own dates (a back-dated consent that declines holds when nothing later
+          obtains assent); a re-consent with no assent entry lifts nothing.
+        * The reasoned step counts when it still stands (an undo takes it back, and the hold with it) and was taken
+          after the last decline was recorded: a later correction of a consent date never turns the hold back on,
+          and a decline recorded after the step holds again."""
         from datacore import proxy_consent
 
-        if not proxy_consent.is_on():
+        hist = [h for h in self.dc.history(study, record)
+                if str(h["field"]) == "ic_assent_why" and str(h["new"]) == proxy_consent.DECLINED]  # fmt: skip
+        if not hist:
             return False
-        rows = self.dc.values(study, record)
         vals: dict[str, dict[str, str]] = {}
-        for r in rows:
+        for r in self.dc.values(study, record):
             vals.setdefault(str(r["event"]), {})[str(r["field"])] = str(r["value"])
-        cs = consents_of(vals)
-        if not proxy_consent.declined_in(vals, cs):
+
+        def day(ev: str) -> str:
+            return str(vals.get(ev, {}).get("ic_date", ""))[:10]
+
+        declined = {str(h["event"]) for h in hist}
+        last = max(day(ev) for ev in declined)
+        if any(ev not in declined and day(ev) > last and v.get("ic_assent") == "1" for ev, v in vals.items()):
             return False
-        ev = proxy_consent.in_force(cs)
-        since = max((str(r["changed_at"]) for r in rows if str(r["event"]) == ev
-                     and str(r["field"]) in ("ic_assent", "ic_assent_why", "ic_date")), default="")  # fmt: skip
-        forward = LINE[LINE.index("consented") :]
-        return not any(st["source"] == "manual" and str(st["new"]) in forward and str(st["note"] or "").strip()
-                       and str(st["at"]) >= since for st in self.steps(study, record))  # fmt: skip
+        recorded = max(str(h["at"]) for h in hist)
+        return not any(proxy_consent.reasoned(st) and str(st["at"]) >= recorded
+                       for st in live_steps(self.steps(study, record)))  # fmt: skip
 
     def consent_missing(self, study: str, record: str, state: str) -> str:
         """T-516 (LIFE-019): the form that shows enrolment or a visit while no consent form exists and the subject is
@@ -693,7 +702,7 @@ class Lifecycle:
         today = at[:10]
         line_target = max((LINE.index(s) for s in ev if s in LINE), default=0)
         stop = LINE.index("consented")
-        if line_target >= stop and self.assent_hold(study, record):
+        if line_target >= stop and self.assent_hold(study, record):  # whatever the setting (a recorded decline)
             # 10C-19 (D-1232): a declined assent in force: no form or log row moves the participant to consented or
             # beyond; the hold names the next step and why (a person's step with a reason moves on)
             nxt = max(LINE.index(state) + 1, stop) if state in LINE else stop
