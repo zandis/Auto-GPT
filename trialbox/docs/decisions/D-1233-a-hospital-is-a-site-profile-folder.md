@@ -21,7 +21,9 @@ hospital meant changing code or the image. Shipped sample rows marked `verify` w
 1. **One folder per site.** `deploy/site/mapping/profile/` (mounted with the site mapping, kept by every update):
    `profile.yaml` (`libs/tb_common/site_profile.schema.json`, `format: tb-site-profile/1`) and `codes/*.csv`. One box is
    one site: one profile. No folder: the box reads as before.
-2. **One loader refuses with the line and the reason** (`tb_common.site_profile.load`): schema errors and unknown
+2. **One loader refuses with the line and the reason** (with one fold of a code, `tb_common.codekey.fold_key`,
+   shared with the mapping's look-up; every standard code checked against its system: LOINC with its check digit,
+   the product's ICD-10 and ATC shapes, TrialBox scores, ASCII only; any other system refused) (`tb_common.site_profile.load`): schema errors and unknown
    keys, tables outside the folder, missing columns, patient columns, empty or repeated keys, empty targets, a state
    word that is not `verified` or `verify` (legacy `yes`/`confirmed` read as verified, `local` as verify).
 3. **A table says where it is read** (`used_by`): `mapping.<look-up>` replaces the mapping's look-up file (the YAML
@@ -29,13 +31,16 @@ hospital meant changing code or the image. Shipped sample rows marked `verify` w
    `check --mapping`; `ssmix2.diagnosis`, `ssmix2.drug`, `ssmix2.lab` are given to the SS-MIX2 reader at the call
    site and held to an allowlist of its columns. Adding a row needs no code; adding a kind of table adds one `used_by`
    word. Empty tables are refused; free text holds no `://`, `@` or token.
-4. **Versions and audit.** A new digest is recorded (who, when, old and new version, both digests, direction, and
+4. **Only a version a person loaded is applied.** `load --by` keeps the checked profile in the lake folder; the night
+   reads that copy, never the raw files; a folder nobody loaded is not applied (said each night, audited once); a
+   folder taken away is audited and the night reads without one; a delta night after a change reads whole.
+   **Versions and audit.** A new digest is recorded (who, when, old and new version, both digests, direction, and
    every row whose state changed) in `site_profile.json` in the lake folder and as one `site_profile.load` audit
    event; with no audit destination nothing is activated; an id and version read before (anywhere in the history)
    with other content is refused; the site is the settings' and the country and standard versions must agree with
    them. Every night read with a profile writes `site_profile.json` beside its snapshot and carries the stamp in
    `ingest.done`.
-5. **The state travels.** A fact whose standard code comes from a `verify` row carries D-135's basis tag `verify`:
+5. **The state travels.** A fact whose standard code comes from a `verify` row (the row the look-up matched) carries D-135's basis tag `verify`:
    it stays coded (only `proposed` is kept out of the coded tables) and is listed in the lake's `site_fact`; the
    coverage lines count such facts and the `verify` rows; the work list lists the rows; a site set-up suggestion from
    a `verify` row is `lookup_verify` at 0.80, never shown as certain. **Whether such a fact may exclude a patient is

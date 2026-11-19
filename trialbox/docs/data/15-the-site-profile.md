@@ -89,7 +89,15 @@ file, the line and the reason:
 - a column a patient's data could ride in: a deny list (`mrn`, `birth_date`, `patient_id` and the like) and, for a
   table only the SS-MIX2 reader reads, an allow list of the columns it reads;
 - free text (a table's `source`, a standard's version) holding `://`, `@` or a long token: nothing secret;
-- a row with an empty or repeated key, an empty target, or a state that is not one of the words above;
+- a table that is not UTF-8 (with the line where the first byte fails);
+- a row with an empty key, a key that is another row's key once folded (`UA`, `ua` and full-width `ＵＡ` are one
+  code: `tb_common.codekey.fold_key`, the same fold the mapping's look-up uses), an empty target, or a state that is
+  not one of the words above;
+- a standard code that is not a code of its system, named by file, line and column. The system is the row's
+  `system` column or the reader's (ICD-10 for diagnoses, ATC for medicines). Checked: LOINC (digits, a hyphen and
+  its Mod-10 check digit), the WHO ICD-10 shape site set-up accepts, the 7-character ATC, TrialBox's score codes; all
+  ASCII (a full-width `４５４８-４` is refused). Any other system (SNOMED CT, say) is refused, and the licence
+  register's row for it is named;
 - a table the SS-MIX2 reader would read by other columns;
 - two tables for one `used_by`;
 - a `synthetic` flag that does not match the id.
@@ -118,7 +126,9 @@ is shown:
   facts as proposed or confirmed. Only `proposed` keeps a fact out of the coded tables. A `verify` fact stays coded,
   as it was before this card, and the lake also lists it in `site_fact` with basis `verify`, so how much of a count
   rests on unverified rows can be asked. The night's coverage lines count these facts per table.
-  - A mapping's look-up table: every row that looks up a `verify` code is tagged.
+  - A mapping's look-up table: the tag is decided by the row the look-up actually matched (`Lookup.find`, as
+    written or by its folded form), never by a second comparison: ` UA`, `ua` and `ＵＡ` in the feed are tagged
+    exactly when they get UA's standard code.
   - An SS-MIX2 table: the reader is not changed here (#1095 is changing it). A diagnosis or medicine row is tagged
     when its local code is a `verify` row and its standard code is the one that row gives. A message that carried the
     same code itself is tagged too: an over-count on the safe side. The follow-up, once #1095 has merged: the reader
@@ -145,11 +155,22 @@ history.
   its table, code, old and new state; who and when are the event's. The rows' states as last activated are kept in
   `site_profile.states.json` beside the record.
 - **No audit, no profile.** Without an audit folder nothing is activated (the night and `load` refuse).
+- **Only a version a person loaded is applied.** `load --by <name>` keeps the profile as loaded and checked in the
+  lake folder (`site_profile/<digest>.json`); the night reads that copy (its tables written trimmed to the lake's
+  scratch), never the raw files. A folder whose content is not the loaded version (a file dropped in, an edit, an
+  unreadable table) is not applied: the night reads the loaded version, says so on its record and on the night's
+  page, and the audit has one `site_profile.not_loaded` event per content. A folder on a box where nobody loaded one
+  is not applied at all.
+- **Taking it off.** A folder taken away takes the profile off the box: one `site_profile.removed` event, the record's
+  active profile is empty and that night's record says so. `unload --by <name>` does the same by name.
+- **A delta night after a change reads whole.** When the night a delta merges over was read with another profile
+  (or none), the night reads every row, so no fact carried over keeps a tag of the version before
+  (`read_whole_because_the_profile_changed` on its record).
 - **An id and version read before with other content** is refused, asked of the whole history, not only of the
   active profile: the steward changes the version with the content.
 - **The site** is the settings' `site.id`: `load` reads it from the settings and refuses a profile of another site.
 - **Roll-out.** Put the new folder in place, check it (`python -m adapter.site_profile check`), and load it by name
-  (`load --by`, recorded). If nobody loads it, the next night loads it and records the actor as `adapter`.
+  (`load --by`, recorded). Until a person loads it, the nights keep the loaded version and say a new one waits.
 - **Roll-back.** Put the earlier folder back from the backup and load it. It is recorded as `direction: back`.
 
 Every night read with a profile writes `site_profile.json` beside its snapshot: the profile's id, version and digest,
@@ -169,13 +190,17 @@ Coverage lines are counts only, never a patient's value. They are built from the
 - the types that arrived but are not declared;
 - per table, how many codes and rows no table could map;
 - per table, how many rows are still `verify`;
-- per table, how many facts of the night rest on a `verify` row.
+- per table, how many facts of the night rest on a `verify` row;
+- a problem line per table for results in a unit their row does not give (D-590's counter): they are kept without a
+  value, never converted; the work list lists them by code (`unit`).
 
 There are two ways to read them:
 
 - **Command:** `python -m adapter.site_profile coverage --night <lake>/ndjson/<day>`.
 - **Page:** a "Site profile" section on the night's data-operations page (`/data-ops/batches/<id>`, en, ja and
-  zh-TW, 390 px), and the same in `/api/v1/data/batches/<id>`.
+  zh-TW, 390 px), and the same in `/api/v1/data/batches/<id>`. It also says that a folder nobody loaded was not
+  applied, and that lab codes mapped on the Local codes page do not reach the night yet: where they and the profile
+  disagree, the site set-up mapping is the one that counts, and the work list lists each difference.
 
 The work list is `python -m adapter.site_profile worklist --night <dir> --out <file.csv>`. It lists the unmapped
 codes, most rows first; with `--setup-db <url>` every lab code the site set-up store maps otherwise than the
@@ -227,6 +252,8 @@ mapper's `verify` rule if its codes reach the lake):
 
 - A night read under one version is not read again, nor flagged, when a later version changes a mapping: the next
   full night reads with the new one, and each night says which version read it.
+- An SS-MIX2 code is tagged by the reader's own exact match (the reader is not changed here): a code the reader
+  could not match is not tagged, and is in the unmapped counts instead.
 - The record in the lake folder is read, changed and written without a lock: two loads at the same moment can lose
   one history entry (the audit chain keeps both events).
 - #1095 (the SS-MIX2 reader to the specification) changes the default visit key and the goldens, and touches
