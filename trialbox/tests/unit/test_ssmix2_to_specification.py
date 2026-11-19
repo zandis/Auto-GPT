@@ -119,11 +119,12 @@ def test_f2_no_unverified_outcome_code_is_applied_and_none_reads_as_active(stora
     got = {k: (rows[v]["status"], rows[v]["outcome"]) for k, v in kit.DX.items() if v in rows}
     assert got == {
         "gastritis": ("A", ""),
-        "uri": ("E", "F"),  # it has an end day: ended, its outcome unknown (third review of PR #1095 item 4)
-        "ra": ("U", "M"),
+        # an end or outcome day and no verified outcome: ended, its outcome unknown (third and fourth reviews)
+        "uri": ("E", "F"),
+        "ra": ("E", "M"),
         "pneumonia": ("A", ""),
-        "infarct": ("U", "D"),
-        "stopped": ("U", "I"),
+        "infarct": ("E", "D"),
+        "stopped": ("E", "I"),
     }
     uri = rows[kit.DX["uri"]]
     assert (uri["end_date"], uri["outcome_date"], uri["main_diagnosis"]) == ("2026-03-01", "2026-03-01", "N")
@@ -133,7 +134,8 @@ def test_f2_every_outcome_is_read_none_reads_as_active_by_mistake(
     storage: kit.Storage, verified_outcomes: None
 ) -> None:
     """Once verified: cured (F, HL7 0241) is resolved with its end and outcome days; remission (M, JHSD0006) is
-    remission; died (D) is inactive; follow-up stopped (I, JHSD0006) says neither and is U."""
+    remission; died (D) is inactive; follow-up stopped (I, JHSD0006) says neither and is U, and with its outcome day it
+    is E, ended (fourth review of PR #1095 item a)."""
     rows, _, _ = _diagnoses(storage)
     got = {k: (rows[v]["status"], rows[v]["outcome"]) for k, v in kit.DX.items() if v in rows}
     assert got == {
@@ -142,7 +144,7 @@ def test_f2_every_outcome_is_read_none_reads_as_active_by_mistake(
         "ra": ("M", "M"),
         "pneumonia": ("A", ""),
         "infarct": ("I", "D"),
-        "stopped": ("U", "I"),
+        "stopped": ("E", "I"),
     }
     uri = rows[kit.DX["uri"]]
     assert (uri["end_date"], uri["outcome_date"], uri["main_diagnosis"]) == ("2026-03-01", "2026-03-01", "N")
@@ -160,8 +162,8 @@ def test_f2_a_suspicion_written_only_as_a_modifier_is_suspected(storage: kit.Sto
 
 
 def test_f2_the_japan_mapping_gives_each_status_its_fhir_word(storage: kit.Storage, verified_outcomes: None) -> None:
-    """The reader's rows through ``jp_core/ssmix2_site.yaml``: each outcome its clinical status, U none and
-    unconfirmed (D-587), and the end day as the abatement of the cured diagnosis only."""
+    """The reader's rows through ``jp_core/ssmix2_site.yaml``: each outcome its clinical status, E (ended) inactive, U
+    none and unconfirmed (D-587), and the end day as the abatement of the cured diagnosis only."""
     from adapter.mapping.engine import Mapper, Mapping
 
     m = Mapping.load(JP_MAPPING)
@@ -181,10 +183,11 @@ def test_f2_the_japan_mapping_gives_each_status_its_fhir_word(storage: kit.Stora
         "ra": ["remission"],
         "pneumonia": ["active"],
         "infarct": ["inactive"],
-        "stopped": [],
+        "stopped": ["inactive"],
     }
-    unconfirmed = [c["code"] for c in out["stopped"]["verificationStatus"]["coding"] if c]
-    assert "unconfirmed" in unconfirmed
+    unknown = mp.map_row(spec, {**rows[kit.DX["gastritis"]], "status": "U"})
+    assert unknown is not None and "clinicalStatus" not in unknown
+    assert "unconfirmed" in [c["code"] for c in unknown["verificationStatus"]["coding"] if c]
     assert out["uri"]["abatementDateTime"].startswith("2026-03-01")
     assert "abatementDateTime" not in out["gastritis"]
 
@@ -368,7 +371,7 @@ def test_review_2_a_diagnosis_recorded_long_ago_and_ended_last_night_is_read_on_
     segs = [kit._msh("20261101090000", "PPR^ZD1^PPR_ZD1", "P1"), kit._pid(kit.P1), "|".join(prb)]
     kit._write(st, kit.P1, "-", "PPR-01", "ALL9", kit._stamp("20261101"), segs)
     rows = list(_source(st).rows("diagnosis", "diagnosis", "recorded_date", "2026-11-01 00:00:00"))
-    assert [(r["diag_no"], r["status"]) for r in rows] == [("DX0003", "U")] and "_changed" not in rows[0]
+    assert [(r["diag_no"], r["status"]) for r in rows] == [("DX0003", "E")] and "_changed" not in rows[0]
 
 
 def test_review_2_a_new_version_of_a_document_is_read_on_a_delta(storage: kit.Storage) -> None:

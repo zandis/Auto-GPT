@@ -82,6 +82,8 @@ def _e(v: str | None) -> str:
 
 
 def _write(root: Path, patient: str, day: str, typ: str, order: str, dept: str, segments: list[str]) -> None:
+    if not any(s.startswith("PID|") for s in segments):  # every SS-MIX2 message carries its patient (PR #1095)
+        segments = [segments[0], f"PID|||{_e(patient)}^^^^PI", *segments[1:]]
     msh = segments[0]
     body = "\r".join(segments) + "\r"
     try:
@@ -388,6 +390,7 @@ def hard_cases(root: Path) -> dict[str, str]:
     hbs, cre, crp, a1c = "5F016141002305911", "3C015000002327101", "5C070000002306001", "3D046000001906202"
     lab = seg(
         _hmsh("OUL^R22", "L1", jis),
+        "PID|||99000008^^^^PI",  # every SS-MIX2 message carries its patient (PR #1095)
         "SPM|1|||" + "|" * 13 + "20261001080000",
         "OBR|1|ORD-1|FIL-1||||202610010830",
         obx(1, "CWE", hbs, "HBs抗原", "1^陰性^JHSD0001", "", lab_no="H-CWE"),
@@ -415,12 +418,18 @@ def hard_cases(root: Path) -> dict[str, str]:
     )
     spm_only = seg(
         _hmsh("OUL^R22", "L2", jis),
+        "PID|||99000008^^^^PI",
         "SPM|1|||" + "|" * 13 + "20261002070000",
         "OBR|1|ORD-2",
         obx(1, "NM", crp, "CRP", "0.10", "mg/dL", lab_no="H-SPM"),
     )
     made[_put(root, "99000008", "20261002", "OML-11", "L2", spm_only.encode("iso2022_jp"))] = "SPM-17 time"
-    folder = seg(_hmsh("OUL^R22", "L3", jis), "OBR|1|ORD-3", obx(1, "NM", crp, "CRP", "0.20", "mg/dL", lab_no="H-DIR"))
+    folder = seg(
+        _hmsh("OUL^R22", "L3", jis),
+        "PID|||99000008^^^^PI",
+        "OBR|1|ORD-3",
+        obx(1, "NM", crp, "CRP", "0.20", "mg/dL", lab_no="H-DIR"),
+    )
     made[_put(root, "99000008", "20261003", "OML-11", "L3", folder.encode("iso2022_jp"))] = "the folder's date"
     return made
 

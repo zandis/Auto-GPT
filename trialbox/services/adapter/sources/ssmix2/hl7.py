@@ -210,8 +210,8 @@ _UTF8 = ("UNICODE UTF-8", "UTF-8", "UTF8", "UNICODE")
 _DECLARED = {**dict.fromkeys(_EUC, "euc_jp"), **dict.fromkeys(_SJIS, "cp932"), **dict.fromkeys(_UTF8, "utf-8")}
 #: the bytes that carry a message's structure
 _STRUCTURE = "|^~&\\\r\n"
-#: control characters a decoded message may not hold: all but its segment ends (third review of PR #1095 item 2)
-_C0 = re.compile(r"[\x00-\x09\x0b\x0c\x0e-\x1f\x7f]")
+#: control characters a decoded message may not hold: C0 but its segment ends, and C1 (third review item 2)
+_C0 = re.compile(r"[\x00-\x09\x0b\x0c\x0e-\x1f\x7f-\x9f]")  # C1 too (U+0085), fourth review item d
 
 
 def site_encoding(environ: dict[str, str] | None = None) -> str:

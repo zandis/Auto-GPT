@@ -323,12 +323,13 @@ def test_10_a_file_stamp_that_is_not_a_real_time_is_quarantined_and_never_wins(t
 def test_11_an_outcome_row_is_applied_only_with_a_named_public_source() -> None:
     from adapter.sources.ssmix2.source import outcome_table
 
-    row = {"system": "HL70241", "code": "F", "status": "R", "meaning": "治癒", "verified": "yes"}
+    row = {"system": "HL70241", "code": "F", "status": "R", "meaning": "治癒", "verified": "yes", "title": "T",
+           "publisher": "P", "version": "1.0", "section": "3.1", "document": "https://example.org/t"}  # fmt: skip
     with pytest.raises(ValueError, match="no public source"):
-        outcome_table([{**row, "source": "proposal from review 12 (an internal review); no public source cited yet"}])
+        outcome_table([{**row, "title": "proposal from review 12 (an internal review)"}])
     with pytest.raises(ValueError):
-        outcome_table([{**row, "source": ""}])
-    applied, _ = outcome_table([{**row, "source": "JAHIS 表 (title, version, section)"}])
+        outcome_table([{**row, "section": ""}])
+    applied, _ = outcome_table([row])
     assert applied == {"HL70241": {"F": "R"}}
     shipped, tables = outcome_table(
         [dict(r) for r in __import__("csv").DictReader(

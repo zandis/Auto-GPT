@@ -394,6 +394,8 @@ def _write_ssmix2(schema: dict[str, Any], data: dict[str, list[dict[str, Any]]],
         msh = f"MSH|^~\\&|HIS||TRIALBOX||{STAMP[:14]}||{kind}|{order}|P|2.5||||||{charset}||ISO 2022-1994"
         d = storage_dir(root, patient, day, typ)
         d.mkdir(parents=True, exist_ok=True)
+        if not any(s.startswith("PID|") for s in segs):  # every SS-MIX2 message carries its patient (PR #1095)
+            segs = [f"PID|||{e(patient)}^^^^PI", *segs]
         body = "\r".join([msh, *segs]) + "\r"
         (d / f"{patient}_{day}_{typ}_{order}_{STAMP}_{dept or '-'}_1").write_bytes(body.encode(codec))
 

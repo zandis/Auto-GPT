@@ -91,6 +91,7 @@ import unicodedata
 from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -326,28 +327,41 @@ def _suspected(prb: hl7.Segment) -> bool:
     return suspicion_in(prb.comp(3, 2)) or suspicion_in(prb.comp(17, 1))
 
 
-def flag_unread(prb: hl7.Segment) -> bool:
-    """Whether PRB-13 holds a value the reader cannot read (third review of PR #1095 item 7): a code under a table
-    that is not JHSD0005 and whose text says nothing of a suspicion, or a code of JHSD0005 (or of the first triple
-    with no table named) that is neither 0 nor 1. Such a diagnosis's certainty is unknown, never confirmed."""
+#: the texts a JHSD0005 "0" (not suspected) may carry and still be read as confirmed
+_CONFIRMED_TEXT = ("", "疑いなし", "疑い無し", "なし")
+
+
+def flag_confirmed(prb: hl7.Segment) -> bool:
+    """Whether PRB-13 positively says "not suspected", or is empty (fourth review of PR #1095 item a: an allow-list,
+    never a list of doubtful words): every triple is ``0`` of JHSD0005 (or of the first triple with no table named)
+    with no text or one of :data:`_CONFIRMED_TEXT`. Anything else (another code, another table, another text such as
+    "0^否定できない^JHSD0005") is not a confirmation."""
     for code, text, system in _triples(prb, 13):
-        code = unicodedata.normalize("NFKC", code).strip()
-        if not code:
+        code, text = unicodedata.normalize("NFKC", code).strip(), unicodedata.normalize("NFKC", text).strip()
+        if (_jhsd0005(system) or not system) and code == "0" and text in _CONFIRMED_TEXT:
             continue
-        if _jhsd0005(system) or not system:
-            if code not in ("0", "1"):
-                return True
-        elif not (code == "1" and suspicion_in(text)):
-            return True
-    return False
+        return False
+    return True
 
 
-def certainty(prb: hl7.Segment, texts: list[str], unread_modifier: bool) -> str:
-    """The canonical ``suspected`` column (third review of PR #1095 item 7): ``Y`` suspected (provisional), ``X`` ruled
-    out (refuted: the lake leaves it out), ``U`` certainty unknown (unconfirmed, never confirmed), empty confirmed.
-    A suspicion in the flag (:func:`_suspected`), the name or a modifier, or a modifier with only a code, makes it
-    ``Y``; a "疑いなし" or "ruled out" in the name or a modifier makes it ``X``; both at once, or a PRB-13 value the
-    reader cannot read and nothing else, ``U``."""
+def same_text(a: str, b: str) -> bool:
+    """Two names the same after NFKC and with their blanks removed."""
+
+    def norm(t: str) -> str:
+        return "".join(unicodedata.normalize("NFKC", t or "").split())
+
+    return norm(a) == norm(b)
+
+
+def certainty(prb: hl7.Segment, written: str, modifiers: list[str], unread_modifier: bool) -> str:
+    """The canonical ``suspected`` column (third review of PR #1095 item 7, fourth review item a): ``Y`` suspected
+    (provisional), ``X`` ruled out (refuted: the lake leaves it out), ``U`` certainty unknown (unconfirmed, never
+    confirmed), empty confirmed. A suspicion in the flag (:func:`_suspected`), the name, PRB-17 or a modifier, or a
+    modifier with only a code, is ``Y``; a "疑いなし" or "ruled out" there is ``X``; both at once ``U``. Confirmed
+    only when everything is positively recognised: PRB-13 empty or a recognised "not suspected"
+    (:func:`flag_confirmed`), no ZPR modifier (its layout and table are not cited, so its meaning is not known), and
+    PRB-17 empty or the same name as PRB-3. Anything else is ``U``."""
+    texts = [written, *modifiers]
     suspected = _suspected(prb) or unread_modifier or any(map(suspicion_in, texts))
     refuted = any(map(refuted_in, [prb.comp(3, 2), *texts]))
     if suspected and refuted:
@@ -356,7 +370,33 @@ def certainty(prb: hl7.Segment, texts: list[str], unread_modifier: bool) -> str:
         return "X"
     if suspected:
         return "Y"
-    return "U" if flag_unread(prb) else ""
+    if not flag_confirmed(prb) or modifiers or (written and not same_text(written, prb.comp(3, 2))):
+        return "U"
+    return ""
+
+
+def patient_id(value: str) -> str:
+    """A patient id as every table carries it (fourth review of PR #1095 item c): Unicode NFKC, blanks removed."""
+    return "".join(unicodedata.normalize("NFKC", value or "").split())
+
+
+#: PRB-1 action codes (HL7 table 0287) a live diagnosis may carry: add, update, correct, unchanged. DE deletes; any
+#: other (D, XX, UN, LI, none) is not recognised: the status is unknown (fourth review of PR #1095 item a)
+_ACTIONS = ("AD", "UP", "CO", "UC")
+
+
+def real_date(value: str) -> bool:
+    """Whether a date field is empty, or a real calendar date (and time) :func:`hl7.ts` reads."""
+    if not value.strip():
+        return True
+    got = hl7.ts(value)
+    if not got:
+        return False
+    try:
+        date(int(got[:4]), int(got[5:7]), int(got[8:10]))
+    except ValueError:
+        return False
+    return len(got) == 10 or (int(got[11:13]) < 24 and int(got[14:16]) < 60 and int(got[17:19]) < 60)
 
 
 _ICD10_SYS = ("I10", "ICD10")  # the HL7 table 0396 name and the spelling vendors write
@@ -376,20 +416,31 @@ def _table_rows(name: str) -> list[dict[str, str]]:
 # Second review of PR #1095 item 9: a row is applied only once its meaning is verified against the published table
 # (``verified`` = ``yes``); until then its ``status`` is a proposal for the owner's Japanese reader, and the code
 # reads as unknown (U). No row is verified today.
+#: the fields a verified PRB-14 row must name its public source in (fourth review of PR #1095 item e)
+OUTCOME_SOURCE = ("title", "publisher", "version", "section", "document")
+_PLACEHOLDER = re.compile(r"^(?:-+|tbd|n/?a|none|unknown|\?+)$", re.IGNORECASE)
+_NOT_PUBLIC = re.compile(r"review\s*\d|internal|trialbox|this project", re.IGNORECASE)
+
+
 def outcome_table(rows: list[dict[str, str]]) -> tuple[dict[str, dict[str, str]], set[str]]:
     """``(applied rows by table and code, every table named)`` of ``prb14_outcome.csv``. A row is applied only when
-    ``verified`` is ``yes``, and such a row must name its public source (the SS-MIX2 specification or a JAHIS table,
-    with title, version and section, third review of PR #1095 item 11): a verified row whose source is empty or says
-    it cites none stops the reader."""
+    ``verified`` is ``yes``, and such a row must name its public source in every field of :data:`OUTCOME_SOURCE`
+    (title, publisher, version or date, section, and URL or document id; fourth review of PR #1095 item e): none may
+    be empty or a placeholder (``-``, ``TBD``, ``n/a``), none may name an internal review or this project as the
+    source. A verified row that does not stops the reader at start."""
     applied: dict[str, dict[str, str]] = {}
     tables: set[str] = set()
     for r in rows:
         tables.add(r["system"].strip().upper())
-        if r["verified"].strip().lower() != "yes":
+        if r.get("verified", "").strip().lower() != "yes":
             continue
-        source = r.get("source", "").strip()
-        if not source or "no public source" in source or "internal review" in source:
-            raise ValueError(f"prb14_outcome.csv: {r['system']} {r['code']} is verified but cites no public source")
+        source = {k: (r.get(k) or "").strip() for k in OUTCOME_SOURCE}
+        bad = [k for k, v in source.items() if not v or _PLACEHOLDER.match(v) or _NOT_PUBLIC.search(v)]
+        if bad:
+            raise ValueError(
+                f"prb14_outcome.csv: {r['system']} {r['code']} is verified but cites no public source "
+                f"({', '.join(bad)})"
+            )
         applied.setdefault(r["system"].strip().upper(), {})[r["code"].strip().upper()] = r["status"].strip()
     return applied, tables
 
@@ -917,23 +968,41 @@ class Ssmix2Source:
             yield sf, msg
 
     def _identity_problem(self, sf: StoredFile, msg: hl7.Message) -> str:
-        """Why a message's patient is not certain, empty when it is (third review of PR #1095 item 3): the patient of
-        the file name, of its folders (``<pid 1-3>/<pid 4-6>/<pid>``, and the day and type folders) and of PID-3 (the
-        ``PI`` repetition, read with Unicode NFKC and its blanks removed, so ``１２`` is ``12``; no other change,
-        leading zeros kept) must be one. A message with no PID, or no id in PID-3, cannot disagree: it is read as the
-        file's patient, as before, and counted."""
+        """Why a message's patient is not certain, empty when it is (third review of PR #1095 item 3, fourth review
+        item b). The file name's patient, its folders (``<pid 1-3>/<pid 4-6>/<pid>``, and the day and type folders)
+        and the message must name one patient: exactly one PID segment; in its PID-3 a patient id (a repetition of
+        identifier type ``PI``, or with no type) and no repetition of that kind naming another; PID-2 and PID-4,
+        where they carry such an id, the same; no MRG segment outside an ADT message. Ids are compared as
+        :func:`patient_id` writes them (NFKC, blanks removed; leading zeros kept)."""
         parts = sf.path.parts
         if len(parts) < 6 or (parts[-6], parts[-5], parts[-4]) != (sf.patient[0:3], sf.patient[3:6], sf.patient):
             return "the folders name another patient than the file name"
         if (parts[-3], parts[-2]) != (sf.day, sf.type):
             return "the folders name another day or data type than the file name"
-        pid = msg.first("PID")
-        said = unicodedata.normalize("NFKC", hl7.Segment.rep_comp(pid.pick(3, 5, ("PI",)), 1)).strip() if pid else ""
+        pids = msg.all("PID")
+        if len(pids) != 1:
+            return "no PID segment" if not pids else "more than one PID segment"
+        if msg.first("MRG") is not None and not sf.type.startswith("ADT-"):
+            return "an MRG segment outside an ADT message"
+        pid = pids[0]
+
+        def ids(n: int) -> set[str]:
+            return {
+                patient_id(hl7.Segment.rep_comp(r, 1))
+                for r in pid.reps(n)
+                if hl7.Segment.rep_comp(r, 5).strip().upper() in ("PI", "") and patient_id(hl7.Segment.rep_comp(r, 1))
+            }
+
+        said = ids(3)
         if not said:
-            self.stats[f"{sf.type}:no patient id in PID-3 (the file's patient)"] += 1
-            return ""
-        if said != sf.patient:
+            return "no patient id in PID-3"
+        if len(said) > 1:
+            return "PID-3 names two patients"
+        if said != {sf.patient}:
             return "PID-3 names another patient than the file name"
+        for n in (2, 4):
+            if ids(n) - {sf.patient}:
+                return f"PID-{n} names another patient than the file name"
         return ""
 
     def quarantine_reason(self, source_name: str) -> str | None:
@@ -1039,9 +1108,8 @@ class Ssmix2Source:
             return
         name = pid.pick(5, 8, ("I",))  # the ideographic (漢字) name before the phonetic (カナ) one
         family, given = hl7.Segment.rep_comp(name, 1), hl7.Segment.rep_comp(name, 2)
-        mrn = hl7.Segment.rep_comp(pid.pick(3, 5, ("PI",)), 1)
         yield {
-            "mrn": mrn or sf.patient,
+            "mrn": sf.patient,  # PID-3 agrees with it (the identity check): one form of the id for every table
             "name": f"{family}　{given}" if given else family,
             "id_no": "",
             "birth_date": hl7.ts(pid.field(7)) or "",
@@ -1111,7 +1179,13 @@ class Ssmix2Source:
         diagnosis an older snapshot of the patient holds and this one does not is a tombstone (all of them when this
         newest snapshot is itself deleted). The lake removes a tombstoned diagnosis, as it does one deleted by
         ``DE``."""
+        mark = len(self._dx_dead)
         rows = list(self._diagnosis_rows(sf, msg))
+        numbers = [r["diag_no"] for r in rows] + [r["diag_no"] for r in self._dx_dead[mark:]]
+        if len(numbers) != len(set(numbers)):  # two diagnoses under one key: which is which (fourth review item f)
+            del self._dx_dead[mark:]
+            self._quarantine(sf.type, sf, "duplicate key", "two diagnoses carry one diagnosis number (PRB-4)")
+            return
         present = {r["diag_no"] for r in rows} | {r["diag_no"] for r in self._dx_dead}
         for old in self._older_diagnoses(sf):
             if old["diag_no"] not in present:  # a deleted snapshot's own rows are tombstones already
@@ -1171,11 +1245,20 @@ class Ssmix2Source:
             status, outcome = outcome_status(prb)
             if outcome and outcome.upper() != "A":
                 self.stats[f"PPR-01:outcome {outcome} as {status}"] += 1
-            if status in ("A", "U") and hl7.ts(prb.field(9)):
-                # an end day says the diagnosis is over, whatever 転帰 says or does not: E, ended with its outcome
-                # unknown, never active; the end day kept (third review of PR #1095 item 4)
+            action = unicodedata.normalize("NFKC", prb.field(1)).strip().upper()
+            dates = [prb.field(n) for n in (2, 7, 9, 15, 16)]
+            if action not in _ACTIONS + _DELETED:
+                # fourth review of PR #1095 item a: active only when everything is recognised
+                status = "U"
+                self.stats["PPR-01:action code not recognised (unknown)"] += 1
+            elif not all(real_date(d) for d in dates):
+                status = "U"  # a date that cannot be read: unknown, its text kept (``*_text``)
+                self.stats["PPR-01:a date not read (unknown)"] += 1
+            elif status in ("A", "U") and (prb.field(9).strip() or prb.field(15).strip()):
+                # an end day or an outcome day says the diagnosis is over, whatever 転帰 says or does not: E, ended
+                # with its outcome unknown, never active; the days kept (third review item 4, fourth review item a)
                 status = "E"
-                self.stats["PPR-01:end date without a read outcome (ended)"] += 1
+                self.stats["PPR-01:end or outcome date without a read outcome (ended)"] += 1
             # a modifier keeps its text, else its code; one with only a code cannot be read: a doubt, so the
             # diagnosis is suspected (never confirmed when in doubt, review of PR #1095 item 3)
             # (a first field of digits alone is taken for a set id, as HL7 segments begin)
@@ -1203,13 +1286,15 @@ class Ssmix2Source:
                 "diag_date": hl7.ts(prb.field(16)) or "",
                 "diagnosed_date": hl7.ts(prb.field(7)) or "",
                 "recorded_date": hl7.ts(prb.field(2)) or hl7.ts(prb.field(7)) or "",
-                "end_date": hl7.ts(prb.field(9)) or "",
+                "end_date": hl7.ts(prb.field(9)) if real_date(prb.field(9)) else "",
+                "end_date_text": "" if real_date(prb.field(9)) else prb.field(9).strip(),  # never dropped
                 "status": status,
                 "outcome": outcome,
-                "outcome_date": hl7.ts(prb.field(15)) or "",
+                "outcome_date": hl7.ts(prb.field(15)) if real_date(prb.field(15)) else "",
+                "outcome_date_text": "" if real_date(prb.field(15)) else prb.field(15).strip(),
                 "main_diagnosis": _RANK.get(prb.comp(18, 1).strip(), ""),
                 "_changed": hl7.ts(sf.stamp[:14]) or "",  # the snapshot file's 発生日時 (not a column)
-                "suspected": certainty(prb, [written, *modifiers], bool(unread)),
+                "suspected": certainty(prb, written, modifiers, bool(unread)),
             }
             if (
                 unicodedata.normalize("NFKC", prb.field(1)).strip().upper() in _DELETED

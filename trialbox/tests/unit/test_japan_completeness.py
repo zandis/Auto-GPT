@@ -121,7 +121,10 @@ def _storage(
     msh = f"MSH|^~\\&|HIS||TB||20261101||X|{order}|P|2.5||||||{charset}"
     d = storage_dir(root, patient, day, typ)
     d.mkdir(parents=True, exist_ok=True)
-    text = "\r".join([msh, *segs]) + "\r"
+    pid = (
+        [] if any(s.startswith("PID|") for s in segs) else [f"PID|||{patient}^^^^PI"]
+    )  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
+    text = "\r".join([msh, *pid, *segs]) + "\r"
     data = text.encode("iso2022_jp" if "IR87" in charset else "utf-8")
     (d / f"{patient}_{day}_{typ}_{order}_{stamp}_-_{flag}").write_bytes(data)
 
@@ -201,7 +204,9 @@ def test_adt52_discharge_and_patient_class_change(tmp_path: Path) -> None:
         d = storage_dir(root, "10000001", "20260614", "ADT-52")
         d.mkdir(parents=True, exist_ok=True)
         msh = f"MSH|^~\\&|HIS||TB||{when}||{trigger}|{order}|P|2.5||||||~ISO IR87"
-        body = "\r".join([msh, f"EVN||{when}||||{when}", "|".join(seg)]) + "\r"
+        body = (
+            "\r".join([msh, f"EVN||{when}||||{when}", "PID|||10000001^^^^PI", "|".join(seg)]) + "\r"
+        )  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
         (d / f"10000001_20260614_ADT-52_{order}_20261101000000000_-_1").write_bytes(body.encode("iso2022_jp"))
     src = Ssmix2Source(root, licensed=EMPTY)
     rows = {r["enc_no"]: r for r in src.rows("encounter", "encounter", None, None)}
