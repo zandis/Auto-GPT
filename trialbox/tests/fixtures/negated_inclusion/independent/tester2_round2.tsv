@@ -1,0 +1,105 @@
+text	concept	expect	lang	hold_class
+Off clopidogrel since March	clopidogrel	held	en	off_drug
+Stopped tamoxifen 2 years ago	tamoxifen	held	en	discontinued
+Previously treated with rituximab; last dose >12 months ago	rituximab	held	en	former
+Recovered from COVID-19 pneumonia	COVID-19 pneumonia	held	en	resolved
+Post-op day 3 after cholecystectomy; gallstones removed	gallstones	held	en	sp_resolved
+Ex-smoker	smoker	held	en	former
+Planned initiation of insulin glargine at week 2	insulin glargine	held	en	planned
+Referred for evaluation of possible sarcoidosis	sarcoidosis	held	en	referral
+Awaiting colonoscopy to assess for colorectal cancer	colorectal cancer	held	en	test_ordered
+Brother died of pancreatic cancer at 52	pancreatic cancer	held	en	family
+Daughter carries a BRCA2 pathogenic variant	BRCA2 pathogenic variant	held	en	family
+Household contact of a patient with active tuberculosis	active tuberculosis	held	en	contact
+Infant born to a mother with HIV	HIV	held	en	relative
+Hypoglycemia should be avoided during titration	Hypoglycemia	held	en	avoid
+To reduce the risk of venous thromboembolism	venous thromboembolism	held	en	prevention
+Educated on signs of diabetic ketoacidosis	diabetic ketoacidosis	held	en	counselling
+Received pneumococcal vaccine	pneumococcal	held	en	vaccination
+Immunized against hepatitis B (anti-HBs >10 mIU/mL)	hepatitis B	held	en	vaccination
+Anaphylaxis to penicillin	penicillin	held	en	allergy_drug
+Not a candidate for surgery	surgery	held	en	not_candidate
+Would benefit from cardiac rehabilitation	cardiac rehabilitation	held	en	modal
+May require mechanical ventilation	mechanical ventilation	held	en	modal
+Anticipated to need blood transfusion	blood transfusion	held	en	future
+Borderline personality traits; personality disorder not diagnosed	personality disorder	held	en	neg_after
+Hepatitis C: treated and cured	Hepatitis C	held	en	resolved
+Thyroid nodule, benign on FNA, malignancy excluded	malignancy	held	en	excluded
+History of Graves disease, now euthyroid after radioiodine	Graves disease	held	en	resolved
+Pneumothorax resolved on repeat chest film	Pneumothorax	held	en	resolved
+Pulmonary embolism: unlikely (Wells score 1)	Pulmonary embolism	held	en	unlikely
+Questionable history of seizures	seizures	held	en	doubtful
+Hypothyroidism vs. euthyroid sick syndrome	Hypothyroidism	held	en	differential
+Inclusion criteria: diabetes mellitus	diabetes mellitus	runs	en	label_prefix
+Patients with heart failure who have not been hospitalized in 30 days	heart failure	runs	en	neg_elsewhere
+Asthma, never intubated	Asthma	runs	en	neg_elsewhere
+Epilepsy with no seizure-free interval >3 months	Epilepsy	runs	en	neg_elsewhere
+Crohn disease refractory to anti-TNF therapy	Crohn disease	runs	en	positive
+Hypertension (untreated)	Hypertension	runs	en	neg_elsewhere
+Anemia, not due to iron deficiency	Anemia	runs	en	neg_elsewhere
+Negative-pressure wound therapy in use for diabetic foot ulcer	diabetic foot ulcer	runs	en	name_negative
+Gram-negative bacteremia, blood culture confirmed	Gram-negative bacteremia	runs	en	name_negative
+Absence seizures confirmed on EEG	Absence seizures	runs	en	name_absence
+Nil-by-mouth for aspiration pneumonia	aspiration pneumonia	runs	en	neg_elsewhere
+クロピドグレル休薬中	クロピドグレル	held	ja	休薬
+タモキシフェンは2年前に終了	タモキシフェン	held	ja	終了
+COVID-19肺炎から回復	COVID-19肺炎	held	ja	resolved
+胆石は胆嚢摘出術にて除去済み	胆石	held	ja	sp_resolved
+元喫煙者	喫煙	held	ja	former
+インスリン グラルギン 導入予定	インスリン グラルギン	held	ja	予定
+サルコイドーシス疑いで紹介	サルコイドーシス	held	ja	referral
+大腸癌の評価目的で大腸内視鏡待ち	大腸癌	held	ja	test_ordered
+兄が膵癌で死亡	膵癌	held	ja	family
+活動性結核患者の同居家族	活動性結核	held	ja	contact
+静脈血栓塞栓症の予防のため	静脈血栓塞栓症	held	ja	prevention
+肺炎球菌ワクチン接種歴あり	肺炎球菌	held	ja	vaccination
+ペニシリンでアナフィラキシー	ペニシリン	held	ja	allergy
+手術適応なし	手術	held	ja	適応なし
+人工呼吸管理を要する可能性あり	人工呼吸	held	ja	modal
+C型肝炎はSVR達成	C型肝炎	held	ja	resolved
+気胸は再検で消失	気胸	held	ja	resolved
+肺塞栓は考えにくい	肺塞栓	held	ja	unlikely
+甲状腺機能低下症 vs 非甲状腺疾患	甲状腺機能低下症	held	ja	differential
+ＨＢｓ抗原　陰性	ＨＢｓ抗原	held	ja	fullwidth
+慢性腎臓病　(－)	慢性腎臓病	held	ja	symbol
+心房細動　⊖	心房細動	held	ja	symbol
+悪性腫瘍：否	悪性腫瘍	held	ja	否
+脳梗塞の既往はない	脳梗塞	held	ja	ない
+気管支喘息、挿管歴なし	気管支喘息	runs	ja	neg_elsewhere
+高血圧症（未治療）	高血圧症	runs	ja	neg_elsewhere
+鉄欠乏によらない貧血	貧血	runs	ja	neg_elsewhere
+クローン病、抗TNF抗体製剤抵抗性	クローン病	runs	ja	positive
+グラム陰性桿菌菌血症	グラム陰性桿菌菌血症	runs	ja	name_negative
+欠神発作（脳波で確認）	欠神発作	runs	ja	positive
+心不全を有し、30日以内の入院歴はない	心不全	runs	ja	neg_elsewhere
+無菌性髄膜炎	無菌性髄膜炎	runs	ja	name_mu
+否定できないではなく確定した肺癌	肺癌	runs	ja	confirmed
+てんかん（発作消失期間3か月未満）	てんかん	runs	ja	neg_elsewhere
+已停用clopidogrel三個月	clopidogrel	held	zh	已停
+泰莫西芬已於兩年前結束	泰莫西芬	held	zh	結束
+COVID-19肺炎已康復	COVID-19肺炎	held	zh	resolved
+前吸菸者	吸菸	held	zh	former
+預定開始使用胰島素	胰島素	held	zh	planned
+轉介評估是否為類肉瘤病	類肉瘤病	held	zh	referral
+哥哥死於胰臟癌	胰臟癌	held	zh	family
+與活動性肺結核病人同住	活動性肺結核	held	zh	contact
+已施打肺炎鏈球菌疫苗	肺炎鏈球菌	held	zh	vaccination
+C型肝炎已治癒	C型肝炎	held	zh	resolved
+氣胸复查已吸收	氣胸	held	zh	resolved
+肺栓塞可能性低	肺栓塞	held	zh	unlikely
+心房顫動 ⊖	心房顫動	held	zh	symbol
+惡性腫瘤：否	惡性腫瘤	held	zh	否
+排除心肌梗塞	心肌梗塞	held	zh	排除
+非糖尿病患者	糖尿病	held	zh	prefix_non
+可能需要機械通氣	機械通氣	held	zh	modal
+建議接受心臟復健	心臟復健	held	zh	recommend
+氣喘，未曾插管	氣喘	runs	zh	neg_elsewhere
+高血壓（未治療）	高血壓	runs	zh	neg_elsewhere
+非缺鐵性貧血	貧血	runs	zh	name_non
+克隆氏症，對抗TNF治療無效	克隆氏症	runs	zh	positive
+革蘭氏陰性菌血症	革蘭氏陰性菌血症	runs	zh	name_negative
+失神發作，經腦波證實	失神發作	runs	zh	positive
+心衰竭病人，近30天未住院	心衰竭	runs	zh	neg_elsewhere
+无菌性脑膜炎	无菌性脑膜炎	runs	zh	name_wu
+癫痫，近3个月仍有发作	癫痫	runs	zh	positive
+排除其他病因後確診為IgG4相關疾病	IgG4相關疾病	runs	zh	confirmed

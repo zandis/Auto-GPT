@@ -1,0 +1,101 @@
+text	concept	expect	lang	synonyms	others	domain	hold_class
+Diagnosis of type 2 diabetes mellitus for at least 6 months before screening, with HbA1c between 7.0% and 10.5% at screening	Type 2 diabetes mellitus	runs	en	T2DM		condition	plain
+Histologically or cytologically confirmed stage IIIB or IV non-small cell lung cancer according to the 8th edition of the AJCC staging system	Non-small cell lung cancer	runs	en	NSCLC		condition	plain
+Adults with moderately to severely active rheumatoid arthritis fulfilling the 2010 ACR/EULAR classification criteria, with at least 6 swollen and 6 tender joints	Rheumatoid arthritis	runs	en			condition	plain
+Chronic heart failure (NYHA class II-IV) with left ventricular ejection fraction ≤ 40% documented by echocardiography within 12 months prior to screening	Heart failure	runs	en	HFrEF		condition	plain
+Patients with HER2-positive metastatic breast cancer confirmed by IHC 3+ or ISH amplification at a central laboratory	Breast cancer	runs	en			condition	plain
+Chronic kidney disease stage 3 or 4, defined as eGFR 15 to 59 mL/min/1.73 m2 by the CKD-EPI equation on two occasions at least 90 days apart	Chronic kidney disease	runs	en	CKD		condition	plain
+Paroxysmal, persistent or permanent non-valvular atrial fibrillation documented by 12-lead ECG or Holter monitoring within the last 12 months	Atrial fibrillation	runs	en			condition	plain
+Essential hypertension with mean seated systolic blood pressure ≥ 140 mmHg and < 180 mmHg at screening despite treatment with at least two antihypertensive agents	Hypertension	runs	en			condition	plain
+Chronic plaque psoriasis for at least 6 months with PASI ≥ 12, BSA ≥ 10% and sPGA ≥ 3 at baseline	Plaque psoriasis	runs	en			condition	plain
+Relapsing forms of multiple sclerosis per the 2017 revised McDonald criteria, with an EDSS score of 0 to 5.5 at screening	Multiple sclerosis	runs	en	RMS		condition	plain
+Diagnosis of COPD for at least 12 months with post-bronchodilator FEV1/FVC < 0.70 and FEV1 30% to 80% of predicted	Chronic obstructive pulmonary disease	runs	en	COPD		condition	plain
+Chronic hepatitis B infection, defined as HBsAg positive for at least 6 months, with HBV DNA ≥ 2000 IU/mL at screening	Hepatitis B	runs	en	chronic hepatitis B		condition	plain
+Moderately to severely active ulcerative colitis with a modified Mayo score of 5 to 9 and an endoscopic subscore of ≥ 2 confirmed by central reading	Ulcerative colitis	runs	en			condition	plain
+Primary diagnosis of major depressive disorder, single or recurrent episode, according to DSM-5 criteria, with a MADRS total score ≥ 26 at screening and baseline	Major depressive disorder	runs	en	MDD		condition	plain
+Metastatic castration-resistant prostate cancer with progression on prior androgen receptor pathway inhibitor and serum testosterone < 50 ng/dL	Prostate cancer	runs	en	mCRPC		condition	plain
+Physician-diagnosed asthma for at least 12 months requiring medium- to high-dose inhaled corticosteroids plus a second controller medication	Asthma	runs	en			condition	plain
+Chronic atopic dermatitis present for at least 3 years before the screening visit, with EASI ≥ 16 and IGA ≥ 3 at baseline	Atopic dermatitis	runs	en			condition	plain
+Histologically confirmed adenocarcinoma of the colon or rectum with unresectable metastatic disease and RAS wild-type tumour status	Colorectal cancer	runs	en			condition	plain
+Postmenopausal women with osteoporosis, defined as a BMD T-score ≤ -2.5 at the lumbar spine, total hip or femoral neck measured by DXA	Osteoporosis	runs	en			condition	plain
+Hepatocellular carcinoma diagnosed histologically or by AASLD radiological criteria, BCLC stage B or C, with Child-Pugh class A liver function	Hepatocellular carcinoma	runs	en	HCC		condition	plain
+Idiopathic Parkinson's disease diagnosed according to the MDS clinical diagnostic criteria, Hoehn and Yahr stage 1 to 3 in the ON state	Parkinson's disease	runs	en			condition	plain
+Relapsed or refractory diffuse large B-cell lymphoma after at least two lines of systemic therapy, including an anti-CD20 antibody and an anthracycline	Diffuse large B-cell lymphoma	runs	en	DLBCL		condition	plain
+Systemic lupus erythematosus fulfilling the 2019 EULAR/ACR classification criteria with a SLEDAI-2K score ≥ 6 at screening	Systemic lupus erythematosus	runs	en	SLE		condition	plain
+Obesity with a BMI ≥ 30 kg/m2, or BMI ≥ 27 kg/m2 with at least one weight-related comorbidity, at the screening visit	Obesity	runs	en			condition	plain
+Migraine with or without aura for at least 12 months according to ICHD-3, with 4 to 14 migraine days per month during the baseline period	Migraine	runs	en			condition	plain
+Gout meeting the 2015 ACR/EULAR classification criteria with serum urate ≥ 8.0 mg/dL and at least 2 flares in the previous 12 months	Gout	runs	en			condition	plain
+Documented coronary artery disease with ≥ 50% stenosis in at least one major epicardial vessel on invasive coronary angiography	Coronary artery disease	runs	en			condition	plain
+High-grade serous epithelial ovarian, fallopian tube or primary peritoneal cancer, FIGO stage III or IV, newly diagnosed	Ovarian cancer	runs	en			condition	plain
+Crohn's disease of the ileum and/or colon for at least 3 months, confirmed by endoscopy and histology, with CDAI 220 to 450	Crohn's disease	runs	en			condition	plain
+Newly diagnosed acute myeloid leukaemia per WHO 2016 classification with FLT3 mutation (ITD or TKD) detected by a validated assay	Acute myeloid leukaemia	runs	en	AML		condition	plain
+Pulmonary arterial hypertension confirmed by right heart catheterisation with mPAP > 20 mmHg, PVR > 2 Wood units and PAWP ≤ 15 mmHg	Pulmonary arterial hypertension	runs	en	PAH		condition	plain
+On a stable dose of metformin ≥ 1500 mg/day for at least 8 weeks prior to screening	Metformin	runs	en			medication	plain
+Recipient of a first kidney transplant from a living or deceased donor at least 6 months before enrolment	Kidney transplantation	runs	en			procedure	plain
+Focal epilepsy diagnosed at least 2 years ago, with ≥ 4 focal seizures per 28 days during the 8-week baseline despite 1 to 3 antiseizure medications	Epilepsy	runs	en			condition	plain
+スクリーニング時のHbA1cが7.0%以上10.5%以下であり、6か月以上前に2型糖尿病と診断された患者	2型糖尿病	runs	ja			condition	plain
+組織学的又は細胞学的に確認されたIIIB期又はIV期の非小細胞肺癌患者（UICC第8版）	非小細胞肺癌	runs	ja			condition	plain
+2010年ACR/EULAR分類基準を満たす中等度から重度の活動性関節リウマチを有する成人患者	関節リウマチ	runs	ja			condition	plain
+NYHA心機能分類II～IV度の慢性心不全で、スクリーニング前12か月以内の心エコー検査で左室駆出率40%以下が確認されている患者	心不全	runs	ja			condition	plain
+HER2陽性の転移性乳癌で、中央検査機関のIHC 3+又はISH陽性により確認された患者	乳癌	runs	ja			condition	plain
+eGFRが15以上60未満mL/min/1.73m2の慢性腎臓病（CKDステージ3又は4）を有する患者	慢性腎臓病	runs	ja			condition	plain
+12誘導心電図又はホルター心電図で記録された非弁膜症性心房細動を有する患者	心房細動	runs	ja			condition	plain
+スクリーニング時の座位収縮期血圧が140 mmHg以上180 mmHg未満の本態性高血圧患者	高血圧	runs	ja			condition	plain
+6か月以上前から局面型皮疹を有する尋常性乾癬で、ベースライン時にPASIスコア12以上かつBSA 10%以上の患者	尋常性乾癬	runs	ja			condition	plain
+2017年改訂マクドナルド基準に基づき再発型多発性硬化症と診断され、スクリーニング時のEDSSスコアが0～5.5の患者	多発性硬化症	runs	ja			condition	plain
+気管支拡張薬投与後のFEV1/FVCが0.70未満であり、12か月以上前にCOPDと診断された患者	慢性閉塞性肺疾患	runs	ja	COPD		condition	plain
+6か月以上HBs抗原陽性が持続し、スクリーニング時のHBV DNAが2000 IU/mL以上の慢性B型肝炎患者	B型肝炎	runs	ja			condition	plain
+中央判定による内視鏡サブスコア2以上で、Mayoスコア6～12の中等症から重症の活動性潰瘍性大腸炎患者	潰瘍性大腸炎	runs	ja			condition	plain
+DSM-5に基づきうつ病と診断され、スクリーニング時及びベースライン時のMADRS合計スコアが26以上の患者	うつ病	runs	ja			condition	plain
+血清テストステロン値が50 ng/dL未満の転移性去勢抵抗性前立腺癌患者	前立腺癌	runs	ja			condition	plain
+12か月以上前に医師により気管支喘息と診断され、中用量以上の吸入ステロイドを使用している患者	気管支喘息	runs	ja			condition	plain
+スクリーニング前3年以上アトピー性皮膚炎の症状があり、ベースライン時のEASIスコアが16以上の患者	アトピー性皮膚炎	runs	ja			condition	plain
+組織学的に腺癌と確認された切除不能な転移性大腸癌を有する患者	大腸癌	runs	ja			condition	plain
+DXA法で測定した腰椎又は大腿骨近位部の骨密度Tスコアが-2.5以下の閉経後骨粗鬆症患者	骨粗鬆症	runs	ja			condition	plain
+組織学的又はAASLD基準による画像診断で肝細胞癌と診断され、BCLC病期B又はCでChild-Pugh分類Aの患者	肝細胞癌	runs	ja			condition	plain
+MDS臨床診断基準により特発性パーキンソン病と診断され、オン時のHoehn-Yahr重症度分類が1～3度の患者	パーキンソン病	runs	ja			condition	plain
+2ライン以上の全身療法後に再発又は難治性となったびまん性大細胞型B細胞リンパ腫患者	びまん性大細胞型B細胞リンパ腫	runs	ja	DLBCL		condition	plain
+2019年EULAR/ACR分類基準を満たし、スクリーニング時のSLEDAI-2Kスコアが6以上の全身性エリテマトーデス患者	全身性エリテマトーデス	runs	ja	SLE		condition	plain
+BMIが30 kg/m2以上、又は健康障害を1つ以上伴いBMIが27 kg/m2以上の肥満症患者	肥満症	runs	ja			condition	plain
+ICHD-3に基づき12か月以上前から前兆のある又は前兆のない片頭痛を有し、ベースライン期間中の片頭痛日数が月4日以上14日以下の患者	片頭痛	runs	ja			condition	plain
+2015年ACR/EULAR分類基準を満たし、血清尿酸値が8.0 mg/dL以上の痛風患者	痛風	runs	ja			condition	plain
+冠動脈造影で主要冠動脈に50%以上の狭窄が確認された冠動脈疾患患者	冠動脈疾患	runs	ja			condition	plain
+新たに診断されたFIGO進行期III期又はIV期の高悪性度漿液性卵巣癌患者	卵巣癌	runs	ja			condition	plain
+3か月以上前に内視鏡検査及び病理組織学的検査で確定診断されたクローン病で、CDAIが220以上450以下の患者	クローン病	runs	ja			condition	plain
+WHO分類2016に基づき新たに診断され、FLT3遺伝子変異陽性が確認された急性骨髄性白血病患者	急性骨髄性白血病	runs	ja	AML		condition	plain
+スクリーニング前8週間以上、メトホルミン1500 mg/日以上を一定用量で服用している患者	メトホルミン	runs	ja			medication	plain
+登録の6か月以上前に初回の腎移植を受けた患者	腎移植	runs	ja			procedure	plain
+2年以上前に焦点てんかんと診断され、ベースライン期間8週間の焦点発作が28日あたり4回以上の患者	てんかん	runs	ja			condition	plain
+篩選前至少6個月經診斷為第2型糖尿病，且篩選時糖化血色素介於7.0%至10.5%之間的患者	第2型糖尿病	runs	zh			condition	plain
+經組織學或細胞學確診為第IIIB期或第IV期非小細胞肺癌（依據AJCC第8版分期）之患者	非小細胞肺癌	runs	zh			condition	plain
+符合2010年ACR/EULAR分類標準之中度至重度活動性類風濕性關節炎成人患者	類風濕性關節炎	runs	zh			condition	plain
+慢性心衰竭（NYHA第II至IV級），且篩選前12個月內經心臟超音波證實左心室射出分率≤40%	心衰竭	runs	zh			condition	plain
+經中央實驗室IHC 3+或ISH擴增證實為HER2陽性之轉移性乳癌患者	乳癌	runs	zh			condition	plain
+慢性腎臟病第3期或第4期，定義為間隔至少90天兩次eGFR介於15至59 mL/min/1.73 m2	慢性腎臟病	runs	zh			condition	plain
+過去12個月內經12導程心電圖或24小時心電圖記錄之非瓣膜性心房顫動	心房顫動	runs	zh			condition	plain
+篩選時坐姿收縮壓≥140 mmHg且<180 mmHg之原發性高血壓患者	高血壓	runs	zh			condition	plain
+罹患慢性斑塊型乾癬至少6個月，且基準期PASI≥12、BSA≥10%之患者	斑塊型乾癬	runs	zh			condition	plain
+依據2017年修訂版McDonald診斷標準確診為復發型多發性硬化症，篩選時EDSS分數為0至5.5	多發性硬化症	runs	zh			condition	plain
+診斷為慢性阻塞性肺病至少12個月，支氣管擴張劑使用後FEV1/FVC<0.70	慢性阻塞性肺病	runs	zh	COPD		condition	plain
+HBsAg陽性至少6個月之慢性B型肝炎患者，篩選時HBV DNA≥2000 IU/mL	慢性B型肝炎	runs	zh			condition	plain
+中度至重度活動性潰瘍性結腸炎，改良Mayo分數5至9分且經中央判讀之內視鏡次分數≥2	潰瘍性結腸炎	runs	zh			condition	plain
+依據DSM-5診斷為重度憂鬱症，篩選時及基準期MADRS總分≥26分	重度憂鬱症	runs	zh			condition	plain
+血清睪固酮<50 ng/dL之轉移性去勢抗性前列腺癌患者	前列腺癌	runs	zh			condition	plain
+經醫師診斷氣喘至少12個月，且需使用中至高劑量吸入型類固醇	氣喘	runs	zh			condition	plain
+篩選前慢性异位性皮炎病史至少3年，基準期EASI≥16	异位性皮炎	runs	zh			condition	plain
+經組織學證實為腺癌之無法切除轉移性大腸直腸癌患者	大腸直腸癌	runs	zh			condition	plain
+以DXA測量腰椎或髖部骨密度T值≤-2.5之停經後骨質疏鬆症婦女	骨質疏鬆症	runs	zh			condition	plain
+经组织学或影像学确诊的肝细胞癌，BCLC分期B期或C期，Child-Pugh A级	肝细胞癌	runs	zh			condition	plain
+依据MDS临床诊断标准确诊的原发性帕金森病，Hoehn-Yahr分期1至3期	帕金森病	runs	zh			condition	plain
+既往接受至少二线系统治疗后复发或难治的弥漫性大B细胞淋巴瘤患者	弥漫性大B细胞淋巴瘤	runs	zh			condition	plain
+符合2019年EULAR/ACR分类标准的系统性红斑狼疮，筛选时SLEDAI-2K评分≥6分	系统性红斑狼疮	runs	zh	SLE		condition	plain
+筛选时BMI≥30 kg/m2的肥胖患者	肥胖	runs	zh			condition	plain
+根据ICHD-3诊断为偏头痛至少12个月，基线期每月偏头痛天数4至14天	偏头痛	runs	zh			condition	plain
+符合2015年ACR/EULAR分类标准且血尿酸≥8.0 mg/dL的痛风患者	痛风	runs	zh			condition	plain
+经冠状动脉造影证实至少一支主要冠状动脉狭窄≥50%的冠状动脉疾病患者	冠状动脉疾病	runs	zh			condition	plain
+新诊断的FIGO III期或IV期高级别浆液性卵巢癌患者	卵巢癌	runs	zh			condition	plain
+经内镜及组织病理学确诊的克罗恩病至少3个月，CDAI评分220至450分	克罗恩病	runs	zh			condition	plain
+依据WHO 2016分类新诊断的急性髓系白血病，经验证检测确认FLT3突变阳性	急性髓系白血病	runs	zh	AML		condition	plain
+筛选前至少8周稳定服用二甲双胍≥1500 mg/日	二甲双胍	runs	zh			medication	plain
+入组前至少6个月接受首次肾移植的受者	肾移植	runs	zh			procedure	plain
+至少2年前诊断为局灶性癫痫，基线期8周内每28天局灶性发作≥4次	癫痫	runs	zh			condition	plain

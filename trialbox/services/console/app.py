@@ -57,6 +57,7 @@ from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
 from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page, person_state, phone
 from console import actor as console_actor
+from console import timing as server_time
 from console.account_rules import Hooks as AccountHooks
 from console.account_rules import Rules as AccountRules
 from console.account_rules import account_class, protected, protected_account
@@ -91,6 +92,8 @@ from console.refusals import localize as localize_refusal
 from console.timefmt import local_time, local_today, site_zone
 
 HERE = Path(__file__).resolve().parent
+#: D-1245: how far back a protocol's audit rows are read while it is compiled (the model answers since its start)
+COMPILE_ROWS = 5000
 COOKIE = "tb_console"
 LOGIN_COOKIE = "tb_console_login"
 LANG_COOKIE = "tb_console_lang"  # D-133: the language picked on the sign-in page (a preference, not a secret)
@@ -614,6 +617,17 @@ def create_app(
         token = getattr(request.state, "sso_cookie", None)
         if token:
             resp.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie)
+        return resp
+
+    @app.middleware("http")  # added last, so the outermost: its time holds every other middleware's (D-1245)
+    async def server_timing(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        t0 = time.perf_counter()
+        resp = await call_next(request)
+        route = getattr(request.scope.get("route"), "path", None)  # the matched route's template, set by routing
+        if server_time.timed(
+            resp.status_code, route, request.method
+        ):  # an allow-listed page's 200 only (console.timing.TIMED)
+            resp.headers[server_time.HEADER] = server_time.value((time.perf_counter() - t0) * 1000)
         return resp
 
     def _trusted_peer(request: Request) -> bool:
@@ -1685,7 +1699,19 @@ def create_app(
         review_html = next(
             (o for o in job.outputs or [] if o.filename.startswith("review_") and o.filename.endswith(".html")), None
         )
-        audit_recs = bk.audit(job_id, 200)
+        # D-1245: while a protocol is read, the model answers since the compile started are counted from the job's own
+        # audit rows, read further back than the table's 200 so a long compile's line never drops out of the window;
+        # the table shows the newest 200, as before
+        reading = job.type == "FEAS" and job.state in ("parsing", "compiling")
+        recs_all = bk.audit(job_id, COMPILE_ROWS if reading else 200)
+        audit_recs = recs_all[:200]  # newest first: the newest 200 are the table's rows
+        budget_read: list[dict[str, Any] | None] = []
+
+        def budget_event() -> dict[str, Any] | None:  # the run's microbatch.budget event, read at most once a page
+            if not budget_read:
+                budget_read.append(bk.recheck_share(job_id))
+            return budget_read[0]
+
         subjects = [str(r.detail.get("subject", "")) for r in audit_recs if r.event == "mail.received"]
         thread = bk.thread(job_id)
         raw_rows: list[tuple[MailItem | None, str]] = [
@@ -1721,11 +1747,14 @@ def create_app(
             consent=_consent_card(job),
             case=case,
             screen=_screen_card(job, sess, revealed, bg=grant is not None),
-            recheck=_recheck_share(job, sess, bg=grant is not None),
+            recheck=_recheck_share(job, sess, bg=grant is not None, read=budget_event),
+            first_load=_first_load(job, sess, read=budget_event),
+            compile_answers=_compile_answers(job, recs_all) if reading else None,
             breakglass=grant,
         )
 
-    def _recheck_share(job: Job, sess: Session, bg: bool = False) -> dict[str, Any] | None:
+    def _recheck_share(job: Job, sess: Session, bg: bool = False,
+                       read: Callable[[], dict[str, Any] | None] | None = None) -> dict[str, Any] | None:  # fmt: skip
         """NEW-RUN-1 (D-558): how far a finished weekly screening run got with the patients whose records did not
         match a criterion before (D-646's share of the night budget), from the run's ``microbatch.budget`` event.
         For the accounts that read the study's list (the rule of the screening card's rows). None when the run was
@@ -1740,7 +1769,7 @@ def create_app(
             return None
         if not (helpers.reads(sess.user, job.ruleset) or bg):
             return None
-        ev = bk.recheck_share(job.job_id)
+        ev = read() if read is not None else bk.recheck_share(job.job_id)
         if ev is None or ev.get("trigger") != "weekly":
             return None
         scope, again = ev.get("excluded_in_scope"), ev.get("excluded_rescreened")
@@ -1755,6 +1784,45 @@ def create_app(
             after = "nopass" if runs is None else "pass" if runs > 1 else None
         return {"n": again, "scope": scope, "carried": carried, "share": share, "kept": kept, "percent": percent,
                 "after": after, "runs": runs}  # fmt: skip
+
+    def _compile_answers(job: Job, recs: list[Any]) -> int | None:
+        """D-1245 (review 13 item 13-14): while a protocol is read, how many answers the language model has given for
+        it so far: the ``llm.call`` rows after the job's latest ``compile.start`` among the job's own audit rows (the
+        rows the page's table shows, read up to :data:`COMPILE_ROWS` back so the count does not drop out of the
+        table's window of 200 during a long compile; the same accounts). Not parts: the rows do not say which prompt a
+        call was for, and the number of parts is known to the compiler alone (the page says so). None when the job is
+        not reading a protocol or its compile.start is not among those rows: no line, never a wrong count."""
+        if job.type != "FEAS" or job.state not in ("parsing", "compiling"):
+            return None
+        ordered = sorted(recs, key=lambda r: r.ts)
+        starts = [i for i, r in enumerate(ordered) if r.event == "compile.start"]
+        if not starts:
+            return None
+        return sum(1 for r in ordered[starts[-1] + 1 :] if r.event == "llm.call")
+
+    def _first_load(job: Job, sess: Session, read: Callable[[], dict[str, Any] | None]) -> dict[str, int] | None:
+        """D-1245 (review 13 item 13-14): how far the study's new patients have come on a finished screening run, from
+        the run's ``microbatch.budget`` event (the event the re-check card reads, read once a page). Only to an account
+        the study's own candidate list admits (its check, ``Helpers.admits_candidates``; no break-glass grant opens
+        it), asked before the event is read. Only when new patients are still waiting and both figures are there: the
+        new patients this run screened and those still waiting. The estimate of the nights left is at this run's own
+        pace (waiting / screened on this run, rounded up), never from the box's night budget, which the night's
+        re-checks, version re-screens and the excluded share divide first (D-646): the pace is what the run reached.
+        When the run screened no new patient there is no pace and no estimate. None otherwise: the page shows
+        nothing."""
+        if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done" or not job.ruleset:
+            return None
+        admits = helpers.admits_candidates
+        if admits is None or not admits(sess.user, job.ruleset):
+            return None
+        ev = read() or {}
+        n, waiting = ev.get("new_screened"), ev.get("new_carried")
+        if n is None or waiting is None or waiting == 0:
+            return None
+        out = {"n": n, "waiting": waiting}
+        if n > 0:
+            out["nights"] = -(-waiting // n)
+        return out
 
     _case_pids: dict[str, str] = {}  # job id -> its subject's pseudonym: a job's chart number never changes
 

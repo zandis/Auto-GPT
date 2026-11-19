@@ -7,9 +7,9 @@ retired: freeze the logs, archive the records with checksums, hand the archive t
 keys and purge every store by NIST SP 800-88 Rev. 1, with one certificate per medium. A study that closes while
 others go on uses steps 1 to 5 only, for that study.*
 
-**Drill (T-213b):** `test_runbook_20_decommission` (Docker drill: on a box with synthetic data, steps 2 to 4 run and
-the archive verifies on a second folder; `decommission-plan --json` lists every store this page names; tabletop: each
-row of the plan is given to a role and the certificate fields are filled for one disk).
+**Drill (T-213b):** `test_runbook_20_decommission` (in process, on a synthetic audit chain: step 2's four commands,
+step 3's audit copy, plan and `SHA256SUMS`, step 4's checks on a second folder, which fail on a one-line change). Not
+rehearsed by a test: the final backup and `backup-verify`, the export ledger, steps 1 and 5 to 8 (people, keys, media).
 
 ## The plan of this box
 
@@ -42,8 +42,8 @@ python tools/audit_verify.py /data/audit --heads ANCHOR           # the chain ma
 python tools/audit_verify.py /data/audit --foreign                # no event came from a role that does not write it (D-488)
 ```
 
-Write down the head (sequence and hash) on the close-out record. From here the chain does not change: a later
-event on this box is a finding.
+Write down the head (sequence and hash) on the close-out record as `audit_verify.py /data/audit --json` prints it after
+all four (`--sign-head` adds one event). From here the chain does not change: a later event on this box is a finding.
 
 **Step 3, archive.** Into one new folder on the hospital's store (never only on the box):
 
