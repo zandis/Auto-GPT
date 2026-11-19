@@ -37,6 +37,7 @@ from urllib.parse import quote
 
 from fastapi import FastAPI
 from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException
 from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
@@ -255,7 +256,7 @@ def register(app: FastAPI, h: Any, env: Any) -> None:
         log only). A view the route refuses is not offered; its route still decides."""
         if not user.sees_study(rid):
             return False
-        rows = rows_for(user, rid, ("screen",))  # Helpers.reads and need_rows: the phi.view row, then the log
+        rows = bool(h.rows_ok(user, rid))  # need_rows' own question (the screening log's page): phi.view, the log
         if view.list == "participants":  # lifecycle_pages.study_or_404: phi.view, the log for screen or enter_data
             return not user.sponsor_form and rows_for(user, rid, ("screen", "enter_data"))
         if view.key == "week":
@@ -334,8 +335,8 @@ def register(app: FastAPI, h: Any, env: Any) -> None:
     def people_pick(request: Request, which: str) -> Response:
         """The menu's Candidates and Participants: the study's list, or a choice of study when there are several
         (``?view=`` keeps the view asked for through the choice). With the flag off this page does not exist."""
-        if not flag_now():
-            raise h.problem(404, "notfound")
+        if not flag_now():  # as master's router answers an address it does not know, byte for byte
+            raise HTTPException(status_code=404)
         sess = h.need(request)
         name = request.query_params.get("view", "")
         studies = studies_for(sess.user, which, name if re.fullmatch(r"[a-z]{1,20}", name) else "")

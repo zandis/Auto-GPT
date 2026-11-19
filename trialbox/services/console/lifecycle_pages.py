@@ -429,8 +429,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         counts = ps.counts(s["person"] for s in subs)  # one per row: a kept record of an opted-out person too
         # J-5 (D-1223, flag layout.people_lists), only when the page is served as a view of Participants (off: as
         # before). The default view divides at consent by the one state: the people who have consented, none opted out
-        # or erased, a participant the log names before a record exists too; the working view "every record" is the
-        # page as it was. Either filters by the one state (``?state=``), never by the record's own step
+        # or erased, and (for whom the log's page admits) a participant the log names first; the working view "every
+        # record" is the page as it was. Either filters by the one state (``?state=``), never by the record's own step
         lst = people_lists.default_of(request)
         view = getattr(request.state, "people", None)
         readable = people.readable or not subs
@@ -439,8 +439,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             on_side = people_lists.side(people, "participants")
             keys = {str(s.get("pid") or "") or f"#{s.get('record')}" for s in subs}
             subs = [s for s in subs if (str(s.get("pid") or "") or f"#{s.get('record')}") in on_side]
-            subs += [{"record": "", "pid": pid, "since": st.since[:10], "visits": {}, "person": st, "log_only": True}
-                     for pid, st in sorted(on_side.items()) if pid not in keys]  # fmt: skip
+            # a participant the screening log names before a record exists: only for whom the log's own page admits
+            # (``Helpers.rows_ok``, the screening log's question); anyone else sees the participant records only
+            if h.rows_ok(sess.user, rid):
+                subs += [{"record": "", "pid": pid, "since": st.since[:10], "visits": {}, "person": st,
+                          "log_only": True} for pid, st in sorted(on_side.items()) if pid not in keys]  # fmt: skip
             counts = ps.counts(s["person"] for s in subs)
             keep = ps.PARTICIPANT
         only = request.query_params.get("state", "") if view else ""

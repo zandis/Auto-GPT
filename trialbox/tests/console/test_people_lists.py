@@ -59,8 +59,9 @@ OLD_TO = {old: new for old, new, key in WALK if key not in ("before", "from")}
 DEFAULTS = ("before", "from")
 #: the columns that read the study registry page's counts without patient rows (D-280, D-380)
 AGGREGATE_REGISTRY = ("steward", "privacy")
-#: the test ids a default view may add to its old page: the state filter and a participant the log names first
-NEW_IDS = re.compile(r"^(state-filter.*|state-only|subject-log-\d+|state-log-\d+|log-only)$")
+#: the test ids a default view may add to its old page: the state filter only (a participant the log names first is
+#: allowed where the log's own page admits the reader, and tested there: never through this list)
+NEW_IDS = re.compile(r"^(state-filter|state-filter-all|state-only)$")
 
 
 @pytest.fixture(autouse=True)
@@ -217,9 +218,12 @@ def test_with_the_flag_off_the_new_addresses_are_no_page_and_the_old_ones_unchan
         for c in (crc, anon):  # no page, and no redirect before the session check
             r = c.get(new + "?list=all", follow_redirects=False)
             assert r.status_code == 404, (new, r.status_code)
-    for path in ("/people/candidates", "/people/participants"):
-        assert crc.get(path, follow_redirects=False).status_code == 404
-        assert anon.get(path, follow_redirects=False).status_code == 404
+    unknown = crc.get("/no-such-page/at-all", follow_redirects=False)  # what master's router answers
+    for path in ("/people/candidates", "/people/participants", CAND, f"{PART}/records"):
+        for c in (crc, anon):
+            r = c.get(path, follow_redirects=False)
+            assert r.status_code == 404 and r.content == unknown.content, (path, r.text[:80])
+            assert r.headers["content-type"] == unknown.headers["content-type"], path
     # the route table the walks read is master's: the pickers are plain routes, not API routes
     from fastapi.routing import APIRoute
 
@@ -244,6 +248,14 @@ def test_with_the_flag_off_the_new_addresses_are_no_page_and_the_old_ones_unchan
 # ------------------------------------------------------------------------------------------- the division at consent
 def _entry(pid: str, status: str) -> Any:
     return SimpleNamespace(pid=pid, status=status, updated_at=datetime(2026, 11, 1, 9, tzinfo=UTC), updated_by="crc")
+
+
+def _log_row(rs: str, pid: str) -> Any:
+    """A consented screening-log row as the orchestrator answers it (the contract the pages render)."""
+    from tb_contracts import RegistryEntry
+
+    return RegistryEntry(ruleset=rs, pid=pid, status="consented", reason=None, source="manual",
+                         updated_at=datetime(2026, 11, 1, 9, tzinfo=UTC), updated_by="console:crc")  # fmt: skip
 
 
 def test_the_two_defaults_divide_a_study_at_consent_by_the_one_state() -> None:
@@ -297,7 +309,7 @@ def test_on_the_box_each_person_is_on_one_default_and_a_default_shows_nothing_ne
     real = study["reg"].rows
 
     def rows(rs: str) -> Any:
-        return [*real(rs), _entry("erased:2026-11-01:abcd", "consented")]
+        return [*real(rs), _log_row(rs, "erased:2026-11-01:abcd")]
 
     study["backend"].registry_rows = rows
     crc, _ = login(study["app"], "crc", PW)
@@ -322,6 +334,54 @@ def test_on_the_box_each_person_is_on_one_default_and_a_default_shows_nothing_ne
     assert _forms(_main(cand_page.text)) == _forms(_main(old_registry))  # the add, the take-over, the export
     for lst, page in (("candidates", cand_page.text), ("participants", part_page.text)):
         assert 'data-testid="people-side"' in page and CATALOGUES["en"][f"people.side.{lst}"] in page
+
+
+def test_a_participant_known_only_from_the_log_is_shown_only_to_whom_the_logs_page_admits(
+    study: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:  # fmt: skip
+    """The screening log says consented and no participant record exists yet: Participants' default shows that
+    person (state and day, no pseudonym) to the coordinator, whom the screening log's page admits. A sub-investigator
+    ticked only for data entry is refused the log's page; with the flag on they get the participant records only: no
+    log-only row, no count of it, and no read of the screening log beyond the one master's participants page makes
+    for them (``person_state.read`` names each record's state from it, D-1221)."""
+    from tests.console.test_console_app import sub_investigator
+
+    real = study["reg"].rows
+    log_only = "d" * 32
+
+    def rows(rs: str) -> Any:
+        return [*real(rs), _log_row(rs, log_only)]
+
+    study["backend"].registry_rows = rows
+    study["users"].create("subi", "investigator", PW, "subi@hospa.test")
+    sub_investigator(study, "subi", tasks=("enter_data",))
+    reads: list[str] = []
+    real_read = ps.registry_rows
+
+    def spy(h: Any, rs: str) -> Any:
+        reads.append(rs)
+        return real_read(h, rs)
+
+    monkeypatch.setattr(ps, "registry_rows", spy)
+    crc, _ = login(study["app"], "crc", PW)
+    subi, _ = login(study["app"], "subi", PW)
+    assert subi.get(f"/studies/{RS}/screening-log").status_code == 403  # the log's own page refuses them
+    reads.clear()
+    old = subi.get(SUBJ)
+    assert old.status_code == 200
+    master_reads = len(reads)
+    _flag(study, "on")
+    page = crc.get(PART).text
+    assert re.search(r'data-testid="subject-log-\d+"', page) and 'data-testid="log-only"' in page
+    assert log_only not in page and log_only[:8] not in page  # its state and day, never its pseudonym
+    reads.clear()
+    mine = subi.get(PART)
+    assert mine.status_code == 200
+    assert 'data-testid="subject-log-' not in mine.text and 'data-testid="log-only"' not in mine.text
+    assert len(reads) == master_reads  # no read the old page did not make
+    old_counts = dict(re.findall(r'data-testid="count-([a-z_]+)" data-state="[a-z_]+"><b>(\d+)</b>', old.text))
+    new_counts = dict(re.findall(r'data-testid="count-([a-z_]+)" data-state="[a-z_]+"><b>(\d+)</b>', mine.text))
+    assert all(int(n) <= int(old_counts.get(k, 0)) for k, n in new_counts.items()), (old_counts, new_counts)
 
 
 def test_a_filter_reads_the_one_state_never_the_records_own_step(
@@ -528,3 +588,25 @@ def test_the_strip_and_the_menu_in_each_language(box: dict[str, Any], lang: str)
         assert cat[key] in page, (lang, key)
     if lang != "en":
         assert ">Screening log<" not in page.split('data-testid="people-tabs"', 1)[1].split("</nav>", 1)[0]
+
+
+# ------------------------------------------------------------------------------------------- other tests, flag on
+@pytest.mark.parametrize("role", ["investigator", "coordinator"])
+@pytest.mark.parametrize("lang", LANGS)
+def test_the_wording_walk_holds_with_the_flag_on(
+    box: dict[str, Any], role: str, lang: str, monkeypatch: pytest.MonkeyPatch
+) -> None:  # fmt: skip
+    """The wording walk's flag-on branch (the weekly page reached at its view's address) runs in the normal suite:
+    the walk of the two roles whose lists change, with the flag on, in each language."""
+    from tests.console import test_wording_walk as ww
+
+    monkeypatch.setattr(people_lists, "flag_now", lambda: True)
+    ww.test_no_forbidden_word_on_any_role_page(box, role, lang)
+
+
+def test_the_role_pages_hold_with_the_flag_on(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    """The role pages' flag-on branch (the investigator lands on the weekly page's view) runs in the normal suite."""
+    from tests.console import test_role_pages as rp
+
+    monkeypatch.setattr(people_lists, "flag_now", lambda: True)
+    rp.test_each_role_lands_on_its_own_home_with_at_most_four_items(box)
