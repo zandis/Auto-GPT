@@ -42,6 +42,8 @@ CARD: list[dict[str, Any]] = json.loads((FIX / "card_10a1b.json").read_text(enco
 REVIEW: list[dict[str, Any]] = json.loads((FIX / "review_10a1b.json").read_text(encoding="utf-8"))["rows"]
 # card 10A-1c's 241 lines, written before its rules changed, each with the shape it tests (``hold_class``)
 BEFORE: list[dict[str, Any]] = json.loads((FIX / "card_10a1c_before.json").read_text(encoding="utf-8"))["rows"]
+# card 10A-1c's second set, written after its code was final and never used to tune it
+AFTER: list[dict[str, Any]] = json.loads((FIX / "card_10a1c_after.json").read_text(encoding="utf-8"))["rows"]
 CHEMO = {"domain": "procedure", "quantifier": "any", "concept": "chemotherapy"}  # VS_CHEMOTHERAPY once compiled
 CHEMO_CAND = [{"domain": "procedure", "name": "chemotherapy", "synonyms": ["化学療法", "化學治療"]}]
 _TERM: list[Terminology] = []
@@ -96,7 +98,7 @@ def test_the_two_p2b_lines_are_held() -> None:
                question="Does the patient have significant cardiopulmonary disease?"))  # fmt: skip
 
 
-ALL = [*ROWS, *UNSEEN, *CARD, *REVIEW, *BEFORE]
+ALL = [*ROWS, *UNSEEN, *CARD, *REVIEW, *BEFORE, *AFTER]
 
 
 @pytest.mark.parametrize("cls", ["structured", "mixed"])
@@ -125,12 +127,15 @@ def test_the_counts_the_pull_request_reports() -> None:
     (a cue over a list) and the coordinator's 34 that ran (cue words such as "forbidden", 不可, 禁止, 不允許, "other
     than X"; a synonym of the coded concept). The lines that should run and are held: card 10A-1's table 8 of 69, the
     lines unseen at design 20 of 23 (the same as before card 10A-1b), card 10A-1b's own 17 of 40 (18 before), the
-    coordinator's 0 of 8."""
+    coordinator's 0 of 8. Card 10A-1c's 241 lines: 4 of 121 negated lines ran on master (a bare 不, zh 以外), none
+    now; 78 of 120 held that should run (109 on master). Its second set, written after its code was final: 7 of 63
+    ran on master, none now; 22 of 63 held that should run (48 on master)."""
     assert _score(ROWS) == (116, 116, 8, 69)
     assert _score(UNSEEN) == (21, 21, 20, 23)
     assert _score(CARD) == (40, 40, 17, 40)
     assert _score(REVIEW) == (36, 36, 0, 8)
-    assert _score(BEFORE) == (121, 121, 109, 120)
+    assert _score(BEFORE) == (121, 121, 78, 120)
+    assert _score(AFTER) == (63, 63, 22, 63)
     assert {r["lang"] for r in ALL} == {"en", "ja", "zh"}
 
 
@@ -186,7 +191,7 @@ def test_property_a_negated_line_already_coded_negative_runs(shape: int) -> None
 def test_exclusions_are_byte_identical_with_the_rule_on_and_off(monkeypatch: pytest.MonkeyPatch) -> None:
     """Card 10A-1b changes only which inclusions are held: every line of the four tables compiled as an exclusion is
     the same, byte for byte, with the rule as it is and with it off."""
-    rows = [*ROWS, *UNSEEN, *CARD, *REVIEW, *BEFORE]
+    rows = [*ROWS, *UNSEEN, *CARD, *REVIEW, *BEFORE, *AFTER]
     crits = [{"kind": "exclusion", "class": "structured", "text": r["text"], "logic": _logic(r),
               "concept_candidates": _cand(r)} for r in rows]  # fmt: skip
 
@@ -227,6 +232,11 @@ HT = ["hypertension", "高血圧", "高血壓"]
 ST = ["stroke", "脳卒中", "中風"]
 LC = ["lung cancer", "肺癌"]
 SU = ["surgery", "手術"]
+HB = ["chronic hepatitis B", "慢性B型肝炎"]
+AS = ["asthma", "喘息", "氣喘"]
+IM = ["immunotherapy", "免疫療法", "免疫治療"]
+RA = ["rheumatoid arthritis", "関節リウマチ", "類風濕性關節炎"]
+MTX = ["methotrexate", "メトトレキサート", "甲氨蝶呤"]
 Line = tuple[str, list[str], list[str]]  # text, the coded concept's names, the line's other candidates
 RULES: dict[str, tuple[list[Line], list[Line]]] = {
     "R0 the concept is not named: any cue holds": (
@@ -242,12 +252,29 @@ RULES: dict[str, tuple[list[Line], list[Line]]] = {
             ("Non-small cell lung cancer, stage IV.", LC, []),
             ("非小細胞肺癌の患者。", LC, []),
             ("非小細胞肺癌患者。", LC, []),
+            # card 10A-1c: the noun form of a negated prohibition, beside "not contraindicated" and 禁忌なし
+            ("Rheumatoid arthritis with no contraindication to methotrexate.", RA, []),
+            ("関節リウマチで、メトトレキサートに禁忌がない。", RA, []),
+            ("類風濕性關節炎，且無禁忌症。", RA, []),
+            # card 10A-1c: words that only contain 不 (a bare 不 is a cue now)
+            ("控制不良之第二型糖尿病。", ["第二型糖尿病"], []),
+            ("心律不整患者。", ["心律不整"], []),
+            # card 10A-1c: a coded name that holds a descriptor whole is found in the line
+            ("非小細胞肺癌の患者。", ["非小細胞肺癌"], []),
         ],
         [
             ("No non-small cell lung cancer.", LC, []),
             ("No history of hypertension, non-small cell lung cancer, or stroke.", LC, []),
             ("非小細胞肺癌がない。", LC, []),
             ("無非小細胞肺癌。", LC, []),
+            # card 10A-1c: a prohibition itself; a bare 不; a descriptor reaching into the coded name from before it
+            ("Methotrexate is contraindicated.", MTX, []),
+            ("メトトレキサートは禁忌。", MTX, []),
+            ("禁用甲氨蝶呤。", MTX, []),
+            ("不吸菸者之氣喘。", ["吸菸"], []),
+            ("非小細胞肺癌の患者。", ["小細胞肺癌"], []),
+            ("Non-Hodgkin lymphoma.", ["Hodgkin lymphoma"], []),
+            ("非何杰金淋巴瘤。", ["何杰金淋巴瘤"], []),
         ],
     ),
     "R2 a word the cue negates, a link word, then the concept": (
@@ -282,6 +309,11 @@ RULES: dict[str, tuple[list[Line], list[Line]]] = {
             ("未經治療之高血壓、糖尿病或中風。", ST, []),
             ("No untreated hypertension.", HT, []),
             ("未治療の高血圧がない。", HT, []),
+            # card 10A-1c: a modifier with an object of its own may be a possessive ("no family history of …"):
+            # R3 now lets only "未(經)治療的 / 之" go
+            ("未曾有心臟病之家族史。", ["家族史"], []),
+            ("未曾發生化療之副作用。", ["副作用"], []),
+            ("未曾出現腦轉移之症狀。", ["症狀"], []),
         ],
     ),
     "R4 another named concept the cue reaches instead": (
@@ -338,6 +370,47 @@ RULES: dict[str, tuple[list[Line], list[Line]]] = {
             ("手術歴はあるが化学療法歴はない。", CH, ["手術"]),
             ("適合接受化學治療，但未曾接受化療。", CH, []),
             ("未曾接受化學治療,但曾接受手術。", CH, ["手術"]),
+        ],
+    ),
+    "R8 a modifier after the concept, or a relative clause on absence before it (ja)": (
+        [
+            ("Chronic hepatitis B without cirrhosis.", HB, []),
+            ("Asthma not on oral corticosteroids.", AS, []),
+            ("肝硬変のない慢性B型肝炎。", HB, []),
+            ("経口ステロイドを使用していない喘息。", AS, []),
+        ],
+        [
+            ("Cirrhosis without chronic hepatitis B.", HB, []),
+            ("Chemotherapy is not on the formulary.", CH, []),
+            ("No chronic hepatitis B without cirrhosis.", HB, []),
+            ("Smoking not in the past year.", ["smoking"], []),
+            ("Alcohol use not for 2 years.", ["alcohol use"], []),
+            ("Asthma without it.", AS, []),
+            ("受けたことのない化学療法。", CH, []),
+            ("本人が受けていない化学療法。", CH, []),
+            ("肝硬変のない慢性B型肝炎がない。", HB, []),
+            ("化学療法のない肺癌。", CH, []),
+            ("無心臟病之家族史。", ["家族史"], []),
+        ],
+    ),
+    "R9 an exception's own object": (
+        [
+            ("Prior immunotherapy other than anti-CTLA-4 antibodies.", IM, []),
+            ("抗CTLA-4抗体を除く免疫療法の治療歴。", IM, []),
+            ("除抗CTLA-4抗體外之免疫治療。", IM, []),
+            ("抗CTLA-4抗體以外之免疫治療。", IM, []),
+        ],
+        [
+            ("Any prior therapy except immunotherapy.", IM, []),
+            ("Except immunotherapy, any prior therapy.", IM, []),
+            ("No immunotherapy other than anti-CTLA-4 antibodies.", IM, []),
+            ("Prior immunotherapy other than within a trial is not allowed.", IM, []),
+            ("免疫療法を除く治療歴がある。", IM, []),
+            ("免疫療法以外の治療。", IM, []),
+            ("抗CTLA-4抗体を除き、免疫療法は不可。", IM, []),
+            ("除免疫治療外之其他治療。", IM, []),
+            ("免疫治療以外之治療。", IM, []),
+            ("除抗CTLA-4抗體外，不得接受免疫治療。", IM, []),
         ],
     ),
 }
