@@ -66,6 +66,7 @@ def test_dump(box: dict[str, Any]) -> None:
 VOLATILE = (
     (re.compile(r'name="csrf" value="[^"]+"'), 'name="csrf" value="-"'),
     (re.compile(r'data-csrf="[^"]+"'), 'data-csrf="-"'),
+    (re.compile(r'data-(idle|abs)-left="\d+"'), r'data-\1-left="N"'),  # the session's seconds left (D-1370)
     (re.compile(r"\b\d{1,2}:\d{2}(:\d{2})?(\.\d+)?\b"), "HH:MM"),  # a time of day
     (re.compile(r"\b[0-9A-HJKMNP-TV-Z]{26}\b"), "ULID"),  # an id made when the page was asked
     (re.compile(r"\b[0-9a-f]{64}\b"), "SHA256"),  # a chain hash over those

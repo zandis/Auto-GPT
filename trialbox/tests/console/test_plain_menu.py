@@ -624,7 +624,8 @@ def test_with_the_flag_off_every_page_is_byte_for_byte_the_page_without_this_car
                 got = {}
                 for f in ("with", "without"):  # one after the other: nothing happens between the two
                     form[0] = f
-                    got[f] = re.sub(r'name="csrf" value="[^"]+"', "", page.get(p).text)
+                    # the CSRF token, and the session's seconds left (D-1370), which the clock moves between two asks
+                    got[f] = re.sub(r'name="csrf" value="[^"]+"|data-(?:idle|abs)-left="\d+"', "", page.get(p).text)
                 assert got["with"] == got["without"], (col, lang, p)
                 assert 'data-plain="on"' not in got["with"], (col, lang, p)
                 compared += 1
