@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from tb_common.crypto import sha256_bytes
+from tb_common.dates import site_dates
 from tb_common.llm import LlmClient, LlmError
 from tb_common.pair import served_keys
 from tb_common.subject import job_subject
@@ -582,12 +583,13 @@ def release(ctx: Ctx) -> Outcome:
     to = sorted({job.requested_by, src.requested_by} - {"scheduler", "system"})
     outputs: list[JobOutput] = []
     shown: dict[str, int] = {}
+    style = site_dates(ctx.cfg.settings.site)[0]  # 10C-13: the printed page's dates
     for lang in rec["languages"]:
         view = released_view(rec, lang, drop, keep)
         shown[lang] = len(view["items"]) + len(view["questions"])
         if not view["items"]:
             continue
-        page = consent_html.patient(rec, lang, view, release=rel)
+        page = consent_html.patient(rec, lang, view, release=rel, dates=style)
         outputs.append(ctx.publish(f"consent_{study}_{lang}.html", page, "aggregate", to))
     if not outputs:
         raise StepFailed("release", "every statement was removed or held back; nothing to release")

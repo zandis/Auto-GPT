@@ -1,0 +1,139 @@
+{
+ "note": "10G-42 (a), D-928: the SQL-from-string (S608) and hard-coded-password (S105, S106) findings of ruff per file, as counted on master a44a39da. tests/unit/test_sql_from_strings_ratchet.py holds every file to its count: a new one fails CI, a fixed one lowers it here. Part (c) reviews each site.",
+ "counts": {
+  "deploy/windows/wsl2_policy.py": {
+   "S608": 2
+  },
+  "libs/tb_common/config.py": {
+   "S105": 1
+  },
+  "libs/tb_common/db.py": {
+   "S608": 1
+  },
+  "libs/tb_common/derived_store.py": {
+   "S608": 3
+  },
+  "libs/tb_common/flags.py": {
+   "S608": 2
+  },
+  "libs/tb_common/lakeprobe.py": {
+   "S608": 1
+  },
+  "libs/tb_common/notmatched.py": {
+   "S608": 2
+  },
+  "libs/tb_common/refdata.py": {
+   "S608": 5
+  },
+  "libs/tb_common/service_auth.py": {
+   "S105": 1
+  },
+  "services/adapter/licensed.py": {
+   "S608": 1
+  },
+  "services/adapter/pidmap.py": {
+   "S608": 1
+  },
+  "services/adapter/sources/cgrd_sql/source.py": {
+   "S608": 2
+  },
+  "services/console/auth.py": {
+   "S608": 8
+  },
+  "services/console/breakglass_store.py": {
+   "S608": 5
+  },
+  "services/console/demo_guard.py": {
+   "S608": 1
+  },
+  "services/console/feedback.py": {
+   "S608": 1
+  },
+  "services/console/firstrun.py": {
+   "S608": 1
+  },
+  "services/console/sitestore.py": {
+   "S608": 2
+  },
+  "services/console/teamstore.py": {
+   "S608": 5
+  },
+  "services/criteria_compiler/compile_sql/generator.py": {
+   "S608": 18
+  },
+  "services/criteria_compiler/library/repository.py": {
+   "S608": 1
+  },
+  "services/datacore/optout_worker.py": {
+   "S608": 1
+  },
+  "services/datacore/store.py": {
+   "S608": 1
+  },
+  "services/edc/store.py": {
+   "S608": 2
+  },
+  "services/edc_backend/config.py": {
+   "S105": 2
+  },
+  "services/lake/store.py": {
+   "S608": 8
+  },
+  "services/mail_gateway/store.py": {
+   "S608": 3
+  },
+  "services/matching/carried.py": {
+   "S608": 2
+  },
+  "services/matching/recorded.py": {
+   "S608": 1
+  },
+  "services/omop/__main__.py": {
+   "S608": 1
+  },
+  "services/omop/dqd.py": {
+   "S608": 17
+  },
+  "services/omop/export.py": {
+   "S608": 14
+  },
+  "services/omop/load.py": {
+   "S608": 11
+  },
+  "services/omop/partitions.py": {
+   "S608": 4
+  },
+  "services/omop/vocab_load.py": {
+   "S608": 1
+  },
+  "services/orchestrator/db.py": {
+   "S608": 18
+  },
+  "services/orchestrator/recall/ledger.py": {
+   "S608": 4
+  },
+  "services/orchestrator/scenarios/feas_compute.py": {
+   "S105": 1,
+   "S608": 3
+  },
+  "services/orchestrator/scenarios/twpas.py": {
+   "S608": 1
+  },
+  "services/orchestrator/scheduler.py": {
+   "S608": 1
+  },
+  "services/orchestrator/studystore.py": {
+   "S105": 1,
+   "S608": 1
+  },
+  "services/patient_profile/twin.py": {
+   "S608": 1
+  },
+  "services/sitesetup/store.py": {
+   "S608": 5
+  },
+  "services/vec/store.py": {
+   "S608": 2
+  }
+ }
+}
