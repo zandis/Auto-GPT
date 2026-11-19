@@ -1113,9 +1113,6 @@ DECLARED: dict[str, Declared] = {
         "str", "05:00", "ops: the quiet hour's start, site clock, for an update asked for then (D-731)"
     ),
     "TB_UPDATE_QUIET_HOURS": Declared("float", "2", "ops: how long the quiet hour lasts, hours (D-731)"),
-    "TB_UPDATE_STICK": Declared(
-        "str", "/media/trialbox-update", "ops: where the host mounts the update stick, read only (10K-7, D-1363)"
-    ),
     "TB_UPDATE_TARGET": Declared("str", "compose", "update: compose or demo"),
     "TB_VALIDATION_SAMPLE_CAP": Declared(
         "int", "", "ingest gate: most resources of one type validated (unset: from the limit; 0: no cap; D-457)"

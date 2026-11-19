@@ -1279,7 +1279,7 @@ def lake_tuples(lake_dir: Path, snap: str) -> Counter[tuple[str, ...]] | None:
 
     def rows(name: str) -> list[dict[str, Any]]:
         p = folder / f"{name}.parquet"
-        return pq.read_table(p).to_pylist() if p.exists() else []
+        return pq.read_table(p, use_threads=False).to_pylist() if p.exists() else []
 
     for r in rows("patient"):
         out[("patient", r["pid"], "" if r["birth_date"] is None else str(r["birth_date"])[:10], str(r["sex"]))] += 1
