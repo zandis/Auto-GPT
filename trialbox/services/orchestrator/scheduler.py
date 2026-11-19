@@ -19,6 +19,7 @@ import os
 import re
 import time
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any, cast
 
 import yaml
@@ -392,12 +393,48 @@ def cohort_rulesets(orch: Orchestrator) -> list[str]:
     return out
 
 
+def _box_env(orch: Orchestrator) -> dict[str, str]:
+    """The tier label and the night budget as this process was given them (``TB_PROFILE``, the budget var)."""
+    extra = getattr(getattr(orch.cfg, "env", None), "extra", None) or {}
+    out = {str(key): str(value) for key, value in extra.items()}
+    for key in ("TB_PROFILE", "TB_MICROBATCH_NIGHT_BUDGET"):
+        if key not in out and os.environ.get(key):
+            out[key] = os.environ[key]
+    return out
+
+
+def advance_night(orch: Orchestrator, now: datetime | None = None) -> Any:
+    """Go on with tonight. Coded screening waits while the night's ingest is still running (10E-11)."""
+    from orchestrator import night, night_plan
+
+    plan = getattr(orch, "night_plan", None)
+    if not isinstance(plan, night_plan.NightPlan):
+        plan = night_plan.build_night_plan(orch.cfg.settings, _box_env(orch), env_obj=getattr(orch.cfg, "env", None))
+        orch.night_plan = plan  # type: ignore[attr-defined]
+    decision = plan.decide(night_plan.local_clock(orch, now), ingest_running=night_plan.ingest_still_running(orch))
+    if decision.coded_screening == "wait_for_ingest":
+        # This night's coded pass stays unstarted. The chain still runs: an earlier night may have a step left,
+        # and it screens the last ingest that passed, never the one that is still running.
+        log.info("coded screening waits for ingest to complete")
+    night.advance(orch)
+    return decision
+
+
 def start(orch: Orchestrator) -> Any:
     """Start the timed jobs, or nothing when the schedule is on demand (DEV by default, FR-OPS-12): then INGEST,
-    MICROBATCH and the rest run only when requested (mail command, console or ``run_now``)."""
+    MICROBATCH and the rest run only when requested (mail command, console or ``run_now``).
+
+    The night plan (10E-11) is built first. It does not move an ingest time the installation already set, and it
+    does not replace a configured night budget."""
     from apscheduler.schedulers.background import BackgroundScheduler
     from tb_common.config import SCHEDULER_JOB_DEFAULTS, schedule_on_demand, tb_env
 
+    from orchestrator import night_plan
+
+    orch.night_plan = night_plan.build_night_plan(  # type: ignore[attr-defined]
+        orch.cfg.settings, _box_env(orch), env_obj=getattr(orch.cfg, "env", None)
+    )
+    log.info("night plan: %s", orch.night_plan.report_line())  # type: ignore[attr-defined]
     if schedule_on_demand(orch.cfg.settings, tb_env(orch.cfg.env)):
         log.info("schedule is on demand (TB_ENV=%s): no timed jobs", tb_env(orch.cfg.env))
         return None
@@ -431,10 +468,9 @@ def start(orch: Orchestrator) -> Any:
             sched.add_job(cohort, "cron", id="cohort", **kw)
         else:  # D-397: the timer's ingest; the night's chain follows it
             sched.add_job(_submit, "cron", id="ingest", args=[orch, "INGEST", None, {"timer": "1", "chain": "1"}], **kw)
-    from orchestrator import night
 
     def go_on(_job: Any = None) -> None:
-        night.advance(orch)
+        advance_night(orch)
 
     hooks = getattr(orch, "on_terminal", None)  # an orchestrator stand-in without job ends has no chain
     if hooks is not None:
