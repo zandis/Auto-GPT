@@ -166,7 +166,8 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         if earlier:  # a run before a restart left its wall seconds on the record
             orch.db.put(job.model_copy(update={"metrics": JobMetrics(wall_seconds=earlier)}))
         if raise_done_once:  # the success path's final write fails once; the failure path writes the job
-            real, failed = orch.set_state, []
+            real = orch.set_state
+            failed: list[str] = []
 
             def set_state(j: Any, state: str, **kw: Any) -> Any:
                 if state == "done" and not failed:
