@@ -29,6 +29,13 @@ services:
     mem_limit: ${TB_MEM_PROMETHEUS:-512m}
     pids_limit: 256
     labels: {tb.watchdog: restart}
+    # H-58 (D-1337): the four controls. 65534:65534 is the image's own USER nobody, which owns /prometheus; the data
+    # is on the prometheus-data volume, nothing else is written (a /tmp tmpfs all the same). Port 9090.
+    user: "65534:65534"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
