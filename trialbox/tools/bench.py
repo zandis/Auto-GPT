@@ -149,6 +149,12 @@ def bench_ingest(work: Path, n: int) -> tuple[Result, Path]:
         f"peak memory {peak_gb:.1f} GB at {n:,} patients (the batch is held in memory: ≈{peak_gb / n * 50_000:.0f} GB "
         "projected for 50k; reference hosts have 128 GB, or ingest in chunks with --since, D-80)"
     )
+    if rep.connector is not None:  # 10E-9 (review 13-10, S-8): the connector's own time per message
+        c = rep.connector
+        slow = sorted(c.tables.items(), key=lambda kv: -kv[1].seconds)[:3]
+        notes.append(f"connector {c.kind}: {c.messages:,} messages read in {c.seconds:.1f} s, p95 per message "
+                     f"{c.p95_ms} ms; slowest tables " + ", ".join(f"{k} {v.seconds:.1f} s (p95 {v.p95_ms} ms)"
+                                                                   for k, v in slow))  # fmt: skip
     if not rep.passed:
         notes.append(f"ingest report not passed: {(rep.errors or [])[:2]}")
     # keep only the DuckDB snapshot (FEAS amplifies it); the exports, NDJSON and parquet are not needed any more

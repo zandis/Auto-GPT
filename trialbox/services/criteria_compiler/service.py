@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
@@ -25,6 +26,7 @@ from tb_common.llm import LlmClient, LlmError, LlmUpstreamFailed
 from tb_common.objstore import ObjectStore
 from tb_common.phi_guard import PhiScan, scan, variables_text
 from tb_common.ruleset import Ruleset
+from tb_common.steptime import StepClock
 from tb_contracts import (
     ApproveRequest,
     ApproveResult,
@@ -1091,8 +1093,22 @@ class Compiler:
         return best[1], best[2]
 
     def approve(self, req: ApproveRequest) -> ApproveResult:
+        """H-45: :meth:`_approve` with the seconds of its steps in ``step_seconds`` (fixed names, numbers only); a
+        step that raises leaves the steps before it on the exception's ``step_seconds``, the failure unchanged."""
+        clock = StepClock()
+        try:
+            res = self._approve(req, clock)
+        except Exception as exc:
+            with contextlib.suppress(Exception):
+                exc.step_seconds = clock.closed("compiler.unaccounted")  # type: ignore[attr-defined]
+            raise
+        return res.model_copy(update={"step_seconds": clock.closed("compiler.unaccounted")})
+
+    def _approve(self, req: ApproveRequest, clock: StepClock) -> ApproveResult:
         branch, rs = self._draft(req.ruleset, req.version)
+        clock.lap("compiler.draft_read")
         refresh_installed(self.d.term)  # E-TERM-3 (D-1048): a list loaded again or removed since the compile
+        clock.lap("compiler.refresh_installed")
         job_id = req.job_id or branch.split("/", 1)[1]
         now = datetime.now(ZoneInfo(self.d.tz))
         decisions = {d.id: d for d in req.decisions}
@@ -1102,12 +1118,14 @@ class Compiler:
         unknown = sorted(set(decisions) - {c.id for c in criteria})
         if unknown:
             raise CompileFailed("approve", f"review.xlsx lists unknown criteria {unknown}")
+        clock.mark()
         for c in criteria:  # D-989: a person's decision on each criterion a model extracted, as the sheet sent it
             d = decisions.get(c.id)
             if d is not None and d.status in DECIDED_AS:
                 provenance.confirmed(self.d.audit, "criterion",
                                      provenance.ref(ruleset=req.ruleset, version=req.version, crit=c.id),
                                      criterion_calls(c), req.by, DECIDED_AS[d.status], job_id=job_id)  # fmt: skip
+        clock.lap("compiler.audit_confirmed")
         edits = [d for d in req.decisions if d.status == "edit"]
         updated: list[CriterionIR] = []
         to_extract: list[tuple[CriterionIR, str]] = []
@@ -1135,6 +1153,7 @@ class Compiler:
                         upd["human_question"] = f"Confirm with the patient/clinician: {c.text}"
                     new = c.model_copy(update=upd)
             updated.append(new)
+        clock.lap("compiler.apply_decisions")
         if to_extract:
             lines = [{"text": text, "kind": c.kind, "source_ref": c.source_ref or ""} for c, text in to_extract]
             extracted, _, unread, calls = self._extract(job_id, req.ruleset, rs.manifest.language or "en", lines)
@@ -1152,9 +1171,11 @@ class Compiler:
                 if d.edited_class:
                     replaced[orig.id] = replaced[orig.id].model_copy(update={"class_": d.edited_class})
             updated = [replaced.get(c.id, c) for c in updated]
+            clock.lap("compiler.extract_edits")
         if edits:
             round_no += 1
             if round_no > MAX_ROUNDS:
+                clock.mark()
                 self._audit(
                     "approve.max_rounds",
                     job_id=req.job_id,
@@ -1162,6 +1183,7 @@ class Compiler:
                     ruleset_version=req.version,
                     actor=req.by,
                 )
+                clock.lap("compiler.audit_done")
                 return ApproveResult(
                     ruleset=req.ruleset,
                     version=req.version,
@@ -1171,12 +1193,16 @@ class Compiler:
                     blocking=[d.id for d in edits],
                 )
         index_date = self._today()
+        clock.mark()
         art = self.build_artifacts(req.ruleset, req.version, updated, valuesets)
+        clock.lap("compiler.build_artifacts")
         prev = self.d.repo.read(branch, f"{req.ruleset}/tests/equivalence.json")
+        clock.lap("compiler.draft_read")
         if edits or prev is None or any(d.status == "reject" for d in req.decisions):
             tests = self._equivalence(updated, art, valuesets, index_date, f"{req.ruleset}|{req.version}")
         else:
             tests = self.enforce(EquivalenceReport.model_validate_json(prev), updated)
+        clock.lap("compiler.equivalence")
         updated = self._flag(updated, tests)
         active = [c for c in updated if not (c.review and c.review.status == "rejected")]
         blocking = sorted(
@@ -1191,7 +1217,9 @@ class Compiler:
         manifest = rs.manifest.model_copy(update={"criteria": [c.id for c in updated]})
         if edits or blocking:
             manifest = RulesetManifest.model_validate({**dump(manifest), "review": {"rounds": round_no}})
+            clock.lap("compiler.checks")
             files = self._files(manifest, updated, valuesets, art, tests)
+            clock.lap("compiler.files")
             self.d.repo.write_dir(
                 branch,
                 "main",
@@ -1200,12 +1228,15 @@ class Compiler:
                 f"review round {round_no} for {req.ruleset} v{req.version} by {req.by}",
                 req.by,
             )
+            clock.lap("compiler.repo_write")
             notes = (
                 [f"Round {round_no}: {len(edits)} edited criteria recompiled"]
                 if edits
                 else [f"Blocking: {', '.join(blocking)}"]
             )
+            clock.mark()
             keys = self._package(job_id, manifest, updated, valuesets, tests, files, round_no, notes)
+            clock.lap("compiler.package")
             self._audit(
                 "approve.needs_review",
                 job_id=req.job_id,
@@ -1214,6 +1245,7 @@ class Compiler:
                 actor=req.by,
                 detail={"round": round_no, "blocking": blocking, "edits": len(edits)},
             )
+            clock.lap("compiler.audit_done")
             return ApproveResult(
                 ruleset=req.ruleset,
                 version=req.version,
@@ -1251,7 +1283,9 @@ class Compiler:
                 },
             }
         )
+        clock.lap("compiler.checks")
         files = self._files(manifest, updated, valuesets, art, tests)
+        clock.lap("compiler.files")
         # G3 of the P1b review (D-952): the FHIR load ran after the tag and the promotion, unguarded; a server that
         # refused it (FhirEvalError) left the ruleset approved and released while the job failed with an HTTP 500. It
         # runs first: a refusal changes nothing in the repo and fails the approval by its step, with the server's text
@@ -1261,21 +1295,28 @@ class Compiler:
                 library_resource("TB_Common", "1.0.0", art.cql["TB_Common"], art.elm.get("TB_Common")),
                 library_resource(art.library, art.library_version, art.cql[art.library], art.elm[art.library]),
             ]
+            clock.mark()
             try:
                 self.d.fhir.load(libs, valuesets.values())
+                clock.lap("compiler.fhir_load")
             except (FhirEvalError, httpx.HTTPError) as exc:
+                clock.lap("compiler.fhir_load")
                 # D-952 with D-959: what the server said, masked (never a patient's id); a transport error by its type
                 said = server_said(exc) if isinstance(exc, FhirEvalError) else type(exc).__name__
                 log.warning("approve %s v%s: the FHIR server refused the load: %s", req.ruleset, req.version, said)
                 raise CompileFailed(
                     "approve", f"the FHIR server did not take the ruleset's libraries or value sets: {said}"
                 ) from exc
+        clock.mark()
         self.d.repo.write_dir(
             branch, "main", f"{req.ruleset}/", files, f"approve {req.ruleset} v{req.version} by {req.by}", req.by
         )
+        clock.lap("compiler.repo_write")
         tag = f"{req.ruleset}/v{req.version}"
         self.d.repo.tag(tag, branch, f"{req.ruleset} v{req.version} approved by {req.by}", req.by)
+        clock.lap("compiler.repo_tag")
         self.d.repo.promote(req.ruleset, tag, f"release {tag}", req.by)
+        clock.lap("compiler.repo_promote")
         self._audit(
             "approve.done",
             job_id=req.job_id,
@@ -1289,6 +1330,7 @@ class Compiler:
                 "irb_reference": manifest.irb_reference or "",
             },
         )
+        clock.lap("compiler.audit_done")
         return ApproveResult(
             ruleset=req.ruleset,
             version=req.version,
