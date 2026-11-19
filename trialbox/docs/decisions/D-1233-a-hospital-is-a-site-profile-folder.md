@@ -25,22 +25,33 @@ hospital meant changing code or the image. Shipped sample rows marked `verify` w
    keys, tables outside the folder, missing columns, patient columns, empty or repeated keys, empty targets, a state
    word that is not `verified` or `verify` (legacy `yes`/`confirmed` read as verified, `local` as verify).
 3. **A table says where it is read** (`used_by`): `mapping.<look-up>` replaces the mapping's look-up file (the YAML
-   and its version are unchanged); `ssmix2.diagnosis`, `ssmix2.drug`, `ssmix2.lab` are given to the SS-MIX2
-   reader at the call site. Adding a row needs no code; adding a kind of table adds one `used_by` word.
-4. **Versions and audit.** A new digest is recorded (who, when, old and new version, both digests, direction) in
-   `site_profile.json` in the lake folder and as one `site_profile.load` audit event; the same id and version with
-   other content is refused. Every night read with a profile writes `site_profile.json` beside its snapshot and
-   carries the stamp in `ingest.done`.
-5. **The state travels.** Coverage lines and the work list count and list `verify` rows; a site set-up suggestion
-   from a `verify` row is `lookup_verify` at 0.80, never shown as certain.
-6. **Coverage lines and the work list** come from the night's own files, counts only; the night's data-operations
+   and its version are unchanged) and is held to the mapping's look-up key and columns, at night and by
+   `check --mapping`; `ssmix2.diagnosis`, `ssmix2.drug`, `ssmix2.lab` are given to the SS-MIX2 reader at the call
+   site and held to an allowlist of its columns. Adding a row needs no code; adding a kind of table adds one `used_by`
+   word. Empty tables are refused; free text holds no `://`, `@` or token.
+4. **Versions and audit.** A new digest is recorded (who, when, old and new version, both digests, direction, and
+   every row whose state changed) in `site_profile.json` in the lake folder and as one `site_profile.load` audit
+   event; with no audit destination nothing is activated; an id and version read before (anywhere in the history)
+   with other content is refused; the site is the settings' and the country and standard versions must agree with
+   them. Every night read with a profile writes `site_profile.json` beside its snapshot and carries the stamp in
+   `ingest.done`.
+5. **The state travels.** A fact whose standard code comes from a `verify` row carries D-135's basis tag `verify`:
+   it stays coded (only `proposed` is kept out of the coded tables) and is listed in the lake's `site_fact`; the
+   coverage lines count such facts and the `verify` rows; the work list lists the rows; a site set-up suggestion from
+   a `verify` row is `lookup_verify` at 0.80, never shown as certain. **Whether such a fact may exclude a patient is
+   an open question for the owner** (DATA §15); today it may, as before this decision.
+6. **Two homes for one lab code.** Where the site set-up store (D-135) and the profile map a lab code differently,
+   the store wins (coordinator's ruling) and the work list lists each disagreement. The night does not apply it yet:
+   the adapter has no read right on the `sitesetup` schema, which is lane C2's to grant.
+7. **Coverage lines and the work list** come from the night's own files, counts only; the night's data-operations
    page shows them; `python -m adapter.site_profile worklist` writes the CSV. The work list's page waits for 10B-19.
-7. **Synthetic profiles may name a shipped table** (`shipped:<path>`) rather than copy it; a site's own may not.
+8. **Synthetic profiles may name a shipped table** (`shipped:<path>`) rather than copy it; a site's own may not.
 
 ## Consequences
 
 - The goldens' synthetic Taiwan (`synthetic-tw-a`) and Japanese (`ssmix2-jp`) sites are read through their
-  profiles; `make goldens-check` is identical from both lake sources. A second profile with renamed local codes
-  reads the same coded facts (`tests/unit/test_site_profile.py`).
+  profiles; without the `verify` tag the goldens were identical from both lake sources, and the tag moves only the
+  lake's `site_fact` and the facts' basis (regenerated with the reason). A second profile with renamed local codes
+  reads the same coded facts, at the csv and the SS-MIX2 door (`tests/unit/test_site_profile.py`).
 - What is not yet in the profile is listed with the card that moves it in `docs/data/15-the-site-profile.md`.
 - `services/datacore/dataops.py` keeps `site_profile` in a night's row (`DETAIL_KEYS`), counts and type names only.

@@ -1,4 +1,4 @@
-# Site profile of the synthetic Taiwan hospital (10B-6, D-1233; design: docs/data/site-profile.md). Synthetic: site
+# Site profile of the synthetic Taiwan hospital (10B-6, D-1233; design: docs/data/15-the-site-profile.md). Synthetic: site
 # tw-a of `tools.synth_hospital` (CGRD-style CSV feed, the goldens' synthetic-tw-a set). Its lab table is the sample
 # shipped in the image's tw_core folder, named here, not copied. A site's own profile is
 # deploy/site/mapping/profile/profile.yaml with its tables in codes/ beside it.

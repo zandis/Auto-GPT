@@ -1,4 +1,4 @@
-# Site profile of the synthetic Japanese hospital (10B-6, D-1233; design: docs/data/site-profile.md). Synthetic: the
+# Site profile of the synthetic Japanese hospital (10B-6, D-1233; design: docs/data/15-the-site-profile.md). Synthetic: the
 # 400 patients of `tools.synth_hospital` written as SS-MIX2 storage by `tools.ssmix2_export` (the goldens' ssmix2-jp
 # set). Its code tables are the samples shipped in the image's jp_core folder, named here, not copied: every row says
 # `verify` (synthetic codes, never checked against the MEDIS, JLAC10 or YJ releases). A site's own profile is

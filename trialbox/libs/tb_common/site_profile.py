@@ -1,4 +1,4 @@
-"""A site profile: one hospital's habits as data (10B-6, commitment C-6, D-1233; design: docs/data/site-profile.md).
+"""A site profile: one hospital's habits as data (10B-6, C-6, D-1233; design: docs/data/15-the-site-profile.md).
 
 A profile is one folder::
 

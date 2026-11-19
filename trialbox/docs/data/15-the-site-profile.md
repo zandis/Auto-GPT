@@ -57,7 +57,9 @@ The profile keeps the *codes and habits*.
 | Local lab codes → LOINC (csv, SQL and SS-MIX2 doors) | The mapping's `lookups.lab` CSV beside the YAML | The profile table with `used_by: [mapping.lab]` (the YAML is untouched, so the mapping version is unchanged) | **Moved here** |
 | 病名 → ICD-10, YJ → ATC and the known JLAC10 codes of the SS-MIX2 reader | Hard-wired in code to the image's `jp_core` samples; no setting | Profile tables `ssmix2.diagnosis`, `ssmix2.drug`, `ssmix2.lab`, given at the call site (`adapter.pipeline.make_source`) | **Moved here** |
 | The data types the site stores | Nowhere | `data_types`, read by the coverage lines | **Moved here** |
-| The standard versions the site writes | Comments in the mapping; `settings.profiles` for TW Core | `standards` (a declaration; nothing decides on it yet) | Here, as a declaration. `settings.profiles` stays the value the code reads until 10C-25 sets the layer |
+| The standard versions the site writes | Comments in the mapping; `settings.profiles` for TW Core | `standards`, a declaration. Where both name a standard (`tw_core`, `twpas_version`), they must agree: the night and `load` refuse otherwise | Here, as a declaration. `settings.profiles` stays the value the code reads until 10C-25 sets the layer |
+| The site's country | `settings` (the zone, else the page language: `tb_common.derived.country_of`; the set-up defaults in `tb_common/site_country.py`) | `country` must be the one the settings give: the night and `load` refuse otherwise | Stays in settings; the profile is checked against it |
+| Lab codes a person mapped in site set-up (D-135) | The `local_code` store of site set-up (`sitesetup/store.py`, with who and when): it maps the codes of sheets and charts, not of the feed | Unchanged. Where it and the profile's lab table map one code differently, **the store wins** (a named person's recorded act; `adapter.site_profile.store_wins`) and the work list lists each disagreement (`worklist --setup-db`). **Not yet applied at night**: the adapter does not read the set-up store, and giving it that right is lane C2's (a read right on the `sitesetup` schema) | 10B-19 makes the form the one way to fill both |
 | Character set of the export | `settings.data_source.encoding` | Unchanged | 10B-19 (the questionnaire asks it) |
 | SS-MIX2 order-number (visit-key) habit | `TB_SSMIX2_ORDER_NUMBERS` (D-594) | Unchanged | 10B-2 (the specification's key by default), then 10B-19 |
 | Usage (用法) codes → doses per day | Not modelled | Unchanged | 10B-4 (`codes/usage.csv`, a new `used_by`) |
@@ -72,7 +74,7 @@ The profile keeps the *codes and habits*.
 | Unit spellings and default units per analyte | The mapping's `unit_spellings` (D-590) and `unit_defaults` (D-149) | Unchanged | No card names it; proposed with 10B-16 (the second synthetic profile) |
 | Department codes → names | `settings.departments` | Unchanged | 10B-19 |
 | Site set-up's suggestions | Read the image's `jp_core` and `tw_core` samples | Unchanged, but a suggestion from a `verify` row says so (below) | 10B-19 (read the site's profile instead) |
-| `settings.data_source.lab_local_to_loinc` | In the settings schema; no code reads it | Unchanged | Remove with 10B-19 (the lab table is the profile's) |
+| `settings.data_source.lab_local_to_loinc` | In the settings schema; **dead**: no code reads it | Unchanged (removing a settings key is a schema change of its own) | Remove with 10B-19 (the lab table is the profile's) |
 | Licensed MEDIS, JLAC10 and YJ releases | The terminology store (`adapter.licensed`, D-137) | Unchanged: national releases the site buys, not habits | Stays |
 | Regimens and order sets | Not modelled | Unchanged | 10A-8 (regimens), 10B-15 |
 
@@ -83,15 +85,25 @@ file, the line and the reason:
 
 - a manifest that does not match the schema, an unknown key included;
 - a table outside its folder, or missing;
-- a table without its key, target or state column, or with a patient column;
+- a table without its key, target or state column, or with no rows;
+- a column a patient's data could ride in: a deny list (`mrn`, `birth_date`, `patient_id` and the like) and, for a
+  table only the SS-MIX2 reader reads, an allow list of the columns it reads;
+- free text (a table's `source`, a standard's version) holding `://`, `@` or a long token: nothing secret;
 - a row with an empty or repeated key, an empty target, or a state that is not one of the words above;
 - a table the SS-MIX2 reader would read by other columns;
 - two tables for one `used_by`;
 - a `synthetic` flag that does not match the id.
 
-The night loads the profile before it reads anything. A refused profile ends the night with an `ingest.failed`
-event, as any other error does. The mapping engine refuses a profile table for a look-up the mapping does not
-declare.
+A table a mapping reads (`used_by: [mapping.<look-up>]`) is also held to that mapping (`check_mapping`): the mapping
+must declare the look-up, the table must be keyed by the look-up's key and hold every column of the mapping's own
+look-up file (the columns its elements and builders read: code system, code, display, unit, category, ...) and no
+other column. Without this, a three-column table passed and every lab result lost its code at night.
+`python -m adapter.site_profile check <folder> --mapping <file>` runs the same check; without `--mapping` a profile
+with such a table is refused.
+
+The night loads the profile before it reads anything and checks it against the mapping, the country and the
+standard versions of the settings. A refused profile ends the night with an `ingest.failed` event, as any other error
+does.
 
 `Table.find(code)` returns the row with its state, so a value taken from a profile carries its state to wherever it
 is shown:
@@ -101,8 +113,23 @@ is shown:
   `lookup_verify` and the confidence 0.80, and the Local codes page says "from a sample row nobody has verified
   (check it)" in en, ja and zh-TW. Before this card such a row was shown as "from TrialBox's code table" at 100 %.
 
-The state does not travel into the FHIR resources, because that would change every golden. That is a seam for the
-card that next changes the lake's columns.
+- **The lake** (the coordinator's ruling on #1128): a fact whose standard code comes from a `verify` row carries
+  D-135's basis tag (`meta.tag` `urn:trialbox:basis`, code `verify`), the same mechanism that marks a site's own
+  facts as proposed or confirmed. Only `proposed` keeps a fact out of the coded tables. A `verify` fact stays coded,
+  as it was before this card, and the lake also lists it in `site_fact` with basis `verify`, so how much of a count
+  rests on unverified rows can be asked. The night's coverage lines count these facts per table.
+  - A mapping's look-up table: every row that looks up a `verify` code is tagged.
+  - An SS-MIX2 table: the reader is not changed here (#1095 is changing it). A diagnosis or medicine row is tagged
+    when its local code is a `verify` row and its standard code is the one that row gives. A message that carried the
+    same code itself is tagged too: an over-count on the safe side.
+
+**Open question (no rule exists; not decided here).** May a fact whose standard code rests on an unverified mapping
+exclude a patient? Today it does exactly what any coded record does: it can meet an inclusion and it can exclude.
+D-135's rule ("a proposed fact can only send a patient to needs information") is about facts read from a chart,
+not about mappings, and D-130 covers codes nobody maps, not codes mapped but unchecked.
+The test `test_a_fact_from_a_verify_row_stays_coded_and_is_listed_as_resting_on_one` in
+`tests/unit/test_site_profile.py` pins today's behaviour. Tagging such facts `proposed` instead would apply D-135's rule to them, and would take every lab
+result of the synthetic Japanese hospital out of its funnels: that is the owner's decision to make.
 
 ## Versions, audit, roll-out and roll-back
 
@@ -113,7 +140,13 @@ history.
 - **A new digest** is recorded with who, when, the old and new version, both digests and the direction (first,
   forward, back). It is written as one `site_profile.load` event in the hash-chained audit through the one audit
   writer.
-- **The same id and version with other content** is refused: the steward changes the version with the content.
+- **Every row whose state changed** (added, removed, `verify` to `verified` or back) is named in the same event with
+  its table, code, old and new state; who and when are the event's. The rows' states as last activated are kept in
+  `site_profile.states.json` beside the record.
+- **No audit, no profile.** Without an audit folder nothing is activated (the night and `load` refuse).
+- **An id and version read before with other content** is refused, asked of the whole history, not only of the
+  active profile: the steward changes the version with the content.
+- **The site** is the settings' `site.id`: `load` reads it from the settings and refuses a profile of another site.
 - **Roll-out.** Put the new folder in place, check it (`python -m adapter.site_profile check`), and load it by name
   (`load --by`, recorded). If nobody loads it, the next night loads it and records the actor as `adapter`.
 - **Roll-back.** Put the earlier folder back from the backup and load it. It is recorded as `direction: back`.
@@ -129,10 +162,13 @@ Coverage lines are counts only, never a patient's value. They are built from the
 (`completeness.json`, `reader.json`, `unmapped_codes.json`), so any kept night can be asked again. They say:
 
 - each declared data type and its rows;
+- the declared types this version does not read at all (an allergy type, say): "declared, not read by this version",
+  not "none arrived";
 - the declared types that did not arrive;
 - the types that arrived but are not declared;
 - per table, how many codes and rows no table could map;
-- per table, how many rows are still `verify`.
+- per table, how many rows are still `verify`;
+- per table, how many facts of the night rest on a `verify` row.
 
 There are two ways to read them:
 
@@ -141,8 +177,10 @@ There are two ways to read them:
   zh-TW, 390 px), and the same in `/api/v1/data/batches/<id>`.
 
 The work list is `python -m adapter.site_profile worklist --night <dir> --out <file.csv>`. It lists the unmapped
-codes, most rows first, then every `verify` row with its file and line. A cell that a spreadsheet would run as a
-formula is quoted. **A page for the work list is not built here.** It belongs with 10B-19's site-setup form, which
+codes, most rows first; with `--setup-db <url>` every lab code the site set-up store maps otherwise than the
+profile (`disagree`, the store's code marked as the one that wins); then every `verify` row with its file and line.
+A cell that a spreadsheet would run as a formula (starting with `=`, `+`, `-`, `@`, a tab or a carriage return) is
+quoted. **A page for the work list is not built here.** It belongs with 10B-19's site-setup form, which
 is where a steward edits the rows.
 
 ## The proof
@@ -151,22 +189,45 @@ The plan says: "a second synthetic profile gives the same funnel with no code ch
 
 1. **Goldens.** The goldens' synthetic Taiwan site (`synthetic-tw-a`, csv) and synthetic Japanese hospital
    (`ssmix2-jp`, SS-MIX2 storage) are read through their profiles (`services/adapter/mapping/profile/`,
-   `tools/omop_parity.py` `PROFILES_OF`). `make goldens-check` is identical from both lake sources.
-2. **Byte-identical NDJSON.** The same night with and without its profile gives the same NDJSON
-   (`tests/unit/test_site_profile.py`).
-3. **A second profile.** The same synthetic patients, with the hospital's lab codes renamed in its export and its
-   own profile carrying the renamed table, read the same coded facts (who, when, LOINC, value). Patients,
-   diagnoses, medicines and visits are byte-identical. No mapping file and no code changes between the two.
+   `tools/omop_parity.py` `PROFILES_OF`). Before the `verify` tag, `make goldens-check` was identical from both
+   lake sources. The tag moves only what it should: the pull request names each golden file and value that moved.
+2. **The same NDJSON but for the tag.** The same night with and without its profile gives byte-identical NDJSON for
+   every type but `Observation`, and the same `Observation` lines once the `verify` tag is removed; exactly the
+   results of the `verify` codes carry it (`tests/unit/test_site_profile.py`).
+3. **A second profile at the csv door.** The same synthetic patients, with the hospital's lab codes renamed in its
+   export and its own profile carrying the renamed table, read the same coded facts (who, when, LOINC, value).
+   Patients, diagnoses, medicines and visits are byte-identical. No mapping file and no code changes between the two.
+4. **A second profile at the SS-MIX2 door.** The same synthetic storage with every 病名 code renamed in its PPR-01
+   messages (they carry no ICD-10 of their own, so the reader takes it from the table) and a profile whose diagnosis
+   table carries the renamed codes give the same diagnoses: who, visit, ICD-10, dates and status.
 
 ## Seams left for the cards that wait
 
+**With a seam now** (a new kind of table is one `used_by` word in the schema, one argument at the call site, and the
+mapper's `verify` rule if its codes reach the lake):
+
 | Card | What it adds | Where it plugs in |
 | --- | --- | --- |
-| 10B-4 | `codes/usage.csv` (用法 → doses per day), the drug master | A new `used_by` (`ssmix2.usage`, `ssmix2.drug_master`) in the schema's list and `make_source` |
-| 10B-5 | Extended-storage folders and `_contents.xml` | `documents.csv` beside it; the declared `data_types` already count what arrives |
-| 10B-12 | DPC readers | `door: dpc` or a second door. The DPC codes are tables with `used_by` |
-| 10B-15 | Document types and templates | `documents.csv`, `templates.csv`: tables with their own `used_by` |
-| 10B-19 | The questionnaire as a form that fills the profile | It writes `profile.yaml` and `codes/`, then `load --by <person>`. The work list's page goes there |
-| 10C-22 | The older-records boundary per source | A manifest key per door (a schema change, version 1.1.0) |
-| 10C-23 | Note sections and their roles | `sections.yaml` beside the manifest, named in it |
-| 10C-25 | The Japan layer (C-7) | `country` already names the layer. A country profile sits above, and the site profile overrides only listed keys |
+| 10B-4 | `codes/usage.csv` (用法 → doses per day), the hospital drug master | `ssmix2.usage` and `ssmix2.drug_master` in the schema's list, passed by `adapter.pipeline.make_source` (the reader already takes `drug_master`) |
+| 10B-12 | DPC readers | A `door` value and its tables with their own `used_by`; `data_types` and the coverage lines need nothing new |
+| 10C-25 | The Japan layer (C-7) | `country` names the layer and is checked against the settings. A country profile sits above; the site profile overrides only listed keys |
+
+**Without a seam yet** (each needs a manifest key, a schema version 1.1.0, and code that reads it):
+
+| Card | What it needs |
+| --- | --- |
+| 10B-5, 10B-15 | Document types and templates: a `documents.csv` and a `templates.csv`, and the reader's `_DOC_KINDS` read from them (an edit of the SS-MIX2 reader, after #1095) |
+| 10C-23 | Note sections: a `sections.yaml` named in the manifest, and the matcher's heading pattern read from it |
+| 10C-22 | The older-records boundary per source: a key per door, and the engine's look-back reading it |
+| (none yet) | Calendar overrides of the site: a key after 10C-25's national calendar exists |
+| 10B-19 | The questionnaire: a form that writes `profile.yaml` and `codes/` and then loads them by the person's name; the work list's page goes there |
+
+## Known limits
+
+- A night read under one version is not read again, nor flagged, when a later version changes a mapping: the next
+  full night reads with the new one, and each night says which version read it.
+- The record in the lake folder is read, changed and written without a lock: two loads at the same moment can lose
+  one history entry (the audit chain keeps both events).
+- #1095 (the SS-MIX2 reader to the specification) changes the default visit key and the goldens, and touches
+  `tests/unit/test_japan_completeness.py` and the decision registry, as this card does: whichever merges second
+  runs the identical-output check again.
