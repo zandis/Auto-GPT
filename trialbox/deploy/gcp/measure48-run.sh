@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The 48 GB measuring run, unattended (lane H, card H-53): H-47's sheet (docs/plan/measurements/48gb-measuring-run-
 # 2026-11-19.md) as a run the integrator starts with no SSH. This driver makes a NEW Spot VM for the run (100 GB
-# disk), gives it deploy/gcp/measure48-vm.sh as its start-up script and deploy/gcp/measure48_vm.py as its helper, and
+# disk), gives it tools/measure48-vm.sh as its start-up script and tools/measure48_vm.py as its helper, and
 # collects the records the VM puts in the bucket as it goes; the VM powers itself off at the end, on success and on
 # failure, and the collect that finds it ended deletes it. Owner's yes first for anything but --estimate and
 # --preflight: the launch starts a paid VM (g4-standard-48 + RTX PRO 6000, US$2.74 an hour SPOT).
@@ -31,7 +31,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PY="${PY:-$ROOT/.venv/bin/python}"
-H="$ROOT/deploy/gcp/measure48_vm.py"
+H="$ROOT/tools/measure48_vm.py"
 ESTIMATE=0; PREFLIGHT=0; DRY=0; COLLECT=""; RESUME=""; STOPRUN=""; DELETE=0; KEEPVM=0; NO_O=0; COMMIT=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -145,7 +145,7 @@ gc compute instances create "$VM" --zone "$ZONE" --machine-type g4-standard-48 \
   --boot-disk-size 100GB --boot-disk-type hyperdisk-balanced \
   --shielded-vtpm --shielded-integrity-monitoring --no-shielded-secure-boot \
   --scopes storage-rw --labels trialbox=h53-48gb \
-  --metadata-from-file "startup-script=$ROOT/deploy/gcp/measure48-vm.sh,tb-m48-helper=$H" --metadata "$MD"
+  --metadata-from-file "startup-script=$ROOT/tools/measure48-vm.sh,tb-m48-helper=$H" --metadata "$MD"
 [ "$DRY" = 0 ] || echo "(dry run: the commands above were printed, nothing was uploaded, made or started)"
 echo "run $RUN_ID started on $VM ($ZONE), SPOT, cloud cap 4 h, stop line $LINE_MIN min of the VM's clock"
 echo "later: $0 --collect $RUN_ID $VM $ZONE   (as often as wanted; the one that finds it ended deletes the VM)"

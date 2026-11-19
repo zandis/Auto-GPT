@@ -1,5 +1,5 @@
 """The 48 GB measuring run, unattended (lane H, card H-53; the run of H-47's sheet without SSH): the decisions and the
-records of deploy/gcp/measure48-vm.sh, and the driver's free arithmetic (deploy/gcp/measure48-run.sh). Standard
+records of tools/measure48-vm.sh, and the driver's free arithmetic (deploy/gcp/measure48-run.sh). Standard
 library only: the VM runs it with its own python3 before any venv exists (as box_vm.py is run).
 
     python3 measure48_vm.py estimate [--no-o] [--json]          # the stages, low / estimate / high, US$, the lines
@@ -342,7 +342,7 @@ def summary(d: Path, root: Path | None = None) -> dict[str, Any]:
 def quota(folder: Path, zone: str, disk_gb: int) -> list[str]:
     """The driver's preflight: one Spot RTX PRO 6000 VM in ``zone`` (tools/complete_run.py quota_problems, the same
     reading the complete run's launch makes) and room for its boot disk in the region's HDB_TOTAL_GB."""
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from tools.complete_run import quota_problems  # the driver's checkout
 
     project = json.loads((folder / "project.json").read_text(encoding="utf-8"))
@@ -456,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
             print(rel)
         return 0
     if a.cmd == "summary":
-        res = summary(a.dir, Path(__file__).resolve().parents[2])
+        res = summary(a.dir, Path(__file__).resolve().parents[1])
         print(json.dumps(res, indent=1, sort_keys=True))
         return 0
     bad = quota(a.dir, a.zone, a.disk_gb)

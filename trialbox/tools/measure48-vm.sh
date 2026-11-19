@@ -34,7 +34,7 @@
 # whatever runs; the cloud's --max-run-duration 4h is the hard one.
 #
 # Records go up AFTER EVERY STEP (and every minute while a long step runs) to tb-bucket m48runs/<run id>/: only the
-# files deploy/gcp/measure48_vm.py ALLOW names, none DENY names (raw/, deploy/.env, deploy/secrets/, down.json,
+# files tools/measure48_vm.py ALLOW names, none DENY names (raw/, deploy/.env, deploy/secrets/, down.json,
 # verifier-flag.yml, the stub's output), each text redacted line by line and with the model servers' key masked.
 # Nothing prints a key: no `set -x`. Knobs for the rehearsal only (tests/unit/test_measure48_vm_h53.py; never on the
 # VM): TB_M48_ROOT, TB_M48_SBIN, TB_M48_SERIAL, TB_M48_MD_DIR (metadata as files), TB_M48_POLL_S, TB_M48_TIME_SCALE

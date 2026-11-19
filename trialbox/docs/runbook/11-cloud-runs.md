@@ -564,7 +564,7 @@ Owner's yes first for anything but `--estimate` and `--dry-run`.
 draft 48 GB class (lane J) measured under the ballast on a NEW Spot VM made for the run (default `tb-h47-48gb`,
 asia-east1-a, g4-standard-48 with one RTX PRO 6000, a 100 GB `hyperdisk-balanced` disk: the region's
 `HDB_TOTAL_GB` is 500 GB and `tb-gpu-sim` holds 400). `deploy/gcp/measure48-run.sh` is the driver; the work runs on
-the VM as its start-up script (`deploy/gcp/measure48-vm.sh`, with `deploy/gcp/measure48_vm.py` as its helper: the
+the VM as its start-up script (`tools/measure48-vm.sh`, with `tools/measure48_vm.py` as its helper: the
 estimate, the stop-line gate, the ladder, the disk guard, the upload allow-list, the summary). The kept VMs
 (`tb-gpu-sim`, `tb-demo-vm`, `tb-preview-vm`, `tb-steps-vm`) are refused by name. Owner's yes first for anything but
 `--estimate` and `--preflight`.

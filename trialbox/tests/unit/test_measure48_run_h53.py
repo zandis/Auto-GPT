@@ -1,5 +1,5 @@
 """H-53: the 48 GB measuring run's decisions and its driver, on stand-ins (no gcloud call, no VM, no cost):
-deploy/gcp/measure48_vm.py (the estimate's arithmetic, the stop-line gate, the ladder, the disk guard, the upload
+tools/measure48_vm.py (the estimate's arithmetic, the stop-line gate, the ladder, the disk guard, the upload
 allow-list and its redaction, the quota with HDB_TOTAL_GB, the collect summary) and deploy/gcp/measure48-run.sh
 (--estimate with no gcloud, the kept VMs refused, --preflight and a --dry-run launch against a stand-in gcloud)."""
 
@@ -17,7 +17,7 @@ from tools import complete_run
 
 ROOT = Path(__file__).resolve().parents[2]
 DRIVER = ROOT / "deploy" / "gcp" / "measure48-run.sh"
-_spec = importlib.util.spec_from_file_location("measure48_vm", ROOT / "deploy" / "gcp" / "measure48_vm.py")
+_spec = importlib.util.spec_from_file_location("measure48_vm", ROOT / "tools" / "measure48_vm.py")
 assert _spec and _spec.loader
 m48 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(m48)

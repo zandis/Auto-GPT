@@ -1,4 +1,4 @@
-"""H-53: the 48 GB measuring run's start-up script (deploy/gcp/measure48-vm.sh) rehearsed on stand-ins: no card, no
+"""H-53: the 48 GB measuring run's start-up script (tools/measure48-vm.sh) rehearsed on stand-ins: no card, no
 Docker, no cloud, no root. The script runs unchanged with its rehearsal knobs (TB_M48_*): the metadata is a folder,
 the bucket is a folder behind a stand-in gcloud, every repository tool is one stand-in program, and nvidia-smi,
 docker, apt-get, ubuntu-drivers and systemctl are stand-ins on PATH. A second is a second unless a case scales it."""
@@ -18,8 +18,8 @@ from typing import Any
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "deploy" / "gcp" / "measure48-vm.sh"
-HELPER = ROOT / "deploy" / "gcp" / "measure48_vm.py"
+SCRIPT = ROOT / "tools" / "measure48-vm.sh"
+HELPER = ROOT / "tools" / "measure48_vm.py"
 KEY = "sk-standin-key-0123456789abcdef"
 ADMIN = "standin-admin-pass-42"
 COMMIT = "0123456789abcdef0123456789abcdef01234567"

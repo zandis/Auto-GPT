@@ -413,8 +413,8 @@ on every way out, `--estimate`, `--preflight`, `--collect`, `--resume`.
 | File | What |
 | --- | --- |
 | `deploy/gcp/measure48-run.sh` | the driver: `--estimate`, `--preflight`, the launch, `--collect`, `--resume`, `--stop`, `--delete` |
-| `deploy/gcp/measure48-vm.sh` | the VM's start-up script: steps 2 to 10 of section 3, unattended |
-| `deploy/gcp/measure48_vm.py` | its helper (standard library): the estimate, the gate, the ladder, the disk guard, the upload allow-list, the summary, the quota |
+| `tools/measure48-vm.sh` | the VM's start-up script: steps 2 to 10 of section 3, unattended (in `tools/`, beside `tools/ballast48.py`, not in `deploy/`: nothing in the box's tree may start the ballast, `tests/unit/test_ballast_stand_in.py`) |
+| `tools/measure48_vm.py` | its helper (standard library): the estimate, the gate, the ladder, the disk guard, the upload allow-list, the summary, the quota |
 | `tests/unit/test_measure48_vm_h53.py`, `tests/unit/test_measure48_run_h53.py` | the VM script rehearsed on stand-ins; the decisions and the driver against a stand-in gcloud |
 
 ### 9.1 The commands (the integrator's machine)
