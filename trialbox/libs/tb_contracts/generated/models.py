@@ -576,7 +576,7 @@ class JobMetrics(BaseModel):
     wall_seconds: float = 0
     step_seconds: dict[str, float] | None = None
     """
-    H-45: an APPROVE job's seconds by fixed step name (tb_common.steptime.APPROVE_STEPS), numbers only; with orch.unaccounted they add up to wall_seconds. Optional: absent on other jobs.
+    H-45: an APPROVE job's seconds by fixed step name (tb_common.steptime.APPROVE_STEPS), numbers only; on a done job they add up to wall_seconds with orch.unaccounted (a failed job writes no wall_seconds: its steps add up to that run's time). Optional: absent on other jobs.
     """
 
 

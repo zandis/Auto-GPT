@@ -863,10 +863,9 @@ _LAKE_LIMITS = ("LakeTimeLimitError: LAKE-TIME:", "LakeLimitError: LAKE-LIMIT:")
 
 def _steps(clock: StepClock, earlier: float, wall: float) -> dict[str, float]:
     """H-45: the APPROVE job's steps; ``orch.earlier_runs`` (wall seconds carried in from a run before a restart)
-    and ``orch.unaccounted`` make them add up to ``wall``."""
-    if earlier:
-        clock.add("orch.earlier_runs", earlier)
-    return clock.closed("orch.unaccounted", total=wall)
+    and ``orch.unaccounted`` make them add up to ``wall``. Pure: the clock is not changed, so a second call (the
+    failure path after a failed final write) counts the earlier runs once."""
+    return clock.closed("orch.unaccounted", total=wall, extra={"orch.earlier_runs": earlier} if earlier else None)
 
 
 def _error(exc: Exception, state: str) -> JobError:

@@ -84,11 +84,17 @@ class StepClock:
     def elapsed(self) -> float:
         return time.perf_counter() - self.started
 
-    def closed(self, rest: str, total: float | None = None) -> dict[str, float]:
-        """The steps with ``rest`` = ``total`` (default: the time since the clock started) less the named steps."""
+    def closed(
+        self, rest: str, total: float | None = None, extra: Mapping[str, float] | None = None
+    ) -> dict[str, float]:
+        """The steps, with ``extra`` added to them, and ``rest`` = ``total`` (default: the time since the clock
+        started) less the named steps. Changes nothing on the clock: calling it twice gives the same steps."""
         total = self.elapsed() if total is None else total
-        out = {k: round(v, _ROUND) for k, v in self.seconds.items()}
-        out[rest] = round(total - sum(self.seconds.values()) + self.seconds.get(rest, 0.0), _ROUND)
+        named = dict(self.seconds)
+        for k, v in (extra or {}).items():
+            named[k] = named.get(k, 0.0) + float(v)
+        out = {k: round(v, _ROUND) for k, v in named.items()}
+        out[rest] = round(total - sum(named.values()) + named.get(rest, 0.0), _ROUND)
         return out
 
 

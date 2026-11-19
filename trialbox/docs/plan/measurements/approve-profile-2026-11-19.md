@@ -231,3 +231,18 @@ The compiler's `Compiler.approve` (`services/criteria_compiler/service.py`):
   of section 2 (the machine was busier than H-41's).
 - **H41-01** is marked `fixed` in `approve-profile-2026-11-19/findings.json` by this card's code commit: the records
   now name the step. It is seen closed when the next launch's `--steps` table names where the ≥ 53 s go.
+- **Versions of the two sides (the wire is not changed for this).** `ApproveResult` and `JobMetrics` refuse a field they
+  do not know (`extra="forbid"`). So an orchestrator from before H-45 refuses the new compiler's answer, and that
+  answer comes after the compiler has already tagged and promoted the version. An image from before H-45 also
+  refuses a stored job that carries `step_seconds` (`Job.model_validate_json`). Neither happens on a box:
+  - **One image.** The compiler and the orchestrator run the same image: `deploy/docker-compose.yml` sets
+    `image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}` for `criteria-compiler` (line 226) and for `orchestrator` (line 292).
+    An update changes both together.
+  - **Rollback.** An update's rollback puts the database back as it was before the update, so an older image never
+    reads a job written by the newer one. `ComposeBox.snapshot` dumps `trialbox_wf` and `hapi` before the update
+    (`tools/trialbox/update.py:1336`). `ComposeBox.rollback` restores them (`update.py:1680`, `restore_databases` at
+    `:1658`). `InProcessBox.rollback` restores `trialbox_wf` (`update.py:1998`). The jobs table is in `trialbox_wf`
+    (`services/orchestrator/db.py:20`; the orchestrator's `TB_DB_URL`, `deploy/docker-compose.yml:297`). Jobs written
+    between the update and its rollback go with the rollback, as they did before H-45. No finding is filed.
+  - **What would still break:** an orchestrator and a compiler from different images (by hand, outside the update), or
+    a stored job record copied into an older image's database.

@@ -24,7 +24,7 @@ from tb_common.config import Config, load_env, load_settings
 from tb_common.fhir import FhirEvalError
 from tb_common.objstore import FsStore
 from tb_common.steptime import APPROVE_STEPS, COMPILER_STEPS, ORCH_STEPS, StepClock
-from tb_contracts import ApproveRequest, ApproveResult, JobCreate, JobFile, SendRequest, SendResult
+from tb_contracts import ApproveRequest, ApproveResult, JobCreate, JobFile, JobMetrics, SendRequest, SendResult
 
 from tests.unit.test_compiler_service import _approve, _compile, _decisions, env  # noqa: F401 - env is a fixture
 from tools.public_accuracy import approve_profile
@@ -149,7 +149,7 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
 
     monkeypatch.setattr("criteria_compiler.review.parse_review_xlsx", slow_parse)
 
-    def build(compiler: FakeCompiler) -> tuple[Orchestrator, str]:
+    def build(compiler: FakeCompiler, earlier: float = 0.0, raise_done_once: bool = False) -> tuple[Orchestrator, str]:
         cfg = Config(env=load_env(dotenv=tmp_path / "x.env", environ={}),
                      settings=load_settings(ROOT / "deploy/settings.example.yaml"))  # fmt: skip
         store = FsStore(tmp_path / "obj")
@@ -163,6 +163,18 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
                     minio_key="attachments/A/review.xlsx")  # fmt: skip
         job = orch.create(JobCreate(type="APPROVE", ruleset="GZQO", requested_by="crc1@hospa.test",
                                     options={"version": "1.0.0"}, inputs=[f]))  # fmt: skip
+        if earlier:  # a run before a restart left its wall seconds on the record
+            orch.db.put(job.model_copy(update={"metrics": JobMetrics(wall_seconds=earlier)}))
+        if raise_done_once:  # the success path's final write fails once; the failure path writes the job
+            real, failed = orch.set_state, []
+
+            def set_state(j: Any, state: str, **kw: Any) -> Any:
+                if state == "done" and not failed:
+                    failed.append(state)
+                    raise RuntimeError("the database went away")
+                return real(j, state, **kw)
+
+            monkeypatch.setattr(orch, "set_state", set_state)
         orch.drain()
         return orch, job.job_id
 
@@ -263,3 +275,60 @@ def test_the_reader_drops_anything_but_known_names_and_numbers(tmp_path: Path) -
     jobs = approve_profile.approve_jobs([p])
     assert jobs[0]["steps"] == {"orch.target": 1.5, "orch.unaccounted": 0.5}
     assert approve_profile.step_table(jobs)["steps_differ_from_wall"] == []
+
+
+# --- a restart, and a failed final write (the lead's review) ------------------------------------------------------
+
+
+def test_a_restarted_job_counts_its_earlier_runs_once_and_adds_up_to_wall(box: Any) -> None:
+    orch, jid = box(FakeCompiler(), earlier=20.0)
+    job = orch.db.get(jid)
+    assert job is not None and job.state == "done" and job.metrics is not None
+    steps = job.metrics.step_seconds or {}
+    _numbers_only(steps)
+    assert steps["orch.earlier_runs"] == 20.0 and job.metrics.wall_seconds > 20.0
+    assert sum(steps.values()) == pytest.approx(job.metrics.wall_seconds, abs=0.002)
+    assert 0 <= steps["orch.unaccounted"] < 0.25
+
+
+def test_a_failed_final_write_after_a_restart_still_counts_the_earlier_runs_once(box: Any) -> None:
+    orch, jid = box(FakeCompiler(), earlier=20.0, raise_done_once=True)
+    job = orch.db.get(jid)
+    assert job is not None and job.state == "failed" and job.metrics is not None
+    steps = job.metrics.step_seconds or {}
+    _numbers_only(steps)
+    assert steps["orch.earlier_runs"] == 20.0  # once, not twice
+    assert steps["orch.unaccounted"] >= 0 and all(v >= 0 for v in steps.values())
+    assert 20.0 < sum(steps.values()) < 20.0 + 5.0
+
+
+def test_closing_the_clock_twice_gives_the_same_steps() -> None:
+    clock = StepClock()
+    clock.add("orch.target", 0.5)
+    a = clock.closed("orch.unaccounted", total=30.0, extra={"orch.earlier_runs": 20.0})
+    b = clock.closed("orch.unaccounted", total=30.0, extra={"orch.earlier_runs": 20.0})
+    assert a == b == {"orch.target": 0.5, "orch.earlier_runs": 20.0, "orch.unaccounted": 9.5}
+    assert clock.seconds == {"orch.target": 0.5}
+
+
+# --- the real route shape -----------------------------------------------------------------------------------------
+
+
+def test_the_compiler_route_and_the_orchestrators_client_carry_step_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
+    from criteria_compiler import app as capp
+    from fastapi.testclient import TestClient
+    from orchestrator.clients import CompilerHttp
+
+    sent = {"compiler.build_artifacts": 1.25, "compiler.unaccounted": 0.5}
+
+    class Answer:
+        def approve(self, req: ApproveRequest) -> ApproveResult:
+            return ApproveResult(ruleset=req.ruleset, version=req.version, status="rejected", round=1,
+                                 step_seconds=sent)  # fmt: skip
+
+    monkeypatch.delenv("TB_SERVICE_TOKEN", raising=False)
+    monkeypatch.setattr(capp, "compiler", Answer)
+    client = CompilerHttp("http://testserver")
+    client.c.client = TestClient(capp.app)
+    got = client.approve(ApproveRequest(ruleset="GZQO", version="1.0.0", by="crc1@hospa.test", decisions=[]))
+    assert got.status == "rejected" and got.step_seconds == sent
