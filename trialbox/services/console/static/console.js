@@ -180,7 +180,7 @@
     });
   } catch (e) { /* no session storage: the page works as before */ }
   // 7. D-1370 (9g-19, A11Y-3): shortly before the idle lock (a minute; half the limit when it is shorter) a warning with
-  // "Stay signed in"; at the session's absolute end the same warning without it (that limit is never extended). The
+  // "Stay signed in"; at the session's absolute end the same warning without it (that limit never grows). The
   // times come from the server with the page and count from the navigation's start on the page's own monotonic clock
   // (performance.now: the server's count began later, so the page errs early, and a jump of the system clock moves
   // nothing). "Stay signed in" asks a page the person may open anyway (data-stay-url) with keep=1: activity, as any
