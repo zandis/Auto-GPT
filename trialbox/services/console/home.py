@@ -160,6 +160,10 @@ class Helpers:
     chart_to_pid: Callable[[Session, str, str], tuple[str, bool | None]] | None = None
     pid_match_per_hour: int = 0  # set by console.team (NEW-JRN-2): the match note's limit per person and hour
     irb_gate: bool = False  # set by console.team (D-395): the candidate view waits for the study's IRB-text record
+    # set by console.committee_pages (10C-4, D-1227): the Japan profile's committee findings of a study at this site
+    # and what they do (refuse a move into open, hold the lists, wait); None outside the Japan profile
+    committee_status: Callable[[str], dict[str, Any] | None] | None = None
+    committee_opened: Callable[[str, str], None] | None = None  # a move into open passed (Japan profile)
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
     ops_status: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages: the host runner's status
     health: Callable[[], Any] | None = None  # set by console.metrics_page (T-209a): tb_common.metrics.Health now
