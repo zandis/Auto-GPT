@@ -1725,7 +1725,7 @@ def create_app(
             case=case,
             screen=_screen_card(job, sess, revealed, bg=grant is not None),
             recheck=_recheck_share(job, sess, bg=grant is not None),
-            first_load=_first_load(job, sess, bg=grant is not None),
+            first_load=_first_load(job, sess),
             compile_answers=_compile_answers(job, audit_recs),
             breakglass=grant,
         )
@@ -1775,15 +1775,17 @@ def create_app(
             return None
         return sum(1 for r in ordered[starts[-1] + 1 :] if r.event == "llm.call")
 
-    def _first_load(job: Job, sess: Session, bg: bool = False) -> dict[str, int] | None:
+    def _first_load(job: Job, sess: Session) -> dict[str, int] | None:
         """D-1245 (review 13 item 13-14): how far the study's new patients have come on a finished screening run, from
-        the run's ``microbatch.budget`` event (the event and the rule of :func:`_recheck_share`: the accounts that read
-        the study's list). Only when new patients are still waiting, and only with every number present: the new
+        the run's ``microbatch.budget`` event (the event the re-check card reads). Only to an account the study's own
+        candidate list admits (its check, ``Helpers.admits_candidates``; no break-glass grant opens it), asked before
+        the event is read. Only when new patients are still waiting, and only with every number present: the new
         patients screened on this run, those still waiting, the run's night budget, and an estimate of the nights
         left at that budget (rounded up). None otherwise: the page shows nothing."""
-        if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
+        if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done" or not job.ruleset:
             return None
-        if not (helpers.reads(sess.user, job.ruleset) or bg):
+        admits = helpers.admits_candidates
+        if admits is None or not admits(sess.user, job.ruleset):
             return None
         ev = bk.recheck_share(job.job_id) or {}
         n, waiting, budget = ev.get("new_screened"), ev.get("new_carried"), ev.get("budget")

@@ -315,9 +315,13 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
         return h.problem(403, "forbidden")
 
+    def study_seen(user: User, rid: str) -> bool:
+        """The account sees study ``rid`` and the box knows it (the question of :func:`study_or_404`)."""
+        return bool(_RS.match(rid)) and user.sees_study(rid) and known_study(bk, rid)
+
     def study_or_404(sess: Session, rs: str) -> str:
         rid = rs.strip().upper()
-        if not _RS.match(rid) or not sess.user.sees_study(rid) or not known_study(bk, rid):
+        if not study_seen(sess.user, rid):
             if _RS.match(rid):
                 au.append("console.denied", actor=h.actor(sess), detail={"action": f"study {rid}"})
             raise h.problem(404, "notfound")
@@ -335,6 +339,15 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if task not in s.tasks:
             raise deny(sess, path)
         return s
+
+    def admits_candidates(user: User, rs: str) -> bool:
+        """D-1245: would the study's candidate list (``GET /studies/{rs}/candidates``) admit this account? The list's
+        own two questions (:func:`study_seen`, then the ``screen`` task of :func:`need_task`), asked without a
+        refusal or its audit event, for a page that shows a figure only to those the list admits."""
+        rid = (rs or "").strip().upper()
+        return study_seen(user, rid) and "screen" in stand(user, rid).tasks
+
+    h.admits_candidates = admits_candidates
 
     def view_open(rid: str) -> bool:
         """D-395: the candidate view of this study may open (the gate is off here, or the IRB text covers it)."""

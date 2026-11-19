@@ -75,9 +75,13 @@
   also gives, as an estimate from this run's night budget, about how many more nights that is (waiting / budget,
   rounded up). The page says the estimate changes with a night shared with other studies or with new patients
   arriving. The figures come from the run's own `microbatch.budget` event, which the page already reads for the
-  re-check card. `read_recheck_share` now also keeps `budget`, `new_screened` and `new_carried`, whole numbers from
-  the same event. The rule is the re-check card's: only the accounts that read the study's list. Nothing is shown when
-  a figure is missing, when nobody waits, or before the run is done. The words are `job.firstload.*` and
+  re-check card. **What the page keeps changed:** `read_recheck_share` (`RECHECK_SHARE`) now also keeps `budget`,
+  `new_screened` and `new_carried`, whole numbers from the same event. **Who sees them** (the coordinator's ruling):
+  only an account that the study's own candidate list admits, by that page's own check (`console.team`:
+  `study_seen` and the `screen` task, the two questions of `study_or_404` and `need_task`, now also asked without a
+  refusal as `Helpers.admits_candidates`). No break-glass grant opens them. The check comes before the event is read,
+  so for a refused account (an investigator off the delegation log, a viewer, the privacy officer) the page makes no
+  extra read. Nothing is shown when a figure is missing, when nobody waits, or before the run is done. The words are `job.firstload.*` and
   `job.compile.answers*` in en, ja and zh-TW (`console.i18n_progress`). **Not done:** the review wanted the first load
   on the **home page**. That would be a new reader of the event on another page, so it is left to the owner.
 - **Not widened:** no new route, export, column or reader of existing data; no change to the permission matrix,

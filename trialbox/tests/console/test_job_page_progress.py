@@ -173,3 +173,52 @@ def test_a_job_page_without_progress_is_byte_for_byte_the_page_without_the_new_b
         strip["on"] = True
         assert b'data-testid="recheck-share"' in before or jid == reading
         assert after == before, jid
+
+
+# ---------------------------------------------------------------------------------------------- who is told
+def _accounts(b: dict[str, Any]) -> dict[str, tuple[str, Any]]:
+    """(username, signed-in client) per account; the investigator has no row of GZQO's delegation log."""
+    from tests.console.test_console_app import VIEWER_PW, login
+
+    return {
+        "coordinator": ("crc", login_crc(b)[0]),
+        "investigator off the log": ("pi-off", _user(b, "pi-off", "investigator")),
+        "viewer": ("viewer", login(b["app"], "viewer", VIEWER_PW)[0]),
+        "privacy": ("priv-who", _user(b, "priv-who", "privacy")),
+    }
+
+
+def test_the_first_load_follows_the_candidate_lists_own_check(box: dict[str, Any]) -> None:
+    """``Helpers.admits_candidates`` answers as the candidate list page does, for each account (the same check)."""
+    h = box["app"].state.helpers
+    answers = {}
+    for name, (username, c) in _accounts(box).items():
+        listed = c.get("/studies/GZQO/candidates", follow_redirects=False).status_code == 200
+        assert h.admits_candidates(box["users"].get(username), "GZQO") is listed, name
+        answers[name] = listed
+    assert answers == {"coordinator": True, "investigator off the log": False, "viewer": False, "privacy": False}
+
+
+def test_an_account_the_list_refuses_gets_none_of_the_numbers_and_no_read(
+    box: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    jid = _run(box, 975, new_screened=4013, new_carried=9587, budget=4021)  # figures no other part of the page has
+    reads: list[str] = []
+    real = box["backend"].recheck_share
+
+    def spy(job_id: str) -> Any:
+        reads.append(job_id)
+        return real(job_id)
+
+    monkeypatch.setattr(box["backend"], "recheck_share", spy)
+    accounts = _accounts(box)
+    for name in ("investigator off the log", "viewer", "privacy"):
+        reads.clear()
+        r = accounts[name][1].get(f"/pilot/jobs/{jid}", follow_redirects=False)
+        assert _block(r.text) is None, name
+        for figure in ("4013", "9587", "4021", "3 more"):
+            assert figure not in r.text, (name, figure)
+        assert reads == [], (name, r.status_code)  # the event was not read for this account
+    reads.clear()
+    shown = accounts["coordinator"][1].get(f"/pilot/jobs/{jid}").text
+    assert _block(shown) is not None and "9587" in shown and reads  # the list admits the coordinator
