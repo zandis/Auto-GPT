@@ -8,8 +8,22 @@ both are kept as written, and the PR reports how many each way the rule got righ
 
 from __future__ import annotations
 
+import re
+
 import pytest
-from tb_common.wording import check, check_page
+from console.i18n import CATALOGUES
+from orchestrator import i18n as orch_i18n
+from tb_common.wording import (
+    CLAIM_ALLOWED_ZH,
+    CLAIM_OUTRIGHT_ZH,
+    CLAIM_TABLES,
+    STATEMENT,
+    check,
+    check_claims,
+    check_claims_ja,
+    check_page,
+    deny_masked,
+)
 
 # Written before the zh-TW rule was final (card 10C-5b step 4): 30 claims, then 30 legitimate lines. Kept as written.
 FRESH_1_CLAIMS = [
@@ -78,8 +92,214 @@ FRESH_1_LEGITIMATE = [
 ]
 
 
+# The rule's classes in zh-TW, one or more sentences per form (D-1228's classes; D-1247's table). Each must fail.
+CLAIMING_ZH = [
+    # compound claim nouns, refused outright
+    ("協助早期發現罕見疾病。", "早期發現"),
+    ("本軟體提供風險預測。", "風險預測"),
+    ("提供病人的預後資訊。", "預後"),
+    ("列出未診斷的病人。", "未診斷"),
+    ("找出尚未確診的病人。", "未確診"),
+    ("協助醫師找出潛在病人。", "潛在病人"),
+    ("產生疑似病例清單。", "疑似病例"),
+    ("系統自動偵測異常。", "自動偵測"),
+    ("顯示每位病人的風險分數。", "風險分數"),
+    ("本軟體可用於診斷。", "診斷"),  # 診斷 was refused outright before 10C-5b and still is
+    # finding words with a disease or an early / latent object
+    ("AI 可偵測疾病的徵兆。", "偵測"),
+    ("系統能篩檢癌症。", "篩檢"),
+    ("從紀錄中發現病人的病情惡化。", "發現"),
+    ("早期檢出病人的病變。", "檢出"),
+    ("找出隱藏在紀錄中的中風病人。", "找出"),
+    ("辨識有失智症狀的長者。", "辨識"),
+    # rate words with a patient or disease object, or the product straight before them
+    ("預測病人是否住院。", "預測"),
+    ("顯示病人的死亡機率。", "機率"),
+    ("依病人的危險程度排序。", "危險"),
+    ("ＡＩ評分高者優先聯絡。", "評分"),  # full-width ＡＩ, NFKC-normalised first
+    ("系統分數高的名單先處理。", "分數"),
+    ("列出疑似罹患肺癌的民眾。", "疑似"),
+    ("AI 預測病人風險，並且不提供治療建議。", "預測"),  # a negation in a later clause does not excuse it
+    # a judgement whose subject is the product
+    ("AI 判斷病人是否符合研究資格。", "判斷"),
+    ("系統會判斷參加與否。", "判斷"),
+    ("醫師參考後，由模型判斷。", "判斷"),
+]
+# The closest allowed sentence to each refused class (near-misses). Each must pass.
+LEGITIMATE_ZH = [
+    "找出近期回診的候選者。",  # the product's purpose: candidates for a study, by its written criteria
+    "系統找出候選者，研究護理師確認。",
+    "檢出率（合格病人中被找到的比例）。",  # a patient found for a study is no disease finding
+    "系統偵測到服務異常狀態。",
+    "監測訪視的發現事項。",
+    "無法辨識文字編碼。",
+    "資料外洩的風險由資訊室管理。",
+    "偏差風險為低。",
+    "ECOG 分數由研究人員輸入。",
+    "依已儲存分數（eGFR、DAS28、CDAI、SDAI）核對。",
+    "低於偵測極限的值維持不明。",
+    "預測隨機分派數。",
+    "預測月數。",
+    "參加與否由試驗主持人判斷。",
+    "模型只讀取紀錄，由人員判斷。",
+    "本軟體不做診斷、預測或風險分層。",  # a real denial: a list of claim words with one negator
+    "TrialBox 不會發現疾病。",
+    "AI 不預測病人的風險。",
+    "本工具並非用於篩檢疾病。",
+    "系統沒有疾病預測功能。",
+    "您對此頁面的評分（選填）。",
+]
+
+
+@pytest.mark.parametrize(("text", "word"), CLAIMING_ZH)
+def test_a_zh_tw_device_claim_fails(text: str, word: str) -> None:
+    assert word in [h.word for h in check(text)]
+    assert word in [h.word for h in check_page(f"<p>{text}</p>")]  # the page walk calls the same check
+
+
+@pytest.mark.parametrize("text", LEGITIMATE_ZH)
+def test_a_legitimate_zh_tw_use_passes(text: str) -> None:
+    assert check(text) == []
+
+
+def test_a_mixed_zh_tw_sentence_fails_only_on_the_claim() -> None:
+    hits = check("ECOG 分數由研究人員輸入，但 AI 會預測病人的風險。")
+    assert sorted(h.word for h in hits) == ["預測", "風險"]
+    assert check("AI 讀取紀錄。偏差風險另行評估。") == []
+
+
+# The five false alarms of the 10C-5 survey (master 73835e62), resolved by the rule's structure, not by an exemption:
+# each passes as written, and the closest sentence without that structure is refused.
+SURVEY = [
+    # the statement: every claim word in it is denied by 不 / 非 + verb
+    ("console", "footer.statement", "本軟體用於疾病之診斷。"),
+    # a study's risks to the participant (the object is the study, its risks and benefits)
+    ("console", "consent.help", "說明每位受試者的主要風險。"),
+    # an enrolment forecast (the object is a count)
+    ("console", "feas.s6", "每月新病人的發病預測"),
+    # a code system that cannot be identified (無法 + the verb)
+    ("console", "feas.bridge.unknown_system", "可辨識疾病的代碼系統。"),
+    ("orchestrator", "screen.unknown_system", "可辨識疾病的代碼系統。"),
+]
+
+
+@pytest.mark.parametrize(("source", "key", "closest_claim"), SURVEY)
+def test_the_surveys_false_alarms_pass_by_structure(source: str, key: str, closest_claim: str) -> None:
+    cat = CATALOGUES["zh-TW"] if source == "console" else orch_i18n.T["zh-TW"]
+    assert check_claims(re.sub(r"{\w+}", " ", cat[key])) == []  # the claim rule alone: no help from ALLOWED
+    assert check(closest_claim) != []
+
+
+def test_the_statement_passes_the_claim_rule_on_its_own() -> None:
+    """The zh-TW statement is in ALLOWED, but it needs no mask: its claim words are denied."""
+    assert check_claims(STATEMENT["zh-TW"]) == []
+    assert check(STATEMENT["zh-TW"], allowed=()) == []
+
+
+# Each allowed context is pinned: the sentence passes only because of its context, and fails without it. Beside each,
+# the closest real claim, which the context must not let through.
+PINNED_ZH = [
+    ("分數", "病人的 ECOG 分數由研究人員輸入。", "病人的 AI 分數由系統計算。"),
+    ("分數", "病人的分數定義已變更。", "病人的分數已變更。"),
+    ("風險", "說明試驗的主要風險與好處給受試者。", "說明受試者的主要風險。"),
+    ("風險", "病人研究的偏差風險為低。", "病人的風險為低。"),
+    ("預測", "每月新病人與收案預測", "每月新病人與發病預測"),
+    ("預測", "預測隨機分派病人數。", "預測病人數值的惡化。"),
+    ("偵測", "腫瘤標記低於偵測極限。", "偵測腫瘤標記的異常。"),
+]
+
+
+@pytest.mark.parametrize(("term", "allowed", "claim"), PINNED_ZH)
+def test_each_zh_tw_allowed_context_is_what_lets_its_sentence_pass(
+    term: str, allowed: str, claim: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert check(allowed) == []
+    assert check(claim) != []
+    monkeypatch.setitem(CLAIM_ALLOWED_ZH, term, ())
+    assert check_claims(allowed) != []
+
+
+def test_an_actor_word_is_what_makes_a_zh_tw_judgement_a_claim() -> None:
+    assert check("判斷參加與否。") == []  # no actor: the product's words have a person judge
+    for actor in ("系統", "AI", "模型", "TrialBox", "本軟體", "演算法"):
+        assert [h.word for h in check(f"{actor}判斷參加與否。")] == ["判斷"], actor
+    assert check("醫師參考 AI 的讀取結果判斷。") == []  # an attributive 的: the AI is not the subject
+    assert check("系統性回顧由研究人員判斷。") == []  # 系統性 (systematic) is not the system
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "本軟體不做診斷、預測或風險分層。",  # a list of claim words, denied together
+        "本軟體不用於疾病之篩檢或診斷。",  # 不 + a light verb covers its object
+        "本系統沒有疾病預測功能。",  # an existential negator covers the rest of its clause
+        "本產品並非疾病篩檢工具。",  # a copular negator
+        "本軟體非疾病篩檢工具。",  # 非 straight after the product's name
+        "TrialBox 無法辨識疾病代碼時，條件列為未知。",
+        "本工具不會預測病人的風險，也不給予任何分數。",
+        "系統不提供風險評分。",
+    ],
+)
+def test_a_zh_tw_denial_in_its_common_forms_passes(text: str) -> None:
+    assert check(text) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "AI 沒有一天不發現疾病。",  # two negatives deny nothing
+        "本軟體不只預測疾病，也預測死亡。",  # 不只 (not only) is no negator
+        "未符合條件之病人的發病風險由 AI 預測。",  # 未 negates 符合, not the claim
+        "AI 偵測非小細胞肺癌。",  # 非 inside a disease name is no negator
+        "AI 顯示病人沒有風險。",  # said about the patient: no denial of the product's claim
+        "本軟體不提供治療建議，但會預測病人的風險。",  # the negator's clause ends at the comma
+        "AI 預測未來的疾病。",  # 未來 (future) is no negator
+    ],
+)
+def test_zh_tw_false_negatives_are_not_a_denial(text: str) -> None:
+    assert check(text) != []
+
+
+def test_on_a_page_a_block_ends_a_zh_tw_sentence_and_an_inline_tag_does_not() -> None:
+    assert check_page("<ul><li>AI 讀取</li><li>判斷參加與否</li></ul>") == []
+    assert [h.word for h in check("AI 讀取 判斷參加與否")] == ["判斷"]  # the same words in one sentence
+    assert [h.word for h in check_page("<p><b>AI</b><b>偵測</b>疾病</p>")] == ["偵測"]
+    assert [h.word for h in check_page("<p>AI\n    偵測疾病</p>")] == ["偵測"]
+
+
+def test_invisible_characters_do_not_hide_a_zh_tw_claim() -> None:
+    for c in ("\u200b", "\u200d", "\u2060", "\ufeff", "\u00ad", "\u3164", "\u034f"):
+        assert [h.word for h in check(f"AI 偵{c}測疾{c}病。")] == ["偵測"], repr(c)
+
+
+def test_a_candidate_is_not_a_zh_tw_patient_word() -> None:
+    assert check("候選者的條件符合分數。") == []
+    assert check("病人的條件符合分數。") != []
+
+
+def test_one_rule_two_tables() -> None:
+    """One rule (D-1228), one table per language (D-1247): the Japanese callers' name runs the same rule, a sentence
+    with kana is read by the Japanese table only, and the denials of both languages share one function."""
+    assert [t.lang for t in CLAIM_TABLES] == ["ja", "zh-TW"]
+    assert check_claims_ja("AI 預測病人的風險。") == check_claims("AI 預測病人的風險。") != []
+    assert check_claims("AIが疾患を発見します。") == check_claims_ja("AIが疾患を発見します。") != []
+    assert deny_masked("本軟體不預測風險。") != "本軟體不預測風險。"
+    assert deny_masked("本製品は予測を行いません。") != "本製品は予測を行いません。"
+    assert {"早期發現", "風險預測", "未診斷", "潛在病人", "預後"} <= set(CLAIM_OUTRIGHT_ZH)
+    # a Japanese sentence (it has kana) is not read by the zh-TW table: 疑似乱数 (pseudo-random numbers) next to 患者
+    # would be 疑似 about a patient in zh-TW
+    assert check("疑似乱数で患者の表示順を決めます。") == []
+    # the same words in a zh-TW sentence are read, and refused: a known false alarm of the window (D-1247)
+    assert check("以疑似亂數決定患者的顯示順序。") != []
+
+
 @pytest.mark.parametrize("text", FRESH_1_CLAIMS)
 def test_every_fresh_claim_of_the_first_set_fails(text: str) -> None:
     """A real claim that passes is a blocker (card 10C-5b)."""
     assert check(text) != []
     assert check_page(f"<p>{text}</p>") != []
+
+
+@pytest.mark.parametrize("text", FRESH_1_LEGITIMATE)
+def test_every_fresh_legitimate_line_of_the_first_set_passes(text: str) -> None:
+    assert check(text) == []

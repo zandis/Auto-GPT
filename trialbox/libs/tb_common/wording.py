@@ -338,44 +338,329 @@ def deny_masked_ja(text: str) -> str:
     return "".join(out)
 
 
-def check_claims_ja(text: str) -> list[Hit]:
-    """Every Japanese device claim in ``text`` (the rule above). An empty list means no claim."""
-    text = deny_masked_ja(clean_ja(text))
+# Traditional Chinese device claims (card 10C-5b, D-1247): the SAME rule, with a zh-TW term table.
+#
+# The classes are D-1228's: outright compound claim nouns; finding words that are a claim when their object is a
+# disease or an early / latent case; rate words (and 疑似, "suspected") that are a claim when they are about a patient
+# or a disease or the product stands straight before them; 判斷 with the product, the AI or a model as its subject.
+# Finding patients or candidates for a study is not a claim (找出近期回診的候選者, 檢出率 of eligible patients).
+#
+# Only the language-specific parts differ, and each is data in the table below:
+# * the words (CLAIM_*_ZH), including the allowed contexts (CLAIM_ALLOWED_ZH: a study's risks and benefits, a study's
+#   enrolment forecast, a lab's detection limit, a named clinical scale's score, risk of bias);
+# * the subject: Chinese marks a subject by position, not by a particle, so an actor or a person is a subject unless
+#   an attributive 的 / 之 / 所 follows it (AI的讀取結果 is not the AI judging);
+# * the denial: Chinese negates BEFORE the verb (不 / 未 / 無法 / 並非 + verb), Japanese after it. A claim word is
+#   denied when the part of its clause before it carries an odd number of negators, each one attached: a verbal
+#   negator (不, 未, 無法, 並未 ...) counts only when, after its auxiliaries (會, 能, 可, 再 ...), a light verb
+#   (用於, 提供, 進行, 做, 給予, 產生 ...) or a claim word follows it, so 未符合條件之病人的風險 denies nothing; an
+#   existential or copular negator (沒有, 毫無, 不具, 不含, 不是, 並非, 非 after the product's name) covers the rest
+#   of its clause, but not when a patient or a disease word stands straight before it (病人沒有風險 is said ABOUT the
+#   patient). A clause ends at 。！？；, a line end, or a comma that does not continue a list of claim words.
+# * which sentences it reads: a sentence with no kana (zh-TW never writes kana; a Japanese sentence nearly always
+#   does). So the zh-TW table never reads a Japanese sentence with kana, and the Japanese table reads every sentence,
+#   exactly as before.
+#
+# The normalisation is D-1228's (clean_ja: NFKC, invisible characters removed); sentences are split the same way.
+# Like the Japanese table it is a lint, not a guarantee (D-1247 gives the measured rates and the limits).
+
+CLAIM_OUTRIGHT_ZH: tuple[str, ...] = (
+    "未診斷",
+    "未確診",
+    "未經診斷",
+    "未被診斷",
+    "漏診",
+    "早期發現",
+    "及早發現",
+    "早期偵測",
+    "早期檢出",
+    "早期篩檢",
+    "風險預測",
+    "風險分層",
+    "風險評分",
+    "風險分數",
+    "危險分數",
+    "預後",
+    "發病預測",
+    "疾病預測",
+    "惡化預測",
+    "重症預測",
+    "自動偵測",
+    "自動檢出",
+    "自動篩檢",
+    "潛在病人",
+    "潛在病患",
+    "潛在患者",
+    "潛在個案",
+    "疑似病人",
+    "疑似病患",
+    "疑似患者",
+    "疑似個案",
+    "疑似病例",
+    "可能發病",
+)
+CLAIM_FIND_ZH: tuple[str, ...] = (
+    "偵測",
+    "檢出",
+    "檢測",
+    "發現",
+    "找出",
+    "找到",
+    "篩檢",
+    "篩選",
+    "篩出",
+    "辨識",
+    "識別",
+    "判別",
+    "揪出",
+    "挖掘",
+)
+CLAIM_RATE_ZH: tuple[str, ...] = ("預測", "風險", "危險", "評分", "分數", "機率", "疑似")
+CLAIM_JUDGE_ZH: tuple[str, ...] = ("判斷", "研判")
+
+CLAIM_DISEASE_ZH: tuple[str, ...] = (
+    "疾病",
+    "疾患",
+    "病症",
+    "病變",
+    "病情",
+    "病況",
+    "病灶",
+    "罹患",
+    "罹病",
+    "發病",
+    "復發",
+    "惡化",
+    "重症",
+    "徵兆",
+    "徵候",
+    "前兆",
+    "症狀",
+    "癌",
+    "腫瘤",
+    "中風",
+    "失智",
+    "死亡",
+)
+CLAIM_EARLY_ZH: tuple[str, ...] = ("早期", "及早", "提早", "潛在", "隱藏", "漏診")
+# not 候選者 / 候選人: a candidate for a study is the product's own word, as in Japanese
+CLAIM_PATIENTS_ZH: tuple[str, ...] = ("病人", "病患", "患者", "受試者", "個案", "就診者", "民眾", "族群")
+CLAIM_ACTORS_ZH: tuple[str, ...] = (
+    "TrialBox",
+    "本軟體",
+    "本系統",
+    "系統",
+    "本產品",
+    "本工具",
+    "AI",
+    "人工智慧",
+    "模型",
+    "演算法",
+)
+CLAIM_PERSONS_ZH: tuple[str, ...] = (
+    "人員",
+    "醫師",
+    "主持人",
+    "研究護理師",
+    "護理師",
+    "CRC",
+    "您",
+    "專員",
+    "管理員",
+    "人",
+)
+
+CLAIM_ALLOWED_ZH: dict[str, tuple[str, ...]] = {
+    "分數": (
+        r"(?:"
+        + "|".join(re.escape(s) for s in sorted(NAMED_SCALES, key=len, reverse=True))
+        + r")(?:\s*PS)?\s*(?:的|之)?\s*(?:分數|評分)",
+        r"分數定義",
+    ),
+    # risk of bias; a study's own risks to the participant, as a consent form states them (the study is the object)
+    "風險": (
+        r"(?:偏差|偏倚|偏誤)風險",
+        r"(?:試驗|研究|參與|參加|計畫)(?:可能|主要|潛在)?(?:的|之)?(?:主要|可能|潛在)?風險",
+        r"風險\s*(?:與|和|及|、)\s*(?:好處|益處|利益)",
+        r"(?:好處|益處|利益)\s*(?:與|和|及|、)\s*(?:主要|可能|潛在)?風險",
+    ),
+    # a study's enrolment forecast (feasibility) is a count, not a patient's outcome
+    "預測": (
+        r"(?:收案|招募|納入|隨機分派|同意)(?:人?數)?(?:的|之)?預測",
+        r"預測(?:的是)?(?:收案|招募|納入|隨機分派|同意)",
+    ),
+    # a lab's detection limit
+    "偵測": (r"(?:偵測|檢測|檢出)(?:極限|下限|上限|限值)",),
+}
+
+_DENIABLE_ZH = sorted(
+    {*CLAIM_OUTRIGHT_ZH, *CLAIM_FIND_ZH, *CLAIM_RATE_ZH, *CLAIM_JUDGE_ZH, "診斷", "判定"}, key=len, reverse=True
+)
+_DENIABLE_ZH_RX = re.compile("|".join(re.escape(w) for w in _DENIABLE_ZH))
+_CLAUSE_END_ZH = re.compile(r"[。！？!?\n；;]|[、，,](?!\s*(?:" + _DENIABLE_ZH_RX.pattern + r"))")
+_AUX_ZH = r"(?:會|能夠|能|可以|可|得|再|曾|將|應|須|被|主動|自動|直接|另外|任何|為)*"
+_LIGHT_ZH = (
+    r"(?:用於|用來|用以|作為|做為|作|做|進行|提供|給予|給出|產生|輸出|顯示|執行|具備|具有|具|包含|含|支援|協助"
+    r"|涉及|屬於|是|有|" + _DENIABLE_ZH_RX.pattern + r")"
+)
+# a verbal negator counts only when a light verb or a claim word follows it (after its auxiliaries)
+_NEG_VERBAL_WORDS_ZH = r"(?:並未|並不|絕不|從不|從未|不再|無法|不|未|無)"
+_NEG_VERBAL_ZH = re.compile(_NEG_VERBAL_WORDS_ZH + r"(?=\s*" + _AUX_ZH + r"\s*" + _LIGHT_ZH + ")")
+# an existential or copular negator covers the rest of its clause
+_NEG_WHOLE_ZH = re.compile(r"並不是|不是|並非|絕非|而非|亦非|也非|沒有|並無|毫無|不具|不含|不包含")
+_ACTORS_ZH = "(?<![A-Za-z])(?:" + "|".join(re.escape(a) for a in CLAIM_ACTORS_ZH) + ")(?!性)"
+_NOT_ATTRIBUTIVE_ZH = r"(?!\s*(?:的|之|所|產生|輸出|結果))"
+# a patient or a disease straight before an existential negator: 病人沒有風險 is said about the patient
+_ABOUT_ZH = re.compile("(?:" + "|".join(re.escape(w) for w in (*CLAIM_PATIENTS_ZH, *CLAIM_DISEASE_ZH)) + r")\s*$")
+
+
+def _zh_sentence(text: str, start: int, end: int) -> bool:
+    """True when the sentence around ``text[start:end]`` has no kana, so the zh-TW table reads it."""
+    left = max(text.rfind(c, 0, start) for c in "。！？!?\n") + 1
+    right = min((i for i in (text.find(c, end) for c in "。！？!?\n") if i >= 0), default=len(text))
+    return _KANA.search(text, left, right) is None
+
+
+def deny_masked_zh(text: str) -> str:
+    """``text`` with every denied zh-TW claim word blanked: the part of its clause before it carries an odd number of
+    attached negators (本軟體不用於疾病之篩檢或診斷, 不做診斷、預測或風險分層, 無法辨識的代碼系統, 系統沒有疾病預測功能,
+    本工具並非用於發現疾病). Two negatives cancel. A sentence with kana is Japanese and is left as it is."""
+    out = list(text)
+    for m in _DENIABLE_ZH_RX.finditer(text):
+        if not _zh_sentence(text, m.start(), m.end()):
+            continue
+        start = max((e.end() for e in _CLAUSE_END_ZH.finditer(text, 0, m.start())), default=0)
+        before = text[start : m.start()]
+        # the negator's verb may be the claim word itself (無法辨識), so its lookahead reads past ``before``
+        n = sum(1 for neg in _NEG_VERBAL_ZH.finditer(text, start, m.end()) if neg.start() < m.start())
+        for neg in _NEG_WHOLE_ZH.finditer(before):
+            # 病人沒有風險 is said about the patient, not a denial of the product's claim
+            if not _ABOUT_ZH.search(before[: neg.start()]):
+                n += 1
+        # 非 alone is copular only straight after the product's name (本軟體非醫療器材); 非小細胞肺癌 is a disease name
+        n += len(re.findall("(?:" + _ACTORS_ZH + r")\s*非(?!常)", before))
+        if n % 2 == 1:
+            out[m.start() : m.end()] = _MASK * (m.end() - m.start())
+    return "".join(out)
+
+
+def deny_masked(text: str) -> str:
+    """``text`` with every denied claim word blanked, Japanese (:func:`deny_masked_ja`) and zh-TW
+    (:func:`deny_masked_zh`)."""
+    return deny_masked_zh(deny_masked_ja(text))
+
+
+@dataclass(frozen=True)
+class ClaimTable:
+    """One language's terms for the one claim rule (D-1228, D-1247). The rule is :func:`check_claims`; a table only
+    says which words and which subjects, and which sentences it reads."""
+
+    lang: str
+    outright: tuple[str, ...]
+    find: tuple[str, ...]
+    rate: tuple[str, ...]
+    judge: tuple[str, ...]
+    disease: re.Pattern[str]
+    early: re.Pattern[str]
+    patient: re.Pattern[str]
+    allowed: dict[str, tuple[str, ...]]
+    actor_before: str
+    actor_subject: re.Pattern[str]
+    person_subject: re.Pattern[str]
+    reads_kana: bool
+
+
+CLAIM_TABLES: tuple[ClaimTable, ...] = (
+    ClaimTable(
+        lang="ja",
+        outright=CLAIM_OUTRIGHT_JA,
+        find=CLAIM_FIND_JA,
+        rate=CLAIM_RATE_JA,
+        judge=CLAIM_JUDGE_JA,
+        disease=_DISEASE,
+        early=_EARLY,
+        patient=_PATIENT,
+        allowed=CLAIM_ALLOWED_JA,
+        actor_before=_ACTOR_BEFORE,
+        actor_subject=_ACTOR_SUBJECT,
+        person_subject=_PERSON_SUBJECT,
+        reads_kana=True,
+    ),
+    ClaimTable(
+        lang="zh-TW",
+        outright=CLAIM_OUTRIGHT_ZH,
+        find=CLAIM_FIND_ZH,
+        rate=CLAIM_RATE_ZH,
+        judge=CLAIM_JUDGE_ZH,
+        disease=_alt(CLAIM_DISEASE_ZH),
+        early=_alt(CLAIM_EARLY_ZH),
+        patient=_alt(CLAIM_PATIENTS_ZH),
+        allowed=CLAIM_ALLOWED_ZH,
+        actor_before=_ACTORS_ZH + r"\s*(?:的|之|所|產生的|計算的|給出的|提供的)?\s*$",
+        actor_subject=re.compile(_ACTORS_ZH + _NOT_ATTRIBUTIVE_ZH),
+        person_subject=re.compile(
+            "(?:"
+            + "|".join(re.escape(p) for p in CLAIM_PERSONS_ZH if p != "人")
+            + r"|(?<![病個選])人)"
+            + _NOT_ATTRIBUTIVE_ZH
+        ),
+        reads_kana=False,
+    ),
+)
+
+
+def check_claims(text: str) -> list[Hit]:
+    """Every device claim in ``text``, Japanese and zh-TW: one rule (D-1228), one table per language (D-1247). An
+    empty list means no claim."""
+    text = deny_masked(clean_ja(text))
     hits: list[Hit] = []
     for sentence in _SENTENCE.findall(text):
-        masked = sentence
-        for patterns in CLAIM_ALLOWED_JA.values():
-            for rx in patterns:
-                masked = re.sub(rx, _blank, masked)
-
-        def near(m: re.Match[str], rx: re.Pattern[str], s: str = masked) -> bool:
-            return rx.search(s[max(0, m.start() - CLAIM_WINDOW) : m.end() + CLAIM_WINDOW]) is not None
-
-        def hit(m: re.Match[str], word: str, s: str = sentence) -> None:
-            hits.append(Hit(word=word, context=s[max(0, m.start() - 30) : m.end() + 30].strip()))
-
-        for word in CLAIM_OUTRIGHT_JA:
-            for m in re.finditer(re.escape(word), masked):
-                hit(m, word)
-        for word in CLAIM_FIND_JA:
-            for m in re.finditer(re.escape(word), masked):
-                if near(m, _DISEASE) or near(m, _EARLY):
-                    hit(m, word)
-        for word in CLAIM_RATE_JA:
-            for m in re.finditer(re.escape(word), masked):
-                if near(m, _PATIENT) or near(m, _DISEASE) or re.search(_ACTOR_BEFORE, masked[: m.start()]):
-                    hit(m, word)
-        for word in CLAIM_JUDGE_JA:
-            for m in re.finditer(re.escape(word), masked):
-                # the clause the judgement is in: a person as its subject there clears an actor of an earlier
-                # clause (モデルが読み、人が判断します), never an actor of the same clause
-                start = max(masked.rfind(c, 0, m.start()) for c in "、，,") + 1
-                actors = [a.end() for a in _ACTOR_SUBJECT.finditer(masked, 0, m.start())]
-                in_clause = [a for a in actors if a > start]
-                persons = [p.end() for p in _PERSON_SUBJECT.finditer(masked, start, m.start())]
-                if in_clause or (actors and not persons):
-                    hit(m, word)
+        for table in CLAIM_TABLES:
+            if table.reads_kana or not _KANA.search(sentence):
+                hits += _claims_in(sentence, table)
     return hits
+
+
+def _claims_in(sentence: str, table: ClaimTable) -> list[Hit]:
+    hits: list[Hit] = []
+    masked = sentence
+    for patterns in table.allowed.values():
+        for rx in patterns:
+            masked = re.sub(rx, _blank, masked)
+
+    def near(m: re.Match[str], rx: re.Pattern[str], s: str = masked) -> bool:
+        return rx.search(s[max(0, m.start() - CLAIM_WINDOW) : m.end() + CLAIM_WINDOW]) is not None
+
+    def hit(m: re.Match[str], word: str, s: str = sentence) -> None:
+        hits.append(Hit(word=word, context=s[max(0, m.start() - 30) : m.end() + 30].strip()))
+
+    for word in table.outright:
+        for m in re.finditer(re.escape(word), masked):
+            hit(m, word)
+    for word in table.find:
+        for m in re.finditer(re.escape(word), masked):
+            if near(m, table.disease) or near(m, table.early):
+                hit(m, word)
+    for word in table.rate:
+        for m in re.finditer(re.escape(word), masked):
+            if near(m, table.patient) or near(m, table.disease) or re.search(table.actor_before, masked[: m.start()]):
+                hit(m, word)
+    for word in table.judge:
+        for m in re.finditer(re.escape(word), masked):
+            # the clause the judgement is in: a person as its subject there clears an actor of an earlier
+            # clause (モデルが読み、人が判断します), never an actor of the same clause
+            start = max(masked.rfind(c, 0, m.start()) for c in "、，,") + 1
+            actors = [a.end() for a in table.actor_subject.finditer(masked, 0, m.start())]
+            in_clause = [a for a in actors if a > start]
+            persons = [p.end() for p in table.person_subject.finditer(masked, start, m.start())]
+            if in_clause or (actors and not persons):
+                hit(m, word)
+    return hits
+
+
+def check_claims_ja(text: str) -> list[Hit]:
+    """:func:`check_claims`, the name D-1228's callers use. Since D-1247 it reads zh-TW sentences too: one rule."""
+    return check_claims(text)
 
 
 _TAG = re.compile(r"<(script|style)\b.*?</\1>|<[^>]+>", re.S | re.I)
@@ -408,13 +693,13 @@ def check(
     masked = text
     for phrase in allowed:
         masked = masked.replace(phrase, " ")
-    masked = deny_masked_ja(clean_ja(masked))  # a denial says what the product does not do (D-1228)
+    masked = deny_masked(clean_ja(masked))  # a denial says what the product does not do (D-1228, D-1247)
     hits: list[Hit] = []
     for word in words:
         for m in _pattern(word).finditer(masked):
             ctx = masked[max(0, m.start() - 30) : m.end() + 30].replace("\n", " ")
             hits.append(Hit(word=word, context=ctx.strip()))
-    return hits + (check_claims_ja(masked) if claims else [])
+    return hits + (check_claims(masked) if claims else [])
 
 
 _BLOCK = re.compile(
@@ -436,7 +721,7 @@ def sentences_of_page(page: str) -> str:
 
 def check_page(page: str, words: Iterable[str] = FORBIDDEN) -> list[Hit]:
     """:func:`check` on what a reader sees of an HTML page (the Japanese claims on :func:`sentences_of_page`)."""
-    return check(visible_text(page), words, claims=False) + check_claims_ja(sentences_of_page(page))
+    return check(visible_text(page), words, claims=False) + check_claims(sentences_of_page(page))
 
 
 def lang_of(raw: str | None) -> str:
