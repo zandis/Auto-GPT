@@ -248,6 +248,7 @@ def _oml(root: Path, order: str, jlac: str, name: str, value: str, unit: str) ->
     msg = "\r".join(
         [
             "MSH|^~\\&|HIS||TB||20261001||OUL^R22|1|P|2.5||||||~ISO IR87",
+            "PID|||12345678^^^^PI",  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
             f"OBR|1|{order}",
             f"OBX|1|NM|{jlac}^{name}^JC10||{hl7.escape(value)}|{hl7.escape(unit)}||||||||20261001090000"
             + "|" * 7
