@@ -30,15 +30,15 @@ available, a target that cannot hold). 每個情境由主持人宣讀狀況，�
 | # | Scenario / 情境 | Inject / 狀況 | RUNBOOK | Drill (T-213b) | Time said / 預估時間 | Target / 目標 | Gaps / 缺漏 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Storage volume lost / 儲存磁區遺失 | 10:00: the platform team reports the TrialBox volumes were deleted by mistake / 10:00 平台團隊回報 TrialBox 的磁區被誤刪 | §23, §22 | `test_runbook_23_lost_box` | | lost-box list judged (which rows apply) within 1 hour | |
-| 2 | Restore on the same platform / 在同一平台還原 | the database volume is corrupt / 資料庫磁區損毀 | §22 | `test_runbook_22_restore_timed` | | RTO 4 hours (target, not measured) | |
-| 3 | GPU partition gone / GPU 分割區失效 | the MIG instance is not seen after platform work / 平台維護後看不到 MIG 執行個體 | §4 GPU fault, §22 replacing hardware | `test_runbook_04_gpu_fault`, `test_runbook_22_replacing_hardware` | | the platform team restores the partition or gives one on another card; canary passes | |
-| 4 | Planned power or platform outage / 計畫性停電或平台停機 | platform maintenance Saturday 08:00 to 17:00 / 週六 08:00 至 17:00 平台維護 | §22 planned power cut | `test_runbook_22_power_cut` | | no data lost; morning mail on Monday | |
-| 5 | No morning mail / 早晨郵件未送達 | 07:45: no coordinator got the mail / 07:45 所有研究協調員都沒收到郵件 | §4 morning mail | `test_runbook_04_morning_mail_missing` | | cause found and notices sent by 10:00 | |
-| 6 | Volume full / 磁區已滿 | `backup-status` red; the data volume at 97 % / `backup-status` 紅燈，資料磁區 97 % | §4 disk full | `test_runbook_04_disk_full` | | space freed safely the same day | |
-| 7 | Supervised remote session / 院方監督的遠端協助 | tier 2 must see `doctor` output to fix a P2 / 處理 P2 時需要看 `doctor` 的輸出 | §21 | `test_runbook_21_support_session` | | session by the rules; recorded in the ticket *(default, TB-DR-09 Q2)* | |
+| 2 | Restore on the same platform / 在同一平台還原 | the database volume is corrupt / 資料庫磁區損毀 | §22 | none (not rehearsed by a test) | | RTO 4 hours (target, not measured) | |
+| 3 | GPU partition gone / GPU 分割區失效 | the MIG instance is not seen after platform work / 平台維護後看不到 MIG 執行個體 | §4 GPU fault, §22 replacing hardware | none (not rehearsed by a test) | | the platform team restores the partition or gives one on another card; canary passes | |
+| 4 | Planned power or platform outage / 計畫性停電或平台停機 | platform maintenance Saturday 08:00 to 17:00 / 週六 08:00 至 17:00 平台維護 | §22 planned power cut | none (not rehearsed by a test) | | no data lost; morning mail on Monday | |
+| 5 | No morning mail / 早晨郵件未送達 | 07:45: no coordinator got the mail / 07:45 所有研究協調員都沒收到郵件 | §4 morning mail | none (not rehearsed by a test) | | cause found and notices sent by 10:00 | |
+| 6 | Volume full / 磁區已滿 | `backup-status` red; the data volume at 97 % / `backup-status` 紅燈，資料磁區 97 % | §4 disk full | none (not rehearsed by a test) | | space freed safely the same day | |
+| 7 | Supervised remote session / 院方監督的遠端協助 | tier 2 must see `doctor` output to fix a P2 / 處理 P2 時需要看 `doctor` 的輸出 | §21 | none (not rehearsed by a test) | | session by the rules; recorded in the ticket *(default, TB-DR-09 Q2)* | |
 | 8 | Key steward leaves / 金鑰保管人離職 | a steward holding a KEK share leaves on Friday / 持有 KEK 分持金鑰的保管人週五離職 | §25 | `test_runbook_25_leaver` | | KEK rotated before the leaving day | |
 | 9 | Certificate ends / 憑證到期 | `check-tls` warns: 20 days left / `check-tls` 警告剩 20 天 | §12 certificate renewal | `test_runbook_12_certificate_renewal` | | new certificate in before the end | |
-| 10 | Platform patch / 平台修補 | the platform team plans a node upgrade / 平台團隊預定升級節點 | §24, §17 | `test_runbook_24_patch_window` | | `doctor --platform` and the canary pass after | |
+| 10 | Platform patch / 平台修補 | the platform team plans a node upgrade / 平台團隊預定升級節點 | §24, §17 | none (not rehearsed by a test) | | `doctor --platform` and the canary pass after | |
 | 11 | New address / 位址變更 | the console's host name changes / 主控台主機名稱變更 | §22 moving the box | `test_runbook_22_moving_the_box` | | console answers on the new name | |
 | 12 | Study close-out and volumes retired / 試驗結案與磁區除役 | the last study closes on the 30th; the platform team will reclaim the volumes / 最後一個試驗於 30 日結案，平台團隊將回收磁區 | §20 | `test_runbook_20_decommission` | | archive verified and handed to the trial office before any purge; certificate from the platform team | |
 
