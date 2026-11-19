@@ -254,7 +254,7 @@ def table_digest(lake: Path, snapshot: str) -> dict[str, Any]:
 
     out: dict[str, Any] = {}
     for name in SCHEMAS:
-        t = pq.read_table(lake / "parquet" / f"snapshot={snapshot}" / f"{name}.parquet")
+        t = pq.read_table(lake / "parquet" / f"snapshot={snapshot}" / f"{name}.parquet", use_threads=False)
         cols = {c: sha(t.column(c).to_pylist()) for c in t.column_names}
         out[name] = {"rows": t.num_rows, "sha": sha(t.to_pylist()), "columns": cols}
     # the chunker's output (text, token count, sha) of the DuckDB file: a chunking or tokenizer change shows here

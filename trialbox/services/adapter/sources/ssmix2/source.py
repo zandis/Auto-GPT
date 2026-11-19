@@ -636,7 +636,7 @@ def _icd10cm() -> set[str]:
     path = Path(__file__).resolve().parents[3] / "criteria_compiler" / "terminology" / "icd10cm_full.parquet"
     if not path.exists():
         return set()
-    return {str(c) for c in pq.read_table(path, columns=["code"]).column("code").to_pylist()}
+    return {str(c) for c in pq.read_table(path, columns=["code"], use_threads=False).column("code").to_pylist()}
 
 
 _WHO_SHAPE = re.compile(r"^[A-Z][0-9]{2}(\.[0-9]{1,2})?$")
