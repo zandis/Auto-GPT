@@ -53,9 +53,10 @@ import re
 import socket
 import subprocess
 import sys
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 SCHEMA = "tb-serving-config/1"
 REQUIRED_SERVER = (
@@ -328,9 +329,7 @@ def host_mem_kib(meminfo: Path = Path("/proc/meminfo")) -> int | None:
     return None
 
 
-def measured_for(
-    rec: dict[str, Any], profile: str, mem_kib: Callable[[], int | None] = host_mem_kib
-) -> list[str]:
+def measured_for(rec: dict[str, Any], profile: str, mem_kib: Callable[[], int | None] = host_mem_kib) -> list[str]:
     """Why ``rec`` is not a measurement of ``profile`` on its own card; empty when it is (install.sh, D-112).
 
     A record counts only when it is complete, was taken on the card the profile names (not a larger card capped to

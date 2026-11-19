@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,10 @@ def _gb10_record() -> dict[str, Any]:
     }  # fmt: skip
 
 
+def _reads(kib: int | None) -> Callable[[], int | None]:
+    return lambda: kib
+
+
 # ------------------------------------------------------------------------------------------------ H10E5-02
 def test_the_record_is_sound_on_a_big_or_unknown_host() -> None:
     rec = _gb10_record()
@@ -60,7 +65,7 @@ def test_the_record_is_sound_on_a_big_or_unknown_host() -> None:
 
 def test_a_gb10_record_does_not_hold_on_a_host_under_96_gib() -> None:
     for kib in (SMALL_KIB, LINE_KIB - 1):  # compared in kB, never rounded
-        why = sc.measured_for(_gb10_record(), "gb10", lambda k=kib: k)
+        why = sc.measured_for(_gb10_record(), "gb10", _reads(kib))
         assert len(why) == 1 and "64 GB Spark class (gb10-64)" in why[0] and "D-1335" in why[0], why
 
 

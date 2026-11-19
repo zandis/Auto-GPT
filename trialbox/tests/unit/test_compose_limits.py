@@ -134,9 +134,7 @@ def problems(services: dict[str, dict[str, Any]], profiles: tuple[str, ...]) -> 
     return bad
 
 
-@pytest.mark.parametrize(
-    ("stack", "profiles"), LINTED_STACKS, ids=lambda x: "+".join(x) if isinstance(x, tuple) else x
-)
+@pytest.mark.parametrize(("stack", "profiles"), LINTED_STACKS, ids=lambda x: "+".join(x) if isinstance(x, tuple) else x)
 def test_every_service_of_every_stack_has_limits_health_and_a_watchdog_rule(
     stack: tuple[str, ...], profiles: tuple[str, ...]
 ) -> None:
@@ -244,9 +242,7 @@ def _render(project: Path, stack: tuple[str, ...], profiles: tuple[str, ...], en
 
 
 @pytest.mark.skipif(not _compose(), reason="needs the docker compose plugin")
-@pytest.mark.parametrize(
-    ("stack", "profiles"), LINTED_STACKS, ids=lambda x: "+".join(x) if isinstance(x, tuple) else x
-)
+@pytest.mark.parametrize(("stack", "profiles"), LINTED_STACKS, ids=lambda x: "+".join(x) if isinstance(x, tuple) else x)
 def test_compose_config_renders_the_limits(tmp_path: Path, stack: tuple[str, ...], profiles: tuple[str, ...]) -> None:
     two_device = "TB_LINK_ADDR=192.0.2.1\nTB_LINK_PEER=192.0.2.2\n"  # documentation addresses (RFC 5737)
     services = _render(tmp_path, stack, profiles, two_device if any("two-device/" in f for f in stack) else "")[
