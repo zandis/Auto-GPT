@@ -43,8 +43,12 @@ class TierRecordUnreadable(ValueError):
     """A tier record file that is not readable as one; the message is fixed words and the file's name only."""
 
 
+class _NotANumber(ValueError):
+    """``NaN`` or ``Infinity`` in a record read strictly (the checker)."""
+
+
 def _no_constant(name: str) -> Any:
-    raise ValueError(f"{name} is not a number")
+    raise _NotANumber(f"{name} is not a number")
 
 
 def read_record(path: Path, max_bytes: int = TIER_RECORD_MAX_BYTES, *, constants: bool = True) -> Any:
@@ -83,9 +87,9 @@ def read_record(path: Path, max_bytes: int = TIER_RECORD_MAX_BYTES, *, constants
         raise TierRecordUnreadable(f"{path.name[:80]}: not UTF-8") from None
     except RecursionError:
         raise TierRecordUnreadable(f"{path.name[:80]}: nested too deep to read") from None
+    except _NotANumber as exc:
+        raise TierRecordUnreadable(f"{path.name[:80]}: {exc} (NaN and Infinity are not JSON numbers)") from None
     except ValueError as exc:
-        if not constants and str(exc).endswith("is not a number"):
-            raise TierRecordUnreadable(f"{path.name[:80]}: {exc} (NaN and Infinity are not JSON numbers)") from None
         raise TierRecordUnreadable(f"{path.name[:80]}: not JSON ({type(exc).__name__})") from None
 
 
