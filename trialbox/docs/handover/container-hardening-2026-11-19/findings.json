@@ -1,0 +1,33 @@
+{
+ "card": "H10G1",
+ "title": "container hardening: the four controls on the 15 services (plan 10 row 10G-1)",
+ "date": "2026-11-19",
+ "source": "docs/handover/container-hardening-2026-11-19.md",
+ "note": "basis 'shown' for H10G1-01: the HL7 validator was run as uid 10001 against an unwritable and a writable copy of its package cache; nothing was brought up under Docker (no daemon).",
+ "findings": [
+  {
+   "id": "H10G1-01",
+   "severity": "Medium",
+   "claim": "the adapter and the orchestrator cannot run with a read-only root filesystem: the HL7 validator (services/adapter/validate/validator.py, -Duser.home=/opt/hl7/home) writes .index.json files into and renames packages in its package cache, an image path, and stops with 'Unable to rename directory ... for atomic delete' when it cannot; the fix is a writable package home in the validator, then the two read_only exceptions of D-1323 go",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10G1-02",
+   "severity": "Medium",
+   "claim": "llm-service (vLLM) runs as root with a writable root filesystem (D-1323 exceptions): its compile and kernel caches are under /root/.cache and /tmp; a fixed user and read_only need the caches on a volume, proved on a GPU box",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H10G1-03",
+   "severity": "Low",
+   "claim": "the overlay services outside the base file's 15 carry none or only some of the four controls: llm-verifier, judge-sleep-init, judge-wake-init, model-swap-init, caddy, authelia, prometheus, doctor (tests/unit/test_container_hardening.py OUTSIDE_THE_15)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}
