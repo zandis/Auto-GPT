@@ -46,7 +46,9 @@ def payload_bytes(images: Iterable[str], models: Path | None, *, inspect: Callab
         with contextlib.suppress(TypeError, IndexError, KeyError, ValueError, AttributeError):
             total += int(doc[0].get("Size") or 0)
     if models is not None and models.is_dir():
-        total += sum(f.stat().st_size for f in models.rglob("*") if f.is_file())
+        # through links, as make_bundle.sh's ``find -L`` reads the folder (H-43: a model cache's files are links)
+        for d, _dirs, names in os.walk(models, followlinks=True):
+            total += sum((Path(d) / n).stat().st_size for n in names if (Path(d) / n).is_file())
     return total
 
 

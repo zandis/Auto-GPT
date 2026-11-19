@@ -59,16 +59,18 @@ snapshot (T-305a, D-383) through ``ctx.services.lake``.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from criteria_compiler.semantics import codes_settle
 from matching import coded_values
-from tb_common import provenance
+from tb_common import provenance, tier_value
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
+from tb_common.verdict_word import shown_of
 from tb_contracts import (
     CandidateList,
     CandidateRow,
@@ -80,6 +82,7 @@ from tb_contracts import (
     dump,
 )
 
+from orchestrator import answer_store
 from orchestrator import excluded as excluded_lines
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
@@ -162,8 +165,13 @@ def _opened(cid: str) -> CriterionVerdict:
 
 
 def night_budget(ctx: Ctx) -> int:
-    """The configured night budget in patients (0: no limit)."""
-    return int(getattr(ctx.cfg.env, "microbatch_night_budget", DEFAULT_NIGHT_BUDGET))
+    """The configured night budget in patients (0: no limit). Left at its default, it is this box's tier record's
+    ``night_budget_patients`` when the record measured it (10E-1c, D-1322); a setting always wins."""
+    configured = int(getattr(ctx.cfg.env, "microbatch_night_budget", DEFAULT_NIGHT_BUDGET))
+    if configured != DEFAULT_NIGHT_BUDGET or (os.environ.get("TB_MICROBATCH_NIGHT_BUDGET") or "").strip():
+        return configured
+    measured = tier_value.positive_int(tier_value.measured("night_budget_patients"))
+    return configured if measured is None else measured
 
 
 TERMINAL = ("done", "failed")
@@ -343,6 +351,39 @@ def pool_as_received(ctx: Ctx, rs: Ruleset, keys: list[str]) -> list[dict[str, A
     return [p for p in rows if p["pid"] not in drop]
 
 
+def answers_changed(
+    ctx: Ctx,
+    rs: Ruleset,
+    rows: list[CandidateRow],
+    told: list[Change],
+    earlier: dict[str, dict[str, dict[str, Any]]] | None = None,
+) -> list[Change]:
+    """D-1360 (card 10A-4): the criteria of ``rows`` whose answer, as a page shows it (``answer_store.shown``: a held
+    back "not met" is an open point, D-478), differs from the one last stored for the patient in the answer store.
+    ``earlier``: answers read before this job wrote any (a patient the re-check answered first); the others are read
+    now. Not a change: a criterion with no stored answer, an answer nobody gave on either side (D-642), and a
+    criterion ``told`` already names for the patient."""
+    seen = {(c.pid, c.criterion_id) for c in told}
+    earlier = earlier or {}
+    stored = {
+        **answer_store.last_of(ctx, [r.pid for r in rows if r.pid not in earlier], rs.id, rs.version),
+        **{p: a for p, a in earlier.items() if p in {r.pid for r in rows}},
+    }
+    out: list[Change] = []
+    for r in rows:
+        before = stored.get(r.pid) or {}
+        for v in r.criteria:
+            prev = before.get(v.id)
+            if prev is None or (r.pid, v.id) in seen or _not_asked(v):
+                continue
+            if prev["status"] == "unknown" and prev["reason"] in answer_store.NOT_ASKED:
+                continue
+            was, now = answer_store.shown(prev)[0], shown_of(v)[0]
+            if was != now:
+                out.append(Change(r.pid, v.id, was, now, (v.evidence.quote or "") if v.evidence else ""))
+    return out
+
+
 def run(ctx: Ctx) -> Outcome:
     job = ctx.job
     require_open(job.ruleset)  # D-386 (LIFE-008): no list for a study that is not open
@@ -431,6 +472,7 @@ def run(ctx: Ctx) -> Outcome:
     stamp = job_stamp(ctx)  # evaluation time = the job's receipt: same inputs → same bytes (D-82)
     rechecked = {s.pid for s in recheck}
     by_id = rs.by_id()
+    answered: dict[str, list[CriterionVerdict]] = {}  # D-1360: the re-check's fresh answers, for the answer store
     for p in pool:
         old = {v["id"]: CriterionVerdict.model_validate(v) for v in p["verdicts"]}
         # D-476 item 3 (review H1): a note fail that says nothing about itself was stored before the field
@@ -474,6 +516,7 @@ def run(ctx: Ctx) -> Outcome:
             if prev is not None and coded_values.unread(prev) and not (v.evidence and v.evidence.coded):
                 v = coded_values.mark_unread(v)
             new[v.id] = v
+            answered.setdefault(p["pid"], []).append(v)
         ordered = [new[c.id] for c in rs.active() if c.id in new]
         tr, acts, n_unk = tier(rs, ordered, t, note_block=may_block)
         pv = PatientVerdicts(p["pid"], ordered, tr, acts, n_unk)
@@ -488,6 +531,15 @@ def run(ctx: Ctx) -> Outcome:
             pool_rows.append(
                 row(pv, keep, p.get("practitioner_id"), p.get("department"), str(p.get("last_eval") or stamp))
             )
+    # D-1360 (card 10A-4): an excluded pool row screened again later in this job is told what changed against the
+    # answers stored before this job, so they are read before the re-check writes its own
+    stored_before = answer_store.last_of(
+        ctx, [p["pid"] for p in pool if p.get("tier") == "excluded"], rs.id, rs.version
+    )
+    # the re-check's own answers (a stored answer that stood is not answered again); v1 has no rung
+    answer_store.record(
+        ctx, rs.id, rs.version, {p: PatientVerdicts(p, vs, "", [], 0) for p, vs in answered.items()}, run_date, snapshot
+    )
     week_rows = [r for r in pool_rows if r.pid in week]
     if not on_ingest:  # the week's rows, re-checked or not; a row the budget left out keeps its last evaluation
         persist_pool(ctx, rs, [r for r in week_rows if not ts or r.pid in rechecked])
@@ -520,6 +572,7 @@ def run(ctx: Ctx) -> Outcome:
         cascade_runs.append(vrun)
         version_rows = [r.model_copy(update={"changed": [v.id for v in r.criteria]}) for r in vrun.rows]
         persist_pool(ctx, rs, version_rows)  # whatever the tier: the row of the old version is replaced
+        answer_store.record(ctx, rs.id, rs.version, getattr(vrun, "results", {}), run_date, snapshot)  # D-1360
         judging = vrun.judging
         used += len(again)
     done_again = {s.pid for s in again}
@@ -606,6 +659,10 @@ def run(ctx: Ctx) -> Outcome:
             # D-989: every row read on this job, listed or not (a carried row was recorded when it was read)
             provenance.verdicts_used(ctx.orch.audit, rs.id, rs.version, ctx.job.job_id, srun.rows)
             back_rows = [r for r in new_rows if r.pid in set(back)]
+            # D-1360 (card 10A-4): a patient listed again is told against the answers last stored for them (read
+            # before this run's are written): which criterion changed, as the re-check tells a pool row's
+            changes.extend(answers_changed(ctx, rs, back_rows, changes, stored_before))
+            answer_store.record(ctx, rs.id, rs.version, getattr(srun, "results", {}), run_date, snapshot)
             # one who was an excluded row of the pool and is listed again has one row: the new one
             again_listed = {r.pid for r in back_rows}
             pool_rows = [r for r in pool_rows if r.pid not in again_listed]

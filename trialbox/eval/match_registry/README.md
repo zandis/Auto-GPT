@@ -23,6 +23,8 @@ python -m eval.match_registry.datasets fetch [--zip TrialGPT-main.zip] [--corpor
 python -m eval.match_registry.benchmark report --model <label>
 ```
 
-The cohorts and the NCBI code are US Government works in the public domain (see
-`services/matching/registry_match/ncbi_upstream/LICENSE`). Please cite: Jin Q, et al. *Matching patients to clinical
+The NCBI code and NCBI's labels are US Government works under NCBI's public domain notice (see
+`services/matching/registry_match/ncbi_upstream/LICENSE`). The cohorts are not: the SIGIR 2016 patient descriptions
+are CC BY-SA 4.0 (Koopman and Zuccon, CSIRO; attribution in `eval/criterion_ml/NOTICE.md`) and the TREC Clinical
+Trials topics are NIST's, which states no licence (register rows `pubacc-sigir-2016`, `pubacc-trec-ct`). Please cite: Jin Q, et al. *Matching patients to clinical
 trials with large language models.* Nat Commun 15, 9074 (2024).
