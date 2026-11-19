@@ -29,6 +29,7 @@ STACKS: list[tuple[tuple[str, ...], tuple[str, ...]]] = [
     ((BASE, "docker-compose.test.yml"), ("stub", "test")),
     ((BASE, "docker-compose.test.yml", "docker-compose.poc.yml"), ("stub", "test")),
     ((BASE, "docker-compose.secrets.yml", "docker-compose.gb10.yml"), ("gpu",)),
+    ((BASE, "docker-compose.secrets.yml", "docker-compose.gb10.yml", "docker-compose.gb10-64.yml"), ("gpu",)),
     ((BASE, "docker-compose.secrets.yml", "docker-compose.rtx5090.yml"), ("gpu",)),
     ((BASE, "docker-compose.secrets.yml", "docker-compose.rtxpro6000.yml"), ("gpu",)),
     ((BASE, "docker-compose.secrets.yml", "docker-compose.dgpu48.yml"), ("gpu",)),  # the UNMEASURED draft (24-5)
@@ -162,6 +163,10 @@ def test_the_database_is_reported_not_restarted_and_vllm_is_restarted() -> None:
     assert base["llm-service"]["labels"]["tb.watchdog"] == "restart"
     assert "healthcheck" in base["llm-service"]  # the watchdog acts on Docker's health state
     for stack, _ in STACKS:
+        if "docker-compose.gb10-64.yml" in stack:
+            # 64 GB unified memory: both models stay resident under 32 GiB. The fit is
+            # tests/unit/test_gb10_64_profile.py. Every other stack keeps this floor.
+            continue
         for svc, body in _merge(stack).items():
             if svc.startswith("llm-") and svc != "llm-stub":
                 assert _bytes(body["mem_limit"]) >= 32 * 2**30, (stack, svc)  # a sleeping judge's weights fit

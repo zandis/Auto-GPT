@@ -1,0 +1,31 @@
+# 64 GB unified-memory class (gb10-64). A later file on docker-compose.gb10.yml.
+#
+#   deploy/install.sh <bundle> --mode gpu --gpu gb10-64
+#
+# Memory limits only, from deploy/gb10-64-profile.yaml (planning values, not measured). Images, commands, the 16k
+# context and the sequence counts stay the 128 GB file's planning defaults; they are not a measurement of a 64 GB
+# host, and this file does not restate them. Anchors do not cross compose files, so this overlay sets no <<: *arm.
+services:
+  llm-service: {mem_limit: 23g}
+  llm-verifier: {mem_limit: 13g}
+  gateway:
+    mem_limit: 1g
+    environment:
+      TB_PROFILE: P-GB10-64
+  model-guard: {mem_limit: 512m}
+  db: {mem_limit: 3.5g}
+  fhir-store:
+    mem_limit: 3.5g
+    environment:
+      # integer -Xmx so the cap stays at least 1 GiB above the heap (T-108a). Not measured.
+      JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-2g} -Duser.timezone=${TB_TZ:?set TB_TZ in deploy/.env to site.tz (D-315)}"
+  lake: {mem_limit: 2.5g}
+  embed-service: {mem_limit: 2.5g}
+  orchestrator: {mem_limit: 1280m}
+  adapter: {mem_limit: 1280m}
+  doc-parser: {mem_limit: 1g}
+  criteria-compiler: {mem_limit: 512m}
+  console: {mem_limit: 1g}
+  mail-gateway: {mem_limit: 512m}
+  audit-writer: {mem_limit: 256m}
+  llm-stub: {mem_limit: 512m}

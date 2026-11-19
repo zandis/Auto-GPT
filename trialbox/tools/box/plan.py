@@ -43,7 +43,7 @@ from tb_common.box_answers import BackupKind, OwnerAnswers, SourceKind
 
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOY = ROOT / "deploy"
-PAIR_PROFILES = ("rtxpro6000", "gb10", "rtx5090")  # judge and verifier (D-124)
+PAIR_PROFILES = ("rtxpro6000", "gb10", "gb10-64", "rtx5090")  # judge and verifier (D-124); gb10-64 is the 64 GB Spark
 WORKSTATION_PROFILES = ("rtxpro6000", "rtx5090", "rtx4090", "default")
 REFUSED_PROFILES = ("shared-quota", "b200-no-mig")  # install.sh refuses them: a platform, not a box (D-211, D-409)
 # where the box keeps its backups and its first-run answers; the folders are the box's own, never the owner's choice
@@ -111,13 +111,20 @@ class PlanError(ValueError):
 
 
 # ------------------------------------------------------------------------------------------------ hardware
-def gpu_profile(arch: str, gpu_name: str, mig: str = "", deploy: Path = DEPLOY) -> str:
-    """deploy/gpu_profile.sh's answer for this machine: one rule, shared with install.sh."""
+def gpu_profile(
+    arch: str, gpu_name: str, mig: str = "", deploy: Path = DEPLOY, ram_gib: float | None = None
+) -> str:
+    """deploy/gpu_profile.sh's answer for this machine: one rule, shared with install.sh.
+
+    ``ram_gib`` is the host's memory in whole GiB when this process already read it (a 64 GB Spark is ``gb10-64``).
+    Omitted, the script treats memory as unknown and a GB10 stays ``gb10``.
+    """
     if not gpu_name:
         return "none"
-    out = subprocess.run(
-        ["sh", str(deploy / "gpu_profile.sh"), arch, gpu_name, mig], capture_output=True, text=True, check=True
-    )
+    cmd = ["sh", str(deploy / "gpu_profile.sh"), arch, gpu_name, mig]
+    if ram_gib:
+        cmd.append(str(int(ram_gib)))
+    out = subprocess.run(cmd, capture_output=True, text=True, check=True)
     return out.stdout.strip()
 
 
@@ -338,9 +345,9 @@ def memory_caps(ram_gib: float, profile: str, deploy: Path = DEPLOY) -> tuple[di
     factor falls below :data:`MIN_SERVICE_SHARE` is refused (:class:`PlanError`: the services were never measured
     there). When they fit with room to spare, the services grow into it (the lake and the database use it) and the
     model servers keep their default (their weights are on the card; more host memory does not serve them faster).
-    The Spark (``gb10``) is one machine: its profile (``deploy/gb10-profile.yaml``) is its caps, so nothing is
-    derived for it."""
-    if profile == "gb10":
+    The Spark profiles (``gb10``, ``gb10-64``) are one machine each: their profile YAML is their caps, so nothing
+    is derived for them."""
+    if profile in ("gb10", "gb10-64"):
         return {}, []
     files = [deploy / "docker-compose.yml", deploy / "docker-compose.identity.yml"]
     # dgpu48: the UNMEASURED 48 GB draft (card 24-5): arithmetic only, never detected, refused by install.sh
@@ -469,7 +476,7 @@ def hardening_conf(hw: Hardware, *, mdns: bool = False) -> str:
 def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
     """Everything the installer needs, from the owner's answers and this machine (pure but for reading the compose
     files and running deploy/gpu_profile.sh)."""
-    profile = gpu_profile(hw.arch, hw.gpu_name, hw.mig, deploy)
+    profile = gpu_profile(hw.arch, hw.gpu_name, hw.mig, deploy, hw.ram_gib)
     if profile in REFUSED_PROFILES:
         raise PlanError(
             f"this GPU ({hw.gpu_name}) serves TrialBox only on a shared platform (RUNBOOK §17), not as a box"

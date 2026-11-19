@@ -203,9 +203,10 @@ case "$MODE" in
   *) die "--mode must be gpu or stub" ;;
 esac
 # GPU profile (D-95, D-124; deploy/gpu_profile.sh detects it from the card): rtxpro6000 = judge and verifier both
-# resident on a 96 GB card at 32k; gb10 = the same pair resident on a DGX Spark at 16k; rtx5090 = the same pair on one
-# 32 GB card with the sleep swap at 8k; all three exclude on a note only when both models agree. rtx4090 = the judge
-# alone on a 24 GB card, note answers never exclude; default = base llm-service
+# resident on a 96 GB card at 32k; gb10 = the same pair resident on a 128 GB DGX Spark at 16k; gb10-64 = that pair on
+# a 64 GB Spark (host memory under 96 GiB), limits in deploy/gb10-64-profile.yaml, unmeasured; rtx5090 = the same pair
+# on one 32 GB card with the sleep swap at 8k. The pair profiles exclude on a note only when both models agree.
+# rtx4090 = the judge alone on a 24 GB card, note answers never exclude; default = base llm-service
 if [ "$MODE" = gpu ] && [ "$GPU" = auto ]; then
   GPU="$(sh "$ROOT/deploy/gpu_profile.sh")"
 fi
@@ -217,7 +218,7 @@ case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances
   # honoured by its measuring run alone (tools/dgpu48.py), which starts only the model servers and installs nothing
   dgpu48) die "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;
 esac
-case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;; esac
+case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; gb10-64) ;; *) die "--gpu must be rtxpro6000, gb10, gb10-64, rtx5090, rtx4090 or default" ;; esac
 # D-348: the vLLM image of deploy/images.lock must run here (its architecture, the driver its CUDA needs, the GPU's
 # compute capability), before anything is loaded: a CUDA 13 image on an older driver would only fail at start
 if [ "$MODE" = gpu ]; then
@@ -494,11 +495,15 @@ if [ "$MODE" = gpu ] && ! grep -q '^TB_LLM_API_KEY=.' deploy/.env; then
 fi
 NOTE_BLOCK=both_agree; [ "$GPU" = rtx4090 ] && NOTE_BLOCK=never
 # the pair profiles run the verifier build: name it, or both_agree has no second model (doctor note_block), D-142
+# gb10-64 shares this gate; $GPU is put back at once so the profile name stays gb10-64
+TB_GPU_SAVED="$GPU"; case "$GPU" in gb10-64) GPU=gb10 ;; esac
 case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
+  GPU="$TB_GPU_SAVED"
   grep -q '^TB_GATEWAY_VERIFIER_MODEL=.' deploy/.env || { sed -i "/^TB_GATEWAY_VERIFIER_MODEL=/d" deploy/.env; echo "TB_GATEWAY_VERIFIER_MODEL=v-verifier" >> deploy/.env; }
   # and the judge build by name: a judge that names none could be answered by another build of its route (D-276)
   grep -q '^TB_GATEWAY_MODEL=.' deploy/.env || { sed -i "/^TB_GATEWAY_MODEL=/d" deploy/.env; echo "TB_GATEWAY_MODEL=j-workhorse" >> deploy/.env; } ;;
 esac
+GPU="$TB_GPU_SAVED"
 grep -q '^TB_NOTE_BLOCK=' deploy/.env && sed -i "s/^TB_NOTE_BLOCK=.*/TB_NOTE_BLOCK=$NOTE_BLOCK/" deploy/.env || echo "TB_NOTE_BLOCK=$NOTE_BLOCK" >> deploy/.env
 grep -q '^COMPOSE_PROFILES=' deploy/.env && sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=$MODE/" deploy/.env || echo "COMPOSE_PROFILES=$MODE" >> deploy/.env
 # T-692 (D-473, OD-10): the adapter's and the lake's memory caps from the patient count (the lake's CURRENT snapshot,
@@ -581,7 +586,10 @@ else
 fi
 # ---- end of PINS
 
+# gb10-64 shares this gate; the record name stays serving_config.gb10-64.json (there is none until a run on this class)
+TB_GPU_SAVED="$GPU"; case "$GPU" in gb10-64) GPU=gb10 ;; esac
 case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
+  GPU="$TB_GPU_SAVED"
   # D-112, D-124: a pair profile starts only on a serving-config record of that profile on that card, uncapped
   # (tools/serving_config.py measured <profile>): the site's own record (deploy/gcp/capture-serving-config.sh after a
   # first boot) or the vendor's, shipped in the bundle (deploy/measured/). Otherwise only when the operator accepts
@@ -602,8 +610,9 @@ case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
     die "the $GPU profile has no measurement on its own card (deploy/site/ or deploy/measured/serving_config.$GPU.json). For a first trial boot re-run as a rehearsal box (TB_COMPOSE_OVERRIDE= deploy/install.sh <bundle> --gpu $GPU --rehearsal), then capture the record (RUNBOOK §1)"
   fi ;;
 esac
+GPU="$TB_GPU_SAVED"
 case "$MODE:$GPU" in
-  gpu:rtxpro6000) PROFILE=P-PRO6000 ;; gpu:gb10) PROFILE=P-GB10 ;; gpu:rtx5090|gpu:rtx4090) PROFILE=P-5090 ;; *) PROFILE=P-GB10 ;;
+  gpu:rtxpro6000) PROFILE=P-PRO6000 ;; gpu:gb10) PROFILE=P-GB10 ;; gpu:gb10-64) PROFILE=P-GB10-64 ;; gpu:rtx5090|gpu:rtx4090) PROFILE=P-5090 ;; *) PROFILE=P-GB10 ;;
 esac
 grep -q '^TB_PROFILE=' deploy/.env && sed -i "s/^TB_PROFILE=.*/TB_PROFILE=$PROFILE/" deploy/.env || echo "TB_PROFILE=$PROFILE" >> deploy/.env
 sed -i "/^TB_TIER=/d" deploy/.env; [ -z "$TIER" ] || echo "TB_TIER=$TIER" >> deploy/.env
@@ -614,6 +623,7 @@ FILES="$ROOT/deploy/docker-compose.yml:$ROOT/deploy/docker-compose.secrets.yml"
 case "$MODE:$GPU" in
   gpu:rtxpro6000) COMPOSE+=(-f deploy/docker-compose.rtxpro6000.yml); FILES="$FILES:$ROOT/deploy/docker-compose.rtxpro6000.yml" ;;
   gpu:gb10) COMPOSE+=(-f deploy/docker-compose.gb10.yml); FILES="$FILES:$ROOT/deploy/docker-compose.gb10.yml" ;;
+  gpu:gb10-64) COMPOSE+=(-f deploy/docker-compose.gb10.yml -f deploy/docker-compose.gb10-64.yml); FILES="$FILES:$ROOT/deploy/docker-compose.gb10.yml:$ROOT/deploy/docker-compose.gb10-64.yml" ;;
   gpu:rtx5090|gpu:rtx4090) COMPOSE+=(-f deploy/docker-compose.rtx5090.yml); FILES="$FILES:$ROOT/deploy/docker-compose.rtx5090.yml" ;;
 esac
 if [ -n "$TLS_HOST" ]; then

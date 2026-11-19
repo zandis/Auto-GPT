@@ -235,16 +235,19 @@ def template_sha256(models_dir: Path, path: str | None) -> str | None:
 #   card       a string in nvidia-smi's card name (the GB10 reports "NVIDIA GB10")
 #   also       other strings that name a card of the same profile: the RTX PRO 4500 (Blackwell, 32 GB) is the rtx5090
 #              profile's fallback card (plan 10 decision 106, review 19 card 19-3), mapped to it by
-#              deploy/gpu_profile.sh:45; its record, taken on its own card, must meet every other condition here
+#              deploy/gpu_profile.sh; its record, taken on its own card, must meet every other condition here
 #   sleep     True: both servers ran with --enable-sleep-mode (the one-card swap, the only way the 5090 pair fits);
 #              False: both resident, no sleep mode (the profile serves them side by side)
 #   min_len    each server's --max-model-len is at least this (the profile's context)
 #   mig        True: each server on its own MIG instance; the context rule is then keyed on that instance's MIG
 #              profile (MIG_MIN_LEN), not on the card (shared-quota, D-409)
+#   max_memory_mib  when set, the card's memory_total_mib must be an int at or under this. gb10-64 uses 80 GiB: above
+#              a 64 GB card, below the 96 GB card's 97887 MiB, so that fixture is not this class. gb10 has no ceiling.
 PROFILES: dict[str, dict[str, Any]] = {
     "rtx5090": {"card": "5090", "also": ("RTX PRO 4500",), "sleep": True, "min_len": 8192},
     "rtxpro6000": {"card": "RTX PRO 6000", "sleep": False, "min_len": 32768},
     "gb10": {"card": "GB10", "sleep": False, "min_len": 16384},
+    "gb10-64": {"card": "GB10", "sleep": False, "min_len": 16384, "max_memory_mib": 80 * 1024},
     "shared-quota": {"card": "B200", "sleep": False, "min_len": None, "mig": True},
 }
 # D-409 (LLM-011, LLM-027): the shared-quota rule, keyed on the MIG profile of the instance a server ran on: the
@@ -325,6 +328,13 @@ def measured_for(rec: dict[str, Any], profile: str) -> list[str]:
     want = rule["card"]
     if not any(c in str(card.get("name", "")) for c in (want, *rule.get("also", ()))):
         why.append(f"card is {card.get('name') or '?'}, not an {want}")
+    ceiling = rule.get("max_memory_mib")
+    total_mib = card.get("memory_total_mib")
+    if isinstance(ceiling, int) and (
+        not isinstance(total_mib, int) or isinstance(total_mib, bool) or total_mib > ceiling
+    ):
+        shown = total_mib if isinstance(total_mib, int) and not isinstance(total_mib, bool) else "?"
+        why.append(f"card memory {shown} MiB is above this profile's {ceiling} MiB class")
     if card.get("capped_to"):
         why.append(f"measured on a capped card ({card['capped_to']}), not on the {want} itself")
     servers = rec.get("servers") or []

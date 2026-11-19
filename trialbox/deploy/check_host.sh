@@ -5,7 +5,8 @@
 #                        [--wsl2 [--wsl2-distro <name>] [--escrow "<who keeps the BitLocker recovery password>"]]
 #
 # Read-only: changes nothing. Run as root on the appliance after installation and after every update.
-# --gpu names the GPU profile (rtxpro6000, gb10, rtx5090, rtx4090, default; --gb10 is --gpu gb10). With a profile, or
+# --gpu names the GPU profile (rtxpro6000, gb10, gb10-64, rtx5090, rtx4090, default; --gb10 is --gpu gb10). gb10-64
+# is the 64 GB Spark class and takes the same GB10 image and driver hold as gb10. With a profile, or
 # TB_LLM_MODE=vllm in the env file, the host is checked against the vLLM image of deploy/images.lock (D-348): its
 # architecture, the NVIDIA driver (FAIL below the image's CUDA need) and the GPU's compute capability.
 # --gpu-only runs only those GPU checks (install.sh runs it before it loads anything).
@@ -29,7 +30,7 @@ while [ $# -gt 0 ]; do
     --wsl2-distro) WSL2_DISTRO="$2"; shift ;;
     --escrow) ESCROW="$2"; shift ;;
     --gb10) GB10=1; GPU_PROFILE=gb10 ;;
-    --gpu) GPU_PROFILE="$2"; [ "$2" = gb10 ] && GB10=1; shift ;;
+    --gpu) GPU_PROFILE="$2"; case "$2" in gb10|gb10-64) GB10=1 ;; esac; shift ;;
     --gpu-only) GPU_ONLY=1 ;;
     --env) ENV_FILE="$2"; shift ;;
     --secrets) SECRETS="$2"; shift ;;

@@ -1,0 +1,104 @@
+# The 64 GB unified-memory class (aarch64, a GB10, host memory under 96 GiB; card 10E-5).
+#
+# status: unmeasured. Every number here is a planning value scaled from deploy/gb10-profile.yaml so the limits plus
+# the same 8 GiB OS reserve fit 64 GiB. None of them was taken on a 64 GB Spark. The measured fields stay null until
+# a run on this memory class fills them (card 10E-6). tools/two_device.py profile_problems holds the same schema:
+#   * the memory limits plus the OS reserve fit the unified memory, in the one-device and the two-device form;
+#   * no measured field has a value while the status is unmeasured;
+#   * the driver hold is the existing D-373 declaration (version, dates), not a new measurement on this class.
+# docker-compose.gb10-64.yml is a later overlay on docker-compose.gb10.yml and sets these limits. Context, sequence
+# counts and GPU-memory fractions are not restated there: the 128 GB file's planning defaults are not a measurement
+# of a 64 GB host, so the serving block below stays null.
+schema: tb-gb10-profile/1
+status: unmeasured
+record: null   # a Spark run of this memory class, once one exists
+
+device:
+  card: NVIDIA GB10            # the name nvidia-smi reports; memory, not the name, selects this class
+  platform: linux/arm64
+  unified_memory_gib: 64       # nominal product size of the 64 GB class; not measured on a host
+  unified_memory_measured_gib: null
+  os_reserve_gib: 8            # the same planning reserve as the 128 GB profile; unmeasured
+
+# D-373, the hold already declared for the GB10. Not re-measured for the 64 GB class.
+driver_hold:
+  version: "580.142"
+  decided: 2026-11-11
+  decision: D-373
+  retest_every_days: 28
+  next_retest_by: 2026-12-09
+  retest_by: the operations engineer of lane 2E (deploy, release, operations), on the bench Spark
+
+# Docker memory limits (compose mem_limit), GiB. Planning only. The model caps are the 128 GB profile's fractions
+# of this device (0.30 and 0.15) plus that profile's 3.6 GiB host-process allowance (42 - 0.30*128), rounded to a
+# whole GiB. They are not raised to the 32 GiB sleeping-model floor: that floor does not fit, and both stay resident.
+# The other services are a planning share of the 20 GiB left after those model caps and the 8 GiB OS reserve. The
+# 128 GB profile's non-model caps (excluding link) sum to 44.25 GiB; these are that share, rounded to 0.25 GiB, and
+# sum to 19.75 GiB. Whether a vLLM process's GPU allocations are charged to its cgroup is unmeasured, as on the
+# 128 GB profile.
+memory:
+  llm-service:       {limit_gib: 23, measured_peak_gib: null, basis: "0.30 of 64 GiB (19.2) + 3.6 GiB host-process allowance, rounded to 23; not the 32 GiB floor; not measured"}
+  llm-verifier:      {limit_gib: 13, measured_peak_gib: null, basis: "0.15 of 64 GiB (9.6) + 3.6 GiB host-process allowance, rounded to 13; not the 32 GiB floor; not measured"}
+  gateway:           {limit_gib: 1, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
+  model-guard:       {limit_gib: 0.5, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
+  link:              {limit_gib: 1, measured_peak_gib: null, basis: "two-device form only: the TLS relay; not measured"}
+  db:                {limit_gib: 3.5, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
+  fhir-store:        {limit_gib: 3.5, measured_peak_gib: null, basis: "HAPI heap 2g plus JVM margin, cap at least 1 GiB over -Xmx; not measured"}
+  lake:              {limit_gib: 2.5, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
+  embed-service:     {limit_gib: 2.5, measured_peak_gib: null, basis: "planning share; the 128 GB profile's 6 GiB cap does not fit; not measured"}
+  orchestrator:      {limit_gib: 1.25, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
+  adapter:           {limit_gib: 1.25, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
+  doc-parser:        {limit_gib: 1, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
+  criteria-compiler: {limit_gib: 0.5, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
+  console:           {limit_gib: 1, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
+  mail-gateway:      {limit_gib: 0.5, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
+  audit-writer:      {limit_gib: 0.25, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
+  llm-stub:          {limit_gib: 0.5, measured_peak_gib: null, basis: "stub profile only, never beside vLLM; not measured"}
+
+# Same device split as the 128 GB profile. The Spark still holds the gateway and the models, never the repository.
+devices:
+  spark: [gateway, model-guard, llm-service, llm-verifier, link]
+  workstation: [db, fhir-store, lake, embed-service, doc-parser, criteria-compiler, adapter, orchestrator, mail-gateway, console, audit-writer, link]
+
+# The same decision gate as the 128 GB profile. result stays null: no row has been answered for this memory class.
+decision_gate:
+  - id: pair-serves
+    measure: both models resident at the profile's context; canary 54 passes; N-12 <= 5 % on this memory class
+    pass: "yes"
+    result: null
+  - id: screening-night
+    measure: the 5,000- and 50,000-patient synthetic SCREEN, five runs each, p95 inside the night window with 30 % headroom
+    pass: "yes"
+    result: null
+  - id: profiles
+    measure: 200 study-patient profiles per night beside the screening, same window
+    pass: "yes"
+    result: null
+  - id: context
+    measure: no G1 scenario's candidate set changes against the 32k record
+    pass: identical candidate sets
+    result: null
+  - id: embeddings
+    measure: the nightly embedding increment finishes inside the window (Spark or workstation CPU)
+    pass: "yes"
+    result: null
+  - id: operations
+    measure: two-device IQ on the bench; the link refuses an unauthenticated peer; one update applies to both devices
+    pass: "yes"
+    result: null
+  - id: reliability
+    measure: 14 consecutive bench nights without an unrecovered failure
+    pass: "yes"
+    result: null
+
+# What the 128 GB compose file still starts with (16k context, 8 sequences, gpu util 0.30 and 0.15) is that file's
+# planning default, inherited by the overlay because this file does not restate the commands. It is not a measurement
+# of a 64 GB host, so every value here stays null.
+serving:
+  context_tokens: null
+  judge_sequences: null
+  verifier_sequences: null
+  judge_gpu_memory_utilization: null
+  verifier_gpu_memory_utilization: null
+  judge_calls_per_second: null
+  measured_by: null

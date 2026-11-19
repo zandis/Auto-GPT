@@ -543,6 +543,12 @@ PROFILE_PAIRS: dict[str, list[tuple[str, str, str, str, str, str]]] = {
          JUDGE_SERVED),
         ("qwen3.5-9b-spark", "verifier", "VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit", "VERIFIER_MODEL", VERIFIER_SERVED),
     ],
+    # 64 GB unified memory (gb10-64): the same spark builds. Reuse of the declared pair, not a new measurement.
+    "gb10-64": [
+        ("gemma-4-26b-a4b-it-spark", "serving", "JUDGE_MODEL_DIR", "gemma-4-26b-a4b-it-4bit", "JUDGE_MODEL",
+         JUDGE_SERVED),
+        ("qwen3.5-9b-spark", "verifier", "VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit", "VERIFIER_MODEL", VERIFIER_SERVED),
+    ],
     "rtx5090": [
         ("gemma-4-26b-a4b-it-rtx5090", "serving", "JUDGE_MODEL_DIR", "gemma-4-26b-a4b-it-4bit", "JUDGE_MODEL",
          JUDGE_SERVED),

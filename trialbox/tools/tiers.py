@@ -14,6 +14,9 @@ is not a tier install, on a rehearsal box only (``--rehearsal``, D-726).
     large     ``rtxpro6000``  RTX PRO 6000 (96 GB), head hospitals   the pair resident, 32k
     ========  ==============  =====================================  ===================================
 
+A 64 GB Spark is profile ``gb10-64`` (host memory under 96 GiB), not medium. ``medium`` stays ``gb10`` until that
+class has a serving record of its own.
+
 The record is the site's (``deploy/site/serving_config.<gpu>.json``) or the vendor's, shipped with the kit
 (``deploy/measured/serving_config.<gpu>.json``); the site's wins, as in ``install.sh``. The card in the machine must
 be the tier's card (``deploy/gpu_profile.sh``). Standard library only: ``install.sh`` runs it with the host's
@@ -71,11 +74,30 @@ def card_name() -> str:
     return out.stdout.strip().splitlines()[0].strip() if out.returncode == 0 and out.stdout.strip() else ""
 
 
-def profile_of(arch: str, card: str, deploy: Path) -> str:
-    """The GPU profile ``deploy/gpu_profile.sh`` gives this machine (one table for install.sh and this check)."""
-    out = subprocess.run(
-        ["sh", str(deploy / "gpu_profile.sh"), arch, card], check=True, capture_output=True, text=True, timeout=30
-    )
+def host_memory_gib() -> int | None:
+    """Whole GiB of ``MemTotal``, or None when ``/proc/meminfo`` cannot be read. Not a measurement of a GPU."""
+    try:
+        text = Path("/proc/meminfo").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith("MemTotal:"):
+            parts = line.split()
+            if len(parts) >= 2 and parts[1].isdigit():
+                return (int(parts[1]) // 1024 // 1024) or None
+    return None
+
+
+def profile_of(arch: str, card: str, deploy: Path, memory_gib: int | None = None) -> str:
+    """The GPU profile ``deploy/gpu_profile.sh`` gives this machine (one table for install.sh and this check).
+
+    ``memory_gib`` is passed only for a live detect. A caller that names the card does not read this host's memory,
+    so a test's GB10 stays ``gb10`` on a machine whose ``MemTotal`` is under 96 GiB.
+    """
+    cmd = ["sh", str(deploy / "gpu_profile.sh"), arch, card]
+    if memory_gib:
+        cmd += ["", str(int(memory_gib))]
+    out = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30)
     return out.stdout.strip()
 
 
@@ -100,14 +122,15 @@ def resolve(
         raise Refused(f"unknown tier {tier!r}: use small, medium or large")
     gpu = TIERS[tier]
     arch = arch if arch is not None else platform.machine()
-    card = card if card is not None else card_name()
+    named = card is not None
+    card = card if named else card_name()
     if not card:
         raise Refused(
             f"tier {tier} needs {BOX[gpu]}, and this machine shows no NVIDIA card (nvidia-smi found none). Install the "
             "driver and the container toolkit (docs/SECURITY.md), or install without a tier (--mode stub: "
             "structured criteria only)."
         )
-    here = profile_of(arch, card, deploy)
+    here = profile_of(arch, card, deploy, None if named else host_memory_gib())
     if here != gpu:
         mine = next((t for t, g in TIERS.items() if g == here), None)
         hint = f"this card is tier {mine}" if mine else "this card is not one of the three measured boxes"
