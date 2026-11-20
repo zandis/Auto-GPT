@@ -83,14 +83,18 @@
     form and entries; (2) `signature`: the header's `key_id` is one of the trusted keys, that key's entry is for
     study packages (not `update`), the signature verifies with it, and the header's `study_id` is one the entry names
     (H5); (3) `hashes`: each member's sha256 is the listed one; (4) `members`: no member outside the list,
-    none missing; (5) `protocol`: `protocol.json` is a protocol part that holds its own criteria hash
-    (`study_manifest.protocol_refusal`), the header's `study_id`, `version`, `protocol_version` and
+    none missing; (5) `protocol`: `protocol.json` holds no site field (named: `routing`, `scopes`, … ; review item
+    12), is a protocol part that holds its own criteria hash (`study_manifest.protocol_refusal`), the header's `study_id`, `version`, `protocol_version` and
     `criteria_sha256` are its, each carried file is in its canonical form, the files' hashes are exactly the protocol
     part's `files`, the criteria hash computed again from them is the header's, and the header's `package_id` is the
     one its `study_id`, `version` and `hashes.json` give, and then (H3, the last check) the criteria the protocol part's
     manifest names are exactly the carried `ir/` files (`criteria_refusal`: each id once, each with its
     `ir/<id>.json` whose `id` is that id, no `ir/*.json` it does not name, and, when it names a CQL `library`, its
     `cql/<library>.cql` and `cql/elm/<library>.json` carried). The writer makes the same check before it signs.
+    Then, **last** (review item 6), the writer's guards over the carried files (`content_refusal`): each JSON file
+    through its model (IR, value set with item 9's systems and codes, ELM library keys), the test patients' allow-list
+    and synthetic site (H1) and `tests/expected.json` (H2). So signature and hashes are checked before any content
+    is parsed, as before; a package another writer signed is held to what this writer packs.
   - **"A changed byte fails verification"** is held by flipping every byte of a package (one bit, then all eight),
     and by named classes: header, hash list, signature, protocol part, a protocol file, a tar header's name, mode,
     mtime, owner, checksum and unused bytes, the padding, the end blocks, bytes appended, the archive cut short.
@@ -224,22 +228,34 @@
     for the manifest, 100,000,000 bytes for a protocol file, 200,000,000 together). The docx template, and a file
     the hash covers or under `ir/`, `valuesets/`, `cql/` or `sql/` that a package does not carry, refuse the folder
     without being read; every other file (`tests/equivalence.json`, notes, anything else) is not read at all.
-  - Only the writer checks the test patients (H1), `tests/expected.json` (H2) and the models; a package from
-    elsewhere is not refused for them (the verifier's checks and their order are as above; the criteria set, H3, is
-    checked by both). 10D-4's import should run the same guards.
+  - The writer and the verifier both check the test patients (H1), `tests/expected.json` (H2), the models and the
+    criteria set (H3): the verifier as the last check of step 5 (review item 6). The writer alone checks what only a
+    folder has (hidden files, subfolders, links, the template, the manifest's `status`).
 - **The export, audited (review of f1d1fe3c, H4).** Packing is a host command of the coordinating centre's
   operator, not a console act: no console route is added. `tools.study_package write` (`write()`), in this order:
   refuses with no audit folder (`--audit-dir`, else `TB_AUDIT_DIR`) or one that is not a folder; refuses an existing
   `--out` without `--force`; reads the folder (`read_folder`) and refuses a study whose `manifest.yaml` does not say
   `status: approved` (a draft is not packed: decision 51, feasibility on a draft at several sites, is open and is
-  10D-12's); builds and self-verifies the package; writes it beside `--out` under a hidden name
-  (`.<name>.<pid>.part`, `O_EXCL`, `O_NOFOLLOW`, mode 600, fsync); appends **`approve.study_package_exported`** to
+  10D-12's); refuses, with `--force`, an `--out` that is not a regular file (a link, a folder: before any event);
+  builds and self-verifies the package; opens `--out`'s folder once and writes the package in that folder's
+  descriptor under a hidden name (`.<name>.<pid>.part`, `O_CREAT | O_EXCL | O_NOFOLLOW`, mode 600 set again with
+  `fchmod`, so no umask widens it; fsync); appends **`approve.study_package_exported`** to
   the box's audit chain through `tb_common.audit.AuditLog` (actor `host:<user>`, as 10D-28's `export_part`;
   `ruleset`, `ruleset_version`, `output_sha` the package's sha256; `detail`: `package_id`, `key_id`, `created`,
   `protocol_version`, `criteria_sha256`; never a byte of the content); gives what it wrote in the audit folder to
-  the folder's owner (`backup._own_writes`, D-724: only as root; injected in the tests, which run as any user); and
-  only then gives the package its name (`os.link`, which never overwrites, or `os.replace` with `--force`). An event
-  that cannot be written removes the part file and leaves no package (fail closed). The event is in the approval
+  the folder's owner (D-724, only as root; injected in most tests) **by descriptor** (`_give_back`: the folder's
+  own regular files of one link that root owns, each opened `O_NOFOLLOW` in the folder's descriptor, checked on the
+  descriptor and given with `fchown`; no subfolder, link, pipe or device, and no mode change; root's `fchown` also
+  clears a set-id bit); and only then gives the package its name in the same descriptor (`linkat`, which never
+  overwrites, or `renameat` over a regular file with `--force`), then fsyncs the folder. An event that cannot be
+  written removes the part file and leaves no package (fail closed). **If the event is written and the name cannot
+  be taken** (a file appeared at `--out` meanwhile, a disk that refuses links), the part file is removed and the
+  sentence says that the event for that package id and sha256 was written, that no package was left, so that event
+  names a package that does not exist, and to run the command again (which writes a new event; a test does so).
+  `backup._own_writes` is not used: it changes owners by path after `rglob` (`lstat`, then `chown` without following
+  the last link), so a subfolder of the audit folder swapped for a link between the walk and the change would give
+  root's file elsewhere to the folder's owner; that is the integrator's to give to lane D (`backup.py` is not this
+  card's). The event is in the approval
   family (`audit_writer.ROLE_EVENTS`: the criteria compiler's), written to the chain file directly as the host's
   backup and restore events are, so it carries no journal role.
   - **What H4 enforces, and what it does not.** Enforced: no package without its durable audit event naming who,
@@ -256,8 +272,13 @@
   prefix, is kept apart from a coordinating centre's) and, after the signature verifies, a package whose `study_id`
   the entry does not name. `build` self-verifies with its key trusted for that one study. The command reads a trust
   file (`load_trust`): RFC 8259 JSON, exactly `{"format": "tb-study-trust/1", "keys": [{"key_id", "public_key",
-  "purpose", "studies"}]}`, `public_key` the PEM text, `key_id` its id (checked), `studies` distinct study ids, at
-  most 64 entries. This is the verifier's side only, with the minimal scope field: **10D-4's register of
+  "purpose", "studies"}]}`: a field it does not list, a key twice in an object, `NaN`, are refused;
+  `public_key` exactly one Ed25519 public key's PEM, nothing before or after it (the PEM reader alone would take text
+  around it); `key_id` its id (checked); `studies` distinct study ids, at least one (an empty list refuses the file),
+  matched exactly (no case folding, no prefix); at most 64 entries. The command reads it with `read_trust_file`:
+  opened `O_NOFOLLOW` (a link is refused), a regular file, no group or other write bit, owned by the account
+  running it or root, at most 1 MiB. `verify` without `--trust-file` is a usage error (exit 2), and the library's
+  `verify` with no trusted key refuses every package. This is the verifier's side only, with the minimal scope field: **10D-4's register of
   coordinating-centre keys must carry, per key, the studies (or the coordinating centre's scope) it signs for and
   its purpose, and refuse a key equal to the vendor's update key** (`deploy/updates/trust.json`,
   `deploy/keys/vendor_ed25519.pub`), which this card does not read.
@@ -278,7 +299,10 @@
     `provenance` out; here the carried form cannot omit it without changing the criteria hash, which D-1366 takes
     over the IR file with its provenance, so it is left in and named for the owner (no shipped study holds one);
   - **each value set**: `id`, `url`, `version`, `name`, `title`, `status`, each include's `system` and each
-    concept's `code` and `display`, and the code families (`<system>|<prefix>`);
+    concept's `code` and `display`, and the code families (`<system>|<prefix>`); since review item 9 a system only of
+    `VALUESET_SYSTEMS` (the test patients' 21 and WHO ICD-10, which the shipped families name), a code of the
+    department system only as one of `PLACEHOLDER_DEPARTMENT_DISPLAYS` with its display (`META`, `NEUR`, `PSY`,
+    `RHEU`, measured from the two shipped value sets), and no code family of that system;
   - `labels.yaml` as text; `cql/*.cql` and `sql/*.sql` as text, comments included; `cql/elm/*.json` as written
     below its `library` (its annotations hold the CQL source and comments); `tests/expected.json` within its
     allow-list (H2: synthetic chart numbers, the protocol's criterion ids, verdicts, numbers, a date and two labels
@@ -303,13 +327,38 @@
   sites (10D-12, the owner's decision 51: v1 packs whatever protocol the folder holds and says nothing of its status).
   10D-28 carries a rule set in a vendor-signed update bundle for the dry run only; it is not this format.
 - **For 10D-4, which v1 does not stop:**
-  - the register must give each key its studies and purpose (H5 above) and run the writer's guards on import: the
-    verifier checks the criteria set (H3) but, as before, not the test patients (H1) or `tests/expected.json` (H2);
+  - the register must give each key its studies and purpose (H5 above); the verifier now runs the writer's guards
+    over the carried files (review item 6), so import gets them by calling `verify`;
   - an older valid package, or the same content signed again with another `created`, verifies: import needs "not
     older than the one installed" per study and coordinating-centre key;
   - the register of coordinating-centre keys must refuse a key equal to the vendor's update key: the update bundle's
     `sign-file` signs raw bytes with no prefix, so one key must not serve both channels;
   - two member paths that differ only by case are distinct here and collide on a case-insensitive disk: extraction
     must refuse them.
-- **Held by:** `tests/unit/test_study_package.py` (the review of f1d1fe3c: `test_h1_…` to `test_h5_…`, each the
-  reviewer's probe at the real call, each seen failing on f1d1fe3c first).
+- **The review of f1d1fe3c, items 6 to 12** (re-read at 3d0cf7d4, after the High fixes; each built one seen failing
+  there first):
+  - 6, the verifier skipped the writer's patient-data checks: true; **fixed** (`content_refusal`, the last check of
+    step 5; `test_item6_…`: a `Patient.name`, a patient not of the synthetic site, an `expected.json` key of another
+    form, an IR field, a hospital's code, each in a package a trusted key signed).
+  - 7, free text in protocol fields (`population`), `labels.yaml` comments and ELM annotations: true; **not built**.
+    The ELM node allow-list is **left to 10D-28** (`ruleset_part`) and the importer, **10D-4**; whether the protocol
+    part's free-text fields and comments may travel as typed is **for the owner** (the shipped `labels.yaml` files
+    hold comments, and the protocol part is D-1366's: refusing or stripping them changes what the owner approved).
+  - 8, the umask: no longer applies: the package is created mode 600 (`O_EXCL`, then `fchmod`) and renamed; a test
+    writes it under umask 0.
+  - 9, site-local codes in value sets: true; **fixed** (`_valueset_refusal`, writer and verifier;
+    `test_item9_…`).
+  - 10, `provenance.calls` exports the compiling box's call ids: true; **for the owner** (already named above):
+    stripping it changes D-1366's criteria hash of a compiled study, refusing it makes every compiled study
+    unpackable; no shipped study holds one.
+  - 11, no central approval reference in the header: true (two approvals of one content give one package; a draft is
+    no longer packed, H4); **left to 10D-4** with 10D-26's pins (a new header field is a format change and more that
+    travels, which this card does not add).
+  - 12, the site-field test passed for a stale package id: true (a mutant verifier that lets `routing` through still
+    failed it); **fixed**: the package id is made again and step 5 names a site field first
+    (`test_item12_…`).
+  - Re-checked from H4 and H5: `test_a_…` (the part file by descriptor, the rename failure, the give-back by
+    descriptor) and `test_b_…` (the trust file).
+- **Held by:** `tests/unit/test_study_package.py` (the review of f1d1fe3c: `test_h1_…` to `test_h5_…`, `test_item6_…`,
+  `test_item9_…`, `test_item12_…`, `test_a_…`, `test_b_…`, each the reviewer's probe at the real call, each seen
+  failing first).

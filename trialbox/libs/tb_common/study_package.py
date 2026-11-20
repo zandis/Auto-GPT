@@ -94,6 +94,14 @@ PLACEHOLDER_PRACTITIONERS = frozenset(
 PLACEHOLDER_DEPARTMENTS = frozenset({"RHEU", "META", "NEPH", "CARD", "FM", "ONC", "ORTH", "NEUR", "PSY"})
 #: the organisations a test patient's ``Organization/`` reference may point at (the shipped studies' placeholders)
 PLACEHOLDER_ORGANIZATIONS = frozenset({"hospital", "nhi"})
+#: the codes, each with its display, a value set may name in a site-local code system (review of f1d1fe3c, item 9;
+#: measured from the two shipped value sets that use the department system, and a test holds them equal)
+PLACEHOLDER_DEPARTMENT_DISPLAYS: dict[str, str] = {
+    "META": "Endocrinology and Metabolism",
+    "NEUR": "Neurology",
+    "PSY": "Psychiatry",
+    "RHEU": "Rheumatology",
+}
 #: the synthetic site's pseudonym key: the test stack's ``site_hmac.key`` (Makefile ``.cache/test-secrets``,
 #: ``tests/conftest.py``), public and in the repository, so it is no secret and no box's key. The shipped test patients
 #: are the synthetic hospital's records ingested under it (``tools/build_rulesets.py``): each ``Patient.id`` is
@@ -202,6 +210,9 @@ TEST_PATIENT_SYSTEMS = frozenset(
         "https://trialbox.local/fhir/sid/pid/DEMO-A",
     }
 )
+#: every code system a value set may name in an include or a code family (review item 9): the test patients' and
+#: WHO ICD-10, which the shipped code families name (measured; a test holds every shipped value set within it)
+VALUESET_SYSTEMS = TEST_PATIENT_SYSTEMS | {"http://hl7.org/fhir/sid/icd-10"}
 #: every ``meta.profile`` a test patient may name, exactly (measured: the TW Core profiles)
 TEST_PATIENT_PROFILES = frozenset(
     "https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/" + name
@@ -698,11 +709,18 @@ def _trusted(keys: Iterable[TrustedKey]) -> dict[str, TrustedKey]:
     return out
 
 
+def _canonical_pem(public_pem: bytes) -> bytes:
+    """The one PEM form of an Ed25519 public key (SubjectPublicKeyInfo, as ``keygen`` writes it)."""
+    key = serialization.load_pem_public_key(public_pem)
+    return key.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+
+
 def load_trust(data: bytes) -> list[TrustedKey]:
     """The keys of a study-package trust file (H5; the minimal form 10D-4's register of coordinating-centre keys is to
     carry): RFC 8259 JSON ``{"format": "tb-study-trust/1", "keys": [{"key_id", "public_key", "purpose", "studies"}]}``,
-    exactly these fields; ``public_key`` the PEM text, ``key_id`` its :func:`key_id`, ``purpose`` one of
-    :data:`TRUST_PURPOSES`, ``studies`` a non-empty list of study ids. Raises ``ValueError`` with one sentence."""
+    exactly these fields, no key twice in an object; ``public_key`` one PEM and nothing else, ``key_id`` its
+    :func:`key_id`, ``purpose`` one of :data:`TRUST_PURPOSES`, ``studies`` a non-empty list of study ids, matched
+    exactly. Raises ``ValueError`` with one sentence."""
     try:
         doc = sm.load_json(data)
     except (ValueError, UnicodeDecodeError):
@@ -731,6 +749,11 @@ def load_trust(data: bytes) -> list[TrustedKey]:
             kid = key_id(pem)
         except ValueError:
             raise ValueError(f"trust entry {n}'s public_key is not an Ed25519 public key (PEM)") from None
+        if pem != _canonical_pem(pem):
+            raise ValueError(
+                f"trust entry {n}'s public_key is not exactly one Ed25519 public key in PEM (nothing before or "
+                "after it)"
+            )
         if entry["key_id"] != kid:
             raise ValueError(f"trust entry {n}'s key_id is not the id of its public key")
         out.append(TrustedKey(pem, frozenset(studies), entry["purpose"]))
@@ -748,9 +771,10 @@ def verify(data: bytes, trusted_keys: Iterable[TrustedKey]) -> Package:
     the protocol part holds its criteria hash, the carried files are the protocol's files in their canonical form,
     the criteria hash computed again from them by ``tb_common.study_manifest`` is the header's, the header's package
     id is the one its content gives, and the criteria the protocol part names are exactly the ``ir/`` files carried
-    (and its CQL library's files are carried). Every JSON member is refused before it is parsed when it nests deeper
-    than :data:`STUDY_PACKAGE_MAX_JSON_DEPTH`. Writes nothing anywhere; it holds about twice the package's bytes in
-    memory (the input and its members)."""
+    (and its CQL library's files are carried), and last the writer's guards over the carried files hold
+    (:func:`content_refusal`: the models, the test patients, ``tests/expected.json``). Every JSON member is refused
+    before it is parsed when it nests deeper than :data:`STUDY_PACKAGE_MAX_JSON_DEPTH`. Writes nothing anywhere; it
+    holds about twice the package's bytes in memory (the input and its members)."""
     trusted = _trusted(trusted_keys)
     members, header, hashes = _structure(data)
     # (2) the signature, by a key trusted for study packages and for this study
@@ -802,6 +826,11 @@ def _protocol(members: Mapping[str, bytes], header: Mapping[str, Any]) -> Packag
         return PackageRefused("protocol", f"this study package {sentence}")
 
     protocol = _canonical_json(PROTOCOL, members[PROTOCOL], "protocol")
+    manifest = protocol.get("manifest") if isinstance(protocol, dict) else None
+    only_site = set(sm.SITE_FIELDS) - set(sm.PROTOCOL_FIELDS) - set(sm.PROTOCOL_SUBFIELDS)
+    site = sorted(set(manifest) & only_site) if isinstance(manifest, dict) else []
+    if site:  # named for itself (review item 12): a site field is never in a package
+        raise refuse(f"is refused: its protocol part carries the site's field {site[0]}, which a package never carries")
     why = sm.protocol_refusal(protocol) if isinstance(protocol, dict) else "this is not a study's protocol part"
     if why:
         raise refuse(f"is refused: {why}")
@@ -842,6 +871,9 @@ def _protocol(members: Mapping[str, bytes], header: Mapping[str, Any]) -> Packag
     why = criteria_refusal(manifest, files)
     if why:
         raise refuse(why)
+    why = content_refusal(manifest, files)
+    if why:
+        raise refuse(f"is refused: {why}")
     return Package(dict(header), dict(protocol), files)
 
 
@@ -1250,6 +1282,78 @@ def _ir_refusal(path: str, doc: Any) -> str | None:
     return None
 
 
+def _valueset_refusal(path: str, doc: ValueSetFile) -> str | None:
+    """Review of f1d1fe3c, item 9: a value set names only the code systems of the test patients and WHO ICD-10
+    (:data:`VALUESET_SYSTEMS`: the standard terminologies and the named placeholder systems), in its includes and
+    its code families; a code of a site-local system (:data:`SITE_LOCAL_CODE_SYSTEMS`) only as a placeholder
+    department code with its display (:data:`PLACEHOLDER_DEPARTMENT_DISPLAYS`); and no code family of such a system."""
+    for include in doc.compose.include:
+        if include.system not in VALUESET_SYSTEMS:
+            return (
+                f"{path} names a code system that is not one of the standard or placeholder systems a package carries"
+            )
+        if include.system in SITE_LOCAL_CODE_SYSTEMS and any(
+            PLACEHOLDER_DEPARTMENT_DISPLAYS.get(c.code) != c.display for c in include.concept
+        ):
+            return (
+                f"{path} names a code of the hospital's own system {include.system} that is not one of the synthetic "
+                "placeholders with its display"
+            )
+    for ext in doc.extension or ():
+        system = ext.valueString.split("|", 1)[0]
+        if system not in VALUESET_SYSTEMS or system in SITE_LOCAL_CODE_SYSTEMS:
+            return f"{path} has a code family of a system that is a hospital's own or not one a package carries"
+    return None
+
+
+def _protocol_json_refusal(path: str, data: bytes) -> str | None:
+    """The writer's checks of one JSON protocol file (``data`` as in the folder, or as carried: the carried form of
+    a carried file is itself): JSON; a ``cql/elm/`` library of :data:`ELM_LIBRARY_KEYS`; an IR whose flags are
+    compiler words, whose ``provenance`` is only call ids, and which loads as ``CriterionIR`` strictly, as written and
+    as carried; a value set that loads as :class:`ValueSetFile` and names no hospital's codes
+    (:func:`_valueset_refusal`)."""
+    try:
+        doc = sm.load_json(data)
+    except (ValueError, UnicodeDecodeError):
+        return f"{path} is not JSON"
+    why = _elm_refusal(path, doc) if path.startswith("cql/elm/") else None
+    why = why or (_ir_refusal(path, doc) if path.startswith("ir/") else None)
+    if why:
+        return why
+    try:
+        if path.startswith("ir/"):
+            for body in (sm.dumps(doc), sm.carried(path, data) or b""):
+                CriterionIR.model_validate_json(body, strict=True, by_alias=True, by_name=False)
+        elif path.startswith("valuesets/"):
+            return _valueset_refusal(path, ValueSetFile.model_validate(doc))
+    except ValueError:  # a ValidationError, or a number RFC 8785 cannot write
+        model = "a criterion (CriterionIR)" if path.startswith("ir/") else "a value set"
+        return f"{path} does not load as {model}: it holds a field the model does not have, or a value it does not take"
+    return None
+
+
+def content_refusal(manifest: Mapping[str, Any], files: Mapping[str, bytes]) -> str | None:
+    """The writer's guards over a study's carried protocol files, or None (review of f1d1fe3c, item 6): each JSON file
+    (:func:`_protocol_json_refusal`), the test patients (:func:`_test_patients_refusal`: the allow-list and the
+    synthetic site, H1) and ``tests/expected.json`` (:func:`_expected_refusal`, H2). :func:`verify` runs it as the
+    last check of step 5, so a package another writer signed is held to what this writer packs. ``files``: path ->
+    bytes as carried."""
+    for path in sorted(files):
+        if path.endswith(".json"):
+            why = _protocol_json_refusal(path, files[path])
+            if why:
+                return why
+    chart_numbers: set[str] | None = None
+    if TEST_PATIENTS in files:
+        why = _test_patients_refusal(files[TEST_PATIENTS])
+        if why:
+            return why
+        chart_numbers = test_patient_chart_numbers(files[TEST_PATIENTS])
+    if EXPECTED in files:
+        return _expected_refusal(files[EXPECTED], manifest, chart_numbers)
+    return None
+
+
 #: the folders whose files the engine reads as the study's (``Ruleset.from_files``)
 _ENGINE_DIRS = ("ir/", "valuesets/", "cql/", "sql/")
 
@@ -1291,26 +1395,9 @@ def _folder_refusal(files: Mapping[str, bytes]) -> str | None:
             return _not_carried(path)
         if path not in hashed or not path.endswith(".json"):
             continue
-        try:
-            doc = sm.load_json(files[path])
-        except (ValueError, UnicodeDecodeError):
-            return f"{path} is not JSON"
-        why = _elm_refusal(path, doc) if path.startswith("cql/elm/") else None
-        why = why or (_ir_refusal(path, doc) if path.startswith("ir/") else None)
+        why = _protocol_json_refusal(path, files[path])
         if why:
             return why
-        try:
-            if path.startswith("ir/"):
-                for body in (sm.dumps(doc), sm.carried(path, files[path]) or b""):
-                    CriterionIR.model_validate_json(body, strict=True, by_alias=True, by_name=False)
-            elif path.startswith("valuesets/"):
-                ValueSetFile.model_validate(doc)
-        except ValueError:  # a ValidationError, or a number RFC 8785 cannot write
-            model = "a criterion (CriterionIR)" if path.startswith("ir/") else "a value set"
-            return (
-                f"{path} does not load as {model}: it holds a field the model does not have, or a value it does "
-                "not take"
-            )
     return None
 
 

@@ -16,10 +16,11 @@ IRB record, and no patient data. It never prints key material: a key is named by
 the date; never content) into the audit directory (``--audit-dir``, else ``TB_AUDIT_DIR``) BEFORE the package takes its
 name: the package is first written beside ``--out`` under a hidden name, mode 600, and renamed only after the event is
 written; no audit directory, or an event that cannot be written, and no package is left (D-1372, H4). Run as root, the
-event's files are given back to the audit folder's owner (``backup._own_writes``, D-724).
+event's files are given back to the audit folder's owner by descriptor (``_give_back``, D-724).
 
-``verify`` takes a trust file (``tb_common.study_package.load_trust``): each key with the studies it may sign for and
-its purpose; a key trusted for updates is refused, and a key signs only the studies its entry names (H5).
+``verify`` takes a trust file (``read_trust_file``: no link, nobody else may write it; ``load_trust``): each key
+with the studies it may sign for and its purpose; a key trusted for updates is refused, and a key signs only the
+studies its entry names (H5).
 Exit status: 0 done; 1 refused (one sentence on stderr); 2 usage.
 """
 
@@ -79,10 +80,76 @@ def actor() -> str:
         return "host command"
 
 
-def _own_writes(folder: Path) -> None:
-    from tools.trialbox.backup import _own_writes as own
+def _give_back(folder: Path) -> None:
+    """D-724, by descriptor: run as root, the regular files of one link directly in the audit folder that belong to
+    root (the event's day file, the writer's lock file: ``tb_common.audit`` writes only there) are given to the
+    folder's owner with ``fchown`` on a descriptor opened without following a link. No subfolder, link, pipe or device
+    is touched, and no mode is changed (root's ``fchown`` of a regular file also clears any set-id bit). Not
+    ``backup._own_writes``, which changes owners by path. A no-op for any other user."""
+    me = os.geteuid()
+    if me != 0:
+        return
+    nofollow = os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    dfd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | nofollow)
+    try:
+        top = os.fstat(dfd)
+        if top.st_uid == me:
+            return
+        for name in os.listdir(dfd):
+            try:
+                seen = os.stat(name, dir_fd=dfd, follow_symlinks=False)
+            except OSError:
+                continue
+            if not stat.S_ISREG(seen.st_mode) or seen.st_uid != me or seen.st_nlink != 1:
+                continue
+            try:
+                fd = os.open(name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY | nofollow, dir_fd=dfd)
+            except OSError:
+                continue
+            try:
+                st = os.fstat(fd)
+                if (
+                    (st.st_dev, st.st_ino) == (seen.st_dev, seen.st_ino)
+                    and stat.S_ISREG(st.st_mode)
+                    and (st.st_uid == me and st.st_nlink == 1)
+                ):
+                    os.fchown(fd, top.st_uid, top.st_gid)
+            finally:
+                os.close(fd)
+    finally:
+        os.close(dfd)
 
-    own(folder)
+
+#: a trust file is a few keys; a larger file is refused before it is read
+TRUST_FILE_MAX_BYTES = 1 << 20
+
+
+def read_trust_file(path: Path) -> list[sp.TrustedKey]:
+    """The trusted keys of a ``tb-study-trust/1`` file (``study_package.load_trust``), read safely: opened without
+    following a link, a regular file, which no other account may write (no group or other write bit; owned by this
+    account or root), at most :data:`TRUST_FILE_MAX_BYTES`. Raises ``ValueError`` with one sentence."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
+    except OSError as exc:
+        if os.path.islink(path):
+            raise ValueError(f"the trust file {path} is a symbolic link; give the file itself") from None
+        raise ValueError(f"the trust file {path} cannot be opened ({exc.strerror})") from None
+    with os.fdopen(fd, "rb") as fh:
+        st = os.fstat(fh.fileno())
+        if not stat.S_ISREG(st.st_mode):
+            raise ValueError(f"the trust file {path} is not a regular file")
+        if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            raise ValueError(
+                f"the trust file {path} is a file others may write (mode {stat.S_IMODE(st.st_mode):o}); make it 644"
+            )
+        if st.st_uid not in (0, os.geteuid()):
+            raise ValueError(f"the trust file {path} is owned by another account (uid {st.st_uid})")
+        if st.st_size > TRUST_FILE_MAX_BYTES:
+            raise ValueError(f"the trust file {path} is over {TRUST_FILE_MAX_BYTES:,} bytes")
+        data = fh.read(TRUST_FILE_MAX_BYTES + 1)
+    if len(data) > TRUST_FILE_MAX_BYTES:
+        raise ValueError(f"the trust file {path} is over {TRUST_FILE_MAX_BYTES:,} bytes")
+    return sp.load_trust(data)
 
 
 def write(
@@ -95,14 +162,18 @@ def write(
     tz: str | None = None,
     force: bool = False,
     by: str | None = None,
-    own: Callable[[Path], None] = _own_writes,
+    own: Callable[[Path], None] = _give_back,
 ) -> dict[str, Any]:
     """Write the package of ``study`` to ``out`` and return its header and sha256; the audit event first (H4).
 
     Refused (``ValueError``, one sentence, nothing left at ``out`` or beside it) with no audit directory, an ``out``
     that exists without ``force``, a study whose manifest is not ``status: approved``, a study the writer refuses,
     or an audit event that cannot be written. ``own`` gives what this process wrote in the audit folder to the
-    folder's owner (``backup._own_writes``: only as root; a test passes its own)."""
+    folder's owner (:func:`_give_back`: only as root; a test passes its own). The package is written in the
+    destination folder's descriptor under a hidden name (``O_EXCL | O_NOFOLLOW``, mode 600) and takes its name only
+    after the event: by ``link`` (never over a file), or with ``force`` by ``rename`` over a regular file. When the
+    event is written and the name cannot be taken, the sentence says so: an event then names a package that does not
+    exist, and the command may be run again (it writes a new event)."""
     if audit_dir is None:
         raise ValueError(
             "no audit directory: give --audit-dir or set TB_AUDIT_DIR; a study package is written only with its "
@@ -110,8 +181,14 @@ def write(
         )
     if not audit_dir.is_dir():
         raise ValueError(f"the audit directory {audit_dir} is not a folder; no package was written")
-    if out.exists() and not force:
+    try:
+        there = os.lstat(out)
+    except FileNotFoundError:
+        there = None
+    if there is not None and not force:
         raise ValueError(f"{out} exists; give --force to replace it")
+    if there is not None and not stat.S_ISREG(there.st_mode):
+        raise ValueError(f"{out} is not a regular file (a link, a folder or a device); --force replaces only a package")
     files = sp.read_folder(study)
     try:
         status = (yaml.safe_load(files.get(sm.MANIFEST, b"").decode("utf-8")) or {}).get("status")
@@ -125,10 +202,12 @@ def write(
     data = sp.build(files, _private_key(key), created)
     header = sp.header_of(data)
     sha = hashlib.sha256(data).hexdigest()
-    part = out.parent / f".{out.name}.{os.getpid()}.part"
-    fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    part = f".{out.name}.{os.getpid()}.part"
+    dfd = os.open(out.parent, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0))
     try:
+        fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dfd)
         with os.fdopen(fd, "wb") as fh:
+            os.fchmod(fh.fileno(), 0o600)
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
@@ -157,16 +236,23 @@ def write(
         finally:
             with contextlib.suppress(OSError):
                 own(audit_dir)  # D-724: the event and the writer's lock file, written as root, go to the folder's owner
-        if force:
-            os.replace(part, out)
-        else:
-            try:
-                os.link(part, out)  # never over a file that appeared meanwhile
-            except FileExistsError:
-                raise ValueError(f"{out} exists; give --force to replace it") from None
+        try:
+            if force:
+                os.replace(part, out.name, src_dir_fd=dfd, dst_dir_fd=dfd)
+            else:  # never over a file that appeared meanwhile
+                os.link(part, out.name, src_dir_fd=dfd, dst_dir_fd=dfd, follow_symlinks=False)
+            os.fsync(dfd)
+        except OSError as exc:
+            why = "it exists now; give --force to replace it" if isinstance(exc, FileExistsError) else exc.strerror
+            raise ValueError(
+                f"the audit event {EVENT} was written for package {header['package_id']} (sha256 {sha}), but the "
+                f"package could not take the name {out} ({why}): no package was left, so that event names a package "
+                "that does not exist; run the command again (it writes a new event)"
+            ) from None
     finally:
         with contextlib.suppress(FileNotFoundError):
-            os.unlink(part)
+            os.unlink(part, dir_fd=dfd)
+        os.close(dfd)
     return {**header, "sha256": sha}
 
 
@@ -211,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"audited as {EVENT}"
             )
         elif args.cmd == "verify":
-            got = sp.verify_file(args.package, sp.load_trust(args.trust_file.read_bytes()))
+            got = sp.verify_file(args.package, read_trust_file(args.trust_file))
             h = got.header
             print(
                 f"verified {args.package}: study {h['study_id']} version {h['version']}, package {h['package_id']}, "

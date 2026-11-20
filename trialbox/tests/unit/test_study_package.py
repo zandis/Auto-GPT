@@ -1288,9 +1288,9 @@ def test_h4_a_package_is_released_only_after_its_audit_event(tmp_path: Path, mon
     with pytest.raises(ValueError, match="status: approved"):
         tool.write(study, key, tmp_path / "out" / "draft.tbstudy", DAY, audit_dir=audit, own=own)
     assert not (tmp_path / "out" / "draft.tbstudy").exists()
-    # the default gives the folder back only as root (backup._own_writes, D-724): a no-op for another user
+    # the default gives the folder back only as root (D-724, by descriptor): a no-op for another user
     if os.geteuid() != 0:
-        tool._own_writes(audit)
+        tool._give_back(audit)
 
 
 def test_h5_a_key_signs_only_the_studies_its_entry_names() -> None:
@@ -1417,3 +1417,255 @@ def test_command_line(tmp_path: Path) -> None:
         text = result.stdout + result.stderr
         assert "PRIVATE KEY" not in text and "PUBLIC KEY" not in text
         assert not any(line in text for line in secret.decode().splitlines()[1:-1])
+
+
+# ---------------------------------------------------------------------------------------------- review items 6 to 12
+def _expected_json(chart_numbers: list[str]) -> bytes:
+    """A ``tests/expected.json`` for the small study, keyed by ``chart_numbers``."""
+    return json.dumps({
+        "engine": sorted(sp.EXPECTED_ENGINES)[0], "index_date": DAY, "ruleset": "RA-JAK", "version": "1.0.0",
+        "source": sorted(sp.EXPECTED_SOURCES)[0],
+        "patients": {mrn: {"RA-JAK-INC-01": True} for mrn in chart_numbers},
+    }).encode()  # fmt: skip
+
+
+def test_item6_the_verifier_runs_the_writers_content_guards() -> None:
+    """Item 6 of the review of f1d1fe3c: a package signed by a trusted key but written by another writer, carrying
+    what the local writer refuses (a ``Patient.name``, a patient not of the synthetic site, an ``expected.json`` keyed
+    by a chart number of another form, an IR field the model does not have, a value set of a hospital's own codes),
+    is refused at the last check of step 5, after the signature, the hashes, the member set and the criteria set; the
+    sentence repeats no value."""
+    chart = sorted(sp.test_patient_chart_numbers(SYN1 + b"\n" + SYN2 + b"\n"))
+    files = {**_small(), "tests/expected.json": _expected_json(chart)}
+    members = _members(sp.build(files, PRIV, DAY))
+    named = json.loads(SYN1)
+    named["name"] = [{"text": "PROBE Example Person"}]
+    other = json.loads(SYN1)
+    other["id"] = other["identifier"][0]["value"] = "0" * 32
+    ir = json.loads(members[FILES_PREFIX + "ir/RA-JAK-INC-01.json"])
+    vs = json.loads(members[FILES_PREFIX + "valuesets/VS_HBSAG.json"])
+    vs["compose"]["include"].append(
+        {"system": sorted(sp.SITE_LOCAL_CODE_SYSTEMS)[0], "concept": [{"code": "PROBE-17", "display": "PROBE ward"}]}
+    )
+    for path, body, says in (
+        ("tests/patients.ndjson", json.dumps(named).encode() + b"\n" + SYN2 + b"\n", "line 1 of tests/patients"),
+        ("tests/patients.ndjson", json.dumps(other).encode() + b"\n" + SYN2 + b"\n", "synthetic site's public key"),
+        ("tests/expected.json", _expected_json(["DEMO-MRN-42"]).replace(b"DEMO", b"PROBE"), "tests/expected.json"),
+        ("ir/RA-JAK-INC-01.json", sm.dumps({**ir, "site_notes": "PROBE"}), "does not load as a criterion"),
+        ("valuesets/VS_HBSAG.json", sm.dumps(vs), "valuesets/VS_HBSAG.json"),
+    ):
+        got = _refused(_without_member(members, "", {path: body}))
+        assert got.step == "protocol" and says in str(got), (path, str(got))
+        assert "PROBE" not in str(got)
+    # the package as the local writer wrote it still verifies
+    assert sp.verify(sp.tar_bytes(members), [TRUST]).files["tests/expected.json"]
+
+
+def test_item9_value_sets_carry_no_hospital_codes() -> None:
+    """Item 9: a value set names only the standard and placeholder code systems of the test patients and WHO ICD-10; a code of
+    the site-local department system only as a placeholder department code with its display (measured from the
+    shipped value sets); no code family of that system. Writer and verifier."""
+    department = sorted(sp.SITE_LOCAL_CODE_SYSTEMS)[0]
+    pairs: dict[str, str] = {}
+    used: set[str] = set()
+    for path in SEED_RULESETS.glob("*/valuesets/*.json"):
+        doc = json.loads(path.read_bytes())
+        used |= {e["valueString"].split("|")[0] for e in doc.get("extension") or ()}
+        for inc in doc["compose"]["include"]:
+            used.add(inc["system"])
+            if inc["system"] == department:
+                pairs.update({c["code"]: c["display"] for c in inc["concept"]})
+    assert used <= sp.VALUESET_SYSTEMS and used >= sp.VALUESET_SYSTEMS - sp.TEST_PATIENT_SYSTEMS
+    assert pairs == sp.PLACEHOLDER_DEPARTMENT_DISPLAYS
+    assert set(pairs) <= sp.PLACEHOLDER_DEPARTMENTS
+    loinc = {"system": "http://loinc.org", "concept": [{"code": "5196-1", "display": "HBsAg"}]}
+    for include, extension in (
+        ({"system": department, "concept": [{"code": "PROBE-17", "display": "PROBE ward"}]}, None),
+        ({"system": department, "concept": [{"code": "RHEU", "display": "PROBE ward"}]}, None),
+        (
+            {
+                "system": "https://probe-hospital.example/fhir/CodeSystem/ward",
+                "concept": [{"code": "W1", "display": "w"}],
+            },
+            None,
+        ),
+        (loinc, [{"url": sp.FAMILY_EXT, "valueString": f"{department}|PROBE"}]),
+        (loinc, [{"url": sp.FAMILY_EXT, "valueString": "https://probe-hospital.example/cs|W1"}]),
+    ):
+        extra: dict[str, Any] = {"compose": {"include": [include]}}
+        if extension:
+            extra["extension"] = extension
+        with pytest.raises(ValueError, match="valuesets/VS_HBSAG.json") as e:
+            sp.build(_vs_with(**extra), PRIV, DAY)
+        assert "PROBE" not in str(e.value) and "probe" not in str(e.value)
+    ok = _vs_with(
+        compose={"include": [{"system": department, "concept": [{"code": "RHEU", "display": "Rheumatology"}]}]}
+    )
+    assert sp.verify(sp.build(ok, PRIV, DAY), [TRUST])
+
+
+def test_item12_a_site_field_in_the_protocol_part_is_refused_for_itself(small: bytes) -> None:
+    """Item 12: the site field smuggled into the protocol part, with the package id made again, so that the only
+    thing wrong is the site field; the refusal names it."""
+    members = _members(small)
+    protocol = json.loads(members[sp.PROTOCOL])
+    protocol["manifest"]["routing"] = {"list_to": ["x@y.test"]}
+    protocol["criteria_sha256"] = sm.criteria_sha256(protocol)
+    header = {**json.loads(members[sp.HEADER]), "criteria_sha256": protocol["criteria_sha256"]}
+    del header["package_id"]
+    got = _refused(_resigned({**members, sp.PROTOCOL: sm.dumps(protocol)}, header=header))
+    assert got.step == "protocol" and "routing" in str(got) and "package_id" not in str(got), str(got)
+
+
+def test_a_the_package_is_written_by_descriptor_and_a_failed_rename_says_the_event_was_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """(a) The part file is made in the destination folder's descriptor (``O_EXCL | O_NOFOLLOW``, mode 600 under any
+    umask); ``--force`` replaces only a regular file; when the event is written and the rename fails, the sentence
+    says an event names a package that does not exist and that the command may be run again, and a rerun works."""
+    from tools import study_package as tool
+
+    study = tmp_path / "RA-JAK"
+    _write_folder(study, _small())
+    key = tmp_path / "cc.key"
+    key.write_bytes(PRIV)
+    key.chmod(0o600)
+    audit = tmp_path / "audit"
+    audit.mkdir()
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    out = outdir / "RA-JAK.tbstudy"
+
+    def events() -> list[dict[str, Any]]:
+        return [json.loads(x) for f in sorted(audit.glob("*.jsonl")) for x in f.read_text().splitlines() if x]
+
+    opened: list[tuple[str, int, int | None]] = []
+    real_open = os.open
+
+    def spy(path: Any, flags: int, mode: int = 0o777, *, dir_fd: int | None = None) -> int:
+        opened.append((os.fspath(path), flags, dir_fd))
+        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+    def no_link(*_a: Any, **_k: Any) -> None:
+        raise OSError(1, "Operation not permitted")
+
+    old = os.umask(0)
+    try:
+        monkeypatch.setattr(tool.os, "open", spy)
+        monkeypatch.setattr(tool.os, "link", no_link)
+        with pytest.raises(ValueError) as e:
+            tool.write(study, key, out, DAY, audit_dir=audit, by="host:crc-test", own=lambda _f: None)
+        monkeypatch.undo()
+        said = str(e.value)
+        assert "was written" in said and "does not exist" in said and "run the command again" in said, said
+        assert not out.exists() and not list(outdir.iterdir()), "no package and no part file"
+        assert [ev["event"] for ev in events()].count(tool.EVENT) == 1
+        part = [o for o in opened if o[0].endswith(".part")]
+        assert len(part) == 1 and part[0][2] is not None and "/" not in part[0][0]
+        need = os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_WRONLY
+        assert part[0][1] & need == need
+        # the operator runs it again: a package and a second event
+        h = tool.write(study, key, out, DAY, audit_dir=audit, by="host:crc-test", own=lambda _f: None)
+        assert out.stat().st_mode & 0o7777 == 0o600 and h["sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
+        assert [ev["event"] for ev in events()].count(tool.EVENT) == 2
+    finally:
+        os.umask(old)
+    # --force replaces a regular file only, and refuses before any event otherwise
+    target = tmp_path / "elsewhere"
+    target.write_bytes(b"keep")
+    link = outdir / "link.tbstudy"
+    link.symlink_to(target)
+    folder = outdir / "folder.tbstudy"
+    folder.mkdir()
+    before = len(events())
+    for where in (link, folder):
+        with pytest.raises(ValueError, match="not a regular file"):
+            tool.write(study, key, where, DAY, audit_dir=audit, force=True, own=lambda _f: None)
+    assert len(events()) == before and target.read_bytes() == b"keep" and link.is_symlink()
+    tool.write(study, key, out, DAY, audit_dir=audit, force=True, own=lambda _f: None)
+    assert sp.verify_file(out, [TRUST])
+
+
+def test_a_the_audit_files_go_back_by_descriptor_regular_files_only(tmp_path: Path) -> None:
+    """(a) What the export wrote in the audit folder goes back to the folder's owner by ``fchown`` on an open
+    descriptor, for the folder's own regular files of one link only: never through a link, never into a subfolder,
+    never a mode change (``backup._own_writes`` is not used: it changes owners by path)."""
+    from tools import study_package as tool
+
+    audit = tmp_path / "audit"
+    audit.mkdir()
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"x")
+    outside.chmod(0o4755 if os.geteuid() == 0 else 0o755)
+    (audit / "2026-11-19.jsonl").write_bytes(b"{}\n")
+    (audit / "2026-11-19.jsonl").chmod(0o640)
+    (audit / "link").symlink_to(outside)
+    (audit / "sub").mkdir()
+    (audit / "sub" / "deep").write_bytes(b"y")
+    os.link(outside, audit / "hard")
+    os.mkfifo(audit / "fifo")
+    me = os.geteuid()
+    if me == 0:
+        os.chown(audit, 65534, 65534)
+    tool._give_back(audit)
+    st = {p.name: os.lstat(p) for p in [outside, *audit.iterdir(), audit / "sub" / "deep"]}
+    assert st["outside"].st_uid == me and stat_mode(st["outside"]) == (0o4755 if me == 0 else 0o755)
+    assert st["hard"].st_uid == me and st["link"].st_uid == me and st["fifo"].st_uid == me
+    assert st["sub"].st_uid == me and st["deep"].st_uid == me
+    assert st["2026-11-19.jsonl"].st_uid == (65534 if me == 0 else me)
+    assert stat_mode(st["2026-11-19.jsonl"]) == 0o640
+    assert tool.write.__kwdefaults__["own"] is tool._give_back
+
+
+def stat_mode(st: os.stat_result) -> int:
+    return st.st_mode & 0o7777
+
+
+def test_b_the_trust_file_is_strict_and_read_safely(tmp_path: Path) -> None:
+    """(b) ``tb-study-trust/1``: unknown fields, a key twice in an object, a public key with bytes around its PEM, a
+    study id of another case and an empty studies list are refused; the file is read without following a link, as a
+    regular file nobody else may write, within its cap; ``verify`` without a trust file is a usage error."""
+    from tools import study_package as tool
+
+    entry = {"key_id": sp.key_id(PUB), "public_key": PUB.decode(), "purpose": "study-package", "studies": ["RA-JAK"]}
+    good = json.dumps({"format": sp.TRUST_FORMAT, "keys": [entry]}).encode()
+    assert sp.load_trust(good) == [sp.TrustedKey(PUB, frozenset({"RA-JAK"}))]
+    dup = good.replace(b'"purpose": "study-package"', b'"purpose": "update", "purpose": "study-package"')
+    for bad in (
+        dup,
+        json.dumps({"format": sp.TRUST_FORMAT, "keys": [{**entry, "public_key": "junk\n" + PUB.decode()}]}).encode(),
+        json.dumps({"format": sp.TRUST_FORMAT, "keys": [{**entry, "public_key": PUB.decode() + "junk\n"}]}).encode(),
+        json.dumps({"format": sp.TRUST_FORMAT, "keys": [{**entry, "studies": []}]}).encode(),
+        json.dumps({"format": sp.TRUST_FORMAT, "keys": [entry], "note": "x"}).encode(),
+    ):
+        with pytest.raises(ValueError):
+            sp.load_trust(bad)
+    lower = sp.load_trust(json.dumps({"format": sp.TRUST_FORMAT, "keys": [{**entry, "studies": ["RA-JAKX"]}]}).encode())
+    assert "not trusted to sign for" in str(_refused(sp.build(_small(), PRIV, DAY), lower))
+    # the file
+    trust = tmp_path / "trust.json"
+    trust.write_bytes(good)
+    trust.chmod(0o644)
+    assert tool.read_trust_file(trust) == [sp.TrustedKey(PUB, frozenset({"RA-JAK"}))]
+    link = tmp_path / "link.json"
+    link.symlink_to(trust)
+    loose = tmp_path / "loose.json"
+    loose.write_bytes(good)
+    loose.chmod(0o666)
+    big = tmp_path / "big.json"
+    big.write_bytes(good + b" " * tool.TRUST_FILE_MAX_BYTES)
+    big.chmod(0o644)
+    fifo = tmp_path / "fifo.json"
+    os.mkfifo(fifo)
+    for path, says in ((link, "link"), (loose, "others may write"), (big, "bytes"), (fifo, "regular file")):
+        with pytest.raises(ValueError, match=says):
+            tool.read_trust_file(path)
+    if os.geteuid() == 0:  # a file another account owns is not a trust root of this one
+        other = tmp_path / "other.json"
+        other.write_bytes(good)
+        other.chmod(0o644)
+        os.chown(other, 65534, 65534)
+        with pytest.raises(ValueError, match="owned by"):
+            tool.read_trust_file(other)
+    usage = _run("verify", str(trust))
+    assert usage.returncode == 2 and "verified" not in usage.stdout
