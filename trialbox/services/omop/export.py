@@ -332,7 +332,10 @@ def _emit_all(tx: Any, emit: Callable[[str, Row], object]) -> None:
         "o.extra FROM person p "
         "LEFT JOIN death d USING (person_id) JOIN LATERAL (SELECT (r.source_kind = 'site') AS s, r.source_row, "
         "r.extra FROM tb_record r WHERE r.cdm_table = 'person' AND r.record_id = p.person_id "
-        f"AND {LIVE} ORDER BY 1, 2 LIMIT 1) o ON true ORDER BY o.s, o.source_row"
+        # the text of LIVE written out, so that this statement stays a constant (the SQL-from-strings ratchet)
+        "AND r.status NOT IN ('tombstoned', 'superseded') "
+        "AND NOT (r.extra @> '{\"id_rule_review\": true}'::jsonb) "
+        "ORDER BY 1, 2 LIMIT 1) o ON true ORDER BY o.s, o.source_row"
     ):
         row = {
             "pid": person[r["person_id"]],
