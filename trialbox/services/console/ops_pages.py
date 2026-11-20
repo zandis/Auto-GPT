@@ -34,7 +34,7 @@ from console.home import Helpers
 from console.i18n import translate
 
 ROOT = Path(__file__).resolve().parents[2]
-TABS = ("overview", "backups", "update", "logs", "secrets", "network")
+TABS: tuple[str, ...] = ("overview", "backups", "update", "logs", "secrets", "network")
 # action -> (authz action, the tab it belongs to)
 ACTIONS: dict[str, tuple[str, str]] = {
     "backup": ("ops.backup", "backups"),

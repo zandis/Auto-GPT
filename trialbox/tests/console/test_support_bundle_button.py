@@ -249,8 +249,12 @@ def test_the_runner_knows_the_action_and_ignores_its_arguments(tmp_path: Path, m
 def test_on_a_site_box_the_runner_audits_the_made_bundle_with_its_size_and_hash(tmp_path: Path) -> None:
     argvs: list[list[str]] = []
 
+    def run(argv: Any, timeout: Any) -> str:
+        argvs.append(list(argv))
+        return ""
+
     class FakeRunner:
-        box = tb_ops.Box("compose", tmp_path, {}, run=lambda argv, timeout: argvs.append(list(argv)) or "")
+        box = tb_ops.Box("compose", tmp_path, {}, run=run)
 
     rec = {"file": "trialbox-support-20261119T010203Z.tar.gz", "bytes": 9, "sha256": "b" * 64}
     ops_support._audit_made(FakeRunner(), rec, "20261119T010203Z-abcdef")
