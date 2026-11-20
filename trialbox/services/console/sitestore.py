@@ -233,7 +233,14 @@ CREATE INDEX study_irb_text_rs ON study_irb_text (ruleset, at)
 SCHEMA_V7 = """
 ALTER TABLE study_state ADD COLUMN keep_years INTEGER
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7)
+# 9k-7 (D-1388): an Undo row names the mark row it takes back, so an Undo is done once (a second click, a second tab or
+# the back button finds it done and writes nothing) and the trail keeps both rows. Idempotent: run again, it changes
+# nothing; rows before it have none (no Undo of theirs is known)
+SCHEMA_V8 = """
+ALTER TABLE pi_marks ADD COLUMN IF NOT EXISTS undoes BIGINT;
+CREATE UNIQUE INDEX IF NOT EXISTS pi_marks_undoes ON pi_marks (undoes) WHERE undoes IS NOT NULL
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8)
 
 # ---------------------------------------------------------------------------------------------- D-386 study state
 STUDY_STATES = ("startup", "open", "paused", "closed")
@@ -469,6 +476,8 @@ class Mark:
     at: str
     job_id: str | None
     version: str | None = None  # the criteria version of the list the mark was made on (D-364)
+    id: int | None = None  # the row's id (9k-7, D-1388: an Undo names the row it takes back)
+    undoes: int | None = None  # this row is the Undo of that row (9k-7, D-1388)
 
 
 class SiteStore:
@@ -514,6 +523,8 @@ class SiteStore:
         if m.mark not in (*MARKS, WITHDRAWN):
             raise ValueError(f"mark must be one of {', '.join(MARKS)}")
         with self.db.transaction() as tx:
+            # 9k-7 (D-1388): one writer per patient's marks at a time, so an Undo sees the latest row as it is
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"pi_marks:{ruleset}:{m.pid}",))
             tx.execute(
                 "INSERT INTO pi_marks (ruleset, pid, mark, reason, note, by, at, job_id, version) "
                 "VALUES (?,?,?,?,?,?,?,?,?)",
@@ -535,11 +546,45 @@ class SiteStore:
 
     def mark_history(self, ruleset: str, pid: str) -> list[Mark]:
         rows = self.db.fetchall(
-            "SELECT pid, mark, reason, note, by, at, job_id, version FROM pi_marks WHERE ruleset = ? AND pid = ? "
-            "ORDER BY at, id",
+            "SELECT pid, mark, reason, note, by, at, job_id, version, id, undoes FROM pi_marks WHERE ruleset = ? "
+            "AND pid = ? ORDER BY at, id",
             (ruleset, pid),
         )
         return [Mark(*r) for r in rows]
+
+    def undo_mark(
+        self,
+        ruleset: str,
+        done_id: int,
+        m: Mark,
+        number: StudySettings | None = None,
+        before_commit: Callable[[str | None], None] | None = None,
+    ) -> str:
+        """9k-7 (D-1388): store ``m``, the state before row ``done_id``, as the Undo of that row, in one transaction
+        under the patient's lock: ``"undone"`` when written; ``"already"`` when an Undo of that row exists (nothing is
+        written: a second click, a second tab); ``"changed"`` when a later row exists (nothing is written). The audit
+        event (``before_commit``) runs inside the transaction, so the Undo is never kept without it."""
+        if m.mark not in (*MARKS, WITHDRAWN):
+            raise ValueError(f"mark must be one of {', '.join(MARKS)}")
+        with self.db.transaction() as tx:
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"pi_marks:{ruleset}:{m.pid}",))
+            if tx.fetchone("SELECT 1 FROM pi_marks WHERE undoes = ?", (done_id,)) is not None:
+                return "already"
+            last = tx.fetchone(
+                "SELECT id FROM pi_marks WHERE ruleset = ? AND pid = ? ORDER BY at DESC, id DESC LIMIT 1",
+                (ruleset, m.pid),
+            )
+            if last is None or int(last[0]) != done_id:
+                return "changed"
+            tx.execute(
+                "INSERT INTO pi_marks (ruleset, pid, mark, reason, note, by, at, job_id, version, undoes) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (ruleset, m.pid, m.mark, m.reason, m.note, m.by, m.at, m.job_id, m.version, done_id),
+            )
+            no = self._number(tx, ruleset, m.pid, number, m.at) if number is not None else None
+            if before_commit is not None:
+                before_commit(no)
+        return "undone"
 
     # ------------------------------------------------------------------ weekly appearances
     def seen(self, ruleset: str, pids: list[str], job_id: str, at: str) -> dict[str, str]:

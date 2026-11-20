@@ -1,11 +1,15 @@
 {% extends "base.html" %}
+{% from "_ds.html" import page_header %}
 {# Review 2026-11-09 P-10 (D-143): one confirmation sheet with the consequence in a sentence; Yes posts the same form
-   again with confirm=yes, No goes back without a change. #}
-{% block title %}{{ t('confirm.title') }}{% endblock %}
+   again with confirm=yes, No goes back without a change.
+   9k-7 (D-1388): the one confirm pattern of the console: the page header (one name, title and heading), the
+   consequence, the line that nothing is recorded before Yes, one primary act and the way back. #}
+{% set page_title = t('confirm.title') %}
 {% block content %}
+{{ page_header(page_title) }}
 <section class="card narrow" data-testid="confirm">
-<h1>{{ t('confirm.title') }}</h1>
 <p data-testid="confirm-text">{{ text }}</p>
+<p class="hint" data-testid="confirm-nothing-yet">{{ t('confirm.nothing_yet') }}</p>
 <form method="post" action="{{ action }}" class="row">
   <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="confirm" value="yes">
   {% for k, v in fields.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
