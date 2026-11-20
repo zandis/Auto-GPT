@@ -340,7 +340,7 @@ def store_migrations() -> dict[str, list[str]]:
         "recall": list(ledger.MIGRATIONS),
         "study": list(studystore.MIGRATIONS),
         "orch": list(orch.MIGRATIONS),
-        "sitesetup": [sitesetup.SCHEMA, sitesetup.SCHEMA_V2],
+        "sitesetup": [sitesetup.SCHEMA, sitesetup.SCHEMA_V2, sitesetup.SCHEMA_V3],
         "mail": list(mail.MIGRATIONS),
         "library": [library.DDL],
         "terminology": list(licensed.MIGRATIONS),
@@ -367,6 +367,8 @@ def store_migrations() -> dict[str, list[str]]:
 
 #: checksums of versions added after the D-204 baseline, per store (append here; never edit the baseline)
 ADDED: dict[str, tuple[str, ...]] = {
+    # 10B-22 (D-1261): local_code.also_classified, the MEDIS master's further ICD-10 codes of a suggestion
+    "sitesetup": ("cdf9c3531d4ebce365cd228de44876c814fefb84df127261e72bc76341c8c176",),
     # D-317: refdata version 3, the record of withdrawn sources
     # 10D-15 (D-1367): refdata version 4, the personal names dropped from the stored CT.gov records
     "refdata": (

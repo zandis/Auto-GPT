@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 EN: dict[str, str] = {
+    "site.codes.also": "also classified as {codes}",
     "site.codes.method.licensed_related": "from the hospital's disease-name master: a related term, not the same disease name (check it)",
     "site.codes.method.licensed_synonym": "from the hospital's disease-name master: the hospital's name is a synonym of this name",
     "site.codes.method.licensed_with_modifier": "from the hospital's disease-name master: this name is usually written with a modifier",
@@ -60,6 +61,7 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
+    "site.codes.also": "ほかの分類：{codes}",
     "site.codes.method.licensed_related": "病院の標準病名マスターから：関連する語で、同じ病名ではありません（確認してください）",
     "site.codes.method.licensed_synonym": "病院の標準病名マスターから：病院の名称はこの病名の同義語です",
     "site.codes.method.licensed_with_modifier": "病院の標準病名マスターから：この病名は通常、修飾語を付けて使います",
@@ -97,7 +99,7 @@ JA: dict[str, str] = {
     "medis.check.skipped.more": "ほか {n} 行",
     "medis.approve.title": "承認して読み込む",
     "medis.approve.box": "当院はこの版を MEDIS からダウンロードし、MEDIS の利用規約に従って利用できます。",
-    "medis.approve.who": "承認者：{who}（サインイン中のアカウント）",
+    "medis.approve.who": "承認者：{who}（ログイン中のアカウント）",
     "medis.approve.again": "同じファイルをもう一度選んでください。読むときと読み込むときの間、機器は何も保存しません。",
     "medis.load.go": "この版を読み込む",
     "medis.done": "読み込みました：版 {version}、病名 {n} 件（うち現行 {current} 件）、修飾語 {mods} 件、索引 {idx} 件。",
@@ -116,6 +118,7 @@ JA: dict[str, str] = {
 }
 
 ZH: dict[str, str] = {
+    "site.codes.also": "亦歸類為 {codes}",
     "site.codes.method.licensed_related": "來自醫院的標準病名主檔：相關的詞，不是同一個病名（請確認）",
     "site.codes.method.licensed_synonym": "來自醫院的標準病名主檔：醫院的名稱是此病名的同義詞",
     "site.codes.method.licensed_with_modifier": "來自醫院的標準病名主檔：此病名通常與修飾詞一起使用",

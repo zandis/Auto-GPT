@@ -179,3 +179,21 @@ def test_the_page_words_name_every_method() -> None:
                    "licensed_kampo", "licensed_dental"):  # fmt: skip
         for lang in ("en", "ja", "zh-TW"):
             assert f"site.codes.method.{method}" in CATALOGUES[lang], (method, lang)
+
+
+def test_the_further_codes_ride_beside_the_suggestion_and_never_replace_it(master: mm.Master) -> None:
+    """The 複数分類コード: written by the same function, carried as ``also``, never the suggested code (even when the
+    ICD-10-CM list lacks it, it is shown, not mapped)."""
+    got = mm.by_code(master, "ZA17")
+    assert got["code"] == "E11.2" and got["also"] == ["N08.3"]
+    assert "also" not in mm.by_code(master, "ZA01")
+    assert mm.by_code(master, "ZA09") == {}  # its own code is WHO only: no suggestion, so no further codes either
+
+
+def test_the_store_keeps_the_further_codes_as_a_list_and_old_rows_read_as_none() -> None:
+    from sitesetup.store import also_of, also_read
+
+    assert also_of({"code": "E11.2", "also": ["N08.3"]}) == '["N08.3"]'
+    assert also_of({"code": "E11.2"}) is None and also_of({"also": ["", " "]}) is None
+    assert also_read(None) == [] and also_read("") == [] and also_read("not json") == [] and also_read("{}") == []
+    assert also_read('["N08.3"]') == ["N08.3"]

@@ -216,3 +216,74 @@ def test_outside_the_layer_every_role_meets_an_absent_route(tw: dict[str, Any]) 
         for tail in ("/check", "/load"):
             assert c.post(f"{PAGE}{tail}", data={"csrf": csrf}).status_code == 404, (user, tail)
     assert not [r for r in tw["app"].routes if getattr(r, "path", "").startswith(PAGE)]
+
+
+# ------------------------------------------------------------------- the 複数分類コード beside a suggestion
+DX_SYSTEM = "urn:hospital:dx-code"
+MASTER_KEYS = {"ws", "domain", "system", "code", "display", "suggested_system", "suggested_code", "suggested_display",
+               "method", "mapped_system", "mapped_code", "mapped_display", "mapped_by", "mapped_at", "confidence",
+               "n"}  # fmt: skip  # GET /api/v1/site/codes's keys on master (local_code before version 3, and n)
+
+
+def _codes_with(jp: dict[str, Any], also: list[str] | None) -> None:
+    sug = {"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "E11.2", "display": "テスト複分類病",
+           "method": "licensed", "confidence": "1.00", **({"also": also} if also else {})}  # fmt: skip
+    jp["svc"].store.put_local("main", "condition", DX_SYSTEM, "ZA17", "テスト複分類病", sug)
+
+
+def test_the_codes_page_shows_the_further_codes_in_three_languages(jp: dict[str, Any]) -> None:
+    from console.i18n_medis import EN, JA, ZH
+
+    _codes_with(jp, ["N08.3"])
+    c, csrf = login(jp["app"], "crc", PW)
+    for lang, cat in (("en", EN), ("ja", JA), ("zh-TW", ZH)):
+        c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/site/codes"})
+        page = c.get("/site/codes").text
+        assert 'data-testid="also-ZA17"' in page and cat["site.codes.also"].replace("{codes}", "N08.3") in page
+    v, _ = login(jp["app"], "pi", PW)  # the page's readers see it as they see the suggested code
+    assert 'data-testid="also-ZA17"' in v.get("/site/codes").text
+
+
+def test_without_further_codes_the_page_is_as_before_the_field(
+    jp: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The local codes page with this card's line equals, byte for byte, the page rendered from the template without
+    the line, for a code with no further codes: the line adds nothing then."""
+    import re as _re
+
+    import jinja2
+
+    _codes_with(jp, None)
+    c, _ = login(jp["app"], "crc", PW)
+    line = ("{% if c.also %} · <span data-testid=\"also-{{ c.code }}\">{{ t('site.codes.also', "
+            "codes=c.also|join(', ')) }}</span>{% endif %}")  # fmt: skip
+    real = jinja2.FileSystemLoader.get_source
+
+    def without(self: Any, env: Any, name: str) -> Any:
+        src, fn, _up = real(self, env, name)
+        if name == "site_codes.html":
+            assert src.count(line) == 1
+            src = src.replace(line, "")
+        return src, fn, lambda: False  # read again next time
+
+    def page() -> str:
+        return _re.sub(r'(nonce|data-abs-left|data-idle-left)="[^"]*"', r'\1=""', c.get("/site/codes").text)
+
+    monkeypatch.setattr(jinja2.FileSystemLoader, "get_source", without)
+    before = page()
+    monkeypatch.setattr(jinja2.FileSystemLoader, "get_source", real)
+    page()  # the template read again as it is
+    assert page() == before and "ZA17" in before
+
+
+def test_the_api_twin_answers_as_before_with_and_without_the_field(jp: dict[str, Any]) -> None:
+    from fastapi.testclient import TestClient
+
+    c = TestClient(jp["app"])
+    token = c.post("/api/v1/session", json={"username": "crc", "password": PW, "lang": "en"}).json()["token"]
+    c.headers["Authorization"] = f"Bearer {token}"
+    for also in (None, ["N08.3"]):
+        _codes_with(jp, also)
+        rows = c.get("/api/v1/site/codes").json()
+        assert rows and all(set(r) == MASTER_KEYS for r in rows), (also, sorted(rows[0]))
+        assert "N08.3" not in json.dumps(rows)

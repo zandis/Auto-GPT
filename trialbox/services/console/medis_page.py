@@ -87,7 +87,7 @@ def register(
             last = dict(get("/setup/terminology/medis"))
         except (Problem, Unavailable):
             pass
-        return h.page(request, "site_medis.html", sess, status, mb=MB, loaded=state(terms, last, h.clock().date()),
+        return h.page(request, "site_medis.html", sess, status, mb=MB, loaded=state(terms, last, h.today()),
                       download_url=medis_release.DOWNLOAD_URL, terms_url=medis_release.TERMS_URL,
                       who=h.actor(sess), shown=SKIPPED_SHOWN, **more)  # fmt: skip
 

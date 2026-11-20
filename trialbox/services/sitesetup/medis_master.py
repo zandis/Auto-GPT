@@ -25,7 +25,8 @@ The answers, as lane J ruled them (D-1261):
 * **The ICD-10.** Written for comparison by ``tb_common.icd10_who.comparable`` (``E119`` -> ``E11.9``; a trailing
   sub-classification letter left out; ``A99-9`` and empty give none) and taken only when the ICD-10-CM list holds
   that exact code (D-130). Otherwise NO suggestion: the local code stays unmapped, its records unknown, never another
-  disease's code. The 複数分類コード is never taken as the entry's code.
+  disease's code. The 複数分類コード is never taken as the entry's code: its codes ride beside the suggestion as
+  ``also`` (written by the same function), shown on the local codes page as "also classified as".
 """
 
 from __future__ import annotations
@@ -56,6 +57,7 @@ class Entry:
     adoption: str = ""  # 採択区分: 1, 2 own the code; 3 a synonym that borrows it
     field: str = ""  # 使用分野: 1 general, 2 mainly Kampo, 4 mainly dental
     no_solo: str = ""  # 単独使用禁止区分: 01 usually with a modifier
+    multi_class: str = ""  # ＩＣＤ１０‐２０１３複数分類コード: further ICD-10 codes of the same name
 
     @property
     def current(self) -> bool:
@@ -104,7 +106,8 @@ def rows(tables: Mapping[str, Mapping[str, Mapping[str, Any]]]) -> Master | None
         for m in members:
             e = Entry(ex, str(m.get("no") or ""), str(m.get("name") or ""), str(m.get("change") or "").strip(),
                       str(m.get("icd") or ""), str(m.get("successor") or "").strip(), str(m.get("adoption") or ""),
-                      str(m.get("field") or ""), str(m.get("no_solo") or ""))  # fmt: skip
+                      str(m.get("field") or ""), str(m.get("no_solo") or ""),
+                      str(m.get("multi_class") or ""))  # fmt: skip
             if e.number:
                 by_number[e.number] = e
             by_exchange.setdefault(ex, []).append(e)
@@ -150,8 +153,8 @@ def _preferred(m: Master, e: Entry) -> Entry:
     return owners[0] if owners else e
 
 
-def suggestion(m: Master, entries: list[Entry], related: bool = False) -> dict[str, str]:
-    """``{system, code, display, method, confidence[, replaced]}`` for the entries one group of a local code or
+def suggestion(m: Master, entries: list[Entry], related: bool = False) -> dict[str, Any]:
+    """``{system, code, display, method, confidence[, replaced][, also]}`` for the entries one group of a local code or
     name points at, or ``{}`` (no current entry, several diseases, no ICD-10, or one the ICD-10-CM list lacks)."""
     got = [(r, e) for e in entries if (r := resolve(m, e)) is not None]
     if not got:
@@ -162,8 +165,12 @@ def suggestion(m: Master, entries: list[Entry], related: bool = False) -> dict[s
     got.sort(key=lambda p: (not p[1].current, p[1].adoption or "9", p[0].number))
     r, came = got[0]
     owner = _preferred(m, r)
-    out = {"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": next(iter(codes)), "display": owner.name,
-           "method": "licensed", "confidence": "0.80" if related else "1.00"}  # fmt: skip
+    out: dict[str, Any] = {"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": next(iter(codes)),
+                           "display": owner.name, "method": "licensed",
+                           "confidence": "0.80" if related else "1.00"}  # fmt: skip
+    also = [c for c in (comparable(x) for x in re.split(r"[^0-9A-Za-z-]+", r.multi_class)) if c and c != out["code"]]
+    if also:  # shown as "also classified as"; never the suggested code (D-1261)
+        out["also"] = also
     if came is not r:
         out |= {"method": "licensed_successor", "replaced": came.number}
     elif related:
@@ -177,7 +184,7 @@ def suggestion(m: Master, entries: list[Entry], related: bool = False) -> dict[s
     return out
 
 
-def by_code(m: Master, exchange: str) -> dict[str, str]:
+def by_code(m: Master, exchange: str) -> dict[str, Any]:
     """A 病名交換用コード: its current rows; a code whose every row is deleted, their successors."""
     entries = m.by_exchange.get(exchange.strip().upper(), [])
     return suggestion(m, [e for e in entries if e.current] or entries)
@@ -195,7 +202,7 @@ def _index_rank(row: Mapping[str, Any]) -> int | None:
     return {"0": 0, "1": 1, "2": 3}.get(synonym)
 
 
-def by_name(m: Master, name: str, lookup: Callable[[str], list[dict[str, Any]]] | None = None) -> dict[str, str]:
+def by_name(m: Master, name: str, lookup: Callable[[str], list[dict[str, Any]]] | None = None) -> dict[str, Any]:
     """A local disease name: the 病名表記 first, then the index (``lookup(term)``: ``TermStore.lookup_term``)."""
     k = key(name)
     if not k:

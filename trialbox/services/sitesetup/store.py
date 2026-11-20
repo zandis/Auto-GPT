@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 from tb_common.db import ENV, Database
@@ -53,6 +53,10 @@ CREATE TABLE IF NOT EXISTS published (ws TEXT PRIMARY KEY, at TEXT NOT NULL, sna
 """
 # version 2 (scenario run MAP-01): how sure a suggested code is (0..1), shown beside it
 SCHEMA_V2 = "ALTER TABLE local_code ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION NOT NULL DEFAULT 0"
+# version 3 (10B-22, D-1261): the further ICD-10 codes the MEDIS master gives a suggested code (its
+# 複数分類コード), a JSON list shown on the local codes page as "also classified as"; NULL (none) for a row
+# written before it and for every suggestion without one. Never the suggested code, never sent anywhere else
+SCHEMA_V3 = "ALTER TABLE local_code ADD COLUMN IF NOT EXISTS also_classified TEXT"
 STATUSES = ("coded", "proposed", "confirmed", "rejected")
 _INSERT_FACT = (
     "INSERT INTO fact (ws, input_id, pid, domain, term, code, system, local_code, local_system, value, unit, day, "
@@ -60,6 +64,21 @@ _INSERT_FACT = (
 )
 COUNTED = ("coded", "confirmed")
 DOMAINS = ("condition", "observation", "medication", "demographic")
+
+
+def also_of(suggestion: Mapping[str, Any]) -> str | None:
+    """D-1261: a suggestion's further ICD-10 codes (``also``) as the column keeps them: a JSON list, or None."""
+    codes = [str(c) for c in (suggestion.get("also") or ()) if str(c).strip()]
+    return json.dumps(codes) if codes else None
+
+
+def also_read(raw: Any) -> list[str]:
+    """The column back as a list; [] for NULL (a row from before version 3) or anything that is not a list."""
+    try:
+        got = json.loads(raw) if raw else []
+    except (TypeError, ValueError):
+        return []
+    return [str(c) for c in got] if isinstance(got, list) else []
 
 
 class SetupError(ValueError):
@@ -72,7 +91,7 @@ class SetupError(ValueError):
 class SetupStore:
     def __init__(self, url: str | None = None) -> None:
         self._db = Database.connect(url or os.environ.get(ENV), "sitesetup")
-        self._db.migrate([SCHEMA, SCHEMA_V2])
+        self._db.migrate([SCHEMA, SCHEMA_V2, SCHEMA_V3])
 
     @property
     def db(self) -> Database:
@@ -293,11 +312,11 @@ class SetupStore:
     def put_local(self, ws: str, domain: str, system: str, code: str, display: str, suggestion: dict[str, str]) -> None:
         self._db.execute(
             "INSERT INTO local_code (ws, domain, system, code, display, suggested_system, suggested_code, "
-            "suggested_display, method, confidence) VALUES (?,?,?,?,?,?,?,?,?,?) "
+            "suggested_display, method, confidence, also_classified) VALUES (?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT (ws, domain, system, code) DO UPDATE SET display = excluded.display, "
             "suggested_system = excluded.suggested_system, "
             "suggested_code = excluded.suggested_code, suggested_display = excluded.suggested_display, "
-            "method = excluded.method, confidence = excluded.confidence",
+            "method = excluded.method, confidence = excluded.confidence, also_classified = excluded.also_classified",
             (
                 ws,
                 domain,
@@ -309,6 +328,7 @@ class SetupStore:
                 suggestion.get("display", "")[:200],
                 suggestion.get("method", ""),
                 float(suggestion.get("confidence") or 0),
+                also_of(suggestion),
             ),
         )
 
