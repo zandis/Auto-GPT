@@ -8,6 +8,7 @@ rides with. L1-L7 as the review lists them. Synthetic data only.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import inspect
 import io
@@ -153,7 +154,9 @@ def test_m1_a_profile_naming_nobody_is_closed(head: RulesetRepo, keys: tuple[Pat
 
 
 # --------------------------------------------------------------------------------------------- M2
-def test_m2_given_patients_are_narrowed(head: RulesetRepo, keys: tuple[Path, Path], tmp_path: Path) -> None:
+def test_m2_given_patients_are_narrowed(
+    head: RulesetRepo, keys: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from orchestrator.scenarios import screen
 
     repo_dir = _arrived(head, keys, tmp_path, _profile(["P1"], ["RHEU"]))
@@ -163,19 +166,17 @@ def test_m2_given_patients_are_narrowed(head: RulesetRepo, keys: tuple[Path, Pat
     ctx = _ctx(repo_dir, "MICROBATCH", AuditLog(tmp_path / "a"))
     assert [s.pid for s in screen.in_arrived_scope(ctx, rs, given)] == ["A"]
     ctx.metrics = lambda **kw: None
-    ctx.services = SimpleNamespace()
-    import orchestrator.scenarios.screen as mod
-
     seen: list[list[str]] = []
-    orig = mod.drop_opted_out
-    try:
-        mod.drop_opted_out = lambda _c, s: seen.append([x.pid for x in s]) or []  # type: ignore[assignment]
-        mod.judge_for = lambda _c, _r: None  # type: ignore[assignment]
+
+    def opted(_c: Any, scoped: list[Any]) -> list[Any]:
+        seen.append([x.pid for x in scoped])
+        return []  # nobody left: run_screen returns before any model call
+
+    monkeypatch.setattr(screen, "drop_opted_out", opted)
+    monkeypatch.setattr(screen, "judge_for", lambda _c, _r: None)
+    monkeypatch.setattr(screen, "judging_info", lambda *_a: {}, raising=False)
+    with contextlib.suppress(Exception):  # what follows the scope is not this test's
         screen.run_screen(ctx, rs, date(2026, 11, 20), "s", given=given)
-    except Exception:
-        pass
-    finally:
-        mod.drop_opted_out = orig
     assert seen and seen[0] == ["A"]
 
 
@@ -185,7 +186,7 @@ def test_m3_a_narrower_profile_takes_effect_at_once(head: RulesetRepo, keys: tup
     _put(repo_dir, _profile(["S-001"], list_to="new@site.test"))
     rs = load_approved(repo_dir, "GZQO")
     assert rs.manifest.scopes.screen.practitioners == ["S-001"]  # type: ignore[union-attr]
-    assert rs.manifest.routing.list_to == ["new@site.test"]  # type: ignore[union-attr]
+    assert rs.manifest.routing.list_to == ["new@site.test"]
     assert arrived_scope(repo_dir, rs) == (["S-001"], None)
 
 
@@ -197,7 +198,7 @@ def test_l1_a_repeat_never_takes_a_profile_accepted_for_another_version(
     data = (tmp_path / "GZQO.part.zip").read_bytes()
     install_outcome(RulesetRepo(repo_dir), data, "update:again", verified=evidence(data))
     rs = load_approved(repo_dir, "GZQO")
-    assert rs.manifest.routing.list_to == ["pi@site.test"]  # type: ignore[union-attr]
+    assert rs.manifest.routing.list_to == ["pi@site.test"]
     assert arrived_scope(repo_dir, rs) == (["S-001"], None)  # the other version's wider list never widens it
 
 

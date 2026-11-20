@@ -426,7 +426,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     ),
     "job.ruleset_refused": (
         "Job refused: a rule set from another box runs only as SCREEN or MICROBATCH",
-        "ジョブ拒否：別のボックスの基準は SCREEN と MICROBATCH のみ",
+        "処理の拒否：別のボックスで承認された基準は SCREEN と MICROBATCH のみ",
         "作業已拒絕：來自另一台機器的條件只能以 SCREEN 或 MICROBATCH 執行",
     ),
     "approve.site_profile_set": (

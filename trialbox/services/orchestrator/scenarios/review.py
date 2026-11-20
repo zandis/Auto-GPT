@@ -61,7 +61,7 @@ ARRIVED_REFUSED = {
     "en": "{rid} v{version} arrived in an update (approved on another box): this box runs it only as SCREEN and "
     "MICROBATCH, inside the practitioners and departments the site accepted; a {kind} job is refused (D-1369)",
     "ja": "{rid} v{version} は更新で届いた基準です（別のボックスで承認）。このボックスでは SCREEN と MICROBATCH "
-    "として、施設が受け入れた医師と診療科の範囲内でのみ実行します。{kind} ジョブは拒否されました（D-1369）",
+    "として、施設が受け入れた医師と診療科の範囲内でのみ実行します。{kind} の処理は拒否されました（D-1369）",
     "zh-TW": "{rid} v{version} 是經由更新送達的條件（於另一台機器核准）：本機只以 SCREEN 與 MICROBATCH 執行，"
     "且限於本院接受的醫師與科別；{kind} 作業已拒絕（D-1369）",
 }

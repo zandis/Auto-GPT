@@ -330,12 +330,15 @@ def arrived_scope(rulesets_dir: Path, rs: Ruleset) -> tuple[list[str] | None, li
     if not site_scoped(rulesets_dir, rs.id, rs.version):
         return None
     sc = rs.manifest.scopes.screen if rs.manifest.scopes and rs.manifest.scopes.screen else None
-    lists = [list(sc.practitioners or []) or None, list(sc.departments or []) or None] if sc else [None, None]
+    lists: list[list[str] | None] = (
+        [list(sc.practitioners or []) or None, list(sc.departments or []) or None] if sc else [None, None]
+    )
     prof = accepted_profile(lambda path: main_file(rulesets_dir, path), rs.id)
     if prof is not None:
         for i, now in enumerate(screen_lists(prof.get("scopes"))):
+            had = lists[i]
             if now is not None:
-                lists[i] = now if lists[i] is None else [x for x in lists[i] if x in now]
+                lists[i] = list(now) if had is None else [x for x in had if x in now]
     if (lists[0] is None and lists[1] is None) or lists[0] == [] or lists[1] == []:
         raise ArrivedScopeClosed(
             f"ruleset {rs.id} v{rs.version} arrived in an update and its accepted site profile names no practitioner "
