@@ -56,15 +56,48 @@ def norm_code(text: str) -> str:
     return re.sub(r"\s+", " ", messy.half_width(text)).strip()[:80]
 
 
-@lru_cache(maxsize=1)
+# The code tables a site's own codes are mapped against (D-1255): files of the adapter's mapping folder, each read by
+# its format, which its file name says: (kind, the local code's column, the standard code's column, the name's column).
+FORMATS: dict[str, tuple[str, str, str, str]] = {
+    "byomei_to_icd10.csv": ("dx", "code", "icd10", "name"),
+    "jlac10_to_loinc.csv": ("lab", "local_code", "code", "display"),
+    "lab_local_to_loinc.csv": ("lab", "local_code", "code", "display"),
+    "yj_to_atc.csv": ("drug", "yj_code", "atc", "name"),
+}
+# A site whose country has a layer maps against the tables its layer names (``tb_common.country_layer`` P7
+# ``code_tables``); a site whose country has none, against these, in this order: the tables every site mapped
+# against before the layer named them (D-131, D-1255). A later table's row for the same code wins.
+OTHER_COUNTRY_TABLES = (
+    "jp_core/byomei_to_icd10.csv",
+    "jp_core/jlac10_to_loinc.csv",
+    "tw_core/lab_local_to_loinc.csv",
+    "jp_core/yj_to_atc.csv",
+)
+Table = tuple[str, Path, str, str, str]  # (kind, path, local code's column, standard code's column, name's column)
+
+
+def code_tables(country: str | None) -> tuple[Table, ...]:
+    """The code tables a site of ``country`` maps against, in order. Its country's layer names them (P7
+    ``code_tables``, one call, the same for every country); a country without a layer gets
+    :data:`OTHER_COUNTRY_TABLES`. A country whose layer is broken raises ``country_layer.LayerBroken``: the site's
+    set-up suggests nothing from a table until the layer is mended, and never takes another country's (D-1255)."""
+    from tb_common import country_layer
+
+    names = country_layer.value(country, "P7", "code_tables") or OTHER_COUNTRY_TABLES
+    out = []
+    for name in names:
+        kind, key, val, disp = FORMATS[name.rsplit("/", 1)[-1]]
+        out.append((kind, MAPPING_DIR / name, key, val, disp))
+    return tuple(out)
+
+
 def _lookups() -> dict[str, dict[str, tuple[str, str]]]:
+    return _lookups_of(code_tables(site_country()))
+
+
+@lru_cache(maxsize=4)
+def _lookups_of(files: tuple[Table, ...]) -> dict[str, dict[str, tuple[str, str]]]:
     out: dict[str, dict[str, tuple[str, str]]] = {"dx": {}, "lab": {}, "drug": {}}
-    files = (
-        ("dx", MAPPING_DIR / "jp_core" / "byomei_to_icd10.csv", "code", "icd10", "name"),
-        ("lab", MAPPING_DIR / "jp_core" / "jlac10_to_loinc.csv", "local_code", "code", "display"),
-        ("lab", MAPPING_DIR / "tw_core" / "lab_local_to_loinc.csv", "local_code", "code", "display"),
-        ("drug", MAPPING_DIR / "jp_core" / "yj_to_atc.csv", "yj_code", "atc", "name"),
-    )
     for kind, path, key, val, disp in files:
         if not path.exists():
             continue
@@ -75,19 +108,18 @@ def _lookups() -> dict[str, dict[str, tuple[str, str]]]:
     return out
 
 
-@lru_cache(maxsize=1)
 def _unverified() -> frozenset[tuple[str, str]]:
     """(kind, code) of every shipped table row whose state is not ``verified`` (10B-6, D-1233): a suggestion taken
     from such a row says so (``lookup_verify``) and is never shown as certain."""
+    return _unverified_of(code_tables(site_country()))
+
+
+@lru_cache(maxsize=4)
+def _unverified_of(files: tuple[Table, ...]) -> frozenset[tuple[str, str]]:
     from tb_common.site_profile import VERIFIED, state_of
 
     out: set[tuple[str, str]] = set()
-    for kind, path, key in (
-        ("dx", MAPPING_DIR / "jp_core" / "byomei_to_icd10.csv", "code"),
-        ("lab", MAPPING_DIR / "jp_core" / "jlac10_to_loinc.csv", "local_code"),
-        ("lab", MAPPING_DIR / "tw_core" / "lab_local_to_loinc.csv", "local_code"),
-        ("drug", MAPPING_DIR / "jp_core" / "yj_to_atc.csv", "yj_code"),
-    ):
+    for kind, path, key, _val, _disp in files:
         if not path.exists():
             continue
         with path.open(encoding="utf-8") as fh:
@@ -128,11 +160,15 @@ def norm_term(text: str) -> str:
     return _PUNCT.sub("", t).translate(_JA_TO_ZH)
 
 
-@lru_cache(maxsize=1)
 def _dx_index() -> dict[str, list[tuple[float, str, str, str]]]:
     """Normalised name -> [(confidence, ICD-10 code, display, method)]: known diagnosis names (``term``: 1.0 from
-    ``dx_names.csv``, 0.95 from the JP-Core 病名 table), ICD-10 titles in Chinese and English (0.9, ``title``) and a
-    title's head before its first comma (0.85)."""
+    ``dx_names.csv``, 0.95 from the site's 病名 tables, :func:`code_tables`), ICD-10 titles in Chinese and English
+    (0.9, ``title``) and a title's head before its first comma (0.85)."""
+    return _dx_index_of(code_tables(site_country()))
+
+
+@lru_cache(maxsize=4)
+def _dx_index_of(files: tuple[Table, ...]) -> dict[str, list[tuple[float, str, str, str]]]:
     idx: dict[str, list[tuple[float, str, str, str]]] = {}
 
     def add(name: str, conf: float, code: str, display: str, method: str) -> None:
@@ -143,12 +179,13 @@ def _dx_index() -> dict[str, list[tuple[float, str, str, str]]]:
     with (Path(__file__).with_name("dx_names.csv")).open(encoding="utf-8") as fh:
         for r in csv.DictReader(fh):
             add(r["name"], 1.0, r["icd10"], r["name"], "term")
-    path = MAPPING_DIR / "jp_core" / "byomei_to_icd10.csv"
-    if path.exists():
+    for kind, path, _key, val, disp in files:
+        if kind != "dx" or not path.exists():
+            continue
         with path.open(encoding="utf-8") as fh:
             for r in csv.DictReader(fh):
-                if r.get("name") and r.get("icd10"):  # the shipped 病名 sample: below the curated names
-                    add(r["name"], 0.95, r["icd10"], r["name"], "term")
+                if r.get(disp) and r.get(val):  # the shipped 病名 sample: below the curated names
+                    add(r[disp], 0.95, r[val], r[disp], "term")
     try:
         rows = _terminology().rows.get("icd10cm", [])
     except Exception:  # no terminology tables: names and the 病名 table only
