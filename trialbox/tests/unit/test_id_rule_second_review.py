@@ -33,7 +33,7 @@ def test_template_patient_owns_device(tmp_path: Path) -> None:
 
 def test_disputed_appointments_stay_out_of_scope() -> None:
     _, mapper = ids._mapper()
-    mapper.review = {("Appointment", resource_id(ids.KEY, "Appointment", "A7"))}
+    mapper.review = frozenset({("Appointment", resource_id(ids.KEY, "Appointment", "A7"))})
     rows = [dict(r, appt_no="A7") for r in ids.both()["appointment"]]
     rows.append(dict(rows[0], appt_no="A8"))
     a, b, clear = mapper.map_table("appointment", iter(rows))
@@ -63,7 +63,7 @@ def test_source_changing_delta_cannot_be_accepted(tmp_path: Path, changed_profil
     held = run_ingest(
         cfg, "fhir_bulk", str(export), snapshot=second, since=first, load_fhir=False, rebuild_lake=False, validate=False
     )
-    assert held.held and any(ids.SOURCE_WORDS in msg for msg in held.errors)
+    assert held.held and any(ids.SOURCE_WORDS in msg for msg in (held.errors or []))
     folder = snapshot_dir(cfg.lake_dir, second)
     candidate_ids = {r["id"] for r in read_type(folder, "Condition")}
     acceptance = publish_held(cfg, second)
