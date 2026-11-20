@@ -36,6 +36,12 @@ new heading with the version and date, in the same pull request that sets the ve
   sign-in refused because the person's directory groups give two roles names the two groups for the hospital's IT;
   the console's policy now forbids service workers by name (`worker-src 'none'`), written down with the rest of the
   rule that nothing of a clinical page is kept on a device.
+- Each pull request that changes the console is now compared screen by screen with master on 72 first screens in
+  three languages (9k-17, D-1377); a changed screen must be looked at before it passes. The check is not required and
+  keeps no picture in git. Nothing changes on the box: no setting, no new file installed.
+- The console's buttons are one design (9k-3, D-1375): a filled, an outlined, a text-only and a red-outlined
+  variant and one small size, every one at least 44 px; the older second layer of sizes is folded into the first, so
+  the pages look as before. Nothing changes on the box: no setting, no new file installed.
 - The console's colours and type are named values (9k-1, 9k-2, D-1368): form fields have a darker border that meets
   the 3:1 contrast for controls, the amber "needs attention" row is readable in dark mode (and a little paler in
   light mode), and Japanese and Traditional Chinese pages have a taller line height (1.7) with strict line breaking.

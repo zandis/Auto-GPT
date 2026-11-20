@@ -966,7 +966,8 @@ for f in deploy/refdata/pending/*.tar; do  # D-140: the reference data pack of t
     docker rm -f tb-refdata-load >/dev/null 2>&1 || true
     "${COMPOSE[@]}" run --rm --no-deps -T --name tb-refdata-sweep -e TMPDIR=/data/objects criteria-compiler \
       sh -c 'rm -rf -- "${TMPDIR:?}"/tb-refdata-*' tb-refdata-sweep >/dev/null 2>&1 || true
-    echo "install: warning: reference data $(basename "$f") not loaded (python -m tb_common.refdata load)" >&2
+    # H-58 (H10G1-04): a FAIL line, not a warning: an offline box without its pack has no trials
+    FAILS+=("the reference data pack $(basename "$f") was not loaded (python -m tb_common.refdata load, error above): it stays in deploy/refdata/pending; re-run deploy/install.sh to load it again, or tools/apply_update.sh <bundle with refdata>")
   fi
 done
 if [ "$CTGOV" = offline ] && ! "${COMPOSE[@]}" exec -T criteria-compiler python -m tb_common.refdata status 2>/dev/null | grep -q pack_id; then

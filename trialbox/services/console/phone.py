@@ -76,7 +76,8 @@ for _lang, _cat in (("en", i18n_phone.EN), ("ja", i18n_phone.JA), ("zh-TW", i18n
 # ------------------------------------------------------------------------------------------------- the flags' read
 #: the console's layout flags, read together in one background read: this card's and J-6's (D-1225)
 HOME_FLAG = "layout.home_today"
-LAYOUT_FLAGS = (FLAG, HOME_FLAG)
+PLAIN_FLAG = "layout.plain_menu"  # J-7 (D-1251): read in the same statement
+LAYOUT_FLAGS = (FLAG, HOME_FLAG, PLAIN_FLAG)
 _clock = time.monotonic
 _kept: tuple[dict[str, bool], float] | None = None
 _guard = threading.Lock()  # guards _kept and _reading only, never held during a read
@@ -268,6 +269,7 @@ class PhoneFirst:
                 state = scope.setdefault("state", {})
                 state["phone_first"] = layout[FLAG]
                 state["home_today"] = layout[HOME_FLAG]  # J-6 (D-1225): the opening page reads it from here
+                state["plain_menu"] = layout[PLAIN_FLAG]  # J-7 (D-1251): the menu and tp() read it from here
         await self.app(scope, receive, send)
 
 

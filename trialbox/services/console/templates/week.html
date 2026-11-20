@@ -8,7 +8,7 @@
 {% block content %}
 {% from "_life.html" import sae_banner, report_banner with context %}{% set pf = request is defined and request.state is defined and request.state.phone_first %}{% if pf %}<div class="pfweek" data-testid="phone-first">{% endif %}
 <div class="headrow"><h1>{{ t('wb.title') }} · {{ rs }}</h1>
-{% if wk %}<span class="hint" data-testid="week-counts">{{ t('week.counts', n=wk.counts.total, new=wk.counts.new, pending=wk.counts.pending, marked=wk.counts.marked) }} · <a href="/studies/{{ rs }}/not-matched" data-testid="to-excluded">{{ t('ex.link') }}</a> · <a href="/studies/{{ rs }}/rescreen" data-testid="to-rescreen">{{ t('rescreen.link') }}</a></span>{% endif %}</div>
+{% if wk %}<span class="hint" data-testid="week-counts">{{ t('week.counts', n=wk.counts.total, new=wk.counts.new, pending=wk.counts.pending, marked=wk.counts.marked) }} · <a href="/studies/{{ rs }}/not-matched" data-testid="to-excluded">{{ t('ex.link') }}</a> · <a href="/studies/{{ rs }}/rescreen" data-testid="to-rescreen">{{ t('rescreen.link') }}</a>{#J7#}{% if pm and may_act('case') %} · <a href="/pilot/case" data-testid="link-case">{{ tp('nav.case') }}</a>{% endif %}{#/J7#}</span>{#J7#}{% elif pm and may_act('case') %}<span class="hint"><a href="/pilot/case" data-testid="link-case">{{ tp('nav.case') }}</a></span>{#/J7#}{% endif %}</div>
 {# T-684 (UX-037): once the study is set up the procedure folds to one line and the SAE banners to one line each,
    so the first patient row is on the first screen. D-1222 (E-1, flag layout.phone_first): on a phone the list comes
    right under the title; the SAE banners stay above it; the rest is written after the list, in one "Study" fold #}
@@ -16,7 +16,7 @@
 <div class="firstrow" data-testid="first-row">
 {% set f_fold %}{% if step >= 2 %}<details class="stepsfold" data-testid="steps-fold"><summary>{{ t('steps.fold', n=step + 1, of=steps|length, name=t('steps.' + steps[step])) }}</summary>{{ steps_bar(steps, step) }}</details>{% endif %}{% endset %}{% if not pf %}{{ f_fold }}{% endif %}
 {{ sae_banner(sae, 'week', compact=true) }}{{ report_banner(sae_reports, compact=true) }}
-{% set f_due %}{% if team_due %}<p class="warn" data-testid="team-due"><a href="/studies/{{ rs }}/team#check">{{ t('team.log.check_due') }}</a></p>{% endif %}{% endset %}{% if not pf %}{{ f_due }}{% endif %}
+{% set f_due %}{% if team_due %}<p class="warn" data-testid="team-due">{#J7#}{% if pm %}<span>{{ t('team.log.check_due') }} <a href="/studies/{{ rs }}/team#check">{{ t('team.log.check') }}</a></span>{% else %}{#/J7#}<a href="/studies/{{ rs }}/team#check">{{ t('team.log.check_due') }}</a>{#J7#}{% endif %}{#/J7#}</p>{% endif %}{% endset %}{% if not pf %}{{ f_due }}{% endif %}
 </div>
 {% set f_team %}{% include "_team_nav.html" %}
 {% for j in approvals or [] %}<p class="warn" data-testid="approval-waiting"><a href="/pilot/jobs/{{ j.job_id }}/approval">{{ t('s20.waiting', rs=j.ruleset, v=j.ruleset_version) }}</a></p>{% endfor %}{% endset %}{% if not pf %}{{ f_team }}{% endif %}
@@ -28,7 +28,7 @@
   <nav class="rail" aria-label="{{ t('wb.lists') }}">
     <h3>{{ t('wb.lists') }}</h3>
     {% for k in lists %}<a href="?list={{ k }}" class="{{ 'active' if k == lst else '' }}" data-testid="list-{{ k }}"{% if k == lst %} aria-current="page"{% endif %}><span>{{ t('wb.list.' + k) }}</span><span class="n{{ ' hot' if k == 'review' and counts[k] else '' }}">{{ counts[k] }}</span></a>{% endfor %}
-    <p class="hint" data-testid="week-run">{{ t('week.meta', job=wk.job.type, date=(wk.job.run_date.isoformat() if wk.job.run_date else wk.job.updated_at|local(10)), snapshot=(wk.job.snapshot_date.isoformat() if wk.job.snapshot_date else '–')) }}</p>
+    <p class="hint" data-testid="week-run">{{ tp('week.meta', job=wk.job.type, date=(wk.job.run_date.isoformat() if wk.job.run_date else wk.job.updated_at|local(10)), snapshot=(wk.job.snapshot_date.isoformat() if wk.job.snapshot_date else '–')) }}</p>
   </nav>
   <section class="wlist" id="worklist" tabindex="-1">
     <div class="headrow"><h2>{{ t('wb.list.' + lst) }}</h2>{% set hk = 'wb.list.' + lst + '.help' %}<span class="hint" data-testid="list-help">{{ t_or(hk + '.' + user.role, t(hk)) }}</span></div>
