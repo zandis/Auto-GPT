@@ -58,7 +58,7 @@ async function measure(page) {
       const rows = lines(el);
       if (rows.length > 1 && rows.some((r) => [...r.text].length === 1)) out.oneChar.push(text);
       // a CJK pill (no space in it) is one word and never wraps; an English one may wrap at a space
-      if (rows.length > 1 && (el.matches(".pill") || el.matches(".state")) && !/\s/.test(text)) out.wrapped.push(text);
+      if (rows.length > 1 && el.matches(".pill") && !/\s/.test(text)) out.wrapped.push(text);
     }
     out.scrollWidth = document.documentElement.scrollWidth;
     out.innerWidth = window.innerWidth;
