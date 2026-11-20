@@ -354,7 +354,8 @@ SHOWN_EMPTY = {("GET", "/pilot/registry/{ruleset}")}
 # review of D-1364): a route that opens during a session, or opens to one more column, fails the walk below until it
 # is added here after a review that it shows no patient row. Several are open to the administrator only because they
 # ask ``is_admin`` and no matrix row (``/metrics``, ``/data/instruments``, ``/ops/notices``, ``/admin``, ``/admin/redcap``,
-# ``/admin/accounts``); D-1364 names them. Regenerated from this walk, 2026-11-19: 86 routes.
+# ``/admin/accounts``); D-1364 names them. Regenerated from this walk, 2026-11-19: 113 routes
+# (86 answer Y, 27 answer 404 or 503 in the walk's box).
 OPEN_DURING_A_SESSION: dict[tuple[str, str], str] = {
     ("GET", "/"): "admin crc pi lpi smo cra viewer steward privacy",
     ("GET", "/about"): "admin crc pi lpi smo cra viewer steward privacy",
@@ -442,6 +443,35 @@ OPEN_DURING_A_SESSION: dict[tuple[str, str], str] = {
     ("POST", "/site/sheets"): "admin",
     ("POST", "/studies/{rs}/candidates/{pid}/reveal"): "admin crc pi lpi smo steward privacy",
     ("PUT", "/api/edc/map"): "admin",
+    # Not refused by the switch, and not Y in the walk's box: they answer 404 (n) or 503 (U) there, before or without
+    # a closed row (the review of D-1364). Each with why it shows no patient row.
+    ("GET", "/admin/ops/network/{name}"): "admin",  # 404 for an unknown file; the remote-help network sheets (ops.*), no patient row
+    ("GET", "/api/edc/oidc/.well-known/openid-configuration"): "admin crc pi lpi smo cra viewer steward privacy",  # 404, the EDC sign-in off in the walk's box; on: the issuer's public metadata
+    ("GET", "/api/edc/oidc/authorize"): "admin crc pi lpi smo cra viewer steward privacy",  # 404, the EDC sign-in off; on: refused during a session (test_no_edc_sign_in_starts_during_a_session)
+    ("GET", "/api/edc/oidc/userinfo"): "admin crc pi lpi smo cra viewer steward privacy",  # 404, the EDC sign-in off; on: a token's subject only, and no token is issued during a session
+    ("GET", "/api/v1/data/batches/{bid}"): "admin steward",  # 404 for an unknown batch; a batch's steps (dataops.view, open), as /data-ops
+    ("GET", "/api/v1/site/checks"): "admin",  # 503, no setup service in the walk's box; the site's checks (site.setup, open)
+    ("GET", "/api/v1/site/codes"): "admin",  # 503, no setup service; the site's code lists (site.setup, open), no patient row
+    ("GET", "/api/v1/studies/{rs}/forms"): "admin crc pi lpi smo steward privacy",  # 503, no study store; the study's forms, as /studies/{rs}/forms
+    ("GET", "/api/v1/studies/{rs}/sources"): "admin crc pi lpi smo steward privacy",  # 503, no study store; the study's sources, as /studies/{rs}/sources
+    ("GET", "/auth/oidc/callback"): "admin crc pi lpi smo cra viewer steward privacy",  # 404, the console's own OIDC sign-in off; signing in stays open, as /login
+    ("GET", "/auth/oidc/start"): "admin crc pi lpi smo cra viewer steward privacy",  # 404, the console's own OIDC sign-in off; signing in stays open, as /login
+    ("GET", "/data-ops/batches/{bid}"): "admin steward",  # 404 for an unknown batch; a batch's steps (dataops.view, open; D-1364's known limits)
+    ("GET", "/demo/ack"): "admin crc pi lpi smo cra viewer steward privacy",  # 404 off the demo box; the demo notice's acknowledgement
+    ("GET", "/pilot/cascade/{run_id}"): "admin crc pi lpi steward privacy",  # 404 for an unknown run; a cascade run's released counts (aggregate), as /pilot/cascade
+    ("GET", "/pilot/cascade/{run_id}/files/{name}"): "admin crc pi lpi steward privacy",  # 404 for an unknown run; the run's D1 count files (aggregate)
+    ("GET", "/pilot/jobs/{job_id}/files/{filename}"): "admin crc pi lpi smo steward privacy",  # 404 for an unknown file; counts only open, a patient-level file not given, a CASE job refused
+    ("GET", "/pilot/jobs/{job_id}/view/{filename}"): "admin crc pi lpi smo steward privacy",  # 404 for an unknown file; a CASE job's sheet is refused by the middleware (ONE_PATIENT_JOBS)
+    ("GET", "/site/templates/{name}.xlsx"): "admin",  # 404 for an unknown template; a blank setup sheet (site.setup, open)
+    ("POST", "/admin/ops/{action}"): "admin crc pi lpi smo cra viewer steward privacy",  # 404 for an unknown action, before the role; a known action asks its ops.* row (the administrator's)
+    ("POST", "/api/edc/events/v1"): "admin crc pi lpi smo cra viewer steward privacy",  # 404, no event secret in the walk's box; the EDC's signed event feed, no console session (D-1364)
+    ("POST", "/api/edc/oidc/token"): "admin crc pi lpi smo cra viewer steward privacy",  # 404, the EDC sign-in off; on: refused during a session (test_a_sign_in_code_issued_before_...)
+    ("POST", "/demo/ack"): "admin crc pi lpi smo cra viewer steward privacy",  # 404 off the demo box; the demo notice's acknowledgement
+    ("POST", "/site/checks/{cid}"): "admin",  # 503 after the CSRF check, no setup service; a site check (site.setup, open)
+    ("POST", "/site/codes"): "admin",  # 503 after the CSRF check, no setup service; the site's code lists (site.setup, open)
+    ("POST", "/site/remote"): "admin",  # 503 after the CSRF check, no setup service; remote help on or off (is_admin, then ops.network)
+    ("POST", "/studies/{rs}/edc/switch"): "admin lpi",  # 503, no study store; turning prefill off (edc.switch_off, a stop narrows), on refused
+    ("POST", "/studies/{rs}/sae/{record}/{event}/{what}"): "admin crc pi lpi smo steward privacy",  # 404 for an unknown step, before the scope; a known step asks the record's scope (closed)
 }  # fmt: skip
 
 
@@ -455,8 +485,12 @@ def test_the_matrix_walk_finds_no_patient_route_open_during_a_session(box: dict[
     assert sorted(k for k in opened if PATIENT_PATH.search(k[1]) and k not in EMPTY_BODY | SHOWN_EMPTY) == []
     # 2. whatever stays open to any role is open to the administrator outside a session (no patient row, D-280)
     assert sorted(k for k in opened if design[k]["admin"] != "Y" and k not in SHOWN_EMPTY) == []
-    # 2b. exactly the reviewed list stays open, to exactly its columns: a new route open during a session fails here
-    got = {k: {col for col, v in during[k].items() if v == "Y"} for k in opened}
+    # 2b. exactly the reviewed list is not refused by the switch, to exactly its columns: a new route open during a
+    # session fails here. "Not refused" is any answer but the switch's refusal (every 403 during a session is that
+    # refusal, ``SupportGuard.dispatch``) or a sign-in answer (L): a route that answers 404 or 503 in the walk's box
+    # (``_cell``'s n and U) is open too, and pinned with the Y routes (the review of D-1364)
+    reached = {k for k, c in during.items() if set(c.values()) - {"-", "L"}}
+    got = {k: {col for col, v in during[k].items() if v not in ("-", "L")} for k in reached}
     want = {k: set(cols.split()) for k, cols in OPEN_DURING_A_SESSION.items()}
     assert sorted(set(got) - set(want)) == [], "open during a session and not in OPEN_DURING_A_SESSION"
     assert sorted(set(want) - set(got)) == [], "in OPEN_DURING_A_SESSION and no longer open: take it off the list"
@@ -741,3 +775,37 @@ def test_no_edc_sign_in_starts_during_a_session(
     assert len(_denied(box, "/api/edc/oidc/authorize")) == 4
     assert _end(admin).status_code == 303
     assert crc.get("/api/edc/oidc/authorize", params=q, follow_redirects=False).status_code == 302
+
+
+def test_a_sign_in_code_issued_before_the_start_is_not_redeemed_during_a_session(
+    box: dict[str, Any],  # noqa: F811
+    db_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    cb = "https://edc.example/callback"
+    for name, value in (("TB_EDC_OIDC", "1"), ("TB_EDC_OIDC_ISSUER", "https://box.example"),
+                        ("TB_EDC_OIDC_CLIENT_ID", "edc"), ("TB_EDC_OIDC_CLIENT_SECRET", "oidc-client-secret-for-tests"),
+                        ("TB_EDC_OIDC_REDIRECT", cb)):  # fmt: skip
+        monkeypatch.setenv(name, value)
+    crc, _ = login_crc(box)
+    r = crc.get("/api/edc/oidc/authorize", params={"client_id": "edc", "redirect_uri": cb, "state": "s1"},
+                follow_redirects=False)  # fmt: skip
+    m = re.search(r"[?&]code=([^&]+)", r.headers["location"])
+    assert r.status_code == 302 and m  # issued with the session off
+    form = {"grant_type": "authorization_code", "code": m.group(1), "client_id": "edc", "redirect_uri": cb,
+            "client_secret": "oidc-client-secret-for-tests"}  # fmt: skip
+    edc = TestClient(box["app"])  # the EDC's own server: no console session
+    admin = _start(box)
+    r = edc.post("/api/edc/oidc/token", data=form)
+    assert r.status_code == 403 and r.json()["error"] == "support.session_on"
+    assert "id_token" not in r.text and "access_token" not in r.text
+    assert len(_denied(box, "/api/edc/oidc/token")) == 1
+    # a wrong client is still told so (refused before the session is asked); nothing is audited for it
+    assert edc.post("/api/edc/oidc/token", data={**form, "client_secret": "wrong"}).status_code == 401
+    assert len(_denied(box, "/api/edc/oidc/token")) == 1
+    # after the end the code, not redeemed during the session, completes the sign-in
+    assert _end(admin).status_code == 303
+    r = edc.post("/api/edc/oidc/token", data=form)
+    assert r.status_code == 200 and r.json()["id_token"]

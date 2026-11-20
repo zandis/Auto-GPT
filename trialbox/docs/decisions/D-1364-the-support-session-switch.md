@@ -30,16 +30,27 @@
     `edc.switch_off`; the viewer and the CRO account `report.aggregate_only`; the CRO account `report.sponsor_form`.
     None is a patient-level row, and the administrator has none (D-280).
   - **Open without a matrix row:** routes that ask `is_admin` (or nothing but a session) and no `permit` row are not
-    closed by the switch. The walk with a session on finds them; the reviewed list of every route open during a
-    session, and to which columns of the walk, is `OPEN_DURING_A_SESSION` in
-    `tests/console/test_10k15_support_session.py` (86 routes on 2026-11-19), and a route that opens during a session,
-    or to one more column, fails `test_the_matrix_walk_finds_no_patient_route_open_during_a_session` until it is added
-    there after a review. Among them, pages guarded by `is_admin` (or a helper of the administrator) rather than a
-    `permit` row, open to the administrator during a session: `/metrics`, `/admin`, `/admin/accounts`,
-    `/admin/redcap`, `/admin/notice`, `/data/instruments`, `POST /ops/notices`, `POST /ops/ingest`,
-    `/admin/models/canary`; none shows a patient row. `POST /site/remote` (remote help on or off, `is_admin`, then
-    `ops.network`) also stays open to the administrator; the walk does not reach it (it answers the walk's empty body
-    with 400 before it asks), so it is not in the list.
+    closed by the switch. The walk with a session on finds them; the reviewed list of the routes of the router table
+    that the switch does not refuse in the walk's box, and to which columns of the walk, is `OPEN_DURING_A_SESSION` in
+    `tests/console/test_10k15_support_session.py` (113 routes on 2026-11-19). "Not refused" is any answer but the
+    switch's refusal (every 403 during a session is that refusal) or a sign-in answer: 86 routes answer there (Y), 27
+    answer 404 or 503 in the walk's box (a feature off, an unknown id, no setup service or study store), each pinned
+    with a one-line reason. A route that the switch stops refusing, or that answers one more column, fails
+    `test_the_matrix_walk_finds_no_patient_route_open_during_a_session` until it is added there after a review. A
+    route's answer on a box with the feature on is what the list's reason says, not what the walk saw. Among them,
+    pages guarded by `is_admin` (or a helper of the administrator) rather than a `permit` row, open to the
+    administrator during a session: `/metrics`, `/admin`, `/admin/accounts`, `/admin/redcap`, `/admin/notice`,
+    `/data/instruments`, `POST /ops/notices`, `POST /ops/ingest`, `/admin/models/canary`, and `POST /site/remote`
+    (remote help on or off, `is_admin`, then `ops.network`; in the walk's box it answers 503: the CSRF check passes,
+    then the missing setup service fails); none shows a patient row. The 404 and 503 routes of the list:
+    `GET /data-ops/batches/{bid}`, `GET /api/v1/data/batches/{bid}`, `GET /admin/ops/network/{name}`,
+    `GET /site/templates/{name}.xlsx`, `GET /api/v1/site/codes`, `GET /api/v1/site/checks`, `POST /site/codes`,
+    `POST /site/checks/{cid}`, `POST /site/remote`, `GET /api/v1/studies/{rs}/forms`,
+    `GET /api/v1/studies/{rs}/sources`, `POST /studies/{rs}/edc/switch`, `GET /pilot/jobs/{job_id}/files/{filename}`,
+    `GET /pilot/jobs/{job_id}/view/{filename}`, `GET /pilot/cascade/{run_id}` and its files, `POST /admin/ops/{action}`,
+    `POST /studies/{rs}/sae/{record}/{event}/{what}` (404 for an unknown step, before the record's scope, which is
+    closed), `/demo/ack`, the console's own OIDC sign-in (`/auth/oidc/start`, `/auth/oidc/callback`), and the EDC
+    door's routes below.
   - **What is reachable during a session, exactly** (the role-route walk with a session on, every route of the
     router table, `test_the_matrix_walk_finds_no_patient_route_open_during_a_session`; the review's leak walk found no
     patient marker in any 2xx answer): (1) aggregate pages and files with counts only: the feasibility report,
@@ -63,8 +74,13 @@
     `find_patient`, `draft_form`, `quality_check` and the rest, answers about one EDC record; a held write stays
     held, to be confirmed after the session), refused before their CSRF and body are read; and
     `GET /api/edc/oidc/authorize` (the EDC's sign-in, for any signed-in role, when `TB_EDC_OIDC=1`): no sign-in code
-    is issued during a session. `/admin/edc` and `/api/edc/map` (the connection and the study map, no record) stay
-    open.
+    is issued during a session; and `POST /api/edc/oidc/token` (the EDC's server redeems a code): a code issued up to
+    120 s before the start is not redeemed during the session (refused after the client check, before the code is
+    read; JSON `{"error": "support.session_on"}`, a `console.denied` event with actor `edc`), so no EDC sign-in
+    completes during it. `/admin/edc` and `/api/edc/map` (the connection and the study map, no record) stay open.
+    So do the EDC door's `GET /api/edc/oidc/userinfo` (a token's subject only; no token is issued during a session),
+    `GET /api/edc/health`, `GET /api/edc/oidc/.well-known/openid-configuration` (the issuer's public metadata) and
+    `POST /api/edc/events/v1` (the EDC's signed event feed, no console session): none shows a record.
   - **Aggregate pages stay open.** Report pages that show counts only (the feasibility report, the reports list, the
     sponsor form) stay open to the roles that have them: they ask no closed row, and the two rows they do ask are the
     restrictions above, which keep their answer so that a viewer or a CRO account is not shown more. A SCREEN or FEAS
@@ -131,7 +147,8 @@
   `test_runbook_21_support_session`; the feedback file, a new account or reset password, an enrolment code and a
   confirmation that shows a secret, each shown with the session off and refused with it on, the refusal audited;
   sign-out, sign-in and the end still work; an EDC tool call, its confirmation and the EDC's sign-in refused during
-  a session in three languages, the refusal audited, a held write confirmed after the end; the list of routes open
-  during a session pinned; a PI lists no grant of its study (`breakglass.study`); a moved start is
+  a session in three languages, the refusal audited, a held write confirmed after the end; a sign-in code issued
+  before the start not redeemed during it and redeemed after the end; the list of routes the switch
+  does not refuse pinned; a PI lists no grant of its study (`breakglass.study`); a moved start is
   one audit event; a FEAS job's file of counts stays open); `tests/console/test_role_route_matrix.py` (the three new routes, the
   administrator's only); `tests/unit/test_migrations.py` (breakglass version 3).

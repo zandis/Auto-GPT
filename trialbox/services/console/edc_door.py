@@ -214,6 +214,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             or str(form.get("client_id") or "") != oidc.client_id()
         ):
             return JSONResponse({"error": "invalid_client"}, status_code=401)
+        # 10K-15 (D-1364): no EDC sign-in completes during a support session: a code issued before the start is not
+        # redeemed (refused like the sign-in, before the code is read; the switch's middleware answers in JSON)
+        if in_support_session():
+            h.au.append("console.denied", actor="edc", detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
         # D-1045: the redirect and the client the code was issued for are required, and must be the code's own
         try:
             username = oidc.redeem(str(form.get("code") or ""), str(form.get("client_id") or ""),
