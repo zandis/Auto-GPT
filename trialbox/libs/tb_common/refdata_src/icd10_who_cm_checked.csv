@@ -1,37 +1,37 @@
 category,note
-B18,chronic viral hepatitis: same scope
-B20,WHO B20 (HIV disease resulting in infectious diseases) is inside CM B20 (HIV disease); WHO B21-B24 have no CM category
-E03,other hypothyroidism: same scope
-E05,thyrotoxicosis: same scope
-E10,type 1 diabetes: same scope (drug-induced and secondary diabetes are outside E10 in both)
-E11,type 2 diabetes: same scope (drug-induced and secondary diabetes are outside E11 in both)
-E66,obesity: same scope
-E78,disorders of lipoprotein metabolism: same scope
-F20,schizophrenia: same scope
-F31,bipolar affective disorder: same scope
-F32,depressive episode: same scope
-G20,Parkinson's disease: same scope (CM split the subcodes in 2024)
-G30,Alzheimer's disease: same scope
-G35,multiple sclerosis: same scope
-G40,epilepsy: CM G40 also holds status epilepticus (WHO G41): WHO G40 is inside CM G40
-I10,essential hypertension: same scope
-I21,acute myocardial infarction: same scope
-I22,subsequent myocardial infarction: same scope
-I25,chronic ischaemic heart disease: same scope
-I26,pulmonary embolism: same scope
-I48,atrial fibrillation and flutter: same scope
-I50,heart failure: same scope
-I63,cerebral infarction: same scope
-J44,other chronic obstructive pulmonary disease: same scope
-J45,asthma: CM J45 also holds status asthmaticus (WHO J46): WHO J45 is inside CM J45
-J84,other interstitial pulmonary diseases: same scope
-K50,Crohn's disease: same scope
-K51,ulcerative colitis: same scope
-K74,fibrosis and cirrhosis of liver: same scope
-L40,psoriasis: same scope
-M05,seropositive rheumatoid arthritis: same scope
-M06,other rheumatoid arthritis: same scope
-M32,systemic lupus erythematosus: same scope
-M45,ankylosing spondylitis: same scope
-N04,nephrotic syndrome: same scope
-N18,chronic kidney disease: same scope
+B18,one to one: the WHO and CM categories with this code cover the same cases
+B20,"the WHO category maps into CM B20, which is wider: CM B20 also takes in what WHO codes under B21 to B24, and those WHO categories have no CM category of their own"
+E03,one to one: the WHO and CM categories with this code cover the same cases
+E05,one to one: the WHO and CM categories with this code cover the same cases
+E10,one to one: the WHO and CM categories with this code cover the same cases
+E11,one to one: the WHO and CM categories with this code cover the same cases
+E66,one to one: the WHO and CM categories with this code cover the same cases
+E78,one to one: the WHO and CM categories with this code cover the same cases
+F20,one to one: the WHO and CM categories with this code cover the same cases
+F31,one to one: the WHO and CM categories with this code cover the same cases
+F32,one to one: the WHO and CM categories with this code cover the same cases
+G20,one to one: the WHO and CM categories cover the same cases; CM added finer subcodes in its 2024 edition
+G30,one to one: the WHO and CM categories with this code cover the same cases
+G35,one to one: the WHO and CM categories with this code cover the same cases
+G40,"the WHO category maps into CM G40, which is wider: CM G40 also takes in what WHO codes separately under G41"
+I10,one to one: the WHO and CM categories with this code cover the same cases
+I21,one to one: the WHO and CM categories with this code cover the same cases
+I22,one to one: the WHO and CM categories with this code cover the same cases
+I25,one to one: the WHO and CM categories with this code cover the same cases
+I26,one to one: the WHO and CM categories with this code cover the same cases
+I48,one to one: the WHO and CM categories with this code cover the same cases
+I50,one to one: the WHO and CM categories with this code cover the same cases
+I63,one to one: the WHO and CM categories with this code cover the same cases
+J44,one to one: the WHO and CM categories with this code cover the same cases
+J45,"the WHO category maps into CM J45, which is wider: CM J45 also takes in what WHO codes separately under J46"
+J84,one to one: the WHO and CM categories with this code cover the same cases
+K50,one to one: the WHO and CM categories with this code cover the same cases
+K51,one to one: the WHO and CM categories with this code cover the same cases
+K74,one to one: the WHO and CM categories with this code cover the same cases
+L40,one to one: the WHO and CM categories with this code cover the same cases
+M05,one to one: the WHO and CM categories with this code cover the same cases
+M06,one to one: the WHO and CM categories with this code cover the same cases
+M32,one to one: the WHO and CM categories with this code cover the same cases
+M45,one to one: the WHO and CM categories with this code cover the same cases
+N04,one to one: the WHO and CM categories with this code cover the same cases
+N18,one to one: the WHO and CM categories with this code cover the same cases

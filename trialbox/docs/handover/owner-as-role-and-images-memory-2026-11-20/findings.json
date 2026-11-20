@@ -1,0 +1,31 @@
+{
+ "card": "H69",
+ "title": "the allow-list names the owner's role, not a person; the install runbook says building the images needs memory",
+ "date": "2026-11-20",
+ "source": "docs/handover/owner-as-role-and-images-memory-2026-11-20.md",
+ "note": "basis 'shown' means shown by reading the repository and by the card's checks; no image was built and no memory was measured.",
+ "findings": [
+  {
+   "id": "H69-01",
+   "severity": "Low",
+   "claim": "the memory `make images` needs is not measured: no peak is recorded, and CI's compose job builds the images on ubuntu-24.04 without a recorded size or peak for that job, so the install runbook gives the symptom and two remedies without a figure",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "docs/runbook/01-install-a-new-site.md:128",
+   "expected": "a measured peak memory for `make images` on each build host kind, cited by the runbook",
+   "happened": "a 64 GB Windows host's Linux VM went down during `make images` (the integrator, 2026-11-20); nothing in the repository measures the build's memory"
+  },
+  {
+   "id": "H69-02",
+   "severity": "Low",
+   "claim": "the owner's personal name is still written in 5 tracked files under trialbox/ outside the allow-list (listed with counts in the card's pull request); D-1352 changed only the allow-list and the two tests that read its owner text",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/security/known-image-findings.md",
+   "expected": "for the integrator and the owner to rule whether those files name the role too",
+   "happened": "listed, not changed, as the integrator asked; tests/unit/test_supply_chain.py asserts the name in known-image-findings.md and changes with that file"
+  }
+ ]
+}
