@@ -1,4 +1,4 @@
-"""Card 10B-21 (D-1261): the MEDIS release a person of the hospital hands to the box, unpacked within hard caps.
+"""Card 10B-22 (D-1261): the MEDIS release a person of the hospital hands to the box, unpacked within hard caps.
 
 * only the tables, the readme and the title lines are unpacked, by base name; a member's folder is never used (a
   name that climbs out of the folder lands inside it), and the specification's PDF and Word files are never written;
@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from adapter import licensed
 from adapter.licensed import LicensedError
 from sitesetup import medis_release as mr
 from tb_common import country_layer
@@ -29,9 +28,8 @@ from tests import medis_fixture as fx
 
 @pytest.fixture
 def standin(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The loader of #1238 (card 10B-2c) until it is on master: the same signature."""
-    monkeypatch.setattr(licensed, "check_release", fx.check_release, raising=False)
-    monkeypatch.setattr(licensed, "load_release", fx.load_release, raising=False)
+    """The loader of #1238 (card 10B-2c) until it is on master (the same signatures); the real one once it is."""
+    fx.install_standin(monkeypatch)
 
 
 def _zip(files: dict[str, bytes]) -> bytes:
@@ -130,7 +128,7 @@ def test_nothing_is_left_behind(standin: None, monkeypatch: pytest.MonkeyPatch, 
 def test_the_check_reports_skipped_lines_by_table_line_and_reason(standin: None) -> None:
     bad = fx.tables()["nmain999.txt"] + '"0","99000099","テスト悪","テストワル","1","bad!","E119"\r\n'.encode("cp932")
     got = mr.check(fx.release_zip(drop=("nmain999.txt",), extra={"byomei999/main/nmain999.txt": bad}))
-    assert any(s["table"] == "nmain" and s["line"] == len(fx.DISEASES) + 1 and "not a" in s["reason"]
+    assert any(s["table"] == "medis" and s["line"] == len(fx.DISEASES) + 1 and "not a" in s["reason"]
                for s in got["skipped"])  # fmt: skip
 
 

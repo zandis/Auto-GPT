@@ -133,6 +133,9 @@ groups:
     - POST /setup/practice/load
     - POST /setup/practice/reset
     - GET /setup/terminology
+    - GET /setup/terminology/medis          # 10B-22 (D-1261): the MEDIS master step, the console's set-up page only
+    - POST /setup/terminology/medis/check
+    - POST /setup/terminology/medis/load
     - GET /setup/remote
     - PUT /setup/remote
     - GET /setup/instruments  # NEW-ARCH-3 slice 3 (D-864): the instrument switches

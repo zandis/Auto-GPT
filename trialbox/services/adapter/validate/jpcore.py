@@ -35,6 +35,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from tb_common.icd10_who import comparable
+
 Resource = dict[str, Any]
 RULES = Path(__file__).resolve().parent / "jp_core_rules.json"
 JP = "http://jpfhir.jp/fhir/core/StructureDefinition/"
@@ -376,7 +378,10 @@ class JpCoreValidator:
                     out.issues.append(Issue("error", path, "the code is not an ICD-10-CM code"))
             elif system == ICD10_WHO:
                 if not _WHO_SHAPE.match(code):
-                    out.issues.append(Issue("warning", path, "the code is not written as a WHO ICD-10 code"))
+                    # D-1261: a code as the MEDIS master writes it (E119, E109a) is named with its comparable form
+                    as_cm = comparable(code)
+                    said = f" (the MEDIS master's form of {as_cm})" if as_cm and as_cm != code else ""
+                    out.issues.append(Issue("warning", path, f"the code is not written as a WHO ICD-10 code{said}"))
             elif system == LOINC and path.endswith(".coding"):
                 if re.fullmatch(r"L[AGP]\d+-\d", code):  # answer, group and part codes: their own numbering
                     continue

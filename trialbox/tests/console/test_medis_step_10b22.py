@@ -1,4 +1,4 @@
-"""Card 10B-21 (D-1261): the MEDIS disease-name master step of site set-up, on the orchestrator's real set-up API.
+"""Card 10B-22 (D-1261): the MEDIS disease-name master step of site set-up, on the orchestrator's real set-up API.
 
 * At a site whose country layer uses the master: the coordinator opens ``/site/codes/medis`` from the local codes,
   reads what it is with MEDIS's two links, hands over the zip, reads what the box found without loading anything,
@@ -30,8 +30,7 @@ PAGE = "/site/codes/medis"
 
 @pytest.fixture
 def standin(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(licensed, "check_release", fx.check_release, raising=False)
-    monkeypatch.setattr(licensed, "load_release", fx.load_release, raising=False)
+    fx.install_standin(monkeypatch)  # #1238's loader until it is on master; the real one once it is
 
 
 @pytest.fixture
@@ -136,7 +135,7 @@ def test_a_load_needs_the_approval_and_the_same_file(jp: dict[str, Any], tmp_pat
 
 @pytest.mark.parametrize(
     ("data", "code"),
-    [(b"this is not a zip", "LIC-UPLOAD-ZIP"), (fx.release_zip(drop=("readme.txt",)), "LIC-RELEASE")],
+    [(b"this is not a zip", "LIC-UPLOAD-ZIP"), (fx.release_zip(drop=("readme.txt",)), "LIC-RELEASE-MISSING")],
     ids=["not a zip", "the loader's refusal"],
 )
 def test_a_refusal_shows_its_code_and_reason_never_a_traceback(jp: dict[str, Any], data: bytes, code: str) -> None:
@@ -185,3 +184,40 @@ def test_where_the_layer_does_not_use_the_master_there_is_no_step(tw: dict[str, 
     assert 'data-testid="codes-medis"' not in codes and PAGE not in codes
     r = tw["oc"].post("/setup/terminology/medis/check", json={"b64": base64.b64encode(fx.release_zip()).decode()})
     assert r.status_code == 404
+
+
+def test_an_unsigned_call_to_the_orchestrator_is_refused(jp: dict[str, Any]) -> None:
+    """The orchestrator's routes take the verified person for site.setup (``AS_SITE``, ``require_actor``), as the
+    neighbouring set-up routes do; a direct call without the console's signed assertion is refused before anything is
+    read or loaded."""
+    import base64
+
+    from fastapi.testclient import TestClient
+
+    raw = TestClient(jp["oc"].app)  # no assertion
+    body = {"b64": base64.b64encode(fx.release_zip()).decode(), "approved": True}
+    for path in ("/setup/terminology/medis/check", "/setup/terminology/medis/load"):
+        r = raw.post(path, json=body)
+        assert r.status_code in (401, 403), (path, r.status_code)
+    assert licensed.status(jp["svc"].store.db.url)[0]["state"] == "not_loaded"
+
+
+def test_the_step_takes_the_set_up_pages_csrf(jp: dict[str, Any]) -> None:
+    """Both changing routes refuse a form without the session's CSRF token, as POST /site/codes does."""
+    c, _ = login(jp["app"], "crc", PW)
+    before = len(jp["calls"])
+    for tail, extra in (("/check", {}), ("/load", {"approved": "yes", "sha256": "0" * 64})):
+        r = c.post(
+            f"{PAGE}{tail}", data={"csrf": "not-the-token", **extra}, files={"file": ("x.zip", fx.release_zip())}
+        )
+        assert r.status_code == 400, tail
+    assert not [(m, p) for m, p in jp["calls"][before:] if p.startswith("/setup/terminology/medis")]
+
+
+def test_outside_the_layer_every_role_meets_an_absent_route(tw: dict[str, Any]) -> None:
+    for user, pw in (("crc", PW), ("admin", ADMIN_PW), ("pi", PW), ("viewer", VIEWER_PW)):
+        c, csrf = login(tw["app"], user, pw)
+        assert c.get(PAGE).status_code == 404, user
+        for tail in ("/check", "/load"):
+            assert c.post(f"{PAGE}{tail}", data={"csrf": csrf}).status_code == 404, (user, tail)
+    assert not [r for r in tw["app"].routes if getattr(r, "path", "").startswith(PAGE)]

@@ -1,4 +1,4 @@
-"""The MEDIS disease-name master step of site set-up (card 10B-21, D-1261): ``/site/codes/medis``.
+"""The MEDIS disease-name master step of site set-up (card 10B-22, D-1261): ``/site/codes/medis``.
 
 MEDIS-DC's standard disease-name master is free for a medical institution and may not be passed on without MEDIS's
 permission, so TrialBox never ships it. On a site whose country layer uses it (``sitesetup.medis_release.applies``),

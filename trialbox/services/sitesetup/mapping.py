@@ -244,6 +244,22 @@ def _medis() -> Any:
     return _MEDIS["master"]
 
 
+def _medis_index(term: str) -> list[dict[str, Any]]:
+    """The loaded MEDIS index's rows for one term (``TermStore.lookup_term``); [] when it cannot be asked."""
+    from adapter import licensed
+
+    try:
+        st = licensed.TermStore()
+    except Exception:  # no trial database here
+        return []
+    try:
+        return list(st.lookup_term(term))
+    except Exception:  # an index this release does not hold, or a store without it
+        return []
+    finally:
+        st.close()
+
+
 def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str, str]:
     """A suggested standard code for one local code: ``{system, code, display, method}`` (``licensed``: the site's
     licensed MEDIS / JLAC10 / YJ release, its standard code or the name it gives; ``lookup``: the shipped table for
@@ -260,7 +276,7 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
         m = _medis()
         if m is not None and kind == "dx-code" and up in m.by_exchange:
             return medis_master.by_code(m, up)  # {} included: never another table's guess for the master's code
-        found = medis_master.by_name(m, display or code) if m is not None else {}
+        found = medis_master.by_name(m, display or code, _medis_index) if m is not None else {}
         if found:
             return found
     lic = _licensed(kind, up) if kind != "dx-code" else None  # the MEDIS master is read above (D-1261)

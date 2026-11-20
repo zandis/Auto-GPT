@@ -1,6 +1,7 @@
 # D-1261 The MEDIS disease-name master is loaded at installation by hospital staff, and every function that uses it is complete
 
-- **Card:** 10B-21 (lane J), pull request #1246, branch `agent/10b21-medis-at-install`
+- **Card:** 10B-22 (lane J; renumbered from 10B-21, a number another card holds), pull request #1246, branch
+  `agent/10b21-medis-at-install` (the branch name predates the renumbering)
 - **Date:** 2026-11-19 (the owner's decision, given to the lane J coordinator)
 - **Status:** proposed. The step is the one new page the owner approved for this card.
 - **Depends on:** card 10B-2c (#1238): `adapter.licensed.load_release` and its dry run. This pull request lands after
@@ -88,25 +89,37 @@ built from テスト and ダミー.
 
 ### B. Every use of the master
 
+The meanings below are lane J's reading of the release's specification (field names only are quoted here).
+
 | Use | File | State |
 | --- | --- | --- |
-| Site set-up's code suggestion by the master's code | `sitesetup/mapping.py` `suggest`, `sitesetup/medis_master.py` | **Fixed here.** A deleted entry (変更区分 1) is never suggested. An entry with a 移行先病名管理番号 suggests its successor, followed to a current entry; the method `licensed_successor` says so on the page. A loop, a missing successor or a chain of more than ten gives nothing. Without a successor: nothing. The master's answer for its own code stands: no shipped table or name guess is tried after it. |
-| Site set-up's suggestion by a local name | the same | **Fixed here.** The name is matched, after NFKC with blanks removed, to the 病名表記 and to the index's spellings of a disease (索引用語 -> 対応用語コード). A modifier's spelling never names a disease. A name of two diseases (different ICD-10) gives nothing. This runs before the other name tables. |
-| The ICD-10 taken from the master | `tb_common/icd10_who.py`; `sitesetup/medis_master.py`; `omop/vocab_load.py` `load_licensed` | **Fixed here.** ＩＣＤ１０‐２０１３ is WHO ICD-10 (2013), written without the dot (`E119`). The box writes it `E11.9` before any comparison. Before this card, `vocab_load` compared `E119` with the ICD-10-CM list: a code ICD-10-CM holds got only the family link (`TB in CM family` E11) instead of `Maps to` E11.9. The SS-MIX2 reader already wrote it with the dot (`who_icd10`; complete, 10B-2c's file). |
+| Site set-up's code suggestion by the master's code | `sitesetup/mapping.py` `suggest`, `sitesetup/medis_master.py` | **Fixed here.** A code's current rows are read; a deleted entry (変更区分 1) is never suggested. A code whose every row is deleted stands for its rows' successors (移行先病名管理番号), followed to a current entry; the method `licensed_successor` says so on the page. A loop, a missing successor or more than ten steps: nothing. The master's answer for its own code stands: no shipped table or name guess is tried after it. |
+| Site set-up's suggestion by a local name | the same | **Fixed here.** The name is compared after NFKC, upper case, blanks removed (the index writes upper-case half-width). Order: a row's own 病名表記; then the index (`TermStore.lookup_term`, #1238): 同義語区分 0, then 1, then a misspelling or variant form (異字体区分 1, 2), then 2 (a related term: method `licensed_related`, lower confidence, "check it"). 同義語区分 8 (advised against) and 9 (search only), the code `0000` and a modifier's spelling (病名修飾語区分 2) are never suggested. Within the first group that answers, one ICD-10 or nothing. |
+| 採択区分 | the same | **Read.** 1 and 2 own their exchange code; 3 is a synonym that borrows a 1/2 name's code. A name of 採択区分 3 is suggested as its 1/2 name (method `licensed_synonym`: "the hospital's name is a synonym of this name"). |
+| 使用分野 | the same | **Read as a hint, never a filter.** 2 (mainly Kampo) and 4 (mainly dental) are said in the method (`licensed_kampo`, `licensed_dental`). The specification calls the field a guide only. |
+| 単独使用禁止区分 | the same | **Read as a hint, never a refusal.** 01: "usually written with a modifier" (`licensed_with_modifier`). |
+| 保険請求外区分 | — | **Not read.** It concerns insurance claims (not claimable when used alone); TrialBox makes no claim. |
+| Which method is shown | the same | One: successor, then related, then synonym, then the modifier hint, then Kampo or dental. |
+| The ICD-10 taken from the master | `tb_common/icd10_who.py` `comparable`; `sitesetup/medis_master.py`; `adapter/validate/jpcore.py`; `omop/vocab_load.py` `load_licensed` | **Fixed here.** ＩＣＤ１０‐２０１３ is WHO ICD-10 (2013), stored as the release writes it. For comparison one shared function writes it: `A99` as it is; `A999`, `A9999` with the dot after the third character (`E119` -> `E11.9`); `A999` and one lower-case letter (a Japanese sub-classification) without the letter (`E109a` -> `E10.9`; the release's value stays what is stored and shown); `A99-9` (a hyphen inside) and an empty value give none, never a guessed code. The 複数分類コード has the same plain shapes. Before this card `vocab_load` compared `E119` with the ICD-10-CM list, so a code ICD-10-CM holds got only the family link (`TB in CM family` E11) instead of `Maps to` E11.9. The JP Core check names the master's form when it warns on a WHO code not written with its dot. The SS-MIX2 reader already wrote the dot (`who_icd10`; 10B-2c's file). |
 | A code the ICD-10-CM list lacks | the same | **Decided here (D-130).** Site set-up suggests nothing: the local code stays unmapped until a person maps it, and its records read unknown. The OMOP store links it to its ICD-10-CM category (`TB in CM family`) when the category exists, else to nothing (unknown; baseline correction 3, unchanged). The SS-MIX2 reader keeps the WHO code and leaves `icd10cm` empty (D-314, unchanged). Nothing silently becomes a different disease. |
-| The 22 rows with no ICD-10 | the same | **Decided here.** No suggestion, no OMOP link, no ICD-10 in the record: unknown. |
-| ＩＣＤ１０‐２０１３複数分類コード | — | **Never taken as the entry's code.** It is a second classification of the same entry. Whether any function should read it waits for the specification's sentence (asked of the coordinator). |
-| The JP Core check: which 病名 codes are real and current | `adapter/validate/jpcore.py` | **Fixed here.** A code missing from the loaded release is a warning, as before. A code the release marks deleted is now a warning too ("deleted in the loaded release"), never an error. |
-| 採択区分, 使用分野, 単独使用禁止区分, 保険請求外区分 | — | **Not read yet.** Their meaning is asked of the coordinator from the specification, not guessed. |
+| The rows with no ICD-10, and the hyphen form | the same | **Decided here.** No suggestion, no OMOP link: "no ICD-10 in the master", unknown. |
+| An exchange code whose current rows disagree on ICD-10 | the same | #1238 leaves the code without an ICD-10 (`icd_conflict`): no suggestion. |
+| ＩＣＤ１０‐２０１３複数分類コード | — | **Never taken as the entry's code.** A second classification of the same entry; no function of this card reads it. |
+| The JP Core check: which 病名 codes are real and current | `adapter/validate/jpcore.py` | **Fixed here.** A code missing from the loaded release is a warning, as before. A code the release marks deleted (every row of the code 変更区分 1) is now a warning too ("deleted in the loaded release"), never an error. |
 | The status lines that say "not loaded" | `templates/site_codes.html`, `templates/site_medis.html`, `adapter.licensed status` | **Done here** for the step's page: it names the master, its version, its release date, the day and who loaded it. The local codes page lists the master by name with version and day, as before. |
 | The SS-MIX2 reader's use (modifiers, current rows) | `adapter/sources/ssmix2/` | **Not in this card.** Card 10B-2c owns it. |
-| Storing the release (the loader) | `adapter/licensed.py` | **Not in this card.** Card 10B-2c owns it. Two findings were sent to it: (1) the title ＩＣＤ１０‐２０１３ keeps its U+2010 hyphen through NFKC, so master's loader, given the release's own titles, stores no ICD-10; (2) an exchange code on two or three rows (642 in the release) is dropped as "two rows with different content". |
+| Storing the release (the loader) | `adapter/licensed.py` | **Not in this card.** Card 10B-2c owns it (#1238): `check_release`, `load_release`, one concept per exchange code with every row kept. Two findings were sent to it: the title ＩＣＤ１０‐２０１３ keeps its U+2010 hyphen through NFKC (master's loader then stored no ICD-10; fixed in #1238), and an exchange code on two or three rows was dropped (every row kept in #1238). |
+
+### C. The orchestrator's routes
+
+`GET /setup/terminology/medis`, `POST /setup/terminology/medis/check` and `/load` are in the `setup` group of
+`route_callers.yaml` (the console only) and so in its `refuse` stage of `route_actors.yaml`: each POST takes
+`require_actor("site.setup")` (`AS_SITE`), the check the neighbouring set-up routes use; an unsigned call is refused
+(the orchestrator's walks and `test_medis_step_10b22`). The GET returns no patient (`reads_without_patient`). Outside a
+layer that uses the master all three answer 404.
 
 ## What remains
 
-- **Dry run.** `licensed.check_release` (#1238) is the dry run this card calls. Until #1238 is on master, the tests use
-  a stand-in with the agreed signatures.
-- **The loader's storage shape.** `sitesetup.medis_master.rows` is the one place that reads it: the index table, the
-  successor, the shared exchange codes. It follows #1238 once that shape is confirmed.
-- **The specification's sentences** on the four flag fields, on the 複数分類コード and on the index's flags.
+- **#1238 on master.** `licensed.check_release` and `load_release` are #1238's. Until it is on master, the tests use a
+  stand-in with the same signatures, and the real ones once they are there.
 - **The coordinator's run** against the real release: counts and shapes only.

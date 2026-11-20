@@ -1,4 +1,4 @@
-"""The MEDIS disease-name master, loaded at installation by the hospital's own staff (card 10B-21, D-1261).
+"""The MEDIS disease-name master, loaded at installation by the hospital's own staff (card 10B-22, D-1261).
 
 MEDIS-DC's "ICD10対応標準病名マスター" (the disease-name, modifier and index tables) is free for a medical institution
 to download and use, and may not be passed on without MEDIS's permission, so TrialBox never ships it (D-137, D-1261).

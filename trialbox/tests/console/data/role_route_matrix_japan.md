@@ -9,3 +9,6 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/studies/{rs}/committee` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | POST | `/api/v1/studies/{rs}/committee` | - | Y | - | Y | - | - | - | - | - |
 | POST | `/studies/{rs}/committee` | - | Y | - | Y | - | - | - | - | - |
+| GET | `/site/codes/medis` | Y | Y | - | - | n | - | - | - | - |
+| POST | `/site/codes/medis/check` | Y | Y | - | - | n | - | - | - | - |
+| POST | `/site/codes/medis/load` | Y | Y | - | - | n | - | - | - | - |
