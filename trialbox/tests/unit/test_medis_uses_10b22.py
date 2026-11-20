@@ -188,6 +188,12 @@ def test_the_further_codes_ride_beside_the_suggestion_and_never_replace_it(maste
     assert got["code"] == "E11.2" and got["also"] == ["N08.3"]
     assert "also" not in mm.by_code(master, "ZA01")
     assert mm.by_code(master, "ZA09") == {}  # its own code is WHO only: no suggestion, so no further codes either
+    t = fx.concepts()
+    extra = json.loads(t["ZA17"]["extra"])
+    extra["rows"][0]["multi_class"] = "E112"  # the further code is the suggested code itself: not repeated
+    t["ZA17"]["extra"] = json.dumps(extra)
+    m = mm.rows({"medis": t})
+    assert m is not None and "also" not in mm.by_code(m, "ZA17")
 
 
 def test_the_store_keeps_the_further_codes_as_a_list_and_old_rows_read_as_none() -> None:
@@ -195,5 +201,6 @@ def test_the_store_keeps_the_further_codes_as_a_list_and_old_rows_read_as_none()
 
     assert also_of({"code": "E11.2", "also": ["N08.3"]}) == '["N08.3"]'
     assert also_of({"code": "E11.2"}) is None and also_of({"also": ["", " "]}) is None
-    assert also_read(None) == [] and also_read("") == [] and also_read("not json") == [] and also_read("{}") == []
+    assert also_read(None) == [] and also_read("") == [] and also_read("not json") == []
+    assert also_read('{"N08.3": 1}') == [] and also_read('"N08.3"') == []  # not a list: none
     assert also_read('["N08.3"]') == ["N08.3"]

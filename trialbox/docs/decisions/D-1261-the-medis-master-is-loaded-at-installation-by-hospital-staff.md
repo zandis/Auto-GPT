@@ -104,7 +104,7 @@ The meanings below are lane J's reading of the release's specification (field na
 | A code the ICD-10-CM list lacks | the same | **Decided here (D-130).** Site set-up suggests nothing: the local code stays unmapped until a person maps it, and its records read unknown. The OMOP store links it to its ICD-10-CM category (`TB in CM family`) when the category exists, else to nothing (unknown; baseline correction 3, unchanged). The SS-MIX2 reader keeps the WHO code and leaves `icd10cm` empty (D-314, unchanged). Nothing silently becomes a different disease. |
 | The rows with no ICD-10, and the hyphen form | the same | **Decided here.** No suggestion, no OMOP link: "no ICD-10 in the master", unknown. |
 | An exchange code whose current rows disagree on ICD-10 | the same | #1238 leaves the code without an ICD-10 (`icd_conflict`): no suggestion. |
-| ＩＣＤ１０‐２０１３複数分類コード | — | **Never taken as the entry's code**, never used to pick another disease. Lane J ruled it be shown as "also classified as"; it is **not shown yet**: the set-up store keeps one suggested code and name per local code, and a field for it is a store change (remains). |
+| ＩＣＤ１０‐２０１３複数分類コード | `sitesetup/medis_master.py`, `sitesetup/store.py`, `templates/site_codes.html` | **Fixed here, as lane J ruled.** Further ICD-10 codes of the same name: written by the same function, carried beside the suggestion (`also`), kept in a new nullable column `local_code.also_classified` (set-up store version 3; a row from before it reads as none) and shown on the local codes page, in the place of and to the readers of the suggested code, as "also classified as …" (en, ja, zh-TW). Never the suggested code, never used to pick another disease, never sent to the lake. **The API and the sheet do not carry it; owner to decide:** `GET /api/v1/site/codes` drops the column (its answer is as before), the XLSX matching sheet keeps its columns, and `omop.vocab_load` never reads it. |
 | The JP Core check: which 病名 codes are real and current | `adapter/validate/jpcore.py` | **Fixed here.** A code missing from the loaded release is a warning, as before. A code the release marks deleted (every row of the code 変更区分 1) is now a warning too ("deleted in the loaded release"), never an error. |
 | The status lines that say "not loaded" | `templates/site_codes.html`, `templates/site_medis.html`, `adapter.licensed status` | **Done here** for the step's page: it names the master, its version, its release date, the day and who loaded it. The local codes page lists the master by name with version and day, as before. |
 | The SS-MIX2 reader's use (modifiers, current rows) | `adapter/sources/ssmix2/` | **Not in this card.** Card 10B-2c owns it. |
@@ -122,6 +122,6 @@ layer that uses the master all three answer 404.
 
 - **#1238 on master.** `licensed.check_release`, `load_release` and `TermStore.lookup_term` are #1238's, merged into
   this branch; this pull request lands after it.
-- **"Also classified as"** for the 複数分類コード beside a suggestion (a field of the set-up store).
+- **The owner's decision** whether the API twin and the XLSX matching sheet carry the 複数分類コード.
 - **The merge with #1232**, which lands first: its layer version and P7 value, then this card's value on top.
 - **The coordinator's run** against the real release: counts and shapes only.
