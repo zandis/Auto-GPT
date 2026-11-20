@@ -26,12 +26,12 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Mapping
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, ValidationError
+from starlette.datastructures import FormData
 from tb_common import committees as cm
 
 from console import form_errors
@@ -251,7 +251,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.post("/studies/{rs}/committee")
     async def committee_save(request: Request, rs: str) -> Response:
         sess = h.need(request)
-        form: Mapping[str, Any] = await request.form()
+        form: FormData = await request.form()
         if not h.csrf_ok(sess, str(form.get("csrf") or "")):
             raise h.problem(400, "csrf")
         rid = recordable(sess, rs, request.url.path)

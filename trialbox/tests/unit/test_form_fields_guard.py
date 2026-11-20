@@ -129,7 +129,7 @@ def test_every_converted_form_has_its_failed_post_case() -> None:
     from tests.console.form_cases_9k6b import CASES as CASES_6B
 
     assert not set(CASES_6A) & set(CASES_6B)  # a form name is in one table
-    cases = {**CASES_6A, **CASES_6B}
+    cases: dict[str, Any] = {**CASES_6A, **CASES_6B}
     tree = form_fields.converted(form_fields.scan())
     assert tree == {name: case.template for name, case in cases.items()}
     for name, case in cases.items():
