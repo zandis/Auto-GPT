@@ -461,11 +461,21 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "capacity":
         import os
 
-        from tb_common.config import site_tz
+        from tb_common.config import NO_SITE_TZ, ConfigError, site_tz
 
         jobs = json.loads(a.jobs.read_text(encoding="utf-8"))
         ready = a.ready_by or (os.environ.get("TB_NOTICE_N1_AT") or "07:00").strip()
-        return _save(out, "capacity", check_capacity(jobs, tz=a.tz or site_tz(None), ready_by=ready, night=a.night))
+        try:
+            tz = a.tz or site_tz(None)
+        except ConfigError as exc:
+            if str(exc) != NO_SITE_TZ:
+                raise
+            raise SystemExit(
+                "the site's time zone is not set (use --tz or set TB_TZ) / "
+                "尚未設定站台時區（請使用 --tz 或設定 TB_TZ） / "
+                "サイトのタイムゾーンが未設定です（--tz または TB_TZ で指定してください）"
+            ) from None
+        return _save(out, "capacity", check_capacity(jobs, tz=tz, ready_by=ready, night=a.night))
     if a.cmd == "power-cycle":
         from tb_common.audit import verify
 
