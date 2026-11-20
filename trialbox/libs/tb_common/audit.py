@@ -45,6 +45,13 @@ process (the ``audit-writer`` service) copies the journal into this chain. An ev
 ``TB_NTP_SERVER`` names the site's time server, the offset from it. ``doctor`` FAILs beyond
 ``TB_CLOCK_MAX_SKEW_S`` (default 60 seconds), and an unsynchronised clock in VALIDATION and PRODUCTION.
 
+**No name planted in the folder is followed** (H-68, D-1351): the writer opens the folder once (``O_DIRECTORY |
+O_NOFOLLOW``; a folder that is a link, is writable by every account, or belongs to another account than this one or
+root is refused) and creates and opens ``.lock``, the day files, ``.HEAD.json.tmp``, ``HEAD.json`` and the
+``.torn-<n>`` evidence relative to it with ``O_NOFOLLOW``; after each open the file must be a plain file with one link,
+owned by the folder's owner or this process. Anything else is :class:`AuditAnchorBroken`, logged, and nothing is
+written through it: a root command can no longer be made to truncate or append to a file outside the folder.
+
 **No chart number in clear** (D-272, register CR-016): writers pass request lines, subjects and options through
 :func:`mask_ids` / :func:`mask_detail`; the console pages use the same functions, so the page mask and the stored form
 are one rule.
@@ -54,24 +61,29 @@ from __future__ import annotations
 
 import base64
 import ctypes
+import errno
 import fcntl
 import hashlib
 import json
+import logging
 import os
 import re
 import socket
+import stat
 import struct
 import sys
+import threading
 import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 from zoneinfo import ZoneInfo
 
 GENESIS = "0" * 64
+_log = logging.getLogger(__name__)
 
 
 class AuditFull(OSError):
@@ -149,21 +161,21 @@ def _day_files(directory: Path) -> list[Path]:
     return sorted(p for p in directory.glob("*.jsonl") if _DAY_RE.match(p.name))
 
 
-def _last_line(path: Path) -> str | None:
-    with path.open("rb") as fh:
-        fh.seek(0, os.SEEK_END)
-        pos = fh.tell()
-        data = b""
-        while pos > 0:
-            step = min(4096, pos)
-            pos -= step
-            fh.seek(pos)
-            data = fh.read(step) + data
-            stripped = data.rstrip(b"\n")
-            if b"\n" in stripped:
-                return stripped.rsplit(b"\n", 1)[1].decode("utf-8")
+def _last_line_of(fh: BinaryIO) -> str | None:
+    """The last non-empty line of an open binary file (by path, or through the audit folder: H-68)."""
+    fh.seek(0, os.SEEK_END)
+    pos = fh.tell()
+    data = b""
+    while pos > 0:
+        step = min(4096, pos)
+        pos -= step
+        fh.seek(pos)
+        data = fh.read(step) + data
         stripped = data.rstrip(b"\n")
-        return stripped.decode("utf-8") if stripped else None
+        if b"\n" in stripped:
+            return stripped.rsplit(b"\n", 1)[1].decode("utf-8")
+    stripped = data.rstrip(b"\n")
+    return stripped.decode("utf-8") if stripped else None
 
 
 _TAIL_STEP = 1 << 16  # T-697: the tail is read back in steps of 64 KiB, never the whole day file
@@ -207,35 +219,145 @@ def read_head(directory: Path) -> dict[str, Any] | None:
     path = directory / HEAD
     if not path.is_file():
         return None
-    rec = json.loads(path.read_text(encoding="utf-8"))
+    return _head_record(path.read_text(encoding="utf-8"), str(path))
+
+
+def _head_record(text: str, where: str) -> dict[str, Any]:
+    rec = json.loads(text)
     if not isinstance(rec, dict) or not isinstance(rec.get("lines"), int) or not isinstance(rec.get("hash"), str):
-        raise ValueError(f"{path} is not a head anchor")
+        raise ValueError(f"{where} is not a head anchor")
     return rec
 
 
 def write_head(directory: Path, lines: int, last_hash: str, file: str | None) -> dict[str, Any]:
-    """Replace the head anchor atomically (write, fsync, rename, fsync the folder)."""
-    rec = {"file": file, "hash": last_hash, "lines": lines}
-    tmp = directory / f".{HEAD}.tmp"
-    with tmp.open("w", encoding="utf-8") as fh:
-        fh.write(canonical(rec) + "\n")
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(tmp, directory / HEAD)
-    fd = os.open(directory, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-    return rec
+    """Replace the head anchor atomically (write, fsync, rename, fsync the folder), through the folder (H-68)."""
+    with _Folder(directory) as folder:
+        return folder.write_head(lines, last_hash, file)
 
 
-def _count_lines(files: list[Path]) -> int:
-    n = 0
-    for path in files:
-        with path.open("rb") as fh:
-            n += sum(1 for raw in fh if raw.strip())
-    return n
+# ------------------------------------------------------------------------------------------------ the folder (H-68)
+#: H-68 (D-1351): the folder is opened once, never through a link in its last name; every file in it is opened
+#: relative to that descriptor, never through a link, and never blocks on a FIFO put in a file's place
+_O_FOLDER = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+_O_FILE = os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
+_NEW_FILE_MODE = 0o666  # what open() gave before H-68, under the umask: the files keep their modes
+
+
+def _owners_allowed(folder_stat: os.stat_result) -> set[int]:
+    """The owners a file in the audit folder may have: the folder's owner, and this process (root appending in the
+    service account's folder, as a restore does, makes root's files; D-724 gives them back after)."""
+    return {folder_stat.st_uid, os.geteuid()}
+
+
+def _refused(name: str, why: str) -> AuditAnchorBroken:
+    """H-68: the refusal of a name in the audit folder, logged; the message names the name, never a link's target."""
+    msg = (f"the audit folder's {name} {why}: refused, nothing was written through it. A person must look at the "
+           "folder before the next write (H-68)")  # fmt: skip
+    _log.error("%s", msg)
+    return AuditAnchorBroken(msg)
+
+
+class _Folder:
+    """The audit folder, opened once (``O_DIRECTORY | O_NOFOLLOW``): every file of the chain is created and opened
+    relative to it with ``O_NOFOLLOW``, checked after the open (a plain file, one link, an allowed owner), and
+    renamed within it. Nothing is reopened by path. Refusals are :class:`AuditAnchorBroken`."""
+
+    def __init__(self, directory: Path) -> None:
+        self.path = directory
+        try:
+            self.fd = os.open(directory, _O_FOLDER)
+        except OSError as exc:
+            if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+                raise _refused("folder itself", "is a symbolic link or not a folder") from None
+            raise
+        try:
+            st = os.fstat(self.fd)
+            me = os.geteuid()
+            if st.st_mode & stat.S_IWOTH:
+                raise _refused("folder itself", "is writable by every account (any of them could plant a name)")
+            if me != 0 and st.st_uid not in (me, 0):
+                raise _refused("folder itself", f"is owned by uid {st.st_uid}, neither this account nor root")
+            self.owners = _owners_allowed(st)
+        except BaseException:
+            os.close(self.fd)
+            raise
+
+    def __enter__(self) -> _Folder:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if self.fd >= 0:
+            os.close(self.fd)
+            self.fd = -1
+
+    def open(self, name: str, flags: int, *, create: bool = False, exclusive: bool = False) -> int:
+        """A descriptor of ``name`` in the folder; refuses a link, anything but a plain file, a file with another
+        hard link, or a file of an owner the folder does not allow. Never truncates: a caller truncates after."""
+        fl = flags | _O_FILE | (os.O_CREAT if create else 0) | (os.O_EXCL if exclusive else 0)
+        try:
+            fd = os.open(name, fl, _NEW_FILE_MODE, dir_fd=self.fd)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise _refused(name, "is a symbolic link") from None
+            if exc.errno in (errno.EISDIR, errno.ENXIO, errno.ENOTDIR):
+                raise _refused(name, "is not a plain file") from None
+            raise
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                raise _refused(name, "is not a plain file")
+            if st.st_nlink != 1:
+                raise _refused(name, f"has {st.st_nlink} hard links (one may be a file outside the folder)")
+            if st.st_uid not in self.owners:
+                raise _refused(name, f"is owned by uid {st.st_uid}, not by the folder's owner or this account")
+        except BaseException:
+            os.close(fd)
+            raise
+        return fd
+
+    def present(self, name: str) -> bool:
+        try:
+            os.stat(name, dir_fd=self.fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return False
+        return True
+
+    def day_files(self) -> list[Path]:
+        return [self.path / n for n in sorted(os.listdir(self.fd)) if _DAY_RE.match(n)]
+
+    def last_line(self, name: str) -> str | None:
+        with os.fdopen(self.open(name, os.O_RDONLY), "rb") as fh:
+            return _last_line_of(fh)
+
+    def count_lines(self, files: list[Path]) -> int:
+        n = 0
+        for path in files:
+            with os.fdopen(self.open(path.name, os.O_RDONLY), "rb") as fh:
+                n += sum(1 for raw in fh if raw.strip())
+        return n
+
+    def read_head(self) -> dict[str, Any] | None:
+        if not self.present(HEAD):
+            return None
+        with os.fdopen(self.open(HEAD, os.O_RDONLY), "r", encoding="utf-8") as fh:
+            return _head_record(fh.read(), HEAD)
+
+    def write_head(self, lines: int, last_hash: str, file: str | None) -> dict[str, Any]:
+        """Replace the head anchor atomically (write, fsync, rename, fsync the folder)."""
+        rec = {"file": file, "hash": last_hash, "lines": lines}
+        tmp = f".{HEAD}.tmp"
+        fd = self.open(tmp, os.O_WRONLY, create=True)
+        os.ftruncate(fd, 0)  # after the checks, so never through a name planted in its place
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(canonical(rec) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, HEAD, src_dir_fd=self.fd, dst_dir_fd=self.fd)
+        os.fsync(self.fd)
+        return rec
 
 
 class AuditLog:
@@ -263,17 +385,29 @@ class AuditLog:
 
     @contextmanager
     def _locked(self) -> Iterator[None]:
-        lock_path = self.directory / ".lock"
-        with lock_path.open("a+") as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        # H-68 (D-1351): the folder is opened once here and every file below goes through it (never by path)
+        # (held per thread: one AuditLog may serve several threads, and the flock lets one of them in at a time)
+        held = self.__dict__.setdefault("_held", threading.local())
+        with _Folder(self.directory) as folder:
+            fd = folder.open(".lock", os.O_RDWR | os.O_APPEND, create=True)
+            with os.fdopen(fd, "a+") as lock:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                held.folder = folder
+                try:
+                    yield
+                finally:
+                    held.folder = None
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+    def _dir(self) -> _Folder:
+        folder: _Folder | None = getattr(self.__dict__.get("_held"), "folder", None)
+        if folder is None:
+            raise RuntimeError("the audit folder is read and written only under the writer's lock (H-68)")
+        return folder
 
     def _check_space(self) -> None:
         need = int(os.environ.get("TB_AUDIT_MIN_FREE_MB", "64")) * 1024 * 1024
-        st = os.statvfs(self.directory)
+        st = os.fstatvfs(self._dir().fd)
         if st.f_bavail * st.f_frsize < need:
             raise AuditFull(f"audit volume has less than {need // (1024 * 1024)} MB free: free disk space first")
 
@@ -282,9 +416,10 @@ class AuditLog:
         if not files:
             return None
         path = files[-1]
+        folder = self._dir()
         # T-697 (F-12): only the file's tail is read (each append did read the whole day file: quadratic over a day
         # of a million events, and a day file larger than the writer's memory cap would have killed it)
-        with path.open("rb") as fh:
+        with os.fdopen(folder.open(path.name, os.O_RDWR), "r+b") as fh:
             fh.seek(0, os.SEEK_END)
             size = fh.tell()
             if not size:
@@ -305,16 +440,20 @@ class AuditLog:
             if cut == size:
                 return None
             n = 1
-            while (dest := path.with_name(f"{path.name}.torn-{n}")).exists():
-                n += 1
+            while True:  # the first free .torn-<n>, made new (O_EXCL): a name already there is never written
+                dest = path.with_name(f"{path.name}.torn-{n}")
+                try:
+                    out_fd = folder.open(dest.name, os.O_WRONLY, create=True, exclusive=True)
+                    break
+                except FileExistsError:
+                    n += 1
             digest = hashlib.sha256()
             fh.seek(cut)
-            with dest.open("wb") as out:  # the torn bytes kept as evidence, copied in steps
+            with os.fdopen(out_fd, "wb") as out:  # the torn bytes kept as evidence, copied in steps
                 while block := fh.read(_TAIL_STEP):
                     digest.update(block)
                     out.write(block)
-        with path.open("r+b") as fh:
-            fh.truncate(cut)
+            fh.truncate(cut)  # the same descriptor, never the name again
             fh.flush()
             os.fsync(fh.fileno())
         return {"file": path.name, "bytes": size - cut, "sha256": digest.hexdigest(), "kept_as": dest.name}
@@ -331,25 +470,26 @@ class AuditLog:
             # read in name order remain the chain order; the event keeps its own timestamp
             day = files[-1].stem
         path = self.directory / f"{day}.jsonl"
-        with path.open("a", encoding="utf-8") as fh:
+        folder = self._dir()
+        with os.fdopen(folder.open(path.name, os.O_WRONLY | os.O_APPEND, create=True), "a", encoding="utf-8") as fh:
             fh.write(canonical(body) + "\n")
             fh.flush()
             os.fsync(fh.fileno())
         # the line first, then the anchor: a crash in between leaves the chain one line past the anchor, chained
         # to it, which the next writer and verify accept; never an anchor past the chain
-        write_head(self.directory, lines + 1, body["hash"], path.name)
-        return _day_files(self.directory)
+        folder.write_head(lines + 1, body["hash"], path.name)
+        return folder.day_files()
 
     def _prev_hash(self, files: list[Path]) -> str:
         for path in reversed(files):
-            last = _last_line(path)
+            last = self._dir().last_line(path.name)
             if last:
                 return str(json.loads(last)["hash"])
         return GENESIS
 
     def _last_record(self, files: list[Path]) -> dict[str, Any] | None:
         for path in reversed(files):
-            last = _last_line(path)
+            last = self._dir().last_line(path.name)
             if last:
                 return dict(json.loads(last))
         return None
@@ -359,7 +499,7 @@ class AuditLog:
         (a chain made before D-272). Raises :class:`AuditAnchorBroken` when the chain and the anchor are apart."""
         chain_hash = self._prev_hash(files)
         try:
-            head = read_head(self.directory)
+            head = self._dir().read_head()
         except (ValueError, UnicodeDecodeError) as exc:
             raise AuditAnchorBroken(f"the audit head anchor cannot be read ({exc}): run tools/audit_verify.py") from exc
         if head is None:
@@ -393,13 +533,13 @@ class AuditLog:
         stamp = now.isoformat(timespec="milliseconds")
         with self._locked():
             self._check_space()
-            files = _day_files(self.directory)
+            files = self._dir().day_files()
             repaired = self._repair_torn(files)
             if repaired:
-                files = _day_files(self.directory)
+                files = self._dir().day_files()
             lines, chain_hash = self._anchor(files)
             if lines is None:  # a chain from before the anchor: adopt it, visibly
-                lines = _count_lines(files)
+                lines = self._dir().count_lines(files)
                 files = self._write(files, now, {"ts": stamp, "event": "audit.anchored", "actor": "tb_common.audit",
                                                  "detail": {"lines": lines, "head": chain_hash}}, lines)  # fmt: skip
                 lines += 1
@@ -418,12 +558,12 @@ class AuditLog:
         now = ts or datetime.now(self.zone)
         with self._locked():
             self._check_space()
-            files = _day_files(self.directory)
+            files = self._dir().day_files()
             try:
-                before = read_head(self.directory)
+                before = self._dir().read_head()
             except (ValueError, UnicodeDecodeError):
                 before = {"unreadable": True}
-            lines = _count_lines(files)
+            lines = self._dir().count_lines(files)
             body: dict[str, Any] = {
                 "ts": now.isoformat(timespec="milliseconds"),
                 "event": "audit.reanchored",
@@ -774,7 +914,7 @@ def _sign_and_publish(log: AuditLog, private_pem: bytes, public_pem: bytes, targ
     for t in targets:
         if _inside(t, log.directory):
             raise AuditSignError(f"the anchor folder {t} is inside the audit folder: it must be off the audit volume")
-    files = _day_files(log.directory)
+    files = log._dir().day_files()
     lines, chain_hash = log._anchor(files)
     if lines is None:
         raise AuditSignError("the chain has no head anchor yet: write one event first, then sign")
