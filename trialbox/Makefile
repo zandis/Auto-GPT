@@ -220,6 +220,13 @@ security-scan:
 	$(PY) -m tools.security_scan secrets
 	$(PY) -m tools.security_scan sast
 
+# 10G-42 (b), D-1344: the fifteen SQL-from-strings rules (tools/sql_rules.py) over services/, libs/ and deploy/,
+# report-only: the hits, the reviewed ones (tools/sql_rules_ledger.yaml) and the open findings, written to
+# build/sql-rules.json; exit 0 (SQL_RULES_CHECK=1 adds --check: exit 1 on a new hit or a stale ledger line)
+.PHONY: sql-rules
+sql-rules:
+	PYTHONPATH=libs:services:. $(PY) -m tools.sql_rules --json build/sql-rules.json $(if $(SQL_RULES_CHECK),--check,)
+
 # the weekly report-only bandit run (10G-39, D-1338; .github/workflows/trialbox-bandit-weekly.yml): every tracked .py,
 # no severity or confidence filter, --ignore-nosec; SARIF, JSON and a summary in build/bandit-weekly. Gates nothing.
 .PHONY: bandit-weekly

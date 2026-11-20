@@ -1,0 +1,10 @@
+# synthetic: concatenation of constants and a placeholder clause
+LOCK = " FOR UPDATE"
+
+
+def fine(db, pid):
+    q = "SELECT id FROM item WHERE a = ?"
+    if pid is not None:
+        q = q + " AND pid = ?"
+    db.fetchall(q + " ORDER BY id", (1,))
+    db.fetchall("SELECT id FROM item WHERE id = ?" + LOCK, (1,))
