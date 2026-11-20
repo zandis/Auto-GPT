@@ -1,0 +1,6 @@
+# synthetic: format with constants and int() only
+TABLE = "item"
+
+
+def fine(cur, n):
+    cur.execute("SELECT id FROM {} LIMIT {}".format(TABLE, int(n)))

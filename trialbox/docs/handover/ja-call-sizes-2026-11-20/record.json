@@ -1,0 +1,195 @@
+{
+ "a6": {
+  "difference_points": "0",
+  "limit_points": 2,
+  "result": "pass",
+  "why": "+0.000 points against a limit of +2"
+ },
+ "arms": {
+  "rtx5090": {
+   "contexts": {
+    "judge": {
+     "alias": "j-workhorse",
+     "context": 8192,
+     "profile": "rtx5090"
+    },
+    "verifier": {
+     "alias": "v-verifier",
+     "context": 8192,
+     "profile": "rtx5090"
+    }
+   },
+   "excerpt_budget_tokens": {
+    "max": 5510,
+    "median": 5499,
+    "min": 5494,
+    "p95": 5510
+   },
+   "excerpt_tokens_estimate": {
+    "max": 2410,
+    "median": 481,
+    "min": 234,
+    "p95": 1738
+   },
+   "judge_calls": 352,
+   "largest_prompt_share_of_context": 0.3485,
+   "per_study": {
+    "AD-MAB": {
+     "judge_calls": 0,
+     "truncated": 0
+    },
+    "GOUT-COH": {
+     "judge_calls": 0,
+     "truncated": 0
+    },
+    "GZQO": {
+     "judge_calls": 121,
+     "truncated": 0
+    },
+    "NEUR-COH": {
+     "judge_calls": 0,
+     "truncated": 0
+    },
+    "ONC-OSI": {
+     "judge_calls": 231,
+     "truncated": 0
+    },
+    "RA-BIO": {
+     "judge_calls": 0,
+     "truncated": 0
+    },
+    "RA-COH": {
+     "judge_calls": 0,
+     "truncated": 0
+    },
+    "RA-JAK": {
+     "judge_calls": 0,
+     "truncated": 0
+    }
+   },
+   "prompt_tokens_estimate": {
+    "max": 2855,
+    "median": 916,
+    "min": 663,
+    "p95": 2182
+   },
+   "share": "0/1",
+   "share_percent": 0.0,
+   "truncated_calls": 0
+  },
+  "rtxpro6000": {
+   "contexts": {
+    "judge": {
+     "alias": "j-workhorse",
+     "context": 32768,
+     "profile": "rtxpro6000"
+    },
+    "verifier": {
+     "alias": "v-verifier",
+     "context": 32768,
+     "profile": "rtxpro6000"
+    }
+   },
+   "excerpt_budget_tokens": {
+    "max": 26399,
+    "median": 26388,
+    "min": 26383,
+    "p95": 26399
+   },
+   "excerpt_tokens_estimate": {
+    "max": 2410,
+    "median": 481,
+    "min": 234,
+    "p95": 1738
+   },
+   "judge_calls": 352,
+   "largest_prompt_share_of_context": 0.0871,
+   "per_study": {
+    "AD-MAB": {
+     "judge_calls": 0,
+     "truncated": 0
+    },
+    "GOUT-COH": {
+     "judge_calls": 0,
+     "truncated": 0
+    },
+    "GZQO": {
+     "judge_calls": 121,
+     "truncated": 0
+    },
+    "NEUR-COH": {
+     "judge_calls": 0,
+     "truncated": 0
+    },
+    "ONC-OSI": {
+     "judge_calls": 231,
+     "truncated": 0
+    },
+    "RA-BIO": {
+     "judge_calls": 0,
+     "truncated": 0
+    },
+    "RA-COH": {
+     "judge_calls": 0,
+     "truncated": 0
+    },
+    "RA-JAK": {
+     "judge_calls": 0,
+     "truncated": 0
+    }
+   },
+   "prompt_tokens_estimate": {
+    "max": 2855,
+    "median": 916,
+    "min": 663,
+    "p95": 2182
+   },
+   "share": "0/1",
+   "share_percent": 0.0,
+   "truncated_calls": 0
+  }
+ },
+ "card": "10E-38",
+ "charts": {
+  "digest": "b129facabb5bea7fc983f9ad0a4fe05e9851bf60249182e58175824e8bce4dd4",
+  "generator": "tools.synth_hospital",
+  "lang_mix": {
+   "JP": {
+    "ja": 1.0
+   }
+  },
+  "note_languages": {
+   "ja": 5000
+  },
+  "notes": 8781,
+  "patients": 5000,
+  "ref_date": "2026-11-01",
+  "seed": 42,
+  "sites": "jp-a:JP:2500,jp-ad:JP:2500:mix_jp_ad"
+ },
+ "complete": true,
+ "decision": "D-1346",
+ "method": "offline: synthetic Japanese charts through SCREEN's cascade with the box's excerpt budget at each arm's registered context; truncation is the excerpt builder's left_out; sizes are the box's estimate",
+ "same_questions": true,
+ "studies": [
+  "AD-MAB",
+  "GOUT-COH",
+  "GZQO",
+  "NEUR-COH",
+  "ONC-OSI",
+  "RA-BIO",
+  "RA-COH",
+  "RA-JAK"
+ ],
+ "tokenizer": {
+  "counted_with": "tb_llm.budget.estimate_tokens (the box's own estimate; the judge's tokenizer is not here)",
+  "ja_excerpts": 200,
+  "judge_over_estimate": {
+   "max": 0.9143,
+   "median": 0.7282,
+   "min": 0.5263
+  },
+  "measured_set": "tests/fixtures/llm/token_counts_cjk.json",
+  "true_count": false
+ }
+}

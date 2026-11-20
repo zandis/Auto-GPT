@@ -1,0 +1,89 @@
+{
+ "card": "H10G41",
+ "title": "hadolint on every Dockerfile, three configuration scans per image (plan 10 row 10G-41)",
+ "date": "2026-11-19",
+ "source": "docs/handover/dockerfile-and-image-scanners-2026-11-19.md",
+ "note": "basis 'hypothesis' for H10G41-01 to -05: the rules were read from the Dockerfiles, not reported by hadolint (not run here); the CI images job's report-only step is the first run. No hadolint ignore was added (D-1343).",
+ "findings": [
+  {
+   "id": "H10G41-01",
+   "severity": "Low",
+   "claim": "deploy/docker/db.Dockerfile:46 installs ca-certificates without a version (hadolint DL3008, warning, read from the file); it comes at the version of the digest-pinned trixie suite; no ignore (D-1343): open until pinned or otherwise fixed, the file linted report-only meanwhile",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H10G41-02",
+   "severity": "Low",
+   "claim": "RUN steps with pipes and no pipefail SHELL (hadolint DL4006, warning, read from the files): deploy/docker/db.Dockerfile:36, 38, 39, 61 and deploy/docker/backup.Dockerfile:36, 44, 45; a pipefail SHELL changes how the build runs (pg_config | grep -q can fail on SIGPIPE) and needs a build of both images to prove; no ignore (D-1343), both files report-only meanwhile",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H10G41-03",
+   "severity": "Low",
+   "claim": "tools/rehearse_box/host.Dockerfile:24 installs the rehearsal host's packages without versions (hadolint DL3008, warning, read from the file); the file is unchanged (H-54's pins) and linted report-only until this is closed",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H10G41-04",
+   "severity": "Low",
+   "claim": "two more rules expected from reading the files: SC2046 at deploy/docker/backup.Dockerfile:44 (the package list from go list is split into words on purpose) and DL3006 at deploy/docker/db.Dockerfile:21 (FROM ${POSTGRES_BASE}, pinned by digest through its ARG); no ignore added (D-1343): each needs a change in the file (a quoted list, a literal FROM) or stays report-only",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H10G41-05",
+   "severity": "Low",
+   "claim": "deploy/docker/embed.Dockerfile: the SC2086 ignore sat above three comment lines, so it reached no instruction (hadolint applies a pragma to the line under it), and pip install had no --no-cache-dir (DL3042, warning; the base sets PIP_NO_CACHE_DIR=1, so the image is unchanged); the pragma now sits on the RUN (embed.Dockerfile:23) and the flag is at :26",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "fixed 9433b52f70db541774745221e88cb5f5ad85df98"
+  },
+  {
+   "id": "H10G41-06",
+   "severity": "Medium",
+   "claim": "none of the three tools was run here: hadolint (fetching and running a binary was refused in the session that made this card), Trivy secret and misconfiguration and Dockle (no Docker daemon); the first hadolint run on the five newly linted Dockerfiles is the CI images job's report-only step, the first image scans the image gates' job on a train (report-only)",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H10G41-07",
+   "severity": "Low",
+   "claim": "the image configuration scan gates at HIGH from 2026-12-17 (D-1343) only when a pull request sets IMAGE_SCAN_ARGS=\"--fail-at HIGH\" and removes continue-on-error in trialbox-images.yml; the four weeks' findings are triaged first (fixed, or a dated ledger entry by decision)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10G41-08",
+   "severity": "Low",
+   "claim": "the two Dockerfiles of the repository outside trialbox/ (Dockerfile and .devcontainer/Dockerfile at the root, the upstream project's) are not linted: TrialBox's tooling neither builds nor ships them",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10G41-09",
+   "severity": "Low",
+   "claim": "docs/validation/ssdf-iec81001.csv:41 and docs/security/11-secure-development-mapping.md:135 still say hadolint checks 3 of the 6 Dockerfiles (SSDF PW.6.2 'partly'); after the first green CI run they can say 8 of 8 and name the image scans",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10G41-10",
+   "severity": "Low",
+   "claim": "the release-tag multiarch job does not run the image configuration scan on the pushed registry images (py, jvm by digest); they are built from the same Dockerfiles the images job scans on both platforms, so only a registry-side difference would be missed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

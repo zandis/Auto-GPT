@@ -14,7 +14,9 @@
 # HAPI FHIR and vLLM images, whose open findings are dated per-image entries of the allow-list. `--vuln-mode report`
 # is left for the test-only mail servers (Mailpit, GreenMail), which no bundle carries; tools/make_bundle.sh refuses
 # any image with a report-mode finding. Open findings: trialbox/deploy/security/known-image-findings.md.
-# Every action is pinned to a commit (tag in the comment); Syft and Trivy come with pinned sha256.
+# D-1343 (10G-41): the images job then runs `make image-scan`: hadolint, Trivy secret+misconfig and Dockle per image,
+# report-only until 2026-12-17.
+# Every action is pinned to a commit (tag in the comment); Syft, Trivy and Dockle come with pinned sha256.
 name: TrialBox image gates
 
 on:
@@ -141,6 +143,15 @@ jobs:
       - name: Release gates (Trivy offline, SBOMs, licences, record)
         run: make release-gates SC_PLATFORM=${{ matrix.platform }} RELEASE_GATES_ARGS="--vuln-mode report"
 
+      # D-1343 (10G-41, review 21 OT-3): three tools per image of SC_OWN_IMAGES: hadolint on its Dockerfile, Trivy
+      # --scanners secret,misconfig (the image and its config) and Dockle; `trivy config` over deploy/docker and demo.
+      # REPORT-ONLY until 2026-12-17 (D-1343): the command exits 0 and the step may not fail the job; from that date
+      # IMAGE_SCAN_ARGS="--fail-at HIGH" and continue-on-error goes. The reports are kept with the gate record.
+      - name: Image configuration scans (hadolint, Trivy secret and misconfig, Dockle; report-only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: make image-scan
+
       - name: Disk after the gates
         if: always()
         working-directory: /
@@ -151,6 +162,8 @@ jobs:
         run: |
           if [ -f build/supply-chain/summary.md ]; then cat build/supply-chain/summary.md >> "$GITHUB_STEP_SUMMARY"
           else echo "No gate record was written: the gates did not run to the end." >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f build/image-scan/summary.md ]; then cat build/image-scan/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else echo "No image configuration scan was written (D-1343, report-only)." >> "$GITHUB_STEP_SUMMARY"; fi
 
       - name: Keep the record, SBOMs and reports
         if: always()
@@ -159,6 +172,7 @@ jobs:
           name: image-gates-${{ strategy.job-index }}
           path: |
             trialbox/build/supply-chain
+            trialbox/build/image-scan
             trialbox/dist/sbom
           if-no-files-found: warn
           retention-days: 90
