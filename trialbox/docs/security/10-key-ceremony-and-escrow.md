@@ -121,31 +121,47 @@ who is another person run, once:
 
 The key pair is made in memory. The private key goes only to the stick named, as two files: `trialbox-backup.key`
 (the file `restore --key` and `restore-drill --key` take) and `trialbox-backup-key-paper.txt`, the paper sheet to
-print: four lines of letters, each ending with four check letters, and the key's fingerprint. What is checked: the
-command reads both files back from the stick (the sheet's file through its line checks: check letters, order, count,
-fingerprint) and each must give the public key just made before the box keeps the public key
-(`deploy/secrets/backup.pub`). What is not: no command reads a sheet typed back by a person today; the check letters
+print: four lines of letters, each ending with four check letters, and the key's fingerprint. The stick's folder is
+opened once, before it is checked as removable, and both files are made in that open folder, on the device checked:
+an unmount after the check cannot send the key to the box's disk. Each file must be the key's alone on the stick
+(no bit for the group or others, owned by root): **mount a FAT or exFAT stick with `mount -o uid=0,gid=0,umask=077
+<device> /media/usb`** (or use a stick formatted with ext4); a stick mounted with a wider mask, the desktop's
+automount included, is refused before a byte of the key is written. What is checked: the command reads both files
+back from the stick (the sheet's file through its line checks: check letters, order, count, fingerprint) and each must
+give the public key just made. What is not: no command reads a sheet typed back by a person today; the check letters
 let such a reader name a mistyped line, but none is built (D-1379). Unmount (eject) the stick before pulling it out:
-the command syncs both files and the stick's folder, and the unmount makes sure nothing is still being written. The stick and the
-printed sheet go into hospital IT's sealed envelope. The audit event `backup.key_ceremony` holds when, the fingerprint
-and both names; never the key.
+the command syncs both files and the stick's folder, and the unmount makes sure nothing is still being written. The
+stick and the printed sheet go into hospital IT's sealed envelope.
+
+The order: the two files on the stick, read back; the public key as a temporary file beside
+`deploy/secrets/backup.pub`; the audit event `backup.key_ceremony` (when, the fingerprint and both names; never the
+key), its line on disk; only then `backup.pub` at its name, so `trialbox backup` can use the key only once the audit
+holds it. What the run wrote as root in the audit folder is given back to the folder's owner (the audit writer), as
+`trialbox backup` does it, and checked.
 
 It refuses, with nothing written: not root; one name or none, or one person twice (in any spelling: full-width
 letters, double or ideographic spaces, case); no audit folder; a box with a backup key already, or whose audit holds a
-`backup.key_ceremony` already (the refusal names its time; a new pair is the rotation of §6 and RUNBOOK §25); no
-stick; a folder on the box's disks; a stick that cannot be written; a file or a link of either name on the stick; an
-audit with a damaged or cut-off line (run `python tools/audit_verify.py <audit folder>`). A box with a backup key is
-told too when the audit holds no ceremony for that key. A failure once the first file is made (the stick, the
-read-back, the public key, the audit, an interruption) removes the files the command made, on the stick and on the
-box, each only if it is still the file made (same device, inode and size), and the refusal lists what was removed and
-what is left, with its path: a key file not found or replaced by another file (the stick was pulled after its files
-were synced) is left, and the refusal says to destroy or wipe the stick that was pulled. Exit 0: the key is on the
-stick, read back, the public key is in place and the audit event is written with its head anchor. Exit 2: the audit
-event's line is on disk but the append failed after it (its head anchor); the key is kept, no closing text: run the
-audit check the warning names. Exit 1: refused or undone; when the audit may still hold the undone run's event, the
-refusal says so, a later run is refused by the audit, and the new pair is made as RUNBOOK §25 says. Not covered
-(D-1379): a power loss after the public key is placed and before the audit line is on disk, and a stick pulled before
-the undo. The ceremony record of §4 step 5 then lists the backup key's fingerprint as before.
+`backup.key_ceremony` that no `backup.key_ceremony_undone` undoes (the refusal names its time; a new pair is the
+rotation of §6 and RUNBOOK §25); no stick; a folder on the box's disks; a stick that cannot be written, or whose files
+others could read (how to mount it is said); a file or a link of either name on the stick; an audit with a damaged or
+cut-off line (run `python tools/audit_verify.py <audit folder>`). A box with a backup key is told too when the audit
+holds no ceremony for that key. A failure once the first file is made and before `backup.pub` is linked (the stick,
+the read-back, the public key's temporary file, the audit, an interruption) removes the files the command made, on
+the stick and on the box, each only if it is still the file made (same device, inode and size), syncs each folder it
+removed from, and the refusal lists what was removed, what is left with its path, and which removals are not
+confirmed on disk (look again; destroy or wipe a stick that held them). A key file not found or replaced by another
+file (the stick was pulled after its files were synced) is left, and the refusal says to destroy or wipe the stick
+that was pulled. "Nothing of the key is kept" is said only when every removal and its folder's sync succeeded. When
+the audit event is on disk but `backup.pub` cannot be linked, the command writes `backup.key_ceremony_undone` before
+the undo, and the ceremony can be run again. Exit 0: the key is on the stick, read back, the audit event is written
+with its head anchor, and the public key is in place. Exit 2, the key kept, with a warning: the audit line is on
+disk but its head anchor is not confirmed; or `backup.pub`'s placing did not finish after it may have been visible
+(nothing is removed: check its fingerprint); or an audit file is still root's (give it to the folder's owner with
+`chown`). Exit 1: refused or undone; when the audit may still hold the undone run's event, or holds it and its
+undoing could not be written, the refusal says so, a later run is refused by the audit, and the new pair is made as
+RUNBOOK §25 says. Not covered (D-1379): a power loss after the audit line is on disk and before `backup.pub` is linked
+(a rerun is then refused by the audit: RUNBOOK §25), and a stick pulled before the undo. The ceremony record of §4
+step 5 then lists the backup key's fingerprint as before.
 
 Until the install and the runbooks are changed to it (open follow-ups of D-1379), §1's table and §4 step 1 still name
 `trialbox backup-keygen`; on a box with no backup key yet, run the witnessed ceremony of §7 instead.

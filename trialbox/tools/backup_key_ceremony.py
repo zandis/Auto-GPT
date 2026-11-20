@@ -14,17 +14,27 @@ key pair once. The private key leaves the box in two forms and no other:
   has just written. No command reads a sheet typed back by a person yet (D-1379).
 
 The key is made in memory and written only to the stick: never to the box's disks, the screen, a log or the audit.
-The order (D-1379): the two stick files (each created here or not at all, written in full, synced, and on the device
-that was checked), the stick's folder synced, both files read back (each must give the public key just made), then
-``backup.pub`` put in place without overwriting (a synced temporary file linked to its name), and last the audit
-event ``backup.key_ceremony`` (when, the key's fingerprint, the person who ran it and the witness; never the key, a
-line of the sheet or a path on the stick). The ceremony is one failure domain: a failure at any step after the first
-file is made (an error, an interruption) removes every file it made, on the stick and on the box, each only when it is
-still the file made (same device, inode and size), and says which were removed and which are left and where. One
-exception: when the append failed only after the audit's day file was synced with the event's line (the failure is
-raised inside the head anchor's write, and the audit folder syncs), the ceremony is kept, with a warning and exit 2,
-since the chain holds it. What is not covered (D-1379): a power loss or a kill after ``backup.pub`` is linked and
-before the event's line is on disk, and a stick pulled before the undo (the refusal names its files as left).
+The stick's folder is opened once, before the removable-media check, and held open: the check is made on that open
+folder, and both files are made in it (``dir_fd``), each on the device checked; no path on the stick is resolved
+again after the check. On the stick a file must be the key's alone (no bit for the group or others, owned by root):
+a stick whose filesystem cannot keep that (a FAT or exFAT stick mounted with a wide mask) is refused before a byte of
+the key is written, saying how to mount it (``uid=0,gid=0,umask=077``).
+
+The order (D-1379): the two stick files (each created here or not at all, written in full, synced), the stick's
+folder synced, both files read back through the open folder (each must give the public key just made), the public
+key as a synced temporary file beside ``backup.pub``, the audit event ``backup.key_ceremony`` (when, the key's
+fingerprint, the person who ran it and the witness; never the key, a line of the sheet or a path on the stick), and
+only then ``backup.pub`` linked to its name without overwriting: ``trialbox backup`` reads ``backup.pub``, so no
+backup can be made to the key before the event that names it is on disk. What the run made or replaced as root in the
+audit folder is given back to the folder's owner (D-724) and checked. The ceremony is one failure domain until the
+link: a failure at any step after the first file is made removes every file it made, each only when it is still the
+file made (same device, inode and size), syncs each folder it removed from, and says which were removed, which are
+left, and which removals are not confirmed on disk. When the event is on disk but ``backup.pub`` could not be linked,
+``backup.key_ceremony_undone`` is written before the undo, and the once-only check counts that pair as not done. Once
+``backup.pub`` may have been visible, nothing of the key is removed: a warning, exit 2. Also exit 2: the event's line
+synced but its head anchor not confirmed; an audit file left root's. What is not covered (D-1379): a power loss or a
+kill after the event's line is on disk and before ``backup.pub`` is linked (the audit then refuses a rerun and says
+how to go on), and a stick pulled before the undo (the refusal names its files as left).
 
 Refused, before anything is written: not root; the operator or the witness not named, or the same person (compared
 after NFKC, with spaces collapsed and case folded); no audit folder; a box that has a backup key already, or whose
@@ -49,6 +59,7 @@ import json
 import os
 import re
 import secrets
+import stat
 import sys
 import unicodedata
 from collections.abc import Iterator, Mapping, Sequence
@@ -59,6 +70,7 @@ from typing import Any
 
 FORMAT = "tb-backup-paper/1"
 EVENT = "backup.key_ceremony"
+UNDONE_EVENT = "backup.key_ceremony_undone"  # written when the event is on disk but backup.pub was never put in place
 ACTOR = "python -m tools.backup_key_ceremony"
 KEY_FILE = "trialbox-backup.key"
 PAPER_FILE = "trialbox-backup-key-paper.txt"
@@ -67,7 +79,7 @@ CHECK_CHARS = 4  # 20 bits: a random slip passes about once in a million
 NAME_MAX = 100
 LANGS = ("en", "ja", "zh-TW")
 DEFAULT_DEPLOY = Path(__file__).resolve().parents[1] / "deploy"
-KEPT_EXIT = 2  # the key is in place and the audit line is on disk, but the append did not finish
+KEPT_EXIT = 2  # the key is kept and its audit line is on disk, but something after it is not confirmed: a warning
 
 # ------------------------------------------------------------------------------------------------ texts (en, ja, zh-TW)
 NOT_ROOT = {
@@ -286,6 +298,58 @@ KEPT_WARNING = {
     "但其頭端錨點未確認寫入磁碟，因此儀式不回報為完成。請立即執行 python tools/audit_verify.py {audit} "
     "並由人員檢查；請勿再次執行此儀式。拔出隨身碟前請先卸載（退出）。",
 }
+STICK_NOT_PRIVATE = {
+    "en": "refused: a file made on the stick at {path} can be read by others (it is not mode 0600 owned by root), so "
+    "the key is not written: mount the stick for root only, e.g. mount -o uid=0,gid=0,umask=077 <device> {path} (a "
+    "FAT or exFAT stick takes its modes from these options), or use a stick formatted with ext4",
+    "ja": "拒否：{path} の USB メモリに作ったファイルをほかの人が読めます（root だけが読める"
+    "モード 0600 になりません）。鍵は書きません。USB メモリを root だけが使えるようにマウントしてください。"
+    "例：mount -o uid=0,gid=0,umask=077 <device> {path}"
+    "（FAT や exFAT の USB メモリのモードはこのオプションで決まります）。"
+    "または ext4 でフォーマットした USB メモリを使ってください",
+    "zh-TW": "已拒絕：在 {path} 隨身碟上建立的檔案可被他人讀取（不是僅 root 可讀的模式 0600），因此不寫入金鑰：請以僅 "
+    "root 可用的方式掛載隨身碟，例如 mount -o uid=0,gid=0,umask=077 <device> {path}（FAT 或 exFAT 隨身碟的模式由"
+    "這些選項決定），或改用以 ext4 格式化的隨身碟",
+}
+REMOVED_NOT_DURABLE = {
+    "en": "Removed, but the removal is not confirmed on disk (the folder {folder} did not sync): {files}: after a "
+    "power loss they may come back: look in {folder} again, and destroy or wipe a stick that held them.",
+    "ja": "削除しましたが、削除がディスク上で確認できません（フォルダー {folder} を同期できませんでした）：{files}。"
+    "電源が切れると戻る可能性があります。{folder} をもう一度確認し、それがあった USB メモリは破棄するか消去して"
+    "ください。",
+    "zh-TW": "已刪除，但刪除未確認寫入磁碟（資料夾 {folder} 無法同步）：{files}：斷電後可能再度出現：請再次檢查 "
+    "{folder}，並銷毀或抹除曾存放它們的隨身碟。",
+}
+AUDIT_OWNER_LEFT = {
+    "en": "warning: these files in the audit folder are still root's after the ceremony's event: {files}: the audit "
+    "writer cannot add its next event until they are given to the folder's owner ({owner}, with chown).",
+    "ja": "警告：手続きの記録のあとも、監査記録のフォルダーのこれらのファイルが root のままです：{files}。"
+    "フォルダーの所有者（{owner}、chown で）に戻すまで、監査記録の書き込みは次の記録を追加できません。",
+    "zh-TW": "警告：寫入儀式紀錄後，稽核紀錄資料夾中的這些檔案仍屬於 root：{files}：在將它們交還資料夾的擁有者"
+    "（{owner}，使用 chown）之前，稽核紀錄寫入程式無法加入下一筆紀錄。",
+}
+PUB_KEPT_WARNING = {
+    "en": "warning: the backup key {fp} is kept: its audit event {event} is written and the stick holds {key} and "
+    "{paper}, but putting the public key at {pub} did not finish, and a backup may already use it, so nothing was "
+    "removed. Check that {pub} is there and gives the fingerprint {fp}, run python tools/audit_verify.py {audit} and "
+    "have a person look; do not run the ceremony again. Unmount (eject) the stick before you pull it out.",
+    "ja": "警告：バックアップ鍵 {fp} は残しました。監査記録 {event} は書かれ、USB メモリには {key} と {paper} が"
+    "ありますが、公開鍵を {pub} に置く処理が終わっていません。すでにバックアップがそれを使っている可能性があるため、"
+    "何も削除していません。{pub} があり、指紋が {fp} であることを確認し、python tools/audit_verify.py {audit} を"
+    "実行して担当者が確認してください。この手続きを再実行しないでください。USB メモリは抜く前にアンマウント"
+    "（取り出し）してください。",
+    "zh-TW": "警告：備份金鑰 {fp} 已保留：其稽核紀錄 {event} 已寫入，隨身碟上有 {key} 與 {paper}，但將公開金鑰放到 "
+    "{pub} 的步驟未完成，且備份可能已在使用它，因此未刪除任何內容。請確認 {pub} 存在且指紋為 {fp}，執行 "
+    "python tools/audit_verify.py {audit} 並由人員檢查；請勿再次執行此儀式。拔出隨身碟前請先卸載（退出）。",
+}
+AUDIT_HOLDS = {
+    "en": "The audit holds this run's event (fingerprint {fp}), and the event that undoes it could not be written: a "
+    "new run of this command is refused, and the new pair is made as RUNBOOK §25 says.",
+    "ja": "監査記録にはこの実行の記録（指紋 {fp}）があり、それを取り消す記録を書けませんでした。このコマンドの"
+    "再実行は拒否されるため、新しい鍵の組は RUNBOOK §25 のとおりに作ります。",
+    "zh-TW": "稽核紀錄留有此次執行的紀錄（指紋 {fp}），且無法寫入復原它的紀錄：再次執行此指令會被拒絕，新的金鑰組"
+    "須依 RUNBOOK §25 建立。",
+}
 SHEET_HEAD = {
     "en": "TrialBox backup private key, paper copy. It opens every backup of this box: keep it sealed with hospital "
     "IT. Each line ends with four check letters, so that a typed copy can be checked line by line.",
@@ -433,21 +497,37 @@ def folded(name: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", once.casefold()).split())
 
 
-def writable(folder: Path) -> bool:
-    """Whether a file can be made, written and synced in ``folder`` (the probe is removed again)."""
-    probe = folder / f".tb-probe-{secrets.token_hex(4)}"
+def _private(st: os.stat_result) -> bool:
+    """Whether a file on the stick is the key's alone: no bit for the group or others, owned by this user (root)."""
+    return stat.S_IMODE(st.st_mode) & 0o077 == 0 and st.st_uid == os.geteuid()
+
+
+def writable(folder: Path, dir_fd: int | None = None) -> bool:
+    """Whether a file can be made, written and synced in ``folder`` (with ``dir_fd``: the folder held open, no path
+    resolved); the probe is removed again. A probe the filesystem shows readable by others (:func:`_private`: a FAT
+    stick mounted with a wide mask) is :data:`STICK_NOT_PRIVATE`."""
+    name = f".tb-probe-{secrets.token_hex(4)}"
+    where: str | Path = name if dir_fd is not None else folder / name
     try:
-        fd = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        fd = os.open(where, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
+    except OSError:
+        return False
+    try:
         try:
-            os.write(fd, b"\0" * 4096)
-            os.fsync(fd)
+            private = _private(os.fstat(fd))
+            if private:
+                os.write(fd, b"\0" * 4096)
+                os.fsync(fd)
         finally:
             os.close(fd)
-        probe.unlink()
-        return True
+        os.unlink(where, dir_fd=dir_fd)
     except OSError:
-        probe.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            os.unlink(where, dir_fd=dir_fd)
         return False
+    if not private:
+        raise CeremonyError(STICK_NOT_PRIVATE, path=folder)
+    return True
 
 
 def _detail(rec: Mapping[str, Any]) -> dict[str, Any]:
@@ -455,11 +535,12 @@ def _detail(rec: Mapping[str, Any]) -> dict[str, Any]:
     return det if isinstance(det, dict) else {}
 
 
-def _ceremonies(audit_dir: Path) -> Iterator[dict[str, Any]]:
-    """Every ``backup.key_ceremony`` event of the audit chain, newest first, read as the chain's own readers read it
-    (``tb_common.audit``: the day files newest first, each from its end). Every line must be one JSON object: a
-    damaged, empty or cut-off line, the last one included, is :data:`AUDIT_UNREADABLE`, as ``verify`` fails it (the
-    library tolerates a torn last line only by repairing it at its next write, never on reading)."""
+def _ceremonies(audit_dir: Path, events: tuple[str, ...] = (EVENT,)) -> Iterator[dict[str, Any]]:
+    """Every event named in ``events`` (``backup.key_ceremony`` alone by default) of the audit chain, newest first,
+    read as the chain's own readers read it (``tb_common.audit``: the day files newest first, each from its end).
+    Every line must be one JSON object: a damaged, empty or cut-off line, the last one included, is
+    :data:`AUDIT_UNREADABLE`, as ``verify`` fails it (the library tolerates a torn last line only by repairing it at
+    its next write, never on reading)."""
     from tb_common.audit import _day_files, lines_backward
 
     for path in reversed(_day_files(audit_dir)):
@@ -471,29 +552,50 @@ def _ceremonies(audit_dir: Path) -> Iterator[dict[str, Any]]:
                     rec = None
                 if not isinstance(rec, dict):
                     raise CeremonyError(AUDIT_UNREADABLE, path=path, audit=audit_dir)
-                if rec.get("event") == EVENT:
+                if rec.get("event") in events:
                     yield rec
         except OSError:
             raise CeremonyError(AUDIT_UNREADABLE, path=path, audit=audit_dir) from None
 
 
 def earlier_ceremony(audit_dir: Path, site: str) -> dict[str, Any] | None:
-    """The newest ``backup.key_ceremony`` event of this site in the audit chain, or None (:func:`_ceremonies`; an
-    audit that cannot be read whole is refused). An event or a run with no site counts as this site's (one box, one
-    audit folder)."""
-    for rec in _ceremonies(audit_dir):
-        theirs = str(_detail(rec).get("site") or "")
+    """The newest ``backup.key_ceremony`` event of this site in the audit chain that no later
+    ``backup.key_ceremony_undone`` of this command undoes (same fingerprint), or None (:func:`_ceremonies`; an audit
+    that cannot be read whole is refused). An event or a run with no site counts as this site's (one box, one audit
+    folder)."""
+    undone: set[str] = set()
+    for rec in _ceremonies(audit_dir, (EVENT, UNDONE_EVENT)):
+        det = _detail(rec)
+        theirs = str(det.get("site") or "")
         if site and theirs and theirs != site:
+            continue
+        fp = str(det.get("fingerprint") or "")
+        if rec.get("event") == UNDONE_EVENT:
+            if rec.get("actor") == ACTOR and fp:
+                undone.add(fp)  # newest first: an undoing is met before the ceremony it undoes
+            continue
+        if fp and fp in undone:
             continue
         return rec
     return None
 
 
+@dataclass
+class _Stick:
+    """The stick's folder as it was checked: held open (``fd``) from before the removable-media check, so every file
+    is made in that folder (``dir_fd``) and no path is resolved again after the check; ``dev`` its device."""
+
+    path: Path
+    fd: int
+    dev: int
+
+
 def check(
     stick: Path, operator: str | None, witness: str | None, pub: Path, sec: Path, audit_dir: Path | None, site: str = ""
-) -> tuple[str, str, int]:
+) -> tuple[str, str, _Stick]:
     """Every refusal before anything is written, in the order a person meets them; returns the two names and the
-    device of the stick that was checked (each file made on it must be on that device)."""
+    stick's folder held open (:class:`_Stick`; the caller closes it). The removable-media check is made on the
+    folder held open (``/proc/self/fd/<fd>`` leads to that folder, whatever is mounted at the path since)."""
     from tools import key_escrow as ke
 
     if not is_root():
@@ -517,17 +619,28 @@ def check(
         raise err
     if not sec.is_dir():
         raise CeremonyError(NO_SECRETS, path=sec)
-    if not stick.is_dir():
-        raise CeremonyError(NO_STICK, path=stick)
-    if ke.media_problem(stick, sec) is not None:
-        raise CeremonyError(NOT_A_STICK, path=stick)
-    dev = stick.stat().st_dev
-    for name in (KEY_FILE, PAPER_FILE):
-        if os.path.lexists(stick / name):  # a link, a dangling one too, is a file of that name
+    try:
+        fd = os.open(stick, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError:
+        raise CeremonyError(NO_STICK, path=stick) from None
+    try:
+        if ke.media_problem(Path(f"/proc/self/fd/{fd}"), sec) is not None:
+            raise CeremonyError(NOT_A_STICK, path=stick)
+        dev = os.fstat(fd).st_dev  # the device the media check saw: the same open folder
+        for name in (KEY_FILE, PAPER_FILE):
+            try:
+                os.stat(name, dir_fd=fd, follow_symlinks=False)  # a link, a dangling one too, is a file of that name
+            except FileNotFoundError:
+                continue
+            except OSError:
+                raise CeremonyError(NOT_WRITABLE, path=stick) from None
             raise CeremonyError(STICK_HAS_KEY, name=name)
-    if not writable(stick):
-        raise CeremonyError(NOT_WRITABLE, path=stick)
-    return who, wit, dev
+        if not writable(stick, fd):
+            raise CeremonyError(NOT_WRITABLE, path=stick)
+    except BaseException:
+        os.close(fd)
+        raise
+    return who, wit, _Stick(stick, fd, dev)
 
 
 def _pub_fingerprint(pub: Path) -> str:
@@ -543,23 +656,31 @@ def _pub_fingerprint(pub: Path) -> str:
 @dataclass
 class _Made:
     """A file the ceremony made, as ``fstat`` gave it when it was made (``size`` once it is written in full).
-    ``secret``: a form of the private key on the stick."""
+    ``secret``: a form of the private key on the stick. ``dir_fd``: the stick's folder held open (:class:`_Stick`),
+    where the file was made and is removed again; None for a file on the box (its folder is opened by path)."""
 
     path: Path
     dev: int
     ino: int
     secret: bool
     size: int | None = None
+    dir_fd: int | None = None
+
+
+_DEVICE_GONE = (errno.EIO, errno.ENODEV, errno.ENXIO)  # the stick held open was pulled
 
 
 def _remove_made(m: _Made) -> str:
     """Remove ``m`` only if it is still the file made: its folder on ``m``'s device, the name the same device and
-    inode (and size, once written). ``removed``, ``gone`` (not there, or another device mounted at the folder),
-    ``other`` (another file at the name: left as it is) or ``failed``."""
-    try:
-        dfd = os.open(m.path.parent, os.O_RDONLY | os.O_DIRECTORY)
-    except OSError:
-        return "gone"
+    inode (and size, once written). ``removed``, ``gone`` (not there, the stick pulled, or another device mounted at
+    the folder), ``other`` (another file at the name: left as it is) or ``failed``."""
+    if m.dir_fd is not None:
+        dfd = m.dir_fd
+    else:
+        try:
+            dfd = os.open(m.path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        except OSError:
+            return "gone"
     try:
         if os.fstat(dfd).st_dev != m.dev:
             return "gone"  # the stick was pulled: the folder is the box's disk, or another stick is mounted there
@@ -567,8 +688,8 @@ def _remove_made(m: _Made) -> str:
             st = os.stat(m.path.name, dir_fd=dfd, follow_symlinks=False)
         except FileNotFoundError:
             return "gone"
-        except OSError:
-            return "failed"
+        except OSError as e:
+            return "gone" if e.errno in _DEVICE_GONE else "failed"
         if (st.st_dev, st.st_ino) != (m.dev, m.ino) or (m.size is not None and st.st_size != m.size):
             return "other"
         try:
@@ -579,7 +700,25 @@ def _remove_made(m: _Made) -> str:
             return "failed"
         return "removed"
     finally:
-        os.close(dfd)
+        if m.dir_fd is None:
+            os.close(dfd)
+
+
+def _sync_strict(folder: Path, dir_fd: int | None) -> bool:
+    """Whether ``folder`` (or the folder held open as ``dir_fd``) syncs: every failure counts, a filesystem that does
+    not sync a folder included, since the removal of a key is then not known to be on the medium."""
+    try:
+        if dir_fd is not None:
+            os.fsync(dir_fd)
+            return True
+        fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        return True
+    except OSError:
+        return False
 
 
 class _Undo:
@@ -593,18 +732,20 @@ class _Undo:
         self.files = [m for m in self.files if m.path != path]
 
     def run(self) -> list[tuple[Mapping[str, str], dict[str, Any]]]:
-        """Remove every file and folder made, each only if it is still the one made (:func:`_remove_made`); what to
-        say about it. A key file not found, or another file at its name, is left and said (the stick that was pulled
-        may hold the key); "nothing of the key is kept" is said only when every file made was removed. A public-key
-        file not found or not ours is not the key and is passed over (an older ``backup.pub`` is never removed)."""
-        removed: list[Path] = []
+        """Remove every file and folder made, each only if it is still the one made (:func:`_remove_made`), then
+        sync each folder something was removed from (:func:`_sync_strict`); what to say about it. A removal whose
+        folder does not sync is said as not confirmed on disk, naming the files and the folder. A key file not
+        found, or another file at its name, is left and said (the stick that was pulled may hold the key). "Nothing
+        of the key is kept" is said only when every file made was removed and every such folder synced. A
+        public-key file not found or not ours is not the key and is passed over."""
+        removed: list[tuple[Path, Path, int | None]] = []  # (what, its folder, the folder held open)
         left: list[Path] = []
         gone: list[Path] = []
         other: list[Path] = []
         for m in reversed(self.files):
             what = _remove_made(m)
             if what == "removed":
-                removed.append(m.path)
+                removed.append((m.path, m.path.parent, m.dir_fd))
             elif what == "failed":
                 left.append(m.path)
             elif m.secret:
@@ -612,39 +753,60 @@ class _Undo:
         for d in reversed(self.dirs):
             try:
                 d.rmdir()
-                removed.append(d)
+                removed.append((d, d.parent, None))
             except FileNotFoundError:
                 pass
             except OSError as e:
                 if e.errno not in (errno.ENOTEMPTY, errno.EEXIST):  # a folder holding a file not ours stays
                     left.append(d)
-        for folder in {p.parent for p in removed}:
-            with contextlib.suppress(OSError):
-                _sync_dir(folder)
+        gone_dirs = {p for p, _, _ in removed if p in self.dirs}
+
+        def synced_in(folder: Path) -> Path:  # a folder removed too: its parent's sync holds its removal
+            while folder in gone_dirs:
+                folder = folder.parent
+            return folder
+
+        synced: dict[Path, bool] = {}
+        for _, folder, dfd in removed:
+            where = synced_in(folder)
+            if where not in synced:
+                synced[where] = _sync_strict(where, dfd if where == folder else None)
+        durable = [p for p, folder, _ in removed if synced[synced_in(folder)]]
         if not removed and not left and not gone and not other:
             return [(KEPT_NOTHING, {})]
         said: list[tuple[Mapping[str, str], dict[str, Any]]] = []
-        if removed:
-            some = left or gone or other
-            said.append((REMOVED_SOME if some else REMOVED_ALL, {"files": ", ".join(str(p) for p in removed)}))
+        if durable:
+            some = left or gone or other or len(durable) < len(removed)
+            said.append((REMOVED_SOME if some else REMOVED_ALL, {"files": ", ".join(str(p) for p in durable)}))
+        for where, ok in synced.items():
+            if not ok:
+                files = ", ".join(str(p) for p, f, _ in removed if synced_in(f) == where)
+                said.append((REMOVED_NOT_DURABLE, {"files": files, "folder": where}))
         for text, paths in ((LEFT, left), (LEFT_GONE, gone), (LEFT_OTHER, other)):
             if paths:
                 said.append((text, {"files": ", ".join(str(p) for p in paths)}))
         return said
 
 
-def _write_new(path: Path, data: bytes, undo: _Undo, dev: int | None, mode: int = 0o600) -> _Made:
+def _write_new(path: Path, data: bytes, undo: _Undo, stick: _Stick | None, mode: int = 0o600) -> _Made:
     """``data`` to ``path`` (``mode``), created here or not at all (never through a link), written in full and synced.
     The file is in ``undo`` from the moment it exists, with its device and inode, so a failed write or sync removes
-    it again (and only it). With ``dev`` (a file on the stick, a form of the key), a file that is not on that device
-    (the stick pulled or mounted again since the check) is refused."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
+    it again (and only it). With ``stick`` (a form of the key): the file is made in the stick's folder held open
+    (``dir_fd``, no path resolved), and before a byte is written it is refused when it is not on the device checked
+    (:data:`STICK_MOVED`) or the filesystem shows it readable by others (:data:`STICK_NOT_PRIVATE`)."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+    if stick is not None:
+        fd = os.open(path.name, flags, mode, dir_fd=stick.fd)
+    else:
+        fd = os.open(path, flags, mode)
     try:
         st = os.fstat(fd)
-        made = _Made(path, st.st_dev, st.st_ino, secret=dev is not None)
+        made = _Made(path, st.st_dev, st.st_ino, secret=stick is not None, dir_fd=stick.fd if stick else None)
         undo.files.append(made)
-        if dev is not None and st.st_dev != dev:
+        if stick is not None and st.st_dev != stick.dev:
             raise CeremonyError(STICK_MOVED, name=path.name, path=path.parent)
+        if stick is not None and not _private(st):
+            raise CeremonyError(STICK_NOT_PRIVATE, path=path.parent)
         view = memoryview(data)
         while view:
             n = os.write(fd, view)
@@ -658,21 +820,38 @@ def _write_new(path: Path, data: bytes, undo: _Undo, dev: int | None, mode: int 
     return made
 
 
-def _sync_dir(folder: Path) -> None:
-    """Sync ``folder`` itself, so the names of the files made in it are on the medium too."""
-    fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+def _sync_fd(fd: int) -> None:
+    """Sync the folder held open as ``fd``, so the names of the files made in it are on the medium too."""
     try:
         os.fsync(fd)
     except OSError as e:
         if e.errno not in (errno.EINVAL, errno.ENOTSUP):  # a filesystem that does not sync a folder on its own
             raise
+
+
+def _sync_dir(folder: Path) -> None:
+    """Sync ``folder`` itself (:func:`_sync_fd`)."""
+    fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        _sync_fd(fd)
     finally:
         os.close(fd)
 
 
-def _place_pub(pub: Path, text: str, undo: _Undo) -> None:
-    """The public key to ``pub``, never over a file there: its folder made if missing, a synced temporary file in
-    it, then a hard link to the name (refused when the name exists) and the temporary name removed."""
+def _read_made(stick: _Stick, m: _Made) -> int:
+    """The file ``m`` opened again for its read-back, in the stick's folder held open; refused (:data:`READ_BACK`)
+    when the name holds another file now."""
+    fd = os.open(m.path.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=stick.fd)
+    st = os.fstat(fd)
+    if (st.st_dev, st.st_ino) != (m.dev, m.ino):
+        os.close(fd)
+        raise CeremonyError(READ_BACK)
+    return fd
+
+
+def _stage_pub(pub: Path, text: str, undo: _Undo) -> _Made:
+    """The public key as a synced temporary file beside ``pub`` (its folder made if missing), not yet at its name:
+    nothing reads it there (``trialbox backup`` reads ``backup.pub`` only)."""
     missing: list[Path] = []
     d = pub.parent
     while not os.path.lexists(d):
@@ -682,14 +861,67 @@ def _place_pub(pub: Path, text: str, undo: _Undo) -> None:
         d.mkdir()
         undo.dirs.append(d)
     tmp = pub.parent / f".{pub.name}.{secrets.token_hex(4)}.tmp"
-    made = _write_new(tmp, text.encode(), undo, None, mode=0o644)
-    # registered before the link (an interruption right after it still removes it), as the temporary file's inode:
-    # the undo removes `backup.pub` only if it is that file, never one that was there or appeared meanwhile
-    undo.files.append(_Made(pub, made.dev, made.ino, secret=False, size=made.size))
-    os.link(tmp, pub)  # no overwrite: FileExistsError when a file of that name appeared meanwhile
-    tmp.unlink()
-    undo.forget(tmp)
-    _sync_dir(pub.parent)
+    return _write_new(tmp, text.encode(), undo, None, mode=0o644)
+
+
+def _is_file(path: Path, m: _Made) -> bool:
+    try:
+        st = os.stat(path, follow_symlinks=False)
+    except OSError:
+        return False
+    return (st.st_dev, st.st_ino) == (m.dev, m.ino)
+
+
+def _audit_files(audit_dir: Path) -> dict[str, tuple[int, int, int, int]]:
+    """Every regular file of the audit folder: its inode, owner, group and mode."""
+    out: dict[str, tuple[int, int, int, int]] = {}
+    for p in audit_dir.rglob("*"):
+        try:
+            st = os.lstat(p)
+        except OSError:
+            continue
+        if stat.S_ISREG(st.st_mode):
+            out[str(p.relative_to(audit_dir))] = (st.st_ino, st.st_uid, st.st_gid, stat.S_IMODE(st.st_mode))
+    return out
+
+
+def _give_back(audit_dir: Path, before: Mapping[str, tuple[int, int, int, int]]) -> list[Path]:
+    """D-724, as ``trialbox backup`` and ``restore`` do it: what this run wrote as root in the audit folder is given
+    back, so the audit writer (another user) can append after it. A file that was there with another owner and is
+    root's now (the head anchor, replaced) gets its owner, group and mode again; a file that is new (the lock, a new
+    day file, a torn line's evidence) gets the folder's owner and group and the mode of the newest day file that was
+    there. Files root had before are left as they are. Returns every file still root's after this (checked)."""
+    try:
+        top = os.stat(audit_dir)
+    except OSError:
+        return []
+    me = os.geteuid()
+    if top.st_uid == me:
+        return []
+    days = sorted(k for k in before if k.endswith(".jsonl") and "/" not in k)
+    like = before[days[-1]][3] if days else None
+    left: list[Path] = []
+    for rel, (_ino, uid, _gid, mode) in sorted(_audit_files(audit_dir).items()):
+        if uid != me:
+            continue
+        was = before.get(rel)
+        if was is not None and was[1] == me:
+            continue  # root's before this run: not this run's to give
+        want = (was[1], was[2], was[3]) if was is not None else (top.st_uid, top.st_gid, like if like else mode)
+        p = audit_dir / rel
+        with contextlib.suppress(OSError):
+            os.chown(p, want[0], want[1], follow_symlinks=False)
+            os.chmod(p, want[2])
+        try:
+            st = os.lstat(p)
+            ok = (st.st_uid, st.st_gid) == (want[0], want[1])
+        except FileNotFoundError:
+            ok = True
+        except OSError:
+            ok = False
+        if not ok:
+            left.append(p)
+    return left
 
 
 def _cause(e: BaseException, step: str, stick: Path, pub: Path, audit_dir: Path) -> CeremonyError:
@@ -764,20 +996,40 @@ def run(
     now: datetime | None = None,
     tz: str | None = None,
 ) -> dict[str, Any]:
-    """The ceremony; returns what the audit holds (no key). :class:`CeremonyError` on a refusal; after the first file
-    is made, every failure (an interruption too) undoes what was made and the refusal says what was removed."""
+    """The ceremony; returns what the audit holds (no key) and ``warnings`` (texts said after the closing text, exit
+    :data:`KEPT_EXIT`). :class:`CeremonyError` on a refusal; after the first file is made, every failure (an
+    interruption too) undoes what was made and the refusal says what was removed, except once ``backup.pub`` may
+    have been visible (:class:`CeremonyKept`: nothing of the key is removed then)."""
+    who, wit, held = check(stick, operator, witness, pub, sec, audit_dir, site)
+    try:
+        if audit_dir is None:  # check() refused already; said again for the type checker
+            raise CeremonyError(NO_AUDIT)
+        return _ceremony(held, who, wit, pub=pub, audit_dir=audit_dir, site=site, now=now, tz=tz)
+    finally:
+        os.close(held.fd)
+
+
+def _ceremony(
+    held: _Stick, who: str, wit: str, *, pub: Path, audit_dir: Path, site: str, now: datetime | None, tz: str | None
+) -> dict[str, Any]:
+    """The writes, in this order (D-1379): the key file and the paper sheet in the stick's folder held open, the
+    folder synced, both read back; the public key as a synced temporary file beside ``backup.pub``; the audit event,
+    its line synced; and only then ``backup.pub`` linked to its name, so a ``trialbox backup`` can find the public
+    key only once the event that names it is on disk."""
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
     from tb_common.audit import AuditLog
 
     from tools.trialbox import backup as bk
 
-    who, wit, dev = check(stick, operator, witness, pub, sec, audit_dir, site)
-    if audit_dir is None:  # check() refused already; said again for the type checker
-        raise CeremonyError(NO_AUDIT)
+    stick = held.path
     key_file, paper_file = stick / KEY_FILE, stick / PAPER_FILE
-    undo, step, fp = _Undo(), "start", ""
+    undo, step, fp, link = _Undo(), "start", "", "no"
     detail: dict[str, Any] = {}
+    audit_state = "absent"
+    anchor_unconfirmed = False
+    owners_left: list[Path] = []
+    staged: _Made | None = None
     try:
         log = AuditLog(audit_dir, tz=tz) if tz else AuditLog(audit_dir)  # the site's zone, as `restore` writes it
         at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
@@ -790,31 +1042,107 @@ def run(
         machine = " ".join(letters[i : i + 4] for i in range(0, len(letters), 4))
         head, tail = f"-----BEGIN {bk.KEY_HEADER}-----", f"-----END {bk.KEY_HEADER}-----"
         step = "stick"
-        _write_new(key_file, f"{head}\n{machine}\nfingerprint {fp}\n{tail}\n".encode(), undo, dev)  # as keygen does
-        _write_new(paper_file, paper_sheet(raw, fp, site, at).encode(), undo, dev)
-        _sync_dir(stick)
-        back_key = bk.load_private(key_file).public_key().public_bytes_raw()
-        back_paper = _fingerprint_of(read_paper(paper_file.read_text(encoding="utf-8")))
+        made_key = _write_new(key_file, f"{head}\n{machine}\nfingerprint {fp}\n{tail}\n".encode(), undo, held)
+        made_paper = _write_new(paper_file, paper_sheet(raw, fp, site, at).encode(), undo, held)
+        _sync_fd(held.fd)
+        rfd = _read_made(held, made_key)
+        try:
+            back_key = bk.load_private(Path(f"/proc/self/fd/{rfd}")).public_key().public_bytes_raw()
+        finally:
+            os.close(rfd)
+        rfd = _read_made(held, made_paper)
+        try:
+            with os.fdopen(os.dup(rfd), "r", encoding="utf-8") as fh:
+                sheet = fh.read()
+        finally:
+            os.close(rfd)
+        back_paper = _fingerprint_of(read_paper(sheet))
         if back_key != pk or back_paper != fp:
             raise CeremonyError(READ_BACK)
-        del sk, raw, letters, machine
+        del sk, raw, letters, machine, sheet
         step = "public"
-        _place_pub(pub, base64.b64encode(pk).decode() + "\n", undo)
+        staged = _stage_pub(pub, base64.b64encode(pk).decode() + "\n", undo)
+        if os.path.lexists(pub):  # a key put there meanwhile: refused before the audit, never overwritten
+            raise FileExistsError(errno.EEXIST, "File exists", str(pub))
         step = "audit"
         detail = {"at": at, "site": site, "fingerprint": fp, "operator": who, "witness": wit,
                   "forms": ["stick", "paper"], "paper_format": FORMAT}  # fmt: skip
-        log.append(EVENT, actor=ACTOR, input_sha="", detail=detail)
+        before = _audit_files(audit_dir)
+        try:
+            log.append(EVENT, actor=ACTOR, input_sha="", detail=detail)
+        except BaseException as e:
+            audit_state = _audit_state(e, audit_dir, fp)
+            if audit_state != "recorded":
+                raise
+            anchor_unconfirmed = True  # the line is on disk: go on, and say it (KEPT_WARNING)
+        finally:
+            owners_left = _give_back(audit_dir, before)
+        step, link = "link", "trying"
+        os.link(staged.path, pub)  # no overwrite: FileExistsError when a file of that name appeared meanwhile
+        link = "done"
+        os.unlink(staged.path)
+        undo.forget(staged.path)
+        _sync_dir(pub.parent)
     except BaseException as e:  # one failure domain: nothing of a failed ceremony is kept (D-1379)
-        state = _audit_state(e, audit_dir, fp) if step == "audit" else "absent"
-        if state == "recorded":  # the chain holds the event on disk: kept, with a warning and no closing text
-            raise CeremonyKept(KEPT_WARNING, fp=fp, key=key_file.name, paper=paper_file.name, pub=pub, event=EVENT,
-                               audit=audit_dir) from None  # fmt: skip
+        if step == "link":
+            visible = link == "done" or (link == "trying" and not isinstance(e, OSError))
+            visible = visible or (staged is not None and _is_file(pub, staged))
+            if visible:  # a backup may have read backup.pub: the private copies are never removed after this
+                if staged is not None:  # the temporary name only: backup.pub is another link to it
+                    with contextlib.suppress(OSError):
+                        if _is_file(staged.path, staged):
+                            os.unlink(staged.path)
+                kept = CeremonyKept(PUB_KEPT_WARNING, fp=fp, key=key_file.name, paper=paper_file.name, pub=pub,
+                                    event=EVENT, audit=audit_dir)  # fmt: skip
+                kept.more = _owner_said(owners_left, audit_dir)
+                raise kept from None
+            err = _cause(e, "public", stick, pub, audit_dir)
+            undone, owners_more = _write_undone(log, audit_dir, detail, e)
+            err.more = undo.run() + _owner_said(owners_left + owners_more, audit_dir)
+            if not undone:
+                err.more.append((AUDIT_HOLDS, {"fp": fp}))
+            raise err from None
         err = _cause(e, step, stick, pub, audit_dir)
-        err.more = undo.run()
-        if state == "unknown":
+        err.more = undo.run() + _owner_said(owners_left, audit_dir)
+        if step == "audit" and audit_state == "unknown":
             err.more.append((AUDIT_MAY_HOLD, {"fp": fp}))
         raise err from None
-    return {**detail, "key_file": key_file.name, "paper_file": paper_file.name, "public": str(pub)}
+    warnings = _owner_said(owners_left, audit_dir)
+    if anchor_unconfirmed:  # the chain holds the event on disk, its head anchor unconfirmed: no closing text
+        kept = CeremonyKept(KEPT_WARNING, fp=fp, key=key_file.name, paper=paper_file.name, pub=pub, event=EVENT,
+                            audit=audit_dir)  # fmt: skip
+        kept.more = warnings
+        raise kept
+    return {**detail, "key_file": key_file.name, "paper_file": paper_file.name, "public": str(pub),
+            "warnings": warnings}  # fmt: skip
+
+
+def _owner_said(left: Sequence[Path], audit_dir: Path) -> list[tuple[Mapping[str, str], dict[str, Any]]]:
+    """:data:`AUDIT_OWNER_LEFT` for the audit files still root's, naming the folder's owner; nothing when none."""
+    if not left:
+        return []
+    try:
+        top = os.stat(audit_dir)
+        owner = f"{top.st_uid}:{top.st_gid}"
+    except OSError:
+        owner = "-"
+    return [(AUDIT_OWNER_LEFT, {"files": ", ".join(str(p) for p in dict.fromkeys(left)), "owner": owner})]
+
+
+def _write_undone(log: Any, audit_dir: Path, detail: Mapping[str, Any], e: BaseException) -> tuple[bool, list[Path]]:
+    """``backup.key_ceremony_undone`` after the ceremony's event: ``backup.pub`` was never put in place, so no backup
+    was made to the key and its copies can be removed; the once-only check counts the pair as not done. Whether it
+    was written (its line synced), and the audit files still root's after it."""
+    before = _audit_files(audit_dir)
+    try:
+        named = {k: detail[k] for k in ("at", "site", "fingerprint", "operator", "witness") if k in detail}
+        log.append(UNDONE_EVENT, actor=ACTOR, input_sha="", detail={**named, "why": type(e).__name__})
+        ok = True
+    except BaseException:  # whatever stopped it, the undoing is not known to be written
+        ok = False
+    finally:
+        left = _give_back(audit_dir, before)
+    return ok, left
 
 
 def _refuse(err: CeremonyError, lang: str, *, nothing: bool = False) -> int:
@@ -858,6 +1186,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         return _refuse(CeremonyError(UNEXPECTED, kind=type(e).__name__), lang, nothing=True)
     print(DONE[lang].format(fp=rec["fingerprint"], key=rec["key_file"], paper=rec["paper_file"], pub=rec["public"],
                             event=EVENT, operator=rec["operator"], witness=rec["witness"]))  # fmt: skip
+    if rec["warnings"]:  # done, but the audit writer cannot append after it until a person gives its files back
+        lg = lang_of(lang)
+        print(" ".join(t[lg].format(**f) for t, f in rec["warnings"]), file=sys.stderr)
+        return KEPT_EXIT
     return 0
 
 

@@ -414,6 +414,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "立会いのもとでのバックアップ鍵の作成",
         "於見證下建立備份金鑰",
     ),
+    "backup.key_ceremony_undone": (
+        "Backup key ceremony undone (its public key was never put in place)",
+        "バックアップ鍵の手続きの取り消し（公開鍵は置かれませんでした）",
+        "備份金鑰儀式已復原（其公開金鑰從未放置）",
+    ),
     "update.applied": ("Update applied", "更新の適用", "套用更新"),
     "update.downgrade": ("Downgrade", "ダウングレード", "降版"),
     "update.backup_skipped": ("Update without a backup", "バックアップなしの更新", "未備份即更新"),

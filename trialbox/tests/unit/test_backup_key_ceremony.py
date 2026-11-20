@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import dataclasses
 import errno
 import io
 import json
@@ -230,7 +231,7 @@ def test_a_folder_on_the_box_disks_is_not_a_stick(box: dict[str, Path], capsys: 
 
 def test_a_stick_that_cannot_be_written_is_refused(box: dict[str, Path], capsys: pytest.CaptureFixture[str],
                                                    monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
-    monkeypatch.setattr(bkc, "writable", lambda folder: False)
+    monkeypatch.setattr(bkc, "writable", lambda folder, dir_fd=None: False)
     rc, out = _main(box, capsys)
     assert rc == 1 and bkc.NOT_WRITABLE["en"].format(path=box["stick"]) in out
     _nothing_kept(box)
@@ -257,10 +258,14 @@ def test_a_sync_that_fails_after_the_file_is_made_keeps_nothing(
 
 def test_the_stick_folder_sync_failing_keeps_nothing(box: dict[str, Path], capsys: pytest.CaptureFixture[str],
                                                     monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """Every sync of the stick's folder fails, the undo's too: the files are removed but that is not confirmed on
+    disk, so it is said so (H5), never that nothing of the key is kept."""
     _fail_fsync(monkeypatch, lambda path: path == str(box["stick"]))
     rc, out = _main(box, capsys)
     assert rc == 1 and bkc.NOT_WRITABLE["en"].format(path=box["stick"]) in out
-    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE)
+    key_file, paper = box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE
+    assert bkc.REMOVED_NOT_DURABLE["en"].format(files=f"{paper}, {key_file}", folder=box["stick"]) in out
+    assert "nothing of the key is kept" not in out
     _nothing_kept(box)
 
 
@@ -284,9 +289,9 @@ def test_a_file_made_on_another_device_is_refused(box: dict[str, Path], capsys: 
     """The stick pulled or mounted again between the check and the write: the file is not on the checked device."""
     real = bkc.check
 
-    def moved(*a: Any, **k: Any) -> tuple[str, str, int]:
-        who, wit, dev = real(*a, **k)
-        return who, wit, dev + 1
+    def moved(*a: Any, **k: Any) -> tuple[str, str, Any]:
+        who, wit, held = real(*a, **k)
+        return who, wit, dataclasses.replace(held, dev=held.dev + 1)
 
     monkeypatch.setattr(bkc, "check", moved)
     rc, out = _main(box, capsys)
@@ -304,7 +309,9 @@ def test_an_audit_append_that_fails_undoes_the_stick_and_the_public_key(
     monkeypatch.setattr(tb_audit.AuditLog, "_check_space", full)
     rc, out = _main(box, capsys)
     assert rc == 1 and bkc.AUDIT_FAILED["en"].format(path=box["audit"]) in out
-    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE, box["pub"], box["pub"].parent)
+    # backup.pub was never at its name (it is linked only after the audit line): its temporary file is removed
+    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE, box["pub"].parent / ".backup.pub.",
+                 box["pub"].parent)  # fmt: skip
     assert bkc.AUDIT_MAY_HOLD["en"].split("{fp}")[0] not in out  # nothing was written to the audit: not said
     assert "Traceback" not in out and len(out.strip().splitlines()) == 1
     _nothing_kept(box)
@@ -385,7 +392,7 @@ def test_an_audit_line_whose_sync_fails_is_not_recorded(
     assert rc == 1 and bkc.AUDIT_FAILED["en"].format(path=box["audit"]) in out
     assert bkc.DONE["en"].split("{paper}")[1].split("{")[0] not in out
     assert bkc.KEPT_WARNING["en"].split("{fp}")[0] not in out
-    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE, box["pub"])
+    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE, box["pub"].parent / ".backup.pub.")
     (ev,) = _events(box)  # the line is in the page cache, as a later reader sees it
     assert bkc.AUDIT_MAY_HOLD["en"].format(fp=ev["detail"]["fingerprint"]) in out
     assert "Traceback" not in out and len(out.strip().splitlines()) == 1
@@ -436,11 +443,12 @@ def test_stick_files_gone_before_the_undo_are_left_and_said(
 
 
 @pytest.mark.parametrize("replaced", [False, True])
-def test_an_interruption_right_after_the_link_removes_the_public_key(
+def test_an_interruption_right_after_the_link_keeps_the_key(
     box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, replaced: bool
 ) -> None:
-    """Ctrl-C right after ``os.link`` made ``backup.pub``: it is removed (it was registered before the link). With
-    ``replaced``, another file took the name before the undo: it is not the file made, so it stays."""
+    """Ctrl-C right after ``os.link`` made ``backup.pub``, which now comes after the audit line (H4): a backup may
+    have read it, so nothing of the key is removed; the warning says so, exit 2. With ``replaced``, another file took
+    the name before the check: whether ours was visible cannot be told, so the same, and the other file stays."""
     real = os.link
 
     def link(src: Any, dst: Any) -> None:
@@ -453,15 +461,18 @@ def test_an_interruption_right_after_the_link_removes_the_public_key(
 
     monkeypatch.setattr(os, "link", link)
     rc, out = _main(box, capsys)
-    assert rc == 1 and bkc.INTERRUPTED["en"] in out
-    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE)
+    assert rc == bkc.KEPT_EXIT, out
+    (ev,) = _events(box)
+    fp = ev["detail"]["fingerprint"]
+    assert bkc.PUB_KEPT_WARNING["en"].format(fp=fp, key=bkc.KEY_FILE, paper=bkc.PAPER_FILE, pub=box["pub"],
+                                             event=bkc.EVENT, audit=box["audit"]) in out  # fmt: skip
+    assert sorted(p.name for p in box["stick"].iterdir()) == sorted([bkc.KEY_FILE, bkc.PAPER_FILE])
+    assert sorted(p.name for p in box["pub"].parent.iterdir()) == ["backup.pub"]  # the temporary file is removed
     if replaced:
         assert box["pub"].read_text(encoding="utf-8") == "another public key (synthetic)\n"
-        assert sorted(p.name for p in box["pub"].parent.iterdir()) == ["backup.pub"]
-        assert not list(box["stick"].iterdir()) and _events(box) == []
     else:
-        assert str(box["pub"]) in out
-        _nothing_kept(box)
+        assert bk.fingerprint(bk.load_public(box["pub"]).public_bytes_raw()) == fp
+    assert bkc.REMOVED_ALL["en"].split("{files}")[0] not in out
 
 
 @pytest.mark.parametrize("damage", ["torn last line", "damaged older line", "empty line"])
@@ -645,6 +656,216 @@ def test_a_link_of_either_name_on_the_stick_is_refused(box: dict[str, Path], cap
     assert not target.exists() and (box["stick"] / name).is_symlink()
     assert [p.name for p in box["stick"].iterdir()] == [name]
     assert not box["pub"].exists() and _events(box) == []
+
+
+# ------------------------------------------------------------------------------------------------ review of a1ed9c36
+
+
+def test_an_unmount_after_the_media_check_never_writes_the_key_to_the_disk_below(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H1: the stick is checked as removable, then unmounted at once: the mount point's folder on the box's disk is
+    at the path again. The key files go to the folder that was checked (held open since before the check), never to
+    the folder on the box's disk now at the path."""
+    taken = box["tmp"] / "the-stick-unmounted"
+    accepted = key_escrow.media_problem  # the fixture's check: accepts the stick
+
+    def check_then_unmount(out: Path, sec: Path) -> str | None:
+        why = accepted(out, sec)
+        if why is None and box["stick"].is_dir() and not taken.exists():
+            os.replace(box["stick"], taken)  # the stick's filesystem leaves the path
+            box["stick"].mkdir()  # and the mount point's own folder, on the box's disk, is at the path again
+        return why
+
+    monkeypatch.setattr(key_escrow, "media_problem", check_then_unmount)
+    rc, out = _main(box, capsys)
+    assert not list(box["stick"].iterdir()), out  # nothing of the key on the box's disk
+    assert rc == 0, out
+    assert sorted(p.name for p in taken.iterdir()) == sorted([bkc.KEY_FILE, bkc.PAPER_FILE])
+    assert bk.load_private(taken / bkc.KEY_FILE).public_key().public_bytes_raw() == bk.load_public(
+        box["pub"]).public_bytes_raw()  # fmt: skip
+
+
+def _fat_mode(monkeypatch: pytest.MonkeyPatch, stick: Path, mode: int = 0o644, uid: int | None = None) -> None:
+    """``os.fstat`` of a file on the stick says ``mode`` (and ``uid``), as a FAT stick mounted with ``fmask=0133``
+    shows every file whatever mode was asked for."""
+    real = os.fstat
+
+    def fstat(fd: int) -> os.stat_result:
+        st = real(fd)
+        if stat.S_ISREG(st.st_mode) and _fd_path(fd).startswith(str(stick) + "/"):
+            vals = list(st)[:10]
+            vals[0] = stat.S_IFREG | mode
+            if uid is not None:
+                vals[4] = uid
+            return os.stat_result(vals)
+        return st
+
+    monkeypatch.setattr(os, "fstat", fstat)
+
+
+@pytest.mark.parametrize(("mode", "uid"), [(0o644, None), (0o600, 1000)])
+def test_a_stick_that_does_not_keep_the_key_private_is_refused_before_it_is_written(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, mode: int,
+    uid: int | None,
+) -> None:  # fmt: skip
+    """H2: mode 0600 is asked for, but the stick's filesystem shows the file readable by others (a FAT stick mounted
+    with a wide mask) or owned by another user: refused before a byte of the key is written, saying how IT mounts
+    the stick (``uid=0,gid=0,umask=077``)."""
+    _fat_mode(monkeypatch, box["stick"], mode, uid)
+    rc, out = _main(box, capsys)
+    assert rc == 1, out
+    assert bkc.STICK_NOT_PRIVATE["en"].format(path=box["stick"]) in out and "umask=077" in out
+    assert "Traceback" not in out
+    _nothing_kept(box)
+
+
+def test_a_file_that_turns_readable_after_it_is_made_is_refused_and_removed(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H2, at the key file itself: the probe kept 0600 but the key file does not: refused before the key is
+    written to it, and the empty file is removed."""
+    calls = {"n": 0}
+    real_fstat = os.fstat
+
+    def fstat(fd: int) -> os.stat_result:
+        st = real_fstat(fd)
+        if stat.S_ISREG(st.st_mode) and _fd_path(fd) == str(box["stick"] / bkc.KEY_FILE):
+            calls["n"] += 1
+            vals = list(st)[:10]
+            vals[0] = stat.S_IFREG | 0o644
+            return os.stat_result(vals)
+        return st
+
+    monkeypatch.setattr(os, "fstat", fstat)
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.STICK_NOT_PRIVATE["en"].format(path=box["stick"]) in out, out
+    assert calls["n"] >= 1
+    _removed_all(out, box["stick"] / bkc.KEY_FILE)
+    _nothing_kept(box)
+
+
+def _writer_owned_audit(b: dict[str, Path], fresh: bool) -> tuple[int, int]:
+    """The audit folder as the deployed writer (uid 10001) has it: owned by it, its files 0640; with ``fresh`` an
+    empty folder (the ceremony makes the lock, the day file and the head anchor), else a chain of an earlier day."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    writer = (10001, 10001)
+    if not fresh:
+        tb_audit.AuditLog(b["audit"], tz="Asia/Tokyo").append(
+            "x.synthetic", actor="test", ts=datetime(2026, 1, 1, tzinfo=ZoneInfo("Asia/Tokyo")))  # fmt: skip
+    for p in [b["audit"], *b["audit"].rglob("*")]:
+        os.chown(p, *writer)
+        if p.is_file():
+            p.chmod(0o640)
+    return writer
+
+
+@pytest.mark.parametrize("fresh", [True, False])
+def test_what_the_ceremony_writes_in_the_audit_folder_stays_the_writers(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], fresh: bool
+) -> None:
+    """H3: root appends the event; every file it made or replaced in the audit folder (the lock, the day file, the
+    head anchor) is given the folder's owner, and the mode of the writer's files, so the writer can append next."""
+    assert os.geteuid() == 0, "this lane's container runs as root; the owner change needs it"
+    writer = _writer_owned_audit(box, fresh)
+    rc, out = _main(box, capsys)
+    assert rc == 0, out
+    files = sorted(p for p in box["audit"].rglob("*") if p.is_file())
+    assert {p.name for p in files} >= {".lock", "HEAD.json"}
+    for p in files:
+        st = p.stat()
+        assert (st.st_uid, st.st_gid) == writer, (p, st.st_uid)
+        if not fresh:  # the new day file takes the earlier day file's mode, the head anchor its own again
+            assert stat.S_IMODE(st.st_mode) == 0o640, (p, oct(st.st_mode))
+
+
+def test_an_audit_owner_that_cannot_be_given_back_is_said(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H3, checked after the append: a file left root's (the owner change failed) is named, with the folder's
+    owner, after the closing text, and the run exits 2."""
+    assert os.geteuid() == 0, "this lane's container runs as root; the owner change needs it"
+    _writer_owned_audit(box, fresh=True)
+    real = os.chown
+
+    def chown(path: Any, uid: int, gid: int, **k: Any) -> None:
+        if str(path).endswith("/.lock"):
+            raise PermissionError(errno.EPERM, "Operation not permitted")
+        real(path, uid, gid, **k)
+
+    monkeypatch.setattr(os, "chown", chown)
+    rc, out = _main(box, capsys)
+    assert rc == bkc.KEPT_EXIT, out
+    assert bkc.AUDIT_OWNER_LEFT["en"].format(files=box["audit"] / ".lock", owner="10001:10001") in out
+    assert len(_events(box)) == 1 and box["pub"].exists()
+
+
+def test_the_public_key_is_visible_only_after_the_audit_line_is_on_disk(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H4: what a concurrent ``trialbox backup`` would find (``load_public`` of ``backup.pub``) while the ceremony
+    appends its event: nothing; so a failing append, whose undo removes the private copies, leaves no backup made to
+    that key."""
+    seen: list[tuple[str, bool]] = []
+    real = tb_audit.AuditLog.append
+
+    def append(self: tb_audit.AuditLog, event: str, **kw: Any) -> dict[str, Any]:
+        seen.append((event, os.path.lexists(box["pub"])))
+        return real(self, event, **kw)
+
+    monkeypatch.setattr(tb_audit.AuditLog, "append", append)
+    rc, out = _main(box, capsys)
+    assert seen == [(bkc.EVENT, False)], seen
+    assert rc == 0, out
+
+
+def test_a_public_key_name_taken_after_the_audit_writes_the_undoing_and_frees_a_rerun(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H4, the other hole: the audit line is on disk, then ``backup.pub`` cannot be linked (another file took the
+    name). The public key never became visible, so the ceremony writes ``backup.key_ceremony_undone`` (this
+    fingerprint) and then undoes; the once-only check counts that pair as not done."""
+
+    def link(src: Any, dst: Any) -> None:
+        Path(dst).write_text("another public key (synthetic)\n", encoding="utf-8")
+        raise FileExistsError(errno.EEXIST, "File exists", str(dst))
+
+    monkeypatch.setattr(os, "link", link)
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.PUB_FAILED["en"].format(path=box["pub"]) in out, out
+    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE)
+    (ev,) = _events(box)
+    rows = [json.loads(x) for f in box["audit"].rglob("*.jsonl") for x in f.read_text().splitlines()]
+    (undone,) = [r for r in rows if r["event"] == bkc.UNDONE_EVENT]
+    assert undone["detail"]["fingerprint"] == ev["detail"]["fingerprint"]
+    assert box["pub"].read_text(encoding="utf-8") == "another public key (synthetic)\n"  # not ours: left
+    assert not list(box["stick"].iterdir())
+    assert bkc.earlier_ceremony(box["audit"], "synthetic-site") is None
+    box["pub"].unlink()
+    monkeypatch.undo()
+    monkeypatch.setattr(bkc, "is_root", lambda: True)
+    real = key_escrow.media_problem
+    monkeypatch.setattr(key_escrow, "media_problem", lambda o, s: None if K._inside(o, box["stick"]) else real(o, s))
+    rc, out = _main(box, capsys)
+    assert rc == 0, out
+    assert len(_events(box)) == 2
+
+
+def test_a_removal_whose_folder_sync_fails_is_not_said_durable(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H5: the undo unlinks both stick files, then the stick's folder sync fails (EIO): the removal may come back
+    after a power loss, so the refusal names the files and the folder and never says nothing of the key is kept."""
+    key_file, paper = box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE
+    _fail_fsync(monkeypatch, lambda path: path == str(box["stick"]) and not os.path.lexists(key_file))
+    monkeypatch.setattr(bkc, "read_paper", lambda text: b"\x01" * 32)  # the read-back fails: undo
+    rc, out = _main(box, capsys)
+    assert rc == 1, out
+    assert "nothing of the key is kept" not in out, out
+    assert bkc.REMOVED_NOT_DURABLE["en"].format(files=f"{paper}, {key_file}", folder=box["stick"]) in out
+    assert not os.path.lexists(key_file) and not os.path.lexists(paper)
 
 
 def test_same_person_compares_folded_spellings() -> None:
