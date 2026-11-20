@@ -47,7 +47,7 @@ def test_a_visit_with_no_date_yet_reads_in_words_on_the_participant_page(lb: dic
     assert f'<html lang="{lang}"' in page.text
     assert "life.vstate" not in page.text
     words = CATALOGUES[lang]["life.vstate.unplanned"]
-    assert len(re.findall(r'class="pill v-unplanned">' + re.escape(words) + "<", page.text)) == 2
+    assert len(re.findall(r'class="pill" data-tone="neutral">' + re.escape(words) + "<", page.text)) == 2
 
 
 @pytest.mark.parametrize(("lang", "title", "not_title"), [
