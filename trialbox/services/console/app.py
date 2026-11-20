@@ -1287,7 +1287,8 @@ def create_app(
     def jobs(request: Request) -> Response:
         sess = need(request)
         # D-1258: no row of a study whose job page refuses the account (off the study's log)
-        items = [j for j in bk.list_jobs(limit=100) if not j.ruleset or helpers.on_log_ok(sess.user, j.ruleset)]
+        h = reader.get("h")  # no workspace (D-717): no study and no log, the list as before
+        items = [j for j in bk.list_jobs(limit=100) if not j.ruleset or h is None or h.on_log_ok(sess.user, j.ruleset)]
         running = any(j.state not in TERMINAL and j.state != "awaiting_approval" for j in items)
         return page(request, "jobs.html", sess, jobs=items, refresh=running)
 
@@ -1748,12 +1749,13 @@ def create_app(
         """D-1258 (10C-3c): the job page and the job's files ask the study's other pages' rule (``Helpers.on_log``);
         an account with an open break-glass grant for this job keeps them (D-280, D-430), and the page or file
         records the use as before. A job with no study is as before."""
+        h = reader.get("h")  # no workspace (D-717): no study and no log, the page as before
         rid = (job.ruleset or "").upper()  # the study id as the delegation log keeps it (approval.py does the same)
-        if not rid or helpers.on_log_ok(sess.user, rid):
+        if h is None or not rid or h.on_log_ok(sess.user, rid):
             return
-        if helpers.breakglass_find is not None and helpers.breakglass_find(sess, job_id=job.job_id) is not None:
+        if h.breakglass_find is not None and h.breakglass_find(sess, job_id=job.job_id) is not None:
             return
-        helpers.on_log(sess, rid, request.url.path)
+        h.on_log(sess, rid, request.url.path)
 
     def _bg(sess: Session, job: Job, what: str) -> Any:
         """D-280 (OD-5): the open break-glass grant for this job (one audited use), else None. T-309 (D-430): asked

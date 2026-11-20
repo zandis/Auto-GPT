@@ -158,6 +158,14 @@ These answer the same as on master. They show a study's id, version or kind to a
   - so an off-log investigator can learn a study's set-up readiness from `/ask?study=<id>`, but not its feasibility
     figures or criteria text. Not changed without the coordinator's word.
 
+## For the owner's table, not changed here
+
+- An aggregate-only account (the viewer, a CRO account) gets a feasibility (FEAS) run's aggregate files and pages.
+  This is by design (D-146): `_aggregate_denied` lets those accounts open FEAS job pages and their files, and this
+  card does not change it. The B5 test therefore judges the walk's columns on a screening (SCREEN) run.
+- The declared row for the job files, `!report.aggregate_only`, reads broader than the code: the code still lets an
+  aggregate-only account open a FEAS run's files. The row's wording is for the owner's table; not changed here.
+
 ## Held by
 
 - `tests/console/test_offlog_start_page_10c3c.py` (gap 2):
@@ -188,6 +196,10 @@ These answer the same as on master. They show a study's id, version or kind to a
     sees no GZQO line or link. In `test_a_refused_investigator_s_home_reads_no_patient_level_row` and
     `test_no_link_of_the_home_opens_a_refusal_for_any_kind_of_account` that assertion is stricter than master;
   - in `test_home_today`, the PI's line for OTHER1 (a study whose log names nobody) is as on master.
+- The investigator's role guide (`console.guides.ROLE_PAGES`, held to the design table) marks the feasibility,
+  set-up and state pages "where your account and the study's delegation log allow"; `docs/guides/investigator.*.md`
+  are written again by `python -m tools.role_guides`.
+- With the workspace off there is no study and no log: `/jobs` and the job pages answer as before.
 
 ## Remains
 

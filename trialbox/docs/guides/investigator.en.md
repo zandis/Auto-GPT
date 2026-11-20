@@ -26,7 +26,7 @@ The patients who may fit, with their next visit. Open a patient to see why and m
 
 One patient for one study: each criterion with its evidence. The chart number appears only after you ask for it, and that is recorded.
 
-### Feasibility report
+### Feasibility report (where your account and the study's delegation log allow)
 
 How many patients pass each criterion at this hospital, and how many are expected per month. Numbers under the small-cell limit are shown as a range.
 
@@ -38,7 +38,7 @@ Everyone approached for this study, by screening number, with what happened next
 
 Members of the registry or observational study. There is no contact step.
 
-### Study set-up
+### Study set-up (where your account and the study's delegation log allow)
 
 The study's settings: type, REDCap link and screening-log options. The coordinator fills it in.
 
@@ -58,7 +58,7 @@ Values TrialBox drafted for REDCap from the hospital record. Check each one agai
 
 Every participant of this study by screening number, and the step each one has reached. A participant's page shows every step so far with its day and who recorded it, the visits and the adverse events. The study coordinator records the next step there (consent given, enrolled, a visit, withdrawn) and can undo the last one.
 
-### Study state and identifiers
+### Study state and identifiers (where your account and the study's delegation log allow)
 
 The study's state (start-up, open to recruitment, paused, closed) and its identifiers (sponsor, protocol number, registry ids). The state decides whether lists are made and the morning mails go out. The coordinator or the study's PI changes it with a reason; after a close the study's files are kept for the years given.
 
