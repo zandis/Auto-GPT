@@ -995,6 +995,13 @@ def _run_ingest(
         # NEW-DIN-8 (D-583): on a box a delta is never the first night: it has nothing to merge over and no
         # table of it can be judged complete
         errors.append("delta night: no earlier snapshot passed validation to merge over; run a full load")
+    if base is not None and (said := _source_of(base)) and said != source_kind:
+        # D-1253 review ruling 7: one record from a mapped feed and from a FHIR bulk export has two ids; a site
+        # changes its source only with a full night, never a delta merged over another source's snapshot
+        errors.append(
+            f"delta night from {source_kind} over snapshot {last_good}, which was read from {said}: a site changes "
+            "its source only with a full night (run it without since)"
+        )
     from adapter.publish import RECORD as PUBLISH_RECORD
 
     try:  # T-723: the step record of an earlier publish of this folder (kept only for the same content)
@@ -1921,6 +1928,15 @@ def reread_whole(lake_dir: Path, base: str | None) -> tuple[set[str], str | None
     except (OSError, ValueError, AttributeError):
         tables = set()
     return tables, base
+
+
+def _source_of(snapshot: Path) -> str | None:
+    """The source kind a snapshot was read from (its ``ingest_report.json``); None when it does not say."""
+    try:
+        said = json.loads((snapshot / "ingest_report.json").read_text(encoding="utf-8")).get("source")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return str(said) if said else None
 
 
 def merge_base(lake_dir: Path, snap: str) -> str | None:

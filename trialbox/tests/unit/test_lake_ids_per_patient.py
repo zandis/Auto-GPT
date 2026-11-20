@@ -620,3 +620,34 @@ def test_fhir_bulk_ids_stay_the_servers_unique_ids() -> None:
     assert out[1]["id"] == resource_id(KEY, "Observation", "o1")
     assert out[1]["hasMember"][0]["reference"] == f"Condition/{out[0]['id']}"
     assert Counter(r["resourceType"] for r in out) == {"Condition": 1, "Observation": 1}
+
+
+def _bulk_night(tmp: Path, snap: str, since: str | None = None) -> Any:
+    """A FHIR bulk export night over the same lake (``fhir_bulk``: the server's own ids)."""
+    exp = tmp / f"bulk-{snap}"
+    exp.mkdir()
+    rows = [{"resourceType": "Patient", "id": "srv-1", "gender": "female", "birthDate": "1960-01-01"}]
+    (exp / "Patient.ndjson").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    return run_ingest(_cfg(tmp, "csv"), "fhir_bulk", str(exp), snapshot=snap, since=since, load_fhir=False,
+                      rebuild_lake=False, validate=False)  # fmt: skip
+
+
+SOURCE_WORDS = "changes its source only with a full night"
+
+
+@pytest.mark.parametrize("first", ["csv", "fhir_bulk"])
+def test_a_delta_night_from_another_source_than_its_base_is_held(tmp_path: Path, first: str) -> None:
+    """D-1253 review ruling 7: one record from a mapped feed and from a FHIR bulk export has two ids (the feed's is
+    the patient's hash, the bulk export's the server's). A site changes its source only with a full night: a delta
+    night read from another source than the snapshot it would merge over is held, with that message, both ways. A
+    full night from the new source is not held for it."""
+    if first == "csv":
+        assert night(tmp_path, "csv", canonical(A), "2026-10-01").passed
+        held = _bulk_night(tmp_path, "2026-10-02", since="2026-10-01")
+    else:
+        assert _bulk_night(tmp_path, "2026-10-01").passed
+        held = night(tmp_path, "csv", canonical(A), "2026-10-02", since="2026-10-01")
+    assert not held.passed and any(SOURCE_WORDS in e for e in held.errors), held.errors
+    full = (night(tmp_path, "csv", canonical(A), "2026-10-03") if first == "fhir_bulk"
+            else _bulk_night(tmp_path, "2026-10-03"))  # fmt: skip
+    assert not any(SOURCE_WORDS in e for e in full.errors), full.errors
