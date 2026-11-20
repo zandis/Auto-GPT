@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {# D-386 (T-622, LIFE-008, LIFE-013): the study's state (start-up, open, paused, closed) with its history, and the
    study's identifiers (sponsor, protocol number, SIV date, registry ids). Lists and morning mails follow the state. #}
-{# 9k-6a (D-1376): the identifiers' and the IRB record's forms use the field macro; a failed POST shows the summary #}
+{# 9k-6a (D-1376): the identifiers' and the IRB record's forms use the field macro; a failed POST shows the summary.
+   9k-6b: so do the state change and the take-back of a close #}
 {% import "_fields.html" as fm with context %}
 {% set noauto = {'autocapitalize': 'none', 'spellcheck': 'false'} %}
 {% block title %}{{ fm.title(fe, t('sstate.title') ~ ' · ' ~ rs) }}{% endblock %}
@@ -27,28 +28,23 @@
 {% if cur.state == 'closed' and kept_until %}<p class="hint" data-testid="state-kept-until">{{ t('sstate.kept_until', day=kept_until, years=cur.keep_years or keep_default) }}</p>{% endif %}
 {% if editable %}
 {% if moves %}
-<form method="post" action="/studies/{{ rs }}/state" data-testid="state-form">
+<form method="post" action="/studies/{{ rs }}/state" data-testid="state-form" data-fields="state" data-guard>
 <input type="hidden" name="csrf" value="{{ csrf }}">
 <fieldset><legend>{{ t('sstate.change') }}</legend>
-<div><label for="state-to">{{ t('sstate.move') }}</label>
-<select id="state-to" name="state">{% for s in moves %}<option value="{{ s }}">{{ t('sstate.' + s) }}</option>{% endfor %}</select></div>
-<div><label for="state-reason">{{ t('sstate.reason') }} <span class="hint" data-testid="state-reason-required">({{ t('sstate.reason_required') }})</span></label>
-<input id="state-reason" name="reason" maxlength="200" aria-describedby="state-reason-help">
-<p class="hint" id="state-reason-help">{{ t('sstate.reason_help') }}</p></div>
-{% if 'closed' in moves %}{# D-779 (T-305c): read on a close only #}<div><label for="state-keep-years">{{ t('sstate.keep_years') }}</label>
-<input id="state-keep-years" name="keep_years" type="number" min="1" max="{{ keep_max }}" value="{{ keep_default }}" aria-describedby="state-keep-years-help" data-testid="state-keep-years">
-<p class="hint" id="state-keep-years-help">{{ t('sstate.keep_years_help') }}</p></div>{% endif %}
+{% set move_opts = [] %}{% for s in moves %}{% set _ = move_opts.append((s, t('sstate.' + s))) %}{% endfor %}
+{% set reason_label %}{{ t('sstate.reason') }} <span class="hint" data-testid="state-reason-required">({{ t('sstate.reason_required') }})</span>{% endset %}
+{{ fm.field(fe, 'state', 'state', 'state', t('sstate.move'), '', kind='select', options=move_opts) }}
+{{ fm.field(fe, 'state', 'state', 'reason', reason_label, '', hint=t('sstate.reason_help'), attrs={'maxlength': '200'}) }}
+{% if 'closed' in moves %}{# D-779 (T-305c): read on a close only #}{{ fm.field(fe, 'state', 'state', 'keep_years', t('sstate.keep_years'), keep_default, type='number', hint=t('sstate.keep_years_help'), attrs={'min': '1', 'max': keep_max, 'data-testid': 'state-keep-years'}) }}{% endif %}
 <button type="submit">{{ t('sstate.save') }}</button>
 </fieldset></form>
 {% else %}<p class="hint" data-testid="state-final">{{ t('sstate.none_left') }}</p>{% endif %}
 {% endif %}
 {% if take_back %}
-<form method="post" action="/studies/{{ rs }}/state/take-back" data-testid="take-back-form">
+<form method="post" action="/studies/{{ rs }}/state/take-back" data-testid="take-back-form" data-fields="take-back" data-guard>
 <input type="hidden" name="csrf" value="{{ csrf }}">
 <fieldset><legend>{{ t('sstate.take_back') }}</legend>
-<p class="hint" id="take-back-help">{{ t('sstate.take_back_help', state=t('sstate.' + cur.prev)) }}</p>
-<div><label for="take-back-reason">{{ t('sstate.reason') }}</label>
-<input id="take-back-reason" name="reason" maxlength="200" required aria-describedby="take-back-help"></div>
+{{ fm.field(fe, 'take-back', 'take-back', 'reason', t('sstate.reason'), '', hint=t('sstate.take_back_help', state=t('sstate.' + cur.prev)), attrs={'maxlength': '200'}) }}
 <button type="submit">{{ t('sstate.take_back') }}</button>
 </fieldset></form>
 {% endif %}
@@ -64,7 +60,7 @@
 <h2>{{ t('sid.legend') }}</h2>
 <p class="hint">{{ t('sid.help') }}</p>
 {% if ident.by %}<p class="hint" data-testid="identity-entered">{{ t('sid.entered', by=ident.by|replace('console:', ''), at=ident.at|local) }}</p>{% endif %}
-<form method="post" action="/studies/{{ rs }}/identity" data-testid="identity-form" data-fields="identity">
+<form method="post" action="/studies/{{ rs }}/identity" data-testid="identity-form" data-fields="identity" data-guard>
 <input type="hidden" name="csrf" value="{{ csrf }}">
 {{ fm.field(fe, 'identity', 'id', 'sponsor', t('sid.sponsor'), ident.sponsor, disabled=not editable, attrs=noauto) }}
 {{ fm.field(fe, 'identity', 'id', 'protocol_no', t('sid.protocol_no'), ident.protocol_no, cls='mono', disabled=not editable, attrs=noauto) }}
@@ -85,7 +81,7 @@
 {% if not irb_gate %}<p class="hint" data-testid="irbt-gate-off">{{ t('irbt.gate_off') }}</p>{% endif %}
 {% if saved == 'irb_text' %}<p class="ok" role="status" data-testid="irbt-saved">{{ t('irbt.saved') }}</p>{% endif %}
 {% if not irbt_edit %}<p class="hint" data-testid="irbt-readonly">{{ t('irbt.readonly') }}</p>{% endif %}
-<form method="post" action="/studies/{{ rs }}/irb-text" data-testid="irbt-form" data-fields="irb-text">
+<form method="post" action="/studies/{{ rs }}/irb-text" data-testid="irbt-form" data-fields="irb-text" data-guard>
 <input type="hidden" name="csrf" value="{{ csrf }}">
 {{ fm.field(fe, 'irb-text', 'irbt', 'covers', t('irbt.covers'), '1', kind='checkbox', checked=irbt.covers, disabled=not irbt_edit) }}
 {% for name, typ in (('approval_ref', 'text'), ('text_version', 'text'), ('approved_on', 'date'), ('note', 'text')) %}

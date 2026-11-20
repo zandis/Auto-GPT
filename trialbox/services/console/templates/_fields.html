@@ -13,7 +13,9 @@
                            aria-invalid on error; "required" in words beside the label (aria-required, no browser
                            check: the server's check shows the summary). kind: text (any input type), textarea,
                            select (options: (value, label) pairs), checkbox, password (never given a value).
-                           A typed value comes back from fe.values when fe is this form's; never a secret. #}
+                           A typed value comes back from fe.values when fe is this form's; never a secret.
+                           9k-6b: attrs may give the control's own data-testid (a form's earlier tests read it); without it the
+                           testid is the id. #}
 
 {% macro title(fe, text) %}{% if fe %}{{ t('fe.title', title=text) }}{% else %}{{ text }}{% endif %}{% endmacro %}
 
@@ -33,13 +35,13 @@
 <div class="fm-field{% if err %} fm-bad{% endif %}" data-field="{{ name }}">
 {%- if kind == 'checkbox' %}
 {% if err %}<p class="fm-err" id="{{ fid }}-err"><span class="sr">{{ t('fe.error') }}</span> {{ t(err.key) }}</p>{% endif %}
-<label class="check" for="{{ fid }}"><input type="checkbox" id="{{ fid }}" name="{{ name }}" value="{{ value or '1' }}"{% if on %} checked{% endif %}{% if disabled %} disabled{% endif %}{% if described %} aria-describedby="{{ described|join(' ') }}"{% endif %}{% if err %} aria-invalid="true"{% endif %}{% if required %} aria-required="true"{% endif %}{{ attrs|xmlattr }} data-testid="{{ fid }}"> {{ label }}{% if required %} <span class="fm-req">({{ t('fe.required') }})</span>{% endif %}</label>
+<label class="check" for="{{ fid }}"><input type="checkbox" id="{{ fid }}" name="{{ name }}" value="{{ value or '1' }}"{% if on %} checked{% endif %}{% if disabled %} disabled{% endif %}{% if described %} aria-describedby="{{ described|join(' ') }}"{% endif %}{% if err %} aria-invalid="true"{% endif %}{% if required %} aria-required="true"{% endif %}{{ attrs|xmlattr }}{% if 'data-testid' not in attrs %} data-testid="{{ fid }}"{% endif %}> {{ label }}{% if required %} <span class="fm-req">({{ t('fe.required') }})</span>{% endif %}</label>
 {% if hint %}<p class="hint" id="{{ fid }}-hint">{{ hint }}</p>{% endif %}
 {%- else %}
 <label for="{{ fid }}">{{ label }}{% if required %} <span class="fm-req">({{ t('fe.required') }})</span>{% endif %}</label>
 {% if hint %}<p class="hint" id="{{ fid }}-hint">{{ hint }}</p>{% endif %}
 {% if err %}<p class="fm-err" id="{{ fid }}-err"><span class="sr">{{ t('fe.error') }}</span> {{ t(err.key) }}</p>{% endif %}
-{%- set common %} id="{{ fid }}" name="{{ name }}"{% if cls %} class="{{ cls }}"{% endif %}{% if disabled %} disabled{% endif %}{% if described %} aria-describedby="{{ described|join(' ') }}"{% endif %}{% if err %} aria-invalid="true"{% endif %}{% if required %} aria-required="true"{% endif %}{{ attrs|xmlattr }} data-testid="{{ fid }}"{% endset %}
+{%- set common %} id="{{ fid }}" name="{{ name }}"{% if cls %} class="{{ cls }}"{% endif %}{% if disabled %} disabled{% endif %}{% if described %} aria-describedby="{{ described|join(' ') }}"{% endif %}{% if err %} aria-invalid="true"{% endif %}{% if required %} aria-required="true"{% endif %}{{ attrs|xmlattr }}{% if 'data-testid' not in attrs %} data-testid="{{ fid }}"{% endif %}{% endset %}
 {%- if kind == 'textarea' %}
 <textarea{{ common }}>{{ shown }}</textarea>
 {%- elif kind == 'select' %}

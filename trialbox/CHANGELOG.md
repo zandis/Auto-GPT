@@ -10,6 +10,11 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- Nine more forms say what is wrong at the top of the page and at the field (9k-6b, D-1389): the IRB record, the consent-form
+  versions, the committee record, the staff directory and its department contacts, the opt-out register and the lifting
+  of an opt-out, the study's state change and the take-back of a close. What is valid, who may post and what is stored
+  are unchanged; leaving one of these pages with unsaved edits now asks first. Nothing changes on the box: no setting,
+  no new file installed.
 - Silent set-up choices guarded (10K-21): a new PRODUCTION site must answer the chart-number question (choosing
   "as written" is an answer; leaving it empty is not), in the settings wizard and on the box's first-run page. A box
   names the person who opens its health page every working day (its backup alert route); the name is shown with the
