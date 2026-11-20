@@ -101,7 +101,7 @@ ZH: dict[str, str] = {
     "wb.task.cover_irb": "通知 IRB：{p} 代理 {rs} 的試驗主持人",
     "task.owner": "負責人：{who}",
     "task.owner.set": "負責人",
-    "task.owner.who": "此工作的負責人",
+    "task.owner.who": "此待辦事項的負責人",
     "task.owner.none": "無負責人",
     "task.owner.save": "儲存",
     "sae.escalate.subject": "[TrialBox] {rs} 的嚴重不良事件已等候試驗主持人 {n} 小時",
