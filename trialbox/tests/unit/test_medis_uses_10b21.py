@@ -100,6 +100,18 @@ def test_a_local_name_is_matched_to_the_name_and_the_index(master: mm.Master) ->
     assert mm.by_name(master, "テスト病丙")["code"] == "M19.9"  # the row kept of a shared exchange code
 
 
+def test_a_modifiers_spelling_never_names_a_disease() -> None:
+    """病名修飾語区分 2 (a modifier's spelling): even with a 対応用語コード equal to a disease's management number."""
+    t = _tables(index=False)
+    t["medis_index"] = {"m": {"display": "テスト修飾語", "target_code": "99000001",
+                              "extra": json.dumps({"kind": "2", "term": "テスト修飾語"})}}  # fmt: skip
+    m = mm.rows(t)
+    assert m is not None and mm.by_name(m, "テスト修飾語") == {}
+    t["medis_index"]["m"]["extra"] = json.dumps({"kind": "1", "term": "テスト修飾語"})
+    m = mm.rows(t)
+    assert m is not None and mm.by_name(m, "テスト修飾語")["code"] == "E11.9"  # the same row as a disease's: read
+
+
 def test_a_name_of_two_diseases_gives_nothing() -> None:
     t = _tables(index=False)
     t["medis"]["ZA02"] = {**t["medis"]["ZA02"], "display": "テスト病甲"}  # the same name, another ICD-10

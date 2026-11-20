@@ -92,7 +92,8 @@ def unpack(data: bytes, into: Path) -> Path:
     """The members of the zip ``data`` the loader reads, written under ``into/release`` by their base name; the
     folder written. Refused (``LicensedError``) when the zip is larger than :data:`MAX_ZIP`, is not a zip, has more
     than :data:`MAX_MEMBERS` members, is encrypted, holds one wanted name twice, or a wanted member unpacks to more
-    than :data:`MAX_MEMBER` bytes (read in pieces and stopped there, whatever the zip's header claims)."""
+    than :data:`MAX_MEMBER` bytes (zipfile reads no more than the header claims, and a header that understates the
+    size fails the zip's CRC: refused as a damaged zip)."""
     if len(data) > MAX_ZIP:
         raise _err("LIC-UPLOAD-SIZE", f"the file is larger than {MAX_ZIP // (1024 * 1024)} MB: not a MEDIS release")
     try:
@@ -120,15 +121,11 @@ def unpack(data: bytes, into: Path) -> Path:
             seen.add(key)
             if m.file_size > MAX_MEMBER:
                 raise _err("LIC-UPLOAD-MEMBER-SIZE", f"{base} is larger than {MAX_MEMBER // (1024 * 1024)} MB")
-            got = 0
             try:
+                # zipfile never reads more than the member's declared size (and then checks its CRC), so a header
+                # that understates the size is refused as a damaged zip, never read past the cap
                 with zf.open(m) as src, (out / key).open("wb") as dst:
                     while chunk := src.read(1024 * 1024):
-                        got += len(chunk)
-                        if got > MAX_MEMBER:
-                            raise _err(
-                                "LIC-UPLOAD-MEMBER-SIZE", f"{base} is larger than {MAX_MEMBER // (1024 * 1024)} MB"
-                            )
                         dst.write(chunk)
             except (zipfile.BadZipFile, OSError, EOFError, NotImplementedError, RuntimeError) as exc:
                 raise _err("LIC-UPLOAD-ZIP", f"{base} cannot be read from the zip ({type(exc).__name__})") from exc

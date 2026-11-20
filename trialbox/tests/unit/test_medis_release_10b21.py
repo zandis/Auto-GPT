@@ -2,7 +2,7 @@
 
 * only the tables, the readme and the title lines are unpacked, by base name; a member's folder is never used (a
   name that climbs out of the folder lands inside it), and the specification's PDF and Word files are never written;
-* the caps: the zip's size, its member count, each table unpacked (read in pieces, whatever the header claims), an
+* the caps: the zip's size, its member count, each table unpacked (a header that understates it is refused), an
   encrypted member, one table twice, a file that is not a zip: each refused with its code;
 * nothing is left behind: the temporary folder is removed after a check, a load and a refusal;
 * the reminder after seven months; the step exists where the country layer says the site uses the master.
@@ -79,7 +79,7 @@ def test_the_caps_refuse_with_their_code(make: Any, code: str, tmp_path: Path) -
     assert exc.value.code == code
 
 
-def test_a_table_larger_than_the_cap_is_stopped_while_it_is_read(
+def test_a_table_larger_than_the_cap_is_refused_whatever_its_header_says(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(mr, "MAX_MEMBER", 1000)

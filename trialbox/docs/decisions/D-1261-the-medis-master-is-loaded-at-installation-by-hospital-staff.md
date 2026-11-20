@@ -45,8 +45,8 @@ built from テスト and ダミー.
    The step can be done later from the same page.
 3. **The hand-over** uses the upload pattern of the other set-up pages: the browser uploads the file, the console reads
    it into memory up to a cap and sends it to the orchestrator. `sitesetup.medis_release.unpack`:
-   - **caps:** the zip at 48 MB, at most 64 members, and each table at 64 MB once unpacked (read in pieces and stopped
-     at the cap, whatever the header claims);
+   - **caps:** the zip at 48 MB, at most 64 members, and each table at 64 MB once unpacked (a header that understates the size
+     fails the zip's check and is refused as a damaged zip);
    - **refuses:** an encrypted member, one table twice, and a file that is not a zip;
    - **unpacks by base name only:** `readme.txt`, `nmain*.txt`, `mdfy*.txt`, `index*.txt`, `ttl_*.txt`. A member's
      folder is never used, so a name that climbs out lands inside the box's folder;
