@@ -243,7 +243,6 @@ CREATE INDEX committee_open_rs ON committee_open (ruleset, site, at)
 """
 MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
 FINDINGS_MAX = 2000  # characters of a monitoring visit's findings
-ENDING_DAYS = 14  # 9f-4 (a): a delegation entry is warned about from two weeks before its last day
 ICF_ACTIONS = ("add", "withdraw")
 _ICF_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._/()-]{0,39}$")
 
@@ -287,14 +286,6 @@ class Entry:
     def active_on(self, day: date) -> bool:
         d = day.isoformat()
         return self.start <= d and (self.end is None or d <= self.end)
-
-    def days_left(self, day: date) -> int | None:
-        """9f-4 (a): the days from ``day`` to this entry's last day when it ends within ``ENDING_DAYS`` (the last day
-        itself is 0), else None: no end, already over, not started, or further off. ``day`` is the site's day."""
-        if self.end is None or not self.active_on(day):
-            return None
-        left = (date.fromisoformat(self.end) - day).days
-        return left if left <= ENDING_DAYS else None
 
 
 @dataclass(frozen=True)
@@ -446,11 +437,6 @@ class TeamStore:
     # ------------------------------------------------------------------ delegation log
     def entries(self, ruleset: str) -> list[Entry]:
         rows = self.db.fetchall(f"SELECT {_ENTRY} FROM delegation WHERE ruleset = ? ORDER BY id", (ruleset,))
-        return [_entry(r) for r in rows]
-
-    def entries_for(self, username: str) -> list[Entry]:
-        """9f-1: one account's own entries over all studies (a read of that person's rows only)."""
-        rows = self.db.fetchall(f"SELECT {_ENTRY} FROM delegation WHERE username = ? ORDER BY ruleset, id", (username,))
         return [_entry(r) for r in rows]
 
     def entry(self, ruleset: str, eid: int) -> Entry | None:
