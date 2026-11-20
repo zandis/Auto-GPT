@@ -57,7 +57,10 @@
      --project-directory deploy`), the socket must be root's, and the call gets an environment with no `DOCKER_*` or
      `COMPOSE_*` setting but the local socket and an empty, temporary Docker config folder (removed after the call;
      it never holds anything of the key): a Docker context, host, TLS setting or `TB_COMPOSE` naming another box's
-     journal cannot be used (H-1). Root writes nothing in the audit folder and forks no helper;
+     journal cannot be used (H-1). The compose project is named on the command line (`-p`): the one project whose
+     running orchestrator the local daemon shows as started from this checkout's deploy folder (its
+     `com.docker.compose.project.working_dir` label), never a name from the environment; none, or more than one, is
+     refused before anything is written, so the event cannot go to another deployment on the same daemon. Root writes nothing in the audit folder and forks no helper;
   4. **backup.pub, last:** written whole, mode 0644 whatever the umask, and synced in an unnamed file of the fixed
      folder (`O_TMPFILE`), then given its name by a link, which fails when the name exists (the effect of `O_EXCL`; a
      reader never sees it half written); the folder is synced and the file read back.
@@ -89,7 +92,9 @@
     device** (H-2): not an anonymous device (btrfs, which can mirror onto an internal disk whatever member mountinfo
     names; FUSE; a network share), not a mapped device (no `slaves`) and not a member of one (no `holders`: md, LVM,
     LUKS); its one whole disk known, removable (`removable` 1, or on USB), sharing no disk with the box's folders, and
-    **holding no other mounted filesystem** (a USB backup disk is not a stick). `tools/key_escrow.py` is not changed.
+    **holding no other mounted filesystem** (a USB backup disk is not a stick). The stick's folder is also refused
+    when it is a `TB_BACKUP_TARGETS` folder, inside one, holds one, or is on a target's filesystem (real paths and
+    devices compared): the key never sits beside the backups it opens. `tools/key_escrow.py` is not changed.
   - **M6:** a folder sync that fails stops the step, whatever the error, `EINVAL` and `ENOTSUP` included.
   - **M8:** the test's leak scan finds the key in any grouping.
 - **Every end state, and what is said** (each text in en, ja and zh-TW; exit 0 only for "done"):
@@ -139,7 +144,12 @@
   may still serve the read-back from its cache, and a stick with a lying controller is not detected; a key file torn
   by a power cut while it is written makes that stick unable to finish (refused, as above); `deploy/secrets` must be
   on a filesystem with `O_TMPFILE` (ext4, xfs, btrfs, tmpfs); a root-on-ZFS host cannot tell its system disk and
-  refuses every stick (availability only), and so does a btrfs or LUKS stick; root can always bypass the tool. The tests used no real stick, `/sys`,
+  refuses every stick (availability only), and so does a btrfs or LUKS stick; root can always bypass the tool.
+  Two more, which the integrator asks the owner to accept (second review of 6c33ba4f): **an ext4 stick whose journal
+  is external, on a partition of an internal disk, is not detected** (with `data=journal` the key's blocks pass
+  through that internal journal); and **swap switched on during the ceremony, after the memory lock was refused and
+  no swap was on at the start, is not detected** (swap is checked once, at the start). Both need an administrator to
+  set the host up so; §7 says to use a plain removable stick and to keep swap off or allow the memory lock. The tests used no real stick, `/sys`,
   orchestrator or journal.
 - **Open follow-ups (a later docs card):** the install and the other runbooks still name `trialbox backup-keygen` for
   the one-time key (`deploy/install.sh`, runbook 05, runbook 01 step 9, runbook 25, §1 and §4 step 1 of
@@ -152,7 +162,9 @@
   `test_h_3_a_rerun_syncs_the_files_a_run_cut_short_left`,
   `test_h_4_a_write_cut_short_never_leaves_part_of_a_file_at_its_final_name`,
   `test_h_5_no_key_is_made_while_swap_is_on_and_memory_cannot_be_locked`, `[journal-without-schema]` and
-  `[socket-not-roots]` among the refusals, `test_m_7_a_key_file_restore_would_reject_is_never_taken`; the
+  `[socket-not-roots]` among the refusals, `test_m_7_a_key_file_restore_would_reject_is_never_taken`; the second
+  review of 6c33ba4f: `test_h2_second_review_a_stick_folder_beside_the_backups_is_refused`,
+  `test_h3_second_review_the_compose_project_is_this_checkouts_own`; the
   whole run (the key file read by `backup.load_private`, the event's fields, the closing text with the journal number,
   the record and `backup.pub` 0644 under umask 077, `TB_COMPOSE=true` in the environment ignored); the paper sheet
   typed as it says gives the key to master's `backup.load_private`; H1 (a spy on the key's making sees not dumpable

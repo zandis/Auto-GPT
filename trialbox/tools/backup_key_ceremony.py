@@ -273,6 +273,25 @@ HARDEN_FAILED = {
     "zh-TW": "已拒絕：無法讓此程序處於可安全持有金鑰的狀態（不可傾印、無核心檔，且記憶體已鎖定或未使用置換空間）："
     "未寫入任何內容；請關閉置換空間（swapoff -a）或允許 root 鎖定記憶體，然後再執行",
 }
+NO_PROJECT = {
+    "en": "refused: no running orchestrator of this checkout's deploy folder ({path}) was found on the local Docker "
+    "daemon, or more than one project claims it: the event would not be known to go to this box's journal; nothing was "
+    "written",
+    "ja": "拒否：ローカルの Docker でこのチェックアウトの deploy フォルダー（{path}）のオーケストレーターが動いて"
+    "いないか、複数のプロジェクトがそれに当たります。記録がこのボックスのジャーナルに届くとは分かりません。何も"
+    "書いていません",
+    "zh-TW": "已拒絕：在本機 Docker 上找不到此檢出 deploy 資料夾（{path}）正在執行的協調器，或有多個專案符合：無法確定"
+    "紀錄會送到此主機的日誌；未寫入任何內容",
+}
+STICK_IS_BACKUP = {
+    "en": "refused: the stick folder {path} is a backup target, inside one, holds one, or is on a backup target's "
+    "filesystem ({target}, TB_BACKUP_TARGETS): the key never goes beside the backups it opens; nothing was written",
+    "ja": "拒否：USB メモリのフォルダー {path} はバックアップ先そのものか、その中か、それを含むか、バックアップ先と同じ"
+    "ファイルシステムの上にあります（{target}、TB_BACKUP_TARGETS）。鍵は、それで開けるバックアップの隣には置きません。"
+    "何も書いていません",
+    "zh-TW": "已拒絕：隨身碟資料夾 {path} 就是備份目的地、位於其中、包含它，或與備份目的地在同一檔案系統上（{target}，"
+    "TB_BACKUP_TARGETS）：金鑰絕不放在它能開啟的備份旁邊；未寫入任何內容",
+}
 UNEXPECTED = {
     "en": "stopped on an unexpected error ({kind}): nothing is undone and nothing is deleted. Run the same command "
     "again with the same stick",
@@ -572,15 +591,42 @@ def _docker_env(config: str) -> dict[str, str]:
     return {**env, "DOCKER_HOST": f"unix://{DOCKER_SOCK}", "DOCKER_CONFIG": config}
 
 
-def local_compose() -> list[str]:
-    """``docker compose`` of this box's deploy folder, on the local daemon's socket named on the command line."""
-    return ["docker", "-H", f"unix://{DOCKER_SOCK}", "compose", "--project-directory", str(DEPLOY)]
+def local_compose(project: str) -> list[str]:
+    """``docker compose`` of this box's deploy folder and project, on the local daemon's socket."""
+    return ["docker", "-H", f"unix://{DOCKER_SOCK}", "compose", "--project-directory", str(DEPLOY), "-p", project]
+
+
+def project_of(listing: str, deploy: Path) -> str | None:
+    """The one compose project whose orchestrator was started from ``deploy`` (``docker ps`` lines of project and
+    working folder), or None: none, or more than one. Never a name from the environment."""
+    names = {p for p, _, wd in (ln.partition("\t") for ln in listing.splitlines()) if p and wd == str(deploy)}
+    return names.pop() if len(names) == 1 else None
+
+
+def _project() -> str | None:
+    """This checkout's compose project, from the local daemon's running orchestrators (H-3 of the second review)."""
+    fmt = '{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.project.working_dir"}}'
+    argv = ["docker", "-H", f"unix://{DOCKER_SOCK}", "ps", "--filter", "label=com.docker.compose.service=orchestrator",
+            "--format", fmt]  # fmt: skip
+    try:
+        if not ((st := os.stat(DOCKER_SOCK)) and stat.S_ISSOCK(st.st_mode) and st.st_uid == 0):
+            return None
+        with tempfile.TemporaryDirectory(prefix="tb-ceremony-docker-") as config:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=JOURNAL_WAIT_S, check=False,
+                               env=_docker_env(config))  # fmt: skip
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return project_of(r.stdout, DEPLOY.resolve()) if r.returncode == 0 else None
 
 
 def _journal(*args: str) -> str:
     """What the orchestrator printed (its last line), or "" when it failed, timed out or could not be started. Only
     the local daemon is asked (its socket root's), never a context or host the environment names."""
-    argv = [*(COMPOSE or local_compose()), "exec", "-T", "orchestrator", "python", "-c", JOURNAL_CODE, *args]
+    project = None if COMPOSE else _project()
+    if COMPOSE is None and project is None:
+        return ""
+    call = COMPOSE or local_compose(project or "")
+    argv = [*call, "exec", "-T", "orchestrator", "python", "-c", JOURNAL_CODE, *args]
     try:
         if COMPOSE is None and not ((st := os.stat(DOCKER_SOCK)) and stat.S_ISSOCK(st.st_mode) and st.st_uid == 0):
             return ""
@@ -816,6 +862,8 @@ def run(stick: Path, operator: str | None, witness: str | None, env: Mapping[str
             os.close(os.open(".", os.O_WRONLY | os.O_TMPFILE | os.O_CLOEXEC, 0o600, dir_fd=pfd))
         except OSError:
             raise Stop(NO_TMPFILE, path=PUB_DIR) from None
+        if COMPOSE is None and _project() is None:
+            raise Stop(NO_PROJECT, path=DEPLOY)
         if _journal("check") != "journal ok":
             raise Stop(NO_JOURNAL)
         try:
@@ -870,8 +918,25 @@ def _on_stick(sfd: int, pfd: int, dev: int, stick: Path, site: str, step: list[i
     return public_of(key)
 
 
+def backup_target(here: str, sst: os.stat_result, env: Mapping[str, str]) -> str | None:
+    """The TB_BACKUP_TARGETS folder the stick's folder is, is inside, holds, or shares a filesystem with (by real
+    path and by device), or None (H-2 of the second review)."""
+    for raw in (env.get("TB_BACKUP_TARGETS") or "").replace(",", " ").split():
+        target = raw.strip("\"'")
+        real = os.path.realpath(target)
+        try:
+            same_fs = os.stat(real).st_dev == sst.st_dev
+        except OSError:
+            same_fs = False
+        if same_fs or os.path.commonpath([here, real]) in (here, real):
+            return target
+    return None
+
+
 def _steps(sfd: int, pfd: int, stick: Path, who: str, wit: str, env: Mapping[str, str]) -> dict[str, str]:
     sst = os.fstat(sfd)
+    if (target := backup_target(os.path.realpath(f"/proc/self/fd/{sfd}"), sst, env)) is not None:
+        raise Stop(STICK_IS_BACKUP, path=stick, target=target)
     if stick_problem(sst.st_dev, [os.stat("/").st_dev, os.fstat(pfd).st_dev]):
         raise Stop(NOT_A_STICK, path=stick)
     if not _root_only(sst):

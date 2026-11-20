@@ -192,6 +192,7 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Box:
         if k.startswith("TB_"):
             monkeypatch.setenv(k, v)
     monkeypatch.delenv("TB_BACKUP_PUBKEY", raising=False)
+    monkeypatch.delenv("TB_BACKUP_TARGETS", raising=False)
     return b
 
 
@@ -902,7 +903,8 @@ def test_h_1_the_journal_is_asked_on_the_local_socket_whatever_docker_context_is
         assert env["DOCKER_HOST"] == "unix:///var/run/docker.sock"
         assert {"DOCKER_CONTEXT", "DOCKER_TLS_VERIFY", "COMPOSE_FILE"}.isdisjoint(env)
         assert Path(env["DOCKER_CONFIG"]).name.startswith("tb-ceremony-docker-")
-    assert bkc.local_compose()[:4] == ["docker", "-H", "unix:///var/run/docker.sock", "compose"]
+    call = bkc.local_compose("trialbox")
+    assert call[:4] == ["docker", "-H", "unix:///var/run/docker.sock", "compose"] and call[-2:] == ["-p", "trialbox"]
 
 
 def test_h_2_a_stick_that_is_not_one_removable_block_device_is_refused(
@@ -989,3 +991,46 @@ def test_m_7_a_key_file_restore_would_reject_is_never_taken(box: Box) -> None:
     (box.tmp / "bad.key").write_bytes(bad)
     with pytest.raises(bk.BackupError):
         bk.load_private(box.tmp / "bad.key")
+
+
+# ------------------------------------------------------------------------------------------------ second review of 6c33ba4f
+@pytest.mark.parametrize("where", ["inside", "equal", "holds", "same-filesystem", "elsewhere"])
+def test_h2_second_review_a_stick_folder_beside_the_backups_is_refused(
+    box: Box, where: str, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """The stick folder may not be a TB_BACKUP_TARGETS folder, inside one, hold one, or share its filesystem (by real
+    path and by device): the key never sits beside the backups it opens. A target elsewhere is no matter."""
+    stick = box.tmp / "backups" / "escrow" if where == "inside" else box.stick()
+    stick.mkdir(parents=True, mode=0o700, exist_ok=True)
+    target = {"inside": box.tmp / "backups", "equal": stick, "holds": stick / "nightly",
+              "same-filesystem": box.tmp / "share", "elsewhere": Path("/nonexistent-backup-target")}[where]  # fmt: skip
+    if where in ("holds", "same-filesystem"):
+        target.mkdir()
+    monkeypatch.setenv("TB_BACKUP_TARGETS", f"/nonexistent-first, {target}")
+    before = _tree(box.tmp)
+    code, _, err = _main(box, stick, capsys)
+    if where == "elsewhere":
+        assert code == 0
+        return
+    assert code == 1 and err.strip() == bkc.STICK_IS_BACKUP["en"].format(path=stick, target=target)
+    assert _tree(box.tmp) == before and box.journal() == [] and box.pending() == []
+
+
+def test_h3_second_review_the_compose_project_is_this_checkouts_own(
+    box: Box, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """The project is the one whose running orchestrator was started from this checkout's deploy folder, never a name
+    from the environment; none, or two projects claiming it: refused before anything is written."""
+    deploy = box.deploy.resolve()
+    listing = f"site-a\t{deploy}\ntrialbox\t/srv/other/deploy\n"
+    assert bkc.project_of(listing, deploy) == "site-a"
+    assert bkc.project_of("trialbox\t/srv/other/deploy\n", deploy) is None
+    assert bkc.project_of(f"site-a\t{deploy}\nsite-b\t{deploy}\n", deploy) is None
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "trialbox")
+    monkeypatch.setattr(bkc, "COMPOSE", None)
+    monkeypatch.setattr(bkc, "_project", lambda: None)
+    stick = box.stick()
+    before = _tree(box.tmp)
+    code, _, err = _main(box, stick, capsys)
+    assert code == 1 and err.strip() == bkc.NO_PROJECT["en"].format(path=box.deploy)
+    assert _tree(box.tmp) == before and box.journal() == []

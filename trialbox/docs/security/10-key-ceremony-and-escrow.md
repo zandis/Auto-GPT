@@ -139,4 +139,8 @@ written under a hidden temporary name (`.<name>.<random>.part`) and renamed; a r
 the stick: it is never removed or read again, and goes with the stick. The stick must be one plain removable device
 (no btrfs, LVM, LUKS or md on it). The journal is asked only through this host's own Docker socket, whatever Docker
 context the shell has. The command refuses before making the key when swap is on and its memory cannot be locked:
-run it as root (which may lock memory) or turn swap off first.
+run it as root (which may lock memory) or turn swap off first. It refuses a stick folder that is a backup target
+(`TB_BACKUP_TARGETS`), inside one, holds one or shares its filesystem, and asks only the compose project whose
+orchestrator runs from this checkout's deploy folder. Not detected, so set the host up plainly: an ext4 stick whose
+journal is external on an internal disk (use a plain removable stick), and swap switched on during the ceremony when
+memory could not be locked (keep swap off, or allow the memory lock).
