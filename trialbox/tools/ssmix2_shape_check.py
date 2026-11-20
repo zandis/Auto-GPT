@@ -675,7 +675,10 @@ def check_extended(root: Path, rep: Report) -> None:
         where = "/".join(rel)
         rep.files[typ] += 1
         if len(rel) < 7 or rel[0] != rel[2][0:3] or rel[1] != rel[2][3:6]:
-            rep.fail(typ, "X1" if len(rel) != 6 else "X4", where)
+            if len(rel) == 6 and rel[0] == rel[2][0:3] and rel[1] == rel[2][3:6]:
+                rep.fail(typ, "X4", where)  # a file in the data-type folder, no content folder
+            else:
+                rep.fail(typ, "X1", where)
             continue
         _a, _b, pid, day, kind, folder = rel[:6]
         fmt = {4: "%Y", 6: "%Y%m", 8: "%Y%m%d"}.get(len(day), "")
