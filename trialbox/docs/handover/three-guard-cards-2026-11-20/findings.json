@@ -1,0 +1,41 @@
+{
+  "card": "H65",
+  "title": "three guard cards: the tripwire in doctor, the REDCap host on egress, refused licences (card H-65)",
+  "date": "2026-11-20",
+  "source": "docs/handover/three-guard-cards-2026-11-20.md",
+  "note": "plan 9 cards 9g-11, 9g-14 and 9g-15, decision D-1348; no box, no root, no Docker here",
+  "findings": [
+    {
+      "id": "H65-01",
+      "severity": "Low",
+      "claim": "the REDCap egress row covers only TB_REDCAP_API_URL: with TB_EDC_BACKEND unset the study link calls the URL saved on the S36 page (orchestrator StudyService.client), whose host still needs an EGRESS_EXTRA line, and a private address needs it for the in-process guard too",
+      "lane": "H",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H65-02",
+      "severity": "Low",
+      "claim": "declared_egress in libs/tb_common/http.py does not carry the REDCap row of deploy/egress.py; the connector declares its host per call so nothing is refused today, and the test that holds the two tables together sets no REDCap URL",
+      "lane": "Int",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H65-03",
+      "severity": "Low",
+      "claim": "the second half of review 01 B1-P2 is not built: the launch record does not print the PHI tripwire setting on its first line",
+      "lane": "H",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H65-04",
+      "severity": "Low",
+      "claim": "the licence refusal reads what an allow-list entry records: an unknown entry that records a wrong licence for an FSL or SSPL component would still accept it; the licence report has no refused class of its own",
+      "lane": "H",
+      "basis": "hypothesis",
+      "state": "open"
+    }
+  ]
+}
