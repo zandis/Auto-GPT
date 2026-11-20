@@ -125,6 +125,7 @@ health line warns 90 days before the list runs out and is red after it.
    development host can build instead: `make images` (or `make images-multiarch` for x86 and GB10). The build host
    needs Docker, Maven and the JDK `.java-version` names, network to Docker Hub, Maven Central and GitHub, and disk
    for two copies of the bundle (D-830, D-885); the JVM fetch step names what is missing before it starts.
+   The build needs memory (how much is not measured): on a Windows host raise the Linux VM's memory limit or build with fewer parallel jobs, or `make images` can take the VM down.
    A new box holds **no study**: the shipped example rulesets are seeded only where `TB_ENV` is DEV or TEST
    (D-640). The site's first study is compiled and approved in the console. For a synthetic run on a PRODUCTION
    box (never beside real patients), an operator installs an example after the stack is up:

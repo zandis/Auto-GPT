@@ -326,6 +326,16 @@ PAIRS: list[Pair] = [
     (FOCUS, "--card", 3.0),
     (FOCUS, "--warn-bg", 3.0),
     (FOCUS, "--ok-bg", 3.0),
+    # 9k-6a (D-1376): the error summary and a failing field, read from their rules (light and dark)
+    ((".fm-summary", "color"), "--card", 4.5),
+    ((".fm-summary a", "color"), "--card", 4.5),  # the summary's links to the fields
+    ((".fm-summary", "border"), "--bg", 3.0),  # its rule against the page
+    ((".fm-summary", "border"), "--card", 3.0),
+    ((".fm-err", "color"), "--card", 4.5),  # a field's own message
+    ((".fm-err", "color"), "--bg", 4.5),
+    ((".fm-bad input, .fm-bad select, .fm-bad textarea", "border"), "--card", 3.0),  # a failing field's border
+    ((".fm-bad", "border-left"), "--card", 3.0),
+    ((".fm-req", "color"), "--card", 4.5),  # "required" in words
 ]
 
 
