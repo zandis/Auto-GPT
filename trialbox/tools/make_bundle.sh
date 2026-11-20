@@ -68,6 +68,9 @@ done
 [ -n "$GATES" ] || { echo "make_bundle: --gates is required: a bundle is built only from images that passed the release gates (make release-bundle)" >&2; exit 2; }
 [ -f "$GATES" ] || { echo "make_bundle: no such gate record $GATES" >&2; exit 2; }
 GATES="$(cd "$(dirname "$GATES")" && pwd)/$(basename "$GATES")"
+# 10K-7 (D-1363, item 11 of the review of d314d016): the note's source is read where it was named, not in $ROOT where
+# the build runs: a relative --release-note made absolute here, as --gates is
+if [ -n "$NOTE_SRC" ] && [ -f "$NOTE_SRC" ]; then NOTE_SRC="$(cd "$(dirname "$NOTE_SRC")" && pwd)/$(basename "$NOTE_SRC")"; fi
 SBOM_DIR="${SBOM_DIR:-$ROOT/dist/sbom}"
 [ -d "$SBOM_DIR" ] || { echo "make_bundle: no SBOM folder $SBOM_DIR (make release-gates writes it)" >&2; exit 2; }
 [ -f "$KEY" ] || { echo "make_bundle: no such key $KEY" >&2; exit 2; }

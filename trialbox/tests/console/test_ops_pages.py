@@ -374,6 +374,7 @@ def test_the_runner_wraps_the_cli_and_writes_no_secret(tmp_path: Path) -> None:
     held = Path(call[2])
     assert call[:2] == ["sh", str(tb_ops.ROOT / "tools" / "apply_update.sh")] and call[3:] == ["--dry-run"]
     assert held.name == "b-1.tar" and held.parent.parent == deploy / "updates" / tb_ops.HELD_DIR
+    assert not held.parent.exists()  # and that copy is gone once the check returned
     good, refused, last = ops.result(rid), ops.result(bad), ops.last("update_check")
     assert good and refused and last
     assert good["ok"] is True and refused["ok"] is False
@@ -889,3 +890,26 @@ def test_h5_a_cancel_after_the_runner_took_the_start_is_refused_and_one_before_s
     c.post("/admin/ops/update_cancel", data={"csrf": csrf, "target": rq2, "confirm": "yes"})
     assert ops.decide(rq2, "start", "trialbox-ops") == "cancel"
     assert (ops.result(rq2) or {}).get("state") == "cancelled"
+
+
+@pytest.mark.parametrize("lang", ["en", "ja", "zh-TW"])
+def test_d_an_update_the_runner_refused_as_unverified_is_said_in_the_administrators_language(
+    ob: dict[str, Any], lang: str
+) -> None:
+    """(d) of the review of d314d016: a request an older console queued names no sha256 (or a file this box did not
+    verify); the runner refuses it with ``why: unverified`` and the page says so in the administrator's language,
+    beside the runner's own line."""
+    c, csrf = login(ob["app"])
+    c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
+    ops = tb_ops.OpsDir(ob["dir"] / "ops")
+    rid = ops.submit("update_apply", "console:admin", {"bundle": "trialbox-1.0.1.tar"})
+    req = {"id": rid, "action": "update_apply", "by": "console:admin"}
+    ops.write_result(req, False, "OpsRefused: refused: the staged bundle is not the file that was verified", [],
+                     "2026-11-20T00:00:00+00:00", why="unverified")  # fmt: skip
+    page = c.get(f"/admin/ops?tab=update&req={rid}").text
+    said = page[page.index('data-testid="ops-result-why"') :][:600]
+    assert str(escape(CATALOGUES[lang]["ops.result.why.unverified"])) in said
+    other = ops.submit("backup_check", "console:admin")
+    ops.write_result({"id": other, "action": "backup_check", "by": "console:admin"}, False, "OpsFailed: x", [],
+                     "2026-11-20T00:00:00+00:00")  # fmt: skip
+    assert 'data-testid="ops-result-why"' not in c.get(f"/admin/ops?tab=backup&req={other}").text

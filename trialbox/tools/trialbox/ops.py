@@ -105,6 +105,15 @@ class OpsCancelled(OpsFailed):
     """H5 (D-1363): the update's record says it was cancelled on the console before the installer started."""
 
 
+class OpsRefused(OpsFailed):
+    """10K-7 (D-1363): a refusal the console says in the administrator's language: ``why`` is the key of its sentence
+    (``ops.result.why.<why>``), kept in the result and in its ``console.ops`` event."""
+
+    def __init__(self, message: str, why: str) -> None:
+        super().__init__(message)
+        self.why = why
+
+
 def bundle_name(name: object) -> bool:
     """A bundle's file name, matched whole: no control character, no letter outside ASCII (10K-7, D-1363)."""
     return isinstance(name, str) and BUNDLE.fullmatch(name) is not None
@@ -380,7 +389,14 @@ class OpsDir:
         return read_json_state(self.root / "status.json")
 
     def write_result(
-        self, req: Mapping[str, Any], ok: bool, summary: str, lines: Sequence[str], started: str, state: str = ""
+        self,
+        req: Mapping[str, Any],
+        ok: bool,
+        summary: str,
+        lines: Sequence[str],
+        started: str,
+        state: str = "",
+        why: str = "",
     ) -> None:
         """``state``: ``done``, ``failed``, ``interrupted`` (it started and was cut off), ``expired`` (it waited
         longer than :data:`MAX_AGE_MIN`, or a quiet update :data:`QUIET_WAIT_H`) or ``superseded`` (a quiet update
@@ -400,6 +416,7 @@ class OpsDir:
                 "lines": [str(x)[:300] for x in list(lines)[-40:]],
                 "started": started,
                 "finished": _now(),
+                **({"why": why} if why else {}),  # OpsRefused: the sentence the page says (10K-7)
             },
         )
 
@@ -551,7 +568,8 @@ class OpsRunner:
             except BlockingIOError:
                 return []
             try:
-                done = []
+                done: list[dict[str, Any]] = []
+                self._clean_held()  # (a) a private copy left by a runner that was cut off (a crash, a reboot)
                 # 10K-7: a cancel is taken before the update it withdraws, which then is not run
                 for req in sorted(self.ops.pending(), key=lambda r: r.get("action") != "update_cancel"):
                     if self.ops.result(str(req.get("id"))) is not None:
@@ -567,6 +585,7 @@ class OpsRunner:
                         continue  # T-730b (D-731): it waits for the quiet hour; the status says why
                     self.audit(res)
                     done.append(res)
+                    done += self._audit_withdrawn(res)
                 if any(r.get("action") == "update_apply" and r.get("state") in ("done", "failed") for r in done):
                     for res in self._supersede():
                         self.audit(res)
@@ -582,7 +601,22 @@ class OpsRunner:
         for c in self.ops.pending():
             if c.get("action") == "update_cancel" and _args(c).get("target") == rid and (res := self._one(c)):
                 out.append(res)
+                out += self._audit_withdrawn(res, audit=False)
         return out
+
+    def _audit_withdrawn(self, res: Mapping[str, Any], audit: bool = True) -> list[dict[str, Any]]:
+        """Item 10 (D-1363): a cancel writes the withdrawn update's result itself, so the runner never reaches that
+        update: its own ``update_apply.done`` event is written here (``audit=False``: the caller audits the list)."""
+        if res.get("action") != "update_cancel" or not res.get("ok"):
+            return []
+        req = next((r for r in self.ops.requests() if r.get("id") == res.get("id")), None)
+        target = str(_args(req or {}).get("target") or "")
+        got = self.ops.result(target) if REQ_ID.fullmatch(target) else None
+        if got is None or got.get("state") != "cancelled" or got.get("action") != "update_apply":
+            return []
+        if audit:
+            self.audit(got)
+        return [got]
 
     def _one(self, req: Mapping[str, Any]) -> dict[str, Any] | None:
         """One pending request: its result, or None while a quiet update waits (D-731)."""
@@ -657,6 +691,8 @@ class OpsRunner:
 
         detail = {"action": f"{res.get('action')}.done", "request": res.get("id"), "ok": bool(res.get("ok")),
                   "state": res.get("state"), "by": res.get("by")}  # fmt: skip
+        if res.get("why"):  # (d) the refusal the page says, as the event says it
+            detail["why"] = res.get("why")
         code = (
             "import json, sys\nfrom tb_common.audit_writer import open_audit\n"
             "open_audit().append('console.ops', actor='trialbox-ops', detail=json.loads(sys.argv[1]))\n"
@@ -672,7 +708,7 @@ class OpsRunner:
         started = _now()
         action = str(req.get("action"))
         _write_json(self.ops.marker(str(req.get("id"))), {"id": req.get("id"), "action": action, "started": started})
-        state = ""
+        state = why = ""
         self._request = str(req.get("id"))
         try:
             if action not in ACTIONS:
@@ -684,11 +720,13 @@ class OpsRunner:
             ok = True
         except OpsCancelled as exc:  # H5: cancelled on the console before the installer started
             summary, lines, ok, state = str(exc)[:300], [], False, "cancelled"
+        except OpsRefused as exc:  # (d): the page says why in the administrator's language
+            summary, lines, ok, why = f"OpsRefused: {exc}"[:300], [], False, exc.why
         except Exception as exc:  # every failure is a result the console shows, never a crash of the timer
             summary, lines, ok = f"{type(exc).__name__}: {exc}"[:300], [], False
         finally:
             self._request = None
-        self.ops.write_result(req, ok, summary, lines, started, state=state)
+        self.ops.write_result(req, ok, summary, lines, started, state=state, why=why)
         with contextlib.suppress(OSError):
             self.ops.marker(str(req["id"])).unlink()
         out = self.ops.result(str(req["id"]))
@@ -870,23 +908,76 @@ class OpsRunner:
     def disk_free(self, path: Path) -> int:
         return shutil.disk_usage(path).free
 
-    def _held_root(self) -> Path:
-        """``deploy/updates/.ops-held``: a real folder (never a link), the runner's own, opened by nobody else."""
-        d = self.box.deploy / "updates" / HELD_DIR
-        d.parent.mkdir(parents=True, exist_ok=True)
-        with contextlib.suppress(FileExistsError):
-            d.mkdir(mode=0o700)
-        st = os.lstat(d)
-        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or st.st_mode & 0o077:
-            raise OpsFailed(f"refused: {d} is not a folder only the runner can open (0700, its own); nothing changed")
-        return d
+    def _held_root(self) -> int:
+        """``deploy/updates/.ops-held``, opened as a folder descriptor: a real folder (a link is not followed, it is
+        refused), the runner's own and open to nobody else (0700). Made 0700 by ``mkdir`` and ``fchmod`` (whatever the
+        umask); one already there that is not so is refused, never mended (it was not made by the runner). Only root
+        writes in ``deploy/updates`` (the console has no mount of it); the descriptor keeps a swap of the path from
+        mattering to the copy made through it."""
+        updates = self.box.deploy / "updates"
+        updates.mkdir(parents=True, exist_ok=True)
+        where = updates / HELD_DIR
+        bad = f"refused: {where} is not a folder only the runner can open (0700, its own); nothing changed"
+        ufd = os.open(updates, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            made = False
+            with contextlib.suppress(FileExistsError):
+                os.mkdir(HELD_DIR, 0o700, dir_fd=ufd)
+                made = True
+            try:
+                fd = os.open(HELD_DIR, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=ufd)
+            except OSError as exc:  # a link (ELOOP), a file (ENOTDIR)
+                raise OpsFailed(bad) from exc
+        finally:
+            os.close(ufd)
+        try:
+            if made:
+                os.fchmod(fd, 0o700)
+            st = os.fstat(fd)
+            if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or st.st_mode & 0o077:
+                raise OpsFailed(bad)
+        except BaseException:
+            os.close(fd)
+            raise
+        return fd
+
+    def _clean_held(self) -> None:
+        """(a) The private copies a runner left when it was cut off (a crash, a reboot, ``systemctl stop``): under the
+        runner's lock no copy is in use, so every ``held-*`` folder there is removed, through the folder's own
+        descriptor. A folder that is not the runner's own is left alone (an apply then refuses it)."""
+        if not (self.box.deploy / "updates" / HELD_DIR).exists():
+            return
+        with contextlib.suppress(OpsFailed, OSError):
+            fd = self._held_root()
+            try:
+                for name in os.listdir(fd):
+                    if name.startswith("held-"):
+                        shutil.rmtree(name, dir_fd=fd, ignore_errors=True)
+            finally:
+                os.close(fd)
+
+    def _stage_need(self, root: Path, size: int) -> list[tuple[Path, int, int]]:
+        """Item 7 of the review of d314d016: what the private copy and apply_update.sh's staging (a second copy of
+        the payloads in ``$TMPDIR``) need, as ``(where, bytes needed, bytes to stay free)`` per disk: on the private
+        copy's disk both copies and :data:`STICK_MIN_FREE` (the databases and the audit share it); on another disk
+        (a ``/tmp`` of its own) the staging only."""
+        stage = Path(os.environ.get("TMPDIR") or "/tmp")
+        one = int(size * STICK_MARGIN)
+        try:
+            same = os.stat(stage).st_dev == os.stat(root).st_dev
+        except OSError:
+            same = True  # not known: counted on the same disk, the stricter of the two
+        if same:
+            return [(root, 2 * one, STICK_MIN_FREE)]
+        return [(root, one, STICK_MIN_FREE), (stage, one, 0)]
 
     @contextlib.contextmanager
     def _held_copy(self, p: Path, want: str | None = None) -> Any:
         """H3 (D-1363): ``p`` opened ONCE (no link followed, a regular file, the file looked at before the open), its
         bytes copied from that descriptor into a fresh folder of :meth:`_held_root` while they are hashed, the copy
-        hashed again, ``want`` compared. Yields ``(copy, sha256, (size, mtime_ns, ino, dev) of p at the open)``; the
-        copy is removed afterwards. Nothing that names ``p`` again can change what the copy holds."""
+        hashed again from the descriptor it was written through, ``want`` compared. Yields ``(copy, sha256, (size,
+        mtime_ns, ino, dev) of p at the open)``; the copy is removed afterwards (and by :meth:`_clean_held` after a
+        crash). Nothing that names ``p`` again can change what the copy holds."""
         import hashlib
 
         try:
@@ -904,36 +995,56 @@ class OpsRunner:
             if (st.st_dev, st.st_ino) != (st0.st_dev, st0.st_ino) or not stat.S_ISREG(st.st_mode):
                 raise OpsFailed(f"refused: {p.name!r} changed while it was opened; ask again")
             ident = (st.st_size, st.st_mtime_ns, st.st_ino, st.st_dev)
-            root = self._held_root()
-            free, need = self.disk_free(root), int(st.st_size * STICK_MARGIN)
-            if free - need < STICK_MIN_FREE:
-                keep = STICK_MIN_FREE / 1e9
-                raise OpsFailed(f"not run: the bundle's private copy needs {need / 1e9:.2f} GB in {root} and "
-                                f"{keep:.2f} GB must stay free there, free {free / 1e9:.2f} GB")  # fmt: skip
-            work = Path(tempfile.mkdtemp(prefix="held-", dir=root))
+            root = self.box.deploy / "updates" / HELD_DIR
+            rfd = self._held_root()
             try:
-                copy = work / p.name
-                h, done = hashlib.sha256(), 0
-                out = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
-                with os.fdopen(out, "wb") as fo:
-                    while done < st.st_size:
-                        block = os.read(fd, min(1 << 20, st.st_size - done))
-                        if not block:
-                            raise OpsFailed(f"refused: {p.name!r} ended before its size while it was read; ask again")
-                        fo.write(block)
-                        h.update(block)
-                        done += len(block)
-                    fo.flush()
-                    os.fsync(fo.fileno())
-                sha = h.hexdigest()
-                if want is not None and sha != want:
-                    raise OpsFailed("refused: the staged bundle is not the file that was verified; verify it again, "
-                                    "ask again")  # fmt: skip
-                if _sha_file(copy) != sha:
-                    raise OpsFailed("refused: the private copy changed after it was made; nothing was applied")
-                yield copy, sha, ident
+                for where, need, keep in self._stage_need(root, st.st_size):
+                    free = self.disk_free(where)
+                    if free - need < keep:
+                        raise OpsFailed(f"not run: the bundle's private copy and the installer's staging need "
+                                        f"{need / 1e9:.2f} GB in {where} and {keep / 1e9:.2f} GB must stay free there, "
+                                        f"free {free / 1e9:.2f} GB")  # fmt: skip
+                work = f"held-{secrets.token_hex(8)}"
+                os.mkdir(work, 0o700, dir_fd=rfd)
+                try:
+                    wfd = os.open(work, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=rfd)
+                    try:
+                        os.fchmod(wfd, 0o700)
+                        flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+                        out = os.open(p.name, flags, 0o600, dir_fd=wfd)
+                        try:
+                            h, done = hashlib.sha256(), 0
+                            while done < st.st_size:
+                                block = os.read(fd, min(1 << 20, st.st_size - done))
+                                if not block:
+                                    raise OpsFailed(f"refused: {p.name!r} ended before its size while it was read; "
+                                                    "ask again")  # fmt: skip
+                                view = memoryview(block)
+                                while view:  # a disk that fills raises here (ENOSPC): the folder is removed below
+                                    view = view[os.write(out, view) :]
+                                h.update(block)
+                                done += len(block)
+                            os.fsync(out)
+                            sha = h.hexdigest()
+                            if want is not None and sha != want:
+                                raise OpsFailed("refused: the staged bundle is not the file that was verified; "
+                                                "verify it again, ask again")  # fmt: skip
+                            os.lseek(out, 0, os.SEEK_SET)  # hashed again from the descriptor it was written through
+                            again = hashlib.sha256()
+                            while block := os.read(out, 1 << 20):
+                                again.update(block)
+                            if again.hexdigest() != sha or os.fstat(out).st_size != st.st_size:
+                                raise OpsFailed("refused: the private copy changed after it was made; nothing was "
+                                                "applied")  # fmt: skip
+                        finally:
+                            os.close(out)
+                        yield root / work / p.name, sha, ident
+                    finally:
+                        os.close(wfd)
+                finally:
+                    shutil.rmtree(work, dir_fd=rfd, ignore_errors=True)
             finally:
-                shutil.rmtree(work, ignore_errors=True)
+                os.close(rfd)
         finally:
             os.close(fd)
 
@@ -947,7 +1058,8 @@ class OpsRunner:
         line to show, whether this call made the copy, and the copied bytes' sha256."""
         fh, st = self._open_stick(self.box.stick() / name)
         inc = self.box.incoming()
-        with fh:
+        handed = False  # item 6: once the watched thread reads it, the stick's file is that thread's to close
+        try:
             inc.mkdir(parents=True, exist_ok=True)
             dest, tmp = inc / name, inc / f".{name}.part"
             if dest.exists() or dest.is_symlink():
@@ -955,7 +1067,8 @@ class OpsRunner:
                     raise OpsFailed(f"refused: {dest} is not a regular file")
                 if dest.stat().st_size == st.st_size:
                     here = _sha_file(dest)
-                    if here == _sha_stream(fh):
+                    handed = True
+                    if here == self._copy(fh, None, st.st_size):  # the stick's bytes read under the same watch
                         return f"{name}: the same bundle is already on the box ({inc}); not copied again", False, here
                 raise OpsFailed(f"refused: a different bundle named {name} is already on the box ({inc}); "
                                 "remove it there or rename the one on the stick, then ask again")  # fmt: skip
@@ -967,17 +1080,24 @@ class OpsRunner:
             with contextlib.suppress(FileNotFoundError):
                 tmp.unlink()
             try:
+                handed = True
                 sha = self._copy(fh, tmp, st.st_size)
                 tmp.replace(dest)
             except BaseException:
                 with contextlib.suppress(OSError):
                     tmp.unlink()
                 raise
+        finally:
+            if not handed:
+                fh.close()
         return f"{name}: copied from the update stick ({self.box.stick()}) into {inc}", True, sha
 
-    def _copy(self, fh: Any, tmp: Path, size: int) -> str:
-        """``size`` bytes of ``fh`` into ``tmp`` (created new), their sha256. The reads run in a thread the runner
-        watches: a stick that hangs inside a read cannot hold the runner (and its lock, so every backup) for ever."""
+    def _copy(self, fh: Any, tmp: Path | None, size: int) -> str:
+        """``size`` bytes of ``fh`` into ``tmp`` (created new; None: only hashed), their sha256. The reads run in a
+        thread the runner watches: a stick that hangs inside a read cannot hold the runner (and its lock, so every
+        backup) for ever. Item 6 of the review of d314d016: ``fh`` is that thread's from here on and it closes ``fh``
+        when its last read returns; the runner never closes it, because closing a buffered file waits for the read
+        a hung stick never finishes. A stopped copy leaves only that thread, waiting in the kernel, and its file."""
         import hashlib
         import threading
 
@@ -987,20 +1107,25 @@ class OpsRunner:
         def work() -> None:
             h = hashlib.sha256()
             try:
-                with open(tmp, "xb") as out:
+                with open(tmp, "xb") if tmp is not None else contextlib.nullcontext() as out:
                     while state["done"] < size and not stop.is_set():
                         block = fh.read(min(1 << 20, size - state["done"]))
                         if not block:
                             raise OpsFailed("not copied: the file on the stick ended before its size (removed?)")
-                        out.write(block)
+                        if out is not None:
+                            out.write(block)
                         h.update(block)
                         state["done"] += len(block)
                     if not stop.is_set():
-                        out.flush()
-                        os.fsync(out.fileno())
+                        if out is not None:
+                            out.flush()
+                            os.fsync(out.fileno())
                         state["sha"] = h.hexdigest()
             except BaseException as exc:  # handed to the runner's thread
                 state["err"] = exc
+            finally:
+                with contextlib.suppress(Exception):
+                    fh.close()
 
         t = threading.Thread(target=work, name="stick-copy", daemon=True)
         start = moved_at = time.monotonic()
@@ -1065,9 +1190,16 @@ class OpsRunner:
         taken for the start (H5), and apply_update.sh verifies and installs that copy, its own verify first."""
         p = self._bundle(args)
         want = str(args.get("sha256") or "")
-        if not SHA256.fullmatch(want):
-            raise OpsFailed("refused: the staged bundle is not the file that was verified (the request names no "
-                            "verified sha256); verify it on the console and ask again")  # fmt: skip
+        if not SHA256.fullmatch(want):  # (d): a request an older console queued; the page says it, translated
+            raise OpsRefused("refused: the staged bundle is not the file that was verified (the request names no "
+                             "verified sha256); verify it on the console and ask again", "unverified")  # fmt: skip
+        # (c): the console compares what the page showed with the verified record, but that check is the console's
+        # own; here the sha256 must be the runner's OWN record of a check that passed (root's, the console cannot
+        # write it), so only bytes this runner verified are ever applied, whatever the request says
+        rec = _read_json(self.ops.verified / f"{p.name}.json") or {}
+        if rec.get("sha256") != want:
+            raise OpsRefused("refused: the staged bundle is not the file that was verified on this box; verify it on "
+                             "the console and ask again", "unverified")  # fmt: skip
         limit = self.apply_limit()
         with self._held_copy(p, want) as (copy, _sha, _ident):
             self._take_start()
@@ -1144,7 +1276,7 @@ class OpsRunner:
         """The bundles in the incoming folder whose last check passed, each only while the file is the one verified
         (size, time to the nanosecond, inode): its sha256, when, the bundle id and whether a note came with it."""
         out: dict[str, Any] = {}
-        for b in list(incoming)[:STICK_LIST_MAX]:
+        for b in incoming:  # item 12: every staged bundle, not the stick listing's first 50 (kept to 50 below)
             name = str(b.get("name") or "")
             rec = _read_json(self.ops.verified / f"{name}.json") if bundle_name(name) else None
             with contextlib.suppress(OSError):
@@ -1156,7 +1288,9 @@ class OpsRunner:
                 ):
                     out[name] = {k: rec.get(k) for k in ("sha256", "verified_at", "bundle_id", "release_seq", "note",
                                                           "warnings")}  # fmt: skip
-        return out
+        # the status stays small (MAX_JSON): the most recently verified first, at most STICK_LIST_MAX records
+        newest = sorted(out, key=lambda n: (str(out[n].get("verified_at") or ""), n), reverse=True)[:STICK_LIST_MAX]
+        return {n: out[n] for n in sorted(newest)}
 
 
 CANCELLED = "cancelled on the console before it ran; nothing was changed. Ask again if it is still wanted"

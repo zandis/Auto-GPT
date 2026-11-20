@@ -113,6 +113,61 @@ failed on d314d016, then fixed; `tests/unit/test_update_from_a_stick.py`, `tests
   sentence says so: a cancel is taken until the moment the update starts, even while a backup runs before it. Who may
   start, confirm or cancel is unchanged.
 
+**After the integrator's review of d314d016, its sixth High and items 7 to 12** (each true one first reproduced by a
+test at the real call that failed on 8c3d0ad3, then fixed; `tests/unit/test_update_from_a_stick.py`, names `test_6_`
+to `test_12_`, `test_a_` to `test_d_`):
+- *6, a stick that hangs mid-read.* The watchdog raised, then the runner's thread closed the stick's buffered file,
+  and that close waits for the lock the copy thread's blocked read holds: the runner and its lock stayed held. The
+  stick's file is now the copy thread's once it reads it (it closes it when its last read returns); the runner never
+  closes it. The comparison with a bundle of the same name already on the box read the stick in the runner's own
+  thread, unwatched: it now reads under the same watch. A stopped copy leaves only that thread, waiting in the
+  kernel, until the stick is pulled.
+- *7, the free space.* The private copy's check counted the copy but not `apply_update.sh`'s staging (a second copy
+  in `$TMPDIR`): on the same disk both copies and 10 GiB must stay free; a `/tmp` on a disk of its own must hold
+  the staging.
+- *8, a deeply nested sheet.* No longer so: H1's rewrite catches `RecursionError` where the sheet is decoded, and this
+  python decodes the deepest sheet the 16 KiB cap lets in; a test keeps it (a warning, the bundle verified).
+- *9, a sheet without the migration or the re-approval* read as "No" on the page. The sheet's check now requires the
+  minutes down (a whole number, 0 or more), `database_migration` and `ruleset_reapproval` (true or false): otherwise
+  a warning and the sheet is not shown, in the verifier's report and the runner's read alike.
+- *10, the cancelled update's own event.* A cancel writes the withdrawn update's result, so the runner never reached
+  that update and wrote no `update_apply.done` for it; it now writes that event (state `cancelled`) beside the
+  cancel's.
+- *11, `--release-note` relative.* Looked for in the caller's folder, read in the project root: now made absolute where
+  it was named, as `--gates` is.
+- *12, the verified records past 50.* The status kept the records of the first 50 staged bundles only; it now looks
+  at every staged bundle and keeps the 50 most recently verified.
+
+**The H fixes looked at again:**
+- *(a) the private copy.* `deploy/updates/.ops-held` is made by `mkdir` with 0700 and `fchmod` 0700 (whatever the
+  umask), opened as a folder descriptor without following a link, and must be a folder, root's (the runner's), open to
+  nobody else; one that is not is refused, never mended. Each copy's folder is made and opened through that
+  descriptor and the copy created in it `O_EXCL|O_NOFOLLOW`, written, synced, and hashed again from the descriptor it
+  was written through. A full disk fails the write and the folder is removed; the copy is removed when the check or
+  apply returns on every path, and a copy left by a runner that was cut off is removed on its next pass under the
+  lock. Who can write in `deploy/updates`: root only; the console's container has no mount of it (only the ops folder),
+  so its account cannot plant `.ops-held` or a file in it. The path handed to `apply_update.sh` names that copy;
+  only root could change it after the hand-off, and the installer verifies the signature again first, which catches
+  a file that is not signed but not another signed release put there by root.
+- *(b) the decision record.* `requests/` is the console's folder by design (0770, its account), so a compromised
+  console can write `start` or `cancel` there, or remove a record; that gives it nothing it lacks: it can already ask
+  for or cancel an update, and the runner writes `start` before the installer and never reads the record again, so
+  removing one afterwards changes nothing that ran. `<id>` must match the request id's form whole (no path
+  character). A record that is not JSON, says something else, is a link or a folder is "unreadable": the update is
+  not started (result `cancelled`, nothing changed), never a crash.
+- *(c) what "the verified record" proves.* The console's comparison of the posted sha256 and release with the status's
+  verified record (the runner's, root's; the console reads it and cannot write it) holds against a page left open,
+  not against a compromised console, which can skip it. What holds against that: the runner now applies only a file
+  whose sha256 is its OWN record of a check that passed on this box (`<ops>/verified/<bundle>.json`, root's), and the
+  bytes it hands the installer are hashed to that sha256; the installer verifies the signature. A compromised console
+  can therefore apply only a bundle this box verified, which is what the administrator's right already allows.
+- *(d) a request without a sha256* (queued by an older console) or for a file this box did not verify is refused by
+  the runner with `why: unverified` in its result: the page says it in the administrator's language
+  (`ops.result.why.unverified`, en/ja/zh-TW) beside the runner's line, and its `update_apply.done` event carries
+  `why`.
+- Who may start, confirm or cancel an update is unchanged; no matrix row is added or widened. The verifier still
+  imports only its own modules.
+
 ## Consequences
 
 - The drill `python -m tools.update_drill stick` (no database; `tests/unit/test_update_from_a_stick.py`) shows the
@@ -130,8 +185,8 @@ failed on d314d016, then fixed; `tests/unit/test_update_from_a_stick.py`, `tests
 
 ## Not covered
 
-- The review of d314d016's other findings (one more High: the stick copy's watchdog and a blocked `close()`; the
-  Mediums) are not part of this round.
+- A stick that hangs inside `open()` or `lstat()` (before any read) is not watched: the runner looks at the file
+  before it opens it, with `O_NONBLOCK`; the host's mount options and the media procedure are the guard there.
 
 - The host's mount unit for the stick (read-only, by label) and the hospital's media procedure (review 18 §9,
   question 3): the runner reads whatever is mounted at `TB_UPDATE_STICK`.

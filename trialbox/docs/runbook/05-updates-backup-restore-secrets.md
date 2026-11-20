@@ -330,3 +330,11 @@ folder a drill made (it holds `.tb-update-drill`), else the drill refuses before
 When the runner's `status.json` is not a small JSON object (over 64 KiB, not a regular file, not UTF-8 JSON), the
 page says the status is unreadable and shows nothing of it; `sudo python3 -m tools.trialbox ops status` writes it
 again (the runner's timer does too, within a minute).
+The private copy is made only when the disk keeps 10 GiB free after it and after `apply_update.sh`'s staging (a second
+copy in `$TMPDIR`, counted on the same disk unless `/tmp` is a disk of its own); a copy left by a runner that was cut
+off is removed on its next pass. A `.ops-held` that is a link, not root's or open to others is refused, never mended:
+remove it as root. The runner applies only a file whose sha256 is its own record of a check that passed on this box;
+the page says so in the administrator's language when it refuses one (a request queued before this version names no
+sha256: verify the bundle and ask again). A stick that stops answering mid-read no longer holds the runner: the copy
+is stopped and removed, the next request runs, and the stick is pulled and checked elsewhere. A change-impact sheet
+without the minutes down, the migration or the re-approval is a warning and is not shown.

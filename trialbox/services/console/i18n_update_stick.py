@@ -11,6 +11,8 @@ EN: dict[str, str] = {
     "thing on the box changes. A cancel is taken until the moment the update starts, even while a backup runs before "
     "it; once it has started it runs to its end or rolls back by itself. You can ask for it again.",
     "ops.state.cancelled": "cancelled",
+    "ops.result.why.unverified": "The box did not apply this update: the request does not name a bundle this box "
+    "verified (a request from before this version, or a file verified again since). Verify the bundle and ask again.",
     "ops.stick.cut": "The stick holds more files than are listed here: only the first bundles by name are shown.",
     "ops.stick.refused": "{n} .tar files on the stick are not listed: their names have letters outside A to Z, "
     "digits, _ . - or a control character, which a bundle's name never has.",
@@ -71,6 +73,9 @@ JA: dict[str, str] = {
     "何も変わりません。取り消しは、その前にバックアップが実行中であっても、更新が始まる瞬間まで受け付けます。始まった"
     "あとは最後まで実行されるか、自動的に元に戻ります。あとで改めて依頼できます。",
     "ops.state.cancelled": "取り消し済み",
+    "ops.result.why.unverified": "この更新は適用されませんでした。依頼が、この機器で検証済みの"
+    "バンドルを指していません（この版より前の依頼か、その後に検証し直したファイルです）。"
+    "バンドルを検証してから、もう一度依頼してください。",
     "ops.stick.cut": "USBメモリにはここに表示しきれないファイルがあります。名前順で最初のバンドルだけを表示して"
     "います。",
     "ops.stick.refused": "USBメモリ上の .tar ファイル {n} 件は表示していません。名前に A〜Z、数字、_ . - 以外の"
@@ -134,6 +139,8 @@ ZH: dict[str, str] = {
     "ops.confirm.update_cancel": "要取消等待安靜時段的更新 {bundle} 嗎？它不會執行，本機不會有任何變更。在更新開"
     "始的那一刻之前都可以取消，即使在它之前正在備份；一旦開始，就會執行到結束，或自動還原。之後可以重新申請。",
     "ops.state.cancelled": "已取消",
+    "ops.result.why.unverified": "本機未套用此更新：此請求所指的不是本機已驗證的更新包"
+    "（此版本之前的請求，或之後重新驗證過的檔案）。請先驗證更新包，再重新請求。",
     "ops.stick.cut": "隨身碟上的檔案比此處列出的多：只依名稱顯示最前面的更新包。",
     "ops.stick.refused": "隨身碟上有 {n} 個 .tar 檔案未列出：其名稱含有 A 到 Z、數字、_ . - 以外的字元或控制字"
     "元，不是更新包的名稱。",

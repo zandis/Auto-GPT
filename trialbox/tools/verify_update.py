@@ -451,6 +451,16 @@ def sheet_problems(sheet: Any) -> list[str]:
         return [f"{IMPACT} does not list the change classes CC1 to CC6"]
     if not all(isinstance(r.get("changed"), bool) for r in rows):
         return [f"{IMPACT}: a change class is neither changed nor unchanged"]
+    # item 9 of the integrator's review of d314d016: the page says each of these; one missing read as "No"
+    mins = sheet.get("downtime_minutes")
+    if not (
+        isinstance(mins, int)
+        and not isinstance(mins, bool)
+        and mins >= 0
+        and isinstance(sheet.get("database_migration"), bool)
+        and isinstance(sheet.get("ruleset_reapproval"), bool)
+    ):
+        return [f"{IMPACT}: the minutes down, the migration or the re-approval is missing or not a plain value"]
     return []
 
 

@@ -417,6 +417,7 @@ def test_an_apply_for_a_verified_sha256_refuses_another_file(tmp_path: Path) -> 
     f.write_bytes(b"verified bytes")
     r, calls = _runner(tmp_path)
     good = hashlib.sha256(b"verified bytes").hexdigest()
+    _verified_record(r, f.name, good)  # (c): the runner's own record of the check of this file
     assert r.do_update_apply({"bundle": f.name, "sha256": good})[0].endswith("applied") and len(calls) == 1
     with pytest.raises(tb_ops.OpsFailed, match="not the file that was verified"):
         r.do_update_apply({"bundle": f.name, "sha256": "b" * 64})
@@ -692,7 +693,7 @@ def test_h1_the_note_reported_is_read_from_the_signed_bytes_even_when_the_path_c
     assert rn == {"note": True, "impact": True, "changed": ["CC4"], "warnings": []}, rn
 
 
-def _apply_runner(tmp: Path) -> tuple[_Runner, Path, str, list[bytes]]:
+def _apply_runner(tmp: Path, verified: bool = True) -> tuple[_Runner, Path, str, list[bytes]]:
     (tmp / "incoming").mkdir()
     f = tmp / "incoming" / "trialbox-1.tar"
     f.write_bytes(b"release A, verified and confirmed")
@@ -704,7 +705,10 @@ def _apply_runner(tmp: Path) -> tuple[_Runner, Path, str, list[bytes]]:
 
     env = {"TB_UPDATE_STICK": str(tmp / "stick"), "TB_UPDATE_INCOMING": str(tmp / "incoming")}
     r = _Runner(tb_ops.Box("compose", tmp / "deploy", env, run), tb_ops.OpsDir(tmp / "ops"))
-    return r, f, hashlib.sha256(f.read_bytes()).hexdigest(), seen
+    sha = hashlib.sha256(f.read_bytes()).hexdigest()
+    if verified:  # (c): the runner applies only a file of its own verified record, as a check leaves it
+        _verified_record(r, f.name, sha)
+    return r, f, sha, seen
 
 
 def _swap(f: Path) -> None:
@@ -808,6 +812,7 @@ def _quiet_runner(tmp: Path) -> tuple[_Runner, list[list[str]], str]:
     r.box.env.update(update_drill.STICK_ENV)
     r.now = lambda: datetime.fromisoformat(update_drill.STICK_QUIET)  # type: ignore[method-assign]
     r.jobs_running = lambda: 0  # type: ignore[method-assign]
+    _verified_record(r, f.name, hashlib.sha256(b"x").hexdigest())  # (c): as a check of that file leaves it
     return r, calls, hashlib.sha256(b"x").hexdigest()
 
 
@@ -852,3 +857,334 @@ def test_h5_a_cancel_accepted_just_before_the_installer_starts_stops_it(tmp_path
     r.run_pending()
     assert (r.ops.result(rq2) or {}).get("ok") is True
     assert r.ops.decide(rq2, "cancel", "console:admin") == "start"
+
+
+# ------------------------------------- the integrator's review of d314d016, items 6 to 12, and the H fixes looked at again
+class _Stuck(io.RawIOBase):
+    """A stick's file as the kernel gives it when the stick stops answering: a read that never returns until
+    ``free`` is set. Wrapped in a real ``io.BufferedReader`` (what ``os.fdopen(fd, "rb")`` gives), whose ``close()``
+    waits for the lock that the blocked read holds."""
+
+    def __init__(self, free: Any, data: bytes = b"") -> None:
+        self.free, self.data, self.reads = free, data, 0
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, b: Any) -> int:
+        self.reads += 1
+        self.free.wait(60)
+        return 0
+
+
+def _stuck_check(r: _Runner, name: str, real: Path) -> tuple[dict[str, Any] | None, float]:
+    import threading
+
+    free = threading.Event()
+    r.stall_s = 0.5
+    r._open_stick = lambda src: (io.BufferedReader(_Stuck(free)), os.stat(real))  # type: ignore[method-assign]
+    got: list[dict[str, Any]] = []
+    t = threading.Thread(target=lambda: got.append(_check(r, name)), daemon=True)
+    t0 = time.monotonic()
+    t.start()
+    t.join(15)
+    took = time.monotonic() - t0
+    free.set()  # the stick answers again: the copy's thread ends (the test's own clean-up)
+    t.join(5)
+    return (got[0] if got else None), took
+
+
+def test_6_a_stick_whose_close_waits_for_the_blocked_read_still_frees_the_runner(tmp_path: Path) -> None:
+    """Item 6: the watchdog raised, then ``with fh:`` closed the buffered file in the runner's thread, and that
+    close waited for the copy thread's blocked read: the runner (and its lock, so every backup) stayed held."""
+    (tmp_path / "stick").mkdir()
+    real = tmp_path / "stick" / "trialbox-1.tar"
+    real.write_bytes(b"x" * 4096)
+    r, calls = _runner(tmp_path)
+    res, took = _stuck_check(r, "trialbox-1.tar", real)
+    assert res is not None and took < 10, f"the runner was still held after {took:.1f} s"
+    assert res["ok"] is False and "gave no byte" in res["summary"] and calls == []
+    assert not list((tmp_path / "incoming").glob("*"))
+    rid = r.ops.submit("backup_check", "console:admin")  # the lock is free
+    r.run_pending()
+    assert r.ops.result(rid) is not None
+
+
+def test_6_the_same_name_comparison_with_a_stuck_stick_is_watched_too(tmp_path: Path) -> None:
+    """The bundle of that name already on the box was compared by hashing the stick's file in the runner's own
+    thread, with no watchdog at all."""
+    (tmp_path / "stick").mkdir()
+    real = tmp_path / "stick" / "trialbox-1.tar"
+    real.write_bytes(b"x" * 4096)
+    (tmp_path / "incoming").mkdir()
+    (tmp_path / "incoming" / "trialbox-1.tar").write_bytes(b"x" * 4096)
+    r, calls = _runner(tmp_path)
+    res, took = _stuck_check(r, "trialbox-1.tar", real)
+    assert res is not None and took < 10, f"the runner was still held after {took:.1f} s"
+    assert res["ok"] is False and "gave no byte" in res["summary"] and calls == []
+    assert (tmp_path / "incoming" / "trialbox-1.tar").read_bytes() == b"x" * 4096  # the box's file untouched
+
+
+def _verified_record(r: tb_ops.OpsRunner, name: str, sha: str) -> None:
+    """The runner's own record of a bundle it verified (``OpsRunner._keep``), as a check of that file leaves it."""
+    r.ops.verified.mkdir(parents=True, exist_ok=True)
+    (r.ops.verified / f"{name}.json").write_text(json.dumps({"bundle": name, "sha256": sha}), encoding="utf-8")
+
+
+def test_7_the_private_copy_budgets_for_the_installers_staging_on_the_same_disk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 7: the free-space check counted the private copy but not the second copy apply_update.sh stages (in
+    ``$TMPDIR``) on the same disk: the 10 GiB promised to the databases and the audit was not kept."""
+    r, f, good, seen = _apply_runner(tmp_path)
+    stage = tmp_path / "deploy" / "tmp"
+    stage.mkdir(parents=True)
+    monkeypatch.setenv("TMPDIR", str(stage))  # where apply_update.sh stages: the same disk as the private copy
+    size = f.stat().st_size
+    r.disk_free = lambda path: tb_ops.STICK_MIN_FREE + int(size * tb_ops.STICK_MARGIN * 1.5)  # type: ignore[method-assign]
+    with pytest.raises(tb_ops.OpsFailed, match="must stay free"):
+        r.do_update_apply({"bundle": f.name, "sha256": good})
+    assert seen == []
+    r.disk_free = lambda path: tb_ops.STICK_MIN_FREE + int(size * tb_ops.STICK_MARGIN * 2) + 2  # type: ignore[method-assign]
+    assert r.do_update_apply({"bundle": f.name, "sha256": good})[0].endswith("applied")
+
+
+def test_8_a_deeply_nested_impact_sheet_is_a_warning_never_a_failed_verify(tmp_path: Path) -> None:
+    """Item 8: a ``RecursionError`` decoding the sheet escaped after the staged files were finalised. No longer so:
+    H1's rewrite catches it where the sheet is decoded, and this python decodes the deepest sheet the 16 KiB cap lets
+    in; kept at the real call (a signed bundle, the verifier's own summary): a warning, the bundle verified."""
+    deep = tmp_path / release_note.IMPACT
+    deep.write_text("[" * 8000 + "]" * 8000, encoding="utf-8")
+    (tmp_path / "n.md").write_text("# 合成のノート\n", encoding="utf-8")
+    bundle, pub = _plain_bundle(tmp_path, [("other", deep, release_note.IMPACT),
+                                           ("other", tmp_path / "n.md", release_note.NOTE)])  # fmt: skip
+    rn = summary(verify(bundle, pub, stage=tmp_path / "stage"))["release_note"]
+    assert rn["note"] is True and rn["impact"] is False
+    assert len(rn["warnings"]) == 1 and rn["warnings"][0].startswith("CHANGE-IMPACT.json"), rn
+    assert list((tmp_path / "stage").iterdir())  # staged and finalised: the install goes on
+
+
+def _full_sheet(**edit: Any) -> dict[str, Any]:
+    rows = [{"class": c, "changed": c == "CC4"} for c in ("CC1", "CC2", "CC3", "CC4", "CC5", "CC6")]
+    sheet: dict[str, Any] = {"format": release_note.IMPACT_FORMAT, "classes": rows, "downtime_minutes": 20,
+                             "database_migration": False, "ruleset_reapproval": True}  # fmt: skip
+    for k, v in edit.items():
+        if v is None:
+            sheet.pop(k)
+        else:
+            sheet[k] = v
+    return sheet
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [{"ruleset_reapproval": None}, {"database_migration": None}, {"downtime_minutes": None},
+     {"ruleset_reapproval": "yes"}, {"database_migration": 0}, {"downtime_minutes": -1},
+     {"downtime_minutes": True}, {"downtime_minutes": "20"}],
+    ids=["no reapproval", "no migration", "no downtime", "reapproval a string", "migration a number",
+         "negative downtime", "downtime a bool", "downtime a string"],
+)  # fmt: skip
+def test_9_a_sheet_without_the_migration_reapproval_or_downtime_is_a_warning_and_not_shown(
+    tmp_path: Path, edit: dict[str, Any]
+) -> None:
+    """Item 9: the sheet's check took six good class rows and no ``ruleset_reapproval``; the page then said
+    "Rulesets to approve again: No"."""
+    assert release_note.sheet_problems(_full_sheet()) == []  # a whole sheet passes
+    sheet = tmp_path / release_note.IMPACT
+    sheet.write_text(json.dumps(_full_sheet(**edit)), encoding="utf-8")
+    (tmp_path / "n.md").write_text("# 合成のノート\n", encoding="utf-8")
+    bundle, pub = _plain_bundle(tmp_path, [("other", sheet, release_note.IMPACT),
+                                           ("other", tmp_path / "n.md", release_note.NOTE)])  # fmt: skip
+    rn = summary(verify(bundle, pub))["release_note"]
+    assert rn["note"] is True and rn["impact"] is False, rn
+    assert rn["warnings"] == [
+        "CHANGE-IMPACT.json: the minutes down, the migration or the re-approval is missing or not a plain value"
+    ]
+    got = release_note.read_from_bundle(bundle)  # the runner's read of the private copy says the same
+    assert got["impact"] is None and got["warnings"] == rn["warnings"]
+
+
+class _Audited(tb_ops.OpsRunner):
+    """The real ``audit``: each event's detail is what the box's audit chain would get (``console.ops``)."""
+
+
+def _audit_details(calls: list[list[str]]) -> list[dict[str, Any]]:
+    return [json.loads(c[-1]) for c in calls if "exec" in c and "orchestrator" in c]
+
+
+def test_10_a_cancelled_update_has_its_own_completion_audit_event(tmp_path: Path) -> None:
+    """Item 10: the cancel wrote the update's result itself; the runner then skipped the update and its
+    ``update_apply.done`` event was never written, only the cancel's."""
+    (tmp_path / "incoming").mkdir()
+    (tmp_path / "incoming" / "trialbox-1.tar").write_bytes(b"x")
+    calls: list[list[str]] = []
+
+    def run(argv: Any, timeout: int | None) -> str:
+        calls.append(list(argv))
+        return ""
+
+    env = {"TB_UPDATE_STICK": str(tmp_path / "stick"), "TB_UPDATE_INCOMING": str(tmp_path / "incoming"),
+           **update_drill.STICK_ENV}  # fmt: skip
+    r = _Audited(tb_ops.Box("compose", tmp_path / "deploy", env, run), tb_ops.OpsDir(tmp_path / "ops"))
+    r.now = lambda: datetime.fromisoformat(update_drill.STICK_QUIET)  # type: ignore[method-assign]
+    r.jobs_running = lambda: 0  # type: ignore[method-assign]
+    rq = r.ops.submit("update_apply", "console:admin", {"bundle": "trialbox-1.tar", "when": "quiet"})
+    rc = r.ops.submit("update_cancel", "console:admin", {"target": rq})
+    r.run_pending()
+    events = {(d["action"], d["request"]): d for d in _audit_details(calls)}
+    assert ("update_cancel.done", rc) in events and events[("update_cancel.done", rc)]["ok"] is True
+    assert ("update_apply.done", rq) in events, sorted(events)
+    assert (
+        events[("update_apply.done", rq)]["state"] == "cancelled" and events[("update_apply.done", rq)]["ok"] is False
+    )
+    assert not [c for c in calls if "apply_update.sh" in " ".join(c)]
+
+
+def test_11_a_relative_release_note_is_read_from_where_it_was_named(tmp_path: Path) -> None:
+    """Item 11: ``--release-note notes.ja.yaml`` was looked for in the caller's folder and then read from the project
+    root (the build runs there), so the builder could sign another note than the one the vendor chose."""
+    work = tmp_path / "release-work"
+    work.mkdir()
+    (work / "notes.ja.yaml").write_text(json.dumps(update_drill.STICK_SOURCE, ensure_ascii=False), encoding="utf-8")
+    (work / "gates.json").write_text("{}")
+    (work / "key.pem").write_text("synthetic, never read here")
+    (work / "sbom").mkdir()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "py.log"
+    (bin_dir / "docker").write_text("#!/bin/sh\nexit 1\n")  # the image export after the note stops the build
+    (bin_dir / "py").write_text(f'#!/bin/sh\necho "$PWD|$*" >> {log}\nexec {sys.executable} "$@"\n')
+    for x in ("docker", "py"):
+        (bin_dir / x).chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "PY": str(bin_dir / "py")}
+    r = subprocess.run(["bash", str(ROOT / "tools" / "make_bundle.sh"), "--key", "key.pem", "--id", "2026.12-1",
+                        "--release-seq", "3", "--out", str(tmp_path / "out.tar"), "--gates", "gates.json",
+                        "--sbom-dir", "sbom", "--allow-dirty", "a test", "--release-note", "notes.ja.yaml"],
+                       cwd=work, env=env, capture_output=True, text=True, check=False, timeout=300)  # fmt: skip
+    assert "could not be built" not in r.stderr, r.stderr
+    builds = [ln for ln in log.read_text().splitlines() if "tools.release_note build" in ln]
+    assert len(builds) == 1 and f"--source {work / 'notes.ja.yaml'} " in builds[0], builds
+
+
+def test_12_a_verified_bundle_past_the_listing_limit_keeps_its_record(tmp_path: Path) -> None:
+    """Item 12: the status kept the verified records of the first 50 staged bundles only: ``release-051.tar``,
+    verified, stayed "not verified yet" on the page, with no note and no Apply."""
+    inc = tmp_path / "incoming"
+    inc.mkdir()
+    for i in range(1, tb_ops.STICK_LIST_MAX + 2):
+        (inc / f"release-{i:03d}.tar").write_bytes(b"r%d" % i)
+    r, _calls = _runner(tmp_path)
+    last = f"release-{tb_ops.STICK_LIST_MAX + 1:03d}.tar"
+    rid = r.ops.submit("update_check", "console:admin", {"bundle": last})
+    r.run_pending()
+    assert (r.ops.result(rid) or {}).get("ok") is True
+    st = r.write_status()
+    assert last in st["verified"], sorted(st["verified"])
+    assert st["verified"][last]["sha256"] == hashlib.sha256(b"r%d" % (tb_ops.STICK_LIST_MAX + 1)).hexdigest()
+
+
+def test_a_held_folder_planted_as_a_link_or_open_to_others_is_refused(tmp_path: Path) -> None:
+    """(a) ``deploy/updates/.ops-held`` is the runner's own: one planted as a link is never written through, one
+    open to others is refused, and the copy is made through the folder's own descriptor."""
+    r, f, good, seen = _apply_runner(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir(mode=0o700)
+    updates = tmp_path / "deploy" / "updates"
+    updates.mkdir(parents=True)
+    (updates / tb_ops.HELD_DIR).symlink_to(elsewhere)
+    with pytest.raises(tb_ops.OpsFailed, match="only the runner can open"):
+        r.do_update_apply({"bundle": f.name, "sha256": good})
+    assert seen == [] and list(elsewhere.iterdir()) == []
+    (updates / tb_ops.HELD_DIR).unlink()
+    (updates / tb_ops.HELD_DIR).mkdir(mode=0o700)
+    os.chmod(updates / tb_ops.HELD_DIR, 0o770)
+    with pytest.raises(tb_ops.OpsFailed, match="only the runner can open"):
+        r.do_update_apply({"bundle": f.name, "sha256": good})
+    assert seen == []
+
+
+def test_a_held_folder_made_under_a_wide_umask_is_0700(tmp_path: Path) -> None:
+    r, f, good, _seen = _apply_runner(tmp_path)
+    old = os.umask(0)
+    try:
+        assert r.do_update_apply({"bundle": f.name, "sha256": good})[0].endswith("applied")
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE((tmp_path / "deploy" / "updates" / tb_ops.HELD_DIR).stat().st_mode) == 0o700
+
+
+def test_a_private_copy_left_by_a_crash_is_removed_on_the_next_pass(tmp_path: Path) -> None:
+    r, _calls = _runner(tmp_path)
+    held = tmp_path / "deploy" / "updates" / tb_ops.HELD_DIR
+    (held / "held-crashed").mkdir(parents=True, mode=0o700)
+    os.chmod(held, 0o700)
+    (held / "held-crashed" / "trialbox-1.tar").write_bytes(b"x" * 100)
+    r.run_pending()
+    assert not (held / "held-crashed").exists()
+
+
+@pytest.mark.parametrize("kind", ["not JSON", "another decision", "a link", "a folder"])
+def test_b_a_malformed_or_foreign_decision_record_never_starts_the_update(tmp_path: Path, kind: str) -> None:
+    """(b) ``requests/<id>.decided`` lives where the console's account writes: whatever is there that is not the
+    runner's own ``start`` stops the update (cancelled, nothing changed), never a crash, never a start."""
+    r, calls, sha = _quiet_runner(tmp_path)
+    rq = r.ops.submit("update_apply", "console:admin", {"bundle": "trialbox-1.tar", "when": "quiet", "sha256": sha})
+    p = r.ops.root / "requests" / f"{rq}.decided"
+    if kind == "not JSON":
+        p.write_text("{nope")
+    elif kind == "another decision":
+        p.write_text(json.dumps({"decision": "go"}))
+    elif kind == "a link":
+        (tmp_path / "start.json").write_text(json.dumps({"decision": "start"}))
+        p.symlink_to(tmp_path / "start.json")
+    else:
+        p.mkdir()
+    r.run_pending()
+    res = r.ops.result(rq)
+    assert res is not None and res["ok"] is False and res["state"] == "cancelled", res
+    assert not [c for c in calls if "apply_update.sh" in " ".join(c) and "--dry-run" not in c], calls
+    with pytest.raises(tb_ops.OpsFailed):
+        r.ops.decision("../x")
+
+
+def test_c_an_apply_of_a_file_the_runner_never_verified_is_refused(tmp_path: Path) -> None:
+    """(c) The console compares what the page showed with the verified record, but a console that skips that
+    comparison could send any sha256: the runner applies only a file whose sha256 is its OWN verified record
+    (``<ops>/verified/<bundle>.json``, root's)."""
+    r, f, good, seen = _apply_runner(tmp_path, verified=False)
+    with pytest.raises(tb_ops.OpsRefused, match="not the file that was verified") as got:
+        r.do_update_apply({"bundle": f.name, "sha256": good})
+    assert got.value.why == "unverified" and seen == []
+    _verified_record(r, f.name, "0" * 64)  # a record of another file of that name
+    with pytest.raises(tb_ops.OpsRefused, match="not the file that was verified"):
+        r.do_update_apply({"bundle": f.name, "sha256": good})
+    assert seen == []
+    _verified_record(r, f.name, "1" * 64)  # a record and a request that agree, but the file's bytes are other
+    with pytest.raises(tb_ops.OpsFailed, match="verify it again"):
+        r.do_update_apply({"bundle": f.name, "sha256": "1" * 64})
+    assert seen == []
+    _verified_record(r, f.name, good)
+    assert r.do_update_apply({"bundle": f.name, "sha256": good})[0].endswith("applied")
+
+
+def test_d_a_request_without_a_sha256_is_refused_with_its_reason_kept_and_audited(tmp_path: Path) -> None:
+    """(d) A request an older console queued names no sha256: refused, the result carries ``why: unverified`` (the
+    page says it in the administrator's language) and so does its ``update_apply.done`` event."""
+    (tmp_path / "incoming").mkdir()
+    (tmp_path / "incoming" / "trialbox-1.tar").write_bytes(b"x")
+    calls: list[list[str]] = []
+
+    def run(argv: Any, timeout: int | None) -> str:
+        calls.append(list(argv))
+        return "60\n" if "apply_limit" in " ".join(argv) else ""
+
+    env = {"TB_UPDATE_STICK": str(tmp_path / "stick"), "TB_UPDATE_INCOMING": str(tmp_path / "incoming")}
+    r = _Audited(tb_ops.Box("compose", tmp_path / "deploy", env, run), tb_ops.OpsDir(tmp_path / "ops"))
+    r.apply_limit = lambda: None  # type: ignore[method-assign]
+    rq = r.ops.submit("update_apply", "console:admin", {"bundle": "trialbox-1.tar"})
+    r.run_pending()
+    res = r.ops.result(rq)
+    assert res is not None and res["ok"] is False and res.get("why") == "unverified", res
+    (ev,) = [d for d in _audit_details(calls) if d["request"] == rq]
+    assert ev["action"] == "update_apply.done" and ev["why"] == "unverified" and ev["ok"] is False
+    assert not [c for c in calls if "apply_update.sh" in " ".join(c)]
