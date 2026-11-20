@@ -29,7 +29,7 @@ from typing import Any
 
 import pytest
 from console import notify, prefs
-from console.auth import SCHEMA_V9, AuthError, UserStore
+from console.auth import SCHEMA_V9, AuthError, Role, UserStore
 from console.sitestore import NotifyPerson, SiteStore
 from fastapi.testclient import TestClient
 
@@ -227,6 +227,9 @@ def test_no_preference_opens_a_route_or_shows_a_patient_value_the_defaults_do_no
     users = box["users"]
     name = {"admin": "admin", "viewer": "viewer"}.get(column, f"w{column.replace('_', '')}")  # as clients() names
     assert users.prefs(name) == prefs.DEFAULTS
+    # the walk writes audit lines of its own (a read of a patient, a refusal), which the audit page then lists: one
+    # walk first, so the defaults' answers already hold what any later walk adds
+    _walk(page, job_id)
     ok0, shown0 = _walk(page, job_id)
     assert ok0  # the walk reached pages
     for combo in COMBOS:
@@ -254,7 +257,9 @@ def _notify_helpers(store: SiteStore, users: UserStore, life: dict[str, Any]) ->
 
 def test_no_sae_notice_recipient_changes_with_a_preference() -> None:
     store, users = SiteStore(), UserStore()
-    for name, role in (("syn-pi9", "investigator"), ("syn-crc9", "coordinator"), ("syn-sub9", "investigator")):
+    accounts: tuple[tuple[str, Role], ...] = (
+        ("syn-pi9", "investigator"), ("syn-crc9", "coordinator"), ("syn-sub9", "investigator"))  # fmt: skip
+    for name, role in accounts:
         users.create(name, role, PW, f"{name}@hospa.test")
         store.save_notify_person(NotifyPerson(name, None, lang="en"))
     life = {"today": [], "week": [], "overdue": [], "reports": [], "sae": 1}
