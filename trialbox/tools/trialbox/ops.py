@@ -65,6 +65,7 @@ ACTIONS: tuple[str, ...] = (
     "logs_collect",
     "network_sheet",
     "update_cancel",  # 10K-7 (D-1363): withdraw an update that waits for the quiet hour
+    "update_stick_list",  # the third review, M2 (D-1363): the stick is read only when a listing is asked for
 )
 COMPOSE_ONLY = frozenset({"update_apply", "logs_collect"})
 REQ_ID = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{6}$")
@@ -89,10 +90,12 @@ STICK_COPY_MAX_S = 2 * 3600  # a copy from the stick that takes longer is stoppe
 STICK_STALL_S = 120  # ... and one that moves no byte for 2 minutes (a stick that hangs)
 STICK_GRACE_S, STICK_MIN_RATE = 300, 1_000_000  # after 5 minutes, slower than 1 MB/s on average is stopped
 STICK_LIST_MAX, STICK_SCAN_MAX = 50, 20_000  # bundles listed; entries of the stick looked at
+STICK_LIST_S = 10  # the third review, M2: a listing of the stick that takes longer is stopped (the stick hangs)
 NOTE_RECORD_MAX = 192 * 1024  # a kept note record above this is "too large" on the page (release_note caps the note)
 # H3 (D-1363): the folder under deploy/updates where the runner keeps its private copy of a bundle it verifies or
 # applies (0700, the runner's own; a copy lives only while apply_update.sh reads it)
 HELD_DIR = ".ops-held"
+REFUSE_WHY = ("installed", "older", "trust")  # the third review, L5: why the installer would refuse a verified bundle
 DECISIONS = ("cancel", "start")  # H5: what OpsDir.decide records for a waiting update, once
 Runner = Callable[[Sequence[str], int | None], str]  # (argv, timeout seconds) -> combined output; raises OpsFailed
 
@@ -153,6 +156,7 @@ def _write_json(path: Path, data: Mapping[str, Any]) -> None:
 
 
 MAX_JSON = 64 * 1024  # a request, a result or the status is a few kilobytes
+STATUS_BUDGET = 56 * 1024  # the third review, L8: the status is trimmed to this (staged bundles first), under MAX_JSON
 
 
 MAX_JSON_DEPTH = 32  # nothing the runner writes nests deeper than a few levels
@@ -294,13 +298,38 @@ class OpsDir:
             return "unreadable", None
         return ("ok", rec) if rec.get("sha256") == sha256 else ("none", None)
 
-    def submit(self, action: str, by: str, args: Mapping[str, str] | None = None) -> str:
+    @staticmethod
+    def new_id() -> str:
+        return f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(3)}"
+
+    def submit(self, action: str, by: str, args: Mapping[str, str] | None = None, rid: str | None = None) -> str:
+        """The request, queued; ``rid`` an id made beforehand (:meth:`new_id`: the console names it in the cancel's
+        audit event before it queues the cancel, the third review L2)."""
         if action not in ACTIONS:
             raise OpsFailed(f"unknown action {action!r}")
-        rid = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(3)}"
+        rid = rid or self.new_id()
+        if not REQ_ID.fullmatch(rid):
+            raise OpsFailed(f"bad request id {rid[:40]!r}")
         req = {"id": rid, "action": action, "by": by, "at": datetime.now(UTC).isoformat(), "args": dict(args or {})}
         _write_json(self.root / "requests" / f"{rid}.json", req)
         return rid
+
+    def submit_once(
+        self, action: str, by: str, args: Mapping[str, str] | None, busy: Sequence[str], rid: str | None = None
+    ) -> str | None:
+        """The third review, L9 (D-1363): the busy check and the queueing as ONE step: under an exclusive lock on
+        ``requests/.submit.lock`` (``flock``: released when the holder ends, even by a crash), a request is queued only
+        when none of the actions ``busy`` is pending; else None. Two posts at once: one wins, the other is busy."""
+        lockp = self.root / "requests" / ".submit.lock"
+        lockp.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(lockp, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o660)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            if any(str(r.get("action")) in busy for r in self.pending()):
+                return None
+            return self.submit(action, by, args, rid)
+        finally:
+            os.close(fd)  # the lock goes with the descriptor
 
     def requests(self) -> list[dict[str, Any]]:
         out = []
@@ -350,6 +379,9 @@ class OpsDir:
         p.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(prefix=f".{rid}.", suffix=".part", dir=p.parent)
         try:
+            # the third review, L1: readable by the console's account (mkstemp gives 0600): it holds only the
+            # decision, who and when, and the console must see "start" to say why it refuses a cancel
+            os.fchmod(fd, 0o644)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 json.dump({"decision": what, "by": str(by)[:80], "at": _now()}, fh)
             try:
@@ -361,6 +393,11 @@ class OpsDir:
             with contextlib.suppress(OSError):
                 os.unlink(tmp)
         return what
+
+    def decided_by(self, rid: str) -> str:
+        """The third review, L2: who made the decision of the update ``rid`` (the console's actor for a cancel)."""
+        got, _why = read_json_state(self._decided(rid))
+        return str((got or {}).get("by") or "")[:80]
 
     def running(self) -> list[dict[str, Any]]:
         """The pending requests that have started (one, while the runner works on it)."""
@@ -397,6 +434,7 @@ class OpsDir:
         started: str,
         state: str = "",
         why: str = "",
+        cancelled_by: str = "",
     ) -> None:
         """``state``: ``done``, ``failed``, ``interrupted`` (it started and was cut off), ``expired`` (it waited
         longer than :data:`MAX_AGE_MIN`, or a quiet update :data:`QUIET_WAIT_H`) or ``superseded`` (a quiet update
@@ -417,6 +455,7 @@ class OpsDir:
                 "started": started,
                 "finished": _now(),
                 **({"why": why} if why else {}),  # OpsRefused: the sentence the page says (10K-7)
+                **({"cancelled_by": cancelled_by} if cancelled_by else {}),  # the third review, L2
             },
         )
 
@@ -570,6 +609,7 @@ class OpsRunner:
             try:
                 done: list[dict[str, Any]] = []
                 self._clean_held()  # (a) a private copy left by a runner that was cut off (a crash, a reboot)
+                self._sweep_parts()  # the third review, L7: a copy from the stick cut off the same way
                 # 10K-7: a cancel is taken before the update it withdraws, which then is not run
                 for req in sorted(self.ops.pending(), key=lambda r: r.get("action") != "update_cancel"):
                     if self.ops.result(str(req.get("id"))) is not None:
@@ -594,6 +634,24 @@ class OpsRunner:
             finally:
                 fcntl.flock(lock, fcntl.LOCK_UN)
         return done
+
+    def _sweep_parts(self) -> None:
+        """The third review, L7 (D-1363): ``incoming/.<bundle>.part`` left by a copy from the stick that was cut off
+        (a crash, a reboot): under the runner's lock no copy runs in this process, so each is removed, through the
+        folder's descriptor (a regular file only; a link or a folder of that name is left alone). A copy stopped by
+        the watch under ``ops run --watch`` keeps its unlinked file (and its space) open until the process ends."""
+        try:
+            fd = os.open(self.box.incoming(), os.O_RDONLY | os.O_DIRECTORY)
+        except OSError:
+            return
+        try:
+            for name in os.listdir(fd):
+                if name.startswith(".") and name.endswith(".part") and bundle_name(name[1:-5]):
+                    with contextlib.suppress(OSError):
+                        if stat.S_ISREG(os.stat(name, dir_fd=fd, follow_symlinks=False).st_mode):
+                            os.unlink(name, dir_fd=fd)
+        finally:
+            os.close(fd)
 
     def _cancels_for(self, rid: str) -> list[dict[str, Any]]:
         """H5 (D-1363): the pending cancels of the update ``rid``, run now, before it is looked at."""
@@ -624,7 +682,8 @@ class OpsRunner:
         rid = str(req.get("id"))
         if req.get("action") == "update_apply" and REQ_ID.fullmatch(rid) and self.ops.decision(rid) == "cancel":
             # H5: the console accepted a cancel of this update (its record), whether or not its request is here yet
-            self.ops.write_result(req, False, CANCELLED, [], _now(), state="cancelled")
+            self.ops.write_result(req, False, CANCELLED, [], _now(), state="cancelled",
+                                  cancelled_by=self.ops.decided_by(rid))  # fmt: skip
             return self.ops.result(rid)
         if "when" not in args or self.ops.marker(str(req.get("id"))).is_file():
             return self.close_stale(req) or self.run_one(req)
@@ -693,6 +752,8 @@ class OpsRunner:
                   "state": res.get("state"), "by": res.get("by")}  # fmt: skip
         if res.get("why"):  # (d) the refusal the page says, as the event says it
             detail["why"] = res.get("why")
+        if res.get("cancelled_by"):  # the third review, L2: who cancelled, beside who asked
+            detail["cancelled_by"] = res.get("cancelled_by")
         code = (
             "import json, sys\nfrom tb_common.audit_writer import open_audit\n"
             "open_audit().append('console.ops', actor='trialbox-ops', detail=json.loads(sys.argv[1]))\n"
@@ -703,13 +764,15 @@ class OpsRunner:
             self.box.run(argv, 120)
 
     _request: str | None = None  # the request run_one is running (H5: the update whose start is recorded)
+    _by: str = ""  # ... and who asked for it (the third review, L2: a cancel asked another way is recorded as theirs)
 
     def run_one(self, req: Mapping[str, Any]) -> dict[str, Any]:
         started = _now()
         action = str(req.get("action"))
         _write_json(self.ops.marker(str(req.get("id"))), {"id": req.get("id"), "action": action, "started": started})
-        state = why = ""
+        state = why = cancelled_by = ""
         self._request = str(req.get("id"))
+        self._by = str(req.get("by") or "")
         try:
             if action not in ACTIONS:
                 raise OpsFailed(f"unknown action {action!r}")
@@ -720,13 +783,15 @@ class OpsRunner:
             ok = True
         except OpsCancelled as exc:  # H5: cancelled on the console before the installer started
             summary, lines, ok, state = str(exc)[:300], [], False, "cancelled"
+            cancelled_by = self.ops.decided_by(str(req.get("id")))
         except OpsRefused as exc:  # (d): the page says why in the administrator's language
             summary, lines, ok, why = f"OpsRefused: {exc}"[:300], [], False, exc.why
         except Exception as exc:  # every failure is a result the console shows, never a crash of the timer
             summary, lines, ok = f"{type(exc).__name__}: {exc}"[:300], [], False
         finally:
             self._request = None
-        self.ops.write_result(req, ok, summary, lines, started, state=state, why=why)
+            self._by = ""
+        self.ops.write_result(req, ok, summary, lines, started, state=state, why=why, cancelled_by=cancelled_by)
         with contextlib.suppress(OSError):
             self.ops.marker(str(req["id"])).unlink()
         out = self.ops.result(str(req["id"]))
@@ -881,6 +946,9 @@ class OpsRunner:
         out = out.replace(str(copy), str(p))  # the lines name the staged bundle, not the private copy
         lines = ([copied] if copied else []) + out.strip().splitlines() + [f"sha256 {sha}"]
         lines += [f"warning: {w}" for w in got["warnings"]]
+        if fresh:  # the third review, L4: the copy added a file to the box; nothing was installed
+            return (f"{p.name}: copied to the box and verified, signature and every file (sha256 {sha[:12]}); "
+                    "nothing was installed"), lines  # fmt: skip
         return f"{p.name}: signature and every file verified (sha256 {sha[:12]}); nothing was changed", lines
 
     def _open_stick(self, src: Path) -> tuple[Any, os.stat_result]:
@@ -1165,10 +1233,20 @@ class OpsRunner:
                "verified_at": _now(), "bundle_id": str(got.get("bundle_id") or "")[:120],
                "release_seq": got.get("release_seq") if isinstance(got.get("release_seq"), int) else None,
                "note": got.get("note_ja") is not None and got.get("impact") is not None,
-               "warnings": [str(w)[:200] for w in (got.get("warnings") or [])][:5]}  # fmt: skip
+               "warnings": [str(w)[:200] for w in (got.get("warnings") or [])][:5],
+               "trust_sha256": self._trust_sha()}  # fmt: skip
         _write_json(self.ops.notes / f"{p.name}.json", {**rec, "note_ja": got.get("note_ja"),
                                                          "impact": got.get("impact")})  # fmt: skip
         _write_json(self.ops.verified / f"{p.name}.json", rec)
+
+    def _trust_sha(self) -> str | None:
+        """The sha256 of ``deploy/updates/trust.json`` (None when there is none): the keys a check trusted."""
+        import hashlib
+
+        try:
+            return hashlib.sha256((self.box.deploy / "updates" / "trust.json").read_bytes()).hexdigest()
+        except OSError:
+            return None
 
     def _forget(self, name: str) -> None:
         if bundle_name(name):
@@ -1226,10 +1304,55 @@ class OpsRunner:
             raise OpsFailed(f"nothing to cancel: {rid[:40]!r} is not an update waiting for the quiet hour")
         # H5: the console wrote the cancel record when it accepted the cancel; one asked another way is recorded here.
         # Whichever of the cancel and the runner's start came first holds
-        if self.ops.decide(rid, "cancel", "trialbox-ops") != "cancel":
+        if self.ops.decide(rid, "cancel", self._by or "trialbox-ops") != "cancel":
             raise OpsFailed("not cancelled: this update has started; it runs to its end or rolls back by itself")
-        self.ops.write_result(target, False, CANCELLED, [], _now(), state="cancelled")
+        self.ops.write_result(target, False, CANCELLED, [], _now(), state="cancelled",
+                              cancelled_by=self.ops.decided_by(rid))  # fmt: skip
         return f"update {rid} ({_args(target).get('bundle')}) cancelled before it ran", []
+
+    list_s: float = STICK_LIST_S
+    _list_thread: Any = None  # a listing thread the stick left hanging (one at most per process)
+
+    def do_update_stick_list(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
+        """The third review, M2 (D-1363): the stick listed when the administrator asks, never on a runner pass. The
+        listing (:func:`_read_stick`) runs in a thread the runner watches for :data:`STICK_LIST_S`: a stick that hangs
+        in the kernel cannot hold the runner, its lock and every backup. Kept in ``<ops>/stick.json`` (root's), which
+        the status shows until the next listing; a listing that did not answer is kept as ``hung``. A thread the
+        stick left hanging stays in the kernel until the stick answers or is pulled; while it does, no other
+        listing is started."""
+        import threading
+
+        root = self.box.stick()
+        prev = type(self)._list_thread
+        hung = {"path": str(root), "mounted": True, "bundles": [], "cut": False, "refused": 0, "hung": True}
+        if prev is not None and prev.is_alive():
+            _write_json(self.ops.root / "stick.json", {**hung, "listed_at": _now()})
+            raise OpsFailed("not listed: the stick has not answered the last listing yet; pull it out and try "
+                            "another stick or port")  # fmt: skip
+        got: dict[str, Any] = {}
+
+        def work() -> None:
+            try:
+                got["listing"] = _read_stick(root)
+            except BaseException as exc:  # handed to the runner's thread
+                got["err"] = exc
+
+        t = threading.Thread(target=work, name="stick-list", daemon=True)
+        t.start()
+        t.join(self.list_s)
+        if t.is_alive():
+            type(self)._list_thread = t
+            _write_json(self.ops.root / "stick.json", {**hung, "listed_at": _now()})
+            raise OpsFailed(f"not listed: the stick did not answer within {self.list_s:.0f} s; pull it out and try "
+                            "another stick or port")  # fmt: skip
+        if "err" in got:
+            raise got["err"]
+        listing = got.get("listing") or {}
+        _write_json(self.ops.root / "stick.json", {**listing, "listed_at": _now()})
+        if not listing.get("mounted"):
+            return f"no update stick inserted (nothing mounted at {root})", []
+        n = len(listing.get("bundles") or [])
+        return f"the update stick holds {n} bundle{'' if n == 1 else 's'} (listed; nothing copied)", []
 
     def do_logs_collect(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
         from tools.trialbox import logs as tb_logs
@@ -1261,6 +1384,10 @@ class OpsRunner:
     # -------------------------------------------------------------------------------------------- status
     def write_status(self) -> dict[str, Any]:
         st = snapshot(self.box)
+        # the third review, M2: the stick as it was last listed on request (never read here); None: not looked at
+        listed = _read_json(self.ops.root / "stick.json")
+        st["stick"] = {k: v for k, v in listed.items() if k != "listed_at"} if listed else None
+        st["stick_at"] = str((listed or {}).get("listed_at") or "")
         st["verified"] = self._verified(st.get("incoming") or [])  # 10K-7 (D-1363): small; the notes are apart
         st["quiet"] = quiet_facts(self.box.env)
         st["waiting"] = [  # T-730b (D-731): the updates that wait for the quiet hour, and why
@@ -1269,6 +1396,7 @@ class OpsRunner:
             for r in self.ops.pending()
             if _args(r).get("when") == "quiet" and r.get("action") == "update_apply"
         ]  # fmt: skip
+        _fit(st)
         _write_json(self.ops.root / "status.json", st)
         return st
 
@@ -1288,12 +1416,44 @@ class OpsRunner:
                 ):
                     out[name] = {k: rec.get(k) for k in ("sha256", "verified_at", "bundle_id", "release_seq", "note",
                                                           "warnings")}  # fmt: skip
+                    if why := self._would_refuse(rec):
+                        out[name]["refuse"] = why
         # the status stays small (MAX_JSON): the most recently verified first, at most STICK_LIST_MAX records
         newest = sorted(out, key=lambda n: (str(out[n].get("verified_at") or ""), n), reverse=True)[:STICK_LIST_MAX]
         return {n: out[n] for n in sorted(newest)}
 
+    def _would_refuse(self, rec: Mapping[str, Any]) -> str:
+        """The third review, L5 (D-1363): why the installer would refuse this verified bundle NOW, though its check
+        passed: ``installed`` (its release_seq is the installed one), ``older`` (below it), ``trust`` (the box's
+        trusted keys changed since the check: verify again); "" when none is known."""
+        seq = rec.get("release_seq")
+        inst = (_read_json(self.box.deploy / "updates" / "installed.json") or {}).get("release_seq")
+        if isinstance(seq, int) and isinstance(inst, int) and not isinstance(inst, bool):
+            if seq == inst:
+                return "installed"
+            if seq < inst:
+                return "older"
+        if "trust_sha256" in rec and rec.get("trust_sha256") != self._trust_sha():
+            return "trust"
+        return ""
+
 
 CANCELLED = "cancelled on the console before it ran; nothing was changed. Ask again if it is still wanted"
+
+
+def _status_bytes(st: Mapping[str, Any]) -> int:
+    return len(json.dumps(st, indent=1, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+
+
+def _fit(st: dict[str, Any]) -> None:
+    """The third review, L8 (D-1363): the status kept under :data:`STATUS_BUDGET` bytes (the console reads at most
+    :data:`MAX_JSON`): the oldest staged bundles (and their verified records) are left out first, ``incoming_cut``
+    then says the list is not all of them."""
+    while _status_bytes(st) > STATUS_BUDGET and st.get("incoming"):
+        oldest = min(st["incoming"], key=lambda b: (str(b.get("at")), str(b.get("name"))))
+        st["incoming"] = [b for b in st["incoming"] if b is not oldest]
+        (st.get("verified") or {}).pop(str(oldest.get("name")), None)
+        st["incoming_cut"] = True
 
 
 def _sha_stream(fh: Any) -> str:
@@ -1335,18 +1495,24 @@ def _regular(p: Path) -> bool:
         return False
 
 
-def stick_listing(box: Box) -> dict[str, Any]:
+def _read_stick(root: Path) -> dict[str, Any]:
     """10K-7 (D-1363): the bundles directly on the update stick: regular files of a bundle's name (never a link or a
     folder), the first :data:`STICK_LIST_MAX` by name, found among any number of other files (up to
     :data:`STICK_SCAN_MAX` entries looked at); ``cut`` when the list is not all of them, ``refused`` the ``.tar``
-    files whose names are not a bundle's (non-ASCII, a control character). No file on the stick is opened here."""
-    root = box.stick()
+    files whose names are not a bundle's (non-ASCII, a control character). No file on the stick is opened here.
+    Run only on request, in a watched thread (:meth:`OpsRunner.do_update_stick_list`, the third review M2).
+
+    The third review, L3: the mount point is usually there with nothing mounted on it: an empty folder that is not a
+    mount point is "no stick inserted", not "the stick holds no bundle". A folder that holds files but is not a
+    mount point (the drill's and the tests' stick; files left in the mount point) is listed as the stick."""
     out: dict[str, Any] = {"path": str(root), "mounted": root.is_dir(), "bundles": [], "cut": False, "refused": 0}
     if not out["mounted"]:
         return out
     found: list[tuple[str, os.stat_result]] = []
+    seen = 0
     with contextlib.suppress(OSError), os.scandir(root) as it:
         for i, e in enumerate(it):
+            seen = i + 1
             if i >= STICK_SCAN_MAX:
                 out["cut"] = True
                 break
@@ -1357,6 +1523,9 @@ def stick_listing(box: Box) -> dict[str, Any]:
                         found.append((e.name, st))
                 elif e.name.lower().rstrip().endswith(".tar"):
                     out["refused"] += 1
+    if not seen and not os.path.ismount(root):
+        out["mounted"] = False  # L3: an empty mount point, nothing mounted on it
+        return out
     found.sort()
     if len(found) > STICK_LIST_MAX:
         out["cut"] = True
@@ -1414,7 +1583,11 @@ def snapshot(box: Box) -> dict[str, Any]:
     updates = box.deploy / "updates"
     hist = _history(updates)
     applied = [h for h in hist if h.get("step") == "audited update.applied" and h.get("ok")]
-    previous = applied[-2].get("bundle") if len(applied) > 1 else ""  # 10K-7: the release before the current one
+    # 10K-7: the release before the current one. The third review, L6: the last OTHER release applied (a repeat
+    # apply is the same release); none named when none is in what is read (only the last lines of the history)
+    current = str(applied[-1].get("bundle") or "") if applied else ""
+    others = (str(h.get("bundle") or "") for h in reversed(applied))
+    previous = next((b for b in others if b != current), "")
     bundles: dict[str, dict[str, Any]] = {}
     for h in hist:  # one line per bundle: its last step and whether the update ended applied or rolled back
         b = str(h.get("bundle") or "")
@@ -1444,10 +1617,19 @@ def snapshot(box: Box) -> dict[str, Any]:
         )
     incoming = []
     inc = box.incoming()
+    staged: list[tuple[float, str, int]] = []
     if inc.is_dir():
-        for p in sorted(inc.glob("*.tar")):
-            if bundle_name(p.name):
-                incoming.append({"name": p.name, "bytes": p.stat().st_size, "at": _mtime(p)})
+        for p in inc.glob("*.tar"):
+            if bundle_name(p.name):  # the name's length is capped by the pattern (at most 125 characters)
+                with contextlib.suppress(OSError):
+                    st = p.stat()
+                    staged.append((st.st_mtime, p.name, st.st_size))
+    # the third review, L8: the newest STICK_LIST_MAX staged bundles (``incoming_cut`` when there are more); the
+    # status's bytes are bounded again by _fit
+    staged.sort(reverse=True)
+    for mtime, name, size in sorted(staged[:STICK_LIST_MAX], key=lambda x: x[1]):
+        incoming.append({"name": name, "bytes": size,
+                         "at": datetime.fromtimestamp(mtime, UTC).isoformat(timespec="seconds")})  # fmt: skip
     targets = []
     newest = ""
     for t in box.targets():
@@ -1483,10 +1665,10 @@ def snapshot(box: Box) -> dict[str, Any]:
             "applied_at": applied[-1].get("at") if applied else "",
             "previous": previous,
         },
-        "stick": stick_listing(box),
         "updates": sorted(bundles.values(), key=lambda r: str(r.get("last")), reverse=True)[:10],
         "rollback_points": points[-10:],
         "incoming": incoming,
+        "incoming_cut": len(staged) > STICK_LIST_MAX,
         "backups": {
             "targets": targets,
             "newest": newest,

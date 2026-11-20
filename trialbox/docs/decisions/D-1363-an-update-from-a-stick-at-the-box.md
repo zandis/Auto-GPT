@@ -30,7 +30,8 @@ is "apply the previous release's bundle" with `--allow-downgrade REASON` at the 
    and refusing would break the bundles a site must still take: one built before this card, the previous release a
    site returns to, a key rotation, an OS patch. The bundle maker is where the note is required.
 3. **The stick.** The runner lists the bundles directly on the stick's mount (`TB_UPDATE_STICK`, default
-   `/media/trialbox-update`; regular files of a bundle's name, never a link) in the status. The console's "Verify
+   `/media/trialbox-update`; regular files of a bundle's name, never a link) in the status, when a listing is asked
+   for (the third review, M2). The console's "Verify
    and copy to the box" (`update_stick_check`) is the runner's `update_check` with `from: stick`: it copies the file
    into the incoming folder (a temporary name, renamed when whole; a different bundle of that name already there is
    refused; the stick is only read), runs the same `apply_update.sh --dry-run`, removes its copy when the verifier
@@ -51,7 +52,7 @@ is "apply the previous release's bundle" with `--allow-downgrade REASON` at the 
    decides (below).
 
 **After the independent review** (NOT READY: 3 blocking, 7 to fix; each fixed with its test):
-- *The status stays small.* The notes are no longer copied into `status.json`, which the console reads with a
+- *The status stays small* (bounded in bytes only after the third review, L8). The notes are no longer copied into `status.json`, which the console reads with a
   64 KiB cap (26 staged bundles made the page lose its whole status). The runner keeps one small record per verified
   bundle (`<ops>/verified/<bundle>.json`: the sha256 and the file's size, time and inode), which the status lists,
   and the note apart (`<ops>/notes/<bundle>.json`), which the console reads per bundle with a cap (192 KiB) and shows
@@ -102,7 +103,10 @@ failed on d314d016, then fixed; `tests/unit/test_update_from_a_stick.py`, `tests
 - *H4, the drill deletes only its own folder.* `--dir` (both `update_drill` and `update_drill stick`) is a folder that
   does not exist yet (made, with the mark `.tb-update-drill`) or one holding that mark, which is emptied (the folder
   kept, links inside removed, never followed). A folder without the mark, a link (even to a marked folder) or a file is
-  refused, exit 2, before anything is removed.
+  refused, exit 2, before anything is removed. *Corrected after the third review (M1):* the folder was checked by path and then
+  emptied by path again, so a folder another account could swap for a link between the two (the default parent
+  `/var/tmp/trialbox-<uid>` can be made first by any local account) had the link's target emptied: "never follows a
+  link and removes nothing outside" was not true then. It is now; see below.
 - *H5, a cancel accepted before the installer starts stops the update.* Each waiting update has one decision record
   beside the requests (`requests/<id>.decided`, written once by a hard link, so the first of the two writers wins and
   neither is overwritten). The console accepts a cancel only by writing `cancel` there, and refuses it (409, "this
@@ -168,6 +172,37 @@ to `test_12_`, `test_a_` to `test_d_`):
 - Who may start, confirm or cancel an update is unchanged; no matrix row is added or widened. The verifier still
   imports only its own modules.
 
+**After the third independent review of PR #1213** (three Medium, nine Low; each first failed by a test on 08a63605,
+then fixed; `tests/unit/test_update_from_a_stick.py` and `tests/console/test_ops_pages.py`, names `test_r3_`):
+- *M1, the drill's folder.* Every folder from `/` to `--dir`'s parent must be the caller's or root's and not
+  writable by others unless sticky (`/var/tmp`), else refused before anything is removed; `--dir` must be the
+  caller's own. It is opened once through its parent's descriptor without following a link, and made (`mkdir` with
+  `dir_fd`) and emptied (`unlink`/`rmtree` with `dir_fd`) through its own descriptor, never by its path again.
+- *M2, the stick is read only on request.* The runner no longer lists the stick on every pass (nor `snapshot`, nor
+  the support bundle that reads it): "Look at the update stick" (`update_stick_list`, under `ops.update_check`, the
+  verify's right; no matrix row) asks for one listing, made in a thread the runner watches for 10 s and kept in
+  `<ops>/stick.json`, which the status shows with its time until the next listing. Remaining limit: a listing (or a
+  copy) the stick leaves hanging keeps its thread in the kernel until the stick answers or is pulled; while one does,
+  no other listing starts; the lstat and open before a copy are still unwatched (below).
+- *M3, the signed release.* The verified line names the verified record's `bundle_id` and `release_seq` for every
+  verified bundle (not only one with a sheet), the page warns when the file's name does not carry the `bundle_id`, the
+  confirmations of Apply and Apply in the quiet hour name it (en/ja/zh-TW), and the `console.ops` event carries it
+  (`release`).
+- *L1* the runner's `start` record is 0644 (it holds the decision, who and when), so the console reads `start`, not
+  `unreadable`. *L2* the console audits a cancel as soon as its record is written, says it is recorded when the
+  request that tells the runner cannot be queued (never "unavailable"), and the cancelled result and its
+  `update_apply.done` event carry `cancelled_by`. *L3* an empty folder that is not a mount point is "no stick
+  inserted". *L4* a check that copied from the stick says "copied to the box and verified; nothing was installed".
+  *L5* a verified bundle whose release is installed, older, or that was checked before `trust.json` changed shows
+  why the installer would refuse it and no Apply. *L6* "the release that ran before this one" is the last other
+  release applied in what is read of the history; none is named when it is not known (the set-up release is not
+  recorded on the box). *L7* `incoming/.<bundle>.part` left by a cut-off copy is removed on the runner's next pass
+  (under `ops run --watch` a stopped copy keeps its unlinked file and space until the process ends). *L8* the status
+  lists the newest 50 staged bundles and is trimmed (oldest staged bundles first, `incoming_cut`) to 56 KiB, under the
+  console's 64 KiB; names are capped at 125 characters by their pattern. *L9* the console's busy check and the
+  queueing are one step under an exclusive lock (`requests/.submit.lock`, `flock`): of two posts at once one wins.
+  Any administrator may cancel any waiting quiet update (as before; the comment no longer says "one's").
+
 ## Consequences
 
 - The drill `python -m tools.update_drill stick` (no database; `tests/unit/test_update_from_a_stick.py`) shows the
@@ -185,6 +220,8 @@ to `test_12_`, `test_a_` to `test_d_`):
 
 ## Not covered
 
+- A listing the stick leaves hanging (M2 of the third review) is stopped and said after 10 s, but its thread stays in
+  the kernel until the stick answers or is pulled; no other listing starts meanwhile.
 - A stick that hangs inside `open()` or `lstat()` (before any read) is not watched: the runner looks at the file
   before it opens it, with `O_NONBLOCK`; the host's mount options and the media procedure are the guard there.
 

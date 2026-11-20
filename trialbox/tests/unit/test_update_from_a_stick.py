@@ -264,7 +264,8 @@ def _check(r: _Runner, name: str) -> dict[str, Any]:
 
 def test_no_stick_is_said_and_nothing_is_copied(tmp_path: Path) -> None:
     r, calls = _runner(tmp_path)
-    st = r.write_status()
+    assert r.write_status()["stick"] is None  # the third review, M2: not read until a listing is asked for
+    st = {"stick": _listing(r)}
     assert st["stick"] == {"path": str(tmp_path / "stick"), "mounted": False, "bundles": [], "cut": False, "refused": 0}
     res = _check(r, "trialbox-1.tar")
     assert res["ok"] is False and "is it inserted?" in res["summary"] and calls == []
@@ -278,7 +279,7 @@ def test_a_bundle_on_the_stick_is_copied_verified_and_its_note_kept(tmp_path: Pa
     (tmp_path / "stick" / bundle.name).write_bytes(bundle.read_bytes())
     (tmp_path / "stick" / f"{bundle.name}.sha256").write_text("x\n")
     r, calls = _runner(tmp_path)
-    assert r.write_status()["stick"]["bundles"][0]["sidecar"] is True
+    assert _listing(r)["bundles"][0]["sidecar"] is True
     res = _check(r, bundle.name)
     assert res["ok"] is True and "copied from the update stick" in res["lines"][0]
     # H1/H3 (D-1363): apply_update.sh verifies the runner's private copy of the file it hashed, gone afterwards
@@ -358,7 +359,7 @@ def test_a_name_refused_on_the_stick_is_not_listed_and_is_counted(tmp_path: Path
     stick.mkdir()
     for n in ("trialbox-1.tar", "x.tar\n", "aリリース.tar"):
         (stick / n).write_bytes(b"x")
-    st = _runner(tmp_path)[0].write_status()["stick"]
+    st = _listing(_runner(tmp_path)[0])
     assert [b["name"] for b in st["bundles"]] == ["trialbox-1.tar"] and st["refused"] == 2 and st["cut"] is False
 
 
@@ -508,7 +509,7 @@ def test_a_folder_or_a_pipe_named_like_a_bundle_is_refused_without_opening_it(tm
     r, calls = _runner(tmp_path)
     assert "is a folder, not a bundle" in _check(r, "trialbox-1.tar")["summary"]
     assert "not a regular file" in _check(r, "trialbox-2.tar")["summary"] and calls == []
-    assert r.write_status()["stick"]["bundles"] == []
+    assert _listing(r)["bundles"] == []
 
 
 def test_the_real_bundle_is_found_among_thousands_of_other_files_and_a_cut_list_says_so(tmp_path: Path) -> None:
@@ -517,11 +518,11 @@ def test_the_real_bundle_is_found_among_thousands_of_other_files_and_a_cut_list_
     for i in range(3000):
         (stick / f"aaa-{i:04d}.txt").write_bytes(b"")
     (stick / "trialbox-2026.12-1.tar").write_bytes(b"x")
-    st = _runner(tmp_path)[0].write_status()["stick"]
+    st = _listing(_runner(tmp_path)[0])
     assert [b["name"] for b in st["bundles"]] == ["trialbox-2026.12-1.tar"] and st["cut"] is False
     for i in range(tb_ops.STICK_LIST_MAX + 5):
         (stick / f"trialbox-{i:03d}.tar").write_bytes(b"x")
-    st = _runner(tmp_path)[0].write_status()["stick"]
+    st = _listing(_runner(tmp_path)[0])
     assert len(st["bundles"]) == tb_ops.STICK_LIST_MAX and st["cut"] is True
 
 
@@ -585,7 +586,7 @@ def _stick_with_bad_names(tmp: Path) -> Path:
 def test_the_stick_lists_only_regular_files_with_a_bundle_name(tmp_path: Path) -> None:
     _stick_with_bad_names(tmp_path)
     r, _ = _runner(tmp_path)
-    st = r.write_status()
+    st = {"stick": _listing(r)}
     assert [b["name"] for b in st["stick"]["bundles"]] == [GOOD]
     text = (tmp_path / "ops" / "status.json").read_text(encoding="utf-8")
     for name in [*BAD_NAMES.values(), "link-outside.tar", "folder.tar"]:
@@ -596,7 +597,7 @@ def test_a_linked_sidecar_does_not_count(tmp_path: Path) -> None:
     stick = _stick_with_bad_names(tmp_path)
     (stick / f"{GOOD}.sha256").symlink_to(tmp_path / "outside.tar")
     r, _ = _runner(tmp_path)
-    (row,) = [b for b in r.write_status()["stick"]["bundles"] if b["name"] == GOOD]
+    (row,) = [b for b in _listing(r)["bundles"] if b["name"] == GOOD]
     assert row["sidecar"] is False
 
 
@@ -1190,3 +1191,321 @@ def test_d_a_request_without_a_sha256_is_refused_with_its_reason_kept_and_audite
     (ev,) = [d for d in _audit_details(calls) if d["request"] == rq]
     assert ev["action"] == "update_apply.done" and ev["why"] == "unverified" and ev["ok"] is False
     assert not [c for c in calls if "apply_update.sh" in " ".join(c)]
+
+
+# ------------------------------------------------------- the third review of PR #1213: M1 to M3 and L1 to L9 (D-1363)
+def test_r3_m1_a_drill_folder_swapped_for_a_link_after_its_check_empties_nothing_outside(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M1: ``drill_dir`` checked ``--dir`` by lstat, then emptied it by path: another account that swaps the folder
+    for a link between the two (its parent was theirs) had the link's target emptied by root. The swap is made in
+    that window, at the first listing of the folder, however it is listed."""
+    base = tmp_path / "parent"
+    base.mkdir(mode=0o700)
+    d = base / "tb-update-drill"
+    d.mkdir()
+    (d / update_drill.DRILL_MARK).write_text("mark")
+    (d / "old-run.txt").write_text("the drill's own left-over")
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    (victim / "precious.txt").write_text("keep me")
+    (victim / "sub").mkdir()
+    (victim / "sub" / "x").write_text("x")
+    real = os.scandir
+    swapped: list[bool] = []
+
+    def racing(*a: Any, **kw: Any) -> Any:
+        if not swapped:
+            swapped.append(True)
+            os.rename(d, base / "moved-away")
+            os.symlink(victim, d)
+        return real(*a, **kw)
+
+    monkeypatch.setattr(os, "scandir", racing)
+    update_drill.drill_dir(d)
+    monkeypatch.setattr(os, "scandir", real)
+    assert sorted(p.name for p in victim.iterdir()) == ["precious.txt", "sub"]
+    assert (victim / "sub" / "x").read_text() == "x"
+
+
+def test_r3_m1_a_parent_another_account_could_write_or_owns_is_refused(tmp_path: Path) -> None:
+    """M1: the default ``--dir`` sits in ``/var/tmp/trialbox-<uid>``, which any local account can make first; a
+    parent folder open to others' writes (no sticky bit), or another account's, is refused before anything is
+    removed, and nothing is made in it."""
+    base = tmp_path / "open"
+    base.mkdir()
+    os.chmod(base, 0o777)
+    d = base / "tb-update-drill"
+    d.mkdir()
+    (d / update_drill.DRILL_MARK).write_text("mark")
+    (d / "keep.txt").write_text("x")
+    why = update_drill.drill_dir(d)
+    assert why is not None and "others" in why and (d / "keep.txt").exists()
+    assert update_drill.drill_dir(base / "new") is not None and not (base / "new").exists()
+    if os.geteuid() == 0:  # another account's folder (only root can make one here)
+        theirs = tmp_path / "theirs"
+        theirs.mkdir(mode=0o755)
+        os.chown(theirs, 10001, 10001)
+        why = update_drill.drill_dir(theirs / "tb-update-drill")
+        assert why is not None and "owned" in why and not (theirs / "tb-update-drill").exists()
+    mine = tmp_path / "mine"
+    mine.mkdir(mode=0o700)
+    assert update_drill.drill_dir(mine / "d") is None and (mine / "d" / update_drill.DRILL_MARK).is_file()
+
+
+def _listing(r: tb_ops.OpsRunner) -> dict[str, Any]:
+    """M2: the stick is read only when a listing is asked for (``update_stick_list``), then shown from the status."""
+    rid = r.ops.submit("update_stick_list", "console:admin")
+    r.run_pending()
+    assert r.ops.result(rid) is not None
+    st = r.ops.status()
+    assert st is not None
+    return dict(st["stick"])
+
+
+def test_r3_m2_a_runner_pass_never_reads_the_stick_unless_a_listing_was_asked_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M2: every pass of the runner listed the stick in its own thread, under the runner's lock: a stick that hangs
+    in the kernel stopped every backup. Now a pass (and the status it writes) does not touch the stick."""
+    stick = tmp_path / "stick"
+    stick.mkdir()
+    (stick / "trialbox-1.tar").write_bytes(b"x")
+    r, _calls = _runner(tmp_path)
+    touched: list[str] = []
+    real_scandir, real_lstat = os.scandir, os.lstat
+
+    def scandir(p: Any = ".") -> Any:
+        if isinstance(p, str | os.PathLike) and str(stick) in str(p):
+            touched.append(f"scandir {p}")
+        return real_scandir(p)
+
+    def lstat(p: Any, *a: Any, **kw: Any) -> Any:
+        if isinstance(p, str | os.PathLike) and str(stick) in str(p):
+            touched.append(f"lstat {p}")
+        return real_lstat(p, *a, **kw)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+    monkeypatch.setattr(os, "lstat", lstat)
+    r.ops.submit("backup_check", "console:admin")
+    r.run_pending()
+    st = r.write_status()
+    assert touched == [] and st.get("stick") is None, touched
+    monkeypatch.setattr(os, "scandir", real_scandir)
+    monkeypatch.setattr(os, "lstat", real_lstat)
+    assert [b["name"] for b in _listing(r)["bundles"]] == ["trialbox-1.tar"]
+    assert [b["name"] for b in r.write_status()["stick"]["bundles"]] == ["trialbox-1.tar"]  # kept until asked again
+
+
+def test_r3_m2_a_listing_that_hangs_is_stopped_and_said_and_the_runner_goes_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    (tmp_path / "stick").mkdir()
+    r, _calls = _runner(tmp_path)
+    r.list_s = 0.5
+    free = threading.Event()
+    monkeypatch.setattr(tb_ops, "_read_stick", lambda root: free.wait(30) and {})
+    t0 = time.monotonic()
+    rid = r.ops.submit("update_stick_list", "console:admin")
+    r.run_pending()
+    res = r.ops.result(rid)
+    free.set()
+    assert res is not None and res["ok"] is False and "did not answer" in res["summary"], res
+    assert time.monotonic() - t0 < 10
+    st = r.ops.status() or {}
+    assert st["stick"]["hung"] is True and st["stick"]["bundles"] == []
+    rb = r.ops.submit("backup_check", "console:admin")  # the lock is free: the next request runs
+    r.run_pending()
+    assert r.ops.result(rb) is not None
+
+
+def test_r3_l1_the_runners_start_record_reads_for_the_console(tmp_path: Path) -> None:
+    """L1: the runner's ``start`` record was 0600 root's: the console (uid 10001) read it as ``unreadable``, so a
+    refused cancel was audited with the wrong reason. It holds only the decision, who and when."""
+    import shutil
+
+    # as root, a folder the console's account can reach (the test's own parents are root's 0700)
+    base = Path(tempfile.mkdtemp(prefix="tb-l1-", dir="/var/tmp")) if os.geteuid() == 0 else tmp_path
+    try:
+        os.chmod(base, 0o755)
+        ops = tb_ops.OpsDir(base / "ops")
+        tb_ops.prepare(ops)
+        rid = "20261120T000000Z-abcdef"
+        assert ops.decide(rid, "start", "trialbox-ops") == "start"
+        p = ops.root / "requests" / f"{rid}.decided"
+        assert stat.S_IMODE(p.stat().st_mode) == 0o644
+        assert set(json.loads(p.read_text())) == {"decision", "by", "at"}
+        if os.geteuid() == 0:  # read as the console's account reads it
+            rd, wr = os.pipe()
+            pid = os.fork()
+            if pid == 0:
+                try:
+                    os.close(rd)
+                    os.setgid(tb_ops.SERVICE_UID)
+                    os.setuid(tb_ops.SERVICE_UID)
+                    o = tb_ops.OpsDir(base / "ops")
+                    os.write(wr, f"{o.decision(rid)} {o.decide(rid, 'cancel', 'console:admin')}".encode())
+                except BaseException as exc:  # said to the parent, never raised in the forked child
+                    os.write(wr, repr(exc).encode()[:200])
+                finally:
+                    os._exit(0)
+            os.close(wr)
+            os.waitpid(pid, 0)
+            assert os.read(rd, 1000).decode() == "start start"
+    finally:
+        if base != tmp_path:
+            shutil.rmtree(base, ignore_errors=True)
+
+
+def test_r3_l2_a_cancelled_update_names_who_cancelled_it(tmp_path: Path) -> None:
+    """L2: the update's cancelled result and its ``update_apply.done`` event carried only who ASKED for the update;
+    the console's cancel record names who cancelled, and the runner now says it."""
+    (tmp_path / "incoming").mkdir()
+    (tmp_path / "incoming" / "trialbox-1.tar").write_bytes(b"x")
+    calls: list[list[str]] = []
+
+    def run(argv: Any, timeout: int | None) -> str:
+        calls.append(list(argv))
+        return ""
+
+    env = {"TB_UPDATE_STICK": str(tmp_path / "stick"), "TB_UPDATE_INCOMING": str(tmp_path / "incoming"),
+           **update_drill.STICK_ENV}  # fmt: skip
+    r = _Audited(tb_ops.Box("compose", tmp_path / "deploy", env, run), tb_ops.OpsDir(tmp_path / "ops"))
+    r.now = lambda: datetime.fromisoformat(update_drill.STICK_QUIET)  # type: ignore[method-assign]
+    r.jobs_running = lambda: 0  # type: ignore[method-assign]
+    rq = r.ops.submit("update_apply", "console:alice", {"bundle": "trialbox-1.tar", "when": "quiet"})
+    assert r.ops.decide(rq, "cancel", "console:bob") == "cancel"  # the console died before it queued the cancel
+    r.run_pending()
+    res = r.ops.result(rq)
+    assert res is not None and res["state"] == "cancelled" and res["by"] == "console:alice"
+    assert res["cancelled_by"] == "console:bob"
+    (ev,) = [d for d in _audit_details(calls) if d["request"] == rq]
+    assert ev["cancelled_by"] == "console:bob" and ev["state"] == "cancelled"
+
+
+def test_r3_l3_an_empty_mount_point_is_no_stick_and_an_empty_stick_is_said_apart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L3: the mount point is there with nothing mounted on it: that read "the stick holds no bundle"."""
+    (tmp_path / "stick").mkdir()
+    r, _calls = _runner(tmp_path)
+    assert _listing(r)["mounted"] is False  # an empty folder, nothing mounted: no stick inserted
+    monkeypatch.setattr(os.path, "ismount", lambda p: str(p) == str(tmp_path / "stick"))
+    got = _listing(r)
+    assert got["mounted"] is True and got["bundles"] == []  # a stick is mounted and holds no bundle
+
+
+def test_r3_l4_a_check_that_copied_from_the_stick_does_not_say_nothing_was_changed(tmp_path: Path) -> None:
+    priv, _pub = keygen(tmp_path / "k")
+    bundle = update_drill.stick_bundle(tmp_path, priv, "2026.12-1", 3)
+    (tmp_path / "stick").mkdir()
+    (tmp_path / "stick" / bundle.name).write_bytes(bundle.read_bytes())
+    r, _calls = _runner(tmp_path)
+    res = _check(r, bundle.name)
+    assert res["ok"] is True and "nothing was changed" not in res["summary"], res["summary"]
+    assert "copied to the box" in res["summary"] and "nothing was installed" in res["summary"]
+    again = _check(r, bundle.name)  # the same file already on the box: nothing was copied this time
+    assert "nothing was changed" in again["summary"]
+
+
+def test_r3_l5_a_verified_bundle_the_installer_would_now_refuse_says_why(tmp_path: Path) -> None:
+    """L5: "verified" (and Apply) stayed on a bundle whose release is installed, older, or checked against keys the
+    box no longer trusts as then."""
+    (tmp_path / "incoming").mkdir()
+    f = tmp_path / "incoming" / "trialbox-1.tar"
+    f.write_bytes(b"x")
+    r, _calls = _runner(tmp_path)
+    upd = tmp_path / "deploy" / "updates"
+    upd.mkdir(parents=True)
+    (upd / "trust.json").write_text('{"keys": {"a": 1}}')
+    st = os.stat(f)
+    r._keep(f, hashlib.sha256(b"x").hexdigest(), (st.st_size, st.st_mtime_ns, st.st_ino, st.st_dev),
+            {"bundle_id": "2026.12-1", "release_seq": 7, "warnings": []})  # fmt: skip
+    assert "refuse" not in r.write_status()["verified"][f.name]
+    (upd / "installed.json").write_text(json.dumps({"release_seq": 7, "bundle_id": "2026.12-1"}))
+    assert r.write_status()["verified"][f.name]["refuse"] == "installed"
+    (upd / "installed.json").write_text(json.dumps({"release_seq": 9, "bundle_id": "2027.01-1"}))
+    assert r.write_status()["verified"][f.name]["refuse"] == "older"
+    (upd / "installed.json").write_text(json.dumps({"release_seq": 6, "bundle_id": "2026.11-1"}))
+    assert "refuse" not in r.write_status()["verified"][f.name]
+    (upd / "trust.json").write_text('{"keys": {"b": 1}}')  # a key rotation since the check
+    assert r.write_status()["verified"][f.name]["refuse"] == "trust"
+
+
+def _applied(upd: Path, *bundles: str) -> None:
+    upd.mkdir(parents=True, exist_ok=True)
+    lines = [{"at": f"2026-11-{10 + i:02d}T05:30:00+00:00", "bundle": b, "step": "audited update.applied", "ok": True}
+             for i, b in enumerate(bundles)]  # fmt: skip
+    (upd / "history.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines), encoding="utf-8")
+
+
+def test_r3_l6_the_previous_release_is_the_last_other_release_applied_and_only_when_known(tmp_path: Path) -> None:
+    """L6: "the release before this one" was the second-last applied line: after the same release was applied again
+    it named the current release itself."""
+    r, _calls = _runner(tmp_path)
+    upd = tmp_path / "deploy" / "updates"
+    _applied(upd, "2026.11-1", "2026.12-1", "2026.12-1")
+    assert r.write_status()["version"]["previous"] == "2026.11-1"
+    _applied(upd, "2026.12-1")
+    assert r.write_status()["version"]["previous"] == ""  # not known on this box: none is named
+    _applied(upd, "2026.11-1", *(["2026.12-1"] * 500))  # the earlier one is past what is read: not guessed
+    assert r.write_status()["version"]["previous"] == ""
+
+
+def test_r3_l7_a_part_file_left_by_a_crash_in_the_incoming_folder_is_swept(tmp_path: Path) -> None:
+    (tmp_path / "incoming").mkdir()
+    part = tmp_path / "incoming" / ".trialbox-1.tar.part"
+    part.write_bytes(b"x" * 1000)
+    keep = tmp_path / "incoming" / "trialbox-2.tar"
+    keep.write_bytes(b"a staged bundle")
+    r, _calls = _runner(tmp_path)
+    r.run_pending()
+    assert not part.exists() and keep.read_bytes() == b"a staged bundle"
+
+
+def test_r3_l8_the_status_stays_under_its_cap_with_hundreds_of_long_named_verified_bundles(tmp_path: Path) -> None:
+    """L8: the staged-bundle list was unbounded: about 170 verified bundles with long names took the status past
+    64 KiB and the page then showed only "status unreadable"."""
+    inc = tmp_path / "incoming"
+    inc.mkdir()
+    r, _calls = _runner(tmp_path)
+    for i in range(400):
+        f = inc / f"trialbox-{i:03d}-{'n' * 100}.tar"
+        f.write_bytes(b"x")
+        st = os.stat(f)
+        r._keep(f, hashlib.sha256(b"x").hexdigest(), (st.st_size, st.st_mtime_ns, st.st_ino, st.st_dev),
+                {"bundle_id": "b" * 120, "release_seq": i, "warnings": ["w" * 300] * 9})  # fmt: skip
+    r.write_status()
+    st, why = r.ops.status_state()
+    assert why == "" and st is not None, why
+    assert (tmp_path / "ops" / "status.json").stat().st_size < tb_ops.MAX_JSON
+    assert st["incoming_cut"] is True and 0 < len(st["incoming"]) <= tb_ops.STICK_LIST_MAX
+    assert set(st["verified"]) <= {b["name"] for b in st["incoming"]}
+
+
+def test_r3_l9_two_applies_asked_at_once_queue_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """L9: the console's busy check and its submit were two steps: two posts at once both passed the check and both
+    updates were queued. ``submit_once`` makes the check and the write one step under a lock: one wins."""
+    import threading
+
+    ops = tb_ops.OpsDir(tmp_path / "ops")
+    tb_ops.prepare(ops)
+    real = tb_ops._write_json
+
+    def slow(path: Path, data: Any) -> None:
+        time.sleep(0.3)  # widen the window between the check and the write
+        real(path, data)
+
+    monkeypatch.setattr(tb_ops, "_write_json", slow)
+    got: list[str | None] = []
+    ts = [threading.Thread(target=lambda n=n: got.append(ops.submit_once(
+        "update_apply", "console:admin", {"bundle": f"trialbox-{n}.tar"}, busy=("update_apply",))))
+        for n in range(2)]  # fmt: skip
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert sorted(x is None for x in got) == [False, True], got
+    assert len([q for q in ops.pending() if q["action"] == "update_apply"]) == 1

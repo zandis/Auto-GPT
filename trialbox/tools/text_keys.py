@@ -551,6 +551,8 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "person.state.": _union(_values("console.person_state", "STATES"), lambda: ["unknown"]),
     # 10K-7 (D-1363): the change classes of a bundle's change-impact sheet (docs/validation/change-control.md §2)
     "ops.update.cc.": _values("tools.release_note", "CLASSES"),
+    # the third review of 10K-7 (D-1363, L5): why the installer would refuse a verified bundle now
+    "ops.update.refuse.": _values("tools.trialbox.ops", "REFUSE_WHY"),
     # J-5 (D-1223): the two lists of people and the views of each, behind the flag layout.people_lists
     "people.": _values("console.people_lists", "LISTS"),
     "people.view.": _view_keys,

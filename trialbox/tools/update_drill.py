@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
 import hashlib
 import io
 import json
@@ -584,7 +585,8 @@ def stick_drill(base: Path) -> dict[str, Any]:
     pages are ``tests/console/test_ops_pages.py``.
 
     1. The box runs release 1 (``release_seq`` 1, applied as any update).
-    2. **Insert**: release 2's bundle on a "stick" folder (``TB_UPDATE_STICK``) is listed in the status.
+    2. **Insert**: release 2's bundle on a "stick" folder (``TB_UPDATE_STICK``) is listed in the status when a
+       listing is asked for (``update_stick_list``).
     3. **Verify**: ``update_check`` with ``from: stick`` copies it into the incoming folder and verifies it; the status
        carries its Japanese release note and the change-impact sheet listing CC1 to CC6. A tampered bundle on the
        stick is refused and shows no note; a link on the stick is not listed and not copied.
@@ -671,9 +673,11 @@ def stick_drill(base: Path) -> dict[str, Any]:
                 body = body.replace("合成".encode(), "本番".encode())
             dst.addfile(m, io.BytesIO(body) if fh else None)
     (stick / "trialbox-link.tar").symlink_to(r2)
-    st = runner.write_status()
-    listed = [b["name"] for b in st["stick"]["bundles"]]
-    checks.append(("insert: the stick's bundles are listed (a link is not)", st["stick"]["mounted"]
+    ask("update_stick_list")  # the third review, M2: the stick is read when a listing is asked for, not on a pass
+    runner.run_pending()
+    st = json.loads((base / "ops" / "status.json").read_text(encoding="utf-8"))
+    listed = [b["name"] for b in (st.get("stick") or {}).get("bundles") or []]
+    checks.append(("insert: the stick's bundles are listed (a link is not)", (st.get("stick") or {}).get("mounted")
                    and listed == sorted([r2.name, bad.name]), ", ".join(listed)))  # fmt: skip
 
     # 3. verify from the stick
@@ -811,36 +815,84 @@ def main(argv: list[str] | None = None) -> int:
 DRILL_MARK = ".tb-update-drill"
 
 
+def _parent_ok(st: os.stat_result) -> bool:
+    """M1 of the third review (D-1363): a folder no other account can change entries in: the caller's own or root's,
+    and not writable by group or others unless sticky (``/var/tmp`` itself: only an entry's owner moves it)."""
+    mine = st.st_uid in (os.geteuid(), 0)
+    return mine and (not st.st_mode & 0o022 or bool(st.st_mode & stat.S_ISVTX))
+
+
 def drill_dir(d: Path) -> str | None:
     """The drill's working folder, emptied for this run: made new (with :data:`DRILL_MARK`) when ``d`` does not exist;
     emptied when it is a real folder holding the mark, a regular file the drill wrote. Anything else (a folder without
     the mark, such as a backup folder; a link, even to a drill's folder; a file) is refused BEFORE anything is
-    removed: the reason, else None. Never follows a link and removes nothing outside ``d``."""
-    try:
-        st = os.lstat(d)
-    except FileNotFoundError:
-        st = None
-    if st is not None:
-        if stat.S_ISLNK(st.st_mode):
-            return f"--dir {d} is a link; give the folder itself (the drill never follows a link)"
-        if not stat.S_ISDIR(st.st_mode):
-            return f"--dir {d} exists and is not a folder"
+    removed: the reason, else None.
+
+    M1 of the third review (D-1363): every folder from ``/`` down to ``d``'s parent must be one no other account can
+    change (:func:`_parent_ok`: the default ``/var/tmp/trialbox-<uid>`` can be made first by any local account), and
+    ``d`` must be the caller's own. ``d`` is then opened ONCE through its parent's descriptor without following a link
+    and emptied through its own descriptor (``unlink``/``rmtree`` with ``dir_fd``): a folder swapped for a link
+    after the check changes nothing outside the folder that was checked."""
+    d = Path(os.path.abspath(d))
+    parent = Path(os.path.realpath(d.parent))
+    walk = [parent, *parent.parents]
+    for anc in reversed(walk):  # from / down: an ancestor that does not exist yet is made below, the caller's own
         try:
-            mark = os.lstat(d / DRILL_MARK)
+            st = os.lstat(anc)
+        except FileNotFoundError:
+            break
+        if not _parent_ok(st):
+            who = "owned by another account" if st.st_uid not in (os.geteuid(), 0) else "writable by others"
+            return (f"--dir {d}: the folder {anc} is {who}; nothing was removed. Give a folder whose parents only "
+                    "you (or root) can change")  # fmt: skip
+    parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        pfd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as exc:
+        return f"--dir {d}: its parent {parent} cannot be opened as a folder ({exc.strerror})"
+    try:
+        if not _parent_ok(os.fstat(pfd)):
+            return f"--dir {d}: the folder {parent} changed while it was checked; nothing was removed"
+        made = False
+        try:
+            os.mkdir(d.name, 0o700, dir_fd=pfd)
+            made = True
+        except FileExistsError:
+            pass
+        try:
+            dfd = os.open(d.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=pfd)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                return f"--dir {d} is a link; give the folder itself (the drill never follows a link)"
+            return f"--dir {d} exists and is not a folder"
+    finally:
+        os.close(pfd)
+    try:
+        st = os.fstat(dfd)
+        if st.st_uid != os.geteuid():
+            return f"--dir {d} is owned by another account; nothing was removed"
+        if made:
+            fd = os.open(DRILL_MARK, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=dfd)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write("made by tools/update_drill.py; emptied by its next run\n")
+            return None
+        try:
+            mark = os.stat(DRILL_MARK, dir_fd=dfd, follow_symlinks=False)
         except FileNotFoundError:
             mark = None
         if mark is None or not stat.S_ISREG(mark.st_mode):
             return (f"--dir {d} exists and was not made by this drill (no {DRILL_MARK} in it); nothing was removed. "
                     "Give a folder that does not exist yet")  # fmt: skip
-        for child in os.scandir(d):  # the folder itself stays: emptied, never replaced
-            if child.is_dir(follow_symlinks=False):
-                shutil.rmtree(child.path)
-            elif child.name != DRILL_MARK:
-                os.unlink(child.path)
+        with os.scandir(dfd) as it:  # the folder itself stays: emptied, never replaced
+            children = [(c.name, c.is_dir(follow_symlinks=False)) for c in it]
+        for name, is_dir in children:
+            if is_dir:
+                shutil.rmtree(name, dir_fd=dfd)
+            elif name != DRILL_MARK:
+                os.unlink(name, dir_fd=dfd)
         return None
-    d.mkdir(parents=True)
-    (d / DRILL_MARK).write_text("made by tools/update_drill.py; emptied by its next run\n", encoding="utf-8")
-    return None
+    finally:
+        os.close(dfd)
 
 
 def _report(out: dict[str, Any], what: str) -> int:

@@ -338,3 +338,9 @@ the page says so in the administrator's language when it refuses one (a request 
 sha256: verify the bundle and ask again). A stick that stops answering mid-read no longer holds the runner: the copy
 is stopped and removed, the next request runs, and the stick is pulled and checked elsewhere. A change-impact sheet
 without the minutes down, the migration or the re-approval is a warning and is not shown.
+The box reads the stick only when "Look at the update stick" is pressed (the page then says when it looked); a stick
+that does not answer within 10 seconds is said, the runner goes on, and the listing is not started again until that
+stick answers or is pulled. An empty mount point is "no stick inserted". Each verified bundle shows its signed release
+(and `release_seq`), and the confirmation names it; the page warns when the file's name does not carry it, and offers
+no Apply for a release already installed, an older one, or one checked before the trusted keys changed (verify again).
+`--dir` of either drill must sit in folders only you or root can change (not one another account made in `/var/tmp`).

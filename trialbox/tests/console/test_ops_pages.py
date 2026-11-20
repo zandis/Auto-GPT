@@ -106,6 +106,7 @@ def test_every_operations_page_and_action_is_refused_to_other_roles(ob: dict[str
         "update_stick_check",
         "update_quiet",
         "update_cancel",
+        "update_stick_list",
     ):
         r = c.post(f"/admin/ops/{action}", data={"csrf": csrf, "confirm": "yes", "bundle": "x.tar"})
         assert r.status_code == 403, (role, action)
@@ -192,7 +193,7 @@ def test_update_check_and_apply_ask_first_and_apply_is_refused_off_a_site_box(ob
     assert 'data-testid="ops-result">failed' in r.text and "site box only" in r.text
     ev = [e["detail"] for e in _events(ob["audit"], "console.ops")]
     assert ev[0] == {"action": "update_apply", "request": ev[0]["request"], "bundle": "trialbox-1.0.1.tar",
-                     "sha256": sha}  # fmt: skip
+                     "sha256": sha, "release": "1.0.1"}  # fmt: skip
 
 
 def test_network_sheet_written_and_downloaded_in_three_languages(ob: dict[str, Any]) -> None:
@@ -576,24 +577,31 @@ def _fresh_status(ob: dict[str, Any]) -> None:
     (ob["dir"] / "ops" / "status.json").unlink(missing_ok=True)
 
 
+def _look_at_the_stick(c: TestClient, csrf: str) -> str:
+    """The third review, M2: the host's runner reads the stick only when the administrator asks (inline here)."""
+    r = c.post("/admin/ops/update_stick_list", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=True)
+    assert r.status_code == 200
+    return c.get("/admin/ops?tab=update").text
+
+
 def test_the_update_stick_is_shown_and_a_bundle_is_verified_from_it(ob: dict[str, Any]) -> None:
     """10K-7 (D-1363): the stick inserted at the box, as the runner reads it; verify copies the bundle to the box and
     checks it (here the in-process box has no vendor key: the check fails, and the copy does not stay)."""
     c, csrf = login(ob["app"])
-    page = c.get("/admin/ops?tab=update").text
+    page = _look_at_the_stick(c, csrf)
     assert 'data-testid="ops-stick-none"' in page and str(ob["dir"] / "stick") in page  # nothing inserted
     stick = ob["dir"] / "stick"
     stick.mkdir()
     (stick / "trialbox-2026.12-1.tar").write_bytes(b"not a real bundle")
     (stick / "trialbox-link.tar").symlink_to(stick / "trialbox-2026.12-1.tar")
-    _fresh_status(ob)
-    page = c.get("/admin/ops?tab=update").text
+    page = _look_at_the_stick(c, csrf)
     assert 'data-testid="ops-stick-bundles"' in page and "trialbox-link.tar" not in page
     assert 'data-testid="ops-update_stick_check-trialbox-2026.12-1.tar"' in page
     r = c.post("/admin/ops/update_stick_check", data={"csrf": csrf, "bundle": "trialbox-2026.12-1.tar"})
     assert 'data-testid="confirm-text"' in r.text and "update stick" in r.text and "only read" in r.text
     assert 'name="from"' not in r.text  # the source is the route's, never a form field
-    assert not _events(ob["audit"], "console.ops")
+    listed = ["update_stick_list", "update_stick_list.done"] * 2  # the two listings asked for above
+    assert [e["detail"]["action"] for e in _events(ob["audit"], "console.ops")] == listed
     r = c.post("/admin/ops/update_stick_check", data={"csrf": csrf, "bundle": "trialbox-2026.12-1.tar",
                                                       "confirm": "yes"}, follow_redirects=True)  # fmt: skip
     assert 'data-action="update_check"' in r.text and 'data-testid="ops-result">failed' in r.text
@@ -601,6 +609,7 @@ def test_the_update_stick_is_shown_and_a_bundle_is_verified_from_it(ob: dict[str
     assert not (ob["deploy"] / "updates" / "incoming" / "trialbox-2026.12-1.tar").exists()  # refused: not kept
     assert (stick / "trialbox-2026.12-1.tar").read_bytes() == b"not a real bundle"
     ev = [e["detail"] for e in _events(ob["audit"], "console.ops")]
+    ev = [e for e in ev if not e["action"].startswith("update_stick_list")]  # the listings asked for above
     assert ev[0] == {"action": "update_stick_check", "request": ev[0]["request"], "bundle": "trialbox-2026.12-1.tar",
                      "from": "stick"}  # fmt: skip
     assert ev[1]["action"] == "update_stick_check.done" and ev[1]["ok"] is False
@@ -716,7 +725,8 @@ def test_apply_in_the_quiet_hour_asks_first_waits_is_audited_and_can_be_cancelle
     assert 'data-testid="ops-waiting"' not in page
     ev = [e["detail"] for e in _events(ob["audit"], "console.ops")]
     assert [e["action"] for e in ev] == ["update_quiet", "update_cancel", "update_cancel.done"]
-    assert ev[0] == {"action": "update_quiet", "request": rq, "bundle": f.name, "when": "quiet", "sha256": sha}
+    assert ev[0] == {"action": "update_quiet", "request": rq, "bundle": f.name, "when": "quiet", "sha256": sha,
+                     "release": "2026.12-1"}  # the third review, M3: the signed release confirmed  # fmt: skip
     assert ev[1] == {"action": "update_cancel", "request": ev[1]["request"], "target": rq} and ev[1]["request"] != rq
     assert ev[2]["ok"] is True
     assert all(e["actor"] == "console:admin" for e in _events(ob["audit"], "console.ops"))
@@ -727,7 +737,7 @@ def test_the_previous_release_is_named_and_not_offered_as_a_button(ob: dict[str,
     release from the console waits on the owner's decision, so there is no such button or route."""
     c, csrf = login(ob["app"])
     page = c.get("/admin/ops?tab=update").text
-    assert 'data-testid="ops-previous"' in page and "the one installed at set-up" in page
+    assert 'data-testid="ops-previous"' in page and "not recorded here" in page  # the third review, L6
     upd = ob["deploy"] / "updates"
     upd.mkdir(parents=True, exist_ok=True)
     lines = [{"at": f"2026-11-1{i}T05:30:00+00:00", "bundle": b, "step": "audited update.applied", "ok": True}
@@ -791,7 +801,7 @@ def test_a_bad_bundle_name_is_refused_before_it_is_shown_or_audited(ob: dict[str
 
 
 def test_a_newline_in_a_name_on_the_stick_never_reaches_the_page(ob: dict[str, Any]) -> None:
-    c, _csrf = login(ob["app"])
+    c, csrf = login(ob["app"])
     stick = ob["dir"] / "stick"
     stick.mkdir()
     (stick / "trialbox-2026.12-1.tar").write_bytes(b"a bundle")
@@ -799,8 +809,7 @@ def test_a_newline_in_a_name_on_the_stick_never_reaches_the_page(ob: dict[str, A
     (stick / "trialbox-spoof\r.tar").write_bytes(b"a spoof")
     (ob["dir"] / "outside.tar").write_bytes(b"outside")
     (stick / "trialbox-outside.tar").symlink_to(ob["dir"] / "outside.tar")
-    _fresh_status(ob)
-    page = c.get("/admin/ops?tab=update").text
+    page = _look_at_the_stick(c, csrf)
     listing = page[page.index('data-testid="ops-stick-bundles"') :]
     listing = listing[: listing.index("</ul>")]
     assert listing.count("<li>") == 1 and "trialbox-2026.12-1.tar" in listing
@@ -913,3 +922,105 @@ def test_d_an_update_the_runner_refused_as_unverified_is_said_in_the_administrat
     ops.write_result({"id": other, "action": "backup_check", "by": "console:admin"}, False, "OpsFailed: x", [],
                      "2026-11-20T00:00:00+00:00")  # fmt: skip
     assert 'data-testid="ops-result-why"' not in c.get(f"/admin/ops?tab=backup&req={other}").text
+
+
+# ------------------------------------------------------- the third review of PR #1213: M2, M3, L2, L5 on the page
+def test_r3_m2_the_page_does_not_read_the_stick_until_a_listing_is_asked_for(ob: dict[str, Any]) -> None:
+    """M2: the stick was listed on every pass of the host's runner; now only when the administrator asks (the same
+    right as verifying, ``ops.update_check``), and the page says when it was looked at."""
+    c, csrf = login(ob["app"])
+    stick = ob["dir"] / "stick"
+    stick.mkdir()
+    (stick / "trialbox-2026.12-1.tar").write_bytes(b"a bundle")
+    _fresh_status(ob)
+    page = c.get("/admin/ops?tab=update").text
+    assert 'data-testid="ops-stick-unlisted"' in page and "trialbox-2026.12-1.tar" not in page
+    assert 'data-testid="ops-update_stick_list"' in page
+    r = c.post("/admin/ops/update_stick_list", data={"csrf": csrf})
+    assert 'data-testid="confirm-text"' in r.text and "nothing is copied" in r.text
+    r = c.post("/admin/ops/update_stick_list", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=True)
+    assert 'data-testid="ops-stick-bundles"' in r.text and "trialbox-2026.12-1.tar" in r.text
+    page = c.get("/admin/ops?tab=update").text
+    assert 'data-testid="ops-stick-listed"' in page and 'data-testid="ops-stick-unlisted"' not in page
+    ev = [e["detail"]["action"] for e in _events(ob["audit"], "console.ops")]
+    assert ev == ["update_stick_list", "update_stick_list.done"]
+
+
+@pytest.mark.parametrize("lang", ["en", "ja", "zh-TW"])
+def test_r3_m3_the_page_and_the_confirmation_name_the_signed_release_not_only_the_file_name(
+    ob: dict[str, Any], lang: str
+) -> None:
+    """M3: a genuine bundle of release A named ``trialbox-<B>.tar`` on the stick was listed, verified and confirmed
+    as B: the signed release id showed only in the change-impact sheet's caption, and a bundle without a sheet had
+    none. Now the verified line and the confirmation name the signed release, the page warns when the file's name
+    does not carry it, and the audit event names it."""
+    c, csrf = login(ob["app"])
+    c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
+    f = _stage(ob, "trialbox-2026.12-1.tar")
+    sha = _verified_by_the_host(ob, f, {"bundle_id": "2026.11-9", "release_seq": 5,
+                                        "warnings": ["no RELEASE-NOTE.ja.md in this bundle"]})  # fmt: skip
+    page = c.get("/admin/ops?tab=update").text
+    item = page[page.index(f'data-bundle="{f.name}"') :]
+    rel = item[item.index('data-testid="ops-release"') :][:300]
+    assert "2026.11-9" in rel and "5" in rel
+    assert 'data-testid="ops-release-name-differs"' in item
+    assert str(escape(CATALOGUES[lang]["ops.update.release.differs"])) in item
+    shown = {"csrf": csrf, "bundle": f.name, "sha256": sha, "release": "2026.11-9"}
+    for action in ("update_quiet", "update_apply"):
+        sheet = c.post(f"/admin/ops/{action}", data=shown).text
+        said = sheet[sheet.index('data-testid="confirm-text"') :][:1200]
+        assert "2026.11-9" in said, (action, said)
+    c.post("/admin/ops/update_apply", data={**shown, "confirm": "yes"})
+    (ev,) = [e["detail"] for e in _events(ob["audit"], "console.ops") if e["detail"]["action"] == "update_apply"]
+    assert ev["release"] == "2026.11-9" and ev["sha256"] == sha
+    f2 = _stage(ob, "trialbox-2026.11-9.tar", b"named as it is")
+    _verified_by_the_host(ob, f2, {"bundle_id": "2026.11-9", "release_seq": 5})
+    page = c.get("/admin/ops?tab=update").text
+    item2 = page[page.index(f'data-bundle="{f2.name}"') :]
+    item2 = item2[: item2.index("</li>")]
+    assert 'data-testid="ops-release-name-differs"' not in item2
+
+
+def test_r3_l2_a_cancel_whose_request_cannot_be_queued_still_holds_and_is_said_and_audited(
+    ob: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L2: the cancel's record was written, then the request queued; when the queueing failed the page said
+    "operations unavailable" (503) and no event was written, yet the runner cancelled the update anyway."""
+    c, csrf = login(ob["app"])
+    f = _stage(ob, "trialbox-2026.12-1.tar")
+    sha = _verified_by_the_host(ob, f, {"bundle_id": "2026.12-1", "impact": SHEET, "note_ja": "# 合成\n"})
+    c.post("/admin/ops/update_quiet", data={"csrf": csrf, "bundle": f.name, "sha256": sha, "release": "2026.12-1",
+                                            "confirm": "yes"})  # fmt: skip
+    (rq,) = [q["id"] for q in _queued(ob, "update_apply")]
+    real = tb_ops.OpsDir.submit
+
+    def failing(self: tb_ops.OpsDir, action: str, *a: Any, **kw: Any) -> str:
+        if action == "update_cancel":
+            raise OSError("the requests folder is full")
+        return real(self, action, *a, **kw)
+
+    monkeypatch.setattr(tb_ops.OpsDir, "submit", failing)
+    r = c.post("/admin/ops/update_cancel", data={"csrf": csrf, "target": rq, "confirm": "yes"},
+               follow_redirects=True)  # fmt: skip
+    assert r.status_code == 200 and 'data-testid="ops-cancel-recorded"' in r.text
+    ev = [e for e in _events(ob["audit"], "console.ops") if e["detail"]["action"] == "update_cancel"]
+    assert len(ev) == 1 and ev[0]["detail"]["target"] == rq and ev[0]["actor"] == "console:admin"
+    monkeypatch.setattr(tb_ops.OpsDir, "submit", real)
+    host = tb_ops.OpsRunner(tb_ops.Box.local(ob["deploy"], {}), tb_ops.OpsDir(ob["dir"] / "ops"))
+    host.run_pending()
+    res = tb_ops.OpsDir(ob["dir"] / "ops").result(rq)
+    assert res is not None and res["state"] == "cancelled" and res["cancelled_by"] == "console:admin"
+
+
+def test_r3_l5_a_verified_release_the_installer_would_refuse_offers_no_apply_and_says_why(ob: dict[str, Any]) -> None:
+    c, _csrf = login(ob["app"])
+    f = _stage(ob, "trialbox-2026.12-1.tar")
+    _verified_by_the_host(ob, f, {"bundle_id": "2026.12-1", "release_seq": 7, "impact": SHEET, "note_ja": "# 合成\n"})
+    page = c.get("/admin/ops?tab=update").text
+    assert f'ops-update_apply-{f.name}"' in page
+    (ob["deploy"] / "updates" / "installed.json").write_text(json.dumps({"release_seq": 7, "bundle_id": "2026.12-1"}))
+    _fresh_status(ob)
+    page = c.get("/admin/ops?tab=update").text
+    item = page[page.index(f'data-bundle="{f.name}"') :]
+    assert 'data-testid="ops-verified-refuse"' in item and "already installed" in item
+    assert f'ops-update_apply-{f.name}"' not in item and f'ops-update_quiet-{f.name}"' not in item

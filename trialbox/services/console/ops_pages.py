@@ -64,7 +64,9 @@ ACTIONS: dict[str, tuple[str, str]] = {
     "update_apply": ("ops.update_apply", "update"),
     "update_stick_check": ("ops.update_check", "update"),  # 10K-7: the same verify, the bundle copied from the stick
     "update_quiet": ("ops.update_apply", "update"),  # 10K-7: the same apply, in the quiet hour (D-731)
-    "update_cancel": ("ops.update_apply", "update"),  # 10K-7: withdraw one's quiet-hour apply before it runs
+    "update_cancel": ("ops.update_apply", "update"),  # 10K-7: withdraw a quiet-hour apply (any administrator's)
+    # the third review, M2 (D-1363): the host's runner reads the stick only when this is asked; the verify's right
+    "update_stick_list": ("ops.update_check", "update"),
     "logs_collect": ("ops.logs", "logs"),
     "network_sheet": ("ops.network", "network"),
 }
@@ -172,7 +174,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     h.ops_status = status  # T-209a: the host's health facts for the health line, the health mail and /metrics
 
     @app.get("/admin/ops")
-    def ops_page(request: Request, tab: str = "overview", req: str = "") -> Response:
+    def ops_page(request: Request, tab: str = "overview", req: str = "", cancelled: str = "") -> Response:
         sess = need_ops(request)
         tab = tab if tab in TABS else "overview"
         st = status()
@@ -211,6 +213,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             notes=notes,
             running=[r.get("id") for r in ops.running()],
             mine=mine,
+            cancel_recorded=_REQ.fullmatch(cancelled) is not None,  # L2: the cancel holds; its request was not queued
             secrets_rows=secrets_rows,
             sheets=sheets,
             allowed={a: admin_allowed(sess.user.role, z) for a, (z, _) in ACTIONS.items()},
@@ -250,6 +253,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if action == "backup":  # D-455: the snapshot backup; no service is stopped or paused
             args["mode"] = "running"
         shown: dict[str, str] = {}
+        signed = signed_id = ""  # the third review, M3: the verified record's signed release id, as the page names it
         if run_as == "update_apply":
             # H2 (D-1363): the release the administrator was shown, compared with the verified record of that bundle
             # NOW, at every post (the page's button, the confirmation sheet's Yes); the request carries that sha256
@@ -268,16 +272,25 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                 raise h.problem(409, "request.refused", reason=NOT_SHOWN)
             args["sha256"] = have
             shown = {"release": release}
+            seq = rec.get("release_seq")
+            signed_id = str(rec.get("bundle_id") or "")
+            signed = str(rec.get("bundle_id") or "–") + (f" (release_seq {seq})" if isinstance(seq, int) else "")
         if run_as in [r.get("action") for r in ops.pending()]:
             raise h.problem(409, "ops.busy")
         if confirm != "yes" and h.confirm is not None:  # WS-14.7: each action names its consequence first
             q = status().get("quiet") or {}
             at, hours = q.get("at") or tb_ops.QUIET_DEFAULT_AT, q.get("hours") or tb_ops.QUIET_DEFAULT_HOURS
-            text = translate(sess.lang, f"ops.confirm.{action}", bundle=bundle, at=at, hours=hours,
-                             wait=tb_ops.QUIET_WAIT_H)  # fmt: skip
+            # the third review, M3: an apply's sheet names the signed release (update_quiet's own text does too)
+            which = "update_apply.signed" if action == "update_apply" else action
+            text = translate(sess.lang, f"ops.confirm.{which}", bundle=bundle, at=at, hours=hours,
+                             wait=tb_ops.QUIET_WAIT_H, release=signed)  # fmt: skip
             back = f"/admin/ops?tab={tab}"
             return h.confirm(request, sess, text, request.url.path, {**args, **shown}, back)
         args.update(extra)  # 10K-7: ``from: stick`` or ``when: quiet``, never from the form
+        rid = ops.new_id()
+        event = {"action": action, "request": rid, **args}
+        if run_as == "update_apply":  # M3: the event names the signed release that was confirmed
+            event["release"] = signed_id
         if run_as == "update_cancel":
             # H5 (D-1363): accepted only by writing the update's decision record first; the runner writes "start"
             # there immediately before the installer, and whichever is first holds
@@ -289,11 +302,23 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                 detail = {"action": action, "target": target, "why": got, "reason": STARTED}
                 au.append("console.refused", actor=h.actor(sess), detail=detail)
                 raise h.problem(409, "request.refused", reason=STARTED)
-        try:
-            rid = ops.submit(run_as, h.actor(sess), args)
-        except OSError as exc:  # the folder is not there or not writable: the host runner has never prepared it
-            raise h.problem(503, "ops.unavailable") from exc
-        au.append("console.ops", actor=h.actor(sess), detail={"action": action, "request": rid, **args})
+            # the third review, L2: the cancel holds from its record on (the runner reads it): audited NOW, and said
+            # as accepted even when the request that tells the runner cannot be queued
+            au.append("console.ops", actor=h.actor(sess), detail=event)
+            try:
+                queued = ops.submit_once(run_as, h.actor(sess), args, busy=(run_as,), rid=rid)
+            except OSError:
+                queued = None
+            if queued is None:
+                return RedirectResponse(f"/admin/ops?tab={tab}&cancelled={target}", status_code=303)
+        else:
+            try:  # L9: the busy check and the queueing as one step: of two posts at once, one wins
+                queued = ops.submit_once(run_as, h.actor(sess), args, busy=(run_as,), rid=rid)
+            except OSError as exc:  # the folder is not there or not writable: the host runner has never prepared it
+                raise h.problem(503, "ops.unavailable") from exc
+            if queued is None:
+                raise h.problem(409, "ops.busy")
+            au.append("console.ops", actor=h.actor(sess), detail=event)
         if runner is not None and args.get("when") == "quiet":
             runner.write_status()  # D-731: it waits for the quiet hour; the host's runner takes it then
         elif runner is not None:
