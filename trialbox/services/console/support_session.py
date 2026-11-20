@@ -45,8 +45,8 @@ from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from tb_common import authz
 
-from console import i18n_support
-from console.breakglass_store import SupportError, SupportSession, SupportSessionStore
+from console import form_errors, i18n_support
+from console.breakglass_store import _TICKET, SupportError, SupportSession, SupportSessionStore
 from console.home import Helpers
 from console.i18n import CATALOGUES
 from console.timefmt import local_time, site_zone
@@ -303,24 +303,32 @@ def register(app: FastAPI, h: Helpers, store: SupportSessionStore | None = None)
             raise h.problem(403, "forbidden")
         return sess
 
-    @app.get(PAGE)
-    def page(request: Request, done: str = "", err: str = "", wait: str = "") -> Response:
-        sess = admin(request)
+    def render(request: Request, sess: Any, done: str = "", err: str = "", wait: str = "", fe: Any = None,
+               status: int = 200) -> Response:  # fmt: skip
         # every row not ended, read without its times, so that a damaged row can always be ended from here
         rows = st.open_rows()
         # the review's item 9: the confirmation says what is true now, not what the URL says: "on" only while a
         # session is open (this request ran under it), "ended" only while none is
         on = bool(rows) and bool(getattr(request.state, "support_session", None) or authz.session_on())
         shown = "start" if done == "start" and on else "end" if done == "end" and not rows else ""
-        return h.page(request, "support_session.html", sess, open_rows=rows, recent=st.recent(),
+        return h.page(request, "support_session.html", sess, status=status, open_rows=rows, recent=st.recent(),
                       minutes=authz.SUPPORT_SESSION_MINUTES, done=shown, waited=shown == "start" and wait == "1",
-                      drain_s=int(DRAIN_S), err=err if err.startswith("support.err.") else "")  # fmt: skip
+                      drain_s=int(DRAIN_S), err=err if err.startswith("support.err.") else "", fe=fe)  # fmt: skip
+
+    @app.get(PAGE)
+    def page(request: Request, done: str = "", err: str = "", wait: str = "") -> Response:
+        return render(request, admin(request), done, err, wait)
 
     @app.post(PAGE)
     def start(request: Request, csrf: str = Form(""), ticket: str = Form(""), confirm: str = Form("")) -> Response:
         sess = admin(request, csrf)
-        if confirm != "yes":  # runbook 21 rules 1 and 2, ticked: a form posted without it starts nothing
-            return RedirectResponse(f"{PAGE}?err=support.err.confirm", status_code=303)
+        # 9k-6a (D-1376): a wrong ticket or no tick is the form again (400) with the summary tied to each field;
+        # runbook 21 rules 1 and 2, ticked: a form posted without the tick starts nothing
+        bad = [("ticket", "support.err.ticket")] if ticket.strip() and not _TICKET.match(ticket.strip()) else []
+        bad += [("confirm", "support.err.confirm")] if confirm != "yes" else []
+        if bad:
+            fe = form_errors.failed("support-start", "support", bad, {"ticket": ticket[:80], "confirm": confirm})
+            return render(request, sess, fe=fe, status=form_errors.FAILED)
 
         # run before the insert commits: no event, no session. The audit trail is its own store, not this
         # transaction: a commit that fails after the append leaves a start event with no session (D-1364)

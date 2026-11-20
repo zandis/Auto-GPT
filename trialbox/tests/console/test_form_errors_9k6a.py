@@ -75,6 +75,11 @@ def _events(b: dict[str, Any], name: str) -> list[dict[str, Any]]:
 
 def _client(b: dict[str, Any], case: Case, lang: str) -> Any:
     """The case's user signed in, the page language ``lang`` (the PI named once, through the steward's log)."""
+    if case.role == "admin":  # 10K-15 (D-1364): the support-session switch is the administrator's
+        c, _ = login(b["app"])
+        r = c.post("/lang", data={"csrf": _csrf(c.get("/").text), "lang": lang, "back": "/"}, follow_redirects=False)
+        assert r.status_code == 303
+        return c
     user, role = ("drsato", "investigator") if case.role == "pi" else ("crc1", "coordinator")
     if b["users"].get(user) is None:
         c = _user(b, user, role)
@@ -131,7 +136,7 @@ def test_a_failed_post_shows_the_summary_tied_to_each_field(box: dict[str, Any],
     _c, r, _ = _failed(box, name, lang)
     assert r.status_code == 400, r.text[-500:]
     assert f'data-testid="{case.testid}"' in r.text  # the testid the form's earlier tests read
-    assert _title(r.text).startswith(cat["fe.title"].format(title=cat["sstate.title"]))
+    assert _title(r.text).startswith(cat["fe.title"].format(title=cat[case.title_key]))
     got = _summary(r.text)
     assert got is not None
     head, links = got
@@ -177,8 +182,8 @@ def test_typed_values_come_back_and_secrets_never_do(box: dict[str, Any], name: 
 @pytest.mark.parametrize("name", sorted(CASES))
 def test_csrf_is_still_enforced_and_a_right_post_saves_as_before(box: dict[str, Any], name: str) -> None:  # noqa: F811
     case = CASES[name]
-    want = {"identity": "/studies/GZQO/state?saved=identity",
-            "irb-text": "/studies/GZQO/state?saved=irb_text#irb-text"}[name]  # fmt: skip
+    want = case.saved_at or {"identity": "/studies/GZQO/state?saved=identity",
+                             "irb-text": "/studies/GZQO/state?saved=irb_text#irb-text"}[name]  # fmt: skip
     for lang in LANGS:
         c = _client(box, case, lang)
         page = c.get(case.page).text
@@ -194,6 +199,12 @@ def test_csrf_is_still_enforced_and_a_right_post_saves_as_before(box: dict[str, 
         assert len(_events(box, case.saved_event)) == before + 1
         after = c.get(case.page).text
         assert _summary(after) is None and not _title(after).startswith(_error_word(lang))
+        if name == "support-start":  # 10K-15: one session at a time; end it before the next language starts one
+            sid = re.search(r'name="session" value="(\d+)"', after)
+            assert sid
+            end = c.post("/ops/support-session/end", data={"csrf": _csrf(after), "session": sid.group(1)},
+                         follow_redirects=False)  # fmt: skip
+            assert end.status_code == 303
 
 
 @pytest.mark.skipif(not _node_playwright(), reason="Node Playwright is not available")

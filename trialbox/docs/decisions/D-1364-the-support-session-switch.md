@@ -127,7 +127,9 @@
     ingest report naming a patient, a feedback entry given on a patient page with a chart number) are seeded, a session
     is started, and every route of the router table is asked as every column of the role-route walk (GET, then each
     changing method with a valid CSRF token) plus every page and file of every seeded job (2,000 and more answers);
-    no answer may hold any of the 25 seeded tokens. On aeb978e6 it found 143 leaks (the study home, the SUBMIT and NAV
+    no answer may hold any of the 25 seeded tokens. It runs twice, with the flag `layout.home_today` off and on (on is
+    what ships; the PI's mark is made 4 days back, so its task is overdue on "Needs you today", which shows it outside
+    a session). On aeb978e6 it found 143 leaks (the study home, the SUBMIT and NAV
     job pages and files, the ingest report); now none. A new open route that leaks fails it.
   - **An answer begun before the start (the review of aeb978e6, H4).** The switch was read only at a request's
     entry, so a patient page waiting on the backend when the session started could still be sent after the
@@ -189,6 +191,9 @@
   late, and the serious AE itself has gone out at once), a break-glass notice (none can be opened during a session),
   and every job's mail (a CASE sheet, a list, a receipt). A state that cannot be read holds too; nothing is dropped.
   On the first day a mail of the three kinds may go twice (its key changed with this card), never zero times.
+- **The start form** uses the shared field macro (9k-6a, D-1376; typed fields, D-1384): a wrong ticket or no tick
+  answers 400 with the error summary tied to each field (`support-start` in `tests/console/form_cases_9k6a.py`); the
+  form-fields ratchet list is not raised.
 - **Not in this card, said plainly:** the switch marks console requests only. Code outside a request is not marked:
   the morning-mail timer still builds its notices (they wait at the gateway, above), the nightly REDCap read
   (`rc_read`) and the orchestrator's own jobs still run. The orchestrator refuses a patient read the console did not

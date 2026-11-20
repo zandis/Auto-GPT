@@ -170,7 +170,7 @@ def test_a_break_glass_grant_opened_before_does_not_open_a_patient_during_a_sess
 def test_the_start_and_the_end_are_two_audit_events(box: dict[str, Any]) -> None:  # noqa: F811
     admin, _ = login(box["app"])
     r = admin.post(PAGE, data={"csrf": _csrf(admin.get(PAGE).text), "ticket": "SUP-0041"}, follow_redirects=False)
-    assert r.headers["location"] == f"{PAGE}?err=support.err.confirm"  # not ticked: nothing starts
+    assert r.status_code == 400 and 'href="#support-confirm"' in r.text  # not ticked: nothing starts (D-1376 form)
     admin = _start(box, ticket="SUP-0042")
     assert 'data-testid="support-live"' in admin.get(PAGE).text
     r = admin.post(PAGE, data={"csrf": _csrf(admin.get(PAGE).text), "ticket": "SUP-0043", "confirm": "yes"},
@@ -186,11 +186,15 @@ def test_the_start_and_the_end_are_two_audit_events(box: dict[str, Any]) -> None
     # a ticket field holds a ticket number, never a name or a sentence
     r = admin.post(PAGE, data={"csrf": _csrf(admin.get(PAGE).text), "ticket": "Taro Yamada called", "confirm": "yes"},
                    follow_redirects=False)  # fmt: skip
-    assert r.headers["location"] == f"{PAGE}?err=support.err.ticket"
+    assert (
+        r.status_code == 400
+        and 'href="#support-ticket"' in r.text
+        and "Taro Yamada called" not in r.text.split('class="fm-summary"')[1].split("</div>")[0]
+    )
     for name in ("TaroYamada", "Yamada-Taro", "T.Yamada"):  # the shape of a number: letters alone are refused
         r = admin.post(PAGE, data={"csrf": _csrf(admin.get(PAGE).text), "ticket": name, "confirm": "yes"},
                        follow_redirects=False)  # fmt: skip
-        assert r.headers["location"] == f"{PAGE}?err=support.err.ticket", name
+        assert r.status_code == 400 and 'href="#support-ticket"' in r.text, name
     assert len(_events(box, "console.support_session_start")) == 1
 
 
@@ -912,6 +916,17 @@ def _seed(b: dict[str, Any]) -> list[Any]:
 
 
 def _seed_marks(b: dict[str, Any], clients: dict[str, Any]) -> None:
+    """The PI's "need info" mark with a note, made 4 days ago (its task is overdue: on "Needs you today" too)."""
+    h = b["app"].state.helpers
+    clock = h.clock
+    h.clock = lambda: clock() - timedelta(days=4)
+    try:
+        _seed_marks_now(b, clients)
+    finally:
+        h.clock = clock
+
+
+def _seed_marks_now(b: dict[str, Any], clients: dict[str, Any]) -> None:
     pi, pi_csrf, _ = clients["lpi"]
     r = pi.post(f"/studies/GZQO/patients/{P_SCREEN_1}/mark",
                 data={"csrf": pi_csrf, "mark": "need_info", "note": NOTE}, follow_redirects=False)  # fmt: skip
@@ -971,19 +986,49 @@ def _leaks(b: dict[str, Any], jobs: list[Any], clients: dict[str, Any]) -> tuple
     return n, sorted(set(found))
 
 
-def test_no_open_route_shows_a_seeded_patient_token_during_a_session(box: dict[str, Any]) -> None:  # noqa: F811
+def _home_today(b: dict[str, Any], value: str) -> None:
+    """The flag ``layout.home_today`` (J-6, D-1225) as the administrator sets it on /ops/flags; a page reads it now."""
+    from console import home_today as ht
+    from console import phone
+    from tb_common import flags as fl
+
+    if fl.Flags().row(ht.FLAG) != value:
+        fl.Flags(audit=b["audit"]).set(ht.FLAG, value, actor="console:admin", reason="10K-15 walk (D-1364)")
+    fl.clear_cache()
+    phone.clear_cache()
+    phone.read_now()
+
+
+@pytest.mark.parametrize("home_today", ["off", "on"])
+def test_no_open_route_shows_a_seeded_patient_token_during_a_session(box: dict[str, Any], home_today: str) -> None:  # noqa: F811
+    """With the flag ``layout.home_today`` off and on (on is what ships: "Needs you today" on the home)."""
+    from console import phone
+    from tb_common import flags as fl
+
     from tests.console.test_role_route_matrix import _clients, _orchestrator_routes
 
     _orchestrator_routes(box)
     jobs = _seed(box)
     clients = _clients(box)
     _seed_marks(box, clients)
-    # the data is there: outside a session the coordinator's study pages show it (else the walk proves nothing)
-    crc = clients["crc"][0]
-    assert P_SCREEN_1[:8] in crc.get("/studies/GZQO/week?list=all").text
-    admin = clients["admin"][0]
-    assert NOTE in admin.get("/home?view=studies").text or NOTE in crc.get("/home?view=studies").text
-    _start(box)
+    _home_today(box, home_today)
+    try:
+        # the data is there: outside a session the coordinator's pages show it (else the walk proves nothing)
+        crc = clients["crc"][0]
+        assert P_SCREEN_1[:8] in crc.get("/studies/GZQO/week?list=all").text
+        homes = " ".join(
+            c.get(u).text
+            for c in (crc, clients["lpi"][0])
+            for u in (("/home", "/home?today=all") if home_today == "on" else ("/home?view=studies",))
+        )
+        assert NOTE in homes or P_SCREEN_1[:8] in homes, "the homes show the seeded patient outside a session"
+        _start(box)
+        n, found = _leaks(box, jobs, clients)
+    finally:
+        fl.clear_cache()
+        phone.clear_cache()
+    assert n > 2000
+    assert found == [], "\n".join(found)
     n, found = _leaks(box, jobs, clients)
     assert n > 2000
     assert found == [], "\n".join(found)

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True)
 class Case:
     template: str
-    role: str  # "coordinator" or "pi"
+    role: str  # "coordinator", "pi" or "admin"
     page: str
     action: str
     prefix: str
@@ -24,6 +24,8 @@ class Case:
     testid: str  # the summary's data-testid on this page (the one its earlier tests read)
     saved_event: str  # the audit event a saving POST writes
     kept: tuple[str, ...] = field(default=())  # fields whose typed value must come back as typed
+    title_key: str = "sstate.title"  # the page's title text (the failed page's title starts with "Error: " before it)
+    saved_at: str = ""  # where a saving POST goes (303)
 
 
 CASES: dict[str, Case] = {
@@ -70,5 +72,20 @@ CASES: dict[str, Case] = {
         testid="irbt-error",
         saved_event="console.irb_text",
         kept=("text_version", "approved_on", "note"),
+    ),
+    "support-start": Case(  # 10K-15 (D-1364): the support-session switch's start form, the administrator's
+        template="support_session.html",
+        role="admin",
+        page="/ops/support-session",
+        action="/ops/support-session",
+        prefix="support",
+        bad={"ticket": "Taro Yamada"},
+        failing=("ticket", "confirm"),
+        good={"ticket": "SUP-0042", "confirm": "yes"},
+        testid="error-summary",
+        saved_event="console.support_session_start",
+        kept=("ticket",),
+        title_key="support.title",
+        saved_at="/ops/support-session?done=start",
     ),
 }
