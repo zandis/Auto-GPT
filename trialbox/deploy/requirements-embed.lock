@@ -822,6 +822,21 @@ starlette==1.10.0 \
     --hash=sha256:478c0ab3b4ced6e82719849c118fa406f0278a3499c1a898cd15cd31bdc38ce4 \
     --hash=sha256:b8399098d4c1e3522734f7235dc79b1fc967f96cf139c81e0fa30479e0685f9b
     # via fastapi
+sudachidict-small==20261015 \
+    --hash=sha256:37e4b4c15e483d84dcdfe8fb05545c9dd8fcab806fd2146eaa8c2e804b31d403 \
+    --hash=sha256:815f893d2e746fd1a9304bcaa4318759d638fd192e7cbbc54c9672ccafbc0d48
+    # via trialbox
+sudachipy==0.7.0 \
+    --hash=sha256:0e60cefd3a7a9680206ae160bf86d266d0d60e434adac2384f8c7a6dfb0f3ba7 \
+    --hash=sha256:14a2505e7d086fe9da64c0048d8e2de13cdded3aac4f1e047929cef51dba338c \
+    --hash=sha256:68be139f5d7f053eba16fd3f792e4ef0c6bfed81a1b63e68b4544c7159296034 \
+    --hash=sha256:6be34e856c99498e990904f7155e1a102f675cf5edfdaf7a396f26d71ce4b333 \
+    --hash=sha256:8d0429db2d02d408daa7dccd062a6d8c2984a07f8e448b49a3ea694377617658 \
+    --hash=sha256:907eadc1db305f9bc6e502a9acf9ff1ac871cd8d4ac3a2e0aaba3ddc60e93b2a \
+    --hash=sha256:dfc90631aa2276d2165e1995bc94b56c9f5bc27b875f43fb7d67e4a3b7346d4f
+    # via
+    #   sudachidict-small
+    #   trialbox
 sympy==1.14.0 \
     --hash=sha256:d3d3fe8df1e5a0b42f0e7bdf50541697dbe7d23746e894990c030e2b05e72517 \
     --hash=sha256:e091cc3e99d2141a0ba2847328f5479b05d94a6635cb96148ccb3f34671bd8f5

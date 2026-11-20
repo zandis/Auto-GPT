@@ -36,6 +36,9 @@ dependencies = [
   "markdown>=3.7",
   "dulwich>=0.22",
   "zstandard>=0.23",  # .tbbak compression, zstd -3 multi-threaded (dataflow review P0-3, D-149)
+  # Japanese person names for the privacy guard (card 10C-1b, D-1235: the owner's yes covers exactly these two)
+  "sudachipy==0.7.0",
+  "sudachidict-small==20261015",
 ]
 
 [project.optional-dependencies]

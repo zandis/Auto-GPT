@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, cast
 
+from tb_common.phi_guard import mask_names
+
 from matching.registry_match import prompts
 from matching.registry_match.llm import LLMClient
 from matching.registry_match.tokenize import sent_tokenize
@@ -42,7 +44,7 @@ def split_sentences(note: str) -> list[str]:
 
 def number_patient(note: str) -> tuple[str, list[str]]:
     """NCBI: sentence-split the note, append the consent sentence, prefix each with its id."""
-    sents = split_sentences(note)
+    sents = split_sentences(mask_names(note))
     sents.append(CONSENT)
     return "\n".join(f"{i}. {s}" for i, s in enumerate(sents)), sents
 
@@ -140,6 +142,7 @@ def match_trial(
 ) -> TrialMatch:
     """TrialGPT-Matching: one prompt for inclusion, one for exclusion (NCBI ``trialgpt_matching``)."""
     out = TrialMatch(nct_id=str(trial.get("NCTID") or trial.get("nct_id") or ""), raw={})
+    patient_numbered = mask_names(patient_numbered)
     for inc_exc in ("inclusion", "exclusion"):
         system, user = matching_prompt(trial, inc_exc, patient_numbered)
         res = client.chat_json([{"role": "system", "content": system}, {"role": "user", "content": user}])
@@ -154,7 +157,7 @@ def match_trial(
 
 def aggregate(client: LLMClient, match: TrialMatch, trial: dict[str, Any], patient_numbered: str) -> TrialMatch:
     """TrialGPT-Ranking LLM aggregation: relevance R (0..100) and eligibility E (-R..R)."""
-    system, user = aggregation_prompt(patient_numbered, match.raw, trial)
+    system, user = aggregation_prompt(mask_names(patient_numbered), match.raw, trial)
     res = client.chat_json([{"role": "system", "content": system}, {"role": "user", "content": user}])
     if isinstance(res.data, dict):
         match.aggregation = res.data
@@ -181,7 +184,7 @@ def generate_keywords(client: LLMClient, note: str) -> dict[str, Any]:
     """TrialGPT-Retrieval keyword generation: {"summary": str, "conditions": [str, ...]} (up to 32, by priority).
 
     The keywords are patient-derived (D3): they are used only against the local mirror, never sent to a registry."""
-    res = client.chat_json(keyword_messages(note))
+    res = client.chat_json(keyword_messages(mask_names(note)))
     data = res.data if isinstance(res.data, dict) else {}
     raw = data.get("conditions")
     conds: list[Any] = raw if isinstance(raw, list) else []

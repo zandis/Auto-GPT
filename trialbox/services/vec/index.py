@@ -55,7 +55,7 @@ class Store(Protocol):
 
 def note_chunks(note: Note, mrn_regex: str | None = None, size: int = SIZE, overlap: int = OVERLAP) -> list[ChunkRow]:
     """The rows of one note: chunks of its masked text, with offsets into the note."""
-    masked = mask_note(note.text or "", mrn_regex)
+    masked = mask_note(note.text or "", mrn_regex, model_input=True)
     return [
         ChunkRow(note.pid, note.did, c.no, note.date, note.type, c.start, c.end, c.text, c.sha, NOTE_MASK_VERSION)
         for c in chunk_note(masked, size, overlap)

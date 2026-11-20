@@ -44,6 +44,7 @@ from tb_common import lakeprobe
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import CALL_CONTEXT
 from tb_common.optout import REGISTRY_SQL, RegistryState, registry_state
+from tb_common.phi_guard import mask_names
 from tb_common.reasons import CODES as REASON_CODES
 from tb_common.ruleset import Ruleset
 from tb_common.timeutil import add_months, month_ends
@@ -719,7 +720,7 @@ class _Run:
         rows = lakeprobe.rows_or_no_table(self.lake, NOTES_SQL, params, self.cfg.snapshot, "document") or []
         out: dict[str, list[_Note]] = {}
         for r in rows:
-            text = str(r["text"] or "")
+            text = mask_names(str(r["text"] or ""))
             out.setdefault(str(r["pid"]), []).append(
                 _Note(str(r["did"]), r["d"], str(r["type"] or "note"), text, sentences(text))
             )

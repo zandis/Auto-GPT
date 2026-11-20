@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 import numpy as np
+from tb_common.phi_guard import mask_names
 
 #: public-prior similarity threshold (placeholder for the LTT fit) and the site safety margin (CAS-14)
 PUBLIC_PRIOR_THRESHOLD = 0.12
@@ -141,7 +142,7 @@ def screen(embedder: Embedder, query: str, sentences: list[str], threshold: Thre
     its best window."""
     if not sentences:
         return S2bResult(False, 0.0, threshold, [])
-    pieces: list[tuple[int, str]] = [(i, w) for i, s in enumerate(sentences) for w in windows(s)]
+    pieces: list[tuple[int, str]] = [(i, w) for i, s in enumerate(sentences) for w in windows(mask_names(s))]
     vecs = embedder.embed([query, *(w for _, w in pieces)])
     score: dict[int, float] = {}
     for (i, _), c in zip(pieces, cosines(vecs[0], vecs[1:]), strict=True):

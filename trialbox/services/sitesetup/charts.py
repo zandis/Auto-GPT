@@ -28,6 +28,7 @@ from typing import Any, Protocol
 
 from doc_parser.hidden_text import hidden_text
 from tb_common import encoding, instruments
+from tb_common.phi_guard import mask_names
 from tb_common.quotes import quote_in
 from tb_llm.budget import estimate_tokens
 
@@ -424,6 +425,7 @@ def extract(
     answer of a score-only instrument is dropped unless the site switched that instrument with a licence reference
     (``switches``, T-307)."""
     facts: list[dict[str, Any]] = []
+    text = mask_names(text)
     for part in chart_parts(text, part_budget(llm, lang)):
         res = llm.chat_json(
             "chart_facts",

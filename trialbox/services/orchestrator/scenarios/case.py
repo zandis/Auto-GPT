@@ -38,6 +38,7 @@ from matching import decision
 from matching import excerpts as excerpt_builder
 from tb_common import chartno, dates
 from tb_common.crypto import sha256_bytes
+from tb_common.phi_guard import mask_names
 from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
 from tb_common.routing import is_internal
@@ -106,6 +107,7 @@ def chart_excerpts(text: str, filename: str, fallback: date) -> list[dict[str, A
     paragraph and the ones after it until the next date; paragraphs before any date carry the fallback (the upload
     date), flagged ``date_source: "upload"`` so the sheet can say the chart did not date them."""
     text = unicodedata.normalize("NFKC", text).replace("\r", "")
+    text = mask_names(text)
     paras = [p.strip() for p in re.split(r"\n\s*\n|\n(?=\s*(?:#|【|\[))", text) if p.strip()]
     out: list[dict[str, Any]] = []
     current: date | None = None

@@ -29,6 +29,7 @@ from datetime import date, timedelta
 from typing import Any, Protocol
 
 from datacore.forms import Field, problem
+from tb_common.phi_guard import masked_excerpts
 from tb_common.quotes import quote_in
 
 from edc.mapping import ItemMap, systems_of, unit_key
@@ -337,6 +338,7 @@ def _note(ctx: _Ctx, m: ItemMap, f: Field, drafter: NoteDrafter | None) -> Draft
         notes.append({"id": str(n.get("row")), "date": d.isoformat(), "type": str(n.get("type") or ""), "text": text})
     if not notes:
         return _unknown(m, f, "too_long" if skipped else "no_record", ctx.snap)
+    notes = masked_excerpts(notes)
     ans, version, call_id = drafter(m, f, notes)
     stamp = f"{ctx.snap}|{version}"
     return _from_model(_answer(ctx, m, f, notes, ans, stamp), call_id)
@@ -473,7 +475,7 @@ def gateway_drafter(llm: Any, job_id: str | None = None) -> NoteDrafter:
         choices = [{"code": c, "label": lbl} for c, lbl in f.options.items()]
         res = llm.chat_json("crf_prefill", {"item": {"name": f.name, "label": f.label, "kind": f.kind,
                                                      "choices": choices, "question": m.question},
-                                            "notes": notes}, job_id=job_id)  # fmt: skip
+                                            "notes": masked_excerpts(notes)}, job_id=job_id)  # fmt: skip
         data = res.data if hasattr(res, "data") else res
         version = f"crf_prefill_v{getattr(res, 'prompt_version', '') or '1'}"
         return dict(data or {}), version, str(getattr(res, "call_id", "") or "")  # D-989

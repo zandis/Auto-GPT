@@ -132,8 +132,10 @@ def test_known_gap_ordinary_lines_pass_unchanged(text: str) -> None:
 @pytest.mark.req("PRIV-29")
 @pytest.mark.parametrize("index", range(len(pg.JA_NOTE_PATTERNS)))
 def test_every_japanese_rule_is_needed_by_a_probe(monkeypatch: pytest.MonkeyPatch, index: int) -> None:
-    """Without any one of the 10C-1 rules, at least one probe line keeps an identifier: no rule is dead weight."""
+    """Without any one of the 10C-1 rules, at least one probe line keeps an identifier: no rule is dead weight. The
+    rules alone: the name analyser (10C-1b) is taken out, so it cannot hide a rule's absence."""
     rx = pg.JA_NOTE_PATTERNS[index][1]
+    monkeypatch.setattr(pg, "NAME_RECOGNISERS", [])
     keep = [i for i, (_k, r) in enumerate(pg._NOTE_PATTERNS) if r is not rx]
     monkeypatch.setattr(pg, "_NOTE_PATTERNS", tuple(pg._NOTE_PATTERNS[i] for i in keep))
     monkeypatch.setattr(pg, "_NOTE_GATES", tuple(pg._NOTE_GATES[i] for i in keep))

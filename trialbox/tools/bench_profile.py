@@ -113,6 +113,9 @@ def _phi_spans(site: Path) -> dict[str, list[dict[str, Any]]]:
 
 def redact(text: str, spans: list[dict[str, Any]]) -> str:
     """Each planted PHI span (``gold/notes.jsonl``: start, end, type) replaced by ``[type]``, last first."""
+    from tb_common.phi_guard import mask_names
+
+    text = mask_names(text)  # length preserving, so the planted offsets still apply
     for sp in sorted(spans, key=lambda x: x["start"], reverse=True):
         text = text[: sp["start"]] + f"[{sp['type']}]" + text[sp["end"] :]
     return text
@@ -152,9 +155,11 @@ def _facts(p: dict[str, str], r: dict[str, list[dict[str, str]]], ref: str) -> l
 def messages(p: dict[str, Any]) -> list[dict[str, str]]:
     """The registered ``profile_summary`` prompt rendered for one patient (the gateway checks the text against it)."""
     from tb_common.llm import load_prompt, render
+    from tb_common.phi_guard import masked_note_variables
 
     facts = "\n".join(f"{f['id']}: {f['text']}" for f in p["facts"])
-    return render(load_prompt(PROMPT), {"language": p["language"], "facts": facts})
+    variables = masked_note_variables("profile_summary", {"language": p["language"], "facts": facts})
+    return render(load_prompt(PROMPT), variables)
 
 
 def check_citations(p: dict[str, Any], data: dict[str, Any]) -> tuple[int, int]:
