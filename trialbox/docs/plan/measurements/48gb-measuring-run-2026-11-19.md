@@ -166,6 +166,18 @@ card's total. The ballast's own log also prints the 5090 profile's two `export` 
 ballast": they are its defaults and are not used here (no `--env-file`); the records' text comes from
 `tools/ballast48.py` (question H-1 below).
 
+**Free, one meaning (card H-66, 2026-11-20).** The run of 2026-11-19 (m48-20261119T232459Z-d28f6c0305fa) ended here:
+`hold` said "holding 47551 MiB ... 49140 MiB free left" and `ready`, then `plan` refused "49776 MiB free, not 49140
++/- 512". Driver 580 reserves memory that nvidia-smi counts neither used nor free (total = used + free + reserved).
+`hold` read `memory.free`; `plan` took total minus used, which adds the reserve: 49,140 + 636 = 49,776
+(97,887 - 47,551 = 50,336 = 49,140 free + 636 reserved + 560 the holder's own context). Now both read the card with
+one function (`tools/ballast.py` `read_card`): free is nvidia-smi's `memory.free`, what a server starting on the card
+is offered. `hold` corrects the holder from that figure (at most 8 steps, to within 64 MiB), refuses `off-target`
+with the numbers when it is still outside 512 MiB, reads again after 2 s (`unsteady` if it moved out) and only then
+says `ready`; the log shows each correction and the driver's reserve. The tolerance is still 512 MiB. A `plan`
+refusal is now the step's note word for word, so the run's end reason names both figures. Proved on a stand-in card
+with the run's figures (`tests/unit/test_ballast_reserved_h66.py`); no card was used.
+
 **6. The class's first option, kept running for the screen** (lane J's measuring run, unchanged, through the
 wrapper):
 
@@ -305,8 +317,9 @@ withheld); the wrapper writes the command line without the environment. Look at 
 utilisations are shares of the total (`--gpu-memory-utilization`), so 0.57 of 97,887 MiB would ask vLLM for more
 than the 49,140 MiB the ballast leaves free. The wrapper runs lane J's `measure` unchanged with a runner that
 
-- answers `nvidia-smi` as a 49,140 MiB card would (total = the target; used = the card's minus what the ballast holds),
-  so the class's own range check, arithmetic and memory sampler apply as written;
+- answers `nvidia-smi` as a 49,140 MiB card would (total = the target; used = what has gone from the target's free:
+  the card's used plus the driver's reserve, minus what the ballast holds), so the class's own range check,
+  arithmetic and memory sampler apply as written;
 - scales `JUDGE_GPU_MEM_UTIL` and `VERIFIER_GPU_MEM_UTIL` on the start to the same MiB of the real total
   (`tools/ballast.py` `util_on`, rounded down: 0.57 to 0.286, 0.27 to 0.135);
 - adds `--capped-to "48 GB class (49,140 MiB), by ballast"` to the serving record's capture; the record keeps the real
@@ -322,7 +335,7 @@ compares one role's answers and seconds per call in two canary reports. Tests: `
 on stand-ins.
 
 It refuses before lane J's `measure` is called when no `tb-ballast` container runs or the card's free memory is not
-49,140 within 512 MiB. `during` runs a command and records its wall time and the card's peak; `down` replays the stop
+49,140 within 512 MiB; free is `tools/ballast.py` `read_card`'s, the figure the ballast converged on (H-66). `during` runs a command and records its wall time and the card's peak; `down` replays the stop
 command a `--keep` run left. Lane J's class, overlay and switch are unchanged; the switch is still what `measure`
 checks. Tests: `tests/unit/test_ballast48_h47.py`, on stand-ins (no card, no Docker).
 
