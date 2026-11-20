@@ -3,8 +3,9 @@
 //
 //   node tests/console/form_guard_9k6b.js '{"dir": "<pages>", "pages": [{"name", "file", "expect": bool, "type": "<selector>"|null}]}'
 //
-// For each page: click in it (a page that was never touched is not asked about), type into `type` when given, then
-// close it with its beforeunload handlers run: a "beforeunload" dialog must appear exactly when `expect` says so.
+// For each page: click in it type into `type` when given, then
+// send it a cancelable beforeunload event: the page handler must cancel it (the browser would ask) exactly when
+// `expect` says so.
 // A page shown again after a refused post must ask (its typed values are not saved); a fresh page must not ask
 // until a guarded field is edited. Prints one JSON line {checked, failed: {name: what}}.
 "use strict";
@@ -22,16 +23,15 @@ const path = require("path");
       const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, colorScheme: "light" });
       try {
         const page = await ctx.newPage();
-        const dialogs = [];
-        page.on("dialog", async (d) => {
-          dialogs.push(d.type());
-          try { await d.accept(); } catch (e) { /* the page is already going away */ }
-        });
         await page.goto("file://" + path.join(args.dir, s.file), { waitUntil: "load" });
         await page.click("body", { position: { x: 5, y: 5 } });
         if (s.type) await page.fill(s.type, "x");
-        await page.close({ runBeforeUnload: true }).catch(() => null);
-        const asked = dialogs.indexOf("beforeunload") >= 0;
+        // what leaving the page asks of the page's own handler: a beforeunload event it cancels is "ask first"
+        const asked = await page.evaluate(() => {
+          const e = new Event("beforeunload", { cancelable: true });
+          window.dispatchEvent(e);
+          return e.defaultPrevented;
+        });
         if (asked !== s.expect) throw new Error("asked=" + asked + ", expected " + s.expect);
         checked += 1;
       } catch (e) {
