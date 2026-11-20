@@ -1,0 +1,11 @@
+# synthetic: sqlalchemy text() given built SQL
+from sqlalchemy import text
+
+
+def rows(con, table):
+    return con.execute(text(f"SELECT * FROM {table}"))  # hit
+
+
+def rows2(con, schema):
+    q = "SELECT * FROM " + schema + ".item"  # hit
+    return con.execute(text(q))

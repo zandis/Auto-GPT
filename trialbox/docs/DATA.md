@@ -72,4 +72,8 @@ File: [data/14-edc-integration-handoff.md](data/14-edc-integration-handoff.md). 
 
 File: [data/15-the-site-profile.md](data/15-the-site-profile.md). In it: [What a profile is](data/15-the-site-profile.md#what-a-profile-is), [Where each site-specific fact lives](data/15-the-site-profile.md#where-each-site-specific-fact-lives), [Loading, validation and the `verify` state](data/15-the-site-profile.md#loading-validation-and-the-verify-state), [Versions, audit, roll-out and roll-back](data/15-the-site-profile.md#versions-audit-roll-out-and-roll-back), [Coverage lines and the work list](data/15-the-site-profile.md#coverage-lines-and-the-work-list), [The questionnaire form](data/15-the-site-profile.md#the-questionnaire-form), [The proof](data/15-the-site-profile.md#the-proof), [Seams left for the cards that wait](data/15-the-site-profile.md#seams-left-for-the-cards-that-wait), [Known limits](data/15-the-site-profile.md#known-limits).
 
+## 16. Site standard versions / 院方標準版本 / 医療機関向けの規格バージョン
+
+File: [data/16-site-standard-versions.md](data/16-site-standard-versions.md). In it: [en](data/16-site-standard-versions.md#en), [zh-TW](data/16-site-standard-versions.md#zh-tw), [ja](data/16-site-standard-versions.md#ja).
+
 <!-- end of the generated index -->
