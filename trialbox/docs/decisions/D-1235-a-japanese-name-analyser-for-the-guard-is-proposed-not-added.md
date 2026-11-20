@@ -85,6 +85,41 @@ clinic's name; rare surnames the dictionary does not hold (四十物, 勅使河�
 them; a kanji-only line at a site that declares Chinese or English notes. Two over-masks of master's rules remain
 (赤ちゃん → ○ちゃん, 校長先生 → ○○先生): not this card's.
 
+## Third round
+
+On the coordinator's 400 held-out lines, round two leaked 18 of 214 names (master 83, round one 57) and over-masked
+none of 150 no-name lines, with the notes language `ja` and with `auto`. Of the 18, 13 were a surname beside a
+clinical title or role. The third round, by class (fixtures and counter-cases of the lane's own, not the
+coordinator's lines, in `eval/phi_synth/ja_name_classes.json`; each class has rows that fail on round two's head
+81f91352):
+
+- **A surname beside a title or a role, in either order and any spacing, kanji or romaji** (Dr. 石川へ, Dr.Sakamoto,
+  藤田Drに, 小西 Dr., 今井Ns.へ, Ishida Ns., 担当OT：宮田, 主治医 は 岡田 です, 看護師　森田　より). The titles, the
+  roles, the particles between them and the words that stand in a name's place but are none are **data**,
+  `libs/tb_common/ja_name_cues.json` (`tb-ja-name-cues/1`), keyed by the language of the text like the rest of the
+  guard's Japanese rules (country layer part P10: on everywhere), not by a country.
+- **A name with its reading in brackets** (工藤（くどう）様, すだ（須田）様) and **a name masked once, masked at its
+  other bare occurrences in the same note** (菅野さんへ電話。菅野は外出中。), never inside a longer word or before a
+  term (菅野病院, 河合町); an out-of-dictionary surname before a given name and 氏 with spaces (勅使河原 誠 氏).
+- **Mixed forms**: a kanji name with its romaji (石井 Ishii 様), a kana name with its kanji in brackets and the given
+  name after (かとう(加藤)　ゆうき), two katakana or kanji words after an age and a sex (72歳女性 ハネダ ミク; not two
+  drugs: 70歳女性 アムロジピン ロキソニン).
+- **Not names**: a role word in a name's place (担当医：当直医, 主治医：未定, 担当：同上, 主治医：交代予定; the last one
+  was masked by master's staff-colon rule and is now dropped), a nationality or a home after a name (金さん、韓国籍、
+  42歳), the 先生 of 鈴木一郎先生 never split, a patient number before a half-width kana name never part of it
+  (12345 ﾔﾏﾀﾞ ﾀﾛｳ masks the name only).
+
+**Known behaviour**: the brackets around a name's reading are masked with it (工藤（くどう）様 -> ○○○○○○○様); the
+guard's redaction may take the honorific with the name (鈴木一郎先生 -> [NAME]) while the masker keeps it
+(○○○○先生). Master's rule masks the word after `Dr. ` (Dr. 回診 -> Dr. ○○): not this card's.
+
+Development figures: class fixtures (70 name lines, 3 limits) all names masked but the 3 limits, no counter-case
+changed of 46, pinned outputs 10 of 10; the card's lines 11 of 75 and 2 of 30 missed as in round two; no ordinary
+line changed of 266. Time 36.6 ms per 10 kB note (round two 31.1); 400 kB of distinct lines in 3.1 s.
+
+**The three named limits** remain: a bare surname with no cue (浅野 alone), a hiragana surname the analyser does not
+know by its reading (すどう alone), a romaji surname alone (Kimura alone).
+
 ## Consequences
 
 - With the analyser on, names that the dictionary does not hold (rare surnames, invented given names), a romaji name

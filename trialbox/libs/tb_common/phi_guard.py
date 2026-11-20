@@ -1266,6 +1266,7 @@ def note_spans(text: str, mrn_regex: str | None = None) -> list[tuple[str, int, 
         found.extend(("name", s, e) for s, e in recognise(text))
     if NAME_RECOGNISERS:
         found = _whole_names(text, found)
+        found = _repeated_names(text, found)
     merged: list[tuple[str, int, int]] = []
     for kind, s, e in sorted(found, key=lambda f: (f[1], -f[2])):
         if e <= s:
@@ -1300,6 +1301,19 @@ def _whole_names(text: str, found: list[tuple[str, int, int]]) -> list[tuple[str
                 s = k
         out.append((kind, s, e))
     return out
+
+
+def _repeated_names(text: str, found: list[tuple[str, int, int]]) -> list[tuple[str, int, int]]:
+    """10C-1b: in a Japanese note, a span in a name's place that is no name is dropped (主治医：交代予定:
+    ``tb_common.ja_names.not_a_name``), and a name masked once is masked at its other bare occurrences in the same
+    note (河野さんへ。河野は不在。: ``tb_common.ja_names.repeat_spans``)."""
+    if not any(kind == "name" for kind, _s, _e in found) or not japanese_text(text):
+        return found
+    from tb_common import ja_names
+
+    found = [f for f in found if f[0] != "name" or not ja_names.not_a_name(text[f[1] : f[2]])]  # 主治医：交代予定
+    names = [text[s:e] for kind, s, e in found if kind == "name"]
+    return found + [("name", s, e) for s, e in ja_names.repeat_spans(text, names)]
 
 
 def mask_note(text: str, mrn_regex: str | None = None) -> str:

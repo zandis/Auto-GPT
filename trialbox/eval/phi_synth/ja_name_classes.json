@@ -1,64 +1,561 @@
 {
-  "about": "Card 10C-1b, second round (D-1235): Japanese names by class, every one invented, and the counter-cases that must stay as they are. Each `names` line lists the names it holds (`ids`); each `ordinary` line must pass the guard and the masker unchanged; each `pinned` line must mask exactly as given (the name, never the title beside it). `limit` lines are names the guard still misses, kept as strict expected failures so that one that starts to pass must move. Development fixtures: written by the lane that wrote the rule, from the coordinator's review of 2026-11-19.",
+  "about": "Card 10C-1b, second round (D-1235): Japanese names by class, every one invented, and the counter-cases that must stay as they are. Each `names` line lists the names it holds (`ids`); each `ordinary` line must pass the guard and the masker unchanged; each `pinned` line must mask exactly as given (the name, never the title beside it). `limit` lines are names the guard still misses, kept as strict expected failures so that one that starts to pass must move. Development fixtures: written by the lane that wrote the rule, from the coordinator's reviews of 2026-11-19 (second round) and 2026-11-20 (third round: cue words, brackets, repeats, mixed forms; the coordinator's own lines are not copied).",
   "names": [
-    {"class": "kanji_no_kana", "text": "森本裕子", "ids": ["森本裕子"]},
-    {"class": "kanji_no_kana", "text": "宮本 修", "ids": ["宮本 修"]},
-    {"class": "kanji_no_kana", "text": "安藤 聡 外来", "ids": ["安藤 聡"]},
-    {"class": "kanji_no_kana", "text": "石田 恵", "ids": ["石田 恵"]},
-    {"class": "kanji_no_kana", "text": "小野寺 進 72歳", "ids": ["小野寺 進"]},
-    {"class": "kanji_no_kana", "text": "浅野 52歳 男性", "ids": ["浅野"]},
-    {"class": "kanji_no_kana", "text": "野村 女性 胃癌術後", "ids": ["野村"]},
-    {"class": "kanji_no_kana", "text": "患者：＊＊太郎", "ids": ["太郎"]},
-    {"class": "hiragana", "text": "やまだ はなこ", "ids": ["やまだ はなこ"]},
-    {"class": "hiragana", "text": "かとう ゆうき 45歳", "ids": ["かとう ゆうき"]},
-    {"class": "hiragana", "text": "ふじい まさと", "ids": ["ふじい まさと"]},
-    {"class": "hiragana", "text": "おおた みさき", "ids": ["おおた みさき"]},
-    {"class": "hiragana", "text": "すがわら さくら", "ids": ["すがわら さくら"]},
-    {"class": "hiragana", "text": "福島 さゆり", "ids": ["福島 さゆり"]},
-    {"class": "hiragana", "text": "中川 ひかり", "ids": ["中川 ひかり"]},
-    {"class": "hiragana", "text": "菅原 さくら", "ids": ["菅原 さくら"]},
-    {"class": "hiragana", "text": "さいとう", "ids": ["さいとう"]},
-    {"class": "hiragana", "text": "まなみ", "ids": ["まなみ"]},
-    {"class": "hiragana", "text": "長女 まなみが付き添い", "ids": ["まなみ"]},
-    {"class": "title", "text": "原先生に相談", "ids": ["原"]},
-    {"class": "title", "text": "宮崎医師より", "ids": ["宮崎"]},
-    {"class": "title", "text": "長野先生の外来", "ids": ["長野"]},
-    {"class": "title", "text": "坂本さん", "ids": ["坂本"]},
-    {"class": "title", "text": "野口先生", "ids": ["野口"]},
-    {"class": "title", "text": "杉山様", "ids": ["杉山"]},
-    {"class": "title", "text": "平野医師", "ids": ["平野"]},
-    {"class": "title", "text": "村田氏", "ids": ["村田"]},
-    {"class": "title", "text": "中山看護師", "ids": ["中山"]},
-    {"class": "title", "text": "永井様", "ids": ["永井"]},
-    {"class": "title", "text": "松田さん", "ids": ["松田"]},
-    {"class": "title", "text": "旧姓 渡邊", "ids": ["渡邊"]},
-    {"class": "title", "text": "太郎君", "ids": ["太郎"]},
-    {"class": "title", "text": "はなちゃん", "ids": ["はな"]},
-    {"class": "title", "text": "百目鬼 透先生", "ids": ["百目鬼 透"]},
-    {"class": "title", "text": "南 一平先生", "ids": ["南 一平"]},
-    {"class": "title", "text": "ツツミ ケンタさん", "ids": ["ツツミ ケンタ"]},
-    {"class": "katakana_foreign", "text": "マリア・サントス", "ids": ["マリア・サントス"]},
-    {"class": "katakana_foreign", "text": "グエン・ヴァン・アン", "ids": ["グエン・ヴァン・アン"]},
-    {"class": "katakana_foreign", "text": "ブラウン", "ids": ["ブラウン"]},
-    {"class": "katakana_foreign", "text": "パーキンソンさん", "ids": ["パーキンソン"]},
-    {"class": "whole_name", "text": "四月一日 君子さん", "ids": ["四月一日 君子"]},
-    {"class": "romaji", "text": "Kimura先生", "ids": ["Kimura"]},
-    {"class": "romaji", "text": "Taro Yamada", "ids": ["Taro Yamada"]},
-    {"class": "romaji", "text": "YAMADA Taro", "ids": ["YAMADA Taro"]},
-    {"class": "romaji", "text": "hanako sato", "ids": ["hanako sato"]},
-    {"class": "romaji", "text": "Kenji TANAKA", "ids": ["Kenji TANAKA"]},
-    {"class": "romaji", "text": "ＹＡＭＡＤＡ　Ｔａｒｏ", "ids": ["ＹＡＭＡＤＡ　Ｔａｒｏ"]},
-    {"class": "romaji", "text": "患者：Taro Yamada", "ids": ["Taro Yamada"]}
+    {
+      "class": "kanji_no_kana",
+      "text": "森本裕子",
+      "ids": [
+        "森本裕子"
+      ]
+    },
+    {
+      "class": "kanji_no_kana",
+      "text": "宮本 修",
+      "ids": [
+        "宮本 修"
+      ]
+    },
+    {
+      "class": "kanji_no_kana",
+      "text": "安藤 聡 外来",
+      "ids": [
+        "安藤 聡"
+      ]
+    },
+    {
+      "class": "kanji_no_kana",
+      "text": "石田 恵",
+      "ids": [
+        "石田 恵"
+      ]
+    },
+    {
+      "class": "kanji_no_kana",
+      "text": "小野寺 進 72歳",
+      "ids": [
+        "小野寺 進"
+      ]
+    },
+    {
+      "class": "kanji_no_kana",
+      "text": "浅野 52歳 男性",
+      "ids": [
+        "浅野"
+      ]
+    },
+    {
+      "class": "kanji_no_kana",
+      "text": "野村 女性 胃癌術後",
+      "ids": [
+        "野村"
+      ]
+    },
+    {
+      "class": "kanji_no_kana",
+      "text": "患者：＊＊太郎",
+      "ids": [
+        "太郎"
+      ]
+    },
+    {
+      "class": "hiragana",
+      "text": "やまだ はなこ",
+      "ids": [
+        "やまだ はなこ"
+      ]
+    },
+    {
+      "class": "hiragana",
+      "text": "かとう ゆうき 45歳",
+      "ids": [
+        "かとう ゆうき"
+      ]
+    },
+    {
+      "class": "hiragana",
+      "text": "ふじい まさと",
+      "ids": [
+        "ふじい まさと"
+      ]
+    },
+    {
+      "class": "hiragana",
+      "text": "おおた みさき",
+      "ids": [
+        "おおた みさき"
+      ]
+    },
+    {
+      "class": "hiragana",
+      "text": "すがわら さくら",
+      "ids": [
+        "すがわら さくら"
+      ]
+    },
+    {
+      "class": "hiragana",
+      "text": "福島 さゆり",
+      "ids": [
+        "福島 さゆり"
+      ]
+    },
+    {
+      "class": "hiragana",
+      "text": "中川 ひかり",
+      "ids": [
+        "中川 ひかり"
+      ]
+    },
+    {
+      "class": "hiragana",
+      "text": "菅原 さくら",
+      "ids": [
+        "菅原 さくら"
+      ]
+    },
+    {
+      "class": "hiragana",
+      "text": "さいとう",
+      "ids": [
+        "さいとう"
+      ]
+    },
+    {
+      "class": "hiragana",
+      "text": "まなみ",
+      "ids": [
+        "まなみ"
+      ]
+    },
+    {
+      "class": "hiragana",
+      "text": "長女 まなみが付き添い",
+      "ids": [
+        "まなみ"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "原先生に相談",
+      "ids": [
+        "原"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "宮崎医師より",
+      "ids": [
+        "宮崎"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "長野先生の外来",
+      "ids": [
+        "長野"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "坂本さん",
+      "ids": [
+        "坂本"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "野口先生",
+      "ids": [
+        "野口"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "杉山様",
+      "ids": [
+        "杉山"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "平野医師",
+      "ids": [
+        "平野"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "村田氏",
+      "ids": [
+        "村田"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "中山看護師",
+      "ids": [
+        "中山"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "永井様",
+      "ids": [
+        "永井"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "松田さん",
+      "ids": [
+        "松田"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "旧姓 渡邊",
+      "ids": [
+        "渡邊"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "太郎君",
+      "ids": [
+        "太郎"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "はなちゃん",
+      "ids": [
+        "はな"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "百目鬼 透先生",
+      "ids": [
+        "百目鬼 透"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "南 一平先生",
+      "ids": [
+        "南 一平"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "ツツミ ケンタさん",
+      "ids": [
+        "ツツミ ケンタ"
+      ]
+    },
+    {
+      "class": "katakana_foreign",
+      "text": "マリア・サントス",
+      "ids": [
+        "マリア・サントス"
+      ]
+    },
+    {
+      "class": "katakana_foreign",
+      "text": "グエン・ヴァン・アン",
+      "ids": [
+        "グエン・ヴァン・アン"
+      ]
+    },
+    {
+      "class": "katakana_foreign",
+      "text": "ブラウン",
+      "ids": [
+        "ブラウン"
+      ]
+    },
+    {
+      "class": "katakana_foreign",
+      "text": "パーキンソンさん",
+      "ids": [
+        "パーキンソン"
+      ]
+    },
+    {
+      "class": "whole_name",
+      "text": "四月一日 君子さん",
+      "ids": [
+        "四月一日 君子"
+      ]
+    },
+    {
+      "class": "romaji",
+      "text": "Kimura先生",
+      "ids": [
+        "Kimura"
+      ]
+    },
+    {
+      "class": "romaji",
+      "text": "Taro Yamada",
+      "ids": [
+        "Taro Yamada"
+      ]
+    },
+    {
+      "class": "romaji",
+      "text": "YAMADA Taro",
+      "ids": [
+        "YAMADA Taro"
+      ]
+    },
+    {
+      "class": "romaji",
+      "text": "hanako sato",
+      "ids": [
+        "hanako sato"
+      ]
+    },
+    {
+      "class": "romaji",
+      "text": "Kenji TANAKA",
+      "ids": [
+        "Kenji TANAKA"
+      ]
+    },
+    {
+      "class": "romaji",
+      "text": "ＹＡＭＡＤＡ　Ｔａｒｏ",
+      "ids": [
+        "ＹＡＭＡＤＡ　Ｔａｒｏ"
+      ]
+    },
+    {
+      "class": "romaji",
+      "text": "患者：Taro Yamada",
+      "ids": [
+        "Taro Yamada"
+      ]
+    },
+    {
+      "class": "cue_role",
+      "text": "Dr. 石川へ連絡",
+      "ids": [
+        "石川"
+      ]
+    },
+    {
+      "class": "cue_role",
+      "text": "Dr.Sakamoto より",
+      "ids": [
+        "Sakamoto"
+      ]
+    },
+    {
+      "class": "cue_role",
+      "text": "藤田Drに報告",
+      "ids": [
+        "藤田"
+      ]
+    },
+    {
+      "class": "cue_role",
+      "text": "小西 Dr. 回診",
+      "ids": [
+        "小西"
+      ]
+    },
+    {
+      "class": "cue_role",
+      "text": "今井Ns.へ申し送り",
+      "ids": [
+        "今井"
+      ]
+    },
+    {
+      "class": "cue_role",
+      "text": "Ishida Ns. 対応",
+      "ids": [
+        "Ishida"
+      ]
+    },
+    {
+      "class": "cue_role",
+      "text": "担当OT：宮田",
+      "ids": [
+        "宮田"
+      ]
+    },
+    {
+      "class": "cue_role",
+      "text": "主治医 は 岡田 です",
+      "ids": [
+        "岡田"
+      ]
+    },
+    {
+      "class": "cue_role",
+      "text": "日勤看護師　森田　より",
+      "ids": [
+        "森田"
+      ]
+    },
+    {
+      "class": "cue_role",
+      "text": "前医の松井先生の紹介",
+      "ids": [
+        "松井"
+      ]
+    },
+    {
+      "class": "cue_role",
+      "text": "担当MSW 原田",
+      "ids": [
+        "原田"
+      ]
+    },
+    {
+      "class": "cue_role",
+      "text": "Ns.田村より",
+      "ids": [
+        "田村"
+      ]
+    },
+    {
+      "class": "cue_role",
+      "text": "薬剤師 上野から説明",
+      "ids": [
+        "上野"
+      ]
+    },
+    {
+      "class": "bracket_reading",
+      "text": "工藤（くどう）様",
+      "ids": [
+        "工藤（くどう）"
+      ]
+    },
+    {
+      "class": "bracket_reading",
+      "text": "須田（すだ）さん",
+      "ids": [
+        "須田（すだ）"
+      ]
+    },
+    {
+      "class": "bracket_reading",
+      "text": "すだ（須田）様",
+      "ids": [
+        "すだ（須田）"
+      ]
+    },
+    {
+      "class": "bracket_reading",
+      "text": "くどう（工藤）さん",
+      "ids": [
+        "くどう（工藤）"
+      ]
+    },
+    {
+      "class": "title",
+      "text": "勅使河原 誠 氏",
+      "ids": [
+        "勅使河原 誠"
+      ]
+    },
+    {
+      "class": "mixed",
+      "text": "石井 Ishii 様",
+      "ids": [
+        "石井 Ishii"
+      ]
+    },
+    {
+      "class": "mixed",
+      "text": "かとう(加藤)　ゆうき",
+      "ids": [
+        "かとう(加藤)　ゆうき"
+      ]
+    },
+    {
+      "class": "mixed",
+      "text": "72歳女性 ハネダ ミク",
+      "ids": [
+        "ハネダ ミク"
+      ]
+    },
+    {
+      "class": "mixed",
+      "text": "70歳 男性 ツゲ ショウタ",
+      "ids": [
+        "ツゲ ショウタ"
+      ]
+    }
   ],
   "limit": [
-    {"class": "kanji_no_kana", "text": "浅野", "ids": ["浅野"]},
-    {"class": "hiragana", "text": "すどう", "ids": ["すどう"]},
-    {"class": "romaji", "text": "Kimura", "ids": ["Kimura"]}
+    {
+      "class": "kanji_no_kana",
+      "text": "浅野",
+      "ids": [
+        "浅野"
+      ]
+    },
+    {
+      "class": "hiragana",
+      "text": "すどう",
+      "ids": [
+        "すどう"
+      ]
+    },
+    {
+      "class": "romaji",
+      "text": "Kimura",
+      "ids": [
+        "Kimura"
+      ]
+    }
   ],
   "pinned": [
-    {"text": "井上看護師が対応", "mask": "○○看護師が対応"},
-    {"text": "高橋看護師長", "mask": "○○看護師長"},
-    {"text": "佐藤錦医師より受領", "mask": "佐藤錦医師より受領"}
+    {
+      "text": "井上看護師が対応",
+      "mask": "○○看護師が対応"
+    },
+    {
+      "text": "高橋看護師長",
+      "mask": "○○看護師長"
+    },
+    {
+      "text": "佐藤錦医師より受領",
+      "mask": "佐藤錦医師より受領"
+    },
+    {
+      "text": "菅野さんへ電話。菅野は外出中。",
+      "mask": "○○さんへ電話。○○は外出中。"
+    },
+    {
+      "text": "Dr. 石川へ連絡、石川より折り返し",
+      "mask": "Dr. ○○へ連絡、○○より折り返し"
+    },
+    {
+      "text": "橋本さん来院。橋本病の既往あり。",
+      "mask": "○○さん来院。橋本病の既往あり。"
+    },
+    {
+      "text": "鈴木一郎先生の外来",
+      "mask": "○○○○先生の外来"
+    },
+    {
+      "text": "金さん、韓国籍、42歳",
+      "mask": "○さん、韓国籍、42歳"
+    },
+    {
+      "text": "李さん、中国出身、35歳",
+      "mask": "○さん、中国出身、35歳"
+    },
+    {
+      "text": "12345 ﾔﾏﾀﾞ ﾀﾛｳ",
+      "mask": "12345 ○○○○ ○○○"
+    }
   ],
   "ordinary": [
     "パーキンソン病の方",
@@ -84,6 +581,28 @@
     "Patient seen today, stable.",
     "Take one tablet at bedtime.",
     "這位病人是林小明的父親",
-    "病人主訴頭痛三天，無發燒"
+    "病人主訴頭痛三天，無發燒",
+    "担当医：当直医",
+    "主治医：未定",
+    "担当Ns.：不在",
+    "担当：同上",
+    "主治医：交代予定",
+    "担当医は不在",
+    "Dr.コール",
+    "Dr. 指示により",
+    "Ns.より報告",
+    "PT開始",
+    "OT評価",
+    "ST介入継続",
+    "担当Ns.へ申し送り",
+    "主治医の判断",
+    "前医の紹介状あり",
+    "ECG ST上昇",
+    "70歳女性 アムロジピン ロキソニン 内服",
+    "山田（主治医）は不在",
+    "胃癌（ステージII）",
+    "おなか（腹部）の痛み",
+    "韓国籍 42歳",
+    "中国出身 35歳"
   ]
 }

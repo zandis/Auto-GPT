@@ -33,33 +33,45 @@ puts the default back.
    a description of the patient (``phi_guard._JA_RELATIVES``, ``phi_guard._JA_NOT_A_NAME_VALUE``'s words), a word
    of the ``-like`` list before 様 (``phi_guard._JA_LIKE``).
 5. *By position, not by list.* The word directly before a title or an honorific (先生, 医師, 看護師, 様, さん, 氏, 殿,
-   君, ちゃん: 原先生, 宮崎医師, 太郎君, はなちゃん, Kimura先生), the word after a name label (患者：, 氏名, 主治医,
-   紹介元, 旧姓, キーパーソン, a relative's word: 旧姓 渡邊, 患者：＊＊太郎) and the words before an age or a sex
-   (スギノ ナオト 52歳) are a name when the analyser calls them a name or a proper noun, or no common noun; never a
-   role, a family word, a common noun (校長先生, 主治医の判断), a prefix after a label (患者：要介護) or a word that
-   runs on into a compound (長女 山田錦の酒).
+   君, ちゃん, Dr, Ns: 原先生, 宮崎医師, 太郎君, はなちゃん, Kimura先生, 中山Drへ, 野村 Dr., 百目鬼 透 氏), the word
+   after a title or a role (Dr. 木村, Dr.Kimura, 担当PT：浅野, 主治医 は 坂本 です, 看護師　野口　より) or a name label
+   (患者：, 氏名, 旧姓, キーパーソン, a relative's word: 旧姓 渡邊, 患者：＊＊太郎), the words before an age or a sex
+   (スギノ ナオト 52歳) and the two words after one (68歳男性 ツツミ ケンタ) are a name when the analyser calls them a
+   name or a proper noun, or no common noun; never a role, a family word, a common noun (校長先生, 主治医の判断), a
+   prefix or a suffix after a label (患者：要介護, 担当者：未定), a word that runs on into a compound (長女 山田錦の酒),
+   a nationality (韓国籍 42歳) or a word in a name's place that is none (担当医：当番医, 主治医：交代予定). The titles,
+   the roles and those words are data: ``ja_name_cues.json`` beside this module.
 6. *Latin letters* (:func:`romaji_spans`): two Hepburn words, one a surname by its reading, written as a name is
-   (Taro Yamada, YAMADA Taro, hanako sato, full-width letters too); and a Latin word before a title or after a label.
+   (Taro Yamada, YAMADA Taro, hanako sato, full-width letters too); a Latin word in romaji before or after a title,
+   after a label; a romaji name after its kanji form (石井 Ishii 様).
+7. *Brackets*: a form or a reading in brackets after a name, and the given name after it (さいとう(斉藤)　まなみ); a
+   name and its reading before an honorific (須藤（すどう）さん, すどう（須藤）さん). The brackets are masked with it.
 
-``phi_guard`` keeps a name whole (四月一日 君子: a rule that starts inside a run of kanji takes the run).
+``phi_guard`` keeps a name whole (四月一日 君子: a rule that starts inside a run of kanji takes the run), masks a name
+masked once at its other bare occurrences in the same note (河野さんへ。河野は不在。; never inside a longer word or
+before a term: 河野病院), and drops a span in a name's place that is no name (主治医：交代予定). The guard's redaction
+may take the honorific with the name (鈴木一郎先生 -> [NAME]); the masker keeps it (○○○○先生).
 
 **Limits** (``eval/phi_synth/ja_name_classes.json`` ``limit``): a kanji surname alone with no title, label, age or
 sex beside it (浅野: a place as often); a hiragana surname the analyser does not know by its reading (すどう); a
-romaji surname alone (Kimura); a romaji name of two words where neither is a listed surname; initials (Y.T.); a name
-inside a clinic's name (杉野医院 is kept as an institution); rare surnames the dictionary does not hold (四十物,
-勅使河原, 小鳥遊) unless a title, a label or an age stands beside them.
+romaji surname alone (Kimura); a romaji name of two words where neither is a listed surname, in a text that is not
+Japanese; initials (Y.T.); a name inside a clinic's name; rare surnames the dictionary does not hold (四十物, 勅使河原,
+小鳥遊) unless a cue stands beside them.
 
 Text is read a line at a time (a line of more than 2,000 characters in pieces at punctuation), so the analyser's
-input limit is never reached and time stays linear in the note.
+input limit is never reached and time stays linear in the note; a piece read once is not read again (a bounded cache
+of 1,024 pieces).
 """
 
 from __future__ import annotations
 
 import bisect
 import itertools
+import json
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 from tb_common import phi_guard
@@ -274,6 +286,8 @@ def _alone_ok(tok: Token) -> bool:
     guard's given-name class; never a surname alone (松本, 長崎 are places too) or a katakana word alone (ミヤ, コール,
     パーキンソン); a hiragana name word of three characters or more."""
     s = tok.surface
+    if tok.name and re.search("[（(]", s) and re.search(f"[{_KANJI}]", s):
+        return True  # 工藤（くどう）: a name and its reading, one word of the analyser
     if _hira(s):  # まなみ, さいとう: a hiragana name word of three characters or more (はな, ゆき are words too)
         return bool(tok.name) and len(s) >= 3
     return (
@@ -371,7 +385,31 @@ def _pieces(text: str) -> Iterator[tuple[int, str]]:
 
 # ------------------------------------------------------------------------------------------------ by position
 # a title or an honorific after a name (the guard's own honorifics, with their ends, and the staff words)
-_TITLE = re.compile(rf"(?:{phi_guard._JA_HON}|医師|看護師長|看護師|師長|薬剤師|技師)")
+#: the cue words (titles, roles, words in a name's place that are none): data, not code (third round, D-1235)
+CUES_FILE = Path(__file__).with_name("ja_name_cues.json")
+CUES: dict[str, Any] = json.loads(CUES_FILE.read_text(encoding="utf-8"))
+
+
+def _alt(words: list[str]) -> str:
+    """The words as one alternation, the longest first; a word of Latin letters stands alone (Dr, never Drug)."""
+    out = []
+    for w in sorted(words, key=len, reverse=True):
+        e = re.escape(w)
+        if re.match("[A-Za-z]", w):  # Dr stands alone; Dr. may touch the name (Dr.Kimura)
+            e = rf"(?<![A-Za-z]){e}" + ("" if w.endswith(".") else "(?![A-Za-z])")
+        out.append(e)
+    return "|".join(out)
+
+
+_LATIN_CUES = frozenset(w for k in ("titles_before_name", "titles_after_name") for w in CUES[k] if w[:1].isascii())
+_NOT_A_NAME_WORDS = frozenset(CUES["not_a_name_value"])
+_NOT_A_NAME_ENDING = tuple(CUES["not_a_name_ending"])
+# a title or an honorific after a name: the guard's own honorifics, with their ends, and the cue words
+_TITLE = re.compile(rf"(?:{phi_guard._JA_HON}|{_alt(CUES['titles_after_name'])})")
+# a title before a name (Dr. 木村, 担当OT：宮田, 主治医 は 岡田, 看護師　野口　より)
+_CUE_BEFORE = re.compile(
+    rf"(?:{_alt(CUES['titles_before_name'])})[ 　]*(?:[:：]|(?:{_alt(CUES['between_title_and_name'])}))?[ 　]*"
+)
 _KANA_HON = frozenset(("さん", "さま", "くん", "ちゃん", "様", "君", "殿", "氏"))
 _GIVEN_HON = frozenset(("くん", "ちゃん", "君"))  # after a given name alone: 太郎君, はなちゃん
 # a label before a name: the guard's name labels, the staff and referral words, a maiden name, a relative's word;
@@ -428,7 +466,8 @@ def _not_common(toks: list[Token], start: int, end: int) -> bool:
 
 def _protected_word(word: str) -> bool:
     return (
-        _NOT_A_NAME.fullmatch(word) is not None
+        word in _NOT_A_NAME_WORDS
+        or _NOT_A_NAME.fullmatch(word) is not None
         or _HON_NOT_A_NAME.fullmatch(word) is not None
         or _TERM_WORD.fullmatch(word) is not None
         or word.isdigit()
@@ -441,6 +480,40 @@ _KANJI_BEFORE = re.compile(f"(?<![{_KANJI}])[{_KANJI}]{{1,4}}$")
 _SURNAME_BEFORE = re.compile(f"(?<![{_KANJI}])([{_KANJI}]{{1,4}})[ 　]$")
 _HON_KANJI_OK = re.compile(phi_guard._JA_NOT_A_NAME_KANJI)
 _LATIN_VALUE = re.compile(r"[A-Za-z][A-Za-z']{1,19}(?:[ 　]{1,2}[A-Za-z][A-Za-z']{1,19}){0,2}")
+
+
+_REPEAT_PIECE = re.compile(rf"[{_KANJI}]{{2,6}}|[ァ-ヺー]{{3,12}}|[A-Z][a-z]{{2,15}}|[A-Z]{{3,15}}")
+
+
+def repeat_spans(text: str, names: list[str]) -> list[tuple[int, int]]:
+    """The other bare occurrences, in the same note, of a name masked once (河野さんへ。河野は不在。): each word of
+    two kanji or more, three katakana or more, or a romaji word, of every name; where it stands as a word of its own
+    (no kanji, katakana or letter runs on into it) and not before a term (河野病院 is an institution). Never a word the
+    guard says is no name."""
+    words = {
+        w.group(0)
+        for n in names
+        for w in _REPEAT_PIECE.finditer(n)
+        if not _protected_word(w.group(0)) and not protected_prefix(w.group(0))
+    }
+    if not words:
+        return []
+    alts = []
+    for w in sorted(words, key=len, reverse=True):
+        cls = f"[{_KANJI}]" if _KANJI_WORD.match(w) else "[ァ-ヺー]" if _kata(w) else "[A-Za-z]"
+        alts.append(rf"(?<!{cls}){re.escape(w)}(?!{cls})")
+    return [(m.start(), m.end()) for m in re.finditer("|".join(alts), text) if not _TERM_AFTER.match(text, m.end())]
+
+
+def not_a_name(span: str) -> bool:
+    """A span in a name's place that is none: a word of ``not_a_name_value`` (当直医, 未定, 同上), alone or with a
+    word or two of kanji after it (交代予定, 不在中)."""
+    return _NOT_A_NAME_SPAN.fullmatch(span.strip()) is not None
+
+
+_NOT_A_NAME_SPAN = re.compile(
+    rf"(?:{_alt(sorted(_NOT_A_NAME_WORDS))})|(?:{_alt([w for w in _NOT_A_NAME_WORDS if len(w) >= 2])})[{_KANJI}]{{1,3}}"
+)
 
 
 def protected_prefix(word: str) -> bool:
@@ -456,21 +529,41 @@ def _before_title(text: str, toks: list[Token]) -> Iterator[tuple[int, int]]:
     お母さん, 赤ちゃん), never a common noun except before 君, くん, ちゃん (太郎君), never inside a word."""
     for m in _TITLE.finditer(text):
         title, p = m.group(0), m.start()
-        if p == 0 or not _starts_word(toks, p):
+        if p == 0 or not (_starts_word(toks, p) or title in _LATIN_CUES):
             continue
-        q = p - 1 if text[p - 1] in " 　" and title not in _KANA_HON else p
+        q = p
+        while q > 0 and p - q < 2 and text[q - 1] in " 　":
+            q -= 1  # 百目鬼 透 氏, 野村 Dr., Matsuda さん
         if title == "様" and _LIKE_BEFORE.search(text, max(0, q - 12), q):
             continue  # 水様, 感冒様
+        br = _BRACKET_BEFORE.search(text, max(0, q - 16), q) if text[q - 1 : q] in ("）", ")") else None
+        if br is not None:  # 工藤（くどう）様: the name before its reading in brackets, both masked
+            found = _name_before(text, toks, br.start(), title)
+            if found is not None:
+                yield found[0], q
+                continue
+            inside = _words_in(toks, br.start() + 1, br.end() - 1)
+            kana = _KANA_BEFORE.search(text, max(0, br.start() - 8), br.start())
+            if kana is not None and inside and any(w.name for w in inside):
+                yield kana.start(), q  # すだ（須田）様: the reading before the name in brackets
+                continue
         found = _name_before(text, toks, q, title)
         if found is not None:
             yield found
 
 
 def _name_before(text: str, toks: list[Token], q: int, title: str) -> tuple[int, int] | None:
-    lat = _LATIN_BEFORE.search(text, max(0, q - 21), q)
-    if lat is not None and title in ("先生", "医師", "さん", "様", "氏", "看護師"):
-        return lat.start(), q  # Kimura先生
-    run = _KANJI_BEFORE.search(text, max(0, q - 4), q)
+    last = text[q - 1 : q]
+    lat = _LATIN_BEFORE.search(text, max(0, q - 21), q) if last.isascii() and last.isalpha() else None
+    if lat is not None and (title in ("先生", "医師", "さん", "様", "氏", "看護師") or title in _LATIN_CUES):
+        if title in _LATIN_CUES and _kana(lat.group(0)) is None:
+            return None  # a Latin word before Dr or Ns is a name only in romaji (Nakamura Ns.; never ECG ST)
+        s0 = lat.start()
+        sur = _SURNAME_BEFORE.search(text, max(0, s0 - 5), s0)
+        if sur is not None and not _protected_word(sur.group(1)):
+            s0 = sur.start(1)  # 石井 Ishii 様: the name in kanji and in romaji
+        return s0, q  # Kimura先生
+    run = _KANJI_BEFORE.search(text, max(0, q - 4), q) if _KANJI_WORD.match(last) else None
     if run is not None:
         s0 = run.start()
         word = run.group(0)
@@ -489,13 +582,21 @@ def _name_before(text: str, toks: list[Token], q: int, title: str) -> tuple[int,
     w = toks.by_end.get(q) if isinstance(toks, _Words) else next((t for t in toks if t.end == q), None)
     if w is None:
         return None
+    if w.name and re.search("[（(]", w.surface):
+        return w.start, q  # 工藤（くどう）様: the analyser reads the name and its reading as one word
+    if not (_kata(w.surface) or _hira(w.surface)):
+        return None
     if _kata(w.surface) and w.name == "person" and title != "様" and _HON_NOT_A_NAME.match(w.surface) is None:
         return w.start, q  # パーキンソンさん: an eponym's word is a person before さん (様 after it means "-like")
     if _protected_word(w.surface) or _HON_NOT_A_NAME.match(w.surface):
         return None
     if _hira(w.surface) and (w.name or (title in _GIVEN_HON and w.noun)) and title in _KANA_HON:
         return w.start, q  # はなちゃん, まなみさん
-    if _kata(w.surface) and (_proper(w) or not _common(w)) and title in ("先生", "医師", "看護師", "氏"):
+    if (
+        _kata(w.surface)
+        and (_proper(w) or not _common(w))
+        and (title in ("先生", "医師", "看護師", "氏") or title in _LATIN_CUES)
+    ):
         return w.start, q  # the guard's rules take a katakana name before さん and 様 already
     return None
 
@@ -526,13 +627,81 @@ def _after_label(text: str, toks: list[Token]) -> Iterator[tuple[int, int]]:
         yield v, end
 
 
+def _after_cue(text: str, toks: list[Token]) -> Iterator[tuple[int, int]]:
+    """A name after a title or a role (Dr. 木村, Dr.Kimura, Ns.田村より, 担当OT：宮田, 主治医 は 岡田 です, 看護師　野口
+    より), the words from ``ja_name_cues.json``: a word of Latin letters in romaji, or a word as after a label. Never a
+    word in a name's place that is none (Dr. 指示, Dr.コール, 担当医：当番医, Ns.より報告)."""
+    for m in _CUE_BEFORE.finditer(text):
+        v = m.end()
+        if v >= len(text) or _NOT_A_NAME_VALUE.match(text, v) is None:
+            continue
+        lat = _ROMAJI_NAME.match(text, v)
+        if lat is not None:
+            if _kana(lat.group(0)) is not None and lat.group(0).lower() not in _ENGLISH:
+                yield v, lat.end()
+            continue
+        first = toks.by_start.get(v) if isinstance(toks, _Words) else next((t for t in toks if t.start == v), None)
+        if first is None or first.surface in _NOT_A_NAME_WORDS:
+            continue
+        end = _value_end(text, toks, first)
+        if end is None or _TERM_AFTER.match(text, end) or text[v:end] in _NOT_A_NAME_WORDS:
+            continue
+        yield v, end
+
+
+_ROMAJI_NAME = re.compile(r"[A-Z][a-z]{2,15}(?![A-Za-z])|[A-Z]{3,15}(?![A-Za-z])")
+_AFTER_AGE_SEX = re.compile(
+    rf"[0-9０-９]{{1,3}}[ 　]?(?:歳|才)(?:代)?[ 　]?(?:男性|女性|男児|女児|男|女)?[ 　、,，]{{1,2}}"
+    rf"(?P<v>[ァ-ヺー]{{2,8}}[ 　][ァ-ヺー]{{2,8}}|[ｦ-ﾟ]{{2,8}}[ 　][ｦ-ﾟ]{{2,8}}|[{_KANJI}]{{1,4}}[ 　][{_KANJI}]{{1,4}})"
+    rf"(?![ァ-ヺーｦ-ﾟ{_KANJI}])"
+)
+_KANA_BEFORE = re.compile("(?<![ぁ-ゖァ-ヺー])(?:[ぁ-ゖー]{2,8}|[ァ-ヺー]{2,8})$")
+_BRACKET_BEFORE = re.compile(rf"[（(][ぁ-ゖァ-ヺーｦ-ﾟ{_KANJI}・ 　]{{1,12}}[）)]$")
+_BRACKET_AFTER = re.compile(rf"[ 　]?[（(](?P<in>[ぁ-ゖァ-ヺーｦ-ﾟ{_KANJI}A-Za-z・ 　]{{1,12}})[）)]")
+
+
+def _after_age_sex(text: str, toks: list[Token]) -> Iterator[tuple[int, int]]:
+    """A name of two words after an age and a sex (68歳男性 ツツミ ケンタ, 70歳 女性 見本 花子): katakana, half-width
+    katakana or kanji, when not both words are common nouns (70歳女性 アムロジピン ロキソニン stays)."""
+    for m in _AFTER_AGE_SEX.finditer(text):
+        s0, e0 = m.span("v")
+        parts = re.split("[ 　]", m.group("v"))
+        if any(_protected_word(p) for p in parts):
+            continue
+        words = _words_in(toks, s0, e0)
+        if words and not all(_common(w) for w in words):
+            yield s0, e0
+
+
+def _with_brackets(text: str, toks: list[Token], s: int, e: int) -> int:
+    """A name's end, taking a form or a reading in brackets after it and a given name after that
+    (さいとう(斉藤)　まなみ, 須藤（すどう）); never a bracket that holds a role, a relative or a sex
+    (山田（主治医）)."""
+    m = _BRACKET_AFTER.match(text, e)
+    if m is None or _protected_word(m.group("in").strip()) or protected_prefix(m.group("in").strip()):
+        return e
+    e = m.end()
+    gap = _SPACES.match(text, e)
+    if gap is None:
+        return e
+    by_start = toks.by_start if isinstance(toks, _Words) else {t.start: t for t in toks}
+    nxt = by_start.get(gap.end())
+    given = nxt is not None and (
+        nxt.name in ("mei", "person") or (_hira(nxt.surface) and nxt.noun) or _kata(nxt.surface)
+    )
+    return nxt.end if nxt is not None and given and not _protected_word(nxt.surface) else e
+
+
+_SPACES = re.compile("[ 　]{1,2}")
+
+
 def _value_end(text: str, toks: list[Token], first: Token) -> int | None:
     """Where the name after a label ends, or None: the first word is a name (tagged, proper, or a kanji or katakana
     word that is no common noun; never a prefix: 患者：要介護, 父の高血圧) and, with a given name after it, ends where
     a word ends; a word that runs on into more kanji or katakana is part of a compound (長女 山田錦の酒)."""
     s = first.surface
-    if _protected_word(s) or (_hira(s) and not first.name) or first.pos[:1] == ("接頭辞",):
-        return None
+    if _protected_word(s) or (_hira(s) and not first.name) or first.pos[:1] in (("接頭辞",), ("接尾辞",)):
+        return None  # 患者：要介護 (a prefix), 担当者：未定 (者 ends the word 担当者)
     named = first.name or (len(first.pos) >= 2 and first.pos[1] == "固有名詞")
     if not (named or ((_KANJI_WORD.fullmatch(s) or _kata(s)) and not _common(first))):
         return None
@@ -557,6 +726,15 @@ _BEFORE_AGE = re.compile(
 )
 
 
+def _nationality(words: list[Token]) -> bool:
+    """A nationality or a home (韓国籍, 中国出身, ベトナム人), never a name: the last word is an ending of the cue
+    list after a place."""
+    last = words[-1].surface
+    if len(words) < 2 or not last.endswith(_NOT_A_NAME_ENDING):
+        return False
+    return last != "人" or (len(words[-2].pos) > 2 and words[-2].pos[2] == "地名")
+
+
 def _before_age(text: str, toks: list[Token]) -> Iterator[tuple[int, int]]:
     """A name before an age or a sex (スギノ ナオト 52歳, 試 一太 72歳 男性, 渡邊架空子 80歳): a word or two of
     kanji or katakana, starting a line or after punctuation, with a name or a proper noun in it, or no common noun of
@@ -570,6 +748,8 @@ def _before_age(text: str, toks: list[Token]) -> Iterator[tuple[int, int]]:
         words = _words_in(toks, s0, e0)
         if not words or words[0].start != s0 or words[-1].end != e0:
             continue  # the run cuts an analyser word
+        if _nationality(words):
+            continue  # 韓国籍 42歳, 中国出身
         if any(w.name or _proper(w) for w in words) or not any(_common(w) for w in words):
             yield s0, e0
 
@@ -730,13 +910,31 @@ def name_spans(text: str, an: Analyser, *, protect: bool = True, japanese: bool 
     for offset, piece in _pieces(text):
         if not piece.strip():
             continue
-        toks = _Words(_retag([t for t in an.tokens(piece) if t.surface not in _DOT], an))
-        for s, e, words, run_end in _proposals(piece, toks):
-            if not _protected(piece, s, e, words, run_end):
-                out.append((offset + s, offset + e))
-        found = [*_before_title(piece, toks), *_after_label(piece, toks), *_before_age(piece, toks)]
-        for s, e in [*found, *romaji_spans(piece, an)]:
-            out.append((offset + s, offset + e))
+        key = (id(an), piece)
+        if key not in _PIECE_CACHE:
+            if len(_PIECE_CACHE) >= _PIECE_CACHE_MAX:
+                _PIECE_CACHE.clear()  # bounded, as the reading cache
+            _PIECE_CACHE[key] = _piece_spans(piece, an)
+        out.extend((offset + s, offset + e) for s, e in _PIECE_CACHE[key])
+    return sorted(set(out))
+
+
+#: a line read once is not read again (a template line, a note's repeated header): bounded
+_PIECE_CACHE: dict[tuple[int, str], list[tuple[int, int]]] = {}
+_PIECE_CACHE_MAX = 1024
+
+
+def _piece_spans(piece: str, an: Analyser) -> list[tuple[int, int]]:
+    """The names of one piece of text (a line, or a part of a long one), relative to the piece."""
+    toks = _Words(_retag([t for t in an.tokens(piece) if t.surface not in _DOT], an))
+    out = [
+        (s, _with_brackets(piece, toks, s, e))
+        for s, e, words, run_end in _proposals(piece, toks)
+        if not _protected(piece, s, e, words, run_end)
+    ]
+    found = [*_before_title(piece, toks), *_after_label(piece, toks), *_before_age(piece, toks)]
+    found += [*_after_cue(piece, toks), *_after_age_sex(piece, toks), *romaji_spans(piece, an)]
+    out += [(s, _with_brackets(piece, toks, s, e)) for s, e in found]
     return sorted(set(out))
 
 

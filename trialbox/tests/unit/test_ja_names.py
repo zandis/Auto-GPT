@@ -356,3 +356,28 @@ def test_the_reading_cache_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     for i in range(50):
         ja_names._reading_is_sei(an, "カ" * (i + 2))
         assert len(ja_names._SEI_CACHE) <= 8
+
+
+# ------------------------------------------------------------------------------------------------ third round
+@pytest.mark.req("PRIV-29")
+def test_the_cue_words_are_data() -> None:
+    """The titles, roles and words in a name's place come from ``libs/tb_common/ja_name_cues.json`` (data, not code):
+    every title before a name is a cue the rule reads, every title after a name ends one, every word of
+    ``not_a_name_value`` is refused in a name's place."""
+    cues = json.loads((ROOT / "libs" / "tb_common" / "ja_name_cues.json").read_text())
+    assert cues["format"] == "tb-ja-name-cues/1"
+    assert cues == ja_names.CUES
+    for w in cues["titles_before_name"]:
+        m = ja_names._CUE_BEFORE.match(w + " 宮田")
+        assert m is not None and m.end() == len(w) + 1, w
+    for w in cues["titles_after_name"]:
+        assert any(m.start() == 2 for m in ja_names._TITLE.finditer("宮田" + w)), w
+    assert all(ja_names.not_a_name(w) for w in cues["not_a_name_value"])
+
+
+@pytest.mark.req("PRIV-29")
+def test_a_name_masked_once_is_masked_wherever_it_stands_alone() -> None:
+    """The other bare occurrences of a masked name in the same note, never inside a longer word or before a term."""
+    assert mask_note("菅野さんへ電話。菅野は外出中。菅野病院とは別。") == "○○さんへ電話。○○は外出中。菅野病院とは別。"
+    assert mask_note("河合さん来院。河合町の住所。") == "○○さん来院。河合町の住所。"
+    assert ja_names.repeat_spans("長女と面会。長女は帰宅。", ["長女"]) == []
