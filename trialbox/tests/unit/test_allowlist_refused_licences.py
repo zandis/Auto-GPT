@@ -71,8 +71,7 @@ def _entry(**kw: Any) -> dict[str, Any]:
         (_entry(licence="MIT; on by default it syncs to a cloud service"), "cloud-on-by-default"),
         (_entry(**{"class": "dual", "licence": None, "chosen": "SSPL"}), "SSPL"),
         (_entry(reason="Accepted although the cloud features are on by default"), "cloud-on-by-default"),
-        (_entry(**{"class": "gpl", "licence": None, "reason": "Accepted as FSL by the planted refusal test"}),
-         "FSL"),
+        (_entry(**{"class": "gpl", "licence": None, "reason": "Accepted as FSL by the planted refusal test"}), "FSL"),
     ],
 )
 def test_each_field_the_entry_records_is_read(entry: dict[str, Any], kind: str) -> None:

@@ -70,7 +70,7 @@ def test_the_in_process_simulator_opens_nothing() -> None:
         ("redcap.hosp.test", "only https"),
         ("ftp://redcap.hosp.test/", "only https"),
         ("https:///api/", "no host"),
-        ("https://user:pw@redcap.hosp.test/", "a user or password"),
+        ("https://someone@redcap.hosp.test/", "a user or password"),
         ("https://redcap.hosp.test:https/", "the port is not a number"),
         ("https://redcap.hosp.test:99999/", "the port is not a number"),
     ],
@@ -80,7 +80,7 @@ def test_a_malformed_url_is_refused_with_a_plain_line(url: str, why: str) -> Non
         rows({"TB_REDCAP_API_URL": url})
     line = str(exc.value)
     assert line.startswith("TB_REDCAP_API_URL is not") and why in line  # the line names the setting it read
-    assert "pw" not in line  # never the URL itself: it may carry a password
+    assert "someone" not in line and "hosp.test" not in line  # never the URL itself: it may carry a password
 
 
 def test_the_short_name_is_named_when_it_is_the_one_refused() -> None:

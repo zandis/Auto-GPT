@@ -393,11 +393,12 @@ def parse(data: Any, *, today: dt.date | None) -> tuple[Allowlist, list[str]]:
             errs.append(f"{where}: 'chosen' belongs to dual entries only")
         if cls == "unknown" and not licence:
             errs.append(f"{where}: an unknown entry must record the verified licence in 'licence'")
-        for key in ("licence", "chosen", "reason"):
-            hit = refused_licence(_text(raw, key) or "")
+        for field_name in ("licence", "chosen", "reason"):
+            hit = refused_licence(_text(raw, field_name) or "")
             if hit:
                 errs.append(
-                    f"{where}: {key} names {hit[1]} ({hit[0]}): refused, no allow-list entry accepts it (9g-15, D-1348)"
+                    f"{where}: {field_name} names {hit[1]} ({hit[0]}): refused, no allow-list entry accepts it "
+                    "(9g-15, D-1348)"
                 )
                 break
         if pkg and isinstance(cls, str):
