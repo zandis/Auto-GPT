@@ -1004,6 +1004,8 @@ class EdcStore:
         if method not in METHODS:
             raise EdcError("edc.method", "unknown way of re-authenticating", 400)
         with self._db.transaction() as tx:
+            # D-1253 second review, finding 12: in the signature's own transaction, as every other write of a value
+            self._refuse(self._study_state(tx, study))
             rows = [self._row(r) for r in tx.fetchdicts(
                 "SELECT * FROM draft WHERE study = ? AND record = ? AND visit = ? AND fate IN ('confirmed', 'edited') "
                 "AND signature_id IS NULL ORDER BY id FOR UPDATE", (study, record, visit))]  # fmt: skip

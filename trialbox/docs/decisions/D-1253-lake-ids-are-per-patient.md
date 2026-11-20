@@ -206,6 +206,7 @@
       - an ODM import;
       - a decision;
       - a copy-assist tick;
+      - a signature (second review, finding 12);
       - a send;
       - REDCap's erase of hidden values.
     - What happens to a frozen study's records:

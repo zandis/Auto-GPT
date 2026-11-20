@@ -160,3 +160,21 @@ def test_the_trail_tables_are_every_table_that_names_a_draft(tmp_path: Path) -> 
         "column_name = 'draft_id' ORDER BY table_name"
     )
     assert tuple(str(r[0]) for r in got) == TRAIL_TABLES
+
+
+def test_a_frozen_study_refuses_a_new_signature_over_a_value_decided_before_the_update(tmp_path: Path) -> None:
+    """D-1253 second review, finding 12: the freeze missed signing. A rule-1 study with a confirmed, unsigned value
+    that cites a lake row is frozen; signing it after the update would sign a citation the rebuilt lake cannot show.
+    The signature is refused with the freeze's reason, in its own transaction, and nothing is written."""
+    svc, _sim, _token = k.service(tmp_path)
+    k.ready(svc)
+    _confirm_all(svc)  # decided, not signed
+    _as_before_d1253(svc)
+    assert svc.status(k.STUDY)["id_rule_frozen"] is True
+    seen = k.seen(svc)
+    before = _counts(svc)
+    with pytest.raises(EdcError) as caught:
+        svc.sign(k.STUDY, k.RECORD, "", signer="crc", printed_name="Chen Mei", role="coordinator",
+                 meaning="transcribed", meaning_text="I checked each value.", lang="en", seen=seen)  # fmt: skip
+    assert caught.value.code == "edc.id_rule_frozen" and ID_RULE_FROZEN in str(caught.value)
+    assert _counts(svc) == before

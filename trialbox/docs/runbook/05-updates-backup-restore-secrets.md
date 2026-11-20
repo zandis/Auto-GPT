@@ -316,7 +316,7 @@ Nothing is half-migrated, and nothing goes on until the box is rebuilt once, fro
      append-only (D-281): nothing of it is ever cleared or rewritten. A study with such a value **that cites a lake
      record** is **frozen for prefill** (a value decided "not found" cites none and freezes nothing):
      - every write of its values is refused, with the reason on its EDC page: a draft run, an ODM import, a
-       decision, a copy tick, a send, REDCap's erase of hidden values;
+       decision, a copy tick, a signature, a send, REDCap's erase of hidden values;
      - its records stay, readable and exportable, and its signatures still verify;
      - its citations cannot be traced into the rebuilt lake. This is the one place old ids stay on the box, by
        design.
