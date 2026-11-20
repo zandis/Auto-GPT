@@ -38,6 +38,7 @@ from tb_contracts import RebuildResult, dump
 
 from adapter import site_profile
 from adapter.governance import contracts_dir
+from adapter.mapping.engine import UnsupportedIdForm
 from adapter.mapping.site import resolve as resolve_mapping
 from adapter.pipeline import AdapterConfig, FutureNight, LakeBudgetError, NoRoomForNight, SiteKeyError, run_ingest
 
@@ -289,7 +290,7 @@ def _run_cmd(ac: AdapterConfig, kind: str, path: str, args: argparse.Namespace) 
             rebuild_lake=not args.no_lake,
             validate=not args.no_validate,
         )
-    except (SiteKeyError, FutureNight, NoRoomForNight, LakeBudgetError, IdRuleError) as exc:
+    except (SiteKeyError, FutureNight, NoRoomForNight, LakeBudgetError, IdRuleError, UnsupportedIdForm) as exc:
         print(f"night refused, nothing was read or written: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(dump(report), ensure_ascii=False, indent=1))
@@ -311,7 +312,7 @@ def backfill_cmd(ac: AdapterConfig, kind: str, path: str, args: argparse.Namespa
             validate=not args.no_validate,
             rebuild_lake=not args.no_lake,
         )
-    except (SiteKeyError, FutureNight, IdRuleError) as exc:
+    except (SiteKeyError, FutureNight, IdRuleError, UnsupportedIdForm) as exc:
         print(f"back-fill refused, nothing was read or written: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(rep.as_dict(), ensure_ascii=False, indent=1))

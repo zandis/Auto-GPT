@@ -664,6 +664,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     fl.add_argument("--check-only", action="store_true", help="say what is refused; write nothing")
     fl.add_argument("--template", action="store_true", help="print the answers file to fill")
     fl.add_argument("--lang", choices=("en", "ja", "zh-TW"), default="en", help="the language of the messages")
+    from adapter.mapping.engine import UnsupportedIdForm
+
     a = ap.parse_args(argv)
     if a.cmd == "fill":
         return fill(a.answers, a.out, lang=a.lang, check_only=a.check_only, template=a.template)
@@ -683,12 +685,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if a.cmd == "load":
             p = load(a.folder)
-            if any(u.startswith("mapping.") for t in p.tables.values() for u in t.used_by):
-                if a.mapping is None:
-                    print("refused: a table is a mapping's look-up: give --mapping <the site mapping>", file=sys.stderr)
-                    return 2
-                check_mapping(p, _mapping(a.mapping))
+            if a.mapping is None and any(u.startswith("mapping.") for t in p.tables.values() for u in t.used_by):
+                print("refused: a table is a mapping's look-up: give --mapping <the site mapping>", file=sys.stderr)
+                return 2
             cfg = _settings()
+            from adapter.mapping.site import resolve
+
+            check_mapping(p, _mapping(a.mapping or resolve(cfg.settings.data_source.mapping)))
             _check_with_settings(p, cfg)
             audit = a.audit or (Path(os.environ["TB_AUDIT_DIR"]) if os.environ.get("TB_AUDIT_DIR") else None)
             ch = activate(p, a.lake, site_id=cfg.settings.site.id, by=a.by, audit_dir=audit, tz=cfg.env.tz or "UTC")
@@ -731,6 +734,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         a.out.write_text(worklist_csv(rows), encoding="utf-8")
         print(f"{len(rows)} rows written to {a.out}")
         return 0
+    except UnsupportedIdForm as exc:
+        if a.cmd == "load":
+            from tb_common.audit_writer import open_audit
+
+            audit = a.audit or os.environ.get("TB_AUDIT_DIR")
+            if audit:
+                open_audit(Path(audit), "UTC").append(NOT_LOADED, actor=a.by, detail={"refused": exc.key})
+        print(str(exc), file=sys.stderr)
+        return 2
     except ProfileError as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2

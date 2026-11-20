@@ -307,12 +307,12 @@ def publish_night(
     from adapter.dual_write import load_night
     from adapter.pipeline import BUSY as BUSY_CLASSES
     from adapter.pipeline import HELD as HELD_FILE
-    from adapter.pipeline import PASSED, REFUSALS, RERUN_DIR
+    from adapter.pipeline import PASSED, REFUSALS, RERUN_DIR, check_id_rule
 
     final_dir = snapshot_dir(cfg.lake_dir, snap)
     out = Published(snap, night_dir)
     try:
-        id_rule.check_lake(cfg.lake_dir)
+        check_id_rule(cfg)
         id_rule.check_snapshot(night_dir, f"the lake snapshot {snap}")
     except id_rule.IdRuleError as exc:
         return Published(snap, night_dir, held=True, errors=[str(exc)])
@@ -586,16 +586,27 @@ def publish_held(
     night that passed the gate goes through. The gate's verdict is what the steward overrode; the lake's own
     refusal of the data (D-271) still stands."""
     from tb_common import id_rule
+    from tb_common.audit_writer import open_audit
 
-    from adapter.pipeline import _write_hold, merge_base
+    from adapter.pipeline import _source_of, _write_hold, check_id_rule, merge_base
 
     folder = held_folder(cfg, snap)
     try:
-        id_rule.check_lake(cfg.lake_dir)
+        check_id_rule(cfg)
         id_rule.check_snapshot(folder, f"the lake snapshot {snap}")
+        reason = id_rule.hold_reason(folder, accepting=True)
     except id_rule.IdRuleError as exc:
-        return Published(snap, folder, held=True, errors=[str(exc)])
-    if reason := id_rule.hold_reason(folder, accepting=True):
+        reason = str(exc)
+    if reason:
+        if cfg.audit_dir:
+            # Ingest already closed its batch as HELD. Acceptance must not create a newer ingest
+            # attempt, which would prevent the steward retrying after a compatible restore.
+            open_audit(cfg.audit_dir, cfg.tz).append(
+                "ingest.failed",
+                snapshot=snap,
+                actor="adapter",
+                detail={"source": _source_of(folder), "action": "accept", "refused": "id_rule", "reason": reason},
+            )
         return Published(snap, folder, held=True, errors=[reason])
     try:  # 10B-23 (D-1254): whether the held night read whole, from its own report, before the publish moves it
         since = json.loads((folder / "ingest_report.json").read_text(encoding="utf-8")).get("since")

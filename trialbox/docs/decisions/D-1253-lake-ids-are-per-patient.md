@@ -136,7 +136,7 @@
     - With `per_day` keys the number an id is made from is `<order>@<day>`, with the patient added.
     - This card does not change the SS-MIX2 reader. The diagnosis tombstones keyed by patient (above) come with
       #1189, which lands first.
-  - **fhir_bulk is not affected.** A FHIR server's id is unique per server and type. `pipeline.bulk_id` keeps
+  - **FHIR bulk server IDs.** In the supported bulk configuration below, the server ID is unique per server and type. `pipeline.bulk_id` keeps
     `HMAC("<type>|<server id>")`, pinned by `test_fhir_bulk_ids_stay_the_servers_unique_ids`. Patient ids (pids) are
     unchanged everywhere.
 - **The one-time consequence.** Every id of a patient's record changes once. These stores outside the lake keep such
@@ -227,7 +227,6 @@
   - **Not touched:**
     - published job outputs;
     - the audit chain;
-    - permissions: no database role was changed;
     - the audit schema.
 
     The console changes only by the counts card and the frozen study's line, each shown only when it has something
@@ -289,3 +288,44 @@
     next night (its earlier id is under the reader's old key form, which the night cannot derive). It goes with the
     follow-up `reviewed` card and the reader's key card (10B-2, #1238). A decided record whose id the key change
     leaves (a diagnosis) is matched by its own id.
+
+## Supported forms in this release
+
+- A mapped Patient has one definition across the effective mapping and uses `id.pid` on its chart column.
+  A clinical `hid` uses the patient pseudonym and the record number. The invariant tests cover raw chart
+  references, pseudonym columns, complete reference columns, templates and Patient joins by day.
+  A chart may itself be the record number when the owner comes from that chart column.
+  Distinct rows contesting one chart and their clinical facts go to review.
+- Mapping validation refuses multiple Patient definitions, including two on the same table, a Patient ID
+  without `id.pid` (including a static Patient), and a chart-number ID with an independently supplied patient reference.
+  Searching the shipped YAML and fixtures found one Patient definition in
+  `services/adapter/mapping/tw_core/demo_his.yaml`. Its Coverage and Consent definitions both use
+  `hid: mrn` with `pid: mrn`. The CSV, SQL, SS-MIX2, rehearsal and onboarding mappings extend that file.
+  The SS-MIX2 Patient overlay adds death information to the inherited definition.
+- FHIR bulk uses server record numbers and the `asis` chart-number rule. Nightly ingest and backfill refuse
+  a bulk configuration using `digits` or `hex`, including their width and case variants.
+  A Patient ID or reference that `asis` would change is also refused.
+- Both lake builders refuse a backfill candidate from the time staging begins until its gates pass.
+  Steward acceptance and direct builds check the lake, OMOP and derived stores. On a role-separated box,
+  reapply the service-role script with the release so the lake can read the derived rule through
+  `derived.lake_id_rule()`. A rule-check failure stops the build.
+- On the OMOP screening path, when feed and site share a patient and one contribution needs review,
+  only the clean source supplies demographics. An ingest refused while opening its spool preserves
+  the previous spool and records one failed event on the batch opened for that attempt.
+  Mapping validation also precedes replacement of an interrupted spool.
+
+Before the fixes, `test_id_rule_invariants.py` had 51 passes and 15 failures, grouped by test:
+
+| Failing test | Failing cases |
+| --- | --- |
+| `test_multiple_patient_mappings` | same-table, separate-tables |
+| `test_chart_key_with_separate_owner` | chart key and pseudonym owner |
+| `test_bulk_normalised_server_ids` | night, backfill |
+| `test_raw_chart_patient_id` | raw chart column |
+| `test_omop_review_before_demographics_merge` | feed, site |
+| `test_backfill_validation_held_stage` | legacy, omop |
+| `test_restored_store_gate` | accept-derived, accept-omop, build-derived, build-omop |
+| `test_nightly_spool_refusal_closes_batch` | unstamped interrupted spool |
+
+The direct-build cases use a different snapshot date from the held night to isolate the store check.
+With the previous lake builder, both rebuilt and promoted the candidate.

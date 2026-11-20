@@ -1321,11 +1321,12 @@ class Lake:
     def _source_or_refuse(self, snapshot: str, ndjson_dir: Path | None, allow_empty: bool) -> tuple[Path, bool]:
         """The NDJSON folder of the rebuild and whether an empty one is allowed; a missing folder of a fed lake is
         refused (D-271) before anything is written."""
+        from omop.schema import check_lake_stores
         from tb_common import id_rule
 
         try:
             self.check_id_rule(snapshot)
-            id_rule.check_lake(self.dir)
+            check_lake_stores(self.dir)
         except (LakeSchemaError, id_rule.IdRuleError) as exc:
             raise RebuildError(str(exc)) from exc
         src = ndjson_dir or self._source(snapshot)

@@ -254,3 +254,25 @@ def test_the_drill_has_the_lines_for_a_second_lakes_store_and_a_site_spaces() ->
     names = [name for name, _ in role_paths.PATHS]
     assert any("a second lake's OMOP store" in n for n in names)
     assert any("a site space's OMOP store as tb_orchestrator" in n for n in names)
+
+
+def test_lake_can_check_a_restored_derived_store_without_reading_scores(box: str) -> None:
+    import psycopg
+    from tb_common import id_rule
+    from tb_common.db import Database
+    from tb_common.derived_store import DerivedStore
+
+    lake_url = _as(box, "tb_lake")
+    DerivedStore(box).recompute("p1", {}, mapping_version="m")
+    assert id_rule.probe(lake_url, id_rule.DERIVED) == id_rule.CURRENT
+    with Database.connect(box, "derived") as db:
+        db.execute("DELETE FROM tb_id_rule")
+        db.execute("INSERT INTO definition VALUES ('d1', 's', 1, 'x', '{}', 't')")
+        db.execute(
+            "INSERT INTO score_row (pid, score, def_version, def_sha, mapping_version, anchor_oid, "
+            "anchor_date, value, unit, inputs, fingerprint, computed_at) VALUES "
+            "('p1', 's', 'd1', 'x', 'm', 'o1', '2026-01-01', 1, 'u', '[]', 'f', 't')"
+        )
+    assert id_rule.probe(lake_url, id_rule.DERIVED) == id_rule.OLD
+    with psycopg.connect(lake_url) as con, pytest.raises(psycopg.errors.InsufficientPrivilege):
+        con.execute("SELECT * FROM derived.score_row").fetchall()

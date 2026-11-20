@@ -567,3 +567,246 @@ def test_full_night_replaces_a_screened_chart_with_review_records(
         projected = _tables(tmp_path, refresh, source)
         assert {r["pid"] for r in projected["patient"]} == {pid_for_mrn(ids.KEY, ids.B)}
         assert {r["pid"] for r in projected["condition"]} == {pid_for_mrn(ids.KEY, ids.B)}
+
+
+@pytest.mark.parametrize("second_table", ["patient", "thing"], ids=["same-table", "separate-tables"])
+def test_multiple_patient_mappings(tmp_path: Path, second_table: str) -> None:
+    adult = {"type": "Patient", "table": "patient", "id": {"pid": "mrn"}, "elements": {}}
+    child = {**adult, "table": second_table}
+    with pytest.raises(MappingError, match="Multiple Patient mappings.*not supported in this release"):
+        Mapping.load(ids._site(tmp_path, [adult, child]))
+
+
+def test_chart_key_with_separate_owner(tmp_path: Path) -> None:
+    patient = {"type": "Patient", "table": "patient", "id": {"pid": "mrn"}}
+    consent = {
+        "type": "Consent",
+        "table": "thing",
+        "id": {"hid": "mrn"},
+        "elements": {"patient.reference": {"ref": {"type": "Patient", "column": "owner_pid"}}},
+    }
+    with pytest.raises(MappingError, match="chart.*separate patient reference.*not supported in this release"):
+        Mapping.load(ids._site(tmp_path, [patient, consent]))
+
+
+def test_raw_chart_patient_id(tmp_path: Path) -> None:
+    with pytest.raises(MappingError, match="Patient ID.*id.pid.*not supported in this release"):
+        Mapping.load(ids._site(tmp_path, [{"type": "Patient", "table": "patient", "id": {"column": "mrn"}}]))
+
+
+def _failed_events(tmp: Path) -> list[dict[str, Any]]:
+    return [
+        event
+        for path in (tmp / "audit").rglob("*.jsonl")
+        for line in path.read_text().splitlines()
+        if (event := json.loads(line))["event"] == "ingest.failed"
+    ]
+
+
+@pytest.mark.parametrize("mode", ["night", "backfill"])
+def test_bulk_normalised_server_ids(tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
+    monkeypatch.setenv("TB_CHARTNO_RULE", "digits")
+    cfg = ids._cfg(tmp_path, "csv")
+    bulk = tmp_path / "bulk"
+    bulk.mkdir()
+    for typ in ("Patient", "Condition"):
+        records = [
+            {
+                "resourceType": typ,
+                "id": rid,
+                **({"subject": {"reference": f"Patient/{rid}"}} if typ == "Condition" else {}),
+            }
+            for rid in ("01", "1")
+        ]
+        (bulk / f"{typ}.ndjson").write_text("".join(json.dumps(r) + "\n" for r in records))
+    with pytest.raises(ValueError, match="FHIR bulk.*chart-number rule.*not supported in this release"):
+        if mode == "night":
+            run_ingest(cfg, "fhir_bulk", str(bulk), snapshot=FIRST, load_fhir=False, validate=False)
+        else:
+            backfill(cfg, "fhir_bulk", str(bulk), snapshot=FIRST, validate=False)
+    assert not snapshot_dir(cfg.lake_dir, FIRST).exists()
+    if mode == "night":
+        (event,) = _failed_events(tmp_path)
+        assert event["detail"]["batch"]["state"] == "FAILED"
+    else:
+        events = [
+            json.loads(line) for f in (tmp_path / "audit").rglob("*.jsonl") for line in f.read_text().splitlines()
+        ]
+        assert [e["detail"]["state"] for e in events if e["event"] == "ingest.backfill"] == ["failed"]
+
+
+@pytest.mark.parametrize("tagged_source", ["feed", "site"])
+def test_omop_review_before_demographics_merge(tmp_path: Path, db_url: str, tagged_source: str) -> None:
+    clear = {"resourceType": "Patient", "id": ids.PID[ids.A], "gender": "female"}
+    tagged = {
+        **clear,
+        "deceasedBoolean": True,
+        "birthDate": "1950-02-01",
+        "gender": "male",
+        "meta": {"tag": [id_rule.REVIEW_TAG]},
+    }
+    sources = {s: {"Patient": [tagged if s == tagged_source else clear]} for s in ("feed", "site")}
+    rows = lake_rows(sources["feed"], sources["site"], tz="UTC", snapshot=FIRST, source="omop", lake_dir=tmp_path)
+    (patient,) = rows["patient"]
+    assert (patient["sex"], patient["birth_date"], patient["deceased"]) == ("female", None, None)
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_backfill_validation_held_stage(tmp_path: Path, db_url: str, source: str) -> None:
+    cfg = ids._cfg(tmp_path, "csv")
+    cfg.validation_max_pct = 0
+    feed = tmp_path / "feed"
+    ids.write_csv(ids.CSV_SITE, feed, {"patient": ids.canonical(ids.A)["patient"]})
+    report = backfill(cfg, "csv", str(feed), snapshot=FIRST, validator=_Reject(), rebuild_lake=False)
+    assert report.state == "held"
+    stage = cfg.lake_dir / "backfill" / FIRST / "publish"
+    lake = Lake(cfg.lake_dir, cfg.tz)
+    with force(source), pytest.raises(RebuildError, match="held"):
+        lake.rebuild(FIRST, HashEmbedder(), ndjson_dir=stage)
+    assert lake.current() is None and (stage / id_rule.HELD).is_file()
+
+
+@pytest.mark.parametrize("store", ["derived", "omop"])
+@pytest.mark.parametrize("entry", ["accept", "build"])
+def test_restored_store_gate(tmp_path: Path, db_url: str, store: str, entry: str) -> None:
+    from omop import schema
+    from omop.load import load_batch
+    from tb_common.db import Database
+    from tb_common.derived_store import DerivedStore
+
+    cfg = ids._cfg(tmp_path, "csv")
+    cfg.validation_max_pct = 0
+    feed = tmp_path / "feed"
+    ids.write_csv(ids.CSV_SITE, feed, {"patient": ids.canonical(ids.A)["patient"]})
+    report = run_ingest(cfg, "csv", str(feed), snapshot=FIRST, validator=_Reject(), load_fhir=False)
+    assert report.held
+    if store == "omop":
+        with schema.connect(db_url, schema.schema_for(cfg.lake_dir)) as db:
+            load_batch(db, "feed", FIRST, {"Practitioner": [{"resourceType": "Practitioner", "id": "S1"}]}, tz="UTC")
+            db.execute("DELETE FROM tb_id_rule")
+    else:
+        DerivedStore(db_url).recompute("p1", {}, mapping_version="m")
+        with Database.connect(db_url, "derived") as db:
+            db.execute("DELETE FROM tb_id_rule")
+            db.execute("INSERT INTO definition VALUES ('d1', 's', 1, 'x', '{}', 't')")
+            db.execute(
+                "INSERT INTO score_row (pid, score, def_version, def_sha, mapping_version, anchor_oid, "
+                "anchor_date, value, unit, inputs, fingerprint, computed_at) VALUES "
+                "('p1', 's', 'd1', 'x', 'm', 'o1', '2026-01-01', 1, 'u', '[]', 'f', 't')"
+            )
+    lake = Lake(cfg.lake_dir, cfg.tz)
+    folder = snapshot_dir(cfg.lake_dir, FIRST)
+    if entry == "accept":
+        cfg.rebuild = lambda snap, path: RebuildResult.model_validate(
+            lake.rebuild(snap, HashEmbedder(), path), from_attributes=True
+        )
+        with force("legacy"):
+            result = publish_held(cfg, FIRST)
+        assert not result.ok and len(result.errors) == 1 and f"the {store} store" in result.errors[0]
+        (event,) = _failed_events(tmp_path)
+        assert event["detail"]["refused"] == "id_rule"
+        from datacore.dataops import DataOps
+
+        ops = DataOps(db_url)
+        try:
+            assert [b.state for b in ops.batches()] == ["HELD"]
+        finally:
+            ops.close()
+        assert (folder / id_rule.HELD).is_file()
+    else:
+        # An ordinary build of clean rule-2 NDJSON must independently check the restored stores.
+        stage = tmp_path / "candidate"
+        stage.mkdir()
+        id_rule.write_snapshot_record(stage)
+        (stage / "Patient.ndjson").write_bytes((folder / "Patient.ndjson").read_bytes())
+        with force("legacy"), pytest.raises(RebuildError, match=f"the {store} store"):
+            lake.rebuild(SECOND, HashEmbedder(), ndjson_dir=stage)
+    assert lake.current() is None and not (folder / "passed.json").exists()
+
+
+def test_nightly_spool_refusal_closes_batch(tmp_path: Path, db_url: str) -> None:
+    from datacore.dataops import DataOps
+
+    cfg = ids._cfg(tmp_path, "csv")
+    spool = cfg.lake_dir / "tmp" / f"ingest-{FIRST}"
+    spool.mkdir(parents=True)
+    old = spool / "Condition.ndjson"
+    old.write_text('{"resourceType":"Condition","id":"old"}\n')
+    with pytest.raises(id_rule.IdRuleError) as refused:
+        run_ingest(cfg, "csv", str(tmp_path / "feed"), snapshot=FIRST)
+    (event,) = _failed_events(tmp_path)
+    assert event["detail"]["reason"] == str(refused.value) and event["detail"]["refused"] == "id_rule"
+    ops = DataOps(db_url)
+    try:
+        (batch,) = ops.batches()
+        assert batch.state == "FAILED" and batch.id == event["detail"]["batch"]["id"]
+    finally:
+        ops.close()
+    assert old.exists() and not snapshot_dir(cfg.lake_dir, FIRST).exists()
+
+
+def test_bulk_patient_id_and_reference_use_the_exact_server_spelling(monkeypatch: pytest.MonkeyPatch) -> None:
+    from adapter.pipeline import pseudonymise_bulk
+
+    def pair(rid: str) -> list[dict[str, Any]]:
+        return [
+            {"resourceType": "Patient", "id": rid},
+            {"resourceType": "Condition", "id": rid, "subject": {"reference": f"Patient/{rid}"}},
+        ]
+
+    monkeypatch.setenv("TB_CHARTNO_RULE", "asis")
+    a, ca, b, cb = pseudonymise_bulk(iter(pair("01") + pair("1")), ids.KEY)
+    assert a["id"] != b["id"] and ca["id"] != cb["id"]
+    assert ca["subject"]["reference"] == f"Patient/{a['id']}"
+    assert cb["subject"]["reference"] == f"Patient/{b['id']}"
+    for resource in pair("１"):
+        with pytest.raises(MappingError, match="FHIR bulk Patient IDs"):
+            list(pseudonymise_bulk(iter([resource]), ids.KEY))
+
+
+def test_static_patient_id_is_refused(tmp_path: Path) -> None:
+    mapping = ids._site(tmp_path, [])
+    with mapping.open("a") as f:
+        f.write("static:\n  - resourceType: Patient\n    id: synthetic\n")
+    with pytest.raises(MappingError, match="Patient ID.*id.pid"):
+        Mapping.load(mapping)
+
+
+@pytest.mark.parametrize("cmd", ["check", "load"])
+def test_profile_refuses_unsupported_mapping(
+    tmp_path: Path, cmd: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from adapter import site_profile
+
+    from tests.unit.test_site_profile import _manifest, _profile
+
+    # The supplied mapping must be checked at activation, even when no profile lookup needs it.
+    profile = _profile(tmp_path / "profile", _manifest(tables={}))
+    mapping = ids._site(tmp_path, [{"type": "Patient", "table": "patient", "id": {"column": "mrn"}}])
+    monkeypatch.setattr(site_profile, "_settings", lambda: None)
+    args = [cmd, str(profile), "--mapping", str(mapping)]
+    if cmd == "load":
+        args.extend(["--lake", str(tmp_path / "lake"), "--audit", str(tmp_path / "audit"), "--by", "steward"])
+    assert site_profile.main(args) == 2
+    assert capsys.readouterr().err.strip() == id_rule.message("dataops.ids.patient_id")
+    assert not (tmp_path / "lake" / site_profile.RECORD).exists()
+    if cmd == "load":
+        events = [
+            json.loads(line) for f in (tmp_path / "audit").rglob("*.jsonl") for line in f.read_text().splitlines()
+        ]
+        assert [e["detail"]["refused"] for e in events] == ["dataops.ids.patient_id"]
+
+
+def test_refused_mapping_preserves_an_interrupted_nightly_spool(tmp_path: Path, db_url: str) -> None:
+    cfg = ids._cfg(tmp_path, "csv")
+    cfg.mapping_path = ids._site(tmp_path, [{"type": "Patient", "table": "patient", "id": {"column": "mrn"}}])
+    spool = cfg.lake_dir / "tmp" / f"ingest-{FIRST}"
+    spool.mkdir(parents=True)
+    id_rule.write_snapshot_record(spool)
+    previous = spool / "Condition.ndjson"
+    previous.write_text('{"resourceType":"Condition","id":"synthetic"}\n')
+    with pytest.raises(MappingError, match="Patient ID"):
+        run_ingest(cfg, "csv", str(tmp_path / "missing-feed"), snapshot=FIRST)
+    assert previous.exists()
+    (event,) = _failed_events(tmp_path)
+    assert event["detail"]["batch"]["state"] == "FAILED"

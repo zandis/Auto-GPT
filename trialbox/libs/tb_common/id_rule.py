@@ -40,6 +40,13 @@ SNAPSHOT_RECORD = "id_rule.json"
 RUNBOOK = "docs/runbook/05-updates-backup-restore-secrets.md, Lake ids per patient (D-1253)"
 # Shared with the console catalogue. The CLI has no active user locale.
 EN = {
+    "dataops.ids.bulk_patient_id": (
+        "FHIR bulk Patient IDs changed by chart-number normalisation are not supported in this release."
+    ),
+    "dataops.ids.multiple_patients": "Multiple Patient mappings are not supported in this release.",
+    "dataops.ids.chart_owner": "A chart-number ID with a separate patient reference is not supported in this release.",
+    "dataops.ids.patient_id": "A Patient ID without id.pid is not supported in this release.",
+    "dataops.ids.bulk_chart_rule": "FHIR bulk with a non-asis chart-number rule is not supported in this release.",
     "dataops.ids.kind.review": "Records awaiting steward review",
     "dataops.ids.order_change": "SS-MIX2 order keys differ or were not recorded. Run a full ingest from the source",
     "edc.err.edc.id_rule_newer": (
@@ -51,6 +58,11 @@ EN = {
     ),
 }
 ZH = {
+    "dataops.ids.bulk_patient_id": ("此版本不支援正規化後會改變的 FHIR 大量匯入病人 ID。"),
+    "dataops.ids.multiple_patients": "此版本不支援多個 Patient 對應。",
+    "dataops.ids.chart_owner": "此版本不支援以病歷號產生 ID 並從另一欄參照病人。",
+    "dataops.ids.patient_id": "此版本不支援未使用 id.pid 的 Patient ID。",
+    "dataops.ids.bulk_chart_rule": "此版本的 FHIR 大量匯入僅支援 asis 病歷號規則。",
     "dataops.ids.kind.review": "待資料管理員審查的紀錄",
     "dataops.ids.order_change": "SS-MIX2 訂單鍵不符或未記錄。請從來源完整匯入",
     "edc.err.edc.id_rule_newer": "本試驗使用較新的 ID 規則。請將系統更新至建立這些草稿的版本。",
@@ -59,6 +71,11 @@ ZH = {
     ),
 }
 JA = {
+    "dataops.ids.bulk_patient_id": ("本版の FHIR 一括取り込みは正規化で変化する患者 ID に対応していません。"),
+    "dataops.ids.multiple_patients": "このリリースでは複数の Patient マッピングはサポートされていません。",
+    "dataops.ids.chart_owner": "本版では患者番号を ID に使い、別の列で患者を参照する形式は未対応です。",
+    "dataops.ids.patient_id": "このリリースでは id.pid を使わない Patient ID はサポートされていません。",
+    "dataops.ids.bulk_chart_rule": "本版の FHIR 一括取り込みは asis 以外の患者番号ルールに対応していません。",
     "dataops.ids.kind.review": "担当者による確認が必要な記録",
     "dataops.ids.order_change": "SS-MIX2 オーダーキーが異なるか未記録です。ソースから全件取り込みを実行してください",
     "edc.err.edc.id_rule_newer": (
@@ -73,13 +90,13 @@ REFUSAL_KEY = "edc.err.edc.id_rule_frozen"
 COMMAND = EN[REFUSAL_KEY]  # the recovery instruction exposed to existing callers
 
 
-def _all_languages(key: str) -> str:
+def message(key: str) -> str:
     return " / ".join(cat[key] for cat in (EN, ZH, JA))
 
 
-EARLIER_RULE = _all_languages(REFUSAL_KEY)
-NEWER_STUDY = _all_languages("edc.err.edc.id_rule_newer")
-REVIEW_NEEDED = _all_languages("dataops.ids.kind.review")
+EARLIER_RULE = message(REFUSAL_KEY)
+NEWER_STUDY = message("edc.err.edc.id_rule_newer")
+REVIEW_NEEDED = message("dataops.ids.kind.review")
 
 #: the table each store keeps its rule in (one row per rule the store was stamped with)
 DDL = (
@@ -188,6 +205,14 @@ def probe(url: str, store: Store, schema: str | None = None) -> str:
     name = prefix + (schema or store.schema)
     missing = (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName)
     with psycopg.connect(dsn, autocommit=True, connect_timeout=10) as con:
+        if store == DERIVED and name == "derived" and con.info.user == "tb_lake":
+            # The deployed lake role can read the rule, never the score rows.
+            row = con.execute("SELECT derived.lake_id_rule()").fetchone()
+            assert row is not None
+            rule = row[0]
+            if rule > RULE:
+                return NEWER
+            return {0: EMPTY, RULE: CURRENT}.get(rule, OLD)
         try:  # the store's own tables, read as they are: a schema or a table that is not there holds no lake id
             holds = con.execute(
                 sql.SQL("SELECT 1 FROM {}.{} WHERE {} LIMIT 1").format(
@@ -380,7 +405,7 @@ SOURCE_CHANGE = (
     "更換來源時必須完整匯入，請勿指定 since / "
     "ソースを変更するには since を指定せずに全件取り込みを実行してください"
 )
-ORDER_CHANGE = _all_languages("dataops.ids.order_change")
+ORDER_CHANGE = message("dataops.ids.order_change")
 HELD_NIGHT = "Night held / 此次匯入已暫停 / 取り込みは保留中です"
 
 

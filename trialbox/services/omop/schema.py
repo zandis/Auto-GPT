@@ -484,6 +484,35 @@ def schema_for(lake_dir: Path | None) -> str:
     return f"{SCHEMA}_" + hashlib.sha1(str(path).encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
 
 
+def check_lake_stores(lake_dir: Path, db_url: str | None = None) -> None:
+    """Check the snapshot files and the stores needed to publish or build this lake before moving data."""
+    from tb_common import id_rule
+
+    old, newer, unreadable = id_rule.lake_issues(lake_dir)
+    inaccessible: list[str] = []
+    url = db_url or os.environ.get("TB_DB_URL")
+    omop_url = os.environ.get("TB_OMOP_DB_URL") or url
+    if url or omop_url:
+        checks = [(omop_url, id_rule.OMOP, schema_for(lake_dir)), (url, id_rule.DERIVED, None)]
+        for where, store, schema in checks:
+            if not where:
+                continue
+            try:
+                state = id_rule.probe(where, store, schema)
+            except Exception as exc:  # D-1253 review G5: a rule that cannot be read refuses the night
+                raise id_rule.IdRuleError(
+                    [], inaccessible=[f"the {store.name} store (its id rule could not be read: {type(exc).__name__})"]
+                ) from exc
+            if state == id_rule.UNREAD:  # a store this role reads, whose rule it cannot read: never let through
+                inaccessible.append(f"the {store.name} store (its id rule is not readable by this role)")
+            elif state == id_rule.OLD:
+                old.append(f"the {store.name} store")
+            elif state == id_rule.NEWER:
+                newer.append(f"the {store.name} store")
+    if old or newer or unreadable or inaccessible:
+        raise id_rule.IdRuleError(old, newer=newer, unreadable=unreadable, inaccessible=inaccessible)
+
+
 #: D-721: the two services that write and read one lake between them (the adapter loads, the lake builds and
 #: exports). A store one of them made alone is never right: the other could not open it. The orchestrator's site
 #: spaces (``sitesetup``: a lake under its own data folder, read by its own process only) are the orchestrator's own.

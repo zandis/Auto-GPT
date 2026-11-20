@@ -31,7 +31,7 @@ from tb_contracts.landing import Severity
 
 from adapter import governance
 from adapter.instants import to_site_offset
-from adapter.mapping.engine import Mapper, Mapping, pivot_rows, resource_id
+from adapter.mapping.engine import Mapper, Mapping, UnsupportedIdForm, pivot_rows, resource_id
 from adapter.ndjson import (
     Spool,
     absent_links,
@@ -183,35 +183,9 @@ def check_id_rule(cfg: AdapterConfig) -> None:
     adapter's role is not meant to read (D-378: vec, the patient twin, the candidate pool, the EDC drafts) are never
     probed here: for them "not readable" is expected, and each refuses at its own first write
     (:func:`tb_common.id_rule.ensure`)."""
-    from tb_common import id_rule
+    from omop.schema import check_lake_stores
 
-    old, newer, unreadable = id_rule.lake_issues(cfg.lake_dir)
-    inaccessible: list[str] = []
-    url = cfg.db_url or os.environ.get(DB_URL_ENV)
-    omop_url = os.environ.get("TB_OMOP_DB_URL") or url
-    if url or omop_url:
-        from omop.schema import schema_for
-
-        checks = [(omop_url, id_rule.OMOP, schema_for(cfg.lake_dir)), (url, id_rule.DERIVED, None)]
-        for where, store, schema in checks:
-            if not where:
-                continue
-            try:
-                state = id_rule.probe(where, store, schema)
-            except Exception as exc:  # D-1253 review G5: a rule that cannot be read refuses the night
-                log.error("id rule of %s not read (%s)", store.name, type(exc).__name__)
-                raise id_rule.IdRuleError(
-                    [], inaccessible=[f"the {store.name} store (its id rule could not be read: {type(exc).__name__})"]
-                ) from exc
-            if state == id_rule.UNREAD:  # a store this role reads, whose rule it cannot read: never let through
-                log.error("id rule of %s not readable by this role", store.name)
-                inaccessible.append(f"the {store.name} store (its id rule is not readable by this role)")
-            elif state == id_rule.OLD:
-                old.append(f"the {store.name} store")
-            elif state == id_rule.NEWER:
-                newer.append(f"the {store.name} store")
-    if old or newer or unreadable or inaccessible:
-        raise id_rule.IdRuleError(old, newer=newer, unreadable=unreadable, inaccessible=inaccessible)
+    check_lake_stores(cfg.lake_dir, cfg.db_url)
 
 
 def load_site_profile(cfg: AdapterConfig, source_kind: str) -> tuple[SiteProfile | None, dict[str, Any]]:
@@ -281,12 +255,22 @@ def make_source(
 _REF_RE = re.compile(r"^([A-Z][A-Za-z]+)/(.+)$")
 
 
+def check_bulk_rule(source_kind: str) -> None:
+    if source_kind == "fhir_bulk" and chartno.site_rule() != chartno.ASIS:
+        raise UnsupportedIdForm("dataops.ids.bulk_chart_rule")
+
+
 def bulk_id(key: bytes, rtype: str, rid: str) -> str:
     """The id a ``fhir_bulk`` resource gets in the box (the same rule for the resource, its references and its
     tombstone)."""
     if rtype == "Practitioner":
         return rid
-    return pid_for_mrn(key, rid) if rtype == "Patient" else resource_id(key, rtype, rid)
+    if rtype == "Patient":
+        check_bulk_rule("fhir_bulk")
+        if chartno.normalise(chartno.ASIS, rid) != rid:
+            raise UnsupportedIdForm("dataops.ids.bulk_patient_id")
+        return pid_for_mrn(key, rid)
+    return resource_id(key, rtype, rid)
 
 
 def mark_for_review(
@@ -580,7 +564,7 @@ def run_ingest(
                 validator=validator,
                 cleanup=cleanup,
             )
-    except (SiteKeyError, IdRuleError):  # T-612, D-1253: audited with the reason where refused; one event per night
+    except SiteKeyError:  # T-612: audited where refused
         raise
     except Exception as exc:
         if cfg.audit_dir:
@@ -597,6 +581,11 @@ def run_ingest(
                     detail={
                         "source": source_kind,
                         "since": since,
+                        **(
+                            {"refused": "id_rule", "reason": str(exc)}
+                            if isinstance(exc, (IdRuleError, UnsupportedIdForm))
+                            else {}
+                        ),
                         "error": type(exc).__name__,
                         "step": at["step"],
                         "table": at["table"],
@@ -656,15 +645,8 @@ def _run_ingest(
             )
         raise
     at["batch"] = _open_night(cfg, source_kind, snap, started.isoformat())  # T-723 (D-489): the row, from the start
-    try:  # D-1253: before anything is read or written, no lake id of another rule anywhere it would be added to
-        check_id_rule(cfg)
-    except IdRuleError as exc:
-        log.error("night refused: %s", exc)
-        if cfg.audit_dir:  # one event, which closes the night's batch row (opened above) as failed, with the reason
-            night_event(cfg, "ingest.failed", snapshot=snap, source=source_kind, passed=False, held=False,
-                        batch=at.get("batch"), actor="adapter",
-                        detail={"source": source_kind, "refused": "id_rule", "reason": str(exc)})  # fmt: skip
-        raise
+    check_id_rule(cfg)
+    check_bulk_rule(source_kind)
     try:  # T-612: before anything is read or written
         key = cfg.site_key()
         check_site_key(cfg, key)
@@ -679,9 +661,6 @@ def _run_ingest(
             )
         raise
     errors: list[str] = []
-    # T-692 (D-473): every mapped resource goes to disk as it is made; the night is never held in memory. The spool
-    # is scratch on the lake volume (``lake:tmp``), removed when the night ends
-    spool = cleanup.enter_context(contextlib.closing(Spool(cfg.lake_dir / "tmp" / f"ingest-{snap}")))
     patient_ids: list[str] = []  # in the order sent: the merged chart numbers drop by id alone
 
     def to_spool(r: Resource) -> None:
@@ -739,8 +718,16 @@ def _run_ingest(
     at["step"] = "read"
     from adapter.read_timing import ReadTimes
 
+    if source_kind != "fhir_bulk":
+        mapping = Mapping.load(
+            cfg.mapping_path,
+            {u.split(".", 1)[1]: p for u, p in (profile_files or {}).items() if u.startswith("mapping.")} or None,
+        )
+    # T-692 (D-473): every mapped resource goes to disk as it is made; the night is never held in memory. The spool
+    # is scratch on the lake volume (``lake:tmp``), removed when the night ends
+    spool = cleanup.enter_context(contextlib.closing(Spool(cfg.lake_dir / "tmp" / f"ingest-{snap}")))
     read_times = ReadTimes()  # 10E-9 (review 13-10): the connector's own time per message, for the report
-    if source_kind == "fhir_bulk":
+    if mapping is None:
         from adapter.sources.fhir_bulk.source import FhirBulkSource
 
         bulk = FhirBulkSource(Path(source_path))
@@ -756,10 +743,6 @@ def _run_ingest(
             if rtype != "Patient":  # removing a person is the opt-out path's job, never a feed delta's
                 tombstones.setdefault(rtype, set()).add(bulk_id(key, rtype, rid))
     else:
-        mapping = Mapping.load(
-            cfg.mapping_path,
-            {u.split(".", 1)[1]: p for u, p in (profile_files or {}).items() if u.startswith("mapping.")} or None,
-        )
         if profile is not None:
             from adapter import site_profile as sp
 

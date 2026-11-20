@@ -52,7 +52,7 @@ from tb_common.audit_writer import open_audit
 from tb_common.crypto import pid_for_mrn
 from tb_common.id_rule import IdRuleError
 
-from adapter.mapping.engine import Mapper
+from adapter.mapping.engine import Mapper, Mapping, UnsupportedIdForm
 from adapter.ndjson import absent_links, is_deleted_flag, read_type, snapshot_dir
 from adapter.pipeline import (
     COMPLETENESS,
@@ -66,6 +66,7 @@ from adapter.pipeline import (
     _undated_order,
     apply_aliases,
     apply_unit_defaults,
+    check_bulk_rule,
     check_id_rule,
     check_lookup_factors,
     check_site_key,
@@ -269,7 +270,6 @@ def _reviewed_rows(
 def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, root: Path, key: bytes) -> dict[str, Any]:
     """Phase 1: the source read once, mapped exactly as ``run_ingest`` maps it, spooled by year. Returns the facts
     the report needs (rejects per table, rows per table)."""
-    from adapter.mapping.engine import Mapping
     from adapter.pipeline import _bulk_unit_defaults
 
     shutil.rmtree(root, ignore_errors=True)
@@ -581,20 +581,21 @@ def backfill(
     """Load the source's whole history as snapshot ``snapshot`` (today in the site's zone by default); see the module
     docstring. ``on_bucket`` is called after each year is sorted (a :class:`BackfillStop` from it ends the run there;
     the next run resumes)."""
-    t0 = time.perf_counter()
-    zone = ZoneInfo(cfg.tz)
-    snap = snapshot or datetime.now(zone).date().isoformat()
-    refuse_future_night(snap, datetime.now(zone).date())  # D-529
-    work = work_dir or cfg.lake_dir / "backfill" / snap
-    spool, runs = work / "spool", work / "runs"
-    fp = _fingerprint(cfg, source_kind, source_path, snap)
-    try:  # D-1253: as the night, refused before anything is read or written, with one audit event saying why
-        check_id_rule(cfg)
-        for folder in (work / "publish", work / "replaced"):
-            if folder.is_dir() and any(folder.iterdir()):
-                id_rule.check_snapshot(folder, "backfill snapshot")
-        done_spool = _checked_spool_marker(spool, runs, fp)
-    except IdRuleError as exc:
+    snap = snapshot or datetime.now(ZoneInfo(cfg.tz)).date().isoformat()
+    try:
+        return _backfill(
+            cfg,
+            source_kind,
+            source_path,
+            snap=snap,
+            work_dir=work_dir,
+            first_years=first_years,
+            validate=validate,
+            validator=validator,
+            rebuild_lake=rebuild_lake,
+            on_bucket=on_bucket,
+        )
+    except (IdRuleError, UnsupportedIdForm) as exc:
         log.error("back-fill refused: %s", exc)
         if cfg.audit_dir:
             open_audit(cfg.audit_dir, cfg.tz).append(
@@ -602,11 +603,35 @@ def backfill(
                 detail={"state": "failed", "source": source_kind, "refused": "id_rule", "reason": str(exc)},
             )  # fmt: skip
         raise
-    from adapter.mapping.engine import Mapping
 
+
+def _backfill(
+    cfg: AdapterConfig,
+    source_kind: str,
+    source_path: str,
+    *,
+    snap: str,
+    work_dir: Path | None,
+    first_years: int,
+    validate: bool,
+    validator: Hl7Validator | StructuralValidator | None,
+    rebuild_lake: bool,
+    on_bucket: Callable[[str], None] | None,
+) -> BackfillReport:
+    t0 = time.perf_counter()
+    refuse_future_night(snap, datetime.now(ZoneInfo(cfg.tz)).date())  # D-529
+    work = work_dir or cfg.lake_dir / "backfill" / snap
+    spool, runs = work / "spool", work / "runs"
+    check_id_rule(cfg)
+    check_bulk_rule(source_kind)
+    fp = _fingerprint(cfg, source_kind, source_path, snap)
+    for folder in (work / "publish", work / "replaced"):
+        if folder.is_dir() and any(folder.iterdir()):
+            id_rule.check_snapshot(folder, "backfill snapshot")
+    done_spool = _checked_spool_marker(spool, runs, fp)
+    loaded = None if source_kind == "fhir_bulk" else Mapping.load(cfg.mapping_path)
     key = cfg.site_key()
     check_site_key(cfg, key)
-    loaded = None if source_kind == "fhir_bulk" else Mapping.load(cfg.mapping_path)
     site_wide = frozenset() if loaded is None else loaded.site_wide
     mapping_tables = frozenset() if loaded is None else frozenset(loaded.tables)  # D-1253 second review, 10
     work.mkdir(parents=True, exist_ok=True)
@@ -784,6 +809,8 @@ def _publish(
     _progress(work, rep, f"publish {'all' if final else 'first'} years")
     stage = work / "publish"
     shutil.rmtree(stage, ignore_errors=True)
+    stage.mkdir(parents=True)
+    _atomic_json(stage / id_rule.HELD, {"snapshot": snap, "writing": True})
     clashes: dict[str, int] = {}
     counts = _write_merged(runs, buckets, stage, clashes)
     facts = _spool_facts(work)
@@ -873,6 +900,7 @@ def _publish(
         final_dir.rename(old)
     final_dir.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(stage), str(final_dir))  # a --work folder may be on another disk
+    (final_dir / id_rule.HELD).unlink()  # the complete candidate passed validation and the drop guard
     shutil.rmtree(old, ignore_errors=True)
     rep.counts = counts
     from adapter.dual_write import load_night
@@ -883,6 +911,7 @@ def _publish(
         try:
             rep.lake = cfg.rebuild(snap, final_dir).model_dump(mode="json")
         except Exception as exc:
+            _atomic_json(final_dir / id_rule.HELD, {"snapshot": snap})
             rep.errors.append(f"lake rebuild failed: {type(exc).__name__}: {str(exc)[:300]}")
             rep.state = "held"
             return

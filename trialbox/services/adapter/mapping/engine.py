@@ -238,6 +238,14 @@ class MappingError(ValueError):
     pass
 
 
+class UnsupportedIdForm(MappingError):
+    """A configuration refusal whose message contains only catalogue text."""
+
+    def __init__(self, key: str) -> None:
+        self.key = key
+        super().__init__(id_rule.message(key))
+
+
 class DateRangeError(MappingError):
     """A value that reads as a date outside ``EARLIEST_YEAR`` to today's year + ``LATEST_YEARS_AHEAD``."""
 
@@ -545,6 +553,8 @@ def _whose(path: Path, r: ResourceSpec, resources: list[ResourceSpec]) -> str | 
       one number would be one record, the fault D-1253 ends, by another door. A suffix holds no ``|``.
     * A mapping cannot leave the patient out by forgetting it: an ``hid`` id that is neither is refused."""
     where = f"{path}: {r.type} from {r.table}"
+    if r.type == "Patient" and not (isinstance(r.id.get("pid"), str) and r.id["pid"].strip()):
+        raise UnsupportedIdForm("dataops.ids.patient_id")
     named = _patient_columns(r, resources)
     said = r.id.get("patient")
     if said is not None and not (isinstance(said, str) and said):
@@ -625,6 +635,18 @@ def _id_rules(path: Path, resources: list[ResourceSpec]) -> frozenset[str]:
     ``site_wide``. Refused: two definitions of one type that
     disagree; a declared site-wide drug or device a patient's record names by number (its record is per order); a
     record of no patient of its own that names a patient's record by number."""
+    patients = [r for r in resources if r.type == "Patient"]
+    if len(patients) > 1:
+        raise UnsupportedIdForm("dataops.ids.multiple_patients")
+    chart_columns = {"mrn", *(r.id["pid"] for r in patients)}
+    chart_columns.update(r.patient for r in resources if r.patient and r.patient_reference is None)
+    for r in resources:
+        if (
+            r.patient
+            and r.id.get("hid") in chart_columns
+            and (r.id["hid"] != r.patient or r.patient_reference is not None)
+        ):
+            raise UnsupportedIdForm("dataops.ids.chart_owner")
     site: set[str] = set(NO_PATIENT_TYPES)
     for t in sorted({r.type for r in resources}):
         specs = [r for r in resources if r.type == t and "hid" in r.id]
@@ -870,6 +892,8 @@ class Mapping:
             )
             for r in doc.get("resources") or []
         ]
+        if any(r.get("resourceType") == "Patient" for r in doc.get("static") or []):
+            raise UnsupportedIdForm("dataops.ids.patient_id")
         for t, tspec in (doc.get("tables") or {}).items():  # CGRD-A8 (D-846): one item per row, turned to columns
             pv = (tspec or {}).get("pivot")
             if pv is None:
