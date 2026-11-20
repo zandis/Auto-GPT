@@ -277,8 +277,8 @@ class Episode:
 
 
 def _patients(st: SpecStorage, people: Patients, patients: list[dict[str, str]]) -> None:
-    """ADT-00 (ADT^A08, G 表3.1-2 No.1): 診療日 "-" (G 表3.1-1 No.1), オーダNo ALL9. Every 50th patient's phone changed
-    once: the earlier file is renamed to flag 2 (G 3.1.4 (2) ⑥). One patient registered by mistake is deleted
+    """ADT-00 (ADT^A08, G 表3.1-2 No.1): 診療日 "-" (G 表3.1-1 No.1), オーダNo ALL9. Every 50th patient's phone added
+    later (the earlier version has none): the earlier file is renamed to flag 2 (G 3.1.4 (2) ⑥). One patient registered by mistake is deleted
     (ADT^A23, No.2): the A08 file is renamed to 0 and the A23 written as 0."""
     for i, p in enumerate(patients):
         when = "20200101090000"
@@ -290,7 +290,7 @@ def _patients(st: SpecStorage, people: Patients, patients: list[dict[str, str]])
                 ALL9,
                 DEPT_NONE,
                 when,
-                adt(when, "A08", f"P{p['mrn']}a", people.pid(p["mrn"], phone="000-0000-0000"), evn(when), pv1("O")),
+                adt(when, "A08", f"P{p['mrn']}a", people.pid(p["mrn"], phone=""), evn(when), pv1("O")),
             )
             st.rename(old, "2")
             when = "20210101090000"
