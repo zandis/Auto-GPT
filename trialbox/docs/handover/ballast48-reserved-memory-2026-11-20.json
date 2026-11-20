@@ -1,0 +1,19 @@
+{
+ "card": "H66",
+ "title": "the ballast and ballast48 read free memory differently on a card with driver-reserved memory",
+ "date": "2026-11-20",
+ "source": "docs/handover/ballast48-reserved-memory-2026-11-20.md",
+ "findings": [
+  {
+   "id": "H66-01",
+   "severity": "High",
+   "claim": "the 48 GB run m48-20261119T232459Z-d28f6c0305fa ended at s07 with nothing measured: tools/ballast.py hold read nvidia-smi memory.free (49140 MiB, ready) while tools/ballast48.py check took total minus used (49776 MiB), which adds the 636 MiB driver 580 reserves, and refused",
+   "severity_basis": "a paid run ended with nothing measured and every relaunch on this card would end the same way; the VM stopped itself, nothing harmed and no false record made",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8d17538feecbefbaec21e0c438a9762ae3359848",
+   "fix": "one reading of the card (tools/ballast.py read_card, nvidia-smi memory.free) for the holder and ballast48; hold corrects the holder from that figure (at most 8 steps, to within 64 MiB), refuses off-target with the numbers, re-reads after 2 s before ready; tolerance still 512 MiB; the s07 note names the refusal's figures; stand-in card with the run's figures in tests/unit/test_ballast_reserved_h66.py",
+   "from": "the integrator's card H-66 and the run's ballast.log and s07-ballast.log, 2026-11-20"
+  }
+ ]
+}

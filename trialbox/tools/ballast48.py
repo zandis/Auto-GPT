@@ -16,8 +16,9 @@ utilisations are shares of the card's total. Under the ballast the card still re
 the RTX PRO 6000), so this tool gives ``measure`` a runner that:
 
 * answers its ``nvidia-smi`` questions as a card of ``--target-mib`` (49,140 MiB, the class's ``memory_total_mib``)
-  would: the total is the target, and memory used is the card's minus what the ballast holds (the card's total
-  minus the target), so the class's own arithmetic and range check apply unchanged;
+  would: the total is the target, and memory used is what has gone from the target's free (the card's used plus
+  the driver's reserved memory, minus the card's total less the target), so the class's own arithmetic and range
+  check apply unchanged;
 * scales ``JUDGE_GPU_MEM_UTIL`` and ``VERIFIER_GPU_MEM_UTIL`` on the start command to the same MiB of the real total
   (``tools.ballast.util_on``: rounded down, never a larger budget than on the 48 GB card);
 * adds ``--capped-to "48 GB class (49,140 MiB), by ballast"`` to the serving record's capture, so
@@ -26,7 +27,10 @@ the RTX PRO 6000), so this tool gives ``measure`` a runner that:
 The record itself is taken by ``serving_config.py`` from the real card (its name and real total). ``measure.<option>
 .json`` gets a ``ballast`` block (the real card, the target, the scaled utilisations, whether the ballast was still
 held at the end) and its ``outcome`` starts "BY BALLAST". It refuses when no ``tb-ballast`` container runs or the
-card's free memory is not the target within 512 MiB. Nothing in lane J's class or switch is changed; the switch
+card's free memory is not the target within 512 MiB. Free is read by ``tools.ballast.read_card``, the function the
+ballast itself converges with: nvidia-smi's ``memory.free``, what a new process is offered. It is never total minus
+used: a driver that reserves memory (580: about 636 MiB on the RTX PRO 6000) counts it in neither, and that
+difference refused the run of 2026-11-19 at s07 (card H-66). Nothing in lane J's class or switch is changed; the switch
 (``TB_UNMEASURED_DGPU48_MEASURING_RUN=1``) is still what ``measure`` checks. Tested on stand-ins only.
 """
 
@@ -75,14 +79,16 @@ def _csv_fields(cmd: list[str]) -> list[str]:
 class BallastView:
     """A runner for ``dgpu48.measure``: the real runner, with the card seen as ``target`` MiB (see the module)."""
 
-    def __init__(self, run: Runner, real_total: int, target: int = TARGET_MIB) -> None:
+    def __init__(self, run: Runner, real_total: int, target: int = TARGET_MIB, reserved: int = 0) -> None:
         self.run, self.real_total, self.target = run, real_total, target
         self.held = real_total - target
+        self.reserved = reserved  # the driver's, as read at the check: neither used nor free
         self.scaled: dict[str, dict[str, str]] = {}
         self.down: dict[str, Any] | None = None
 
     def view_used(self, used: int) -> int:
-        return max(0, used - self.held)
+        """What has gone from the target's free: 0 when the card is at the target, the servers' memory after."""
+        return max(0, used + self.reserved - self.held)
 
     def _rewrite_smi(self, cmd: list[str], out: str) -> str:
         fields = _csv_fields(cmd)
@@ -125,14 +131,26 @@ class BallastView:
         return self.run(cmd, timeout, env)
 
 
-def read_card(run: Runner) -> dict[str, Any]:
-    rc, out, _ = run(["nvidia-smi", "--query-gpu=name,memory.total,memory.used", "--format=csv,noheader,nounits"],
-                     60, None)  # fmt: skip
-    cells = [c.strip() for c in out.strip().splitlines()[0].split(",")] if rc == 0 and out.strip() else []
-    if len(cells) < 3 or not cells[1].isdigit() or not cells[2].isdigit():
-        raise Refused("nvidia-smi finds no card")
-    return {"name": cells[0], "total_mib": int(cells[1]), "used_mib": int(cells[2]),
-            "free_mib": int(cells[1]) - int(cells[2])}  # fmt: skip
+def _smi(run: Runner) -> ballast.Run:
+    """This tool's runner as ``tools.ballast``'s (stdout, or a refusal)."""
+
+    def call(cmd: Any) -> str:
+        rc, out, err = run(list(cmd), 60, None)
+        if rc != 0:
+            raise ballast.Refused("driver-tool-failed", f"nvidia-smi exited {rc}: {err.strip()[:200]}")
+        return out
+
+    return call
+
+
+def read_card(run: Runner, index: int = 0) -> dict[str, Any]:
+    """Card ``index`` (the ballast's ``--gpu``, 0) read by ``tools.ballast.read_card``: the same free as the holder."""
+    try:
+        c = ballast.read_card(index, _smi(run))
+    except ballast.Refused as e:
+        raise Refused(f"nvidia-smi finds no card ({e.code}: {e.text})") from None
+    return {"name": c.name, "total_mib": c.total, "used_mib": c.used, "free_mib": c.free,
+            "reserved_mib": c.reserved}  # fmt: skip
 
 
 def ballast_running(run: Runner) -> bool:
@@ -150,8 +168,9 @@ def check(run: Runner, target: int = TARGET_MIB) -> dict[str, Any]:
         raise Refused(f"no {ballast.CONTAINER} container: start `python3 -m tools.ballast hold --target-mib {target}` "
                       "first and wait for its 'ready' line")  # fmt: skip
     if abs(card["free_mib"] - target) > TOLERANCE_MIB:
-        raise Refused(f"{card['free_mib']} MiB free, not {target} +/- {TOLERANCE_MIB}: the ballast is not holding "
-                      "the card at the target (or something else holds memory)")  # fmt: skip
+        raise Refused(f"{card['free_mib']} MiB free, not {target} +/- {TOLERANCE_MIB} (nvidia-smi memory.free; "
+                      f"{card['used_mib']} used, {card['reserved_mib']} reserved by the driver): the ballast is not "
+                      "holding the card at the target (or something else holds memory)")  # fmt: skip
     return card
 
 
@@ -160,12 +179,12 @@ def annotate(summary: dict[str, Any], card: dict[str, Any], view: BallastView, s
     summary = dict(summary)
     summary["ballast"] = {
         "card": card["name"], "card_total_mib": card["total_mib"], "target_mib": target,
-        "held_mib": view.held, "capped_to": capped_to(target), "utils": view.scaled,
+        "held_mib": view.held, "reserved_mib": view.reserved, "capped_to": capped_to(target), "utils": view.scaled,
         "still_held_at_end": still_held, "tier_record": False,
         "rule": "D-1320 rule 4: a record made under the ballast says 'by ballast' and is never a tier record",
     }  # fmt: skip
     if summary.get("card_peak_mib") is not None:
-        summary["ballast"]["card_peak_mib_real"] = summary["card_peak_mib"] + view.held
+        summary["ballast"]["card_peak_mib_real"] = summary["card_peak_mib"] + view.held - view.reserved
         summary["ballast"]["free_at_peak_mib"] = target - summary["card_peak_mib"]
     head = "BY BALLAST" if still_held else "BALLAST LOST (records after the loss are not 'by ballast')"
     summary["outcome"] = f"{head}: {summary.get('outcome', '')}"
@@ -180,7 +199,7 @@ def measure(run: Runner, oid: str, out_dir: Path, engine: str, keep: bool, dry_r
         card = read_card(run)
     else:
         card = check(run, target)
-    view = BallastView(run, card["total_mib"], target)
+    view = BallastView(run, card["total_mib"], target, card["reserved_mib"])
     say(f"{card['name']}: {card['total_mib']:,} MiB, held at {target:,} MiB free by {ballast.CONTAINER}; "
         f"records say '{capped_to(target)}' (never a tier record)")  # fmt: skip
     s = measure_fn(view, oid, out_dir, None, engine, dry_run, keep, say=say)
@@ -199,11 +218,12 @@ def measure(run: Runner, oid: str, out_dir: Path, engine: str, keep: bool, dry_r
 
 
 class CardPeak:
-    """nvidia-smi memory used every ``every`` seconds, highest seen (a thread)."""
+    """nvidia-smi memory used every ``every`` seconds, highest seen, and the lowest free (``read_card``'s); a thread."""
 
     def __init__(self, run: Runner, every: float = 2.0) -> None:
         self.run, self.every = run, every
         self.peak_used = 0
+        self.min_free: int | None = None
         self.total = 0
         self._stop = threading.Event()
         self._t = threading.Thread(target=self._loop, daemon=True)
@@ -215,6 +235,7 @@ class CardPeak:
             return
         self.total = card["total_mib"]
         self.peak_used = max(self.peak_used, card["used_mib"])
+        self.min_free = card["free_mib"] if self.min_free is None else min(self.min_free, card["free_mib"])
 
     def _loop(self) -> None:
         while not self._stop.is_set():
@@ -240,11 +261,11 @@ def during(cmd: list[str], out: Path, run: Runner, target: int = TARGET_MIB, eve
     rec: dict[str, Any] = {
         "schema": "tb-ballast48-during/1", "command": [os.path.basename(cmd[0]), *cmd[1:]], "exit_code": rc,
         "wall_seconds": round(time.monotonic() - t0, 1), "card_total_mib": peak.total,
-        "card_peak_used_mib": peak.peak_used, "free_at_peak_mib": peak.total - peak.peak_used if peak.total else None,
+        "card_peak_used_mib": peak.peak_used, "free_at_peak_mib": peak.min_free if peak.total else None,
         "target_mib": target, "ballast_held_at_end": ballast_running(run), "capped_to": capped_to(target),
     }  # fmt: skip
-    if peak.total:
-        rec["peak_used_mib_as_48gb"] = max(0, peak.peak_used - (peak.total - target))
+    if peak.total and peak.min_free is not None:
+        rec["peak_used_mib_as_48gb"] = max(0, target - peak.min_free)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(rec, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     return rec
@@ -359,7 +380,8 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "plan":
             card = check(run, a.target_mib)
             print(f"{card['name']}: {card['total_mib']:,} MiB, {card['free_mib']:,} MiB free (target {a.target_mib:,}"
-                  f" +/- {TOLERANCE_MIB}); records: --capped-to {json.dumps(capped_to(a.target_mib))}")  # fmt: skip
+                  f" +/- {TOLERANCE_MIB}; {card['reserved_mib']:,} MiB reserved by the driver); records: --capped-to "
+                  f"{json.dumps(capped_to(a.target_mib))}")  # fmt: skip
             doc = dgpu48.load()
             for o in doc["options"]:
                 if o.get("scripted"):
