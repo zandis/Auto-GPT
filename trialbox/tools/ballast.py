@@ -69,7 +69,21 @@ TARGET_MIB = 32607  # what a real 5090 reports (deploy/docker-compose.rtx5090.ym
 TOLERANCE_MIB = 512  # plan 10's 10E-28 "Done when": 32,607 MiB +/- 512
 EXPECT_USED_MIB = 1024  # memory in use before the ballast that is taken as the driver's own, not another process
 CAPPED_TO = "RTX 5090 (32 GB), by ballast"
-CONTAINER = "tb-ballast"
+CONTAINER_BASE = "tb-ballast"
+# the holder's container: tb-ballast, or tb-ballast-<run id> when a run names it (--ballast-container; the host form
+# of the 48 GB run: every Docker object it makes carries its run id). An option only, no setting: nothing in the box's
+# own tree names the ballast (tests/unit/test_ballast_stand_in.py)
+CONTAINER_RE = re.compile(r"tb-ballast(-[A-Za-z0-9_.-]{1,64})?")
+CONTAINER = CONTAINER_BASE
+
+
+def container_name(text: str) -> str:
+    """``--ballast-container``: tb-ballast or tb-ballast-<run id>; anything else is refused by argparse."""
+    if not CONTAINER_RE.fullmatch(text):
+        raise argparse.ArgumentTypeError(f"not tb-ballast or tb-ballast-<run id>: {text!r}")
+    return text
+
+
 UTIL_KEYS = ("JUDGE_GPU_MEM_UTIL", "VERIFIER_GPU_MEM_UTIL")
 MARK = "# tb-ballast:"
 AIM_MIB = 64  # hold corrects until nvidia-smi's free is this close to the target (the tolerance still decides)
@@ -146,16 +160,27 @@ def _int(v: str) -> int | None:
     return int(float(v)) if re.fullmatch(r"\d+(\.\d+)?", v) else None
 
 
-def read_card(index: int, run: Run = run_cmd) -> Card:
+def read_card(index: int, run: Run = run_cmd, uuid: str | None = None) -> Card:
     """The one reading of the card for the ballast and for ``tools/ballast48.py``: ``memory.free`` is used as reported,
-    never derived from total and used (a driver's reserved memory is in neither)."""
-    out = run(
-        [
-            "nvidia-smi",
-            "--query-gpu=index,uuid,name,memory.total,memory.used,memory.free",
-            "--format=csv,noheader,nounits",
-        ]
-    )
+    never derived from total and used (a driver's reserved memory is in neither).
+
+    One card only (H-67): nvidia-smi is asked about card ``index`` (``-i``), never about the others, and a line for
+    another index is not taken. ``uuid``: the card's UUID as first read; a card at ``index`` with another UUID is
+    refused (``card-changed``), so a later read can never be of a different card."""
+    try:
+        out = run(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,uuid,name,memory.total,memory.used,memory.free",
+                "--format=csv,noheader,nounits",
+                "-i",
+                str(index),
+            ]
+        )
+    except Refused as e:
+        if e.code == "driver-tool-failed" and re.search(r"no devices|invalid|not found|not a valid", e.text, re.I):
+            raise Refused("no-such-card", f"nvidia-smi has no card {index}: {e.text}") from None
+        raise
     seen = []
     for line in out.splitlines():
         parts = [x.strip() for x in line.split(",")]
@@ -166,13 +191,25 @@ def read_card(index: int, run: Run = run_cmd) -> Card:
             raise Refused("driver-tool-failed", f"nvidia-smi gave no memory figures for card {parts[0]}: {line!r}")
         seen.append(idx)
         if idx == index:
+            if uuid is not None and parts[1] != uuid:
+                raise Refused(
+                    "card-changed",
+                    f"card {index} is not the card read first (its UUID changed between two reads): nothing more is"
+                    " read or held on it",
+                )
             return Card(idx, parts[1], ", ".join(parts[2:-3]), total, used, free)
     raise Refused("no-such-card", f"nvidia-smi lists cards {seen or 'none'}, not {index}")
 
 
 def read_procs(card: Card, run: Run = run_cmd) -> list[Proc]:
     out = run(
-        ["nvidia-smi", "--query-compute-apps=gpu_uuid,pid,process_name,used_memory", "--format=csv,noheader,nounits"]
+        [
+            "nvidia-smi",
+            "--query-compute-apps=gpu_uuid,pid,process_name,used_memory",
+            "--format=csv,noheader,nounits",
+            "-i",
+            str(card.index),
+        ]
     )
     procs = []
     for line in out.splitlines():
@@ -218,6 +255,12 @@ def refuse_production(env_file: Path | None) -> None:
         )
 
 
+def hold_mib(card: Card, target: int) -> int:
+    """What the holder must take so that ``memory.free`` reads ``target``: the card's own free as read less the target,
+    i.e. its total less what is used, less what the driver reserves, less the target. No card's total is assumed."""
+    return card.total - card.used - card.reserved - target
+
+
 def check(
     card: Card,
     procs: list[Proc],
@@ -234,11 +277,21 @@ def check(
         raise Refused(
             "card-is-the-target", f"{card.name} has {card.total} MiB: within {tolerance} of {target}, no ballast"
         )
+    if card.total - card.reserved <= target:
+        raise Refused(
+            "card-too-small",
+            f"{card.name} has {card.total} MiB in all and the driver reserves {card.reserved}: at most"
+            f" {card.total - card.reserved} MiB can be free, not above the target {target} MiB",
+        )
     strangers = [p for p in procs if not any(e and e in p.name for e in expect_procs)]
     if strangers:
-        named = "; ".join(f"pid {p.pid} {p.name} {p.used if p.used is not None else '?'} MiB" for p in strangers)
+        # a shared machine: how many and how much, never whose (no process name, no pid)
+        mib = sum(p.used or 0 for p in strangers)
+        unknown = sum(1 for p in strangers if p.used is None)
         raise Refused(
-            "memory-already-held", f"compute processes already on the card: {named} (stop them, or --expect-process)"
+            "memory-already-held",
+            f"{len(strangers)} compute process(es) already on card {card.index}, {mib} MiB"
+            f"{f' (and {unknown} of unknown size)' if unknown else ''} (stop them, or --expect-process)",
         )
     if card.used > expect_used:
         raise Refused(
@@ -249,7 +302,7 @@ def check(
     if card.free <= target:
         raise Refused("memory-already-held", f"only {card.free} MiB free, not above the target {target} MiB")
     prof = profile if profile is not None else profile_utils()
-    return Plan(card, target, card.free - target, {k: util_on(card.total, v, target) for k, v in prof.items()})
+    return Plan(card, target, hold_mib(card, target), {k: util_on(card.total, v, target) for k, v in prof.items()})
 
 
 # ------------------------------------------------------------------------------------------------ the env file
@@ -379,6 +432,14 @@ class DockerAllocator:
         self.start_timeout = start_timeout
         self.proc: subprocess.Popen[str] | None = None
         self.lines: queue.Queue[str | None] = queue.Queue()
+        self.uuid = ""  # the card's UUID (``pin``): the holder sees that card and no other
+
+    def pin(self, uuid: str) -> None:
+        """The card the holder runs on, by UUID (H-67): ``--gpus device=<uuid>`` and NVIDIA_VISIBLE_DEVICES in its
+        environment, so it cannot land on another card of a machine with several."""
+        if not re.fullmatch(r"(GPU|MIG)-[0-9A-Za-z-]+", uuid):
+            raise Refused("no-such-card", "the card's UUID as read is not one the holder can be pinned to")
+        self.uuid = uuid
 
     def preflight(self) -> None:
         try:
@@ -393,9 +454,12 @@ class DockerAllocator:
             )
 
     def start(self, target_free: int, index: int) -> tuple[int, int]:
+        if not self.uuid:
+            raise Refused("allocation-failed", f"card {index}'s UUID was not read: the holder is pinned by UUID only")
         cmd = [
             "docker", "run", "--rm", "--name", CONTAINER, "--label", "trialbox.ballast=1", "--network", "none",
-            "--pull", "never", "--gpus", f"device={index}", "-i", "--entrypoint", "python3", self.image,
+            "--pull", "never", "--gpus", f"device={self.uuid}", "-e", f"NVIDIA_VISIBLE_DEVICES={self.uuid}",
+            "-e", "CUDA_DEVICE_ORDER=PCI_BUS_ID", "-i", "--entrypoint", "python3", self.image,
             "-c", HOLDER, str(target_free),
         ]  # fmt: skip
         self.proc = subprocess.Popen(
@@ -473,8 +537,14 @@ def _on_signal(signum: int, _frame: object) -> None:
 
 def _print_plan(plan: Plan, say: Callable[[str], None]) -> None:
     c = plan.card
-    say(f"card {c.index}: {c.name}, {c.total} MiB in all, {c.used} MiB used, {c.free} MiB free")
-    say(f"target: {plan.target} MiB free (a 5090), +/- {TOLERANCE_MIB}; ballast to hold: about {plan.ballast} MiB")
+    say(
+        f"card {c.index}: {c.name}, {c.total} MiB in all, {c.used} MiB used, {c.free} MiB free, {c.reserved} MiB"
+        " reserved by the driver (its UUID is checked at every read)"
+    )
+    say(
+        f"target: {plan.target} MiB free, +/- {TOLERANCE_MIB}; ballast to hold: about {plan.ballast} MiB"
+        f" ({c.total} - {c.used} used - {c.reserved} reserved - {plan.target})"
+    )
     for k, v in plan.utils.items():
         say(f"export {k}={v}")
     say(f'records taken under it: --capped-to "{CAPPED_TO}" (never a tier record)')
@@ -494,14 +564,22 @@ def hold(
     wait: Callable[[Allocator], None] | None = None,
     say: Callable[[str], None] = print,
     settle: Callable[[], None] | None = None,
+    uuid: str | None = None,
 ) -> int:
     """Check, hold, correct, confirm, wait, release. Returns the exit code; a refusal before allocating raises
-    ``Refused``. Every free figure is ``read_card``'s (nvidia-smi ``memory.free``), the one ``ballast48`` checks."""
+    ``Refused``. Every free figure is ``read_card``'s (nvidia-smi ``memory.free``), the one ``ballast48`` checks.
+
+    One card (H-67): card ``index`` only, its UUID taken at the first read (or ``uuid``, as the run read it before)
+    and checked at every later read; the holder is pinned to that UUID. Other cards are never read or touched."""
     refuse_production(env_file)
-    card = read_card(index, run)
+    card = read_card(index, run, uuid)
+    uuid = card.uuid
     plan = check(card, read_procs(card, run), target=target, tolerance=tolerance, expect_used=expect_used,
                  expect_procs=expect_procs, profile=profile)  # fmt: skip
     _print_plan(plan, say)
+    pin = getattr(allocator, "pin", None)
+    if pin is not None:
+        pin(uuid)
     allocator.preflight()
     old = {s: signal.signal(s, _on_signal) for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
     code, env_set = 0, False
@@ -511,7 +589,7 @@ def hold(
             env_set = True
             say(f"{env_file}: {', '.join(plan.utils)} set (put back on release)")
         held, seen = allocator.start(target, index)
-        after = read_card(index, run)
+        after = read_card(index, run, uuid)
         say(
             f"holding {held} MiB (the holder sees {seen} MiB free);"
             f" nvidia-smi: {after.used} MiB used, {after.free} MiB free left"
@@ -521,7 +599,7 @@ def hold(
             steps += 1
             off = after.free - target  # more free than the target: hold more
             held, seen = allocator.adjust(off)
-            after = read_card(index, run)
+            after = read_card(index, run, uuid)
             say(
                 f"correction {steps}: {off:+d} MiB; holding {held} MiB (the holder sees {seen} MiB free);"
                 f" nvidia-smi: {after.used} MiB used, {after.free} MiB free left"
@@ -534,7 +612,7 @@ def hold(
                 " released",
             )
         (settle or (lambda: time.sleep(SETTLE_S)))()
-        again = read_card(index, run)
+        again = read_card(index, run, uuid)
         if abs(again.free - target) > tolerance:
             raise Refused(
                 "unsteady",
@@ -585,13 +663,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     for name in ("plan", "hold", "release"):
         p = sub.add_parser(name)
         p.add_argument("--env-file", type=Path, default=None, help="deploy/.env: set (hold) or put back (release)")
+        p.add_argument("--ballast-container", type=container_name, default=CONTAINER_BASE,
+                       help="the holder's container: tb-ballast (default) or tb-ballast-<run id>")  # fmt: skip
         if name == "release":
             continue
-        p.add_argument("--gpu", type=int, default=0, help="nvidia-smi index of the card (default 0)")
+        p.add_argument(
+            "--gpu",
+            "--gpu-index",
+            dest="gpu",
+            type=int,
+            default=0,
+            help="nvidia-smi index of the card (default 0); no other card is read or touched",
+        )
+        p.add_argument("--gpu-uuid", default=None, help="the card's UUID as read before: refused if it differs")
         p.add_argument("--target-mib", type=int, default=TARGET_MIB)
         p.add_argument("--expect-used", type=int, default=EXPECT_USED_MIB, help="MiB in use taken as the driver's own")
         p.add_argument("--expect-process", action="append", default=[], help="a compute process name to tolerate")
     a = ap.parse_args(argv)
+    global CONTAINER
+    CONTAINER = a.ballast_container
     try:
         if a.cmd == "release":
             try:
@@ -605,12 +695,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         refuse_production(a.env_file if a.env_file is not None else ROOT / "deploy" / ".env")
         if a.cmd == "plan":
-            card = read_card(a.gpu)
+            card = read_card(a.gpu, run_cmd, a.gpu_uuid)
             _print_plan(check(card, read_procs(card), target=a.target_mib, expect_used=a.expect_used,
                               expect_procs=a.expect_process), print)  # fmt: skip
             return 0
         return hold(index=a.gpu, allocator=DockerAllocator(default_image()), env_file=a.env_file, target=a.target_mib,
-                    expect_used=a.expect_used, expect_procs=a.expect_process)  # fmt: skip
+                    expect_used=a.expect_used, expect_procs=a.expect_process, uuid=a.gpu_uuid)  # fmt: skip
     except Refused as e:
         print(f"refused: {e.code}: {e.text}", file=sys.stderr)
         return 2

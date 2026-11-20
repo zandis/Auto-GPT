@@ -66,7 +66,7 @@ from typing import Any
 
 from criteria_compiler.semantics import codes_settle
 from matching import coded_values
-from tb_common import provenance
+from tb_common import prefilter, provenance
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
@@ -113,7 +113,7 @@ from orchestrator.scenarios.screen import (
     publish_s2b_source,
     report_meta,
     run_screen,
-    screen_scope,
+    screen_scope_read,
     small_cell,
     threshold,
     values_not_read,
@@ -157,6 +157,39 @@ def _fragment_pass(c: Any, prev: CriterionVerdict) -> bool:
     """Card 10A-2: a stored "pass" of a mixed inclusion the codes gave on its age or sex alone (stored before the
     rule): it never meant the line was met, so it does not stand when nobody was asked; the line is open."""
     return c is not None and prev.verdict == "pass" and not codes_settle(c) and not is_note_answer(c, prev)
+
+
+#: a note answer with one of these reasons was given without the model reading the patient's notes (10E-12)
+NOT_READ = (*NOT_ASKED, Reason.NO_NOTES.value, Reason.REFUSED.value, Reason.HUMAN.value)
+
+
+def prefilter_stage(
+    rs: Ruleset, pv: PatientVerdicts | None, consent_out: frozenset[str], read: list[CriterionVerdict] | None = None
+) -> str:
+    """10E-12 (D-1259): the stage an evaluated patient left the night's funnel at (``tb_common.prefilter``).
+    ``read``: the answers this evaluation gave, when they are fewer than the row's (the re-check answers some
+    criteria and keeps the stored rest: only its own answers say whether the model read the notes tonight). No
+    evaluation (``pv`` None: the register removed the patient inside the screen) is an opt-out."""
+    if pv is None:
+        return "opted_out"
+    by_id = rs.by_id()
+    coded_fail = any(
+        v.verdict == "fail" and (c := by_id.get(v.id)) is not None and not is_note_answer(c, v) for v in pv.verdicts
+    )
+    model_read = any(
+        (c := by_id.get(v.id)) is not None
+        and is_note_answer(c, v)
+        and v.evidence is not None
+        and v.evidence.reason not in NOT_READ
+        for v in (pv.verdicts if read is None else read)
+    )
+    return prefilter.evaluated_stage(
+        consent_out=pv.pid in consent_out,
+        at_index=not prefilter.not_at_index(pv.verdicts),
+        coded_fail=coded_fail,
+        listed=pv.tier in LISTED,
+        model_read=model_read,
+    )
 
 
 def _opened(cid: str) -> CriterionVerdict:
@@ -387,6 +420,31 @@ def answers_changed(
     return out
 
 
+def tally_scope(
+    tally: prefilter.Tally,
+    rs: Ruleset,
+    srun: Any,
+    picked: dict[str, list[Scoped]],
+    scope_out: list[str],
+    consent_out: frozenset[str],
+    on_ingest: bool,
+) -> None:
+    """10E-12 (D-1259): the study's scope as this job's screen of new and excluded patients left it. A patient of
+    the scope who is in the pool and not excluded there was counted with the pool; the after-ingest run, which has
+    no pool in its scope, counts every other patient of the scope as not due (it looks at new booked ones only)."""
+    tally.passed(scope_out, "opted_out")
+    cand, take = picked.get("cand", []), picked.get("take", [])
+    out, more = picked.get("out", []), picked.get("more", [])
+    if on_ingest:
+        looked = {s.pid for s in cand}
+        tally.passed((s.pid for s in picked.get("scope", []) if s.pid not in looked), "not_due")
+    chosen = {s.pid for s in [*take, *more]}
+    results = getattr(srun, "results", None) or {}
+    tally.passed((s.pid for s in [*cand, *out] if s.pid not in chosen), "carried")
+    for s in [*take, *more]:
+        tally.evaluated(s.pid, prefilter_stage(rs, results.get(s.pid), consent_out))
+
+
 def run(ctx: Ctx) -> Outcome:
     job = ctx.job
     require_open(job.ruleset)  # D-386 (LIFE-008): no list for a study that is not open
@@ -428,6 +486,11 @@ def run(ctx: Ctx) -> Outcome:
     # D-477: and the consent rule of SCREEN (a refusal or a contact denial since the row was stored)
     kept -= decision_of(ctx).consent_off_lists(kept, "screen.opt_out_removed", where="pool")
     pool = [p for p in pool if p["pid"] in kept]
+    # 10E-12 (D-1259): who left at which stage, each patient once; the ids stay in this job's memory
+    consent_out = decision_of(ctx).refused() | decision_of(ctx).no_contact()  # read above, cached: no second read
+    tally = prefilter.Tally()
+    if not on_ingest:  # the after-ingest run looks at new booked patients only: the pool is not in its scope
+        tally.passed((s.pid for s in every if s.pid not in kept), "opted_out")
     # T-707 (D-476, review H3): a row stored under another criteria version was never evaluated on this one. It is
     # screened again below, not re-tiered (a row without a version is a test stand-in: the column is NOT NULL)
     stale = [p for p in pool if p.get("version") not in (None, rs.version)]
@@ -437,13 +500,14 @@ def run(ctx: Ctx) -> Outcome:
     # D-646: places of the allowance kept for the excluded patients in scope, counted before anything is spent
     incident = on_ingest or opts.get("incident", "auto") != "0"
     scope: list[Scoped] | None = None
+    scope_out: list[str] = []  # the scope's patients the register removed (10E-12)
     held = 0
     fixed = opts.get("excluded_kept")  # fixed on the job's first run, as the allowance is (review of D-646)
     if fixed is not None:
         held = int(fixed)
     if left is not None and incident and not on_ingest and excluded_percent(ctx) > 0:
         try:
-            scope = screen_scope(ctx, rs, run_date, snapshot)
+            scope, scope_out = screen_scope_read(ctx, rs, run_date, snapshot)
         except StepFailed:
             scope = None  # nobody the study screens is set: the screen below says so, and nothing is kept
         if scope is not None:
@@ -465,6 +529,7 @@ def run(ctx: Ctx) -> Outcome:
         else []
     )
     recheck = due if front is None else due[:front]
+    due_pids = {s.pid for s in due}
     fresh = evaluate_scope(ctx, rs, run_date, snapshot, recheck, only=ts, all_candidates=True) if recheck else {}
     t = threshold(ctx, rs)
     # the same note-block decision as SCREEN: no verifier, one model twice or a shut canary gate never exclude
@@ -523,6 +588,13 @@ def run(ctx: Ctx) -> Outcome:
         ordered = [new[c.id] for c in rs.active() if c.id in new]
         tr, acts, n_unk = tier(rs, ordered, t, note_block=may_block)
         pv = PatientVerdicts(p["pid"], ordered, tr, acts, n_unk)
+        if on_ingest:
+            pass  # the pool is not in the after-ingest run's scope (10E-12)
+        elif p["pid"] in rechecked:
+            read = fresh[p["pid"]].verdicts if p["pid"] in fresh else []  # the re-check's own answers
+            tally.evaluated(p["pid"], prefilter_stage(rs, pv, consent_out, read))
+        else:  # due and left by the budget, or not due (no visit in the window, nothing to re-check)
+            tally.passed([p["pid"]], "carried" if p["pid"] in due_pids else "not_due")
         s = week.get(p["pid"])
         if s is not None:
             fresh_now = p["pid"] in rechecked or (not ts and not on_ingest)
@@ -578,7 +650,11 @@ def run(ctx: Ctx) -> Outcome:
         answer_store.record(ctx, rs.id, rs.version, getattr(vrun, "results", {}), run_date, snapshot)  # D-1360
         judging = vrun.judging
         used += len(again)
+        for s in again:
+            tally.evaluated(s.pid, prefilter_stage(rs, (getattr(vrun, "results", None) or {}).get(s.pid), consent_out))
     done_again = {s.pid for s in again}
+    if not on_ingest:
+        tally.passed((s.pid for s in behind if s.pid not in done_again), "carried")
     waiting_rows: list[CandidateRow] = []
     for s in behind:
         if s.pid in done_again:
@@ -617,8 +693,11 @@ def run(ctx: Ctx) -> Outcome:
             # pool rows that are excluded as this run leaves them (not the ones of another version: screened above)
             pool_out = {r.pid for r in pool_rows if r.tier == "excluded"}
 
+            picked: dict[str, list[Scoped]] = {}  # 10E-12: what select saw and took, for the pre-filter record
+
             def select(scope: list[Scoped]) -> list[Scoped]:
                 nonlocal carried, back_carried, out_in_scope
+                picked["scope"] = list(scope)
                 cand = [
                     s for s in scope
                     if s.pid not in seen
@@ -628,6 +707,7 @@ def run(ctx: Ctx) -> Outcome:
                 cand.sort(key=lambda s: (s.next_appointment is None, s.next_appointment or "", s.pid))
                 take = cand if new_room is None else cand[:new_room]
                 carried = len(cand) - len(take)
+                picked["cand"], picked["take"] = cand, take
                 if on_ingest:  # the after-ingest run looks at new booked patients only
                     return take
                 # NEW-LIFE-4 (D-642): looked at before, not listed, still in scope: excluded by SCREEN or by an
@@ -649,9 +729,13 @@ def run(ctx: Ctx) -> Outcome:
                 if room is not None and carried:  # a place kept for an excluded patient and not needed (D-646)
                     take = cand[: len(take) + max(0, room - len(take) - len(more))]
                     carried = len(cand) - len(take)
+                picked["take"], picked["out"], picked["more"] = take, out, more
                 return take + more
 
+            if scope is None:  # read here, not inside the screen, so the register's removals are counted (10E-12)
+                scope, scope_out = screen_scope_read(ctx, rs, run_date, snapshot)
             srun = run_screen(ctx, rs, run_date, snapshot, select=select, scope=scope)
+            tally_scope(tally, rs, srun, picked, scope_out, consent_out, on_ingest)
             screened = [s.pid for s in srun.scoped]
             if screened:
                 judging = srun.judging
@@ -688,7 +772,7 @@ def run(ctx: Ctx) -> Outcome:
         if len(have) > 1:
             have[-1].s2b_sources = {p: v for r in have for p, v in r.s2b_sources.items()}
         publish_s2b_source(ctx, have[-1])
-    ctx.metrics(patients_scoped=used + len(screened))
+    ctx.metrics(patients_scoped=used + len(screened), prefilter=tally.record("ingest" if on_ingest else "weekly"))
     night_done(ctx, used + len(screened))  # T-704 (D-458): what this job did not use is the next one's
     over = len(due) - len(recheck)
     # D-646 (8): weekly runs for a full pass of the excluded patients in scope, as this night went. Nobody carried:

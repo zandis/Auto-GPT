@@ -88,7 +88,7 @@
    "claim": "for the integrator and the owner to rule: whether the waivers of this public allow-list, the release VEX made from them and known-image-findings.md should name a role as owner in place of a person (D-1004 wrote the owner's name in each entry); not decided here",
    "lane": "H",
    "basis": "shown",
-   "state": "open",
+   "state": "fixed 6f5979734f72829bb5c728c84fab42faea577e34",
    "place": "deploy/supply-chain-allowlist.yaml",
    "expected": "see the card's page",
    "happened": "see the card's page"

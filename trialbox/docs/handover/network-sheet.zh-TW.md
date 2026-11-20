@@ -54,6 +54,7 @@
 | gateway | external model endpoints of models/routing.yaml | model endpoint (refused for D3/D4 data) | the endpoint's URL |
 | criteria-compiler | clinicaltrials.gov:443 | ClinicalTrials.gov public registry (COHORT) | TB_CTGOV_MODE=live (chosen at install; the default is offline) |
 | orchestrator | NHI_TWPAS_BASE_URL | NHI TWPAS (SUBMIT only) | NHI_TWPAS_BASE_URL |
+| orchestrator | host:port of TB_REDCAP_API_URL | REDCap server (https only) | TB_REDCAP_API_URL |
 | any | EGRESS_EXTRA | site additions | EGRESS_EXTRA |
 
 ## 主機（容器之外）
