@@ -396,5 +396,8 @@ def feasibility(svc: SiteSetup, ws: str, rs: Any, today: date) -> dict[str, Any]
     for cid, n in raw.remaining.items():
         b = raw.basis.get(cid, {"coded": n, "confirmed": 0, "proposed": 0})
         c = by.get(cid)
-        steps.append({"id": cid, "label": (c.label or c.text[:60]) if c else cid, "remaining": n, **b})
+        step = {"id": cid, "label": (c.label or c.text[:60]) if c else cid, "remaining": n, **b}
+        if c and rs.manifest.language:
+            step["lang"] = rs.manifest.language
+        steps.append(step)
     return {"start": raw.start_n, "steps": steps, "snapshot": snap}
