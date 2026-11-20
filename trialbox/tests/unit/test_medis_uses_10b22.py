@@ -197,7 +197,7 @@ def test_the_further_codes_ride_beside_the_suggestion_and_never_replace_it(maste
 
 
 def test_the_store_keeps_the_further_codes_as_a_list_and_old_rows_read_as_none() -> None:
-    from sitesetup.store import also_of, also_read
+    from sitesetup.medis_master import also_of, also_read
 
     assert also_of({"code": "E11.2", "also": ["N08.3"]}) == '["N08.3"]'
     assert also_of({"code": "E11.2"}) is None and also_of({"also": ["", " "]}) is None

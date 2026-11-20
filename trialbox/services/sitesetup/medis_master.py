@@ -221,3 +221,18 @@ def by_name(m: Master, name: str, lookup: Callable[[str], list[dict[str, Any]]] 
         if groups[rank]:
             return suggestion(m, groups[rank], related=rank == 3)
     return {}
+
+
+def also_of(suggestion: Mapping[str, Any]) -> str | None:
+    """D-1261: a suggestion's further ICD-10 codes (``also``) as the column keeps them: a JSON list, or None."""
+    codes = [str(c) for c in (suggestion.get("also") or ()) if str(c).strip()]
+    return json.dumps(codes) if codes else None
+
+
+def also_read(raw: Any) -> list[str]:
+    """The column back as a list; [] for NULL (a row from before version 3) or anything that is not a list."""
+    try:
+        got = json.loads(raw) if raw else []
+    except (TypeError, ValueError):
+        return []
+    return [str(c) for c in got] if isinstance(got, list) else []

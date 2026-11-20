@@ -18,10 +18,12 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from tb_common.db import ENV, Database
+
+from sitesetup.medis_master import also_of
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS input (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, ws TEXT NOT NULL,
@@ -64,21 +66,6 @@ _INSERT_FACT = (
 )
 COUNTED = ("coded", "confirmed")
 DOMAINS = ("condition", "observation", "medication", "demographic")
-
-
-def also_of(suggestion: Mapping[str, Any]) -> str | None:
-    """D-1261: a suggestion's further ICD-10 codes (``also``) as the column keeps them: a JSON list, or None."""
-    codes = [str(c) for c in (suggestion.get("also") or ()) if str(c).strip()]
-    return json.dumps(codes) if codes else None
-
-
-def also_read(raw: Any) -> list[str]:
-    """The column back as a list; [] for NULL (a row from before version 3) or anything that is not a list."""
-    try:
-        got = json.loads(raw) if raw else []
-    except (TypeError, ValueError):
-        return []
-    return [str(c) for c in got] if isinstance(got, list) else []
 
 
 class SetupError(ValueError):

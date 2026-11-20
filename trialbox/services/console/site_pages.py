@@ -34,7 +34,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sitesetup import medis_release
-from sitesetup.store import also_read
+from sitesetup.medis_master import also_read
 from tb_common.authz import permit
 from tb_common.verdict_word import shown_of
 
