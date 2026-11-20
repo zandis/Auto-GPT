@@ -84,6 +84,12 @@ def withheld_routes() -> set[tuple[str, str]]:
     return out
 
 
+BY_TASK_OWNER = {
+    ("POST", "/studies/{rs}/tasks/owner"),
+    ("POST", "/api/v1/studies/{rs}/tasks/owner"),
+    ("POST", "/studies/{rs}/cover/{cid}/irb"),
+    ("POST", "/api/v1/studies/{rs}/cover/{cid}/irb"),
+}
 END_ROWS = {("POST", "/studies/{rs}/cover/{cid}/end"), ("POST", "/api/v1/studies/{rs}/cover/{cid}/end")}
 
 
@@ -139,9 +145,11 @@ def test_a_cover_opens_the_pis_column_inside_its_dates_and_nothing_else(walked_b
         changed = [f"{m} {p}: {base[(m, p)]} -> {c}" for (m, p), c in sorted(walked.items())
                    if base.get((m, p)) != c and not ((m, p) in END_ROWS and (base[(m, p)], c) == ("-", "n"))]  # fmt: skip
         assert not changed, f"{name}: a cover outside its dates or study changed an answer:\n" + "\n".join(changed)
-    withheld = withheld_routes()
+    # a task's owner and the cover's IRB task: the route declares delegation.keep (asked of the PI's own entry), and
+    # console/cover_pages.py keeps_tasks then lets the PI's cover by team.task_owner, a right of COVER_RIGHTS
+    withheld = withheld_routes() - BY_TASK_OWNER
     assert ("POST", "/studies/{rs}/team/check") in withheld and ("POST", "/studies/{rs}/state") in withheld, withheld
-    want = {k: ("-" if k in LOG_ROWS or (k in withheld and design[k]["lpi"] == "Y") else design[k]["lpi"])
+    want = {k: ("-" if k in LOG_ROWS or (k in withheld and design[k]["lpi"] in ("Y", "U")) else design[k]["lpi"])
             for k in inside if k in design}  # fmt: skip
     assert set(want) == set(inside), "a route of the walk is not in the design table: regenerate it"
     diff = [f"{m} {p}: the PI's column {want[(m, p)]}, under the cover {c}"
