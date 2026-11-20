@@ -20,7 +20,13 @@
     file is read once by descriptor; an encrypted key is refused; an existing `F` is replaced only with `--force`;
     and see "The export, audited" below), `verify F --trust-file T` (see "Trusted
     keys" below), `show F`
-    (the header; the signature is not checked, and it says so). It prints key ids, never key material. No new
+    (the header, **not verified**: the line "the signature is NOT checked" comes first, on stdout and on stderr,
+    then the header with every character outside printable ASCII escaped (`ensure_ascii`, and DEL), and the exit
+    status is **3, "shown, not verified"**, so a script that tests for 0 cannot take a shown package for a verified
+    one; `show` takes no trust file). Exit status: 0 done, 1 refused (one sentence), 2 usage or an internal error
+    (one sentence, "could not be read (internal)", never a traceback), 3 shown, not verified. `keygen` creates both
+    files in the folder's descriptor (`O_CREAT | O_EXCL | O_NOFOLLOW`): an existing name, a link among them, is
+    refused and nothing is written through it (it may run as root). It prints key ids, never key material. No new
     dependency and no new cryptography: Ed25519 through `tb_common.crypto`.
   - **What a package carries:** the protocol part of D-1366 and the protocol's files, nothing else. No site part:
     no `status`, `scopes`, `routing`, serving `models`, `review`, `irb_reference`, `irb_approved_on`, `equivalence`,
@@ -74,13 +80,19 @@
     about 400 MB at the caps; the tool reads a file only after its size is checked.
   - **Verify, in this order, one sentence each** (`PackageRefused`, its `step`; nothing is written anywhere, a test
     blocks every file open during it): (1) `tar`, its sub-checks in the order the code makes them: the whole package
-    at most 200,000,000 bytes (from the file's size before it is read); whole 512-byte blocks, at least two; then for
+    at most 200,000,000 bytes (`read_file`: the file opened once, `O_NOFOLLOW | O_NONBLOCK`, a regular file on that
+    descriptor, not a FIFO, device or folder, and at most the cap plus one byte read from it; the command's trust
+    file the same way); whole 512-byte blocks, at least two; then for
     each block: the two end blocks and nothing after them, the checksum and size fields plain octal, the checksum,
     the `ustar` magic, a regular file, an empty prefix field, an ASCII name, the name rules, no duplicate, at most
-    2,000 members, the member's size cap (100,000,000 bytes; 4 MiB for `hashes.json`, `header.json`, `protocol.json`
-    and `signature.ed25519`), all members together at most 200,000,000 bytes, the member's bytes present, the
+    2,000 members, the member's size cap (100,000,000 bytes; **64 KiB for `header.json` and 1 MiB for
+    `hashes.json`**, the two members read before the signature: the shipped packages' are at most 296 and 5,390
+    bytes, so about 220 and 190 times that, and 1 MiB holds 2,000 entries; a larger one is refused from its tar
+    header before a byte of it is scanned or parsed; 4 MiB for `protocol.json` and `signature.ed25519`), all members together at most 200,000,000 bytes, the member's bytes present, the
     canonical header block, zero padding and name order; then the four fixed members present, only allowed names, a
-    64-byte signature, the header's nesting, JSON, RFC 8785 form and v1 fields, the hash list's nesting, JSON, RFC 8785
+    64-byte signature, the header's nesting (`json_depth`: one pass over the bytes tracking string, escape and depth,
+    no regular expression, so linear whatever the bytes; the regex it replaces took 38 s on an 80 KB header of
+    escaped quotes, quadratic, with no signature needed), JSON, RFC 8785 form and v1 fields, the hash list's nesting, JSON, RFC 8785
     form and entries; (2) `signature`: the header's `key_id` is one of the trusted keys, that key's entry is for
     study packages (not `update`), the signature verifies with it, and the header's `study_id` is one the entry names
     (H5); (3) `hashes`: each member's sha256 is the listed one; (4) `members`: no member outside the list,
@@ -162,7 +174,10 @@
     (`TEST_PATIENT_RECORD_ID`: the adapter's HMAC of the source record's id; only the shape is checked, since the
     source id is not in the file); and **every reference of any type must name a record of the same file** (same
     type and id), except the placeholder practitioners and organisations, which `_reference_refusal` already holds
-    to their lists. All five shipped files pass unchanged (each `Patient` is site-a's, chart numbers
+    to their lists. Since the review of 02b55d8a (item 9) a reference must also name a record **of the same
+    patient** as the record that holds it (a Claim cannot name another patient's Coverage), its type must be the one
+    its element takes (`TEST_PATIENT_REFERENCE_FIELDS`, measured: e.g. `Claim.insurance.coverage` only `Coverage`,
+    so `Patient/<pid>` there is refused), and no type and id is held twice. All five shipped files pass unchanged (each `Patient` is site-a's, chart numbers
     10000001 to 10000600), so no fixture and no criteria hash changed. This was chosen over a new marker stamped by
     the generator because a marker in the test patients would change them and so every shipped criteria hash
     (D-1366) and the goldens that pin them; the pseudonym scheme is already in every shipped file.
@@ -244,6 +259,18 @@
   - The writer and the verifier both check the test patients (H1), `tests/expected.json` (H2), the models and the
     criteria set (H3): the verifier as the last check of step 5 (review item 6). The writer alone checks what only a
     folder has (hidden files, subfolders, links, the template, the manifest's `status`).
+  - **No text of the sender before the signature, everything shown escaped (review of 02b55d8a, item 2).** A
+    refusal before the signature never echoes text the sender chose: an unknown header field, a pin, a hash-list
+    entry or a bad member name is named by its place (member, field index) and its length. Every `PackageRefused`
+    sentence is printable ASCII (`printable`: each other character as its `\xNN`, `\uXXXX` escape), so a field
+    shown after the signature (a study id a trusted key signed) cannot drive a terminal; the command's success lines
+    are escaped the same way.
+  - **Every failure of `verify` is a `PackageRefused` (review of 02b55d8a, item 3).** A signed member of the wrong
+    JSON type (an IR file of `[]`, `null`, `1`, `"x"`), not JSON, not UTF-8 or out of range (`1e400`) is refused by
+    the verifier's own check before `study_manifest` reads it (`_carried`; `study_manifest` is unchanged for its
+    other callers); anything else that goes wrong while a package is read is refused at `verify`'s boundary as step
+    `internal`, naming the error's type, never its text. A seeded fuzz (truncations, a byte changed per member,
+    members of the wrong type, unsigned and re-signed) holds that nothing else leaves.
 - **The export, audited (review of f1d1fe3c, H4; review of ec90c1b4, items 1 to 4, 6, 7).** Packing is a command of
   the coordinating centre's operator, not a console act: no console route is added.
   - **Who runs it, as which account.** `write` **never runs as root**: run as root it refuses before it reads a file
@@ -257,7 +284,12 @@
     volume at `/data/rulesets` (the criteria compiler's rule-set store). **What the compose file does not give, and
     the run line adds for that one run:** the signing key and a folder the operator can take the package from: the
     compose file mounts neither (the key is kept offline, D-1372 keygen), so the two `-v` mounts are part of the
-    supported command; both host folders, and the key file, must belong to uid 10001 (`sudo chown 10001:10001`), the
+    supported command. **What that means for the key:** the signing key must sit on the box readable by uid 10001,
+    the uid of every Python service (`deploy/docker-compose.yml`, the `x-py` anchor), so while the key folder is
+    mounted for that one-off run, the service account, and so any code running as it, can read the coordinating
+    centre's private key. The key is mounted only for that `run --rm` and kept offline otherwise; a signing step
+    outside the service account (a separate account or device that holds the key) is **left to 10D-4 or the
+    owner**, not built here. Both host folders, and the key file, must belong to uid 10001 (`sudo chown 10001:10001`), the
     key file mode 600 and the output folder writable by nobody else, or `write` refuses. No other account is
     supported; a host shell as another account works only in file mode (below), which a box does not use.
   - **Where the audit goes.** Through the product's writer, as `export_part` does
@@ -276,8 +308,9 @@
     write bit; writes the package in that descriptor under a hidden name (`.<name>.<pid>.part`, `O_CREAT | O_EXCL |
     O_NOFOLLOW`, mode 600, fsync); reads it back **from that descriptor** and takes its sha256 there; appends
     **`approve.study_package_exported`** (actor below; `ruleset`, `ruleset_version`, `output_sha` that sha256;
-    `detail`: `package_id`, `key_id`, `created`, `protocol_version`, `criteria_sha256`, `approval_tag`, and
-    `sudo_user_claimed` when set; never a byte of the content); only then links the name **from the same
+    `detail`: `package_id`, `key_id`, `created`, `protocol_version`, `criteria_sha256`, `approval_tag`,
+    `approval_tag_sha` (the tag object), `approval_commit` (the commit it names), `approved_by` (the person its
+    message names), and `sudo_user_claimed` when set; never a byte of the content); only then links the name **from the same
     descriptor** (`linkat` of `/proc/self/fd/<n>`, which never overwrites; with `--force` to a second hidden name
     renamed over `--out`), fsyncs the folder, and checks that the file now named `--out` is that descriptor's
     (`st_dev`, `st_ino`) and hashes it again from the descriptor before it says success. An event that cannot be
@@ -286,10 +319,20 @@
     file is not the written one (without `/proc` the hidden name is linked, and a swapped file is caught here), the
     name is removed and the sentence says that the event for that package id and sha256 was written, that no package
     was left, so that event names a package that does not exist, and to run the command again (exit 1).
-  - **The approval is bound to the content (item 4).** `status: approved` alone was a word in the folder. Now the
-    folder must be `<store>/<ID>` of the box's rule-set store (a git repository: the criteria compiler's, where an
-    approval is the annotated tag `<ID>/v<version>` that says who approved it, D-77, D-640, as `export_part`
-    requires). `approved_files` reads the tag's blobs once and refuses: no store behind the folder (a plain folder
+  - **The approval is bound to the content (item 4; review of 02b55d8a, item 7).** `status: approved` alone was a
+    word in the folder, and at 02b55d8a any git repository above the given path served as "the store" and any
+    annotated tag as the approval (a `git init`, a commit and `git tag -a RA-JAK/v1.0.0 -m anything` packed with an
+    `approve.` event). Now the folder's parent must be **the box's configured rule-set store** (`TB_RULESETS_DIR`,
+    `/data/rulesets` in the container: the same device and inode), and the tag must be **the approval exactly as the
+    criteria compiler writes it** (`criteria_compiler.service`: `repo.tag(tag, branch, "<ID> v<version> approved by
+    <who>", <who>)`): an annotated tag naming a commit, its message exactly that sentence (one line, printable),
+    its tagger `<who> <<who>>`, and the manifest at the tag `status: approved`, that version and
+    `review.approved_by` that same person; with `export_part`'s checks (not seeded, not arrived in an update). The
+    event and the success line record the tag object's sha, the commit's sha and that person. **What it still
+    cannot prove:** the store is owned by the service account (uid 10001), which can write such a tag without the
+    person's act on the console; and anyone holding the signing key can call the library's `build` without any
+    audit. So "approved on this box" is **as strong as that account and that key**, no stronger; the success line
+    says so. `approved_files` reads the tag's blobs once and refuses: no store behind the folder (a plain folder
     is not packed at all), a folder not named as its manifest's `id`, a manifest that is not `status: approved`, no
     tag for the manifest's version, a tag that names nobody (`SEEDED_TAG`: a shipped example), an approval that
     arrived in an update (`(offline update`), a tagged manifest that is not that approved version, and a folder whose
@@ -307,7 +350,13 @@
     centre's: the separation is the verifier's (H5) and 10D-4's register's.
   - **What H4 enforces, and what it does not.** Enforced: no package without its durable audit event naming the
     account, when, which study, version and approval tag, which package (by the sha256 of the linked file) and key;
-    only a version approved on this box, as approved; never as root; the package file is mode 600. Not enforced,
+    only a version holding this box's approval tag as the compiler writes it, in the configured store, as approved
+    (as strong as the store's account and the signing key, above); never as root; the package file is mode 600; a
+    stale hidden part file a SIGKILL left between the event and the link (`.<name>.<pid>.part`, 0600, complete) is
+    removed by the next run in that destination, only names of this pattern, only regular files the running account
+    owns whose writer is gone, and named on stderr. **The file-mode audit** (`--audit-dir`, a developer shell or the
+    tests) checks its folder with `lstat` and the writer then opens it by path, its parents unchecked: since every
+    write branch refuses euid 0, it works with the running account's own power only. Not enforced,
     because a command run in the container cannot: a console role or a study-access check, and the person: whoever
     can run `docker compose` on the box (root or the docker group) and holds the key can export. **For the owner:**
     whether packing should also need a console role is a new role power this card does not invent (10D-4's or a
@@ -325,7 +374,10 @@
   matched exactly (no case folding, no prefix); at most 64 entries. The command reads it with `read_trust_file`:
   opened `O_NOFOLLOW` (a link is refused), a regular file, no group or other write bit, owned by the account
   running it or root, at most 1 MiB. `verify` without `--trust-file` is a usage error (exit 2), and the library's
-  `verify` with no trusted key refuses every package. This is the verifier's side only, with the minimal scope field: **10D-4's register of
+  `verify` with no trusted key refuses every package. A `TrustedKey`'s `studies` must be a tuple or frozenset of
+  exact study ids (review of 02b55d8a, item 6: a text matched by substring, "JAK" in "RA-JAK"); a key of another
+  algorithm (cryptography's `UnsupportedAlgorithm`) and a trust file nested deeper than 8 (checked by the same
+  linear scan before it is parsed) are refused with one sentence. The name and field patterns match whole. This is the verifier's side only, with the minimal scope field: **10D-4's register of
   coordinating-centre keys must carry, per key, the studies (or the coordinating centre's scope) it signs for and
   its purpose, and refuse a key equal to the vendor's update key** (`deploy/updates/trust.json`,
   `deploy/keys/vendor_ed25519.pub`), which this card does not read.
@@ -381,7 +433,14 @@
   - the register of coordinating-centre keys must refuse a key equal to the vendor's update key: the update bundle's
     `sign-file` signs raw bytes with no prefix, so one key must not serve both channels;
   - two member paths that differ only by case are distinct here and collide on a case-insensitive disk: extraction
-    must refuse them.
+    must refuse them;
+  - the importer must pass each key's studies as a tuple or frozenset of exact study ids (a text is refused);
+  - references inside the IR and the CQL to value sets and libraries are **not checked** against the files carried
+    (a criterion may name a value set the package lacks): the importer, or the compile at the site, must;
+  - every failure of `verify` is a `PackageRefused` (step `internal` for the unforeseen): the importer handles that
+    one type; `show` is never a check (exit 3);
+  - the signing key is readable by the service account while it is mounted (above): a signing step outside that
+    account is 10D-4's or the owner's.
 - **The review of f1d1fe3c, items 6 to 12** (re-read at 3d0cf7d4, after the High fixes; each built one seen failing
   there first):
   - 6, the verifier skipped the writer's patient-data checks: true; **fixed** (`content_refusal`, the last check of
@@ -423,6 +482,24 @@
   - 7, the key read by path, `per_criterion` precision, a manifest refusal that echoed the value: **fixed**
     (`test_item7_…`: a refusal by the manifest's model now names the field's path and the error type, never the
     value).
+- **Review of 02b55d8a (two reviews, NOT READY), item by item** (each a test at the real call, seen failing on
+  02b55d8a first):
+  - 1 (blocker), the regex depth scan was quadratic before the signature: **fixed**, linear scan and the 64 KiB /
+    1 MiB caps (`test_r1_…`: the reviewer's header at 80 KB and at 4 MiB scans in well under 2 s; over the cap,
+    refused with nothing scanned or parsed).
+  - 2, refusals before the signature echoed the sender's text raw, `show` printed it raw and exited 0: **fixed**
+    (`test_r2_…`).
+  - 3, a signed member of the wrong type raised TypeError, AttributeError or a bare ValueError: **fixed**
+    (`test_r3_…`, with the seeded fuzz); the command's last resort is one sentence, exit 2.
+  - 4, an unknown key algorithm and a deep trust file raised: **fixed** (`test_r4_…`).
+  - 5, `read_file` read a FIFO or a device by path after `stat`: **fixed** (`test_r5_…`).
+  - 6, `studies` as a text matched by substring; patterns with `$`: **fixed** (`test_r6_…`).
+  - 7 (blocker), any store and any tag: **fixed** as far as a command in the container can (above; `test_r7_…`).
+  - 8, the key readable by the service account, unstated; `keygen` followed a link for the `.pub`: **stated**
+    (above) and **fixed** (`test_r8_…`).
+  - 9, cross-patient references, a reference of the wrong type, duplicate records; a stale part file after a
+    SIGKILL; the file-mode audit's power: **fixed**, **fixed**, **stated** (`test_r9_…`).
 - **Held by:** `tests/unit/test_study_package.py` (the review of f1d1fe3c: `test_h1_…` to `test_h5_…`, `test_item6_…`,
   `test_item9_…`, `test_item12_…`, `test_a_…`, `test_b_…`; the review of ec90c1b4: `test_item1_…` to `test_item7_…`;
+  the review of 02b55d8a: `test_r1_…` to `test_r9_…`;
   each the reviewer's probe at the real call, each seen failing first).

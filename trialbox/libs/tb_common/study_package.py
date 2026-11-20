@@ -30,11 +30,11 @@ import struct
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import date
-from itertools import accumulate
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
+from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
@@ -74,6 +74,13 @@ STUDY_PACKAGE_MAX_BYTES = 200_000_000
 STUDY_PACKAGE_MAX_MEMBERS = 2000
 STUDY_PACKAGE_MAX_MEMBER_BYTES = 100_000_000
 STUDY_PACKAGE_MAX_META_BYTES = 4 << 20
+#: the two members read BEFORE the signature is checked, capped far below the others (review of 02b55d8a, item 1):
+#: measured on the eight shipped studies' packages, ``header.json`` is at most 296 bytes and ``hashes.json`` at most
+#: 5,390 bytes (GZQO; a test measures them again); 64 KiB is about 220 times the header, 1 MiB about 190 times the
+#: hash list and room for the 2,000 members' entries (about 170 bytes each). A larger one is refused from its tar
+#: header, before a byte of it is scanned or parsed.
+STUDY_PACKAGE_MAX_HEADER_BYTES = 64 << 10
+STUDY_PACKAGE_MAX_HASHES_BYTES = 1 << 20
 #: a member's name: ASCII letters, digits, ``.``, ``_`` and ``-`` in parts joined by ``/``; at most 100 bytes
 #: (the ustar name field, no prefix field)
 NAME_MAX_BYTES = 100
@@ -199,6 +206,29 @@ TEST_PATIENT_SUBJECT: dict[str, str] = {
     "Observation": "subject",
     "Procedure": "subject",
 }
+#: the type of record each reference element of the test patients takes (measured from the shipped files, review of
+#: 02b55d8a item 9; a test measures them again): ``<resource type>``, the element's path (an array's items take the
+#: array's path) -> the types its ``reference`` may name. A reference anywhere else, or to another type, is refused.
+TEST_PATIENT_REFERENCE_FIELDS: dict[tuple[str, str], frozenset[str]] = {
+    ("Appointment", "participant.actor"): frozenset({"Patient", "Practitioner"}),
+    ("Claim", "insurance.coverage"): frozenset({"Coverage"}),
+    ("Claim", "patient"): frozenset({"Patient"}),
+    ("Claim", "provider"): frozenset({"Organization"}),
+    ("ClaimResponse", "insurer"): frozenset({"Organization"}),
+    ("ClaimResponse", "patient"): frozenset({"Patient"}),
+    ("ClaimResponse", "request"): frozenset({"Claim"}),
+    ("Condition", "encounter"): frozenset({"Encounter"}),
+    ("Condition", "subject"): frozenset({"Patient"}),
+    ("Consent", "patient"): frozenset({"Patient"}),
+    ("Coverage", "beneficiary"): frozenset({"Patient"}),
+    ("Coverage", "payor"): frozenset({"Organization"}),
+    ("DiagnosticReport", "subject"): frozenset({"Patient"}),
+    ("Encounter", "participant.individual"): frozenset({"Practitioner"}),
+    ("Encounter", "subject"): frozenset({"Patient"}),
+    ("MedicationRequest", "subject"): frozenset({"Patient"}),
+    ("Observation", "subject"): frozenset({"Patient"}),
+    ("Procedure", "subject"): frozenset({"Patient"}),
+}
 #: the id of every test patient record other than a ``Patient`` (measured: all 29,551 shipped records): 32 lowercase
 #: hex digits, what the adapter's mapping writes (an HMAC under the site key of the source record's id). Only the shape
 #: is checked: the source id it was taken from is not in the file, so the derivation cannot be (D-1372)
@@ -311,17 +341,24 @@ PACKAGE_FILES: tuple[tuple[str, str | None], ...] = (
     ("tests/patients.ndjson", None),
     ("tests/expected.json", None),
 )
-_FILE_NAME = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]*$")
-_PART = re.compile(r"^[A-Za-z0-9._-]+$")
-_HEX64 = re.compile(r"^[0-9a-f]{64}$")
-_KEY_ID = re.compile(r"^ed25519:[0-9a-f]{16}$")
-_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+#: matched whole (``fullmatch``: a ``$`` would also match before a final newline)
+_FILE_NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
+_PART = re.compile(r"[A-Za-z0-9._-]+")
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+_KEY_ID = re.compile(r"ed25519:[0-9a-f]{16}")
+_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 _BLOCK = 512
 _ZERO = bytes(_BLOCK)
 _MAGIC = b"ustar\x0000"
 _META = frozenset({HASHES, HEADER, SIGNATURE})
-_JSON_STRING = re.compile(rb'"(?:[^"\\]++|\\.)*+"', re.DOTALL)
-_NOT_BRACKET = bytes(c for c in range(256) if c not in b"[]{}")
+#: each fixed member's cap (a protocol file's is :data:`STUDY_PACKAGE_MAX_MEMBER_BYTES`): the header and the hash
+#: list, read before the signature, far lower; the protocol part, read after it, as before
+_MEMBER_CAPS = {
+    HEADER: STUDY_PACKAGE_MAX_HEADER_BYTES,
+    HASHES: STUDY_PACKAGE_MAX_HASHES_BYTES,
+    PROTOCOL: STUDY_PACKAGE_MAX_META_BYTES,
+    SIGNATURE: STUDY_PACKAGE_MAX_META_BYTES,
+}
 
 
 class _Strict(BaseModel):
@@ -388,12 +425,27 @@ class ValueSetFile(_Strict):
     meta: _Meta | None = None
 
 
+def printable(text: str) -> str:
+    """``text`` with every character outside printable ASCII written as its escape (``\\xNN``, ``\\uXXXX``,
+    ``\\UXXXXXXXX``, as ``repr`` writes it), so no control, C1, bidi or look-alike character
+    reaches a terminal (review of 02b55d8a, item 2)."""
+    if text.isascii() and text.isprintable():
+        return text
+    return text.encode("ascii", "backslashreplace").decode("ascii").translate(_CONTROL_ESCAPES)
+
+
+#: the C0 controls and DEL, which ``backslashreplace`` leaves as they are (they are ASCII)
+_CONTROL_ESCAPES = {c: f"\\x{c:02x}" for c in [*range(0x20), 0x7F]}
+
+
 class PackageRefused(ValueError):
     """A study package refused; the message is its one sentence, ``step`` the check that refused it (``tar``,
-    ``signature``, ``hashes``, ``members``, ``protocol``)."""
+    ``signature``, ``hashes``, ``members``, ``protocol``). The sentence is kept to printable ASCII (:func:`printable`):
+    a refusal before the signature names no text the sender chose, only where (the member, the field's place) and how
+    long; one after it may name a field of the signed package, escaped."""
 
     def __init__(self, step: str, sentence: str) -> None:
-        super().__init__(sentence)
+        super().__init__(printable(sentence))
         self.step = step
 
 
@@ -407,6 +459,12 @@ TRUST_FORMAT = "tb-study-trust/1"
 _STUDY_ID = re.compile(r"[A-Z0-9]+(?:-[A-Z0-9]+)*")
 #: at most this many entries in a trust file (a site trusts a few coordinating centres)
 TRUST_MAX_KEYS = 64
+#: how deeply a trust file may nest arrays and objects, checked on its bytes before it is parsed (its form nests 3:
+#: the file, ``keys``, an entry, ``studies``; review of 02b55d8a, item 4)
+TRUST_MAX_JSON_DEPTH = 8
+#: what a key that is not an Ed25519 public key in PEM raises in ``cryptography``: an unknown algorithm's OID is
+#: ``UnsupportedAlgorithm``, not a ``ValueError`` (item 4)
+_KEY_ERRORS = (ValueError, TypeError, UnsupportedAlgorithm)
 
 
 @dataclass(frozen=True)
@@ -452,12 +510,14 @@ def signed_bytes(header: bytes, hashes: bytes) -> bytes:
 
 # ---------------------------------------------------------------------------------------------- the tar
 def _name_refusal(name: str) -> str | None:
-    if len(name.encode("utf-8")) > NAME_MAX_BYTES:
-        return f"the member name {name!r} is longer than {NAME_MAX_BYTES} bytes"
+    # a name that fails is the sender's text: named by its length only (review of 02b55d8a, item 2)
+    size = len(name.encode("utf-8"))
+    if size > NAME_MAX_BYTES:
+        return f"a member name of {size} bytes is longer than {NAME_MAX_BYTES} bytes"
     parts = name.split("/")
-    if not all(_PART.match(p) and p not in (".", "..") for p in parts):
+    if not all(_PART.fullmatch(p) and p not in (".", "..") for p in parts):
         return (
-            f"the member name {name!r} is not a relative path of letters, digits, '.', '_' and '-' "
+            f"a member name (of {size} bytes) is not a relative path of letters, digits, '.', '_' and '-' "
             "(no absolute path, no '..', no empty part)"
         )
     return None
@@ -553,7 +613,7 @@ def read_tar(data: bytes) -> dict[str, bytes]:
             raise _refuse(f"holds the member {name} twice")
         if len(members) + 1 > STUDY_PACKAGE_MAX_MEMBERS:
             raise _refuse(f"holds more than {STUDY_PACKAGE_MAX_MEMBERS:,} members")
-        cap = STUDY_PACKAGE_MAX_META_BYTES if name in _META | {PROTOCOL} else STUDY_PACKAGE_MAX_MEMBER_BYTES
+        cap = _MEMBER_CAPS.get(name, STUDY_PACKAGE_MAX_MEMBER_BYTES)
         if size > cap:
             raise _refuse(f"holds {name} of {size:,} bytes; that member may be at most {cap:,} bytes")
         total += size
@@ -584,7 +644,7 @@ def carriable(path: str) -> bool:
         if suffix is None:
             if path == prefix:
                 return True
-        elif path.startswith(prefix) and path.endswith(suffix) and _FILE_NAME.match(path[len(prefix) :]):
+        elif path.startswith(prefix) and path.endswith(suffix) and _FILE_NAME.fullmatch(path[len(prefix) :]):
             return True
     return False
 
@@ -602,15 +662,38 @@ def _allowed(name: str, docx: str | None) -> bool:
     return carriable(path)
 
 
-def json_depth(data: bytes) -> int:
-    """How deeply a JSON text nests arrays and objects, counted on its bytes without parsing it (brackets inside
-    strings do not count; an unterminated string's brackets do, which only over-counts)."""
-    brackets = _JSON_STRING.sub(b"", data).translate(None, _NOT_BRACKET)
-    return max(accumulate(1 if c in b"[{" else -1 for c in brackets), default=0)
+def json_depth(data: bytes, limit: int | None = None) -> int:
+    """How deeply a JSON text nests arrays and objects, counted on its bytes without parsing it: one pass over the
+    bytes that tracks whether it is inside a string, whether the byte before was an escaping backslash, and the depth
+    (review of 02b55d8a, item 1: no regular expression, so its time is linear in the length whatever the bytes;
+    about 30 ns a byte). Brackets inside strings do not count; an unterminated string's brackets do not either, and
+    a text that is not JSON is refused by the parser after this. With ``limit``, it returns as soon as the depth
+    passes it."""
+    depth = best = 0
+    in_string = escaped = False
+    for c in data:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif c == 0x5C:  # backslash
+                escaped = True
+            elif c == 0x22:  # quote
+                in_string = False
+        elif c == 0x22:
+            in_string = True
+        elif c in (0x5B, 0x7B):  # [ {
+            depth += 1
+            if depth > best:
+                best = depth
+                if limit is not None and best > limit:
+                    return best
+        elif c in (0x5D, 0x7D):  # ] }
+            depth -= 1
+    return best
 
 
 def _depth_refusal(name: str, data: bytes) -> str | None:
-    if json_depth(data) > STUDY_PACKAGE_MAX_JSON_DEPTH:
+    if json_depth(data, STUDY_PACKAGE_MAX_JSON_DEPTH) > STUDY_PACKAGE_MAX_JSON_DEPTH:
         return f"{name} nests deeper than {STUDY_PACKAGE_MAX_JSON_DEPTH} arrays and objects"
     return None
 
@@ -632,29 +715,32 @@ def _canonical_json(name: str, data: bytes, step: str = "tar") -> Any:
 def _header_refusal(header: Any) -> str | None:
     if not isinstance(header, dict):
         return "its header is not a JSON object"
-    unknown = sorted(set(header) - set(HEADER_FIELDS))
-    if unknown:
-        return f"its header has the field {unknown[0]}, which a v1 package does not have"
+    unknown = [(n, k) for n, k in enumerate(header, 1) if k not in HEADER_FIELDS]
+    if unknown:  # its name is the sender's text, unauthenticated: named by its place and length only (item 2)
+        n, k = unknown[0]
+        return f"its header's field {n} (a name of {len(k)} characters) is not a field a v1 package has"
     missing = [k for k in HEADER_FIELDS if k not in header]
     if missing:
         return f"its header lacks the field {missing[0]}"
     if header["format"] != FORMAT:
-        return f"its header names the format {header['format']!r}, not {FORMAT}"
+        return f"its header names another format than {FORMAT}"
     for k in HEADER_FIELDS:
         if k != "pins" and not (isinstance(header[k], str) and header[k]):
             return f"its header's {k} is not a text"
     if not isinstance(header["pins"], dict):
         return "its header's pins is not a JSON object"
-    unknown_pins = sorted(set(header["pins"]) - KNOWN_PINS)
+    unknown_pins = [(n, k) for n, k in enumerate(header["pins"], 1) if k not in KNOWN_PINS]
     if unknown_pins:
+        n, k = unknown_pins[0]
         return (
-            f"asks for the pin {unknown_pins[0]}, which a v1 reader cannot check; it needs a newer release of the box"
+            f"asks for a pin a v1 reader cannot check (pin {n}, a name of {len(k)} characters); it needs a newer "
+            "release of the box"
         )
-    if not _HEX64.match(header["criteria_sha256"]):
+    if not _HEX64.fullmatch(header["criteria_sha256"]):
         return "its header's criteria hash is not 64 lowercase hex"
-    if not _KEY_ID.match(header["key_id"]):
+    if not _KEY_ID.fullmatch(header["key_id"]):
         return "its header's key_id is not an Ed25519 key id"
-    if not _DAY.match(header["created"]):
+    if not _DAY.fullmatch(header["created"]):
         return "its header's created date is not YYYY-MM-DD"
     try:
         date.fromisoformat(header["created"])
@@ -666,11 +752,11 @@ def _header_refusal(header: Any) -> str | None:
 def _hashes_refusal(hashes: Any) -> str | None:
     if not isinstance(hashes, dict) or not hashes:
         return "its hash list is not a JSON object of member names"
-    for name, digest in hashes.items():
+    for n, (name, digest) in enumerate(hashes.items(), 1):
         if name in _META:
             return f"its hash list names {name}, which is not hashed"
-        if not (isinstance(digest, str) and _HEX64.match(digest)):
-            return f"its hash list's entry for {name} is not 64 lowercase hex"
+        if not (isinstance(digest, str) and _HEX64.fullmatch(digest)):
+            return f"its hash list's entry {n} (a name of {len(name)} characters) is not 64 lowercase hex"
     return None
 
 
@@ -719,9 +805,18 @@ def _trusted(keys: Iterable[TrustedKey]) -> dict[str, TrustedKey]:
             raise PackageRefused(
                 "signature", "a trusted key's entry names no study it may sign for, or a purpose that is not known"
             )
+        studies = entry.studies
+        if not isinstance(studies, tuple | frozenset) or not all(
+            isinstance(sid, str) and _STUDY_ID.fullmatch(sid) for sid in studies
+        ):  # a text would match by substring ("JAK" in "RA-JAK"; review of 02b55d8a, item 6)
+            raise PackageRefused(
+                "signature",
+                "a trusted key's studies are not a tuple or frozenset of exact study ids (a text is refused: it would "
+                "match a part of a study id)",
+            )
         try:
             kid = key_id(entry.public_pem)
-        except ValueError:
+        except _KEY_ERRORS:
             raise PackageRefused("signature", "a trusted key given is not an Ed25519 public key (PEM)") from None
         if kid in out:
             raise PackageRefused("signature", f"the key {kid} is given twice; a key has one trust entry")
@@ -741,9 +836,11 @@ def load_trust(data: bytes) -> list[TrustedKey]:
     exactly these fields, no key twice in an object; ``public_key`` one PEM and nothing else, ``key_id`` its
     :func:`key_id`, ``purpose`` one of :data:`TRUST_PURPOSES`, ``studies`` a non-empty list of study ids, matched
     exactly. Raises ``ValueError`` with one sentence."""
+    if json_depth(data, TRUST_MAX_JSON_DEPTH) > TRUST_MAX_JSON_DEPTH:
+        raise ValueError(f"the trust file nests deeper than {TRUST_MAX_JSON_DEPTH} arrays and objects")
     try:
         doc = sm.load_json(data)
-    except (ValueError, UnicodeDecodeError):
+    except (ValueError, UnicodeDecodeError, RecursionError):
         raise ValueError("the trust file is not JSON") from None
     if not isinstance(doc, dict) or set(doc) != {"format", "keys"} or doc["format"] != TRUST_FORMAT:
         raise ValueError(f"the trust file is not a {TRUST_FORMAT} file (format and keys, nothing else)")
@@ -767,7 +864,7 @@ def load_trust(data: bytes) -> list[TrustedKey]:
         pem = entry["public_key"].encode("ascii", "replace") if isinstance(entry["public_key"], str) else b""
         try:
             kid = key_id(pem)
-        except ValueError:
+        except _KEY_ERRORS:
             raise ValueError(f"trust entry {n}'s public_key is not an Ed25519 public key (PEM)") from None
         if pem != _canonical_pem(pem):
             raise ValueError(
@@ -794,7 +891,22 @@ def verify(data: bytes, trusted_keys: Iterable[TrustedKey]) -> Package:
     (and its CQL library's files are carried), and last the writer's guards over the carried files hold
     (:func:`content_refusal`: the models, the test patients, ``tests/expected.json``). Every JSON member is refused
     before it is parsed when it nests deeper than :data:`STUDY_PACKAGE_MAX_JSON_DEPTH`. Writes nothing anywhere; it
-    holds about twice the package's bytes in memory (the input and its members)."""
+    holds about twice the package's bytes in memory (the input and its members).
+
+    Every failure is a :class:`PackageRefused` with one sentence (review of 02b55d8a, item 3): a check that fails says
+    which; anything else that goes wrong while the package is read (a bug, or input no check foresaw) is refused at
+    this boundary as step ``internal``, naming the error's type only, never its text."""
+    try:
+        return _verify(data, trusted_keys)
+    except PackageRefused:
+        raise
+    except Exception as exc:  # the boundary: nothing but a PackageRefused leaves verify
+        raise PackageRefused(
+            "internal", f"this study package could not be read (internal: {type(exc).__name__})"
+        ) from None
+
+
+def _verify(data: bytes, trusted_keys: Iterable[TrustedKey]) -> Package:
     trusted = _trusted(trusted_keys)
     members, header, hashes = _structure(data)
     # (2) the signature, by a key trusted for study packages and for this study
@@ -874,7 +986,7 @@ def _protocol(members: Mapping[str, bytes], header: Mapping[str, Any]) -> Packag
         why = _depth_refusal(path, members[name]) if path.endswith(".json") else None
         if why:
             raise refuse(f"is refused: {why}")
-        if sm.carried(path, members[name], docx) != members[name]:
+        if _carried(path, members[name], docx) != members[name]:
             raise refuse(f"carries {path} not in the canonical form of its protocol file")
         files[path] = members[name]
     recomputed = {p: hashlib.sha256(b).hexdigest() for p, b in files.items()}
@@ -895,6 +1007,27 @@ def _protocol(members: Mapping[str, bytes], header: Mapping[str, Any]) -> Packag
     if why:
         raise refuse(f"is refused: {why}")
     return Package(dict(header), dict(protocol), files)
+
+
+def _carried(path: str, data: bytes, docx: str | None) -> bytes | None:
+    """``study_manifest.carried`` for the verifier (review of 02b55d8a, item 3): its input is checked first (an IR
+    file is a JSON object) and what it raises on a file it cannot read is a refusal, so a signed package with a
+    member of the wrong JSON type, not JSON, not UTF-8 or out of range (``1e400``) is refused in one sentence.
+    ``study_manifest`` itself is unchanged for its other callers."""
+
+    def unreadable() -> PackageRefused:
+        return PackageRefused(
+            "protocol", f"this study package carries {path}, which cannot be read as a protocol file of its kind"
+        )
+
+    try:
+        if path.startswith("ir/") and path.endswith(".json") and not isinstance(sm.load_json(data), dict):
+            raise unreadable()
+        return sm.carried(path, data, docx)
+    except (ValueError, TypeError, AttributeError, KeyError, IndexError, RecursionError) as exc:
+        if isinstance(exc, PackageRefused):
+            raise
+        raise unreadable() from None
 
 
 def criteria_refusal(manifest: Mapping[str, Any], files: Mapping[str, bytes]) -> str | None:
@@ -928,12 +1061,46 @@ def criteria_refusal(manifest: Mapping[str, Any], files: Mapping[str, bytes]) ->
     return None
 
 
+def read_capped(path: Path, cap: int, what: str) -> bytes:
+    """The bytes of the regular file at ``path``, at most ``cap`` (review of 02b55d8a, item 5): opened once without
+    following a link and without blocking (``O_NOFOLLOW | O_NONBLOCK``), checked on that descriptor (a regular file,
+    not a FIFO, a device or a folder; its size), and read from it, at most ``cap + 1`` bytes, so a file that grows
+    is refused too. ``what`` names it in the sentence. Raises ``ValueError`` with one sentence."""
+    try:
+        fd = os.open(path, _FILE_FLAGS)
+    except OSError as exc:
+        raise ValueError(f"{what} {path} cannot be opened (a symbolic link is not followed; {exc.strerror})") from None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise ValueError(f"{what} {path} is not a regular file (a FIFO, a device or a folder is not read)")
+        if st.st_size > cap:
+            raise ValueError(f"{what} {path} is {st.st_size:,} bytes; it may be at most {cap:,} bytes")
+        chunks: list[bytes] = []
+        left = cap + 1
+        while left > 0:
+            chunk = os.read(fd, min(left, 1 << 20))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            left -= len(chunk)
+    finally:
+        os.close(fd)
+    data = b"".join(chunks)
+    if len(data) > cap:
+        raise ValueError(f"{what} {path} grew past {cap:,} bytes while it was read")
+    return data
+
+
 def read_file(path: Path) -> bytes:
-    """A package file's bytes, its size checked before it is read."""
-    size = path.stat().st_size
-    if size > STUDY_PACKAGE_MAX_BYTES:
-        raise _refuse(f"is {size:,} bytes; a study package may be at most {STUDY_PACKAGE_MAX_BYTES:,} bytes")
-    return path.read_bytes()
+    """A package file's bytes (:func:`read_capped`, at most :data:`STUDY_PACKAGE_MAX_BYTES`); a refusal is a
+    :class:`PackageRefused` of step ``tar``."""
+    try:
+        return read_capped(path, STUDY_PACKAGE_MAX_BYTES, "the package file")
+    except PackageRefused:
+        raise
+    except ValueError as exc:
+        raise PackageRefused("tar", str(exc)) from None
 
 
 def verify_file(path: Path, trusted_keys: Iterable[TrustedKey]) -> Package:
@@ -1127,17 +1294,39 @@ def _patient_references(node: Any) -> Iterator[str]:
             stack.extend(item)
 
 
-def _references(node: Any) -> Iterator[str]:
-    stack = [node]
+def _reference_paths(resource: dict[str, Any]) -> Iterator[tuple[str, str]]:
+    """``(element path, reference)`` of every ``reference`` text of a record, the path as
+    :data:`TEST_PATIENT_REFERENCE_FIELDS` writes it (an array's items take the array's path)."""
+    stack: list[tuple[str, Any]] = [("", resource)]
     while stack:
-        item = stack.pop()
-        if isinstance(item, dict):
-            ref = item.get("reference")
-            if isinstance(ref, str):
-                yield ref
-            stack.extend(item.values())
-        elif isinstance(item, list):
-            stack.extend(item)
+        path, node = stack.pop()
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "reference" and isinstance(value, str):
+                    yield path, value
+                else:
+                    stack.append((f"{path}.{key}" if path else key, value))
+        elif isinstance(node, list):
+            stack.extend((path, item) for item in node)
+
+
+def _owner(resource: dict[str, Any]) -> str | None:
+    """The patient a record belongs to: a ``Patient``'s own id, else the id its patient element
+    (:data:`TEST_PATIENT_SUBJECT`) names (an ``Appointment``: its first participant whose actor is a patient)."""
+    kind = resource["resourceType"]
+    if kind == "Patient":
+        pid = resource.get("id")
+        return pid if isinstance(pid, str) else None
+    field = TEST_PATIENT_SUBJECT.get(kind)
+    if field == "participant.actor":
+        nodes = [p.get("actor") for p in resource.get("participant") or () if isinstance(p, dict)]
+    else:
+        nodes = [resource.get(field)] if field else []
+    for node in nodes:
+        ref = node.get("reference") if isinstance(node, dict) else None
+        if isinstance(ref, str) and ref.startswith("Patient/"):
+            return ref[len("Patient/") :]
+    return None
 
 
 def _subject_refusal(resource: dict[str, Any], patients: set[str]) -> str | None:
@@ -1193,7 +1382,13 @@ def _synthetic_refusal(resources: list[tuple[int, dict[str, Any]]]) -> str | Non
         if pid in patients:
             return f"line {number} of {TEST_PATIENTS} is a patient the file already holds"
         patients.add(pid)
-    present = {(r["resourceType"], r.get("id")) for _n, r in resources}
+    owners: dict[tuple[str, Any], str | None] = {}
+    for number, resource in resources:
+        key = (resource["resourceType"], resource.get("id"))
+        if key in owners:  # review of 02b55d8a, item 9: one record of a type and id
+            return f"line {number} of {TEST_PATIENTS} is a {key[0]} record the file already holds (the same id)"
+        owners[key] = _owner(resource)
+    present = set(owners)
     for number, resource in resources:
         if any(ref not in patients for ref in _patient_references(resource)):
             return f"line {number} of {TEST_PATIENTS} refers to a patient that is not one of the file's test patients"
@@ -1209,14 +1404,26 @@ def _synthetic_refusal(resources: list[tuple[int, dict[str, Any]]]) -> str | Non
         if why:
             return f"line {number} of {TEST_PATIENTS} {why}"
     for number, resource in resources:
-        for ref in _references(resource):
+        mine = owners[(resource["resourceType"], resource.get("id"))]
+        for path, ref in _reference_paths(resource):
             kind, _, rid = ref.partition("/")
+            takes = TEST_PATIENT_REFERENCE_FIELDS.get((resource["resourceType"], path), frozenset())
+            if kind not in takes:  # item 9: the type the element takes (measured), e.g. no Patient as a coverage
+                return (
+                    f"line {number} of {TEST_PATIENTS} has a reference in {resource['resourceType']}.{path} to a "
+                    f"{kind} record, a type that element does not take in the shipped test patients"
+                )
             if kind in ("Practitioner", "Organization"):
                 continue  # only the placeholders pass _reference_refusal
             if (kind, rid) not in present:
                 return (
                     f"line {number} of {TEST_PATIENTS} refers to a {kind} record that the file does not hold (every "
                     "reference names a record of the same file)"
+                )
+            if owners[(kind, rid)] != mine:  # item 9: never a record of another patient
+                return (
+                    f"line {number} of {TEST_PATIENTS} refers to a {kind} record of another test patient (every "
+                    "reference names a record of the same patient)"
                 )
     return None
 
@@ -1269,7 +1476,7 @@ def _expected_refusal(data: bytes, manifest: Mapping[str, Any], chart_numbers: s
         return head + "names another study or version than its manifest"
     day = doc["index_date"]
     try:
-        if not (isinstance(day, str) and _DAY.match(day)):
+        if not (isinstance(day, str) and _DAY.fullmatch(day)):
             raise ValueError
         date.fromisoformat(day)
     except ValueError:
@@ -1562,7 +1769,7 @@ def build(files: Mapping[str, bytes], private_pem: bytes, created: str) -> bytes
     carried[PROTOCOL] = sm.dumps(protocol)
     hashes = {name: hashlib.sha256(body).hexdigest() for name, body in carried.items()}
     hashes_bytes = sm.dumps(hashes)
-    if not _DAY.match(created):
+    if not _DAY.fullmatch(created):
         raise ValueError("the created date is written YYYY-MM-DD")
     date.fromisoformat(created)
     header = {

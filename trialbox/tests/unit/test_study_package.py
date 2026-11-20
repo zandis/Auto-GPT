@@ -184,6 +184,11 @@ def test_every_shipped_study_packs_and_verifies(ruleset: str) -> None:
     assert got.header["criteria_sha256"] == parts.criteria_sha256 == got.protocol["criteria_sha256"]
     assert got.protocol == parts.protocol and set(got.files) == set(parts.protocol["files"])
     assert got.header["study_id"] == ruleset and got.header["pins"] == {} and got.header["key_id"] == sp.key_id(PUB)
+    # the two members read before the signature, measured (review of 02b55d8a, item 1): their caps are far above
+    meta = sp.read_tar(data)
+    assert len(meta[sp.HEADER]) <= 296 and len(meta[sp.HASHES]) <= 5390
+    assert len(meta[sp.HEADER]) * 200 <= sp.STUDY_PACKAGE_MAX_HEADER_BYTES
+    assert len(meta[sp.HASHES]) * 150 <= sp.STUDY_PACKAGE_MAX_HASHES_BYTES
     # an ordinary tar reader reads it: regular files, fixed fields, names in byte order, no extended header
     with tarfile.open(fileobj=io.BytesIO(data)) as tf:
         infos = tf.getmembers()
@@ -272,7 +277,7 @@ def test_archive_rules_refused_before_the_signature(small: bytes, monkeypatch: p
     # an unknown header field (a v1 header is closed) and a pin v1 does not know (10D-26's) are refused
     header = json.loads(members[sp.HEADER])
     for bad, words in (
-        ({**header, "central_approval": "IRB-1"}, "does not have"),
+        ({**header, "central_approval": "IRB-1"}, "is not a field a v1 package has"),
         ({k: v for k, v in header.items() if k != "created"}, "lacks the field created"),
         ({**header, "pins": {"verifier_prompt": "abc"}}, "newer release"),
         ({**header, "format": "tb-study-package/2"}, "format"),
@@ -994,7 +999,7 @@ def test_deep_json_is_refused_before_it_is_parsed(small: bytes) -> None:
     """A JSON member nested past the limit is refused with a sentence, never a RecursionError: the header and the
     hash list before the signature (no key needed), the protocol part and a carried file with a trusted signer."""
     members = _members(small)
-    deep_header = sp.tar_bytes({**members, sp.HEADER: _nested(200_000)})
+    deep_header = sp.tar_bytes({**members, sp.HEADER: _nested(20_000)})  # within the header's 64 KiB cap
     deep_hashes = sp.tar_bytes({**members, sp.HASHES: b'{"a":' * 100_000 + b"1" + b"}" * 100_000})
     for data in (deep_header, deep_hashes):
         got = _refused(data)
@@ -1238,16 +1243,40 @@ def _not_root() -> int:
     return NOT_ROOT
 
 
-def _store(root: Path, files: dict[str, bytes], sid: str = "RA-JAK", message: str | None = None) -> Path:
+@pytest.fixture(autouse=True)
+def _rulesets_dir() -> Any:
+    """``TB_RULESETS_DIR`` as each test leaves it is put back (``_store`` names the store it makes)."""
+    before = os.environ.get("TB_RULESETS_DIR")
+    yield
+    if before is None:
+        os.environ.pop("TB_RULESETS_DIR", None)
+    else:
+        os.environ["TB_RULESETS_DIR"] = before
+
+
+def _store(
+    root: Path,
+    files: dict[str, bytes],
+    sid: str = "RA-JAK",
+    message: str | None = None,
+    tagger: str | None = None,
+    configure: bool = True,
+) -> Path:
     """A rule-set store as the criteria compiler keeps it (``criteria_compiler.repo``), the study committed, tagged
-    ``<ID>/v<version>`` with an approval that names its approver, and materialised: the folder ``write`` packs."""
+    ``<ID>/v<version>`` as the compiler's approval writes it (message ``<ID> v<version> approved by <who>``, tagger
+    ``<who>``, the manifest's ``review.approved_by`` that person), and materialised: the folder ``write`` packs. With
+    ``configure`` it is the box's configured store (``TB_RULESETS_DIR``)."""
     from criteria_compiler.repo import RulesetRepo
 
     repo = RulesetRepo(root / "rulesets")
-    version = str(yaml.safe_load(files["manifest.yaml"])["version"])
-    repo.write_dir("main", "main", f"{sid}/", files, f"{sid} v{version}", "crc-test")
-    repo.tag(f"{sid}/v{version}", "main", message or f"{sid} v{version} approved by crc-test", "crc-test")
+    manifest = yaml.safe_load(files["manifest.yaml"])
+    version = str(manifest["version"])
+    by = str((manifest.get("review") or {}).get("approved_by") or "crc-test")
+    repo.write_dir("main", "main", f"{sid}/", files, f"approve {sid} v{version} by {by}", by)
+    repo.tag(f"{sid}/v{version}", "main", message or f"{sid} v{version} approved by {by}", tagger or by)
     repo.materialize(sid)
+    if configure:
+        os.environ["TB_RULESETS_DIR"] = str(root / "rulesets")
     return root / "rulesets" / sid
 
 
@@ -1294,9 +1323,12 @@ def test_h4_a_package_is_released_only_after_its_audit_event(tmp_path: Path, mon
     ev = exported[0]
     assert ev["actor"] == "host:crc-test" and ev["ruleset"] == "RA-JAK" and ev["ruleset_version"] == "1.0.0"
     assert ev["output_sha"] == hashlib.sha256(out.read_bytes()).hexdigest() == h["sha256"]
+    a = h["approval"]
     assert ev["detail"] == {"package_id": h["package_id"], "key_id": sp.key_id(PUB), "created": DAY,
                             "protocol_version": h["protocol_version"], "criteria_sha256": h["criteria_sha256"],
-                            "approval_tag": "RA-JAK/v1.0.0"}  # fmt: skip
+                            "approval_tag": "RA-JAK/v1.0.0", "approval_tag_sha": a.tag_sha,
+                            "approval_commit": a.commit, "approved_by": a.by}  # fmt: skip
+    assert re.fullmatch("[0-9a-f]{40}", a.tag_sha) and re.fullmatch("[0-9a-f]{40}", a.commit) and a.by
     assert PID1 not in json.dumps(_events(audit))  # no content of the package in the audit
 
     # the event cannot be written: no package, no part file
@@ -1408,9 +1440,10 @@ def test_command_line(tmp_path: Path) -> None:
     trust = _trust_file(tmp_path / "trust.json", [(pub.read_bytes(), ["RA-JAK"], sp.STUDY_PURPOSE)])
     v = _run("verify", str(out), "--trust-file", str(trust))
     assert v.returncode == 0 and v.stdout.startswith("verified "), v.stderr
-    s = _run("show", str(out))
-    assert s.returncode == 0 and json.loads(s.stdout.split("\n(")[0])["study_id"] == "RA-JAK"
-    assert "not checked" in s.stdout
+    s = _run("show", str(out))  # shown, NOT verified: exit 3, that line first on stdout and on stderr (item 2)
+    first, shown = s.stdout.split("\n", 1)
+    assert s.returncode == 3 and json.loads(shown)["study_id"] == "RA-JAK", s.stderr
+    assert "NOT checked" in first and s.stderr.startswith(first)
     # another key, a key for another study, and a changed byte: refused with one sentence, exit 1
     other = _trust_file(tmp_path / "other.json", [(OTHER_PUB, ["RA-JAK"], sp.STUDY_PURPOSE)])
     bad = _run("verify", str(out), "--trust-file", str(other))
@@ -2026,3 +2059,387 @@ def test_item7_a_manifest_refusal_names_the_field_not_its_value() -> None:
     with pytest.raises(ValueError) as e:
         sp.build(files, PRIV, DAY)
     assert "population" in str(e.value) and "SYNTH-NAME-ZZZ" not in str(e.value) and "\n" not in str(e.value)
+
+
+# ---------------------------------------------------------------------------------------------- review of 02b55d8a
+def _timed(call: Callable[[], Any]) -> float:
+    import time
+
+    start = time.monotonic()
+    with contextlib.suppress(sp.PackageRefused):
+        call()
+    return time.monotonic() - start
+
+
+def test_r1_the_depth_scan_is_linear_and_the_meta_members_are_capped_before_any_parse(
+    small: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 1: the reviewer's header (a quote, then an escaped quote repeated) took 38 s at 80 KB in the regex scan,
+    before the signature; the scan is one linear pass, and the header and hash list are capped (64 KiB, 1 MiB) from
+    the tar header, before a byte of them is scanned or parsed. Bounds generous for a loaded machine."""
+    _, pub = ed25519_generate()
+    anyone = [sp.TrustedKey(pub, frozenset({"RA-JAK"}))]
+    for n in (40_000, 2 << 20):  # 80 KB, and 4 MiB (the old cap)
+        evil = b'"' + b'\\"' * n
+        assert _timed(lambda e=evil: sp.json_depth(e)) < 2.0
+    at_cap = b'"' + b'\\"' * ((sp.STUDY_PACKAGE_MAX_HEADER_BYTES - 1) // 2)
+    assert len(at_cap) <= sp.STUDY_PACKAGE_MAX_HEADER_BYTES
+    data = sp.tar_bytes({"hashes.json": b"{}", "header.json": at_cap, "protocol.json": b"{}",
+                         "signature.ed25519": bytes(64)})  # fmt: skip
+    assert _timed(lambda: sp.verify(data, anyone)) < 2.0
+    assert _refused(data, anyone).step == "tar"
+
+    # over the cap: refused from the tar header, nothing scanned or parsed
+    def never(*_a: Any, **_k: Any) -> Any:
+        raise AssertionError("scanned or parsed before the cap")
+
+    monkeypatch.setattr(sp, "json_depth", never)
+    monkeypatch.setattr(sm, "load_json", never)
+    members = _members(small)
+    for name, cap in ((sp.HEADER, sp.STUDY_PACKAGE_MAX_HEADER_BYTES), (sp.HASHES, sp.STUDY_PACKAGE_MAX_HASHES_BYTES)):
+        got = _refused(sp.tar_bytes({**members, name: b"{" + b" " * cap + b"}"}))
+        assert got.step == "tar" and f"may be at most {cap:,} bytes" in str(got), str(got)
+    assert sp.STUDY_PACKAGE_MAX_HEADER_BYTES == 64 << 10 and sp.STUDY_PACKAGE_MAX_HASHES_BYTES == 1 << 20
+    assert sp.json_depth is never  # (the patch held: no path above reached a scan)
+
+
+_EVIL = "\x1b[31mEVIL\x07\u009b\u202e"
+
+
+def _plain(text: str) -> bool:
+    return all(c == "\n" or 0x20 <= ord(c) < 0x7F for c in text)
+
+
+def test_r2_no_text_of_the_sender_is_echoed_before_the_signature_and_what_is_shown_is_escaped(
+    small: bytes, tmp_path: Path, capsys: Any
+) -> None:
+    """Item 2: an unknown header field, a pin and a hash-list entry name, all before the signature, are named by
+    place and length only; a field shown after the signature, and ``show``'s header, are printable ASCII; ``show``
+    says NOT checked first, on stdout and stderr, and exits 3."""
+    from tools import study_package as tool
+
+    members = _members(small)
+    header = json.loads(members[sp.HEADER])
+    hashes = json.loads(members[sp.HASHES])
+    for bad in (
+        {**members, sp.HEADER: sm.dumps({**header, _EVIL: "x"})},
+        {**members, sp.HEADER: sm.dumps({**header, "pins": {_EVIL: 1}})},
+        {**members, sp.HASHES: sm.dumps({**hashes, _EVIL: "zz"})},
+    ):
+        got = _refused(sp.tar_bytes(bad))
+        assert got.step == "tar" and "EVIL" not in str(got) and _plain(str(got)), str(got)
+        assert "characters" in str(got)
+    # after the signature: the study id a trusted key signed, shown escaped
+    renamed = _resigned(members, header={**header, "study_id": "RA-JAK\u202e"})
+    got = _refused(renamed, [sp.TrustedKey(PUB, frozenset({"RA-JAK"}))])
+    assert got.step == "signature" and "\u202e" not in str(got) and "\\u202e" in str(got) and _plain(str(got))
+    # show on a forged package (no valid signature) with a C1 control and a bidi mark in its study id
+    forged = {**members, sp.HEADER: sm.dumps({**header, "study_id": "RA-JAK\u009b31m\u202e"}), sp.SIGNATURE: bytes(64)}
+    path = tmp_path / "forged.tbstudy"
+    path.write_bytes(sp.tar_bytes(forged))
+    assert tool.main(["show", str(path)]) == tool.SHOWN == 3
+    out, err = capsys.readouterr()
+    assert out.startswith(tool.SHOWN_NOT_VERIFIED + "\n") and err.startswith(tool.SHOWN_NOT_VERIFIED)
+    assert _plain(out) and "\\u009b" in out and "\\u202e" in out
+    assert sp.printable("a\x1b\x7f\u202e\U0001f600") == "a\\x1b\\x7f\\u202e\\U0001f600"
+
+
+@pytest.mark.parametrize(
+    ("member", "junk"),
+    [
+        *[("files/ir/RA-JAK-INC-01.json", b) for b in (b"[]", b"null", b"1", b'"x"', b"{bad", b"\xff\xfe", b"")],
+        *[("files/valuesets/VS_HBSAG.json", b) for b in (b"1e400", b"{bad", b"\xff\xfe")],
+    ],
+)
+def test_r3_a_signed_member_of_the_wrong_type_is_refused_in_one_sentence(
+    small: bytes, member: str, junk: bytes
+) -> None:
+    """Item 3: with a package signed by a trusted key, an IR member that is not an object, not JSON, not UTF-8, or a
+    value set of ``1e400`` raised TypeError, AttributeError or a bare ValueError in ``study_manifest``: now a
+    PackageRefused of one sentence."""
+    got = _refused(_resigned({**_members(small), member: junk}))
+    assert type(got) is sp.PackageRefused and got.step == "protocol", str(got)
+
+
+def test_r3_a_seeded_fuzz_lets_nothing_but_a_refusal_out(small: bytes, tmp_path: Path, monkeypatch: Any) -> None:
+    """Item 3: a small deterministic fuzz (truncations, a byte changed in each member, members of the wrong JSON
+    type, the unsigned and the re-signed); only a PackageRefused leaves ``verify``; the command says one sentence and
+    exits 1, and an internal error is one sentence and exit 2, never a traceback."""
+    import random
+
+    from tools import study_package as tool
+
+    rng = random.Random(1183)
+    members = _members(small)
+    cases: list[bytes] = [small[:i] for i in range(0, len(small), 97)]
+    files = [*sorted(n for n in members if n.startswith(sp.FILES)), sp.PROTOCOL]
+    for name in sorted(members):
+        for _ in range(12):
+            data = bytearray(members[name] or b"\x00")
+            data[rng.randrange(len(data))] = rng.randrange(256)
+            cases.append(sp.tar_bytes({**members, name: bytes(data)}))
+            if name in files:
+                cases.append(_resigned({**members, name: bytes(data)}))
+    for name in files:
+        for junk in (b"", b"null", b"[]", b"{}", b'"x"', b"1", b"1e400", b"\xff\xfe", b'{"id": 1}', b'{"review": []}'):
+            cases.append(_resigned({**members, name: junk}))
+    assert len(cases) > 300
+    for data in cases:
+        if data == small:
+            continue
+        with pytest.raises(sp.PackageRefused):
+            sp.verify(data, [TRUST])
+    # the command: a refusal is one line and exit 1; anything else one sentence and exit 2
+    trust = _trust_file(tmp_path / "trust.json", [(PUB, ["RA-JAK"], sp.STUDY_PURPOSE)])
+    bad = tmp_path / "bad.tbstudy"
+    bad.write_bytes(_resigned({**members, "files/ir/RA-JAK-INC-01.json": b"[]"}))
+    assert tool.main(["verify", str(bad), "--trust-file", str(trust)]) == 1
+
+    def boom(*_a: Any, **_k: Any) -> Any:
+        raise RuntimeError("secret detail")
+
+    monkeypatch.setattr(sp, "verify_file", boom)
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        assert tool.main(["verify", str(bad), "--trust-file", str(trust)]) == 2
+    assert err.getvalue() == "study package: the package could not be read (internal)\n"
+    monkeypatch.undo()
+    monkeypatch.setattr(sp, "_structure", boom)
+    got = _refused(small)
+    assert got.step == "internal" and "RuntimeError" in str(got) and "secret" not in str(got)
+
+
+def _key_refused(data: bytes, keys: list[sp.TrustedKey]) -> sp.PackageRefused:
+    """A refusal of the trusted keys given (one sentence, not about the package)."""
+    with pytest.raises(sp.PackageRefused) as exc:
+        sp.verify(data, keys)
+    assert "\n" not in str(exc.value)
+    return exc.value
+
+
+def _other_algorithm_pem() -> bytes:
+    import base64
+
+    der = bytes.fromhex("3011300506032a0304" + "0308" + "00" + "41" * 7)
+    return b"-----BEGIN PUBLIC KEY-----\n" + base64.encodebytes(der) + b"-----END PUBLIC KEY-----\n"
+
+
+def test_r4_a_trust_file_of_another_algorithm_or_nested_deep_is_refused_in_one_sentence(small: bytes) -> None:
+    """Item 4: a SubjectPublicKeyInfo with another OID raised cryptography's UnsupportedAlgorithm; a trust file nested
+    very deep raised RecursionError. Both are refused with one sentence."""
+    pem = _other_algorithm_pem()
+    doc = {"format": sp.TRUST_FORMAT, "keys": [{"key_id": "ed25519:0000000000000000", "public_key": pem.decode(),
+                                                "purpose": sp.STUDY_PURPOSE, "studies": ["RA-JAK"]}]}  # fmt: skip
+    with pytest.raises(ValueError, match="is not an Ed25519 public key") as exc:
+        sp.load_trust(json.dumps(doc).encode())
+    assert type(exc.value) is ValueError
+    got = _key_refused(small, [sp.TrustedKey(pem, frozenset({"RA-JAK"}))])
+    assert got.step == "signature" and "not an Ed25519 public key" in str(got)
+    for deep in (b"[" * 200_000, b'{"format": "tb-study-trust/1", "keys": ' + b"[" * 9 + b"]" * 9 + b"}"):
+        with pytest.raises(ValueError, match="nests deeper than 8") as exc:
+            sp.load_trust(deep)
+        assert type(exc.value) is ValueError
+
+
+def test_r5_a_fifo_a_device_or_a_link_is_never_read_as_a_package_or_a_trust_file(tmp_path: Path, small: bytes) -> None:
+    """Item 5: the size was taken by stat() and the file read by path: a FIFO stats 0 and was read for 1 MiB, and
+    /dev/zero would never end. Now each is opened once (O_NOFOLLOW | O_NONBLOCK), checked on the descriptor (a
+    regular file) and read at most to its cap from it."""
+    from tools import study_package as tool
+
+    fifo = tmp_path / "pipe.tbstudy"
+    os.mkfifo(fifo)
+    link = tmp_path / "link.tbstudy"
+    real = tmp_path / "real.tbstudy"
+    real.write_bytes(small)
+    link.symlink_to(real)
+    for path in (fifo, Path("/dev/zero"), link, tmp_path):
+        with pytest.raises(sp.PackageRefused) as exc:
+            sp.verify_file(path, [TRUST])
+        assert exc.value.step == "tar"
+    assert "not a regular file" in str(_raises(lambda: sp.read_file(fifo)))
+    assert sp.verify_file(real, [TRUST]).header["study_id"] == "RA-JAK"
+    with pytest.raises(ValueError, match="is over 10 bytes|may be at most 10 bytes"):
+        sp.read_capped(real, 10, "the file")
+    trust_fifo = tmp_path / "trust.fifo"
+    os.mkfifo(trust_fifo)
+    with pytest.raises(ValueError, match="not a regular file"):
+        tool.read_trust_file(trust_fifo)
+    with pytest.raises(ValueError, match="not a regular file"):
+        tool.read_trust_file(Path("/dev/zero"))
+
+
+def _raises(call: Callable[[], Any]) -> BaseException:
+    with pytest.raises(Exception) as exc:  # the caller checks the type and the sentence
+        call()
+    return exc.value
+
+
+def test_r6_a_key_is_trusted_only_for_exact_study_ids_and_patterns_match_whole(small: bytes) -> None:
+    """Item 6: ``studies`` given as a text matched by substring ("JAK" in "RA-JAK"); now only a tuple or frozenset
+    of exact study ids is taken. The name and field patterns match whole (a final newline no longer passes)."""
+    members = _members(small)
+    header = json.loads(members[sp.HEADER])
+    jak = _resigned(members, header={**header, "study_id": "JAK"})
+    got = _key_refused(jak, [sp.TrustedKey(PUB, "RA-JAK")])  # type: ignore[arg-type]
+    assert got.step == "signature" and "tuple or frozenset" in str(got)
+    assert _refused(jak, [sp.TrustedKey(PUB, frozenset({"RA-JAK"}))]).step == "signature"
+    assert _key_refused(small, [sp.TrustedKey(PUB, ["RA-JAK"])]).step == "signature"  # type: ignore[arg-type]
+    assert _key_refused(small, [sp.TrustedKey(PUB, ("RA-JAK ",))]).step == "signature"
+    assert sp.verify(small, [sp.TrustedKey(PUB, ("RA-JAK",))]).header["study_id"] == "RA-JAK"
+    assert sp._name_refusal("files/ir/x.json\n") is not None
+    for field, value in (("key_id", header["key_id"] + "\n"), ("criteria_sha256", header["criteria_sha256"] + "\n"),
+                         ("created", header["created"] + "\n")):  # fmt: skip
+        assert sp._header_refusal({**header, field: value}) is not None, field
+
+
+def test_r7_only_the_configured_store_and_the_compilers_own_approval_tag_are_packed(tmp_path: Path) -> None:
+    """Item 7 (blocker): a forged store (a repository made anywhere, tagged ``RA-JAK/v1.0.0 -m anything``) packed
+    with an ``approve.`` event. Now the store must be the box's configured one (TB_RULESETS_DIR, the same folder),
+    and the tag the compiler's approval (message, tagger, the tagged manifest's approver); the event records the tag
+    object, the commit and the approver."""
+    from dulwich.repo import Repo
+    from tb_common.audit import AuditLog
+
+    from tools import study_package as tool
+
+    key = _key_file(tmp_path / "cc.key")
+    audit = tmp_path / "audit"
+    audit.mkdir()
+    log = AuditLog(audit)
+    (tmp_path / "out").mkdir()
+
+    def refused(study: Path, says: str) -> None:
+        out = tmp_path / "out" / f"{study.parent.parent.name}.tbstudy"
+        with pytest.raises(ValueError, match=says):
+            tool.write(study, key, out, DAY, audit=log, euid=_not_root)
+        assert not out.exists()
+
+    real = _store(tmp_path / "real", _small())  # the configured store
+    forged = _store(tmp_path / "forged", _small(), message="anything at all", tagger="x", configure=False)
+    refused(forged, "not in the box's rule-set store")
+    os.environ["TB_RULESETS_DIR"] = str(forged.parent)  # even configured, the tag is not an approval
+    refused(forged, "not the criteria compiler's approval")
+    refused(_store(tmp_path / "tagger", _small(), tagger="someone-else"), "its tagger is not the approver")
+    refused(
+        _store(tmp_path / "who", _small(), message="RA-JAK v1.0.0 approved by mallory", tagger="mallory"),
+        "review.approved_by is not the approver",
+    )
+    refused(_store(tmp_path / "suffix", _small(), message="RA-JAK v1.0.0 approved by crc1@hospa.test\n"), "not the")
+    bare = _store(tmp_path / "bare", _small())
+    repo = Repo(str(bare.parent))
+    try:
+        commit = repo.refs[b"refs/heads/main"]
+        del repo.refs[b"refs/tags/RA-JAK/v1.0.0"]
+        repo.refs[b"refs/tags/RA-JAK/v1.0.0"] = commit  # a lightweight tag names nobody
+    finally:
+        repo.close()
+    refused(bare, "names nobody")
+    assert not [e for e in _events(audit) if e["event"] == tool.EVENT]
+    # the real store packs, and the event names the tag object, the commit and the approver
+    os.environ["TB_RULESETS_DIR"] = str(real.parent)
+    h = tool.write(real, key, tmp_path / "out" / "ok.tbstudy", DAY, audit=log, euid=_not_root)
+    a = h["approval"]
+    repo = Repo(str(real.parent))
+    try:
+        assert a.tag_sha == repo.refs[b"refs/tags/RA-JAK/v1.0.0"].decode()
+        assert a.commit == repo[repo.refs[b"refs/tags/RA-JAK/v1.0.0"]].object[1].decode()
+    finally:
+        repo.close()
+    assert a.by == "crc1@hospa.test"
+    (ev,) = [e for e in _events(audit) if e["event"] == tool.EVENT]
+    assert ev["detail"]["approval_tag_sha"] == a.tag_sha and ev["detail"]["approval_commit"] == a.commit
+    assert ev["detail"]["approved_by"] == a.by
+
+
+def test_r8_keygen_writes_both_files_by_descriptor_and_never_through_a_link(tmp_path: Path) -> None:
+    """Item 8: ``keygen`` (which may run as root) wrote the public key by path, following a link. Now both files are
+    created O_EXCL | O_NOFOLLOW in the folder's descriptor; an existing name, a link among them, is refused and
+    nothing is written."""
+    from tools import study_package as tool
+
+    keys = tmp_path / "keys"
+    priv, pub, kid = tool.keygen(keys)
+    assert stat_mode(priv.stat()) == 0o600 and stat_mode(pub.stat()) == 0o644 and kid == sp.key_id(pub.read_bytes())
+    victim = tmp_path / "victim"
+    victim.write_bytes(b"untouched")
+    trap = tmp_path / "trap"
+    trap.mkdir()
+    (trap / tool.PUBLIC).symlink_to(victim)
+    with pytest.raises(ValueError, match="exists"):
+        tool.keygen(trap)
+    assert victim.read_bytes() == b"untouched" and sorted(p.name for p in trap.iterdir()) == [tool.PUBLIC]
+    with pytest.raises(ValueError, match="never replaced"):
+        tool.keygen(keys)
+
+
+def test_r9_a_test_patient_refers_only_to_records_of_the_same_patient_once() -> None:
+    """Item 9: a Claim could name another patient's Coverage, a coverage could be written ``Patient/<pid>``, and a
+    record could be held twice; now a reference names a record of the same patient, of the type its element takes
+    (measured), and each type and id is held once."""
+    lines = [json.loads(x) for x in _folder("RA-BIO")[sp.TEST_PATIENTS].splitlines() if x.strip()]
+
+    def refusal(change: Callable[[list[dict[str, Any]]], None]) -> str | None:
+        import copy
+
+        mine = copy.deepcopy(lines)
+        change(mine)
+        return sp._test_patients_refusal(b"".join(json.dumps(r).encode() + b"\n" for r in mine))
+
+    assert refusal(lambda _l: None) is None
+    claim = _first(lines, "Claim")
+    pid = claim["patient"]["reference"]
+    other = next(c for c in lines if c["resourceType"] == "Coverage" and c["beneficiary"]["reference"] != pid)
+
+    def coverage_of_another(rows: list[dict[str, Any]]) -> None:
+        _first(rows, "Claim")["insurance"][0]["coverage"]["reference"] = "Coverage/" + other["id"]
+
+    def coverage_as_patient(rows: list[dict[str, Any]]) -> None:
+        _first(rows, "Claim")["insurance"][0]["coverage"]["reference"] = pid
+
+    def twice(rows: list[dict[str, Any]]) -> None:
+        rows.append(dict(_first(rows, "Observation")))
+
+    assert "of another test patient" in (refusal(coverage_of_another) or "")
+    assert "a type that element does not take" in (refusal(coverage_as_patient) or "")
+    assert "already holds" in (refusal(twice) or "")
+
+
+def test_r9_the_reference_types_are_measured() -> None:
+    """Item 9: the type each reference element takes is what the shipped test patients hold, exactly."""
+    measured: dict[tuple[str, str], set[str]] = {}
+    for ruleset in SHIPPED:
+        data = _folder(ruleset).get(sp.TEST_PATIENTS)
+        for line in (data or b"").splitlines():
+            if line.strip():
+                record = json.loads(line)
+                for path, ref in sp._reference_paths(record):
+                    measured.setdefault((record["resourceType"], path), set()).add(ref.split("/")[0])
+    assert {k: frozenset(v) for k, v in measured.items()} == sp.TEST_PATIENT_REFERENCE_FIELDS
+
+
+def test_r9_stale_part_files_of_this_command_are_removed_and_named(tmp_path: Path) -> None:
+    """Item 9: a SIGKILL between the event and the link left a hidden ``.<name>.<pid>.part`` (0600). The next run
+    removes, in the destination only, regular files of the command's own pattern owned by the running account whose
+    writer is gone, and says which; anything else is kept."""
+    from tb_common.audit import AuditLog
+
+    from tools import study_package as tool
+
+    study, key, audit, outdir = _written(tmp_path)
+    gone_pid = 4_194_305  # above the kernel's largest pid: no such process
+    stale = outdir / f".RA-JAK.tbstudy.{gone_pid}.part"
+    stale.write_bytes(b"x")
+    stale.chmod(0o600)
+    final = outdir / f".old.tbstudy.{gone_pid}.part.final"
+    final.write_bytes(b"x")
+    live = outdir / f".RA-JAK.tbstudy.{os.getppid()}.part"  # a run that is still going keeps its file
+    live.write_bytes(b"x")
+    other = outdir / ".notes.part"
+    other.write_bytes(b"x")
+    linked = outdir / f".link.tbstudy.{gone_pid}.part"
+    linked.symlink_to(other)
+    h = tool.write(study, key, outdir / "RA-JAK.tbstudy", DAY, audit=AuditLog(audit), euid=_not_root)
+    assert h["removed_parts"] == sorted([stale.name, final.name])
+    assert not stale.exists() and not final.exists()
+    assert live.exists() and other.exists() and linked.is_symlink()
