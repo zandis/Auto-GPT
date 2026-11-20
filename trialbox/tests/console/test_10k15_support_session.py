@@ -295,6 +295,13 @@ def test_only_the_administrator_starts_or_ends_it(box: dict[str, Any]) -> None: 
     assert _events(box, "console.support_session_start") == []
 
 
+def test_the_admin_page_links_the_switch(box: dict[str, Any]) -> None:  # noqa: F811
+    """One click from the Admin page (its accounts tile), so the plain menu (J-7, D-1251) reaches it too."""
+    admin, _ = login(box["app"])
+    r = admin.get("/admin?tab=health")
+    assert r.status_code == 200 and f'href="{PAGE}"' in r.text
+
+
 def test_it_ends_by_itself_after_two_hours_on_a_frozen_clock(box: dict[str, Any]) -> None:  # noqa: F811
     _done_screen(box["backend"], _ulid(996))
     crc, _ = login_crc(box)

@@ -5,7 +5,8 @@
   switch, with closing the feedback export and the one-time-code pages: yes."
 - **Decision:**
   - **Who:** the administrator role (the hospital's own operator, runbook 21 tier 1) starts and ends a support session
-    at `/ops/support-session`, with an optional ticket number and a tick. The ticket field takes the shape of a ticket
+    at `/ops/support-session` (in the administrator's menu, and one click from the Admin page's accounts tile, so that
+    the plain menu of J-7, D-1251, reaches it too), with an optional ticket number and a tick. The ticket field takes the shape of a ticket
     number only: an optional prefix of up to 6 letters (or `#`), then digits in up to four groups (`TB-2026-0117`,
     `#4711`); letters alone (`TaroYamada`) are refused. A pattern cannot prove that no name is typed (`Taro-1` has the
     shape); the page asks for none, and the person's name stays in the ticket, never in the box. The tick says that
