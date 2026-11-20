@@ -428,3 +428,47 @@ def test_a_single_file_still_loads_as_before(tmp_path: Path) -> None:
         assert (s["table_rows"], s["current_rows"], s["released"]) == (8, 6, "")
     finally:
         st.close()
+
+
+# ------------------------------------------------------------------ R5: the release's character set is declared
+def _also_utf8() -> str:
+    """Two kanji whose Shift_JIS bytes are also valid UTF-8: such a line is to be expected somewhere in a table of a
+    hundred thousand lines, and the shared detector reads it as two character sets mixed."""
+    for lead in range(0xE1, 0xEB):  # a Shift_JIS lead byte that opens a three-byte UTF-8 sequence
+        for trail in range(0x80, 0xC0):
+            for second in range(0x89, 0xA0):  # the second kanji's lead byte: a UTF-8 continuation byte too
+                raw = bytes([lead, trail, second, 0x41])  # its trail byte is ASCII
+                try:
+                    text = raw.decode("cp932")
+                    raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    continue
+                if len(text) == 2 and text.encode("cp932") == raw:
+                    return text
+    raise AssertionError("no such pair")
+
+
+def test_a_shift_jis_line_that_is_also_valid_utf8_does_not_refuse_the_release(tmp_path: Path) -> None:
+    """Found by lane J on the real release: one line of the index table. The publisher declares Shift_JIS, so the
+    release is read as that, strictly, and the detector is not asked."""
+    from tb_common import encoding
+
+    term = _also_utf8()
+    files = _files()
+    files["byomei987/main/index987.txt"] = _table([*INDEX, [term, "YA01", "1", "1", "0", "", "", "", ""]])
+    with pytest.raises(encoding.EncodingRefused):  # what the detector says of this table (unchanged for others)
+        encoding.decode(files["byomei987/main/index987.txt"], ("cp932",))
+    assert lic.check_release(_zip(tmp_path, files))["index_rows"] == 8
+    with pytest.raises(lic.LicensedError):  # a single file with no declared set still goes through the detector
+        lic.parse("medis_index", files["byomei987/main/index987.txt"], TTL_IDX)
+    assert lic.parse("medis_index", files["byomei987/main/index987.txt"], TTL_IDX, "cp932").rows == 8
+
+
+def test_a_byte_shift_jis_does_not_hold_refuses_the_release_with_its_line(tmp_path: Path) -> None:
+    files = _files()
+    good = _table(INDEX)
+    files["byomei987/main/index987.txt"] = good + b'"\xfd\xfe","YA01","1","1","0","","","",""\r\n'
+    with pytest.raises(lic.LicensedError) as exc:
+        lic.check_release(_zip(tmp_path, files))
+    assert exc.value.code == "LIC-ENCODING" and "index987.txt" in exc.value.message
+    assert f"(line {len(INDEX) + 1})" in exc.value.message

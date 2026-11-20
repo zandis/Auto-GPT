@@ -87,7 +87,7 @@ test helper) and two reviews of #1095 (seven findings run, ten read). Each findi
 The owner's decision (2026-11-19): the master is not bundled and never enters the repository; a site downloads it
 from MEDIS and the box loads it. Lane J ran master against the real release (ICD10対応標準病名マスター V5.18,
 2026-06-01) and sent its shapes; every fixture here is invented in those shapes. Four faults, none visible with the
-synthetic tables D-1252 was tested on:
+synthetic tables D-1252 was tested on, and a fifth found on the first run of this card's loader:
 
 - **R1 修飾語区分.** Every value of the release is a letter and seven digits (`A2000000`); D-1252 read only eight
   digits, so with the real master every diagnosis that carried a modifier read unknown. Rule: exactly eight ASCII
@@ -108,6 +108,12 @@ synthetic tables D-1252 was tested on:
 - **R4 the titles.** The ICD-10 title is ＩＣＤ１０‐２０１３ with U+2010, which NFKC leaves, so the column was lost
   and every row had no ICD-10. Titles (never values) are compared with every hyphen written as `-`; `レセ電算コード`
   is a receipt-code title.
+
+- **R5 the character set is declared.** Lane J ran the release loader on the real release and it was refused: one
+  line of the index table is Shift_JIS bytes that are also valid UTF-8, which the shared detector reads as two
+  character sets mixed. MEDIS publishes the release in Shift_JIS, so its files are read as that, strictly, and the
+  detector is not asked; a byte Shift_JIS does not hold refuses the release with its line. The detector is unchanged
+  for every other caller; a single table is loaded the same way with `load --encoding cp932`.
 
 **What is stored** (`adapter.licensed`; the contract of card 10B-21/22's page):
 
@@ -132,7 +138,9 @@ after the code (a Japanese sub-classification) is dropped for comparison and the
 with a hyphen inside (`A99-9`) is not an ICD-10 code until someone shows what it means. A diagnosis whose PRB-3
 carries the 病名管理番号 now finds its ICD-10 in its own row (before, only an exchange code was looked up).
 
-Tests: `tests/unit/test_medis_release.py` (40 of its tests fail on master).
+Tests: `tests/unit/test_medis_release.py` (each fails on master unless it says it is a guard). Lane J's run of
+this card's `check_release` on V5.18: 27,877 disease rows (27,684 current), 2,509 modifier rows, 112,967 index
+rows, nothing skipped.
 
 ## Findings
 
@@ -198,8 +206,9 @@ state Z1. The synthetic modifier tables (`tests/ssmix2_probes.py`,
 
 ## What remains
 
-- **Lane J checks the head against the real release** (the worker never sees it): the shape of the `ttl_*.txt`
-  files is read two ways (one line of titles, or one title on each line) because it was not given.
+- **Lane J checks each head against the real release** (the worker never sees it). Confirmed there: the title
+  files are one line of quoted titles; no 病名表記, 修飾語表記 or index pair collides after NFKC; no exchange code
+  has two current rows sharing its lowest 採択区分.
 - **`pipeline.py` needs no change for M1** (the store reports the load time with its tables). A caller that builds
   the reader with its own dictionary may pass `licensed_loaded_at`.
 - **The reason counts are in `reader.json`** and no page lists them by reason; the coverage lines of the site

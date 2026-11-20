@@ -283,7 +283,40 @@ def _col(index: dict[str, int], names: Sequence[str]) -> int | None:
     return None
 
 
-def parse(kind: str, data: bytes, columns: Sequence[str] | None = None) -> Parsed:
+#: the character set MEDIS publishes its release in (Shift_JIS, read with the Windows extensions)
+RELEASE_ENCODING = "cp932"
+
+
+_NOT_SHIFT_JIS = frozenset("\x80\xa0\uf8f0\uf8f1\uf8f2\uf8f3")
+
+
+def _decode(data: bytes, declared: str | None) -> tuple[str, str]:
+    """``(text, encoding)`` of a vendor file. With no declared character set the shared detector decides (D-215)
+    and refuses what it cannot tell. With one (D-1257: a MEDIS release is Shift_JIS, its publisher says so) the
+    file is read as that, strictly, and the detector is not asked: in a table of a hundred thousand Shift_JIS lines
+    some line's bytes are also valid UTF-8, which the detector reads as two character sets mixed. A byte the declared
+    set does not hold refuses the file with its line."""
+    if declared is None:
+        try:
+            return encoding.decode(data, ("cp932",))
+        except encoding.EncodingRefused as exc:
+            raise LicensedError("LIC-ENCODING", str(exc)) from exc
+    try:
+        text = data.decode(declared)
+        # Python's cp932 reads the lone bytes 0x80, 0xA0 and 0xFD to 0xFF as characters Shift_JIS does not have
+        stray = next((i for i, ch in enumerate(text) if ch in _NOT_SHIFT_JIS), -1) if declared == "cp932" else -1
+        if stray >= 0:
+            line = text.count("\n", 0, stray) + 1
+            raise LicensedError("LIC-ENCODING", f"not {declared}: a byte that cannot be read (line {line})")
+        return text, declared
+    except UnicodeDecodeError as exc:
+        line = data.count(b"\n", 0, exc.start) + 1
+        raise LicensedError("LIC-ENCODING", f"not {declared}: a byte that cannot be read (line {line})") from exc
+    except LookupError as exc:
+        raise LicensedError("LIC-ENCODING", f"unknown character set {declared!r}") from exc
+
+
+def parse(kind: str, data: bytes, columns: Sequence[str] | None = None, declared_encoding: str | None = None) -> Parsed:
     """Read one vendor file. A row whose code does not have the code system's shape is skipped and listed.
 
     The MEDIS 病名基本テーブル (D-1257): a row is identified by its 病名管理番号, and one 病名交換用コード names
@@ -294,10 +327,9 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None) -> Parse
     k = ALL_KINDS.get(kind)
     if k is None:
         raise LicensedError("LIC-KIND", f"unknown list {kind!r}: one of {', '.join(ALL_KINDS)}")
-    try:  # the strict read: a file that already holds U+FFFD is refused with its line, as the sheet reader does
-        text, enc = encoding.decode(data, ("cp932",))
-    except encoding.EncodingRefused as exc:
-        raise LicensedError("LIC-ENCODING", str(exc)) from exc
+    # the strict read: a file that already holds U+FFFD is refused with its line, as the sheet reader does;
+    # ``declared_encoding`` names the character set when the publisher declares it (a table of a MEDIS release)
+    text, enc = _decode(data, declared_encoding)
     first = text.split("\n", 1)[0]
     delim = _sniff(first)
     rows = list(csv.reader(io.StringIO(text), delimiter=delim))
@@ -508,12 +540,15 @@ class TermStore:
         by: str,
         columns: Sequence[str] | None = None,
         audit_dir: Path | None = None,
+        declared_encoding: str | None = None,
     ) -> dict[str, Any]:
         """Load one release; the earlier release of the same list stays in the store, inactive. With ``audit_dir``
-        (or ``TB_AUDIT_DIR``) the load is in the hash-chained audit (``terminology.load``)."""
+        (or ``TB_AUDIT_DIR``) the load is in the hash-chained audit (``terminology.load``). ``declared_encoding``:
+        the file's character set when its publisher declares it (``cp932`` for one table of a MEDIS release); the
+        file is then read as that, strictly, and not by detection."""
         if not version.strip():
             raise LicensedError("LIC-VERSION", "say which release this is (the version printed on it)")
-        p = parse(kind, data, columns)
+        p = parse(kind, data, columns, declared_encoding)
         sha = hashlib.sha256(data).hexdigest()
         (rid,) = self.load_parsed([(p, sha, source)], version=version, by=by, audit_dir=audit_dir)
         return {
@@ -745,10 +780,7 @@ def _release_files(source: Path | str) -> tuple[dict[str, bytes], dict[str, str]
 
 def _titles(data: bytes) -> list[str]:
     """The column titles of a ``ttl_*.txt``: the cells of its one line, or one title on each line."""
-    try:
-        text, _enc = encoding.decode(data, ("cp932",))
-    except encoding.EncodingRefused as exc:
-        raise LicensedError("LIC-ENCODING", str(exc)) from exc
+    text, _enc = _decode(data, RELEASE_ENCODING)
     rows = [
         r for r in csv.reader(io.StringIO(text), delimiter=_sniff(text.split("\n", 1)[0])) if any(c.strip() for c in r)
     ]
@@ -762,9 +794,9 @@ def _titles(data: bytes) -> list[str]:
 def _read_release(source: Path | str) -> tuple[dict[str, Any], list[tuple[Parsed, str, str]]]:
     files, names, sha = _release_files(source)
     try:
-        readme, _enc = encoding.decode(files["readme"], ("cp932",))
-    except encoding.EncodingRefused as exc:
-        raise LicensedError("LIC-ENCODING", str(exc)) from exc
+        readme, _enc = _decode(files["readme"], RELEASE_ENCODING)
+    except LicensedError as exc:
+        raise LicensedError(exc.code, f"{names['readme']}: {exc.message}") from exc
     first = unicodedata.normalize("NFKC", readme.lstrip("﻿").split("\n", 1)[0])
     m = _README.search(first)
     if not m:
@@ -777,7 +809,7 @@ def _read_release(source: Path | str) -> tuple[dict[str, Any], list[tuple[Parsed
     skipped: list[tuple[str, int, str]] = []
     for table in RELEASE_TABLES:
         try:
-            parsed = parse(table, files[table], _titles(files[f"ttl:{table}"]))
+            parsed = parse(table, files[table], _titles(files[f"ttl:{table}"]), RELEASE_ENCODING)
         except LicensedError as exc:
             raise LicensedError(exc.code, f"{names[table]}: {exc.message}") from exc
         parts.append((parsed, hashlib.sha256(files[table]).hexdigest(), names[table]))
@@ -907,6 +939,7 @@ def main(argv: list[str] | None = None) -> int:
     ld.add_argument("--file", required=True, type=Path)
     ld.add_argument("--version", required=True, help="the release's version as printed on it")
     ld.add_argument("--columns", help="column names in file order, for a release without a header row")
+    ld.add_argument("--encoding", help="the file's character set when its publisher declares it (cp932 for MEDIS)")
     ld.add_argument("--by", default=os.environ.get("USER", "admin"))
     lr = sub.add_parser("load-release", help="load a MEDIS release as MEDIS ships it (its folder or its zip)")
     lr.add_argument("--source", required=True, type=Path)
@@ -945,7 +978,15 @@ def main(argv: list[str] | None = None) -> int:
     st = TermStore()
     try:
         cols = [c.strip() for c in a.columns.split(",")] if a.columns else None
-        out = st.load(a.kind, a.file.read_bytes(), version=a.version, source=str(a.file), by=a.by, columns=cols)
+        out = st.load(
+            a.kind,
+            a.file.read_bytes(),
+            version=a.version,
+            source=str(a.file),
+            by=a.by,
+            columns=cols,
+            declared_encoding=a.encoding,
+        )
     except LicensedError as exc:
         print(f"not loaded: {exc.message}", file=sys.stderr)
         return 1
