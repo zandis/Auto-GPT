@@ -37,7 +37,7 @@ from typing import Any, Literal
 import yaml
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from tb_contracts import CriterionIR
 
 from tb_common import study_manifest as sm
@@ -183,6 +183,26 @@ TEST_PATIENT_ELEMENTS: dict[str, frozenset[str]] = {
 }
 #: the types a test patient's ``reference`` may name, written exactly ``<type>/<id>`` (no address, no ``#``)
 TEST_PATIENT_REFERENCE_TYPES = frozenset({"Claim", "Coverage", "Encounter", "Organization", "Patient", "Practitioner"})
+#: the element of each resource type other than ``Patient`` that names its patient (measured from the shipped test
+#: patients, review of ec90c1b4 item 5): every record carries it, and it points at a ``Patient`` line of the same file
+#: (``Appointment``: one of its ``participant`` entries has an ``actor`` that does)
+TEST_PATIENT_SUBJECT: dict[str, str] = {
+    "Appointment": "participant.actor",
+    "Claim": "patient",
+    "ClaimResponse": "patient",
+    "Condition": "subject",
+    "Consent": "patient",
+    "Coverage": "beneficiary",
+    "DiagnosticReport": "subject",
+    "Encounter": "subject",
+    "MedicationRequest": "subject",
+    "Observation": "subject",
+    "Procedure": "subject",
+}
+#: the id of every test patient record other than a ``Patient`` (measured: all 29,551 shipped records): 32 lowercase
+#: hex digits, what the adapter's mapping writes (an HMAC under the site key of the source record's id). Only the shape
+#: is checked: the source id it was taken from is not in the file, so the derivation cannot be (D-1372)
+TEST_PATIENT_RECORD_ID = re.compile(r"[0-9a-f]{32}")
 #: every ``system`` a test patient may name, exactly (measured): standard terminologies and the named placeholder
 #: systems (``trialbox.local`` and the reserved ``.test`` domain)
 TEST_PATIENT_SYSTEMS = frozenset(
@@ -1107,11 +1127,48 @@ def _patient_references(node: Any) -> Iterator[str]:
             stack.extend(item)
 
 
+def _references(node: Any) -> Iterator[str]:
+    stack = [node]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            ref = item.get("reference")
+            if isinstance(ref, str):
+                yield ref
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+
+
+def _subject_refusal(resource: dict[str, Any], patients: set[str]) -> str | None:
+    """Why a record other than a ``Patient`` does not name one of the file's patients in its own element
+    (:data:`TEST_PATIENT_SUBJECT`), or None."""
+    kind = resource["resourceType"]
+    field = TEST_PATIENT_SUBJECT.get(kind)
+    if field is None:
+        return f"is a record of type {kind} that names no patient element the shipped test patients use"
+    if field == "participant.actor":
+        nodes = [p.get("actor") for p in resource.get("participant") or () if isinstance(p, dict)]
+    else:
+        nodes = [resource.get(field)]
+    for node in nodes:
+        ref = node.get("reference") if isinstance(node, dict) else None
+        if isinstance(ref, str) and ref.startswith("Patient/") and ref[len("Patient/") :] in patients:
+            return None
+    return (
+        f"is a record whose {kind}.{field} does not name one of the file's test patients (every record names its "
+        "patient there)"
+    )
+
+
 def _synthetic_refusal(resources: list[tuple[int, dict[str, Any]]]) -> str | None:
     """Why the test patients are not the synthetic site's, or None (H1): each ``Patient`` once, its ``id`` the
     pseudonym of a synthetic chart number under the synthetic site's public key (:func:`synthetic_pseudonyms`), its
-    ``identifier`` exactly that pseudonym under :data:`SYNTHETIC_PID_SYSTEM`; every ``Patient/`` reference of every
-    line one of those patients. It shows where the records were pseudonymised, not what they say (D-1372)."""
+    ``identifier`` exactly that pseudonym under :data:`SYNTHETIC_PID_SYSTEM`; every other record with an id of
+    :data:`TEST_PATIENT_RECORD_ID`'s shape and its patient element (:data:`TEST_PATIENT_SUBJECT`) naming one of those
+    patients; every reference of every line a record of the file (same type and id), the placeholder practitioners
+    and organisations aside. It shows where the records were pseudonymised, not what they say: it cannot prove the
+    content is synthetic, and the person who packs answers for it (D-1372)."""
     pseudonyms = synthetic_pseudonyms()
     patients: set[str] = set()
     for number, resource in resources:
@@ -1136,9 +1193,31 @@ def _synthetic_refusal(resources: list[tuple[int, dict[str, Any]]]) -> str | Non
         if pid in patients:
             return f"line {number} of {TEST_PATIENTS} is a patient the file already holds"
         patients.add(pid)
+    present = {(r["resourceType"], r.get("id")) for _n, r in resources}
     for number, resource in resources:
         if any(ref not in patients for ref in _patient_references(resource)):
             return f"line {number} of {TEST_PATIENTS} refers to a patient that is not one of the file's test patients"
+        if resource["resourceType"] == "Patient":
+            continue
+        rid = resource.get("id")
+        if not (isinstance(rid, str) and TEST_PATIENT_RECORD_ID.fullmatch(rid)):
+            return (
+                f"line {number} of {TEST_PATIENTS} is a record whose id is not 32 lowercase hex digits (the shape of "
+                "every shipped test record's id)"
+            )
+        why = _subject_refusal(resource, patients)
+        if why:
+            return f"line {number} of {TEST_PATIENTS} {why}"
+    for number, resource in resources:
+        for ref in _references(resource):
+            kind, _, rid = ref.partition("/")
+            if kind in ("Practitioner", "Organization"):
+                continue  # only the placeholders pass _reference_refusal
+            if (kind, rid) not in present:
+                return (
+                    f"line {number} of {TEST_PATIENTS} refers to a {kind} record that the file does not hold (every "
+                    "reference names a record of the same file)"
+                )
     return None
 
 
@@ -1155,6 +1234,18 @@ def test_patient_chart_numbers(data: bytes) -> set[str]:
     return out
 
 
+#: the decimals ``agreement.per_criterion`` may carry (measured: the 14 shipped values all carry one), so a value
+#: cannot carry digits of its own (review of ec90c1b4, item 7)
+EXPECTED_PERCENT_DECIMALS = 1
+
+
+def _percent(value: Any) -> bool:
+    """A number from 0 to 100 with at most :data:`EXPECTED_PERCENT_DECIMALS` decimal (not a boolean, not NaN)."""
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 100:
+        return False
+    return isinstance(value, int) or float(f"{value:.{EXPECTED_PERCENT_DECIMALS}f}") == value
+
+
 def _expected_refusal(data: bytes, manifest: Mapping[str, Any], chart_numbers: set[str] | None) -> str | None:
     """Why ``tests/expected.json`` may not leave the box, or None (H2): an object of :data:`EXPECTED_FIELDS` (those of
     :data:`EXPECTED_REQUIRED` present); ``ruleset`` and ``version`` the manifest's; ``index_date`` a date; ``engine``
@@ -1163,7 +1254,7 @@ def _expected_refusal(data: bytes, manifest: Mapping[str, Any], chart_numbers: s
     patients, exactly the chart numbers of its ``Patient`` lines (``chart_numbers``); each value an object of
     criterion ids the manifest names to ``true``, ``false`` or ``null``; ``agreement`` (optional) exactly its four
     fields: ``all_equal`` a boolean, ``known_differences`` empty, ``patients`` the number of patients,
-    ``per_criterion`` criterion ids to a number from 0 to 100. No other text travels in it."""
+    ``per_criterion`` criterion ids to a number from 0 to 100 with at most one decimal. No other text travels in it."""
     head = f"{EXPECTED} "
     try:
         doc = sm.load_json(data)
@@ -1212,14 +1303,12 @@ def _expected_refusal(data: bytes, manifest: Mapping[str, Any], chart_numbers: s
             or type(agreement["patients"]) is not int
             or agreement["patients"] != len(patients)
             or not isinstance(per, dict)
-            or not all(
-                c in criteria and not isinstance(v, bool) and isinstance(v, int | float) and 0 <= v <= 100
-                for c, v in per.items()
-            )
+            or not all(c in criteria and _percent(v) for c, v in per.items())
         ):
             return head + (
                 "has an agreement that is not all_equal (a boolean), known_differences (empty), patients (their "
-                "number) and per_criterion (criterion ids to a number from 0 to 100)"
+                "number) and per_criterion (criterion ids to a number from 0 to 100 with at most "
+                f"{EXPECTED_PERCENT_DECIMALS} decimal)"
             )
     return None
 
@@ -1424,7 +1513,15 @@ def build(files: Mapping[str, bytes], private_pem: bytes, created: str) -> bytes
     why = _folder_refusal(files)
     if why:
         raise ValueError(f"the study folder cannot be packaged: {why}")
-    parts = sm.split(files)
+    try:
+        parts = sm.split(files)
+    except ValidationError as exc:  # its text echoes the value: only the field's path is said
+        first = exc.errors()[0]
+        where = ".".join(str(x) for x in (first.get("loc") or ())) or "(top)"
+        raise ValueError(
+            f"the study folder cannot be packaged: its manifest.yaml field {where} is not what a manifest holds "
+            f"({first.get('type')})"
+        ) from None
     protocol = parts.protocol
     manifest = protocol["manifest"]
     docx = manifest.get("docx_template")

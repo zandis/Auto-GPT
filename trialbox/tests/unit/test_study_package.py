@@ -422,7 +422,7 @@ def test_test_patients_name_only_placeholders() -> None:
     assert dept in sp.SITE_LOCAL_CODE_SYSTEMS
     good = {
         "resourceType": "Appointment",
-        "id": "a1",
+        "id": "a1" + "0" * 30,
         "participant": [{"actor": {"reference": "Practitioner/P12345"}}, {"actor": {"reference": f"Patient/{PID1}"}}],
         "serviceType": [{"coding": [{"system": dept, "code": "RHEU"}]}],
     }
@@ -1230,68 +1230,91 @@ def test_h3_the_criteria_named_are_exactly_the_ir_files() -> None:
         assert sp.criteria_refusal(yaml.safe_load(files["manifest.yaml"]), files) is None, ruleset
 
 
+#: ``write`` refuses root (review of ec90c1b4, item 1): a test that runs as root gives the writer another uid
+NOT_ROOT = 65534
+
+
+def _not_root() -> int:
+    return NOT_ROOT
+
+
+def _store(root: Path, files: dict[str, bytes], sid: str = "RA-JAK", message: str | None = None) -> Path:
+    """A rule-set store as the criteria compiler keeps it (``criteria_compiler.repo``), the study committed, tagged
+    ``<ID>/v<version>`` with an approval that names its approver, and materialised: the folder ``write`` packs."""
+    from criteria_compiler.repo import RulesetRepo
+
+    repo = RulesetRepo(root / "rulesets")
+    version = str(yaml.safe_load(files["manifest.yaml"])["version"])
+    repo.write_dir("main", "main", f"{sid}/", files, f"{sid} v{version}", "crc-test")
+    repo.tag(f"{sid}/v{version}", "main", message or f"{sid} v{version} approved by crc-test", "crc-test")
+    repo.materialize(sid)
+    return root / "rulesets" / sid
+
+
+def _key_file(path: Path, pem: bytes = PRIV) -> Path:
+    path.write_bytes(pem)
+    path.chmod(0o600)
+    return path
+
+
+def _events(audit: Path) -> list[dict[str, Any]]:
+    return [json.loads(x) for f in sorted(audit.glob("*.jsonl")) for x in f.read_text().splitlines() if x]
+
+
 def test_h4_a_package_is_released_only_after_its_audit_event(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """H4: the host command writes the box's audit event (who, the study, version, package id, sha256, key id; no
-    content) before the package takes its name, gives the event's files to the audit folder's owner (injected here:
-    the test runs as any user), and leaves no package when there is no audit folder, the event cannot be written, or
-    the study is not approved."""
+    """H4: the command writes the audit event through the writer it is given (who, the study, version, approval tag,
+    package id, sha256, key id; no content) before the package takes its name, and leaves no package when there is no
+    writer, the event cannot be written, or the study is not approved."""
+    from tb_common.audit import AuditLog
+
     from tools import study_package as tool
 
-    study = tmp_path / "RA-JAK"
-    _write_folder(study, _small())
-    key = tmp_path / "cc.key"
-    key.write_bytes(PRIV)
-    key.chmod(0o600)
+    study = _store(tmp_path, _small())
+    key = _key_file(tmp_path / "cc.key")
     audit = tmp_path / "audit"
     audit.mkdir()
     out = tmp_path / "out" / "RA-JAK.tbstudy"
     out.parent.mkdir()
-    owned: list[tuple[Path, bool]] = []
+    seen: list[bool] = []
 
-    def own(folder: Path) -> None:  # called after the event, before the package is renamed
-        owned.append((folder, out.exists()))
+    class Spy(AuditLog):
+        def append(self, *a: Any, **k: Any) -> dict[str, Any]:
+            seen.append(out.exists())
+            return super().append(*a, **k)
 
-    with pytest.raises(ValueError, match="no audit directory"):
-        tool.write(study, key, out, DAY, audit_dir=None, own=own)
-    with pytest.raises(ValueError, match="is not a folder"):
-        tool.write(study, key, out, DAY, audit_dir=tmp_path / "missing", own=own)
-    assert not out.exists() and not (tmp_path / "missing").exists()
-    h = tool.write(study, key, out, DAY, audit_dir=audit, tz="Asia/Taipei", by="host:crc-test", own=own)
-    assert owned == [(audit, False)]  # the event was written, and the folder given back, before the package's name
+    with pytest.raises(ValueError, match="no audit writer"):
+        tool.write(study, key, out, DAY, audit=None, euid=_not_root)
+    assert not out.exists()
+    h = tool.write(study, key, out, DAY, audit=Spy(audit, "Asia/Taipei"), by="host:crc-test", euid=_not_root)
+    assert seen == [False]  # the event was written before the package's name
     assert out.read_bytes() and out.stat().st_mode & 0o777 == 0o600
     assert not list(out.parent.glob(".*")), "no hidden part file left"
-    events = [json.loads(x) for f in sorted(audit.glob("*.jsonl")) for x in f.read_text().splitlines() if x]
-    exported = [e for e in events if e["event"] == tool.EVENT]
+    exported = [e for e in _events(audit) if e["event"] == tool.EVENT]
     assert len(exported) == 1
     ev = exported[0]
     assert ev["actor"] == "host:crc-test" and ev["ruleset"] == "RA-JAK" and ev["ruleset_version"] == "1.0.0"
     assert ev["output_sha"] == hashlib.sha256(out.read_bytes()).hexdigest() == h["sha256"]
     assert ev["detail"] == {"package_id": h["package_id"], "key_id": sp.key_id(PUB), "created": DAY,
-                            "protocol_version": h["protocol_version"], "criteria_sha256": h["criteria_sha256"]}  # fmt: skip
-    assert PID1 not in json.dumps(events)  # no content of the package in the audit
+                            "protocol_version": h["protocol_version"], "criteria_sha256": h["criteria_sha256"],
+                            "approval_tag": "RA-JAK/v1.0.0"}  # fmt: skip
+    assert PID1 not in json.dumps(_events(audit))  # no content of the package in the audit
 
     # the event cannot be written: no package, no part file
-    def full(*_a: Any, **_k: Any) -> None:
-        raise OSError("disk full")
+    class Full:
+        def append(self, *_a: Any, **_k: Any) -> None:
+            raise OSError("disk full")
 
-    from tb_common import audit as audit_mod
-
-    monkeypatch.setattr(audit_mod.AuditLog, "append", full)
     second = tmp_path / "out" / "second.tbstudy"
     with pytest.raises(ValueError, match="audit event could not be written"):
-        tool.write(study, key, second, DAY, audit_dir=audit, own=own)
+        tool.write(study, key, second, DAY, audit=Full(), euid=_not_root)
     assert not second.exists() and not list(out.parent.glob(".*"))
-    monkeypatch.undo()
     # a draft is not packed
     m = yaml.safe_load((study / "manifest.yaml").read_bytes())
     m["status"] = "draft"
     (study / "manifest.yaml").write_text(yaml.safe_dump(m, allow_unicode=True), encoding="utf-8")
     with pytest.raises(ValueError, match="status: approved"):
-        tool.write(study, key, tmp_path / "out" / "draft.tbstudy", DAY, audit_dir=audit, own=own)
+        tool.write(study, key, tmp_path / "out" / "draft.tbstudy", DAY, audit=AuditLog(audit), euid=_not_root)
     assert not (tmp_path / "out" / "draft.tbstudy").exists()
-    # the default gives the folder back only as root (D-724, by descriptor): a no-op for another user
-    if os.geteuid() != 0:
-        tool._give_back(audit)
 
 
 def test_h5_a_key_signs_only_the_studies_its_entry_names() -> None:
@@ -1334,7 +1357,7 @@ def test_h5_a_key_signs_only_the_studies_its_entry_names() -> None:
 # ---------------------------------------------------------------------------------------------- the tool
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
     # PYTHONUNBUFFERED out: a CI runner does not set it; no audit folder from the environment
-    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUNBUFFERED", "TB_AUDIT_DIR")}
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUNBUFFERED", "TB_AUDIT_DIR", "TB_AUDIT_WRITER")}
     env["PYTHONPATH"] = "libs:services:."
     return subprocess.run(
         [sys.executable, "-m", "tools.study_package", *args], check=False, cwd=ROOT, env=env, capture_output=True,
@@ -1358,19 +1381,27 @@ def test_command_line(tmp_path: Path) -> None:
     priv, pub = keys / "cc_ed25519.key", keys / "cc_ed25519.pub"
     assert priv.stat().st_mode & 0o777 == 0o600
     assert _run("keygen", "--out", str(keys)).returncode == 1  # a key is never replaced
-    study = tmp_path / "RA-JAK"
-    for path, data in _small().items():
-        (study / path).parent.mkdir(parents=True, exist_ok=True)
-        (study / path).write_bytes(data)
+    study = _store(tmp_path, _small())
     out = tmp_path / "RA-JAK.tbstudy"
     audit = tmp_path / "audit"
     audit.mkdir()
+    if os.geteuid() == 0:  # write refuses root (item 1); the rest of this test runs as any other account
+        refused = _run("write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY,
+                       "--audit-dir", str(audit))  # fmt: skip
+        assert refused.returncode == 1 and refused.stderr.count("\n") == 1, refused.stderr
+        assert "never written as root" in refused.stderr and "docker compose run --rm" in refused.stderr
+        assert not out.exists() and not list(audit.iterdir())
+        return
     # no audit folder: no package (H4)
     none = _run("write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY)
     assert none.returncode == 1 and "no audit directory" in none.stderr and not out.exists()
     w = _run("write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY, "--audit-dir", str(audit))
     assert w.returncode == 0, w.stderr
     assert "package RA-JAK-1.0.0-" in w.stdout and sp.key_id(pub.read_bytes()) in w.stdout
+    assert "approval tag RA-JAK/v1.0.0" in w.stdout
+    from tools import study_package as tool
+
+    assert tool.text("h1_limit", "en") in w.stdout  # H1's limit, said to the person who packs
     assert out.stat().st_mode & 0o777 == 0o600 and not list(tmp_path.glob(".*.part"))
     events = [json.loads(x) for f in sorted(audit.glob("*.jsonl")) for x in f.read_text().splitlines() if x]
     assert [e["event"] for e in events if e["event"].startswith("approve.")] == ["approve.study_package_exported"]
@@ -1518,27 +1549,25 @@ def test_item12_a_site_field_in_the_protocol_part_is_refused_for_itself(small: b
     assert got.step == "protocol" and "routing" in str(got) and "package_id" not in str(got), str(got)
 
 
-def test_a_the_package_is_written_by_descriptor_and_a_failed_rename_says_the_event_was_written(
+def test_a_the_package_is_written_by_descriptor_and_a_failed_link_says_the_event_was_written(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """(a) The part file is made in the destination folder's descriptor (``O_EXCL | O_NOFOLLOW``, mode 600 under any
-    umask); ``--force`` replaces only a regular file; when the event is written and the rename fails, the sentence
-    says an event names a package that does not exist and that the command may be run again, and a rerun works."""
+    umask); ``--force`` replaces only a regular file; when the event is written and the name cannot be taken, the
+    sentence says an event names a package that does not exist and that the command may be run again, and a rerun
+    works."""
+    from tb_common.audit import AuditLog
+
     from tools import study_package as tool
 
-    study = tmp_path / "RA-JAK"
-    _write_folder(study, _small())
-    key = tmp_path / "cc.key"
-    key.write_bytes(PRIV)
-    key.chmod(0o600)
+    study = _store(tmp_path, _small())
+    key = _key_file(tmp_path / "cc.key")
     audit = tmp_path / "audit"
     audit.mkdir()
     outdir = tmp_path / "out"
     outdir.mkdir()
     out = outdir / "RA-JAK.tbstudy"
-
-    def events() -> list[dict[str, Any]]:
-        return [json.loads(x) for f in sorted(audit.glob("*.jsonl")) for x in f.read_text().splitlines() if x]
+    log = AuditLog(audit)
 
     opened: list[tuple[str, int, int | None]] = []
     real_open = os.open
@@ -1555,20 +1584,20 @@ def test_a_the_package_is_written_by_descriptor_and_a_failed_rename_says_the_eve
         monkeypatch.setattr(os, "open", spy)
         monkeypatch.setattr(os, "link", no_link)
         with pytest.raises(ValueError) as e:
-            tool.write(study, key, out, DAY, audit_dir=audit, by="host:crc-test", own=lambda _f: None)
+            tool.write(study, key, out, DAY, audit=log, by="host:crc-test", euid=_not_root)
         monkeypatch.undo()
         said = str(e.value)
         assert "was written" in said and "does not exist" in said and "run the command again" in said, said
         assert not out.exists() and not list(outdir.iterdir()), "no package and no part file"
-        assert [ev["event"] for ev in events()].count(tool.EVENT) == 1
+        assert [ev["event"] for ev in _events(audit)].count(tool.EVENT) == 1
         part = [o for o in opened if o[0].endswith(".part")]
         assert len(part) == 1 and part[0][2] is not None and "/" not in part[0][0]
-        need = os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_WRONLY
+        need = os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
         assert part[0][1] & need == need
         # the operator runs it again: a package and a second event
-        h = tool.write(study, key, out, DAY, audit_dir=audit, by="host:crc-test", own=lambda _f: None)
+        h = tool.write(study, key, out, DAY, audit=log, by="host:crc-test", euid=_not_root)
         assert out.stat().st_mode & 0o7777 == 0o600 and h["sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
-        assert [ev["event"] for ev in events()].count(tool.EVENT) == 2
+        assert [ev["event"] for ev in _events(audit)].count(tool.EVENT) == 2
     finally:
         os.umask(old)
     # --force replaces a regular file only, and refuses before any event otherwise
@@ -1578,44 +1607,13 @@ def test_a_the_package_is_written_by_descriptor_and_a_failed_rename_says_the_eve
     link.symlink_to(target)
     folder = outdir / "folder.tbstudy"
     folder.mkdir()
-    before = len(events())
+    before = len(_events(audit))
     for where in (link, folder):
         with pytest.raises(ValueError, match="not a regular file"):
-            tool.write(study, key, where, DAY, audit_dir=audit, force=True, own=lambda _f: None)
-    assert len(events()) == before and target.read_bytes() == b"keep" and link.is_symlink()
-    tool.write(study, key, out, DAY, audit_dir=audit, force=True, own=lambda _f: None)
-    assert sp.verify_file(out, [TRUST])
-
-
-def test_a_the_audit_files_go_back_by_descriptor_regular_files_only(tmp_path: Path) -> None:
-    """(a) What the export wrote in the audit folder goes back to the folder's owner by ``fchown`` on an open
-    descriptor, for the folder's own regular files of one link only: never through a link, never into a subfolder,
-    never a mode change (``backup._own_writes`` is not used: it changes owners by path)."""
-    from tools import study_package as tool
-
-    audit = tmp_path / "audit"
-    audit.mkdir()
-    outside = tmp_path / "outside"
-    outside.write_bytes(b"x")
-    outside.chmod(0o4755 if os.geteuid() == 0 else 0o755)
-    (audit / "2026-11-19.jsonl").write_bytes(b"{}\n")
-    (audit / "2026-11-19.jsonl").chmod(0o640)
-    (audit / "link").symlink_to(outside)
-    (audit / "sub").mkdir()
-    (audit / "sub" / "deep").write_bytes(b"y")
-    os.link(outside, audit / "hard")
-    os.mkfifo(audit / "fifo")
-    me = os.geteuid()
-    if me == 0:
-        os.chown(audit, 65534, 65534)
-    tool._give_back(audit)
-    st = {p.name: os.lstat(p) for p in [outside, *audit.iterdir(), audit / "sub" / "deep"]}
-    assert st["outside"].st_uid == me and stat_mode(st["outside"]) == (0o4755 if me == 0 else 0o755)
-    assert st["hard"].st_uid == me and st["link"].st_uid == me and st["fifo"].st_uid == me
-    assert st["sub"].st_uid == me and st["deep"].st_uid == me
-    assert st["2026-11-19.jsonl"].st_uid == (65534 if me == 0 else me)
-    assert stat_mode(st["2026-11-19.jsonl"]) == 0o640
-    assert inspect.signature(tool.write).parameters["own"].default is tool._give_back
+            tool.write(study, key, where, DAY, audit=log, force=True, euid=_not_root)
+    assert len(_events(audit)) == before and target.read_bytes() == b"keep" and link.is_symlink()
+    tool.write(study, key, out, DAY, audit=log, force=True, euid=_not_root)
+    assert sp.verify_file(out, [TRUST]) and not [p for p in outdir.iterdir() if p.name.startswith(".")]
 
 
 def stat_mode(st: os.stat_result) -> int:
@@ -1670,3 +1668,361 @@ def test_b_the_trust_file_is_strict_and_read_safely(tmp_path: Path) -> None:
             tool.read_trust_file(other)
     usage = _run("verify", str(trust))
     assert usage.returncode == 2 and "verified" not in usage.stdout
+
+
+# ------------------------------------------------------------------------- review of ec90c1b4 (writer and export)
+def _written(tmp_path: Path, files: dict[str, bytes] | None = None) -> tuple[Path, Path, Path, Path]:
+    """``(study in a store, key, audit folder, output folder)`` for a ``write``."""
+    study = _store(tmp_path, files or _small())
+    key = _key_file(tmp_path / "cc.key")
+    audit = tmp_path / "audit"
+    audit.mkdir()
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    return study, key, audit, outdir
+
+
+def test_item1_write_never_runs_as_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
+    """Item 1: run as root, ``write`` refuses before it reads a file or touches the audit, with one sentence that
+    names the supported way (the criteria compiler's container, its service account); the command does too, in the
+    operator's language. The audit goes through the product's writer (``open_audit``), as 10D-28's export."""
+    from tb_common.audit import AuditLog
+
+    from tools import study_package as tool
+
+    study, key, audit, outdir = _written(tmp_path)
+    calls: list[Any] = []
+
+    class Spy(AuditLog):
+        def append(self, *a: Any, **k: Any) -> dict[str, Any]:
+            calls.append(a)
+            return super().append(*a, **k)
+
+    with pytest.raises(tool.RootRefused) as e:
+        tool.write(study, key, outdir / "x.tbstudy", DAY, audit=Spy(audit), euid=lambda: 0)
+    said = str(e.value)
+    assert "never written as root" in said and tool.SUPPORTED_RUN in said and said.count(". ") == 0
+    assert "criteria-compiler" in tool.SUPPORTED_RUN and "/data/rulesets/<ID>" in tool.SUPPORTED_RUN
+    assert calls == [] and not list(outdir.iterdir()) and not list(audit.iterdir())
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    rc = tool.main(["write", str(study), "--key", str(key), "--out", str(outdir / "y"), "--audit-dir", str(audit),
+                    "--lang", "ja"])  # fmt: skip
+    monkeypatch.undo()
+    err = capsys.readouterr().err
+    assert rc == 1 and err.count("\n") == 1 and "root" in err and tool.SUPPORTED_RUN in err
+    assert tool.TEXTS["root"]["ja"].split("{")[0] in err and not list(outdir.iterdir())
+    assert all(set(t) == {"en", "ja", "zh-TW"} for t in tool.TEXTS.values())
+    src = inspect.getsource(tool.open_writer)
+    assert "open_audit" in src and "AuditLog(" not in inspect.getsource(tool)
+
+
+def test_item1_the_file_writer_writes_only_into_its_own_folder(tmp_path: Path) -> None:
+    """Item 1: without the journal the event goes to a folder of the running account's only: a link, a folder others
+    may write, or another account's folder is refused before anything is written."""
+    from tools import study_package as tool
+
+    loose = tmp_path / "loose"
+    loose.mkdir()
+    loose.chmod(0o777)
+    link = tmp_path / "link"
+    link.symlink_to(tmp_path)
+    for bad in (loose, link, tmp_path / "missing"):
+        with pytest.raises(ValueError, match="audit directory"):
+            tool._file_audit_dir(bad)
+    theirs = tmp_path / "theirs"
+    theirs.mkdir()
+    if os.geteuid() == 0:
+        os.chown(theirs, NOT_ROOT, NOT_ROOT)
+    else:
+        theirs = Path("/")
+    with pytest.raises(ValueError, match="not this account's alone"):
+        tool._file_audit_dir(theirs)
+
+
+def test_item2_the_export_changes_no_owner_and_no_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Item 2: nothing is handed to another account: ``write`` calls no chown, fchown, lchown, chmod, fchmod or
+    lchmod (the root-only hand-back of ec90c1b4 is gone with root)."""
+    import shutil
+
+    from tb_common.audit import AuditLog
+
+    from tools import study_package as tool
+
+    study, key, audit, outdir = _written(tmp_path)
+    secret = audit / "moved-in.key"
+    secret.write_bytes(b"SYNTHETIC-SECRET\n")
+    secret.chmod(0o600)
+    before = os.lstat(secret)
+    calls: list[str] = []
+    for mod, names in ((os, ("chown", "fchown", "lchown", "chmod", "fchmod", "lchmod")), (shutil, ("chown",))):
+        for name in names:
+            if hasattr(mod, name):
+                monkeypatch.setattr(mod, name, lambda *_a, _n=name, **_k: calls.append(_n))
+    tool.write(study, key, outdir / "RA-JAK.tbstudy", DAY, audit=AuditLog(audit), euid=_not_root)
+    monkeypatch.undo()
+    assert calls == [] and not hasattr(tool, "_give_back")
+    after = os.lstat(secret)
+    assert (after.st_uid, after.st_gid, after.st_mode) == (before.st_uid, before.st_gid, before.st_mode)
+
+
+def test_item3_the_destination_is_checked_and_the_name_is_the_audited_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 3: the destination folder is opened without following a link and must be this account's alone; the name
+    is linked from the descriptor whose bytes were hashed for the event, so a file swapped in under the hidden name
+    between the event and the link is not what takes the name; without ``/proc`` the name is checked against the
+    descriptor, removed on a mismatch, and the sentence says so."""
+    from tb_common.audit import AuditLog
+
+    from tools import study_package as tool
+
+    study, key, audit, outdir = _written(tmp_path)
+    linked = tmp_path / "linked"
+    linked.symlink_to(outdir)
+    loose = tmp_path / "loose"
+    loose.mkdir()
+    loose.chmod(0o777)
+    log = AuditLog(audit)
+    for where, says in ((linked, "symbolic link"), (loose, "not this account's alone")):
+        with pytest.raises(ValueError, match=says):
+            tool.write(study, key, where / "x.tbstudy", DAY, audit=log, euid=_not_root)
+    assert not [e for e in _events(audit) if e["event"] == tool.EVENT]
+    other = tmp_path / "other.bin"
+
+    class Swap(AuditLog):  # the hidden file is replaced by another one right after the event
+        def append(self, *a: Any, **k: Any) -> dict[str, Any]:
+            got = super().append(*a, **k)
+            other.write_bytes(b"NOT-THE-PACKAGE")
+            part = next(n for n in os.listdir(outdir) if n.endswith(".part"))
+            os.rename(other, outdir / part)
+            return got
+
+    # the name is linked from the descriptor: the swapped-in file never takes it (the written file, no longer named,
+    # cannot be linked either, and the sentence says the event names a package that does not exist)
+    out = outdir / "RA-JAK.tbstudy"
+    with pytest.raises(ValueError, match="could not take the name") as e:
+        tool.write(study, key, out, DAY, audit=Swap(audit), euid=_not_root)
+    assert "names a package that does not exist" in str(e.value)
+    assert not out.exists() and not [p for p in outdir.iterdir() if p.name.startswith(".")]
+    h = tool.write(study, key, out, DAY, audit=log, euid=_not_root)  # untouched: the audited bytes are the file's
+    ev = [e for e in _events(audit) if e["event"] == tool.EVENT][-1]
+    assert ev["output_sha"] == h["sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
+    assert sp.verify_file(out, [TRUST])
+    # no /proc: the hidden name is linked, and the swapped file is caught, removed and said
+    real_exists = os.path.exists
+    monkeypatch.setattr(os.path, "exists", lambda p: False if str(p).startswith("/proc/self/fd/") else real_exists(p))
+    second = outdir / "second.tbstudy"
+    with pytest.raises(ValueError, match="is not that package") as e:
+        tool.write(study, key, second, DAY, audit=Swap(audit), euid=_not_root)
+    monkeypatch.undo()
+    assert "names a package that does not exist" in str(e.value)
+    assert not second.exists() and not [p for p in outdir.iterdir() if p.name.startswith(".")]
+
+
+def test_item4_only_the_bytes_of_the_approval_tag_are_packed(tmp_path: Path) -> None:
+    """Item 4: ``status: approved`` is bound to the approval: the folder must be its approval tag's in the box's
+    rule-set store; a plain folder, a file edited after approval, a version with no tag, a tag that names nobody (a
+    shipped example) and an approval that arrived in an update are refused before any event."""
+    from tb_common.audit import AuditLog
+    from tb_common.ruleset import SEEDED_TAG
+
+    from tools import study_package as tool
+
+    key = _key_file(tmp_path / "cc.key")
+    audit = tmp_path / "audit"
+    audit.mkdir()
+    log = AuditLog(audit)
+
+    def refused(study: Path, says: str) -> None:
+        out = tmp_path / "out" / f"{study.parent.parent.name}.tbstudy"
+        out.parent.mkdir(exist_ok=True)
+        with pytest.raises(ValueError, match=says):
+            tool.write(study, key, out, DAY, audit=log, euid=_not_root)
+        assert not out.exists()
+
+    plain = tmp_path / "plain" / "RA-JAK"
+    _write_folder(plain, _small())
+    refused(plain, "not in the box's rule-set store")
+    edited = _store(tmp_path / "edited", _small())
+    (edited / "ir" / "RA-JAK-INC-01.json").write_bytes((edited / "ir" / "RA-JAK-INC-01.json").read_bytes() + b" ")
+    refused(edited, "differs from its approval tag RA-JAK/v1.0.0")
+    added = _store(tmp_path / "added", _small())
+    (added / "valuesets" / "VS_EXTRA.json").write_bytes((added / "valuesets" / "VS_HBSAG.json").read_bytes())
+    refused(added, "differs from its approval tag")
+    refused(_store(tmp_path / "seeded", _small(), message=f"RA-JAK v1.0.0 {SEEDED_TAG}"), "names nobody")
+    refused(_store(tmp_path / "arrived", _small(), message="RA-JAK v1.0.0 (offline update, vendor)"), "arrived")
+    untagged = _store(tmp_path / "untagged", _small())
+    m = yaml.safe_load((untagged / "manifest.yaml").read_bytes())
+    m["version"] = "1.0.1"
+    (untagged / "manifest.yaml").write_text(yaml.safe_dump(m, allow_unicode=True), encoding="utf-8")
+    refused(untagged, "no approval tag")
+    assert not [e for e in _events(audit) if e["event"] == tool.EVENT]
+
+
+def test_item4_every_shipped_study_packs_from_its_approval_tag(tmp_path: Path) -> None:
+    """Item 4 and the card: each of the 8 shipped studies, approved in a store, packs through ``write`` and verifies."""
+    from tb_common.audit import AuditLog
+
+    from tools import study_package as tool
+
+    key = _key_file(tmp_path / "cc.key")
+    audit = tmp_path / "audit"
+    audit.mkdir()
+    (tmp_path / "out").mkdir()
+    for ruleset in SHIPPED:
+        study = _store(tmp_path / ruleset, _folder(ruleset), sid=ruleset)
+        out = tmp_path / "out" / f"{ruleset}.tbstudy"
+        h = tool.write(study, key, out, DAY, audit=AuditLog(audit), euid=_not_root)
+        assert sp.verify_file(out, [TRUST]).header["criteria_sha256"] == h["criteria_sha256"]
+    assert len(SHIPPED) == 8 and len([e for e in _events(audit) if e["event"] == tool.EVENT]) == 8
+
+
+def _gzqo_with(change: Callable[[list[dict[str, Any]]], None]) -> dict[str, bytes]:
+    files = _folder("GZQO")
+    lines = [json.loads(x) for x in files[sp.TEST_PATIENTS].splitlines() if x.strip()]
+    change(lines)
+    files[sp.TEST_PATIENTS] = b"".join(json.dumps(r, separators=(",", ":")).encode() + b"\n" for r in lines)
+    return files
+
+
+def _first(lines: list[dict[str, Any]], kind: str) -> dict[str, Any]:
+    return next(r for r in lines if r["resourceType"] == kind)
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["no subject", "subject an encounter not here", "coverage reference typed", "record id typed",
+     "claim patient not here", "appointment without patient", "encounter reference not here"],
+)  # fmt: skip
+def test_item5_every_record_names_a_patient_of_the_file_and_every_reference_resolves(case: str) -> None:
+    """Item 5: every record other than a Patient names one of the file's patients in its own element (measured per
+    type), has an id of the shipped shape (32 lowercase hex), and every reference names a record of the file, the
+    placeholder practitioners and organisations aside."""
+
+    def change(lines: list[dict[str, Any]]) -> None:
+        if case == "no subject":
+            del _first(lines, "Observation")["subject"]
+        elif case == "subject an encounter not here":
+            _first(lines, "Observation")["subject"] = {"reference": "Encounter/zz-not-here"}
+        elif case == "coverage reference typed":
+            claim = _first(lines, "Claim")
+            claim["insurance"][0]["coverage"] = {"reference": "Coverage/JohnDoe-A123456789"}
+        elif case == "record id typed":
+            _first(lines, "Condition")["id"] = "JohnDoe-A123456789"
+        elif case == "claim patient not here":
+            _first(lines, "Claim")["patient"] = {"reference": "Patient/" + "0" * 32}
+        elif case == "appointment without patient":
+            appt = _first(lines, "Appointment")
+            appt["participant"] = [p for p in appt["participant"] if not p["actor"]["reference"].startswith("Patient/")]
+        else:
+            enc = next(r for r in lines if r["resourceType"] == "Condition" and "encounter" in r)
+            enc["encounter"] = {"reference": "Encounter/" + "f" * 32}
+
+    with pytest.raises(ValueError, match="cannot be packaged"):
+        sp.build(_gzqo_with(change), PRIV, DAY)
+
+
+def test_item5_the_patient_elements_and_record_ids_are_measured() -> None:
+    """Item 5: :data:`TEST_PATIENT_SUBJECT` is what the shipped test patients use, for every type but Patient, and
+    every shipped record's id has :data:`TEST_PATIENT_RECORD_ID`'s shape."""
+    used: dict[str, set[str]] = {}
+    for ruleset in SHIPPED:
+        data = _folder(ruleset).get(sp.TEST_PATIENTS)
+        for line in (data or b"").splitlines():
+            r = json.loads(line)
+            if r["resourceType"] == "Patient":
+                continue
+            assert sp.TEST_PATIENT_RECORD_ID.fullmatch(r["id"])
+            fields = {f for f in ("subject", "patient", "beneficiary") if f in r}
+            if r["resourceType"] == "Appointment":
+                fields = {"participant.actor"}
+            used.setdefault(r["resourceType"], set()).update(fields)
+    assert {k: {v} for k, v in sp.TEST_PATIENT_SUBJECT.items()} == used
+    assert set(sp.TEST_PATIENT_SUBJECT) == set(sp.TEST_PATIENT_ELEMENTS) - {"Patient"}
+
+
+def test_item6_the_actor_is_the_account_and_sudo_user_only_a_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 6: who is taken from the account database by uid, not from LOGNAME or USER; SUDO_USER is recorded as
+    ``sudo_user_claimed``."""
+    import pwd
+
+    from tb_common.audit import AuditLog
+
+    from tools import study_package as tool
+
+    monkeypatch.setenv("LOGNAME", "spoofed-name")
+    monkeypatch.setenv("USER", "spoofed-name")
+    monkeypatch.setenv("SUDO_USER", "claimed-name")
+    try:
+        name = pwd.getpwuid(os.getuid()).pw_name
+    except KeyError:
+        name = f"uid:{os.getuid()}"
+    assert tool.actor() == (f"host:{name}", "claimed-name")
+    study, key, audit, outdir = _written(tmp_path)
+    tool.write(study, key, outdir / "RA-JAK.tbstudy", DAY, audit=AuditLog(audit), euid=_not_root)
+    ev = [e for e in _events(audit) if e["event"] == tool.EVENT][-1]
+    assert ev["actor"] == f"host:{name}" and ev["detail"]["sudo_user_claimed"] == "claimed-name"
+    monkeypatch.setattr(tool.pwd, "getpwuid", lambda _uid: (_ for _ in ()).throw(KeyError(_uid)))
+    monkeypatch.delenv("SUDO_USER")
+    assert tool.actor() == (f"host:uid:{os.getuid()}", None)
+
+
+def test_item7_the_key_file_is_read_once_and_strictly(tmp_path: Path) -> None:
+    """Item 7: the private key is opened once without following a link and read from that descriptor: a regular file
+    of the running account's with no group or other bit; a key the trust file trusts for updates is refused."""
+    from tools import study_package as tool
+
+    key = _key_file(tmp_path / "cc.key")
+    assert tool._private_key(key) == PRIV
+    link = tmp_path / "link.key"
+    link.symlink_to(key)
+    fifo = tmp_path / "fifo.key"
+    os.mkfifo(fifo)
+    with pytest.raises(ValueError, match="symbolic link"):
+        tool._private_key(link)
+    with pytest.raises(ValueError, match="not a regular file"):
+        tool._private_key(fifo)
+    theirs = _key_file(tmp_path / "theirs.key")
+    if os.geteuid() == 0:
+        os.chown(theirs, NOT_ROOT, NOT_ROOT)
+    else:
+        theirs = Path("/etc/passwd")
+    with pytest.raises(ValueError, match="owned by another account"):
+        tool._private_key(theirs)
+    update = [sp.TrustedKey(PUB, frozenset({"RA-JAK"}), "update")]
+    with pytest.raises(ValueError, match="trusted for updates"):
+        tool._private_key(key, update)
+    assert tool._private_key(key, [sp.TrustedKey(PUB, frozenset({"RA-JAK"}))]) == PRIV
+
+
+@pytest.mark.parametrize(("value", "ok"), [(33.3, True), (100, True), (0, True), (33.33, False), (100.1, False),
+                                           (-0.1, False), (True, False), (12.000001, False)])  # fmt: skip
+def test_item7_per_criterion_carries_the_shipped_precision(value: Any, ok: bool) -> None:
+    """Item 7: ``agreement.per_criterion`` is a number from 0 to 100 with at most one decimal, as every shipped value
+    is (no numeric side channel), at the writer's real call."""
+    with_agreement = [r for r in SHIPPED if (json.loads(_folder(r).get("tests/expected.json", b"{}")).get("agreement"))]
+    assert with_agreement
+    for r in with_agreement:
+        per = json.loads(_folder(r)["tests/expected.json"])["agreement"]["per_criterion"]
+        assert all(type(v) in (int, float) and float(f"{v:.1f}") == v for v in per.values())
+    files = _folder(with_agreement[0])
+    doc = json.loads(files["tests/expected.json"])
+    first = sorted(doc["agreement"]["per_criterion"])[0]
+    doc["agreement"]["per_criterion"][first] = value
+    files["tests/expected.json"] = json.dumps(doc).encode()
+    if ok:
+        assert sp.build(files, PRIV, DAY)
+    else:
+        with pytest.raises(ValueError, match="at most 1 decimal"):
+            sp.build(files, PRIV, DAY)
+
+
+def test_item7_a_manifest_refusal_names_the_field_not_its_value() -> None:
+    """Item 7: a manifest the model refuses is said by its field's path; the value is not echoed."""
+    files = _folder("GZQO")
+    files["manifest.yaml"] += b"\npopulation: SYNTH-NAME-ZZZ\n"
+    with pytest.raises(ValueError) as e:
+        sp.build(files, PRIV, DAY)
+    assert "population" in str(e.value) and "SYNTH-NAME-ZZZ" not in str(e.value) and "\n" not in str(e.value)

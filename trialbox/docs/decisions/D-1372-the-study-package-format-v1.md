@@ -15,9 +15,10 @@
   - A study travels as **one file** that `tb_common.study_package.build` writes from a study folder `rulesets/<ID>/`
     and a coordinating-centre Ed25519 private key, and `verify` checks against the trusted keys its caller
     passes, each trusted only for the studies its entry names (H5). The tool: `keygen --out DIR` (`cc_ed25519.key`, PKCS8 PEM, mode 600; `cc_ed25519.pub`, SubjectPublicKeyInfo
-    PEM: the formats of `tools/sign_bundle.py keygen` and `tb_common.crypto`), `write STUDY --key K --out F
-    [--created YYYY-MM-DD] [--force]` (a key file others may read, and an encrypted key, are refused; an existing
-    `F` is replaced only with `--force`; and see "The export, audited" below), `verify F --trust-file T` (see "Trusted
+    PEM: the formats of `tools/sign_bundle.py keygen` and `tb_common.crypto`), `write <store>/<ID> --key K --out F
+    [--created YYYY-MM-DD] [--force] [--trust-file T] [--audit-dir D] [--lang en|ja|zh-TW]` (never as root; the key
+    file is read once by descriptor; an encrypted key is refused; an existing `F` is replaced only with `--force`;
+    and see "The export, audited" below), `verify F --trust-file T` (see "Trusted
     keys" below), `show F`
     (the header; the signature is not checked, and it says so). It prints key ids, never key material. No new
     dependency and no new cryptography: Ed25519 through `tb_common.crypto`.
@@ -153,7 +154,15 @@
     `pid_for_mrn` takes them, on the chart number as written, so no chart-number setting of the box changes it); a
     `Patient` whose `identifier` is not exactly `[{"system": "https://trialbox.local/fhir/sid/pid/DEMO-A", "value":
     <its id>}]` (each entry; at least one); a `Patient` twice; and any line with a `Patient/` reference to a patient
-    the file does not hold. All five shipped files pass unchanged (each `Patient` is site-a's, chart numbers
+    the file does not hold. Then (review of ec90c1b4, item 5) every record other than a `Patient` must name one of
+    the file's patients in its own element, measured per type from the shipped files (`TEST_PATIENT_SUBJECT`:
+    `subject` for Condition, DiagnosticReport, Encounter, MedicationRequest, Observation, Procedure; `patient` for
+    Claim, ClaimResponse, Consent; `beneficiary` for Coverage; an `actor` among an Appointment's `participant`); its
+    `id` must have the shape every one of the 29,551 shipped records has, 32 lowercase hex digits
+    (`TEST_PATIENT_RECORD_ID`: the adapter's HMAC of the source record's id; only the shape is checked, since the
+    source id is not in the file); and **every reference of any type must name a record of the same file** (same
+    type and id), except the placeholder practitioners and organisations, which `_reference_refusal` already holds
+    to their lists. All five shipped files pass unchanged (each `Patient` is site-a's, chart numbers
     10000001 to 10000600), so no fixture and no criteria hash changed. This was chosen over a new marker stamped by
     the generator because a marker in the test patients would change them and so every shipped criteria hash
     (D-1366) and the goldens that pin them; the pseudonym scheme is already in every shipped file.
@@ -163,9 +172,11 @@
     refused (the chance that a real pseudonym equals one of the 22,500 is about 22,500 in 2^128). It does **not**
     prove that the content is synthetic: the key is public, so anyone can compute a synthetic pseudonym and write a
     real person's dates, codes or report under it by hand; and a real hospital that numbered its chart numbers in
-    the same range and ingested them under the public test key would pass. The leaves below still travel **as
-    typed**, unchecked against any real record (each within the type and the 200-character cap above): every `id` and `reference` id (a FHIR id, so `Patient/` and
-    the like may carry any 64 letters, digits, `.` and `-`), `Patient.birthDate`, `Patient.gender`,
+    the same range and ingested them under the public test key would pass. `write` prints this limit to the
+    operator at pack time, in one sentence (three languages): the check cannot prove the content is synthetic, and
+    the person who packs the study answers for it. The leaves below still travel **as
+    typed**, unchecked against any real record (each within the type and the 200-character cap above): the 32 hex digits of each record's `id`
+    (their shape only, item 5; a reference names one of them or a placeholder), `Patient.birthDate`, `Patient.gender`,
     `Patient.identifier.value`, `Encounter.identifier.value`, every date and time (`birthDate`, `onsetDateTime`,
     `recordedDate`, `effectiveDateTime`, `performedDateTime`, `authoredOn`, `created`, `dateTime`, `start`, `end`,
     `period.start`, `preAuthPeriod`, `validityPeriod`), every `code` and `display` of a coding (but the department
@@ -187,9 +198,11 @@
     patients, when the study carries test patients, are not exactly the chart numbers of its `Patient` lines (the
     five shipped pairs match exactly, 200 each); and whose `agreement`, when present, is not exactly `all_equal` (a
     boolean), `known_differences` (empty: the writer's `KNOWN` table is empty, and its values would be words),
-    `patients` (the integer number of patients) and `per_criterion` (criterion ids to a number from 0 to 100). So no
-    free text and no identifier but a synthetic chart number travels in it. For the three studies with no test
-    patients (AD-MAB, NEUR-COH, RA-JAK) the keys are only held to the synthetic numbering, not tied to records.
+    `patients` (the integer number of patients) and `per_criterion` (criterion ids to a number from 0 to 100 with at
+    most one decimal: the 14 shipped values each carry one, so no value carries digits of its own; review of
+    ec90c1b4, item 7). So no free text and no identifier but a synthetic chart number travels in it. For the three
+    studies with no test patients (AD-MAB, NEUR-COH, RA-JAK) the chart-number keys are only held to the synthetic
+    numbering, not tied to records: within it they **travel as typed**.
   - **Protocol files a package carries (`PACKAGE_FILES`, `carriable`).** The criteria hash (D-1366,
     `study_manifest.PROTOCOL_FILES`, unchanged) covers every file the engine reads, including any file under
     `cql/elm/` and files in subfolders, so that a planted file changes the hash. A package carries only one file name
@@ -231,40 +244,74 @@
   - The writer and the verifier both check the test patients (H1), `tests/expected.json` (H2), the models and the
     criteria set (H3): the verifier as the last check of step 5 (review item 6). The writer alone checks what only a
     folder has (hidden files, subfolders, links, the template, the manifest's `status`).
-- **The export, audited (review of f1d1fe3c, H4).** Packing is a host command of the coordinating centre's
-  operator, not a console act: no console route is added. `tools.study_package write` (`write()`), in this order:
-  refuses with no audit folder (`--audit-dir`, else `TB_AUDIT_DIR`) or one that is not a folder; refuses an existing
-  `--out` without `--force`; reads the folder (`read_folder`) and refuses a study whose `manifest.yaml` does not say
-  `status: approved` (a draft is not packed: decision 51, feasibility on a draft at several sites, is open and is
-  10D-12's); refuses, with `--force`, an `--out` that is not a regular file (a link, a folder: before any event);
-  builds and self-verifies the package; opens `--out`'s folder once and writes the package in that folder's
-  descriptor under a hidden name (`.<name>.<pid>.part`, `O_CREAT | O_EXCL | O_NOFOLLOW`, mode 600 set again with
-  `fchmod`, so no umask widens it; fsync); appends **`approve.study_package_exported`** to
-  the box's audit chain through `tb_common.audit.AuditLog` (actor `host:<user>`, as 10D-28's `export_part`;
-  `ruleset`, `ruleset_version`, `output_sha` the package's sha256; `detail`: `package_id`, `key_id`, `created`,
-  `protocol_version`, `criteria_sha256`; never a byte of the content); gives what it wrote in the audit folder to
-  the folder's owner (D-724, only as root; injected in most tests) **by descriptor** (`_give_back`: the folder's
-  own regular files of one link that root owns, each opened `O_NOFOLLOW` in the folder's descriptor, checked on the
-  descriptor and given with `fchown`; no subfolder, link, pipe or device, and no mode change; root's `fchown` also
-  clears a set-id bit); and only then gives the package its name in the same descriptor (`linkat`, which never
-  overwrites, or `renameat` over a regular file with `--force`), then fsyncs the folder. An event that cannot be
-  written removes the part file and leaves no package (fail closed). **If the event is written and the name cannot
-  be taken** (a file appeared at `--out` meanwhile, a disk that refuses links), the part file is removed and the
-  sentence says that the event for that package id and sha256 was written, that no package was left, so that event
-  names a package that does not exist, and to run the command again (which writes a new event; a test does so).
-  `backup._own_writes` is not used: it changes owners by path after `rglob` (`lstat`, then `chown` without following
-  the last link), so a subfolder of the audit folder swapped for a link between the walk and the change would give
-  root's file elsewhere to the folder's owner; that is the integrator's to give to lane D (`backup.py` is not this
-  card's). The event is in the approval
-  family (`audit_writer.ROLE_EVENTS`: the criteria compiler's), written to the chain file directly as the host's
-  backup and restore events are, so it carries no journal role.
-  - **What H4 enforces, and what it does not.** Enforced: no package without its durable audit event naming who,
-    when, which study and version, which package and key; only an approved protocol; the package file is mode 600 (so
-    the umask cannot make it readable to other local accounts). Not enforced, because a host command cannot: a
-    console role or a study-access check. Whoever can read the study folder and the coordinating-centre key and
-    write the box's audit folder can export; on a box that is root or the audit writer's account. **For the owner:**
-    whether packing should also need a console role (for example the PI's or the steward's approval of the export)
-    is a new role power this card does not invent; it would be a console act, 10D-4's or a later card's.
+- **The export, audited (review of f1d1fe3c, H4; review of ec90c1b4, items 1 to 4, 6, 7).** Packing is a command of
+  the coordinating centre's operator, not a console act: no console route is added.
+  - **Who runs it, as which account.** `write` **never runs as root**: run as root it refuses before it reads a file
+    or touches the audit, with one sentence (English, Japanese or Chinese: `--lang`, else `TB_LANG`) that gives the
+    supported way. That way is 10D-28's for `criteria_compiler.export_part` ("in the criteria compiler's
+    container"): from `deploy/`, `docker compose run --rm -v <key folder>:/run/tb-study-key:ro -v <output
+    folder>:/data/study-out criteria-compiler python -m tools.study_package write /data/rulesets/<ID> --key
+    /run/tb-study-key/cc_ed25519.key --out /data/study-out/<ID>-<version>.tbstudy` (`SUPPORTED_RUN`). The container
+    runs as its service account, uid 10001 (`user: "10001:10001"` of the compose file's `*py` anchor; `tb` in the
+    image); `tools/` is in the image (`/app/tools`, on `PYTHONPATH`). It reads the study from the **`rulesets-data`**
+    volume at `/data/rulesets` (the criteria compiler's rule-set store). **What the compose file does not give, and
+    the run line adds for that one run:** the signing key and a folder the operator can take the package from: the
+    compose file mounts neither (the key is kept offline, D-1372 keygen), so the two `-v` mounts are part of the
+    supported command; both host folders, and the key file, must belong to uid 10001 (`sudo chown 10001:10001`), the
+    key file mode 600 and the output folder writable by nobody else, or `write` refuses. No other account is
+    supported; a host shell as another account works only in file mode (below), which a box does not use.
+  - **Where the audit goes.** Through the product's writer, as `export_part` does
+    (`tb_common.audit_writer.open_audit`; no `AuditLog` is built here): in the criteria compiler's container
+    `TB_AUDIT_WRITER=db`, so the event goes to the audit journal over the container's own `TB_DB_URL` (database role
+    `tb_criteria_compiler`, whose families include `approve`, `audit_writer.ROLE_EVENTS`) and the drain writes it
+    into the chain; the command writes nothing into the audit folder (mounted read-only there). Without the journal
+    (a developer shell, the tests) it writes the chain in `--audit-dir` or `TB_AUDIT_DIR`, and refuses a folder that
+    is a link, missing, writable by group or others, or owned by another account; so the files the writer makes are
+    the running account's own and nothing is handed to anyone. **The ownership hand-back of ec90c1b4 (`_give_back`)
+    is removed**, with every chown and chmod of this command (a test holds that none is called).
+  - **The order** (`write()`): refuses root; refuses with no writer; refuses an existing `--out` without `--force`,
+    and with `--force` one that is not a regular file; reads the folder (`read_folder`); **binds the approval**
+    (`approved_files`, below); reads the key (below); builds and self-verifies; opens `--out`'s folder **once,
+    `O_DIRECTORY | O_NOFOLLOW`**, and refuses it unless it is owned by the running account with no group or other
+    write bit; writes the package in that descriptor under a hidden name (`.<name>.<pid>.part`, `O_CREAT | O_EXCL |
+    O_NOFOLLOW`, mode 600, fsync); reads it back **from that descriptor** and takes its sha256 there; appends
+    **`approve.study_package_exported`** (actor below; `ruleset`, `ruleset_version`, `output_sha` that sha256;
+    `detail`: `package_id`, `key_id`, `created`, `protocol_version`, `criteria_sha256`, `approval_tag`, and
+    `sudo_user_claimed` when set; never a byte of the content); only then links the name **from the same
+    descriptor** (`linkat` of `/proc/self/fd/<n>`, which never overwrites; with `--force` to a second hidden name
+    renamed over `--out`), fsyncs the folder, and checks that the file now named `--out` is that descriptor's
+    (`st_dev`, `st_ino`) and hashes it again from the descriptor before it says success. An event that cannot be
+    written leaves no package (fail closed). **If the event is written and the name cannot be taken** (a file
+    appeared at `--out`; the hidden file was replaced, so the written one has no name left to link), or the named
+    file is not the written one (without `/proc` the hidden name is linked, and a swapped file is caught here), the
+    name is removed and the sentence says that the event for that package id and sha256 was written, that no package
+    was left, so that event names a package that does not exist, and to run the command again (exit 1).
+  - **The approval is bound to the content (item 4).** `status: approved` alone was a word in the folder. Now the
+    folder must be `<store>/<ID>` of the box's rule-set store (a git repository: the criteria compiler's, where an
+    approval is the annotated tag `<ID>/v<version>` that says who approved it, D-77, D-640, as `export_part`
+    requires). `approved_files` reads the tag's blobs once and refuses: no store behind the folder (a plain folder
+    is not packed at all), a folder not named as its manifest's `id`, a manifest that is not `status: approved`, no
+    tag for the manifest's version, a tag that names nobody (`SEEDED_TAG`: a shipped example), an approval that
+    arrived in an update (`(offline update`), a tagged manifest that is not that approved version, and a folder whose
+    files (the manifest and every carriable file) differ in any byte, or by a file added or removed, from the tag's
+    (a file edited after approval). The package is built from the tag's bytes. The event stays in the `approve.`
+    family: it now records the approval tag it packed.
+  - **Who (item 6).** The actor is `host:<account>` from the account database by the real uid
+    (`pwd.getpwuid(os.getuid())`; `host:uid:<n>` when the uid has no name), not `LOGNAME` or `USER`, which the
+    caller sets; in the supported run that is `host:tb`, the service account, so the event says the export came
+    from the criteria compiler's container, not which person ran it. `SUDO_USER`, when set, is recorded as
+    `sudo_user_claimed`: a claim, since whoever starts the process can set it.
+  - **The key (item 7).** Opened once, `O_NOFOLLOW`, checked on the descriptor (a regular file owned by the running
+    account, no group or other bit, at most 64 KiB) and read from it. With `--trust-file`, a key whose public half is
+    trusted there for `update` is refused. Without one, **the writer cannot tell an update key** from a coordinating
+    centre's: the separation is the verifier's (H5) and 10D-4's register's.
+  - **What H4 enforces, and what it does not.** Enforced: no package without its durable audit event naming the
+    account, when, which study, version and approval tag, which package (by the sha256 of the linked file) and key;
+    only a version approved on this box, as approved; never as root; the package file is mode 600. Not enforced,
+    because a command run in the container cannot: a console role or a study-access check, and the person: whoever
+    can run `docker compose` on the box (root or the docker group) and holds the key can export. **For the owner:**
+    whether packing should also need a console role is a new role power this card does not invent (10D-4's or a
+    later card's).
 - **Trusted keys (review of f1d1fe3c, H5).** `verify` takes `TrustedKey` entries, not bare keys: an Ed25519 public
   key (PEM), the `studies` it may sign for (at least one), and its `purpose` (`study-package` or `update`). A bare key
   or an entry naming no study is refused (default deny), and so is a key given twice (one key, one entry). Step 2
@@ -357,8 +404,25 @@
   - 12, the site-field test passed for a stale package id: true (a mutant verifier that lets `routing` through still
     failed it); **fixed**: the package id is made again and step 5 names a site field first
     (`test_item12_…`).
-  - Re-checked from H4 and H5: `test_a_…` (the part file by descriptor, the rename failure, the give-back by
-    descriptor) and `test_b_…` (the trust file).
+  - Re-checked from H4 and H5: `test_a_…` (the part file by descriptor, the link failure; the give-back by
+    descriptor it also held is removed, review of ec90c1b4 item 2) and `test_b_…` (the trust file).
+- **Review of ec90c1b4 (writer and act of export; NOT READY), item by item:**
+  - 1, `write` ran as root and appended to the audit by path in a folder the service account owns (a planted
+    `.HEAD.json.tmp` link made root overwrite a root-only file): **fixed** by never running as root and auditing
+    through `open_audit` in the criteria compiler's container (above; `test_item1_…`). `tb_common.audit` is not
+    changed (not this card's).
+  - 2, `_give_back` handed root-owned files in the audit folder to its owner: **fixed**, removed with every
+    chown/chmod (`test_item2_…`).
+  - 3, the destination folder unchecked and the name linked by name: **fixed** (`O_NOFOLLOW`, owner and mode,
+    linked from the hashed descriptor, checked after; `test_item3_…`).
+  - 4, `status: approved` unbound: **fixed**, packed from the approval tag (`test_item4_…`, with the 8 shipped
+    studies approved in a store, packed by `write` and verified).
+  - 5, the synthetic guard bound only `Patient/` references: **fixed** (patient element per type, id shape, every
+    reference resolves; `test_item5_…`).
+  - 6, the actor from `getpass`: **fixed** (`test_item6_…`).
+  - 7, the key read by path, `per_criterion` precision, a manifest refusal that echoed the value: **fixed**
+    (`test_item7_…`: a refusal by the manifest's model now names the field's path and the error type, never the
+    value).
 - **Held by:** `tests/unit/test_study_package.py` (the review of f1d1fe3c: `test_h1_…` to `test_h5_…`, `test_item6_…`,
-  `test_item9_…`, `test_item12_…`, `test_a_…`, `test_b_…`, each the reviewer's probe at the real call, each seen
-  failing first).
+  `test_item9_…`, `test_item12_…`, `test_a_…`, `test_b_…`; the review of ec90c1b4: `test_item1_…` to `test_item7_…`;
+  each the reviewer's probe at the real call, each seen failing first).
