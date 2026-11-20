@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from console import sae_pages  # noqa: F401 - importing the page merges the SAE texts into CATALOGUES
 from console.i18n import CATALOGUES, translate
 from jinja2 import Environment, FileSystemLoader
 
