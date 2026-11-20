@@ -117,19 +117,6 @@ table.compact td, table.compact th { padding: 3px 8px; }
 td form.inline select, td form.inline input { max-width: 140px; }
 
 /* models-and-policy card (D-97) */
-/* 9k-4 (D-1380): the one state badge. A badge is <span class="pill" data-tone="ok|warn|bad|info|neutral">; the tone
-   comes from console.state_tone, never from a class named for a state. */
-.pill[data-tone="ok"] { background: var(--ok-bg); color: var(--ok); }
-.pill[data-tone="warn"] { background: var(--warn-bg); color: var(--warn); }
-.pill[data-tone="bad"] { background: var(--bad-bg); color: var(--bad); }
-.pill[data-tone="info"] { background: var(--bg); color: var(--accent); border: 1px solid var(--line); }
-.pill[data-tone="neutral"] { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
-table.worklist tr[data-status="new"] td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
-/* 9k-5 (D-1380): the page header, templates/_ds.html. One h1, its context line, and the page's one primary act. */
-.ph { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; justify-content: space-between; }
-.ph h1 { margin-bottom: 6px; }
-.ph-ctx { flex: 0 0 100%; margin: 0; font-size: var(--t-meta); color: var(--muted); }
-.ph-act { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .pill.warn { background: var(--warn-bg); color: var(--warn); padding: 1px 8px; }
 dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 8px 0; }
 dl.facts dt { color: var(--muted); }
@@ -640,3 +627,17 @@ nav.ptabs .ptabs-rs { color: var(--muted); }
 .idle-warn { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 40; max-width: 36rem; margin: 0 auto; border: 2px solid var(--warn); }
 .idle-warn[hidden], .idle-warn [hidden] { display: none; }
 .idle-warn button { min-height: 44px; }
+
+/* 9k-4 (D-1380): the one state badge. A badge is <span class="pill" data-tone="ok|warn|bad|info|neutral">; the tone
+   comes from console.state_tone, never from a class named for a state. */
+.pill[data-tone="ok"] { background: var(--ok-bg); color: var(--ok); }
+.pill[data-tone="warn"] { background: var(--warn-bg); color: var(--warn); }
+.pill[data-tone="bad"] { background: var(--bad-bg); color: var(--bad); }
+.pill[data-tone="info"] { background: var(--bg); color: var(--accent); border: 1px solid var(--line); }
+.pill[data-tone="neutral"] { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+table.worklist tr[data-status="new"] td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+/* 9k-5 (D-1380): the page header, templates/_ds.html. One h1, its context line, and the page's one primary act. */
+.ph { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; justify-content: space-between; }
+.ph h1 { margin-bottom: 6px; }
+.ph-ctx { flex: 0 0 100%; margin: 0; font-size: var(--t-meta); color: var(--muted); }
+.ph-act { display: flex; flex-wrap: wrap; gap: 6px 14px; }
