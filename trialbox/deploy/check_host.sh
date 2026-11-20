@@ -358,6 +358,11 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
     case "$cf" in "$ROOT_DIR/deploy/"*) ;; /*) [ -f "$cf" ] && AUDIT_MOUNTS="$AUDIT_MOUNTS -v $cf:$cf:ro" ;; esac
   done
   IFS="$OLD_IFS"
+  # 10G-2 (D-1345): the hourly audit-sign's result file, where the run writes it (TB_LOG_DIR, else deploy/logs):
+  # without it the doctor in the image saw no result, and a refused run could hide behind a fresh head
+  LOG_HOST="$(sed -n 's/^TB_LOG_DIR=//p' "$ENV_FILE" | tail -1)"
+  [ -n "$LOG_HOST" ] || LOG_HOST="$ROOT_DIR/deploy/logs"
+  [ -d "$LOG_HOST" ] && AUDIT_MOUNTS="$AUDIT_MOUNTS -v $LOG_HOST:$LOG_HOST:ro -e TB_LOG_DIR=$LOG_HOST"
   ANCHORS="$(sed -n 's/^TB_AUDIT_ANCHOR_TARGETS=//p' "$ENV_FILE" | tail -1)"
   OLD_IFS="$IFS"; IFS=:
   for anchor in $ANCHORS; do

@@ -58,12 +58,19 @@ audit_key() {
   tool tools.trialbox.audit_heads --init-key --secrets "$SECRETS" \
     || hb_say "the audit signing key was not made (above): trialbox doctor names it; run this script again"
 }
+# 10G-2 (D-1345): the private audit key stays root's, 0600, after the chown below gives the other keys to the services'
+# account (uid 10001: the adapter and the orchestrator mount this folder); only root's signer reads it. A link is left
+audit_key_root_only() {
+  [ "$(id -u)" = 0 ] || return 0
+  find "$SECRETS" -maxdepth 1 -type f -name 'audit_sign*.key*' ! -name '*.pub' -exec chown 0:0 {} + -exec chmod 600 {} +
+}
 
 if [ -f "$SECRETS/kek.json" ]; then
   hb_say "the KEK exists ($SECRETS/kek.json): wrapping any key still plain"
   [ "$DRY" = 1 ] && { hb_say "would run: tools.keys wrap"; exit 0; }
   keys wrap --secrets "$SECRETS"
   audit_key
+  audit_key_root_only
   exit 0
 fi
 
@@ -127,6 +134,7 @@ audit_key
 # runtime KEK root's; the services (the secrets folder's owner, uid 10001) must open them. Owner only: modes stay 0600
 OWNER="$(stat -c %u:%g "$SECRETS")"
 if [ "${OWNER%%:*}" != 0 ] && [ "$(id -u)" = 0 ]; then
-  find "$SECRETS" -maxdepth 1 -type f -user 0 -exec chown "$OWNER" {} +
+  find "$SECRETS" -maxdepth 1 -type f -user 0 ! -name 'audit_sign*.key*' -exec chown "$OWNER" {} +
   [ -f "$KEK_FILE" ] && chown "$OWNER" "$KEK_FILE" "$(dirname "$KEK_FILE")"
 fi
+audit_key_root_only

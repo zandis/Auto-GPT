@@ -3,12 +3,12 @@
  "title": "the audit head signed hourly, an anchor folder the box's root can write over refused (plan 10 row 10G-2)",
  "date": "2026-11-19",
  "source": "docs/handover/audit-head-signed-hourly-2026-11-19.md",
- "note": "No box, share or Docker daemon here. The refusal of a write is shown on a stand-in (a read-only head and a non-root account); the cron lines are tested as text and on a temporary cron folder.",
+ "note": "No box, share or Docker daemon here. The refusals are shown on stand-ins (read-only files and folders, a non-root account, the kernel's own answers) and with each probe's answer replaced; the cron lines on a temporary cron folder.",
  "findings": [
   {
    "id": "H10G2-01",
    "severity": "Medium",
-   "claim": "The root-overwrite test asks the kernel whether the newest head can be written (access(2)); it does not ask whether a head can be deleted or renamed. A share that refuses an overwrite but lets the box's root delete the newest heads widens the window a rewrite goes unseen to the oldest head left; a WORM share or chattr +a on heads/ closes it, and nothing checks for it",
+   "claim": "The first judgement asked only whether the newest head could be overwritten (access(2)), not whether a head could be deleted or renamed: a share that refuses an overwrite but allows a delete let the box's root delete a head and write another in its place. The rework judges overwrite of the head just written, and rename, delete and overwrite of a test file in heads/",
    "lane": "H",
    "basis": "hypothesis",
    "state": "open"
@@ -16,7 +16,7 @@
   {
    "id": "H10G2-02",
    "severity": "Medium",
-   "claim": "The refusal has not been run on a real anchor folder (the hospital's share with root squashed, a WORM share, chattr +i on a local disk): it is shown on a read-only file and a non-root account only. The first box's install shows it: an anchor on the box's own disk must make audit-sign exit 1 and doctor audit_heads say 'lets this box's root overwrite a signed head' (FAIL in PRODUCTION, WARN in VALIDATION)",
+   "claim": "The root-proof judgement has not been run on a real anchor folder (the hospital's share with root squashed and create-only rights, or a WORM share): it is shown on stand-ins only. The first box's install shows it: an anchor on the box's own disk must make audit-sign exit 1 with 'cannot be root-proof' (PRODUCTION: no head written there), and a passing share must leave heads/.root-probe in place",
    "lane": "Int",
    "basis": "not_run",
    "state": "open"
@@ -24,7 +24,15 @@
   {
    "id": "H10G2-03",
    "severity": "Low",
-   "claim": "doctor cannot test the anchor folders itself: check_host.sh mounts them read-only into the image, so every write is refused there. It reads the last hourly run's result (deploy/logs/audit-sign.json), so a folder that became writable is a FAIL at most one run later, not at once",
+   "claim": "doctor cannot judge the anchor folders itself: check_host.sh mounts them read-only into the image, where every write is refused. It reads the last hourly run's result (its folder now mounted, a missing result a FAIL), so a folder that stopped being root-proof is a FAIL at most one run later, not at once",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10G2-04",
+   "severity": "Medium",
+   "claim": "The audit signing key is wrapped under the same KEK that adapter and orchestrator (uid 10001) hold for their own keys, and they mount the secrets volume: the private audit key's file permissions (root's, 0600, doctor audit_key_root) are the only barrier between those services and a signed head. A real separation needs the audit key under a KEK of its own that only the signer can open, or the key off the box (an HSM, or heads signed by the hospital)",
    "lane": "H",
    "basis": "shown",
    "state": "open"

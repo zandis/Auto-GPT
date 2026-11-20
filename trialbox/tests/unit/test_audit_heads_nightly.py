@@ -207,7 +207,8 @@ def test_on_a_site_box_the_signer_sees_the_audit_volume_read_only_and_the_event_
         calls.append(argv)
         if "run" in argv[:3]:
             return json.dumps({"ok": True, "problems": [], "signed": {"lines": 7, "hash": "ab" * 32, "key_id": "k"},
-                               "detail": {"lines": 7, "head": "ab" * 32, "key_id": "k", "anchors": 1}})  # fmt: skip
+                               "detail": {"lines": 7, "head": "ab" * 32, "key_id": "k", "anchors": 1},
+                               "open_to_root": [], "root_proof": {str(box["share"]): "a nfs4 share ..."}})  # fmt: skip
         return ""
 
     env = {"TB_AUDIT_HOST_DIR": str(box["audit"]), "TB_SECRETS_HOST_DIR": str(box["secrets"]),
@@ -224,12 +225,18 @@ def test_on_a_site_box_the_signer_sees_the_audit_volume_read_only_and_the_event_
 
 
 # ------------------------------------------------------------------------------------------------ doctor
+def _result_ok(box: dict[str, Path]) -> None:
+    """10G-2 (D-1345): doctor fails closed without the hourly run's result file; the run's own success, written."""
+    audit_heads.write_state(audit_heads.state_file(box["deploy"], {}), audit_heads.Night(True))
+
+
 def _doctor(box: dict[str, Path], env: str, now: datetime, **more: str) -> doctor.Check:
     e = {"TB_ENV": env, "TB_SECRETS_HOST_DIR": str(box["secrets"]), "TB_AUDIT_HOST_DIR": str(box["audit"]), **more}
     return doctor.check_audit_heads(doctor.DoctorInputs(env=e, deploy=box["deploy"]), now=now)
 
 
 def test_doctor_passes_a_box_with_a_fresh_head(box: dict[str, Path]) -> None:
+    _result_ok(box)
     _events(AuditLog(box["audit"]), 2)
     assert _night(box, Recorder()).ok
     c = _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=1), TB_AUDIT_ANCHOR_TARGETS=str(box["share"]))
@@ -243,6 +250,7 @@ def test_doctor_fails_a_box_with_no_anchor_folder(box: dict[str, Path], env: str
 
 
 def test_doctor_fails_an_old_head_a_folder_with_none_and_a_missing_key(box: dict[str, Path]) -> None:
+    _result_ok(box)
     _events(AuditLog(box["audit"]), 2)
     old = (NIGHT - timedelta(hours=40)).timestamp()  # the key is older than the limit: a missing head is not "new"
     os.utime(box["secrets"] / audit.SIGN_PUB_FILE, (old, old))

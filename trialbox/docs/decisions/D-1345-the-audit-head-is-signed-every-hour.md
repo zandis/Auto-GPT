@@ -7,21 +7,25 @@
    `/etc/cron.d/trialbox-retention`; `logs daily` stays at 00:20 on its own line. `deploy/install.sh` writes both
    lines; `tools.trialbox.audit_heads.cron_lines` is the same text (a test holds them equal).
 2. A box updated from a release that signed once a night is moved by the new tree's `pre-start` step
-   "hourly audit head" (`tools/trialbox/prestart.py`): the one known nightly line becomes the two lines, the install
-   folder and log kept; again is a no-op; a missing file or an unknown line is left alone and said. The floor
-   (`MIN_INSTALLED_SEQ`) stays 0: no release has reached a box.
-3. The key is the box's existing audit signing key (`audit_sign.key`, Ed25519, in the secrets volume, wrapped under
-   the KEK). The only service that writes the audit volume (`audit-writer`) mounts neither the secrets volume nor the
-   KEK; the services that mount them (orchestrator, adapter) mount the audit volume read-only. No new key.
-4. After each run on a site box the host (root, from cron) asks the kernel whether it could write the newest head of
-   each anchor folder (`access(2)`). If it could, the run fails: the head is still written, the problem is in the
-   result file (`kind: open_to_root`) and in the event's `failed`. `doctor` FAILs on it in PRODUCTION and WARNs in
-   VALIDATION, TEST and DEV (a result file without `kind`, from before, reads as a refusal, as it did). A folder
-   passes only when the box's root is refused: the hospital's share with root squashed, a WORM share, or
-   `chattr +i` on each head. RUNBOOK 01 step 3 says so at install.
-5. `TB_AUDIT_HEAD_MAX_AGE_H` defaults to 2 (was 36): `doctor` (`audit_heads`) FAILs in VALIDATION and PRODUCTION
-   (WARN elsewhere) when the newest signed head of any folder is older than 2 h, or dated more than 2 h ahead of the
-   box's clock, and says since when and what to run. No head yet is a WARN while the audit key is younger than the
-   limit (a box installed within the hour; the installer also signs once).
+   "hourly audit head" (`tools/trialbox/prestart.py`), in the folder `TB_CRON_DIR` names (else `/etc/cron.d`, as
+   install.sh): the one known nightly line becomes the two lines, every other line byte for byte; again is a no-op;
+   a missing, unreadable or unknown file is left alone and said. The floor (`MIN_INSTALLED_SEQ`) stays 0.
+3. The key is the box's existing audit signing key (`audit_sign.key`, Ed25519, wrapped under the KEK). Its private
+   files are root's, mode 0600 (`seal_keys.sh`, `init_key`, the pre-start step "audit key root only"); `doctor`
+   (`audit_key_root`) FAILs anything else. adapter and orchestrator (uid 10001) keep the secrets volume and the KEK
+   for their own keys and are refused the file; the KEK is shared, so that file's permissions are the only barrier
+   (H10G2-04). No new key.
+4. The signer, as root in its container, judges each anchor folder root-proof (`audit_heads.root_proof`): a folder
+   on the box's own disk or of a type it cannot tell never is; on a share, overwriting the head just written (by
+   name), and renaming, deleting or overwriting a test file in `heads/`, must each be refused. In PRODUCTION a folder
+   that cannot be root-proof gets no head; elsewhere it gets one. Either way the run exits 1, the result file says
+   `kind: open_to_root`, and `doctor` FAILs it in PRODUCTION and WARNs in VALIDATION, TEST and DEV. A signer answer
+   without the judgement (an older image) fails closed. Nothing is followed through a link.
+5. `doctor` (`audit_heads`) fails closed: no result file of the hourly run (a WARN only while the key is younger than
+   the limit), an unreadable result, unreadable public keys, a head whose signature it cannot check (it counts only
+   verified heads), or `TB_AUDIT_HEAD_MAX_AGE_H` not a positive finite number. `TB_AUDIT_HEAD_MAX_AGE_H` defaults to
+   2 (was 36); a head older than that, or dated more than 5 minutes ahead of the box's clock, FAILs, with since when
+   and what to run. `deploy/check_host.sh` mounts the result file's folder into the doctor's image.
 6. What it stops, and what not: `docs/handover/audit-head-signed-hourly-2026-11-19.md`. Tests:
-   `tests/unit/test_audit_head_signed_hourly.py`, `tests/unit/test_audit_heads_nightly.py`.
+   `tests/unit/test_audit_head_review_10g2.py`, `tests/unit/test_audit_head_signed_hourly.py`,
+   `tests/unit/test_audit_heads_nightly.py`.

@@ -154,6 +154,7 @@ import importlib.util
 import json
 import os
 import re
+import stat
 import sys
 import tempfile
 import urllib.error
@@ -1222,18 +1223,23 @@ def check_ops_runner(inp: DoctorInputs, now: datetime | None = None) -> Check:
 HEAD_MAX_AGE_H = 2.0  # TB_AUDIT_HEAD_MAX_AGE_H: the job is hourly (10G-2, D-1345); one missed run, then FAIL
 
 
+AHEAD_MAX_MIN = 5  # 10G-2: a head may be dated at most 5 minutes ahead of this box's clock (NTP keeps far closer)
+
+
 def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
     """NEW-STD-2 (STD-002, LIFE-010, D-562): the signed audit heads of D-355 are in force only when a folder off the
-    audit volume takes one every hour (10G-2, D-1345). FAIL in VALIDATION and PRODUCTION (WARN elsewhere) when no
-    anchor folder is set, a folder is on the audit volume, the audit signing key is missing, the last run failed,
-    or the newest signed head of any folder is older than ``TB_AUDIT_HEAD_MAX_AGE_H``, or dated ahead of the clock
-    by more than it. A run whose only problem is a folder the box's root could overwrite (result kind
-    ``open_to_root``) is a FAIL in PRODUCTION and a WARN elsewhere. No head yet is a WARN while the audit key is
-    younger than the limit (a box installed within the hour). The signatures are checked by ``trialbox audit-sign``
-    each run and by ``tools/audit_verify.py --heads``; this check reads each head's date and that this box's key
-    signed it."""
+    audit volume takes one every hour (10G-2, D-1345). It fails closed: FAIL in VALIDATION and PRODUCTION (WARN
+    elsewhere) when no anchor folder is set, a folder is on the audit volume, the audit signing key is missing,
+    ``TB_AUDIT_HEAD_MAX_AGE_H`` is not a positive finite number, the hourly run left no readable result or a failed
+    one, the box's public keys cannot be read or a head cannot be checked here (a head counts only when its
+    signature verifies under this box's key), or the newest verified head of any folder is older than the limit or
+    dated more than :data:`AHEAD_MAX_MIN` minutes ahead of the clock. A run whose only problem is a folder that
+    cannot be shown root-proof (result kind ``open_to_root``) is a FAIL in PRODUCTION and a WARN elsewhere. No head
+    and no result yet is a WARN while the audit key is younger than the limit (a box installed within the hour)."""
     if inp.platform:  # nothing signs heads on a platform yet: said, not passed (the review's M6)
         return Check("audit_heads", "WARN", "on a platform no host cron signs the audit head: STD-002 is open there")
+    import math
+
     from tb_common import audit, kek
 
     from tools.trialbox import audit_heads
@@ -1248,10 +1254,15 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
             "a removed audit event leaves no trace (D-562)"
         )
         return Check("audit_heads", soft, why)
+    raw = (inp.env.get("TB_AUDIT_HEAD_MAX_AGE_H") or "").strip()
     try:
-        limit = float(inp.env.get("TB_AUDIT_HEAD_MAX_AGE_H") or HEAD_MAX_AGE_H)
+        limit = float(raw) if raw else HEAD_MAX_AGE_H
     except ValueError:
-        limit = HEAD_MAX_AGE_H
+        limit = math.nan
+    if not math.isfinite(limit) or limit <= 0:
+        return Check("audit_heads", soft, f"TB_AUDIT_HEAD_MAX_AGE_H={raw} is not a positive number of hours: the age "
+                                          "of the signed heads cannot be judged. Set it in deploy/.env (default "
+                                          f"{HEAD_MAX_AGE_H:g}) or remove it")  # fmt: skip
     now = now or datetime.now(UTC)
     problems: list[str] = []
     waiting: list[str] = []
@@ -1263,15 +1274,29 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
         )
     else:
         try:
-            made = datetime.fromtimestamp((secrets / audit.SIGN_PUB_FILE).stat().st_mtime, UTC)
+            made = datetime.fromtimestamp(os.lstat(secrets / audit.SIGN_PUB_FILE).st_mtime, UTC)
             key_age = (now - made).total_seconds() / 3600
         except OSError:
             key_age = None
-    # the night's own result (tools.trialbox.audit_heads.write_state): a refused night is a FAIL here, the same day
+    young = key_age is not None and 0 <= key_age <= limit
+    # the hourly run's own result (tools.trialbox.audit_heads.write_state), read without following a link
     state = audit_heads.state_file(inp.deploy or ROOT / "deploy", inp.env)
+    last: Any = None
     try:
-        last = json.loads(state.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        last = json.loads(audit_heads.read_plain(state.parent, state.name))
+    except FileNotFoundError:
+        none = f"no result of the hourly audit-sign at {state}"
+        if young:
+            waiting.append(f"{none} yet: the audit key is {key_age:.0f} h old")
+        else:
+            problems.append(
+                f"{none}: doctor cannot tell whether the last run was refused. The run writes it (python3 -m "
+                "tools.trialbox audit-sign); deploy/check_host.sh mounts its folder"
+            )
+    except (OSError, ValueError) as exc:
+        problems.append(f"the result of the hourly audit-sign at {state} cannot be read ({exc})")
+    if last is not None and not (isinstance(last, dict) and isinstance(last.get("ok"), bool)):
+        problems.append(f"the result of the hourly audit-sign at {state} is not a result (no ok true or false)")
         last = None
     open_to_root: list[str] = []  # 10G-2 (D-1345): FAIL in PRODUCTION only, WARN in VALIDATION, TEST and DEV
     if isinstance(last, dict) and last.get("ok") is False:
@@ -1282,48 +1307,56 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
             )
         else:
             problems.append(f"the last audit-sign ({last.get('at')}) was refused or failed: {said}")
+    own: dict[str, bytes] | None
     try:
-        own: dict[str, bytes] | None = audit_heads.own_keys(secrets)
-    except (OSError, ValueError):
+        own = audit_heads.own_keys(secrets)
+    except Exception as exc:  # fail closed: whatever stops the keys being read, no head is counted
         own = None
+        problems.append(f"the box's audit public keys in {secrets} cannot be read ({exc}): no head can be checked, "
+                        "so none is counted")  # fmt: skip
     newest: list[str] = []
     for t in targets:
         if audit._inside(t, audit_dir):
             problems.append(f"the anchor folder {t} is on the audit volume: it must be off it")
             continue
+        if own is None:
+            continue
         stamps, foreign = [], 0
         for h in audit.read_signed_heads(t) if (t / "heads").is_dir() else []:
             try:
                 ts = datetime.fromisoformat(str(h.get("ts")))
-            except ValueError:
+                pub = own.get(str(h.get("key_id")))
+                bad = pub is None or audit.signed_head_problem(h, pub)
+            except ImportError:
+                problems.append("this doctor cannot check a signature (no crypto library here): run it in the box's "
+                                "image (deploy/check_host.sh); no head is counted")  # fmt: skip
+                own = None
+                break
+            except Exception:  # a head that cannot be checked is not counted: a file with a date is not a head
+                bad = True
+            if bad:
                 foreign += 1
                 continue
-            if own is not None:  # only a head this box's own key signed counts: a file with a date is not a head
-                try:
-                    pub = own.get(str(h.get("key_id")))
-                    if pub is None or audit.signed_head_problem(h, pub):
-                        foreign += 1
-                        continue
-                except ImportError:  # a host python3 without the crypto library: dates only
-                    own = None
             stamps.append(ts if ts.tzinfo else ts.replace(tzinfo=UTC))
+        if own is None:
+            continue
         if foreign:
             problems.append(f"{foreign} file(s) in {t}/heads are not signed by this box's audit key")
         if not stamps:
             none = f"no signed head in {t} yet (python3 -m tools.trialbox audit-sign)"
-            if key_age is not None and abs(key_age) <= limit and not foreign:
+            if young and not foreign:
                 waiting.append(f"{none}: the audit key is {key_age:.0f} h old, the first hourly run has not signed")
             else:
                 problems.append(none)
             continue
-        last = max(stamps)
-        age = (now - last).total_seconds() / 3600
-        since = last.astimezone(UTC).isoformat(timespec="minutes")
-        if age < -limit:  # dated ahead of this box's clock by more than the limit: a clock moved, or a head was made
+        latest = max(stamps)
+        age = (now - latest).total_seconds() / 3600
+        since = latest.astimezone(UTC).isoformat(timespec="minutes")
+        if age * 60 < -AHEAD_MAX_MIN:  # a clock moved, or a head was made ahead: it would hide a stopped signer
             problems.append(
-                f"the newest signed head in {t} is dated {since}, {-age:.0f} h ahead of this box's clock "
-                f"({now.astimezone(UTC).isoformat(timespec='minutes')}; limit {limit:g} h either way): set the clock "
-                "(timedatectl, the site's NTP server), then run python3 -m tools.trialbox audit-sign"
+                f"the newest signed head in {t} is dated {since}, {-age * 60:.0f} min ahead of this box's clock "
+                f"({now.astimezone(UTC).isoformat(timespec='minutes')}; at most {AHEAD_MAX_MIN} min ahead counts): "
+                "set the clock (timedatectl, the site's NTP server), then run python3 -m tools.trialbox audit-sign"
             )
         elif age > limit:
             problems.append(
@@ -1332,12 +1365,52 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
                 "folder is mounted, then run python3 -m tools.trialbox audit-sign"
             )
         else:
-            newest.append(f"{t}: {age:.0f} h")
+            newest.append(f"{t}: {max(age, 0):.0f} h")
     if problems:
         return Check("audit_heads", soft, "; ".join(problems + open_to_root + waiting))
     if open_to_root or waiting:
         return Check("audit_heads", "WARN", "; ".join(open_to_root + waiting))
     return Check("audit_heads", "PASS", "newest signed head " + ", ".join(newest))
+
+
+AUDIT_KEY_OWNER = 0  # 10G-2: the private audit key is root's (the signer runs as root); a test sets its own uid
+
+
+def check_audit_key_root(inp: DoctorInputs) -> Check:
+    """10G-2 (D-1345, the review's finding 3): the private audit signing key's files (``audit_sign*.key``, plain or
+    wrapped) are owned by root and readable by no one else, so the services' account (uid 10001: the adapter and
+    the orchestrator mount the secrets folder and the KEK) cannot open them. FAIL in VALIDATION and PRODUCTION
+    (WARN elsewhere) for a file that is a link, not a regular file, not root's, or open to group or others. Read
+    with ``lstat``: nothing is followed."""
+    from tools.trialbox import audit_heads
+
+    if inp.platform:
+        return Check("audit_key_root", "PASS", "on a platform the cluster holds the audit key")
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    soft: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
+    secrets = audit_heads.host_dirs(inp.env)[1]
+    names = audit_heads.private_key_files(secrets)
+    if not names:
+        return Check("audit_key_root", "PASS", f"no private audit key in {secrets} (check audit_heads names one)")
+    bad = []
+    for name in names:
+        try:
+            st = os.lstat(secrets / name)
+        except OSError as exc:
+            bad.append(f"{name} ({exc.strerror})")
+            continue
+        if not stat.S_ISREG(st.st_mode):
+            bad.append(f"{name} (not a regular file)")
+        elif st.st_uid != AUDIT_KEY_OWNER or st.st_mode & 0o077:
+            bad.append(f"{name} (uid {st.st_uid}, mode {stat.S_IMODE(st.st_mode):04o})")
+    if bad:
+        why = (
+            f"the private audit key is open to more than root: {', '.join(bad)}. The services' account could sign a "
+            f"head with it. chown 0:0 and chmod 600 each file in {secrets} (sudo sh deploy/hardening/seal_keys.sh "
+            "--secrets <the folder> does it; an update does it too)"
+        )
+        return Check("audit_key_root", soft, why)
+    return Check("audit_key_root", "PASS", f"{', '.join(names)}: root's, 0600")
 
 
 def _public_roots() -> frozenset[bytes]:
@@ -2112,6 +2185,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_clock,
     check_ops_runner,
     check_audit_heads,
+    check_audit_key_root,
     check_anchor_mount,
     check_rehearsal,
     check_memory_caps,

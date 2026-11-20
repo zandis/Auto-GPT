@@ -66,6 +66,7 @@ def test_default_install_passes() -> None:
         "clock",
         "ops_runner",
         "audit_heads",
+        "audit_key_root",  # D-1345
         "anchor_mount",  # D-638
         "rehearsal",  # D-726
         "sae_mailbox",  # D-736

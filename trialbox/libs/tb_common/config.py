@@ -449,6 +449,7 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_CANDIDATE_VIEWS_PER_HOUR": Declared("int", "", "candidate views allowed per user per hour"),
     "TB_CATALOGUE_DIR": Declared("path", "", "folder of the study catalogue"),
+    "TB_CRON_DIR": Declared("path", "/etc/cron.d", "the host's cron folder (install.sh; the update's pre-start step)"),
     "TB_DOCTOR_PIDMAP_ROW": Declared("str", "", "doctor: the pid map row the host check read (fingerprint|rule)"),
     "TB_DOCTOR_RUNNING_INSPECT": Declared("str", "", "doctor: `stdin` when the host check pipes docker inspect in"),
     "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number rule (tb_common.chartno), written at installation"),
