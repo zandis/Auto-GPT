@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.supply_chain import allowlist, licences, lock, release, sbom, scanners, vulns
+from tools.supply_chain import allowlist, image_scan, licences, lock, release, sbom, scanners, vulns
 
 
 def _allow(args: argparse.Namespace) -> tuple[allowlist.Allowlist, list[str]]:
@@ -167,12 +167,33 @@ def cmd_licences(args: argparse.Namespace) -> int:
 def cmd_scanners(args: argparse.Namespace) -> int:
     dest = Path(args.dest)
     try:
-        for tool in ("syft", "trivy"):
+        for tool in scanners.TOOLS:
             path = scanners.fetch(tool, dest)
             print(f"scanners: {tool} -> {path}")
     except (scanners.ScannerError, OSError) as exc:
         print(f"scanners: {exc}", file=sys.stderr)
         return 1
+    return 0
+
+
+def cmd_image_scan(args: argparse.Namespace) -> int:
+    """D-1343: report-only (exit 0) unless --fail-at HIGH, the switch for the date in D-1343."""
+    try:
+        targets = [image_scan.parse_target(t) for t in args.image]
+    except ValueError as exc:
+        print(f"image-scan: {exc}", file=sys.stderr)
+        return 2
+    record = image_scan.scan(
+        targets, Path(args.out), cache_dir=Path(args.cache_dir), hadolint_image=args.hadolint_image,
+        config_dirs=args.config_dir,
+    )  # fmt: skip
+    print((Path(args.out) / "summary.md").read_text(encoding="utf-8"))
+    problems = image_scan.gate_failures(record)
+    for p in problems:
+        print(f"image-scan: {p}", file=sys.stderr)
+    if args.fail_at == "HIGH" and problems:
+        return 1
+    print(f"image-scan: {'report-only' if args.fail_at == 'none' else 'PASS'} ({len(problems)} at HIGH or above)")
     return 0
 
 
@@ -230,9 +251,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", help="write the Markdown report here too")
     p.add_argument("--gate-os-packages", action="store_true", help="fail on distro (deb/apk/rpm) packages too")
     p.set_defaults(fn=cmd_licences)
-    p = sub.add_parser("scanners", help="fetch Syft and Trivy with pinned sha256")
+    p = sub.add_parser("scanners", help="fetch Syft, Trivy and Dockle with pinned sha256")
     p.add_argument("--dest", default=".cache/scanners")
     p.set_defaults(fn=cmd_scanners)
+    p = sub.add_parser("image-scan", help="hadolint, Trivy secret+misconfig and Dockle per image (D-1343)")
+    p.add_argument("--out", default="build/image-scan")
+    p.add_argument("--cache-dir", default=".cache/trivy")
+    p.add_argument("--hadolint-image", required=True, help="hadolint image pinned by digest")
+    p.add_argument("--image", action="append", required=True, metavar="IMAGE=DOCKERFILE")
+    p.add_argument("--config-dir", action="append", default=[], help="a folder for `trivy config`")
+    p.add_argument("--fail-at", choices=("none", "HIGH"), default="none", help="none: report-only (D-1343)")
+    p.set_defaults(fn=cmd_image_scan)
 
     args = ap.parse_args(argv)
     try:

@@ -60,8 +60,8 @@ KINDS = ("behaviour", "wording", "document")
 BUILT, PARTLY, DECLARED = "built", "partly built", "declared, not built"
 STATES = (BUILT, PARTLY, DECLARED)
 EVERYWHERE = "On everywhere, not switched by country: "  # what a part has that the country does not switch
-# every value a reader asks a layer for, with its type and (for a text) its shape: a layer of this format carries
-# each one, so a reader never meets a missing value and falls back to another country's (D-1250)
+# every value a reader asks a layer for, with its type and (for a text, or each text of a list) its shape: a layer of
+# this format carries each one, so a reader never meets a missing value and falls back to another country's (D-1250)
 _TEXT = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 READ: dict[tuple[str, str], tuple[type, re.Pattern[str] | None]] = {
     ("P1", "retention_rules"): (str, _TEXT),
@@ -70,6 +70,12 @@ READ: dict[tuple[str, str], tuple[type, re.Pattern[str] | None]] = {
     ("P5", "report_language"): (str, re.compile(r"^[a-z]{2}(-[A-Z]{2})?$")),
     ("P7", "ingredient_stems"): (bool, None),
     ("P7", "medis_master"): (bool, None),  # D-1261: the site set-up step that loads the MEDIS master
+    # the code tables the site set-up maps a site's own codes against (sitesetup.mapping, D-1255): files of the
+    # adapter's mapping folder, each of a format the set-up reads, each once
+    ("P7", "code_tables"): (
+        list,
+        re.compile(r"^[a-z0-9_]+/(byomei_to_icd10|jlac10_to_loinc|lab_local_to_loinc|yj_to_atc)\.csv$"),
+    ),
     ("P8", "egfr"): (str, _TEXT),
     ("P9", "printed_dates"): (str, _TEXT),
     ("P9", "year_basis"): (str, _TEXT),
@@ -225,8 +231,14 @@ def parse(raw: bytes, file: str) -> Layer:
         if key not in parts[pid].values:
             raise LayerError(file, f"parts.{pid}.values: {key!r} is missing (a reader asks for it)")
         got = parts[pid].values[key]
-        if type(got) is not kind or not got or (shape is not None and not shape.match(str(got))):
+        if type(got) is not kind or not got or (kind is not list and shape is not None and not shape.match(str(got))):
             raise LayerError(file, f"parts.{pid}.values.{key}: {got!r} is not a {kind.__name__} of its shape")
+        items: list[Any] = got if isinstance(got, list) else []  # a list: of texts, each of the shape, each once
+        for x in items:
+            if type(x) is not str or (shape is not None and not shape.match(x)):
+                raise LayerError(file, f"parts.{pid}.values.{key}: {x!r} is not a str of its shape")
+            if items.count(x) > 1:
+                raise LayerError(file, f"parts.{pid}.values.{key}: {x!r} is listed twice")
     return Layer(country, version, hashlib.sha256(raw).hexdigest(), file, parts)
 
 
