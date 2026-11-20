@@ -56,7 +56,7 @@ def test_the_site_profile_section_names_the_layer_and_where_each_setting_comes_f
     sec = _section(c.get(f"/data-ops/batches/{bid}").text)
     rows = _rows(sec)
     lay = country_layer.layer("JP")
-    assert f"1.0.0, {lay.digest[:12]}" in sec and lay.digest not in sec and len(rows) == 10
+    assert f"1.1.0, {lay.digest[:12]}" in sec and lay.digest not in sec and len(rows) == 10
     assert rows["new_year_break"] == ("layer", "12-29/01-03", "12-29/01-03")
     assert rows["printed_dates"] == ("unset", "western", "both")  # the layer is not a run-time default (D-1229)
     assert rows["consent_proxy"] == ("unset", "off", "on")

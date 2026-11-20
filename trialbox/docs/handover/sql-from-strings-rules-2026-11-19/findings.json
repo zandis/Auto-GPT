@@ -1,0 +1,65 @@
+{
+ "card": "H10G42B",
+ "title": "the SQL-from-strings rules run over the tree (plan 10 row 10G-42 (b))",
+ "date": "2026-11-19",
+ "source": "docs/handover/sql-from-strings-rules-2026-11-19.md",
+ "note": "New findings of the fifteen rules of tools/sql_rules.py over services/, libs/ and deploy/ on master f6c42230: the hits that no earlier finding covers. Hits on places that H10G42 already holds (10G-42 (c)) are counted under those ids in tools/sql_rules_ledger.yaml, not repeated here. basis 'shown' means shown by reading the code (and, for H10G42B-01, a synthetic DuckDB run), not an attack on a box. lane is the lane that owns the file; the integrator sends the fixes to lane J.",
+ "findings": [
+  {
+   "id": "H10G42B-01",
+   "date": "2026-11-19",
+   "source": "docs/handover/sql-from-strings-rules-2026-11-19.md",
+   "severity": "Low",
+   "claim": "operator environment values reach DuckDB SET text unescaped in LakeStore._harden (services/lake/store.py:1641-1643): TB_LAKE_MEMORY_LIMIT, TB_LAKE_TEMP_DIR (or TB_LAKE_DIR) and TB_LAKE_MAX_TEMP are written inside single quotes, so a value with a quote ends the literal and runs further statements before enable_external_access and lock_configuration are set (1645-1646)",
+   "lane": "B2",
+   "basis": "shown",
+   "state": "open",
+   "place": "services/lake/store.py:1641",
+   "path": "deploy/.env or the container environment -> memory_limit() (store.py:703), temp_dir() (store.py:743), temp_limit() (store.py:731) -> con.execute(f\"SET ... = '{value}'\") at 1641-1643",
+   "validation": "none in code; DuckDB's execute runs every statement of a text (shown on duckdb 1.5.5 with a synthetic value: a quote, then CREATE TABLE, ran)",
+   "expected": "values bound as parameters (DuckDB SET accepts a prepared value through set_config or a checked literal), or identifiers quoted with psycopg.sql.Identifier; the fix goes to lane J (the integrator's narrowing of 2026-11-18)"
+  },
+  {
+   "id": "H10G42B-02",
+   "date": "2026-11-19",
+   "source": "docs/handover/sql-from-strings-rules-2026-11-19.md",
+   "severity": "Low",
+   "claim": "the same operator environment values reach DuckDB SET text unescaped in the lake build (LakeStore._build, services/lake/store.py:1434-1435): TB_LAKE_MEMORY_LIMIT and the spill directory (TB_LAKE_TEMP_DIR or TB_LAKE_DIR) inside single quotes",
+   "lane": "B2",
+   "basis": "shown",
+   "state": "open",
+   "place": "services/lake/store.py:1434",
+   "path": "deploy/.env or the container environment -> memory_limit(), temp_dir() -> con.execute(f\"SET ... = '{value}'\") at 1434-1435",
+   "validation": "none in code; the actor is whoever sets the service's environment, who can already change the box",
+   "expected": "values bound as parameters (DuckDB SET accepts a prepared value through set_config or a checked literal), or identifiers quoted with psycopg.sql.Identifier; the fix goes to lane J (the integrator's narrowing of 2026-11-18)"
+  },
+  {
+   "id": "H10G42B-03",
+   "date": "2026-11-19",
+   "source": "docs/handover/sql-from-strings-rules-2026-11-19.md",
+   "severity": "Low",
+   "claim": "Database.adopt (libs/tb_common/db.py:500) writes relation names read from pg_class into ALTER ... OWNER TO inside hand-made double quotes without doubling embedded quotes, as the box's admin; a restored dump that carries a relation whose name holds a double quote would end the identifier",
+   "lane": "D",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "libs/tb_common/db.py:500",
+   "path": "a restore (database content) -> pg_class.relname of objects in the schema owned by session_user (db.py:493-498) -> tx.execute(f'ALTER {kind} \"{schema}\".\"{name}\" OWNER TO \"{owner}\"')",
+   "validation": "the schema and owner are checked names (_SCHEMA_RE and fixed prefixes); relname is not checked; not run against a crafted dump",
+   "expected": "values bound as parameters (DuckDB SET accepts a prepared value through set_config or a checked literal), or identifiers quoted with psycopg.sql.Identifier; the fix goes to lane J (the integrator's narrowing of 2026-11-18)"
+  },
+  {
+   "id": "H10G42B-04",
+   "date": "2026-11-19",
+   "source": "docs/handover/sql-from-strings-rules-2026-11-19.md",
+   "severity": "Low",
+   "claim": "pgfunc.ensure (services/datacore/pgfunc.py:42) writes the table name read from pg_trigger/pg_class into ALTER TABLE ... ENABLE TRIGGER inside hand-made double quotes without doubling embedded quotes",
+   "lane": "C2",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "services/datacore/pgfunc.py:42",
+   "path": "database content: _HAVE (pgfunc.py:16) returns the relname of the table that carries a trigger of a name the code fixes, when that trigger is disabled ('D') -> tx.execute(f'ALTER TABLE \"{have[name][0]}\" ENABLE TRIGGER \"{name}\"')",
+   "validation": "the trigger name is a key the callers build from constants; the table name is not checked; not run",
+   "expected": "values bound as parameters (DuckDB SET accepts a prepared value through set_config or a checked literal), or identifiers quoted with psycopg.sql.Identifier; the fix goes to lane J (the integrator's narrowing of 2026-11-18)"
+  }
+ ]
+}

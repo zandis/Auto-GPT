@@ -93,6 +93,10 @@
     <label for="box_name">{{ t('firstrun.box_name') }}</label>
     <input id="box_name" name="box_name" required maxlength="63" autocapitalize="none" spellcheck="false" value="{{ values.get('box_name', '') }}" aria-describedby="box-help">{{ err('box_name') }}
     <p class="hint" id="box-help">{{ t('firstrun.box_name.help') }}</p>
+    {# 10K-21 (D-1365): who in hospital IT confirmed the box's root certificate is on the team's computers #}
+    <label for="tls_root_confirmed_by">{{ t('firstrun.tls_root') }}</label>
+    <input id="tls_root_confirmed_by" name="tls_root_confirmed_by" maxlength="100" value="{{ values.get('tls_root_confirmed_by', '') }}" aria-describedby="tls-root-help">{{ err('tls_root_confirmed_by') }}{{ err('tls_root_confirmed_on') }}
+    <p class="hint" id="tls-root-help">{{ t('firstrun.tls_root.help') }}</p>
   </fieldset>
   <fieldset><legend>{{ t('firstrun.backup') }}</legend>{{ err('backup_kind') }}
     {% if disks %}<label><input type="radio" name="backup_kind" value="second_disk"{% if values.get('backup_kind') == 'second_disk' %} checked{% endif %}> {{ t('firstrun.backup.second_disk') }}</label>
@@ -104,6 +108,10 @@
     <label for="backup_share">{{ t('firstrun.backup.share.addr') }}</label>
     <input id="backup_share" name="backup_share" maxlength="255" value="{{ values.get('backup_share', '') }}">{{ err('backup_share') }}
     <label><input type="radio" name="backup_kind" value="later"{% if values.get('backup_kind') == 'later' %} checked{% endif %}> {{ t('firstrun.backup.later') }}</label>
+    {# 10K-21 (D-1365): the box's backup alert route is the health page: who opens it every working day #}
+    <label for="health_page_person">{{ t('firstrun.health_page_person') }}</label>
+    <input id="health_page_person" name="health_page_person" maxlength="100"{% if production %} required{% endif %} value="{{ values.get('health_page_person', '') }}" aria-describedby="hpp-help">{{ err('health_page_person') }}
+    <p class="hint" id="hpp-help">{{ t('firstrun.health_page_person.help') }}</p>
   </fieldset>
   <fieldset><legend>{{ t('firstrun.source') }}</legend>{{ err('source') }}
     <p class="hint">{{ t('firstrun.source.help') }}</p>
@@ -120,12 +128,12 @@
   </fieldset>{% endif %}
   {# NEW-DIN-3 (D-544, D-579): asked only while the box holds no patient; a refused answer is still shown #}
   {% if ask_chartno %}<fieldset data-testid="firstrun-chartno"><legend>{{ t('firstrun.chartno') }}</legend>
-    <p class="hint">{{ t('firstrun.chartno.help') }}</p>
+    <p class="hint">{{ t('firstrun.chartno.help.production' if production else 'firstrun.chartno.help') }}</p>
     <label for="chartno_kind">{{ t('firstrun.chartno.kind') }}</label>
     <select id="chartno_kind" name="chartno_kind"><option value=""{% if not values.get('chartno_kind') %} selected{% endif %}>{{ t('firstrun.chartno.kind.none') }}</option>{% for k in chartno_kinds %}<option value="{{ k }}"{% if values.get('chartno_kind') == k %} selected{% endif %}>{{ t('firstrun.chartno.kind.' + k) }}</option>{% endfor %}</select>
     <label for="chartno_width">{{ t('firstrun.chartno.width') }}</label>
     <input id="chartno_width" name="chartno_width" inputmode="numeric" maxlength="2" value="{{ values.get('chartno_width', '') }}">{{ err('chartno_rule') }}
-  </fieldset>{% else %}{% if chartno_unread %}<p class="warn" data-testid="firstrun-chartno-unread">{{ t('firstrun.chartno.unread') }}</p>{% endif %}{{ err('chartno_rule') }}{% endif %}
+  </fieldset>{% else %}{% if chartno_unread %}<p class="warn" data-testid="firstrun-chartno-unread">{{ t('firstrun.chartno.unread.production' if production else 'firstrun.chartno.unread') }}</p>{% endif %}{{ err('chartno_rule') }}{% endif %}
   {% if not tpm %}<fieldset><legend>{{ t('firstrun.kek') }}</legend>
     <p class="hint">{{ t('firstrun.kek.help') }}</p>
     <label for="kek">{{ t('firstrun.kek.pass') }}</label>
