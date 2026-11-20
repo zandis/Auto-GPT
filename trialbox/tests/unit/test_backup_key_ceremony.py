@@ -403,7 +403,7 @@ def test_an_audit_line_whose_sync_fails_is_not_recorded(
     monkeypatch.setattr(key_escrow, "media_problem", lambda o, s: None if K._inside(o, box["stick"]) else real(o, s))
     rc, out = _main(box, capsys)
     assert rc == 1 and bkc.AUDITED_ALREADY["en"].format(at=ev["ts"], fp=ev["detail"]["fingerprint"]) in out
-    assert bkc.AUDITED_NO_KEY["en"] in out and "RUNBOOK §25" in out
+    assert bkc.AUDITED_NO_KEY["en"].format(fp=ev["detail"]["fingerprint"]) in out and "RUNBOOK §25" in out
     assert not list(box["stick"].iterdir())
 
 
@@ -447,8 +447,10 @@ def test_an_interruption_right_after_the_link_keeps_the_key(
     box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, replaced: bool
 ) -> None:
     """Ctrl-C right after ``os.link`` made ``backup.pub``, which now comes after the audit line (H4): a backup may
-    have read it, so nothing of the key is removed; the warning says so, exit 2. With ``replaced``, another file took
-    the name before the check: whether ours was visible cannot be told, so the same, and the other file stays."""
+    have read it, so nothing of the key is removed, exit 2; ``backup.pub`` is ours (looked at: same inode), so the
+    warning says the public key is in place (review of c2fcb044, item 3). With ``replaced``, another file took the
+    name before the check: whether ours was visible cannot be told, so nothing is removed either, the other file
+    stays, and the warning says to check ``backup.pub``."""
     real = os.link
 
     def link(src: Any, dst: Any) -> None:
@@ -464,8 +466,9 @@ def test_an_interruption_right_after_the_link_keeps_the_key(
     assert rc == bkc.KEPT_EXIT, out
     (ev,) = _events(box)
     fp = ev["detail"]["fingerprint"]
-    assert bkc.PUB_KEPT_WARNING["en"].format(fp=fp, key=bkc.KEY_FILE, paper=bkc.PAPER_FILE, pub=box["pub"],
-                                             event=bkc.EVENT, audit=box["audit"]) in out  # fmt: skip
+    text = bkc.PUB_KEPT_WARNING if replaced else bkc.PUB_LINKED_WARNING
+    assert text["en"].format(fp=fp, key=bkc.KEY_FILE, paper=bkc.PAPER_FILE, pub=box["pub"], event=bkc.EVENT,
+                             audit=box["audit"]) in out  # fmt: skip
     assert sorted(p.name for p in box["stick"].iterdir()) == sorted([bkc.KEY_FILE, bkc.PAPER_FILE])
     assert sorted(p.name for p in box["pub"].parent.iterdir()) == ["backup.pub"]  # the temporary file is removed
     if replaced:
@@ -631,7 +634,7 @@ def test_a_second_run_is_refused_by_the_audit_when_the_public_key_is_gone(
     rc, out = _main(box, capsys, stick=second)
     assert rc == 1
     assert bkc.AUDITED_ALREADY["en"].format(at=ev["ts"], fp=ev["detail"]["fingerprint"]) in out
-    assert bkc.AUDITED_NO_KEY["en"] in out  # how to go on: RUNBOOK §25, not this command
+    assert bkc.AUDITED_NO_KEY["en"].format(fp=ev["detail"]["fingerprint"]) in out  # how to go on: RUNBOOK §25
     assert not list(second.iterdir()) and not box["pub"].exists() and len(_events(box)) == 1
     # another site's ceremony in the same folder is not this site's
     assert bkc.earlier_ceremony(box["audit"], "another-site") is None
@@ -782,6 +785,10 @@ class _SimUids:
         self.chowns.append((str(path), uid, gid))
         self.owner[os.stat(path, follow_symlinks=k.get("follow_symlinks", True)).st_ino] = (uid, gid)
 
+    def fchown(self, fd: int, uid: int, gid: int) -> None:
+        self.chowns.append((_fd_path(fd), uid, gid))
+        self.owner[os.fstat(fd).st_ino] = (uid, gid)
+
     def owner_of(self, path: Path) -> tuple[int, int]:
         st = self.lstat(path)
         return st.st_uid, st.st_gid
@@ -839,14 +846,14 @@ def test_an_audit_owner_that_cannot_be_given_back_is_said(
     """H3, checked after the append: a file left root's (the owner change failed) is named, with the folder's
     owner, after the closing text, and the run exits 2. The uids are simulated (any user runs this)."""
     _writer_owned_audit(box, fresh=True, sim=sim)
-    real = sim.chown
+    real = sim.fchown
 
-    def chown(path: Any, uid: int, gid: int, **k: Any) -> None:
-        if str(path).endswith("/.lock"):
+    def fchown(fd: int, uid: int, gid: int) -> None:
+        if _fd_path(fd).endswith("/.lock"):
             raise PermissionError(errno.EPERM, "Operation not permitted")
-        real(path, uid, gid, **k)
+        real(fd, uid, gid)
 
-    monkeypatch.setattr(sim, "chown", chown)
+    monkeypatch.setattr(sim, "fchown", fchown)
     rc, out = _main(box, capsys)
     assert rc == bkc.KEPT_EXIT, out
     assert bkc.AUDIT_OWNER_LEFT["en"].format(files=box["audit"] / ".lock", owner="10001:10001") in out
@@ -918,6 +925,293 @@ def test_a_removal_whose_folder_sync_fails_is_not_said_durable(
     assert "nothing of the key is kept" not in out, out
     assert bkc.REMOVED_NOT_DURABLE["en"].format(files=f"{paper}, {key_file}", folder=box["stick"]) in out
     assert not os.path.lexists(key_file) and not os.path.lexists(paper)
+
+
+# ------------------------------------------------------------------------------------------------ review of c2fcb044
+
+
+class _FdSeam:
+    """The ceremony's ``os`` for the give-back tests of the review of c2fcb044 (item 1): every call is the real one on
+    real files (``open``, ``fchown``, ``fchmod``, ``chown``, ``chmod``, ``symlink`` all reach the system); only who
+    owns what is injected, at ``geteuid`` and the ``stat`` family. ``geteuid`` says 0; a file this process owns reads
+    as root's (uid 0, gid 0) until it was given (``fchown`` or ``chown`` of it was called, or :meth:`writers`), and
+    the audit folder reads as it is. As root the writer is uid 65534 for real; as another user the writer is that user
+    (a ``fchown`` to oneself needs no privilege), so the same test runs as root and as any user. ``swap``: a name of
+    the audit folder replaced by a symlink to ``victim`` just before (``"before"``) or just after (``"after"``) the
+    first call that touches it (``open`` in the folder, ``chown``, ``fchown``), as the audit writer would."""
+
+    def __init__(self, audit: Path, victim: Path, swap: tuple[str, str] | None = None) -> None:
+        self.audit, self.victim, self.swap, self.swapped = audit, victim, swap, False
+        self.me = (os.geteuid(), os.getegid())
+        self.writer = self.me if self.me[0] != 0 else (65534, 65534)
+        self.given: set[tuple[int, int]] = set()
+        if self.me[0] == 0:
+            os.chown(audit, *self.writer)
+        self.dir_id = (os.stat(audit).st_dev, os.stat(audit).st_ino)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(os, name)
+
+    def writers(self, p: Path) -> None:
+        """``p`` is the audit writer's own file."""
+        if self.me[0] == 0:
+            os.chown(p, *self.writer)
+        st = os.stat(p)
+        self.given.add((st.st_dev, st.st_ino))
+
+    def geteuid(self) -> int:
+        return 0
+
+    def _view(self, st: os.stat_result) -> os.stat_result:
+        if (st.st_dev, st.st_ino) in self.given | {self.dir_id} or st.st_uid != self.me[0]:
+            return st
+        vals = list(st)[:10]
+        vals[4], vals[5] = 0, 0
+        return os.stat_result(vals)
+
+    def stat(self, *a: Any, **k: Any) -> os.stat_result:
+        return self._view(os.stat(*a, **k))
+
+    def lstat(self, *a: Any, **k: Any) -> os.stat_result:
+        return self._view(os.lstat(*a, **k))
+
+    def fstat(self, fd: int) -> os.stat_result:
+        return self._view(os.fstat(fd))
+
+    def _swap(self, name: str, when: str) -> None:
+        if self.swap is None or self.swapped or self.swap != (Path(name).name, when):
+            return
+        self.swapped = True
+        p = self.audit / Path(name).name
+        os.unlink(p)
+        os.symlink(self.victim, p)  # the audit writer may: the folder is its own
+
+    def open(self, path: Any, flags: int, mode: int = 0o777, *, dir_fd: int | None = None) -> int:
+        inside = (
+            dir_fd is not None and isinstance(path, str) and os.path.samestat(os.fstat(dir_fd), os.stat(self.audit))
+        )
+        if inside:
+            self._swap(path, "before")
+        fd = os.open(path, flags, mode, dir_fd=dir_fd)
+        if inside:
+            self._swap(path, "after")
+        return fd
+
+    def fchown(self, fd: int, uid: int, gid: int) -> None:
+        self._swap(os.readlink(f"/proc/self/fd/{fd}"), "before")
+        os.fchown(fd, uid, gid)
+        st = os.fstat(fd)
+        self.given.add((st.st_dev, st.st_ino))
+        self._swap(os.readlink(f"/proc/self/fd/{fd}").removesuffix(" (deleted)"), "after")
+
+    def chown(self, path: Any, uid: int, gid: int, **k: Any) -> None:  # what c2fcb044 called
+        self._swap(str(path), "before")
+        os.chown(path, uid, gid, **k)
+        st = os.stat(path, follow_symlinks=k.get("follow_symlinks", True))
+        self.given.add((st.st_dev, st.st_ino))
+        self._swap(str(path), "after")
+
+
+def _seam_audit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, swap: tuple[str, str] | None = None,
+                day_mode: int = 0o640) -> tuple[_FdSeam, Path, Path, dict[str, Any]]:  # fmt: skip
+    """An audit folder of the writer with one day file (``day_mode``, the writer's choice), then the files an append
+    as root makes (a new ``.lock``, a replaced ``HEAD.json``) and a victim file outside the folder, mode 0600."""
+    audit, victim = tmp_path / "audit", tmp_path / "elsewhere" / "victim"
+    audit.mkdir()
+    victim.parent.mkdir()
+    victim.write_text("synthetic\n", encoding="utf-8")
+    victim.chmod(0o600)
+    seam = _FdSeam(audit, victim, swap)
+    day, head = audit / "2026-11-20.jsonl", audit / "HEAD.json"
+    day.write_text("", encoding="utf-8")
+    head.write_text("{}\n", encoding="utf-8")
+    seam.writers(day)
+    seam.writers(head)
+    day.chmod(day_mode)  # the writer sets its own day file's mode
+    head.chmod(0o640)
+    monkeypatch.setattr(bkc, "os", seam)
+    before = bkc._audit_files(audit)
+    (audit / ".lock").write_text("", encoding="utf-8")  # made by this run, as root
+    (audit / "HEAD.tmp").write_text("{}\n", encoding="utf-8")
+    os.replace(audit / "HEAD.tmp", head)  # replaced by this run, as root
+    return seam, audit, victim, before
+
+
+@pytest.mark.parametrize("name", [".lock", "HEAD.json"])
+@pytest.mark.parametrize("when", ["before", "after"])
+def test_the_give_back_never_follows_a_link_swapped_in_by_the_audit_writer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, when: str
+) -> None:
+    """Review of c2fcb044, item 1: the audit writer owns the folder and sets its day file to 06777; between root's
+    owner change and its mode change it swaps a file this run made for a symlink to a file outside the folder. Real
+    files, a real symlink: the file outside is left as it was, no file gets a special or exec bit, and the name
+    swapped is refused and named."""
+    seam, audit, victim, before = _seam_audit(tmp_path, monkeypatch, swap=(name, when), day_mode=0o6777)
+    victim_before = os.stat(victim)
+    given = bkc._give_back(audit, before)
+    assert seam.swapped
+    after = os.stat(victim)
+    assert (stat.S_IMODE(after.st_mode), after.st_uid, after.st_gid) == (
+        0o600, victim_before.st_uid, victim_before.st_gid)  # fmt: skip
+    for p in audit.iterdir():
+        st = os.lstat(p)
+        if stat.S_ISREG(st.st_mode) and p.name != "2026-11-20.jsonl":
+            assert stat.S_IMODE(st.st_mode) & 0o7111 == 0, (p, oct(st.st_mode))
+    assert audit / name in [*given.refused, *given.left], given
+
+
+def test_the_give_back_never_gives_a_special_bit_and_gives_the_folder_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 1: the newest day file shows 06777 (the writer set it); a file this run made gets the folder's owner and
+    at most 0660, never a setuid, setgid, sticky or exec bit."""
+    seam, audit, _victim, before = _seam_audit(tmp_path, monkeypatch, day_mode=0o6777)
+    given = bkc._give_back(audit, before)
+    for n in (".lock", "HEAD.json"):
+        st = seam.lstat(audit / n)
+        assert stat.S_IMODE(st.st_mode) & ~0o660 == 0, (n, oct(st.st_mode))
+        assert (st.st_uid, st.st_gid) == seam.writer, n
+    assert not given.left and not given.refused, given
+
+
+def test_the_give_back_refuses_a_file_with_a_second_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Item 1: a file of root's with a second name (a hard link into the folder) is not given: refused and named."""
+    seam, audit, _victim, before = _seam_audit(tmp_path, monkeypatch)
+    os.link(audit / ".lock", tmp_path / "elsewhere" / "second-name")
+    given = bkc._give_back(audit, before)
+    assert seam.lstat(audit / ".lock").st_uid == 0
+    assert given.refused == [audit / ".lock"], given
+
+
+def _ceremony_events(b: dict[str, Path]) -> list[str]:
+    return [json.loads(x)["event"] for f in b["audit"].rglob("*.jsonl") for x in f.read_text().splitlines()]
+
+
+def test_an_interruption_while_the_audit_is_given_back_after_the_event_writes_the_undoing(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 2: Ctrl-C inside the give-back after the append returned: the event's line is on disk, so the run is not
+    said as an audit failure; ``backup.key_ceremony_undone`` is written before the undo, and a rerun is allowed."""
+    real, calls = bkc._give_back, {"n": 0}
+
+    def give_back(*a: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise KeyboardInterrupt
+        return real(*a)
+
+    monkeypatch.setattr(bkc, "_give_back", give_back)
+    rc, out = _main(box, capsys)
+    assert rc == 1, out
+    assert bkc.INTERRUPTED["en"] in out and bkc.AUDIT_FAILED["en"].split("{path}")[0] not in out, out
+    assert _ceremony_events(box) == [bkc.EVENT, bkc.UNDONE_EVENT]
+    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE)
+    assert not list(box["stick"].iterdir()) and not os.path.lexists(box["pub"])
+    assert bkc.earlier_ceremony(box["audit"], "synthetic-site") is None
+
+
+def test_a_listing_of_the_audit_folder_that_fails_after_the_event_is_not_an_audit_failure(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, sim: _SimUids
+) -> None:
+    """Item 2: the writer's audit folder cannot be listed for the give-back after the append returned (OSError):
+    the event is on disk, so the key is kept and put in place, and the folder is named as not given back: exit 2."""
+    _writer_owned_audit(box, fresh=True, sim=sim)
+    real, calls = bkc._audit_files, {"n": 0}
+
+    def audit_files(*a: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise OSError(errno.EIO, "Input/output error")
+        return real(*a)
+
+    monkeypatch.setattr(bkc, "_audit_files", audit_files)
+    rc, out = _main(box, capsys)
+    assert rc == bkc.KEPT_EXIT, out
+    assert bkc.AUDIT_FAILED["en"].split("{path}")[0] not in out, out
+    assert _ceremony_events(box) == [bkc.EVENT]
+    assert box["pub"].exists() and sorted(p.name for p in box["stick"].iterdir()) == sorted([bkc.KEY_FILE,
+                                                                                           bkc.PAPER_FILE])  # fmt: skip
+
+
+def test_an_interruption_before_the_link_ran_writes_the_undoing_and_frees_a_rerun(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 3: Ctrl-C after the audit and before ``os.link`` ran: ``backup.pub`` is not there (decided by looking,
+    not by where the code was), so the public key was never visible: the undoing is written, everything is removed,
+    nothing says to check ``backup.pub``, and the ceremony can be run again."""
+
+    def link(src: Any, dst: Any) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(os, "link", link)
+    rc, out = _main(box, capsys)
+    assert rc == 1, out
+    assert bkc.INTERRUPTED["en"] in out and "Check that" not in out, out
+    assert _ceremony_events(box) == [bkc.EVENT, bkc.UNDONE_EVENT]
+    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE)
+    assert not list(box["stick"].iterdir()) and not list(box["deploy"].rglob("*"))
+    assert bkc.earlier_ceremony(box["audit"], "synthetic-site") is None
+
+
+def test_a_public_key_linked_whose_folder_sync_fails_is_kept_and_said_in_place(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 3: ``backup.pub`` is linked, then its folder's sync fails: it is ours (same inode), so it was visible:
+    everything is kept and the warning says the public key is in place, exit 2."""
+    _fail_fsync(monkeypatch, lambda path: path == str(box["pub"].parent) and os.path.lexists(box["pub"]))
+    rc, out = _main(box, capsys)
+    assert rc == bkc.KEPT_EXIT, out
+    (ev,) = _events(box)
+    fp = ev["detail"]["fingerprint"]
+    assert bkc.PUB_LINKED_WARNING["en"].format(fp=fp, key=bkc.KEY_FILE, paper=bkc.PAPER_FILE, pub=box["pub"],
+                                               event=bkc.EVENT, audit=box["audit"]) in out  # fmt: skip
+    assert bk.fingerprint(bk.load_public(box["pub"]).public_bytes_raw()) == fp
+    assert sorted(p.name for p in box["pub"].parent.iterdir()) == ["backup.pub"]
+
+
+def test_a_probe_shown_readable_whose_removal_fails_is_still_said_not_private(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 4: the probe shows group or other bits and then cannot be removed: the refusal is that the stick does
+    not keep files private, not that it cannot be written."""
+    _fat_mode(monkeypatch, box["stick"], 0o644)
+    real = os.unlink
+
+    def unlink(path: Any, *, dir_fd: int | None = None) -> None:
+        if str(path).startswith(".tb-probe-"):
+            raise PermissionError(errno.EPERM, "Operation not permitted")
+        real(path, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "unlink", unlink)
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.STICK_NOT_PRIVATE["en"].format(path=box["stick"]) in out, out
+
+
+def test_the_not_private_text_says_what_is_checked() -> None:
+    """Item 4: the check takes any mode with no bit for the group or others (0700 on a FAT stick mounted with
+    ``umask=077``), so no text says the file must be mode 0600."""
+    for lg in bkc.LANGS:
+        assert "0600" not in bkc.STICK_NOT_PRIVATE[lg], lg
+
+
+def test_two_runs_on_one_stick_the_second_is_told_a_file_is_there(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 4: another run makes the key file between this run's checks and its own create (O_EXCL fails): the
+    refusal says a file of that name is on the stick, not that the stick is read-only or full, and the other run's
+    file is left."""
+    real = os.open
+
+    def open_(path: Any, flags: int, mode: int = 0o777, *, dir_fd: int | None = None) -> int:
+        if path == bkc.KEY_FILE and flags & os.O_EXCL:
+            os.close(real(path, os.O_WRONLY | os.O_CREAT, 0o600, dir_fd=dir_fd))  # the other run's file
+        return real(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", open_)
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.STICK_HAS_KEY["en"].format(name=bkc.KEY_FILE) in out, out
+    assert bkc.NOT_WRITABLE["en"].split("{path}")[0] not in out
+    assert [p.name for p in box["stick"].iterdir()] == [bkc.KEY_FILE] and _events(box) == []
 
 
 def test_same_person_compares_folded_spellings() -> None:

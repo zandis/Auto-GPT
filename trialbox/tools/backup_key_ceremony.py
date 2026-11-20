@@ -26,12 +26,17 @@ key as a synced temporary file beside ``backup.pub``, the audit event ``backup.k
 fingerprint, the person who ran it and the witness; never the key, a line of the sheet or a path on the stick), and
 only then ``backup.pub`` linked to its name without overwriting: ``trialbox backup`` reads ``backup.pub``, so no
 backup can be made to the key before the event that names it is on disk. What the run made or replaced as root in the
-audit folder is given back to the folder's owner (D-724) and checked. The ceremony is one failure domain until the
+audit folder is given back to the folder's owner (D-724; the owner of the folder held open, each file opened through
+it with ``O_NOFOLLOW`` and given through that open file only when it is a regular file of root's with one name, the
+inode just listed; never a special or exec bit) and checked. The ceremony is one failure domain until the
 link: a failure at any step after the first file is made removes every file it made, each only when it is still the
 file made (same device, inode and size), syncs each folder it removed from, and says which were removed, which are
 left, and which removals are not confirmed on disk. When the event is on disk but ``backup.pub`` could not be linked,
-``backup.key_ceremony_undone`` is written before the undo, and the once-only check counts that pair as not done. Once
-``backup.pub`` may have been visible, nothing of the key is removed: a warning, exit 2. Also exit 2: the event's line
+``backup.key_ceremony_undone`` is written before the undo, and the once-only check counts that pair as not done; so too
+when the give-back after the event, or an interruption before the link ran, stops the run (the event's line counts as
+on disk from the moment the append returned). Whether ``backup.pub`` was visible is decided by looking at it (its
+inode against the staged file's), never by where the code stopped. Once ``backup.pub`` is ours or may have been
+visible, nothing of the key is removed: a warning, exit 2. Also exit 2: the event's line
 synced but its head anchor not confirmed; an audit file left root's. What is not covered (D-1379): a power loss or a
 kill after the event's line is on disk and before ``backup.pub`` is linked (the audit then refuses a rerun and says
 how to go on), and a stick pulled before the undo (the refusal names its files as left).
@@ -253,14 +258,18 @@ NO_CEREMONY_FOR_KEY = {
     "zh-TW": "稽核紀錄中沒有此金鑰的備份金鑰儀式（儀式中途中斷，或為 backup-keygen 建立的金鑰）。",
 }
 AUDITED_NO_KEY = {
-    "en": "This box has no backup.pub: if that ceremony was undone (its run said so) or its public key was removed, "
-    "make the new pair as RUNBOOK §25 says (python -m tools.trialbox backup-keygen) and enter its fingerprint in the "
-    "ceremony record.",
-    "ja": "このボックスには backup.pub がありません。その手続きが取り消された（実行時にそう表示された）か公開鍵が"
-    "削除された場合は、RUNBOOK §25 のとおりに新しい鍵の組を作り（python -m tools.trialbox backup-keygen）、"
+    "en": "This box has no backup.pub. The key of that ceremony (fingerprint {fp}) may still be on its stick and "
+    "paper sheet, and it is valid, but no command of this box puts its public key back at backup.pub. Keep that "
+    "stick and sheet sealed: a backup made while its backup.pub was there opens only with it. Make the new pair as "
+    "RUNBOOK §25 says (python -m tools.trialbox backup-keygen) and enter its fingerprint in the ceremony record.",
+    "ja": "このボックスには backup.pub がありません。その手続きの鍵（指紋 {fp}）は USB メモリと紙の控えに残って"
+    "いる可能性があり、鍵としては有効ですが、その公開鍵を backup.pub に戻すコマンドはこのボックスにはありません。"
+    "その USB メモリと紙の控えは封をしたまま保管してください。backup.pub があった間に作られたバックアップは、"
+    "その鍵でしか開けません。新しい鍵の組は RUNBOOK §25 のとおりに作り（python -m tools.trialbox backup-keygen）、"
     "その指紋を手続きの記録に記入してください。",
-    "zh-TW": "此主機沒有 backup.pub：若該儀式已被復原（執行時已如此顯示）或其公開金鑰已被刪除，請依 RUNBOOK §25 "
-    "建立新的金鑰組（python -m tools.trialbox backup-keygen），並將其指紋填入儀式紀錄。",
+    "zh-TW": "此主機沒有 backup.pub。該儀式的金鑰（指紋 {fp}）可能仍在其隨身碟與紙本上，且仍有效，但此主機沒有任何"
+    "指令能將其公開金鑰放回 backup.pub。請將該隨身碟與紙本保持密封：在其 backup.pub 存在期間建立的備份只能用它開啟。"
+    "請依 RUNBOOK §25 建立新的金鑰組（python -m tools.trialbox backup-keygen），並將其指紋填入儀式紀錄。",
 }
 AUDIT_MAY_HOLD = {
     "en": "The audit may still hold this run's event (fingerprint {fp}): if it does, a new run of this command is "
@@ -299,17 +308,19 @@ KEPT_WARNING = {
     "並由人員檢查；請勿再次執行此儀式。拔出隨身碟前請先卸載（退出）。",
 }
 STICK_NOT_PRIVATE = {
-    "en": "refused: a file made on the stick at {path} can be read by others (it is not mode 0600 owned by root), so "
-    "the key is not written: mount the stick for root only, e.g. mount -o uid=0,gid=0,umask=077 <device> {path} (a "
-    "FAT or exFAT stick takes its modes from these options), or use a stick formatted with ext4",
-    "ja": "拒否：{path} の USB メモリに作ったファイルをほかの人が読めます（root だけが読める"
-    "モード 0600 になりません）。鍵は書きません。USB メモリを root だけが使えるようにマウントしてください。"
+    "en": "refused: a file made on the stick at {path} can be read by others (its mode has a bit for the group or "
+    "others, or it is not owned by root), so the key is not written: mount the stick for root only, e.g. mount -o "
+    "uid=0,gid=0,umask=077 <device> {path} (a FAT or exFAT stick takes its modes from these options), or use a stick "
+    "formatted with ext4",
+    "ja": "拒否：{path} の USB メモリに作ったファイルをほかの人が読めます（モードにグループかほかの人の"
+    "ビットがあるか、所有者が root ではありません）。鍵は書きません。"
+    "USB メモリを root だけが使えるようにマウントしてください。"
     "例：mount -o uid=0,gid=0,umask=077 <device> {path}"
     "（FAT や exFAT の USB メモリのモードはこのオプションで決まります）。"
     "または ext4 でフォーマットした USB メモリを使ってください",
-    "zh-TW": "已拒絕：在 {path} 隨身碟上建立的檔案可被他人讀取（不是僅 root 可讀的模式 0600），因此不寫入金鑰：請以僅 "
-    "root 可用的方式掛載隨身碟，例如 mount -o uid=0,gid=0,umask=077 <device> {path}（FAT 或 exFAT 隨身碟的模式由"
-    "這些選項決定），或改用以 ext4 格式化的隨身碟",
+    "zh-TW": "已拒絕：在 {path} 隨身碟上建立的檔案可被他人讀取（其模式含群組或其他人的權限位元，或擁有者不是 "
+    "root），因此不寫入金鑰：請以僅 root 可用的方式掛載隨身碟，例如 mount -o uid=0,gid=0,umask=077 <device> {path}"
+    "（FAT 或 exFAT 隨身碟的模式由這些選項決定），或改用以 ext4 格式化的隨身碟",
 }
 REMOVED_NOT_DURABLE = {
     "en": "Removed, but the removal is not confirmed on disk (the folder {folder} did not sync): {files}: after a "
@@ -341,6 +352,41 @@ PUB_KEPT_WARNING = {
     "zh-TW": "警告：備份金鑰 {fp} 已保留：其稽核紀錄 {event} 已寫入，隨身碟上有 {key} 與 {paper}，但將公開金鑰放到 "
     "{pub} 的步驟未完成，且備份可能已在使用它，因此未刪除任何內容。請確認 {pub} 存在且指紋為 {fp}，執行 "
     "python tools/audit_verify.py {audit} 並由人員檢查；請勿再次執行此儀式。拔出隨身碟前請先卸載（退出）。",
+}
+PUB_LINKED_WARNING = {
+    "en": "warning: the backup key {fp} is in place: its audit event {event} is written, the stick holds {key} and "
+    "{paper}, and {pub} is the public key just made, but the run stopped before it finished putting it there (the "
+    "folder's sync or the temporary name's removal), so the ceremony is not reported as done; nothing was removed. "
+    "Run python tools/audit_verify.py {audit} and have a person look; do not run the ceremony again. Unmount (eject) "
+    "the stick before you pull it out.",
+    "ja": "警告：バックアップ鍵 {fp} は置かれました。監査記録 {event} は書かれ、USB メモリには {key} と {paper} が"
+    "あり、{pub} は作った公開鍵ですが、置く処理の最後（フォルダーの同期か一時ファイル名の削除）の前に実行が止まった"
+    "ため、手続きは完了と報告しません。何も削除していません。python tools/audit_verify.py {audit} を実行し、担当者が"
+    "確認してください。この手続きを再実行しないでください。USB メモリは抜く前にアンマウント（取り出し）してください。",
+    "zh-TW": "警告：備份金鑰 {fp} 已就位：其稽核紀錄 {event} 已寫入，隨身碟上有 {key} 與 {paper}，且 {pub} 是剛建立的"
+    "公開金鑰，但執行在放置步驟完成前（資料夾同步或暫存名稱刪除）中止，因此儀式不回報為完成；未刪除任何內容。請執行 "
+    "python tools/audit_verify.py {audit} 並由人員檢查；請勿再次執行此儀式。拔出隨身碟前請先卸載（退出）。",
+}
+AUDIT_NOT_GIVEN = {
+    "en": "warning: these names in the audit folder were not given back to its owner, as each is no longer "
+    "verifiably the file this run wrote there (a link, a file with a second name, or another file): {files}: nothing "
+    "was changed through them; have a person look (python tools/audit_verify.py {audit}).",
+    "ja": "警告：監査記録のフォルダーのこれらの名前は所有者に戻していません。どれも、この実行が書いたファイルだと"
+    "確認できなくなっています（リンク、別の名前もあるファイル、または別のファイル）：{files}。それを通しては何も"
+    "変えていません。担当者が確認してください（python tools/audit_verify.py {audit}）。",
+    "zh-TW": "警告：稽核紀錄資料夾中的這些名稱未交還其擁有者，因為每一個都已無法確認是此次執行寫入的檔案（連結、"
+    "有第二個名稱的檔案，或另一個檔案）：{files}：未經由它們變更任何內容；請由人員檢查（python tools/audit_verify.py "
+    "{audit}）。",
+}
+AUDIT_NOT_LISTED = {
+    "en": "warning: the audit folder {audit} could not be listed after the ceremony's event, so what this run wrote "
+    "there was neither given back to its owner ({owner}) nor checked: give any file of root's there to the owner "
+    "with chown.",
+    "ja": "警告：手続きの記録のあと、監査記録のフォルダー {audit} を一覧できなかったため、この実行が書いたものを"
+    "所有者（{owner}）に戻すことも確認することもできませんでした。そこにある root のファイルは chown で所有者に"
+    "戻してください。",
+    "zh-TW": "警告：寫入儀式紀錄後無法列出稽核紀錄資料夾 {audit}，因此此次執行在其中寫入的內容既未交還其擁有者"
+    "（{owner}），也未檢查：請以 chown 將其中屬於 root 的檔案交還擁有者。",
 }
 AUDIT_HOLDS = {
     "en": "The audit holds this run's event (fingerprint {fp}), and the event that undoes it could not be written: a "
@@ -512,6 +558,7 @@ def writable(folder: Path, dir_fd: int | None = None) -> bool:
         fd = os.open(where, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
     except OSError:
         return False
+    private = True
     try:
         try:
             private = _private(os.fstat(fd))
@@ -524,7 +571,8 @@ def writable(folder: Path, dir_fd: int | None = None) -> bool:
     except OSError:
         with contextlib.suppress(OSError):
             os.unlink(where, dir_fd=dir_fd)
-        return False
+        if private:  # a probe shown readable by others is said as that, whether or not its removal worked
+            return False
     if not private:
         raise CeremonyError(STICK_NOT_PRIVATE, path=folder)
     return True
@@ -615,7 +663,7 @@ def check(
     if (prev := earlier_ceremony(audit_dir, site)) is not None:
         det = _detail(prev)
         err = CeremonyError(AUDITED_ALREADY, at=str(prev.get("ts") or "-"), fp=str(det.get("fingerprint") or "-"))
-        err.more.append((AUDITED_NO_KEY, {}))  # here backup.pub is not there: how to go on (D-1379)
+        err.more.append((AUDITED_NO_KEY, {"fp": str(det.get("fingerprint") or "-")}))  # no backup.pub: D-1379
         raise err
     if not sec.is_dir():
         raise CeremonyError(NO_SECRETS, path=sec)
@@ -796,7 +844,10 @@ def _write_new(path: Path, data: bytes, undo: _Undo, stick: _Stick | None, mode:
     (:data:`STICK_MOVED`) or the filesystem shows it readable by others (:data:`STICK_NOT_PRIVATE`)."""
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
     if stick is not None:
-        fd = os.open(path.name, flags, mode, dir_fd=stick.fd)
+        try:
+            fd = os.open(path.name, flags, mode, dir_fd=stick.fd)
+        except FileExistsError:  # made since the check (another run on this stick): never this run's to remove
+            raise CeremonyError(STICK_HAS_KEY, name=path.name) from None
     else:
         fd = os.open(path, flags, mode)
     try:
@@ -864,64 +915,151 @@ def _stage_pub(pub: Path, text: str, undo: _Undo) -> _Made:
     return _write_new(tmp, text.encode(), undo, None, mode=0o644)
 
 
-def _is_file(path: Path, m: _Made) -> bool:
+def _pub_state(pub: Path, staged: _Made | None) -> str:
+    """What is at ``backup.pub`` now, looked at (``lstat``, never followed): ``ours`` (the staged file's device and
+    inode: it is linked), ``absent``, ``other`` (another file) or ``unknown`` (it cannot be looked at)."""
     try:
-        st = os.stat(path, follow_symlinks=False)
+        st = os.stat(pub, follow_symlinks=False)
+    except FileNotFoundError:
+        return "absent"
     except OSError:
-        return False
-    return (st.st_dev, st.st_ino) == (m.dev, m.ino)
+        return "unknown"
+    return "ours" if staged is not None and (st.st_dev, st.st_ino) == (staged.dev, staged.ino) else "other"
 
 
-def _audit_files(audit_dir: Path) -> dict[str, tuple[int, int, int, int]]:
-    """Every regular file of the audit folder: its inode, owner, group and mode."""
-    out: dict[str, tuple[int, int, int, int]] = {}
-    for p in audit_dir.rglob("*"):
-        try:
-            st = os.lstat(p)
-        except OSError:
-            continue
-        if stat.S_ISREG(st.st_mode):
-            out[str(p.relative_to(audit_dir))] = (st.st_ino, st.st_uid, st.st_gid, stat.S_IMODE(st.st_mode))
-    return out
+def _names_of(m: _Made) -> int | None:
+    """How many names the staged file has now (1: only its temporary name), or None when it cannot be told."""
+    try:
+        st = os.stat(m.path, follow_symlinks=False)
+    except OSError:
+        return None
+    return st.st_nlink if (st.st_dev, st.st_ino) == (m.dev, m.ino) else None
 
 
-def _give_back(audit_dir: Path, before: Mapping[str, tuple[int, int, int, int]]) -> list[Path]:
+@dataclass(frozen=True)
+class _AuditFile:
+    """An entry of the audit folder as ``lstat`` gave it (a link is not followed)."""
+
+    dev: int
+    ino: int
+    uid: int
+    gid: int
+    mode: int
+    nlink: int
+    regular: bool
+
+
+def _audit_files(audit_dir: Path, dir_fd: int | None = None) -> dict[str, _AuditFile]:
+    """Every entry of the audit folder itself (the audit library makes no subfolder in it), by name. With ``dir_fd``
+    the folder held open is listed and each name looked at through it: no path is resolved."""
+    fd = os.open(audit_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC) if dir_fd is None else dir_fd
+    try:
+        out: dict[str, _AuditFile] = {}
+        for name in sorted(os.listdir(fd)):
+            try:
+                st = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            out[name] = _AuditFile(st.st_dev, st.st_ino, st.st_uid, st.st_gid, stat.S_IMODE(st.st_mode), st.st_nlink,
+                                   stat.S_ISREG(st.st_mode))  # fmt: skip
+        return out
+    finally:
+        if dir_fd is None:
+            os.close(fd)
+
+
+@dataclass
+class _Given:
+    """What a give-back (:func:`_give_back`) could not do: ``left``, files still root's (the owner change failed);
+    ``refused``, names not given because each is not verifiably the file this run wrote (a link, a file with a second
+    name, another file now at the name); ``unlisted``, the folder could not be opened or listed (nothing checked)."""
+
+    left: list[Path]
+    refused: list[Path]
+    unlisted: bool = False
+
+
+_NOT_ORDINARY = 0o7111  # setuid, setgid, sticky and every exec bit: never on an audit file this run gives
+
+
+def _give_mode(before: Mapping[str, _AuditFile], owner: int) -> tuple[int | None, int]:
+    """The mode a new file is given (the newest day file's, or None when there was none) and the cap of every mode
+    given: 0660, with the bits for others only when every ordinary file of the folder's owner (no special or exec
+    bit) has them. A special or exec bit is never given (the writer could set one on its own day file)."""
+    days = sorted(k for k, f in before.items() if f.regular and k.endswith(".jsonl"))
+    like = before[days[-1]].mode if days else None
+    ordinary = [f.mode for f in before.values() if f.regular and f.uid == owner and not f.mode & _NOT_ORDINARY]
+    others = 0o006
+    for m in ordinary:
+        others &= m
+    return like, 0o660 | (others if ordinary else 0)
+
+
+def _give_back(audit_dir: Path, before: Mapping[str, _AuditFile]) -> _Given:
     """D-724, as ``trialbox backup`` and ``restore`` do it: what this run wrote as root in the audit folder is given
-    back, so the audit writer (another user) can append after it. A file that was there with another owner and is
-    root's now (the head anchor, replaced) gets its owner, group and mode again; a file that is new (the lock, a new
-    day file, a torn line's evidence) gets the folder's owner and group and the mode of the newest day file that was
-    there. Files root had before are left as they are. Returns every file still root's after this (checked)."""
+    back, so the audit writer (another user) can append after it. The owner given is the audit folder's own (``fstat``
+    of the folder held open), never one read from a file in it. The folder is opened once and every name is opened
+    through it with ``O_NOFOLLOW`` (no path is resolved again); a file is given only when ``fstat`` of what was opened
+    shows a regular file of root's with one name, the device and inode the listing just saw, and then only through
+    that open file (``fchown``, ``fchmod``): a name swapped for a link, a file with a second name or another file is
+    refused and named. The mode: a file replaced (the head anchor) its earlier mode, a new file (the lock, a new day
+    file, a torn line's evidence) the newest day file's, each without a special or exec bit and within the cap of
+    :func:`_give_mode`. Files root had before are left as they are. Then checked: what is still root's is ``left``."""
+    given = _Given([], [])
     try:
-        top = os.stat(audit_dir)
+        dfd = os.open(audit_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
     except OSError:
-        return []
-    me = os.geteuid()
-    if top.st_uid == me:
-        return []
-    days = sorted(k for k in before if k.endswith(".jsonl") and "/" not in k)
-    like = before[days[-1]][3] if days else None
-    left: list[Path] = []
-    for rel, (_ino, uid, _gid, mode) in sorted(_audit_files(audit_dir).items()):
-        if uid != me:
-            continue
-        was = before.get(rel)
-        if was is not None and was[1] == me:
-            continue  # root's before this run: not this run's to give
-        want = (was[1], was[2], was[3]) if was is not None else (top.st_uid, top.st_gid, like if like else mode)
-        p = audit_dir / rel
-        with contextlib.suppress(OSError):
-            os.chown(p, want[0], want[1], follow_symlinks=False)
-            os.chmod(p, want[2])
+        given.unlisted = True
+        return given
+    try:
+        top, me = os.fstat(dfd), os.geteuid()
+        if top.st_uid == me:
+            return given
         try:
-            st = os.lstat(p)
-            ok = (st.st_uid, st.st_gid) == (want[0], want[1])
-        except FileNotFoundError:
-            ok = True
+            now = _audit_files(audit_dir, dfd)
         except OSError:
-            ok = False
-        if not ok:
-            left.append(p)
-    return left
+            given.unlisted = True
+            return given
+        like, cap = _give_mode(before, top.st_uid)
+        for name, f in now.items():
+            if f.uid != me:
+                continue
+            was = before.get(name)
+            if was is not None and was.uid == me:
+                continue  # root's before this run: not this run's to give
+            p = audit_dir / name
+            if not f.regular or f.nlink != 1:
+                given.refused.append(p)
+                continue
+            mode = (was.mode if was is not None else like if like is not None else f.mode) & 0o666 & cap
+            try:
+                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=dfd)
+            except FileNotFoundError:
+                continue  # gone: nothing of root's is left at the name
+            except OSError:
+                given.refused.append(p)  # a link now (ELOOP), or anything else that cannot be opened as a file
+                continue
+            try:
+                st = os.fstat(fd)
+                if (not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_uid != me
+                        or (st.st_dev, st.st_ino) != (f.dev, f.ino)):  # fmt: skip
+                    given.refused.append(p)
+                    continue
+                with contextlib.suppress(OSError):
+                    os.fchown(fd, top.st_uid, top.st_gid)
+                    os.fchmod(fd, mode)
+                try:
+                    st = os.fstat(fd)
+                    ok = (st.st_uid, st.st_gid) == (top.st_uid, top.st_gid)
+                except OSError:
+                    ok = False
+                if not ok:
+                    given.left.append(p)
+            finally:
+                os.close(fd)
+    finally:
+        os.close(dfd)
+    return given
 
 
 def _cause(e: BaseException, step: str, stick: Path, pub: Path, audit_dir: Path) -> CeremonyError:
@@ -1026,9 +1164,9 @@ def _ceremony(
     key_file, paper_file = stick / KEY_FILE, stick / PAPER_FILE
     undo, step, fp, link = _Undo(), "start", "", "no"
     detail: dict[str, Any] = {}
-    audit_state = "absent"
+    audit_state = "absent"  # "recorded" from the moment the event's line is known to be on disk, whatever comes after
     anchor_unconfirmed = False
-    owners_left: list[Path] = []
+    given: list[_Given] = []
     staged: _Made | None = None
     try:
         log = AuditLog(audit_dir, tz=tz) if tz else AuditLog(audit_dir)  # the site's zone, as `restore` writes it
@@ -1064,19 +1202,21 @@ def _ceremony(
         staged = _stage_pub(pub, base64.b64encode(pk).decode() + "\n", undo)
         if os.path.lexists(pub):  # a key put there meanwhile: refused before the audit, never overwritten
             raise FileExistsError(errno.EEXIST, "File exists", str(pub))
-        step = "audit"
         detail = {"at": at, "site": site, "fingerprint": fp, "operator": who, "witness": wit,
                   "forms": ["stick", "paper"], "paper_format": FORMAT}  # fmt: skip
+        step = "audit-folder"  # listing the folder is not the append: never said as the audit failing
         before = _audit_files(audit_dir)
+        step = "audit"
         try:
             log.append(EVENT, actor=ACTOR, input_sha="", detail=detail)
+            audit_state = "recorded"  # the append returned: the library synced the line and wrote the head anchor
         except BaseException as e:
             audit_state = _audit_state(e, audit_dir, fp)
             if audit_state != "recorded":
                 raise
             anchor_unconfirmed = True  # the line is on disk: go on, and say it (KEPT_WARNING)
         finally:
-            owners_left = _give_back(audit_dir, before)
+            given.append(_give_back(audit_dir, before))
         step, link = "link", "trying"
         os.link(staged.path, pub)  # no overwrite: FileExistsError when a file of that name appeared meanwhile
         link = "done"
@@ -1084,30 +1224,14 @@ def _ceremony(
         undo.forget(staged.path)
         _sync_dir(pub.parent)
     except BaseException as e:  # one failure domain: nothing of a failed ceremony is kept (D-1379)
-        if step == "link":
-            visible = link == "done" or (link == "trying" and not isinstance(e, OSError))
-            visible = visible or (staged is not None and _is_file(pub, staged))
-            if visible:  # a backup may have read backup.pub: the private copies are never removed after this
-                if staged is not None:  # the temporary name only: backup.pub is another link to it
-                    with contextlib.suppress(OSError):
-                        if _is_file(staged.path, staged):
-                            os.unlink(staged.path)
-                kept = CeremonyKept(PUB_KEPT_WARNING, fp=fp, key=key_file.name, paper=paper_file.name, pub=pub,
-                                    event=EVENT, audit=audit_dir)  # fmt: skip
-                kept.more = _owner_said(owners_left, audit_dir)
-                raise kept from None
-            err = _cause(e, "public", stick, pub, audit_dir)
-            undone, owners_more = _write_undone(log, audit_dir, detail, e)
-            err.more = undo.run() + _owner_said(owners_left + owners_more, audit_dir)
-            if not undone:
-                err.more.append((AUDIT_HOLDS, {"fp": fp}))
-            raise err from None
+        if audit_state == "recorded":  # the event's line is on disk, whatever failed after it
+            raise _after_event(e, step, link, undo, staged, log, given, detail, held, pub, audit_dir) from None
         err = _cause(e, step, stick, pub, audit_dir)
-        err.more = undo.run() + _owner_said(owners_left, audit_dir)
+        err.more = undo.run() + _owner_said(given, audit_dir)
         if step == "audit" and audit_state == "unknown":
             err.more.append((AUDIT_MAY_HOLD, {"fp": fp}))
         raise err from None
-    warnings = _owner_said(owners_left, audit_dir)
+    warnings = _owner_said(given, audit_dir)
     if anchor_unconfirmed:  # the chain holds the event on disk, its head anchor unconfirmed: no closing text
         kept = CeremonyKept(KEPT_WARNING, fp=fp, key=key_file.name, paper=paper_file.name, pub=pub, event=EVENT,
                             audit=audit_dir)  # fmt: skip
@@ -1117,32 +1241,85 @@ def _ceremony(
             "warnings": warnings}  # fmt: skip
 
 
-def _owner_said(left: Sequence[Path], audit_dir: Path) -> list[tuple[Mapping[str, str], dict[str, Any]]]:
-    """:data:`AUDIT_OWNER_LEFT` for the audit files still root's, naming the folder's owner; nothing when none."""
-    if not left:
+def _after_event(
+    e: BaseException, step: str, link: str, undo: _Undo, staged: _Made | None, log: Any, given: list[_Given],
+    detail: Mapping[str, Any], held: _Stick, pub: Path, audit_dir: Path,
+) -> CeremonyError:  # fmt: skip
+    """The refusal or warning for a failure once the event's line is on disk (the give-back after it, the link, the
+    temporary name's removal, the folder's sync). Whether ``backup.pub`` was visible is decided by looking at it, not
+    by where the code stopped: at the name, the staged file (same device and inode) was visible, so everything is
+    kept (:data:`PUB_LINKED_WARNING`, exit 2). Not visible: the link was never tried, the link itself refused
+    (``OSError``), or it was being tried and nothing is at the name while the staged file has only its temporary name.
+    Then ``backup.key_ceremony_undone`` is written and everything is undone (D-1379). Anything else (another file at
+    the name, a name that cannot be looked at, a name gone after the link returned): it may have been visible, so
+    nothing of the key is removed (:data:`PUB_KEPT_WARNING`, exit 2)."""
+    fp, stick = str(detail.get("fingerprint") or ""), held.path
+    key, paper = (stick / KEY_FILE).name, (stick / PAPER_FILE).name
+    state = _pub_state(pub, staged) if step == "link" else "absent"
+    never = step != "link" or (
+        link == "trying" and state != "ours" and (isinstance(e, OSError) or (
+            state == "absent" and staged is not None and _names_of(staged) == 1)))  # fmt: skip
+    if not never:
+        if staged is not None:  # the temporary name only (still the staged file): never backup.pub
+            with contextlib.suppress(OSError):
+                if _names_of(staged) is not None:
+                    os.unlink(staged.path)
+        text = PUB_LINKED_WARNING if state == "ours" else PUB_KEPT_WARNING
+        kept = CeremonyKept(text, fp=fp, key=key, paper=paper, pub=pub, event=EVENT, audit=audit_dir)
+        kept.more = _owner_said(given, audit_dir)
+        return kept
+    err = _cause(e, "public" if step == "link" else "after-audit", stick, pub, audit_dir)
+    undone, more = _write_undone(log, audit_dir, detail, e)
+    err.more = undo.run() + _owner_said([*given, more], audit_dir)
+    if not undone:
+        err.more.append((AUDIT_HOLDS, {"fp": fp}))
+    return err
+
+
+def _owner_said(given: Sequence[_Given], audit_dir: Path) -> list[tuple[Mapping[str, str], dict[str, Any]]]:
+    """What the give-backs could not do, said: :data:`AUDIT_OWNER_LEFT` for files still root's (naming the folder's
+    owner), :data:`AUDIT_NOT_GIVEN` for names refused, :data:`AUDIT_NOT_LISTED` for a folder not listed; nothing
+    when every give-back did all."""
+    left = list(dict.fromkeys(p for g in given for p in g.left))
+    refused = list(dict.fromkeys(p for g in given for p in g.refused))
+    unlisted = any(g.unlisted for g in given)
+    if not (left or refused or unlisted):
         return []
     try:
         top = os.stat(audit_dir)
         owner = f"{top.st_uid}:{top.st_gid}"
     except OSError:
         owner = "-"
-    return [(AUDIT_OWNER_LEFT, {"files": ", ".join(str(p) for p in dict.fromkeys(left)), "owner": owner})]
+    said: list[tuple[Mapping[str, str], dict[str, Any]]] = []
+    if left:
+        said.append((AUDIT_OWNER_LEFT, {"files": ", ".join(str(p) for p in left), "owner": owner}))
+    if refused:
+        said.append((AUDIT_NOT_GIVEN, {"files": ", ".join(str(p) for p in refused), "audit": audit_dir}))
+    if unlisted:
+        said.append((AUDIT_NOT_LISTED, {"audit": audit_dir, "owner": owner}))
+    return said
 
 
-def _write_undone(log: Any, audit_dir: Path, detail: Mapping[str, Any], e: BaseException) -> tuple[bool, list[Path]]:
+def _write_undone(log: Any, audit_dir: Path, detail: Mapping[str, Any], e: BaseException) -> tuple[bool, _Given]:
     """``backup.key_ceremony_undone`` after the ceremony's event: ``backup.pub`` was never put in place, so no backup
     was made to the key and its copies can be removed; the once-only check counts the pair as not done. Whether it
-    was written (its line synced), and the audit files still root's after it."""
-    before = _audit_files(audit_dir)
+    was written (the append returned), and what its give-back could not do. Nothing here raises: whatever stops
+    the listing or the give-back is said as the folder not listed."""
+    try:
+        before: Mapping[str, _AuditFile] | None = _audit_files(audit_dir)
+    except OSError:
+        before = None
     try:
         named = {k: detail[k] for k in ("at", "site", "fingerprint", "operator", "witness") if k in detail}
         log.append(UNDONE_EVENT, actor=ACTOR, input_sha="", detail={**named, "why": type(e).__name__})
         ok = True
     except BaseException:  # whatever stopped it, the undoing is not known to be written
         ok = False
-    finally:
-        left = _give_back(audit_dir, before)
-    return ok, left
+    try:
+        got = _give_back(audit_dir, before) if before is not None else _Given([], [], unlisted=True)
+    except BaseException:  # an interruption here too: the undo goes on, and the folder is said as not checked
+        got = _Given([], [], unlisted=True)
+    return ok, got
 
 
 def _refuse(err: CeremonyError, lang: str, *, nothing: bool = False) -> int:
