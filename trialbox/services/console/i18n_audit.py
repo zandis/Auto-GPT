@@ -189,6 +189,13 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.ask_patient": ("Patient asked", "患者への確認", "詢問病人"),
     "console.referral": ("Treating doctor asked", "主治医への了承依頼", "徵詢主治醫師同意"),
     "console.delegation": ("Delegation log changed", "治験分担医師・治験協力者リストの変更", "授權紀錄表變更"),
+    # 9f-3, 9f-5 (D-1383): a block of its own
+    "console.cover": (
+        "PI cover entered or ended",
+        "治験責任医師の代行の登録・終了",
+        "主持人代理的登記或結束",
+    ),
+    "console.task_owner": ("Task owner set", "作業の担当者の設定", "待辦事項負責人的設定"),
     "console.irb": ("IRB record changed", "IRB 記録の変更", "IRB 紀錄變更"),
     "console.irb_text": ("IRB text record changed", "IRB 文言記録の変更", "IRB 文字紀錄變更"),
     "console.icf": ("Consent-form version recorded", "同意文書版の記録", "記錄受試者同意書版本"),

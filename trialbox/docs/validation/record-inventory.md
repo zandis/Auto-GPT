@@ -102,6 +102,7 @@ are marked "files".
 | `services/console/sitestore.py` | `screening_no`, `contact_outcomes`, `pi_marks` | R-03 |
 | `services/orchestrator/db.py` | `candidates`, `candidate_events` | R-03 |
 | `services/console/teamstore.py` | `delegation`, `delegation_history`, `delegation_checks` | R-04 |
+| `services/console/teamstore.py` | `pi_cover`, `task_owner` | R-04 |
 | `services/console/teamstore.py` | `icf_versions` | R-05 |
 | `services/console/teamstore.py` | `irb`, `approach_overrides` | R-05 |
 | `services/console/sitestore.py` | `study_irb_text` | R-05 |

@@ -68,3 +68,9 @@
   the migration up and an older release opening the store); `tests/console/test_role_route_matrix_cover.py` (the whole
   router table walked as a covering sub-investigator: the PI's column less the log's own rows inside the dates, the
   account's own answers otherwise).
+
+- **Registries (finisher, for the reviewers).** The two new tables `team.pi_cover` and `team.task_owner` hold staff user
+  names and days, no patient data. They are entered in `libs/tb_common/erasure.py` with exactly the treatment of the
+  delegation log's tables (the staff rule: nothing to erase for a patient) and in the record inventory on the
+  delegation log's row R-04, same class, keeper and retention. The two audit events `console.cover` and
+  `console.task_owner` have labels (en, ja, zh-TW) in `services/console/i18n_audit.py`.

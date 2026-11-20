@@ -376,6 +376,12 @@ TABLES: dict[str, Entry] = {
         ("delegation", "delegation_checks", "delegation_history", "dept_contacts", "icf_versions", "irb", "staff"),
         _STAFF,
     ),
+    # 9f-3, 9f-5 (D-1383): a PI cover and a task owner; staff names and days, treated as the delegation log is
+    **_each(
+        "team",
+        ("pi_cover", "task_owner"),
+        _STAFF,
+    ),
     "feedback.entry": _none("in-product feedback from staff, not about a patient (record inventory O-02)"),
     # E-EDCB-2 (D-1044): the EDC door's state; the EDC's project and record ids, never a value or a name
     "edcdoor.oidc_code": _STAFF,
