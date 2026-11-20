@@ -4,6 +4,10 @@
   macro is on it with its count and a reason (``python -m tools.form_fields``). A planted template with a raw POST
   form fails; a listed template removed from the tree, or converted, without its line lowered fails; a line without
   a reason fails; a converted form with a raw field, without the summary or without a case fails.
+* 9k-6c (D-1384): a raw form is TYPED (a control a person edits, or something the text cannot see through) or ACTION
+  (hidden inputs and buttons). The ratchet's typed section counts only typed forms and never exceeds the D-1376 list
+  (kept as a fixture); an action form needs POST, the csrf field and an action address, and the action section lists the
+  ones that do not (none on master today).
 * Each converted form has its failed-POST case (``tests/console/form_cases_9k6a.py``), which
   ``tests/console/test_form_errors_9k6a.py`` renders in three languages.
 * The macro itself, rendered without the console: the summary's links target the fields' ids, ``aria-describedby``
@@ -42,6 +46,11 @@ def _ratchet() -> str:
     return form_fields.RATCHET.read_text(encoding="utf-8")
 
 
+def _typed_plus(line: str) -> str:
+    """The list with one more line at the end of its typed section."""
+    return _ratchet().replace("@action\n", line + "@action\n", 1)
+
+
 def test_the_ratchet_list_is_the_trees() -> None:
     assert form_fields.problems() == []
     assert form_fields.render_list(TEMPLATES, _ratchet()) == _ratchet()  # --write would change nothing
@@ -53,10 +62,10 @@ def test_a_planted_template_with_a_raw_post_form_fails(tmp_path: Path) -> None:
     root = _copy(tmp_path)
     (root / "planted_9k6a.html").write_text('{% extends "base.html" %}{% block content %}' + RAW + "{% endblock %}")
     found = form_fields.problems(root, _ratchet())
-    assert len(found) == 1 and found[0].startswith("planted_9k6a.html: 1 POST form(s) outside the field macro")
+    assert len(found) == 1 and found[0].startswith("planted_9k6a.html: 1 typed POST form(s) outside the field macro")
     # on the list with a reason, it passes; with the reason --write gives a new line, it does not
-    assert form_fields.problems(root, _ratchet() + "planted_9k6a.html 1 a planted form (test)\n") == []
-    assert form_fields.problems(root, _ratchet() + f"planted_9k6a.html 1 {form_fields.NEW_REASON}\n") != []
+    assert form_fields.problems(root, _typed_plus("planted_9k6a.html 1 a planted form (test)\n")) == []
+    assert form_fields.problems(root, _typed_plus(f"planted_9k6a.html 1 {form_fields.NEW_REASON}\n")) != []
     # a second raw form in a listed template fails too
     listed = next(t for t in form_fields.read_list(_ratchet())[0] if (root / t).is_file())
     with (root / listed).open("a", encoding="utf-8") as f:
@@ -77,7 +86,7 @@ def test_a_listed_template_removed_or_converted_without_the_list_fails(tmp_path:
     # a count higher than the tree's (a form converted, the line not lowered) fails
     t, (n, reason) = next((t, v) for t, v in form_fields.read_list(_ratchet())[0].items() if t != gone)
     higher = _ratchet().replace(f"{t} {n} {reason}\n", f"{t} {n + 1} {reason}\n")
-    assert any(x.startswith(f"{t}: {n} POST form(s) outside the macro, the list says {n + 1}") for x in
+    assert any(x.startswith(f"{t}: {n} typed POST form(s) outside the macro, the list says {n + 1}") for x in
                form_fields.problems(root, higher))  # fmt: skip
 
 
@@ -105,6 +114,123 @@ def test_every_converted_form_has_its_failed_post_case() -> None:
     assert tree == {name: case.template for name, case in CASES.items()}
     for name, case in CASES.items():
         assert set(case.failing) <= set(case.bad) and set(case.kept) <= set(case.bad), name
+
+
+# ---------------------------------------------------------------------------------------------- typed and action (9k-6c)
+OLD_LIST = ROOT / "tests" / "unit" / "fixtures" / "form_fields_ratchet_d1376.txt"
+ACTION = (
+    '<form method="post" action="/x/go"><input type="hidden" name="csrf" value="{{ csrf }}">'
+    '<input type="hidden" name="id" value="{{ i }}"><button type="submit">{{ t("go") }}</button></form>\n'
+)
+
+
+def _plant(tmp_path: Path, form: str) -> tuple[Path, list[str]]:
+    root = _copy(tmp_path)
+    (root / "planted_9k6c.html").write_text('{% extends "base.html" %}{% block content %}' + form + "{% endblock %}")
+    return root, form_fields.problems(root, _ratchet())
+
+
+def test_a_new_typed_raw_form_fails_the_guard(tmp_path: Path) -> None:
+    _root, found = _plant(tmp_path, RAW)
+    assert len(found) == 1 and found[0].startswith("planted_9k6c.html: 1 typed POST form(s) outside the field macro")
+
+
+def test_a_new_action_form_with_the_token_passes_without_a_list(tmp_path: Path) -> None:
+    _root, found = _plant(tmp_path, ACTION + ACTION.replace("/x/go", "/x/stop"))
+    assert found == []
+    assert [f.typed for f in form_fields.post_forms(_root / "planted_9k6c.html", _root)] == [False, False]
+
+
+def test_a_new_action_form_without_the_token_or_the_action_fails(tmp_path: Path) -> None:
+    no_token = ACTION.replace('<input type="hidden" name="csrf" value="{{ csrf }}">', "")
+    _root, found = _plant(tmp_path, no_token)
+    assert len(found) == 1 and found[0].startswith("planted_9k6c.html: 1 action form(s)") and "csrf" in found[0]
+    no_action = ACTION.replace(' action="/x/go"', "")
+    assert "no action address" in _plant(tmp_path / "b", no_action)[1][0]
+    empty_action = ACTION.replace('action="/x/go"', 'action=""')
+    assert "no action address" in _plant(tmp_path / "c", empty_action)[1][0]
+    # on the action list with its count, the old ones pass; a second one still fails
+    root = _plant(tmp_path / "d", no_token)[0]
+    listed = _ratchet() + f"planted_9k6c.html 1 {form_fields.ACTION_REASON}\n"  # the action section is last
+    assert form_fields.problems(root, listed) == []
+    (root / "planted_9k6c.html").write_text(
+        '{% extends "base.html" %}{% block content %}' + no_token * 2 + "{% endblock %}"
+    )
+    assert any("the list says 1" in x for x in form_fields.problems(root, listed))
+    # a line whose forms keep the rule, or whose count is above the tree's, fails: the list only goes down
+    (root / "planted_9k6c.html").write_text('{% extends "base.html" %}{% block content %}' + ACTION + "{% endblock %}")
+    assert any("remove its line" in x for x in form_fields.problems(root, listed))
+
+
+def test_what_makes_a_form_typed() -> None:
+    typed = form_fields.is_typed
+    assert typed('<input type="checkbox" name="a">') and typed('<input type="radio" name="a">')
+    assert typed('<input type="file" name="a">') and typed('<input name="a">') and typed('<input type="text">')
+    assert typed("<select name=a></select>") and typed("<textarea name=a></textarea>")
+    assert typed('<input type="{{ kind }}" name="a">')  # a type written by an expression is not seen
+    assert typed('<input name="a" type=email>') and typed('<input name="a" type="hidden-ish">')
+    for kind in ("hidden", "submit", "button", "image", "reset"):
+        assert not typed(f'<input type="{kind}" name="a"><input name="b" type={kind}>'), kind
+    assert not typed(
+        '<input type="hidden" name="a" value="{{ t(\'x\') }}{{ d.isoformat() }}"><button>{{ t("k") }}</button>'
+    )
+    # what the text cannot see through is typed, the stricter class
+    assert typed('{% include "_x.html" %}') and typed("{% call box() %}{% endcall %}")
+    assert typed("{{ pick(a, b) }}") and typed("{{ fm.field(fe, 'f', 'f', 'n', 'N', '') }}")
+
+
+def test_a_form_with_a_checkbox_counts_as_typed(tmp_path: Path) -> None:
+    box = '<form method="post" action="/x"><input type="hidden" name="csrf" value="">'
+    box += '<input type="checkbox" name="ok" value="1"><button>go</button></form>\n'
+    _root, found = _plant(tmp_path, box)
+    assert len(found) == 1 and "typed POST form(s) outside the field macro" in found[0]
+
+
+def _fresh() -> tuple[dict[str, int], dict[str, int], int, int]:
+    typed: dict[str, int] = {}
+    n_action = 0
+    broken: dict[str, int] = {}
+    for p in sorted(TEMPLATES.rglob("*.html")):
+        for f in form_fields.post_forms(p, TEMPLATES):
+            if f.name is not None:
+                continue
+            t = p.relative_to(TEMPLATES).as_posix()
+            if form_fields.is_typed(f.body):
+                typed[t] = typed.get(t, 0) + 1
+                continue
+            n_action += 1
+            has_action = bool(re.search(r"""\baction\s*=\s*["'][^"']+["']""", f.attrs))
+            if not (has_action and 'name="csrf"' in f.body):
+                broken[t] = broken.get(t, 0) + 1
+    return typed, broken, n_action, sum(typed.values())
+
+
+def test_the_recount_equals_a_fresh_measurement() -> None:
+    typed, broken, n_action, n_typed = _fresh()
+    listed, _bad = form_fields.read_list(_ratchet())
+    assert {t: n for t, (n, _r) in listed.items()} == typed
+    assert {t: n for t, (n, _r) in form_fields.read_action_list(_ratchet()).items()} == broken
+    tree = form_fields.scan()
+    assert sum(1 for forms in tree.values() for f in forms if f.name is None) == n_typed + n_action
+    assert (n_typed, n_action, len(typed), sum(broken.values())) == (102, 51, 62, 0)  # as measured on 2026-11-20
+
+
+def test_the_typed_list_did_not_go_up_against_master() -> None:
+    old, bad = form_fields.read_list(OLD_LIST.read_text(encoding="utf-8"))
+    assert bad == [] and sum(n for n, _r in old.values()) == 153 and len(old) == 76  # D-1376's list, as it was
+    new, _bad = form_fields.read_list(_ratchet())
+    assert sum(n for n, _r in new.values()) <= 153
+    for t, (n, _reason) in new.items():
+        assert t in old and n <= old[t][0], f"{t}: {n} typed against {old.get(t)} on master"
+    # and, with git at hand, against the list on origin/master itself
+    import subprocess
+
+    shown = subprocess.run(["git", "show", "origin/master:trialbox/tools/form_fields_ratchet.txt"], cwd=ROOT,
+                           capture_output=True, text=True, check=False)  # fmt: skip
+    if shown.returncode == 0:
+        master, _ = form_fields.read_list(shown.stdout)
+        for t, (n, _reason) in new.items():
+            assert t in master and n <= master[t][0], f"{t}: {n} typed against {master.get(t)} on origin/master"
 
 
 # ---------------------------------------------------------------------------------------------- the macro, alone
