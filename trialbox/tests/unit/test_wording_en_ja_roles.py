@@ -664,7 +664,11 @@ PARTS_JA = [
     ("a cause beside a person", "医師はAIに治療を決めさせます。", True),
     ("a cause in a person's place", "医師ではなくAIに治療を決めさせます。", True),
     ("the product's own judgement beside a person", "医師はAIの判断を確認します。", True),
-    ("an earlier clause's product beside a person", "本システムは記録を表示せず、医師の糖尿病の患者を治療します。", True),
+    (
+        "an earlier clause's product beside a person",
+        "本システムは記録を表示せず、医師の糖尿病の患者を治療します。",
+        True,
+    ),
     ("the product's act noun beside a person", "医師はTrialBoxの治療効果を確認します。", True),
     ("an earlier clause's product that only shows, then judges", "本システムは記録を表示し、判断します。", True),
     ("a cause with no subject", "AIに判断させます。", True),
