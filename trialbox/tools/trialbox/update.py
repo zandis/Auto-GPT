@@ -518,14 +518,31 @@ RULESET_EVIDENCE = "ruleset-evidence.json"
 def ruleset_evidence(plan: Plan, box_release_seq: Any) -> dict[str, Any]:
     """D-1369: the evidence that each staged rule-set zip arrived in this bundle, whose vendor signature the verifier
     checked in this run (``apply_update.sh`` verifies before the update path runs, into its root-owned stage): the
-    bundle's id and release_seq, the box's installed release_seq before it, the stage, and each zip's sha256 as
-    staged. The rule-set import installs nothing from outside without it (``import_ruleset.install_outcome``)."""
+    bundle's id and release_seq, the signed manifest's sha256, the release the box is on once this bundle is in
+    (the higher of its installed release_seq and the bundle's when the bundle carries a release: the review of
+    f8fcc04e, M4), the stage, and each rule-set payload's sha256 **as the signed manifest records it** (L4): the
+    staged manifest must hash to the one verified, and each staged zip to its recorded sha256, else the update
+    fails here. The rule-set import installs nothing from outside without it (``import_ruleset.install_outcome``)."""
     rs = plan.kind("ruleset")
-    files = {z.relative_to(rs).as_posix(): hashlib.sha256(z.read_bytes()).hexdigest()
-             for z in sorted(rs.rglob("*.zip"))} if rs.is_dir() else {}  # fmt: skip
+    zips = sorted(rs.rglob("*.zip")) if rs.is_dir() else []
+    files: dict[str, str] = {}
+    if zips:
+        raw = (plan.stage / "manifest.json").read_bytes()
+        if hashlib.sha256(raw).hexdigest() != plan.manifest_sha256:
+            raise UpdateFailed("the staged manifest is not the one verified; no rule set is imported")
+        signed = {str(f.get("path")): str(f.get("sha256")) for f in json.loads(raw).get("files") or []
+                  if f.get("kind") == "ruleset"}  # fmt: skip
+        for z in zips:
+            name = z.relative_to(rs).as_posix()
+            if signed.get(name) != hashlib.sha256(z.read_bytes()).hexdigest():
+                raise UpdateFailed(f"the staged rule set {name} is not the one the signed manifest records")
+            files[name] = signed[name]
     seq = box_release_seq if isinstance(box_release_seq, int) and not isinstance(box_release_seq, bool) else None
+    if seq is not None and plan.release is not None and isinstance(plan.release_seq, int):
+        seq = max(seq, plan.release_seq)  # M4: a part that rides with its release is on that release once applied
     return {"format": RULESET_EVIDENCE_FORMAT, "bundle_id": plan.bundle_id, "release_seq": plan.release_seq,
-            "box_release_seq": seq, "stage": str(plan.stage), "files": files}  # fmt: skip
+            "manifest_sha256": plan.manifest_sha256, "box_release_seq": seq, "stage": str(plan.stage),
+            "files": files}  # fmt: skip
 
 
 def _last_json(out: str) -> dict[str, Any]:
@@ -2238,7 +2255,10 @@ def main_apply(
                           f"{inst['release_seq']}")  # fmt: skip
                     return 1
                 if plan.kind("ruleset").is_dir():
-                    print("rulesets: imported when the box runs (tools/apply_update.sh <bundle> again after the start)")
+                    # the review of f8fcc04e, L7: applying this bundle again is "already installed", so it never
+                    # imports them; say what does
+                    print("rulesets: NOT imported by a first install; once the box runs, the vendor sends them in a "
+                          "bundle of their own (python -m tools.ruleset_bundle, a new release_seq)")  # fmt: skip
                 for tar in refdata_packs(plan):  # install.sh loads deploy/refdata/pending/*.tar once the box runs
                     pend = deploy / "refdata" / "pending"
                     pend.mkdir(parents=True, exist_ok=True)

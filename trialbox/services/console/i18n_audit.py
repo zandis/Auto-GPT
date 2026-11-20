@@ -419,6 +419,16 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "ベンダー更新バンドル用に基準を書き出し（暫定）",
         "匯出條件供廠商更新包使用（暫行）",
     ),
+    "approve.ruleset_installed": (
+        "Example rule set installed by hand (shipped files)",
+        "同梱の例の基準を手作業でインストール",
+        "手動安裝隨機附帶的範例條件",
+    ),
+    "job.ruleset_refused": (
+        "Job refused: a rule set from another box runs only as SCREEN or MICROBATCH",
+        "ジョブ拒否：別のボックスの基準は SCREEN と MICROBATCH のみ",
+        "作業已拒絕：來自另一台機器的條件只能以 SCREEN 或 MICROBATCH 執行",
+    ),
     "approve.site_profile_set": (
         "Site routing and scope set for a rule set",
         "基準の施設別送付先・対象範囲を設定",

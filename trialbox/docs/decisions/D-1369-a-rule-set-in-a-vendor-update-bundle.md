@@ -264,11 +264,32 @@ verifies the bundle again). It writes nothing new unless, in this order:
 4. Every criterion the manifest lists is an `ir/` file and every `ir/` file is listed (both forms; the export and the
    vendor's tool refuse too), so an exclusion cannot drop out while the version keeps its approval.
 
-**Screening inside the accepted restriction.** A rule set installed through the gate (its tag says it arrived, or
-the mark above) screens only inside its accepted profile's `scopes.screen` practitioners and departments
-(`orchestrator.scenarios.screen._scope_terms`): a job's `pract=`, `dept=` or `scope=hospital` and the study's set-up
-page narrow within it and never widen it; nothing left is refused. Rule sets approved here are unchanged (their
-`scopes.screen.departments` is still not read by screening; not this card's).
+**Which jobs may run an arrived rule set (the review of f8fcc04e, H1; for the owner).** One check,
+`orchestrator.scenarios.review.guard_arrived`, called by `approved_or_none` (through which every scenario that runs a
+rule set loads it), decides by job type (`review.ARRIVED_RULE`, held to the scenario registry by a test, so a new job
+type that is not placed fails it):
+
+| Job type | A rule set installed through the gate |
+|---|---|
+| SCREEN, MICROBATCH | runs, narrowed to the site's accepted practitioners and departments (`screen._scope_terms`; MICROBATCH's given pool rows too, `screen.in_arrived_scope`) |
+| FEAS, NAV, COHORT, CASE, SUBMIT, CALIBRATION | refused, with a sentence in en, ja and zh-TW and the audited event `job.ruleset_refused` |
+| APPROVE, FEEDBACK, STATUS, CANCEL, INGEST, RETENTION, CONSENT, RELEASE | run no rule set over patients |
+
+The narrowing reads the scope at run time (`tb_common.ruleset.arrived_scope`): the lists installed with the version,
+each narrowed by the site's current accepted profile for the id (never widened by it). Closed, never open: a profile
+that names neither practitioners nor departments is refused by `--site-profile` and by the gate, and a scope with
+nobody left refuses every job. A new `--site-profile` for the installed version is applied to it at once (M3); a
+repeat through the update applies only a profile accepted for that version (and hash) (L1). Rule sets approved here
+are unchanged (their `scopes.screen.departments` is still not read by screening; not this card's).
+
+**The rest of that review.** The release floor counts the release a part rides with when the bundle carries one
+(M4). A version has one spelling (no leading zero) and an equal version under another spelling is refused (L2). The
+evidence file is opened once without following a link and checked on that descriptor (a regular file, root's,
+writable by root alone, one name) and every folder above it is root's and not writable by others (L3). The evidence
+carries the signed manifest's sha256 and each rule-set payload's sha256 as that manifest records it; the staged
+manifest and each staged zip must still hash to them (L4). A zip with a member beside the rule set's folder is
+refused, and runbook 01's hand install of the shipped example is audited first (`approve.ruleset_installed`) (L6).
+The first-load text says such a bundle's rule sets are not imported (L7).
 
 **A repeat takes the site's current routing.** The same version again through the update writes the site's current
 routing and scopes into `main`'s manifest of that version when the site set them again since; the tag stays.
@@ -276,6 +297,10 @@ routing and scopes into `main`'s manifest of that version when the site set them
 **The part's zip holds nothing outside its members** (`check_zip_layout`): no archive or member comment, extra
 field, data descriptor or byte before, between or after the members; value-set scalar fields are strings, numbers
 or true/false only (never a mapping or a list), at both ends.
+
+**Residual: `tools.trialbox update --stage --summary` trusts its caller (L5).** It reads a stage and a summary that
+`apply_update.sh` writes after `verify_update` ran; run directly by root on a stage made by hand it writes evidence
+for any zip, and `update.applied` then says it was verified. Root-only, like the residual below.
 
 **Residual: who can forge the evidence.** The evidence is a file, not a signature: root on the host, or anyone who
 may run containers there (root-equivalent), can write a root-owned evidence file for any zip and mount it, and can

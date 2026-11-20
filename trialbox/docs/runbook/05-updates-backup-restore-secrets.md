@@ -354,6 +354,10 @@ no new rule set (it says so in en, ja and zh-TW); `--check` checks a zip and wri
 zip (no `ORIGIN.json`) needs the site's step 3 too, with its sha256 as the bundle signed it as the hash; runbook 01's
 install of the shipped example, of exactly the shipped files, still works by hand. `--release` needs its
 `(release_seq N)`: a part names the release that compiled it, and a box on an older release refuses it. A study that
-arrived this way screens only the practitioners and departments its accepted profile names, whatever a job or the
-study's set-up page asks. After a new `--site-profile` for a version already installed, apply a bundle carrying it
-again to move delivery to the new routing.
+arrived this way runs only as SCREEN and MICROBATCH, and screens only the practitioners and departments the site's
+accepted profile names, whatever a job or the study's set-up page asks; FEAS, NAV, COHORT, CASE, SUBMIT and
+CALIBRATION jobs are refused for it (audited `job.ruleset_refused`). A profile must name practitioners or departments
+(`scopes.screen`); one that names neither is refused. A new `--site-profile` for the version already installed takes
+effect at once (routing and scope); a profile for another version narrows the installed one at once and never widens
+it. A rule set in a first-install bundle is not imported by `install.sh`'s load: the vendor sends it in a bundle of
+its own once the box runs.

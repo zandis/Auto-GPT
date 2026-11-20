@@ -44,16 +44,21 @@ from pydantic import ValidationError
 from tb_common.ruleset import SEEDED_TAG
 from tb_common.ruleset_part import (
     BUNDLE_ID,
+    OLD_PROFILE_MARK_FORMAT,
+    PROFILE_MARK,
+    PROFILE_MARK_FORMAT,
     RULESET_ID,
     SHA256,
     SITE_SCOPED_MARK,
     VERSION,
     PartRefused,
+    accepted_profile,
     criteria_files_match,
     load_yaml,
     open_part,
     origin_of,
     part_sha_on_tag,
+    screen_lists,
     tag_note,
 )
 from tb_common.zipcap import ZipRefused, check_ruleset_zip
@@ -85,6 +90,9 @@ def read_zip(data: bytes) -> tuple[str, dict[str, bytes], dict[str, Any]]:
             raise ImportRefused("the zip must hold exactly one ruleset manifest.yaml")
         prefix = str(PurePosixPath(manifests[0]).parent)
         prefix = "" if prefix == "." else prefix + "/"
+        stray = [n for n in names if not n.startswith(prefix) and n != "ORIGIN.json"]
+        if stray:  # the review of f8fcc04e, L6: nothing beside the rule set's folder is passed over in silence
+            raise ImportRefused(f"the zip holds members outside the rule set's folder {prefix}: {stray[:5]}")
         files = {n[len(prefix) :]: z.read(n) for n in names if n.startswith(prefix)}
     try:  # bounded: a manifest nested too deep is refused, never a RecursionError
         manifest = load_yaml(files["manifest.yaml"], "manifest.yaml") or {}
@@ -118,15 +126,18 @@ class Verified:
     box_release_seq: int | None
     files: tuple[tuple[str, str], ...]
     stage: str
+    manifest_sha256: str = "0" * 64
 
     @classmethod
     def of(cls, data: bytes, name: str, *, bundle_id: str, release_seq: int, box_release_seq: int | None,
-           stage: str) -> Verified:  # fmt: skip
-        return cls(bundle_id, release_seq, box_release_seq, ((name, hashlib.sha256(data).hexdigest()),), stage)
+           stage: str, manifest_sha256: str = "0" * 64) -> Verified:  # fmt: skip
+        return cls(bundle_id, release_seq, box_release_seq, ((name, hashlib.sha256(data).hexdigest()),), stage,
+                   manifest_sha256)  # fmt: skip
 
     def record(self) -> dict[str, Any]:
         return {"format": EVIDENCE_FORMAT, "bundle_id": self.bundle_id, "release_seq": self.release_seq,
-                "box_release_seq": self.box_release_seq, "stage": self.stage, "files": dict(self.files)}  # fmt: skip
+                "box_release_seq": self.box_release_seq, "stage": self.stage, "files": dict(self.files),
+                "manifest_sha256": self.manifest_sha256}  # fmt: skip
 
     @classmethod
     def from_record(cls, rec: Any) -> Verified:
@@ -134,7 +145,9 @@ class Verified:
         ok = (
             isinstance(rec, dict)
             and rec.get("format") == EVIDENCE_FORMAT
-            and set(rec) == {"format", "bundle_id", "release_seq", "box_release_seq", "stage", "files"}
+            and set(rec) == {"format", "bundle_id", "release_seq", "box_release_seq", "stage", "files",
+                             "manifest_sha256"}
+            and isinstance(rec["manifest_sha256"], str) and SHA256.fullmatch(rec["manifest_sha256"]) is not None
             and isinstance(rec["bundle_id"], str) and BUNDLE_ID.fullmatch(rec["bundle_id"]) is not None
             and _whole(rec["release_seq"])
             and (rec["box_release_seq"] is None or _whole(rec["box_release_seq"], 0))
@@ -145,7 +158,7 @@ class Verified:
         if not ok:
             raise ImportRefused(_three("evidence_form"))
         return cls(rec["bundle_id"], rec["release_seq"], rec["box_release_seq"], tuple(sorted(rec["files"].items())),
-                   rec["stage"])  # fmt: skip
+                   rec["stage"], rec["manifest_sha256"])  # fmt: skip
 
 
 def _whole(v: Any, low: int = 1) -> bool:
@@ -197,6 +210,14 @@ GATE: dict[str, dict[str, str]] = {
         "en": "rule-set part refused: {why}",
         "ja": "ルールセットのパーツを拒否しました（理由は上の英語の行）。何もインストールされていません",
         "zh-TW": "已拒絕規則集部件（原因見上方英文行）；未安裝任何內容",
+    },
+    "profile_closed": {
+        "en": "the site profile for {rid} names no practitioner and no department in scopes.screen: a rule set from "
+        "outside screens only whom the site names, never the whole hospital; name them; nothing was written",
+        "ja": "{rid} の施設プロファイルは scopes.screen に医師も診療科も指定していません。外部から来たルールセットは"
+        "施設が指定した対象だけをスクリーニングし、病院全体は対象にしません。指定してください。何も書き込まれていません",
+        "zh-TW": "{rid} 的本院設定在 scopes.screen 中未指定任何醫師或科別：來自外部的規則集只篩選本院指定的對象，"
+        "絕不篩選全院；請指定；未寫入任何內容",
     },
     "criteria": {
         "en": "{what}: {why}",
@@ -254,6 +275,7 @@ def install_outcome(
     *,
     verified: Verified | None = None,
     check_only: bool = False,
+    audit: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Install the zip; returns ``installed`` (the tag), ``ruleset``, ``version`` and ``imported``: False when the
     same content was already there and nothing changed (D-1369, the review's N2: a repeat is said as such).
@@ -281,6 +303,11 @@ def install_outcome(
     version = str(m.get("version"))
     tag = f"{rid}/v{version}"
     what = f"{rid} v{version}"
+    if not VERSION.fullmatch(version):  # the review of f8fcc04e, L2: one spelling per version
+        raise ImportRefused(f"{rid}: {version[:20]!r} is not a rule set version (three whole numbers, no leading zero)")
+    same = [t for t in repo.tags(f"{rid}/v") if t != tag and _semver(t.split("/v", 1)[1]) == _semver(version)]
+    if same:
+        raise ImportRefused(f"{tag} is the version {same[0]} already on this box under another spelling: refused")
     try:  # (the review of edb77053, 4) every listed criterion is there, both forms
         criteria_files_match(files, m)
     except PartRefused as exc:
@@ -305,7 +332,7 @@ def install_outcome(
                     repo.retag(tag, f"{tag} (offline update, {by})")
                 return {**out, "imported": not check_only}
         if verified is not None and not check_only:
-            _refresh_site(repo, rid, version, by)  # (the review of edb77053, 6): the site's current routing
+            _refresh_site(repo, rid, version, by, sha)  # (the review of edb77053, 6): the site's current routing
         return {**out, "imported": False}
     if origin is None and (not m.get("routing") or not m.get("scopes")):
         # D-1369 (the third review's S2): a part's manifest without its ORIGIN.json
@@ -321,6 +348,8 @@ def install_outcome(
         # signed: nothing from outside; installed as before this card, with the example's routing
         if check_only:
             return {**out, "imported": False, "checked": True}
+        if audit is not None:  # the review of f8fcc04e, L6: the hand-install is audited before it is written
+            audit({"ruleset": rid, "version": version, "zip_sha256": sha, "shipped_example": True})
         repo.write_dir("main", "main", f"{rid}/", files, f"install {tag} ({by})", author=by.replace(" ", "_"))
         repo.tag(tag, "main", f"{tag} (offline update, {by})")
         repo.materialize(rid, "main")
@@ -369,11 +398,11 @@ def _gate(verified: Verified | None, data: bytes, what: str, origin: dict[str, A
             raise ImportRefused(_three("release", what=what, need=need, have=have))
 
 
-def _refresh_site(repo: RulesetRepo, rid: str, version: str, by: str) -> None:
+def _refresh_site(repo: RulesetRepo, rid: str, version: str, by: str, sha: str | None) -> None:
     """A repeat of an installed version (the review of edb77053, 6): when the site set its routing and scopes again
     since (``--site-profile``), main's manifest of that version takes them now, so delivery never goes to superseded
     recipients. Nothing else changes; the approval tag stays."""
-    prof = _site_set(repo, rid)
+    prof = _site_set(repo, rid, version, sha)
     raw = repo.read("main", f"{rid}/manifest.yaml")
     m = yaml.safe_load(raw.decode("utf-8")) if raw else None
     if prof is None or not isinstance(m, dict) or str(m.get("version")) != version:
@@ -420,14 +449,8 @@ def _semver(v: str) -> tuple[int, ...]:
         return (-1,)
 
 
-#: written beside ``profiles/<ID>.yaml`` by ``--site-profile`` alone: the sha256 of the profile it wrote, and the one
-#: version of the id (and, when given, the part's sha256) the site accepted with it
-PROFILE_MARK = "profiles/{rid}.site-set.json"
 #: the largest site profile ``--site-profile`` reads (a file or standard input)
 PROFILE_MAX = 64 * 1024
-PROFILE_MARK_FORMAT = "trialbox-site-profile/2"
-#: the mark's form before a site profile named a version (the first form of PR #1174): it accepts no version
-OLD_PROFILE_MARK_FORMAT = "trialbox-site-profile/1"
 
 
 def accept_command(rid: str, version: str, part_sha256: str | None = None) -> str:
@@ -482,6 +505,14 @@ NOT_ACCEPTED: dict[str, dict[str, str]] = {
         "ja": "{rid} の施設プロファイルは、受け入れる版を記録する前の形式で書かれたため、"
         "{rid} のどの版も受け入れていません",
         "zh-TW": "{rid} 的本院設定是在記錄所接受版本之前的格式寫入的，因此不接受 {rid} 的任何版本",
+    },
+    "closed": {
+        "en": "the site profile for {rid} names no practitioner and no department to screen (scopes.screen), so it "
+        "accepts nothing: a rule set from outside never screens the whole hospital",
+        "ja": "{rid} の施設プロファイルはスクリーニングする医師も診療科も指定していない（scopes.screen）"
+        "ため、何も受け入れていません。外部から来たルールセットが病院全体をスクリーニングすることはありません",
+        "zh-TW": "{rid} 的本院設定未指定任何要篩選的醫師或科別（scopes.screen），因此不接受任何內容："
+        "來自外部的規則集絕不篩選全院",
     },
     "version": {
         "en": "{rid} v{version} is not the version this site accepted (its site profile accepts v{accepted})",
@@ -540,24 +571,24 @@ def _not_accepted(why: str, rid: str, version: str, sha: str, accepted: str = ""
     return NotAccepted(f"{lines[0]}\n  ja: {lines[1]}\n  zh-TW: {lines[2]}", rid, version, cmd)
 
 
-def _site_set(repo: RulesetRepo, rid: str) -> dict[str, Any] | None:
-    """The routing and scopes ``--site-profile`` wrote for ``rid`` (its mark of the current form matching the profile),
-    whatever version it accepts; None when there are none."""
-    raw = repo.read("main", f"profiles/{rid}.yaml")
-    mark_raw = repo.read("main", PROFILE_MARK.format(rid=rid))
-    try:
-        mark = json.loads(mark_raw) if mark_raw else {}
-    except ValueError:
+def _site_set(repo: RulesetRepo, rid: str, version: str, sha: str | None) -> dict[str, Any] | None:
+    """The routing and scopes ``--site-profile`` wrote for ``rid``, only when it accepted this ``version`` (and this
+    hash, when it named one: the review of f8fcc04e, L1); None otherwise."""
+    prof = accepted_profile(lambda path: repo.read("main", path), rid)
+    if prof is None or prof.get("version") != version:
         return None
-    if not (isinstance(mark, dict) and raw is not None and mark.get("ruleset") == rid
-            and mark.get("format") == PROFILE_MARK_FORMAT
-            and mark.get("sha256") == hashlib.sha256(raw).hexdigest()):  # fmt: skip
+    if prof.get("part_sha256") and prof.get("part_sha256") != sha:
         return None
-    prof = yaml.safe_load(raw.decode("utf-8")) or {}
     routing, scopes = prof.get("routing"), prof.get("scopes")
     if not (isinstance(routing, dict) and routing.get("list_to") and isinstance(scopes, dict) and scopes.get("screen")):
         return None
     return {"routing": routing, "scopes": scopes}
+
+
+def _tag_sha(message: str) -> str | None:
+    """The hash an approval tag of the gate records: a part's ``part sha256`` or a plain zip's ``zip sha256``."""
+    m = re.search(r"; (?:part|zip) sha256 ([0-9a-f]{64})\Z", message.rstrip())
+    return m.group(1) if m else None
 
 
 def site_profile(repo: RulesetRepo, rid: str, version: str, part_sha256: str) -> dict[str, Any]:
@@ -585,6 +616,8 @@ def site_profile(repo: RulesetRepo, rid: str, version: str, part_sha256: str) ->
         raise _not_accepted("old", rid, version, part_sha256)
     if not (isinstance(routing, dict) and routing.get("list_to") and isinstance(scopes, dict) and scopes.get("screen")):
         raise _not_accepted("none", rid, version, part_sha256)
+    if screen_lists(scopes) == (None, None):  # the review of f8fcc04e, M1: closed, never the whole hospital
+        raise _not_accepted("closed", rid, version, part_sha256)
     if mark.get("version") != version:
         raise _not_accepted("version", rid, version, part_sha256, str(mark.get("version")))
     if mark.get("part_sha256") and mark.get("part_sha256") != part_sha256:
@@ -650,6 +683,8 @@ def put_site_profile(
         raise ImportRefused(
             f"the site profile does not hold the routing and scopes a rule set takes ({where})"
         ) from exc
+    if screen_lists(prof.get("scopes")) == (None, None):  # the review of f8fcc04e, M1: closed, never open
+        raise ImportRefused(_three("profile_closed", rid=rid))
     body = yaml.safe_dump({"routing": prof.get("routing") or {}, "scopes": prof.get("scopes") or {}},
                           allow_unicode=True, sort_keys=False).encode("utf-8")  # fmt: skip
     sha = hashlib.sha256(body).hexdigest()
@@ -663,6 +698,11 @@ def put_site_profile(
     current[PROFILE_MARK.format(rid=rid)[len("profiles/") :]] = (json.dumps(mark, sort_keys=True) + "\n").encode()
     repo.write_dir("main", "main", "profiles/", current, f"site profile {rid} v{version} ({by})",
                    author=by.replace(" ", "_"))  # fmt: skip
+    tag = f"{rid}/v{version}"
+    if f"refs/tags/{tag}".encode() in repo.refs:  # the review of f8fcc04e, M3: the installed version takes it now
+        installed = _tag_sha(repo.tag_message(tag))
+        if installed is not None and (part_sha256 is None or part_sha256 == installed):
+            _refresh_site(repo, rid, str(version), by, installed)
     return sha
 
 
@@ -742,7 +782,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         verified = evidence_file(args.verified) if args.verified else None
         res = install_outcome(repo, data, args.by or "offline-update", gate, box_pins_problem, verified=verified,
-                              check_only=args.check)  # fmt: skip
+                              check_only=args.check, audit=_hand_audit(cfg, args.by))  # fmt: skip
     except ImportRefused as exc:  # the fifth review: lines the operator reads whole, in every channel; no traceback
         for line in refusal_lines(exc):
             print(line, file=sys.stderr)
@@ -763,18 +803,53 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _hand_audit(cfg: Any, by: str | None) -> Callable[[dict[str, Any]], None]:
+    """``approve.ruleset_installed``: a rule set the command line installs without the update (the shipped example of
+    runbook 01, D-640), audited before it is written: the account, the name typed, the rule set, version and hash."""
+
+    def write(detail: dict[str, Any]) -> None:
+        from tb_common.audit_writer import open_audit
+
+        open_audit(cfg.env.audit_path, cfg.env.tz).append(
+            "approve.ruleset_installed", actor=f"host:{_host_user()}", ruleset=detail["ruleset"],
+            ruleset_version=detail["version"], input_sha=detail["zip_sha256"],
+            detail={"by_claimed": by, "shipped_example": True},
+        )  # fmt: skip
+
+    return write
+
+
+def _parents_owned(path: str) -> bool:
+    """Every folder above the evidence is root's (or :data:`EVIDENCE_OWNER`'s) and no one else may replace what is in
+    it (not writable by group or others, unless sticky)."""
+    here = os.path.dirname(os.path.abspath(path))
+    while True:
+        st = os.lstat(here)
+        if st.st_uid not in (0, EVIDENCE_OWNER) or (st.st_mode & 0o022 and not st.st_mode & stat.S_ISVTX):
+            return False
+        up = os.path.dirname(here)
+        if up == here:
+            return True
+        here = up
+
+
 def evidence_file(path: str) -> Verified:
     """The update's evidence as the compiler's container reads it: a regular file owned by :data:`EVIDENCE_OWNER`
     (root: the update writes it into its root-owned stage) that no one else may write, of the strict form. The
     compiler's service account cannot make such a file; root on the host (or anyone who may run containers there)
     can, as it can write the rule-set repository itself (D-1369, the residual)."""
     try:
-        st = os.lstat(path)
-        with open(path, "rb") as fh:
-            raw = fh.read(64 * 1024)
-    except OSError as exc:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError as exc:  # missing, or a symbolic link (O_NOFOLLOW)
         raise ImportRefused(_three("evidence_file", path=path)) from exc
-    if not stat.S_ISREG(st.st_mode) or st.st_uid != EVIDENCE_OWNER or st.st_mode & 0o022:
+    try:  # the review of f8fcc04e, L3: checked on the descriptor read, not on the path again
+        st = os.fstat(fd)
+        ok = (stat.S_ISREG(st.st_mode) and st.st_uid == EVIDENCE_OWNER and not st.st_mode & 0o022
+              and st.st_nlink == 1 and _parents_owned(path))  # fmt: skip
+        raw = os.read(fd, 64 * 1024) if ok else b""
+    finally:
+        os.close(fd)
+    if not ok:
         raise ImportRefused(_three("evidence_file", path=path))
     try:
         rec = json.loads(raw)

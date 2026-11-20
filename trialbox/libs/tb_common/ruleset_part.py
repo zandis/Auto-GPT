@@ -145,7 +145,8 @@ RULESET_ID = re.compile(r"^[A-Z0-9][A-Z0-9-]{1,31}$", re.ASCII)
 CRITERION_ID = re.compile(r"^[A-Z0-9]+(-[A-Z0-9]+)*-(INC|EXC|REN|DOC)-[0-9]{2,3}$", re.ASCII)
 FILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$", re.ASCII)
 FLAG = re.compile(r"^[a-z][a-z0-9_]{0,47}$", re.ASCII)
-VERSION = re.compile(r"^\d{1,4}\.\d{1,4}\.\d{1,4}$", re.ASCII)
+#: three whole numbers, no leading zero (the review of f8fcc04e, L2: 1.0.05 and 1.0.5 are one version, never two tags)
+VERSION = re.compile(r"^(0|[1-9]\d{0,3})\.(0|[1-9]\d{0,3})\.(0|[1-9]\d{0,3})$", re.ASCII)
 SHA256 = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 COMMIT = re.compile(r"^[0-9a-f]{40}$", re.ASCII)
 BUNDLE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$", re.ASCII)
@@ -739,6 +740,43 @@ def part_sha_on_tag(tag_message: str) -> str | None:
 #: D-1369 (the review of edb77053, 5): written on the tag of a vendor rule set zip (no ``ORIGIN.json``) installed
 #: through the gate with the site's accepted profile; a part's tag says :data:`ARRIVED_MARK`
 SITE_SCOPED_MARK = "screens inside the site profile it was accepted with"
+
+
+#: written beside ``profiles/<ID>.yaml`` by ``import_ruleset --site-profile`` alone: the sha256 of the profile it
+#: wrote, and the one version of the id (and, when given, the part's sha256) the site accepted with it
+PROFILE_MARK = "profiles/{rid}.site-set.json"
+PROFILE_MARK_FORMAT = "trialbox-site-profile/2"
+#: the mark's form before a site profile named a version (the first form of PR #1174): it accepts no version
+OLD_PROFILE_MARK_FORMAT = "trialbox-site-profile/1"
+
+
+def accepted_profile(read: Any, rid: str) -> dict[str, Any] | None:
+    """D-1369: the site's accepted profile for ``rid`` as ``--site-profile`` wrote it on ``main``, read through
+    ``read(path) -> bytes | None``: ``routing``, ``scopes``, the accepted ``version`` and ``part_sha256``; None when
+    there is none of the current form (no mark, a mark of another id or form, or a profile changed by hand since). The
+    gate (``import_ruleset.site_profile``) and every run of an arrived rule set (``tb_common.ruleset.arrived_scope``)
+    read it here."""
+    raw = read(f"profiles/{rid}.yaml")
+    mark_raw = read(PROFILE_MARK.format(rid=rid))
+    try:
+        mark = json.loads(mark_raw) if mark_raw else None
+        prof = yaml.safe_load(raw.decode("utf-8")) if raw is not None else None
+    except (ValueError, yaml.YAMLError):
+        return None
+    if not (isinstance(mark, dict) and isinstance(prof, dict) and mark.get("ruleset") == rid
+            and mark.get("format") == PROFILE_MARK_FORMAT
+            and mark.get("sha256") == hashlib.sha256(raw or b"").hexdigest()):  # fmt: skip
+        return None
+    return {"routing": prof.get("routing"), "scopes": prof.get("scopes"), "version": mark.get("version"),
+            "part_sha256": mark.get("part_sha256")}  # fmt: skip
+
+
+def screen_lists(scopes: Any) -> tuple[list[str] | None, list[str] | None]:
+    """``scopes.screen``'s practitioners and departments (None: not named)."""
+    sc = scopes.get("screen") if isinstance(scopes, dict) else None
+    sc = sc if isinstance(sc, dict) else {}
+    pr, de = sc.get("practitioners"), sc.get("departments")
+    return (list(pr) if isinstance(pr, list) and pr else None, list(de) if isinstance(de, list) and de else None)
 
 
 def site_scoped(tag_message: str) -> bool:
