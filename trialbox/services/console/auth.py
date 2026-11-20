@@ -1250,10 +1250,16 @@ class UserStore:
         rows = self.db.fetchall("SELECT name, value FROM user_pref WHERE username = ?", (username,))
         return prefs.of({str(n): str(v) for n, v in rows})
 
-    def set_prefs(self, username: str, values: Mapping[str, str]) -> list[tuple[str, str, str]]:
+    def set_prefs(
+        self,
+        username: str,
+        values: Mapping[str, str],
+        before_commit: Callable[[list[tuple[str, str, str]]], None] | None = None,
+    ) -> list[tuple[str, str, str]]:
         """Store ``values`` for ``username`` (each key and value from the closed set of ``console.prefs.KEYS``, else
         :class:`AuthError` and nothing is stored); a default value is stored as no row. Returns (key, from, to) of
-        each key that changed, for the audit line."""
+        each key that changed. ``before_commit`` gets those changes inside the transaction, before it commits (the
+        audit line, L-1 of the review of D-1387): if it raises, nothing is stored, so no change is ever unaudited."""
         bad = sorted(k for k, v in values.items() if not prefs.valid(k, v))
         if bad:
             raise AuthError(f"not a preference value: {', '.join(bad)}")
@@ -1274,6 +1280,8 @@ class UserStore:
                         (username, key, values[key], at),
                     )
                 done.append((key, now[key], values[key]))
+            if done and before_commit is not None:
+                before_commit(done)
         return done
 
     def end_session(self, token: str) -> None:

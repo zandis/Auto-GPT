@@ -20,7 +20,7 @@ from console import about, actor, command, form_errors, i18n_prefs, prefs, termi
 from console.auth import AuthError, Session, source_of
 from console.backend import Refused, Unavailable
 from console.home import Helpers
-from console.i18n import CATALOGUES
+from console.i18n import CATALOGUES, pick_language
 from console.local_path import local_path
 from console.models_view import build_rows
 
@@ -268,7 +268,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         """10F-1 (D-1387): the signed-in person's own preferences, nobody else's (the name is the session's, never a
         field). Each posted key must hold a value of its closed set (``console.prefs.KEYS``), else the page answers
         400 with the summary and nothing is stored; a key not posted is left as it is. Each change is audited
-        (who, key, from, to). A language chosen here is also the session's at once."""
+        (who, key, from, to), inside the same transaction as the change. A language chosen here is the session's at
+        once ("auto": the browser's)."""
         sess = h.need(request)
         form = await request.form()
         if not h.csrf_ok(sess, str(form.get("csrf") or "")):
@@ -279,12 +280,17 @@ def register(app: FastAPI, h: Helpers) -> None:
             fe = form_errors.failed(prefs.FORM, prefs.PREFIX, bad, [(k, v) for k, v in form.multi_items()])
             return account_page(request, sess, status=form_errors.FAILED, fe=fe)
         u = sess.user
-        for key, before, after in h.users.set_prefs(u.username, posted):
-            au.append("console.pref_set", actor=h.actor(sess),
-                      detail={"user": u.username, "key": key, "from": before, "to": after})  # fmt: skip
-        lang = prefs.session_lang(h.users.prefs(u.username))
-        if lang is not None and "lang" in posted:
-            h.users.set_lang(sess, lang)
+
+        def audited(changes: list[tuple[str, str, str]]) -> None:  # inside the store's transaction (L-1)
+            for key, before, after in changes:
+                au.append("console.pref_set", actor=h.actor(sess),
+                          detail={"user": u.username, "key": key, "from": before, "to": after})  # fmt: skip
+
+        changed = h.users.set_prefs(u.username, posted, before_commit=audited)
+        if any(key == "lang" for key, _before, _after in changed):
+            # the language takes effect at once: the one chosen, or with "auto" the browser's (L-4)
+            lang = prefs.session_lang(h.users.prefs(u.username))
+            h.users.set_lang(sess, lang or pick_language(request.headers.get("accept-language")))
         return RedirectResponse("/account?saved=prefs", status_code=303)
 
     @app.post("/account/password")
