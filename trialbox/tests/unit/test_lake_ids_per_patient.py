@@ -682,3 +682,20 @@ def test_an_absent_link_is_counted_under_a_table_of_the_mapping_never_under_a_re
     got = absent_links(snap, tables=["diagnosis"])
     assert got == {"Condition": {"Encounter": 1}, "diagnosis": {"Encounter": 1}}
     assert "MRN12345" not in json.dumps(got)
+
+
+def test_a_delta_night_over_a_back_fill_from_another_source_is_held(tmp_path: Path, db_url: str) -> None:
+    """D-1253 second review, finding 7: a back-fill's snapshot has no ``ingest_report.json``, and the source-change
+    check let any delta over it through. The snapshot now records the source it was read from (``id_rule.json``,
+    ``source``), the night's and the back-fill's alike; a snapshot that says none is held as another source."""
+    from adapter.backfill import backfill
+    from tb_common import id_rule
+
+    cfg = _cfg(tmp_path, "csv")
+    feed = tmp_path / "feed-backfill"
+    write_csv(CSV_SITE, feed, canonical(A))
+    done = backfill(cfg, "csv", str(feed), snapshot="2026-10-01", validate=False, rebuild_lake=False)
+    assert done.state == "published", done
+    assert id_rule.snapshot_source(snapshot_dir(tmp_path / "lake", "2026-10-01")) == "csv"
+    held = _bulk_night(tmp_path, "2026-10-02", since="2026-10-01")
+    assert not held.passed and any(SOURCE_WORDS in e for e in held.errors), held.errors

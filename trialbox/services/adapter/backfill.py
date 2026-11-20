@@ -635,6 +635,7 @@ def backfill(
                     final=False,
                     site_wide=site_wide,
                     tables=tables,
+                    source_kind=source_kind,
                 )
                 if rep.state == "held":
                     break
@@ -658,6 +659,7 @@ def backfill(
             final=True,
             site_wide=site_wide,
             tables=tables,
+            source_kind=source_kind,
         )
     rep.seconds = round(time.perf_counter() - t0, 2)
     _progress(work, rep, rep.state)
@@ -687,6 +689,7 @@ def _publish(
     final: bool,
     site_wide: frozenset[str] = frozenset(),
     tables: frozenset[str] = frozenset(),
+    source_kind: str = "",
 ) -> None:
     """Phase 3: the done years as the snapshot's NDJSON, checked, loaded and rebuilt (see the module docstring).
     ``site_wide``: the mapping's types of no patient (``Mapping.site_wide``), never counted as an absent link."""
@@ -696,6 +699,8 @@ def _publish(
     shutil.rmtree(stage, ignore_errors=True)
     clashes: dict[str, int] = {}
     counts = _write_merged(runs, buckets, stage, clashes)
+    if source_kind:  # D-1253 second review, finding 7: the source it was read from, as the night records it
+        id_rule.record_source(stage, source_kind)
     rep.id_collisions = clashes  # D-1253 review F: over the years of this publish
     rep.links_to_absent_records = absent_links(
         stage, site_wide=site_wide, tables=tables

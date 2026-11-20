@@ -32,7 +32,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -208,9 +208,29 @@ def write_snapshot_record(directory: Path) -> None:
 def record_keys(directory: Path, keys: dict[str, str]) -> None:
     """D-1253 ruling 11: add to the snapshot's record the form of the source numbers its ids were made from (the
     SS-MIX2 order key), written as the record is: atomically, synced."""
+    _amend(directory, lambda body: body.update(keys=dict(sorted({**(body.get("keys") or {}), **keys}.items()))))
+
+
+def record_source(directory: Path, source_kind: str) -> None:
+    """D-1253 second review, finding 7: add to the snapshot's record the source kind it was read from (a night's and
+    a back-fill's alike), so a delta night over it from another source is held."""
+    _amend(directory, lambda body: body.update(source=source_kind))
+
+
+def snapshot_source(directory: Path) -> str | None:
+    """The source kind a snapshot's record says it was read from; None when it does not say."""
+    try:
+        said = json.loads((directory / SNAPSHOT_RECORD).read_text(encoding="utf-8")).get("source")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return str(said) if said else None
+
+
+def _amend(directory: Path, change: Callable[[dict[str, Any]], None]) -> None:
+    """Change the snapshot's record in place, written as the record is: atomically, synced."""
     path = directory / SNAPSHOT_RECORD
     body = json.loads(path.read_text(encoding="utf-8"))
-    body["keys"] = dict(sorted({**(body.get("keys") or {}), **keys}.items()))
+    change(body)
     tmp = directory / f".{SNAPSHOT_RECORD}.tmp"
     tmp.write_text(json.dumps(body, sort_keys=True) + "\n", encoding="utf-8")
     fd = os.open(tmp, os.O_RDONLY)

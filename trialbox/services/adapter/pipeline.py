@@ -1056,6 +1056,7 @@ def _run_ingest(
         out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed,
         aliases=aliases if base is not None else None, moved=carried_moved, collisions=collisions,
     )  # fmt: skip
+    id_rule.record_source(out_dir, source_kind)  # D-1253 second review, finding 7: what it was read from
     if source_kind == "ssmix2":  # D-1253 ruling 11: the order-number form the ids were made from
         from adapter.sources.ssmix2.source import order_id_form
 
@@ -1951,13 +1952,22 @@ def reread_whole(lake_dir: Path, base: str | None) -> tuple[set[str], str | None
     return tables, base
 
 
-def _source_of(snapshot: Path) -> str | None:
-    """The source kind a snapshot was read from (its ``ingest_report.json``); None when it does not say."""
+#: what a snapshot that does not say its source was read from: never the night's own (D-1253 second review, 7)
+UNKNOWN_SOURCE = "a source it does not record"
+
+
+def _source_of(snapshot: Path) -> str:
+    """The source kind a snapshot was read from: its id-rule record's ``source`` (every night and back-fill of
+    this release writes it), else its ``ingest_report.json``. A snapshot that says neither (a back-fill's before
+    the record held it) is :data:`UNKNOWN_SOURCE`, so a delta over it is held as over another source."""
+    said = id_rule.snapshot_source(snapshot)
+    if said:
+        return said
     try:
         said = json.loads((snapshot / "ingest_report.json").read_text(encoding="utf-8")).get("source")
     except (OSError, ValueError, AttributeError):
-        return None
-    return str(said) if said else None
+        said = None
+    return str(said) if said else UNKNOWN_SOURCE
 
 
 def merge_base(lake_dir: Path, snap: str) -> str | None:
