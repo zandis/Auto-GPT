@@ -68,3 +68,5 @@
 - **Held by:** `tests/unit/test_form_fields_guard.py`, `tests/console/test_form_errors_9k6a.py` (with
   `form_errors_keys_9k6a.js`), `tests/unit/test_console_tokens_and_type.py`; the converted forms' own tests
   (`tests/console/test_study_state_d386.py`, `tests/console/test_irb_text_gate.py`) pass unchanged.
+
+- **Amended 2026-11-20 by D-1384:** the guard ratchets the forms that take typed input. A POST form with nothing a person types (hidden inputs and buttons only) is not counted: it is held to the action rule instead (POST, the csrf field, a named action), checked for every such form. A new button-only form with the token passes without touching any list; without the token it fails (`tests/unit/test_form_fields_guard.py`). The 153 raw forms of this decision are now 102 typed and 51 action.
