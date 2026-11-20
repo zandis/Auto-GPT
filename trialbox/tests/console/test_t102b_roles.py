@@ -140,8 +140,9 @@ def test_role_008_no_pi_named_means_nobody_acts_as_pi(box: dict[str, Any]) -> No
     _done_screen(box["backend"], _ulid(961))
     doc = _user(box, "drsato", "investigator")
     other = _user(box, "drito", "investigator")
-    page = doc.get("/studies/GZQO/team").text
-    assert 'data-testid="no-pi"' in page and 'data-testid="add-form"' not in page
+    # D-1258: the log page refuses an investigator the log does not name (none is named yet: it names nobody, D-380)
+    assert doc.get("/studies/GZQO/team").status_code == 403
+    page = doc.get("/account").text  # the investigator's form token
     assert doc.get("/studies/GZQO/candidates").status_code == 403
     r = doc.post("/studies/GZQO/team", data={"csrf": _csrf(page), "username": "drsato", "role": "pi",
                                              "start": "2026-01-01"})  # fmt: skip
@@ -154,6 +155,7 @@ def test_role_008_no_pi_named_means_nobody_acts_as_pi(box: dict[str, Any]) -> No
     # the steward writes the PI's entry from the signed log; only that PI acts as PI
     stw = _user(box, "stw", "steward")
     spage = stw.get("/studies/GZQO/team").text
+    assert 'data-testid="no-pi"' in spage  # the log page says that no PI is named yet
     assert 'value="pi"' in spage and 'value="sub_pi"' not in spage  # the steward writes the PI entry, not the team
     r = stw.post("/studies/GZQO/team", data={"csrf": _csrf(spage), "username": "drsato", "role": "sub_pi",
                                              "start": "2026-01-01"})  # fmt: skip

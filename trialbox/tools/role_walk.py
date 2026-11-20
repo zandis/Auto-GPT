@@ -383,16 +383,23 @@ LOGS = ("", "on_log")  # D-1258: a row's ``log``
 
 
 def on_log(col: Column) -> bool:
-    """D-1258 (10C-3c): does the study's delegation log admit the column to a page of the study? For a role whose
-    ``task.*`` rows the log decides (the matrix's conditions), only with one of those tasks in its standing; every
-    other role passes. Read from the matrix and the column's standing, as :func:`expected` reads its gate."""
-    from tb_common.authz import STUDY_TASKS, conditional
-
+    """D-1258 (10C-3c): does the study's delegation log admit the column to a page of the study (a row's ``log:
+    on_log``)? :func:`on_log_of` with the column's role and standing in GZQO; signed out, never."""
     if col.role is None:
         return False
-    if not any(conditional(str(col.role), f"task.{t}") for t in STUDY_TASKS):
+    return on_log_of(str(col.role), standing(col))
+
+
+def on_log_of(role: str, held: Any) -> bool:
+    """The rule of ``Helpers.delegated_ok`` with every study task, from the matrix alone: a role whose ``task.*`` rows
+    the log decides (the matrix's conditions) passes only with one of those tasks in its standing ``held``; every
+    other role passes. ``tests/console/test_offlog_study_pages_10c3c.py`` holds it equal to the console's rule over
+    every role and standing."""
+    from tb_common.authz import STUDY_TASKS, conditional, permit
+
+    if not any(conditional(role, f"task.{t}") for t in STUDY_TASKS):
         return True
-    return any(_permit(col, f"task.{t}") for t in STUDY_TASKS)
+    return any(permit(role, f"task.{t}", held).allowed for t in STUDY_TASKS)
 
 
 @dataclass(frozen=True)

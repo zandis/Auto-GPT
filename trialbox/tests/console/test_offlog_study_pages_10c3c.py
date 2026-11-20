@@ -180,3 +180,74 @@ def test_the_opening_page_names_no_study_off_the_log(box: dict[str, Any]) -> Non
         assert 'data-testid="next-GZQO"' not in body and f"/studies/{STUDY}/" not in body, name
     for name in ("pi", "subrun"):  # on the log: the line stays (the PI reads the participants; "run" does not)
         assert 'data-testid="next-GZQO"' in c[name][0].get("/home").text, name
+
+
+# ---------------------------------------------------------------------------------------------- the walk's ``log:`` key
+ROUTES = tuple(f"GET {p.replace(JOB, '{job_id}').replace(STUDY, '{rs}')}" for p in (*PAGES, *APIS))
+
+
+def test_the_rows_that_ask_the_log_are_exactly_the_owners_14() -> None:
+    """A 15th row with ``log:`` needs a decision of its own (D-1258); ``on_log`` is the only value."""
+    from tools import role_walk as rw
+
+    declared = rw.load_declared()
+    assert len(ROUTES) == 14
+    assert {f"{m} {p}" for (m, p), d in declared.items() if d.log} == set(ROUTES)
+    assert {d.log for d in declared.values()} == {"", "on_log"}
+
+
+def test_a_log_value_other_than_on_log_is_refused(tmp_path: Any) -> None:
+    from tools import role_walk as rw
+
+    for value in ("on", "pi", "off_log", "true"):
+        f = tmp_path / f"{value}.yaml"
+        f.write_text(f'routes:\n  "GET /x": {{kind: scope, log: {value}, why: "test"}}\n', "utf-8")
+        with pytest.raises(ValueError, match="log is one of on_log"):
+            rw.load_declared(f)
+
+
+def test_the_log_key_only_turns_an_allow_into_a_refuse() -> None:
+    """``log: on_log`` makes a row's expected answer stricter for some column, never wider for any: over every row of
+    the table and every column, and for rows whose actions refuse (the column stays refused)."""
+    from dataclasses import replace
+
+    from tools import role_walk as rw
+
+    rows = list(rw.load_declared().items())
+    rows += [(("GET", "/studies/{rs}/x"), rw.Declared("actions", (a,), "all", "test"))
+             for a in ("ops.view", "breakglass.review", "!phi.view", "task.screen", "request.prepare")]  # fmt: skip
+    narrowed = 0
+    for (method, path), d in rows:
+        with_log, without = replace(d, log="on_log"), replace(d, log="")
+        for col in rw.COLUMNS:
+            path_in = path.replace("{rs}", STUDY)
+            a, b = rw.expected_of(col, method, path_in, with_log), rw.expected_of(col, method, path_in, without)
+            assert not (a and not b), (method, path, col.name)  # never wider
+            narrowed += b and not a
+    assert narrowed > 0  # and it does narrow (column inv)
+
+
+def test_the_walks_rule_is_the_consoles_over_every_role_and_standing() -> None:
+    """``tools.role_walk.on_log_of`` (read from the matrix) answers as ``Helpers.delegated_ok`` with every study task,
+    for every role of the matrix and every standing a log can give."""
+    import itertools
+    from types import SimpleNamespace
+
+    from console.auth import ROLES
+    from console.home import Helpers
+    from tb_common.authz import STUDY_TASKS, Standing
+    from tb_common.authz import permit as permit_row
+
+    from tools import role_walk as rw
+
+    seen = set()
+    for role in ROLES:
+        for is_pi, names_pi, monitor in itertools.product((False, True), repeat=3):
+            for n in range(len(STUDY_TASKS) + 1):
+                for ticks in itertools.combinations(STUDY_TASKS, n):
+                    held = Standing(is_pi, frozenset(ticks), names_pi, monitor)
+                    console = SimpleNamespace(permit=lambda u, a, r, held=held: permit_row(u.role, a, held))
+                    want = Helpers.delegated_ok(console, SimpleNamespace(role=role), STUDY, STUDY_TASKS)  # type: ignore[arg-type]
+                    assert rw.on_log_of(role, held) == want, (role, held)
+                    seen.add((role, want))
+    assert ("investigator", True) in seen and ("investigator", False) in seen and ("coordinator", True) in seen

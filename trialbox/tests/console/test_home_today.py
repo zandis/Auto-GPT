@@ -427,7 +427,10 @@ def test_a_refused_investigator_s_home_reads_no_patient_level_row(lb: dict[str, 
             page = c.get("/home", follow_redirects=False)  # off: sent on to /week, as on master
             assert page.status_code == (200 if flag == "on" else 303), (flag, who)
             assert calls == [], (flag, who, calls)
-            if flag == "on":
+            if flag == "on" and who == "other":  # D-1258: off the log, the study is not named at all
+                assert 'data-testid="next-GZQO"' not in page.text and "/studies/GZQO/" not in _region(page.text)
+                assert _lines(page.text) == []
+            elif flag == "on":
                 assert _next(page.text) in (("report", "/studies/GZQO/feasibility"), ("report_none", ""))
                 assert _lines(page.text) == []
     # the PI of GZQO reads GZQO (so the counter does see reads), and nothing of a second study whose log names no one
@@ -441,7 +444,8 @@ def test_a_refused_investigator_s_home_reads_no_patient_level_row(lb: dict[str, 
     page = pi.get("/home").text
     assert any(c.startswith("GET /studies/GZQO/") for c in calls), calls
     assert not [c for c in calls if "OTHER1" in c], calls
-    assert _next(page, "OTHER1")[0] in ("report", "report_none")
+    # D-1258: the PI is on no entry of OTHER1's log (it names no one), so the page names OTHER1 nowhere
+    assert 'data-testid="next-OTHER1"' not in page and "/studies/OTHER1/" not in _region(page)
 
 
 def test_a_sub_investigator_ticked_for_data_entry_gets_the_participant_pages_lines(lb: dict[str, Any]) -> None:
@@ -661,7 +665,8 @@ def test_no_link_of_the_home_opens_a_refusal_for_any_kind_of_account(lb: dict[st
         page = c.get("/home")
         assert page.status_code == 200, who
         hrefs = sorted(set(re.findall(r'<a [^>]*href="(/[^"#]*)', _region(page.text))))
-        assert hrefs, who
+        # D-1258: an investigator on no log is shown no link of the study (its pages refuse it); everyone else has some
+        assert (not [x for x in hrefs if "GZQO" in x]) if who == "other" else hrefs, (who, hrefs)
         for href in hrefs:
             got = c.get(html.unescape(href))
             assert got.status_code < 400, (who, href, got.status_code)
