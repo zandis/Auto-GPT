@@ -1305,7 +1305,7 @@ class Mapper:
         """``{hid: <col>}`` as a value (an identifier) or ``{hid:T:col}`` in a template: the id the record of that
         number has, made as its own id is (the record's own column takes its spec's suffix)."""
         suffix = str(rs.id.get("suffix", "")) if rtype == rs.type and rs.id.get("hid") == col else ""
-        return self.number_id(rtype, rs, row, str(row[col]), suffix)
+        return self.number_id(rtype, rs, row, str(row[col]), suffix, chart=col == rs.patient)
 
     def patient_of(self, rs: ResourceSpec, row: Row) -> str:
         """D-1253: the pseudonym of the record's patient, derived from its chart number exactly as the Patient
@@ -1325,7 +1325,9 @@ class Mapper:
             raise MappingError(f"{rs.type} from {rs.table}: no patient ({col} is empty)")
         return pid_for_mrn(self.key, str(raw))
 
-    def number_id(self, rtype: str, rs: ResourceSpec, row: Row, value: str, suffix: str = "") -> str:
+    def number_id(
+        self, rtype: str, rs: ResourceSpec, row: Row, value: str, suffix: str = "", chart: bool = False
+    ) -> str:
         """The id of the ``rtype`` record with the source number ``value``, as ``rs``'s row names it (D-1253),
         whatever the order the tables or rows come in:
 
@@ -1337,7 +1339,10 @@ class Mapper:
             if suffix:  # the loader refuses it (_whose, _id_rules): a suffix never runs into a site-wide number
                 raise MappingError(f"{rtype}: a site-wide id has no suffix")
             return resource_id(self.key, rtype, value)
-        if (rtype, suffix) in self._chart_keys:
+        if chart or (rtype, suffix) in self._chart_keys:
+            # the number is the row's own chart number (D-1253 second review, finding 11: decided by the mapping that
+            # reads it, so another mapping of the type keyed by another number never turns the rule off), or a
+            # reference to a type every mapping of which keys by the chart number
             value = chartno.normalise(None, value)
         return patient_resource_id(self.key, rtype, self.patient_of(rs, row), value, suffix)
 
@@ -1443,7 +1448,8 @@ class Mapper:
         if raw is None or str(raw).strip() == "":
             return None
         if "hid" in spec:  # D-1253: the row's own patient's record, by construction (a link never crosses patients)
-            return f"{rtype}/{self.number_id(rtype, rs, row, str(raw), str(spec.get('suffix', '')))}"
+            number = self.number_id(rtype, rs, row, str(raw), str(spec.get("suffix", "")), chart=col == rs.patient)
+            return f"{rtype}/{number}"
         return f"{rtype}/{raw}"
 
     def value(self, expr: Any, row: Row, rs: ResourceSpec) -> Any:
@@ -1839,7 +1845,7 @@ class Mapper:
             # the row is rejected and counted where rejected rows are
             raise MappingError(f"{rs.type} from {rs.table}: no key ({col} is empty)")
         if "hid" in rs.id:  # D-1253: as every link by number to it is made (:meth:`number_id`)
-            return self.number_id(rs.type, rs, row, str(value), str(rs.id.get("suffix", "")))
+            return self.number_id(rs.type, rs, row, str(value), str(rs.id.get("suffix", "")), chart=col == rs.patient)
         return str(value)
 
     def _for_review(self, rs: ResourceSpec, row: Row) -> bool:

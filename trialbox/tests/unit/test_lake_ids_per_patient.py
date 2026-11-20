@@ -734,3 +734,25 @@ def test_a_bulk_export_record_a_steward_decided_before_the_rebuild_awaits_review
     events = [json.loads(line) for f in sorted((tmp_path / "audit").rglob("*.jsonl")) for line in f.open()]
     (night_event,) = [e for e in events if str(e.get("event", "")).startswith("ingest.")]
     assert night_event["detail"]["steward_review_needed"] == {"Condition": 1}
+
+
+def test_a_record_keyed_by_the_chart_number_keeps_its_spelling_rule_beside_another_mapping_of_its_type(
+    tmp_path: Path,
+) -> None:
+    """D-1253 second review, finding 11: a second mapping of the same type and suffix keyed by another number turned
+    chart-number spelling off for the first, so one chart's record had two ids (``123`` and ``１２３``). The rule is
+    the record's own mapping's: keyed by its patient's chart number, it is spelt as a chart number; keyed by another
+    number, it is not."""
+    path = _site(tmp_path, [
+        {"type": "Observation", "table": "thing", "id": {"hid": "mrn"}, "patient": "mrn",
+         "elements": {**SUBJECT, "status": {"const": "final"}}},
+        {"type": "Observation", "table": "thing", "id": {"hid": "lab_no"}, "patient": "mrn",
+         "elements": {**SUBJECT, "status": {"const": "final"}}},
+    ])  # fmt: skip
+    m, mp = _mapper(path)
+    by_chart, by_lab = (r for r in m.resources if r.type == "Observation")
+    row = {"mrn": "10000001", "lab_no": "77", "no": "x"}
+    wide = {**row, "mrn": "１００００００１"}
+    assert mp.row_id(by_chart, row) == mp.row_id(by_chart, wide)
+    assert mp.row_id(by_lab, row) == mp.row_id(by_lab, {**row, "lab_no": "77"})
+    assert mp.row_id(by_lab, {**row, "lab_no": "077"}) != mp.row_id(by_lab, row)  # another number is not re-spelt
