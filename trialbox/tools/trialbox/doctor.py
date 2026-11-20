@@ -22,6 +22,9 @@ closed). Checks:
   ``TB_CONSOLE_MFA`` resolves to ``totp`` (the console's default outside DEV and TEST), OIDC, when on, keeps
   ``TB_OIDC_REQUIRE_MFA``, and no trusted identity header (``TB_CONSOLE_SSO_HEADER``, D-93) signs people in. FAIL in
   PRODUCTION and VALIDATION, WARN elsewhere;
+* ``legacy_token`` (D-1349): the box holds no old shared service token (``TB_SERVICE_TOKEN`` in ``deploy/.env``, the
+  ``legacy`` hash in ``tokens.json``), which every TrialBox service refuses outside DEV and TEST. FAIL in PRODUCTION,
+  VALIDATION and an unset ``TB_ENV``, with the fix (``secrets rotate``); PASS with a note in DEV and TEST;
 * ``publish_gate``: the data platform has a current signed snapshot and the last gate decision is known;
 * ``note_block``: ``TB_NOTE_BLOCK=both_agree`` (the default, D-95) needs a verifier build (``TB_GATEWAY_VERIFIER_MODEL``
   or ``LLM_VERIFIER_BASE_URL``) and ``TB_SCREEN_JUDGE`` other than ``single``; otherwise the box runs single-model
@@ -410,6 +413,31 @@ def check_console_mfa(inp: DoctorInputs) -> Check:
                      + (" (TOTP; OIDC with a second factor)" if oidc_on else " (TOTP)"))  # fmt: skip
     status: Status = "WARN" if dev else "FAIL"
     return Check("console_mfa", status, f"{env}: " + "; ".join(gaps))
+
+
+def check_legacy_token(inp: DoctorInputs) -> Check:
+    """D-1349: outside DEV and TEST the services refuse the old shared service token, so a box that still holds one
+    (``TB_SERVICE_TOKEN`` in ``deploy/.env``, the ``legacy`` hash in ``tokens.json``; ``svc_secrets.legacy_held``)
+    is told before a caller that presents it is refused. Without a deploy folder only the settings given are read."""
+    from tools.trialbox import svc_secrets
+
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    if inp.deploy is not None:
+        held = svc_secrets.legacy_held(inp.deploy)
+    else:
+        tok = (inp.env.get("TB_SERVICE_TOKEN") or "").strip()
+        held = ["TB_SERVICE_TOKEN in the settings"] if tok and not tok.startswith("change-me") else []
+    if not held:
+        return Check("legacy_token", "PASS", "no old shared service token: each service presents its own")
+    where = "; ".join(held)
+    if env in ("DEV", "TEST"):
+        return Check("legacy_token", "PASS", f"{env} accepts the old shared service token ({where})")
+    return Check(
+        "legacy_token",
+        "FAIL",
+        f"{env}: the box still holds the old shared service token ({where}), which the services refuse here. "
+        "Fix: sudo python3 -m tools.trialbox secrets rotate (every token; RUNBOOK §5)",
+    )
 
 
 def check_publish_gate(inp: DoctorInputs) -> Check:
@@ -2030,6 +2058,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_sae_mailbox,
     check_mail_auth,
     check_console_mfa,
+    check_legacy_token,
     check_ldap_ca,
     check_publish_gate,
     check_note_block,

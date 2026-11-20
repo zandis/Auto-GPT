@@ -1,5 +1,6 @@
 """TB-PLAN-04 step 8 (D-128, D-138): one token per service, accepted only from its own callers; generated 0600,
-never printed; rotated with one command; the old shared token works until the rotation, with a warning."""
+never printed; rotated with one command; the old shared token is refused outside DEV and TEST (D-1349), with a
+warning, and gone after the rotation."""
 
 from __future__ import annotations
 
@@ -101,13 +102,13 @@ def test_the_embed_service_accepts_the_orchestrator_and_no_one_else(box: Path, m
         assert embed.post("/x", headers=_as(monkeypatch, box, caller)).status_code == 403, caller
 
 
-def test_the_old_shared_token_works_until_rotation_with_a_warning(
+def test_the_old_shared_token_is_refused_in_production_with_a_warning_until_rotation(
     box: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sa._warned.clear()
     orch = _app("orchestrator")  # the service's JSON log goes to stdout (tb_common.logging)
-    r = orch.post("/x", headers={sa.TOKEN_HEADER: "old-shared-token-0123456789"})
-    assert r.status_code == 200
+    r = _app("lake").post("/x", headers={sa.TOKEN_HEADER: "old-shared-token-0123456789"})
+    assert r.status_code == 403  # D-1349: refused in PRODUCTION (the orchestrator's own gate refuses it, D-464)
     out = capsys.readouterr().out
     assert '"level": "WARNING"' in out and "old shared service token" in out
     assert "old-shared-token-0123456789" not in out  # the warning never carries the token
