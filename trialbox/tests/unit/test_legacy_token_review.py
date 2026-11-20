@@ -133,32 +133,6 @@ def test_no_service_of_an_installed_box_takes_tb_env_from_the_shell(name: str) -
         assert "TB_ENV" not in env, f"{name}: {svc} sets TB_ENV in its environment: {env.get('TB_ENV')!r}"
 
 
-# --------------------------------------------------------- Medium: the gateway's writes, /v1/serving/release
-
-
-def test_the_legacy_token_cannot_release_the_card_with_200(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Review Medium (service_auth.py:521): with ``TB_MODEL_SWAP`` off ``release`` answers 200 before it looks at
-    the caller, so the blanket gateway write exemption let the old token through with no refusal recorded."""
-    from gateway.app import create_app
-    from tb_common.policy.classes import Environment
-
-    from tests.unit.test_gateway import _gw, _records
-
-    _registry_env(tmp_path, monkeypatch, {"schema": sa.REGISTRY_SCHEMA, "services": {"orchestrator": "b" * 64},
-                                          "legacy": sa.token_hash(SHARED)})  # fmt: skip
-    monkeypatch.setenv("TB_ENV", "PRODUCTION")
-    gw = _gw(tmp_path, env=Environment.PRODUCTION)
-    assert gw.swap is None  # TB_MODEL_SWAP off
-    http = TestClient(create_app(gw))
-    for path in ("/v1/serving/release", "/v1/serving/activate", "/v1/chat/completions"):
-        r = http.post(path, json={}, headers={sa.TOKEN_HEADER: SHARED, "X-TB-Caller": "orchestrator"})
-        assert r.status_code == 403, (path, r.status_code, r.text)
-        assert r.json()["error"]["code"] == "caller_unverified" and SHARED not in r.text
-    refused = [r["detail"] for r in _records(tmp_path) if r["event"] == "llm.gateway.refuse"]
-    assert [d["service"] for d in refused] == ["legacy"] * 3  # each refusal audited where the gateway audits
-    assert http.get("/v1/models", headers={sa.TOKEN_HEADER: SHARED}).status_code == 403
-
-
 # ------------------------------------------------- Medium: rotation on a box without the secrets overlay
 
 

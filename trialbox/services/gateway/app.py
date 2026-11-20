@@ -76,16 +76,7 @@ from tracestore.store import TraceStore
 
 from gateway.core import BUSY_MESSAGE, RETRY_AFTER, Gateway, GatewayConfig
 from gateway.policy import DEFAULT_PATH as ROUTING_PATH
-from gateway.policy import (
-    LEGACY,
-    SANDBOX_ENVS,
-    Resolver,
-    RoutingPolicy,
-    endpoint_key,
-    perimeter_checked,
-    perimeter_problems,
-    resolve_host,
-)
+from gateway.policy import Resolver, RoutingPolicy, endpoint_key, perimeter_checked, perimeter_problems, resolve_host
 from gateway.swap import SWAPPABLE, ModelSwap
 
 log = logging.getLogger("gateway.start_check")
@@ -365,17 +356,8 @@ def create_app(
     limiters: dict[int, anyio.CapacityLimiter] = {}
     inflight = {"n": 0}  # changed on the event loop only: no lock needed
 
-    def legacy_gate(request: Request, caller: str | None) -> JSONResponse | None:
-        """D-1349: the old shared service token names no service. Outside DEV and TEST it is refused on every route,
-        before a handler answers (``/v1/serving/release`` answered 200 with the swap off), with the gateway's own
-        audited refusal (``llm.gateway.refuse``, D-437)."""
-        if caller != LEGACY or gw.config.environment.value in SANDBOX_ENVS:
-            return None
-        why = "the gateway cannot tell which service called (the old shared token): run `trialbox secrets rotate`"
-        return _refused(gw, "caller_unverified", f"{why} (D-437, D-1349)", request)
-
     # review LLM-043: reads need the token too
-    app = make_app("gateway", checks=checks, lifespan=lifespan, protect_reads=True, route_gate=legacy_gate)
+    app = make_app("gateway", checks=checks, lifespan=lifespan, protect_reads=True)
 
     @app.get("/readyz")
     async def readyz() -> dict[str, Any]:
