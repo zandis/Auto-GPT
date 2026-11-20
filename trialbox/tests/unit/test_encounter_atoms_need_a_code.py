@@ -21,10 +21,10 @@ from criteria_compiler.terminology.mapper import Terminology
 from tb_contracts import LlmExtractOutput
 
 
-def _one(text: str, concept: str, kind: str = "inclusion") -> Any:
+def _one(text: str, concept: str, kind: str = "inclusion", synonyms: tuple[str, ...] = ()) -> Any:
     crit = {"kind": kind, "class": "structured", "text": text,
             "logic": {"domain": "encounter", "concept": concept, "quantifier": "any"},
-            "concept_candidates": [{"name": concept, "domain": "encounter"}]}  # fmt: skip
+            "concept_candidates": [{"name": concept, "domain": "encounter", "synonyms": list(synonyms)}]}  # fmt: skip
     (c,) = pp.postprocess("T", LlmExtractOutput.model_validate({"criteria": [crit]}), Terminology(), "1.0.0").criteria
     return c
 
@@ -36,17 +36,26 @@ def _one(text: str, concept: str, kind: str = "inclusion") -> Any:
      ("The diagnosis of MDD consistent with DSM-IV (M.I.N.I)", "major depressive disorder")],
 )  # fmt: skip
 def test_a_diagnosis_filed_as_an_encounter_is_read_as_a_condition(text: str, concept: str) -> None:
-    c = _one(text, concept)
+    # card 10A-1d (D-1248): the line must name its concept to run; "MDD" is the extractor's synonym for it
+    c = _one(text, concept, synonyms=("MDD",))
     assert c.logic is not None and {a.domain for a in atoms(c.logic)} == {"condition"}, text
     assert "domain_refiled" in (c.flags or [])
 
 
 @pytest.mark.parametrize(
     ("text", "concept"),
-    [("Current hospitalization for COPD exacerbation", "hospitalization"),
+    [("Hospitalization within the past 12 months", "hospitalization"),
      ("Any history of hemorrhagic stroke.", "hemorrhagic stroke")],  # not named a diagnosis: still never compiled
 )  # fmt: skip
 def test_an_encounter_type_with_no_code_is_not_compiled(text: str, concept: str) -> None:
     c = _one(text, concept)
     assert c.class_ == "human" and "logic_invalid" in (c.flags or [])
+    assert c.logic is not None and not any(a.domain == "encounter" for a in atoms(c.logic))
+
+
+def test_an_encounter_line_not_recognised_goes_to_a_person_before_its_code_is_looked_for() -> None:
+    """Card 10A-1d (D-1248): "Current hospitalization for COPD exacerbation" is not read as a plain statement of
+    hospitalization (what it is for is not coded), so it is held for a person first; it is never compiled either."""
+    c = _one("Current hospitalization for COPD exacerbation", "hospitalization")
+    assert c.class_ == "human" and "presence_not_recognised" in (c.flags or [])
     assert c.logic is not None and not any(a.domain == "encounter" for a in atoms(c.logic))

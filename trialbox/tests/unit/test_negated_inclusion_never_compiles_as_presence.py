@@ -24,8 +24,9 @@ from typing import Any
 import pytest
 import tb_contracts as c
 from criteria_compiler.ir_extract import postprocess as pp
+from criteria_compiler.ir_extract.negation_scope import presence_atoms
 from criteria_compiler.semantics import FILTERED, JUDGED
-from criteria_compiler.terminology.mapper import Terminology
+from criteria_compiler.terminology.mapper import Terminology, vs_name_for
 from doc_parser.parser import parse
 from tb_contracts import Atom, LlmExtractOutput
 
@@ -48,6 +49,10 @@ AFTER: list[dict[str, Any]] = json.loads((FIX / "card_10a1c_after.json").read_te
 THIRD: list[dict[str, Any]] = json.loads((FIX / "card_10a1c_third.json").read_text(encoding="utf-8"))["rows"]
 # an independent tester's lines that ran at 227466c3 (now seen: a regression fixture), and this card's nearest lines
 INDEP1: list[dict[str, Any]] = json.loads((FIX / "independent_set_1.json").read_text(encoding="utf-8"))["rows"]
+# the second review of card 10A-1c (the integrator's twelve findings): each finding as a class in en, ja and zh, with
+# the nearest lines the cue reading must still let go
+SECOND: list[dict[str, Any]] = json.loads((FIX / "second_review.json").read_text(encoding="utf-8"))["rows"]
+UNREAD = "presence_not_recognised"
 CHEMO = {"domain": "procedure", "quantifier": "any", "concept": "chemotherapy"}  # VS_CHEMOTHERAPY once compiled
 CHEMO_CAND = [{"domain": "procedure", "name": "chemotherapy", "synonyms": ["化学療法", "化學治療"]}]
 _TERM: list[Terminology] = []
@@ -88,10 +93,30 @@ def _one(text: str, logic: dict[str, Any], kind: str = "inclusion", cls: str = "
     return out
 
 
-def _held(x: Any) -> None:
+def _held(x: Any, by: str | None = None) -> None:
+    """The line compiles to a person's check: class ``human`` with a question, the flag, and no executable logic.
+    ``by``: which reading holds it, the cue reading (``cue``) or the default (``unrecognised``, D-1248)."""
     assert x.class_ == "human" and x.human_question, (x.class_, x.text)
     assert FLAG in (x.flags or []), x.flags
-    assert getattr(x.logic, "valueset", None) == "NONE"  # the presence logic is never run
+    assert isinstance(x.logic, Atom) and x.logic.domain == "demographic" and x.logic.valueset == "NONE"
+    assert x.logic.age is None and x.logic.sex is None  # the presence logic is never run
+    if by is not None:
+        assert (UNREAD in x.flags) == (by == "unrecognised"), (by, x.flags, x.text)
+
+
+def _runs(x: Any, row: dict[str, Any], cls: str) -> None:
+    """The line compiles to what it was coded as (the second review, finding 12: the absence of the flag alone also
+    passes when another rule has taken the executable logic away): its class is kept, it carries neither hold flag,
+    and its logic is the one atom that asks the presence of that concept (or, for a ``value`` row, its bound)."""
+    assert x.class_ == cls, (x.class_, x.flags, row["text"])
+    assert FLAG not in (x.flags or []) and UNREAD not in (x.flags or []), (x.flags, row["text"])
+    assert isinstance(x.logic, Atom) and x.logic.domain == row["domain"], (x.logic, row["text"])
+    assert x.logic.valueset == vs_name_for(row["concept"]), (x.logic.valueset, row["text"])
+    if row["logic"] == "value":
+        assert x.logic.quantifier == "latest" and x.logic.value is not None, x.logic
+    else:
+        assert x.logic.quantifier == "any" and x.logic.value is None, x.logic
+        assert [a.valueset for a in presence_atoms(x.logic)] == [x.logic.valueset]
 
 
 def test_the_two_p2b_lines_are_held() -> None:
@@ -102,49 +127,132 @@ def test_the_two_p2b_lines_are_held() -> None:
                question="Does the patient have significant cardiopulmonary disease?"))  # fmt: skip
 
 
-ALL = [*ROWS, *UNSEEN, *CARD, *REVIEW, *BEFORE, *AFTER, *THIRD, *INDEP1]
+ALL = [*ROWS, *UNSEEN, *CARD, *REVIEW, *BEFORE, *AFTER, *THIRD, *INDEP1, *SECOND]
 
 
 @pytest.mark.parametrize("cls", ["structured", "mixed"])
 @pytest.mark.parametrize("row", ALL, ids=[f"{r['source']}-{r['lang']}-{i}" for i, r in enumerate(ALL)])
-def test_property_each_line_of_the_tables_is_held_or_runs_as_expected(row: dict[str, Any], cls: str) -> None:
-    """A negated line is always held (never a miss). A line that should run runs, unless the table marks it
-    ``over_held``: the fail-safe holds it today, which costs a person's look and is counted below."""
+def test_property_each_line_of_the_tables_compiles_to_what_its_row_says(row: dict[str, Any], cls: str) -> None:
+    """Each row says what its line compiles to, and the test asserts all of it. A line labelled ``held`` is held, by
+    the reading its row names (``held_by``). A line labelled ``runs`` runs as the presence of its concept, class and
+    logic kept, unless its row marks it ``over_held``: then it is held, by the reading named, which costs a person's
+    look and is counted below. Since D-1248 a line runs only when it is positively recognised."""
     q = "Does the patient meet it?" if cls == "mixed" else None
     x = _one(row["text"], _logic(row), cls=cls, concepts=_cand(row), question=q)
     if row["expect"] == "held" or row.get("over_held"):
-        _held(x)
+        _held(x, row["held_by"])
     else:
-        assert FLAG not in (x.flags or []), (row["text"], x.class_, x.flags)
+        assert "held_by" not in row
+        _runs(x, row, cls)
 
 
-def _score(rows: list[dict[str, Any]]) -> tuple[int, int, int, int]:
+def test_the_per_row_check_fails_when_another_rule_takes_the_logic_away() -> None:
+    """The second review, finding 12: "Asthma not on oral corticosteroids" demoted to a note with no flag passed the
+    old per-row check. The check now fails on it."""
+    row = {
+        "text": "Diagnosis of asthma",
+        "concept": "asthma",
+        "domain": "condition",
+        "logic": "presence",
+        "synonyms": [],
+    }
+    x = _one(str(row["text"]), _logic(row), concepts=_cand(row))
+    _runs(x, row, "structured")
+    demoted = x.model_copy(update={"class_": "note", "logic": Atom(domain="demographic", valueset="NONE")})
+    assert FLAG not in (demoted.flags or [])  # what the old check looked at
+    with pytest.raises(AssertionError):
+        _runs(demoted, row, "structured")
+    with pytest.raises(AssertionError):
+        _runs(
+            x.model_copy(update={"logic": Atom(domain="condition", valueset="VS_OTHER", quantifier="any")}),
+            row,
+            "structured",
+        )
+
+
+def _score(rows: list[dict[str, Any]]) -> tuple[int, int, int, int, int]:
+    """(must-hold lines held, of, plain lines held by the cue reading, plain lines held as not recognised, of)."""
     out = _post([{"kind": "inclusion", "class": "structured", "text": r["text"], "logic": _logic(r),
                   "concept_candidates": _cand(r)} for r in rows]).criteria  # fmt: skip
-    neg = [x.class_ == "human" for r, x in zip(rows, out, strict=True) if r["expect"] == "held"]
-    run = [x.class_ == "human" for r, x in zip(rows, out, strict=True) if r["expect"] == "runs"]
-    return sum(neg), len(neg), sum(run), len(run)
+    pairs = list(zip(rows, out, strict=True))
+    neg = [x.class_ == "human" for r, x in pairs if r["expect"] == "held"]
+    run = [x for r, x in pairs if r["expect"] == "runs"]
+    cue = sum(FLAG in (x.flags or []) and UNREAD not in x.flags for x in run)
+    unread = sum(UNREAD in (x.flags or []) for x in run)
+    assert all((x.class_ == "human") == (FLAG in (x.flags or [])) for _, x in pairs)  # nothing leaves by another door
+    return sum(neg), len(neg), cue, unread, len(run)
 
 
 def test_the_counts_the_pull_request_reports() -> None:
-    """Every negated line of the four tables held. Card 10A-1b held 12 of its own 40 negated lines that ran before it
-    (a cue over a list) and the coordinator's 34 that ran (cue words such as "forbidden", 不可, 禁止, 不允許, "other
-    than X"; a synonym of the coded concept). The lines that should run and are held: card 10A-1's table 8 of 69, the
-    lines unseen at design 20 of 23 (the same as before card 10A-1b; 19 since card 10A-1c's R8), card 10A-1b's own 17 of 40 (18 before), the
-    coordinator's 0 of 8. Card 10A-1c: these counts are about these lines only, never about the reader (a reader
-    that looks for cues misses shapes nobody listed). Its 241 lines: 4 of 121 negated lines ran on master, 82 of 120
-    held that should run (109 on master). Its second and third sets: 7 and 26 of 63 ran on master; 25 and 12 of 63
-    held that should run (48 and 30 on master). Independent set 1, the tester's lines that ran at 227466c3, now
-    seen. "No more than 2 prior lines of chemotherapy" is a must-hold line since card 10A-1c (zero meets it)."""
-    assert _score(ROWS) == (117, 117, 8, 68)
-    assert _score(UNSEEN) == (21, 21, 19, 23)
-    assert _score(CARD) == (40, 40, 17, 40)
-    assert _score(REVIEW) == (36, 36, 0, 8)
-    assert _score(BEFORE) == (121, 121, 82, 120)
-    assert _score(AFTER) == (63, 63, 25, 63)
-    assert _score(THIRD) == (63, 63, 12, 63)
-    assert _score(INDEP1) == (73, 73, 0, 26)
+    """Counts of these lines, never a property of the reader (a reader that looks for cues misses shapes nobody
+    listed). Every must-hold line of each table is held. Of the lines labelled ``runs``, how many the cue reading
+    holds and how many more the default holds since D-1248 (not recognised as a plain statement); most of these
+    lines were written as the nearest thing to a negation ("no X, but Y"), not as ordinary criteria, so the second
+    number is not the cost of the flip on ordinary lines: that is measured on ``card_10a1d_plain.tsv``.
+
+    At 65f0753c (the cue reading alone, checked with this file's strict per-row check): 8 of 68, 19 of 23, 17 of 40,
+    0 of 8, 82 of 120, 25 of 63, 12 of 63, 0 of 26, as D-1246 quoted. The cue reading now holds one more line of
+    ``review_10a1b``, ``card_10a1c_after`` and ``card_10a1c_third`` each: a need ("需要化學治療"), "not in remission"
+    and an eligibility, classes the second review added."""
+    assert _score(ROWS) == (117, 117, 8, 18, 68)
+    assert _score(UNSEEN) == (21, 21, 19, 3, 23)
+    assert _score(CARD) == (40, 40, 17, 15, 40)
+    assert _score(REVIEW) == (36, 36, 1, 7, 8)
+    assert _score(BEFORE) == (121, 121, 82, 14, 120)
+    assert _score(AFTER) == (63, 63, 26, 14, 63)
+    assert _score(THIRD) == (63, 63, 13, 18, 63)
+    assert _score(INDEP1) == (73, 73, 0, 3, 26)
+    assert _score(SECOND) == (75, 75, 0, 6, 28)
     assert {r["lang"] for r in ALL} == {"en", "ja", "zh"}
+
+
+@pytest.mark.parametrize("row", SECOND, ids=[f"finding{r['finding']}-{r['lang']}-{i}" for i, r in enumerate(SECOND)])
+def test_the_second_review_each_class_is_held_by_the_cue_reading_and_its_near_line_let_go(row: dict[str, Any]) -> None:
+    """The second net alone (it must hold these whatever the recogniser does): the ten classes of the second review
+    are held by the cue reading in en, ja and zh, and the nearest plain lines are not."""
+    from criteria_compiler.ir_extract.negation_scope import negated_presence
+
+    terms = [row["concept"], *row["synonyms"]]
+    atom = Atom(domain=row["domain"], valueset="VS_X", quantifier="any")
+    assert negated_presence(row["text"], atom, lambda vs: terms, [*terms, *row["others"]]) is row["cue"], row["text"]
+    assert row["cue"] is (row["expect"] == "held")
+
+
+def test_a_condition_on_receipt_runs_only_when_the_logic_carries_it() -> None:
+    """The second review, finding 7, in English: "…, or >= 6.0 mg/dL if receiving urate-lowering therapy" with the
+    therapy as the criterion's whole logic would be met only by patients on it. It is held; where the logic itself
+    carries the alternative (the therapy's atom is one arm of an "or"), the cue reading lets it go."""
+    from criteria_compiler.ir_extract.negation_scope import negated_presence
+
+    text = "Serum urate ≥6.8 mg/dL, or ≥6.0 mg/dL if receiving urate-lowering therapy."
+    ult = Atom(domain="medication", valueset="VS_ULT", quantifier="any")
+    urate = Atom(domain="observation", valueset="VS_URATE", quantifier="latest", value=c.AtomValue(op=">=", num=6.8))
+    names = {"VS_ULT": ["urate-lowering therapy"], "VS_URATE": ["serum urate"]}
+    assert negated_presence(text, ult, lambda vs: names[vs])
+    carried = c.BoolExpr(op="or", args=[urate, c.BoolExpr(op="and", args=[urate, ult])])
+    assert not negated_presence(text, carried, lambda vs: names[vs])
+
+
+def test_status_reading_is_linear_in_repeated_mentions() -> None:
+    """The second review, finding 11: "Asthma. " x 4000 took 0.48 s at 65f0753c, four times the cost of x 2000 (each
+    sentence rescanned every mention). Doubling the line now about doubles the time."""
+    import time
+
+    from criteria_compiler.ir_extract.negation_scope import negated_presence
+
+    atom = Atom(domain="condition", valueset="VS_ASTHMA", quantifier="any")
+
+    def took(n: int) -> float:
+        best = 9.0
+        for _ in range(3):
+            t0 = time.perf_counter()
+            negated_presence("Asthma. " * n, atom, lambda vs: ["asthma"])
+            best = min(best, time.perf_counter() - t0)
+        return best
+
+    small, big = took(2000), took(8000)
+    assert big < 8 * small + 0.05, (small, big)  # linear is 4 times; quadratic was 16
+    assert big < 2.0
 
 
 @pytest.mark.parametrize(
@@ -199,12 +307,12 @@ def test_property_a_negated_line_already_coded_negative_runs(shape: int) -> None
 def test_exclusions_are_byte_identical_with_the_rule_on_and_off(monkeypatch: pytest.MonkeyPatch) -> None:
     """Card 10A-1b changes only which inclusions are held: every line of the four tables compiled as an exclusion is
     the same, byte for byte, with the rule as it is and with it off."""
-    rows = [*ROWS, *UNSEEN, *CARD, *REVIEW, *BEFORE, *AFTER, *THIRD, *INDEP1]
+    rows = ALL
     crits = [{"kind": "exclusion", "class": "structured", "text": r["text"], "logic": _logic(r),
               "concept_candidates": _cand(r)} for r in rows]  # fmt: skip
 
-    def dumped() -> list[str]:
-        return [c.dump_json(x) for x in _post(crits).criteria]
+    def dumped() -> list[str]:  # in two batches: a criterion's number has at most three digits
+        return [c.dump_json(x) for k in range(0, len(crits), 900) for x in _post(crits[k : k + 900]).criteria]
 
     on = dumped()
     monkeypatch.setattr("criteria_compiler.ir_extract.postprocess.negated_presence", lambda *a, **kw: False)
@@ -475,11 +583,6 @@ RULES: dict[str, tuple[list[Line], list[Line]]] = {
         [
             ("Sepsis confirmed by blood culture.", ["sepsis"], []),
             ("Documented atrial fibrillation on ECG.", ["atrial fibrillation"], []),
-            (
-                "Serum urate ≥6.8 mg/dL, or ≥6.0 mg/dL if receiving urate-lowering therapy.",
-                ["urate-lowering therapy"],
-                [],
-            ),
             ("High-risk breast cancer.", ["breast cancer"], []),
             ("At least two prior lines of chemotherapy.", CH, []),
             ("Not more than 8 weeks since the last chemotherapy dose.", CH, []),
@@ -493,6 +596,13 @@ RULES: dict[str, tuple[list[Line], list[Line]]] = {
             ("Hypertension. Should hypotension occur, stop the drug.", HT, []),
         ],
         [
+            # the second review, finding 7: a condition on receipt, with the therapy as the whole logic (it runs
+            # when the logic carries the "or": test_a_condition_on_receipt_runs_only_when_the_logic_carries_it)
+            (
+                "Serum urate ≥6.8 mg/dL, or ≥6.0 mg/dL if receiving urate-lowering therapy.",
+                ["urate-lowering therapy"],
+                [],
+            ),
             ("Suspected sepsis.", ["sepsis"], []),
             ("Family history of type 2 diabetes.", ["type 2 diabetes"], []),
             ("Should hypotension occur, stop the drug.", ["hypotension"], []),

@@ -21,12 +21,18 @@ def test_a_tsv_is_scored_and_a_miss_fails_the_run(tmp_path: Path, capsys: pytest
         "en\theld\tchemotherapy\tNo prior chemotherapy.\t\n"
         "en\truns\tasthma\tAsthma not on oral corticosteroids.\t\n"
         "ja\theld\t化学療法\t化学療法：－\t\n"
-        "zh\truns\t手術\t曾接受手術，但未曾接受放射治療。\t放射治療\n",
+        "zh\truns\t手術\t曾接受手術之患者。\t放射治療\n",
         encoding="utf-8",
     )
     assert tool.main([str(good), "--rows"]) == 0
     out = capsys.readouterr().out
     assert "missed (negated line that runs): 0 / 2" in out and "held unnecessarily (present line held): 0 / 2" in out
+    slow = tmp_path / "unread.tsv"  # a present line the default holds: counted apart from the cue reading, with why
+    slow.write_text("expect\tconcept\ttext\nruns\tasthma\tAsthma zorblatically.\nruns\tasthma\tAsthma, no rash.\n",
+                    encoding="utf-8")  # fmt: skip
+    assert tool.main([str(slow)]) == 0
+    out = capsys.readouterr().out
+    assert "by the cue reading: 1; not recognised as a plain statement: 1" in out and "reason unread" in out
     bad = tmp_path / "bad.tsv"  # a label that is wrong on purpose: the line is negated but labelled as present
     bad.write_text("lang\texpect\tconcept\ttext\nen\truns\tchemotherapy\tNo prior chemotherapy.\n", encoding="utf-8")
     assert tool.main([str(bad), "--rows"]) == 0
@@ -40,7 +46,8 @@ def test_a_fixture_file_scores_as_the_table_test_does() -> None:
     rows = tool.read_rows(FIX / "card_10a1c_after.json")
     held = tool.score(rows)
     assert sum(h for r, h in zip(rows, held, strict=True) if r["expect"] == "held") == 63
-    assert sum(h for r, h in zip(rows, held, strict=True) if r["expect"] == "runs") == 25
+    by = [net for r, (net, _) in zip(rows, tool.compile_rows(rows), strict=True) if r["expect"] == "runs"]
+    assert (by.count("cue"), by.count("unrecognised")) == (26, 14)  # as the table test counts them
 
 
 def test_a_row_without_its_label_is_refused(tmp_path: Path) -> None:

@@ -126,7 +126,7 @@ def test_an_age_at_onset_on_a_condition_goes_to_a_person_not_widened(text: str, 
 
 
 def test_a_held_mixed_line_keeps_its_note_question() -> None:
-    crit = {"kind": "inclusion", "class": "mixed", "text": "Children aged 1 to 12 years with CAP",
+    crit = {"kind": "inclusion", "class": "mixed", "text": "Children aged 1 to 12 years with pneumonia",
             "note_question": "Does the child have community-acquired pneumonia?", "concept_candidates": [
                 {"name": "Pneumonia", "domain": "condition"}],
             "logic": {"domain": "condition", "concept": "Pneumonia", "age": {"min": 1, "max": 12}}}  # fmt: skip

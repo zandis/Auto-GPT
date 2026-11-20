@@ -31,7 +31,7 @@ from tb_contracts.criterion_ir import ACTIVE_STATUSES
 from criteria_compiler import unit_check
 from criteria_compiler.ir_extract.negation_scope import negated_presence
 from criteria_compiler.ir_extract.polarity import is_negated, positive
-from criteria_compiler.ir_extract.recognition import unrecognised_presence
+from criteria_compiler.ir_extract.recognition import presence_not_recognised
 from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, atoms, check_bool, demographic_alone, kind
 from criteria_compiler.terminology.mapper import (
     Concept,
@@ -516,8 +516,12 @@ def _codes_in(valuesets: dict[str, dict[str, Any]]) -> Callable[[str], list[str]
 
 
 def approved_unrecognised(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) -> bool:
-    """Card 10A-1d for a criterion already compiled: whether it is an inclusion whose line is not recognised as a
-    plain assertion of what its logic asks the presence of (``recognition``). Names as :func:`approved_negated`."""
+    """Card 10A-1d for a criterion already compiled and approved: whether it is an inclusion whose line names what
+    its logic asks the presence of and is not recognised as a plain assertion of it (``recognition``). Names as
+    :func:`approved_negated`. A line that does not name the concept by any name its value set keeps is not held
+    here: an approved value set keeps only the coded name and its codes' names, often in another language than the
+    line, so the reading cannot find the concept at all, and a person approved the line; the cue reading still
+    holds it when it carries a cue (R0)."""
     if c.kind != "inclusion" or c.class_ not in FILTERED:
         return False
 
@@ -528,7 +532,8 @@ def approved_unrecognised(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) 
         return [str(v["title"])] * bool(v.get("title")) + shown
 
     titles = [str(v["title"]) for v in valuesets.values() if v.get("title")]
-    return unrecognised_presence(c.text, c.logic, terms_for, titles, _codes_in(valuesets))
+    why = presence_not_recognised(c.text, c.logic, terms_for, titles, _codes_in(valuesets))
+    return why is not None and why != "not_named"
 
 
 def hold_reused_negated(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) -> tuple[CriterionIR, str | None]:
@@ -646,23 +651,25 @@ def postprocess(
         # (``recognition``); any other line is held the same way, flagged ``presence_not_recognised`` as well
         filtered_inc = ir.kind == "inclusion" and ir.class_ in FILTERED
         cued = filtered_inc and negated_presence(ir.text, ir.logic, terms_for, named_terms)
-        unread = (
-            filtered_inc
-            and not cued
-            and unrecognised_presence(ir.text, ir.logic, terms_for, named_terms, _codes_in(valuesets))
-        )
-        if cued or unread:
+        unread = None
+        if filtered_inc and not cued:
+            unread = presence_not_recognised(ir.text, ir.logic, terms_for, named_terms, _codes_in(valuesets))
+        if cued or unread is not None:
             flags.append("negated_inclusion_presence")
-            if unread:
+            if unread is not None:
                 flags.append("presence_not_recognised")
             why = notes_can_decide(ir.kind, ir.text, ir.note_question or "") if ir.class_ == "mixed" else None
             if ir.note_question and why is not None:  # the reviewer sees why the notes cannot decide it either
                 flags.append(f"notes_cannot_decide_{why}")
             ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
                                        "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
-            warnings.append(f"{cid}: its line negates what its logic asks the presence of; kept for a person to "
-                            "check" if cued else f"{cid}: its line is not recognised as a plain statement that the "
-                            "patient has what its logic asks; kept for a person to check")  # fmt: skip
+            if cued:
+                warnings.append(f"{cid}: its line negates what its logic asks the presence of; kept for a person to "
+                                "check")  # fmt: skip
+            else:  # the reason's class is counted (never the line's own words: a warning is not the place for them)
+                reason = (unread or "").split(":")[0]
+                warnings.append(f"{cid}: its line is not recognised as a plain statement that the patient has what "
+                                f"its logic asks ({reason}); kept for a person to check")  # fmt: skip
         if ir.class_ in FILTERED and set(stray) & set(HOLD):
             if ir.class_ == "mixed" and ir.note_question:  # as demote_uncompilable keeps it (D-98): the notes decide
                 ir = ir.model_copy(update={"class_": "note", "logic": Atom(domain="demographic", valueset="NONE")})

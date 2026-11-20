@@ -14,7 +14,8 @@
    "expect": "held",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "the negated thing is the coded concept under a name the extractor did not supply"
+   "why": "the negated thing is the coded concept under a name the extractor did not supply",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -29,7 +30,8 @@
    "expect": "held",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "the negated thing is the coded concept under a name the extractor did not supply"
+   "why": "the negated thing is the coded concept under a name the extractor did not supply",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -44,7 +46,8 @@
    "expect": "held",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "the negated thing is the coded concept under a name the extractor did not supply"
+   "why": "the negated thing is the coded concept under a name the extractor did not supply",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -59,7 +62,8 @@
    "expect": "held",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "the negated thing is the coded concept under a name the extractor did not supply"
+   "why": "the negated thing is the coded concept under a name the extractor did not supply",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -74,7 +78,8 @@
    "expect": "held",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "the negated thing is the coded concept under a name the extractor did not supply"
+   "why": "the negated thing is the coded concept under a name the extractor did not supply",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -89,7 +94,8 @@
    "expect": "held",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "a drug class of the coded concept"
+   "why": "a drug class of the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -104,7 +110,8 @@
    "expect": "held",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "an abbreviation of the coded concept"
+   "why": "an abbreviation of the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -119,7 +126,8 @@
    "expect": "held",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "a drug class of the coded concept"
+   "why": "a drug class of the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -136,7 +144,8 @@
    "others": [
     "放射線療法"
    ],
-   "why": "a list with the cue after it"
+   "why": "a list with the cue after it",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -153,7 +162,8 @@
    "others": [
     "radiotherapy"
    ],
-   "why": "a list with the cue after it"
+   "why": "a list with the cue after it",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -169,7 +179,8 @@
    "source": "coordinator-10A-1b",
    "others": [
     "surgery"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -185,7 +196,8 @@
    "source": "coordinator-10A-1b",
    "others": [
     "surgery"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -199,7 +211,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -213,7 +226,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -227,7 +241,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -241,7 +256,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -255,7 +271,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -270,7 +287,8 @@
    "expect": "held",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "other than X: X is the excluded thing"
+   "why": "other than X: X is the excluded thing",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -284,7 +302,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -298,7 +317,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -314,7 +334,8 @@
    "source": "coordinator-10A-1b",
    "others": [
     "手術"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -328,7 +349,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -344,7 +366,8 @@
    "source": "coordinator-10A-1b",
    "others": [
     "放射線療法"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -358,7 +381,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -372,7 +396,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -386,7 +411,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -401,7 +427,8 @@
    "expect": "held",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "Xを除き: X is the excluded thing"
+   "why": "Xを除き: X is the excluded thing",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -415,7 +442,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -429,7 +457,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -445,7 +474,8 @@
    "source": "coordinator-10A-1b",
    "others": [
     "手術"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -459,7 +489,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -473,7 +504,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -487,7 +519,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -501,7 +534,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -516,7 +550,8 @@
    "expect": "held",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "除X外: X is the excluded thing"
+   "why": "除X外: X is the excluded thing",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -530,7 +565,8 @@
    "logic": "presence",
    "expect": "held",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -541,7 +577,9 @@
    "logic": "presence",
    "expect": "runs",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -552,7 +590,9 @@
    "logic": "presence",
    "expect": "runs",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -567,7 +607,9 @@
    "expect": "runs",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "a negated prohibition"
+   "why": "a negated prohibition",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "ja",
@@ -582,7 +624,9 @@
    "expect": "runs",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "不可欠: indispensable"
+   "why": "不可欠: indispensable",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "ja",
@@ -595,7 +639,9 @@
    "logic": "presence",
    "expect": "runs",
    "source": "coordinator-10A-1b",
-   "others": []
+   "others": [],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "ja",
@@ -610,7 +656,9 @@
    "expect": "runs",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "a negated prohibition"
+   "why": "a negated prohibition",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "zh",
@@ -625,7 +673,9 @@
    "expect": "runs",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "不可或缺: indispensable"
+   "why": "不可或缺: indispensable",
+   "over_held": "held by the cue reading since the second review",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -639,7 +689,9 @@
    "expect": "runs",
    "source": "coordinator-10A-1b",
    "others": [],
-   "why": "切除 (resection) is not 除"
+   "why": "切除 (resection) is not 除",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   }
  ]
 }

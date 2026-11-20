@@ -80,5 +80,7 @@ def test_without_a_note_question_or_as_structured_it_still_goes_to_a_person() ->
 
 
 def test_a_mixed_criterion_that_runs_is_unchanged() -> None:
-    c = _one("mixed", "inclusion", "Does the patient have pneumonia?", {"domain": "condition", "concept": "Pneumonia"})
+    # card 10A-1d (D-1248): the line names its concept plainly (the default "line" is held: not recognised)
+    c = _one("mixed", "inclusion", "Does the patient have pneumonia?", {"domain": "condition", "concept": "Pneumonia"},
+             "Diagnosis of pneumonia")  # fmt: skip
     assert c.class_ == "mixed" and "coded_part_dropped" not in (c.flags or [])

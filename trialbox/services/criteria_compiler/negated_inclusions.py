@@ -21,7 +21,7 @@ from pathlib import Path
 
 from tb_common.ruleset import Ruleset
 
-from criteria_compiler.ir_extract.postprocess import approved_negated
+from criteria_compiler.ir_extract.postprocess import approved_negated, approved_unrecognised
 from criteria_compiler.repo import RulesetRepo
 
 
@@ -34,8 +34,14 @@ class Hit:
 
 
 def ruleset_hits(rs: Ruleset) -> list[Hit]:
-    """The inclusions of one ruleset the rule would hold (criteria a reviewer rejected are left out)."""
-    return [Hit(rs.id, rs.version, c.id, c.text) for c in rs.active() if approved_negated(c, rs.valuesets)]
+    """The inclusions of one ruleset the rule would hold (criteria a reviewer rejected are left out): a line that may
+    negate what its logic asks the presence of, and, since the default flipped (card 10A-1d, D-1248), a line that is
+    not recognised as a plain statement of it. The next compile's draft holds the same lines."""
+    return [
+        Hit(rs.id, rs.version, c.id, c.text)
+        for c in rs.active()
+        if approved_negated(c, rs.valuesets) or approved_unrecognised(c, rs.valuesets)
+    ]
 
 
 def scan(repo: RulesetRepo, ref: str = "main") -> list[Hit]:

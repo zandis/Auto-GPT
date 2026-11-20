@@ -12,7 +12,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "modifier",
-   "why": "\"without\" modifies the coded condition"
+   "why": "\"without\" modifies the coded condition",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -51,7 +53,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "modifier",
-   "why": "the cue negates remission"
+   "why": "the cue negates remission",
+   "over_held": "held by the cue reading since the second review",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -90,7 +94,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "no_contraindication",
-   "why": "the cue negates the contraindication"
+   "why": "the cue negates the contraindication",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -103,7 +109,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "plain",
-   "why": "no cue"
+   "why": "no cue",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -118,7 +126,9 @@
     "atrial fibrillation"
    ],
    "hold_class": "second",
-   "why": "the negated thing is a candidate in another clause"
+   "why": "the negated thing is a candidate in another clause",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -132,7 +142,8 @@
    "others": [],
    "hold_class": "second",
    "why": "the negated thing is not a candidate",
-   "over_held": "held after card 10A-1c: the negated thing is not a candidate and may be the coded concept by another name"
+   "over_held": "held after card 10A-1c: the negated thing is not a candidate and may be the coded concept by another name",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -158,7 +169,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "prefix",
-   "why": "\"non\" belongs to \"specific\""
+   "why": "\"non\" belongs to \"specific\"",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -197,7 +210,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "modifier",
-   "why": "\"without\" modifies the coded condition"
+   "why": "\"without\" modifies the coded condition",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -224,7 +239,8 @@
    "others": [],
    "hold_class": "and_positive",
    "why": "the positive item after \", and\"",
-   "over_held": "held after card 10A-1c: the cue's clause comes first and what it negates is not a candidate"
+   "over_held": "held after card 10A-1c: the cue's clause comes first and what it negates is not a candidate",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -238,7 +254,8 @@
    "others": [],
    "hold_class": "coded_name",
    "why": "the coded name is written as an abbreviation",
-   "over_held": "held after card 10A-1c: R0, the line does not write the coded name"
+   "over_held": "held after card 10A-1c: R0, the line does not write the coded name",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -290,7 +307,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "\"without\" negates the coded concept"
+   "why": "\"without\" negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -303,7 +321,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "\"not on\" negates the coded drug"
+   "why": "\"not on\" negates the coded drug",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -316,7 +335,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the excepted item is the coded one"
+   "why": "the excepted item is the coded one",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -329,7 +349,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the excepted item is the coded one"
+   "why": "the excepted item is the coded one",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -342,7 +363,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "a prohibition of the coded procedure"
+   "why": "a prohibition of the coded procedure",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -355,7 +377,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated"
+   "why": "the coded concept is negated",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -368,7 +391,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the prefix negates the coded concept"
+   "why": "the prefix negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -381,7 +405,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the prefix negates the coded concept"
+   "why": "the prefix negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -394,7 +419,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the prefix negates the coded concept"
+   "why": "the prefix negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -407,7 +433,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the prefix negates the coded concept"
+   "why": "the prefix negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -420,7 +447,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the prefix negates the coded concept"
+   "why": "the prefix negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -433,7 +461,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "a negative value"
+   "why": "a negative value",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -446,7 +475,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "a negative mark"
+   "why": "a negative mark",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -459,7 +489,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "\"without\" negates the coded concept"
+   "why": "\"without\" negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -472,7 +503,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the excepted item is the coded one"
+   "why": "the excepted item is the coded one",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -485,7 +517,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated"
+   "why": "the coded concept is negated",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -498,7 +531,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "\"without\" negates the coded concept"
+   "why": "\"without\" negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -511,7 +545,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated"
+   "why": "the coded concept is negated",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -524,7 +559,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "doubtful"
+   "why": "doubtful",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -537,7 +573,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated"
+   "why": "the coded concept is negated",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -550,7 +587,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "a negative mark"
+   "why": "a negative mark",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -564,7 +602,8 @@
    "others": [],
    "hold_class": "modifier",
    "why": "the cue is inside a modifier of the coded condition",
-   "over_held": "held after card 10A-1c: the modifier's structure does not show the cue stops before the coded concept"
+   "over_held": "held after card 10A-1c: the modifier's structure does not show the cue stops before the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -591,7 +630,8 @@
    "others": [],
    "hold_class": "modifier",
    "why": "the cue is inside a modifier of the coded condition",
-   "over_held": "held after card 10A-1c: the modifier's structure does not show the cue stops before the coded concept"
+   "over_held": "held after card 10A-1c: the modifier's structure does not show the cue stops before the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -630,7 +670,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "no_contraindication",
-   "why": "the cue negates the contraindication"
+   "why": "the cue negates the contraindication",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "ja",
@@ -643,7 +685,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "plain",
-   "why": "no cue"
+   "why": "no cue",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "ja",
@@ -659,7 +703,8 @@
    ],
    "hold_class": "second",
    "why": "the negated thing is a candidate in another clause",
-   "over_held": "held after card 10A-1c: the negated thing is not a candidate and may be the coded concept by another name"
+   "over_held": "held after card 10A-1c: the negated thing is not a candidate and may be the coded concept by another name",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -699,7 +744,8 @@
    "others": [],
    "hold_class": "modifier",
    "why": "the cue is inside a modifier of the coded condition",
-   "over_held": "held after card 10A-1c: the modifier's structure does not show the cue stops before the coded concept"
+   "over_held": "held after card 10A-1c: the modifier's structure does not show the cue stops before the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -726,7 +772,8 @@
    "others": [],
    "hold_class": "and_positive",
    "why": "the cue ends its own clause before the positive item",
-   "over_held": "held after card 10A-1c: the cue's clause comes first and what it negates is not a candidate"
+   "over_held": "held after card 10A-1c: the cue's clause comes first and what it negates is not a candidate",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -740,7 +787,8 @@
    "others": [],
    "hold_class": "coded_name",
    "why": "the coded name is written as an abbreviation",
-   "over_held": "held after card 10A-1c: R0, the line does not write the coded name"
+   "over_held": "held after card 10A-1c: R0, the line does not write the coded name",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -779,7 +827,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "prefix",
-   "why": "非常 is \"very\""
+   "why": "非常 is \"very\"",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "ja",
@@ -844,7 +894,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated"
+   "why": "the coded concept is negated",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -857,7 +908,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded drug is negated"
+   "why": "the coded drug is negated",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -870,7 +922,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the excepted item is the coded one"
+   "why": "the excepted item is the coded one",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -883,7 +936,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the excepted item is the coded one"
+   "why": "the excepted item is the coded one",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -896,7 +950,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "a prohibition of the coded procedure"
+   "why": "a prohibition of the coded procedure",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -909,7 +964,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated"
+   "why": "the coded concept is negated",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -922,7 +978,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "a negative mark"
+   "why": "a negative mark",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -935,7 +992,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "a negative value"
+   "why": "a negative value",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -948,7 +1006,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated"
+   "why": "the coded concept is negated",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -961,7 +1020,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the excepted item is the coded one"
+   "why": "the excepted item is the coded one",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -974,7 +1034,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated"
+   "why": "the coded concept is negated",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -987,7 +1048,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated"
+   "why": "the coded concept is negated",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -1000,7 +1062,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "不 negates the coded concept"
+   "why": "不 negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -1013,7 +1076,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "未 negates the coded concept"
+   "why": "未 negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -1026,7 +1090,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "非 negates the coded concept"
+   "why": "非 negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -1039,7 +1104,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "a negative mark in katakana"
+   "why": "a negative mark in katakana",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -1052,7 +1118,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "a negative mark in half-width katakana"
+   "why": "a negative mark in half-width katakana",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -1065,7 +1132,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated"
+   "why": "the coded concept is negated",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -1078,7 +1146,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "a negative mark"
+   "why": "a negative mark",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -1091,7 +1160,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated"
+   "why": "the coded concept is negated",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -1104,7 +1174,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated"
+   "why": "the coded concept is negated",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1117,7 +1188,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "modifier",
-   "why": "\"untreated\" modifies the coded condition"
+   "why": "\"untreated\" modifies the coded condition",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "zh",
@@ -1156,7 +1229,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "no_contraindication",
-   "why": "the cue negates the contraindication"
+   "why": "the cue negates the contraindication",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "zh",
@@ -1169,7 +1244,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "plain",
-   "why": "no cue"
+   "why": "no cue",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "zh",
@@ -1184,7 +1261,9 @@
     "心房顫動"
    ],
    "hold_class": "second",
-   "why": "the negated thing is a candidate after 但"
+   "why": "the negated thing is a candidate after 但",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "zh",
@@ -1236,7 +1315,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "descriptor",
-   "why": "不全 is a descriptor ending the word"
+   "why": "不全 is a descriptor ending the word",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "zh",
@@ -1249,7 +1330,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "descriptor",
-   "why": "不佳 is a descriptor ending the word"
+   "why": "不佳 is a descriptor ending the word",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "zh",
@@ -1262,7 +1345,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "descriptor",
-   "why": "不整 is a descriptor ending the word"
+   "why": "不整 is a descriptor ending the word",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "zh",
@@ -1275,7 +1360,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "descriptor",
-   "why": "不明 is a descriptor ending the word"
+   "why": "不明 is a descriptor ending the word",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "zh",
@@ -1301,7 +1388,9 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "modifier",
-   "why": "\"untreated\" modifies the coded condition"
+   "why": "\"untreated\" modifies the coded condition",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "zh",
@@ -1315,7 +1404,8 @@
    "others": [],
    "hold_class": "coded_name",
    "why": "the coded name is written as an abbreviation",
-   "over_held": "held after card 10A-1c: R0, the line does not write the coded name"
+   "over_held": "held after card 10A-1c: R0, the line does not write the coded name",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1329,7 +1419,8 @@
    "others": [],
    "hold_class": "and_positive",
    "why": "the positive item after 且",
-   "over_held": "held after card 10A-1c: the cue's clause comes first and what it negates is not a candidate"
+   "over_held": "held after card 10A-1c: the cue's clause comes first and what it negates is not a candidate",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1382,7 +1473,8 @@
    "others": [],
    "hold_class": "second",
    "why": "the negated thing contains the coded name",
-   "over_held": "held after card 10A-1c: the negated thing is not a candidate and may be the coded concept by another name"
+   "over_held": "held after card 10A-1c: the negated thing is not a candidate and may be the coded concept by another name",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1395,7 +1487,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the excepted item is the coded one"
+   "why": "the excepted item is the coded one",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1408,7 +1501,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the excepted item is the coded one"
+   "why": "the excepted item is the coded one",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1421,7 +1515,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "a prohibition of the coded procedure"
+   "why": "a prohibition of the coded procedure",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1434,7 +1529,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated"
+   "why": "the coded concept is negated",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1447,7 +1543,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "a negative mark"
+   "why": "a negative mark",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1460,7 +1557,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "a negative value"
+   "why": "a negative value",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1473,7 +1571,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the excepted item is the coded one"
+   "why": "the excepted item is the coded one",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1486,7 +1585,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "不 negates the coded concept"
+   "why": "不 negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1499,7 +1599,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "不 negates the coded concept"
+   "why": "不 negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1512,7 +1613,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "doubtful"
+   "why": "doubtful",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1525,7 +1627,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "不 negates the coded concept"
+   "why": "不 negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1538,7 +1641,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "未 negates the coded concept"
+   "why": "未 negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1551,7 +1655,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "非 negates the coded concept"
+   "why": "非 negates the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1564,7 +1669,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated"
+   "why": "the coded concept is negated",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1577,7 +1683,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated"
+   "why": "the coded concept is negated",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1590,7 +1697,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "a negative mark"
+   "why": "a negative mark",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1603,7 +1711,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "doubtful"
+   "why": "doubtful",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1616,7 +1725,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated (a possessive)"
+   "why": "the coded concept is negated (a possessive)",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1629,7 +1739,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded drug is negated (simplified)"
+   "why": "the coded drug is negated (simplified)",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1642,7 +1753,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "the coded concept is negated (simplified)"
+   "why": "the coded concept is negated (simplified)",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1655,7 +1767,8 @@
    "source": "card-10A-1c-third",
    "others": [],
    "hold_class": "negated",
-   "why": "不 negates the coded concept"
+   "why": "不 negates the coded concept",
+   "held_by": "cue"
   }
  ]
 }

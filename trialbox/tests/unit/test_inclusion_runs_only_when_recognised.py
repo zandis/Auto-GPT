@@ -2,14 +2,17 @@
 
 The cue reading of cards 10A-1 to 10A-1c held a line only when it found a negation cue, so every shape nobody listed
 ran as "the patient has it": a drug stopped or refused, a plan, another person's condition, remission, a heading, a
-checkbox ticked "No". Now a structured or mixed inclusion that asks the presence of a concept runs only when each
-clause naming the concept is made of that concept's names and the words listed in
-``services/criteria_compiler/ir_extract/recognised_assertions.yaml``. Each rule below has a line it holds and a near
-line it lets run; removing the rule (or the words it relies on) fails one of them.
+checkbox ticked "No". The owner ruled the default round on 2026-11-19: what is not clearly present does not count as
+met. Now a structured or mixed inclusion that asks the presence of a concept runs only when every clause of its line
+is read (``services/criteria_compiler/ir_extract/recognition.py`` with the data in ``recognised_assertions.yaml``):
+what governs the concept's name must be a listed frame, and an unlisted word is read only as a content word where a
+content word cannot change whether the concept is present. Each rule below has a line it holds and a near line it
+lets run; removing the rule (or the words it relies on) fails one of them.
 
-The development set ``tests/fixtures/negated_inclusion/card_10a1d_development.tsv`` is synthetic: 696 lines in
-English, Japanese and Chinese. The first 471 were labelled before the rule was written; each later round came with
-the frames it tests and their nearest must-hold lines. No patients.
+Two synthetic sets, no patients. ``card_10a1d_development.tsv``: 696 lines in English, Japanese and Chinese, the
+first 471 labelled before the experiment's rule was written. ``card_10a1d_plain.tsv``: 360 ordinary plain inclusion
+lines (120 per language) written by another hand than the rule's, never tuned to a rule, to measure what the flip
+costs: how many ordinary lines are held.
 """
 
 from __future__ import annotations
@@ -27,41 +30,35 @@ from criteria_compiler.ir_extract.recognition import recognised, unrecognised_pr
 from criteria_compiler.terminology.mapper import Terminology
 from tb_contracts import Atom, BoolExpr, LlmExtractOutput
 
-from tools.negated_inclusion_score import read_rows, score
+from tools.negated_inclusion_score import compile_rows, read_rows, score
 
 FLAG, UNREAD = "negated_inclusion_presence", "presence_not_recognised"
 DEV = Path(__file__).resolve().parents[1] / "fixtures/negated_inclusion/card_10a1d_development.tsv"
 ROWS = read_rows(DEV)
-# the must-run lines held all the same, each for a reason D-1248 names: the five the cue rules (the second net) held
-# at 71e85bbc already; a second clause that is not a plain assertion (every clause counts); a test named without a
-# confirming word; a line of kanji alone read as Chinese, whose Japanese words are not Chinese ones
-CUED_BEFORE = {
+# the must-run lines of the development set held all the same, each for a reason D-1248 names: the cue reading (the
+# second net) holds a second sentence with a negation and a need; the default holds a second clause that is itself a
+# negation ("but no history of stroke"), a method or an indication the line names with no listed frame, and a score
+# written without a mark between it and the name
+CUED = {
     "Type 2 diabetes. Not pregnant.",
     "2型糖尿病の患者。妊娠していない。",
     "第二型糖尿病。未懷孕。",
     "2010年ACR/EULAR分類基準を満たす関節リウマチ",
     "符合2010年ACR/EULAR分類標準之類風濕性關節炎",
+    "需要透析之慢性腎臟病",
 }
 HELD_ALL_THE_SAME = {
-    *CUED_BEFORE,
+    *CUED,
     "Multiple sclerosis; no relapse in the past 30 days",
     "Hypertension, but no history of stroke",
     "高血圧を有するが、脳卒中の既往はない。",
     "高血壓，但無中風病史",
     "Severe aortic stenosis by echocardiography",
-    "進行肺癌",
-    "去勢抵抗性前立腺癌",
-    "症候性心不全",
-    # its other concept is only the extractor's candidate: the scorer's logic codes one atom, so the line's second
-    # condition would go unchecked (it runs when the logic codes it: test_another_concept_counts_when_the_logic_codes_it)
-    "HIV infection on stable antiretroviral therapy",
     "Underwent surgery for colorectal cancer",
-    "Ulcerative colitis requiring mesalazine",
-    "大腸癌に対する手術を受けた",
-    "曾因大腸癌接受手術",
-    "透析を要する慢性腎臓病",
-    "需要透析之慢性腎臟病",
+    "統合失調症でPANSS総得点70点以上",
 }
+PLAIN = read_rows(DEV.with_name("card_10a1d_plain.tsv"))
+PLAIN_HELD = {"en": [1, 15], "ja": [5, 20], "zh": [7, 28]}  # [by the cue reading, not recognised]
 _HELD: list[list[bool]] = []
 
 
@@ -93,17 +90,85 @@ def _rows(*lines: tuple[str, str, str]) -> list[dict[str, Any]]:
     return [{"text": t, "concept": k, "domain": d, "expect": "runs", "synonyms": [], "others": []} for t, k, d in lines]
 
 
+def test_the_plain_set_counts_what_the_flip_costs() -> None:
+    """How many ordinary plain inclusion lines are held: the cost of the flip, which the owner sees. 360 lines, 120 per
+    language, written by another hand than the rule's. At 65f0753c (the cue reading alone) 12 were held (en 1, ja 5,
+    zh 6); with the experiment's closed word list as merged, 237 (en 75, ja 78, zh 84). These counts are counts of
+    these lines: they were read while the rule was built, so they are not a measure on unseen lines."""
+    assert len(PLAIN) == 360 and all(r["expect"] == "runs" for r in PLAIN)
+    held: dict[str, list[int]] = {"en": [0, 0], "ja": [0, 0], "zh": [0, 0]}
+    for r, (net, _) in zip(PLAIN, compile_rows(PLAIN), strict=True):
+        if net is not None:
+            held[r["lang"]][net == "unrecognised"] += 1
+    assert {k: len([r for r in PLAIN if r["lang"] == k]) for k in held} == {"en": 120, "ja": 120, "zh": 120}
+    assert held == PLAIN_HELD  # [by the cue reading, not recognised]
+
+
+LINE = ("Diagnosis of asthma for at least 12 months", "asthma", "condition")
+
+
 @pytest.mark.parametrize(
-    "line",
-    [r for r in ROWS if r["lang"] == "en" and r["expect"] == "runs" and r["text"] not in HELD_ALL_THE_SAME],
-    ids=lambda r: r["text"][:40],
+    "text",
+    [
+        "Zorblat of asthma for at least 12 months",  # what governs the name is not a listed frame
+        "Diagnosis of asthma zorblat for at least 12 months",  # the word right after the name
+        "Diagnosis of asthma in zorblat for at least 12 months",  # what a preposition after the name takes
+        "Diagnosis of pre-asthma for at least 12 months",  # a word joined to the name by a hyphen
+        "Diagnosis of asthma for at least 12 months if zorblat",  # a closed-class word is read only where listed
+        "Diagnosis of asthma for at least 12 months, zorblated",  # a verb form is read only when listed
+        "Diagnosis of asthma for at least 12 months, zorblating daily",
+        "Diagnosis of asthma for at least 12 months; zorblat",  # a clause that names no coded concept
+        "Diagnosis of asthma for at least 12 months. Zorblat.",
+        "Diagnosis of asthma, zorblat or wheeze, for at least 12 months",  # an arm of an alternative
+        "Diagnosis of asthma for at least 12 months in the stepfather",  # a class that is never read unlisted
+        "Diagnosis of asthma for at least 12 months, awaited",
+        "Diagnosis of asthma for at least 12 months (FH)",
+        "Diagnosis of asthma for at least 12 months: -",  # a mark that stands alone
+        "Diagnosis of asthma for at least 12 months ( )",
+    ],
 )
-def test_an_unknown_word_in_any_clause_holds_the_line(line: dict[str, Any]) -> None:
-    """An unknown word is a reason to hold, never a reason to run, in the concept's clause or in any other: what
-    follows a ";" may say the line is not a fact ("Pending central review")."""
-    inside = {**line, "text": "Zorblatic " + line["text"]}
-    apart = {**line, "text": line["text"].rstrip(".") + "; zorblatic"}
-    assert score([line, inside, apart]) == [False, True, True]
+def test_an_unlisted_word_is_never_read_where_it_could_change_the_meaning(text: str) -> None:
+    """The line runs as written; with one unlisted word where a word can change whether the concept is present (or a
+    word of a class that says it is not), it is held."""
+    plain, changed = _rows(LINE, (text, "asthma", "condition"))
+    assert score([plain, changed]) == [False, True], text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Diagnosis of zorblatic asthma for at least 12 months",  # an adjective before the name
+        "Diagnosis of asthma for at least 12 months with zorblat wheeze",  # content words in the rest of the line
+        "Diagnosis of asthma for at least 12 months, confirmed by zorblat spirometry",
+        "Diagnosis of asthma (GINA zorblat 4) for at least 12 months with a ZORB-7 score of 20 or more",
+    ],
+)
+def test_an_unlisted_content_word_is_read_where_it_cannot_change_the_meaning(text: str) -> None:
+    """A closed list of every word held 88 of 100 ordinary lines. An unlisted content word (never a closed-class
+    word, never a verb form) is read in the rest of the line, a bounded number of them."""
+    assert score(_rows((text, "asthma", "condition"))) == [False], text
+    crowded = "Diagnosis of asthma with " + " ".join(f"zorb{chr(97 + k)}" for k in range(13)) + " wheeze"
+    assert score(_rows((crowded, "asthma", "condition"))) == [True]  # more than twelve in one clause
+
+
+@pytest.mark.parametrize(
+    ("held", "runs", "concept"),
+    [
+        # Japanese: nothing unlisted right after the name until a listed frame closes it; hiragana with an ending
+        # that denies, doubts or conditions is never read; the owner before の is read only when listed
+        ("喘息に対するゾルブラ接種", "喘息と診断されたゾルブラ外来の患者", "喘息"),
+        ("喘息と診断されたらしい患者", "喘息と診断されている患者", "喘息"),
+        ("ゾルブラの喘息", "重症の喘息", "喘息"),
+        ("偽喘息の患者", "重症喘息の患者", "喘息"),
+        # Chinese: the same after the name; before it only what 之 / 的 or a listed frame joins to it
+        ("氣喘之佐布拉門診", "診斷為氣喘之患者，佐布拉門診", "氣喘"),
+        ("佐布拉氣喘", "重度氣喘", "氣喘"),
+        ("婉謝接受氣喘治療", "正在接受氣喘治療", "氣喘"),
+        ("佐布拉之氣喘", "重度之氣喘", "氣喘"),
+    ],
+)
+def test_japanese_and_chinese_read_unlisted_words_by_the_same_rule(held: str, runs: str, concept: str) -> None:
+    assert score(_rows((held, concept, "condition"), (runs, concept, "condition"))) == [True, False], (held, runs)
 
 
 @pytest.mark.parametrize(
@@ -383,7 +448,11 @@ def test_another_concept_counts_when_the_logic_codes_it() -> None:
         ("第二型糖尿病及高血壓", "第二型糖尿病", "高血壓"),
     ]:
         assert _and(text, coded, other).class_ == "structured", text
-    assert score(_rows(("HIV infection on stable antiretroviral therapy", "HIV infection", "condition"))) == [True]
+    # one the logic does not code is read as the words it is: ordinary content words may stand in the rest of the
+    # line (D-1248 as adopted), a word that says the concept is someone else's never
+    rows = _rows(("HIV infection on stable antiretroviral therapy", "HIV infection", "condition"),
+                 ("HIV infection in the spouse on antiretroviral therapy", "HIV infection", "condition"))  # fmt: skip
+    assert score(rows) == [False, True]
 
 
 def test_the_concept_as_the_object_of_another_is_held() -> None:
@@ -442,15 +511,13 @@ def test_every_listed_word_is_a_string(monkeypatch: pytest.MonkeyPatch, tmp_path
     bad = tmp_path / "words.yaml"
     bad.write_text("marks: ','\nlanguages:\n  en:\n    frames:\n      domains: [any]\n      words: [with, on]\n")
     monkeypatch.setattr(rec, "DATA", bad)
-    for f in (rec._data, rec._vocab, rec._holds, rec._exceptions):
-        f.cache_clear()
+    rec.clear_caches()
     try:
         with pytest.raises(ValueError, match="not a word"):
             recognised("Patients with asthma", ["asthma"])
     finally:
         monkeypatch.undo()
-        for f in (rec._data, rec._vocab, rec._holds, rec._exceptions):
-            f.cache_clear()
+        rec.clear_caches()
 
 
 def _post(text: str, kind: str = "inclusion", concept: str = "kidney transplant") -> c.CriterionIR:
@@ -463,7 +530,7 @@ def _post(text: str, kind: str = "inclusion", concept: str = "kidney transplant"
 
 
 def test_a_line_not_recognised_is_held_as_a_cued_one_is_and_says_why() -> None:
-    held = _post("Candidate for kidney transplant")  # the cue rules alone let it run (71e85bbc)
+    held = _post("Kidney transplant counselling")  # the cue rules alone let it run
     assert held.class_ == "human" and held.human_question
     assert isinstance(held.logic, Atom) and held.logic.valueset == "NONE"
     assert {FLAG, UNREAD} <= set(held.flags or [])
@@ -474,7 +541,7 @@ def test_a_line_not_recognised_is_held_as_a_cued_one_is_and_says_why() -> None:
 
 
 def test_an_exclusion_is_never_read_for_recognition() -> None:
-    assert _post("Candidate for kidney transplant", kind="exclusion").class_ == "structured"
+    assert _post("Kidney transplant counselling", kind="exclusion").class_ == "structured"
 
 
 def test_an_approved_line_reused_is_held_when_not_recognised() -> None:
@@ -487,7 +554,7 @@ def test_an_approved_line_reused_is_held_when_not_recognised() -> None:
                                              "logic": {"domain": "procedure", "valueset": "VS_KTX",
                                                        "quantifier": "any"}})  # fmt: skip
 
-    held, why = pp.hold_reused_negated(crit("Candidate for kidney transplant"), vs)
+    held, why = pp.hold_reused_negated(crit("Kidney transplant counselling"), vs)
     assert held.class_ == "human" and UNREAD in (held.flags or []) and FLAG in (held.flags or [])
     assert why and "not recognised" in why
     same, none = pp.hold_reused_negated(crit("Kidney transplant recipient"), vs)

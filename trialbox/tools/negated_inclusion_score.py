@@ -6,7 +6,9 @@
 Each line is compiled as the compiler compiles an inclusion: ``postprocess`` with the coded concept as a structured
 inclusion whose logic asks its presence ("any of <concept>"), with the coded concept and the line's other concepts as
 the extractor's candidates, and an empty terminology. No model is called. A line is **held** when it goes to a person
-(``negated_inclusion_presence``).
+(``negated_inclusion_presence``): by the cue reading (a negation, a doubt, a plan, another person …), or, since the
+default flipped (card 10A-1d, D-1248), because it is not recognised as a plain statement that the patient has the
+concept (``presence_not_recognised``). The table counts the two apart, and the reasons of the second by class.
 
 * A **miss** is a line labelled ``held`` (its coded concept is negated, excepted or doubtful) that runs.
 * An **unnecessary hold** is a line labelled ``runs`` (its coded concept is present) that is held.
@@ -37,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 FLAG = "negated_inclusion_presence"
+UNREAD = "presence_not_recognised"
 
 
 def read_rows(path: Path) -> list[dict[str, Any]]:
@@ -54,8 +57,9 @@ def read_rows(path: Path) -> list[dict[str, Any]]:
         return out
 
 
-def score(rows: list[dict[str, Any]]) -> list[bool]:
-    """Whether each row is held, compiled as one ruleset of structured inclusions."""
+def compile_rows(rows: list[dict[str, Any]]) -> list[tuple[str | None, str]]:
+    """For each row, which reading holds it (``cue``, ``unrecognised`` or None when it runs) and, for a line not
+    recognised, the reason's class as the compiler's warning gives it."""
     from criteria_compiler.ir_extract import postprocess as pp
     from criteria_compiler.terminology.mapper import Terminology
     from tb_contracts import LlmExtractOutput
@@ -74,8 +78,21 @@ def score(rows: list[dict[str, Any]]) -> list[bool]:
                 "concept_candidates": cands,
             }
         )
-    out = pp.postprocess("SCORE", LlmExtractOutput.model_validate({"criteria": crits}), Terminology(), "1.0.0")
-    return [FLAG in (x.flags or []) for x in out.criteria]
+    term = Terminology()
+    res: list[tuple[str | None, str]] = []
+    for k in range(0, len(crits), 900):  # a criterion's number has at most three digits
+        out = pp.postprocess("SCORE", LlmExtractOutput.model_validate({"criteria": crits[k : k + 900]}), term, "1.0.0")
+        why = {w.split(":", 1)[0]: w.rsplit("(", 1)[-1].split(")")[0] for w in out.warnings if "not recognised" in w}
+        for x in out.criteria:
+            flags = x.flags or []
+            held = None if FLAG not in flags else "unrecognised" if UNREAD in flags else "cue"
+            res.append((held, why.get(x.id, "") if held == "unrecognised" else ""))
+    return res
+
+
+def score(rows: list[dict[str, Any]]) -> list[bool]:
+    """Whether each row is held, compiled as one ruleset of structured inclusions."""
+    return [held is not None for held, _ in compile_rows(rows)]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -88,12 +105,17 @@ def main(argv: list[str] | None = None) -> int:
     if bad:
         print(f"rows {bad[:10]}: each row needs text, concept and expect (held or runs)", file=sys.stderr)
         return 2
-    held = score(rows)
+    compiled = compile_rows(rows)
     missed, over = Counter[tuple[str, str]](), Counter[tuple[str, str]]()
     total: Counter[tuple[str, str]] = Counter()
-    for r, h in zip(rows, held, strict=True):
+    by, reasons = Counter[str](), Counter[str]()
+    for r, (net, why) in zip(rows, compiled, strict=True):
+        h = net is not None
         key = (str(r.get("hold_class") or "-"), str(r.get("lang") or "-"))
         total[(r["expect"], key[1])] += 1
+        if r["expect"] == "runs" and net is not None:
+            by[net] += 1
+            reasons[why or "cue"] += net == "unrecognised"
         if r["expect"] == "held" and not h:
             missed[key] += 1
             if args.rows:
@@ -107,6 +129,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{args.file.name}: {len(rows)} lines")
     print(f"missed (negated line that runs): {sum(missed.values())} / {n_held}")
     print(f"held unnecessarily (present line held): {sum(over.values())} / {n_runs}")
+    print(f"  by the cue reading: {by['cue']}; not recognised as a plain statement: {by['unrecognised']}")
+    for why, v in sorted(reasons.items()):
+        if v:
+            print(f"    not recognised, reason {why:14s} {v}")
     for name, counts in (("missed", missed), ("held unnecessarily", over)):
         for (cls, lang), v in sorted(counts.items()):
             print(f"  {name:20s} {cls:22s} {lang:4s} {v}")
