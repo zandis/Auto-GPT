@@ -5,7 +5,7 @@
 {% if error %}<p class="error" role="alert" data-testid="consent-error">{{ error }}</p>{% endif %}
 <p class="warn" role="note" data-testid="consent-notice">{{ t('consent.notice') }}</p>
 <section class="card">
-<p>{{ t('consent.help') }}</p>
+<p>{{ tp('consent.help') }}</p>
 <form method="post" action="/pilot/consent" enctype="multipart/form-data">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <label for="study">{{ t('consent.study') }}</label>

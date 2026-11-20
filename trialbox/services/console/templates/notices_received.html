@@ -9,5 +9,5 @@
 <tbody>{% for r in rows %}<tr><td class="nowrap" data-testid="received-at">{{ r.at|local }}</td><td>{{ t('received.kind.' + r.kind) }}</td><td data-src="mail">{{ r.subject }}</td><td><a href="{{ r.href }}">{{ t('received.open') }}</a></td></tr>{% endfor %}</tbody>
 </table></div>
 {% else %}<p data-testid="received-empty">{{ t('received.empty') }}</p>{% endif %}
-<p class="hint"><a href="/settings/notices">{{ t('account.notice_settings') }}</a></p>
+<p class="hint"><a href="/settings/notices">{{ tp('account.notice_settings') }}</a></p>
 {% endblock %}
