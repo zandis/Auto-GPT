@@ -133,6 +133,11 @@ def _edit(path: Path, segment: str, n: int, value: str) -> None:
     path.write_bytes("\r".join(out).encode("iso2022_jp"))
 
 
+def _died_without_end(path: Path) -> None:
+    _edit(path, "PRB", 14, "D^x^HL70241")
+    _edit(path, "PRB", 9, "20260101")
+
+
 def _move(path: Path, new_rel: str, root: Path) -> Path:
     target = root / new_rel
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -200,7 +205,7 @@ STANDARD_CASES: list[Case] = [
     ("P1", "PPR-01", b"", lambda r, p: _edit(p, "PRB", 1, "ZZ")),
     ("P2", "PPR-01", b"I10", lambda r, p: _edit(p, "PRB", 10, "K29.7^^I10^O^^JHSD0004")),
     ("P3", "PPR-01", b"", lambda r, p: _edit(p, "PRB", 14, "Q^x^HL70241")),
-    ("P4", "PPR-01", b"", lambda r, p: (_edit(p, "PRB", 14, "D^x^HL70241"), _edit(p, "PRB", 9, "20260101"))),
+    ("P4", "PPR-01", b"", lambda r, p: _died_without_end(p)),
     ("P5", "PPR-01", b"", lambda r, p: _edit(p, "PRB", 18, "3^x^JHSD0007")),
     ("R1", "OMP-01", b"^^YJ", lambda r, p: _edit(p, "RXE", 31, "NOTMINE^^99DRG^3943001F1020^^YJ")),
 ]  # fmt: skip
