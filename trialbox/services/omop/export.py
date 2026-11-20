@@ -40,7 +40,7 @@ from omop.schema import COUNTED
 
 Row = dict[str, Any]
 ORDER = "ORDER BY (r.source_kind = 'site'), r.source_row, r.part"
-LIVE = "r.status NOT IN ('tombstoned', 'superseded')"
+LIVE = "r.status NOT IN ('tombstoned', 'superseded') AND NOT (r.extra @> '{\"id_rule_review\": true}'::jsonb)"
 _TYPES = {name: dict(cols) for name, cols in SCHEMAS.items()}
 
 
@@ -332,7 +332,7 @@ def _emit_all(tx: Any, emit: Callable[[str, Row], object]) -> None:
         "o.extra FROM person p "
         "LEFT JOIN death d USING (person_id) JOIN LATERAL (SELECT (r.source_kind = 'site') AS s, r.source_row, "
         "r.extra FROM tb_record r WHERE r.cdm_table = 'person' AND r.record_id = p.person_id "
-        "AND r.status <> 'tombstoned' ORDER BY 1, 2 LIMIT 1) o ON true ORDER BY o.s, o.source_row"
+        f"AND {LIVE} ORDER BY 1, 2 LIMIT 1) o ON true ORDER BY o.s, o.source_row"
     ):
         row = {
             "pid": person[r["person_id"]],

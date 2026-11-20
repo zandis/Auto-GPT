@@ -997,12 +997,6 @@ def _run_ingest(
     from adapter.publish import recover_all
 
     recover_all(cfg)  # T-723 review: a re-run that was killed in its lake step is put back before anything is read
-    rerun = (final_dir / PASSED).exists() or _current(cfg.lake_dir) == snap
-    if rerun:
-        out_dir = cfg.lake_dir / RERUN_DIR / snap
-    prior_source_hold = requires_full_ingest(out_dir)
-    if rerun:
-        shutil.rmtree(out_dir, ignore_errors=True)
     prev = [s for s in list_snapshots(cfg.lake_dir) if s < snap]
     last_good = merge_base(cfg.lake_dir, snap)  # D-271: never a held night's NDJSON
     base = snapshot_dir(cfg.lake_dir, last_good) if (since and last_good) else None
@@ -1010,35 +1004,44 @@ def _run_ingest(
         # NEW-DIN-8 (D-583): on a box a delta is never the first night: it has nothing to merge over and no
         # table of it can be judged complete
         errors.append("delta night: no earlier snapshot passed validation to merge over; run a full load")
-    if base is not None and source_kind == "ssmix2" and (keyed := id_rule.snapshot_keys(base).get("ssmix2_order")):
-        from adapter.sources.ssmix2.source import order_id_form
-
-        if keyed != order_id_form():  # D-1253 ruling 11: never orders of two keys in one snapshot
-            errors.append(
-                f"delta night over snapshot {last_good}, whose SS-MIX2 orders are keyed {keyed}; the reader keys them "
-                f"{order_id_form()}: run the one rebuild ({id_rule.COMMAND}), then a full night"
-            )
+    keys = source_keys(source_kind, source)
     read_from = _source_of(base) if base is not None else None
     held_record: dict[str, Any] = {"snapshot": snap, "errors": errors}
-    refused_source = read_from is not None and read_from != source_kind
-    if refused_source:
-        # D-1253 review ruling 7: one record from a mapped feed and from a FHIR bulk export has two ids; a site
-        # changes its source only with a full night, never a delta merged over another source's snapshot
-        errors.append(
+    refusal = None
+    if read_from is not None and read_from != source_kind:
+        refusal = (
             f"delta night from {source_kind} over snapshot {last_good}, which was read from {read_from}: "
             f"{SOURCE_CHANGE}"
         )
-        base = None  # Keep only the incoming delta for inspection. Never merge the two sources.
+    elif base is not None and keys and id_rule.snapshot_keys(base) != keys:
+        keyed = id_rule.snapshot_keys(base).get("ssmix2_order", "?")
+        refusal = (
+            f"delta night over snapshot {last_good}, whose SS-MIX2 orders are keyed {keyed}; the reader keys "
+            f"them {keys['ssmix2_order']}. {id_rule.ORDER_CHANGE}"
+        )
+
+    if refusal:
+        errors.append(refusal)
+        held_record["requires_full_ingest"] = True
+        held_record["incompatible"] = "source" if read_from != source_kind else "order_key"
+        base = None  # Only the incoming rows are retained for inspection.
+        patient_pairs, identities = [], []
+    from lake.store import BuildLock, lake_lock
+
+    # A rebuild must see one complete candidate, including its validation verdict.
+    write_lock = BuildLock(cfg.lake_dir, snap)
+    cleanup.callback(write_lock.release)
+    with lake_lock(cfg.lake_dir):
+        rerun = (final_dir / PASSED).exists() or _current(cfg.lake_dir) == snap
+        if rerun:
+            out_dir = cfg.lake_dir / RERUN_DIR / snap
+        replacing = out_dir.is_dir()
+        if rerun:
+            shutil.rmtree(out_dir, ignore_errors=True)
         out_dir.mkdir(parents=True, exist_ok=True)
         id_rule.write_snapshot_record(out_dir)
-        held_record["requires_full_ingest"] = True
-        _write_hold(out_dir, held_record)
-        patient_pairs, identities = [], []  # Nothing from the refused source may enter the reverse map.
-    if refused_source or prior_source_hold:
-        # This attempt replaces a refused candidate. Types absent from the new source must not survive the retry.
-        for old_type in out_dir.glob("*.ndjson"):
-            old_type.unlink()
-    stage_patients = bool(patient_pairs) or prior_source_hold or refused_source
+        _write_hold(out_dir, {**held_record, "writing": True})
+    stage_patients = bool(patient_pairs) or replacing or bool(refusal)
     if stage_patients:
         pm = cfg.pidmap()
         try:
@@ -1096,11 +1099,7 @@ def _run_ingest(
         out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed,
         aliases=aliases if base is not None else None, moved=carried_moved, collisions=collisions,
     )  # fmt: skip
-    id_rule.record_source(out_dir, source_kind)  # D-1253 second review, finding 7: what it was read from
-    if source_kind == "ssmix2":  # D-1253 ruling 11: the order-number form the ids were made from
-        from adapter.sources.ssmix2.source import order_id_form
-
-        id_rule.record_keys(out_dir, {"ssmix2_order": order_id_form(getattr(source, "order_key", None))})
+    id_rule.record_source(out_dir, source_kind, keys)
     # D-1253: order-free, over the merged snapshot, in bounded memory
     absent = absent_links(out_dir, site_wide=mapping.site_wide if mapping is not None else (),
                           tables=mapping.tables if mapping is not None else ())  # fmt: skip
@@ -1270,6 +1269,8 @@ def _run_ingest(
 
         if prior_record is not None:  # the same night run again: the steps done for the same content are kept
             (out_dir / RECORD).write_text(prior_record, encoding="utf-8")
+        (out_dir / HELD).unlink()  # the new candidate passed its own gate
+        write_lock.release()  # publish may now start the lake build
         pub = publish_night(
             cfg, snap, out_dir, last_good=last_good, load_fhir=load_fhir, rebuild_lake=rebuild_lake, on_step=on_step
         )
@@ -1664,33 +1665,23 @@ def jp_core_check(cfg: AdapterConfig, picked: list[Resource], out_dir: Path) -> 
 
 
 PASSED = "passed.json"  # written in a snapshot's NDJSON folder when its night passed (D-271)
-HELD = "held.json"  # written in a snapshot's NDJSON folder when its night was held, with why (T-611)
-SOURCE_CHANGE = (
-    "a site changes its source only with a full night (run it without since) / "
-    "更換來源時必須完整匯入，請勿指定 since / "
-    "ソースを変更するには since を指定せずに全件取り込みを実行してください"
-)
+HELD = id_rule.HELD
+SOURCE_CHANGE = id_rule.SOURCE_CHANGE
+
+
+def source_keys(kind: str, source: Source | None = None) -> dict[str, str]:
+    """Source-specific number forms used by the mapper and recorded with its output."""
+    if kind == "ssmix2":
+        from adapter.sources.ssmix2.source import order_id_form
+
+        return {"ssmix2_order": order_id_form(getattr(source, "order_key", None))}
+    return {}
 
 
 def _write_hold(folder: Path, record: dict[str, Any]) -> None:
     tmp = folder / f"{HELD}.tmp"
     tmp.write_text(json.dumps(record) + "\n", encoding="utf-8")
     tmp.replace(folder / HELD)
-
-
-def requires_full_ingest(folder: Path) -> bool:
-    """Read the original refusal, including holds written before steward acceptance enforced it."""
-    try:
-        held = json.loads((folder / HELD).read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return False
-    if held.get("requires_full_ingest"):
-        return True
-    # Earlier held.json files recorded this refusal only in the errors array.
-    return any(
-        e.startswith("delta night from ") and "changes its source only with a full night" in e
-        for e in held.get("errors", [])
-    )
 
 
 #: NEW-B-39 (D-740): the kinds of D-580's counter (the owner's yes, 2026-11-13). ``code_unknown``: a code no look-up,
