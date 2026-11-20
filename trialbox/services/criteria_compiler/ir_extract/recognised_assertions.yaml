@@ -22,8 +22,9 @@
 #   (clinical_status active, recurrence or relapse).
 # * `links`: may join another concept the extractor named in the same clause to this one ("surgery for colorectal
 #   cancer"). Another named concept with no link word before or after it holds the line.
-# * `{X}` and `{O}` inside a word stand for this concept and for another named one: "requiring {O}" lets "heart
-#   failure requiring dialysis" run (dialysis named) but never "patients requiring chemotherapy" (chemotherapy coded).
+# * `{X}` and `{O}` inside a word stand for this concept and for another the logic codes ("{X}診斷"). "requiring" is
+#   read after the name ("heart failure requiring dialysis"); before it, a need is held ("patients requiring
+#   chemotherapy" with chemotherapy coded: `requiring_concept` under `holds`).
 # * `ended`: words that say the concept ended or lies in the past ("last dose", "ago", 最終投与, 停用). A clause
 #   with one (any clause; a word inside the coded name never counts) holds the line, unless the criterion's own
 #   logic asks a past occurrence: its atom has a window that ends before the index day. Without one, it cannot be
@@ -36,8 +37,8 @@
 #   one of this concept's names.
 # * an abbreviation in brackets right after the name is recognised when its letters follow the name's in order
 #   ("Type 2 diabetes mellitus (T2DM)"), never otherwise ("Colorectal cancer (FH)").
-# * a line of kanji alone is read once, as Chinese when it has a character written only in Chinese, else as
-#   Japanese; a word inside the coded name never counts.
+# * a line of kanji alone is read once, as Japanese when it has a character written only in Japanese, else as
+#   Chinese, and with both languages' `unlisted_never` lists; a word inside the coded name never counts.
 # * exceptions: what "except", "other than", を除く, 以外, 除…外 name is cut out of the clause before it is read
 #   ("any malignancy except basal cell carcinoma"); a line whose concept is the excepted one is held.
 # * a class with `needs` counts only in a clause that also holds one of those words: "criteria" is an assertion in
@@ -60,13 +61,10 @@ joiners: "-–/:~〜"  # read only between the two things they join ("ACR/EULAR"
 holds:  # regular expressions over a clause as read ({X} this concept, {O} another named one): listed words that
   # together say otherwise. An entry may be {pattern, domains} to apply to some domains only.
   form_value: '{X}\s*[:=]\s*[-+]?\d+(?:[.,]\d+)?\s*$'  # a form's field and its coded value ("Asthma: 0", "高血圧：2")
-  blank_field: '[:：]\s*[-−–—]\s*$|^\s*[-−–—]\s*$'  # a blank or dashed field ("Hypertension: —")
   zero: '(?<![A-Za-z\d.,\-−])0+(?:[.,]0+)?(?![\d.,])(?!\s*(?:-|–|to\b|〜|~|至|到|から))'  # a count or a value of zero
   schedule_day: '(?i)\b(?:days?|cycles?|weeks?|visits?)\s*[-−]?\d'  # a schedule ("on day 1", "cycle 1 day 1")
   schedule_cjk: '第\s*\d+\s*(?:天|日|週|周|次|個?療程|週期|周期|サイクル|コース|回)|\d+\s*日目'
   numbered_heading: '^\s*\d+(?:[.．]\d+)+[.)]?\s*\x00\s*[.。]?\s*$'  # a section number and a bare name ("5.2 Hepatitis B")
-  count_upper_bound: '(?i)(?:\bup\s+to|\bat\s+most|\bno\s+more\s+than|\bnot\s+more\s+than|\bfewer\s+than|\bless\s+than|\bmaximum(?:\s+of)?|≤|<|至多|最多|不超過|不超过|少於|少于|未滿|未满|最大)\s*(?:\d+|one|two|three|four|five|[一二兩两三四五])\s*(?:prior\s+|previous\s+)?(?:lines?\b|regimens?\b|cycles?\b|courses?\b|doses?\b|times\b|ライン|レジメン|コース|サイクル|回|線|线|次|個?療程|个?疗程|週期|周期)|\d+\s*(?:lines?|regimens?|cycles?|courses?|doses?|ライン|レジメン|コース|サイクル|回|線|线|次|個?療程|週期)\s*(?:or\s+(?:less|fewer)|at\s+most|以下|未満|まで|以内|以內)'  # "up to 2 prior lines of X" includes none
-  count_from_zero: '(?i)(?<![\d.])0\s*(?:-|–|to|〜|~|至|到|から)\s*\d+\s*(?:prior\s+|previous\s+)?(?:lines?|regimens?|cycles?|courses?|doses?|times|ライン|レジメン|コース|サイクル|回|線|线|次)'
   # an upper bound on a count or a dose of the concept itself, which zero meets ("<=2 hospitalizations for heart
   # failure", "Prednisone up to 10 mg/day", "プレドニゾロン10 mg/日以下", "低血糖發作每週不大於2次")
   count_bound_concept: '(?i)(?:<=|=<|≤|<|\bat\s+most|\bup\s+to|\bfewer\s+than|\bless\s+than|\bno\s+more\s+than|\bnot\s+more\s+than|\bnot\s+exceeding|\bmaximum(?:\s+of)?|\bmax\b\.?)\s*(?:\d+|one|two|three|four|five)\s*(?:[a-zµμ/]+\s+){0,2}?(?:of\s+)?\x00'
@@ -79,12 +77,10 @@ holds:  # regular expressions over a clause as read ({X} this concept, {O} anoth
   # "Metformin or any drug", 糖尿病/高血壓): the line is met without the concept. An arm the logic joins by "or" is
   # read as the concept itself, so it never matches here
   alternative_after: '(?i)\x00[\s,;，、\-]*(?:\b(?:or|and/or|nor)\b|又は|または|もしくは|若しくは|あるいは|或いは|或是|或者|抑或|或|及/或)(?!\s*(?:\x00|more\b|greater\b|higher\b|above\b|older\b|over\b|以上))'
-  alternative_before: '(?i)(?:\b(?:diseases?|disorders?|conditions?|illness(?:es)?|drugs?|medications?|medicines?|agents?|therap(?:y|ies)|treatments?|procedures?|other|another|similar|equivalent|comparable)\b[\s,;]*(?:or|and/or)\s+(?:[a-z\-]+\s+){0,2}?|(?:疾患|疾病|薬剤|藥物|药物|治療|治疗|その他|其他|其它)\s*(?:又は|または|もしくは|或|或是|或者))\x00'
   alternative_open: '(?i)\b(?:or|and/or)\s+(?:any\s+|an?\s+|some\s+)?(?:other|another|similar|equivalent|related|comparable|else)\b|\b(?:such\s+as|e\.g\.?|for\s+example|etc\.?|and\s+so\s+on|or\s+the\s+like)(?![a-z])|\x00\s*(?:等|など|とか|等等|之類|之类)|(?:又は|または|もしくは|或|或是|或者|及び|および|及|和|與|与|、|,|;)\s*(?:その他|其他|其它|他の|類似|类似|同等|任何)|例えば|例如|比如|譬如|諸如|诸如'
   alternative_mark: '\x00\s*[/・](?!\s*\x00)|(?<![\x00A-Za-z0-9])\s*[/・]\s*\x00|[A-Za-z0-9぀-ヿ㐀-鿿]\s*[/・]\s*\x00(?![A-Za-z0-9])'
   requiring_concept: '(?i)\b(?:requir\w+|need\w*|necessitat\w+|warrant\w+|awaiting|await\w*|candidates?\s+for|eligible\s+for|indicated\s+for|planned\s+for|scheduled\s+for|referred\s+for|listed\s+for)\s+(?:(?:a|an|the)\s+)?(?:[a-z\-]+\s+){0,3}?\x00|\x00\s*(?:を|が)?\s*(?:要する|必要とする|必要な|予定)|(?:需要|需|須|须|擬|拟|預計|预计|等待)(?:接受|使用|進行|进行)?\s*\x00'  # "patients requiring <chemotherapy>": a need is not a receipt
   definition_copula: '(?i)\x00\s+(?:is|are|was|were|will\s+be|shall\s+be)\s+(?:defined|diagnosed\s+(?:when|if)|considered|classified|regarded|taken)\b|\x00\s*(?:とは|の定義|は.{0,12}と定義)|\x00\s*(?:定義為|定义为|是指|係指|系指|的定義|的定义)'  # "Hypertension is defined as …": a definition, not the patient
-  cured_response: '(?i)sustained\s+viro\w+\s+respon\w+|\bsvr\s*\d*\b|complete\s+(?:response|remission|resolution)|完全奏効|完全寛解|完全緩解|完全缓解|持続的ウイルス学的著効|持續病毒學反應|持续病毒学应答'
   label_then_name: '^[^:]*[^\s:][^:]*:\s*\x00\s*[.。]?\s*$'  # "Section 5.2: Hepatitis B", "コホートB:腎機能障害": a label and a bare name
   revised: '(?i)\b(?:revised|changed|reclassified|corrected|amended|converted|switched|downgraded|upgraded)\s+to\b|\blater\s+(?:found|shown|diagnosed|determined|proved|proven|revised)\b|\bmisdiagnos\w*|\binitially\s+(?:diagnosed|thought|considered|suspected)\b|\bturned\s+out\b|後に[^。]{0,8}(?:訂正|変更|修正)|誤診|误诊|(?:後來|后来)[^。]{0,6}(?:改|更正|修正)|更正為|更正为|修正診斷|改診'
   alternative_etc: '[、,，]\s*[^、。,，]{1,12}(?:等|など|等等)\s*(?:の|之|的|$|[。、,，）)])'  # "<X>、高血圧、喘息等": an open list
@@ -97,11 +93,9 @@ holds:  # regular expressions over a clause as read ({X} this concept, {O} anoth
   chapter: '第\s*[一二三四五六七八九十\d]+\s*[章節节條条項项部篇]'
   empty_field: '[(\[{「『【（]\s*[/\-−–—_]?\s*[)\]}」』】）]|_{2,}|□|☐|\[\s\]'  # an empty box or bracket: nothing was ticked
   tnm_zero: '\x00\s*[,，、(（:]?\s*[ytpc]?[TNM](?:0|x|X)(?![A-Za-z0-9])'  # "<distant metastasis> (M0)", "<nodal metastasis> cN0", "…, Mx": right after the name the category says none, or not assessed
-  other_type: '(?i)\btypes?\s*(?:\d+|[ivx]+)\b[\s\-]*\x00|(?:第\s*)?\d+\s*型\s*\x00|[IVX]+\s*型\s*\x00'  # a type number in front of the name is another kind than the name coded ("Type 1 <diabetes>")
   grade_bound: '(?i)\b(?:grade|stage|class|degree)\s*(?:<=|≤|<|below|under|less\s+than|lower\s+than|up\s+to|at\s+most)\s*\d|(?:グレード|段階|分級|分级|級|级|度)\s*\d+\s*(?:未満|以下)|(?:低於|低于|小於|小于|未滿|未满|不超過|不超过)\s*\d+\s*(?:級|级|度)|(?:分級|分级|等級|等级|級|级|グレード|分期)\s*(?:低於|低于|小於|小于|未滿|未满|<|≤)\s*\d'
   rate_bound: '(?i)\b(?:less\s+than|fewer\s+than|under|below|at\s+most|up\s+to|no\s+more\s+than|<=?|≤)\s*(?:\d+|once|one|twice|two)\s*(?:(?:time|episode|attack|flare|event|exacerbation|relapse)s?\s*)?(?:per|a|an|each|every|in\s+the|/)\s*(?:past\s+|last\s+|previous\s+)?(?:\d+\s*)?(?:day|week|month|year)|(?:年|月|週|周|每年|每月|每週|每周)\s*\d+\s*(?:回|度|次)\s*(?:未満|以下)|(?:每年|每月|每週|每周|年|月|週)(?:低於|低于|少於|少于|不超過|不超过|未滿|未满|至多|最多)\s*\d+\s*次'
   below_detection: '(?i)(?:below|under|less\s+than|<)\s*(?:the\s+|an?\s+)?(?:lower\s+)?(?:limit\s+of\s+)?(?:detect\w*|quantif\w*|lloq|lod)\b|\bundetect\w*|\bnot\s+detect\w*|検出(?:限界)?(?:未満|以下|せず)|檢測(?:下限|不到)|检测不到|测不到|檢測不出'
-  test_of_for: '(?i)\b(?:vaccin\w*|immuni[sz]\w*|prophylaxis|screen\w*|surveillance|tests?|testing|serology|cultures?|monitoring)\s+(?:for|against|of)\s+(?:the\s+)?\x00'  # "Vaccination for hepatitis B"
   object_of_another:  # the concept is the object of another named concept: that one is about it, not a fact of it
     # ("Vaccination for hepatitis B", "Colonoscopy for colorectal cancer", B型肝炎に対するワクチン接種, 針對B型肝炎之疫苗接種)
     # and the concept belongs to another named one ("Spouse with COVID-19", ドナーが高血圧, 配偶者がHIV感染症)

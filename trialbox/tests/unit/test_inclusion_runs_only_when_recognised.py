@@ -146,6 +146,27 @@ def test_the_independent_sets_as_counted(name: str) -> None:
     assert (len(missed), plain.count("cue"), plain.count("unrecognised")) == INDEPENDENT_COUNTS[name]
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Diagnosis of asthma with wheeze and " * 60,
+        "喘息と診断された患者で" * 180,
+        "診斷為氣喘之患者且" * 220,
+        "氣喘" * 20000,
+    ],
+    ids=["en", "ja", "zh", "zh-40kB"],
+)
+def test_a_long_line_is_read_in_bounded_time_or_held_unread(text: str) -> None:
+    """The reading's cost grows with the line. A line up to 2000 characters is read in well under a second; a longer
+    one is no plain statement and is held unread."""
+    import time
+
+    t0 = time.perf_counter()
+    why = rec.not_recognised(text, ["asthma", "喘息", "氣喘"])
+    assert time.perf_counter() - t0 < 2.0, len(text)
+    assert (why == "too_long") == (len(text) > rec.MAX_LINE)
+
+
 LINE = ("Diagnosis of asthma for at least 12 months", "asthma", "condition")
 
 

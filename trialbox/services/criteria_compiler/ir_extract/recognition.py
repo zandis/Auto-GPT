@@ -226,6 +226,7 @@ _ZH_MODIFIER_END = re.compile(r"(?:性|型|期|度|級|级|類|类|的|之)$")
 _CLOSING = frozenset({"frames", "history", "history_after_procedure", "tail"})  # not "seen": "<X>検査" is a test
 _BOUNDARY_CJK = frozenset("、。，,;；:（(）) \t\n")
 MAX_UNLISTED = {"en": 12, "ja": 8, "zh": 8}
+MAX_LINE = 2000  # characters: a longer line is held unread
 
 
 @lru_cache(maxsize=1)
@@ -765,7 +766,22 @@ def _bare_value(s: str) -> bool:
 
 
 _NAME_TAILS = frozenset(
-    "mellitus disease diseases disorder disorders syndrome infection infections status 病 症 疾患 感染症 感染".split()
+    [
+        "mellitus",
+        "disease",
+        "diseases",
+        "disorder",
+        "disorders",
+        "syndrome",
+        "infection",
+        "infections",
+        "status",
+        "病",
+        "症",
+        "疾患",
+        "感染症",
+        "感染",
+    ]
 )
 
 
@@ -809,6 +825,8 @@ def not_recognised(
     line's "if receiving X" is coded and is read as "with"."""
     terms = list(terms)
     u = _norm(text)
+    if len(u) > MAX_LINE:
+        return "too_long"  # no plain statement is this long, and the reading's cost grows with the line
     if conditional:
         u = re.sub(r"\bif\b", "with", u, flags=re.I)
     found = _mentions(u, _patterns(terms))
