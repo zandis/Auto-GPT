@@ -207,7 +207,7 @@ class Helpers:
     keeps_tasks: Callable[[Any, str], bool] | None = None
     task_keys: Callable[[Any, str], set[tuple[str, str]]] | None = None  # 9f-5: a study's tasks today, (kind, ref)
     sae_escalate: Callable[[], list[str]] | None = None
-    # 9k-6a (D-1376): the page again for a failed POST of a form on it (the owner's), None where the role has no such page
+    # 9k-6a (D-1376): the page again for a failed POST of a form on it (the owner's); None: the role has no such page
     home_again: Callable[..., Response | None] | None = None
     team_log_again: Callable[..., Response | None] | None = None  # set by console.team: the delegation log, again
 

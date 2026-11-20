@@ -1342,8 +1342,9 @@ class TeamStore:
             e = next((x for x in reversed(self.entries(ruleset)) if x.username == who and x.role in OWNER_ROLES
                       and x.active_on(day)), None)  # fmt: skip
             if e is None:
-                raise TeamError("a task's owner is a person on this study's delegation log",
-                                fields=(("owner", "fe.owner.owner"),))
+                raise TeamError(
+                    "a task's owner is a person on this study's delegation log", fields=(("owner", "fe.owner.owner"),)
+                )
             name = e.name
         before = self.task_owners(ruleset).get((kind, ref))
         self.db.execute("INSERT INTO task_owner (ruleset, kind, ref, owner, owner_name, by, at) VALUES (?,?,?,?,?,?,?)",

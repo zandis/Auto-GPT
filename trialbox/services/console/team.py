@@ -60,8 +60,7 @@ from tb_common.config import environment_name
 from tb_common.optout import SOURCES, OptOutError, OptOutRegister
 
 from console import actor as acting
-from console import form_errors
-from console import s28
+from console import form_errors, s28
 from console import studies as st
 from console.api_first import before_body, page_twin
 from console.auth import REVEAL_REASONS, Session, User

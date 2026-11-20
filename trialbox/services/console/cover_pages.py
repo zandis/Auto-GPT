@@ -49,12 +49,13 @@ EDGE_ACTOR = "system:cover"  # the actor of a cover's start and end events (no p
 
 class InputRefused(Exception):
     """A refusal that is a value the person typed (9k-6a, D-1376): the page shows its form again with the message at
-    each field in ``fields`` (``TeamError.fields``); the API and a role without such a page get the refusal as before."""
+    each field in ``fields`` (``TeamError.fields``); the API and a role without such a page get the refusal as
+    before."""
 
     def __init__(self, exc: Exception) -> None:
         super().__init__(str(exc))
         self.exc = exc
-        self.fields: tuple[tuple[str, str], ...] = tuple(getattr(exc, "fields", ()))
+        self.fields: tuple[tuple[str, str], ...] = exc.fields if isinstance(exc, TeamError) else ()
 
 
 class ApiCover(BaseModel):
@@ -177,7 +178,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         return h.problem(403, "forbidden")
 
     def refused(exc: Exception, soft: bool = False) -> Exception:
-        if soft and getattr(exc, "fields", ()):  # the page shows the form again (9k-6a); same 400, same text
+        # a typed value the page shows again (9k-6a): the same 400 and the same text as the refusal
+        if soft and isinstance(exc, TeamError) and exc.fields:
             return InputRefused(exc)
         return h.problem(400, "request.refused", reason=str(exc))
 
