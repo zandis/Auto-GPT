@@ -41,7 +41,7 @@
     Doctor reads the settings file it was given (`--env-file`), with the registry beside it.
   - The update's preflight (`Updater._legacy_token`, after `_from_a_commit`) refuses a PRODUCTION or VALIDATION
     compose box that holds it, before anything changes, and names the fix. Because the installed, older updater
-    runs its own preflight, the new tree's `pre-start` has the same refusal as its first step: every updater since
+    runs its own preflight, the new tree's `pre-start` has the same refusal as its last step (after its making steps, as D-722's): every updater since
     UPDATE-PRESTART runs that command from the new tree before the stack starts, and a failed step rolls the update
     back (review, High). The floor (`MIN_INSTALLED_SEQ`) stays 0: no box has a release yet.
   - `secrets rotate` of tokens is refused where `COMPOSE_FILE` lacks the secrets overlay: the services would get no

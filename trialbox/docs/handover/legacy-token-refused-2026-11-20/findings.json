@@ -16,7 +16,7 @@
     {
       "id": "H9G13-02",
       "severity": "Low",
-      "claim": "a PRODUCTION box without the secrets overlay in COMPOSE_FILE (installed before step 8, never installed again) loses its services once they refuse the old token; doctor, the update preflight and the first pre-start step now name the missing overlay and the fix (deploy/install.sh, then secrets rotate), and secrets rotate is refused there",
+      "claim": "a PRODUCTION box without the secrets overlay in COMPOSE_FILE (installed before step 8, never installed again) loses its services once they refuse the old token; doctor, the update preflight and the last pre-start step now name the missing overlay and the fix (deploy/install.sh, then secrets rotate), and secrets rotate is refused there",
       "lane": "H",
       "basis": "shown",
       "state": "fixed 5e905001b8706330eb9acf3cb4800dcf68c48468"
@@ -24,7 +24,7 @@
     {
       "id": "H9G13-03",
       "severity": "Low",
-      "claim": "an update applied by an older release's update code did not run the new preflight refusal (review of 9g-13, High); the new tree's pre-start, which every updater since UPDATE-PRESTART runs before the stack starts, refuses first",
+      "claim": "an update applied by an older release's update code did not run the new preflight refusal (review of 9g-13, High); the new tree's pre-start, which every updater since UPDATE-PRESTART runs before the stack starts, refuses in its last step",
       "lane": "H",
       "basis": "shown",
       "state": "fixed 5e905001b8706330eb9acf3cb4800dcf68c48468"

@@ -28,13 +28,13 @@ SECRETS_OVERLAY = "docker-compose.secrets.yml"
 pytestmark = pytest.mark.nodb
 
 
-def _deploy(tmp: Path, env_lines: str, *, registry: bool = True, overlay: bool = True) -> Path:
+def _deploy(tmp: Path, env_lines: str, *, registry: bool = True, overlay: bool = True, compose: bool = True) -> Path:
     """A box's deploy folder: ``deploy/.env`` as given, ``COMPOSE_FILE`` with or without the secrets overlay, and
     (``registry``) the per-service tokens of ``secrets init`` (which keeps a ``TB_SERVICE_TOKEN`` as ``legacy``)."""
     deploy = tmp / "deploy"
     deploy.mkdir(parents=True, exist_ok=True)
     files = f"{deploy}/docker-compose.yml" + (f":{deploy}/{SECRETS_OVERLAY}" if overlay else "")
-    (deploy / ".env").write_text(f"COMPOSE_FILE={files}\n{env_lines}", encoding="utf-8")
+    (deploy / ".env").write_text((f"COMPOSE_FILE={files}\n" if compose else "") + env_lines, encoding="utf-8")
     if registry:
         sx.init(deploy, uid=None)
     return deploy
@@ -50,12 +50,13 @@ def _registry_env(tmp: Path, monkeypatch: pytest.MonkeyPatch, doc: dict[str, Any
 # ------------------------------------------------------------------- High: the first upgrade, an old updater
 
 
-def test_the_new_trees_pre_start_refuses_a_box_that_holds_the_old_token_before_anything_else(tmp_path: Path) -> None:
+def test_the_new_trees_pre_start_refuses_a_box_that_holds_the_old_token_before_the_stack_starts(tmp_path: Path) -> None:
     """Review High (update.py:677): the installed, older updater runs its own preflight, which has no such check.
     What every updater runs from the NEW tree is ``pre-start`` (``ComposeBox.pre_start``: ``python -m
-    tools.trialbox pre-start`` in the install folder, before the stack starts). Its first step refuses."""
-    assert prestart.STEPS[0][1] is prestart._legacy_token
-    deploy = _deploy(tmp_path, f"TB_ENV=PRODUCTION\nTB_SERVICE_TOKEN={SHARED}\n")
+    tools.trialbox pre-start`` in the install folder, before the stack starts). Its last step refuses."""
+    assert prestart.STEPS[-1][1] is prestart._legacy_token
+    # no COMPOSE_FILE: the image-pins step has no compose file to read here (no Docker), as in test_update_prestart
+    deploy = _deploy(tmp_path, f"TB_ENV=PRODUCTION\nTB_SERVICE_TOKEN={SHARED}\n", compose=False)
     env = {k: v for k, v in os.environ.items() if not k.startswith("TB_")}
     env["PYTHONPATH"] = os.pathsep.join(["libs", "services", "."])
     # the stand-in for an old updater: the command ComposeBox.pre_start of every release since UPDATE-PRESTART runs
@@ -66,7 +67,7 @@ def test_the_new_trees_pre_start_refuses_a_box_that_holds_the_old_token_before_a
     assert SHARED not in r.stdout + r.stderr and sa.token_hash(SHARED) not in r.stdout + r.stderr
 
 
-def test_the_pre_start_step_stops_before_any_other_step_and_passes_a_clean_box(tmp_path: Path) -> None:
+def test_the_pre_start_step_refuses_after_the_making_steps_only_and_passes_a_clean_box(tmp_path: Path) -> None:
     calls: list[str] = []
 
     class Box:
@@ -83,7 +84,9 @@ def test_the_pre_start_step_stops_before_any_other_step_and_passes_a_clean_box(t
     held = _deploy(tmp_path / "held", f"TB_ENV=PRODUCTION\nTB_SERVICE_TOKEN={SHARED}\n")
     with pytest.raises(up.UpdateFailed, match="old shared service token"):
         prestart.run(held, Box(held))  # type: ignore[arg-type]
-    assert calls == []  # nothing was made, pinned or started before the refusal
+    # last, as D-722's refusal: before it only this release's making steps ran (each harmless to the release before);
+    # nothing started the stack, which ComposeBox.restart starts only after pre-start succeeds
+    assert calls == ["resolve_pins", "ensure_model_key", "ensure_actor_key", "ensure_fhir_password"]
     clean = _deploy(tmp_path / "clean", "TB_ENV=PRODUCTION\n")
     assert prestart._legacy_token(Box(clean)).startswith("none")  # type: ignore[arg-type]
     dev = _deploy(tmp_path / "dev", f"TB_ENV=DEV\nTB_SERVICE_TOKEN={SHARED}\n")

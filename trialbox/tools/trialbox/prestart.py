@@ -61,7 +61,8 @@ MIN_INSTALLED_SEQ = 0
 def _legacy_token(box: ComposeBox) -> str:
     """D-1349: outside DEV and TEST every service refuses the old shared service token. A box that still holds one,
     or runs without its per-service tokens (``svc_secrets.legacy_held``), is stopped here, before this release's
-    stack starts: the services would refuse each other. This is the new tree's own step, so it holds also when the
+    stack starts: the services would refuse each other. Last, as D-722's refusal: the steps before it make only what
+    is harmless to the release before, and a failed step rolls the update back. This is the new tree's own step, so it holds also when the
     installed, older updater (whose preflight has no such check) applies this release. A refusal that makes
     nothing: harmless to the release before. Names places, never a value."""
     from tools.trialbox import svc_secrets
@@ -117,15 +118,14 @@ def _ldap_ca(box: ComposeBox) -> str:
     return check.detail
 
 
-#: name, step; in the order they run. The two after the first are what every release before this one ran in the
-#: updater itself.
+#: name, step; in the order they run. The first two are what every release before this one ran in the updater itself.
 STEPS: list[tuple[str, Callable[[ComposeBox], str]]] = [
-    ("old shared service token", _legacy_token),  # D-1349: a refusal that makes nothing; first, before any making
     ("image pins", _image_pins),
     ("model key", _model_key),
     ("actor signing key", _actor_key),
     ("FHIR store password", _fhir_password),
     ("hospital directory CA", _ldap_ca),  # D-722: a refusal, not a making; last, so the order before it stands
+    ("old shared service token", _legacy_token),  # D-1349: a refusal that makes nothing; last, as D-722's
 ]
 
 

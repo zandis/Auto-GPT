@@ -48,7 +48,7 @@ Each finding has a test in `tests/unit/test_legacy_token_review.py` that failed 
 
 | Finding | Test | Fix |
 | --- | --- | --- |
-| High: an old installed updater skips the new preflight | `test_the_new_trees_pre_start_refuses_...`, `test_the_pre_start_step_stops_before_...` | The new tree's `pre-start` refuses first. Every updater since UPDATE-PRESTART runs that command before the stack starts. |
+| High: an old installed updater skips the new preflight | `test_the_new_trees_pre_start_refuses_...`, `test_the_pre_start_step_refuses_after_the_making_steps_only_...` | The new tree's `pre-start` refuses in its last step, before the stack starts. Every updater since UPDATE-PRESTART runs that command before the stack starts. |
 | High: a named match beats the legacy hash | `test_a_hash_marked_legacy_is_legacy_even_when_...` | `Registry.identify` decides the legacy mark first. |
 | High: the shell sets the gateway's `TB_ENV` | `test_no_service_of_an_installed_box_takes_tb_env_from_the_shell` | The gateway takes `TB_ENV` from `deploy/.env` only. |
 | Medium: `/v1/serving/release` answers 200 to the old token | `test_the_legacy_token_cannot_release_the_card_with_200` | The gateway's own route gate, a separate commit in `services/gateway/app.py`, asked on #639. |
