@@ -23,6 +23,7 @@ import pytest
 from orchestrator.scenarios import microbatch
 from orchestrator.scenarios.evaluate import PatientVerdicts, row
 from orchestrator.scenarios.screen import Scoped
+from tb_common import prefilter
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionVerdict, Evidence, JobMetrics
 
@@ -74,6 +75,7 @@ class _Box:
         self.pool = [_pool_row(p) for p in pool]
         self.booked = booked  # pool pid -> next visit (in the window)
         self.scope = scope
+        self.removed: list[str] = []  # the scope's patients the opt-out register removed (10E-12)
         self.evaluated: list[list[str]] = []  # each evaluate_scope call (the re-check)
         self.screened: list[str] = []  # the new-patient screen
         self.persisted: list[str] = []
@@ -138,6 +140,9 @@ class _Box:
 
     def _metrics(self, **kw: Any) -> None:
         self.job.metrics = JobMetrics.model_validate({**(self.job.metrics or JobMetrics()).model_dump(), **kw})
+        rec = self.job.metrics.prefilter
+        # 10E-12 (D-1259): every pre-filter record any test of this box writes adds up (in scope = drops + listed)
+        assert rec is None or rec.in_scope == sum(getattr(rec, s) for s in prefilter.STAGES), rec
 
     def _publish(self, name: str, data: bytes, tag: str, to: list[str]) -> Any:
         self.published[name] = data
@@ -183,7 +188,7 @@ class _Box:
             ("drop_opted_out", lambda ctx, scoped: scoped),
             ("evaluate_scope", self.evaluate_scope),
             ("run_screen", self.run_screen),
-            ("screen_scope", lambda ctx, rs, run_date, snapshot: list(self.scope)),  # D-646
+            ("screen_scope_read", lambda ctx, rs, run_date, snapshot: (list(self.scope), list(self.removed))),  # D-1259
             ("persist_pool", self.persist),
             ("practitioners_of", lambda ctx, rs: ["D1"]),
             ("deliver_lists", self.deliver),
