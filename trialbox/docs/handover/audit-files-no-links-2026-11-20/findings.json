@@ -11,7 +11,7 @@
    "claim": "libs/tb_common/audit.py opened .HEAD.json.tmp, .lock, the day files and the .torn-<n> evidence by path and followed links (and hard links, and blocked on a FIFO): uid 10001, which owns the audit-data volume, could plant a name so that the next root command writing the chain (trialbox restore, key ceremony or escrow, audit_verify --reanchor) truncated, overwrote or appended to any host file or made a new root file; fs.protected_symlinks does not apply (the folder is 0755, not sticky, and the planter owns it); now the folder is opened once with O_NOFOLLOW and every file through it, checked plain, one link, an allowed owner",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed bf1b9ceecba39ffe59ae004264cdd4937abe63c1"
   },
   {
    "id": "H68-02",
