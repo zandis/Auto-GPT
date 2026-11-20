@@ -141,7 +141,6 @@ GET /pilot/cascade/{run_id}/files/{name} steward
 GET /pilot/cascade/{run_id}/files/{name} sub
 GET /pilot/jobs/{job_id}/files/{filename} admin
 GET /pilot/jobs/{job_id}/files/{filename} crc
-GET /pilot/jobs/{job_id}/files/{filename} inv
 GET /pilot/jobs/{job_id}/files/{filename} pi
 GET /pilot/jobs/{job_id}/files/{filename} privacy
 GET /pilot/jobs/{job_id}/files/{filename} smo_in
@@ -152,7 +151,6 @@ GET /pilot/jobs/{job_id}/sponsor-pack.zip crc
 GET /pilot/jobs/{job_id}/sponsor-pack.zip smo_in
 GET /pilot/jobs/{job_id}/view/{filename} admin
 GET /pilot/jobs/{job_id}/view/{filename} crc
-GET /pilot/jobs/{job_id}/view/{filename} inv
 GET /pilot/jobs/{job_id}/view/{filename} pi
 GET /pilot/jobs/{job_id}/view/{filename} privacy
 GET /pilot/jobs/{job_id}/view/{filename} smo_in

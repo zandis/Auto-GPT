@@ -118,12 +118,16 @@ investigator column. "Master" is that column's answer on master.
 | `GET /pilot/jobs/{job_id}/view/{filename}` | 404 (walk) | 403 | the job's aggregate pages in the browser |
 
 The walk does not reach the last four with a real target:
-- the walk's job is not waiting for approval, so the round answers 409 or 400 before the log check, on master and
-  here;
-- the walk seeds no file named `1`, so a file answered 404 on master; it is now refused (403) before the lookup, so
-  a refused account cannot tell which file names exist.
+- tick and label: their walk cells do not move. The walk's job is not waiting for approval, so the round answers
+  409 (tick) or 400 (label, on an English page) before the log check, on master and here; their tests use a
+  waiting job;
+- files and views: the walk seeds no file named `1`, so a file answered 404 on master (pinned as unclear); it is now
+  refused (403) before the lookup, so a refused account cannot tell which file names exist. The two `inv` lines
+  leave `tests/console/data/role_walk_unclear.txt` (the coordinator's ruling on #1239).
 
-`tests/console/test_offlog_study_pages_10c3c.py` reaches all four with a waiting round and real files. None of the
+`tests/console/test_offlog_study_pages_10c3c.py` reaches all four with a waiting round and real files, and asks real
+aggregate outputs of a prepared SCREEN run as every column of the walk, judged against the declared rows (the
+review's B5), so a reopened file door fails for any column. None of the
 18 showed a patient row to this column: the walk's data check finds no seeded pseudonym.
 
 ## The tables
