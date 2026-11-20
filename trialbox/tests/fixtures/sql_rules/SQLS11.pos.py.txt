@@ -1,0 +1,7 @@
+# synthetic: a value written as a quoted SQL literal
+def index_ddl(model):
+    return f"CREATE INDEX i ON item (v) WHERE model = '{model}'"  # hit
+
+
+def setting(con, limit):
+    con.execute(f"SET memory_limit = '{limit}'")  # hit

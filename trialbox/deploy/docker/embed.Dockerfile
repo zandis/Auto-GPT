@@ -15,14 +15,15 @@ USER root
 COPY deploy/requirements-embed.lock /tmp/requirements-embed.lock
 # every entry carries sha256 hashes, so pip checks each file whatever index served it; the CPU wheel index is named
 # for torch only (pyproject.toml [tool.uv.sources])
-# $CERT is empty or "--cert <file>": it must split into two words (SC2086 by design)
-# hadolint ignore=SC2086
 # setuptools comes in because torch names it (its helpers that compile extensions); the service never compiles.
 # It is taken out in the same layer, so no layer ships it: it carries an LGPL part (autocommand) and Windows
 # launchers the licence gate cannot name. The start test embeds without it.
+# --no-cache-dir: the base already sets PIP_NO_CACHE_DIR=1 (python.Dockerfile); the flag says so here (DL3042, D-1343)
+# $CERT is empty or "--cert <file>": it must split into two words (SC2086 by design)
+# hadolint ignore=SC2086
 RUN --mount=type=secret,id=extra_ca,required=false \
     set -eux; CERT=""; if [ -f /run/secrets/extra_ca ]; then CERT="--cert /run/secrets/extra_ca"; fi; \
-    pip install $CERT --only-binary=:all: --require-hashes --extra-index-url https://download.pytorch.org/whl/cpu \
+    pip install $CERT --no-cache-dir --only-binary=:all: --require-hashes --extra-index-url https://download.pytorch.org/whl/cpu \
       -r /tmp/requirements-embed.lock; \
     pip uninstall -y setuptools
 # the service never asks the publisher's hub for anything: the folder is the site's own (D-429)

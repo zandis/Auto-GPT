@@ -1,0 +1,4 @@
+# synthetic: a COPY statement built from strings
+def load(cur, table, columns):
+    with cur.copy(f"COPY {table} ({', '.join(columns)}) FROM STDIN") as cp:  # hit
+        cp.write_row((1,))
