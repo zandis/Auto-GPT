@@ -201,3 +201,38 @@ def test_omop_says_which_records_the_source_deleted(tmp_path: Path, db_url: str,
     finally:
         db.close()
     assert [tuple(x) for x in got] == [("2026-10-02", DELETED_AT_SOURCE), ("2026-10-03", LEFT_THE_FEED)]
+
+
+def test_a_spool_kept_from_before_the_id_rule_is_read_again_never_published(
+    tmp_path: Path, nightly: dict[str, bytes]
+) -> None:
+    """D-1253 deep review, finding 1: a back-fill stopped before the update keeps its spool. Resumed after it, that
+    spool holds the earlier rule's ids: it is never reused (whatever its fingerprint), the source is read again, the
+    report and the audit event say so, and the published snapshot is what a clean load makes."""
+    from adapter.backfill import SPOOL_DONE, _fingerprint
+
+    cfg = _cfg(tmp_path, "lake", _Rebuild(tmp_path / "lake"))
+    done: list[str] = []
+
+    def kill_after_three(bucket: str) -> None:
+        done.append(bucket)
+        if len(done) == 3:
+            raise BackfillStop(bucket)
+
+    feed = str(_feed(tmp_path))
+    backfill(cfg, "csv", feed, snapshot=SNAP, validate=False, on_bucket=kill_after_three)
+    marker = cfg.lake_dir / "backfill" / SNAP / "spool" / SPOOL_DONE
+    kept = json.loads(marker.read_text())
+    kept.pop("id_rule")  # as the release before D-1253 wrote it, with the fingerprint it would match today
+    kept["fingerprint"] = _fingerprint(cfg, "csv", feed, SNAP)
+    marker.write_text(json.dumps(kept))
+    again: list[str] = []
+    rep = backfill(cfg, "csv", feed, snapshot=SNAP, validate=False, on_bucket=again.append)
+    assert rep.spool_of_another_id_rule and not rep.spool_reused and rep.state == "published"
+    assert set(done) <= set(again)  # every year sorted again from the source
+    assert _ndjson(snapshot_dir(cfg.lake_dir, SNAP)) == nightly
+    assert json.loads(marker.read_text())["id_rule"] == 2
+    events = [json.loads(x) for f in sorted((tmp_path / "audit").rglob("*.jsonl")) for x in f.open()]
+    assert any(
+        (e.get("detail") or {}).get("spool_of_another_id_rule") for e in events if e["event"] == "ingest.backfill"
+    )

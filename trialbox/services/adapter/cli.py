@@ -261,8 +261,23 @@ def main(argv: list[str] | None = None) -> int:
         return pid_merge(ac, args.old, args.new, args.reason, args.ticket)
     kind = args.source or default_kind
     path = args.dsn or args.path or default_path
-    if args.cmd == "backfill":
-        return backfill_cmd(ac, kind, path, args)
+    from adapter.runs import RunLock, RunLockHeld
+
+    try:  # D-1253 deep review: a night or a back-fill from the command line holds the run lock as the service's does,
+        lock = RunLock(ac.lake_dir)  # so the one id-rule rebuild (and a second run) keeps it out
+    except RunLockHeld as exc:
+        print(f"refused, nothing was read or written: {exc}", file=sys.stderr)
+        return 2
+    try:
+        if args.cmd == "backfill":
+            return backfill_cmd(ac, kind, path, args)
+        return _run_cmd(ac, kind, path, args)
+    finally:
+        lock.release()
+
+
+def _run_cmd(ac: AdapterConfig, kind: str, path: str, args: argparse.Namespace) -> int:
+    """``adapter run``: one night (the caller holds the run lock)."""
     try:
         report = run_ingest(
             ac,

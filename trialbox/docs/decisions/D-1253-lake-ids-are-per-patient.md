@@ -256,7 +256,29 @@
       rule, and a second run finishes the work.
     - The plan names every kind of thing kept, moved and cleared, with counts.
     - The rebuild writes one audit event of a kind the box already has, `lake.rebuild.source` (`source: id_rule`),
-      with counts only. There is no audit schema or role change; the rebuild runs as the admin.
+      and the same to `<lake>/id_rule_rebuild.json`: counts, snapshot dates and the EDC study keys it froze or
+      stamped; no patient (`lake:id_rule_rebuild.json` in the erasure registry). There is no audit schema or role
+      change; the rebuild runs as the admin.
+    - **Deep review (4a059fca), folded in:**
+      - **Nothing to do.** When no snapshot, store, back-fill spool or EDC study holds ids of the earlier rule, the
+        plan and the rebuild say "nothing to do" and change nothing (exit 0).
+      - **Retention's month-ends.** The month-end a month keeps is retention's own: its last night that passed
+        (`adapter.pipeline.good_snapshots`, one definition with the nightly prune), by the site's date (`TB_TZ`),
+        never the container's UTC date.
+      - **A record that cannot be read.** `id_rule.json` is written to a temporary file and renamed into place. A
+        record that cannot be read (a write cut short, a damaged disk) is its own state, with one instruction from
+        the night, the readers and the rebuild alike: move that unfinished snapshot out of the lake and run the
+        night again.
+      - **The back-fill's spool.** A spool kept from before the update is never reused: its fingerprint holds the
+        id rule and the mapping as resolved (with the base it `extends`), and the spool records its rule. It is read
+        again from the source, counted (`spool_of_another_id_rule`) and said.
+      - **Backups.** The backup takes `id_rule_1/<ndjson|db|parquet>` by the rules of the live folders: a month-end
+        aside is an older snapshot (its NDJSON and older generations left out; its DuckDB, generation records and
+        Parquet kept), as before the move.
+      - **Kept out.** `adapter run` and `adapter backfill` from the command line hold the run lock, so the rebuild
+        keeps them out as it keeps out the service's nights. The night's FHIR step checks the snapshot's rule before
+        its ledger is read or written. An EDC store not yet migrated refuses the rebuild (start the services once
+        first), as the derived store does. A link by day must name the record's patient among its keys.
   - **A box with real data** follows the same steps.
     - Nothing a person decided and nothing retention keeps is deleted.
     - What is cleared is made again from the sources: the first night after the rebuild reads every table whole,

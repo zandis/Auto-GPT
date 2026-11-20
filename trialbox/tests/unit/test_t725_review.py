@@ -190,6 +190,9 @@ def test_a_fhir_load_whose_ledger_cannot_be_read_does_not_run(
     for night in (NEW, OLD):
         (tmp_path / night).mkdir()
         (tmp_path / night / "Patient.ndjson").write_text(json.dumps({"resourceType": "Patient", "id": night}) + "\n")
+        from tb_common import id_rule
+
+        id_rule.write_snapshot_record(tmp_path / night)  # D-1253: a snapshot of this release
     load_fhir.sync_snapshot("http://hapi/fhir", tmp_path / NEW, tmp_path / "ledger")
     assert loaded == [NEW]
 

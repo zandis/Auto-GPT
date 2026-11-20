@@ -76,10 +76,13 @@ class IdRuleError(RuntimeError):
     """D-1253: a store (or the lake) holds lake ids made under an earlier rule (nothing is added to it: rebuild
     once), or under a newer rule than this release's (nothing is added either: update the box; never rebuilt)."""
 
-    def __init__(self, stores: Iterable[str], newer: Iterable[str] = ()) -> None:
+    def __init__(self, stores: Iterable[str], newer: Iterable[str] = (), unreadable: Iterable[str] = ()) -> None:
         self.stores = sorted(set(stores))
         self.newer = sorted(set(newer))
+        self.unreadable = sorted(set(unreadable))
         words: list[str] = []
+        if self.unreadable:
+            words.append(unreadable_words(self.unreadable))
         if self.stores:
             words.append(
                 f"lake ids of rule {RULE} (D-1253: a patient's record id holds the patient) cannot be added to "
@@ -169,8 +172,25 @@ def probe(url: str, store: Store, schema: str | None = None) -> str:
         return CURRENT if RULE in rules else OLD
 
 
+def unreadable_words(snapshots: Iterable[str]) -> str:
+    """D-1253 deep review: the one instruction for a snapshot whose id-rule record cannot be read, said alike by the
+    night, the readers and the rebuild. The record is written first, atomically, so one that cannot be read is a
+    write cut short (or a damaged disk): the snapshot was never finished, and neither a rebuild nor an update is the
+    answer."""
+    names = ", ".join(sorted(set(snapshots)))
+    return (
+        f"the id-rule record of {names} cannot be read (D-1253): that snapshot was never finished (its first write was "
+        f"cut short, or the disk is damaged): nothing was written. Move that folder out of the lake and run the night "
+        f"again; do not rebuild and do not update for it ({RUNBOOK})"
+    )
+
+
 def write_snapshot_record(directory: Path) -> None:
-    (directory / SNAPSHOT_RECORD).write_text(json.dumps({"rule": RULE}) + "\n", encoding="utf-8")
+    """The snapshot's id rule, written atomically (a temporary file renamed into place): a crash or a full disk never
+    leaves a cut record that would read as another rule (D-1253 deep review)."""
+    tmp = directory / f".{SNAPSHOT_RECORD}.tmp"
+    tmp.write_text(json.dumps({"rule": RULE}) + "\n", encoding="utf-8")
+    tmp.replace(directory / SNAPSHOT_RECORD)
 
 
 def snapshot_rule(directory: Path) -> int:
@@ -192,6 +212,8 @@ def check_snapshot(directory: Path, what: str) -> None:
     rule = snapshot_rule(directory)
     if rule > RULE:
         raise IdRuleError([], newer=[what])
+    if rule == 0:
+        raise IdRuleError([], unreadable=[what])
     if rule != RULE:
         raise IdRuleError([what])
 

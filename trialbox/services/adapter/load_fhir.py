@@ -176,6 +176,9 @@ def sync_snapshot(
     """Make fhir-store hold exactly the snapshot: PUT what is new or changed (everything with ``full``), then DELETE
     ids loaded earlier that the snapshot no longer has. Without a ledger yet (first run after an upgrade) the previous
     snapshot stands in for it, without hashes, so everything loads once. Returns (loaded, deleted)."""
+    from tb_common import id_rule
+
+    id_rule.open_snapshot(directory)  # D-1253 deep review: before the ledger is read, hashed or written
     # T-725 (D-491, review F-4): the load is the build of "fhir" from this night. A night older than the one the
     # store holds is not loaded (a late re-run of an earlier night made the store hold the older night before);
     # the store keeps the newer one and this step reports nothing loaded

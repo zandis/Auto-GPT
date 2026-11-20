@@ -292,6 +292,9 @@ and two patients with the same order number were one record. Every such id chang
   stores only). Each refuses at its own **first write**, in the same words.
 - A store, a snapshot or an EDC study of a **newer** rule (a later release's) is refused with "update the box", by
   the night and by the rebuild alike. Never rebuild for that: the rebuild refuses it, changing nothing.
+- A snapshot whose id-rule record cannot be read was never finished (its first write was cut short). The night, the
+  readers and the rebuild all say the same: move that folder out of the lake and run the night again.
+- On a box that holds nothing of the earlier rule, the plan and the rebuild say "nothing to do" and change nothing.
 
 Nothing is half-migrated, and nothing goes on until the box is rebuilt once, from its sources.
 
@@ -346,7 +349,8 @@ Nothing is half-migrated, and nothing goes on until the box is rebuilt once, fro
    after any step, or between any two files moved aside, loses nothing kept and leaves a box that serves nothing of
    the old rule; run the command again and it finishes.
 
-   What the rebuild did goes to two places, with counts only:
+   What the rebuild did goes to two places, with counts, snapshot dates and the EDC study keys it froze or
+   stamped (no patient):
    - `/data/lake/id_rule_rebuild.json`;
    - one `lake.rebuild.source` audit event.
 

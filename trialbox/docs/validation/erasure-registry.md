@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-245 entries: 90 erase, 29 keep, 126 no patient data. 28 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+246 entries: 90 erase, 29 keep, 127 no patient data. 28 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -30,7 +30,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `lake:db` | T-206b | withheld on read by every job's scope (D-441, D-860); still read whole: the criteria compiler's equivalence sample (every patient) and a direct call of the lake's /query (D-862) | the DuckDB snapshots (nightly and month-end) and their side files |
 | `lake:embed_cache.duckdb` | T-206b | pruning by the patient across every kept snapshot, with the nightly build not embedding them again (D-862) | vectors of note chunks by text hash, never pruned |
 | `lake:fhir_ledger` | T-206b | the clear | the FHIR sync ledger: resource ids and hashes per patient |
-| `lake:id_rule_1` | T-206b | withheld on read by every job's scope (D-441, D-860); still read whole: the criteria compiler's equivalence sample (every patient) and a direct call of the lake's /query (D-862) | D-1253: month-end snapshots of the earlier lake-id rule, kept aside by the one rebuild under retention and never read (NDJSON, DuckDB, Parquet) |
+| `lake:id_rule_1` | T-206b | no job reads it, so nothing withholds it; an opted-out patient's records stay in it until retention prunes the month-end (adapter.pipeline._prune_aside) | D-1253: month-end snapshots of the earlier lake-id rule, kept aside by the one rebuild under retention and never read (NDJSON, DuckDB, Parquet) |
 | `lake:ndjson` | T-206b | withheld on read by every job's scope (D-441, D-860); still read whole: the criteria compiler's equivalence sample (every patient) and a direct call of the lake's /query (D-862) | the nightly NDJSON extracts (3 nightly + month-ends kept) |
 | `lake:ndjson-rerun` | T-206b | withheld on read by every job's scope (D-441, D-860); still read whole: the criteria compiler's equivalence sample (every patient) and a direct call of the lake's /query (D-862) | a re-run of a promoted night until it passes the gate (D-271) |
 | `lake:parquet` | T-206b | withheld on read by every job's scope (D-441, D-860); still read whole: the criteria compiler's equivalence sample (every patient) and a direct call of the lake's /query (D-862) | the Parquet copy of each snapshot |
@@ -131,6 +131,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `lake:CURRENT.tmp` | the served snapshot's name while it is replaced |
 | `lake:FEED` | the date of the last feed snapshot |
 | `lake:holds` | a job's hold on a snapshot: job id and date |
+| `lake:id_rule_rebuild.json` | D-1253: the one id-rule rebuild's record: counts, snapshot dates and EDC study keys; no patient |
 | `lake:locks` | lock files of the lake's readers and writers (T-722), rebuild job states (T-690) |
 | `library.criterion_library` | the criteria library |
 | `library.criterion_library_lexicon_key` | the criteria library |

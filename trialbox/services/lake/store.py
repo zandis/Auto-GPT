@@ -1054,7 +1054,7 @@ class Lake:
                 if rule != id_rule.RULE:
                     raise id_rule.IdRuleError([what])
         except ValueError as exc:
-            raise LakeSchemaError(f"{what}: its id-rule record cannot be read") from exc
+            raise LakeSchemaError(id_rule.unreadable_words([what])) from exc
         except id_rule.IdRuleError as exc:  # 503: the lake cannot serve it (never "no data")
             raise LakeSchemaError(str(exc)) from exc
 

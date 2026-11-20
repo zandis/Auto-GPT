@@ -73,6 +73,9 @@ def _nights(tmp_path: Path) -> tuple[Path, Path]:
         d = tmp_path / night
         d.mkdir()
         (d / "Patient.ndjson").write_text(json.dumps({"resourceType": "Patient", "id": night}) + "\n")
+        from tb_common import id_rule
+
+        id_rule.write_snapshot_record(d)  # D-1253: a snapshot of this release
         out.append(d)
     return out[0], out[1]
 
@@ -166,6 +169,9 @@ def test_a_load_that_was_overtaken_fails_and_a_second_load_waits_for_the_first(
     third = tmp_path / "2026-10-03"
     third.mkdir()
     (third / "Patient.ndjson").write_text('{"resourceType": "Patient", "id": "p3"}\n')
+    from tb_common import id_rule
+
+    id_rule.write_snapshot_record(third)  # D-1253: a snapshot of this release
     with pytest.raises(RuntimeError, match="overtaken"):
         load_fhir.sync_snapshot("http://hapi/fhir", third, tmp_path / "ledger")
 

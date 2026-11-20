@@ -144,3 +144,16 @@ def test_a_build_writes_the_rule_beside_its_file_and_the_snapshot_is_still_serve
     assert (lake / "db" / f"{SNAP}.duckdb.id_rule").read_text().strip() == str(id_rule.RULE)
     shutil.rmtree(snapshot_dir(lake, SNAP))  # the byte budget took the NDJSON
     assert Lake(lake, TZ).db_path(SNAP).exists()
+
+
+@pytest.mark.parametrize("rule", RULES)
+def test_the_fhir_sync_refuses_before_its_ledger_is_read_or_written(tmp_path: Path, rule: str) -> None:
+    """D-1253 deep review (low): the night's FHIR step (``sync_snapshot``) hashed the snapshot and rewrote its ledger
+    before ``load_snapshot`` refused. The real entry point now refuses first: no ledger is made."""
+    from adapter.load_fhir import sync_snapshot
+
+    lake = _lake(tmp_path, rule)
+    ledger = tmp_path / "fhir_ledger"
+    with pytest.raises(id_rule.IdRuleError, match=_words(rule)):
+        sync_snapshot("http://127.0.0.1:9/fhir", snapshot_dir(lake, SNAP), ledger)
+    assert not ledger.exists()

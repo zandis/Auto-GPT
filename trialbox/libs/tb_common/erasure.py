@@ -533,7 +533,11 @@ LAKE: dict[str, Entry] = {
     "lake:id_rule_1": _owed(
         "D-1253: month-end snapshots of the earlier lake-id rule, kept aside by the one rebuild under retention and "
         "never read (NDJSON, DuckDB, Parquet)",
-        _SNAPSHOTS,
+        "no job reads it, so nothing withholds it; an opted-out patient's records stay in it until retention "
+        "prunes the month-end (adapter.pipeline._prune_aside)",
+    ),
+    "lake:id_rule_rebuild.json": _none(
+        "D-1253: the one id-rule rebuild's record: counts, snapshot dates and EDC study keys; no patient"
     ),
     "lake:ndjson-rerun": _owed("a re-run of a promoted night until it passes the gate (D-271)", _SNAPSHOTS),
     "lake:db": _owed("the DuckDB snapshots (nightly and month-end) and their side files", _SNAPSHOTS),

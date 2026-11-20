@@ -81,7 +81,8 @@ def test_a_night_over_a_lake_of_the_earlier_rule_stops_before_anything_is_writte
 @pytest.mark.parametrize("said", [3, 2.0, "2", True, None, -2])
 def test_a_snapshot_rule_is_the_integer_2_and_a_newer_one_is_never_rebuilt(tmp_path: Path, said: object) -> None:
     """D-1253 review G5: only the integer 2 is this rule. A higher integer is a newer release's: "update the box",
-    never "earlier" or "rebuild". Anything else is unreadable: never taken for the current rule."""
+    never "earlier" or "rebuild". Anything else is unreadable: never taken for the current rule, and said with the
+    one instruction for a record that cannot be read (D-1253 deep review: never "rebuild", never "update")."""
     write_snapshot(tmp_path / "s1", {"Condition": [{"resourceType": "Condition", "id": "a"}]})
     (tmp_path / "s1" / id_rule.SNAPSHOT_RECORD).write_text(json.dumps({"rule": said}))
     assert id_rule.snapshot_rule(tmp_path / "s1") == (3 if type(said) is int and said == 3 else 0)
@@ -92,7 +93,8 @@ def test_a_snapshot_rule_is_the_integer_2_and_a_newer_one_is_never_rebuilt(tmp_p
         assert "newer rule" in words and "Update the box" in words and "earlier" not in words
         assert id_rule.COMMAND not in words and caught.value.newer and not caught.value.stores
     else:
-        assert "earlier" in words and id_rule.COMMAND in words
+        assert words == id_rule.unreadable_words(["the lake snapshot s1"]) and caught.value.unreadable
+        assert id_rule.COMMAND not in words and "earlier" not in words
 
 
 def test_a_night_over_a_lake_of_a_newer_rule_says_update_the_box(tmp_path: Path) -> None:
@@ -319,3 +321,63 @@ def test_each_stores_written_out_question_is_its_table_and_its_filter(store: id_
     assert words[:4] == ["SELECT", "1", "FROM", store.table] and words[-2:] == ["LIMIT", "1"]
     asked = " ".join(words[4:-2])
     assert asked == ("" if store.where == "TRUE" else "WHERE " + store.where)
+
+
+class _FakeTx:
+    """A write transaction of the ``vec`` schema, as far as ``tb_common.id_rule.ensure`` asks it: the rules it holds
+    and whether ``note_chunk`` has rows. Records every statement that writes."""
+
+    def __init__(self, rules: set[int], chunks: bool) -> None:
+        self.rules, self.chunks, self.wrote = set(rules), chunks, []  # type: ignore[var-annotated]
+
+    def fetchone(self, sql: str, args: tuple[Any, ...] = ()) -> Any:
+        if sql.startswith("SELECT 1 FROM tb_id_rule WHERE rule = "):
+            return (1,) if args[0] in self.rules else None
+        if sql.startswith("SELECT 1 FROM tb_id_rule WHERE rule > "):
+            return (1,) if any(r > args[0] for r in self.rules) else None
+        assert sql == id_rule.VEC.holds, sql
+        return (1,) if self.chunks else None
+
+    def execute(self, sql: str, args: tuple[Any, ...] = ()) -> int:
+        if sql.startswith("INSERT INTO tb_id_rule"):
+            self.rules.add(int(args[0]))
+        if not sql.startswith("SELECT pg_advisory_xact_lock"):
+            self.wrote.append(sql.split(maxsplit=1)[0] + " " + sql.split()[2])
+        return 1
+
+    def executemany(self, sql: str, rows: list[Any]) -> None:
+        self.wrote.append("INSERT note_chunk")
+
+
+@pytest.mark.parametrize(
+    ("rules", "chunks", "outcome"),
+    [(set(), True, "earlier"), ({3}, False, "newer"), (set(), False, "stamped"), ({2}, True, "written")],
+)  # fmt: skip
+def test_the_vector_store_checks_its_rule_in_its_own_write_transaction(
+    rules: set[int], chunks: bool, outcome: str
+) -> None:
+    """D-1253 deep review (low): the vector store's check was covered only by an integration test that needs the
+    compose services. Here with a fake transaction: chunks of the earlier rule refuse, a later rule refuses, an
+    empty store is stamped, a store of this rule is written; a refusal writes nothing."""
+    from contextlib import contextmanager
+
+    from vec.store import ChunkRow, VecStore
+
+    tx = _FakeTx(rules, chunks)
+    store = VecStore.__new__(VecStore)
+
+    class Db:
+        @contextmanager
+        def transaction(self) -> Any:
+            yield tx
+
+    store._db = Db()  # type: ignore[assignment]
+    chunk = ChunkRow("p" * 64, "d1", 0, "2026-10-01", "progress", 0, 4, "text", "s" * 64, "1")
+    if outcome in ("earlier", "newer"):
+        with pytest.raises(id_rule.IdRuleError, match="earlier rule" if outcome == "earlier" else "newer rule"):
+            store.replace_notes([chunk], ["d1"])
+        assert tx.wrote == []
+    else:
+        assert store.replace_notes([chunk], ["d1"]) == 1
+        assert tx.wrote[-2:] == ["DELETE note_chunk", "INSERT note_chunk"]
+        assert id_rule.RULE in tx.rules

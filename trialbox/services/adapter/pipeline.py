@@ -188,8 +188,10 @@ def check_id_rule(cfg: AdapterConfig) -> None:
     old: list[str] = []
     newer: list[str] = []
     snaps = id_rule.old_snapshots(cfg.lake_dir / "ndjson")
-    ahead = [s for s in snaps if id_rule.snapshot_rule(cfg.lake_dir / "ndjson" / s) > id_rule.RULE]
-    behind = [s for s in snaps if s not in ahead]
+    rules = {s: id_rule.snapshot_rule(cfg.lake_dir / "ndjson" / s) for s in snaps}
+    ahead = [s for s in snaps if rules[s] > id_rule.RULE]
+    unreadable = [f"the lake snapshot {s}" for s in snaps if rules[s] == 0]  # one instruction (D-1253 deep review)
+    behind = [s for s in snaps if s not in ahead and rules[s] != 0]
     if behind:
         old.append(f"the lake ({len(behind)} snapshots, the last {behind[-1]})")
     if ahead:
@@ -217,8 +219,8 @@ def check_id_rule(cfg: AdapterConfig) -> None:
                 old.append(f"the {store.name} store")
             elif state == id_rule.NEWER:
                 newer.append(f"the {store.name} store")
-    if old or newer:
-        raise id_rule.IdRuleError(old, newer=newer)
+    if old or newer or unreadable:
+        raise id_rule.IdRuleError(old, newer=newer, unreadable=unreadable)
 
 
 def load_site_profile(cfg: AdapterConfig, source_kind: str) -> tuple[SiteProfile | None, dict[str, Any]]:
@@ -1311,7 +1313,7 @@ def _run_ingest(
                 "incomplete": completeness["problems"] or None,
                 "duplicate_keys": {t: v["duplicate_keys"] for t, v in tables.items() if v["duplicate_keys"]} or None,
                 # D-1253: two of tonight's rows with one id and other content (the last kept), per record type; links
-                # by number left out because the number was only another patient's; deletes that named no patient
+                # to a patient's record the merged snapshot does not hold, per table; rows and deletes with no patient
                 "id_collisions": dict(sorted(collisions.items())) or None,
                 "links_to_absent_records": {t: sum(by.values()) for t, by in sorted(absent.items())} or None,
                 "rejected_no_patient": {
@@ -2061,6 +2063,18 @@ def _prune_aside(lake_dir: Path, today: date, months: int) -> list[str]:
     return gone
 
 
+def good_snapshots(lake_dir: Path, snaps: Iterable[str], current: str | None = None) -> set[str]:
+    """The nights retention counts (the one definition, used by :func:`prune_lake` and by the D-1253 rebuild's choice
+    of month-ends). T-611: only nights that passed (a held night has no passed.json and no DuckDB; a folder from
+    before the marker that was promoted has its DuckDB). T-723 second review (L3): a built night whose publish record
+    says the promotion did not end was never served: it is not a good night. The served night always is."""
+    snaps = set(snaps)
+    good = {s for s in snaps if (snapshot_dir(lake_dir, s) / PASSED).exists()}
+    good |= {p.stem for p in (lake_dir / "db").glob("*.duckdb") if not _built_not_served(lake_dir, p.stem)}
+    good |= {current} if current else set()
+    return good & snaps | ({current} if current else set())
+
+
 def prune_lake(cfg: AdapterConfig, today: date) -> PruneResult:
     """SPEC §10.3: keep the last N nightly snapshots and each month's last snapshot for M months (NDJSON, parquet,
     DuckDB); the current snapshot is always kept, and so is every snapshot a running job holds (T-305b, D-403: a
@@ -2076,13 +2090,7 @@ def prune_lake(cfg: AdapterConfig, today: date) -> PruneResult:
 
     current = (cfg.lake_dir / "CURRENT").read_text().strip() if (cfg.lake_dir / "CURRENT").exists() else None
     snaps = set(list_snapshots(cfg.lake_dir)) | {p.stem for p in (cfg.lake_dir / "db").glob("*.duckdb")}
-    # T-611: only nights that passed count towards the N kept (a held night has no passed.json and no DuckDB; a
-    # folder from before the marker that was promoted has its DuckDB)
-    good = {s for s in snaps if (snapshot_dir(cfg.lake_dir, s) / PASSED).exists()}
-    # T-723 second review (L3): the lake now builds a night before it serves it. A built night whose publish record
-    # says the promotion did not end was never served: it is not a good night and takes no place among the N kept
-    good |= {p.stem for p in (cfg.lake_dir / "db").glob("*.duckdb") if not _built_not_served(cfg.lake_dir, p.stem)}
-    good |= {current} if current else set()
+    good = good_snapshots(cfg.lake_dir, snaps, current)
     keep = snapshots_to_keep(snaps, today, cfg.keep_nightly, cfg.keep_month_end_months, good) | {current or ""}
     nightly = snapshots_to_keep(snaps, today, cfg.keep_nightly, 0, good) | {current or ""}
     budget = lake_budget(cfg.lake_dir)

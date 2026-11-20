@@ -8,7 +8,8 @@ rebuilt once, from its sources, after the update and with the services stopped:
     python -m tools.id_rule_rebuild --lake /data/lake --yes    # does it; the first night after it is a full night
 
 **Before anything.** It refuses, changing nothing, when a later release wrote anything on the box (a snapshot, a store
-or an EDC study of a rule above this one, or a snapshot record that cannot be read): "update the box" (:func:`newer`).
+or an EDC study of a rule above this one): "update the box" (:func:`newer`). It refuses as the night does when a
+snapshot's id-rule record cannot be read (:func:`unreadable`: a snapshot never finished).
 It refuses, changing nothing, unless the writers are stopped. It checks this itself and does not trust the runbook:
 
 - it takes the adapter's run lock, so no night runs during it and none can start;
@@ -54,8 +55,9 @@ definition, ``edc.store.cites_old_rows``). The plan and the rebuild name it, wit
 count and its ODM export. No removal is offered.
 
 Published job outputs and the audit chain are not touched. The rebuild writes one audit event of a kind the box
-already has, ``lake.rebuild.source`` (``source: id_rule``), with counts only, and the same counts to
-``<lake>/id_rule_rebuild.json``.
+already has, ``lake.rebuild.source`` (``source: id_rule``), and the same to ``<lake>/id_rule_rebuild.json``: counts,
+snapshot dates and the EDC study keys it froze or stamped; no patient (``lake:id_rule_rebuild.json`` in the erasure
+registry). On a box of this rule throughout it has nothing to do and changes nothing.
 """
 
 from __future__ import annotations
@@ -79,6 +81,14 @@ for p in (ROOT, ROOT / "libs", ROOT / "services"):
 from tb_common import id_rule  # noqa: E402
 
 RECORD = "id_rule_rebuild.json"
+
+
+def _record(lake_dir: Path) -> Path:
+    """The rebuild's record (counts, snapshot dates, EDC study keys; no patient): ``lake:id_rule_rebuild.json`` in the
+    erasure registry (``tb_common.erasure``), spelt out so its scan finds it."""
+    return lake_dir / "id_rule_rebuild.json"
+
+
 ASIDE = "id_rule_1"  # <lake>/id_rule_1/{ndjson,db,parquet}/...: rule-1 month-ends kept under retention, never read
 #                      (adapter.pipeline.ID_RULE_ASIDE: the nightly prune lets each go when retention does)
 #: step 2: what is served; step 3: the rest of the lake made from the snapshots (``tb_common.erasure``'s lake entries)
@@ -154,20 +164,32 @@ def _snapshots(lake: Path) -> list[str]:
     return sorted(p.name for p in nd.iterdir() if p.is_dir() and not p.name.startswith(".")) if nd.is_dir() else []
 
 
+def site_today() -> date:
+    """The site's own date (``TB_TZ``), as the night and retention reckon it: never the container's UTC date (D-1253
+    deep review: a rebuild on the 1st before 09:00 JST is still last month's last day at the site's UTC date)."""
+    from tb_common.config import site_zone
+
+    return datetime.now(site_zone()).date()
+
+
 def month_ends(lake: Path, today: date) -> list[str]:
     """Every completed month's month-end snapshot (not the nightly ones): moved aside, never deleted. Every month, not
     only those the site's retention keeps: the nightly prune applies the site's own setting to the aside folder
     (``adapter.pipeline._prune_aside``), so nothing the site keeps is lost here.
 
-    Chosen from every place a snapshot is (:func:`snapshot_names`) and from what an earlier run, cut short, moved
-    aside already: a month keeps its own month-end, never a second one, and a part already aside never makes the
-    parts left behind look like a nightly snapshot to clear (review round 3)."""
+    A month's month-end is retention's own (one definition, ``adapter.pipeline.good_snapshots`` and
+    ``tb_common.retention.snapshots_to_keep``): its last night that passed (a held night is never one), chosen from
+    every place a snapshot is (:func:`tb_common.id_rule.snapshot_names`) and from what an earlier run, cut short,
+    moved aside already: a month keeps its own month-end, never a second one, and a part already aside never makes
+    the parts left behind look like a nightly snapshot to clear (review round 3)."""
+    from adapter.pipeline import good_snapshots
     from tb_common.retention import snapshots_to_keep
 
     months = 12 * 100  # every completed month on the box
-    return sorted(
-        snapshots_to_keep(id_rule.snapshot_names(lake) | id_rule.snapshot_names(lake / ASIDE), today, 0, months)
-    )
+    here, aside = id_rule.snapshot_names(lake), id_rule.snapshot_names(lake / ASIDE)
+    current = (lake / "CURRENT").read_text().strip() if (lake / "CURRENT").is_file() else None
+    good = good_snapshots(lake, here, current) | good_snapshots(lake / ASIDE, aside)
+    return sorted(snapshots_to_keep(here | aside, today, 0, months, good))
 
 
 def _parts(lake: Path, s: str) -> list[tuple[Path, Path]]:
@@ -182,10 +204,23 @@ def _parts(lake: Path, s: str) -> list[tuple[Path, Path]]:
     return parts
 
 
+def unreadable(lake: Path) -> list[str]:
+    """The snapshots whose id-rule record cannot be read (D-1253 deep review): never finished. The rebuild refuses
+    with the one instruction the night gives (:func:`tb_common.id_rule.unreadable_words`): neither a rebuild nor an
+    update is the answer."""
+    found = []
+    for folder in ("ndjson", "ndjson-rerun", "backfill", f"{ASIDE}/ndjson"):
+        root = lake / folder
+        if root.is_dir():
+            found += [f"the lake snapshot {folder}/{p.name}" for p in sorted(root.iterdir())
+                      if p.is_dir() and not p.name.startswith(".") and id_rule.snapshot_rule(p) == 0]  # fmt: skip
+    return found
+
+
 def newer(lake: Path, url: str | None) -> list[str]:
-    """What a later release wrote (empty: the rebuild may run): a snapshot whose record says a rule above this one's
-    or cannot be read (a snapshot of rule 1 has no record), a store or an EDC study stamped by a later release. The
-    rebuild never treats them as rule 1: the box is updated instead (review round 3)."""
+    """What a later release wrote (empty: the rebuild may run): a snapshot whose record says a rule above this one's,
+    a store or an EDC study stamped by a later release. The rebuild never treats them as rule 1: the box is updated
+    instead (review round 3). A record that cannot be read is :func:`unreadable`'s, not this."""
     found: list[str] = []
     for folder in ("ndjson", "ndjson-rerun", "backfill", f"{ASIDE}/ndjson"):
         root = lake / folder
@@ -195,8 +230,6 @@ def newer(lake: Path, url: str | None) -> list[str]:
             rule = id_rule.snapshot_rule(snap)
             if rule > id_rule.RULE:
                 found.append(f"the lake snapshot {folder}/{snap.name} is of id rule {rule}")
-            elif rule == 0:
-                found.append(f"the lake snapshot {folder}/{snap.name} has an id-rule record that cannot be read")
     if not url:
         return found
     from omop.schema import schema_for
@@ -265,12 +298,20 @@ def _edc_q(template: str, *parts: Any) -> str:
 
 
 def _edc_plan(db: Any) -> dict[str, Any]:
+    if not _has(db, "tb_id_rule_study"):
+        # D-1253 deep review: an EDC store not yet migrated would take every study for the earlier rule and stamp
+        # none, and its later migration would stamp them rule 1 again: refused, as the derived store is
+        raise Refused("the EDC store is not migrated to this release: start the services once after the update, "
+                      "stop them, then run the rebuild")  # fmt: skip
     frozen_q, open_q, old = _edc_frozen(db), _edc_open(db), _edc_old(db)
     per_study = "SELECT d.study, count(*) FROM draft d WHERE {} AND {} GROUP BY d.study ORDER BY d.study"
     frozen = db.fetchall(_edc_q(per_study, frozen_q, old))
     frozen_studies = {str(s): int(n) for s, n in frozen}
     waiting = db.fetchall(_edc_q(per_study, open_q, old))
+    earlier_studies = [str(r[0]) for r in db.fetchall(
+        "SELECT study FROM tb_id_rule_study WHERE rule < ? ORDER BY study", (id_rule.RULE,))]  # fmt: skip
     return {
+        "earlier_studies": earlier_studies,
         "frozen_studies": frozen_studies,
         "open_drafts": {str(s): int(n) for s, n in waiting if str(s) not in frozen_studies},
         "open_drafts_of_frozen_studies_kept": {str(s): int(n) for s, n in waiting if str(s) in frozen_studies},
@@ -284,9 +325,10 @@ def plan(lake: Path, url: str | None, today: date | None = None) -> dict[str, An
     from tb_common.db import Database, split_url
 
     snaps = _snapshots(lake)
-    aside = month_ends(lake, today or date.today())
+    aside = month_ends(lake, today or site_today())
     out: dict[str, Any] = {
         "newer": newer(lake, url),
+        "unreadable": unreadable(lake),
         "lake": {
             "dir": str(lake),
             "snapshots": len(snaps),
@@ -298,6 +340,7 @@ def plan(lake: Path, url: str | None, today: date | None = None) -> dict[str, An
     }
     if not url:
         out["database"] = "no TB_DB_URL: the stores of the trial database were not read"
+        out["earlier"] = earlier(lake, out)
         return out
     prefix = split_url(url)[1]
     present = _schemas(url)
@@ -331,7 +374,38 @@ def plan(lake: Path, url: str | None, today: date | None = None) -> dict[str, An
         with Database.connect(url, "edc") as db:
             if _has(db, "draft"):
                 out["edc"] = _edc_plan(db)
+    out["earlier"] = earlier(lake, out)
     return out
+
+
+def earlier(lake: Path, planned: dict[str, Any]) -> list[str]:
+    """What holds ids of the earlier rule (D-1253 deep review, finding 5): empty, the rebuild has nothing to do and
+    changes nothing. A snapshot with no rule record (``ndjson/``, ``ndjson-rerun/``); a served copy whose NDJSON is
+    gone and whose build said no rule; a kept back-fill spool of another rule; a store the plan finds of the earlier
+    rule; an EDC study stamped rule 1. The month-ends already moved aside are the earlier rule's by design."""
+    from lake.store import ID_RULE_SIDECAR
+
+    found: list[str] = []
+    for folder in ("ndjson", "ndjson-rerun"):
+        root = lake / folder
+        if root.is_dir():
+            found += [f"the lake snapshot {folder}/{p.name}" for p in sorted(root.iterdir())
+                      if p.is_dir() and not p.name.startswith(".") and id_rule.snapshot_rule(p) == 1]  # fmt: skip
+    for f in sorted((lake / "db").glob("*.duckdb")):
+        if not (lake / "ndjson" / f.stem).is_dir() and not f.with_name(f.name + ID_RULE_SIDECAR).exists():
+            found.append(f"the served lake snapshot {f.stem}")
+    for done in sorted((lake / "backfill").glob("*/spool/done.json")):
+        try:
+            rule = json.loads(done.read_text(encoding="utf-8")).get("id_rule")
+        except (OSError, ValueError):
+            rule = None
+        if rule != id_rule.RULE:
+            found.append(f"the back-fill spool of {done.parents[1].name}")
+    found += [f"the {name} store" for name, row in sorted(planned.items())
+              if isinstance(row, dict) and row.get("rule") == id_rule.OLD]  # fmt: skip
+    edc = planned.get("edc") or {}
+    found += [f"the EDC study {s}" for s in edc.get("earlier_studies") or []]
+    return found
 
 
 # ------------------------------------------------------------------------------------------------ the checks
@@ -545,10 +619,15 @@ def rebuild(lake: Path, url: str | None, today: date | None = None,
     lake.mkdir(parents=True, exist_ok=True)
     with _stopped(lake, url):
         before = plan(lake, url, today)
+        if before["unreadable"]:
+            raise Refused(id_rule.unreadable_words(before["unreadable"]))
         if before["newer"]:
             said = "; ".join(before["newer"])
             raise Refused(f"{said}: a later release wrote these. Update the box to that release; this rebuild is "
                           f"for a box that ran an earlier one ({id_rule.RUNBOOK})")  # fmt: skip
+        if not before["earlier"]:
+            # D-1253 deep review, finding 5: a box of this rule throughout. Nothing is cleared, moved or written
+            return {"nothing_to_do": True, "rule": id_rule.RULE}
         done: dict[str, Any] = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "rule": id_rule.RULE}
         for step in STEPS:
             if step == "aside":
@@ -562,7 +641,7 @@ def rebuild(lake: Path, url: str | None, today: date | None = None,
             if after_step is not None:
                 after_step(step)
         done["lake"] = {"snapshots": before["lake"]["snapshots"], "kept_aside": _aside(lake)}
-        (lake / RECORD).write_text(json.dumps(done, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        _record(lake).write_text(json.dumps(done, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     _audit(done)
     return done
 
@@ -588,12 +667,18 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     before = plan(a.lake, a.db_url)
     print(json.dumps({"plan": before}, indent=1, sort_keys=True))
+    if before["unreadable"]:
+        print(f"refused, nothing changed: {id_rule.unreadable_words(before['unreadable'])}", file=sys.stderr)
+        return 2
     if before["newer"]:
         print(f"refused, nothing changed: {'; '.join(before['newer'])}. A later release wrote these: update the box "
               f"to that release ({id_rule.RUNBOOK})", file=sys.stderr)  # fmt: skip
         return 2
     for study, n in sorted(((before.get("edc") or {}).get("open_drafts") or {}).items()):
         print(f"EDC study {study}: {n} open drafts (nothing decided, signed or sent) are cleared; the study goes on")
+    if not before["earlier"]:
+        print("nothing to do: no snapshot, store or EDC study holds ids of the earlier rule; nothing changed")
+        return 0
     if not a.yes:
         print(f"nothing changed. To do what is listed: add --yes ({id_rule.RUNBOOK})")
         return 0

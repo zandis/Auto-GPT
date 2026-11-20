@@ -609,6 +609,13 @@ def _by_day_links(path: Path, order: list[str], resources: list[ResourceSpec]) -
                 keys = spec.get("keys")
                 if not isinstance(keys, list) or not keys or not all(isinstance(k, str) and k for k in keys):
                     raise MappingError(f"{where} needs keys: the columns both tables hold (branch, patient)")
+                if r.patient is None or r.patient not in keys:
+                    # D-1253 deep review: without the patient among its keys, a link by day could find another
+                    # patient's visit of that day: never across patients
+                    raise MappingError(
+                        f"{where}: its keys must hold the record's patient column ({r.patient or 'none named'}), so "
+                        "it links to the same patient's visit only (D-1253)"
+                    )
                 if not str(spec.get("day") or "") or not str(spec.get("their_day") or ""):
                     raise MappingError(f"{where} needs day and their_day: the day column of each table")
                 if order.index(there) >= order.index(r.table):

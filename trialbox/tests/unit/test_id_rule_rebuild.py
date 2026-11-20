@@ -85,6 +85,12 @@ def _tables(url: str) -> None:
                    "fate TEXT, signature_id BIGINT, sent_at TEXT)")  # fmt: skip
         db.execute("CREATE TABLE decision (id INTEGER PRIMARY KEY, draft_id INTEGER)")
         db.execute("INSERT INTO draft VALUES (1, 'S1', '{}', NULL, 'open', NULL, NULL)")
+        # as EDC's migration (SCHEMA_V9) leaves it: every study with drafts stamped rule 1
+        db.execute(
+            "CREATE TABLE tb_id_rule_study (study TEXT PRIMARY KEY, rule INTEGER NOT NULL, "
+            "recorded_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+        )
+        db.execute("INSERT INTO tb_id_rule_study VALUES ('S1', 1)")
 
 
 def test_the_plan_changes_nothing(tmp_path: Path, db_url: str) -> None:
@@ -136,6 +142,7 @@ def test_edc_values_a_person_decided_are_kept_and_their_study_is_named_frozen(
     with Database.connect(db_url, "edc") as db:
         db.execute("INSERT INTO draft VALUES (2, 'S2', '{}', '{}', 'confirmed', 7, NULL)")
         db.execute("INSERT INTO decision VALUES (1, 2)")
+        db.execute("INSERT INTO tb_id_rule_study (study, rule) VALUES ('S2', 1)")  # as the migration stamps it
     assert rb.plan(cfg.lake_dir, db_url)["edc"]["frozen_studies"] == {"S2": 1}
     assert rb.main(["--lake", str(cfg.lake_dir), "--db-url", db_url, "--yes"]) == 0
     said = capsys.readouterr().out
@@ -351,18 +358,14 @@ def test_a_crash_between_any_two_moves_aside_loses_nothing_and_a_second_run_fini
         assert not (cfg.lake_dir / "db").exists() and not (cfg.lake_dir / "parquet").exists()
 
 
-@pytest.mark.parametrize("record", ['{"rule": 3}', "not json"], ids=["rule-3", "unreadable"])
-def test_a_lake_a_later_release_wrote_is_never_rebuilt_as_rule_1(tmp_path: Path, record: str) -> None:
-    """Review round 3, item 3: a snapshot whose record says a rule above this release's, or cannot be read (a rule-1
-    snapshot has none), is a later release's. The plan names it; the rebuild refuses and changes nothing: nothing
-    is moved aside under a README that says rule 1, nothing served is cleared. The words say: update the box."""
+def test_a_lake_a_later_release_wrote_is_never_rebuilt_as_rule_1(tmp_path: Path) -> None:
+    """Review round 3, item 3: a snapshot whose record says a rule above this release's is a later release's. The
+    plan names it; the rebuild refuses and changes nothing: nothing is moved aside under a README that says rule 1,
+    nothing served is cleared. The words say: update the box."""
     cfg = _old_lake(tmp_path, NIGHTS)
-    (snapshot_dir(cfg.lake_dir, "2026-11-01") / id_rule.SNAPSHOT_RECORD).write_text(record)
+    (snapshot_dir(cfg.lake_dir, "2026-11-01") / id_rule.SNAPSHOT_RECORD).write_text('{"rule": 3}')
     before = sorted(str(p.relative_to(cfg.lake_dir)) for p in cfg.lake_dir.rglob("*") if "locks" not in str(p))
-    assert rb.plan(cfg.lake_dir, None, TODAY)["newer"] == [
-        "the lake snapshot ndjson/2026-11-01 "
-        + ("is of id rule 3" if "3" in record else "has an id-rule record that cannot be read")
-    ]
+    assert rb.plan(cfg.lake_dir, None, TODAY)["newer"] == ["the lake snapshot ndjson/2026-11-01 is of id rule 3"]
     with pytest.raises(rb.Refused, match="Update the box"):
         rb.rebuild(cfg.lake_dir, None, TODAY)
     assert rb.main(["--lake", str(cfg.lake_dir), "--yes"]) == 2
@@ -380,7 +383,6 @@ def test_a_store_or_a_study_a_later_release_stamped_refuses_the_rebuild(
     _tables(db_url)
     with Database.connect(db_url, where) as db:
         if where == "edc":
-            db.execute("CREATE TABLE tb_id_rule_study (study TEXT PRIMARY KEY, rule INTEGER NOT NULL)")
             db.execute("INSERT INTO tb_id_rule_study VALUES ('S9', 3)")
         else:
             db.execute(id_rule.DDL)
@@ -472,3 +474,183 @@ def test_a_month_end_kept_aside_goes_when_retention_no_longer_keeps_it(tmp_path:
     gone = prune_lake(cfg, date(2030, 1, 5))  # past retention: it goes, as any month-end does
     assert "2026-09-30" in gone.gone and list(aside.iterdir()) == []
     assert not (cfg.lake_dir / rb.ASIDE / "db" / "2026-09-30.duckdb").exists()
+
+
+@pytest.mark.parametrize("cut", ["", '{"ru', '{"rule": '], ids=["empty", "cut-key", "cut-value"])
+def test_a_cut_id_rule_record_has_one_instruction_from_the_night_and_the_rebuild(tmp_path: Path, cut: str) -> None:
+    """D-1253 deep review, finding 2: a record that cannot be read (a write cut short) was read as rule 0, so the night
+    said "earlier rule, rebuild" and the rebuild "a later release, update the box". Now the record is written
+    atomically, and one that cannot be read is its own state: the night and the rebuild both refuse, changing
+    nothing, with the same one instruction (move the unfinished snapshot out, run the night again)."""
+    from adapter.pipeline import check_id_rule
+
+    cfg = _old_lake(tmp_path, NIGHTS)
+    for night in NIGHTS:
+        id_rule.write_snapshot_record(snapshot_dir(cfg.lake_dir, night))  # a lake of this rule
+    (snapshot_dir(cfg.lake_dir, "2026-11-01") / id_rule.SNAPSHOT_RECORD).write_text(cut)
+    words = id_rule.unreadable_words(["the lake snapshot 2026-11-01"])
+    with pytest.raises(id_rule.IdRuleError) as at_night:
+        check_id_rule(cfg)
+    assert str(at_night.value) == words and "rebuild" not in words.split("(")[0].lower()
+    assert rb.plan(cfg.lake_dir, None, TODAY)["unreadable"] == ["the lake snapshot ndjson/2026-11-01"]
+    before = sorted(str(p.relative_to(cfg.lake_dir)) for p in cfg.lake_dir.rglob("*") if "locks" not in str(p))
+    with pytest.raises(rb.Refused) as refused:
+        rb.rebuild(cfg.lake_dir, None, TODAY)
+    assert "cannot be read" in str(refused.value) and "Move that folder out of the lake" in str(refused.value)
+    after = sorted(str(p.relative_to(cfg.lake_dir)) for p in cfg.lake_dir.rglob("*") if "locks" not in str(p))
+    assert after == before
+
+
+def test_the_id_rule_record_is_written_whole_or_not_at_all(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-1253 deep review, finding 2: the record goes to a temporary file renamed into place: a write that fails
+    leaves no record at all (never a cut one), and no temporary file is left after a good write."""
+    folder = tmp_path / "snap"
+    folder.mkdir()
+    real = Path.write_text
+
+    def full_disk(self: Path, *a: Any, **k: Any) -> int:
+        real(self, '{"ru', encoding="utf-8")
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(Path, "write_text", full_disk)
+    with pytest.raises(OSError):
+        id_rule.write_snapshot_record(folder)
+    monkeypatch.undo()
+    assert not (folder / id_rule.SNAPSHOT_RECORD).exists()
+    id_rule.write_snapshot_record(folder)
+    assert sorted(p.name for p in folder.iterdir() if p.name != f".{id_rule.SNAPSHOT_RECORD}.tmp") == [
+        id_rule.SNAPSHOT_RECORD
+    ]
+    assert id_rule.snapshot_rule(folder) == id_rule.RULE and not (folder / f".{id_rule.SNAPSHOT_RECORD}.tmp").exists()
+
+
+def _at(monkeypatch: pytest.MonkeyPatch, utc: str) -> None:
+    """The rebuild's clock at the instant ``utc``, whatever the zone it is asked in."""
+    from datetime import datetime as real
+
+    class Clock(real):
+        @classmethod
+        def now(cls, tz: Any = None) -> Any:
+            at = real.fromisoformat(utc)
+            return at.astimezone(tz) if tz is not None else at
+
+    monkeypatch.setattr(rb, "datetime", Clock)
+
+
+def test_a_rebuild_early_on_the_first_keeps_last_months_month_end_by_the_sites_date(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-1253 deep review, finding 3a: at 08:00 on 1 November in Tokyo it is still 31 October at UTC. The rebuild
+    reckons the month by the site's date (``TB_TZ``), as the night and retention do: October is complete, and its
+    month-end is moved aside, never cleared. No ``today`` is passed."""
+    from adapter.pipeline import PASSED
+
+    cfg = _old_lake(tmp_path, ("2026-10-30", "2026-10-31"))
+    for night in ("2026-10-30", "2026-10-31"):
+        (snapshot_dir(cfg.lake_dir, night) / PASSED).write_text("{}")
+    monkeypatch.setenv("TB_TZ", "Asia/Tokyo")
+    _at(monkeypatch, "2026-10-31T23:00:00+00:00")
+    assert rb.site_today() == date(2026, 11, 1)
+    assert rb.plan(cfg.lake_dir, None)["lake"]["moved_aside"] == ["2026-10-31"]
+    rb.rebuild(cfg.lake_dir, None)
+    assert (cfg.lake_dir / rb.ASIDE / "ndjson" / "2026-10-31").is_dir()
+
+
+def test_a_held_last_night_is_not_the_month_end_retention_keeps_the_last_passed_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-1253 deep review, finding 3b: 30 October passed, 31 October was held, 1 November passed. Retention keeps 30
+    October as October's month-end (it counts passed nights only); the rebuild moves that one aside, the same one,
+    and clears the held night. No ``today`` is passed."""
+    from adapter.pipeline import PASSED
+
+    nights = ("2026-10-30", "2026-10-31", "2026-11-01")
+    cfg = _old_lake(tmp_path, nights)
+    for night in ("2026-10-30", "2026-11-01"):
+        (snapshot_dir(cfg.lake_dir, night) / PASSED).write_text("{}")
+    (snapshot_dir(cfg.lake_dir, "2026-10-31") / PASSED).unlink(missing_ok=True)
+    (cfg.lake_dir / "db" / "2026-10-31.duckdb").unlink()  # a held night has no DuckDB
+    monkeypatch.setenv("TB_TZ", "Asia/Tokyo")
+    _at(monkeypatch, "2026-11-19T03:00:00+00:00")
+    assert rb.plan(cfg.lake_dir, None)["lake"]["moved_aside"] == ["2026-10-30"]
+    rb.rebuild(cfg.lake_dir, None)
+    assert sorted(p.name for p in (cfg.lake_dir / rb.ASIDE / "ndjson").iterdir()) == ["2026-10-30"]
+
+
+def test_a_backup_takes_a_month_end_moved_aside_by_the_same_rules_as_before(tmp_path: Path) -> None:
+    """D-1253 deep review, finding 4: the backup's lake rules matched only the top-level ``ndjson/``, ``db/`` and
+    ``parquet/``, so after the rebuild every NDJSON and generation file under ``id_rule_1/`` was copied. A month-end
+    moved aside is taken by the same rules as it was before the move: its NDJSON and older generations left out, its
+    DuckDB file, generation records and Parquet kept."""
+    from tools.trialbox import backup as bk
+
+    cfg = _old_lake(tmp_path, ("2026-09-30", "2026-11-01", "2026-11-02", "2026-11-03"))  # 09-30: an older snapshot
+    _served_month_end(cfg)
+
+    def of_month_end(root: Path) -> tuple[list[str], list[str]]:
+        keep, _ = bk.select_files("lake", root)
+        taken = sorted(r.removeprefix(rb.ASIDE + "/") for r in keep if "2026-09-30" in r)
+        everything = sorted(str(p.relative_to(root)).removeprefix(rb.ASIDE + "/") for p in root.rglob("*")
+                            if p.is_file() and "2026-09-30" in str(p))  # fmt: skip
+        return taken, sorted(set(everything) - set(taken))
+
+    before = of_month_end(cfg.lake_dir)
+    assert any(r.startswith("ndjson/2026-09-30/") and r.endswith(".ndjson") for r in before[1])  # left out before
+    rb.rebuild(cfg.lake_dir, None, TODAY)
+    after = of_month_end(cfg.lake_dir)
+    assert after == before
+
+
+def test_a_box_of_this_rule_throughout_has_nothing_to_do_and_nothing_changes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """D-1253 deep review, finding 5: ``--yes`` on a healthy rule-2 lake cleared what was served and moved rule-2
+    month-ends aside under a README saying rule 1. When no snapshot, store or EDC study is of the earlier rule, the
+    plan and the rebuild say "nothing to do" and change nothing (exit 0)."""
+    cfg = _old_lake(tmp_path, NIGHTS)
+    for night in NIGHTS:
+        id_rule.write_snapshot_record(snapshot_dir(cfg.lake_dir, night))  # a lake of this rule
+        (cfg.lake_dir / "db" / f"{night}.duckdb.id_rule").write_text("2\n")
+    before = sorted(str(p.relative_to(cfg.lake_dir)) for p in cfg.lake_dir.rglob("*") if "locks" not in str(p))
+    assert rb.plan(cfg.lake_dir, None, TODAY)["earlier"] == []
+    assert rb.rebuild(cfg.lake_dir, None, TODAY) == {"nothing_to_do": True, "rule": id_rule.RULE}
+    assert rb.main(["--lake", str(cfg.lake_dir), "--yes"]) == 0
+    assert "nothing to do" in capsys.readouterr().out
+    after = sorted(str(p.relative_to(cfg.lake_dir)) for p in cfg.lake_dir.rglob("*") if "locks" not in str(p))
+    assert after == before and not (cfg.lake_dir / rb.ASIDE).exists()
+
+
+def test_an_edc_store_not_yet_migrated_refuses_the_rebuild(tmp_path: Path, db_url: str) -> None:
+    """D-1253 deep review (low): without ``tb_id_rule_study`` the rebuild would take every study for the earlier rule
+    and stamp none, and EDC's later migration would stamp them rule 1 again. It refuses, as for the derived store:
+    start the services once after the update."""
+    cfg = _old_lake(tmp_path, NIGHTS)
+    _tables(db_url)
+    with Database.connect(db_url, "edc") as db:
+        db.execute("DROP TABLE tb_id_rule_study")
+    with pytest.raises(rb.Refused, match="EDC store is not migrated"):
+        rb.rebuild(cfg.lake_dir, db_url, TODAY)
+    assert (cfg.lake_dir / "CURRENT").exists() and snapshot_dir(cfg.lake_dir, "2026-11-01").is_dir()
+
+
+@pytest.mark.parametrize("cmd", ["run", "backfill"])
+def test_a_night_or_back_fill_from_the_command_line_is_kept_out_by_the_run_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], cmd: str
+) -> None:
+    """D-1253 deep review (low): ``adapter run`` and ``adapter backfill`` in a one-off container took no run lock, so
+    the rebuild (which holds it) could not keep them out. They take it now: while it is held they refuse, reading
+    and writing nothing."""
+    from adapter import cli
+    from adapter.runs import RunLock
+
+    cfg = _old_lake(tmp_path, ("2026-10-01",))
+    monkeypatch.setattr(cli, "build_config", lambda: (cfg, "csv", str(tmp_path / "feed")))
+    ran: list[str] = []
+    monkeypatch.setattr(cli, "run_ingest", lambda *a, **k: ran.append("run"))
+    monkeypatch.setattr("adapter.backfill.backfill", lambda *a, **k: ran.append("backfill"))
+    held = RunLock(cfg.lake_dir)
+    try:
+        assert cli.main([cmd]) == 2
+    finally:
+        held.release()
+    assert ran == [] and "already running" in capsys.readouterr().err

@@ -22,6 +22,9 @@ def _folder(tmp_path: Path, night: str, ids: list[str]) -> Path:
     d.mkdir(parents=True)
     rows = [{"resourceType": "Patient", "id": i} for i in ids]
     (d / "Patient.ndjson").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    from tb_common import id_rule
+
+    id_rule.write_snapshot_record(d)  # D-1253: a snapshot of this release
     return d
 
 
@@ -59,6 +62,9 @@ def test_the_fhir_store_does_not_go_back_to_an_older_night(tmp_path: Path, db_ur
     other = tmp_path / "bundle"
     other.mkdir()
     (other / "Patient.ndjson").write_text(json.dumps({"resourceType": "Patient", "id": "p1"}) + "\n")
+    from tb_common import id_rule
+
+    id_rule.write_snapshot_record(other)  # D-1253: written by this release
     load_fhir.sync_snapshot("http://hapi/fhir", other, tmp_path / "other_ledger")
     assert loaded == [NEW, NEW, "bundle"]
 
