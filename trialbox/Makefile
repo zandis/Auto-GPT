@@ -19,7 +19,7 @@ CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),
 
 
 .PHONY: differential cross-card objects-dir embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure guard test-compose walk bench-gate bench-baseline console-timing e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models fetch-weights selftest canary poc poc-down poc-status rehearse-box runbook-install test-console test-console-e2e site site-preview clean \
-	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle security-contact-check supply-chain release-version release-tag media-linux
+	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates vocab-bundle-check release-bundle security-contact-check supply-chain release-version release-tag media-linux
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
 # Every temporary root of a run derives from TB_TEST_ROOT: one per branch, under TB_SCRATCH (an agent's scratchpad;
@@ -301,7 +301,7 @@ demo:
 
 # the same as one image file for the demo VM (docs/RUNBOOK.md §11): dist/trialbox-demo.tar.gz
 # T-501: the jar the compiler reads FHIRHelpers from comes from jvm-deps (the Dockerfile fetches it on a fresh clone)
-demo-bundle: jvm-deps
+demo-bundle: jvm-deps vocab-bundle-check
 	docker build $(CA_SECRET) -f demo/Dockerfile -t trialbox-demo:step5 .
 	mkdir -p dist && docker save trialbox-demo:step5 | gzip > dist/trialbox-demo.tar.gz
 	@ls -l dist/trialbox-demo.tar.gz
@@ -720,6 +720,13 @@ sc-images: deploy/.env
 	@[ -n "$(SC_LOCAL_IMAGES)" ] || case " $(SC_IMAGES) " in *" registry:"*) ;; \
 		*) echo "sc-images: no third-party images (docker compose config gave none)" >&2; exit 1 ;; esac
 
+# card 22-4 (root review 22): no row of a vocabulary the licence register classes c (must not ship) in a shipped
+# terminology artefact (tables, maps, value sets) or in VOCAB_BUNDLE_PATHS; make_bundle.sh checks what it stages
+# beside the images itself (rule-set zips, reference data packs, the models folder)
+VOCAB_BUNDLE_PATHS ?=
+vocab-bundle-check:
+	PYTHONPATH=libs:services:. $(PY) -m tools.vocab_bundle_check --tree $(VOCAB_BUNDLE_PATHS)
+
 # D-1343 (10G-41, review 21 OT-3): every Dockerfile under trialbox/ is linted by hadolint. HADOLINT_GATING are the
 # three the CI `images` job gates on at warning since D-206 (unchanged); HADOLINT_REPORT are linted report-only
 # (`make hadolint-report`, the CI job's report step: findings in the job summary and artifact, never a failure)
@@ -757,7 +764,7 @@ hadolint-report:
 # inside it with release.json. BUNDLE_ARGS="--key ... --id ... --release-seq N --out ..."
 # 10G-9 (D-1239): no release bundle while the public security contact (deploy/security/contact.json) is not set; a
 # --rehearsal or --allow-dirty bundle, which is no release, passes with a warning
-release-bundle: security-contact-check release-gates
+release-bundle: security-contact-check release-gates vocab-bundle-check
 	tools/make_bundle.sh --gates $(SC_DIR)/gates.json --sbom-dir dist/sbom $(BUNDLE_ARGS)
 
 # OPS-006 (D-966): the offline media of a bare Ubuntu box from a signed bundle and the packages of
