@@ -568,6 +568,25 @@ def test_the_cap_ends_the_steps_and_cleans_up_without_powering_anything_off(rig:
     rig.assert_nothing_forbidden_and_others_untouched()
 
 
+def test_the_stop_line_interrupts_the_runs_measure_and_no_other_process_of_that_name(rig: Rig) -> None:
+    """The stop line 64 minutes in, a second counted as 150: the ladder starts in time, then the hang reaches the
+    line. Another user's process whose command line matches the measure's pattern is not the run's: untouched."""
+    decoy = subprocess.Popen(["bash", "-c", "exec -a 'their ballast48 measure --option x' sleep 300"])
+    try:
+        r = rig.go("run", M48_HANG="pair-32k", TB_M48_LINE_MIN="64", TB_M48_TIME_SCALE="150")
+        alive = decoy.poll() is None
+    finally:
+        decoy.kill()
+        subprocess.run(["pkill", "-f", str(rig.bin / "standin")], check=False)
+    assert r.returncode == 1, r.stdout[-2000:]
+    assert "the stop line (64 min): SIGINT" in (rig.out / "host.log").read_text()
+    rec = json.loads((rig.out / "records/tb-dgpu48-pair-32k/measure.pair-32k.json").read_text())
+    assert rec["interrupted"] is True
+    assert alive, "the stop line's SIGINT reached a process that is not the run's"
+    assert rig.box_objects() == []
+    rig.assert_nothing_forbidden_and_others_untouched()
+
+
 def test_with_pull_a_missing_engine_image_is_pulled_at_s06(rig: Rig) -> None:
     rig.dock(images=["someone/else:1"])
     r = rig.go("run", "--pull")  # without --pull the preflight refuses it (above): nothing is pulled unasked

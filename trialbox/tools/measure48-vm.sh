@@ -93,9 +93,10 @@ watched() {  # watched <command...>: its output to the step's log; at the stop l
       # SIGINT to the tool itself (STOP_TARGET: lane J's measure, the screen), not to the shells around it (a
       # background shell ignores it) nor to the docker commands it runs (its own cleanup needs them)
       STOPLINE=1
-      if [ -n "${STOP_TARGET:-}" ]; then target=$(pgrep -f -- "$STOP_TARGET"); else target="$pid $(descendants "$pid")"; fi
-      # a shared host: only this run's own processes, never another user's of the same name
-      [ -z "${OWN_ONLY:-}" ] || target=$(descendants "$pid" | grep -Fx -e "${target:-x}" | tr '\n' ' ')
+      # STOP_TARGET: the tool among the step's own processes only, never another of that name (a shared host, or
+      # rehearsals side by side)
+      if [ -n "${STOP_TARGET:-}" ]; then target=$(descendants "$pid" | grep -Fx -e "$(pgrep -f -- "$STOP_TARGET")" | tr '\n' ' ')
+      else target="$pid $(descendants "$pid")"; fi
       say "the stop line ($LINE_MIN min): SIGINT to the step's command ($STEP)"
       # shellcheck disable=SC2086  # a list of pids
       kill -INT ${target:-$pid} 2>/dev/null
