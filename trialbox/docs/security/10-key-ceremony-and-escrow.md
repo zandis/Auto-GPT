@@ -134,4 +134,9 @@ never the box's key, until IT wipes that stick** (its record on the box stays to
 finish a run is wiped by IT too, and the command is run with an empty stick. Then unmount the stick, print the sheet
 from the stick on a printer that keeps no copy of the job (not through this host's print spool), and seal both in
 hospital IT's envelope. To restore from the paper alone, type only the letters between the two bars of each numbered
-line, one line per line, into a file and give that file to `restore --key` (the sheet says the same).
+line, one line per line, into a file and give that file to `restore --key` (the sheet says the same). Each file is
+written under a hidden temporary name (`.<name>.<random>.part`) and renamed; a run cut short can leave such a file on
+the stick: it is never removed or read again, and goes with the stick. The stick must be one plain removable device
+(no btrfs, LVM, LUKS or md on it). The journal is asked only through this host's own Docker socket, whatever Docker
+context the shell has. The command refuses before making the key when swap is on and its memory cannot be locked:
+run it as root (which may lock memory) or turn swap off first.

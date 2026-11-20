@@ -29,16 +29,22 @@
 - **Decision:** one host command, `python -m tools.backup_key_ceremony --stick <mounted folder> --operator "<name>"
   --witness "<name>" [--lang ja|zh-TW]` (`tools/backup_key_ceremony.py`), as root, one run at a time (an exclusive
   `flock` on the public key's folder for the whole run), in four steps:
-  1. **the stick:** with no key file on the stick (or an empty one left by a run cut short) and no sheet, the key file
-     is made empty and checked, the X25519 key pair is made in memory (as `trialbox backup-keygen` makes it, D-126),
+  1. **the stick:** with no key file and no sheet on the stick, a temporary file `.trialbox-backup.key.<random>.part`
+     is made (`O_EXCL`) and checked while empty, the X25519 key pair is made in memory (as `trialbox backup-keygen` makes it, D-126),
      and its **record** is written on the box: `deploy/secrets/backup-ceremony-<fingerprint>.pending` (fingerprint,
      public key, time; mode 0644; `O_EXCL`; synced; never removed). Then the key file (the `backup-keygen` format;
      `restore --key` reads it) and the sheet `trialbox-backup-key-paper.txt` (a head in en, ja and zh-TW that says how
      to restore from paper, the site, the date, the fingerprint, the key in lines of four four-letter groups between
-     two bars, each line followed by four check letters, format `tb-backup-paper/1`) are written, each synced and read
-     back from the same descriptor with its cached pages dropped first (`posix_fadvise DONTNEED`); then the folder is
-     synced. A whole key file already on the stick is taken up again **only when the box holds its record** (a run of
-     this box cut short); any other key file, and a sheet without a key file, is refused before a key is made;
+     two bars, each line followed by four check letters, format `tb-backup-paper/1`) are each written into a temporary
+     name beside the final one, synced, read back from the same descriptor with its cached pages dropped first
+     (`posix_fadvise DONTNEED`), and only then renamed to the final name; then the folder is synced. So a final name
+     never holds part of a file (review of 36c97bd1, H-4). A temporary file a run cut short left (by a kill or a power
+     cut) **stays on the stick: it is never removed and never read again**, and a rerun writes a new one; it may hold
+     part or all of a key that never became the box's key, and goes with the stick, which IT keeps sealed or wipes.
+     (We chose to leave it rather than refuse a stick that holds one: refusing would stop the same-stick rerun the
+     owner's first condition asks for.) A whole key file already on the stick is taken up again **only when the box
+     holds its record** (a run of this box cut short), and it and the sheet are **synced again on every rerun** (H-3);
+     any other key file, and a sheet without a key file, is refused before a key is made;
   2. **read back:** both files are opened again by name through the folder held open, their cached pages dropped
      first; each must be the inode written (and the bytes written in this run); the key file's key, the sheet's key
      (every line's check letters, the order and the fingerprint) and the key must be one, and the sheet's site this
@@ -47,8 +53,11 @@
      `audit.head_signed` (`tools/trialbox/audit_heads.py`, `docker compose exec -T orchestrator python -c ...`). The
      code run there refuses unless the orchestrator's writer is the journal (`DbAuditWriter`), and prints the number
      the journal gave the event (`journal.seq`, which only a stored row has); step 4 runs only after a positive number
-     came back. The command line is fixed in the tool (`docker compose --project-directory deploy`): `TB_COMPOSE`,
-     the environment and `deploy/.env` cannot replace it. Root writes nothing in the audit folder and forks no helper;
+     came back. The command line is fixed in the tool (`docker -H unix:///var/run/docker.sock compose
+     --project-directory deploy`), the socket must be root's, and the call gets an environment with no `DOCKER_*` or
+     `COMPOSE_*` setting but the local socket and an empty, temporary Docker config folder (removed after the call;
+     it never holds anything of the key): a Docker context, host, TLS setting or `TB_COMPOSE` naming another box's
+     journal cannot be used (H-1). Root writes nothing in the audit folder and forks no helper;
   4. **backup.pub, last:** written whole, mode 0644 whatever the umask, and synced in an unnamed file of the fixed
      folder (`O_TMPFILE`), then given its name by a link, which fails when the name exists (the effect of `O_EXCL`; a
      reader never sees it half written); the folder is synced and the file read back.
@@ -58,8 +67,8 @@
     that is a link, another account's, or writable by others without the sticky bit; another run going on; `backup.pub`
     there (condition 2: "refused: the ceremony is done already", with its fingerprint); a folder whose filesystem
     cannot make an `O_TMPFILE` (step 4 needs it; found here, not after the journal); no orchestrator journal
-    (condition 3: the orchestrator not answering, writing the audit itself, or **its journal's database not answering
-    one connection**); no stick at the folder; a folder that is not on a removable stick of its own (H2, below); a
+    (condition 3: the orchestrator not answering, writing the audit itself, **its journal's database not answering one
+    connection, or that database not holding the journal's `audit.append` this role may call** (M-6)); no stick at the folder; a folder that is not on a removable stick of its own (H2, below); a
     stick folder that is another account's or writable by others (a FAT stick is mounted
     `-o uid=0,gid=0,umask=077,nodev,nosuid,noexec`).
   - **The stick is hostile.** Every name on it is opened through the folder held open (`dir_fd`), never through a
@@ -69,13 +78,18 @@
     file the filesystem shows wider is refused before any key exists; a key file that holds the key and is shown
     wider is refused saying the key may be read by others and to unmount at once.
   - **H1:** the first statement of `main()` makes the process not dumpable (`prctl(PR_SET_DUMPABLE, 0)`, which also
-    stops a piped core handler) and sets `RLIMIT_CORE` to 0, before any key exists.
+    stops a piped core handler), sets `RLIMIT_CORE` to 0, and locks its memory now and later
+    (`mlockall(MCL_CURRENT | MCL_FUTURE)`), before any key exists. When the lock is not granted the command goes on
+    only if no swap area is in use (`/proc/swaps`; an unreadable list counts as swap on), and otherwise refuses with
+    nothing written, in all three languages (H-5).
   - **H2: whole disks, not filesystem ids.** The stick's device and the devices of `/` and of the public key's folder
     are each resolved to their whole disks through `/sys/dev/block/<major>:<minor>`: a partition to its parent disk, a
     mapped device (LVM, LUKS, RAID) through its `slaves`; an anonymous device only through an absolute `/dev/` source
-    of its mount that is a block node, never a `fuse.*` filesystem (`fuseblk` is). The stick is refused unless its
-    disks are known, removable (`removable` 1, or on USB), share no disk with the box's folders, and **hold no other
-    mounted filesystem** (a USB backup disk is not a stick). `tools/key_escrow.py` is not changed.
+    of its mount that is a block node, never a `fuse.*` filesystem (`fuseblk` is). **The stick must be one block
+    device** (H-2): not an anonymous device (btrfs, which can mirror onto an internal disk whatever member mountinfo
+    names; FUSE; a network share), not a mapped device (no `slaves`) and not a member of one (no `holders`: md, LVM,
+    LUKS); its one whole disk known, removable (`removable` 1, or on USB), sharing no disk with the box's folders, and
+    **holding no other mounted filesystem** (a USB backup disk is not a stick). `tools/key_escrow.py` is not changed.
   - **M6:** a folder sync that fails stops the step, whatever the error, `EINVAL` and `ENOTSUP` included.
   - **M8:** the test's leak scan finds the key in any grouping.
 - **Every end state, and what is said** (each text in en, ja and zh-TW; exit 0 only for "done"):
@@ -83,8 +97,8 @@
   | Stopped | What is on the stick / the box | Said | The same command again with the same stick |
   | --- | --- | --- | --- |
   | a refusal before step 1 | nothing written | the reason, "nothing was written" | the same refusal until it is fixed |
-  | after the record, before the key file is written | an empty key file; the record | (killed) or "stopped at step 1" | a new key and a second record (the first key never left memory) |
-  | in step 1, the key file written | the key file, perhaps the sheet; the record | "stopped at step 1 of 4 (errno) ... run the same command again with the same stick" | takes the key up (its record is here) and finishes |
+  | after the record, before the key file is renamed | a temporary file (empty, or holding part or all of the key); the record | (killed) or "stopped at step 1" | a new key, a second record and a new temporary file; the old one stays, never the box's key |
+  | in step 1, the key file renamed | the key file, perhaps the sheet or a temporary sheet; the record | "stopped at step 1 of 4 (errno) ... run the same command again with the same stick" | takes the key up (its record is here), syncs it again and finishes |
   | in or after step 2 | both files | as step 1, "step 2" | finishes |
   | in step 3 | both files; the event perhaps journalled | "the journal did not confirm the event (it may hold it or not)" | records the event again and finishes |
   | in step 4 before the link | both files, the event | "stopped at step 4 ... backup.pub was not made" | records again and finishes |
@@ -106,8 +120,8 @@
   the stick's key file and sheet were read back equal to that key; and no private key byte appears in the journal,
   stdout/stderr, or any file off the stick" (also: the box holds that key's record). It is asserted by
   `tests/unit/test_backup_key_ceremony.py::test_invariant_backup_pub_only_after_journal_and_read_back_across_every_stop_point`:
-  the command in a process of its own is killed with SIGKILL right after each stop point (the record, the key file
-  written, step 1, step 2, step 3, the link of step 4), or stopped by a failing journal (the container answers
+  the command in a process of its own is killed with SIGKILL right after each stop point (the record, the key's
+  temporary file written, its rename, the sheet's temporary file written, step 1, step 2, step 3, the link of step 4), or stopped by a failing journal (the container answers
   non-zero, the journal raises inside `append`, or a no-op answers success and stores nothing); the invariant is
   checked in that state, the same command is run again with the same stick, the invariant checked again, and a third
   run refused. A tool whose journal code swallowed a failed append and still claimed a number fails it.
@@ -119,19 +133,26 @@
   hand); a printer; a console page; a rotation (security document 10 §6).
 - **Not protected against (limits, stated):** the witness is a typed name: nothing proves a second person was there
   (the printed ceremony record of `tools.keys ceremony-record`, signed by hand, remains the evidence); the private
-  key is a Python `bytes`, not locked in memory (`mlock`) and not wiped: it can reach swap while the step that made it
-  runs, in a process that is not dumpable; printing the sheet through the host's print spool (CUPS) can leave a copy
+  key is a Python `bytes`, not wiped: it lives in locked memory (or with no swap on) until the step that made it
+  returns, in a process that is not dumpable; printing the sheet through the host's print spool (CUPS) can leave a copy
   there: §7 says to print from the stick on a printer that keeps no copy; `posix_fadvise` is a request: a filesystem
   may still serve the read-back from its cache, and a stick with a lying controller is not detected; a key file torn
   by a power cut while it is written makes that stick unable to finish (refused, as above); `deploy/secrets` must be
   on a filesystem with `O_TMPFILE` (ext4, xfs, btrfs, tmpfs); a root-on-ZFS host cannot tell its system disk and
-  refuses every stick (availability only); root can always bypass the tool. The tests used no real stick, `/sys`,
+  refuses every stick (availability only), and so does a btrfs or LUKS stick; root can always bypass the tool. The tests used no real stick, `/sys`,
   orchestrator or journal.
 - **Open follow-ups (a later docs card):** the install and the other runbooks still name `trialbox backup-keygen` for
   the one-time key (`deploy/install.sh`, runbook 05, runbook 01 step 9, runbook 25, §1 and §4 step 1 of
   `docs/security/10-key-ceremony-and-escrow.md`); its §7 describes this command; nothing at backup time compares
   `backup.pub` with the journal.
-- **Held by:** `tests/unit/test_backup_key_ceremony.py` (as root and as another user): the invariant test above; the
+- **Held by:** `tests/unit/test_backup_key_ceremony.py` (as root and as another user): the invariant test above
+  (stop points also after the key's temporary file is written, after its rename, and after the sheet's temporary
+  file is written); the review of 36c97bd1: `test_h_1_the_journal_is_asked_on_the_local_socket_whatever_docker_context_is_set`,
+  `test_h_2_a_stick_that_is_not_one_removable_block_device_is_refused`,
+  `test_h_3_a_rerun_syncs_the_files_a_run_cut_short_left`,
+  `test_h_4_a_write_cut_short_never_leaves_part_of_a_file_at_its_final_name`,
+  `test_h_5_no_key_is_made_while_swap_is_on_and_memory_cannot_be_locked`, `[journal-without-schema]` and
+  `[socket-not-roots]` among the refusals, `test_m_7_a_key_file_restore_would_reject_is_never_taken`; the
   whole run (the key file read by `backup.load_private`, the event's fields, the closing text with the journal number,
   the record and `backup.pub` 0644 under umask 077, `TB_COMPOSE=true` in the environment ignored); the paper sheet
   typed as it says gives the key to master's `backup.load_private`; H1 (a spy on the key's making sees not dumpable

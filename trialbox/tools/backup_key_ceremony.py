@@ -24,8 +24,11 @@ box's key, until IT wipes it; its record stays too. One run at a time (a lock on
 box whose orchestrator journal does not answer, and the public key's folder is fixed (``deploy/secrets`` of this
 checkout) and must be root's alone, as every folder above it. Every file on the stick is opened through the stick's
 folder held open, never through a link, and must be a plain file of root's alone, one name, on that folder's
-filesystem. The process is made not dumpable and without a core before any key exists; no key byte is put in an
-argument, the environment, an exception, a log or the journal.
+filesystem, which must be one removable block device; each is written under a temporary name and renamed, so a final
+name never holds part of a file (a temporary file a run cut short left stays, and is never read again). The journal
+is asked through the local Docker socket only, whatever context or host the environment names. The process is made
+not dumpable, without a core, and its memory locked (or else no swap may be on) before any key exists; no key byte is
+put in an argument, the environment, an exception, a log or the journal.
 """
 
 from __future__ import annotations
@@ -39,9 +42,11 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import stat
 import subprocess
 import sys
+import tempfile
 import unicodedata
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
@@ -61,6 +66,8 @@ DEPLOY = Path(__file__).resolve().parents[1] / "deploy"
 PUB_DIR = DEPLOY / "secrets"  # fixed (owner's condition 4): no option names another folder
 SYS = Path("/sys")
 MOUNTINFO = Path("/proc/self/mountinfo")
+SWAPS = Path("/proc/swaps")
+DOCKER_SOCK = "/var/run/docker.sock"  # the local daemon only (H-1 of the integrator's review of 36c97bd1)
 JOURNAL_WAIT_S = 120  # one `docker compose exec`: a hung daemon stops the step instead of the run hanging
 MAX_FILE = 16384  # a key file or a sheet is far smaller; a planted larger file is refused, never read whole
 
@@ -256,6 +263,16 @@ DONE = {
     "（退出）隨身碟、列印紙本，並將隨身碟與紙本放入醫院資訊人員的信封密封。若先前的執行在另一個隨身碟上中途停止，"
     "該隨身碟上的金鑰從未成為主機的金鑰：它會留在那裡直到資訊人員抹除該隨身碟",
 }
+HARDEN_FAILED = {
+    "en": "refused: this process could not be made safe to hold the key (not dumpable, no core file, and its memory "
+    "locked or no swap in use): nothing was written; turn swap off (swapoff -a) or let root lock memory, then run "
+    "again",
+    "ja": "拒否：このプロセスを鍵を扱える状態にできませんでした（ダンプ不可、コアファイルなし、メモリのロックまたは"
+    "スワップ未使用）。何も書いていません。スワップを止める（swapoff -a）か root がメモリをロックできるようにしてから、"
+    "もう一度実行してください",
+    "zh-TW": "已拒絕：無法讓此程序處於可安全持有金鑰的狀態（不可傾印、無核心檔，且記憶體已鎖定或未使用置換空間）："
+    "未寫入任何內容；請關閉置換空間（swapoff -a）或允許 root 鎖定記憶體，然後再執行",
+}
 UNEXPECTED = {
     "en": "stopped on an unexpected error ({kind}): nothing is undone and nothing is deleted. Run the same command "
     "again with the same stick",
@@ -351,6 +368,8 @@ def read_key(data: bytes) -> bytes | None:
     lines = data.decode("ascii", "replace").splitlines()
     if len(lines) != 4 or lines[0] != f"-----BEGIN {KEY_HEADER}-----" or lines[3] != f"-----END {KEY_HEADER}-----":
         return None
+    if not lines[2].startswith("fingerprint "):  # restore --key skips only lines that start so
+        return None
     fp = lines[2].removeprefix("fingerprint ")
     return _decoded("".join(lines[1].split()), fp) if re.fullmatch(r"[A-Z2-7 ]+", lines[1]) else None
 
@@ -374,7 +393,8 @@ def read_sheet(data: bytes) -> tuple[bytes, str] | None:
 
 # ------------------------------------------------------------------------------------------------ the checks
 def harden() -> None:
-    """H1: not dumpable (a piped core handler ignores RLIMIT_CORE) and no core, before any key exists."""
+    """H1: not dumpable (a piped core handler ignores RLIMIT_CORE) and no core; and the memory locked (mlockall, now
+    and later), or else no swap on: before any key exists, so no key byte can reach a core file or the swap."""
     import ctypes
     import resource
 
@@ -382,6 +402,22 @@ def harden() -> None:
     libc = ctypes.CDLL(None, use_errno=True)
     if libc.prctl(4, 0, 0, 0, 0) != 0 or libc.prctl(3, 0, 0, 0, 0) != 0:  # PR_SET_DUMPABLE 0; PR_GET_DUMPABLE is 0
         raise OSError(errno.EPERM, "not dumpable")
+    if not _lock_memory() and _swap_on():
+        raise OSError(errno.ENOMEM, "memory not locked and swap on")
+
+
+def _lock_memory() -> bool:
+    import ctypes
+
+    return int(ctypes.CDLL(None, use_errno=True).mlockall(3)) == 0  # MCL_CURRENT | MCL_FUTURE
+
+
+def _swap_on() -> bool:
+    """Any swap area in use (an unreadable list counts as swap on)."""
+    try:
+        return len(SWAPS.read_text(encoding="utf-8").strip().splitlines()) > 1
+    except OSError:
+        return True
 
 
 def is_root() -> bool:
@@ -458,11 +494,25 @@ def _removable(disk: str) -> bool:
 
 
 def stick_problem(stick_dev: int, box_devs: Sequence[int]) -> bool:
-    """Whether a folder on ``stick_dev`` may not take the key: its whole disks must be known and removable, and hold
-    no other mounted filesystem (the box's backup disk on USB is not a stick) and none of the box's folders
+    """Whether a folder on ``stick_dev`` may not take the key: it must be one block device (a disk or a partition of
+    one, neither mapped nor a member of a mapped device), its one whole disk known and removable, holding no other
+    mounted filesystem (the box's backup disk on USB is not a stick) and none of the box's folders
     (``box_devs``: the system and the public key's folder)."""
+    if os.major(stick_dev) == 0:  # no single block device (btrfs, which may span disks, FUSE, a network share)
+        return True
+    try:
+        node = (SYS / "dev" / "block" / f"{os.major(stick_dev)}:{os.minor(stick_dev)}").resolve(strict=True)
+        spans = any((node / d).is_dir() and any((node / d).iterdir()) for d in ("slaves", "holders"))
+    except OSError:
+        return True
+    if spans:  # a mapped device (LVM, LUKS, md) or a member of one: more than one device, or another use of it
+        return True
     mine = whole_disks(stick_dev)
-    if not mine or not all(_removable(d) for d in mine) or any(not (b := whole_disks(d)) or b & mine for d in box_devs):
+    if (
+        len(mine) != 1
+        or not all(_removable(d) for d in mine)
+        or any(not (b := whole_disks(d)) or b & mine for d in box_devs)
+    ):
         return True
     others = {os.makedev(int(a), int(b)) for a, b in (mm.split(":") for mm, _, _ in _mounts())} - {stick_dev}
     return any(whole_disks(d) & mine for d in others)
@@ -494,26 +544,49 @@ def _env() -> dict[str, str]:
 
 
 # ------------------------------------------------------------------------------------------------ the journal (step 3)
+#: the journal's one way in exists and this role may call it (a database without the audit schema is no journal)
+HAS_APPEND = (
+    "SELECT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+    "WHERE n.nspname = 'audit' AND p.proname = 'append' AND has_function_privilege(p.oid, 'EXECUTE'))"
+)
 #: run in the orchestrator's container, as audit_heads records ``audit.head_signed``: refuses a file-mode writer;
 #: ``check`` opens one connection to the journal's database; ``record`` prints the journal's number for the event
 JOURNAL_CODE = (
     "import json, sys\nfrom tb_common.audit_writer import DbAuditWriter, _psycopg, open_audit\nw = open_audit()\n"
+    f"HAS_APPEND = {HAS_APPEND!r}\n"
     "if not isinstance(w, DbAuditWriter):\n    sys.exit(3)\n"
     "if sys.argv[1:2] == ['record']:\n"
     "    rec = w.append(sys.argv[2], actor=sys.argv[3], detail=json.loads(sys.argv[4]))\n"
     "    print('journal', int(rec['journal']['seq']))\n"
-    "else:\n    _psycopg().connect(w._dsn, connect_timeout=10).close()\n    print('journal ok')\n"
+    "else:\n    con = _psycopg().connect(w._dsn, connect_timeout=10)\n"
+    "    ok = con.execute(HAS_APPEND).fetchone()[0]\n    con.close()\n    print('journal ok' if ok else 'no journal')\n"
 )
 #: the command that reaches the orchestrator: fixed, never taken from the environment or deploy/.env (tests set it)
 COMPOSE: list[str] | None = None
 
 
+def _docker_env(config: str) -> dict[str, str]:
+    """The environment of the call: this process's, without any Docker or Compose setting (a context, a host, TLS, a
+    config naming another box), the local daemon's socket named, and an empty Docker config folder."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("DOCKER_", "COMPOSE_"))}
+    return {**env, "DOCKER_HOST": f"unix://{DOCKER_SOCK}", "DOCKER_CONFIG": config}
+
+
+def local_compose() -> list[str]:
+    """``docker compose`` of this box's deploy folder, on the local daemon's socket named on the command line."""
+    return ["docker", "-H", f"unix://{DOCKER_SOCK}", "compose", "--project-directory", str(DEPLOY)]
+
+
 def _journal(*args: str) -> str:
-    """What the orchestrator printed (its last line), or "" when it failed, timed out or could not be started."""
-    compose = COMPOSE or ["docker", "compose", "--project-directory", str(DEPLOY)]
-    argv = [*compose, "exec", "-T", "orchestrator", "python", "-c", JOURNAL_CODE, *args]
+    """What the orchestrator printed (its last line), or "" when it failed, timed out or could not be started. Only
+    the local daemon is asked (its socket root's), never a context or host the environment names."""
+    argv = [*(COMPOSE or local_compose()), "exec", "-T", "orchestrator", "python", "-c", JOURNAL_CODE, *args]
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=JOURNAL_WAIT_S, check=False)
+        if COMPOSE is None and not ((st := os.stat(DOCKER_SOCK)) and stat.S_ISSOCK(st.st_mode) and st.st_uid == 0):
+            return ""
+        with tempfile.TemporaryDirectory(prefix="tb-ceremony-docker-") as config:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=JOURNAL_WAIT_S, check=False,
+                               env=_docker_env(config))  # fmt: skip
     except (OSError, subprocess.TimeoutExpired):
         return ""
     lines = r.stdout.strip().splitlines()
@@ -575,16 +648,17 @@ def _open_on_stick(dfd: int, name: str, create: bool) -> int:
         raise
 
 
-def _claim(dfd: int, name: str, dev: int, path: Path) -> None:
-    """``name`` made empty on the stick (or the empty file a run cut short left) and checked as :func:`_safe`."""
-    try:
-        fd = _open_on_stick(dfd, name, create=True)
-    except FileExistsError:
-        fd = _open_on_stick(dfd, name, create=False)
+def _temp(dfd: int, name: str, dev: int, path: Path) -> tuple[int, str]:
+    """A new temporary name beside ``name`` (``.<name>.<random>.part``, O_EXCL), checked as :func:`_safe` while it
+    is empty; returns its descriptor and the name. A run cut short leaves it: never removed, never read again."""
+    tmp = f".{name}.{secrets.token_hex(4)}.part"
+    fd = _open_on_stick(dfd, tmp, create=True)
     try:
         _safe(fd, dev, name, path)
-    finally:
+    except BaseException:
         os.close(fd)
+        raise
+    return fd, tmp
 
 
 def _read(fd: int) -> bytes:
@@ -593,24 +667,41 @@ def _read(fd: int) -> bytes:
     return os.pread(fd, MAX_FILE + 1, 0)
 
 
+def _write_temp(fd: int, data: bytes, name: str) -> int:
+    """``data`` written whole into the temporary file, synced, and read back from the same descriptor; its inode."""
+    done = 0
+    while done < len(data):
+        done += os.write(fd, data[done:])
+    os.fsync(fd)
+    if _read(fd) != data:  # read back from the same descriptor
+        raise Stop(STICK_FAULTY, name=name)
+    return os.fstat(fd).st_ino
+
+
+def _rename_into(dfd: int, tmp: str, name: str) -> None:
+    """The temporary file given its final name (one rename in the folder held open; the folder lock keeps the name
+    free): a final name never holds a part of a file."""
+    os.rename(tmp, name, src_dir_fd=dfd, dst_dir_fd=dfd)
+
+
 def _put(dfd: int, name: str, dev: int, path: Path, make: Any) -> tuple[int, bytes | None]:
-    """Make ``name`` new on the stick and write ``make()`` into it; a name already there (a run cut short) is kept as
-    it is, unless it is empty (then it is written now). Returns the inode and what this run wrote."""
-    try:
-        fd, new = _open_on_stick(dfd, name, create=True), True
-    except FileExistsError:
-        fd, new = _open_on_stick(dfd, name, create=False), False
+    """``name`` written as ``make()`` by way of a temporary name, when it is not there; a name already there (a run
+    cut short after its rename) is kept as it is, and synced again on this run. Returns the inode and what this run
+    wrote."""
+    if _size(dfd, name) is None:
+        fd, tmp = _temp(dfd, name, dev, path)
+        try:
+            data = make()
+            ino = _write_temp(fd, data, name)
+        finally:
+            os.close(fd)
+        _rename_into(dfd, tmp, name)
+        return ino, data
+    fd = _open_on_stick(dfd, name, create=False)
     try:
         st = _safe(fd, dev, name, path)
-        if not new and st.st_size > 0:
-            return st.st_ino, None
-        data, done = make(), 0
-        while done < len(data):
-            done += os.write(fd, data[done:])
-        os.fsync(fd)
-        if _read(fd) != data:  # read back from the same descriptor
-            raise Stop(STICK_FAULTY, name=name)
-        return st.st_ino, data
+        os.fsync(fd)  # a rerun never trusts the cache of a run cut short
+        return st.st_ino, None
     finally:
         os.close(fd)
 
@@ -740,23 +831,31 @@ def run(stick: Path, operator: str | None, witness: str | None, env: Mapping[str
 
 
 def _on_stick(sfd: int, pfd: int, dev: int, stick: Path, site: str, step: list[int]) -> bytes:
-    """Steps 1 and 2; returns the public key. Step 1: a stick with no key file (or an empty one) and no sheet gets a
-    new key, recorded on the box first; a whole key file is taken up again only when the box holds its record. Then
-    the sheet from that key. Step 2: both read back through the folder held open: one key, of this box's site."""
-    if not _size(sfd, KEY_FILE):
-        if _size(sfd, PAPER_FILE):
+    """Steps 1 and 2; returns the public key. Step 1: a stick with no key file and no sheet gets a new key, recorded
+    on the box first and written by way of a temporary name; a whole key file is taken up again (and synced again)
+    only when the box holds its record. Then the sheet from that key, the same way. Step 2: both read back through the
+    folder held open: one key, of this box's site."""
+    k_wrote: bytes | None = None
+    if _size(sfd, KEY_FILE) is None:
+        if _size(sfd, PAPER_FILE) is not None:
             raise Stop(STICK_FOREIGN, name=PAPER_FILE, path=PUB_DIR)
-        _claim(sfd, KEY_FILE, dev, stick)  # an empty key file, checked before any key exists
-        key = new_key()
-        _pending(pfd, public_of(key))
+        fd, tmp = _temp(sfd, KEY_FILE, dev, stick)  # checked before any key exists
+        try:
+            key = new_key()
+            _pending(pfd, public_of(key))
+            text = key_text(key)
+            k_ino, k_wrote = _write_temp(fd, text, KEY_FILE), text
+        finally:
+            os.close(fd)
+        _rename_into(sfd, tmp, KEY_FILE)
     else:
-        found = read_key(_read_back(sfd, KEY_FILE, dev, stick, None))
+        k_ino = _put(sfd, KEY_FILE, dev, stick, None)[0]  # synced again; read below
+        found = read_key(_read_back(sfd, KEY_FILE, dev, stick, k_ino))
         if found is None:
             raise Stop(STICK_BROKEN, name=KEY_FILE)
         if not _exists(pfd, pending_name(fingerprint(public_of(found)))):
             raise Stop(STICK_FOREIGN, name=KEY_FILE, path=PUB_DIR)
         key = found
-    k_ino, k_wrote = _put(sfd, KEY_FILE, dev, stick, functools.partial(key_text, key))
     sheet_of = functools.partial(paper_sheet, key, site, datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"))
     p_ino, p_wrote = _put(sfd, PAPER_FILE, dev, stick, sheet_of)
     _sync_dir(sfd, 1)
@@ -804,8 +903,8 @@ def _steps(sfd: int, pfd: int, stick: Path, who: str, wit: str, env: Mapping[str
 def main(argv: Sequence[str] | None = None) -> int:
     try:
         harden()  # H1: first, before any key material exists
-    except OSError:
-        print(UNEXPECTED["en"].format(kind="prctl"), file=sys.stderr)
+    except OSError:  # the language is not known yet: all three
+        print("\n".join(HARDEN_FAILED[lg] for lg in LANGS), file=sys.stderr)
         return 1
     ap = argparse.ArgumentParser(prog="python -m tools.backup_key_ceremony", description=__doc__.split("\n")[0])
     ap.add_argument("--stick", required=True, help="the mounted folder of the removable stick")
