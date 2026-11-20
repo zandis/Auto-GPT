@@ -434,20 +434,66 @@ class ResourceSpec:
     #: <col>}}`` names, or ``id.patient``): the patient part of its ``hid`` id and of its references by number
     patient: str | None = None
 
+    #: When the mapping already supplies a pseudonym, read that reference without hashing the pid again.
+    patient_reference: dict[str, Any] | None = None
 
-def _patient_columns(x: Any) -> set[str]:
-    """The columns a resource's elements name its patient by (``{ref: {type: Patient, pid: <col>}}``)."""
-    found: set[str] = set()
-    if isinstance(x, dict):
-        ref = x.get("ref")
-        if isinstance(ref, dict) and ref.get("type") == "Patient" and isinstance(ref.get("pid"), str):
-            found.add(ref["pid"])
-        for v in x.values():
-            found |= _patient_columns(v)
-    elif isinstance(x, list):
-        for v in x:
-            found |= _patient_columns(v)
-    return found
+
+def _references_patient(node: Any) -> bool:
+    if isinstance(node, dict):
+        ref = node.get("reference")
+        return (isinstance(ref, str) and ref.startswith("Patient/")) or any(
+            _references_patient(v) for v in node.values()
+        )
+    if isinstance(node, list):
+        return any(_references_patient(v) for v in node)
+    return False
+
+
+def _patient_columns(r: ResourceSpec, resources: list[ResourceSpec]) -> dict[str, dict[str, Any] | None]:
+    """The owner columns the mapping names, and how to read each one's Patient reference."""
+    named: dict[str, dict[str, Any] | None] = {}
+    for path, expr in r.elements.items():
+        if not isinstance(expr, dict) or (not path.endswith(".reference") and "ref" not in expr):
+            continue
+        ref = expr.get("ref")
+        template = expr.get("template")
+        column = expr.get("column")
+        owner_path = path in {"subject.reference", "patient.reference", "beneficiary.reference"} or (
+            r.type == "Appointment" and path.endswith(".actor.reference")
+        )
+        if "const" in expr or "builder" in expr:
+            continue
+        if isinstance(column, str):
+            if owner_path:
+                named[column] = expr
+        elif isinstance(template, str):
+            if match := re.fullmatch(r"Patient/\{(pid:)?([^{}:]+)\}", template):
+                named[match[2]] = None if match[1] else expr
+            elif owner_path and (match := re.fullmatch(r"\{([^{}:]+)\}", template)):
+                named[match[1]] = expr
+        elif isinstance(ref, dict) and ref.get("type") == "Patient":
+            if "by_day" in ref:
+                link = ref["by_day"]
+                targets = {
+                    s.id.get("pid")
+                    for s in resources
+                    if isinstance(link, dict) and s.table == link.get("table") and s.type == "Patient"
+                }
+                if len(targets) != 1 or not (col := targets.pop()) or col not in (link.get("keys") or []):
+                    raise MappingError(
+                        "Patient by_day requires the chart column in keys / "
+                        "依日期連結病人需要病歷號 / 日付で患者を参照するには患者番号が必要です"
+                    )
+                named[col] = None
+            elif isinstance(ref.get("pid"), str):
+                named[ref["pid"]] = None
+            elif isinstance(ref.get("column"), str) and "hid" not in ref:
+                named[ref["column"]] = expr
+            else:
+                raise MappingError(
+                    "Patient reference needs a patient key / 病人參照需要病人識別碼 / 患者参照に患者IDが必要です"
+                )
+    return named
 
 
 def _hid_targets(x: Any) -> set[str]:
@@ -482,7 +528,7 @@ def _suffixed_targets(x: Any) -> set[str]:
     return found
 
 
-def _whose(path: Path, r: ResourceSpec) -> str | None:
+def _whose(path: Path, r: ResourceSpec, resources: list[ResourceSpec]) -> str | None:
     """D-1253: the patient column of ``r`` (checked here, when the mapping loads), or None for a record of no patient.
 
     * An ``hid`` id of a patient's record is its patient's: the record names its patient (one column, in a ``{ref:
@@ -498,17 +544,7 @@ def _whose(path: Path, r: ResourceSpec) -> str | None:
       one number would be one record, the fault D-1253 ends, by another door. A suffix holds no ``|``.
     * A mapping cannot leave the patient out by forgetting it: an ``hid`` id that is neither is refused."""
     where = f"{path}: {r.type} from {r.table}"
-    named = _patient_columns(r.elements)
-    for element, expr in r.elements.items():
-        # Only a reference element names a patient. A pid interpolated into a label is not an owner.
-        if (
-            element.endswith(".reference")
-            and isinstance(expr, dict)
-            and not {"const", "column", "builder"} & expr.keys()
-        ):
-            template = expr.get("template")
-            if isinstance(template, str) and (match := re.fullmatch(r"Patient/\{pid:([^{}]+)\}", template)):
-                named.add(match[1])
+    named = _patient_columns(r, resources)
     said = r.id.get("patient")
     if said is not None and not (isinstance(said, str) and said):
         raise MappingError(f"{where}: id.patient names the column of the record's patient")
@@ -544,7 +580,9 @@ def _whose(path: Path, r: ResourceSpec) -> str | None:
         raise MappingError(
             f"{where}: id.pid is for Patient only / id.pid 僅適用於 Patient / id.pid は Patient 専用です"
         )
-    if "column" in r.id and r.type != "Patient" and (named or r.type not in SITE_WIDE_TYPES):
+    patient_field = any(k == "patient" or k.startswith("patient.") for k in r.elements)
+    names_patient = bool(named) or patient_field or _references_patient(r.elements)
+    if "column" in r.id and r.type != "Patient" and (names_patient or r.type not in SITE_WIDE_TYPES):
         raise MappingError(
             f"{where}: a {r.type} belongs to a patient: its id cannot be the source's number as it is "
             "(id: {column: ...}): two patients with one number would be one record. Use id: {hid: <col>} / "
@@ -556,7 +594,7 @@ def _whose(path: Path, r: ResourceSpec) -> str | None:
                 f"{where}: a {r.type} belongs to a patient: its id cannot be site-wide (site_wide is for a record "
                 f"of no patient: {', '.join(sorted(SITE_WIDE_TYPES))})"
             )
-        if named:
+        if names_patient:
             raise MappingError(
                 f"{where} names a patient: its id cannot be site-wide / "
                 "紀錄指向病人，不得使用全院共用 ID / 患者を参照する記録に施設共通 ID は使えません"
@@ -576,6 +614,7 @@ def _whose(path: Path, r: ResourceSpec) -> str | None:
                "the record names no patient: name it ({ref: {type: Patient, pid: <col>}}), or declare a record of "
                "no patient site-wide")
         )  # fmt: skip
+    r.patient_reference = named.get(col) if col else None
     return col
 
 
@@ -859,7 +898,7 @@ class Mapping:
             if r.table not in (doc.get("tables") or {}):
                 raise MappingError(f"{path}: resource {r.type} uses undeclared table {r.table!r}")
             _known_codes_are_the_maps(path, r)
-            r.patient = _whose(path, r)  # D-1253
+            r.patient = _whose(path, r, resources)  # D-1253
         site_wide = _id_rules(path, resources)  # D-1253: the checks across the resources
         by_day = _by_day_links(path, list(doc.get("tables") or {}), resources)
         for name, lk in lookups.items():  # D-590: a range stated badly is found now, not row by row at night
@@ -1336,6 +1375,11 @@ class Mapper:
         raw = row.get(col)
         if raw is None or str(raw).strip() == "":
             raise MappingError(f"{rs.type} from {rs.table}: no patient ({col} is empty)")
+        if rs.patient_reference is not None:
+            ref = self.value(rs.patient_reference, row, rs)
+            if not isinstance(ref, str) or not ref.startswith("Patient/") or not PID_SHAPE.fullmatch(ref[8:]):
+                raise MappingError(f"{rs.type}: invalid patient reference / 病人參照無效 / 患者参照が無効です")
+            return ref[8:]
         return pid_for_mrn(self.key, str(raw))
 
     def number_id(
@@ -1397,11 +1441,19 @@ class Mapper:
         except (MappingError, ValueError):
             return None
 
+    def _day_key(self, rs: ResourceSpec, row: Row, keys: tuple[str, ...], day: str) -> tuple[str, ...]:
+        chart = rs.id.get("pid") if rs.type == "Patient" else rs.patient
+        parts = [str(row.get(k) or "").strip() for k in keys]
+        if chart in keys and rs.patient_reference is None:
+            i = keys.index(chart)
+            parts[i] = chartno.normalise(None, parts[i])
+        return (*parts, self._day_of(row.get(day)) or "")
+
     def _by_day(self, spec: dict[str, Any], rtype: str, row: Row, rs: ResourceSpec) -> str | None:
         """F7 (D-806): the one ``rtype`` the linked-to table holds for this row's keys and day; none when that day has
         several or none, each counted, never guessed."""
         keys = tuple(spec["keys"])
-        want = (*(str(row.get(k) or "").strip() for k in keys), self._day_of(row.get(spec["day"])) or "")
+        want = self._day_key(rs, row, keys, spec["day"])
         ids = self._visits.get((str(spec["table"]), rtype, keys, str(spec["their_day"])), {}).get(want, set())
         if any(not v for v in want) or not ids:
             self.links[(rs.table, "no_visit_that_day")] += 1
@@ -1871,6 +1923,10 @@ class Mapper:
         earlier = resource_id(self.key, rs.type, f"{row[col]}{rs.id.get('suffix', '')}")
         if (rs.type, earlier) in self.review:
             return True
+        if col == rs.patient and rs.patient_reference is None:
+            canonical = chartno.normalise(None, str(row[col]))
+            if (rs.type, resource_id(self.key, rs.type, canonical + rs.id.get("suffix", ""))) in self.review:
+                return True
         try:
             return (rs.type, self.row_id(rs, row)) in self.review
         except (MappingError, KeyError, TypeError, ValueError):
@@ -1933,6 +1989,11 @@ class Mapper:
         for path, expr in rs.elements.items():
             self._element = path  # F9 (D-811): what a count names
             self.set_path(res, path, self.value(expr, row, rs))
+        if rs.type in SITE_WIDE_TYPES and rs.patient is None and _references_patient(res):
+            raise MappingError(
+                f"{rs.type} names a patient: its id cannot be site-wide / "
+                "紀錄指向病人，不得使用全院共用 ID / 患者を参照する記録に施設共通 ID は使えません"
+            )
         self._settle_atc(rs, res)
         if any(lk.hit_unverified for lk in self.m.lookups.values()) or self._rests_on_verify(rs.table, row):
             meta = res.setdefault("meta", {})
@@ -2036,7 +2097,7 @@ class Mapper:
         except (KeyError, MappingError):
             rid = ""
         for (_, _, keys, their_day), index in hit:
-            key = (*(str(row.get(k) or "").strip() for k in keys), self._day_of(row.get(their_day)) or "")
+            key = self._day_key(rs, row, keys, their_day)
             if all(key):
                 index.setdefault(key, set()).add(rid or f"\x00{len(index)}:{sum(map(len, index.values()))}")
         return rid

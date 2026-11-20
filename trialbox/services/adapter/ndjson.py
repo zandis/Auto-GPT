@@ -366,6 +366,9 @@ def write_snapshot(
         if collisions is not None and clash[0]:
             collisions[rtype] = collisions.get(rtype, 0) + clash[0]
         counts[rtype] = n
+    for old in directory.glob("*.ndjson"):
+        if old.stem not in types:
+            old.unlink()  # a complete snapshot replaces any previous attempt at this date
     marker = directory / TOMBSTONES
     if dropped:
         marker.write_text(json.dumps(dropped, sort_keys=True, indent=1) + "\n", encoding="utf-8")

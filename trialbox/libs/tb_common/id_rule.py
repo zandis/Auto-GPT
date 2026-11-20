@@ -211,10 +211,10 @@ def record_keys(directory: Path, keys: dict[str, str]) -> None:
     _amend(directory, lambda body: body.update(keys=dict(sorted({**(body.get("keys") or {}), **keys}.items()))))
 
 
-def record_source(directory: Path, source_kind: str) -> None:
+def record_source(directory: Path, source_kind: str, keys: dict[str, str] | None = None) -> None:
     """D-1253 second review, finding 7: add to the snapshot's record the source kind it was read from (a night's and
     a back-fill's alike), so a delta night over it from another source is held."""
-    _amend(directory, lambda body: body.update(source=source_kind))
+    _amend(directory, lambda body: body.update(source=source_kind, **({"keys": keys} if keys else {})))
 
 
 def snapshot_source(directory: Path) -> str | None:
@@ -284,6 +284,46 @@ def read_review(lake_dir: Path) -> frozenset[tuple[str, str]]:
             f"{REVIEW} in the lake cannot be read (D-1253): it lists the records a steward decided before the id "
             f"rebuild, which are marked for review. Nothing was written. Restore it from the backup ({RUNBOOK})"
         ) from exc
+
+
+HELD = "held.json"  # written in a snapshot's NDJSON folder when its night was held, with why (T-611)
+SOURCE_CHANGE = (
+    "a site changes its source only with a full night (run it without since) / "
+    "更換來源時必須完整匯入，請勿指定 since / "
+    "ソースを変更するには since を指定せずに全件取り込みを実行してください"
+)
+ORDER_CHANGE = (
+    f"SS-MIX2 order keys differ or were not recorded. Check the ID rebuild ({COMMAND}), then run a full night / "
+    "SS-MIX2 訂單鍵不符或未記錄。請檢查 ID 重建後完整匯入 / "
+    "SS-MIX2 オーダーキーが異なるか未記録です。ID 再構築を確認して全件取り込みを実行してください"
+)
+HELD_NIGHT = "Night held / 此次匯入已暫停 / 取り込みは保留中です"
+
+
+def hold_reason(folder: Path, *, accepting: bool = False) -> str | None:
+    """The same disk verdict for the lake and the steward, including holds from older releases."""
+    try:
+        held = json.loads((folder / HELD).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        return HELD_NIGHT
+    if not isinstance(held, dict) or held.get("writing"):
+        return HELD_NIGHT
+    if held.get("incompatible") == "order_key":
+        return ORDER_CHANGE
+    if held.get("requires_full_ingest"):
+        return SOURCE_CHANGE
+    # Older markers recorded the non-overridable refusal only in their list of errors.
+    errors = held.get("errors", [])
+    if not isinstance(errors, list):
+        return HELD_NIGHT
+    for error in errors:
+        if isinstance(error, str) and error.startswith("delta night over snapshot ") and "SS-MIX2 orders" in error:
+            return ORDER_CHANGE
+        if isinstance(error, str) and error.startswith("delta night from ") and "changes its source only" in error:
+            return SOURCE_CHANGE
+    return None if accepting or held.get("accepted") is True else HELD_NIGHT
 
 
 def snapshot_keys(directory: Path) -> dict[str, str]:

@@ -1060,6 +1060,10 @@ class Lake:
 
     def promote(self, snapshot: str) -> None:
         """Make ``snapshot`` the one served by default (``CURRENT``), atomically."""
+        from tb_common import id_rule
+
+        if reason := id_rule.hold_reason(self._source(snapshot)):
+            raise LakeSaid(reason)
         self.db_path(snapshot)
         tmp = self.dir / "CURRENT.tmp"
         tmp.write_text(snapshot)
@@ -1338,6 +1342,8 @@ class Lake:
         cause: str | None = None,
         check: bool = False,
     ) -> RebuildStats:
+        from tb_common import id_rule
+
         t0 = time.perf_counter()
         db_path = self.dir / "db" / f"{snapshot}.duckdb"
         tmp = db_path.with_suffix(".building")
@@ -1375,6 +1381,8 @@ class Lake:
             raise RebuildError(
                 f"lake snapshot {snapshot}: {src} holds no patient or clinical record; nothing built, CURRENT unchanged"
             )
+        if reason := id_rule.hold_reason(src):
+            raise RebuildError(reason)
         if (promote or check) and not allow_empty:  # only a snapshot that replaces CURRENT is compared with it
             self._check_drop(snapshot, have)
         # read before the build reads the inputs: a change in between leaves the record on the older hash, which
@@ -1418,8 +1426,6 @@ class Lake:
             drop_reader_links(self.dir, snapshot)
             # D-1253 round 3: the rule of the ids it holds, read when no NDJSON is left (``check_id_rule``); pruned
             # and moved aside with the snapshot (``<snap>.duckdb*``)
-            from tb_common import id_rule
-
             (self.dir / "db" / f"{snapshot}.duckdb{ID_RULE_SIDECAR}").write_text(f"{id_rule.RULE}\n", encoding="utf-8")
             rec = self.dir / "db" / f"{snapshot}.duckdb.source"  # pruned with the snapshot (``<snap>.duckdb*``)
             if src.is_dir() and src.resolve() != (self.dir / "ndjson" / snapshot).resolve():

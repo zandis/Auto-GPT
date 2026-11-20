@@ -73,6 +73,7 @@ from adapter.pipeline import (
     merge_base,
     reference_maps,
     refuse_future_night,
+    source_keys,
 )
 from adapter.sources.base import has_table
 from adapter.validate.validator import Hl7Validator, StructuralValidator, missing_required
@@ -180,6 +181,8 @@ def _fingerprint(cfg: AdapterConfig, source_kind: str, source_path: str, snap: s
     # The spool and every sorted run already contain mapped IDs. A pre-upgrade fingerprint
     # (which carried no rule) must miss even when source, mapping and date all match.
     h.update(json.dumps([source_kind, str(source_path), snap, cfg.site_id, id_rule.RULE], sort_keys=True).encode())
+    if keys := source_keys(source_kind):
+        h.update(json.dumps(keys, sort_keys=True).encode())
     if cfg.mapping_path.is_file():
         h.update(cfg.mapping_path.read_bytes())
     return h.hexdigest()
@@ -228,6 +231,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
     rejected: dict[str, int] = {}
     rows_by_table: dict[str, int] = {}
     tables: dict[str, dict[str, Any]] = {}  # D-535: per source table, what the night's completeness record holds
+    keys: dict[str, str] = {}
     for_review: Counter[str] = Counter()  # D-1253 ruling 1: records marked for a steward's review
     unmapped_codes: dict[str, dict[str, dict[str, int]]] = {}
     maps_not_loaded: list[str] = []  # D-665: filled as the rows are mapped
@@ -270,6 +274,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
             )  # fmt: skip
             mapper.review = id_rule.read_review(cfg.lake_dir)  # D-1253 ruling 1, as the night
             source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
+            keys = source_keys(source_kind, source)
             for res in mapper.static_resources():
                 emit(res)
             for table, tspec in mapping.tables.items():
@@ -355,8 +360,8 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
     finally:
         sp.close()
         pm.close()
-    return {"rejected": rejected, "rows": rows_by_table, "tables": tables, "unmapped_codes": unmapped_codes,
-            "maps_not_loaded": maps_not_loaded,
+    return {"keys": keys, "rejected": rejected, "rows": rows_by_table, "tables": tables,
+            "unmapped_codes": unmapped_codes, "maps_not_loaded": maps_not_loaded,
             "steward_review_needed": dict(sorted(for_review.items()))}  # fmt: skip
 
 
@@ -708,8 +713,9 @@ def _publish(
     shutil.rmtree(stage, ignore_errors=True)
     clashes: dict[str, int] = {}
     counts = _write_merged(runs, buckets, stage, clashes)
+    facts = _spool_facts(work)
     if source_kind:  # D-1253 second review, finding 7: the source it was read from, as the night records it
-        id_rule.record_source(stage, source_kind)
+        id_rule.record_source(stage, source_kind, facts.get("keys"))
     rep.id_collisions = clashes  # D-1253 review F: over the years of this publish
     rep.links_to_absent_records = absent_links(
         stage, site_wide=site_wide, tables=mapping_tables
@@ -719,7 +725,6 @@ def _publish(
     # D-535: the snapshot's completeness record and its unknown codes, as a night's snapshot has them. The table
     # facts are the spool's (kept beside it: a run started again writes the same); the orphan counts are read from
     # the records of this publish
-    facts = _spool_facts(work)
     tables = {str(t): dict(v) for t, v in (facts.get("tables") or {}).items()}
     if "tables" in facts:  # always, since the load reads its source again for a spool without them
         _, completeness = completeness_check(cfg, tables, stage, None, full=True)

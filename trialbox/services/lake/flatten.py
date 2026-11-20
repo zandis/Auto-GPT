@@ -200,6 +200,13 @@ NOT_RECORDED = "not-recorded"
 SEXES = ("male", "female")
 
 
+def needs_id_review(r: Resource) -> bool:
+    return any(
+        t.get("system") == id_rule.REVIEW_TAG["system"] and t.get("code") == id_rule.REVIEW_TAG["code"]
+        for t in (r.get("meta") or {}).get("tag") or []
+    )
+
+
 def void(rtype: str, r: Resource) -> bool:
     """The record's own status says it is not a fact (:data:`VOID`)."""
     states = VOID.get(rtype)
@@ -744,10 +751,7 @@ class Flattener:
                 if void(rtype, r):
                     continue
                 # D-1253: keep the disputed records in NDJSON for the steward. No screening table reads them.
-                if any(
-                    t.get("system") == id_rule.REVIEW_TAG["system"] and t.get("code") == id_rule.REVIEW_TAG["code"]
-                    for t in (r.get("meta") or {}).get("tag") or []
-                ):
+                if needs_id_review(r):
                     continue
                 yield r
 

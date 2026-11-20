@@ -66,6 +66,7 @@ from lake.flatten import (
     NotWesternYear,
     basis_of,
     is_atc_system,
+    needs_id_review,
     verification_of,
     void,
 )
@@ -631,9 +632,13 @@ def load_batch(
     tz = site_tz(tz)  # the site's zone; TB_TZ when not given, never a default (D-315)
     b = _Builder(tz, kind, stats)
     # T-616 (STD-014): a medicationReference to a Medication of the batch (the flattener's own index)
-    b.fl.medications = {str(m["id"]): m for m in by_type.get("Medication", []) if m.get("id")}
+    b.fl.medications = {
+        str(m["id"]): m for m in by_type.get("Medication", []) if m.get("id") and not needs_id_review(m)
+    }
     responses = {}
     for cr in by_type.get("ClaimResponse", []):  # the flattener's join: the last response to a claim wins
+        if needs_id_review(cr):
+            continue
         req = ((cr.get("request") or {}).get("reference") or "").split("/")[-1]
         responses[req] = cr
     dead = {(str(t), str(i)) for t, ids in (deleted or {}).items() for i in ids}
@@ -830,6 +835,8 @@ def _stage(
     for rtype in sorted(by_type):
         for line, r in enumerate(by_type[rtype], start=1):
             prov = {k: _iso(v) for k, v in b.fl.provenance(r).items() if v is not None}
+            if needs_id_review(r):
+                prov["id_rule_review"] = True
             from_note = note_source(r)
             try:
                 built = b.build(rtype, r, line, responses)
