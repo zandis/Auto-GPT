@@ -1,7 +1,8 @@
 {% extends "base.html" %}
-{% block title %}{{ t('cmd.title') }}{% endblock %}
+{% from "_ds.html" import page_header %}
+{% set page_title = t('cmd.title') %}
 {% block content %}
-<h1>{{ t('cmd.title') }}</h1>
+{{ page_header(page_title) }}
 <p class="hint" data-testid="cmd-typed">{{ t('cmd.you_typed') }} <q>{{ q }}</q></p>
 {% if hits is not none %}
 <section class="card" data-testid="cmd-results">
