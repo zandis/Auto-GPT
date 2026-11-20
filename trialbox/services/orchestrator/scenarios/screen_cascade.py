@@ -468,7 +468,8 @@ def verdicts_of(
     seen: set[str] = set()
     acts = [a for a in actions if not (a in seen or seen.add(a))]  # type: ignore[func-returns-value]
     rungs = {v.id: str(t.outcomes[v.id].stage) for v in judged_rows if t.outcomes[v.id].stage}  # D-1360
-    return PatientVerdicts(t.pid, vs, tier, acts, unknown, rungs)
+    flips = {v.id: str(t.outcomes[v.id].flip_date) for v in judged_rows if t.outcomes[v.id].flip_date}  # D-1263
+    return PatientVerdicts(t.pid, vs, tier, acts, unknown, rungs, flips)
 
 
 def judged(t: PatientTrace) -> bool:

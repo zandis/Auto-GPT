@@ -60,6 +60,13 @@ class Reason(StrEnum):
     RULES_CHANGED = "rules_changed"  # an approved answer the current safety rules do not confirm (D-275)
     # the model's quote is a sentence written as an instruction to a model (the guard's screen, T-606, D-359)
     PLANTED_INSTRUCTION = "planted_instruction"
+    # criterion model v3 (D-1263): the date the criterion's window hangs on (the planned start, the screening date,
+    # an event of the record) is not known for this patient: no answer, never a guessed date
+    ANCHOR_DATE_UNKNOWN = "anchor_date_unknown"
+    # the window reaches past the day of the run: what the criterion asks for can still be recorded before the anchor
+    VERIFY_AT_ANCHOR = "verify_at_anchor"
+    # the criterion asks about a kind of record (a device, an allergy) this site's data source does not hold
+    NOT_IN_SOURCE = "not_in_source"
 
 
 CODES = frozenset(r.value for r in Reason)
@@ -96,6 +103,9 @@ _RULES: tuple[tuple[tuple[str, ...], Reason], ...] = (
     (("derived_missing_input",), Reason.DERIVED_MISSING_INPUT),
     (("unit_mismatch", "unit mismatch"), Reason.UNIT_MISMATCH),
     (("unknown_value", "unreadable value"), Reason.UNKNOWN_VALUE),
+    (("anchor_date_unknown",), Reason.ANCHOR_DATE_UNKNOWN),
+    (("verify_at_anchor",), Reason.VERIFY_AT_ANCHOR),
+    (("not_in_source",), Reason.NOT_IN_SOURCE),
     (("no value", "no record", "not compiled", "index_absent", "data_gap", "index condition absent"), Reason.DATA_GAP),
     (("matching record", "failing value", "index rescued"), Reason.CODED),
 )
@@ -251,6 +261,21 @@ LABELS: dict[str, dict[str, str]] = {
         "en": "the model quoted a sentence written as an instruction to it, not a finding: please check the note",
         "ja": "モデルへの指示のような文を根拠として引用：所見ではないため、記録を確認してください",
         "zh-TW": "模型引用了像是給它的指令的句子，而非臨床發現：請確認病歷",
+    },
+    "anchor_date_unknown": {
+        "en": "the date this criterion counts from is not known for this patient: please check",
+        "ja": "この基準の起算日がこの患者について不明です：確認してください",
+        "zh-TW": "此病人沒有此條件的起算日：請確認",
+    },
+    "verify_at_anchor": {
+        "en": "the period is not over yet: please confirm at the visit",
+        "ja": "対象期間がまだ終わっていません：来院時に確認してください",
+        "zh-TW": "期間尚未結束：請於回診時確認",
+    },
+    "not_in_source": {
+        "en": "this site's data hold no record of this kind: please check",
+        "ja": "この施設のデータにはこの種類の記録がありません：確認してください",
+        "zh-TW": "本院資料沒有此類紀錄：請確認",
     },
 }
 

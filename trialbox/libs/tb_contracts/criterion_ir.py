@@ -8,6 +8,7 @@ additions are:
 * ``line_of_therapy`` atoms (§6.2.2), ``attribute`` with ``source_priority`` (§6.2.1), ``value.ref`` (ULN/LLN
   multiples), pinned ``derived`` calculators (§6.2.3), ``screening`` / ``randomization`` anchors (§6.2.4), the
   organ-function macro (§6.2.5) and human checklists (§6.2.6);
+* the ``planned_start`` anchor and the ``device`` and ``allergy`` domains (D-1263, card 10A-5; review 15 section 7);
 * the atoms the v1 format could not express (HANDOFF trap 5): a relative or absolute change from a baseline
   (creatinine rise), a windowed aggregate normalised by weight (urine output in mL/kg over 12 h), medication dose
   and route with per-ingredient equivalents, the diagnosis role (primary diagnosis), and thresholds that depend on
@@ -63,6 +64,8 @@ Domain = Literal[
     "registry",
     "specimen",
     "genomic",
+    "device",
+    "allergy",
 ]
 Num = int | float  # ints stay ints so that v1 -> v3 -> v1 is byte-identical JSON
 SourceKind = Literal["registry", "structured_pathology", "structured_form", "report_span", "note"]
@@ -126,7 +129,9 @@ class ConditionalValue(_Model):
     value: Value
 
 
-Anchor = Literal["index", "event", "screening", "randomization"]
+#: D-1263 (card 10A-5): ``planned_start`` is the study's planned start of treatment for this patient, a date given
+#: at run time as ``screening`` is (§6.2.4); the engine never guesses one
+Anchor = Literal["index", "event", "screening", "randomization", "planned_start"]
 
 
 class Window(_Model):
@@ -589,6 +594,120 @@ def downgrade_to_v1(ir: CriterionIRv3) -> dict[str, Any]:
     if sorted(used) != sorted(by_id) or len(used) != len(set(used)):
         raise NotV1Expressible(f"{ir.id}: v1 logic inlines each atom exactly once")
     return out
+
+
+# ------------------------------------------------------------------------------------------------- step 1 (D-1263)
+#: the anchors a window may hang on that the engine evaluates in step 1 (card 10A-5): ``index`` as before, the two
+#: dates given at run time, and an event of the patient's own record. ``randomization`` stays declared, not run
+STEP1_ANCHORS = ("index", "planned_start", "screening", "event")
+#: the domains no lake table holds yet: a criterion with such an atom answers "not available in this source"
+SOURCELESS_DOMAINS = ("device", "allergy")
+# v3 annotations the v1 form has no place for; the v3 criterion itself is kept beside its v1 form, so none is lost
+_NO_V1_FIELD = (
+    "library_ref",
+    "canonical_hash",
+    "filter_class",
+    "depends_on",
+    "flip_rule",
+    "lexicon_keys",
+    "computability",
+    "safety_critical",
+    "index",
+)
+_NEUTRAL_LOGIC = {"domain": "demographic", "valueset": "NONE"}  # what a v1 criterion a person decides carries
+
+
+class NotStep1(ValueError):
+    """The v3 criterion uses a construct the engine does not evaluate in step 1: a person decides it."""
+
+
+def _plain(ir: CriterionIRv3) -> CriterionIRv3:
+    """``ir`` without the annotations v1 has no field for (and without the language tag of its text)."""
+    d = ir.model_dump(mode="json", by_alias=True, exclude_unset=True)
+    for k in _NO_V1_FIELD:
+        d.pop(k, None)
+    d["text"].pop("lang", None)
+    if set(d.get("provenance") or {"calls": []}) != {"calls"}:
+        d.pop("provenance", None)
+    return CriterionIRv3.model_validate(d)
+
+
+def v1_face(ir: CriterionIRv3) -> dict[str, Any]:
+    """The v1 criterion that stands for a v3 criterion wherever the services read v1 (D-1263).
+
+    A v3 criterion v1 can express is that v1 criterion (:func:`downgrade_to_v1` of it without its annotations): every
+    service evaluates it as it evaluates any v1 criterion. One v1 cannot express (a window on a planned start, a
+    device) is shown the way the compiler shows a criterion it cannot compile: class ``human``, the line as its
+    question and no coded logic, so that a service that does not evaluate model v3 says "a person decides" and never
+    answers it. The engine answers it from the v3 criterion, kept beside this one (``Ruleset.v3``)."""
+    try:
+        return downgrade_to_v1(_plain(ir))
+    except NotV1Expressible:
+        pass
+    d = ir.model_dump(mode="json", by_alias=True, exclude_unset=True)
+    out: dict[str, Any] = {k: d[k] for k in _V1_TOP_PASSTHROUGH if k in d}
+    out["class"] = "human"
+    out["text"] = ir.text.source
+    if ir.text.source_ref is not None:
+        out["source_ref"] = ir.text.source_ref
+    asked = ir.human.checklist[0].item.first() if ir.human is not None else None
+    out["human_question"] = asked or f"Confirm with the patient/clinician: {ir.text.source}"
+    out["logic"] = dict(_NEUTRAL_LOGIC)
+    return out
+
+
+def sourceless_domains(ir: CriterionIRv3) -> list[str]:
+    """The domains of ``ir``'s atoms that no lake table holds (``device``, ``allergy``), each once, sorted."""
+    return sorted({a.domain for a in ir.atoms if a.domain in SOURCELESS_DOMAINS})
+
+
+def index_form(ir: CriterionIRv3) -> tuple[dict[str, Any], tuple[str, Atom | None, str | None]]:
+    """A structured v3 criterion as the v1 criterion the engine runs with the index date set to the anchor's date,
+    and its anchor: ``(kind, event atom, event pick)`` with kind one of :data:`STEP1_ANCHORS` (D-1263).
+
+    Every window of the criterion hangs on one anchor; a window that names none hangs on ``index``, as in v1. With
+    that anchor's date as the index date the v1 window code gives the answer, so interval ends, the day and every
+    safety rule are the existing ones and no second convention exists. :class:`NotStep1` for anything else (windows
+    on two anchors, ``randomization``, ``event_pick: each``, a v3-only atom, a macro, a class other than
+    ``structured``)."""
+    if ir.class_ != "structured":
+        raise NotStep1(f"{ir.id}: class {ir.class_} is not evaluated from model v3 in step 1")
+    if ir.macros:
+        raise NotStep1(f"{ir.id}: macros are not evaluated in step 1")
+    by_id = {a.id: a for a in ir.atoms}
+    in_logic = set(_logic_refs(ir.logic))
+    hung = {
+        (a.window.anchor or "index", a.window.event_atom, a.window.event_pick)
+        for a in ir.atoms
+        if a.window is not None and a.id in in_logic
+    }
+    if len(hung) > 1:
+        raise NotStep1(f"{ir.id}: its windows hang on more than one anchor")
+    kind, event_id, pick = next(iter(hung)) if hung else ("index", None, None)
+    if kind not in STEP1_ANCHORS:
+        raise NotStep1(f"{ir.id}: anchor {kind} is not evaluated in step 1")
+    event: Atom | None = None
+    if kind == "event":
+        if event_id is None or pick not in ("first", "last"):
+            raise NotStep1(f"{ir.id}: an event anchor names its atom and picks the first or the last event")
+        event = by_id[event_id]
+        if event.window is not None and (event.window.anchor or "index") != "index":
+            raise NotStep1(f"{ir.id}: the event atom's own window hangs on the index date or on nothing")
+    d = _plain(ir).model_dump(mode="json", by_alias=True, exclude_unset=True)
+    atoms: list[dict[str, Any]] = []
+    for a in d["atoms"]:
+        if a["id"] not in in_logic:
+            if a["id"] != event_id:
+                raise NotStep1(f"{ir.id}: atom {a['id']} is neither in the logic nor an event")
+            continue
+        if "window" in a:
+            a["window"] = {k: v for k, v in a["window"].items() if k in ("from_days", "to_days")}
+        atoms.append(a)
+    d["atoms"] = atoms
+    try:
+        return downgrade_to_v1(CriterionIRv3.model_validate(d)), (kind, event, pick)
+    except NotV1Expressible as exc:
+        raise NotStep1(str(exc)) from exc
 
 
 # ------------------------------------------------------------------------------------------------- canonical hash

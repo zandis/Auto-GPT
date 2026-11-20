@@ -88,6 +88,7 @@ from matching.cascade.s2b_semantic import (
     boilerplate,
     screen,
 )
+from matching.cascade.v3 import V3Stage
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 from matching.excerpts import sentences
 from matching.notelang import LANGS, family, main_language, notes_language
@@ -219,6 +220,10 @@ class CascadeConfig:
     # T-708 (D-477): the consent state of S0, given by the caller's decision context (the orchestrator). None: a
     # caller with no job (a tool) and S0 reads the lake by the same rule (``tb_common.optout.registry_state``).
     registry: Callable[[], RegistryState | None] | None = None
+    # D-1263 (criterion model v3): the dates a v3 window may hang on that only the caller knows, per patient:
+    # ``{pid: {"planned_start": date, "screening": date}}``. A patient or a date not given is an unknown answer
+    # (``anchor_date_unknown``); the engine never derives one. Read by v3 criteria only
+    anchors: Mapping[str, Mapping[str, date]] | None = None
 
 
 @dataclass
@@ -296,7 +301,8 @@ def criterion_hashes(rs: Ruleset) -> dict[str, str]:
     from tb_contracts.criterion_ir import canonical_hash, upgrade_v1, valueset_content_hash
 
     vs = {name: valueset_content_hash(v) for name, v in rs.valuesets.items()}
-    return {c.id: canonical_hash(upgrade_v1(c), vs) for c in rs.active()}
+    # D-1263: a criterion written in model v3 is hashed as written, not as the v1 form that stands for it
+    return {c.id: canonical_hash(rs.v3[c.id] if c.id in rs.v3 else upgrade_v1(c), vs) for c in rs.active()}
 
 
 def ruleset_ir_hash(hashes: Mapping[str, str]) -> str:
@@ -436,6 +442,8 @@ class _Run:
         self._uncarried_index: set[str] = set()  # index conditions whose list no row can carry: absence never excludes
         self.coded = True  # whether S1 applied a coded criterion (D-788); set at S1
         self.proposed = Proposed()  # facts read from a chart, not yet confirmed (D-135); loaded at S1
+        # D-1263 (card 10A-5): the criteria written in criterion model v3; None for a v1 ruleset, which runs as before
+        self.v3 = V3Stage(self) if rs.v3 else None
 
     def log(self, stage: Stage, p_in: int, p_out: int, q_in: int, q_out: int, **detail: Any) -> None:
         self.stages.append(StageLog(stage, p_in, p_out, q_in, q_out, PATIENT_CLASS, self.ir_hash, dict(detail)))
@@ -553,10 +561,14 @@ class _Run:
         table = self._s1_rows(idx, scope)
         # D-442: the stored-row read, the same function as the v1 engine's (only while the flag is on: cfg.stored)
         apply_rows(table, applied, self.cfg.stored, self.cfg.snapshot, getattr(self.rs.manifest, "derived_pins", None))
-        self.coverage = Coverage.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
-        self.carried = Carried.for_criteria(self.lake, applied, self.cfg.snapshot)
-        self.recorded = Recorded.for_criteria(self.lake, applied, scope, self.cfg.snapshot)
-        self.proposed = Proposed.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
+        # D-1263: the record checks also read the v1 forms of the v3 criteria (none for a v1 ruleset)
+        read = (
+            [*applied, *(c for c in self.v3.criteria() if c.id not in {a.id for a in applied})] if self.v3 else applied
+        )
+        self.coverage = Coverage.for_criteria(self.lake, read, scope, self.cfg.snapshot, self.rs.valuesets)
+        self.carried = Carried.for_criteria(self.lake, read, self.cfg.snapshot)
+        self.recorded = Recorded.for_criteria(self.lake, read, scope, self.cfg.snapshot)
+        self.proposed = Proposed.for_criteria(self.lake, read, scope, self.cfg.snapshot, self.rs.valuesets)
         by_pid: dict[str, list[dict[str, Any]]] = {}
         for row in table:
             by_pid.setdefault(str(row["pid"]), []).append(row)
@@ -593,6 +605,8 @@ class _Run:
             first_fail = next((c.id for c in applied if c.id in t.outcomes and t.outcomes[c.id].hard), None)
             if first_fail:
                 self.exclude(t, "S1", first_fail)
+        # D-1263: the v3 criteria the ruleset's SQL did not answer, at their anchors' dates, and the flip dates
+        n_v3 = self.v3.evaluate({a.id for a in applied}) if self.v3 else 0
         n_scope = self.metrics.n_scope = sum(1 for t in self.traces.values() if t.in_scope)
         self.metrics.n_after["S0"] = n_scope
         self.stages[0].patients_out = n_scope
@@ -614,6 +628,7 @@ class _Run:
                 1 for t in alive if any(o.reason == UNKNOWN_CODE_SYSTEM for o in t.outcomes.values())
             ),
             **({"proposed_fact": n_prop} if n_prop else {}),  # D-135, only when a site has proposed facts
+            **({"model_v3": n_v3} if n_v3 else {}),  # D-1263, only for a ruleset with v3 criteria
         )
         self.metrics.n_after["S1"] = len(alive)
         return applied

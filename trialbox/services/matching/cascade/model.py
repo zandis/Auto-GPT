@@ -45,6 +45,11 @@ class Outcome:
     evidence: list[dict[str, Any]] = field(default_factory=list)
     reason: str = ""
     rescue: dict[str, Any] | None = None  # CAS-18: rescuing stage and sentence hash
+    # D-1263 (criterion model v3, card 10A-5): the first day on which the records as they are would give the
+    # opposite answer (a washout over, a result too old), and the anchor the criterion's windows hang on when it is
+    # not the index date. Both None, and left out of the trace file, for every v1 criterion
+    flip_date: str | None = None
+    anchor: dict[str, str] | None = None
 
 
 @dataclass
@@ -75,6 +80,10 @@ class PatientTrace:
         d["index_date"] = self.index_date.isoformat()
         if d["s2b_source"] is None:
             del d["s2b_source"]
+        for o in d["outcomes"].values():  # D-1263: a v1 criterion's outcome is written as before model v3
+            for k in ("flip_date", "anchor"):
+                if o[k] is None:
+                    del o[k]
         return d
 
 
