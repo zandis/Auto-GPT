@@ -4,6 +4,9 @@
     python -m tools.update_drill backup-work --to DIR [--work DIR]  # the demo container's pre-update backup
     python -m tools.update_drill stick [--dir DIR]                  # 10K-7: insert, verify, quiet hour, roll back
 
+``--dir`` is a folder that does not exist yet (made, with the mark ``.tb-update-drill``) or one an earlier run made
+(emptied); any other folder, a link or a file is refused before anything is removed (H4 of the review, D-1363).
+
 1. ``e2e_simple``'s chain runs in ``<dir>/box-run`` (the whole path, its own schemas of the trial database).
 2. A throwaway vendor key signs the bundles (``tools/sign_bundle.py``, manifest 1.2.0: ``release_seq``, ``key_id``,
    ``not_after``, ``compat.json``, ``release.json`` and ``images.lock`` for the image); each is verified and staged
@@ -45,6 +48,7 @@ import os
 import secrets
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tarfile
@@ -779,9 +783,9 @@ def main(argv: list[str] | None = None) -> int:
         ap = argparse.ArgumentParser(prog="update_drill stick")
         ap.add_argument("--dir", type=Path, default=scratch_root() / "tb-update-stick-drill")
         d = ap.parse_args(argv[1:]).dir
-        if d.exists():
-            shutil.rmtree(d)
-        d.mkdir(parents=True)
+        if (why := drill_dir(d)) is not None:
+            print(f"refused: {why}", file=sys.stderr)
+            return 2
         return _report(stick_drill(d), "update-from-a-stick drill")
     if argv[:1] == ["child"]:
         ap = argparse.ArgumentParser(prog="update_drill child")
@@ -796,10 +800,47 @@ def main(argv: list[str] | None = None) -> int:
     import logging
 
     logging.disable(logging.INFO)
-    if a.dir.exists():
-        shutil.rmtree(a.dir)
-    a.dir.mkdir(parents=True)
+    if (why := drill_dir(a.dir)) is not None:
+        print(f"refused: {why}", file=sys.stderr)
+        return 2
     return _report(run(a.dir), "update drill")
+
+
+#: H4 of the review of d314d016 (D-1363): the file a drill writes into the folder it makes; ``--dir`` names a folder
+#: that holds it, or one that does not exist yet
+DRILL_MARK = ".tb-update-drill"
+
+
+def drill_dir(d: Path) -> str | None:
+    """The drill's working folder, emptied for this run: made new (with :data:`DRILL_MARK`) when ``d`` does not exist;
+    emptied when it is a real folder holding the mark, a regular file the drill wrote. Anything else (a folder without
+    the mark, such as a backup folder; a link, even to a drill's folder; a file) is refused BEFORE anything is
+    removed: the reason, else None. Never follows a link and removes nothing outside ``d``."""
+    try:
+        st = os.lstat(d)
+    except FileNotFoundError:
+        st = None
+    if st is not None:
+        if stat.S_ISLNK(st.st_mode):
+            return f"--dir {d} is a link; give the folder itself (the drill never follows a link)"
+        if not stat.S_ISDIR(st.st_mode):
+            return f"--dir {d} exists and is not a folder"
+        try:
+            mark = os.lstat(d / DRILL_MARK)
+        except FileNotFoundError:
+            mark = None
+        if mark is None or not stat.S_ISREG(mark.st_mode):
+            return (f"--dir {d} exists and was not made by this drill (no {DRILL_MARK} in it); nothing was removed. "
+                    "Give a folder that does not exist yet")  # fmt: skip
+        for child in os.scandir(d):  # the folder itself stays: emptied, never replaced
+            if child.is_dir(follow_symlinks=False):
+                shutil.rmtree(child.path)
+            elif child.name != DRILL_MARK:
+                os.unlink(child.path)
+        return None
+    d.mkdir(parents=True)
+    (d / DRILL_MARK).write_text("made by tools/update_drill.py; emptied by its next run\n", encoding="utf-8")
+    return None
 
 
 def _report(out: dict[str, Any], what: str) -> int:

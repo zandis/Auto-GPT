@@ -8,7 +8,8 @@ from __future__ import annotations
 EN: dict[str, str] = {
     "ops.action.update_cancel": "Cancel this update",
     "ops.confirm.update_cancel": "Cancel the update {bundle} that waits for the quiet hour? It will not run; no"
-    "thing on the box changes. You can ask for it again.",
+    "thing on the box changes. A cancel is taken until the moment the update starts, even while a backup runs before "
+    "it; once it has started it runs to its end or rolls back by itself. You can ask for it again.",
     "ops.state.cancelled": "cancelled",
     "ops.stick.cut": "The stick holds more files than are listed here: only the first bundles by name are shown.",
     "ops.stick.refused": "{n} .tar files on the stick are not listed: their names have letters outside A to Z, "
@@ -67,7 +68,8 @@ EN: dict[str, str] = {
 JA: dict[str, str] = {
     "ops.action.update_cancel": "この更新を取り消す",
     "ops.confirm.update_cancel": "静かな時間帯を待っている更新 {bundle} を取り消しますか？実行されず、機器では"
-    "何も変わりません。あとで改めて依頼できます。",
+    "何も変わりません。取り消しは、その前にバックアップが実行中であっても、更新が始まる瞬間まで受け付けます。始まった"
+    "あとは最後まで実行されるか、自動的に元に戻ります。あとで改めて依頼できます。",
     "ops.state.cancelled": "取り消し済み",
     "ops.stick.cut": "USBメモリにはここに表示しきれないファイルがあります。名前順で最初のバンドルだけを表示して"
     "います。",
@@ -129,8 +131,8 @@ JA: dict[str, str] = {
 
 ZH: dict[str, str] = {
     "ops.action.update_cancel": "取消此更新",
-    "ops.confirm.update_cancel": "要取消等待安靜時段的更新 {bundle} 嗎？它不會執行，本機不會有任何變更。之後可"
-    "以重新申請。",
+    "ops.confirm.update_cancel": "要取消等待安靜時段的更新 {bundle} 嗎？它不會執行，本機不會有任何變更。在更新開"
+    "始的那一刻之前都可以取消，即使在它之前正在備份；一旦開始，就會執行到結束，或自動還原。之後可以重新申請。",
     "ops.state.cancelled": "已取消",
     "ops.stick.cut": "隨身碟上的檔案比此處列出的多：只依名稱顯示最前面的更新包。",
     "ops.stick.refused": "隨身碟上有 {n} 個 .tar 檔案未列出：其名稱含有 A 到 Z、數字、_ . - 以外的字元或控制字"

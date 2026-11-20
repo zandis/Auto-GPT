@@ -24,6 +24,13 @@ record of that very file (its sha256), the note is read per bundle from ``<ops>/
 apply is offered only for a verified file and sends its sha256, and a waiting quiet apply can be cancelled
 (``update_cancel``, under ``ops.update_apply``).
 
+After the integrator's review of d314d016 (D-1363): the Apply buttons carry the sha256 and the release id of the
+verified bundle the page showed, and so does the confirmation sheet; at each post the console compares them with the
+verified record of that bundle now and refuses (409, translated, ``console.refused``) when it is another file or
+release or there is no record; the queued request carries that sha256, never one read later, and nothing is queued
+without one (H2). A cancel is accepted by writing the update's one decision record (``OpsDir.decide``) before the
+runner writes "start" there immediately before the installer; once the runner has, the cancel is refused (H5).
+
 Who may: :func:`tb_common.authz.admin_allowed` (the administrator only); everyone else gets 403 on every page, action
 and ``/api/v1/admin/ops``, audited as ``console.denied``.
 """
@@ -45,6 +52,9 @@ from console.home import Helpers
 from console.i18n import translate
 
 ROOT = Path(__file__).resolve().parents[2]
+# H2 and H5 of the review of d314d016 (D-1363): the refusals' English text, translated in console.refusals
+NOT_SHOWN = "this is not the verified bundle you were shown: open the update tab again and review it"
+STARTED = "this update has started: it runs to its end or rolls back by itself"
 TABS = ("overview", "backups", "update", "logs", "secrets", "network")
 # action -> (authz action, the tab it belongs to)
 ACTIONS: dict[str, tuple[str, str]] = {
@@ -214,6 +224,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         confirm: str = Form(""),
         bundle: str = Form(""),
         target: str = Form(""),  # 10K-7: the waiting update a cancel withdraws
+        sha256: str = Form(""),  # H2 (D-1363): the verified file the page showed ...
+        release: str = Form(""),  # ... and its release id
     ) -> Response:
         if action not in ACTIONS:
             raise h.problem(404, "notfound")
@@ -237,6 +249,25 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             bundle = str((waiting[target].get("args") or {}).get("bundle") or "")
         if action == "backup":  # D-455: the snapshot backup; no service is stopped or paused
             args["mode"] = "running"
+        shown: dict[str, str] = {}
+        if run_as == "update_apply":
+            # H2 (D-1363): the release the administrator was shown, compared with the verified record of that bundle
+            # NOW, at every post (the page's button, the confirmation sheet's Yes); the request carries that sha256
+            rec = (status().get("verified") or {}).get(bundle)
+            rec = rec if isinstance(rec, dict) else {}
+            have = str(rec.get("sha256") or "")
+            why = ""
+            if not tb_ops.SHA256.fullmatch(have):
+                why = "missing"
+            elif sha256 != have or release != str(rec.get("bundle_id") or ""):
+                why = "changed"
+            if why:
+                au.append("console.refused", actor=h.actor(sess),
+                          detail={"action": action, "bundle": bundle, "why": why, "reason": NOT_SHOWN,
+                                  "shown": sha256 if tb_ops.SHA256.fullmatch(sha256) else ""})  # fmt: skip
+                raise h.problem(409, "request.refused", reason=NOT_SHOWN)
+            args["sha256"] = have
+            shown = {"release": release}
         if run_as in [r.get("action") for r in ops.pending()]:
             raise h.problem(409, "ops.busy")
         if confirm != "yes" and h.confirm is not None:  # WS-14.7: each action names its consequence first
@@ -244,11 +275,20 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             at, hours = q.get("at") or tb_ops.QUIET_DEFAULT_AT, q.get("hours") or tb_ops.QUIET_DEFAULT_HOURS
             text = translate(sess.lang, f"ops.confirm.{action}", bundle=bundle, at=at, hours=hours,
                              wait=tb_ops.QUIET_WAIT_H)  # fmt: skip
-            return h.confirm(request, sess, text, request.url.path, args, f"/admin/ops?tab={tab}")
+            back = f"/admin/ops?tab={tab}"
+            return h.confirm(request, sess, text, request.url.path, {**args, **shown}, back)
         args.update(extra)  # 10K-7: ``from: stick`` or ``when: quiet``, never from the form
-        sha = ((status().get("verified") or {}).get(bundle) or {}).get("sha256")
-        if run_as == "update_apply" and isinstance(sha, str) and tb_ops.SHA256.fullmatch(sha):
-            args["sha256"] = sha  # 10K-7 (review B3): the runner applies the file that was verified, or refuses
+        if run_as == "update_cancel":
+            # H5 (D-1363): accepted only by writing the update's decision record first; the runner writes "start"
+            # there immediately before the installer, and whichever is first holds
+            try:
+                got = ops.decide(target, "cancel", h.actor(sess))
+            except OSError as exc:
+                raise h.problem(503, "ops.unavailable") from exc
+            if got != "cancel":
+                detail = {"action": action, "target": target, "why": got, "reason": STARTED}
+                au.append("console.refused", actor=h.actor(sess), detail=detail)
+                raise h.problem(409, "request.refused", reason=STARTED)
         try:
             rid = ops.submit(run_as, h.actor(sess), args)
         except OSError as exc:  # the folder is not there or not writable: the host runner has never prepared it

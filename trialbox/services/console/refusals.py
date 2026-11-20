@@ -112,6 +112,15 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "静かな時間帯を待っている更新を選んでください",
         "請選擇等待安靜時段的更新",
     ),
+    # 10K-7, the review of d314d016 (D-1363): H2, the apply confirmed is the verified release shown; H5, a cancel
+    "this is not the verified bundle you were shown: open the update tab again and review it": (
+        "表示された検証済みのバンドルではありません。更新タブを開き直して確認してください",
+        "這不是您看到的已驗證更新包：請重新開啟更新分頁並確認",
+    ),
+    "this update has started: it runs to its end or rolls back by itself": (
+        "この更新はすでに始まっています。最後まで実行されるか、自動的に元に戻ります",
+        "此更新已經開始：會執行到結束，或自動還原",
+    ),
     "choose an approved ruleset": ("承認済みの基準を選んでください", "請選擇已核准的條件"),
     "choose en, ja or zh-TW": ("英語・日本語・中国語（繁体字）から選んでください", "請選擇英文、日文或繁體中文"),
     "choose one of the contact outcomes": ("連絡結果を一つ選んでください", "請選擇一項聯絡結果"),

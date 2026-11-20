@@ -309,13 +309,16 @@ moves no byte for 2 minutes, runs over 2 hours or reads slower than 1 MB/s after
 and a refused bundle is not kept. The check is bound to the file's sha256: the page says "verified" (with the first
 digits of the sha256), shows the Japanese release note (`RELEASE-NOTE.ja.md`) and the change-impact sheet
 (`CHANGE-IMPACT.json`: the change classes CC1 to CC6 of `docs/validation/change-control.md`, the minutes down,
-migration, rulesets to approve again) and offers "Apply" and "Apply in the quiet hour" only for that very file; an
-apply asked for it refuses any other file of that name. A quiet-hour apply that waits can be cancelled on the page
-until it starts. The tab names the previous release and whether its bundle is on the box; returning to it is still
+migration, rulesets to approve again) and offers "Apply" and "Apply in the quiet hour" only for that very file; the confirmation carries the sha256 and
+release shown and is refused when the verified record is another file, another release or gone. The runner applies
+a private copy made from one open of the file (`deploy/updates/.ops-held`, root's, removed after): the bytes whose
+sha256 was confirmed are the bytes `apply_update.sh` verifies and installs. A quiet-hour apply that waits can be
+cancelled on the page until the moment it starts, also while a backup runs before it; once started it is not. The tab names the previous release and whether its bundle is on the box; returning to it is still
 the "Older releases" path above, at the box. A bundle without the note and sheet is verified with a warning, never
 refused; `tools/make_bundle.sh` refuses to build one without them (`docs/releases/next-release.ja.yaml`,
 `python -m tools.release_note check`). The drill: `python -m tools.update_drill stick` (insert, verify, apply in the
-quiet hour, roll back), held by `tests/unit/test_update_from_a_stick.py`.
+quiet hour, roll back), held by `tests/unit/test_update_from_a_stick.py`; its `--dir` must not exist yet or be a
+folder a drill made (it holds `.tb-update-drill`), else the drill refuses before removing anything.
 When the runner's `status.json` is not a small JSON object (over 64 KiB, not a regular file, not UTF-8 JSON), the
 page says the status is unreadable and shows nothing of it; `sudo python3 -m tools.trialbox ops status` writes it
 again (the runner's timer does too, within a minute).

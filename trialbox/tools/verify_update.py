@@ -17,7 +17,8 @@ Bundle = an uncompressed tar holding exactly:
                           Two of kind ``other`` are reported, never required (10K-7, D-1363): ``RELEASE-NOTE.ja.md``
                           and ``CHANGE-IMPACT.json`` (``tools/release_note.py``); a bundle without them, or with a
                           sheet that does not list the change classes, is a warning in the summary's
-                          ``release_note``, never a refusal.
+                          ``release_note``, never a refusal. The summary's note and sheet are the bytes hashed
+                          from the one open file against the signed manifest (H1 of the review of d314d016).
 
 Everything that decides whether the bundle may be applied is checked **before any payload is read or staged**:
 members safe (regular files only, no absolute or ``..`` paths, no duplicates), the signature with a trusted key
@@ -366,8 +367,12 @@ def verify(
             if free < need:
                 raise Rejected(f"not enough disk space to stage the bundle in {stage_fs}: needs {gb(need)} "
                                f"(payloads + 5 %), free {gb(free)}; nothing was changed")  # fmt: skip
+        # H1 (D-1363): the note and the sheet are the bytes hashed here, from this open file, against the manifest
+        # whose signature was checked above; nothing of them is read a second time
+        kept: dict[str, bytes] = {}
+        keep = {f"{PAYLOAD}{name}": MAX_BYTES[key] for name, key in ((NOTE, "note_ja"), (IMPACT, "impact"))}
         try:
-            _check_payloads(tf, members, listed_files, stage)
+            _check_payloads(tf, members, listed_files, stage, keep, kept)
         except Rejected:
             if stage is not None:
                 _cleanup(stage)
@@ -380,22 +385,59 @@ def verify(
     # refuses under its lock when trust.json is no longer exactly that file (a rotation applied in between)
     manifest.update(manifest_sha256=manifest_sha, compat=meta[COMPAT], release=release, trust_after=trust_after,
                     trust_sha256=trust_sha, downgrade=downgrade, compat_notes=notes, repeat=repeat,
-                    release_note=release_note_summary(bundle))  # fmt: skip
+                    release_note=release_note_summary(manifest, kept))  # fmt: skip
     return dict(manifest)
 
 
-def release_note_summary(bundle: Path) -> dict[str, Any]:
+def release_note_summary(manifest: Mapping[str, Any], kept: Mapping[str, bytes]) -> dict[str, Any]:
     """10K-7 (D-1363): the Japanese release note and the change-impact sheet of an accepted bundle, as the summary
     reports them. A bundle without them (one built before 10K-7, the previous release a site returns to, a key
-    rotation, an OS patch) is a warning, never a refusal: they inform the person, they decide nothing. Read here, with
-    the standard library and no other module of tools/: the verifier runs where only it and the modules it already
-    imports are copied (the box-run's build checkout, a host tree of an older layout), and an import of anything else
-    there stopped a correctly signed bundle (10K-7, train 100)."""
-    got = read_from_bundle(bundle)
+    rotation, an OS patch) is a warning, never a refusal: they inform the person, they decide nothing. ``manifest`` is
+    the signed manifest and ``kept`` the payload bytes :func:`_check_payloads` hashed from the same open file (H1 of
+    the integrator's review: the summary once came from a second open of the path, against an unchecked manifest).
+    The standard library only and no other module of tools/: the verifier runs where only it and the modules it
+    already imports are copied (the box-run's build checkout, a host tree of an older layout), and an import of
+    anything else there stopped a correctly signed bundle (10K-7, train 100)."""
+    got = _note_parts(manifest, lambda name, _entry: kept.get(f"{PAYLOAD}{name}"))
     sheet = got["impact"] or {}
     return {"note": got["note_ja"] is not None, "impact": got["impact"] is not None,
             "changed": [r["class"] for r in sheet.get("classes") or [] if r.get("changed")],
             "warnings": got["warnings"]}  # fmt: skip
+
+
+def _note_parts(
+    manifest: Mapping[str, Any], body_of: Callable[[str, Mapping[str, Any]], bytes | str | None]
+) -> dict[str, Any]:
+    """The note and the sheet as the manifest lists them: ``body_of(name, entry)`` gives the payload's bytes already
+    matched to the entry's size and sha256, a warning, or None (not there)."""
+    out: dict[str, Any] = {"bundle_id": manifest.get("bundle_id"), "release_seq": manifest.get("release_seq"),
+                           "note_ja": None, "impact": None, "warnings": []}  # fmt: skip
+    listed = {e.get("path"): e for e in manifest.get("files") or [] if isinstance(e, dict)}
+    for name, key in ((NOTE, "note_ja"), (IMPACT, "impact")):
+        entry = listed.get(name)
+        if entry is None or entry.get("kind") != "other":
+            out["warnings"].append(f"no {name} in this bundle")
+            continue
+        cap = MAX_BYTES[key]
+        if not isinstance(entry.get("size"), int) or entry["size"] > cap:
+            out["warnings"].append(f"{name} is too large to show ({entry.get('size')} bytes, at most {cap})")
+            continue
+        body = body_of(name, entry)
+        if isinstance(body, str):
+            out["warnings"].append(body)
+            continue
+        if body is None:
+            out["warnings"].append(f"{name} is listed but not in the bundle")
+            continue
+        try:
+            text = body.decode("utf-8")
+            out[key] = text if key == "note_ja" else json.loads(text)
+        except (ValueError, RecursionError):
+            out["warnings"].append(f"{name} is not readable UTF-8 text or JSON")
+    if out["impact"] is not None and (bad := sheet_problems(out["impact"])):
+        out["warnings"] += bad
+        out["impact"] = None
+    return out
 
 
 def sheet_problems(sheet: Any) -> list[str]:
@@ -415,51 +457,36 @@ def sheet_problems(sheet: Any) -> list[str]:
 def read_from_bundle(bundle: Path) -> dict[str, Any]:
     """The note and the sheet of a bundle the verifier has accepted, each read only when its size and sha256 are the
     manifest's: ``{"bundle_id", "release_seq", "note_ja", "impact", "warnings"}``. A missing or unreadable file is
-    None with a warning; nothing here raises on the bundle's content."""
-    out: dict[str, Any] = {"bundle_id": None, "release_seq": None, "note_ja": None, "impact": None, "warnings": []}
+    None with a warning; nothing here raises on the bundle's content. It checks no signature: call it only on bytes
+    that cannot change after they were verified (the operations runner's private copy, ``tools/trialbox/ops.py``,
+    which apply_update.sh verified); the verifier's own report is :func:`release_note_summary`."""
     try:
         with tarfile.open(bundle, "r:") as tf:
             mem = tf.getmember("manifest.json")
-            f = tf.extractfile(mem) if mem.isfile() and mem.size <= 4 << 20 else None
+            f = tf.extractfile(mem) if mem.isfile() and mem.size <= MAX_META_BYTES else None
             manifest = json.loads(f.read()) if f is not None else {}
             if not isinstance(manifest, dict):
                 manifest = {}
-            out["bundle_id"], out["release_seq"] = manifest.get("bundle_id"), manifest.get("release_seq")
-            listed = {e.get("path"): e for e in manifest.get("files") or [] if isinstance(e, dict)}
-            for name, key in ((NOTE, "note_ja"), (IMPACT, "impact")):
-                entry = listed.get(name)
-                if entry is None or entry.get("kind") != "other":
-                    out["warnings"].append(f"no {name} in this bundle")
-                    continue
+
+            def body_of(name: str, entry: Mapping[str, Any]) -> bytes | str | None:
                 try:
-                    m = tf.getmember(f"files/{name}")
+                    m = tf.getmember(f"{PAYLOAD}{name}")
                 except KeyError:
-                    out["warnings"].append(f"{name} is listed but not in the bundle")
-                    continue
-                cap = MAX_BYTES[key]
-                if m.isfile() and m.size > cap:
-                    out["warnings"].append(f"{name} is too large to show ({m.size} bytes, at most {cap})")
-                    continue
+                    return None
                 fh = tf.extractfile(m) if m.isfile() else None
-                body = fh.read(cap + 1) if fh is not None else b""
+                body = fh.read(MAX_BYTES["note_ja"] + 1) if fh is not None else b""
                 if (
                     fh is None
                     or len(body) != entry.get("size")
                     or hashlib.sha256(body).hexdigest() != entry.get("sha256")
                 ):
-                    out["warnings"].append(f"{name} does not match the manifest (or is too large); not shown")
-                    continue
-                try:
-                    text = body.decode("utf-8")
-                    out[key] = text if key == "note_ja" else json.loads(text)
-                except ValueError:
-                    out["warnings"].append(f"{name} is not readable UTF-8 text or JSON")
-    except (OSError, KeyError, ValueError, tarfile.TarError) as exc:
-        out["warnings"].append(f"the bundle could not be read: {type(exc).__name__}")
-    if out["impact"] is not None and (bad := sheet_problems(out["impact"])):
-        out["warnings"] += bad
-        out["impact"] = None
-    return out
+                    return f"{name} does not match the manifest (or is too large); not shown"
+                return body
+
+            return _note_parts(manifest, body_of)
+    except (OSError, KeyError, ValueError, RecursionError, tarfile.TarError) as exc:
+        out: dict[str, Any] = {"bundle_id": None, "release_seq": None, "note_ja": None, "impact": None}
+        return {**out, "warnings": [f"the bundle could not be read: {type(exc).__name__}"]}
 
 
 def _schema_errors(manifest: Any) -> list[str]:
@@ -565,13 +592,25 @@ def gb(n: float) -> str:
 
 
 def _check_payloads(
-    tf: tarfile.TarFile, members: dict[str, tarfile.TarInfo], listed: dict[str, Any], stage: Path | None
+    tf: tarfile.TarFile,
+    members: dict[str, tarfile.TarInfo],
+    listed: dict[str, Any],
+    stage: Path | None,
+    keep: Mapping[str, int] | None = None,
+    kept: dict[str, bytes] | None = None,
 ) -> None:
+    """Each payload hashed while it is copied (``stage``). ``keep`` {member: cap}: a payload of kind ``other`` no
+    larger than its cap is also kept in ``kept``, the very bytes hashed, once its sha256 matched (H1, D-1363)."""
     for name, entry in sorted(listed.items()):
         m = members[name]
         f = tf.extractfile(m)
         assert f is not None
         h = hashlib.sha256()
+        held = (
+            bytearray()
+            if keep and kept is not None and entry["kind"] == "other" and m.size <= keep.get(name, -1)
+            else None
+        )
         out = None
         if stage is not None:
             target = stage / entry["kind"] / str(_safe(entry["path"]))
@@ -580,6 +619,8 @@ def _check_payloads(
         try:
             while chunk := f.read(1 << 20):
                 h.update(chunk)
+                if held is not None:
+                    held += chunk
                 if out is not None:
                     out.write(chunk)
         finally:
@@ -587,6 +628,8 @@ def _check_payloads(
                 out.close()
         if h.hexdigest() != entry["sha256"]:
             raise Rejected(f"{entry['path']}: sha256 mismatch")
+        if held is not None and kept is not None:
+            kept[name] = bytes(held)
         if entry["kind"] == "host":  # T-631: the tree's own sums and member rules, before anything is unpacked
             _check_host(tf, m, stage, entry)
 

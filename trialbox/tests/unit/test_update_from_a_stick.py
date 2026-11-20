@@ -9,11 +9,13 @@ same name on the box is refused). The console's update page is ``tests/console/t
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import io
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import sysconfig
@@ -278,7 +280,11 @@ def test_a_bundle_on_the_stick_is_copied_verified_and_its_note_kept(tmp_path: Pa
     assert r.write_status()["stick"]["bundles"][0]["sidecar"] is True
     res = _check(r, bundle.name)
     assert res["ok"] is True and "copied from the update stick" in res["lines"][0]
-    assert calls[0][-1] == "--dry-run" and calls[0][-2] == str(tmp_path / "incoming" / bundle.name)
+    # H1/H3 (D-1363): apply_update.sh verifies the runner's private copy of the file it hashed, gone afterwards
+    held = tmp_path / "deploy" / "updates" / tb_ops.HELD_DIR
+    assert calls[0][-1] == "--dry-run" and Path(calls[0][-2]).name == bundle.name
+    assert Path(calls[0][-2]).parent.parent == held and not list(held.iterdir())
+    assert stat.S_IMODE(held.stat().st_mode) == 0o700
     st = json.loads((tmp_path / "ops" / "status.json").read_text(encoding="utf-8"))
     sha = hashlib.sha256(bundle.read_bytes()).hexdigest()
     assert st["verified"][bundle.name]["sha256"] == sha and st["verified"][bundle.name]["bundle_id"] == "2026.12-1"
@@ -648,3 +654,201 @@ def test_a_missing_status_is_missing_and_a_good_one_reads(tmp_path: Path) -> Non
     p.parent.mkdir(parents=True)
     p.write_text('{"at": "2026-11-19T00:00:00+00:00"}', encoding="utf-8")
     assert ops.status_state() == ({"at": "2026-11-19T00:00:00+00:00"}, "")
+
+
+# --------------------------------------------- the integrator's review of d314d016: H1, H3, H4, H5 at the real call
+def _sheet_changing(tmp: Path, cc: str) -> Path:
+    rows = [{"class": c, "changed": c == cc} for c in ("CC1", "CC2", "CC3", "CC4", "CC5", "CC6")]
+    p = tmp / release_note.IMPACT
+    p.write_text(json.dumps({"format": release_note.IMPACT_FORMAT, "classes": rows}), encoding="utf-8")
+    return p
+
+
+def test_h1_the_note_reported_is_read_from_the_signed_bytes_even_when_the_path_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H1: the verifier opened the bundle a second time for the note and the sheet and read them against a manifest
+    whose signature that read never checked. Signed bundle A (CC4 changed) is swapped for bundle B (CC1 changed,
+    signed by a key the box does not trust) between the two opens: the report must still be A's."""
+    priv, pub = keygen(tmp_path / "k")
+    a = update_drill.stick_bundle(tmp_path / "a", priv, "2026.12-1", 3)
+    other, _ = keygen(tmp_path / "k2")
+    (tmp_path / "b").mkdir()
+    (tmp_path / "b" / "n.md").write_text("# 別のリリース\n", encoding="utf-8")
+    b = tmp_path / "b" / "b.tar"
+    build(other, "2026.12-2", [("other", _sheet_changing(tmp_path / "b", "CC1"), release_note.IMPACT),
+                               ("other", tmp_path / "b" / "n.md", release_note.NOTE)], b, release_seq=3)  # fmt: skip
+    real = tarfile.open
+    opened: list[Any] = []
+
+    def swapping(name: Any = None, *args: Any, **kw: Any) -> Any:
+        opened.append(name)
+        if len(opened) > 1 and name is not None and Path(name) == a:
+            name = b  # the path now names another file
+        return real(name, *args, **kw)
+
+    monkeypatch.setattr(tarfile, "open", swapping)
+    rn = summary(verify(a, pub))["release_note"]
+    assert rn == {"note": True, "impact": True, "changed": ["CC4"], "warnings": []}, rn
+
+
+def _apply_runner(tmp: Path) -> tuple[_Runner, Path, str, list[bytes]]:
+    (tmp / "incoming").mkdir()
+    f = tmp / "incoming" / "trialbox-1.tar"
+    f.write_bytes(b"release A, verified and confirmed")
+    seen: list[bytes] = []
+
+    def run(argv: Any, timeout: int | None) -> str:
+        seen.append(Path(argv[2]).read_bytes())  # what the installer would read, at the moment it starts
+        return "applied\n"
+
+    env = {"TB_UPDATE_STICK": str(tmp / "stick"), "TB_UPDATE_INCOMING": str(tmp / "incoming")}
+    r = _Runner(tb_ops.Box("compose", tmp / "deploy", env, run), tb_ops.OpsDir(tmp / "ops"))
+    return r, f, hashlib.sha256(f.read_bytes()).hexdigest(), seen
+
+
+def _swap(f: Path) -> None:
+    nxt = f.with_name(".next")
+    nxt.write_bytes(b"release B, another signed release")
+    os.replace(nxt, f)
+
+
+def test_h3_a_file_swapped_while_the_databases_are_asked_is_never_installed(tmp_path: Path) -> None:
+    """H3: the runner hashed the approved file, then handed the installer a pathname; ``update.tar`` replaced while
+    ``apply_limit()`` queried the databases was what the installer opened."""
+    r, f, good, seen = _apply_runner(tmp_path)
+
+    def limit() -> int | None:
+        _swap(f)
+        return None
+
+    r.apply_limit = limit  # type: ignore[method-assign]
+    with contextlib.suppress(tb_ops.OpsFailed):
+        r.do_update_apply({"bundle": f.name, "sha256": good})
+    assert all(s == b"release A, verified and confirmed" for s in seen), seen
+
+
+def test_h3_the_installer_gets_the_bytes_of_the_descriptor_that_was_hashed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cure: the file is opened once; a swap of the path right after that open changes nothing installed."""
+    r, f, good, seen = _apply_runner(tmp_path)
+    real = os.open
+    done: list[bool] = []
+
+    def opening(path: Any, *args: Any, **kw: Any) -> int:
+        fd = real(path, *args, **kw)
+        if not done and Path(os.fsdecode(path)) == f:
+            done.append(True)
+            _swap(f)
+        return fd
+
+    monkeypatch.setattr(os, "open", opening)
+    assert r.do_update_apply({"bundle": f.name, "sha256": good})[0].endswith("applied")
+    assert done and seen == [b"release A, verified and confirmed"]
+    assert f.read_bytes() == b"release B, another signed release"  # the path names B; A was installed
+    assert not list((tmp_path / "deploy" / "updates" / tb_ops.HELD_DIR).iterdir())  # the private copy is gone
+
+
+def test_h3_an_apply_without_a_verified_sha256_is_refused(tmp_path: Path) -> None:
+    r, f, _good, seen = _apply_runner(tmp_path)
+    with pytest.raises(tb_ops.OpsFailed, match="not the file that was verified"):
+        r.do_update_apply({"bundle": f.name})
+    assert seen == []
+
+
+def _drill_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TB_TZ", os.environ.get("TB_TZ") or "UTC")
+    ok = {"ok": True, "checks": [], "skipped": [], "seconds": 0.0}
+    monkeypatch.setattr(update_drill, "stick_drill", lambda d: ok)
+    monkeypatch.setattr(update_drill, "run", lambda d: ok)
+
+
+@pytest.mark.parametrize("which", [["stick"], []], ids=["stick drill", "update drill"])
+def test_h4_dir_that_the_drill_did_not_make_is_refused_and_nothing_in_it_is_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, which: list[str]
+) -> None:
+    """H4: ``--dir`` pointing at an existing folder (a backup folder) was deleted before anything checked it."""
+    _drill_stubs(monkeypatch)
+    d = tmp_path / "backups"
+    d.mkdir()
+    (d / "nightly.tbk").write_bytes(b"a backup")
+    assert update_drill.main([*which, "--dir", str(d)]) == 2
+    assert (d / "nightly.tbk").read_bytes() == b"a backup"
+    (tmp_path / "link").symlink_to(d)  # a link is never followed, even to a folder the drill made
+    (d / update_drill.DRILL_MARK).write_text("x")
+    assert update_drill.main([*which, "--dir", str(tmp_path / "link")]) == 2
+    assert (d / "nightly.tbk").read_bytes() == b"a backup"
+    (tmp_path / "file").write_bytes(b"x")
+    assert update_drill.main([*which, "--dir", str(tmp_path / "file")]) == 2
+    assert (tmp_path / "file").read_bytes() == b"x"
+
+
+@pytest.mark.parametrize("which", [["stick"], []], ids=["stick drill", "update drill"])
+def test_h4_a_folder_the_drill_made_is_emptied_and_used_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, which: list[str]
+) -> None:
+    _drill_stubs(monkeypatch)
+    d = tmp_path / "drill"
+    assert update_drill.main([*which, "--dir", str(d)]) == 0
+    assert (d / update_drill.DRILL_MARK).is_file()
+    (tmp_path / "outside.txt").write_bytes(b"outside")
+    (d / "left-over").mkdir()
+    (d / "left-over" / "link").symlink_to(tmp_path / "outside.txt")
+    assert update_drill.main([*which, "--dir", str(d)]) == 0
+    assert (d / update_drill.DRILL_MARK).is_file() and not (d / "left-over").exists()
+    assert (tmp_path / "outside.txt").read_bytes() == b"outside"  # never deleted outside it
+
+
+def _quiet_runner(tmp: Path) -> tuple[_Runner, list[list[str]], str]:
+    (tmp / "incoming").mkdir()
+    f = tmp / "incoming" / "trialbox-1.tar"
+    f.write_bytes(b"x")
+    r, calls = _runner(tmp)
+    r.box.env.update(update_drill.STICK_ENV)
+    r.now = lambda: datetime.fromisoformat(update_drill.STICK_QUIET)  # type: ignore[method-assign]
+    r.jobs_running = lambda: 0  # type: ignore[method-assign]
+    return r, calls, hashlib.sha256(b"x").hexdigest()
+
+
+def test_h5_a_cancel_accepted_while_a_backup_runs_stops_the_update(tmp_path: Path) -> None:
+    """H5: a cancel took priority only when it was there at the start of the runner's pass; one accepted while a
+    backup ran first was read after the update had been applied."""
+    r, calls, sha = _quiet_runner(tmp_path)
+    rb = r.ops.submit("backup", "console:admin", {"mode": "running"})
+    rq = r.ops.submit("update_apply", "console:admin", {"bundle": "trialbox-1.tar", "when": "quiet", "sha256": sha})
+
+    def backup(args: Any) -> tuple[str, list[str]]:  # the administrator cancels on the console meanwhile
+        r.ops.submit("update_cancel", "console:admin", {"target": rq})
+        return "backup written", []
+
+    r.do_backup = backup  # type: ignore[method-assign]
+    r.run_pending()
+    res = r.ops.result(rq)
+    assert (r.ops.result(rb) or {}).get("ok") is True
+    assert res is not None and res["state"] == "cancelled", res
+    assert not [c for c in calls if "apply_update.sh" in " ".join(c)], calls
+
+
+def test_h5_a_cancel_accepted_just_before_the_installer_starts_stops_it(tmp_path: Path) -> None:
+    """The cancel's own record (``OpsDir.decide``, written once by whichever comes first) is read again immediately
+    before the installer starts: a cancel accepted after the runner took the request still stops it."""
+    r, calls, sha = _quiet_runner(tmp_path)
+    rq = r.ops.submit("update_apply", "console:admin", {"bundle": "trialbox-1.tar", "when": "quiet", "sha256": sha})
+
+    def limit() -> int | None:  # the runner asks the databases; the console accepts the cancel meanwhile
+        assert r.ops.decide(rq, "cancel", "console:admin") == "cancel"
+        r.ops.submit("update_cancel", "console:admin", {"target": rq})
+        return None
+
+    r.apply_limit = limit  # type: ignore[method-assign]
+    r.run_pending()
+    res = r.ops.result(rq)
+    assert res is not None and res["state"] == "cancelled" and res["ok"] is False, res
+    assert calls == []
+    # and once the runner has taken the start, a cancel is no longer accepted
+    rq2 = r.ops.submit("update_apply", "console:admin", {"bundle": "trialbox-1.tar", "when": "quiet", "sha256": sha})
+    r.apply_limit = lambda: None  # type: ignore[method-assign]
+    r.run_pending()
+    assert (r.ops.result(rq2) or {}).get("ok") is True
+    assert r.ops.decide(rq2, "cancel", "console:admin") == "start"

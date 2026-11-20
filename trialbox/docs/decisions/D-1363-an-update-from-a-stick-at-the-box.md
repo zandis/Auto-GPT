@@ -77,6 +77,42 @@ is "apply the previous release's bundle" with `--allow-downgrade REASON` at the 
   name and says when it is cut, and counts the `.tar` files whose names are refused; `make_bundle.sh --release-note`
   without a file says how to give one.
 
+**After the integrator's review of d314d016** (five High, each first reproduced by a test at the real call that
+failed on d314d016, then fixed; `tests/unit/test_update_from_a_stick.py`, `tests/console/test_ops_pages.py`):
+- *H1, the verifier reads once.* `tools/verify_update.py` no longer opens the bundle a second time for the note and
+  the sheet: their bytes are kept while `_check_payloads` hashes every payload from the one open file, and the
+  summary's `release_note` is built from those bytes against the manifest whose signature was verified. The verifier
+  still imports nothing beyond its own modules (the rehearsal's set). `read_from_bundle` (which checks no signature)
+  is now called only on the runner's private copy below, the bytes `apply_update.sh` verified.
+- *H3, one descriptor from hash to install.* The runner opens the staged file once (`O_NOFOLLOW`, a regular file,
+  looked at before the open and the same file after it), copies its bytes from that descriptor into a fresh folder
+  under `deploy/updates/.ops-held` (a real folder, 0700, the runner's own, or refused) while hashing them, hashes the
+  copy again, compares the sha256 with the confirmed one, and gives `apply_update.sh` the copy's path; the copy is
+  removed when it returns. Chosen because `apply_update.sh` takes a pathname and verifies it before anything else,
+  also in its docker fallback, which mounts that path into a container: a `/proc/self/fd/N` path cannot be mounted
+  there and stdin is not a file the verifier can seek. The private copy keeps its verify-first order unchanged; it
+  costs the bundle's size once more on that disk, under the same floor as the stick copy (10 GiB must stay free).
+  The check (`update_check`) uses the same copy: the sha256 recorded, the bytes `--dry-run` verified and the note
+  shown are one set of bytes. An apply that names no verified sha256 is refused by the runner.
+- *H2, the release shown is the release applied.* The Apply buttons carry the sha256 and the release id of the
+  verified bundle the page showed, and so does the confirmation sheet. At each post the console compares them with
+  that bundle's verified record now; another file or release id, or no record, is refused (409, "this is not the
+  verified bundle you were shown", en/ja/zh-TW) and audited `console.refused`. The queued request carries that
+  sha256, never one read later; nothing is queued without one.
+- *H4, the drill deletes only its own folder.* `--dir` (both `update_drill` and `update_drill stick`) is a folder that
+  does not exist yet (made, with the mark `.tb-update-drill`) or one holding that mark, which is emptied (the folder
+  kept, links inside removed, never followed). A folder without the mark, a link (even to a marked folder) or a file is
+  refused, exit 2, before anything is removed.
+- *H5, a cancel accepted before the installer starts stops the update.* Each waiting update has one decision record
+  beside the requests (`requests/<id>.decided`, written once by a hard link, so the first of the two writers wins and
+  neither is overwritten). The console accepts a cancel only by writing `cancel` there, and refuses it (409, "this
+  update has started", translated, audited `console.refused`) when the runner wrote `start` first. The runner runs a
+  cancel that arrived while earlier requests ran (a backup) before it looks at the update, skips an update whose
+  record says `cancel`, and writes `start` immediately before `apply_update.sh` starts, after the limit is asked and
+  the private copy made; a `cancel` there first stops it (result `cancelled`, nothing changed). The confirmation's
+  sentence says so: a cancel is taken until the moment the update starts, even while a backup runs before it. Who may
+  start, confirm or cancel is unchanged.
+
 ## Consequences
 
 - The drill `python -m tools.update_drill stick` (no database; `tests/unit/test_update_from_a_stick.py`) shows the
@@ -93,6 +129,9 @@ is "apply the previous release's bundle" with `--allow-downgrade REASON` at the 
   would pass `--allow-downgrade REASON`; nothing of it is built.
 
 ## Not covered
+
+- The review of d314d016's other findings (one more High: the stick copy's watchdog and a blocked `close()`; the
+  Mediums) are not part of this round.
 
 - The host's mount unit for the stick (read-only, by label) and the hospital's media procedure (review 18 §9,
   question 3): the runner reads whatever is mounted at `TB_UPDATE_STICK`.
