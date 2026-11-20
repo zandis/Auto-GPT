@@ -94,6 +94,11 @@ Exactly what is closed, then:
   - the J-6 opening page: its Next line, which linked to the feasibility report;
   - `/reports`: its row, the feasibility summary;
   - `/jobs`: its jobs' rows (ids and links). The page's own answer is unchanged (200), so it needs no row.
+  - the menu ("More" on a study's pages, with `layout.plain_menu` off and on): the study's set-up, sources,
+    conflicts, entry, forms, candidates, referrals, team and IRB entries. The menu asks `Helpers.on_log_ok` for that
+    study (the template global `on_log`), so no menu offers a page that refuses its reader (the coordinator's ruling
+    D3). Display only: every door still asks its own rule. On the log, or with the log empty, the entries stay;
+    every other account's menu renders as on master.
 
 ## The 20 doors
 
@@ -205,6 +210,11 @@ These answer the same as on master. They show a study's id, version or kind to a
     `console.team.listed` for every role and every state of a log (empty; others only; one's own active entry as PI,
     sub ticked or not, monitor; one's own ended entry, with or without a PI).
 - `test_committee_walks_japan` and `test_committees_10c4`, unedited, hold the committee doors to the IRB doors.
+- The menu: off the log the study's entries leave both menus; on the log (ticked or not) and with the log empty they
+  stay. A render comparison holds every other account's menu, on the study's pages and the start pages, to the
+  menu with the rule always answering yes. All three tests fail without the template change. Once, not committed:
+  112 renders (both flags, 14 accounts, 4 pages) on master `dfb92007` and on this change differ only for the three
+  off-log accounts on the study's pages.
 - Every test of a refusal fails on `origin/master`. Without the break-glass branch, the grant test fails.
 - Existing tests:
   - `test_t102b_roles::test_role_008` is as on master: GZQO's log is empty there, so the investigator sees the log

@@ -567,6 +567,9 @@ def create_app(
     # D-776: the box's own public address for a one-time sign-in link (never the request's Host); "" when not set
     templates.env.globals["public_url"] = (_env_map(env).get("TB_CONSOLE_PUBLIC_URL") or "").strip().rstrip("/")
     templates.env.globals["BEST"] = BEST_STANDING
+    # D-1258 (10C-3c): the menu offers a study's pages only to a reader its doors admit (``Helpers.on_log_ok``); no
+    # workspace, no log: as before. Display only: every door still asks its own rule
+    templates.env.globals["on_log"] = lambda user, rs: "h" not in reader or reader["h"].on_log_ok(user, str(rs).upper())
     templates.env.globals["theme_color"] = phone.THEME  # 9k-1 (D-1368): no colour in a page
     bk: Backend = backend
     au: AuditLog = audit

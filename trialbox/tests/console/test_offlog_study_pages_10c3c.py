@@ -494,3 +494,66 @@ def test_with_the_log_empty_every_investigator_reads_the_committee_doors_as_the_
     c = _accounts(jbox, log=False)
     for name in (*ON, *OFF):
         assert _pair(c[name], *COMMITTEE) == _pair(c[name], *IRB) == (200, 200), name
+
+
+# ---------------------------------------------------------------------------------------------- the menu
+#: the study pages the menu offers under "More" on a study page (both menus, the flag ``layout.plain_menu`` off and on)
+MENU = ("setup", "sources", "conflicts", "entry", "forms", "referrals", "team", "irb")
+
+
+def _nav(page: str) -> str:
+    return page.split("<nav", 1)[1].split("</nav>", 1)[0]
+
+
+def _menu_flag(box: dict[str, Any], value: str) -> None:  # noqa: F811
+    from tests.console.test_plain_menu import _flag
+
+    _flag(box, value)
+
+
+def _offers(c: TestClient) -> set[str]:
+    nav = _nav(c.get(f"/studies/{STUDY}/week", follow_redirects=False).text)
+    return {p for p in MENU if f'href="/studies/{STUDY}/{p}"' in nav}
+
+
+def test_the_menu_offers_a_studys_pages_only_to_a_reader_its_doors_admit(box: dict[str, Any]) -> None:  # noqa: F811
+    """The coordinator's ruling D3: no menu offers a page that refuses its reader. Off GZQO's log, GZQO's pages leave
+    the menu; on it, they stay (ticked or not)."""
+    c = _accounts(box)
+    for flag in ("off", "on"):
+        _menu_flag(box, flag)
+        for name in OFF:
+            assert _offers(c[name][0]) == set(), (flag, name)
+        for name in ON:
+            assert _offers(c[name][0]) == set(MENU), (flag, name)
+
+
+def test_with_the_log_empty_the_menu_offers_the_studys_pages_to_every_investigator(box: dict[str, Any]) -> None:  # noqa: F811
+    c = _accounts(box, log=False)
+    for flag in ("off", "on"):
+        _menu_flag(box, flag)
+        for name in (*ON, *OFF):
+            assert _offers(c[name][0]) == set(MENU), (flag, name)
+
+
+def test_every_other_accounts_menu_is_as_without_the_rule(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    """A render comparison: every role's menu on GZQO's pages, with the rule and with ``on_log_ok`` always yes, is
+    the same, byte for byte, except an investigator's off the log (where the rule removes GZQO's pages)."""
+    from tests.console.test_role_pages import _user
+
+    c = _accounts(box)
+    clients = {name: c[name][0] for name in ("crc", *ON, *OFF)}
+    for name, role, scope in (("adm", "admin", {}), ("smo", "coordinator", {"affiliation": "smo", "studies": STUDY}),
+                              ("vw", "viewer", {}), ("cro", "cro", {"affiliation": "cro", "studies": STUDY}),
+                              ("stw", "steward", {}), ("prv", "privacy", {})):  # fmt: skip
+        clients[name] = _user(box, name, role, **scope)
+    h = box["app"].state.helpers
+    pages = (f"/studies/{STUDY}/week", f"/studies/{STUDY}/team", "/home", "/week")
+    for flag in ("off", "on"):
+        _menu_flag(box, flag)
+        real = {(n, p): _nav(cl.get(p).text) for n, cl in clients.items() for p in pages}
+        with monkeypatch.context() as m:
+            m.setattr(h, "on_log_ok", lambda _user, _rid: True)
+            open_ = {(n, p): _nav(cl.get(p).text) for n, cl in clients.items() for p in pages}
+        differ = {n for (n, p) in real if real[(n, p)] != open_[(n, p)]}
+        assert differ == set(OFF), (flag, differ)
