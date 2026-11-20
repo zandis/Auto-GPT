@@ -6,6 +6,7 @@ runs N shards with fail-fast off, combines their coverage before the unchanged r
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -123,16 +124,24 @@ def test_the_cli_checks_records_and_lists_files(tmp_path: Path, capsys: pytest.C
     assert capsys.readouterr().out.split() == _test_files()
 
 
+def _nested_env() -> dict[str, str]:
+    """H-63: a pytest this file starts in trialbox/ runs without the outer run's PYTEST_ADDOPTS. With CI's --cov it
+    combined and deleted the coverage files that finished xdist workers had saved there, and shard 3 lost their lines
+    in silence (tools/coverage_shards.py now refuses such a run)."""
+    return {k: v for k, v in os.environ.items() if not k.startswith(("PYTEST_", "COV_", "COVERAGE_"))}
+
+
 def test_pytest_shards_partition_a_real_collection(tmp_path: Path) -> None:
     """End to end through pytest and tests/conftest.py: three shards of three real (pure) test files, collected with
     --shard and --shard-record; the records pass the check and the shards' tests add up to the whole collection."""
     files = ["tests/unit/test_test_shard.py", "tests/unit/test_wording.py", "tests/unit/test_site_tz.py"]
     n = 3
+    env = _nested_env()
     for i in range(1, n + 1):
         r = subprocess.run(
             [sys.executable, "-m", "pytest", "-q", "-n", "0", "-p", "no:cacheprovider", "--collect-only",
              "--shard", f"{i}/{n}", "--shard-record", str(tmp_path / f"s{i}.json"), *files],
-            cwd=ROOT, capture_output=True, text=True, check=False,
+            cwd=ROOT, env=env, capture_output=True, text=True, check=False,
         )  # fmt: skip
         assert r.returncode in (0, 5), r.stdout[-2000:] + r.stderr[-2000:]  # 5: this shard kept no test
     recs = [Record.load(tmp_path / f"s{i}.json") for i in range(1, n + 1)]
@@ -147,7 +156,7 @@ def test_a_bad_shard_option_is_a_usage_error() -> None:
     r = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-n", "0", "-p", "no:cacheprovider", "--collect-only", "--shard", "7/3",
          "tests/unit/test_site_tz.py"],
-        cwd=ROOT, capture_output=True, text=True, check=False,
+        cwd=ROOT, env=_nested_env(), capture_output=True, text=True, check=False,
     )  # fmt: skip
     assert r.returncode == 4 and "between 1 and N" in r.stderr, r.stderr[-1000:]
 

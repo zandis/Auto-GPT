@@ -1,0 +1,332 @@
+{
+ "input_sha256": {
+  "tests/fixtures/public_accuracy_p1b/replay_slice.json": "e009e2db968cdab1fa8b33759a21029f44526d3663b0cb127aad80f060b193bb"
+ },
+ "sets": {
+  "jmed": {
+   "model_calls": {
+    "recorded": {
+     "by_study": {
+      "01M7HR09TPHT0CEPWQ6ZPBNFRH": {
+       "by_domain": {
+        "observation": 1
+       },
+       "calls": 1,
+       "invalid": 0,
+       "mapped": 0,
+       "unmapped": 1
+      },
+      "01M7HR3KMKCDPT341NXK27ACPQ": {
+       "by_domain": {
+        "condition": 1
+       },
+       "calls": 1,
+       "invalid": 0,
+       "mapped": 1,
+       "unmapped": 0
+      }
+     },
+     "no_study_id": {
+      "by_domain": {},
+      "calls": 0,
+      "invalid": 0,
+      "mapped": 0,
+      "unmapped": 0
+     },
+     "records": 2,
+     "total": {
+      "by_domain": {
+       "condition": 1,
+       "observation": 1
+      },
+      "calls": 2,
+      "invalid": 0,
+      "mapped": 1,
+      "unmapped": 1
+     }
+    },
+    "simulated": {
+     "by_study": {
+      "01M7HR09TPHT0CEPWQ6ZPBNFRH": {
+       "calls": 0,
+       "calls_by_domain": {},
+       "drafted": 1,
+       "extract_invalid": 0,
+       "extract_records": 1,
+       "not_recorded": 0,
+       "resolved": 0
+      },
+      "01M7HR3KMKCDPT341NXK27ACPQ": {
+       "calls": 0,
+       "calls_by_domain": {},
+       "drafted": 1,
+       "extract_invalid": 0,
+       "extract_records": 1,
+       "not_recorded": 0,
+       "resolved": 1
+      }
+     },
+     "no_study_id": {
+      "extract_records": 0,
+      "mapped": 0
+     },
+     "total": {
+      "calls": 0,
+      "calls_by_domain": {},
+      "drafted": 2,
+      "extract_invalid": 0,
+      "extract_records": 2,
+      "not_recorded": 0,
+      "resolved": 1
+     }
+    }
+   },
+   "replay": {
+    "by_study": {
+     "01M7HR09TPHT0CEPWQ6ZPBNFRH": {
+      "concept_unmapped": 1,
+      "criteria": 2,
+      "not_recorded": 0,
+      "ruleset": "MM2JMED-DM",
+      "status": "compiled",
+      "stored_concept_unmapped": 1
+     },
+     "01M7HR3KMKCDPT341NXK27ACPQ": {
+      "concept_unmapped": 0,
+      "criteria": 2,
+      "not_recorded": 0,
+      "ruleset": "MM2JMED-HT",
+      "status": "compiled",
+      "stored_concept_unmapped": 0
+     }
+    },
+    "concept_unmapped": 1,
+    "no_study_id": {
+     "compiled": 0,
+     "records": 0
+    },
+    "stored_concept_unmapped": 1
+   }
+  },
+  "sigir": {
+   "model_calls": {
+    "recorded": {
+     "by_study": {
+      "01M7HSQQXAC2R5TFGF18GD9Z1A": {
+       "by_domain": {
+        "condition": 7
+       },
+       "calls": 7,
+       "invalid": 0,
+       "mapped": 0,
+       "unmapped": 7
+      },
+      "01M7HSY9BQVSAQ8QGQ5KNHF4XM": {
+       "by_domain": {
+        "condition": 2
+       },
+       "calls": 2,
+       "invalid": 0,
+       "mapped": 0,
+       "unmapped": 2
+      },
+      "01M7HT4S5BEYVPXZ47CRK00KYQ": {
+       "by_domain": {
+        "condition": 2,
+        "observation": 1
+       },
+       "calls": 3,
+       "invalid": 0,
+       "mapped": 0,
+       "unmapped": 3
+      },
+      "01M7HWTZJTQZW2ZGERKBQ6TZFP": {
+       "by_domain": {
+        "condition": 6,
+        "procedure": 1
+       },
+       "calls": 7,
+       "invalid": 0,
+       "mapped": 0,
+       "unmapped": 7
+      },
+      "01M7HXXJP0H7BV0SATS4KWGQEA": {
+       "by_domain": {
+        "observation": 2
+       },
+       "calls": 2,
+       "invalid": 0,
+       "mapped": 0,
+       "unmapped": 2
+      },
+      "01M7J0FRCZWF9S42F0P6JMGCHD": {
+       "by_domain": {},
+       "calls": 0,
+       "invalid": 0,
+       "mapped": 0,
+       "unmapped": 0
+      }
+     },
+     "no_study_id": {
+      "by_domain": {},
+      "calls": 0,
+      "invalid": 0,
+      "mapped": 0,
+      "unmapped": 0
+     },
+     "records": 21,
+     "total": {
+      "by_domain": {
+       "condition": 17,
+       "observation": 3,
+       "procedure": 1
+      },
+      "calls": 21,
+      "invalid": 0,
+      "mapped": 0,
+      "unmapped": 21
+     }
+    },
+    "simulated": {
+     "by_study": {
+      "01M7HSQQXAC2R5TFGF18GD9Z1A": {
+       "calls": 0,
+       "calls_by_domain": {},
+       "drafted": 10,
+       "extract_invalid": 0,
+       "extract_records": 1,
+       "not_recorded": 0,
+       "resolved": 5
+      },
+      "01M7HSY9BQVSAQ8QGQ5KNHF4XM": {
+       "calls": 2,
+       "calls_by_domain": {
+        "condition": 2
+       },
+       "drafted": 2,
+       "extract_invalid": 0,
+       "extract_records": 1,
+       "not_recorded": 2,
+       "resolved": 0
+      },
+      "01M7HT4S5BEYVPXZ47CRK00KYQ": {
+       "calls": 3,
+       "calls_by_domain": {
+        "observation": 3
+       },
+       "drafted": 5,
+       "extract_invalid": 0,
+       "extract_records": 1,
+       "not_recorded": 3,
+       "resolved": 2
+      },
+      "01M7HWTZJTQZW2ZGERKBQ6TZFP": {
+       "calls": 0,
+       "calls_by_domain": {},
+       "drafted": 7,
+       "extract_invalid": 0,
+       "extract_records": 1,
+       "not_recorded": 0,
+       "resolved": 3
+      },
+      "01M7HXXJP0H7BV0SATS4KWGQEA": {
+       "calls": 2,
+       "calls_by_domain": {
+        "observation": 2
+       },
+       "drafted": 3,
+       "extract_invalid": 0,
+       "extract_records": 1,
+       "not_recorded": 2,
+       "resolved": 0
+      },
+      "01M7J0FRCZWF9S42F0P6JMGCHD": {
+       "calls": 0,
+       "calls_by_domain": {},
+       "drafted": 0,
+       "extract_invalid": 1,
+       "extract_records": 1,
+       "not_recorded": 0,
+       "resolved": 0
+      }
+     },
+     "no_study_id": {
+      "extract_records": 0,
+      "mapped": 0
+     },
+     "total": {
+      "calls": 7,
+      "calls_by_domain": {
+       "condition": 2,
+       "observation": 5
+      },
+      "drafted": 27,
+      "extract_invalid": 1,
+      "extract_records": 6,
+      "not_recorded": 7,
+      "resolved": 10
+     }
+    }
+   },
+   "replay": {
+    "by_study": {
+     "01M7HSQQXAC2R5TFGF18GD9Z1A": {
+      "concept_unmapped": 3,
+      "criteria": 10,
+      "not_recorded": 0,
+      "ruleset": "SM2NCT00277680",
+      "status": "compiled",
+      "stored_concept_unmapped": 4
+     },
+     "01M7HSY9BQVSAQ8QGQ5KNHF4XM": {
+      "concept_unmapped": 2,
+      "criteria": 2,
+      "not_recorded": 0,
+      "ruleset": "SM2NCT00493103",
+      "status": "compiled",
+      "stored_concept_unmapped": 0
+     },
+     "01M7HT4S5BEYVPXZ47CRK00KYQ": {
+      "concept_unmapped": 1,
+      "criteria": 10,
+      "not_recorded": 0,
+      "ruleset": "SM2NCT00606840",
+      "status": "compiled",
+      "stored_concept_unmapped": 1
+     },
+     "01M7HWTZJTQZW2ZGERKBQ6TZFP": {
+      "concept_unmapped": 2,
+      "criteria": 8,
+      "not_recorded": 0,
+      "ruleset": "SM2NCT01260883",
+      "status": "compiled",
+      "stored_concept_unmapped": 4
+     },
+     "01M7HXXJP0H7BV0SATS4KWGQEA": {
+      "concept_unmapped": 0,
+      "criteria": 6,
+      "not_recorded": 0,
+      "ruleset": "SM2NCT01723137",
+      "status": "compiled",
+      "stored_concept_unmapped": 0
+     },
+     "01M7J0FRCZWF9S42F0P6JMGCHD": {
+      "concept_unmapped": null,
+      "criteria": 0,
+      "not_recorded": 0,
+      "ruleset": "SM2NCT02378311",
+      "status": "not_rerun",
+      "stored_concept_unmapped": 0
+     }
+    },
+    "concept_unmapped": null,
+    "no_study_id": {
+     "compiled": 0,
+     "records": 0
+    },
+    "stored_concept_unmapped": 9
+   }
+  }
+ },
+ "what": "9h-2: tools.terminology_coverage --model-calls and --replay on tests/fixtures/public_accuracy_p1b/replay_slice.json"
+}
