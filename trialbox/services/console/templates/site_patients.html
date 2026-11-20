@@ -12,8 +12,8 @@
 {% elif out.lake_unread %}<p class="warn" data-testid="pc-lake-unread">{{ t('site.lake_unread') }}</p>{# D-709 #}
 {% elif not out.patients %}<p class="empty" data-testid="pc-none">{{ t('site.people.none') }}</p>{% endif %}
 {% for p in out.patients %}<article class="card" id="p-{{ p.short }}" data-testid="pc-{{ p.short }}" data-state="{{ p.state }}">
-<p><span class="mono">{{ p.short }}</span> <span class="pill pc-{{ p.state }}">{{ t('site.pc.' + p.state) }}</span>
+<p><span class="mono">{{ p.short }}</span> <span class="pill" data-tone="{{ tone('site_patient', p.state) }}">{{ t('site.pc.' + p.state) }}</span>
  <a class="button secondary" href="/ask?pid={{ p.pid }}&amp;{{ qs }}&amp;back={{ path|urlencode }}" data-testid="why-{{ p.short }}">{{ t('ask.q.why') }}</a></p>
-<ul class="plain">{% for c in p.criteria %}<li data-testid="pc-{{ p.short }}-{{ c.id }}" data-verdict="{{ c.verdict }}"><span class="pill vd-{{ {'met': 'pass', 'clear': 'pass', 'not_met': 'fail', 'excluded': 'fail'}.get(c.verdict, 'unknown') }}">{{ t('site.verdict.' + c.verdict) }}</span> {{ given(c.label) }}{% if c.verdict == 'unknown' %} <span class="hint">{{ reason_label(c.reason) }}</span>{% endif %}</li>{% endfor %}</ul>
+<ul class="plain">{% for c in p.criteria %}<li data-testid="pc-{{ p.short }}-{{ c.id }}" data-verdict="{{ c.verdict }}"><span class="pill" data-tone="{{ tone('verdict', {'met': 'pass', 'clear': 'pass', 'not_met': 'fail', 'excluded': 'fail'}.get(c.verdict, 'unknown')) }}">{{ t('site.verdict.' + c.verdict) }}</span> {{ given(c.label) }}{% if c.verdict == 'unknown' %} <span class="hint">{{ reason_label(c.reason) }}</span>{% endif %}</li>{% endfor %}</ul>
 </article>{% endfor %}
 {% endblock %}

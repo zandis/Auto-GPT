@@ -13,7 +13,7 @@
 <h2>{{ t('team.ref.to_ask', n=open_refs|length) }}</h2>
 {% if not open_refs %}<p class="empty">{{ t('team.ref.none_open') }}</p>{% endif %}
 {% for r in open_refs %}<div class="actp outform" id="r{{ r.id }}" data-testid="ref-{{ r.id }}">
-<p><b>{{ t('week.patient', p=r.pid[:8]) }}</b>{% if nos.get(r.pid) %} <span class="mono">{{ nos.get(r.pid) }}</span>{% endif %} · <span class="pill ref-{{ r.state }}">{{ t('team.state.' + r.state) }}</span> · {{ t('team.route.' + r.route) }} · {% if r.physician %}{{ given(r.physician) }}{% else %}<span class="pill warn">{{ t('team.doctor.unknown') }}</span>{% endif %}{% if r.department %} · {{ given(r.department) }}{% endif %}</p>
+<p><b>{{ t('week.patient', p=r.pid[:8]) }}</b>{% if nos.get(r.pid) %} <span class="mono">{{ nos.get(r.pid) }}</span>{% endif %} · <span class="pill" data-tone="{{ tone('referral', r.state) }}">{{ t('team.state.' + r.state) }}</span> · {{ t('team.route.' + r.route) }} · {% if r.physician %}{{ given(r.physician) }}{% else %}<span class="pill warn">{{ t('team.doctor.unknown') }}</span>{% endif %}{% if r.department %} · {{ given(r.department) }}{% endif %}</p>
 <p class="hint">{{ t('team.ref.asked_by', by=r.requested_by, at=(r.requested_at|local)) }}{% if r.suggested and r.suggested != r.physician %} · {{ t('team.ref.suggested_was', name=r.suggested) }}{% endif %}{% if r.note %} · {{ r.note }}{% endif %}</p>
 {# D-407 (UX-034): what the CRC hands or sends to the doctor, who has no account: copy text and a one-page print in the doctor's language #}
 {% if asks.get(r.id) %}<details class="refdoc" data-testid="ref-doc-{{ r.id }}"><summary>{{ t('ref.doc.title') }}</summary>
@@ -38,7 +38,7 @@
 <thead><tr><th>{{ t('wb.c.patient') }}</th><th>{{ t('team.ref.route') }}</th><th>{{ t('team.cand.doctor') }}</th><th>{{ t('team.ref.outcome') }}</th><th>{{ t('team.ref.when') }}</th></tr></thead>
 <tbody>{% for r in refs %}<tr data-testid="ref-row-{{ r.id }}"><td>{{ t('week.patient', p=r.pid[:8]) }}{% if nos.get(r.pid) %} <span class="mono hint">{{ nos.get(r.pid) }}</span>{% endif %}</td>
 <td>{{ t('team.route.' + r.route) }}</td><td>{{ given(r.physician) if r.physician else t('team.doctor.unknown') }}</td>
-<td><span class="pill ref-{{ r.state }}">{{ t('team.state.' + r.state) }}</span>{% if r.reason %} {{ t('team.decline.' + r.reason) }}{% endif %}{% if r.channel %} · {{ t('team.channel.' + r.channel) }}{% endif %}{% if r.answered_by %} · {{ r.answered_by }}{% endif %}</td>
+<td><span class="pill" data-tone="{{ tone('referral', r.state) }}">{{ t('team.state.' + r.state) }}</span>{% if r.reason %} {{ t('team.decline.' + r.reason) }}{% endif %}{% if r.channel %} · {{ t('team.channel.' + r.channel) }}{% endif %}{% if r.answered_by %} · {{ r.answered_by }}{% endif %}</td>
 <td class="nowrap">{{ r.requested_at|local }} · {{ r.requested_by }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>
 {% endblock %}
