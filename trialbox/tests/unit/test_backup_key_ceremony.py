@@ -1028,6 +1028,7 @@ def test_h3_second_review_the_compose_project_is_this_checkouts_own(
     assert bkc.project_of(f"site-a\t{deploy}\nsite-b\t{deploy}\n", deploy) is None
     monkeypatch.setenv("COMPOSE_PROJECT_NAME", "trialbox")
     monkeypatch.setattr(bkc, "COMPOSE", None)
+    monkeypatch.setattr(bkc, "_local_socket", lambda: True)
     monkeypatch.setattr(bkc, "_project", lambda: None)
     stick = box.stick()
     before = _tree(box.tmp)

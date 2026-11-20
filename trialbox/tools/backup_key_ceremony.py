@@ -603,13 +603,22 @@ def project_of(listing: str, deploy: Path) -> str | None:
     return names.pop() if len(names) == 1 else None
 
 
+def _local_socket() -> bool:
+    """The local Docker daemon's socket is there and is root's."""
+    try:
+        st = os.stat(DOCKER_SOCK)
+    except OSError:
+        return False
+    return stat.S_ISSOCK(st.st_mode) and st.st_uid == 0
+
+
 def _project() -> str | None:
     """This checkout's compose project, from the local daemon's running orchestrators (H-3 of the second review)."""
     fmt = '{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.project.working_dir"}}'
     argv = ["docker", "-H", f"unix://{DOCKER_SOCK}", "ps", "--filter", "label=com.docker.compose.service=orchestrator",
             "--format", fmt]  # fmt: skip
     try:
-        if not ((st := os.stat(DOCKER_SOCK)) and stat.S_ISSOCK(st.st_mode) and st.st_uid == 0):
+        if not _local_socket():
             return None
         with tempfile.TemporaryDirectory(prefix="tb-ceremony-docker-") as config:
             r = subprocess.run(argv, capture_output=True, text=True, timeout=JOURNAL_WAIT_S, check=False,
@@ -628,7 +637,7 @@ def _journal(*args: str) -> str:
     call = COMPOSE or local_compose(project or "")
     argv = [*call, "exec", "-T", "orchestrator", "python", "-c", JOURNAL_CODE, *args]
     try:
-        if COMPOSE is None and not ((st := os.stat(DOCKER_SOCK)) and stat.S_ISSOCK(st.st_mode) and st.st_uid == 0):
+        if COMPOSE is None and not _local_socket():
             return ""
         with tempfile.TemporaryDirectory(prefix="tb-ceremony-docker-") as config:
             r = subprocess.run(argv, capture_output=True, text=True, timeout=JOURNAL_WAIT_S, check=False,
@@ -862,6 +871,8 @@ def run(stick: Path, operator: str | None, witness: str | None, env: Mapping[str
             os.close(os.open(".", os.O_WRONLY | os.O_TMPFILE | os.O_CLOEXEC, 0o600, dir_fd=pfd))
         except OSError:
             raise Stop(NO_TMPFILE, path=PUB_DIR) from None
+        if COMPOSE is None and not _local_socket():
+            raise Stop(NO_JOURNAL)
         if COMPOSE is None and _project() is None:
             raise Stop(NO_PROJECT, path=DEPLOY)
         if _journal("check") != "journal ok":
