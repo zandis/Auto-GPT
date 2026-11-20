@@ -1,0 +1,170 @@
+# Reviewed hits of the SQL-from-strings rules (10G-42 (b), D-1344; tools/sql_rules.py).
+# One entry = one file, one rule, the number of hits accepted there and why: the form of
+# tools/security_scan_ignores.yaml. A file with more hits of that rule than `count` reports all of them (and fails
+# under --check), so a new hit in a listed file is not hidden; a file with fewer is a stale line to lower.
+# `reviewed` holds the safe hits; `findings` (at the end) counts the hits that are open findings (H10G42 and
+# H10G42B, docs/handover/sql-from-strings-rules-2026-11-19.md) until their fix lowers the count.
+# "class 1/2 (c)" = classed bound (1) or fixed set (2) on docs/handover/sql-sites-classified-2026-11-18.md.
+# Paths are relative to trialbox/.
+
+reviewed:
+  # ---- libs/
+  - path: libs/tb_common/db.py
+    rule: SQLS01
+    count: 9
+    reason: "schema checked by _SCHEMA_RE in connect (395) before _open; group, owner, writer and reader roles are a prefix plus that schema; row[0] a tbs_ role name from pg_roles (roles only the admin's install step makes); sig is regprocedure::text, which PostgreSQL quotes itself. Line 500's relname is finding H10G42B-03"
+  - path: libs/tb_common/db.py
+    rule: SQLS12
+    count: 13
+    reason: "the same names as SQLS01: [a-z0-9_] by _SCHEMA_RE and fixed prefixes, so no double quote can occur; line 500's relname is finding H10G42B-03"
+  - path: libs/tb_common/db.py
+    rule: SQLS10
+    count: 1
+    reason: "copy_rows checks the table and every column with _SCHEMA_RE (303) before the COPY text is made"
+  - path: libs/tb_common/derived_store.py
+    rule: SQLS01
+    count: 1
+    reason: "class 2 (c): quoted literals from derived.CODES and derived.COMPONENTS (literal dicts); pids bound"
+  - path: libs/tb_common/derived_store.py
+    rule: SQLS13
+    count: 1
+    reason: "class 2 (c): the IN list is (system, code) pairs from the literal dict derived.CODES, not from input"
+  - path: libs/tb_common/flags.py
+    rule: SQLS01
+    count: 1
+    reason: "the schema is checked by _NAME_RE (302) before the table name is made; name values bound"
+  - path: libs/tb_common/lakeprobe.py
+    rule: SQLS11
+    count: 1
+    reason: "class 2 (c): _NAME.fullmatch checked at line 29, else ValueError"
+  # ---- services/
+  - path: services/adapter/sources/cgrd_sql/source.py
+    rule: SQLS08
+    count: 2
+    reason: "class 2 (c): names from the operator's mapping file, each checked by _IDENT.match before use; values bound"
+  - path: services/console/firstrun.py
+    rule: SQLS01
+    count: 1
+    reason: "schema is the console's own checked schema name with its last word replaced by the literal pidmap; table from a literal tuple"
+  - path: services/console/firstrun.py
+    rule: SQLS12
+    count: 1
+    reason: "the same schema name: [a-z0-9_] by _SCHEMA_RE in Database.connect, so no double quote"
+  - path: services/datacore/pgfunc.py
+    rule: SQLS12
+    count: 1
+    reason: "line 42's trigger name: a key of the triggers dict, which every caller builds from constants (edc/store.py APPEND_ONLY); the table name on the same line is finding H10G42B-04"
+  - path: services/edc/store.py
+    rule: SQLS01
+    count: 2
+    reason: "writer is Database.writer_role(): the literal tbw_ prefix plus the checked schema; tables from APPEND_ONLY (a constant)"
+  - path: services/edc/store.py
+    rule: SQLS12
+    count: 2
+    reason: "the same writer role name: [a-z0-9_], so no double quote"
+  - path: services/lake/store.py
+    rule: SQLS01
+    count: 2
+    reason: "lines 1431 and 1637: fts_extension_path(), a file inside the installed duckdb-extension-fts wheel; the other hits are findings H10G42-16, H10G42B-01 and H10G42B-02"
+  - path: services/lake/store.py
+    rule: SQLS11
+    count: 2
+    reason: "lines 1431 and 1637: the wheel's extension path, as for SQLS01; the other hits are findings H10G42B-01 and H10G42B-02"
+  - path: services/mail_gateway/store.py
+    rule: SQLS01
+    count: 1
+    reason: "class 1 (c): callers pass the literal WHERE text or ? marks over OPEN_STATES; params bound"
+  - path: services/matching/carried.py
+    rule: SQLS11
+    count: 2
+    reason: "class 2 (c): called only at module level with literals and the SYSTEMS and YJ_STEM constants"
+  - path: services/omop/__main__.py
+    rule: SQLS01
+    count: 1
+    reason: "class 2 (c): schema.CDM_TABLES and a literal list of tb_ tables"
+  - path: services/omop/export.py
+    rule: SQLS01
+    count: 2
+    reason: "class 2 (c), lines 256 and 259: tables only after the `in ID_COL` check; line 276 is finding H10G42-17"
+  - path: services/omop/load.py
+    rule: SQLS01
+    count: 5
+    reason: "class 2 (c) for 580, 884, 1579, 1581 (literal sequence names, std/codes, ID_COL); 944: every caller of _scratch passes a literal table name"
+  - path: services/omop/load.py
+    rule: SQLS11
+    count: 1
+    reason: "class 2 (c): the only callers pass the literal sequence names"
+  - path: services/omop/partitions.py
+    rule: SQLS01
+    count: 2
+    reason: "class 2 (c), lines 101 and 111: PARTITIONED; lines 106 to 114 and 123 belong to findings H10G42-18 and H10G42-19"
+  - path: services/orchestrator/db.py
+    rule: SQLS01
+    count: 3
+    reason: "1112: _stored's callers pass literal WHERE text; 1166: cols is _COHORT_COLS plus literals; 1249: the store's checked schema, refused when it is the orchestrator's own"
+  - path: services/orchestrator/db.py
+    rule: SQLS04
+    count: 3
+    reason: "499: where holds literal clauses from the filters tuple; 827 and 950: the class constant _db_row_lock, ' FOR UPDATE'"
+  - path: services/orchestrator/db.py
+    rule: SQLS12
+    count: 1
+    reason: "self.schema is checked by _SCHEMA_RE in Database.connect: no double quote"
+  - path: services/orchestrator/recall/ledger.py
+    rule: SQLS04
+    count: 3
+    reason: "class 1 (c): the constant ' FOR UPDATE' (PostgresBackend.row_lock, the only backend)"
+  - path: services/orchestrator/scenarios/twpas.py
+    rule: SQLS01
+    count: 1
+    reason: "class 2 (c): a dict lookup over value_num and value_code (KeyError otherwise); values bound"
+  - path: services/orchestrator/studystore.py
+    rule: SQLS01
+    count: 2
+    reason: "_select(table) reads _COLS[table] (KeyError for any other); every caller passes a literal table and literal WHERE or ORDER text; values bound"
+  - path: services/patient_profile/twin.py
+    rule: SQLS06
+    count: 1
+    reason: "class 2 (c): the literal patient entry, the _TIMELINE dict and the _PROV tuple; pids bound"
+  - path: services/patient_profile/twin.py
+    rule: SQLS12
+    count: 1
+    reason: "class 2 (c): table names from _TIMELINE and _PROV, constants without a double quote"
+  - path: services/sitesetup/service.py
+    rule: SQLS01
+    count: 1
+    reason: "full is the tb_prefix plus a name that Database.connect checks with _SCHEMA_RE before the DROP runs"
+  - path: services/sitesetup/service.py
+    rule: SQLS12
+    count: 1
+    reason: "the same checked schema name: no double quote"
+  - path: services/sitesetup/store.py
+    rule: SQLS01
+    count: 2
+    reason: "class 2 (c): keys filtered to literal sets (255, 281) before the SET list is made; values bound"
+  - path: services/vec/store.py
+    rule: SQLS11
+    count: 1
+    reason: "line 87: check_model (the _MODEL regex: letters, digits, ._:/+-, no quote); 117 and 122 are findings H10G42-23 and H10G42-24"
+
+# Hits that are open findings, counted per file and rule so they are not reported as new while they wait for their
+# fix (lane J). The page docs/handover/sql-from-strings-rules-2026-11-19.md gives each line and its basis. A fix
+# lowers the count here in the same pull request (the stale check names the line).
+findings:
+  - {path: services/console/demo_guard.py, rule: SQLS06, count: 1, ids: [H10G42-01]}
+  - {path: services/console/demo_guard.py, rule: SQLS12, count: 3, ids: [H10G42-01]}
+  - {path: services/lake/store.py, rule: SQLS01, count: 1, ids: [H10G42-16]}
+  - {path: services/lake/store.py, rule: SQLS01, count: 2, ids: [H10G42B-02]}
+  - {path: services/lake/store.py, rule: SQLS11, count: 2, ids: [H10G42B-02]}
+  - {path: services/lake/store.py, rule: SQLS01, count: 3, ids: [H10G42B-01]}
+  - {path: services/lake/store.py, rule: SQLS11, count: 3, ids: [H10G42B-01]}
+  - {path: services/omop/export.py, rule: SQLS01, count: 1, ids: [H10G42-17]}
+  - {path: services/omop/partitions.py, rule: SQLS01, count: 4, ids: [H10G42-18]}
+  - {path: services/omop/partitions.py, rule: SQLS11, count: 4, ids: [H10G42-18]}
+  - {path: services/omop/partitions.py, rule: SQLS01, count: 1, ids: [H10G42-19]}
+  - {path: services/vec/store.py, rule: SQLS11, count: 2, ids: [H10G42-23, H10G42-24]}
+  - {path: services/vec/store.py, rule: SQLS14, count: 2, ids: [H10G42-23, H10G42-24]}
+  - {path: libs/tb_common/db.py, rule: SQLS01, count: 1, ids: [H10G42B-03]}
+  - {path: libs/tb_common/db.py, rule: SQLS12, count: 1, ids: [H10G42B-03]}
+  - {path: services/datacore/pgfunc.py, rule: SQLS01, count: 1, ids: [H10G42B-04]}
+  - {path: services/datacore/pgfunc.py, rule: SQLS12, count: 1, ids: [H10G42B-04]}

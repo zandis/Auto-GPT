@@ -1,0 +1,4 @@
+# synthetic: an IN list of placeholders, the values bound
+def pick(db, codes):
+    marks = ", ".join("?" * len(codes))
+    return db.fetchall(f"SELECT id FROM item WHERE code IN ({marks})", codes)
