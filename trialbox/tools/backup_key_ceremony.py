@@ -1159,14 +1159,27 @@ def _append_here(where: Path, event: str, detail: Mapping[str, Any], tz: str | N
         return _audit_state(e, where, event, fp), isinstance(e, KeyboardInterrupt)
 
 
+#: How long the child that appends may take before it is killed (seconds), and how long it is given after Ctrl-C
+#: (a second Ctrl-C kills it at once). An append takes milliseconds; a killed child's append is ``unknown``.
+CHILD_LIMIT = 120.0
+CHILD_GRACE = 10.0
+
+
 def _as_owner(dfd: int, uid: int, gid: int, write: Any) -> tuple[str, bool]:
     """Run ``write`` (it returns a word of :data:`OUTCOMES` and a flag) in a child process that first drops to
     ``uid``/``gid`` (:func:`_drop_to`) and works in the folder held open as ``dfd`` (``fchdir``): root never writes in
-    the audit folder. The child sends one word over a pipe and exits; nothing else crosses. Ctrl-C is blocked around
-    the fork (so the child never runs on into this program); an interruption here, while the child writes, is noted
-    and the word still read (the child, in the same process group, is interrupted too, and says how its append
-    ended). Whether this process was interrupted is returned beside the word; a child that ended without a word is
-    ``unknown``."""
+    the audit folder. The child sends one word over a pipe and always ends with ``os._exit`` (whatever happens in it:
+    an exception, Ctrl-C, a failed drop), so it never returns into this program, never runs its exit handlers, and
+    cannot outlive this call: it is waited for here, and killed when it takes longer than :data:`CHILD_LIMIT`, or
+    :data:`CHILD_GRACE` after Ctrl-C (at once on a second one). Ctrl-C is blocked across the fork; the cyclic garbage
+    collector runs here before the fork and is off in the child (an object copied from this process, such as a
+    compressor whose worker threads are not in the child, is then never freed there). Whether this process was
+    interrupted is returned beside the word; a child that ended without a word is ``unknown``."""
+    import gc
+    import select
+    import time
+
+    gc.collect()
     r, w = os.pipe()
     old = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
     try:
@@ -1176,9 +1189,10 @@ def _as_owner(dfd: int, uid: int, gid: int, write: Any) -> tuple[str, bool]:
         os.close(r)
         os.close(w)
         return "not-written", False
-    if pid == 0:  # the child: never returns
+    if pid == 0:  # the child: always ends with os._exit, never returns
         word = "unknown"
         try:
+            gc.disable()
             os.close(r)
             signal.pthread_sigmask(signal.SIG_SETMASK, old)
             try:
@@ -1197,17 +1211,27 @@ def _as_owner(dfd: int, uid: int, gid: int, write: Any) -> tuple[str, bool]:
             finally:
                 os._exit(0)
     os.close(w)
-    interrupted, data, restored = False, b"", False
+    interrupted, data, restored, killed = False, b"", False, False
+    deadline = time.monotonic() + CHILD_LIMIT
     while True:
         try:
             if not restored:
                 restored = True
                 signal.pthread_sigmask(signal.SIG_SETMASK, old)
+            left = deadline - time.monotonic()
+            if left <= 0 and not killed:
+                killed = True
+                with contextlib.suppress(OSError):
+                    os.kill(pid, signal.SIGKILL)  # its pipe closes with it: the loop ends on EOF
+            ready, _, _ = select.select([r], [], [], max(left, 0.0) if not killed else None)
+            if not ready:
+                continue
             chunk = os.read(r, 32)
             if not chunk:
                 break
             data += chunk
         except KeyboardInterrupt:
+            deadline = min(deadline, time.monotonic() + (CHILD_GRACE if not interrupted else 0.0))
             interrupted = True
     os.close(r)
     while True:
@@ -1219,7 +1243,7 @@ def _as_owner(dfd: int, uid: int, gid: int, write: Any) -> tuple[str, bool]:
         except ChildProcessError:
             break
     word = data.decode("ascii", "replace")
-    return (word if word in OUTCOMES else "unknown"), interrupted
+    return (word if word in OUTCOMES and not killed else "unknown"), interrupted
 
 
 def _append(audit_dir: Path, event: str, detail: Mapping[str, Any], tz: str | None, fp: str) -> tuple[str, bool]:

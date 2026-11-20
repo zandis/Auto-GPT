@@ -153,7 +153,13 @@
     writer planted is then followed with the writer's own power only. The child writes one word of a fixed list to a
     pipe (above) and exits; no key material crosses (the event's detail holds none, and nothing is sent back but the
     word). A child that cannot take the identity writes nothing to the audit, and the ceremony is refused and undone
-    (`AUDIT_DROP_FAILED`, naming the owner). Every file in the folder is thus made by its owner, and nothing needs
+    (`AUDIT_DROP_FAILED`, naming the owner). **The child cannot outlive the call:** whatever happens in it (an
+    exception, Ctrl-C, `sys.exit`, a failed drop) it ends with `os._exit` in a `finally`, never returning into the
+    program or running its exit handlers; the parent always waits for it, and kills it (`SIGKILL`) when it takes longer
+    than 120 s, or 10 s after Ctrl-C (at once on a second Ctrl-C); a killed child's append is `unknown` (undone, "the
+    audit may hold"). The cyclic garbage collector runs in the parent before the fork and is off in the child: the
+    first version of this fix hung in the unit suite when its child freed a zstd compressor copied from the test
+    process, whose worker threads do not exist in a child, and that orphan held a test slot until it was killed. Every file in the folder is thus made by its owner, and nothing needs
     giving back; after each append the folder is listed through a descriptor, read only, and a file of root's found
     there is named in a translated warning with the folder's owner and `chown` (exit 2); a folder that cannot be
     listed there is said as not checked (exit 2). **A box whose audit folder is root's** (the audit runs as root
@@ -267,4 +273,6 @@
   name, a special file or a group-writable mode, and for a link planted after the first check (undone); a second
   Ctrl-C in `_after_event`, in `_pub_state` and in the undo (only what is known, exit 2, never "nothing had been
   written"); an undoing synced and then interrupted (no "rerun refused"; the rerun succeeds); and the kept warning's
-  next step in three languages. A mutation that skips the real drop fails five of them as root.
+  next step in three languages; the child reaped before the call returns whatever happens in it (an exception,
+  Ctrl-C, `sys.exit`, a failed drop, a hang, a child that would run on), and garbage of the caller freed in the
+  caller with the collector off in the child. A mutation that skips the real drop fails five of them as root.

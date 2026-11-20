@@ -1069,6 +1069,101 @@ def test_the_drop_is_real_and_checked(tmp_path: Path) -> None:
     assert word == ("ok" if os.geteuid() == 0 else "drop-failed")
 
 
+@pytest.mark.parametrize("how", ["raises", "interrupt", "exits", "drop fails", "hangs", "never returns"])
+def test_the_child_cannot_outlive_the_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, how: str) -> None:
+    """Whatever happens in the child (an exception, Ctrl-C, ``sys.exit``, a failed drop, a hang, or code that would
+    go on running the caller's program), it ends with ``os._exit`` or is killed, and it is reaped before the call
+    returns: no process of it is left (an orphan would go on running the test session). The child notes its pid in a
+    file opened before the call."""
+    import time
+
+    folder = tmp_path / "audit"
+    folder.mkdir()
+    pids = tmp_path / "pids"
+    pids.write_text("", encoding="utf-8")
+    pfd = os.open(pids, os.O_WRONLY | os.O_APPEND)
+    monkeypatch.setattr(bkc, "_drop_to", lambda uid, gid: None)
+    monkeypatch.setattr(bkc, "CHILD_LIMIT", 2.0)
+    if how == "drop fails":
+
+        def bad_drop(uid: int, gid: int) -> None:
+            os.write(pfd, f"{os.getpid()}\n".encode())
+            raise PermissionError(errno.EPERM, "Operation not permitted")
+
+        monkeypatch.setattr(bkc, "_drop_to", bad_drop)
+
+    def write() -> tuple[str, bool]:
+        os.write(pfd, f"{os.getpid()}\n".encode())
+        if how == "raises":
+            raise RuntimeError("synthetic")
+        if how == "interrupt":
+            raise KeyboardInterrupt
+        if how == "exits":
+            sys.exit(3)
+        if how == "hangs":
+            time.sleep(60)
+        if how == "never returns":  # as if the child ran on: it would hold the pipe until killed
+            while True:
+                time.sleep(0.05)
+        return "ok", False
+
+    fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+    began = time.monotonic()
+    try:
+        word, interrupted = bkc._as_owner(fd, os.geteuid(), os.getegid(), write)
+    finally:
+        os.close(fd)
+        os.close(pfd)
+    took = time.monotonic() - began
+    assert not interrupted
+    assert word == ("drop-failed" if how == "drop fails" else "unknown"), word
+    (child,) = [int(x) for x in pids.read_text(encoding="utf-8").split()]
+    assert child != os.getpid()
+    assert not os.path.exists(f"/proc/{child}"), "the child outlived the call"
+    assert took < (10.0 if how in ("hangs", "never returns") else 2.0), took
+
+
+def test_garbage_of_the_caller_is_freed_by_the_caller_never_in_the_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The k-suite run of the first fix hung: the child freed a compressor copied from the test process whose worker
+    threads are not in the child, and waited for them for ever. Now cyclic garbage is collected in the caller before
+    the fork, and the collector is off in the child: a cycle left by the caller is freed in the caller (its pid
+    noted), and the child sees the collector off."""
+    import gc
+
+    folder = tmp_path / "audit"
+    folder.mkdir()
+    freed = tmp_path / "freed"
+    freed.write_text("", encoding="utf-8")
+    ffd = os.open(freed, os.O_WRONLY | os.O_APPEND)
+
+    class Cycle:
+        def __init__(self) -> None:
+            self.me = self
+
+        def __del__(self) -> None:
+            os.write(ffd, f"{os.getpid()}\n".encode())
+
+    monkeypatch.setattr(bkc, "_drop_to", lambda uid, gid: None)
+    was = gc.isenabled()
+    gc.disable()  # the cycle stays until the call collects it
+    try:
+        Cycle()
+        fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            word, _ = bkc._as_owner(fd, os.geteuid(), os.getegid(), lambda: ("ok" if not gc.isenabled() else "unknown",
+                                                                              False))  # fmt: skip
+        finally:
+            os.close(fd)
+    finally:
+        os.close(ffd)
+        if was:
+            gc.enable()
+    assert word == "ok"
+    assert freed.read_text(encoding="utf-8").split() == [str(os.getpid())]
+
+
 def test_an_audit_folder_that_is_a_link_is_refused_before_anything_is_written(
     box: dict[str, Path], capsys: pytest.CaptureFixture[str]
 ) -> None:
