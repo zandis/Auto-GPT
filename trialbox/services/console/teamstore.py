@@ -422,6 +422,12 @@ _REF = (
     "requested_by, requested_at, answer, reason, channel, answered_by, answered_at"
 )
 
+# 9f-1: a constant statement (the columns spelled out, the value bound): no SQL is built from a string here.
+_ENTRIES_FOR = (
+    "SELECT id, ruleset, username, name, role, tasks, start_day, end_day, training_day, training_ref, signed_by, "
+    "signed_at, updated_by, updated_at FROM delegation WHERE username = ? ORDER BY ruleset, id"
+)
+
 
 def _entry(r: tuple[Any, ...]) -> Entry:
     tasks = tuple(t for t in str(r[5] or "").split(",") if t)
@@ -450,7 +456,7 @@ class TeamStore:
 
     def entries_for(self, username: str) -> list[Entry]:
         """9f-1: one account's own entries over all studies (a read of that person's rows only)."""
-        rows = self.db.fetchall(f"SELECT {_ENTRY} FROM delegation WHERE username = ? ORDER BY ruleset, id", (username,))
+        rows = self.db.fetchall(_ENTRIES_FOR, (username,))
         return [_entry(r) for r in rows]
 
     def entry(self, ruleset: str, eid: int) -> Entry | None:
