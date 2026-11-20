@@ -29,12 +29,12 @@
   {
    "id": "H67-03",
    "severity": "Low",
-   "claim": "tools/measure48-vm.sh's steps assume a machine made for the run: s05 prunes Docker's whole build cache and every dangling image, s14 runs pkill -f 'tools.ballast hold', and the stop line's SIGINT goes to any process matching a pattern; on a shared host these reach other users' objects and processes",
+   "claim": "tools/measure48-vm.sh's steps assume a machine made for the run: s05 prunes Docker's whole build cache and every dangling image, s14 runs pkill -f 'tools.ballast hold', and the stop line's SIGINT went to any process on the machine matching a pattern; on a shared host these reach other users' objects and processes (and under pytest -n auto the VM's stop-line rehearsal interrupted another case's stand-in once)",
    "severity_basis": "right on the VM made and deleted for the run; would touch other users' objects if the steps ran unchanged on a shared host",
    "lane": "H",
    "basis": "shown",
-   "state": "fixed 642dc34ecfc151290661eaf88e38318d52928d33",
-   "fix": "the step functions are shared, with the machine's own parts named: tools/measure48-host.sh frees only the stub's volumes, never prunes, and reaches only its own processes (OWN_ONLY); its Docker objects are listed and removed at the end; the VM keeps its behaviour",
+   "state": "fixed 41f729b4a28e5a9f90a409b8447cc6a16d1e72ce",
+   "fix": "the step functions are shared, with the machine's own parts named: tools/measure48-host.sh frees only the stub's volumes, never prunes, and releases only its own ballast (OWN_ONLY); the stop line's SIGINT now reaches the step's own processes only, on the VM too; the host form's Docker objects are listed and removed at the end",
    "from": "the integrator's card H-67, 2026-11-20"
   }
  ]

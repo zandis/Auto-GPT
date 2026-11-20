@@ -60,7 +60,11 @@ power-off. A `--host` switch would need guards throughout it, and the self-stop 
 host form. So the VM script now has a shared part first: definitions only, the step functions s05 to s14 and their
 machinery. A `return` follows when `TB_M48_FUNCTIONS_ONLY=1`. The host script sources it and stops there: the VM's
 power-off, reboot, driver and metadata code is not even defined in the host form (a test checks this). The VM keeps
-its behaviour: its 23 rehearsal cases pass unchanged.
+its behaviour: its 23 rehearsal cases pass unchanged. One change reaches the VM too: the stop line's SIGINT goes to
+the tool among the step's own processes only. Before, it went to every process on the machine whose command line
+matched (`pgrep -f`). On the VM nothing else matches; side by side under `pytest -n auto` the VM's stop-line case
+interrupted the SIGTERM case's stand-in once (`test_sigterm_saves_but_does_not_end_the_run_and_the_next_boot_resumes`
+returned 0, not 143).
 
 What differs on a host is small and named in the host script:
 - s05: the stub's volumes only, never a prune;
@@ -78,8 +82,8 @@ Proven on stand-ins (no card, no Docker daemon, no compose, not root):
 - `tests/unit/test_ballast_any_card_h67.py`, 23 cases: totals of 97,887, 183,359 and small cards; reserved memory 0
   and non-zero; one card of eight; another process on the chosen card or on another; a UUID that changes; the holder's
   pin; the servers' pin proven, unproven before the start, and wrong after it; the recreated verifier; the plan CLI;
-- `tests/unit/test_measure48_host_h67.py`, 27 cases: the preflight passing and each refusal; a full pass; a failure
-  at s07; SIGTERM mid-run; the cap reached; the VM's self-stop not defined in the host form; no forbidden command in
+- `tests/unit/test_measure48_host_h67.py`, 28 cases: the preflight passing and each refusal; a full pass; a failure
+  at s07; SIGTERM mid-run; the cap reached; the stop line, which spares a same-named process that is not the run's; the VM's self-stop not defined in the host form; no forbidden command in
   the script.
 
 Not verified:
