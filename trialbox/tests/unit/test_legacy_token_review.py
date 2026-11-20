@@ -158,13 +158,12 @@ def test_the_first_runs_answers_add_no_shared_token(tmp_path: Path, monkeypatch:
     into ``deploy/.env`` after ``install.sh`` had dropped the wizard's first one."""
     import shutil
 
-    from tools.box import __main__ as bm
-
     from tests.unit.test_wizard_chartno_rule import REHEARSAL, _answers
+    from tools.box import __main__ as bm
 
     deploy = _deploy(tmp_path, "TB_ENV=PRODUCTION\nTB_SITE_ID=T\n")
     shutil.copytree(REHEARSAL / "mapping", deploy / "site" / "mapping")
-    monkeypatch.setattr(bm.firstrun, "read", lambda _p: {})
+    monkeypatch.setattr("tools.box.__main__.firstrun.read", lambda _p: {})
     monkeypatch.setattr(bm, "parse", lambda raw, disks: (object(), []))
     monkeypatch.setattr(bm, "plan", lambda a, hw, d: SimpleNamespace(wizard_answers=_answers(), warnings=[]))
     monkeypatch.setattr(bm, "write", lambda *a: None)
