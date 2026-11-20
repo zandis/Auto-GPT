@@ -113,7 +113,7 @@ def _definite(o: Outcome | None) -> bool | None:
     """True for a "not met" that excludes, False for a "met" with nothing open, None for anything else."""
     if o is None:
         return None
-    if o.status == "fail" and o.hard:
+    if o.hard:  # only a "not met" that may exclude is hard (``Outcome.hard``)
         return True
     if o.status == "pass" and o.unknown_kind is None:
         return False
