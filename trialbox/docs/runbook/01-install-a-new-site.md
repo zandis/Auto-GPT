@@ -170,7 +170,8 @@ health line warns 90 days before the list runs out and is red after it.
    The report is in the lake's volume, which the adapter mounts:
    `docker compose --project-directory deploy exec adapter cat /data/lake/ndjson/<date>/ingest_report.json`
    (`<date>` is the run's, `YYYY-MM-DD`): `passed: true`, validator errors under 0.5 %.
-8. **Host check.** `deploy/check_host.sh [--gb10]`: no FAIL line. Then the live preflight with the next action under
+8. **Host check.** `deploy/check_host.sh [--gb10]`: no FAIL line. It names the box's tier; on a desk-side or unknown
+   tier a disk the TPM alone opens is a FAIL (add a Tang server or a PIN, D-1342). Then the live preflight with the next action under
    each line that is not green (10K-3; the box's first-run page shows the same list):
    `python3 -m tools.trialbox doctor --preflight --env-file deploy/.env --lang ja`.
 9. **Backup key.** With hospital IT, once (§5).
@@ -180,3 +181,6 @@ health line warns 90 days before the list runs out and is red after it.
 (for example `X-Forwarded-User`), `TB_CONSOLE_SSO_TRUSTED_PROXIES` (addresses or CIDRs), optionally
 `TB_CONSOLE_SSO_ROLE_HEADER` and `TB_CONSOLE_SSO_ROLE_MAP=ad-group:admin,crc-group:coordinator`. Behind TLS set
 `TB_CONSOLE_SECURE_COOKIE=1`; the doctor check fails without it in PRODUCTION (D-121).
+
+**Choices a PRODUCTION site answers** (D-1365). The wizard refuses an empty `chartno_rule` on a PRODUCTION site
+(`asis` is an answer); `doctor` (`named_choices`) warns a site installed before, with the line to add.
