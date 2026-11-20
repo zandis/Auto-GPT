@@ -66,11 +66,14 @@ of 1,024 pieces).
 from __future__ import annotations
 
 import bisect
+import csv
 import itertools
 import json
 import re
+import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -118,12 +121,25 @@ def _offsets(text: str, surfaces: list[tuple[str, tuple[str, ...]]]) -> list[Tok
     return out
 
 
+# Each thread owns its tokenizer, but opening the same read-only dictionary for every
+# simultaneous model call can exhaust the gateway's admission deadline.
+_DICTIONARY_LOCK = threading.Lock()
+
+
+@cache
+def _dictionary(dict_type: str) -> Any:
+    from sudachipy import Dictionary  # type: ignore[import-untyped,unused-ignore]
+
+    return Dictionary(dict=dict_type)
+
+
 class _Sudachi:
     def __init__(self, dict_type: str) -> None:
-        from sudachipy import Dictionary, SplitMode  # type: ignore[import-untyped,unused-ignore]  # no stubs (D-1235)
+        from sudachipy import SplitMode  # type: ignore[import-untyped,unused-ignore]  # no stubs (D-1235)
 
         self.label = f"sudachi-{dict_type}"
-        self._tok = Dictionary(dict=dict_type).tokenizer(mode=SplitMode.C)
+        with _DICTIONARY_LOCK:
+            self._tok = _dictionary(dict_type).tokenizer(mode=SplitMode.C)
 
     def tokens(self, text: str) -> list[Token]:
         return [
@@ -382,8 +398,14 @@ def _proposals(text: str, toks: list[Token]) -> Iterator[tuple[int, int, list[To
         i = j + 1
 
 
+_AGE_THRESHOLD = re.compile(r"年[滿满満][ 　]*\d{1,3}[ 　]*[歲岁歳]")
+
+
 def _protected(text: str, start: int, end: int, words: list[Token], run_end: int) -> bool:
     """Steps 3 and 4: an eponym, a place or an institution; a word the guard says is no name; after Dr."""
+    # In a mixed-language chart Sudachi reads 滿 as a given name, including in a Chinese age threshold.
+    if end - start == 2 and _AGE_THRESHOLD.match(text, start):
+        return True
     whole = (
         len(words) >= 2
         and words[0].name == "sei"
@@ -415,6 +437,7 @@ def _pieces(text: str) -> Iterator[tuple[int, str]]:
 # ------------------------------------------------------------------------------------------------ by position
 # a title or an honorific after a name (the guard's own honorifics, with their ends, and the staff words)
 _LATIN_CUES = frozenset(w for k in ("titles_before_name", "titles_after_name") for w in CUES[k] if w[:1].isascii())
+_ROLE_WORDS = frozenset(CUES["titles_before_name"] + CUES["titles_after_name"])
 _NOT_A_NAME_WORDS = frozenset(CUES["not_a_name_value"])
 _NOT_A_NAME_ENDING = tuple(CUES["not_a_name_ending"])
 _PREFIX_BEFORE_TITLE = frozenset(CUES["prefixes_before_title"])  # 老先生, 故先生: a prefix, never a name
@@ -481,6 +504,7 @@ def _not_common(toks: list[Token], start: int, end: int) -> bool:
 def _protected_word(word: str) -> bool:
     return (
         word in _NOT_A_NAME_WORDS
+        or word in _ROLE_WORDS
         or _NOT_A_NAME.fullmatch(word) is not None
         or _HON_NOT_A_NAME.fullmatch(word) is not None
         or _TERM_WORD.fullmatch(word) is not None
@@ -494,10 +518,16 @@ _LATIN_BEFORE = re.compile(r"(?<![A-Za-z'])[A-Za-z][A-Za-z']{1,19}$")
 _KANJI_BEFORE = re.compile(f"(?<![{_KANJI}])[{_KANJI}]{{1,4}}$")
 _SURNAME_BEFORE = re.compile(f"(?<![{_KANJI}])([{_KANJI}]{{1,4}})[ 　]$")
 _HON_KANJI_OK = re.compile(phi_guard._JA_NOT_A_NAME_KANJI)
-_LATIN_VALUE = re.compile(r"[A-Za-z][A-Za-z']{1,19}(?:[ 　]{1,2}[A-Za-z][A-Za-z']{1,19}){0,2}")
+_L = "A-Za-zＡ-Ｚａ-ｚĀĪŪĒŌāīūēō"
+_LATIN_VALUE = re.compile(rf"[{_L}][{_L}']{{1,19}}(?![{_L}'])")
+_NEXT_LATIN = re.compile(rf"[ 　]{{1,2}}({_LATIN_VALUE.pattern})")
+# These are the English clinical terms already curated for Japanese notes on the box.
+with (CUES_FILE.parent / "refdata_src" / "ja_clinical_synonyms.csv").open(encoding="utf-8", newline="") as _terms:
+    _CLINICAL_LATIN = {r["canonical"] for r in csv.DictReader(_terms) if r["canonical_lang"] == "en"}
+_NON_NAME_LATIN = re.compile(_alt(sorted(_CLINICAL_LATIN | {w for w in _NOT_A_NAME_WORDS if w.isascii()})), re.I)
 
 
-_REPEAT_PIECE = re.compile(rf"[{_KANJI}]{{2,6}}|[ァ-ヺー]{{3,12}}|[A-Z][a-z]{{2,15}}|[A-Z]{{3,15}}")
+_REPEAT_PIECE = re.compile(rf"[{_KANJI}]{{2,6}}|[ァ-ヺー]{{3,12}}|[{_L}]{{2,16}}")
 
 
 def repeat_spans(text: str, names: list[str]) -> list[tuple[int, int]]:
@@ -507,15 +537,19 @@ def repeat_spans(text: str, names: list[str]) -> list[tuple[int, int]]:
     guard says is no name."""
     words = {
         w.group(0)
-        for n in names
+        for n in set(names)
         for w in _REPEAT_PIECE.finditer(n)
         if not _protected_word(w.group(0)) and not protected_prefix(w.group(0))
     }
     if not words:
         return []
+    if any(not (_KANJI_WORD.match(w) or _kata(w)) for w in words):
+        # This fold maps one character to one: the original offsets still apply.
+        words = {w.translate(_FOLD_LATIN) for w in words}
+        text = text.translate(_FOLD_LATIN)
     alts = []
     for w in sorted(words, key=len, reverse=True):
-        cls = f"[{_KANJI}]" if _KANJI_WORD.match(w) else "[ァ-ヺー]" if _kata(w) else "[A-Za-z]"
+        cls = f"[{_KANJI}]" if _KANJI_WORD.match(w) else "[ァ-ヺー]" if _kata(w) else f"[{_L}]"
         alts.append(rf"(?<!{cls}){re.escape(w)}(?!{cls})")
     return [(m.start(), m.end()) for m in re.finditer("|".join(alts), text) if not _TERM_AFTER.match(text, m.end())]
 
@@ -523,7 +557,8 @@ def repeat_spans(text: str, names: list[str]) -> list[tuple[int, int]]:
 def not_a_name(span: str) -> bool:
     """A span in a name's place that is none: a word of ``not_a_name_value`` (当直医, 未定, 同上), alone or with a
     word or two of kanji after it (交代予定, 不在中)."""
-    return _NOT_A_NAME_SPAN.fullmatch(span.strip()) is not None
+    value = span.strip()
+    return value in _ROLE_WORDS or _NOT_A_NAME_SPAN.fullmatch(value) is not None
 
 
 _NOT_A_NAME_SPAN = re.compile(
@@ -633,8 +668,24 @@ def _after_label(text: str, toks: list[Token]) -> Iterator[tuple[int, int]]:
         if v >= len(text) or _NOT_A_NAME_VALUE.match(text, v) is None:
             continue
         lat = _LATIN_VALUE.match(text, v)
-        if lat is not None and (len(lat.group(0)) > 2 and lat.group(0)[0].isupper()):
-            yield v, lat.end()  # 患者：Taro Yamada
+        if lat is not None:
+            word = lat.group()
+            if not word[0].isupper() or word in _ROLE_WORDS or _NON_NAME_LATIN.match(text, v):
+                continue
+            first = toks.by_start.get(v) if isinstance(toks, _Words) else next((t for t in toks if t.start == v), None)
+            # Labels also introduce foreign names that have no Japanese reading.
+            # An all-capitals value needs independent name evidence (clinical abbreviations).
+            if not word.isupper() or _cued_romaji(word) or (first and first.name):
+                latin_end = lat.end()
+                following = _NEXT_LATIN.match(text, latin_end)
+                if (
+                    following
+                    and following[1][0].isupper()
+                    and following[1] not in _ROLE_WORDS
+                    and not _NON_NAME_LATIN.match(text, following.start(1))
+                ):
+                    latin_end = following.end()
+                yield v, latin_end
             continue
         first = toks.by_start.get(v) if isinstance(toks, _Words) else next((t for t in toks if t.start == v), None)
         if first is None:
@@ -645,6 +696,17 @@ def _after_label(text: str, toks: list[Token]) -> Iterator[tuple[int, int]]:
         yield v, end
 
 
+def has_name_cue(text: str) -> bool:
+    return bool(_CUE_BEFORE.search(text) or _LABEL.search(text) or _TITLE.search(text))
+
+
+def latin_cues(text: str) -> list[tuple[int, int]]:
+    """Latin titles need no dictionary. Apply the same positional rules as a Japanese line."""
+    if not any(cue in text for cue in _LATIN_CUES):
+        return []
+    return [*_after_cue(text, []), *_before_title(text, [])]
+
+
 def _after_cue(text: str, toks: list[Token]) -> Iterator[tuple[int, int]]:
     """A name after a title or a role (Dr. 木村, Dr.Kimura, Ns.田村より, 担当OT：宮田, 主治医 は 岡田 です, 看護師　野口
     より), the words from ``ja_name_cues.json``: a word of Latin letters in romaji, or a word as after a label. Never a
@@ -653,9 +715,9 @@ def _after_cue(text: str, toks: list[Token]) -> Iterator[tuple[int, int]]:
         v = m.end()
         if v >= len(text) or _NOT_A_NAME_VALUE.match(text, v) is None:
             continue
-        lat = _ROMAJI_NAME.match(text, v)
+        lat = _LATIN_VALUE.match(text, v)
         if lat is not None:
-            if _kana(lat.group(0)) is not None and lat.group(0).lower() not in _ENGLISH:
+            if _cued_romaji(lat.group()) and not _NON_NAME_LATIN.match(text, v):
                 yield v, lat.end()
             continue
         first = toks.by_start.get(v) if isinstance(toks, _Words) else next((t for t in toks if t.start == v), None)
@@ -667,7 +729,10 @@ def _after_cue(text: str, toks: list[Token]) -> Iterator[tuple[int, int]]:
         yield v, end
 
 
-_ROMAJI_NAME = re.compile(r"[A-Z][a-z]{2,15}(?![A-Za-z])|[A-Z]{3,15}(?![A-Za-z])")
+def _cued_romaji(word: str) -> bool:
+    return word[0].isupper() and word not in _LATIN_CUES and word.lower() not in _ENGLISH and _kana(word) is not None
+
+
 _AFTER_AGE_SEX = re.compile(
     rf"[0-9０-９]{{1,3}}[ 　]?(?:歳|才)(?:代)?[ 　]?(?:男性|女性|男児|女児|男|女)?[ 　、,，]{{1,2}}"
     rf"(?P<v>[ァ-ヺー]{{2,8}}[ 　][ァ-ヺー]{{2,8}}|[ｦ-ﾟ]{{2,8}}[ 　][ｦ-ﾟ]{{2,8}}|[{_KANJI}]{{1,4}}[ 　][{_KANJI}]{{1,4}})"
@@ -830,8 +895,8 @@ def _kana(word: str) -> str | None:
 
 
 _FOLD_LATIN = str.maketrans(
-    "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚāīūēō",
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzaiueo",
+    "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚāīūēōĀĪŪĒŌ",
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzaiueoAIUEO",
 )
 
 
@@ -866,8 +931,10 @@ def _reading_is_sei(an: Analyser, kana: str) -> bool:
     return _SEI_CACHE[key]
 
 
-_L = "A-Za-zＡ-Ｚａ-ｚ"
-_LATIN_PAIR = re.compile(rf"(?<![{_L}'])(?=([{_L}]{{2,12}})[ 　]{{1,2}}([{_L}]{{2,12}})(?![{_L}']))")
+_LINE_BREAK = r"[ \t　]*\r?\n[ \t　]*"
+_LATIN_PAIR = re.compile(
+    rf"(?<![{_L}'])(?=([{_L}]{{2,12}})(?:[ \t　]{{1,2}}|{_LINE_BREAK})([{_L}]{{2,12}})(?![{_L}']))"
+)
 
 
 def _case_ok(a: str, b: str) -> bool:
@@ -883,17 +950,22 @@ def _case_ok(a: str, b: str) -> bool:
 def romaji_spans(text: str, an: Analyser | None = None) -> list[tuple[int, int]]:
     """Two words of Latin letters that read as a Japanese name: both are Hepburn romaji, one is a surname by its
     reading (the guard's listed surnames; with the analyser, any word it tags 姓), written as a name is (Taro Yamada,
-    YAMADA Taro, hanako sato, ＹＡＭＡＤＡ　Ｔａｒｏ), neither an English word of the short list."""
+    YAMADA Taro, hanako sato, ＹＡＭＡＤＡ　Ｔａｒｏ), a common English word needs name case and a separate surname."""
     out = []
     for m in _LATIN_PAIR.finditer(text):
         a, b = m.group(1), m.group(2)
         fa, fb = a.translate(_FOLD_LATIN), b.translate(_FOLD_LATIN)
-        if not _case_ok(fa, fb) or fa.lower() in _ENGLISH or fb.lower() in _ENGLISH:
+        if not _case_ok(fa, fb) or a in _LATIN_CUES or b in _LATIN_CUES:
             continue
         ka, kb = _kana(fa), _kana(fb)
         if ka is None or kb is None:
             continue
-        if _surname_reading(ka, an) or _surname_reading(kb, an):
+        # Common English words in running text are weak evidence. In name case a
+        # separate, confirmed surname supplies the evidence (Go Sato).
+        english_a, english_b = fa.lower() in _ENGLISH, fb.lower() in _ENGLISH
+        if (english_a or english_b) and not (fa[0].isupper() and fb[0].isupper()):
+            continue
+        if (not english_a and _surname_reading(ka, an)) or (not english_b and _surname_reading(kb, an)):
             out.append((m.start(1), m.end(2)))
     return out
 
@@ -910,6 +982,12 @@ def _retag(toks: list[Token], an: Analyser) -> list[Token]:
                 t = Token(t.surface, t.start, t.end, ("名詞", "固有名詞", "人名", "姓"))
         out.append(t)
     return out
+
+
+_WRAPPED = re.compile(
+    rf"(?<![{_KANJI}ァ-ヺぁ-ゖー])(?=([{_KANJI}ァ-ヺぁ-ゖー]{{1,8}}){_LINE_BREAK}"
+    rf"([{_KANJI}ァ-ヺぁ-ゖー]{{1,8}})(?![{_KANJI}ァ-ヺぁ-ゖー]))"
+)
 
 
 def name_spans(
@@ -937,6 +1015,12 @@ def name_spans(
                 _PIECE_CACHE.clear()  # bounded, as the reading cache
             _PIECE_CACHE[key] = _piece_spans(piece, an, cued)
         out.extend((offset + s, offset + e) for s, e in _PIECE_CACHE[key])
+    if "\n" in text and not cued:
+        out.extend(romaji_spans(text, an))
+        for m in _WRAPPED.finditer(text):
+            joined = " ".join(m.groups())
+            if (0, len(joined)) in _piece_spans(joined, an):
+                out.append((m.start(1), m.end(2)))
     return sorted(set(out))
 
 

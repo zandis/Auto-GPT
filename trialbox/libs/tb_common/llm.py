@@ -53,7 +53,7 @@ from tb_llm.timeouts import caller_timeout, once_more
 from tb_common.audit import AuditLog
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import sha256_text
-from tb_common.phi_guard import PhiClearance, variables_text
+from tb_common.phi_guard import PhiClearance, masked_note_variables, variables_text
 
 _FM = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.S)
 _SECTION = re.compile(r"^##\s+(system|user)\s*$", re.M)
@@ -370,6 +370,7 @@ class LlmClient:
         prompt_id = prompt.meta.id
         schema_name = schema or prompt.meta.output_schema
         json_schema = inline_schema(schema_name)
+        variables = masked_note_variables(prompt_id, variables)
         messages = render(prompt, variables)
         input_text = "\n".join(m["content"] for m in messages)
         input_sha = sha256_text(input_text)

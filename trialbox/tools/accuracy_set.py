@@ -654,12 +654,14 @@ def run_model(client: Any, cases: list[dict[str, Any]], prompt: str = "judge") -
     refused call is an ``error``."""
     from orchestrator.selftest import clip
     from tb_common.pair import served_keys
+    from tb_common.phi_guard import masked_note_variables
 
     out: dict[str, dict[str, Any]] = {}
     for c in cases:
         try:
-            res = client.chat_json(prompt, {k: c[k] for k in FIELDS}, job_id="accuracy")
-            got = answer_of(res.data, c["excerpts"])
+            variables = masked_note_variables("judge", {k: c[k] for k in FIELDS})
+            res = client.chat_json(prompt, variables, job_id="accuracy")
+            got = answer_of(res.data, variables["excerpts"])
         except Exception as exc:  # one refused call or unreadable answer is that case's error, not the run's
             out[c["id"]] = {"error": clip(f"{type(exc).__name__}: {exc}")}
             continue

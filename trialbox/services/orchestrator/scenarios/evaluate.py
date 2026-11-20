@@ -41,6 +41,7 @@ from tb_common.fhir import FhirEvaluator
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong
 from tb_common.pair import DECIDED, Vote, combine, needs_verifier, same_model, served_keys
+from tb_common.phi_guard import mask_names, masked_excerpts
 from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
@@ -351,7 +352,8 @@ class NoteJudge:
         lo, hi = note_window(c, index_date)
         rows = self._lake().query(DOCUMENT_SQL, [pid, lo.isoformat(), hi.isoformat()]).to_pylist()
         notes = [
-            excerpt_builder.Note(str(r["did"]), r["d"], str(r["type"] or "note"), str(r["text"] or "")) for r in rows
+            excerpt_builder.Note(str(r["did"]), r["d"], str(r["type"] or "note"), mask_names(str(r["text"] or "")))
+            for r in rows
         ]
         evidence: dict[str, list[str]] = {}
         if notes:
@@ -456,6 +458,7 @@ class NoteJudge:
     ) -> NoteResult:
         """Put one note question to the judge (and, when ``verify`` and a verifier is wired, to the verifier) over the
         given excerpts: the lake's chunks, the full record, the cascade's selected excerpts or an uploaded chart."""
+        excerpts = masked_excerpts(excerpts)
         variables = {
             "criterion_text": criterion_text,
             "note_question": note_question,

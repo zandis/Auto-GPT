@@ -33,6 +33,7 @@ from tb_common import chartno, dates, instruments
 from tb_common.audit import AuditLog
 from tb_common.crypto import pid_for_mrn, sha256_bytes
 from tb_common.http import ServiceError, kept_failure
+from tb_common.phi_guard import mask_names
 
 from sitesetup import charts, intake, mapping, messy, publish
 from sitesetup.ocr import Ocr, default_ocr
@@ -273,6 +274,7 @@ class SiteSetup:
             ct = charts.chart_text("pasted.txt" if pasted else name, data, self.ocr)
         except charts.ChartError as exc:
             raise SetupError(exc.code, exc.message) from exc
+        model_text = mask_names(ct.text, audit=self.audit)
         clean_name = "pasted.txt" if pasted else (SAFE_NAME.sub("_", Path(name).name)[-80:] or "chart")
         day = messy.parse_date(_first_date(ct.text) or "").iso or self.today().isoformat()
         iid = self.store.add_input(ws, "chart", clean_name, sha256_bytes(data), "", "", by, self.stamp(), {}, pid, day)
@@ -281,7 +283,7 @@ class SiteSetup:
         (self.root / f"{ws}/inputs/{iid}.lake.txt").write_text(self.redact(ct.text, chart_no), encoding="utf-8")
         self.store.set_input(iid, path=rel)
         switches = instruments.switches(self.store.setting(instruments.SETTING))  # T-307: the site's licences
-        found, dropped = charts.extract(self.llm, ct.text, lang, switches=switches)
+        found, dropped = charts.extract(self.llm, model_text, lang, switches=switches)
         for f in found:
             for k, v in list(f.items()):  # D-146 (J-07): nothing the model wrote back may carry a NUL either
                 if isinstance(v, str):

@@ -11,10 +11,14 @@ import re
 import threading
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tb_common import dates
 from tb_common.crypto import sha256_text
+
+if TYPE_CHECKING:
+    from tb_common.audit import AuditLog
+
 
 # ~100 most frequent ROC surnames (covers > 95 % of the population) + common compound surnames
 ROC_SURNAMES = set(
@@ -1190,8 +1194,6 @@ _ZH_TEXT = re.compile(
 )
 _JA_HAN = re.compile(f"[{_JA_KANJI}]")
 _KANA_ANY = re.compile("[ぁ-ゖァ-ヺｦ-ﾝ]")
-#: two Latin words; a match starts only at a word's start, so a long run of letters is read once (linear, not square)
-_LATIN_TWO_WORDS = re.compile("(?<![A-Za-zＡ-Ｚａ-ｚ])[A-Za-zＡ-Ｚａ-ｚ]{2,}[ 　]{1,2}[A-Za-zＡ-Ｚａ-ｚ]{2}")
 _JA_ANALYSER = threading.local()  # one tokenizer per thread: a Sudachi tokenizer is not shared between threads
 
 
@@ -1265,27 +1267,44 @@ def japanese_text(text: str) -> bool:
     return _ZH_TEXT.search(text) is None and all(c in _JA_LEVEL_ONE for c in _HAN_CHAR.findall(text))
 
 
+def _note_analyser() -> Any:
+    from tb_common import ja_names
+
+    an = getattr(_JA_ANALYSER, "an", None)
+    if an is None:
+        try:
+            an = _JA_ANALYSER.an = ja_names.analyser("sudachi-small")
+        except Exception:
+            raise NameAnalyserUnavailable() from None
+    return an
+
+
 def japanese_names(text: str) -> list[tuple[int, int]]:
     """10C-1b (D-1235): Japanese person names that no label, honorific or title of the rules marks (見本太郎は本日来院),
     from SudachiPy with SudachiDict-small under the rule of ``tb_common.ja_names.name_spans``; in a text that is not
-    Japanese (:func:`japanese_text`), only a Japanese name in Latin letters (Taro Yamada) by the guard's listed
-    surnames, with no analyser. The analyser is loaded on the first Japanese text, once per thread (no import when this
-    module loads; the dictionary is a wheel, read from disk: no network). A missing package raises: the guard never
-    quietly masks less."""
-    japanese = japanese_text(text)
-    if not japanese and _LATIN_TWO_WORDS.search(text) is None:
-        return []
+    Japanese (:func:`japanese_text`), Latin name pairs and names after an explicit title or label are checked.
+    The analyser loads once per thread from the installed dictionary. A missing package raises."""
     from tb_common import ja_names  # here, not at the top: ja_names imports this module
 
+    japanese = japanese_text(text)
     if not japanese:
-        return ja_names.romaji_spans(text)
-    an = getattr(_JA_ANALYSER, "an", None)
-    if an is None:
-        an = _JA_ANALYSER.an = ja_names.analyser("sudachi-small")
-    # a note with no kana at a site whose language is not known: Chinese and Japanese share these kanji, so a word
-    # is a name only beside a cue (a label, a title, an honorific), never on its dictionary reading alone
-    cued = _KANA_ANY.search(text) is None and site_notes_language() is None
-    return ja_names.name_spans(text, an, japanese=True, cued=cued)
+        if not _JA_HAN.search(text):
+            return ja_names.romaji_spans(text) + ja_names.latin_cues(text)
+        if not ja_names.has_name_cue(text):
+            return ja_names.romaji_spans(text)
+    cued = not japanese or (_KANA_ANY.search(text) is None and site_notes_language() is None)
+    an = _note_analyser()
+    try:
+        spans = ja_names.name_spans(text, an, japanese=True, cued=cued)
+    except Exception:
+        # A dictionary error can include the text it was asked to read.
+        raise NameAnalyserUnavailable() from None
+    return spans + ja_names.romaji_spans(text) if cued else spans
+
+
+class NameAnalyserUnavailable(RuntimeError):
+    def __init__(self) -> None:
+        super().__init__("Name masking unavailable / 姓名遮罩無法使用 / 氏名のマスクを利用できません")
 
 
 #: 10C-1b: name recognisers beyond the patterns, each ``text -> (start, end) spans``, added to :func:`note_spans` (and
@@ -1299,7 +1318,7 @@ def find_emails(text: str) -> Iterator[re.Match[str]]:
     return _finditer(EMAIL, text)
 
 
-def note_spans(text: str, mrn_regex: str | None = None) -> list[tuple[str, int, int]]:
+def note_spans(text: str, mrn_regex: str | None = None, *, names_only: bool = False) -> list[tuple[str, int, int]]:
     """``(kind, start, end)`` of every name, phone number, chart number, ID number, date of birth, postal address
     and email address found in note text, overlaps merged (kinds: ``name``, ``phone``, ``mrn``, ``id``, ``dob``,
     ``address``, ``email``, ``bed``, ``room``).
@@ -1308,14 +1327,14 @@ def note_spans(text: str, mrn_regex: str | None = None) -> list[tuple[str, int, 
     found: list[tuple[str, int, int]] = []
     facts = _Facts(text)
     for (kind, rx), gate in zip(_NOTE_PATTERNS, _NOTE_GATES, strict=True):
-        if not gate(facts):  # D-756: a pattern whose words the note does not hold cannot match it
+        if (names_only and kind != "name") or not gate(facts):
             continue
         for m in _finditer(rx, text):
             if "v" in rx.groupindex and m.group("v") is not None:
                 found.append((kind, m.start("v"), m.end("v")))
             else:
                 found.append((kind, m.start(), m.end()))
-    if mrn_regex:
+    if mrn_regex and not names_only:
         body = mrn_regex.strip("^$")
         for m in re.finditer(rf"(?<![0-9A-Za-z\-/.]){body}(?![0-9A-Za-z\-/.])", text):
             found.append(("mrn", m.start(), m.end()))
@@ -1362,22 +1381,38 @@ def _whole_names(text: str, found: list[tuple[str, int, int]]) -> list[tuple[str
 
 def _repeated_names(text: str, found: list[tuple[str, int, int]]) -> list[tuple[str, int, int]]:
     """10C-1b: a span in a name's place that is no name is dropped in any language (主治医：交代予定, 担当医：当番医:
-    ``tb_common.ja_names.not_a_name``); in a Japanese note, a name masked once is masked at its other bare occurrences
+    ``tb_common.ja_names.not_a_name``); a name masked once is masked at its other bare occurrences
     in the same note (河野さんへ。河野は不在。: ``tb_common.ja_names.repeat_spans``)."""
     if not any(kind == "name" for kind, _s, _e in found):
         return found
     from tb_common import ja_names  # no analyser: the word lists only
 
     found = [f for f in found if f[0] != "name" or not ja_names.not_a_name(text[f[1] : f[2]])]  # 主治医：交代予定
-    if not japanese_text(text):
-        return found
     names = [text[s:e] for kind, s, e in found if kind == "name"]
     return found + [("name", s, e) for s, e in ja_names.repeat_spans(text, names)]
 
 
-def mask_note(text: str, mrn_regex: str | None = None) -> str:
+def mask_note(
+    text: str,
+    mrn_regex: str | None = None,
+    *,
+    names_only: bool = False,
+    model_input: bool = False,
+    gateway: bool = False,
+    audit: AuditLog | None = None,
+) -> str:
     """Note text with every span of :func:`note_spans` masked, the length and the white space kept."""
-    spans = note_spans(text, mrn_regex)
+    try:
+        if model_input and text:
+            _note_analyser()  # note-bearing model calls require a working dictionary, in every language
+        spans = note_spans(text, mrn_regex, names_only=names_only)
+    except NameAnalyserUnavailable:
+        if gateway:  # gateway.chat records the refusal with its call id in its own ledger
+            raise
+        from tb_common.audit_writer import record_mask_refusal
+
+        record_mask_refusal(audit)
+        raise
     if not spans:
         return text
     out = list(text)
@@ -1386,6 +1421,56 @@ def mask_note(text: str, mrn_regex: str | None = None) -> str:
             if not out[i].isspace():
                 out[i] = MASK_CHAR
     return "".join(out)
+
+
+def mask_names(text: str, *, gateway: bool = False, audit: AuditLog | None = None) -> str:
+    """The model's copy of a note retains its clinical values, including dates of birth."""
+    return mask_note(text, names_only=True, model_input=True, gateway=gateway, audit=audit)
+
+
+def mask_name_parts(parts: list[str], *, gateway: bool = False) -> list[str]:
+    """Keep the original field boundaries while reading name cues across a single note."""
+    if not parts:
+        return []
+    text = "\n".join(parts)
+    safe = mask_names(text, gateway=gateway)
+    if safe == text:
+        return parts
+    pos = 0
+    result = []
+    for part in parts:
+        result.append(safe[pos : pos + len(part)])
+        pos += len(part) + 1
+    return result
+
+
+def masked_excerpts(rows: list[dict[str, Any]], *, gateway: bool = False) -> list[dict[str, Any]]:
+    """Mask the free-text fields together. Dates, source ids and copy counts keep their values."""
+    copied = [r.copy() for r in rows]
+    fields = [(r, k) for r in copied for k in ("title", "note_type", "type", "text") if isinstance(r.get(k), str)]
+    parts = mask_name_parts([r[k] for r, k in fields], gateway=gateway)
+    for (r, k), part in zip(fields, parts, strict=True):
+        r[k] = part
+    return copied
+
+
+NOTE_PROMPTS = frozenset({"judge", "chart_facts", "crf_prefill", "ie_locate", "profile_summary"})
+
+
+def masked_note_variables(prompt: str, values: dict[str, Any], *, gateway: bool = False) -> dict[str, Any]:
+    """Only note-bearing prompt fields. Clinical ids, dates and questions keep their original values."""
+    if prompt not in NOTE_PROMPTS:
+        return values
+    out = values.copy()
+    for key in ("chart", "text", "facts", "excerpts", "notes", "sections"):
+        value = out.get(key)
+        if isinstance(value, str):
+            out[key] = mask_names(value, gateway=gateway)
+        elif isinstance(value, list):
+            rows = [v if isinstance(v, dict) else {"text": v} for v in value]
+            safe = masked_excerpts(rows, gateway=gateway)
+            out[key] = [r if isinstance(v, dict) else r["text"] for v, r in zip(value, safe, strict=True)]
+    return out
 
 
 def site_mrn_regex() -> str | None:

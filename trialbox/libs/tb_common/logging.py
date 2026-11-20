@@ -104,7 +104,7 @@ def site_rule_on() -> str:
 
 #: LOG-JA (D-927): what a log line holds that the note masker would mask is masked too, its kind in capitals
 WITHHELD = "[message withheld: the PHI scrubber failed]"
-#: D-927 (the review's MEDIUM-5): a line longer than this is cut to its first and last halves before it is scrubbed
+#: A line longer than this is withheld before scrubbing: its ends can depend on a name cue in the middle
 #: (``TB_LOG_SCRUB_MAX_CHARS``): the masker reads about 1 µs a character (a 50 kB traceback, 56 ms), and the
 #: formatter holds the handler's lock while it does; what is cut is never written
 SCRUB_MAX_ENV = "TB_LOG_SCRUB_MAX_CHARS"
@@ -123,8 +123,9 @@ def _cut(text: str) -> str:
     limit = _scrub_max()
     if len(text) <= limit:
         return text
-    half = limit // 2
-    return f"{text[:half]} …[{len(text) - 2 * half} characters cut before scrubbing]… {text[-half:]}"
+    # A cut can separate a name from its title or its first mention. Neither end
+    # can be safely released without analysing the omitted text.
+    return f"[{len(text)} characters cut before scrubbing]"
 
 
 def redact(text: str) -> str:
