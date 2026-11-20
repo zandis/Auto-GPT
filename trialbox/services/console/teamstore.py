@@ -1406,7 +1406,7 @@ class TeamStore:
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"task_owner:{ruleset}",))
             row = tx.fetchone(
                 "SELECT kind, ref, owner, owner_name, by, at FROM task_owner WHERE ruleset = ? AND kind = ? "
-                "AND ref = ? ORDER BY at DESC, id DESC LIMIT 1",
+                "AND ref = ? ORDER BY at DESC, id DESC",  # the newest first: its owner is the owner before
                 (ruleset, kind, ref),
             )
             before = TaskOwner(*(str(x) for x in row)) if row is not None and row[2] else None
