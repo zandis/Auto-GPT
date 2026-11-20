@@ -2,7 +2,7 @@
 {# T-112b (D-443): the data-operations console. Sources (the newest night of each, as a light), the held nights with
    the steward's accept and reject, and the ingest history cut by the store. #}
 {% block title %}{{ t('dataops.title') }}{% endblock %}
-{% macro pill(light) %}<span class="pill" data-tone="{{ tone('reading', {'green': 'go', 'amber': 'conditional', 'red': 'nogo'}[light]) }}" data-light="{{ light }}">{{ t('dataops.light.' + light) }}</span>{% endmacro %}
+{% macro pill(light) %}<span class="pill rd-{{ {'green': 'go', 'amber': 'conditional', 'red': 'nogo'}[light] }}" data-light="{{ light }}">{{ t('dataops.light.' + light) }}</span>{% endmacro %}
 {% macro tables(b) %}{% set inc = b.detail.get('incomplete') or [] %}{% if inc %}{{ t('dataops.tables', tables=(inc[:5]|join('; '))[:300]) }}{% elif b.detail.get('gate') %}{{ (b.detail.gate.get('reasons') or [b.detail.gate.get('outcome', '')])|join(', ') }}{% else %}–{% endif %}{% endmacro %}
 {% block content %}
 <div class="headrow"><h1>{{ t('dataops.title') }}</h1>

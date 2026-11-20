@@ -17,7 +17,7 @@
 <dl class="facts">
   <dt>{{ t('team.id') }}</dt><dd><span class="mono" data-testid="pid">{{ pid[:8] }}</span>{# T-685 (UX-036): the 8-character code; the full pseudonym folded, selectable to copy #}
   <details class="idfull" data-testid="pid-full"><summary class="hint">{{ t('team.id.full') }}</summary><input class="mono" readonly value="{{ pid }}" size="34" aria-label="{{ t('team.id.full') }}" data-testid="pid-full-value"></details>{% if screening_no %} · {{ t('log.no') }} <span class="mono" data-testid="screening-no">{{ screening_no }}</span>{% endif %}</dd>
-  <dt>{{ t('patient.tier') }}</dt><dd><span class="pill" data-tone="{{ tone('tier', row.tier) }}">{{ t('tier.' + row.tier) }}</span> {{ person_pill(person, 'candidate-state') }}</dd>
+  <dt>{{ t('patient.tier') }}</dt><dd><span class="pill tier-{{ row.tier }}">{{ t('tier.' + row.tier) }}</span> {{ person_pill(person, 'candidate-state') }}</dd>
   <dt>{{ t('patient.visit') }}</dt><dd><span class="nowrap">{{ (row.next_appointment or '')[:16].replace('T', ' ') or t('week.no_visit') }}</span>{% if row.department %} · {{ given(row.department) }}{% endif %}</dd>
   <dt>{{ t('patient.why') }}</dt><dd data-testid="why">{{ fit_line(fit) }}</dd>
   <dt>{{ t('patient.open') }}</dt><dd>{{ open_items(fit, row.actions or []) }}</dd>
@@ -33,7 +33,7 @@
 
 <section class="card" id="referral" data-testid="referral-card">
 <h2>{{ t('mark.ask_doctor') }}</h2>
-{% if referral %}<p data-testid="referral-state"><span class="pill" data-tone="{{ tone('referral', referral.state) }}">{{ t('team.state.' + referral.state) }}</span> · {{ t('team.route.' + referral.route) }}{% if referral.physician %} · {{ given(referral.physician) }}{% else %} · {{ t('team.doctor.unknown') }}{% endif %}{% if referral.reason %} · {{ t('team.decline.' + referral.reason) }}{% endif %} · {{ referral.requested_at|local }} · {{ referral.requested_by }}</p>
+{% if referral %}<p data-testid="referral-state"><span class="pill ref-{{ referral.state }}">{{ t('team.state.' + referral.state) }}</span> · {{ t('team.route.' + referral.route) }}{% if referral.physician %} · {{ given(referral.physician) }}{% else %} · {{ t('team.doctor.unknown') }}{% endif %}{% if referral.reason %} · {{ t('team.decline.' + referral.reason) }}{% endif %} · {{ referral.requested_at|local }} · {{ referral.requested_by }}</p>
 {% if referral.open %}<p class="hint">{{ t('team.ref.open.help') }} <a href="/studies/{{ rs }}/referrals#r{{ referral.id }}">{{ t('team.ref.title') }}</a></p>{% endif %}{% endif %}
 {% if may_refer and (not referral or not referral.open) %}
 <form method="post" action="/studies/{{ rs }}/candidates/{{ pid }}/referral" class="markform" data-testid="referral-form">

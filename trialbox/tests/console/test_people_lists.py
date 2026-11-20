@@ -290,8 +290,8 @@ def test_the_two_defaults_divide_a_study_at_consent_by_the_one_state() -> None:
 
 def _registry_rows(page: str) -> dict[str, str]:
     """``pid -> state`` of the registry page's table."""
-    return dict(re.findall(r'<tr data-pid="([^"]+)" id="p-[^"]+">\s*<td[^>]*>.*?</td>\s*<td><span class="pill" '
-                           r'data-tone="[a-z]+" data-state="([a-z_]+)"', page, flags=re.S))  # fmt: skip
+    return dict(re.findall(r'<tr data-pid="([^"]+)" id="p-[^"]+">\s*<td[^>]*>.*?</td>\s*<td><span class="pill '
+                           r'ps-[a-z_]+" data-state="([a-z_]+)"', page, flags=re.S))  # fmt: skip
 
 
 def _subject_states(page: str) -> list[str]:

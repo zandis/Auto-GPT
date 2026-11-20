@@ -4,7 +4,7 @@
 {% macro mark_box(rs, pid, back, reasons, current, today) %}
 {% if user.can_mark %}{% set s = pid[:8] %}
 <div class="actp markform" data-testid="actions">
-  {% if current %}<p class="hint" data-testid="current-mark">{{ t('mark.current') }} <span class="pill" data-tone="{{ tone('mark', current.mark) }}">{{ t('mark.' + current.mark) }}</span>{% if current.mark == 'not_now' and current.reason %} · {{ t('mark.recheck_on', d=current.reason) }}{% elif current.reason %} · {{ t('reason.' + current.reason) }}{% endif %} · {{ t('mark.replace') }}</p>{% endif %}
+  {% if current %}<p class="hint" data-testid="current-mark">{{ t('mark.current') }} <span class="pill mk-{{ current.mark }}">{{ t('mark.' + current.mark) }}</span>{% if current.mark == 'not_now' and current.reason %} · {{ t('mark.recheck_on', d=current.reason) }}{% elif current.reason %} · {{ t('reason.' + current.reason) }}{% endif %} · {{ t('mark.replace') }}</p>{% endif %}
   <form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" id="mk-{{ s }}" class="markmain">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}">
     <label for="note-{{ s }}">{{ t('mark.note') }}</label><input id="note-{{ s }}" name="note" maxlength="300" data-keep-note="{{ pid }}">

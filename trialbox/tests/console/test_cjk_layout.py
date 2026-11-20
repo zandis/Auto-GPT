@@ -108,7 +108,7 @@ def test_pills_and_buttons_keep_cjk_words_whole() -> None:
     """UX-023: a pill, badge or button breaks only between words (keep-all: a CJK label is one word), and its
     last-resort break (break-word) does not lower its minimum width the way ``anywhere`` would."""
     css = CSS.read_text(encoding="utf-8")
-    btn = _rule(css, ".pill, button, .button { word-break")
+    btn = _rule(css, ".pill, .state, button, .button { word-break")
     assert "word-break: keep-all" in btn and "overflow-wrap: break-word" in btn and "anywhere" not in btn
     assert "line-break: strict" in _rule(css, "body:lang(ja), body:lang(zh-TW) { line-break")
 

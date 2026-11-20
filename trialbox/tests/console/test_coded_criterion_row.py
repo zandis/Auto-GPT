@@ -149,7 +149,7 @@ def test_the_patient_page_shows_value_unit_date_and_code(
     assert 'data-testid="coded-' not in rows["GZQO-INC-04"]  # unknown: nothing decided, nothing added
     # the acceptance: no met / not met row without a value or a quote
     for cid, tr in rows.items():
-        if re.search(r'class="pill" data-tone="(ok|bad)"', tr):
+        if re.search(r'class="pill vd-(pass|fail)"', tr):
             assert 'data-testid="coded-' in tr or "<blockquote" in tr, cid
     if lang != "en":
         assert set(english_words(page)) <= CODES, set(english_words(page)) - CODES

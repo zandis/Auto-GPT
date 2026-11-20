@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 {% if refresh %}<meta http-equiv="refresh" content="5;url={{ refresh_url }}">{% endif %}
-<title>{% block title %}{{ page_title if page_title is defined else t('brand') }}{% endblock %} · TrialBox</title>
+<title>{% block title %}{{ t('brand') }}{% endblock %} · TrialBox</title>
 <link rel="stylesheet" href="/static/console.css">
 <link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png"><meta name="theme-color" content="{{ theme_color }}">{% if user %}<meta name="tb-user" content="{{ user.username }}">{% endif %}{# D-1222 #}
 {% block head %}{% endblock %}

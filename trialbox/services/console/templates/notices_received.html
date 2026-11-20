@@ -1,8 +1,7 @@
 {% extends "base.html" %}
-{% from "_ds.html" import page_header %}
-{% set page_title = t('received.title') %}
+{% block title %}{{ t('received.title') }}{% endblock %}
 {% block content %}
-{{ page_header(page_title) }}
+<h1>{{ t('received.title') }}</h1>
 <p class="hint">{{ t('received.help') }}</p>
 {% if rows %}
 <div class="scroll" tabindex="0"><table data-testid="received">
