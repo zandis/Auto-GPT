@@ -269,16 +269,14 @@ def test_the_covering_persons_morning_mail_carries_the_study_only_inside_the_dat
 # ---------------------------------------------------------------------------------------------- 9f-5: a task's owner
 def test_a_tasks_owner_is_a_person_on_the_log_and_each_change_is_audited(cb: dict[str, Any]) -> None:
     lpi, csrf = login(cb["app"], "lpi", PW)
-    post = lambda c, k, owner: c.post(
-        "/studies/GZQO/tasks/owner",
-        data={
-            "csrf": k,
-            "kind": "delegation",
-            "ref": "",  # noqa: E731
-            "owner": owner,
-        },
-        follow_redirects=False,
-    )
+
+    def post(c: Any, k: str, owner: str) -> Any:
+        return c.post(
+            "/studies/GZQO/tasks/owner",
+            data={"csrf": k, "kind": "delegation", "ref": "", "owner": owner},
+            follow_redirects=False,
+        )
+
     assert post(lpi, csrf, "crc").status_code == 303
     assert post(lpi, csrf, "crx").status_code == 400  # a coordinator not on the log
     assert post(lpi, csrf, "cra").status_code == 400  # a monitor grant owns no task
@@ -359,8 +357,8 @@ def _sync(lb: dict[str, Any], hours: float) -> list[tuple[str, list[str], str, s
 
 
 def test_an_unacknowledged_sae_is_told_once_at_n_hours_to_the_logs_sub_investigators_and_coordinators(
-    lb: dict[str, Any],
-    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("TB_SAE_ESCALATE_HOURS", raising=False)  # the default, 24 hours
     no = _case(lb)
