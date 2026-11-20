@@ -5,6 +5,14 @@ Joined into ``console.i18n`` by ``console.dataops_page`` when the page is regist
 from __future__ import annotations
 
 EN: dict[str, str] = {
+    "dataops.full_night.known": "Last full night: {date} ({ago}), {updates} since.",
+    "dataops.full_night.unknown": "Last full night: not known, {updates} since.",
+    "dataops.full_night.today": "today",
+    "dataops.full_night.day": "1 day ago",
+    "dataops.full_night.days": "{n} days ago",
+    "dataops.full_night.update": "1 nightly update",
+    "dataops.full_night.updates": "{n} nightly updates",
+    "dataops.full_night.why": "A nightly update reads only what changed; only a full night corrects a record moved to another patient, a merged chart filed again, and a file filed late with an old time.",
     "dataops.title": "Data operations",
     "dataops.help": "Every night of every data source is one row here, with its state and its trail. A held night is kept for a person to look at: the box still serves the night before. The steward rejects it, or accepts it, with a reason; nothing else moves a held night.",
     "dataops.conflicts": "Clinical conflicts",
@@ -121,6 +129,14 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
+    "dataops.full_night.known": "最後の全件取り込み：{date}（{ago}）、その後の夜間更新 {updates}。",
+    "dataops.full_night.unknown": "最後の全件取り込み：不明、その後の夜間更新 {updates}。",
+    "dataops.full_night.today": "今日",
+    "dataops.full_night.day": "1 日前",
+    "dataops.full_night.days": "{n} 日前",
+    "dataops.full_night.update": "1 回",
+    "dataops.full_night.updates": "{n} 回",
+    "dataops.full_night.why": "夜間更新は変わった分だけを読みます。別の患者へ移された記録、統合後に登録し直されたカルテ、古い時刻で後から登録されたファイルは、全件取り込みでしか正されません。",
     "dataops.title": "データ運用",
     "dataops.help": "各データソースの夜間取り込みは1回ごとに1行で、状態と履歴が記録されます。保留された取り込みは人が確認するために残され、その間 TrialBox は前の夜のデータを表示します。データ管理責任者が理由を記入して却下または承認します。保留を解除できるのはこの操作だけです。",
     "dataops.conflicts": "臨床データの矛盾",
@@ -237,6 +253,14 @@ JA: dict[str, str] = {
 }
 
 ZH: dict[str, str] = {
+    "dataops.full_night.known": "上次完整匯入：{date}（{ago}），之後的每夜更新 {updates}。",
+    "dataops.full_night.unknown": "上次完整匯入：不明，之後的每夜更新 {updates}。",
+    "dataops.full_night.today": "今天",
+    "dataops.full_night.day": "1 天前",
+    "dataops.full_night.days": "{n} 天前",
+    "dataops.full_night.update": "1 次",
+    "dataops.full_night.updates": "{n} 次",
+    "dataops.full_night.why": "每夜更新只讀取有變動的部分；移到另一位病人的紀錄、合併後重新歸檔的病歷，以及以舊時間補登的檔案，只有完整匯入才會更正。",
     "dataops.title": "資料作業",
     "dataops.help": "每個資料來源的每一晚匯入都是這裡的一列，附有狀態與紀錄。被暫停的匯入會保留給人員查看，期間系統仍使用前一晚的資料。由資料管理員填寫理由後駁回或接受；暫停的匯入只能以此方式處理。",
     "dataops.conflicts": "臨床資料矛盾",

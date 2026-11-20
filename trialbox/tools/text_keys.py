@@ -507,6 +507,7 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "life.unit.": lambda: ("days", "working"),
     "life.daysoff.why.": _values("tb_common.workdays", "DAY_OFF_KINDS"),
     "dataops.layer.row.": _values("console.country_profile", "KEYS"),  # 10C-25 (D-1250)
+    "job.prefilter.": _values("tb_common.prefilter", "STAGES"),  # 10E-12 (D-1259): the night funnel's stages
     "dataops.layer.source.": _values("console.country_profile", "SOURCES"),
     # D-1253: the kinds of a night's record-id counts on the data-ops batch page
     "dataops.ids.kind.": lambda: [k for k, _ in importlib.import_module("console.dataops_page").ID_COUNTS],

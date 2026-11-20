@@ -577,9 +577,19 @@ def publish_held(
     from adapter.pipeline import SOURCE_CHANGE, merge_base, requires_full_ingest
 
     folder = held_folder(cfg, snap)
-    if requires_full_ingest(folder):
+    if requires_full_ingest(folder):  # D-1253 second review, finding 6: a source change is never accepted
         return Published(snap, folder, held=True, errors=[SOURCE_CHANGE])
-    return publish_night(cfg, snap, folder, last_good=merge_base(cfg.lake_dir, snap), on_step=on_step)
+    try:  # 10B-23 (D-1254): whether the held night read whole, from its own report, before the publish moves it
+        since = json.loads((folder / "ingest_report.json").read_text(encoding="utf-8")).get("since")
+        full: bool | None = not since
+    except (OSError, ValueError, AttributeError):
+        full = None  # not known: the record is not moved
+    out = publish_night(cfg, snap, folder, last_good=merge_base(cfg.lake_dir, snap), on_step=on_step)
+    if out.ok and out.promoted and full is not None:  # an accepted night that is served completed
+        from adapter import full_nights
+
+        full_nights.completed(cfg.lake_dir, snap, full=full)
+    return out
 
 
 __all__ = [

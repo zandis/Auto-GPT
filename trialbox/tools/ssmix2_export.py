@@ -25,7 +25,11 @@ The messages of D-137 appear too, each written so that the reader gives back exa
   fallbacks (OBR-7, SPM-17, the folder's date); a 10-digit time; PID-30 ``Y`` without PID-29; PID-3 and PID-5
   repetitions.
 
-    python -m tools.ssmix2_export --csv <hospital dir> --out <storage root> [--hard-cases]
+* **Variants** (plan 10 card 10B-1, D-1262): ``legacy_vendor`` (the default) is the shapes above, byte for byte what
+  this exporter wrote before the card; ``spec`` (:mod:`tools.ssmix2_spec_export`) is the published specification's
+  shapes. The default stays ``legacy_vendor`` until the reader reads the ``spec`` output (D-1262's gap table).
+
+    python -m tools.ssmix2_export --csv <hospital dir> --out <storage root> [--variant spec] [--hard-cases]
 """
 
 from __future__ import annotations
@@ -132,7 +136,18 @@ def _report_pdf(lines: list[str]) -> bytes:
     return buf.getvalue()
 
 
-def export(src: Path, out: Path) -> dict[str, int]:
+VARIANTS = ("legacy_vendor", "spec")
+DEFAULT_VARIANT = "legacy_vendor"  # D-1262: the reader does not yet read every shape of the spec variant
+
+
+def export(src: Path, out: Path, variant: str = DEFAULT_VARIANT) -> dict[str, int]:
+    """Write the CSV hospital ``src`` as SS-MIX2 storage under ``out`` in the declared ``variant``."""
+    if variant not in VARIANTS:
+        raise ValueError(f"unknown SS-MIX2 export variant {variant!r}: one of {', '.join(VARIANTS)}")
+    if variant == "spec":
+        from tools import ssmix2_spec_export
+
+        return ssmix2_spec_export.export(src, out)
     out.mkdir(parents=True, exist_ok=True)
     byomei = _rev(JP_CORE / "byomei_to_icd10.csv", "code", "icd10")
     yj = _rev(JP_CORE / "yj_to_atc.csv", "yj_code", "atc")
@@ -440,8 +455,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--csv", type=Path, required=True, help="canonical CSV hospital directory")
     ap.add_argument("--out", type=Path, required=True, help="SS-MIX2 storage root to write")
     ap.add_argument("--hard-cases", action="store_true", help="also write the hard cases of T-615a")
+    ap.add_argument("--variant", choices=VARIANTS, default=DEFAULT_VARIANT, help="the shapes to write (D-1262)")
     args = ap.parse_args(argv)
-    for table, n in export(args.csv, args.out).items():
+    if args.hard_cases and args.variant != "legacy_vendor":
+        ap.error("--hard-cases writes vendor byte patterns the specification does not allow: legacy_vendor only")
+    for table, n in export(args.csv, args.out, args.variant).items():
         print(f"{table}: {n} messages")
     if args.hard_cases:
         for name, what in hard_cases(args.out).items():
