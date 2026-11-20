@@ -143,8 +143,9 @@ ICD_TOKEN = re.compile(r"\b([A-Z]\d[0-9A-Z](?:\.[0-9A-Z]{1,4})?)")
 MAX_NAME_CHECKS = 40
 MAX_STORED_CONCEPTS = 60  # per cohort in evidence.json; the count is kept
 # Vocabularies whose concept names are licensed text (CPT4: AMA copyright; SNOMED CT: SNOMED International
-# affiliate licence; HCPCS kept with them to be safe). evidence.json and the CSVs keep their concept ids only.
-NAMELESS_VOCABULARIES = frozenset({"CPT4", "HCPCS", "SNOMED"})
+# affiliate licence; ICDO3: WHO ICD-O-3, names removed by the owner's ruling of 2026-11-19, ids kept; HCPCS kept with
+# them to be safe). evidence.json and the CSVs keep their concept ids only.
+NAMELESS_VOCABULARIES = frozenset({"CPT4", "HCPCS", "ICDO3", "SNOMED"})
 
 Getter = Callable[[str], bytes]
 
