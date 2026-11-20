@@ -662,6 +662,7 @@ class Config:
     tz: str = "UTC"
     mailto: str = ""  # D-274: cron's MAILTO, an alert route only where the host has a mail transfer agent
     alert_page: bool = False  # D-735: TB_BACKUP_ALERT_ROUTE=health-page, the site chose the /admin health tab
+    alert_watcher: str = ""  # 10K-21 (D-1365): TB_BACKUP_ALERT_WATCHER, the person who opens it every working day
     archive_set: str = ""  # TB_PG_ARCHIVE_MODE as written ("" when the site never chose)
     pgbackrest_repo: str = ""
     keep_share: float = KEEP_SHARE  # D-455: TB_BACKUP_KEEP_SHARE
@@ -691,6 +692,13 @@ class Config:
         """D-735: the health tab is the only working route: no alert command, and no ``MAILTO`` that this host can
         send (a box's settings always name the owner's address; without a mail transfer agent cron mails nothing)."""
         return self.alert_page and not self.alert_cmd and not (self.mailto and has_mta)
+
+    def page_watch(self) -> str:
+        """10K-21 (D-1365): who opens the health tab every working day, as the route is shown; or the next action."""
+        if self.alert_watcher:
+            return f"{self.alert_watcher} opens the health tab every working day (TB_BACKUP_ALERT_WATCHER)"
+        return ("nobody is named to open the health tab every working day: set TB_BACKUP_ALERT_WATCHER in deploy/.env "
+                "to that person's name (D-1365)")  # fmt: skip
 
     @property
     def last_file(self) -> Path:
@@ -781,6 +789,7 @@ def config(deploy: Path, env: Mapping[str, str], process_env: bool = True) -> Co
         tz=e.get("TB_TZ") or "Asia/Taipei",
         mailto=e.get("TB_BACKUP_MAILTO", ""),
         alert_page=_alert_page(e, errors),
+        alert_watcher=(e.get("TB_BACKUP_ALERT_WATCHER") or "").strip(),  # 10K-21 (D-1365)
         archive_set=(e.get("TB_PG_ARCHIVE_MODE") or "").lower(),
         pgbackrest_repo=e.get("TB_PGBACKREST_REPO", ""),
         keep_share=_num(e, "TB_BACKUP_KEEP_SHARE", KEEP_SHARE, errors, hi=1.0),
@@ -1393,7 +1402,8 @@ def install_cron(cfg: Config, cron_dir: Path, root: Path, has_mta: bool) -> list
         raise ValueError("PRODUCTION needs a backup alert route: " + ROUTE_HINT + bad)
     if cfg.page_only(has_mta):
         notes.append("note: backup alerts reach the /admin health tab and the audit only; nobody is mailed: someone "
-                     "must open the health tab every working day (TB_BACKUP_ALERT_ROUTE, RUNBOOK §5)")  # fmt: skip
+                     "must open the health tab every working day (TB_BACKUP_ALERT_ROUTE, RUNBOOK §5); "
+                     + cfg.page_watch())  # fmt: skip
     if not cfg.alert_route:
         notes.append("note: no backup alert route (TB_BACKUP_ALERT_CMD, TB_BACKUP_MAILTO): alerts reach the audit "
                      "and the admin page only")  # fmt: skip

@@ -1242,6 +1242,7 @@ def create_app(
             secure=settings.secure_cookie,
             folder=Path(fr_dir) if fr_dir else None,
             country=firstrun.country_on(_env_map(env)),  # 10K-1: TB_FIRSTRUN_COUNTRY, off by default
+            production=environment_name(_env_map(env)) == "PRODUCTION",  # 10K-21 (D-1365)
         ),
     )
 
