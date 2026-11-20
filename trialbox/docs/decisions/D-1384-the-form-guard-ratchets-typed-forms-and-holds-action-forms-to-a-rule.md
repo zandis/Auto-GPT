@@ -4,6 +4,7 @@
 - **Why:** D-1376's guard counted every raw POST form and asked a converted form for a field drawn through
   `fm.field` and a failed-POST case. A form with nothing to type (one button, a hidden CSRF token, perhaps hidden ids)
   can never be converted, so each new one could only raise the ratchet, which the lane does not do.
+- **Ruling:** the integrator ruled on 2026-11-20 that a POST form with nothing a person types is not counted by the ratchet, and that D-1376 states it (amended there) and a test pins it.
 - **Decision:** `tools/form_fields.py` classifies each raw POST form by its text.
   - **TYPED:** it holds an `<input>` whose type is not a literal hidden, submit, button, image or reset (text, file,
     checkbox, radio, an input with no type, a type written by an expression), a `<select>` or a `<textarea>`. TYPED
