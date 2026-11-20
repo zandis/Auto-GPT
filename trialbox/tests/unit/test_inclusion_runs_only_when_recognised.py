@@ -43,8 +43,6 @@ CUED = {
     "Type 2 diabetes. Not pregnant.",
     "2型糖尿病の患者。妊娠していない。",
     "第二型糖尿病。未懷孕。",
-    "2010年ACR/EULAR分類基準を満たす関節リウマチ",
-    "符合2010年ACR/EULAR分類標準之類風濕性關節炎",
     "需要透析之慢性腎臟病",
 }
 HELD_ALL_THE_SAME = {
@@ -58,7 +56,7 @@ HELD_ALL_THE_SAME = {
     "統合失調症でPANSS総得点70点以上",
 }
 PLAIN = read_rows(DEV.with_name("card_10a1d_plain.tsv"))
-PLAIN_HELD = {"en": [1, 15], "ja": [5, 20], "zh": [7, 28]}  # [by the cue reading, not recognised]
+PLAIN_HELD = {"en": [1, 15], "ja": [4, 18], "zh": [5, 27]}  # [by the cue reading, not recognised]
 _HELD: list[list[bool]] = []
 
 

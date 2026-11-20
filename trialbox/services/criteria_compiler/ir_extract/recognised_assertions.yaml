@@ -1,11 +1,11 @@
-# Card 10A-1d (D-1248): what a plain assertion looks like, the only shape of inclusion line that runs as "the
-# patient has the coded concept". Read by criteria_compiler.ir_extract.recognition.
+# Card 10A-1d (D-1248): what a plain statement of presence looks like, the only shape of inclusion line that runs as
+# "the patient has the coded concept". Read by criteria_compiler.ir_extract.recognition.
 #
-# A structured inclusion asks the presence of a concept. Its line runs only when every clause of it is made of the
-# concept's name (or a listed synonym), other named concepts, and the words below, and nothing else. One word not listed here
-# (a new verb, a person, a symbol, a plan, a prefix) and the line is held for a person: an unknown word is a reason to
-# hold, never a reason to run. The cue rules of cards 10A-1 to 10A-1c still run as a second net: a line recognised
-# here and cued there is held.
+# A structured inclusion asks the presence of a concept. Its line runs only when every clause of it is read: the
+# concept's name (or a synonym the extractor gave), other concepts the logic codes, the words below, and unlisted
+# content words where the rules allow one (see "Unlisted words" further down). What governs the name must be listed
+# here: a frame ("diagnosis of", と診断された, 確診為) or a governing phrase (`governors`). The cue rules of cards
+# 10A-1 to 10A-1c still run as a second net: a line recognised here and cued there is held.
 #
 # How a word is matched. English and other Latin words: case does not matter, a space or hyphen between the words of
 # an entry matches any run of spaces and hyphens, and an entry matches whole words only ("on" never matches inside
@@ -48,7 +48,9 @@
 # still hold (the same words with a plan, a person, a stop, a symbol), and run
 #   python -m tools.negated_inclusion_score tests/fixtures/negated_inclusion/card_10a1d_development.tsv --rows
 # A word that would let one must-hold line run does not go in. Never add a word that says the concept is absent,
-# doubtful, planned, stopped, someone else's, or only a heading, a definition or an instruction.
+# doubtful, planned, stopped, someone else's, or only a heading, a definition or an instruction. A class named
+# `frames`, `history` or `tail` closes what is attached to a Japanese or Chinese name (after it, unlisted words are
+# read again): a word that only names a test or an act ("検査", "診斷") goes in `seen`, which does not.
 
 marks: ",(){}'\"・、，（）「」『』"  # read wherever they stand
 joiners: "-–/:~〜"  # read only between the two things they join ("ACR/EULAR", "medium- to high-dose", "T2DM: yes");
@@ -87,7 +89,7 @@ holds:  # regular expressions over a clause as read ({X} this concept, {O} anoth
   revised: '(?i)\b(?:revised|changed|reclassified|corrected|amended|converted|switched|downgraded|upgraded)\s+to\b|\blater\s+(?:found|shown|diagnosed|determined|proved|proven|revised)\b|\bmisdiagnos\w*|\binitially\s+(?:diagnosed|thought|considered|suspected)\b|\bturned\s+out\b|後に[^。]{0,8}(?:訂正|変更|修正)|誤診|误诊|(?:後來|后来)[^。]{0,6}(?:改|更正|修正)|更正為|更正为|修正診斷|改診'
   alternative_etc: '[、,，]\s*[^、。,，]{1,12}(?:等|など|等等)\s*(?:の|之|的|$|[。、,，）)])'  # "<X>、高血圧、喘息等": an open list
   before_concept: '\x00\s*(?:の|之|的)?\s*(?:開始|开始|施行|投与|導入|治療|治疗)?(?:前|以前|之前)(?![立列])'  # "化学療法の前に採血": it has not happened yet
-  risk_instrument: '\b(?:MUST|Wells|Geneva|Caprini|Khorana|Padua|Framingham|FRAX|QRISK\d?|ASCVD|TIMI|GRACE|CHA2DS2-VASc|CHADS2|HAS-BLED|Braden|Norton|Waterlow|Morse|Gail|STOP-BANG)\s+(?:risk\s+)?(?:scores?|scales?|index|criteria|tool|probability)\b'  # a named instrument that scores a risk, not the disease
+  risk_instrument: '\b(?:MUST|Wells|Geneva|Caprini|Khorana|Padua|Framingham|FRAX|QRISK\d?|ASCVD|TIMI|GRACE|CHA2DS2-VASc|CHADS2|HAS-BLED|Braden|Norton|Waterlow|Morse|Gail|STOP-BANG)\s*(?:risk\s+)?(?:scores?\b|scales?\b|index\b|criteria\b|tool\b|probability\b|スコア|評分|评分|分數|分数|量表|尺度)'  # a named instrument that scores a risk, not the disease
   alternative_any_of: '(?i)\b(?:(?:at\s+least\s+)?(?:one|1|two|2)(?:\s+or\s+more)?|any|either|≥\s*\d+|\d+\s+or\s+more)\s+of(?:\s+the\s+following)?\b\s*:?|(?:以下|下列|次)の?(?:いずれか|任一|任何|之一)|いずれか|任一|其中之一|之一'
   mark_elsewhere: '[^\x00\s]\s*(?:✓|☑|✔|\[x\]|\(\+\))'  # a tick counts only right after the name it ticks
   prediction_of: '\x00\s*(?:の)?(?:発症|發病|发病|発生|發生|发生|罹患)?\s*(?:予測|預測|预测|リスク|風險|风险|確率|機率|概率|危険)'
@@ -96,9 +98,9 @@ holds:  # regular expressions over a clause as read ({X} this concept, {O} anoth
   empty_field: '[(\[{「『【（]\s*[/\-−–—_]?\s*[)\]}」』】）]|_{2,}|□|☐|\[\s\]'  # an empty box or bracket: nothing was ticked
   tnm_zero: '(?<![A-Za-z])[ytpc]?[TNM](?:0|x|X)(?![A-Za-z0-9])'  # "M0", "cN0", "Mx": the category says none, or not assessed
   other_type: '(?i)\btypes?\s*(?:\d+|[ivx]+)\b[\s\-]*\x00|(?:第\s*)?\d+\s*型\s*\x00|[IVX]+\s*型\s*\x00'  # a type number in front of the name is another kind than the name coded ("Type 1 <diabetes>")
-  grade_bound: '(?i)\b(?:grade|stage|class|degree)\s*(?:<=|≤|<|below|under|less\s+than|lower\s+than|up\s+to|at\s+most)\s*\d|(?:グレード|段階|分級|分级|級|级|度)\s*\d+\s*(?:未満|以下)|(?:低於|低于|小於|小于|未滿|未满|不超過|不超过)\s*\d+\s*(?:級|级|度)'
+  grade_bound: '(?i)\b(?:grade|stage|class|degree)\s*(?:<=|≤|<|below|under|less\s+than|lower\s+than|up\s+to|at\s+most)\s*\d|(?:グレード|段階|分級|分级|級|级|度)\s*\d+\s*(?:未満|以下)|(?:低於|低于|小於|小于|未滿|未满|不超過|不超过)\s*\d+\s*(?:級|级|度)|(?:分級|分级|等級|等级|級|级|グレード|分期)\s*(?:低於|低于|小於|小于|未滿|未满|<|≤)\s*\d'
   rate_bound: '(?i)\b(?:less\s+than|fewer\s+than|under|below|at\s+most|up\s+to|no\s+more\s+than|<=?|≤)\s*(?:\d+|once|one|twice|two)\s*(?:(?:time|episode|attack|flare|event|exacerbation|relapse)s?\s*)?(?:per|a|an|each|every|in\s+the|/)\s*(?:past\s+|last\s+|previous\s+)?(?:\d+\s*)?(?:day|week|month|year)|(?:年|月|週|周|每年|每月|每週|每周)\s*\d+\s*(?:回|度|次)\s*(?:未満|以下)|(?:每年|每月|每週|每周|年|月|週)(?:低於|低于|少於|少于|不超過|不超过|未滿|未满|至多|最多)\s*\d+\s*次'
-  below_detection: '(?i)(?:below|under|less\s+than|<)\s*(?:the\s+)?(?:lower\s+)?(?:limit\s+of\s+)?(?:detect\w*|quantif\w*|lloq|lod)\b|\bundetect\w*|\bnot\s+detect\w*|検出(?:限界)?(?:未満|以下|せず)|檢測(?:下限|不到)|检测不到|测不到|檢測不出'
+  below_detection: '(?i)(?:below|under|less\s+than|<)\s*(?:the\s+|an?\s+)?(?:lower\s+)?(?:limit\s+of\s+)?(?:detect\w*|quantif\w*|lloq|lod)\b|\bundetect\w*|\bnot\s+detect\w*|検出(?:限界)?(?:未満|以下|せず)|檢測(?:下限|不到)|检测不到|测不到|檢測不出'
   test_of_for: '(?i)\b(?:vaccin\w*|immuni[sz]\w*|prophylaxis|screen\w*|surveillance|tests?|testing|serology|cultures?|monitoring)\s+(?:for|against|of)\s+(?:the\s+)?\x00'  # "Vaccination for hepatitis B"
   object_of_another:  # the concept is the object of another named concept: that one is about it, not a fact of it
     # ("Vaccination for hepatitis B", "Colonoscopy for colorectal cancer", B型肝炎に対するワクチン接種, 針對B型肝炎之疫苗接種)

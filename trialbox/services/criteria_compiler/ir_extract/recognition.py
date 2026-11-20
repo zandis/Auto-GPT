@@ -1,24 +1,34 @@
-"""Whether an inclusion's line is positively recognised as a plain assertion of its coded concept (card 10A-1d).
+"""Whether an inclusion's line is positively recognised as a plain statement that the patient has its coded concept
+(card 10A-1d, D-1248).
 
-Cards 10A-1 to 10A-1c held an inclusion when its line carried a negation cue, and ran it otherwise. Two testers who
-never saw the code showed what that costs: a drug stopped, failed, refused or allergic to, a plan or a booking,
-"candidate for", another person's condition, remission, a vaccination, a heading, a definition, an instruction, a
-symbol, a checkbox ticked "No", "pre-diabetes" with diabetes coded: none of them is a negation, and each ran as "the
-patient has it". A list of cues always lacks the shape nobody listed, so the default turns round (D-1248):
+Cards 10A-1 to 10A-1c held an inclusion when its line carried a negation cue, and ran it otherwise. Testers who never
+saw the code showed what that costs: a drug stopped, failed, refused or allergic to, a plan or a booking, "candidate
+for", another person's condition, remission, a vaccination, a heading, a definition, a symbol, a checkbox ticked
+"No": none of them is a negation, and each ran as "the patient has it". A list of cues always lacks the shape nobody
+listed, so the owner turned the default round (2026-11-19): **what is not clearly present does not count as met.**
 
-**An inclusion that asks the presence of a concept runs only when every clause of its line that names the concept is
-made of nothing but that concept's name (or a listed synonym) and words recognised as part of a plain assertion.**
-What is recognised is data a clinician can read and extend, ``recognised_assertions.yaml`` next to this module: per
-language (English, Japanese, Chinese), assertion frames ("diagnosis of", "patients with", と診断された, 確診為) and
-qualifier classes of the concept itself (stage, grade, severity, type, laterality, site, a measure or a threshold, a
-date or a duration, the confirming method), plus numbers, codes and marks. Any other word in the concept's clause
-means hold: an unknown word is a reason to hold, never a reason to run. The cue rules (``negation_scope``) stay as a
-second net: a recognised line that is cued is held.
+**An inclusion that asks the presence of a concept runs only when every clause of its line is read**, by these rules
+(the words are data a clinician can read and extend, ``recognised_assertions.yaml`` next to this module):
 
-A clause ends at ";", a sentence's end, "but", "however", が、, 但 and the like; a comma does not end one. Another
-concept the extractor named may share the clause when a link word joins it ("surgery *for* colorectal cancer"). A
-clause that names no concept but points back at one ("Diagnosis pending confirmation") must be recognised as well. A
-clause that ends in a colon is a heading. A concept name with a negating prefix ("non-diabetic") is never recognised.
+* **What governs the concept's name is a closed list.** English: the phrase whose preposition governs the name
+  ("diagnosis of", "history of", "treated with"; never "vaccination for", "risk of") and the word right after the
+  name. Japanese and Chinese: what follows the name, until a listed frame or a mark closes it, and what owns it
+  through の, が, は, 之 or 的.
+* **An unlisted word is read only as a content word, where a content word cannot change whether the concept is
+  present**: never a closed-class word, never a verb form, never a word of a class that says the concept is not a
+  present fact of this patient (doubt, a plan, a risk, another person, an ending, a refusal, an alternative), and a
+  bounded number of them. A first version listed every word a line may use; it held 88 of 100 ordinary lines.
+* **Some shapes hold whatever their words** (``holds`` in the data file and the checks below): the concept as an arm
+  of an alternative, a form's mark, a label and a bare name, a bare measured value, a definition, a name that is
+  only part of the coded name, a code that is not the concept's own, an ending.
+* Every clause counts: what follows a full stop, "but" or 但 may say the line is not a fact. A clause that names no
+  coded concept must be listed words throughout.
+
+Every hold has a reason (:func:`not_recognised`), counted by ``tools.negated_inclusion_score``. The cue rules
+(``negation_scope``) stay as a second net: a recognised line that is cued is held.
+
+What this does not do is in D-1248's limits: a value that contradicts the name it stands beside ("Obesity with BMI
+below 25") runs, and the places where an unlisted word is read are guarded by lists of classes, not by a proof.
 """
 
 from __future__ import annotations
@@ -680,9 +690,13 @@ _ZERO_WIDTH = re.compile("[\u200b-\u200f\u2060-\u2064\ufeff\u00ad]")
 # opposite of the name before it
 _BARE_VALUE = re.compile(
     r"(?<![\d.,/])\d+(?:[.,]\d+)?\s*(?:%|kg/m2|mmol/l|mmol/mol|mg/dl|g/dl|g/l|ng/ml|pg/ml|µg/l|μg/l|iu/ml|iu/l|u/l|"
-    r"mmhg|ml/min(?:/1\.73\s*m2)?|copies/ml|cells/(?:µl|μl|mm3)|mg/g|µmol/l|μmol/l|meq/l|/µl|/μl)(?![a-z0-9/])",
+    r"mmhg|ml/min(?:/1\.73\s*m2)?|copies/ml|cells/(?:µl|μl|mm3)|mg/g|g/g|g/日|g/day|µmol/l|μmol/l|meq/l|/µl|/μl|bpm|/min)"
+    r"(?![a-z0-9/])",
     re.I,
 )
+_BARE_TRAILING = re.compile(
+    r"\b(?:rate|pressure|count|level|ratio)\s+\d+(?:[.,]\d+)?\s*[.)]?\s*$", re.I
+)  # "heart rate 60"
 _BOUND_BEFORE = re.compile(
     r"(?:[<>≤≥=~〜\-–]|\b(?:least|than|above|below|over|under|to|and|between|exceeding|exceeds?|of|from|or)|"
     r"至少|超過|超过|低於|低于|高於|高于|大於|大于|小於|小于|至|到|達|达|為|为|介於|介于|から|及|和|或)\s*$",
@@ -742,6 +756,8 @@ def _norm(text: str) -> str:
 
 
 def _bare_value(s: str) -> bool:
+    if _BARE_TRAILING.search(s):
+        return True
     for m in _BARE_VALUE.finditer(s):
         if not _BOUND_BEFORE.search(s[max(0, m.start() - 14) : m.start()]) and not _BOUND_AFTER.match(s[m.end() :]):
             return True

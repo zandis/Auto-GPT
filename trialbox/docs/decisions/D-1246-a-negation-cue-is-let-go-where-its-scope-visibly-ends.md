@@ -58,8 +58,9 @@
       - another person's: family history, mother, 家族歴, 母が, 家族史;
       - over: cured, quit, former, 治癒, やめた, 痊癒, 已戒.
 
-      A criterion's own "if receiving X", which is coded in its logic, does not count. Nor does a status word inside
-      the coded name ("family history of X" coded).
+      A status word inside the coded name does not count ("family history of X" coded), except a word of doubt
+      (the second review, below). A criterion's own "if receiving X" counts unless the logic itself carries the
+      condition (the second review, below).
     - **A bound on a count of the concept** holds the line, because zero meets it: "no more than 2 prior lines of",
       2レジメンを超えない, 不超過兩線. "never before" and "no longer" negate.
     - **Words found missing:** katakana ナシ; (−), "：－", ": neg", ": N/A", ": nil", "-ve", absent, w/o, zero,
@@ -81,6 +82,54 @@
   - **Changed assertions,** on the lane J lead's ruling:
     - "Type 2 diabetes mellitus without ketoacidosis" (labelled runs) is no longer pinned as held;
     - "No more than 2 prior lines of chemotherapy" is now a must-hold line, because zero meets it.
+- **The second review (2026-11-19, the integrator's second tool, on 65f0753c against its merge base 73835e62).**
+  Twelve findings. Each was reproduced through `postprocess` on both commits before anything changed:
+
+  | | finding | at 73835e62 | at 65f0753c | closed by |
+  | --- | --- | --- | --- | --- |
+  | 1 | "Pulmonary embolism not on CT" (R8, en) | held | **ran** | R8 never lets go a cue whose object is a source of evidence or the patient |
+  | 2 | 本人が投与を受けていない化学療法 (R8, ja) | held | **ran** | the を-object must not be the giving or receiving of the head |
+  | 3 | 除了患者本人之外，家屬有糖尿病 (R9, zh) | held | **ran** | an exception whose object is the patient is not let go; 家屬, 家人, 配偶 and the like are another person |
+  | 4 | "No known contraindications to chemotherapy", 化学療法の禁忌がない, 化學治療無禁忌症 (R1) | held | **ran** | eligibility for the concept holds, read by position round its name |
+  | 5 | "Chemotherapy other than as a last resort" (R9, en) | held | **ran** | an exception's object must be a thing, not a condition |
+  | 6 | "Chemotherapy. Planned for next week.", 敗血症。待確認。 | ran | ran | a status word in a sentence that names no extracted concept holds |
+  | 7 | 若接受化療，須先簽署同意書; 化学療法を受ければ登録可能 | ran | ran | a condition on the concept holds, unless the logic carries it |
+  | 8 | 曾患肺結核，目前已康復; 喫煙を中止した患者 | ran | ran | recovered, discontinued, in remission and their ja / zh words are status words |
+  | 9 | "Possible sepsis." coded `possible sepsis` | ran | ran | a word of doubt holds even inside the coded name |
+  | 10 | "0–3 prior cycles of chemotherapy", 化学療法歴は0～3コース | ran | ran | a count range that starts at zero is a bound zero meets |
+  | 11 | status reading quadratic in repeated mentions | 0.08 s for x4000 | 0.47 s | each pattern is read once over the line: 0.15 s |
+  | 12 | the per-row test checked only that the flag was absent | | | the per-row test asserts class, flags and logic |
+
+  - The first five were regressions of this card's own releases. Each is closed as a class in en, ja and zh, not by
+    its sentence: `tests/fixtures/negated_inclusion/second_review.json` has 75 must-hold lines and 28 near lines
+    the cue reading must still let go, and
+    `test_the_second_review_each_class_is_held_by_the_cue_reading_and_its_near_line_let_go` runs them against the
+    cue reading alone.
+  - **Finding 12 and the figures this record quotes.** The per-row test now asserts what each line compiles to: a
+    line labelled `runs` keeps its class, carries no hold flag and has the one atom that asks the presence of its
+    concept; a held line is a person's check with no executable logic, held by the reading its row names. Run with
+    that strict check on 65f0753c, no line labelled `runs` had been passing because another rule had taken its
+    logic away: lines held that should run were 8 of 68 (`lines`), 19 of 23 (`unseen_at_design`), 17 of 40
+    (`card_10a1b`), 0 of 8 (`review_10a1b`), 82 of 120, 25 of 63 and 12 of 63 (`card_10a1c_before`, `_after`,
+    `_third`), 0 of 26 (`independent_set_1`), and every must-hold line of each was held: the figures stand as
+    quoted. They are counts through `postprocess`, as before.
+  - **At the new head** the cue reading holds, of the same `runs` lines: 8, 19, 17, 1, 82, 26, 13 and 0. The three
+    more are a need ("需要化學治療"), "not in remission" and an eligibility, classes the second review added. The
+    default (D-1248) holds further `runs` lines of these tables as not recognised: 18, 3, 15, 7, 14, 14, 18 and 3.
+    Most of these lines were written as the nearest thing to a negation ("no X, but Y"), not as ordinary criteria;
+    what the flip costs on ordinary lines is counted in D-1248.
+  - **One assertion changed:** "Serum urate ≥6.8 mg/dL, or ≥6.0 mg/dL if receiving urate-lowering therapy" with the
+    therapy as the criterion's whole logic was pinned as running; it is finding 7's class in English and is now
+    held. It runs when the logic carries the alternative (the therapy's atom is one arm of an "or"), as the stored
+    GZQO protocol codes it.
+  - **A defect found on the way:** a concept named in Japanese or Chinese gets a hashed value-set name
+    (`VS_C_<hash>`), and what was left of its slug ("c", or "b" for B型肝炎) was read as a name of the concept,
+    matching every word that starts with that letter. A hashed name now gives no words.
+- **Limits** (kept from the first head, and still true of the cue reading alone): it holds a line when it finds a
+  cue or a status word and lets go the rest, so it misses the shape nobody listed. On the second tester's 267
+  must-hold lines 71e85bbc missed 112. That is why the default was turned round (D-1248, the owner's ruling of
+  2026-11-19): the cue reading is now the second net behind the recogniser, not the gate. Its releases (R1 to R9)
+  only matter for a line the recogniser also reads.
 - **Why:** after 10A-1b the compiler held lines whose cue is plainly about something else. Measuring found negated
   lines that still ran.
 - **Test:** `tests/unit/test_negated_inclusion_never_compiles_as_presence.py` over `tests/fixtures/negated_inclusion/`;
