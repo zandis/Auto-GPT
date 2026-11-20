@@ -1158,7 +1158,8 @@ def test_n2_the_container_box_reads_the_imports_result_line(
     assert ruleset_line("GZQO.part.zip", capsys.readouterr().out) == "GZQO v1.0.0: imported (GZQO.part.zip)"
     assert import_ruleset.main([str(part), "--by", "update:y"]) == 0
     out = capsys.readouterr().out
-    assert json.loads(out)["already_present"] is True
+    lines = [json.loads(ln) for ln in out.splitlines()]
+    assert lines[0]["already_present"] is True and lines[-1] == {"installed": "GZQO/v1.0.0", "rule_set_part": True}
     assert ruleset_line("GZQO.part.zip", out) == "GZQO v1.0.0: already present, nothing changed (GZQO.part.zip)"
     assert ruleset_line("x.zip", "") == "x.zip: imported (no result line read)"
 

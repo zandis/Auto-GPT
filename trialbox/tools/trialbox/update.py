@@ -489,11 +489,17 @@ def rulesets_tag(bundle_id: str) -> str:
 def ruleset_line(file: str, out: str | dict[str, Any] | None) -> str:
     """D-1369 (10D-28, the review's N2): one rule-set zip's result as the step and ``update.applied`` name it: the id
     and version, and whether it was imported or already present (a repeat: nothing changed), from the import's last
-    output line (``criteria_compiler.import_ruleset``) or its result."""
-    try:
-        res = out if isinstance(out, dict) else _last_json(out if isinstance(out, str) else "")
-    except ValueError:  # not JSON (a stand-in run in a test, an older import): the file name alone
-        res = {}
+    output line that holds ``imported`` (``criteria_compiler.import_ruleset`` prints it before its last line) or its
+    result."""
+    res: dict[str, Any] = out if isinstance(out, dict) else {}
+    for ln in reversed((out if isinstance(out, str) else "").splitlines()):
+        try:
+            data = json.loads(ln)
+        except ValueError:  # not JSON (a warning, a stand-in run in a test): the next line up
+            continue
+        if isinstance(data, dict) and "imported" in data:
+            res = data
+            break
     rid, version = res.get("ruleset"), res.get("version")
     if not rid or not version or "imported" not in res:
         return f"{file}: imported (no result line read)"

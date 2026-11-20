@@ -432,9 +432,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"WARNING {h}: its line may negate what its logic asks the presence of; recompile and approve",
               file=sys.stderr)  # fmt: skip
     part = {"rule_set_part": True} if origin_of(data) is not None else {}  # D-1369
-    # D-1369 (N2): the update's step reads this line: imported, or already present (a repeat: nothing changed)
-    print(json.dumps({**res, "already_present": not res["imported"], **part,
-                      **({"negated_inclusions": hits} if hits else {})}))  # fmt: skip
+    # D-1369 (N2): the update's step reads this line: imported, or already present (a repeat: nothing changed); the
+    # last line stays as it was (runbook 01 reads it)
+    print(json.dumps({"ruleset": res["ruleset"], "version": res["version"], "imported": res["imported"],
+                      "already_present": not res["imported"]}))  # fmt: skip
+    print(json.dumps({"installed": res["installed"], **part, **({"negated_inclusions": hits} if hits else {})}))
     return 0
 
 
