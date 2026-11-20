@@ -1474,8 +1474,8 @@ def test_r3_l8_the_status_stays_under_its_cap_with_hundreds_of_long_named_verifi
     for i in range(400):
         f = inc / f"trialbox-{i:03d}-{'n' * 100}.tar"
         f.write_bytes(b"x")
-        st = os.stat(f)
-        r._keep(f, hashlib.sha256(b"x").hexdigest(), (st.st_size, st.st_mtime_ns, st.st_ino, st.st_dev),
+        fs = os.stat(f)
+        r._keep(f, hashlib.sha256(b"x").hexdigest(), (fs.st_size, fs.st_mtime_ns, fs.st_ino, fs.st_dev),
                 {"bundle_id": "b" * 120, "release_seq": i, "warnings": ["w" * 300] * 9})  # fmt: skip
     r.write_status()
     st, why = r.ops.status_state()

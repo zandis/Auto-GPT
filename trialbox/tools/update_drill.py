@@ -676,8 +676,9 @@ def stick_drill(base: Path) -> dict[str, Any]:
     ask("update_stick_list")  # the third review, M2: the stick is read when a listing is asked for, not on a pass
     runner.run_pending()
     st = json.loads((base / "ops" / "status.json").read_text(encoding="utf-8"))
-    listed = [b["name"] for b in (st.get("stick") or {}).get("bundles") or []]
-    checks.append(("insert: the stick's bundles are listed (a link is not)", (st.get("stick") or {}).get("mounted")
+    sk = st.get("stick") or {}
+    listed = [b["name"] for b in sk.get("bundles") or []]
+    checks.append(("insert: the stick's bundles are listed (a link is not)", bool(sk.get("mounted"))
                    and listed == sorted([r2.name, bad.name]), ", ".join(listed)))  # fmt: skip
 
     # 3. verify from the stick

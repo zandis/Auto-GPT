@@ -581,7 +581,7 @@ def _look_at_the_stick(c: TestClient, csrf: str) -> str:
     """The third review, M2: the host's runner reads the stick only when the administrator asks (inline here)."""
     r = c.post("/admin/ops/update_stick_list", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=True)
     assert r.status_code == 200
-    return c.get("/admin/ops?tab=update").text
+    return str(c.get("/admin/ops?tab=update").text)
 
 
 def test_the_update_stick_is_shown_and_a_bundle_is_verified_from_it(ob: dict[str, Any]) -> None:
