@@ -298,6 +298,23 @@ def bulk_id(key: bytes, rtype: str, rid: str) -> str:
     return pid_for_mrn(key, rid) if rtype == "Patient" else resource_id(key, rtype, rid)
 
 
+def mark_for_review(
+    resources: Iterator[Resource], review: frozenset[tuple[str, str]], counts: Counter[str]
+) -> Iterator[Resource]:
+    """D-1253 second review, finding 8: a ``fhir_bulk`` resource whose id (the server's, kept across the rule) is on
+    the rebuild's review list is a proposed fact with the review tag, as the mapped door marks its records
+    (``Mapper.review``); counted per type in ``counts``."""
+    from adapter.mapping.engine import BASIS
+
+    for r in resources:
+        if review and (str(r.get("resourceType")), str(r.get("id"))) in review:
+            meta = r.setdefault("meta", {})
+            tags = [t for t in meta.get("tag") or [] if t.get("system") != BASIS]
+            meta["tag"] = [*tags, {"system": BASIS, "code": "proposed"}, dict(id_rule.REVIEW_TAG)]
+            counts[str(r["resourceType"])] += 1
+        yield r
+
+
 def pseudonymise_bulk(resources: Iterator[Resource], key: bytes) -> Iterator[Resource]:
     """For ``fhir_bulk``: replace ids/references by pseudonyms and drop direct identifiers.
 
@@ -692,6 +709,7 @@ def _run_ingest(
     tombstones: dict[str, set[str]] = {}  # type -> ids deleted at the source (dataflow review P0-1)
     left_out: dict[str, set[str]] = {}  # D-528: type -> ids a row of a delta night no longer gives
     tables: dict[str, dict[str, Any]] = {}  # T-611: per source table, present / rows / duplicate keys
+    bulk_review: Counter[str] = Counter()  # D-1253 second review, finding 8: a bulk night's marked records, by type
     unmapped_codes: dict[str, dict[str, dict[str, int]]] = {}  # NEW-DIN-6: table -> look-up -> code -> rows
     quarantined: dict[str, str] = {}  # T-615b: table -> why its file was quarantined
     current_before = _current(cfg.lake_dir)
@@ -737,8 +755,10 @@ def _run_ingest(
         bulk = FhirBulkSource(Path(source_path))
         inputs += [p for p in Path(source_path).iterdir() if p.is_file()]
         timed = read_times.timed(lambda r: str(r.get("resourceType") or "?"), bulk.resources())
-        for r in pseudonymise_bulk(timed, key):
+        for r in mark_for_review(pseudonymise_bulk(timed, key), id_rule.read_review(cfg.lake_dir), bulk_review):
             to_spool(r)
+        for rtype, n in sorted(bulk_review.items()):  # D-1253 second review, finding 8: counts only
+            log.warning("%s: %d records a steward decided before the id rebuild await review: not coded", rtype, n)
         for rtype, rid in bulk.deleted():
             if rtype != "Patient":  # removing a person is the opt-out path's job, never a feed delta's
                 tombstones.setdefault(rtype, set()).add(bulk_id(key, rtype, rid))
@@ -1344,6 +1364,7 @@ def _run_ingest(
                 "steward_review_needed": {  # D-1253 ruling 1: proposed (never coded) until a steward reviews them
                     t: v["steward_review_needed"] for t, v in sorted(tables.items()) if v.get("steward_review_needed")
                 }
+                or dict(sorted(bulk_review.items()))
                 or None,
                 "rejected_no_patient": {
                     t: v["rejected_no_patient"] for t, v in sorted(tables.items()) if v.get("rejected_no_patient")

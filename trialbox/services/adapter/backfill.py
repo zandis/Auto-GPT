@@ -244,11 +244,13 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
             sp.put(r)
 
         if source_kind == "fhir_bulk":
-            from adapter.pipeline import pseudonymise_bulk
+            from adapter.pipeline import mark_for_review, pseudonymise_bulk
             from adapter.sources.fhir_bulk.source import FhirBulkSource
 
             unit_defaults = _bulk_unit_defaults(cfg.mapping_path)
-            for r in pseudonymise_bulk(FhirBulkSource(Path(source_path)).resources(), key):
+            marked: Counter[str] = Counter()  # D-1253 second review, finding 8: as the night marks them
+            bulk = pseudonymise_bulk(FhirBulkSource(Path(source_path)).resources(), key)
+            for r in mark_for_review(bulk, id_rule.read_review(cfg.lake_dir), marked):
                 emit(r)
         else:
             mapping = Mapping.load(cfg.mapping_path)

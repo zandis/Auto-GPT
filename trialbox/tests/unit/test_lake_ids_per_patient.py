@@ -699,3 +699,38 @@ def test_a_delta_night_over_a_back_fill_from_another_source_is_held(tmp_path: Pa
     assert id_rule.snapshot_source(snapshot_dir(tmp_path / "lake", "2026-10-01")) == "csv"
     held = _bulk_night(tmp_path, "2026-10-02", since="2026-10-01")
     assert not held.passed and any(SOURCE_WORDS in e for e in held.errors), held.errors
+
+
+def test_a_bulk_export_record_a_steward_decided_before_the_rebuild_awaits_review_on_a_full_bulk_night(
+    tmp_path: Path,
+) -> None:
+    """D-1253 second review, finding 8: only mapped feeds read the rebuild's review list, so a full FHIR bulk night
+    restored a record a steward had rejected as coded. A bulk record's id did not change with the rule (the server's
+    id): the night marks the record whose id is listed, as the mapped door marks the records of a listed number."""
+    from adapter.mapping.engine import BASIS
+    from adapter.pipeline import bulk_id
+    from tb_common import id_rule
+
+    _cfg(tmp_path, "csv")
+    decided = bulk_id(KEY, "Condition", "D1")
+    (tmp_path / "lake").mkdir(parents=True, exist_ok=True)
+    id_rule.write_review(tmp_path / "lake" / id_rule.REVIEW, [("Condition", decided, "rejected")])
+    exp = tmp_path / "bulk-2026-10-01"
+    exp.mkdir()
+    pats = [{"resourceType": "Patient", "id": "srv-1", "gender": "female", "birthDate": "1960-01-01"}]
+    conds = [{"resourceType": "Condition", "id": i, "subject": {"reference": "Patient/srv-1"},
+              "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": c}]},
+              "onsetDateTime": "2026-09-01"} for i, c in (("D1", "M10.9"), ("D2", "E11.9"))]  # fmt: skip
+    (exp / "Patient.ndjson").write_text("".join(json.dumps(r) + "\n" for r in pats), encoding="utf-8")
+    (exp / "Condition.ndjson").write_text("".join(json.dumps(r) + "\n" for r in conds), encoding="utf-8")
+    rep = run_ingest(_cfg(tmp_path, "csv"), "fhir_bulk", str(exp), snapshot="2026-10-01", load_fhir=False,
+                     rebuild_lake=False, validate=False)  # fmt: skip
+    assert rep.passed, rep.errors
+    got = {r["id"]: r for r in read_type(snapshot_dir(tmp_path / "lake", "2026-10-01"), "Condition")}
+    tags = got[decided].get("meta", {}).get("tag") or []
+    assert {"system": BASIS, "code": "proposed"} in tags and id_rule.REVIEW_TAG in tags
+    other = got[bulk_id(KEY, "Condition", "D2")].get("meta", {}).get("tag") or []
+    assert not any(t.get("system") in (BASIS, id_rule.REVIEW_TAG["system"]) for t in other)
+    events = [json.loads(line) for f in sorted((tmp_path / "audit").rglob("*.jsonl")) for line in f.open()]
+    (night_event,) = [e for e in events if str(e.get("event", "")).startswith("ingest.")]
+    assert night_event["detail"]["steward_review_needed"] == {"Condition": 1}
