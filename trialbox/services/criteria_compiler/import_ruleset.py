@@ -85,7 +85,7 @@ def install(
     repo: RulesetRepo, data: bytes, by: str, min_equivalence: float = 98.0, pins_problem: PinsCheck | None = None
 ) -> str:
     """The tag of the installed (or already present) version; :func:`install_outcome` says which."""
-    return install_outcome(repo, data, by, min_equivalence, pins_problem)["installed"]
+    return str(install_outcome(repo, data, by, min_equivalence, pins_problem)["installed"])
 
 
 def install_outcome(
