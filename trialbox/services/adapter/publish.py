@@ -574,9 +574,12 @@ def publish_held(
     """The steward's accept (T-723, D-489): publish the held night's folder as it stands, with the same function a
     night that passed the gate goes through. The gate's verdict is what the steward overrode; the lake's own
     refusal of the data (D-271) still stands."""
-    from adapter.pipeline import merge_base
+    from adapter.pipeline import SOURCE_CHANGE, merge_base, requires_full_ingest
 
-    return publish_night(cfg, snap, held_folder(cfg, snap), last_good=merge_base(cfg.lake_dir, snap), on_step=on_step)
+    folder = held_folder(cfg, snap)
+    if requires_full_ingest(folder):
+        return Published(snap, folder, held=True, errors=[SOURCE_CHANGE])
+    return publish_night(cfg, snap, folder, last_good=merge_base(cfg.lake_dir, snap), on_step=on_step)
 
 
 __all__ = [
