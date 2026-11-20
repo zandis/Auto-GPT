@@ -6,8 +6,13 @@ the router table as ``test_role_route_matrix`` does (the page with its CSRF toke
 * with no cover, then with a cover of another study in effect, a cover of GZQO still to come, a cover ended before it
   began, and a cover ended early: the same answers every time (outside the dates and the study, nothing changes);
 * with a cover of GZQO in effect: exactly the design table's column of the PI the log names (``lpi``), except the
-  delegation log's own rows (add or change an entry, enter a cover), which a cover never gives: the log stays the
-  PI's. The cover adds no right that the PI's column does not have, and the matrix is not changed."""
+  delegation log's own rows (add or change an entry, enter a cover) and every route whose declared row is a PI right
+  the cover does not carry (``teamstore.COVER_WITHHELD``: the log's monthly check, the study's state and reopening,
+  the IRB records and the IRB-text answer, prefill on and off, ...), which a cover never gives: the log and the
+  study's administration stay the PI's. The cover adds no right that the PI's column does not have, and the matrix
+  is not changed.
+* the allow-list itself: every PI row of the matrix is in ``COVER_RIGHTS`` or in ``COVER_WITHHELD``, never both, so a
+  PI row added later fails here until it is listed on purpose (default deny holds meanwhile)."""
 
 from __future__ import annotations
 
@@ -15,11 +20,14 @@ from datetime import date, timedelta
 from typing import Any
 
 import pytest
+from console.teamstore import COVER_RIGHTS, COVER_WITHHELD
 from fastapi.testclient import TestClient
+from tb_common.authz import MATRIX, Standing, permit
 
 from tests.console.test_console_app import _done_feas, _done_screen, _ulid, box, login  # noqa: F401 - fixture by name
 from tests.console.test_role_route_matrix import TABLE, _clients, _orchestrator_routes, parse
 from tests.console.test_role_route_matrix_acting import _walk
+from tools.role_walk import load_declared
 
 PW = "cover-matrix-password-01"
 #: the delegation log's own rows: refused to a covering person (the log stays the PI's and the steward's)
@@ -29,6 +37,51 @@ LOG_ROWS = {
     ("POST", "/studies/{rs}/cover"),
     ("POST", "/api/v1/studies/{rs}/cover"),
 }
+
+
+#: the PI rights a cover carries or withholds that are not PI rows of the matrix (console.team.Standing.pi_for: the
+#: criteria's approval is a role row the console adds the PI to; a task's owner is no row)
+NOT_MATRIX = {"criteria.approve", "team.task_owner"}
+
+
+def _pi_rows() -> set[str]:
+    """Every matrix row some role holds only as the PI (a ``pi`` or ``logged_pi`` condition)."""
+    return {a for a, row in MATRIX.items() for cell in row.values()
+            if isinstance(cell, tuple) and ({"pi", "logged_pi"} & set(cell))}  # fmt: skip
+
+
+def test_every_pi_right_is_carried_or_withheld_by_a_cover_on_purpose() -> None:
+    assert not COVER_RIGHTS & COVER_WITHHELD
+    listed = (COVER_RIGHTS | COVER_WITHHELD) - NOT_MATRIX
+    assert listed <= set(MATRIX), sorted(listed - set(MATRIX))
+    missing = _pi_rows() - listed
+    assert not missing, f"a PI row neither carried nor withheld by a cover (teamstore.COVER_*): {sorted(missing)}"
+    assert listed == _pi_rows(), sorted(listed - _pi_rows())  # no stale name
+    assert {"delegation.check", "study.state", "study.reopen", "irb.edit", "study.irb_text",
+            "edc.switch_off"} <= COVER_WITHHELD  # fmt: skip
+    pi = Standing(is_pi=True, tasks=frozenset(), log_names_pi=True)
+    cover = Standing(is_pi=True, tasks=frozenset(), log_names_pi=True, pi_rights=COVER_RIGHTS)
+    for a in _pi_rows():
+        assert bool(permit("investigator", a, cover)) is (a in COVER_RIGHTS and bool(permit("investigator", a, pi))), a
+    assert not permit("investigator", "a.row.added.later", cover)
+
+
+def withheld_routes() -> set[tuple[str, str]]:
+    """The routes whose declared row the PI holds and a cover does not (``COVER_WITHHELD``)."""
+    pi = Standing(is_pi=True, tasks=frozenset({"screen", "approach", "refer", "enter_data", "run"}), log_names_pi=True)
+    cover = Standing(is_pi=True, tasks=pi.tasks, log_names_pi=True, pi_rights=COVER_RIGHTS)
+    out = set()
+    for key, d in load_declared().items():
+        if d.kind != "actions":
+            continue
+
+        def ok(st: Standing, actions: tuple[str, ...] = d.actions, mode: str = d.mode) -> bool:
+            got = [bool(permit("investigator", a.lstrip("!"), st)) != a.startswith("!") for a in actions]
+            return any(got) if mode == "any" else all(got)
+
+        if ok(pi) and not ok(cover):
+            out.add(key)
+    return out
 
 
 END_ROWS = {("POST", "/studies/{rs}/cover/{cid}/end"), ("POST", "/api/v1/studies/{rs}/cover/{cid}/end")}
@@ -86,11 +139,15 @@ def test_a_cover_opens_the_pis_column_inside_its_dates_and_nothing_else(walked_b
         changed = [f"{m} {p}: {base[(m, p)]} -> {c}" for (m, p), c in sorted(walked.items())
                    if base.get((m, p)) != c and not ((m, p) in END_ROWS and (base[(m, p)], c) == ("-", "n"))]  # fmt: skip
         assert not changed, f"{name}: a cover outside its dates or study changed an answer:\n" + "\n".join(changed)
-    want = {k: ("-" if k in LOG_ROWS else design[k]["lpi"]) for k in inside if k in design}
+    withheld = withheld_routes()
+    assert ("POST", "/studies/{rs}/team/check") in withheld and ("POST", "/studies/{rs}/state") in withheld, withheld
+    want = {k: ("-" if k in LOG_ROWS or (k in withheld and design[k]["lpi"] == "Y") else design[k]["lpi"])
+            for k in inside if k in design}  # fmt: skip
     assert set(want) == set(inside), "a route of the walk is not in the design table: regenerate it"
     diff = [f"{m} {p}: the PI's column {want[(m, p)]}, under the cover {c}"
             for (m, p), c in sorted(inside.items()) if want[(m, p)] != c]  # fmt: skip
     assert not diff, "under a cover the PI's column, less the log's own rows:\n" + "\n".join(diff)
     assert all(base[k] in ("-", "n") for k in LOG_ROWS), "without a cover the log rows are refused too"
     opened = sorted(k for k in inside if base[k] != "Y" and inside[k] == "Y")
-    assert ("POST", "/studies/{rs}/team/check") in opened and len(opened) >= 10, opened  # the walk saw the cover
+    assert ("POST", "/studies/{rs}/team/check") not in opened and len(opened) >= 10, opened  # the walk saw the cover
+    assert all(inside[k] != "Y" for k in withheld if k in inside), "a cover carried a withheld PI right"

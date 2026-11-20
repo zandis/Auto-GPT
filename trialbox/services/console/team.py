@@ -73,6 +73,7 @@ from console.teamstore import (
     ANSWERS,
     CHANNELS,
     CHECK_RESULTS,
+    COVER_RIGHTS,
     DECLINE_REASONS,
     LOG_ROLES,
     ROUTES,
@@ -130,8 +131,15 @@ class Standing:
     cover: Cover | None = None  # 9f-3 (D-1383): the PI's cover this account holds today (``pi`` is then True)
 
     def grant(self) -> Grant:
-        """This standing as ``tb_common.authz.permit`` reads it."""
-        return Grant(is_pi=self.pi, tasks=self.tasks, log_names_pi=self.logged, monitor=self.monitor is not None)
+        """This standing as ``tb_common.authz.permit`` reads it; under a cover the PI's rows are only those of
+        ``teamstore.COVER_RIGHTS`` (9f-3, D-1383: default deny)."""
+        return Grant(is_pi=self.pi, tasks=self.tasks, log_names_pi=self.logged, monitor=self.monitor is not None,
+                     pi_rights=COVER_RIGHTS if self.cover is not None else None)  # fmt: skip
+
+    def pi_for(self, right: str) -> bool:
+        """9f-3 (D-1383): the PI's standing for one right that is not a matrix row (``criteria.approve``,
+        ``team.task_owner``): the PI by their own entry, or a cover when the right is in ``COVER_RIGHTS``."""
+        return self.pi and (self.cover is None or right in COVER_RIGHTS)
 
     def own_grant(self) -> Grant:
         """9f-3 (D-1383): the standing without a cover's PI rights, for the delegation log's own rows: under a cover
@@ -275,7 +283,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
 
     def may_approve(user: User, rid: str) -> bool:
         """FR-AUTH-13 and D-147: only the PI the study's log names approves (D-380: no PI named, nobody)."""
-        return user.can_approve and stand(user, rid).pi
+        return user.can_approve and stand(user, rid).pi_for("criteria.approve")  # 9f-3: never under a cover
 
     h.may_approve, h.stand = may_approve, stand  # T-512, T-102c: h.permit and h.may_run read the standing
 

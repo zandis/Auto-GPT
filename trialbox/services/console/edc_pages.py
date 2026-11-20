@@ -302,6 +302,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         s = standing(h.team, sess.user, rid, h.today())
         return s.tasks, s.pi, s.entry
 
+    def pi_rights(sess: Session, rid: str) -> frozenset[str] | None:
+        """9f-3 (D-1383): the PI rows a cover carries (``teamstore.COVER_RIGHTS``), None for the PI's own entry."""
+        from console.team import standing
+
+        if h.team is None:
+            return None
+        return standing(h.team, sess.user, rid, h.today()).grant().pi_rights
+
     def deny(sess: Session, path: str) -> Exception:
         au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
         return h.problem(403, "forbidden")
@@ -327,7 +335,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def may(sess: Session, rid: str, actions: tuple[str, ...] = EDC_PAGE_ACTIONS) -> dict[str, bool]:
         """The ``edc.*`` rows (T-102c, D-425) with the account's standing in the study, read once."""
         tasks, pi, _ = stand(sess, rid)
-        grant = Grant(is_pi=pi, tasks=tasks)
+        grant = Grant(is_pi=pi, tasks=tasks, pi_rights=pi_rights(sess, rid))  # 9f-3: a cover's allow-list
         return {a: permit(sess.user.role, f"edc.{a}", grant).allowed for a in actions}
 
     def pid_of(rid: str, record: str) -> str:

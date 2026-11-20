@@ -376,11 +376,12 @@ TABLES: dict[str, Entry] = {
         ("delegation", "delegation_checks", "delegation_history", "dept_contacts", "icf_versions", "irb", "staff"),
         _STAFF,
     ),
-    # 9f-3, 9f-5 (D-1383): a PI cover and a task owner; staff names and days, treated as the delegation log is
-    **_each(
-        "team",
-        ("pi_cover", "task_owner"),
-        _STAFF,
+    # 9f-3 (D-1383): a PI cover; staff names and days, treated as the delegation log is
+    "team.pi_cover": _STAFF,
+    # 9f-5 (D-1383): a task's owner names the task by its patient's pseudonym (call, find information, prepare) or by
+    # a referral's id (ask a treating doctor): patient-linked, as team.referrals; those rows go with the patient's
+    "team.task_owner": _erase(
+        "owed_tables", "a task's owner, the task named by pseudonym or by the id of the patient's referral"
     ),
     "feedback.entry": _none("in-product feedback from staff, not about a patient (record inventory O-02)"),
     # E-EDCB-2 (D-1044): the EDC door's state; the EDC's project and record ids, never a value or a name

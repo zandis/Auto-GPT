@@ -10,6 +10,13 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The PI's cover, the escalation of an unacknowledged SAE and a task's owner (9f-3, 9f-4 (b), 9f-5; D-1383): the PI
+  names a sub-investigator of the study's log to cover them for at most 90 days, with the PI's clinical rights in that
+  study only (never the delegation log, its monthly check, the study's state or the IRB records); a serious adverse
+  event the PI has not acknowledged after `TB_SAE_ESCALATE_HOURS` (default 24) is mailed once to the study's
+  sub-investigators and coordinators on its log. **On the first run after the update every unacknowledged serious
+  adverse event already older than that is mailed at once, one mail per case and person.** A task on the opening page
+  may name its owner from the study's log.
 - Silent set-up choices guarded (10K-21): a new PRODUCTION site must answer the chart-number question (choosing
   "as written" is an answer; leaving it empty is not), in the settings wizard and on the box's first-run page. A box
   names the person who opens its health page every working day (its backup alert route); the name is shown with the

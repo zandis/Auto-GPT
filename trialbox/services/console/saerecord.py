@@ -257,6 +257,14 @@ class SaeStore:
         self.db.close()
 
     # ------------------------------------------------------------------ reads
+    def case_no(self, rs: str, record: str, event: str) -> int | None:
+        """9f-4 (b): the register's number of a case, the id of its ``create`` trail row: a sequence of the register,
+        unique per case, with no patient meaning (the reference a mail names a case by for a person who may not read
+        its screening number)."""
+        v = self.db.fetchval("SELECT min(id) FROM sae_trail WHERE ruleset = ? AND record = ? AND event = ? AND "
+                             "action = 'create'", (rs, record, event))  # fmt: skip
+        return int(v) if v is not None else None
+
     def case(self, rs: str, record: str, event: str) -> dict[str, Any] | None:
         rows = self.db.fetchdicts("SELECT * FROM sae_case WHERE ruleset = ? AND record = ? AND event = ?",
                                   (rs, record, event))  # fmt: skip
@@ -542,27 +550,43 @@ class SaeStore:
 
 
 # ---------------------------------------------------------------------------------------------- 9f-4 (b), D-1383
-def escalated_hours(trail: list[dict[str, Any]]) -> set[int]:
-    """The thresholds (hours) at which a case was already escalated, from its trail."""
-    return {int(t["body"].get("hours") or 0) for t in trail if t["action"] == "escalated"}
+ESCALATE_RETRY_NOTES = 3  # a round that reached nobody: at most this many ``escalate_retry`` rows per case
 
 
 def escalate_once(store: SaeStore, rs: str, record: str, event: str, hours: int, send: Callable[[], dict[str, Any]],
                   by: str, at: str, before_commit: Callable[[dict[str, Any]], None] | None = None,
                   ) -> dict[str, Any] | None:  # fmt: skip
-    """Escalate one unacknowledged case once per threshold: under a lock per case, when its trail has no
-    ``escalated`` row for ``hours``, ``send`` mails the recipients and gives the row's body; the row and
-    ``before_commit`` (the audit event) are written in the same transaction. None when it was escalated already."""
+    """Escalate one unacknowledged case once, whatever the threshold (a later change of ``hours`` does not escalate
+    a case again). Under a lock per case, when its trail has no ``escalated`` row, ``send`` mails the recipients and
+    gives the round's body with ``sent`` (how many were reached). A round that reached somebody is final: the
+    ``escalated`` row is written and ``before_commit`` (the audit event) runs, in the same transaction. A round that
+    reached nobody is not final: the next round tries again; it writes an ``escalate_retry`` row (and runs
+    ``before_commit``) only for the first :data:`ESCALATE_RETRY_NOTES` such rounds. The audit log is a file, not the
+    database: if the commit fails after ``before_commit``, the mail went and the audit says so, the trail does not, and
+    the next round mails again. Returns the round's body with ``final``; None when the case was escalated already."""
     with store.db.transaction() as tx:
         tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"sae-escalate:{rs}:{record}:{event}",))
         rows = tx.fetchall(
-            "SELECT body FROM sae_trail WHERE ruleset = ? AND record = ? AND event = ? AND action = 'escalated'",
+            "SELECT action FROM sae_trail WHERE ruleset = ? AND record = ? AND event = ? AND action IN ('escalated', "
+            "'escalate_retry')",
             (rs, record, event),
         )
-        if hours in {int(json.loads(str(r[0])).get("hours") or 0) for r in rows}:
+        if any(str(r[0]) == "escalated" for r in rows):
             return None
+        tries = sum(1 for r in rows if str(r[0]) == "escalate_retry")
         body = {**send(), "hours": hours}
-        store._trail(tx, rs, record, event, "escalated", body, by, at)
+        final = int(body.get("sent") or 0) > 0
+        body["final"] = final
+        if final:
+            body["attempt"] = tries + 1
+            store._trail(tx, rs, record, event, "escalated", body, by, at)
+        elif tries < ESCALATE_RETRY_NOTES:
+            body["attempt"] = tries + 1
+            body["retry"] = "the next round mails again" if tries + 1 < ESCALATE_RETRY_NOTES else (
+                "the next rounds mail again, with no further note")  # fmt: skip
+            store._trail(tx, rs, record, event, "escalate_retry", body, by, at)
+        else:
+            return body
         if before_commit is not None:
             before_commit(body)
     return body
@@ -689,11 +713,16 @@ def downgraded_view(case: dict[str, Any], reports: list[dict[str, Any]], today: 
     }  # fmt: skip
 
 
-def office_notice(rs: str, v: dict[str, Any], rules: dict[str, Any]) -> tuple[str, str]:
+NOTICE_NEW = "New serious adverse event in the TrialBox SAE register"
+NOTICE_WAITING = "A serious adverse event in the TrialBox SAE register, still not acknowledged by the PI"  # 9f-4 (b)
+
+
+def office_notice(rs: str, v: dict[str, Any], rules: dict[str, Any], opening: str = NOTICE_NEW) -> tuple[str, str]:
     """The copy of a new SAE case to the trial office's mailbox (FIT-025): the study, the screening number, the
-    event, the dates, the rule set and each deadline. Never the AE term, a chart number or a name."""
+    event, the dates, the rule set and each deadline. Never the AE term, a chart number or a name. ``opening``: the
+    first words (9f-4 (b): the escalation, hours later, says the case still waits)."""
     subject = f"[TrialBox] SAE {rs} {v['record']} {v['event']}"
-    lines = [f"New serious adverse event in the TrialBox SAE register: study {rs}, screening number {v['record']}, "
+    lines = [f"{opening}: study {rs}, screening number {v['record']}, "
              f"event {v['event']}.", "",
              f"- Onset: {v.get('onset') or '-'}; the site learned of it: {v.get('aware') or '-'} "
              f"{v.get('aware_time') or ''}".rstrip(),

@@ -92,7 +92,7 @@ def log_standing(username: str, study: str, today: date, url: str | None = None)
         r = team.rights(study, username, today)
     finally:
         team.close()
-    return Standing(is_pi=r.is_pi, tasks=r.ticked, log_names_pi=r.pi is not None)
+    return Standing(is_pi=r.is_pi, tasks=r.ticked, log_names_pi=r.pi is not None, pi_rights=r.pi_rights)
 
 
 def person_right(role: str, username: str, study: str, today: date, url: str | None = None) -> str:

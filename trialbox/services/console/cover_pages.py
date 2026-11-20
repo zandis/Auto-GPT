@@ -4,8 +4,10 @@
 names a sub-investigator of the same study's log to hold the PI's rights in that study from a first to a last day
 (at most ``teamstore.COVER_MAX_DAYS``, both required). The rights come from one place: ``teamstore.log_rights``, the
 reading of the log that ``console.team.standing`` and ``orchestrator.grants.log_standing`` both ask; the matrix is not
-changed. Under a cover the delegation log itself stays the PI's: the covering person adds, changes and ends no entry
-and enters no cover (``Standing.own_grant``). Every audit event the covering person's acts write in that study while
+changed. A cover carries only the PI rights of ``teamstore.COVER_RIGHTS`` (the clinical ones; default deny), never the
+study's administration (``teamstore.COVER_WITHHELD``): the delegation log, its monthly check, the study's state, the
+IRB records, prefill on and off stay the PI's. A cover that lapses (the PI covered no longer the PI the log names, or
+the covering person's own entry not active) is ended for good when first observed (``console.cover`` ``lapsed``). Every audit event the covering person's acts write in that study while
 the cover is in effect carries ``covering_for`` with both names (:class:`CoverAudit`); the actor stays the covering
 person, never the PI. The entry, an early end, the start and the end of a cover are ``console.cover`` events; the start
 and the end once each (:func:`record_edges`: when a cover is entered for today, when a page first reads it in effect,
@@ -37,7 +39,7 @@ from console.api_first import before_body
 from console.auth import Session, User
 from console.home import Helpers
 from console.studies import known_study
-from console.teamstore import COVER_MAX_DAYS, COVER_ROLE, OWNER_ROLES, Cover, TeamError, TeamStore
+from console.teamstore import COVER_MAX_DAYS, COVER_ROLE, OWNER_ROLES, Cover, TeamError, TeamStore, cover_state
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 EDGE_ACTOR = "system:cover"  # the actor of a cover's start and end events (no person starts or ends a day)
@@ -59,6 +61,16 @@ def cover_detail(c: Cover) -> dict[str, Any]:
     """Both names of a cover, as every ``console.cover`` event and ``covering_for`` note carry them."""
     return {"id": c.id, "pi": c.pi, "pi_name": c.pi_name, "username": c.username, "name": c.name, "start": c.start,
             "end": c.end}  # fmt: skip
+
+
+def task_key(o: Any) -> dict[str, str]:
+    """A task as its ``console.task_owner`` event names it, by the audit trail's convention for a patient (the
+    ``console.referral`` events'): the pseudonym as ``pid`` (call, find information, prepare), a referral's ``id``, a
+    cover's ``cover``; the monthly log check has none."""
+    if not o.ref:
+        return {}
+    names = {"call": "pid", "info": "pid", "prepare": "pid", "refer": "id", "cover_irb": "cover"}
+    return {names.get(o.kind, "task"): o.ref}
 
 
 class CoverAudit:
@@ -90,13 +102,20 @@ class CoverAudit:
 
 
 def record_edges(team: TeamStore, au: Any, day: date, at: str, rulesets: list[str] | None = None) -> list[str]:
-    """Write each cover's start (on or after its first day, while in effect) and end (once it is over) to the audit
-    trail, once each. Returns the edges written, as ``<study>:<id>:<edge>``."""
+    """Write each cover's edges to the audit trail, once each, as :func:`teamstore.cover_state` reads it on ``day``:
+    ``start`` only once the cover takes effect; ``end`` once a cover that never broke is over (its last day; an early
+    end's day before); ``lapsed`` when a lapse is first observed (its reason and its true last day in effect, None when
+    it never took effect), which also stores the lapse for good (``TeamStore.lapse_cover``: never revived, a new cover
+    must be entered) and stands for its end. Returns the edges written, as ``<study>:<id>:<edge>``."""
     done: list[str] = []
     for rs in rulesets if rulesets is not None else team.cover_rulesets():
+        entries = team.entries(rs)
         for c in team.covers(rs):
-            began = c.start <= day.isoformat() and bool(c.last_day())
-            if began and not c.start_logged and (c.in_effect_on(day) or c.over_on(day)):
+            if c.lapse_reason or c.end_logged:
+                continue
+            state, reason, last = cover_state(entries, c, day)
+            took_effect = (state in ("effective", "over") and bool(c.last_day())) or (state == "lapsed" and bool(last))
+            if took_effect and not c.start_logged:
 
                 def start(c: Cover = c, rs: str = rs) -> None:
                     au.append(
@@ -105,10 +124,19 @@ def record_edges(team: TeamStore, au: Any, day: date, at: str, rulesets: list[st
 
                 if team.mark_cover_edge(rs, c.id, "start", at, start):
                     done.append(f"{rs}:{c.id}:start")
-            if c.over_on(day) and not c.end_logged:
-                last = c.last_day()
+            if state == "lapsed" and reason:
 
-                def end(c: Cover = c, rs: str = rs, last: str = last) -> None:
+                def lapsed(c: Cover = c, rs: str = rs, reason: str = reason, last: str | None = last) -> None:
+                    au.append("console.cover", ruleset=rs, actor=EDGE_ACTOR,
+                              detail={"action": "lapsed", "reason": reason, "last_day": last,
+                                      "took_effect": last is not None, **cover_detail(c)})  # fmt: skip
+
+                if team.lapse_cover(rs, c.id, reason=reason, last=last, at=at, before_commit=lapsed):
+                    done.append(f"{rs}:{c.id}:lapsed")
+            elif state == "over":
+                last_day = c.last_day()
+
+                def end(c: Cover = c, rs: str = rs, last: str = last_day) -> None:
                     au.append("console.cover", ruleset=rs, actor=EDGE_ACTOR,
                               detail={"action": "end", "last_day": last or None, "early": c.ended_on is not None,
                                       **cover_detail(c)})  # fmt: skip
@@ -163,7 +191,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         person whose own active entry on the study's log is the coordinator's."""
         if user.aggregate_only:
             return False
-        if stand(user, rid).pi:
+        if pi_by_entry(user, rid):  # the matrix row the route declares (route_actions.yaml): delegation.keep
+            return True
+        s = stand(user, rid)
+        if s.cover is not None and s.pi_for("team.task_owner"):  # the PI's cover: teamstore.COVER_RIGHTS
             return True
         return any(e.role == "crc" for e in team.rights(rid, user.username, today()).mine)
 
@@ -227,13 +258,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study(sess, rs)
         if not keeps_tasks(sess.user, rid):
             raise deny(sess, path)
+        current = h.task_keys(sess, rid) if h.task_keys is not None else None
         try:
             before, after = team.set_task_owner(rid, kind=body.kind, ref=body.ref, owner=body.owner, day=today(),
-                                                by=sess.user.username, at=now())  # fmt: skip
+                                                by=sess.user.username, at=now(), current=current)  # fmt: skip
         except TeamError as exc:
             raise refused(exc) from exc
         au.append("console.task_owner", ruleset=rid, actor=h.actor(sess),
-                  detail={"action": "set" if after.owner else "clear", "kind": after.kind, "ref": after.ref,
+                  detail={"action": "set" if after.owner else "clear", "kind": after.kind, **task_key(after),
                           "owner": after.owner, "owner_name": after.owner_name,
                           "before": before.owner if before else ""})  # fmt: skip
         return {"study": rid, "kind": after.kind, "ref": after.ref, "owner": after.owner or None,
@@ -331,15 +363,18 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.aggregate_only:
             return None
         day = today()
+        entries = team.entries(rid)
         covers = team.covers(rid)
-        pi = team.pi_of(rid, day)
-        subs = sorted({(e.username, e.name) for e in team.entries(rid)
+        subs = sorted({(e.username, e.name) for e in entries
                        if e.role == COVER_ROLE and e.username and e.active_on(day)})  # fmt: skip
-        live = next((c for c in reversed(covers) if c.in_effect_on(day) and pi is not None and c.pi == pi.username
-                     and any(u == c.username for u, _n in subs)), None)  # fmt: skip
+        states = {c.id: cover_state(entries, c, day)[0] for c in covers}
+        if any((states[c.id] == "effective" and not c.start_logged) or (states[c.id] == "lapsed" and not c.lapse_reason)
+               for c in covers):  # fmt: skip
+            record_edges(team, au, day, now(), [rid])  # the first page that finds it in effect or lapsed writes it
+            covers = team.covers(rid)
+        # the cover log_rights gives today (the same state: in effect, unbroken since it was entered)
+        live = next((c for c in reversed(covers) if c.in_effect_on(day) and states[c.id] == "effective"), None)
         if what == "banner":
-            if live is not None and not live.start_logged:
-                record_edges(team, au, day, now(), [rid])  # the first page that finds it in effect writes its start
             return live
         mine_pi = pi_by_entry(sess.user, rid)
         return {"covers": list(reversed(covers)), "live": live, "may_add": mine_pi, "subs": subs, "today": day,

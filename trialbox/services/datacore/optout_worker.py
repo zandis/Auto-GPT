@@ -373,6 +373,14 @@ OWED_TABLES: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
     ("team", (
         ("approach_overrides", "SELECT count(*) FROM approach_overrides WHERE pid = ANY(?)",
          "DELETE FROM approach_overrides WHERE pid = ANY(?)"),
+        # 9f-5 (D-1383): a task's owner, the task named by the pseudonym or by the id of the patient's referral
+        # (before the referrals it names go)
+        ("task_owner", "WITH p(pid) AS (SELECT unnest(?::text[])) SELECT count(*) FROM task_owner WHERE (kind IN "
+         "('call', 'info', 'prepare') AND ref IN (SELECT pid FROM p)) OR (kind = 'refer' AND ref IN (SELECT r.id::text "
+         "FROM referrals r WHERE r.pid IN (SELECT pid FROM p)))",
+         "WITH p(pid) AS (SELECT unnest(?::text[])) DELETE FROM task_owner WHERE (kind IN ('call', 'info', 'prepare') "
+         "AND ref IN (SELECT pid FROM p)) OR (kind = 'refer' AND ref IN (SELECT r.id::text FROM referrals r WHERE "
+         "r.pid IN (SELECT pid FROM p)))"),
         ("referral_events", "SELECT count(*) FROM referral_events WHERE pid = ANY(?)",
          "DELETE FROM referral_events WHERE pid = ANY(?)"),
         ("referrals", "SELECT count(*) FROM referrals WHERE pid = ANY(?)", "DELETE FROM referrals WHERE pid = ANY(?)"),

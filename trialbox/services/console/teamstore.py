@@ -260,14 +260,18 @@ CREATE TABLE pi_cover (
   name TEXT NOT NULL,
   start_day TEXT NOT NULL,
   end_day TEXT NOT NULL,
+  entered_on TEXT NOT NULL,
   ended_on TEXT,
   ended_by TEXT,
+  lapse_reason TEXT,
   irb_told_on TEXT,
   irb_told_by TEXT,
   start_logged_at TEXT,
   end_logged_at TEXT,
   by TEXT NOT NULL,
-  at TEXT COLLATE "C" NOT NULL
+  at TEXT COLLATE "C" NOT NULL,
+  CONSTRAINT pi_cover_days CHECK (start_day <= end_day AND entered_on <= start_day AND pi <> username),
+  CONSTRAINT pi_cover_lapse CHECK (lapse_reason IS NULL OR lapse_reason IN ('pi_changed', 'entry_ended'))
 );
 CREATE INDEX pi_cover_rs ON pi_cover (ruleset, start_day);
 CREATE TABLE task_owner (
@@ -471,6 +475,8 @@ class Cover:
     end_logged: bool = False
     by: str = ""
     at: str = ""
+    entered_on: str = ""
+    lapse_reason: str | None = None
 
     def in_effect_on(self, day: date) -> bool:
         d = day.isoformat()
@@ -492,7 +498,65 @@ class Cover:
     def as_dict(self) -> dict[str, Any]:
         return {"id": self.id, "pi": self.pi, "pi_name": self.pi_name, "username": self.username, "name": self.name,
                 "start": self.start, "end": self.end, "ended_on": self.ended_on, "irb_told_on": self.irb_told_on,
-                "by": self.by, "at": self.at}  # fmt: skip
+                "lapse_reason": self.lapse_reason, "by": self.by, "at": self.at}  # fmt: skip
+
+
+# 9f-3 (D-1383): the rights a cover carries, an allow-list (default deny: a PI right not named here is refused under a
+# cover, a PI right added later included, until it is listed here or in COVER_WITHHELD on purpose). The PI's clinical
+# rights in the study: the patient pages and reads (the ``task.*`` rows, the prefill pages' read, the weekly sample of
+# criteria-not-matched patients), the runs the PI may start, a task's owner. SAE acknowledgement and sign-off are not
+# PI rows (the ``sae.*`` rows are the role's): the covering person does them in their own name either way.
+COVER_RIGHTS: frozenset[str] = frozenset({
+    "task.screen", "task.approach", "task.refer", "task.enter_data", "task.run",
+    "command.FEAS", "command.SCREEN", "command.CASE", "edc.view", "notmatched.sample", "notmatched.send_back",
+    "team.task_owner",
+})  # fmt: skip
+# ... and the study administration a cover never carries (the log stays the PI's, D-1383; a question is with the
+# owner): the log's rows and its monthly check, a monitor grant, the study's state and its reopening, the IRB records
+# and the IRB-text answer, prefill on and off, the break-glass review, the research layers, the criteria approval.
+COVER_WITHHELD: frozenset[str] = frozenset({
+    "delegation.keep", "delegation.check", "monitor.grant", "study.state", "study.reopen", "study.irb_text",
+    "irb.edit", "edc.switch_on", "edc.switch_off", "breakglass.study", "profile.research_layers", "criteria.approve",
+})  # fmt: skip
+LAPSE_REASONS = ("pi_changed", "entry_ended")
+
+
+def _pi_on(entries: list[Entry], day: date) -> Entry | None:
+    return next((e for e in reversed(entries) if e.role == "pi" and e.active_on(day)), None)
+
+
+def cover_state(entries: list[Entry], c: Cover, day: date) -> tuple[str, str | None, str | None]:
+    """9f-3 (D-1383): what a cover is on site day ``day``: ``(state, lapse reason, last day in effect)``. ``state`` is
+    ``waiting`` (before its first day, nothing broken yet), ``effective``, ``over`` (past its last day or ended early,
+    never broken while it ran) or ``lapsed``: from the day it was entered the PI it covers stopped being the PI the log
+    names (``pi_changed``), or from its first day the covering person's own sub-investigator entry was not active
+    (``entry_ended``), on some day up to ``day``. A lapse once stored is final (``lapse_reason``): never revived."""
+    if c.lapse_reason:
+        return "lapsed", c.lapse_reason, c.last_day() or None
+    last = c.last_day()
+    upto = min(day.isoformat(), last) if last else ""
+    d = date.fromisoformat(c.entered_on or c.start)
+    first_broken: tuple[date, str] | None = None
+    while upto and d.isoformat() <= upto:
+        pi = _pi_on(entries, d)
+        if pi is None or pi.username != c.pi:
+            first_broken = (d, "pi_changed")
+            break
+        if d.isoformat() >= c.start and not any(e.username == c.username and e.role == COVER_ROLE and e.active_on(d)
+                                                for e in entries):  # fmt: skip
+            first_broken = (d, "entry_ended")
+            break
+        d += timedelta(days=1)
+    if first_broken is not None:
+        prev = (first_broken[0] - timedelta(days=1)).isoformat()
+        return "lapsed", first_broken[1], prev if prev >= c.start else None
+    if not last:  # ended before its first day: it never takes effect
+        return "over", None, None
+    if day.isoformat() < c.start:
+        return "waiting", None, None
+    if last and day.isoformat() <= last:
+        return "effective", None, None
+    return "over", None, last or None
 
 
 @dataclass(frozen=True)
@@ -506,22 +570,25 @@ class LogRights:
     ticked: frozenset[str]
     mine: tuple[Entry, ...]
     cover: Cover | None = None
+    pi_rights: frozenset[str] | None = None  # under a cover: COVER_RIGHTS (the PI's own entry: None, every PI row)
 
 
 def log_rights(entries: list[Entry], covers: list[Cover], username: str | None, day: date) -> LogRights:
     """The one reading of a study's delegation log (``console.team.standing`` and ``orchestrator.grants`` both ask
     it). A cover gives the PI's standing only when every condition holds that day, else nothing (default deny): the
     cover is in effect (inside its dates, not ended), it names this account, the PI it covers is still the PI the
-    log names, and the account's own sub-investigator entry on this log is active."""
-    pi = next((e for e in reversed(entries) if e.role == "pi" and e.active_on(day)), None)
+    log names, and the account's own sub-investigator entry on this log is active, and have held on every day since
+    (:func:`cover_state`: a lapsed cover is never revived). Under a cover the PI's rows are only those of
+    :data:`COVER_RIGHTS` (``pi_rights``)."""
+    pi = _pi_on(entries, day)
     mine = tuple(e for e in entries if username and e.username == username and e.active_on(day))
     ticked = frozenset(t for e in mine if e.role == "sub_pi" for t in e.tasks)
     own_pi = bool(username) and pi is not None and pi.username == username
     cover = None
     if not own_pi and pi is not None and pi.username and username and any(e.role == COVER_ROLE for e in mine):
         cover = next((c for c in reversed(covers) if c.username == username and c.pi == pi.username
-                      and c.in_effect_on(day)), None)  # fmt: skip
-    return LogRights(pi, own_pi or cover is not None, ticked, mine, cover)
+                      and c.in_effect_on(day) and cover_state(entries, c, day)[0] == "effective"), None)  # fmt: skip
+    return LogRights(pi, own_pi or cover is not None, ticked, mine, cover, COVER_RIGHTS if cover is not None else None)
 
 
 @dataclass(frozen=True)
@@ -1081,12 +1148,13 @@ class TeamStore:
 
     # ------------------------------------------------------------------ 9f-3: the PI's cover (D-1383)
     _COVER = ("id, ruleset, pi, pi_name, username, name, start_day, end_day, ended_on, ended_by, irb_told_on, "
-              "irb_told_by, start_logged_at, end_logged_at, by, at")  # fmt: skip
+              "irb_told_by, start_logged_at, end_logged_at, by, at, entered_on, lapse_reason")  # fmt: skip
 
     @staticmethod
     def _cover(r: tuple[Any, ...]) -> Cover:
         return Cover(int(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4]), str(r[5]), str(r[6]), str(r[7]), r[8],
-                     r[9], r[10], r[11], r[12] is not None, r[13] is not None, str(r[14]), str(r[15]))  # fmt: skip
+                     r[9], r[10], r[11], r[12] is not None, r[13] is not None, str(r[14]), str(r[15]), str(r[16]),
+                     r[17])  # fmt: skip
 
     def covers(self, ruleset: str) -> list[Cover]:
         """The study's covers, oldest first (ended ones included: the record)."""
@@ -1107,8 +1175,7 @@ class TeamStore:
         (TeamError): not the PI; the PI names themselves; no end, a start before today, an end before the start or a
         cover longer than :data:`COVER_MAX_DAYS`; a person whose sub-investigator entry does not cover every day;
         another cover of the study for some of the same days."""
-        pi = self.pi_of(ruleset, today)
-        if pi is None or not pi.username or pi.username != by:
+        if (pi0 := self.pi_of(ruleset, today)) is None or not pi0.username or pi0.username != by:
             raise TeamError("only the PI the study's log names enters a cover")
         who = (username or "").strip().lower()
         if not who:
@@ -1124,21 +1191,30 @@ class TeamStore:
             raise TeamError("the end date is before the start date")
         if (date.fromisoformat(e) - date.fromisoformat(s)).days + 1 > COVER_MAX_DAYS:
             raise TeamError(f"a cover is at most {COVER_MAX_DAYS} days")
-        sub = next((x for x in reversed(self.entries(ruleset)) if x.username == who and x.role == COVER_ROLE
-                    and x.start <= s and (x.end is None or x.end >= e)), None)  # fmt: skip
-        if sub is None:
-            raise TeamError(
-                "the person who covers is a sub-investigator on this study's log for every day of the cover"
-            )
-        for c in self.covers(ruleset):
-            last = c.last_day()
-            if last and c.start <= e and s <= last:
-                raise TeamError("another cover of this study holds some of these days")
         with self.db.transaction() as tx:
+            # one study's covers are checked and written under one lock (the SAE register's form, saerecord): two
+            # requests at once never both find the days free
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"pi_cover:{ruleset}",))
+            entries = [_entry(r) for r in tx.fetchall(f"SELECT {_ENTRY} FROM delegation WHERE ruleset = ? ORDER BY id",
+                                                      (ruleset,))]  # fmt: skip
+            pi = _pi_on(entries, today)
+            if pi is None or not pi.username or pi.username != by:
+                raise TeamError("only the PI the study's log names enters a cover")
+            sub = next((x for x in reversed(entries) if x.username == who and x.role == COVER_ROLE
+                        and x.start <= s and (x.end is None or x.end >= e)), None)  # fmt: skip
+            if sub is None:
+                raise TeamError(
+                    "the person who covers is a sub-investigator on this study's log for every day of the cover"
+                )
+            rows = tx.fetchall(f"SELECT {self._COVER} FROM pi_cover WHERE ruleset = ? ORDER BY id", (ruleset,))
+            for c in (self._cover(r) for r in rows):
+                last = c.last_day()
+                if last and c.start <= e and s <= last:
+                    raise TeamError("another cover of this study holds some of these days")
             row = tx.fetchone(
-                "INSERT INTO pi_cover (ruleset, pi, pi_name, username, name, start_day, end_day, by, at) "
-                "VALUES (?,?,?,?,?,?,?,?,?) RETURNING id",
-                (ruleset, pi.username, pi.name, who, sub.name, s, e, by, at),
+                "INSERT INTO pi_cover (ruleset, pi, pi_name, username, name, start_day, end_day, entered_on, by, at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING id",
+                (ruleset, pi.username, pi.name, who, sub.name, s, e, today.isoformat(), by, at),
             )
             assert row is not None
         out = self.cover(ruleset, int(row[0]))
@@ -1172,6 +1248,27 @@ class TeamStore:
         assert out is not None
         return out
 
+    def lapse_cover(self, ruleset: str, cid: int, *, reason: str, last: str | None, at: str,
+                    before_commit: Any = None) -> bool:  # fmt: skip
+        """9f-3 (D-1383): store a cover's lapse, first observed, for good: ``ended_on`` the day after its last day in
+        effect (its first day when it never took effect), ``lapse_reason``, its end marked logged (the ``lapsed`` event
+        is its end); ``before_commit`` (that event) runs in the same transaction. True when this call stored it."""
+        if reason not in LAPSE_REASONS:
+            raise TeamError("no such lapse")
+        with self.db.transaction() as tx:
+            row = tx.fetchone("SELECT start_day FROM pi_cover WHERE ruleset = ? AND id = ? AND lapse_reason IS NULL "
+                              "FOR UPDATE", (ruleset, cid))  # fmt: skip
+            if row is None:
+                return False
+            on = (date.fromisoformat(last) + timedelta(days=1)).isoformat() if last else str(row[0])
+            tx.execute("UPDATE pi_cover SET lapse_reason = ?, ended_on = CASE WHEN ended_on IS NULL OR ended_on > ? "
+                       "THEN ? ELSE ended_on END, ended_by = COALESCE(ended_by, 'system:cover'), "
+                       "end_logged_at = COALESCE(end_logged_at, ?) WHERE ruleset = ? AND id = ?",
+                       (reason, on, on, at, ruleset, cid))  # fmt: skip
+            if before_commit is not None:
+                before_commit()
+        return True
+
     def mark_cover_edge(self, ruleset: str, cid: int, edge: str, at: str, before_commit: Any = None) -> bool:
         """Record once that a cover's ``start`` or ``end`` was written to the audit trail; ``before_commit`` (the
         audit event) runs inside the same transaction, so the mark is never kept without its event. True when this
@@ -1201,14 +1298,16 @@ class TeamStore:
             out[(str(r[0]), str(r[1]))] = TaskOwner(*(str(x) for x in r))
         return {k: v for k, v in out.items() if v.owner}
 
-    def set_task_owner(self, ruleset: str, *, kind: str, ref: str, owner: str, day: date, by: str,
-                       at: str) -> tuple[TaskOwner | None, TaskOwner]:  # fmt: skip
+    def set_task_owner(self, ruleset: str, *, kind: str, ref: str, owner: str, day: date, by: str, at: str,
+                       current: set[tuple[str, str]] | None = None) -> tuple[TaskOwner | None, TaskOwner]:  # fmt: skip
         """Name ``owner`` (an account with an active entry on this study's log on ``day``, not a monitor grant) as the
-        owner of one task, or clear it (``owner`` ''). Returns (the owner before, the owner now)."""
+        owner of one task, or clear it (``owner`` ''). ``current``: the study's tasks today as the opening page has
+        them, (kind, ref) pairs; a task not among them is refused (None: the caller checked). Returns (the owner
+        before, the owner now)."""
         if kind not in TASK_KINDS:
             raise TeamError("no such task")
         ref = (ref or "").strip()
-        if not _TASK_REF.match(ref):
+        if not _TASK_REF.match(ref) or (current is not None and (kind, ref) not in current):
             raise TeamError("no such task")
         who = (owner or "").strip().lower()
         name = ""

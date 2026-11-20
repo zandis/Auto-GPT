@@ -579,10 +579,18 @@ def create_app(
     account_team: dict[str, Any] = {}  # the study team store, once the workspace registers it (D-719: the PIs)
 
     def _cover_of(name: str, rs: str) -> Any:
-        """The PI cover ``name`` holds in study ``rs`` today, by the one reading of the log (None without one)."""
+        """The PI cover ``name`` holds in study ``rs`` today, by the one reading of the log (None without one), with
+        ``console.team.standing``'s own conditions: an account that sees the study and whose tasks the log gives (an
+        investigator account); computed when the event is written (a request across the site's midnight is stamped
+        by the day of its write)."""
+        from console.team import log_account
+
         hp = account_team.get("h")
         team_store = getattr(hp, "team", None)
         if hp is None or team_store is None:
+            return None
+        u = us.get(name)
+        if u is None or u.aggregate_only or not log_account(u) or not u.sees_study(rs):
             return None
         return team_store.rights(rs, name, hp.today()).cover
 
@@ -1061,7 +1069,13 @@ def create_app(
             # D-146 (review J-01): the orchestrator authorises by the signed-in person's role, sent signed
             made = bk.create_job(req, by=actor(sess), role=sess.user.role)
         except Refused as exc:
-            au.append("console.refused", job_id=job_id, actor=actor(sess), detail={"reason": str(exc)[:200]})
+            au.append(
+                "console.refused",
+                job_id=job_id,
+                actor=actor(sess),
+                ruleset=req.ruleset or None,
+                detail={"reason": str(exc)[:200]},
+            )  # 9f-3: the study, so a cover's note is written (D-1383)
             raise refusal_problem(str(exc), cmd, mailbox) from exc
         if new:
             try:

@@ -102,7 +102,7 @@ are marked "files".
 | `services/console/sitestore.py` | `screening_no`, `contact_outcomes`, `pi_marks` | R-03 |
 | `services/orchestrator/db.py` | `candidates`, `candidate_events` | R-03 |
 | `services/console/teamstore.py` | `delegation`, `delegation_history`, `delegation_checks` | R-04 |
-| `services/console/teamstore.py` | `pi_cover`, `task_owner` | R-04 |
+| `services/console/teamstore.py` | `pi_cover` | R-04 |
 | `services/console/teamstore.py` | `icf_versions` | R-05 |
 | `services/console/teamstore.py` | `irb`, `approach_overrides` | R-05 |
 | `services/console/sitestore.py` | `study_irb_text` | R-05 |
@@ -113,7 +113,7 @@ are marked "files".
 | `services/edc/store.py` | `switch`, `switch_event`, `item_map`, `map_event`, `target`, `draft`, `decision`, `signature`, `signature_void`, `sent`, `reentry_record`, `copy_tick`, `direct_source_event` | R-08 |
 | `services/datacore/store.py` | `form`, `value`, `history`, `conflict`, `owner`, `source_cfg`, `src_record` | R-09 |
 | `services/datacore/lifecycle.py` | `subject`, `subject_step`, `schedule`, `schedule_version`, `contact_rule`, `deviation_call`, `consent_age_rule`, `assent_proceed` | R-10 |
-| `services/console/teamstore.py` | `referrals`, `referral_events` | R-11 |
+| `services/console/teamstore.py` | `referrals`, `referral_events`, `task_owner` | R-11 |
 | `services/console/teamstore.py` | `candidate_views` | R-12 |
 | `services/console/teamstore.py` | `monitor_visits` | R-30 |
 | `services/console/breakglass_store.py` | `grants` | R-12 |

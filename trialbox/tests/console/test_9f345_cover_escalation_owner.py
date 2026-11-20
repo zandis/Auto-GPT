@@ -19,6 +19,9 @@ Synthetic data only."""
 from __future__ import annotations
 
 import json
+import threading
+from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -28,7 +31,7 @@ from console import notify
 from console.auth import User
 from console.sitestore import NotifyPerson
 from console.team import standing
-from console.teamstore import COVER_MAX_DAYS, SCHEMA_V5, TeamError, TeamStore
+from console.teamstore import COVER_MAX_DAYS, COVER_RIGHTS, COVER_WITHHELD, SCHEMA_V5, TeamError, TeamStore
 from orchestrator import grants
 from tb_common.authz import MATRIX, MATRIX_ROLES, permit
 from tb_common.db import Database
@@ -86,12 +89,17 @@ def test_a_cover_gives_the_pis_standing_only_to_an_investigator_inside_its_dates
         if not inside:
             assert now == before, (role, d)  # outside the dates, or another role: exactly as without the cover
             continue
-        assert now.grant() == standing(team, _user("drpi"), RS, d).grant()  # the PI's own standing, nothing more
+        pi = standing(team, _user("drpi"), RS, d).grant()
+        assert replace(now.grant(), pi_rights=None) == pi  # the PI's own standing, nothing more ...
+        assert now.grant().pi_rights == COVER_RIGHTS  # ... and of the PI's rows only the cover's allow-list
         assert now.entry is not None and now.entry.role == "sub_pi"  # signs and is named as itself, never the PI
-        assert permit(role, "delegation.keep", now.grant()).allowed
+        for a in {a for a in COVER_WITHHELD & set(MATRIX) if isinstance(MATRIX[a][role], tuple)}:  # the PI's rows
+            assert not permit(role, a, now.grant()).allowed, a
         assert not permit(role, "delegation.keep", now.own_grant()).allowed  # the log stays the PI's
         gained = {a for a in MATRIX if permit(role, a, now.grant()) and not permit(role, a, before.grant())}
         assert gained and all(isinstance(MATRIX[a][role], tuple) for a in gained)  # only rows the log decides
+        assert {a for a in MATRIX if permit(role, a, pi)} >= gained  # nothing the PI's own standing lacks
+        assert not gained & COVER_WITHHELD
     other = standing(team, _user("drb", role), OTHER, DAY)  # another study: the same person, the same entries
     assert not other.pi and other.cover is None
 
@@ -202,11 +210,21 @@ def test_the_pi_enters_a_cover_the_banner_shows_and_acts_under_it_name_both(cb: 
     page = cov.get("/studies/GZQO/team").text
     assert 'data-testid="cover-banner"' in page and "Dr C" in page and "Dr L" in page
     assert 'data-testid="cover-form"' not in page  # the covering person enters no cover
-    # an act under the cover (the PI's row delegation.check): the actor is the covering person, both names noted
+    # the log's monthly check stays the PI's (D-1383: refused under a cover until the owner rules otherwise)
     assert cov.post("/studies/GZQO/team/check", data={"csrf": ccsrf, "result": "match"},
-                    follow_redirects=False).status_code == 303  # fmt: skip
-    (ev,) = [e for e in _events(cb, "console.delegation") if e["detail"].get("action") == "compare"]
-    assert ev["actor"] == "console:cov"
+                    follow_redirects=False).status_code == 403  # fmt: skip
+    assert not [e for e in _events(cb, "console.delegation") if e["detail"].get("action") == "compare"]
+    # an act under the cover (a task's owner): the actor is the covering person, both names noted
+    assert (
+        cov.post(
+            "/studies/GZQO/tasks/owner",
+            data={"csrf": ccsrf, "kind": "cover_irb", "ref": "1", "owner": "crc"},
+            follow_redirects=False,
+        ).status_code
+        == 303
+    )
+    (ev,) = _events(cb, "console.task_owner")
+    assert ev["actor"] == "console:cov" and ev["detail"]["cover"] == "1" and "ref" not in ev["detail"]
     assert ev["detail"]["covering_for"] == {"pi": "lpi", "pi_name": "Dr L", "name": "Dr C", "cover": 1}
     # the log stays the PI's: no entry added or changed, no cover entered, by the covering person
     for path, data in (
@@ -215,10 +233,9 @@ def test_the_pi_enters_a_cover_the_banner_shows_and_acts_under_it_name_both(cb: 
         ("/studies/GZQO/cover", {"username": "cov", "start": _days(0), "end": _days(1)}),
     ):
         assert cov.post(path, data={"csrf": ccsrf, **data}, follow_redirects=False).status_code == 403, path
-    # an act of the same person in another study, or after the cover: no note
+    # after the cover: the PI's standing is gone
     cb["clock"]["now"] = datetime(2026, 11, 27, 1, 0, tzinfo=UTC)  # the day after the last day
-    assert cov.post("/studies/GZQO/team/check", data={"csrf": ccsrf, "result": "match"},
-                    follow_redirects=False).status_code == 403  # fmt: skip
+    assert not cb["h"].stand(cb["users"].get("cov"), "GZQO").pi
     cb["h"].cover_edges(cb["h"].today())
     assert [e["detail"]["action"] for e in _events(cb, "console.cover")] == ["add", "start", "end"]
     cb["h"].cover_edges(cb["h"].today())  # once each
@@ -411,3 +428,260 @@ def test_the_hourly_round_is_a_timer() -> None:
     jobs = timers.jobs(SimpleNamespace(sae_escalate=lambda: ["GZQO:1/ae1"]))
     assert jobs["sae_escalate"]() == ["GZQO:1/ae1"]
     assert jobs["sae_escalate"].__name__ == "sae_escalate"
+
+
+# ---------------------------------------------------------------------------------------------- the reviews of 813c47eb
+def test_two_covers_entered_at_once_never_share_a_day(team: TeamStore) -> None:
+    """Item 1: two requests at once (two connections, the second run while the first is inside its transaction): the
+    check and the insert are one transaction under the study's lock, so exactly one cover is stored."""
+    _entry(team, "drc", "sub_pi")
+    other = TeamStore()  # a second connection to the same store
+    errors: list[Exception] = []
+    real = team.db.transaction
+
+    def second() -> None:
+        try:
+            other.add_cover(RS, username="drc", start=_days(2), end=_days(8), today=DAY, by="drpi", at=AT)
+        except TeamError as exc:
+            errors.append(exc)
+
+    class AtInsert:
+        """The first request's transaction: when it is about to insert (its check done), the second request runs."""
+
+        def __init__(self, tx: Any) -> None:
+            self.tx = tx
+
+        def fetchone(self, text: str, params: Any = ()) -> Any:
+            if text.startswith("INSERT INTO pi_cover"):
+                t = threading.Thread(target=second)
+                t.start()
+                t.join(timeout=3)  # without the lock it inserts now; with it, it waits for this transaction
+                threads.append(t)
+            return self.tx.fetchone(text, params)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self.tx, name)
+
+    threads: list[threading.Thread] = []
+
+    @contextmanager
+    def interleaved() -> Any:
+        with real() as tx:
+            yield AtInsert(tx)
+
+    team.db.transaction = interleaved  # type: ignore[method-assign]
+    try:
+        try:
+            team.add_cover(RS, username="drb", start=_days(0), end=_days(6), today=DAY, by="drpi", at=AT)
+        except TeamError as exc:
+            errors.append(exc)
+    finally:
+        team.db.transaction = real  # type: ignore[method-assign]
+    for t in threads:
+        t.join(timeout=10)
+    fresh = TeamStore()
+    covers = fresh.covers(RS)
+    fresh.close()
+    assert len(covers) == 1, [(c.username, c.start, c.end) for c in covers]
+    assert len(errors) == 1 and "another cover" in str(errors[0]), [(c.username, c.id) for c in covers]
+    other.close()
+
+
+def _edges(au: Any) -> list[dict[str, Any]]:
+    return [kw["detail"] for _e, kw in au.rows]
+
+
+class _Au:
+    def __init__(self) -> None:
+        self.rows: list[tuple[str, dict[str, Any]]] = []
+
+    def append(self, event: str, **kw: Any) -> dict[str, Any]:
+        self.rows.append((event, kw))
+        return kw
+
+
+def test_a_lapse_is_recorded_once_when_first_seen_and_the_cover_never_revives(team: TeamStore) -> None:
+    """Item 2: no ``start`` for a cover that never took effect; a lapse written once, when first observed, with its
+    reason and its true last day in effect; no ``end`` later; a PI named again does not bring the cover back."""
+    from console.cover_pages import record_edges
+
+    au = _Au()
+    # (a) the PI changes before the cover's first day: never in effect, no start, a lapse with no last day
+    c = team.add_cover(RS, username="drb", start=_days(3), end=_days(9), today=DAY, by="drpi", at=AT)
+    pi = next(e for e in team.entries(RS) if e.username == "drpi")
+    team.update_entry(RS, pi.id, tasks=(), end=_days(1), training_day=None, training_ref=None, by="stw", at=AT)
+    _entry(team, "drnew", "pi", start=DAY + timedelta(days=2))
+    assert record_edges(team, au, DAY + timedelta(days=4), AT, [RS]) == [f"{RS}:{c.id}:lapsed"]
+    (ev,) = _edges(au)
+    assert ev["action"] == "lapsed" and ev["reason"] == "pi_changed" and ev["last_day"] is None
+    assert not ev["took_effect"]
+    assert record_edges(team, au, DAY + timedelta(days=10), AT, [RS]) == []  # once; no end at the original end
+    # the old PI named again: the lapsed cover stays ended (stored), a new cover must be entered
+    _entry(team, "drpi", "pi", start=DAY + timedelta(days=5))
+    assert not standing(team, _user("drb"), RS, DAY + timedelta(days=6)).pi
+    stored = team.cover(RS, c.id)
+    assert stored is not None and stored.lapse_reason == "pi_changed" and stored.last_day() == ""
+
+
+def test_a_lapse_of_the_covering_persons_entry_names_its_true_last_day(team: TeamStore) -> None:
+    from console.cover_pages import record_edges
+
+    au = _Au()
+    c = team.add_cover(OTHER, username="drb", start=_days(0), end=_days(9), today=DAY, by="drpi", at=AT)
+    assert record_edges(team, au, DAY, AT, [OTHER]) == [f"{OTHER}:{c.id}:start"]  # in effect: its start
+    drb = next(e for e in team.entries(OTHER) if e.username == "drb")
+    team.update_entry(OTHER, drb.id, tasks=("refer",), end=_days(3), training_day=None, training_ref=None, by="drpi",
+                      at=AT)  # fmt: skip
+    # nobody looks until day 6: the lapse is written then, naming day 3 as the last day in effect
+    assert record_edges(team, au, DAY + timedelta(days=6), AT, [OTHER]) == [f"{OTHER}:{c.id}:lapsed"]
+    ev = _edges(au)[-1]
+    assert (ev["action"], ev["reason"], ev["last_day"], ev["took_effect"]) == ("lapsed", "entry_ended", _days(3), True)
+    assert record_edges(team, au, DAY + timedelta(days=12), AT, [OTHER]) == []  # no end at the original end
+    # the entry made active again: the cover does not come back
+    team.update_entry(OTHER, drb.id, tasks=("refer",), end=None, training_day=None, training_ref=None, by="drpi",
+                      at=AT)  # fmt: skip
+    assert not standing(team, _user("drb"), OTHER, DAY + timedelta(days=7)).pi
+
+
+def test_a_cover_lapsed_but_not_yet_observed_gives_nothing_and_the_banner_agrees(cb: dict[str, Any]) -> None:
+    h = cb["h"]
+    h.team.add_cover("GZQO", username="cov", start=_days(0), end=_days(9), today=DAY, by="lpi", at=AT)
+    lpi = next(e for e in h.team.entries("GZQO") if e.username == "lpi")
+    h.team.update_entry("GZQO", lpi.id, tasks=(), end=_days(1), training_day=None, training_ref=None, by="stw", at=AT)
+    _entry(h.team, "lpi", "pi", start=DAY + timedelta(days=3), name="Dr L")  # the same PI named again on day 3
+    cb["clock"]["now"] = datetime(2026, 11, 24, 1, 0, tzinfo=UTC)  # day 4: nobody looked on day 2
+    assert not h.stand(cb["users"].get("cov"), "GZQO").pi  # broken on day 2: never revived
+    cov, _ = login(cb["app"], "cov", PW)
+    assert 'data-testid="cover-banner"' not in cov.get("/studies/GZQO/team").text
+    acts = [(e["detail"]["action"], e["detail"].get("last_day")) for e in _events(cb, "console.cover")]
+    assert acts[-1] == ("lapsed", _days(1)) and [a for a, _d in acts].count("lapsed") == 1
+
+
+def test_a_cover_carries_the_pis_clinical_rights_and_none_of_the_studys_administration(cb: dict[str, Any]) -> None:
+    """Item 3: the allow-list at the one reading of the log; the routes of the withheld rights refuse a cover."""
+    h = cb["h"]
+    h.team.add_cover("GZQO", username="cov", start=_days(0), end=_days(6), today=DAY, by="lpi", at=AT)
+    cov = cb["users"].get("cov")
+    assert h.stand(cov, "GZQO").pi
+    for a in ("task.screen", "task.approach", "task.refer", "task.enter_data", "command.SCREEN", "edc.view"):
+        assert h.permit(cov, a, "GZQO").allowed, a
+    for a in ("delegation.check", "study.state", "study.reopen", "irb.edit", "study.irb_text", "edc.switch_off",
+              "edc.switch_on", "monitor.grant", "delegation.keep"):  # fmt: skip
+        assert not h.permit(cov, a, "GZQO").allowed, a
+        assert h.permit(cb["users"].get("lpi"), a, "GZQO").allowed or a == "irb.edit", a
+    assert not h.may_approve(cov, "GZQO")  # the criteria's approval is the PI's by their own entry
+    page, csrf = login(cb["app"], "cov", PW)
+    assert page.post("/studies/GZQO/team/check", data={"csrf": csrf, "result": "match"},
+                     follow_redirects=False).status_code == 403  # fmt: skip
+    assert page.post("/studies/GZQO/state", data={"csrf": csrf, "state": "paused"},
+                     follow_redirects=False).status_code in (403, 404)  # fmt: skip
+
+
+def test_the_api_twins_refuse_another_studys_pi(cb: dict[str, Any]) -> None:
+    """Item 4: create and end by the PI of another study, through /api/v1: refused."""
+    b = cb
+    b["users"].create("opi", "investigator", PW, "opi@hospa.test")
+    _entry(b["h"].team, "opi", "pi", rs="RA-BIO", name="Dr O")
+    _entry(b["h"].team, "cov", "sub_pi", rs="RA-BIO", name="Dr C")
+    b["h"].team.add_cover("GZQO", username="cov", start=_days(1), end=_days(3), today=DAY, by="lpi", at=AT)
+    token, _ = b["users"].new_session(b["users"].get("opi"), via="api")
+    from fastapi.testclient import TestClient
+
+    api = TestClient(b["app"], headers={"Authorization": f"Bearer {token}"})
+    r = api.post("/api/v1/studies/GZQO/cover", json={"username": "cov", "start": _days(5), "end": _days(6)})
+    assert r.status_code in (403, 404), r.text
+    r = api.post("/api/v1/studies/GZQO/cover/1/end")
+    assert r.status_code in (403, 404), r.text
+    assert [c.ended_on for c in b["h"].team.covers("GZQO")] == [None] and len(b["h"].team.covers("GZQO")) == 1
+
+
+def test_a_tasks_owner_is_set_only_on_a_task_of_that_study_and_shown_lapsed_after_the_owners_entry(
+    cb: dict[str, Any],
+) -> None:
+    """Item 9: (kind, ref) must be one of the study's tasks today; an owner whose own entry ended stays, flagged."""
+    lpi, csrf = login(cb["app"], "lpi", PW)
+    for kind, ref in (("call", "a1b2c3d4e5f6a001"), ("cover_irb", "7"), ("refer", "99")):
+        r = lpi.post("/studies/GZQO/tasks/owner", data={"csrf": csrf, "kind": kind, "ref": ref, "owner": "crc"},
+                     follow_redirects=False)  # fmt: skip
+        assert r.status_code == 400, (kind, ref)
+    cb["h"].team.set_task_owner("GZQO", kind="delegation", ref="", owner="crc", day=DAY, by="lpi", at=AT)
+    crc = next(e for e in cb["h"].team.entries("GZQO") if e.username == "crc")
+    cb["h"].team.update_entry("GZQO", crc.id, tasks=(), end=_days(0), training_day=None, training_ref=None, by="lpi",
+                              at=AT)  # fmt: skip
+    cb["clock"]["now"] = datetime(2026, 11, 21, 1, 0, tzinfo=UTC)
+    crx, _ = login(cb["app"], "crx", PW)
+    page = crx.get("/home").text
+    assert 'data-testid="task-owner"' in page and 'data-testid="task-owner-lapsed"' in page and "Ms R" in page
+
+
+def _second_case(lb: dict[str, Any]) -> None:  # noqa: F811
+    no, _other = lb["nos"]
+    lb["oc"].put(f"/studies/GZQO/data/{no}", json={"event": "ae2", "values": FATAL, "by": "rc:read"})
+    c, csrf = login(lb["app"], "crc", PW)
+    assert c.post("/studies/GZQO/sae/sync", data={"csrf": csrf}).status_code in (200, 303)
+
+
+def test_two_cases_told_the_same_day_are_two_mails_with_distinct_keys(
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Item 5: the orchestrator drops a repeat of (day, kind, recipients, subject); each case's mail has its own."""
+    from orchestrator.core import send_key
+
+    monkeypatch.delenv("TB_SAE_ESCALATE_HOURS", raising=False)
+    no = _case(lb)
+    _second_case(lb)
+    told = _sync(lb, 24.5)
+    assert len(told) == 4, [n[2] for n in told]  # two cases, two people each
+    keys = {send_key("notice:2026-11-11", n[0], list(n[1]), n[2], []) for n in told}
+    assert len(keys) == 4  # no mail would be dropped as a duplicate
+    full = sorted(n[2] for n in told if n[1] == ["crc@hospa.test"])
+    assert full == [f"[TrialBox] SAE GZQO {no} ae1 has waited 24 hours for the PI",
+                    f"[TrialBox] SAE GZQO {no} ae2 has waited 24 hours for the PI"]  # fmt: skip
+    short = [n[2] for n in told if n[1] == ["subi@hospa.test"]]
+    assert all(no not in x and "register case" in x for x in short) and len(set(short)) == 2
+    body = next(n[3] for n in told if n[1] == ["crc@hospa.test"])
+    assert "still not acknowledged by the PI" in body and "New serious adverse event" not in body
+
+
+def test_a_round_that_reaches_nobody_is_not_final_and_is_tried_again(
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Item 6: the mail gateway down: no ``escalated`` row, a bounded retry note, the next round mails."""
+    monkeypatch.delenv("TB_SAE_ESCALATE_HOURS", raising=False)
+    no = _case(lb)
+    real = lb["backend"].send_notice
+
+    def down(*_a: Any, **_k: Any) -> None:
+        raise RuntimeError("gateway down")
+
+    lb["backend"].send_notice = down
+    for h in (24.5, 25.5, 26.5, 27.5, 28.5):
+        assert _sync(lb, h) == []
+    from console.saerecord import SaeStore
+
+    store = SaeStore()
+    try:
+        trail = [t["action"] for t in store.trail("GZQO", no, "ae1")]
+    finally:
+        store.close()
+    assert "escalated" not in trail and trail.count("escalate_retry") == 3  # bounded
+    lb["backend"].send_notice = real
+    assert len(_sync(lb, 29.5)) == 2  # the next round reaches them
+    assert _sync(lb, 30.5) == []
+    rows = [json.loads(x) for f in sorted(lb["backend"].audit_dir.glob("*.jsonl")) for x in f.read_text().splitlines()
+            if x and json.loads(x).get("event") == "console.sae"]  # fmt: skip
+    acts = [r["detail"]["action"] for r in rows if r["detail"].get("record") == no]
+    assert acts.count("escalate_unreached") == 3 and acts.count("escalated") == 1
+    (un,) = [r["detail"] for r in rows if r["detail"].get("action") == "escalate_unreached"][:1]
+    assert un["sent"] == 0 and sorted(un["failed"]) == ["crc", "subi"]
+
+
+def test_a_later_change_of_n_does_not_tell_a_case_again(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    """Item 7: once per case, whatever the threshold."""
+    monkeypatch.setenv("TB_SAE_ESCALATE_HOURS", "6")
+    _case(lb)
+    assert len(_sync(lb, 6.5)) == 2
+    monkeypatch.setenv("TB_SAE_ESCALATE_HOURS", "12")
+    assert _sync(lb, 12.5) == [] and _sync(lb, 48) == []

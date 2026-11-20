@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import contextvars
 from collections.abc import Iterator
+from dataclasses import replace
 from typing import Any
 
 from tb_common import actor_v3, patient_reads
@@ -130,6 +131,8 @@ def assert_for(
     standing = NO_STANDING
     if rid and h.stand is not None and user.sees_study(rid):
         standing = h.stand(user, rid).grant()
+        if standing.pi_rights is not None:  # 9f-3 (D-1383): the assertion names one action; a cover's allow-list
+            standing = replace(standing, is_pi=standing.is_pi and action in standing.pi_rights, pi_rights=None)
     token = actor_v3.mint(sub=h.actor(sess), role=user.role, action=action, method=method, path=path, body=body,
                           study=rid or "", standing=standing, session=sa.bound_session(),
                           grant=None if grant is None else grant_claim(grant))  # fmt: skip

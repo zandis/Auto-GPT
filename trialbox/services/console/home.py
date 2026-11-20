@@ -205,6 +205,7 @@ class Helpers:
     cover_tasks: Callable[[str], list[Any]] | None = None
     task_owners: Callable[[str], tuple[dict[tuple[str, str], Any], list[tuple[str, str]]]] | None = None
     keeps_tasks: Callable[[Any, str], bool] | None = None
+    task_keys: Callable[[Any, str], set[tuple[str, str]]] | None = None  # 9f-5: a study's tasks today, (kind, ref)
     sae_escalate: Callable[[], list[str]] | None = None
 
     def gone(self) -> set[str]:
@@ -512,6 +513,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             o = owners.get((tk["kind"], tk["ref"]))
             tk["owner"], tk["owner_id"] = (o.owner_name or o.owner, o.owner) if o is not None else ("", "")
             tk["owners"], tk["may_own"] = people, may
+            # 9f-5: an owner whose own entry on the log has ended stays named, shown as lapsed (never deleted)
+            tk["owner_lapsed"] = o is not None and all(u != o.owner for u, _n in people)
 
     def study_card(sess: Session, r: Any, jobs: list[Job]) -> dict[str, Any]:
         rs = r.id
@@ -624,6 +627,16 @@ def register(app: FastAPI, h: Helpers) -> None:
     def recent_jobs() -> list[Job]:
         """The jobs both forms of the opening page read (J-6 shares the coordinator home's one read)."""
         return list(bk.list_jobs(limit=500))
+
+    def task_keys(sess: Session, rs: str) -> set[tuple[str, str]]:
+        """9f-5 (D-1383): the study's tasks today as this account's opening page has them, (kind, ref): a task's owner
+        is set only on one of them."""
+        r = next((x for x in trials(sess) if x.id == rs), None)
+        if r is None:
+            return set()
+        return {(tk["kind"], str(tk["ref"])) for tk in study_card(sess, r, recent_jobs())["tasks"] if "ref" in tk}
+
+    h.task_keys = task_keys
 
     @app.get("/home")
     def home(request: Request, view: str = "", today: str = "") -> Response:

@@ -48,6 +48,7 @@ from console.home import Helpers
 from console.i18n import CATALOGUES, translate
 from console.notify import base_url
 from console.saerecord import (
+    NOTICE_WAITING,
     PARTIES,
     SYNC,
     SaeError,
@@ -302,8 +303,12 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
         dates, fatal or not, rule set, deadlines; never the AE term, a chart number or a name) after one line saying
         why; a person whose own rights do not read this study's serious AEs gets the line and the link only, without
         the screening number, the event or the dates. Returns the trail body and the audit's names."""
-        _subject, notice = office_notice(rid, v, rules)
+        _subject, notice = office_notice(rid, v, rules, NOTICE_WAITING)
         url = f"{base_url()}/studies/{rid}/subjects"
+        # the subject names the case, so two cases of one study told the same day are two mails (the orchestrator's
+        # duplicate key is day, kind, recipients and subject): the full notice names it as the PI's office notice
+        # does (screening number, event); the short one by the register's case number, with no patient meaning
+        no = reg.case_no(rid, str(v["record"]), str(v["event"]))
         sent: list[str] = []
         full: list[str] = []
         short: list[str] = []
@@ -322,22 +327,25 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
             lead = translate(lang, "sae.escalate.sub_pi" if role == "sub_pi" else "sae.escalate.crc", rs=rid, n=n)
             sees = reads_saes(u, rid)
             body = "\n".join([lead, "", notice] if sees else [lead, "", translate(lang, "sae.escalate.open", url=url)])
+            subject = (translate(lang, "sae.escalate.subject", rs=rid, n=n, case=f"{v['record']} {v['event']}") if sees
+                       else translate(lang, "sae.escalate.subject.short", rs=rid, n=n, case=no or "-"))  # fmt: skip
             try:
-                bk.send_notice("N2", [u.mailbox], translate(lang, "sae.escalate.subject", rs=rid, n=n), body,
-                               actor.SAE_SYNC)  # fmt: skip
+                bk.send_notice("N2", [u.mailbox], subject, body, actor.SAE_SYNC)
             except Exception:  # one refused address does not stop the others; the audit names it
                 failed.append(name)
                 continue
             sent.append(name)
             (full if sees else short).append(name)
         return {"to": ", ".join(sent), "sent": len(sent), "full": full, "short": short, "failed": failed,
-                "unreachable": unreachable}  # fmt: skip
+                "unreachable": unreachable, "case_no": no}  # fmt: skip
 
     def escalate(rid: str) -> list[str]:
         """9f-4 (b): each serious AE of the study the PI has not acknowledged ``TB_SAE_ESCALATE_HOURS`` hours (default
         24) after the register first had it (``sae_case.created_at``, the moment it became one waiting for the PI) is
-        mailed to the study's sub-investigators and coordinators, once per case and threshold (a trail row
-        ``escalated`` and a ``console.sae`` event naming who was told, in one transaction). Returns the cases told."""
+        mailed to the study's sub-investigators and coordinators, once per case whatever the threshold (a later
+        change of ``TB_SAE_ESCALATE_HOURS`` tells no case again; ``saerecord.escalate_once``): a round that reached
+        somebody writes the trail row ``escalated`` with each recipient's outcome; a round that reached nobody is not
+        final and is tried again on the next round (a bounded ``escalate_retry`` note). Returns the cases told."""
         n = escalate_hours(os.environ)
         day, at = today(), now()
         out = fetch(rid, day)
@@ -364,15 +372,18 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
             def send(v: dict[str, Any] = v, names: dict[str, Any] = names) -> dict[str, Any]:
                 got = escalation_mail(rid, v, rules, n, day)
                 names.update(got)
-                return {"to": got["to"], "sent": got["sent"]}
+                # per recipient: who was reached (full or short notice), whose mail failed, who has no mailbox
+                return {k: got[k] for k in ("to", "sent", "full", "short", "failed", "unreachable")}
 
             def audit_it(body: dict[str, Any], key: tuple[str, str] = key, names: dict[str, Any] = names,
                          since: str = str(case.get("created_at") or "")) -> None:  # fmt: skip
                 au.append("console.sae", ruleset=rid, actor=SYNC,
-                          detail={"action": "escalated", "record": key[0], "event": key[1], "hours": n,
-                                  "since": since, **names})  # fmt: skip
+                          detail={"action": "escalated" if body.get("final") else "escalate_unreached",
+                                  "record": key[0], "event": key[1], "hours": n, "since": since,
+                                  "attempt": body.get("attempt"), **names})  # fmt: skip
 
-            if escalate_once(reg, rid, *key, n, send, SYNC, stamp(), audit_it) is not None:
+            got = escalate_once(reg, rid, *key, n, send, SYNC, stamp(), audit_it)
+            if got is not None and got.get("final"):
                 done.append(f"{key[0]}/{key[1]}")
         return done
 
