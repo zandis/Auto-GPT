@@ -155,16 +155,20 @@
       "state": "partly built",
       "cards": [
         "10C-9",
-        "10C-20"
+        "10C-20",
+        "10B-21"
       ],
       "decisions": [
-        "D-137"
+        "D-137",
+        "D-1261"
       ],
       "values": {
-        "ingredient_stems": true
+        "ingredient_stems": true,
+        "medis_master": true
       },
       "readers": [
-        "criteria_compiler.terminology.resolver:jp_ingredients"
+        "criteria_compiler.terminology.resolver:jp_ingredients",
+        "sitesetup.medis_release:applies"
       ],
       "everywhere": "On everywhere, not switched by country: the licensed MEDIS, JLAC10 and YJ releases are read from the terminology store (D-137) wherever a site loads them",
       "not_built": "MEDIS modifiers as attributes (10C-9), JLAC11 (10C-20)"

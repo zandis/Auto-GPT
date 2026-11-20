@@ -33,6 +33,7 @@ from urllib.parse import quote, urlencode
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
+from sitesetup import medis_release
 from tb_common.authz import permit
 from tb_common.verdict_word import shown_of
 
@@ -77,7 +78,8 @@ PER_STUDY = frozenset({"/site", "/site/help", "/api/v1/site/readiness"})
 # chart number). Charts, facts, people and patients do, so the administrator opens them only as a coordinator would.
 ADMIN_SETUP = frozenset({"/site", "/site/start", "/site/codes", "/site/checks", "/site/sheets", "/site/help",
                          "/site/practice", "/api/v1/site/readiness", "/api/v1/site/codes",
-                         "/api/v1/site/checks"})  # fmt: skip
+                         "/api/v1/site/checks",
+                         "/site/codes/medis"})  # fmt: skip  # D-1261: the MEDIS master step, no patient row
 ASK_PER_HOUR = 60  # D-273 (PV-7): one patient's "why" answers per person and hour (the candidate pages' default)
 
 
@@ -522,6 +524,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             **ctx(sess, w, rs),
             todo=todo,
             terms=terms,
+            medis_step=medis_release.here(),  # D-1261: the link to the MEDIS master step, where it exists
             mapped=[c for c in codes if c["mapped_code"] is not None],
             done=done[:20],
             err=err[:80],
@@ -879,6 +882,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             return act_check(sess, ws_of(ws), cid, body.answer)
         except (Problem, Unavailable) as exc:
             return refused(exc)
+
+    if medis_release.here():  # D-1261: only where the site's country layer uses the MEDIS master
+        from console import medis_page
+
+        medis_page.register(app, h, need_change=need_change, signed_post=signed_post, get=get)
 
     @app.get("/api/v1/ask", response_model=None)
     def api_ask(request: Request, q: str = "", pid: str = "", ws: str = "main", study: str = "") -> Any:

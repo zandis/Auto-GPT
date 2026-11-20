@@ -15,7 +15,9 @@ Writes (each one audited, ``by`` is the person): ``POST /setup/{ws}/sheets`` (a 
 /setup/{ws}/sheets/{id}/roles``, ``POST /setup/{ws}/charts`` (pasted text or a file with the chart number),
 ``POST /setup/{ws}/facts/{id}`` (confirm, correct, reject, undo), ``POST /setup/{ws}/codes`` (one mapping) and
 ``/codes/sheet`` (a filled mapping sheet), ``POST /setup/{ws}/checks/{id}``, ``POST /setup/{ws}/people/resolve``,
-``POST /setup/practice/load`` and ``/reset``, ``PUT /setup/remote``.
+``POST /setup/practice/load`` and ``/reset``, ``PUT /setup/remote``, ``POST /setup/terminology/medis/check`` and
+``/load`` (D-1261: the MEDIS disease-name master a person of the hospital downloaded; only where the site's country
+layer uses it).
 
 ``POST /assist`` puts a draft answer the console built from its own pages to the local model for phrasing. It reads
 nothing and writes nothing (the ask-the-box assistant never changes data; ``tests/console/test_site_setup_pages``).
@@ -151,6 +153,14 @@ class ByBody(BaseModel):
     """No field: the person is the verified one (T-715g, D-803)."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+class MedisBody(BaseModel):
+    """D-1261: the MEDIS release's zip as the person sent it, and their approval (for the load)."""
+
+    model_config = ConfigDict(extra="forbid")  # the person is the verified one, never a field (T-715g, D-803)
+    b64: str = Field(max_length=(48 * 1024 * 1024 * 4) // 3 + 8)  # sitesetup.medis_release.MAX_ZIP, in base64
+    approved: bool = False
 
 
 class RemoteBody(BaseModel):
@@ -459,6 +469,72 @@ def router(
         from adapter import licensed
 
         return licensed.status(get().store.db.url)
+
+    def medis_zip(body: MedisBody) -> bytes:
+        """D-1261: the zip the person sent, refused as a MEDIS step that does not exist where the site's country layer
+        does not use the master (as the console's page is absent there)."""
+        from sitesetup import medis_release
+
+        if not medis_release.here():
+            raise HTTPException(status_code=404, detail="not found")
+        try:
+            data = base64.b64decode(body.b64, validate=True)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="b64 is not base64") from exc
+        if not data:
+            raise HTTPException(status_code=409, detail={"code": "LIC-UPLOAD-EMPTY", "message": "no file was sent"})
+        return data
+
+    @r.get("/setup/terminology/medis")
+    def medis_state() -> dict[str, Any]:
+        """D-1261: the MEDIS release the step loaded last (version, release date, fingerprint, counts, who), or {}."""
+        from sitesetup import medis_release
+
+        if not medis_release.here():
+            raise HTTPException(status_code=404, detail="not found")
+        return medis_release.read_record(get().store.setting(medis_release.SETTING))
+
+    @r.post("/setup/terminology/medis/check")
+    def medis_check(body: MedisBody, who: Claim = AS_SITE) -> dict[str, Any]:
+        """D-1261: what loading the MEDIS release would do, writing nothing (version, rows, what would be skipped)."""
+        from adapter.licensed import LicensedError
+        from sitesetup import medis_release
+
+        data = medis_zip(body)
+        try:
+            return medis_release.check(data)
+        except LicensedError as exc:
+            raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message}) from exc
+
+    @r.post("/setup/terminology/medis/load")
+    def medis_load(body: MedisBody, who: Claim = AS_SITE) -> dict[str, Any]:
+        """D-1261: the person's approval (their institution downloaded this release from MEDIS and may use it under
+        MEDIS's terms) and the load, in one transaction; both in the audit as ``terminology.load``, the event every
+        licensed load writes. The zip's bytes are not kept: its SHA-256, version and counts are."""
+        from adapter import licensed
+        from sitesetup import medis_release
+
+        data = medis_zip(body)
+        if not body.approved:
+            raise HTTPException(status_code=409, detail={
+                "code": "LIC-APPROVAL", "message": "tick the approval: your institution downloaded this release "
+                "from MEDIS and may use it under MEDIS's terms"})  # fmt: skip
+        st = licensed.TermStore(get().store.db.url)
+        try:
+            out = medis_release.load(data, st, by=who.name)
+        except licensed.LicensedError as exc:
+            raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message}) from exc
+        finally:
+            st.close()
+        get().audit.append("terminology.load", actor=who.name, output_sha=out["sha256"], detail={
+            "kind": "medis_release", "approved": True, "approval": medis_release.APPROVAL,
+            **{k: out[k] for k in medis_release.KEPT if k != "sha256"}, "skipped": len(out["skipped"])})  # fmt: skip
+        svc = get()
+        svc.store.set_setting(
+            medis_release.SETTING, medis_release.record(out, who.name), who.name, svc.now().isoformat()
+        )
+        log.info("MEDIS release %s loaded", out.get("version"))
+        return {**out, "status": licensed.status(get().store.db.url)}
 
     @r.get("/setup/remote")
     def get_remote() -> dict[str, Any]:

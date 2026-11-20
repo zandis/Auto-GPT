@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{# Card 10B-21 (D-1261): the MEDIS disease-name master, downloaded by the hospital's own staff and loaded here. The
+   links open MEDIS's pages in the person's browser; the box never fetches them. Nothing is loaded before the
+   approval, and the zip's bytes are never kept (only its SHA-256, version and counts). #}
+{% block title %}{{ t('medis.title') }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('medis.title') }}</h1></div>
+<p class="hint"><a href="/site/codes" data-testid="medis-back">{{ t('medis.back') }}</a></p>
+<section class="card" data-testid="medis-what">
+<p>{{ t('medis.what') }}</p>
+<p>{{ t('medis.why') }}</p>
+<p>{{ t('medis.how') }}</p>
+<ul class="plain">
+<li><a href="{{ download_url }}" target="_blank" rel="noopener noreferrer" data-testid="medis-download">{{ t('medis.link.download') }}</a></li>
+<li><a href="{{ terms_url }}" target="_blank" rel="noopener noreferrer" data-testid="medis-terms">{{ t('medis.link.terms') }}</a></li>
+</ul>
+<p class="hint">{{ t('medis.links.help') }}</p>
+<p class="hint" data-testid="medis-skip">{{ t('medis.skip') }}</p>
+</section>
+<section class="card" data-testid="medis-state" data-state="{{ 'loaded' if loaded else 'not_loaded' }}">
+<h2>{{ t('medis.state') }}</h2>
+{% if loaded %}<p>{{ t('medis.loaded', version=loaded.version, released=loaded.released, day=loaded.day, who=loaded.who|who) }} · {{ t('medis.loaded.rows', n=loaded.rows) }}</p>
+{% if loaded.remind %}<p class="pill warn" role="status" data-testid="medis-remind">{{ t('medis.remind') }}</p>{% endif %}
+<p class="hint">{{ t('medis.update') }}</p>
+{% else %}<p><span class="pill warn">{{ t('medis.not_loaded') }}</span></p>{% endif %}
+</section>
+{% if err %}<p class="error" role="alert" data-testid="medis-err" data-code="{{ err.code }}">{{ t('medis.err', code=err.code, reason=t_or('medis.err.' + err.code, err.reason or err.code).replace('{mb}', mb|string)) }}</p>{% endif %}
+{% if done %}<section class="card" data-testid="medis-done">
+<p class="ok" role="status">{{ t('medis.done', version=done.version, n=done.disease_rows, current=done.disease_current, mods=done.modifier_rows, idx=done.index_rows) }}</p>
+<p class="hint">{{ t('medis.check.sha') }}: <span class="mono">{{ done.sha256 }}</span></p>
+</section>{% endif %}
+{% if found %}<section class="card" data-testid="medis-found">
+<h2>{{ t('medis.check.title') }}</h2>
+<table class="candidates"><tbody>
+<tr><th>{{ t('medis.check.version') }}</th><td data-testid="medis-version">{{ found.version }}</td></tr>
+<tr><th>{{ t('medis.check.released') }}</th><td>{{ found.released }}</td></tr>
+<tr><th>{{ t('medis.check.disease') }}</th><td data-testid="medis-disease">{{ found.disease_rows }}</td></tr>
+<tr><th>{{ t('medis.check.current') }}</th><td>{{ found.disease_current }}</td></tr>
+<tr><th>{{ t('medis.check.modifier') }}</th><td>{{ found.modifier_rows }}</td></tr>
+<tr><th>{{ t('medis.check.index') }}</th><td>{{ found.index_rows }}</td></tr>
+<tr><th>{{ t('medis.check.sha') }}</th><td class="mono">{{ found.sha256 }}</td></tr>
+</tbody></table>
+<h3>{{ t('medis.check.skipped', n=found.skipped|length) }}</h3>
+{% if not found.skipped %}<p class="ok">{{ t('medis.check.skipped.none') }}</p>{% else %}<ul class="plain" data-testid="medis-skipped">{% for s in found.skipped[:shown] %}<li>{{ t('medis.check.skipped.line', table=s.table, line=s.line, reason=s.reason) }}</li>{% endfor %}{% if found.skipped|length > shown %}<li>{{ t('medis.check.skipped.more', n=found.skipped|length - shown) }}</li>{% endif %}</ul>{% endif %}
+<h3>{{ t('medis.approve.title') }}</h3>
+<form method="post" action="/site/codes/medis/load" enctype="multipart/form-data" class="markform" data-testid="medis-approve">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="sha256" value="{{ found.sha256 }}">
+<p><label><input type="checkbox" name="approved" value="yes" required data-testid="medis-approved"> {{ t('medis.approve.box') }}</label></p>
+<p class="hint">{{ t('medis.approve.who', who=who|who) }}</p>
+<label for="medis-file-again">{{ t('medis.approve.again') }}</label><input id="medis-file-again" name="file" type="file" accept=".zip" required>
+<button type="submit" data-testid="medis-load">{{ t('medis.load.go') }}</button>
+</form>
+</section>{% endif %}
+<section class="card" data-testid="medis-upload">
+<form method="post" action="/site/codes/medis/check" enctype="multipart/form-data" class="markform">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="medis-file">{{ t('medis.file', mb=mb) }}</label><input id="medis-file" name="file" type="file" accept=".zip" required>
+<button type="submit" class="secondary" data-testid="medis-check">{{ t('medis.check.go') }}</button>
+</form>
+</section>
+{% endblock %}

@@ -69,6 +69,7 @@ READ: dict[tuple[str, str], tuple[type, re.Pattern[str] | None]] = {
     ("P3", "committees"): (dict, None),
     ("P5", "report_language"): (str, re.compile(r"^[a-z]{2}(-[A-Z]{2})?$")),
     ("P7", "ingredient_stems"): (bool, None),
+    ("P7", "medis_master"): (bool, None),  # D-1261: the site set-up step that loads the MEDIS master
     ("P8", "egfr"): (str, _TEXT),
     ("P9", "printed_dates"): (str, _TEXT),
     ("P9", "year_basis"): (str, _TEXT),
