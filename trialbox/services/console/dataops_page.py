@@ -257,14 +257,14 @@ def site_profile_of(detail: Any) -> dict[str, Any] | None:
             "pending": pending[:12] if pending else None}  # fmt: skip
 
 
-#: 10B-20 (D-1254): a full night older than this, with nightly (delta) updates since, is shown as a warning. A week:
+#: 10B-23 (D-1254): a full night older than this, with nightly (delta) updates since, is shown as a warning. A week:
 #: the night's weekly work (the Monday micro-batch and NAV, D-492) then always has a full night within its own week;
 #: the reason in full is in D-1254. A constant, not a setting
 FULL_NIGHT_STALE_DAYS = 7
 
 
 def full_night_of(rows: Any, today: date) -> dict[str, Any] | None:
-    """10B-20 (D-1254): the lake's record of its last full night, as the newest night row (by id) that carries it
+    """10B-23 (D-1254): the lake's record of its last full night, as the newest night row (by id) that carries it
     (``adapter.full_nights.said``, kept in the night's event): ``last_full`` (a date or None: not known), ``days``
     since it, ``deltas`` (nightly updates since) and ``warn``. None when no row carries a record of that shape, or
     when it says nothing (not known and no delta night): the page then shows no line."""
@@ -407,7 +407,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             waiting=waiting,
             rows=rows,
             counts=read(ops.counts),
-            full_night=full_night_of([*sources, *rows], h.today()),  # 10B-20 (D-1254): the site's date
+            full_night=full_night_of([*sources, *rows], h.today()),  # 10B-23 (D-1254): the site's date
             state=state,
             source=source,
             next_before=nxt,

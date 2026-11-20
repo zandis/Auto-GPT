@@ -1,4 +1,4 @@
-"""When the box's last full night was (10B-20, D-1254): ``<lake>/full_nights.json``.
+"""When the box's last full night was (10B-23, D-1254): ``<lake>/full_nights.json``.
 
 A delta night reads only a window, so some changes are not seen by it: a record the hospital re-files from one
 patient to another, a chart merge followed by re-filing, an SS-MIX2 file back-filed with an old 発生日時 (D-1252

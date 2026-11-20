@@ -544,7 +544,7 @@ def run_ingest(
                         "error": type(exc).__name__,
                         "step": at["step"],
                         "table": at["table"],
-                        # 10B-20 (D-1254): the record as it stood (a failed night moves nothing); none, no key
+                        # 10B-23 (D-1254): the record as it stood (a failed night moves nothing); none, no key
                         **({"full_night": fnr} if (fnr := _full_night(cfg)) is not None else {}),
                     },
                 )
@@ -1149,7 +1149,7 @@ def _run_ingest(
 
     night_runs.record(cfg.lake_dir, snap, started, ended, finished=passed and not held,
                       steps_at=read_record(out_dir).get("at"))  # fmt: skip
-    if passed and not held:  # 10B-20 (D-1254): a night that ended published moves the record; any other, nothing
+    if passed and not held:  # 10B-23 (D-1254): a night that ended published moves the record; any other, nothing
         from adapter import full_nights
 
         full_nights.completed(cfg.lake_dir, snap, full=not since)
@@ -1237,7 +1237,7 @@ def _run_ingest(
                 "publish": publish_steps,  # T-723: each publish step's state (None: the night was held at the gate)
                 "unit_defaults_applied": defaulted,
                 "site_profile": profile_said,  # 10B-6 (D-1233): id, version, digest and the coverage counts
-                "full_night": _full_night(cfg),  # 10B-20 (D-1254): the last full night and the delta nights since
+                "full_night": _full_night(cfg),  # 10B-23 (D-1254): the last full night and the delta nights since
                 "presence_words_read": presence_read,
                 "instants_to_site_offset": shifted,
                 "drop_override": "; ".join(overrides) or None,
@@ -1281,7 +1281,7 @@ def _run_ingest(
 
 
 def _full_night(cfg: AdapterConfig) -> dict[str, Any] | None:
-    """10B-20 (D-1254): the lake's record of its last full night as the data-operations page reads it (None: no
+    """10B-23 (D-1254): the lake's record of its last full night as the data-operations page reads it (None: no
     record, the lake was installed before it)."""
     from adapter import full_nights
 

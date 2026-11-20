@@ -1,4 +1,4 @@
-"""10B-20 (D-1254): the lake keeps the date of its last full night and the delta nights since.
+"""10B-23 (D-1254): the lake keeps the date of its last full night and the delta nights since.
 
 A delta night cannot see a record re-filed to another patient, a merged chart filed again, or an SS-MIX2 file
 back-filed with an old 発生日時; the next full night corrects them. ``<lake>/full_nights.json`` says when that was: a

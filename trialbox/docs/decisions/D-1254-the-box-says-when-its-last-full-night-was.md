@@ -1,6 +1,6 @@
-# D-1254 The box says when its last full night was (10B-20)
+# D-1254 The box says when its last full night was (10B-23)
 
-- **Card:** 10B-20 (lane J) · **PR:** #1233 (branch `agent/10b20-last-full-night`) · **Date:** 2026-11-19
+- **Card:** 10B-23 (lane J; first announced as 10B-20, an id the plan already uses) · **PR:** #1233 (branch `agent/10b20-last-full-night`) · **Date:** 2026-11-19
 - **Status:** proposed.
 - **Why:** a delta night reads only a window. Some changes are outside every window: a record the hospital re-files
   from one patient to another, a chart merge followed by re-filing, an SS-MIX2 file back-filed with an old 発生日時

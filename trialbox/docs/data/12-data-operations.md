@@ -19,7 +19,7 @@ that stopped is `FAILED`. `HELD` is left only by the data steward: **reject** (`
 - One night's page (`/data-ops/batches/<id>`): every step, who, when, why and the audit event.
 - The clinical conflicts are the next page, `/data/conflicts` (DATA §7); the two pages link to each other.
 
-**The last full night (10B-20, D-1254).** A delta night reads only a window, so it cannot see a record the hospital
+**The last full night (10B-23, D-1254).** A delta night reads only a window, so it cannot see a record the hospital
 re-files from one patient to another, a chart merge followed by re-filing, or an SS-MIX2 file back-filed with an old
 発生日時 (D-1252 section D); the next full night corrects each. The lake keeps `full_nights.json` beside the snapshots:
 the date of the last full night that completed and the delta nights that completed since, written atomically, and

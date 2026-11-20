@@ -1,5 +1,5 @@
 # ruff: noqa: F811 - the box fixture is imported from test_console_app and taken by name
-"""10B-20 (D-1254): the data-operations page says when the box's last full night was.
+"""10B-23 (D-1254): the data-operations page says when the box's last full night was.
 
 The adapter keeps the lake's record (``adapter.full_nights``) in each night's event; the ``/data-ops`` page shows it
 in its counts area: "Last full night: <date> (N days ago), M nightly updates since", in the page's warning style with

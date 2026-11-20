@@ -577,7 +577,7 @@ def publish_held(
     from adapter.pipeline import merge_base
 
     folder = held_folder(cfg, snap)
-    try:  # 10B-20 (D-1254): whether the held night read whole, from its own report, before the publish moves it
+    try:  # 10B-23 (D-1254): whether the held night read whole, from its own report, before the publish moves it
         since = json.loads((folder / "ingest_report.json").read_text(encoding="utf-8")).get("since")
         full: bool | None = not since
     except (OSError, ValueError, AttributeError):
