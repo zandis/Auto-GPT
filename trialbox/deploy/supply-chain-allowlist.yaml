@@ -23,343 +23,343 @@ vulnerabilities:  # pip-audit on deploy/requirements.lock was clean on 2026-11-0
     reason: Java library inside the upstream HAPI FHIR server, fixed in 33.7.2; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-111497
     package: libbrotli1
     image: hapiproject/hapi
     reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 1.1.0-2+deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-33701
     package: io-opentelemetry-javaagent:opentelemetry-javaagent
     image: hapiproject/hapi
     reason: Java library inside the upstream HAPI FHIR server, fixed in 2.26.1; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-35568
     package: io-modelcontextprotocol-sdk:mcp-core
     image: hapiproject/hapi
     reason: Java library inside the upstream HAPI FHIR server, fixed in 1.0.0; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-47884
     package: org-springframework:spring-webmvc
     image: hapiproject/hapi
     reason: Java library inside the upstream HAPI FHIR server, fixed in 7.0.9; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-47890
     package: org-springframework:spring-webmvc
     image: hapiproject/hapi
     reason: Java library inside the upstream HAPI FHIR server, fixed in 7.0.9; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-66046
     package: libexpat1
     image: hapiproject/hapi
     reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 2.9.0-1~deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-76956
     package: libexpat1
     image: hapiproject/hapi
     reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 2.9.0-1~deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-76957
     package: libexpat1
     image: hapiproject/hapi
     reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 2.9.0-1~deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-77214
     package: libexpat1
     image: hapiproject/hapi
     reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 2.9.0-1~deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-85091
     package: zlib1g
     image: hapiproject/hapi
     reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 1:1.3.dfsg+really1.3.1-1+deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-89407
     package: com-fasterxml-jackson-core:jackson-core
     image: hapiproject/hapi
     reason: Java library inside the upstream HAPI FHIR server, fixed in 2.18.11; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-89407
     package: tools-jackson-core:jackson-core
     image: hapiproject/hapi
     reason: Java library inside the upstream HAPI FHIR server, fixed in 3.1.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-89425
     package: com-fasterxml-jackson-core:jackson-core
     image: hapiproject/hapi
     reason: Java library inside the upstream HAPI FHIR server, fixed in 2.21.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-89425
     package: tools-jackson-core:jackson-core
     image: hapiproject/hapi
     reason: Java library inside the upstream HAPI FHIR server, fixed in 3.1.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-91776
     package: com-fasterxml-jackson-core:jackson-databind
     image: hapiproject/hapi
     reason: Java library inside the upstream HAPI FHIR server, fixed in 2.18.11; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-91776
     package: tools-jackson-core:jackson-databind
     image: hapiproject/hapi
     reason: Java library inside the upstream HAPI FHIR server, fixed in 3.1.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-91777
     package: com-fasterxml-jackson-core:jackson-databind
     image: hapiproject/hapi
     reason: Java library inside the upstream HAPI FHIR server, fixed in 2.21.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-91777
     package: tools-jackson-core:jackson-databind
     image: hapiproject/hapi
     reason: Java library inside the upstream HAPI FHIR server, fixed in 3.1.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-93990
     package: libexpat1
     image: hapiproject/hapi
     reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 2.9.0-1~deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: DSA-6572-1
     package: ca-certificates
     image: hapiproject/hapi
     reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 20250419+deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2025-47273
     package: setuptools
     image: vllm/vllm-openai
     reason: Python package inside the upstream vLLM image, fixed in 78.1.1; waits for a patched vLLM tag pinned by digest; no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2025-68973
     package: dirmngr
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2025-68973
     package: gnupg
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2025-68973
     package: gnupg-utils
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2025-68973
     package: gnupg2
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2025-68973
     package: gpg
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2025-68973
     package: gpg-agent
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2025-68973
     package: gpgconf
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2025-68973
     package: gpgsm
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2025-68973
     package: gpgv
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2025-68973
     package: keyboxd
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-109518
     package: apt
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 2.8.4ubuntu0.1; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-109518
     package: libapt-pkg6-0t64
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 2.8.4ubuntu0.1; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-111497
     package: libbrotli1
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 1.1.0-2ubuntu0.1; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-114613
     package: msgpack
     image: vllm/vllm-openai
     reason: Python package inside the upstream vLLM image, fixed in 1.2.3; waits for a patched vLLM tag pinned by digest; no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-119194
     package: pyasn1
     image: vllm/vllm-openai
     reason: Python package inside the upstream vLLM image, fixed in 0.6.5; waits for a patched vLLM tag pinned by digest; no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-119195
     package: pyasn1
     image: vllm/vllm-openai
     reason: Python package inside the upstream vLLM image, fixed in 0.6.5; waits for a patched vLLM tag pinned by digest; no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-119196
     package: pyasn1
     image: vllm/vllm-openai
     reason: Python package inside the upstream vLLM image, fixed in 0.6.5; waits for a patched vLLM tag pinned by digest; no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-119197
     package: pyasn1
     image: vllm/vllm-openai
     reason: Python package inside the upstream vLLM image, fixed in 0.6.5; waits for a patched vLLM tag pinned by digest; no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-45447
     package: libssl3t64
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 3.0.13-0ubuntu3.11; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-45447
     package: openssl
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 3.0.13-0ubuntu3.11; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-84782
     package: libssl3t64
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 3.0.13-0ubuntu3.16; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-84782
     package: openssl
     image: vllm/vllm-openai
     reason: Ubuntu package of the upstream vLLM image, fixed in 3.0.13-0ubuntu3.16; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-97687
     package: urllib3
     image: vllm/vllm-openai
     reason: Python package inside the upstream vLLM image, fixed in 2.8.0; waits for a patched vLLM tag pinned by digest; no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-97689
     package: urllib3
     image: vllm/vllm-openai
     reason: Python package inside the upstream vLLM image, fixed in 2.8.0; waits for a patched vLLM tag pinned by digest; no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: GHSA-6q48-6c7w-9gw2
     package: certifi
     image: vllm/vllm-openai
     reason: Python package inside the upstream vLLM image, fixed in 2026.10.18; waits for a patched vLLM tag pinned by digest; no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: GHSA-6v7p-g79w-8964
     package: msgpack
     image: vllm/vllm-openai
     reason: Python package inside the upstream vLLM image, fixed in 1.2.1; waits for a patched vLLM tag pinned by digest; no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: GHSA-hq85-5cpj-mr62
     package: uv
     image: vllm/vllm-openai
     reason: Python package inside the upstream vLLM image, fixed in 0.13.4; waits for a patched vLLM tag pinned by digest; no egress (D-340)
     date: 2026-11-10
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
 
   # trialbox-postgres (T-104's db image) is scanned and blocking since T-110b. It has no entry since D-993: the
   # base's gosu binary is deleted and a setpriv shim drops root in its place, and zlib1g is held at the Debian fix.
@@ -372,7 +372,7 @@ vulnerabilities:  # pip-audit on deploy/requirements.lock was clean on 2026-11-0
     reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
     date: 2026-11-12
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   # D-790, the owner's yes of 2026-11-15: dnspython in the pinned model server image, this image only, dated
   - id: CVE-2026-128089
     package: dnspython
@@ -380,7 +380,7 @@ vulnerabilities:  # pip-audit on deploy/requirements.lock was clean on 2026-11-0
     reason: Python package inside the upstream vLLM image (2.9.0, pulled in by fastapi[standard] -> email-validator), fixed in 2.9.2; the flaw is in zone-file text parsing (WKS from_text), which the model server never runs (no vLLM module imports dns); no stable vLLM image after the fix yet (v0.33.0 was built 2026-11-02, before 2.9.2); waits for a patched vLLM tag pinned by digest; no egress (D-340)
     date: 2026-11-15
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   # Caddy, the TLS front of every PRODUCTION box (identity overlay). The gates did not look at this image before
   # D-574 (their list left the overlay out). The owner's ruling of 2026-11-12: dated, reviewed entries scoped to the
   # image, as for HAPI; building Caddy ourselves only if upstream stays silent at the review date. Each accepts one
@@ -391,21 +391,21 @@ vulnerabilities:  # pip-audit on deploy/requirements.lock was clean on 2026-11-0
     reason: Go module inside the upstream Caddy binary, fixed in x/crypto 0.58.1; the advisory is for the openpgp package, which is not in the binary (checked); reachable on 443 from the hospital's inner network only (the box is not on the internet); no fixed upstream Caddy image exists (2.11.9 is the newest, checked 2026-11-12); reviewed at the next Caddy release
     date: 2026-11-12
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-78661
     package: golang-org/x/net
     image: caddy
     reason: Go module inside the upstream Caddy binary, fixed in x/net 0.62.0; reachable on 443 from the hospital's inner network only (the box is not on the internet); no fixed upstream Caddy image exists (2.11.9 is the newest, checked 2026-11-12); reviewed at the next Caddy release
     date: 2026-11-12
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-97054
     package: stdlib
     image: caddy
     reason: Go standard library 1.27.3 inside the upstream Caddy binary, fixed in 1.27.4; reachable on 443 from the hospital's inner network only (the box is not on the internet); no fixed upstream Caddy image exists (2.11.9 is the newest, checked 2026-11-12); reviewed at the next Caddy release
     date: 2026-11-12
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   # Authelia, the hospital-account sign-in (identity overlay, profile oidc; off unless TB_OIDC_ENABLED=1). Same ruling,
   # with the owner's condition for the login front: each entry says why the finding is not reachable in how the box
   # runs Authelia. The facts they rest on (D-574): it listens in plain HTTP/1 on 9091 inside trialbox-net with no
@@ -421,56 +421,56 @@ vulnerabilities:  # pip-audit on deploy/requirements.lock was clean on 2026-11-0
     reason: "Not reachable: for the image pinned at sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54, the container's root list is the hospital's directory CA only (TB_LDAP_CA, D-722): SSL_CERT_FILE names that file and SSL_CERT_DIR a path nothing is mounted at, so no public root or intermediate can chain to a trusted root on the one certificate check Authelia makes (LDAPS to the hospital's directory). A PRODUCTION or VALIDATION box with the hospital sign-in on does not start without a usable file (pre-start, doctor ldap_ca); with it off Authelia makes no LDAPS connection"
     date: 2026-11-15
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: GO-2026-5932
     package: golang-org/x/crypto
     image: authelia/authelia
     reason: "Not reachable: the advisory is for golang.org/x/crypto/openpgp, and that package is not in the Authelia binary (no openpgp symbol; of this module the binary links bcrypt, hkdf, md4 and ocsp only)"
     date: 2026-11-12
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-78661
     package: golang-org/x/net
     image: authelia/authelia
     reason: "Not reachable: the flaw is in the HTML parser of golang.org/x/net/html (addText, fosterParent); the Authelia binary links only that package's init, no parser function, so no input reaches it"
     date: 2026-11-12
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-78669
     package: golang-org/x/net
     image: authelia/authelia
     reason: "Not reachable: of this module the Authelia binary links only idna and the init of html; there is no golang.org/x/net/http2 in it (the hpack tables are the standard library's own copy), so no HTTP/2 connection is handled by this module"
     date: 2026-11-12
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-78669
     package: stdlib
     image: authelia/authelia
     reason: "Not reachable: needs a malicious HTTP/2 peer. The binary has no HTTP/2 server (fasthttp, HTTP/1.1 only; Caddy speaks HTTP/1.1 to it) and its HTTP/2 client code runs only on an outbound HTTPS call; the box's configuration template makes none (no Duo, no client key URLs) and egress allows LDAPS to the directory only"
     date: 2026-11-12
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-78667
     package: stdlib
     image: authelia/authelia
     reason: "Not reachable: the flaw is in net/http's file serving (FileServer, ServeContent, ServeFile); none of them, nor net/http's server, is in the Authelia binary, which serves with fasthttp"
     date: 2026-11-12
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-97031
     package: stdlib
     image: authelia/authelia
     reason: "Not reachable: the flaw is in the TLS server handshake (ECH); on the box Authelia listens in plain HTTP on tcp://0.0.0.0:9091 inside trialbox-net with no server.tls, and Caddy ends TLS; Authelia accepts no TLS connection"
     date: 2026-11-12
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
   - id: CVE-2026-97054
     package: stdlib
     image: authelia/authelia
     reason: "Not reachable: the race is in net/http's HTTP/1 server response when MaxBytesReader trips; net/http's server and its response type are not in the Authelia binary (fasthttp serves), so MaxBytesReader there has no such response to mark"
     date: 2026-11-12
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
 
 licences:
   # The eight LGPL packages of the layer-2 review (docs/reviews/2026-11-09-component-review-layer2-verification.md
@@ -666,4 +666,4 @@ os_packages_unreadable:
     reason: The pinned image (a cut-down Ubuntu 26.04) ships no package database, so Trivy reads no OS package; its Go binary is scanned and gated, and Syft's SBOM lists the 13 Debian packages it finds
     date: 2026-11-12
     review_by: 2027-01-10
-    owner: Chang-Fu Kuo (the owner, D-1067)
+    owner: the project owner (D-1067)
