@@ -259,11 +259,12 @@ def test_the_ballast_container_carries_the_run_id_when_a_run_names_it() -> None:
     env = {**os.environ, "PYTHONPATH": str(ROOT)}
     for cmd in (["-m", "tools.ballast", "hold"], ["-m", "tools.ballast", "release"], ["tools/ballast48.py", "plan"],
                 ["tools/ballast48.py", "measure"], ["tools/ballast48.py", "during"]):  # fmt: skip
-        out = subprocess.run([sys.executable, *cmd, "--help"], env=env, capture_output=True, text=True, cwd=ROOT)
+        out = subprocess.run([sys.executable, *cmd, "--help"], env=env, capture_output=True, text=True, cwd=ROOT,
+                             check=False)  # fmt: skip
         assert out.returncode == 0 and "--ballast-container" in out.stdout, cmd
         # a name that is not tb-ballast[-<run id>] stops at the parser, before nvidia-smi or docker is asked
         out = subprocess.run([sys.executable, *cmd, "--ballast-container", "x; rm -rf /"], env=env,
-                             capture_output=True, text=True, cwd=ROOT)  # fmt: skip
+                             capture_output=True, text=True, cwd=ROOT, check=False)  # fmt: skip
         assert out.returncode == 2 and "not tb-ballast or tb-ballast-<run id>" in out.stderr, cmd
 
 
