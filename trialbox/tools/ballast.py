@@ -8,13 +8,24 @@ would show, and set the two utilisations the 5090 profile needs on that larger c
 
 What it does. A 5090 reports 32,607 MiB (``deploy/docker-compose.rtx5090.yml``). ``hold`` starts one container from the
 same vLLM image the profile serves with (``VLLM_IMAGE``, else the compose file's default), with no network and
-``--pull never``; inside it, torch allocates until ``torch.cuda.mem_get_info()`` reports the target free (the measure
-vLLM itself reads), so the ballast's own CUDA context is counted and the stand-in is never looser than the target.
-``nvidia-smi`` then confirms the free memory is the target within the tolerance (512 MiB), and the script prints
-what it holds and what is left. vLLM's utilisation is a share of the card's total, so the profile's 0.81 of 32,607
-MiB becomes 26,412 MiB / total (0.537 on 49,140 MiB): ``hold`` prints both as ``export`` lines and, with
-``--env-file``, writes them into that file (each under a ``# tb-ballast:`` line naming the value it replaced) and
-puts the old values back on release. A record taken under it says ``--capped-to "RTX 5090 (32 GB), by ballast"``,
+``--pull never``; inside it, torch allocates until ``torch.cuda.mem_get_info()`` reports about the target free (a
+first estimate), and the ballast's own CUDA context is counted.
+
+Free has ONE meaning here (card H-66): ``nvidia-smi --query-gpu=memory.free`` as ``read_card`` reads it, the memory a
+new process (a model server) is offered on the card. A driver that reserves memory (580 on the RTX PRO 6000: about
+636 MiB in the 48 GB run's logs of 2026-11-19) counts it neither used nor free: total = used + free + reserved, so
+total minus used is NOT free. ``tools/ballast48.py`` checks the card with this same function. After the first
+estimate ``hold`` reads free, asks the holder for more or less (``Allocator.adjust``, steps of the measured
+difference, at most 8) until it is within 64 MiB of the target, refuses ``off-target`` with the numbers when it is
+still outside the tolerance (512 MiB), then waits 2 s, reads again (``unsteady`` when it moved out of the tolerance)
+and only then says ``ready``. The holder never gives memory back by itself: the tensors stay referenced, and the
+allocator's cache is emptied only when ``hold`` asks it to hold less. The script prints what it holds and what is
+left.
+
+vLLM's utilisation is a share of the card's total, so the profile's 0.81 of 32,607 MiB becomes 26,412 MiB / total
+(0.537 on 49,140 MiB): ``hold`` prints both as ``export`` lines and, with ``--env-file``, writes them into that file
+(each under a ``# tb-ballast:`` line naming the value it replaced) and puts the old values back on release. A record
+taken under it says ``--capped-to "RTX 5090 (32 GB), by ballast"``,
 which ``tools/serving_config.py measured_for`` refuses as a tier record, as it should.
 
 It refuses, with a named reason and before allocating anything: ``production`` (TB_ENV is PRODUCTION; this is a
@@ -22,7 +33,8 @@ measurement aid for a VALIDATION or DEV box), ``driver-tool-missing`` / ``driver
 ``nvidia-smi``), ``no-such-card``, ``card-too-small`` (the card's total is below the target), ``card-is-the-target``
 (a real 32 GB card: run without a ballast), ``memory-already-held`` (a compute process it was not told to expect, or
 more memory in use than ``--expect-used``), ``docker-missing``, ``image-not-local`` (it never pulls),
-``ballast-already-running``. After allocating: ``allocation-failed``, ``off-target`` (released at once), and
+``ballast-already-running``. After allocating: ``allocation-failed``, ``off-target`` and ``unsteady`` (released at
+once, the free figures named), and
 ``ballast-lost`` when the holder dies while the servers may still be running (records after that are not "by
 ballast"). Every wait has a deadline (60 s for nvidia-smi and docker, 30 s for the holder to end): a release
 that cannot finish says what it left behind. Exit 0 on a clean release, 2 on a refusal, 1 on a lost ballast or
@@ -60,6 +72,9 @@ CAPPED_TO = "RTX 5090 (32 GB), by ballast"
 CONTAINER = "tb-ballast"
 UTIL_KEYS = ("JUDGE_GPU_MEM_UTIL", "VERIFIER_GPU_MEM_UTIL")
 MARK = "# tb-ballast:"
+AIM_MIB = 64  # hold corrects until nvidia-smi's free is this close to the target (the tolerance still decides)
+MAX_STEPS = 8  # corrections after the first estimate; still outside the tolerance after them: off-target
+SETTLE_S = 2.0  # the wait before the re-read that comes before "ready"
 CMD_TIMEOUT_S = 60.0  # nvidia-smi or docker that has not answered by then is not going to: refuse, or release anyway
 
 Run = Callable[[Sequence[str]], str]
@@ -76,12 +91,19 @@ class Refused(Exception):
 
 @dataclass
 class Card:
+    """One card as nvidia-smi reports it. ``free`` is THE free figure (see the module): what a new process is
+    offered. ``reserved`` is what the driver keeps back, counted neither used nor free (0 on a driver without it)."""
+
     index: int
     uuid: str
     name: str
     total: int
     used: int
     free: int
+
+    @property
+    def reserved(self) -> int:
+        return max(0, self.total - self.used - self.free)
 
 
 @dataclass
@@ -125,6 +147,8 @@ def _int(v: str) -> int | None:
 
 
 def read_card(index: int, run: Run = run_cmd) -> Card:
+    """The one reading of the card for the ballast and for ``tools/ballast48.py``: ``memory.free`` is used as reported,
+    never derived from total and used (a driver's reserved memory is in neither)."""
     out = run(
         [
             "nvidia-smi",
@@ -292,23 +316,46 @@ def _write_keep_mode(path: Path, lines: list[str]) -> None:
 class Allocator(Protocol):
     def preflight(self) -> None: ...
     def start(self, target_free: int, index: int) -> tuple[int, int]: ...  # (MiB held, MiB free as the holder sees it)
+    def adjust(self, delta: int) -> tuple[int, int]: ...  # hold ``delta`` MiB more (less when negative); as start
     def alive(self) -> bool: ...
     def release(self) -> str: ...  # what is left behind, "" when nothing
 
 
-# Runs inside the vLLM image: allocate until the device reports the target free, print what it holds, then wait.
+# Runs inside the vLLM image: allocate until the device reports about the target free (the first estimate), print what
+# it holds, then take corrections on stdin ("+N" / "-N" MiB), printing what it holds after each, until SIGTERM. The
+# tensors stay in ``held`` for the life of the process (nothing frees them); the allocator's cache is emptied only on a
+# "-N", so memory goes back to the driver only when hold asks for less.
 HOLDER = """\
 import signal, sys, time, torch
-t = int(sys.argv[1]) << 20
+M = 1 << 20
+t = int(sys.argv[1]) * M
 held = []
+def report():
+    f, _ = torch.cuda.mem_get_info()
+    print("HELD %d FREE %d" % (sum(x.numel() for x in held) // M, f // M), flush=True)
 for _ in range(8):
     f, _ = torch.cuda.mem_get_info()
-    if f - t < (64 << 20):
+    if f - t < 64 * M:
         break
-    held.append(torch.empty(f - t, dtype=torch.uint8, device="cuda"))
-f, _ = torch.cuda.mem_get_info()
-print("HELD %d FREE %d" % (sum(x.numel() for x in held) >> 20, f >> 20), flush=True)
+    held.append(torch.empty((f - t) // M * M, dtype=torch.uint8, device="cuda"))
+report()
 signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))
+for line in sys.stdin:
+    try:
+        n = int(line.strip() or "0") * M
+        if n > 0:
+            held.append(torch.empty(n, dtype=torch.uint8, device="cuda"))
+        while n < 0 and held:
+            x = held.pop()
+            size = x.numel()
+            del x
+            torch.cuda.empty_cache()
+            if size > -n:
+                held.append(torch.empty(size + n, dtype=torch.uint8, device="cuda"))
+            n += size
+    except Exception as e:
+        print("ERR %s" % str(e).splitlines()[0][:200] if str(e) else "ERR", flush=True)
+    report()
 while True:
     time.sleep(3600)
 """
@@ -331,6 +378,7 @@ class DockerAllocator:
         self.run = run
         self.start_timeout = start_timeout
         self.proc: subprocess.Popen[str] | None = None
+        self.lines: queue.Queue[str | None] = queue.Queue()
 
     def preflight(self) -> None:
         try:
@@ -347,26 +395,41 @@ class DockerAllocator:
     def start(self, target_free: int, index: int) -> tuple[int, int]:
         cmd = [
             "docker", "run", "--rm", "--name", CONTAINER, "--label", "trialbox.ballast=1", "--network", "none",
-            "--pull", "never", "--gpus", f"device={index}", "--entrypoint", "python3", self.image,
+            "--pull", "never", "--gpus", f"device={index}", "-i", "--entrypoint", "python3", self.image,
             "-c", HOLDER, str(target_free),
         ]  # fmt: skip
-        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        lines: queue.Queue[str | None] = queue.Queue()
+        self.proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
 
         def pump() -> None:
             assert self.proc is not None and self.proc.stdout is not None
             for line in self.proc.stdout:
-                lines.put(line)
-            lines.put(None)
+                self.lines.put(line)
+            self.lines.put(None)
 
         threading.Thread(target=pump, daemon=True).start()
+        return self._report(self.start_timeout)
+
+    def adjust(self, delta: int) -> tuple[int, int]:
+        """Ask the holder for ``delta`` MiB more (less when negative) and return what it then holds and sees."""
+        if self.proc is None or self.proc.stdin is None or self.proc.poll() is not None:
+            raise Refused("allocation-failed", "the holder is not running")
+        try:
+            self.proc.stdin.write(f"{delta:+d}\n")
+            self.proc.stdin.flush()
+        except OSError as e:
+            raise Refused("allocation-failed", f"the holder does not take corrections: {e}") from None
+        return self._report(CMD_TIMEOUT_S)
+
+    def _report(self, timeout: float) -> tuple[int, int]:
         tail: list[str] = []
-        end = time.monotonic() + self.start_timeout
+        end = time.monotonic() + timeout
         while True:
             try:
-                line = lines.get(timeout=max(0.1, end - time.monotonic()))
+                line = self.lines.get(timeout=max(0.1, end - time.monotonic()))
             except queue.Empty:
-                raise Refused("allocation-failed", f"the holder said nothing in {self.start_timeout:.0f} s") from None
+                raise Refused("allocation-failed", f"the holder said nothing in {timeout:.0f} s") from None
             if line is None:
                 raise Refused("allocation-failed", "the holder ended: " + " | ".join(tail[-3:]))
             m = re.match(r"HELD (\d+) FREE (\d+)", line)
@@ -430,8 +493,10 @@ def hold(
     profile: dict[str, float] | None = None,
     wait: Callable[[Allocator], None] | None = None,
     say: Callable[[str], None] = print,
+    settle: Callable[[], None] | None = None,
 ) -> int:
-    """Check, hold, confirm, wait, release. Returns the exit code; a refusal before allocating raises ``Refused``."""
+    """Check, hold, correct, confirm, wait, release. Returns the exit code; a refusal before allocating raises
+    ``Refused``. Every free figure is ``read_card``'s (nvidia-smi ``memory.free``), the one ``ballast48`` checks."""
     refuse_production(env_file)
     card = read_card(index, run)
     plan = check(card, read_procs(card, run), target=target, tolerance=tolerance, expect_used=expect_used,
@@ -451,8 +516,34 @@ def hold(
             f"holding {held} MiB (the holder sees {seen} MiB free);"
             f" nvidia-smi: {after.used} MiB used, {after.free} MiB free left"
         )
+        steps = 0
+        while abs(after.free - target) > AIM_MIB and steps < MAX_STEPS:
+            steps += 1
+            off = after.free - target  # more free than the target: hold more
+            held, seen = allocator.adjust(off)
+            after = read_card(index, run)
+            say(
+                f"correction {steps}: {off:+d} MiB; holding {held} MiB (the holder sees {seen} MiB free);"
+                f" nvidia-smi: {after.used} MiB used, {after.free} MiB free left"
+            )
         if abs(after.free - target) > tolerance:
-            raise Refused("off-target", f"{after.free} MiB free, not {target} +/- {tolerance}: released")
+            raise Refused(
+                "off-target",
+                f"{after.free} MiB free after {steps} correction(s), not {target} +/- {tolerance}"
+                f" (holding {held} MiB; {after.total} MiB in all, {after.used} used, {after.reserved} reserved):"
+                " released",
+            )
+        (settle or (lambda: time.sleep(SETTLE_S)))()
+        again = read_card(index, run)
+        if abs(again.free - target) > tolerance:
+            raise Refused(
+                "unsteady",
+                f"{again.free} MiB free on the re-read, {after.free} before it; not {target} +/- {tolerance}: released",
+            )
+        say(
+            f"steady: nvidia-smi {again.free} MiB free on the re-read ({again.reserved} MiB reserved by the driver,"
+            " neither used nor free; free is what a server starting now is offered)"
+        )
         say("ready: start the servers now; Ctrl-C or SIGTERM releases the ballast")
         (wait or _wait_alive)(allocator)
         if not allocator.alive():
