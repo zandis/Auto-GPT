@@ -462,6 +462,9 @@ MODIFIER_CLASSES_KEPT = ("1", "2", "9")
 #: release are current rows; 1 is deleted; any other value is not read as current (the independent tester's class 4)
 CURRENT_ROW = ("0", "3", "5")
 MODIFIER_CLASS_CAUSE = "3"
+#: why a diagnosis whose ZPR names its disease by a code PRB-3 does not itself carry is unknown at a site that has
+#: not loaded the MEDIS disease and modifier tables (D-1257): counted in the reader's statistics under this one reason
+NEEDS_MASTER = "a ZPR disease code cannot be verified without the MEDIS master"
 _MDCDX2 = "MDCDX2"
 
 
@@ -471,41 +474,76 @@ class Master:
     ``medis_modifier``): never in the repository, loaded by the site."""
 
     diseases: dict[str, tuple[str, str, str]]  # 病名管理番号 -> (病名表記, 病名交換用コード, 変更区分)
-    icd: dict[str, str]  # 病名管理番号 -> the master's ICD10-2013
+    icd: dict[str, str]  # 病名管理番号 -> the master's ICD10-2013, as the release writes it
     names: dict[str, str]  # 病名表記 (normalised) -> 病名管理番号
-    modifiers: dict[str, dict[str, str]]  # 修飾語管理番号 -> word, exchange, position, class, change
+    modifiers: dict[str, dict[str, str]]  # 修飾語管理番号 -> word, exchange, position, class, cls, change
+    exchange: dict[str, list[str]]  # 病名交換用コード -> the 病名管理番号 of its rows (D-1257: several by design)
+
+
+def medis_icd(value: str) -> str:
+    """The master's ICD-10 as the reader compares it (D-1257, lane J's ruling): the release writes most codes
+    undotted (``A150``), some with one lower-case letter after them (``E109a``, a Japanese sub-classification: read
+    as the code without it; the store keeps the release's own form), and a few with a hyphen inside (``A99-9``),
+    whose meaning is not established: not an ICD-10 code here, never guessed. Anything else as :func:`who_icd10`."""
+    v = re.sub(r"\s+", "", unicodedata.normalize("NFKC", value or ""))
+    m = re.fullmatch(r"([A-Z][0-9]{2,4}|[A-Z][0-9]{2}\.[0-9]{1,2})[a-z]", v)
+    if m:
+        v = m.group(1)
+    if "-" in v:
+        return ""
+    return who_icd10(v)
 
 
 def _extra(row: dict[str, Any]) -> dict[str, str]:
+    return {str(k): str(v) for k, v in _extra_raw(row).items()}
+
+
+def _extra_raw(row: dict[str, Any]) -> dict[str, Any]:
     extra = row.get("extra") or {}
     if isinstance(extra, str):
         try:
             extra = json.loads(extra)
         except ValueError:
             extra = {}
-    return {str(k): str(v) for k, v in extra.items()} if isinstance(extra, dict) else {}
+    return extra if isinstance(extra, dict) else {}
 
 
 def medis_master(licensed: dict[str, dict[str, dict[str, str]]]) -> Master | None:
     """The disease table (keyed by its 病名交換用コード in the store) indexed by 病名管理番号, and the modifier table;
     None unless the site has loaded both. The disease table alone is loaded for the ICD-10 look-up (D-137); the
     display-name and modifier rules of D-1252 apply only once the site has loaded the modifier table too, so loading
-    the disease table never by itself turns a site's locally coded diagnoses unknown."""
+    the disease table never by itself turns a site's locally coded diagnoses unknown.
+
+    D-1257: one 病名交換用コード stands for a concept that several rows of the table may share (a renamed entry, a
+    synonym); each row is its own 病名管理番号, and all of them are read (``extra["rows"]`` of the concept). A code
+    whose current rows disagree on ICD-10 is read for none of its rows."""
+    from adapter.licensed import modifier_class
+
     diseases: dict[str, tuple[str, str, str]] = {}
     icd: dict[str, str] = {}
     conflicting: set[str] = set()
+    exchange_of: dict[str, list[str]] = {}
     for exchange, row in (licensed.get("medis") or {}).items():
-        extra = _extra(row)
-        number = key_part(extra.get("management_no", ""))
-        if not number:
-            continue
-        entry = (str(row.get("display") or ""), key_part(exchange), extra.get("change", "").strip())
-        if number in diseases and diseases[number] != entry:
-            conflicting.add(number)  # one 病名管理番号 on two different rows: neither is read (class D)
-        diseases[number] = entry
-        icd[number] = str(row.get("target_code") or "")
+        extra = _extra_raw(row)
+        members = extra.get("rows")
+        if not isinstance(members, list):  # a release loaded before D-1257: one row for the exchange code
+            members = [{"no": extra.get("management_no", ""), "name": row.get("display") or "",
+                        "icd": row.get("target_code") or "", "change": extra.get("change", "")}]  # fmt: skip
+        for m in members:
+            number = key_part(str(m.get("no", "")))
+            if not number:
+                continue
+            entry = (str(m.get("name") or ""), key_part(exchange), str(m.get("change", "")).strip())
+            if number in diseases and diseases[number] != entry:
+                conflicting.add(number)  # one 病名管理番号 on two different rows: neither is read (class D)
+            diseases[number] = entry
+            icd[number] = str(m.get("icd") or "")
+            if extra.get("icd_conflict"):
+                conflicting.add(number)
     for number in conflicting:
         diseases.pop(number, None)
+    for number, (_name, exchange, _change) in sorted(diseases.items()):
+        exchange_of.setdefault(exchange, []).append(number)
     if not diseases or not licensed.get("medis_modifier"):
         return None
     if not any(c for _n, _x, c in diseases.values()) or not any(
@@ -521,9 +559,11 @@ def medis_master(licensed: dict[str, dict[str, dict[str, str]]]) -> Master | Non
             "exchange": key_part(ex.get("exchange_code", "")),
             "position": ex.get("position", "").strip(),
             "class": key_part(ex.get("modifier_class", "")),
+            # D-1257: the class is the second character of the eight (the release writes ``A2000000``)
+            "cls": modifier_class(ex.get("modifier_class", "")),
             "change": ex.get("change", "").strip(),
         }
-    return Master(diseases, icd, names, modifiers)
+    return Master(diseases, icd, names, modifiers, exchange_of)
 
 
 #: the fields of PRB, ZPR and an ORC of PPR^ZD1 the reader reads, with the components it reads (None: any), D-1252 (the
@@ -950,6 +990,7 @@ class Ssmix2Source:
         # release, which ``adapter.licensed`` knows for the tables it gave) is then part of its change time; for
         # tables whose load time is not known (a caller's own dictionary) such a row is sent on every night
         self.master_changed = _latest_local(licensed_loaded_at)
+        self._medis_rows: dict[str, dict[str, str]] | None = None  # the disease table by 病名管理番号, when asked
         self._master_rule = False  # whether the diagnosis being read was read by the master rule
         self._consulted = False  # whether its ICD-10 was asked of the licensed disease table
         # T-610 (STD-042): order line -> ingredient (YJ stem) -> ATC, through the site's drug master and the
@@ -1747,8 +1788,15 @@ class Ssmix2Source:
         hit = self.licensed.get("medis", {}).get(byomei.upper()) if byomei else None
         if byomei and self.licensed.get("medis"):
             self._consulted = True  # found or not, the answer is the licensed table's (D-1257)
-        if hit and hit.get("target_code"):
-            code = who_icd10(hit["target_code"])
+            if not hit:  # D-1257: PRB-3 may carry the 病名管理番号 (the specification's recommendation): its own row
+                if self._medis_rows is None:
+                    from adapter.licensed import medis_rows
+
+                    self._medis_rows = medis_rows(self.licensed["medis"])
+                row = self._medis_rows.get(key_part(byomei))
+                hit = {"target_code": row.get("icd", "")} if row else None
+        if hit and medis_icd(hit.get("target_code") or ""):
+            code = medis_icd(hit["target_code"])
             self.stats["diagnosis:licensed"] += 1
             if not self._in_cm(code):
                 self.stats["diagnosis:licensed WHO-only code"] += 1
@@ -2096,72 +2144,93 @@ class Ssmix2Source:
                 return texts, "ZPR-2 is not PRB-3's disease", name
             for n in (2, 5):
                 if any(c not in own for c, _t, _s in triples(n) if c):
-                    return texts, f"ZPR-{n} and PRB-3 cannot be compared without the master", name
+                    # one counted reason for the whole class (lane J): a site sees one cause, and what cures it
+                    return texts, NEEDS_MASTER, name
             if any(t and not same_text(t, name) for n in (2, 5) for _c, t, _s in triples(n)):
                 return texts, "ZPR-2 or ZPR-5 names another disease than PRB-3", name
             if zpr.field(2).strip() and not disease:
                 return texts, "ZPR-2 with no code", name
             self.stats["PPR-01:ZPR names only the diagnosis's own disease"] += 1
             return texts, "", name
+        numbers = [code]
         if coded and code not in master.diseases:
-            # an MDCDX2 code may be the 病名交換用コード (S 3.7.4 names MDCDX2 for both): read as its 病名管理番号
-            code = next((n for n, (_name, x, _ch) in master.diseases.items() if x == code), code)
+            # an MDCDX2 code may be the 病名交換用コード (S 3.7.4 names MDCDX2 for both). One exchange code stands for
+            # a concept that several rows may share (D-1257): the diagnosis is in the master when a current row
+            # carries the code, and it is read against each current row (its 病名表記 is the display name of one)
+            rows = master.exchange.get(code, [])
+            numbers = [n for n in rows if master.diseases[n][2] in CURRENT_ROW] or rows or [code]
         # a locally coded PRB-3 whose ZPR names an MDCDX2 disease is read for what the ZPR names: the display name
         # must then be that disease and its modifiers, else it disagrees with PRB-3 and is unknown
-        number = disease[0] if len(disease) == 1 else (code if coded and not disease else "")
-        if len(disease) > 1 or (disease and coded and disease != [code]):
+        if len(disease) > 1 or (disease and coded and disease[0] not in numbers):
             return texts, "ZPR-2 is not PRB-3's disease", name
-        if number not in master.diseases:
-            return texts, "the disease is not in the licensed master", name
-        base, exchange, change = master.diseases[number]
-        if change not in CURRENT_ROW:
-            return texts, "the disease's row is not current in the master", name
-        if comment:
-            return texts, "a ZPR comment", name
-        for n in (2, 5):
-            for c, t, _s in triples(n):
-                if not c or (t and not same_text(t, base)) or (n == 5 and c != exchange):
-                    return texts, f"ZPR-{n} is not the disease's code and name in the master", name
-        by_exchange = {row["exchange"]: row for row in master.modifiers.values()}
-        words: list[str] = []
-        for field, exchange_field, before in ((1, 4, True), (3, 6, False)):
-            given = triples(field)
-            for c, t, _s in given:
-                row = master.modifiers.get(c) if c else None
-                if row is None or row["change"] not in CURRENT_ROW:
-                    return texts, "a modifier the licensed master does not hold as current", name
-                if t and not same_text(t, row["word"]):
-                    return texts, "a modifier's text is not the master's for its code", name
-                if not row["position"].isdigit() or (int(row["position"]) >= 10) != before:
-                    return texts, "a modifier in the other position", name
-                cls = row["class"][1:2] if re.fullmatch(r"\d{8}", row["class"]) else ""  # M (2)⑦: 8 characters
-                if cls not in (*MODIFIER_CLASSES_KEPT, MODIFIER_CLASS_CAUSE):
-                    return texts, f"a modifier of class {cls or '?'}", name
-            exchanged = triples(exchange_field)
-            if exchanged and [c for c, _t, _s in exchanged] != [master.modifiers[c]["exchange"] for c, _t, _s in given]:
-                return texts, "a modifier exchange code that is not the master's", name
-            for c, t, _s in exchanged:
-                if t and not same_text(t, by_exchange[c]["word"]):
-                    return texts, "a modifier's text is not the master's for its exchange code", name
-            words.append("".join(master.modifiers[c]["word"] for c, _t, _s in given))
-        full = words[0] + base + words[1]
-        written = prb.comp(17, 1).strip()
-        layout_full = same_text(name, full) and (not written or same_text(written, full))
-        layout_base = same_text(name, base) and bool(written) and same_text(written, full)
-        if not (layout_full or layout_base):
-            return texts, "the display name is not the coded name and its modifiers", name
-        causes = [
-            c for f in (1, 3) for c, _t, _s in triples(f) if master.modifiers[c]["class"][1:2] == MODIFIER_CLASS_CAUSE
-        ]
-        icd = who_icd10(master.icd.get(number, ""))
-        icds = {who_icd10(c) for f in (3, 10) for c, _t, s in _triples(prb, f) if s in _ICD10_SYS and c.strip()}
-        if icd and icds - {icd}:
-            return texts, "the ICD-10 is not the master's for the disease", name
-        if causes and master.names.get(key_part(full), number) != number:
-            return texts, "the modified name has a code of its own", name
-        if words != ["", ""]:
-            self.stats["PPR-01:modifiers recognised through the licensed master"] += 1
-        return texts, "", full
+        if disease:
+            numbers = [disease[0]]
+        elif not coded:
+            numbers = [""]
+
+        def judge(number: str) -> tuple[list[str], str, str]:
+            if number not in master.diseases:
+                return texts, "the disease is not in the licensed master", name
+            base, exchange, change = master.diseases[number]
+            if change not in CURRENT_ROW:
+                return texts, "the disease's row is not current in the master", name
+            if comment:
+                return texts, "a ZPR comment", name
+            for n in (2, 5):
+                for c, t, _s in triples(n):
+                    if not c or (t and not same_text(t, base)) or (n == 5 and c != exchange):
+                        return texts, f"ZPR-{n} is not the disease's code and name in the master", name
+            by_exchange = {row["exchange"]: row for row in master.modifiers.values()}
+            words: list[str] = []
+            for field, exchange_field, before in ((1, 4, True), (3, 6, False)):
+                given = triples(field)
+                for c, t, _s in given:
+                    row = master.modifiers.get(c) if c else None
+                    if row is None or row["change"] not in CURRENT_ROW:
+                        return texts, "a modifier the licensed master does not hold as current", name
+                    if t and not same_text(t, row["word"]):
+                        return texts, "a modifier's text is not the master's for its code", name
+                    if not row["position"].isdigit() or (int(row["position"]) >= 10) != before:
+                        return texts, "a modifier in the other position", name
+                    cls = row["cls"]  # M (2)⑦: the second of eight characters (D-1257)
+                    if cls not in (*MODIFIER_CLASSES_KEPT, MODIFIER_CLASS_CAUSE):
+                        return texts, f"a modifier of class {cls or '?'}", name
+                exchanged = triples(exchange_field)
+                if exchanged and [c for c, _t, _s in exchanged] != [
+                    master.modifiers[c]["exchange"] for c, _t, _s in given
+                ]:
+                    return texts, "a modifier exchange code that is not the master's", name
+                for c, t, _s in exchanged:
+                    if t and not same_text(t, by_exchange[c]["word"]):
+                        return texts, "a modifier's text is not the master's for its exchange code", name
+                words.append("".join(master.modifiers[c]["word"] for c, _t, _s in given))
+            full = words[0] + base + words[1]
+            written = prb.comp(17, 1).strip()
+            layout_full = same_text(name, full) and (not written or same_text(written, full))
+            layout_base = same_text(name, base) and bool(written) and same_text(written, full)
+            if not (layout_full or layout_base):
+                return texts, "the display name is not the coded name and its modifiers", name
+            causes = [
+                c for f in (1, 3) for c, _t, _s in triples(f) if master.modifiers[c]["cls"] == MODIFIER_CLASS_CAUSE
+            ]
+            icd = medis_icd(master.icd.get(number, ""))
+            icds = {who_icd10(c) for f in (3, 10) for c, _t, s in _triples(prb, f) if s in _ICD10_SYS and c.strip()}
+            if icd and icds - {icd}:
+                return texts, "the ICD-10 is not the master's for the disease", name
+            if causes and master.names.get(key_part(full), number) != number:
+                return texts, "the modified name has a code of its own", name
+            if words != ["", ""]:
+                self.stats["PPR-01:modifiers recognised through the licensed master"] += 1
+            return texts, "", full
+
+        first: tuple[list[str], str, str] | None = None
+        for number in numbers:
+            got = judge(number)
+            if not got[1]:
+                return got
+            first = first or got
+        assert first is not None
+        return first
 
     def _resolve_drug(self, codes: dict[str, str]) -> dict[str, str]:
         """The line's ingredient (STD-042): the YJ (or local) code first, then the HOT code."""

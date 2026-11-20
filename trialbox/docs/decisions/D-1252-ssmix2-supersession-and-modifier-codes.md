@@ -218,3 +218,8 @@ Part A: `resolve`, `_record_rows`, `_snapshots`, `_across_days` and `_uncertain_
 - The modifiers are kept as text in `modifiers`; FHIR `bodySite` and laterality are not written.
 - The lake's resource ids are made of the key column alone (`rx_no`, `diag_no`); SS-MIX2 numbers are unique only
   with the patient (reported to lane J, outside this card).
+
+## Superseded in part (2026-11-20)
+
+D-1257 supersedes one sentence of section B ("then the diagnosis may be confirmed" for ZPR-2 and ZPR-5 without the
+site's licensed master) and class F's link: see `D-1257-the-ssmix2-reader-answers-its-independent-reviews.md`.

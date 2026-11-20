@@ -17,7 +17,14 @@ separator are detected and recorded. Columns are found by their header names (th
 after NFKC, so full-width headers such as ``個別医薬品コード`` or ``ＪＡＮコード`` match). A release without a header
 row is loaded with ``columns=`` giving the column names in file order, from the release's own specification.
 
+The MEDIS master as MEDIS ships it (D-1257): a folder or a zip holding ``readme.txt``, the three tables without a
+header row (``main/nmain*.txt`` 病名基本, ``main/mdfy*.txt`` 修飾語, ``main/index*.txt`` 索引) and their column titles
+(``option/ttl_main.txt``, ``ttl_mdfy.txt``, ``ttl_idx.txt``). :func:`load_release` reads the titles and the version
+from the release itself and loads the three tables in one transaction; :func:`check_release` reads the same way and
+writes nothing.
+
     python -m adapter.licensed load --kind medis --file NMAIN.TXT --version 5.12 [--columns a,b,c]
+    python -m adapter.licensed load-release --source byomei518.zip
     python -m adapter.licensed status
 """
 
@@ -33,6 +40,7 @@ import re
 import sys
 import time
 import unicodedata
+import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -67,6 +75,15 @@ CREATE TABLE IF NOT EXISTS concept (release_id BIGINT NOT NULL, code TEXT NOT NU
 """
 
 
+#: D-1257: what a release says of itself beside its codes (its date, how many rows of its table are current, the
+#: sha256 of the whole release it came in), as JSON; and a term looked up by its text (the 索引テーブル)
+SCHEMA_V2 = """
+ALTER TABLE release ADD COLUMN IF NOT EXISTS meta TEXT NOT NULL DEFAULT '{}';
+CREATE INDEX IF NOT EXISTS concept_display ON concept (release_id, display)
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2)
+
+
 @dataclass(frozen=True)
 class Kind:
     """One licensed list: the code system, which columns hold what (header aliases, NFKC-normalised), and its use."""
@@ -95,8 +112,20 @@ KINDS: dict[str, Kind] = {
         extra={
             "management_no": ("病名管理番号", "管理番号"),
             "change": ("変更区分",),  # D-1252: only a current row (0, 3, 5) confirms
-            "receipt_code": ("レセプト電算処理システム傷病名コード", "レセプト電算コード", "傷病名コード"),
+            # レセ電算コード is the release's own title (option/ttl_main.txt, D-1257)
+            "receipt_code": (
+                "レセ電算コード",
+                "レセプト電算処理システム傷病名コード",
+                "レセプト電算コード",
+                "傷病名コード",
+            ),
             "kana": ("病名表記カナ", "病名カナ", "カナ"),
+            "adoption": ("採択区分",),
+            "multi_class": ("ICD10-2013複数分類コード", "複数分類コード"),
+            "field": ("使用分野",),
+            "successor": ("移行先病名管理番号",),
+            "no_solo": ("単独使用禁止区分",),
+            "no_claim": ("保険請求外区分",),
         },
         shape=r"^[0-9A-Z]{4}$",
     ),
@@ -115,6 +144,8 @@ KINDS: dict[str, Kind] = {
             "position": ("接続位置区分",),
             "modifier_class": ("修飾語区分",),
             "receipt_code": ("レセ電算修飾語コード", "レセプト電算処理システム修飾語コード"),
+            "exclusive_group": ("排他グループコード",),
+            "kana": ("修飾語表記カナ",),
         },
         shape=r"^[0-9]{8}$",
     ),
@@ -156,6 +187,42 @@ KINDS: dict[str, Kind] = {
 }
 
 
+#: D-1257: the 索引テーブル of the MEDIS master (index*.txt): a term (索引用語) and the 対応用語コード it stands
+#: for, the 病名交換用コード of a disease (病名修飾語区分 1) or the 修飾語交換用コード of a modifier (2); "0000" is
+#: no current term. A term is not unique; the pair (term, code) is. It is not one of :data:`KINDS`:
+#: :func:`tables` does not carry it (112,967 rows no reader reads) and :func:`status` lists it only when asked
+#: (``all_lists``); it is looked
+#: up with :meth:`TermStore.lookup_term`
+INDEX = "medis_index"
+INDEX_KIND = Kind(
+    INDEX,
+    "MEDIS 標準病名マスター 索引テーブル",
+    "urn:trialbox:medis-index-term",  # this box's own name for the pair, never sent out
+    code=("対応用語コード",),
+    display=("索引用語",),
+    extra={
+        "target_kind": ("病名修飾語区分",),  # 1 a disease, 2 a modifier
+        "kana_kanji": ("かな漢字区分",),  # 1 from the kanji form, 2 from the kana form, 9 other
+        "synonym": ("同義語区分",),  # 0 the term itself, 1 near-synonym, 2 related, 8 advised against, 9 other
+        "variant": ("異字体区分",),  # 1 from a misspelling or misreading, 2 a variant character form, 9 other
+    },
+    shape=r"^[0-9A-Z]{4}$",
+)
+ALL_KINDS: dict[str, Kind] = {**KINDS, INDEX: INDEX_KIND}
+#: a 変更区分 of a current row (ICD10対応標準病名マスター 仕様書 (1)①: 0 unchanged, 3 added, 5 changed; 1 is deleted)
+CURRENT = ("0", "3", "5")
+
+
+def modifier_class(value: str) -> str:
+    """The class of a 修飾語区分 (ICD10対応標準病名マスター 仕様書 (2)⑦: eight characters, "現在は、前から2桁目に次の
+    意味": 1 部位, 2 位置, 3 病因, 4 経過表現, 5 状態表現, 6 患者帰属, 7 その他, 8 接尾語, 9 歯科): the second
+    character when the value is exactly eight ASCII characters and the second is a digit 1 to 9, else empty. The
+    release writes a letter first (``A1000000``); D-1252 read only eight digits, so no real modifier had a class
+    (D-1257)."""
+    v = unicodedata.normalize("NFKC", value or "").strip()
+    return v[1] if len(v) == 8 and v.isascii() and v[1] in "123456789" else ""
+
+
 #: the lists whose rows the SS-MIX2 reader reads only when current (D-1252): a release without the 変更区分 column, or
 #: with it empty in every row, is refused at load, never read as every row retired one by one
 CHANGE_REQUIRED = ("medis", "medis_modifier")
@@ -173,9 +240,15 @@ class LicensedError(ValueError):
         self.message = message
 
 
+#: the hyphens a column title may be written with (U+2010 to U+2015, the minus sign, the full-width hyphen-minus): the
+#: release's own title of the ICD-10 column is ＩＣＤ１０‐２０１３ with U+2010, which NFKC leaves as it is (D-1257)
+_TITLE_HYPHENS = dict.fromkeys(map(ord, "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uff0d"), "-")
+
+
 def _key(text: str) -> str:
-    """A header name for matching: NFKC (full-width letters, digits and brackets become half-width), no spaces."""
-    return re.sub(r"[\s　]+", "", unicodedata.normalize("NFKC", text)).upper()
+    """A header name for matching: NFKC (full-width letters, digits and brackets become half-width), no spaces, any
+    hyphen written as ``-``. For titles only, never for a value."""
+    return re.sub(r"[\s　]+", "", unicodedata.normalize("NFKC", text).translate(_TITLE_HYPHENS)).upper()
 
 
 def detect_encoding(data: bytes) -> str:
@@ -198,6 +271,8 @@ class Parsed:
     delimiter: str
     concepts: list[dict[str, str]]
     skipped: list[tuple[int, str]]  # (line number, why)
+    rows: int = 0  # rows of the table that were read (a MEDIS exchange code may stand for several, D-1257)
+    current: int = 0  # of them, rows with a current 変更区分 (0, 3, 5); for a list without it, every row
 
 
 def _col(index: dict[str, int], names: Sequence[str]) -> int | None:
@@ -209,10 +284,16 @@ def _col(index: dict[str, int], names: Sequence[str]) -> int | None:
 
 
 def parse(kind: str, data: bytes, columns: Sequence[str] | None = None) -> Parsed:
-    """Read one vendor file. A row whose code does not have the code system's shape is skipped and listed."""
-    k = KINDS.get(kind)
+    """Read one vendor file. A row whose code does not have the code system's shape is skipped and listed.
+
+    The MEDIS 病名基本テーブル (D-1257): a row is identified by its 病名管理番号, and one 病名交換用コード names
+    a concept that several rows may share by design (a renamed entry beside its old 表記, a main name and its
+    synonym). Every row is kept; the list's code stays the exchange code, and each concept carries its rows
+    (:func:`_medis_concepts`).
+    A file with no 病名管理番号 column is read as before, one row for each exchange code."""
+    k = ALL_KINDS.get(kind)
     if k is None:
-        raise LicensedError("LIC-KIND", f"unknown list {kind!r}: one of {', '.join(KINDS)}")
+        raise LicensedError("LIC-KIND", f"unknown list {kind!r}: one of {', '.join(ALL_KINDS)}")
     try:  # the strict read: a file that already holds U+FFFD is refused with its line, as the sheet reader does
         text, enc = encoding.decode(data, ("cp932",))
     except encoding.EncodingRefused as exc:
@@ -242,11 +323,14 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None) -> Parse
     targ_i = _col(index, k.target) if k.target else None
     extra_i = {name: _col(index, names) for name, names in k.extra.items()}
     shape = re.compile(k.shape)
+    by_number = kind == "medis" and extra_i.get("management_no") is not None
     out: list[dict[str, str]] = []
     skipped: list[tuple[int, str]] = []
     seen: set[str] = set()
     first_row: dict[str, dict[str, str]] = {}
     conflicting: set[str] = set()
+    lines: dict[str, int] = {}
+    n_rows = 0
     for n, row in enumerate(body, start=start):
         if not any(c.strip() for c in row):
             continue
@@ -262,32 +346,142 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None) -> Parse
         if not shape.match(code):
             skipped.append((n, f"code {code!r} is not a {k.label} code"))
             continue
-        target = cell(targ_i).upper().replace(" ", "") if targ_i is not None else ""
+        target = cell(targ_i).replace(" ", "") if targ_i is not None else ""
+        if kind != "medis":
+            target = target.upper()  # the MEDIS ICD-10 is kept as the release writes it (``E109a``, D-1257)
+        extra = {x: cell(i) for x, i in extra_i.items() if cell(i)}
+        if kind == "medis_modifier" and modifier_class(extra.get("modifier_class", "")):
+            extra["class"] = modifier_class(extra["modifier_class"])
         record = {
             "code": code,
             "display": cell(disp_i),
             "target_system": k.target_system if target else "",
             "target_code": target,
-            "extra": json.dumps({x: cell(i) for x, i in extra_i.items() if cell(i)}, ensure_ascii=False),
+            "extra": json.dumps(extra, ensure_ascii=False),
         }
-        if code in seen:
-            if kind in CHANGE_REQUIRED and record != first_row[code]:
-                # D-1252: one MEDIS code on two different rows: which is the master's cannot be told, so neither is
-                # read (the reader then does not recognise the code); listed
-                conflicting.add(code)
-                skipped.append((n, f"code {code} appears twice with different content; neither row is read"))
+        # what identifies the row: the 病名管理番号 of a disease, the pair of an index row, else the code
+        ident = code
+        if by_number:
+            ident = extra.get("management_no", "")
+            if not ident:
+                skipped.append((n, "a row with no 病名管理番号"))
+                continue
+        elif kind == INDEX:
+            ident = f"{code}\t{record['display']}"
+            if not record["display"]:
+                skipped.append((n, "a row with no 索引用語"))
+                continue
+        n_rows += 1
+        if ident in seen:
+            if (kind in CHANGE_REQUIRED) and record != first_row[ident]:
+                # D-1252: one MEDIS row key on two different rows: which is the master's cannot be told, so neither
+                # is read (the reader then does not recognise the code); listed
+                conflicting.add(ident)
+                what = "病名管理番号" if by_number else "code"
+                skipped.append((n, f"{what} {ident} appears twice with different content; neither row is read"))
             else:
                 skipped.append((n, f"code {code} appears twice; the first row is kept"))
+            n_rows -= 1
             continue
-        seen.add(code)
-        first_row[code] = record
+        seen.add(ident)
+        first_row[ident] = record
+        lines[ident] = n
         out.append(record)
-    out = [r for r in out if r["code"] not in conflicting]
+    n_rows -= len(conflicting)
+    if by_number:
+        kept = [r for r in out if json.loads(r["extra"])["management_no"] not in conflicting]
+        out, more = _medis_concepts(kept, {r["code"]: lines[json.loads(r["extra"])["management_no"]] for r in kept})
+        skipped += more
+    elif kind == INDEX:
+        for r in out:  # the store's key is the pair; the 対応用語コード itself is kept beside it
+            r["target_code"], r["code"] = r["code"], f"{r['code']}\t{r['display']}"
+    else:
+        out = [r for r in out if r["code"] not in conflicting]
     if not out:
         raise LicensedError("LIC-EMPTY", "no row with a code was found")
-    if kind in CHANGE_REQUIRED and not any(json.loads(c["extra"]).get("change") for c in out):
+    changes = [json.loads(c["extra"]).get("change", "") for c in out]
+    if by_number:
+        changes = [r.get("change", "") for c in out for r in json.loads(c["extra"])["rows"]]
+    if kind in CHANGE_REQUIRED and not any(changes):
         raise LicensedError("LIC-COLUMNS", "the 変更区分 column is empty in every row (D-1252): check the release")
-    return Parsed(kind, enc, "tab" if delim == "\t" else "comma", out, skipped)
+    current = sum(c in CURRENT for c in changes) if kind in CHANGE_REQUIRED else n_rows
+    return Parsed(kind, enc, "tab" if delim == "\t" else "comma", out, skipped, n_rows, current)
+
+
+#: what each row of a MEDIS concept keeps (the keys of ``extra["rows"]``), beside ``no`` and ``name``
+_ROW_FIELDS = ("kana", "change", "adoption", "multi_class", "field", "successor", "no_solo", "no_claim", "receipt_code")
+
+
+def _medis_concepts(
+    rows: list[dict[str, str]], line: dict[str, int]
+) -> tuple[list[dict[str, str]], list[tuple[int, str]]]:
+    """The 病名基本テーブル as concepts, one for each 病名交換用コード (D-1257): ``rows`` are its table rows, each with
+    its 病名管理番号 in ``extra``; every row is kept, a deleted one (変更区分 1) too, since a hospital's older records
+    still carry it and its successor (移行先病名管理番号) must be found.
+
+    A concept is ``code`` the exchange code; ``display`` and ``target_code`` (ICD-10, as the release writes it) of
+    its preferred row: of the current rows (変更区分 0, 3, 5) the one with the lowest 採択区分 (1 or 2 owns the code, 3
+    is a synonym that borrows it), else, when every row is deleted, of all rows. ``extra`` holds the preferred row's
+    fields under the names the list always had (``management_no``, ``change``, ...) and ``rows``: every row as
+    ``{no, name, icd, kana, change, adoption, multi_class, field, successor, no_solo, no_claim, receipt_code}``
+    (empty fields left out), in 病名管理番号 order. Current rows of one code that disagree on ICD-10: the concept has
+    no ICD-10, ``icd_conflict`` is set (the reader then reads the code as unknown) and it is listed."""
+    groups: dict[str, list[dict[str, str]]] = {}
+    for r in rows:
+        given = json.loads(r["extra"])
+        row = {"no": given["management_no"], "name": r["display"], "icd": r["target_code"]}
+        row.update({f: given[f] for f in _ROW_FIELDS if given.get(f)})
+        groups.setdefault(r["code"], []).append(row)
+    out: list[dict[str, str]] = []
+    listed: list[tuple[int, str]] = []
+    for code, members in groups.items():
+        members.sort(key=lambda m: m["no"])
+        current = [m for m in members if m.get("change", "") in CURRENT]
+
+        def rank(m: dict[str, str]) -> tuple[int, str]:
+            return (int(m["adoption"]) if m.get("adoption", "").isdigit() else 9, m["no"])
+
+        best = min(current or members, key=rank)
+        icds = {m["icd"] for m in current if m["icd"]}
+        extra: dict[str, Any] = {"management_no": best["no"], **{f: best[f] for f in _ROW_FIELDS if best.get(f)}}
+        extra["rows"] = [{k: v for k, v in m.items() if v} for m in members]
+        icd = best["icd"]
+        if len(icds) > 1:
+            icd = ""
+            extra["icd_conflict"] = "1"
+            listed.append((line[code], f"code {code}: its current rows disagree on ICD-10; the code reads as unknown"))
+        out.append(
+            {
+                "code": code,
+                "display": best["name"],
+                "target_system": ICD10_WHO if icd else "",
+                "target_code": icd,
+                "extra": json.dumps(extra, ensure_ascii=False),
+            }
+        )
+    return out, listed
+
+
+def medis_rows(medis: dict[str, dict[str, Any]]) -> dict[str, dict[str, str]]:
+    """Every row of a loaded 病名基本テーブル by its 病名管理番号, from the concepts :func:`tables` gives under
+    ``medis``: ``{no, name, icd, exchange, change, adoption, ...}`` (the fields of ``extra["rows"]`` and the row's
+    exchange code). A release loaded before D-1257 holds one row for each exchange code: that row."""
+    out: dict[str, dict[str, str]] = {}
+    for exchange, concept in medis.items():
+        extra = concept.get("extra") or {}
+        if isinstance(extra, str):
+            try:
+                extra = json.loads(extra)
+            except ValueError:
+                extra = {}
+        members = extra.get("rows")
+        if not isinstance(members, list):
+            members = [{"no": extra.get("management_no", ""), "name": concept.get("display", ""),
+                        "icd": concept.get("target_code", ""), "change": extra.get("change", "")}]  # fmt: skip
+        for m in members:
+            if m.get("no"):
+                out[str(m["no"])] = {**{k: str(v) for k, v in m.items()}, "exchange": str(exchange)}
+    return out
 
 
 class TermStore:
@@ -295,7 +489,7 @@ class TermStore:
 
     def __init__(self, url: str | None = None) -> None:
         self._db = Database.connect(url or os.environ.get(ENV), "terminology")
-        self._db.migrate([SCHEMA])
+        self._db.migrate(list(MIGRATIONS))
 
     @property
     def db(self) -> Database:
@@ -320,52 +514,11 @@ class TermStore:
         if not version.strip():
             raise LicensedError("LIC-VERSION", "say which release this is (the version printed on it)")
         p = parse(kind, data, columns)
-        k = KINDS[kind]
         sha = hashlib.sha256(data).hexdigest()
-        at = datetime.now(UTC).isoformat(timespec="seconds")
-        with self._db.transaction() as tx:
-            tx.execute("UPDATE release SET active = FALSE WHERE kind = ?", (kind,))
-            rid = tx.fetchval(
-                "INSERT INTO release (kind, system, version, source, sha256, encoding, rows, skipped, loaded_by, "
-                "loaded_at) VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING id",
-                (
-                    kind,
-                    k.system,
-                    version.strip(),
-                    Path(source).name,
-                    sha,
-                    p.encoding,
-                    len(p.concepts),
-                    len(p.skipped),
-                    by,
-                    at,
-                ),
-            )
-            tx.executemany(
-                "INSERT INTO concept (release_id, code, display, target_system, target_code, extra) "
-                "VALUES (?,?,?,?,?,?)",
-                [(rid, c["code"], c["display"], c["target_system"], c["target_code"], c["extra"]) for c in p.concepts],
-            )
-        _CACHE.clear()
-        adir = audit_dir or (Path(os.environ["TB_AUDIT_DIR"]) if os.environ.get("TB_AUDIT_DIR") else None)
-        if adir is not None:
-            from tb_common.audit_writer import open_audit
-
-            open_audit(adir, site_tz()).append(
-                "terminology.load",
-                actor=by,
-                output_sha=sha,
-                detail={
-                    "kind": kind,
-                    "version": version.strip(),
-                    "source": Path(source).name,
-                    "rows": len(p.concepts),
-                    "skipped": len(p.skipped),
-                },
-            )
+        (rid,) = self.load_parsed([(p, sha, source)], version=version, by=by, audit_dir=audit_dir)
         return {
             "kind": kind,
-            "system": k.system,
+            "system": ALL_KINDS[kind].system,
             "version": version.strip(),
             "source": Path(source).name,
             "sha256": sha,
@@ -373,19 +526,94 @@ class TermStore:
             "delimiter": p.delimiter,
             "rows": len(p.concepts),
             "skipped": [{"line": n, "why": w} for n, w in p.skipped],
-            "release_id": int(rid),
+            "release_id": rid,
         }
+
+    def load_parsed(
+        self,
+        parts: Sequence[tuple[Parsed, str, str]],
+        *,
+        version: str,
+        by: str,
+        meta: dict[str, str] | None = None,
+        audit_dir: Path | None = None,
+    ) -> list[int]:
+        """Write the parsed lists ``(parsed, sha256 of its file, source name)`` in ONE transaction: all of them
+        become the active release of their list, or none does (D-1257: the three tables of one MEDIS release).
+        ``meta`` is what the release says of itself (``released``, ``release_sha256``); each list's row counts are
+        added. Returns the release ids, in order."""
+        at = datetime.now(UTC).isoformat(timespec="seconds")
+        ids: list[int] = []
+        with self._db.transaction() as tx:
+            for p, sha, source in parts:
+                k = ALL_KINDS[p.kind]
+                about = {**(meta or {}), "table_rows": p.rows, "current_rows": p.current}
+                tx.execute("UPDATE release SET active = FALSE WHERE kind = ?", (p.kind,))
+                rid = tx.fetchval(
+                    "INSERT INTO release (kind, system, version, source, sha256, encoding, rows, skipped, loaded_by, "
+                    "loaded_at, meta) VALUES (?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
+                    (
+                        p.kind,
+                        k.system,
+                        version.strip(),
+                        Path(source).name,
+                        sha,
+                        p.encoding,
+                        len(p.concepts),
+                        len(p.skipped),
+                        by,
+                        at,
+                        json.dumps(about, ensure_ascii=False),
+                    ),
+                )
+                tx.executemany(
+                    "INSERT INTO concept (release_id, code, display, target_system, target_code, extra) "
+                    "VALUES (?,?,?,?,?,?)",
+                    [
+                        (rid, c["code"], c["display"], c["target_system"], c["target_code"], c["extra"])
+                        for c in p.concepts
+                    ],
+                )
+                ids.append(int(rid))
+        _CACHE.clear()
+        adir = audit_dir or (Path(os.environ["TB_AUDIT_DIR"]) if os.environ.get("TB_AUDIT_DIR") else None)
+        if adir is not None:
+            from tb_common.audit_writer import open_audit
+
+            audit = open_audit(adir, site_tz())
+            for p, sha, source in parts:
+                audit.append(
+                    "terminology.load",
+                    actor=by,
+                    output_sha=sha,
+                    detail={
+                        "kind": p.kind,
+                        "version": version.strip(),
+                        "source": Path(source).name,
+                        "rows": len(p.concepts),
+                        "skipped": len(p.skipped),
+                    },
+                )
+        return ids
 
     def releases(self, kind: str | None = None) -> list[dict[str, Any]]:
         q = "SELECT * FROM release" + (" WHERE kind = ?" if kind else "") + " ORDER BY id"
         return self._db.fetchdicts(q, (kind,) if kind else ())
 
-    def status(self) -> list[dict[str, Any]]:
-        """Each list: ``loaded`` with its version, source, rows and date, or ``not loaded``."""
+    def status(self, all_lists: bool = False) -> list[dict[str, Any]]:
+        """Each list: ``loaded`` with its version, source, rows and date, or ``not loaded``. D-1257 adds, for a
+        loaded list: ``released`` (the release's own date, when it says one), ``table_rows`` and ``current_rows``
+        (rows of its table, and those with a current 変更区分; ``rows`` stays the number of codes), ``loaded_by`` and
+        ``sha256`` (of the whole release when it came as one, else of the file). ``all_lists`` adds the lists that
+        are not :data:`KINDS` (the MEDIS 索引テーブル)."""
         active = {r["kind"]: r for r in self._db.fetchdicts("SELECT * FROM release WHERE active ORDER BY id")}
         out = []
-        for name, k in KINDS.items():
+        for name, k in (ALL_KINDS if all_lists else KINDS).items():
             r = active.get(name)
+            try:
+                meta = json.loads(r["meta"]) if r and r.get("meta") else {}
+            except ValueError:
+                meta = {}
             out.append(
                 {
                     "kind": name,
@@ -396,6 +624,11 @@ class TermStore:
                     "source": r["source"] if r else "",
                     "rows": int(r["rows"]) if r else 0,
                     "loaded_at": r["loaded_at"] if r else "",
+                    "released": str(meta.get("released", "")),
+                    "table_rows": int(meta.get("table_rows", r["rows"] if r else 0) or 0),
+                    "current_rows": int(meta.get("current_rows", r["rows"] if r else 0) or 0),
+                    "loaded_by": r["loaded_by"] if r else "",
+                    "sha256": str(meta.get("release_sha256") or (r["sha256"] if r else "")),
                 }
             )
         return out
@@ -409,8 +642,190 @@ class TermStore:
         )
         return {r["code"]: {k: r[k] for k in ("display", "target_system", "target_code", "extra")} for r in rows}
 
+    def lookup_term(self, term: str) -> list[dict[str, str]]:
+        """The rows of the loaded 索引テーブル for one 索引用語 (compared after NFKC, as it is stored): each
+        ``{term, code, target_kind, kana_kanji, synonym, variant}``. ``code`` is the 対応用語コード: the
+        病名交換用コード of a disease (``target_kind`` 1) or the 修飾語交換用コード of a modifier (2); ``0000`` names no
+        current term and is given as it is, never resolved. A term may have several rows (D-1257)."""
+        rows = self._db.fetchdicts(
+            "SELECT c.display, c.target_code, c.extra FROM concept c JOIN release r ON r.id = c.release_id "
+            "WHERE r.kind = ? AND r.active AND c.display = ? ORDER BY c.target_code",
+            (INDEX, unicodedata.normalize("NFKC", term).strip()),
+        )
+        return [{"term": r["display"], "code": r["target_code"], **json.loads(r["extra"] or "{}")} for r in rows]
 
-def status(url: str | None = None) -> list[dict[str, Any]]:
+
+# ---------------------------------------------------------------------------------------------- a MEDIS release
+#: the files of a MEDIS release by their base name, compared in lower case (D-1257): the three tables carry the
+#: version's digits in their name (``nmain518.txt``)
+_RELEASE_FILES = {
+    "readme": re.compile(r"^readme\.txt$"),
+    "medis": re.compile(r"^nmain\d*\.txt$"),
+    "medis_modifier": re.compile(r"^mdfy\d*\.txt$"),
+    INDEX: re.compile(r"^index\d*\.txt$"),
+    "ttl:medis": re.compile(r"^ttl_main\.txt$"),
+    "ttl:medis_modifier": re.compile(r"^ttl_mdfy\.txt$"),
+    f"ttl:{INDEX}": re.compile(r"^ttl_idx\.txt$"),
+}
+RELEASE_TABLES = ("medis", "medis_modifier", INDEX)
+#: bounds on a release archive (V5.18: a zip of 2.8 MB holding tables of 4.4, 6.4 and 0.2 MB)
+RELEASE_MAX_ZIP = 64 * 1024 * 1024
+RELEASE_MAX_MEMBERS = 500
+RELEASE_MAX_FILE = 64 * 1024 * 1024
+#: readme.txt's first line: "ICD10対応標準病名マスター　V5.18　2026年6月1日改訂" (read after NFKC)
+_README = re.compile(r"V\s*(\d+(?:\.\d+)+)\s+(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日")
+
+
+def _wanted(name: str) -> str:
+    """Which file of a release a member or file name is, by its base name alone (no folder of the name is used)."""
+    base = re.split(r"[/\\]", name)[-1].lower()
+    return next((what for what, pattern in _RELEASE_FILES.items() if pattern.match(base)), "")
+
+
+def _release_files(source: Path | str) -> tuple[dict[str, bytes], dict[str, str], str]:
+    """``(bytes by file, name by file, sha256)`` of a release given as a folder or a zip. Nothing is written
+    anywhere: a zip's members are read in memory, only those whose base name is a release file, each bounded; a
+    file the release must hold that is missing, or that is there twice, refuses the release."""
+    src = Path(source)
+    found: dict[str, bytes] = {}
+    names: dict[str, str] = {}
+
+    def take(what: str, name: str, read: Any) -> None:
+        if what in found:
+            raise LicensedError("LIC-RELEASE-TWICE", f"the release holds two files named like {names[what]}")
+        found[what], names[what] = read(), re.split(r"[/\\]", name)[-1]
+
+    if src.is_dir():
+        for f in sorted(p for p in src.rglob("*") if p.is_file() and not p.is_symlink()):
+            what = _wanted(f.name)
+            if what:
+                if f.stat().st_size > RELEASE_MAX_FILE:
+                    raise LicensedError("LIC-RELEASE-SIZE", f"{f.name} is larger than a release's file can be")
+                take(what, f.name, f.read_bytes)
+        digest = hashlib.sha256()
+        for what in sorted(found):  # a folder's sha256: its release files, in a fixed order
+            digest.update(what.encode() + b"\0" + hashlib.sha256(found[what]).digest())
+        sha = digest.hexdigest()
+    elif src.is_file():
+        if src.stat().st_size > RELEASE_MAX_ZIP:
+            raise LicensedError("LIC-RELEASE-SIZE", "the archive is larger than a release can be")
+        raw = src.read_bytes()
+        sha = hashlib.sha256(raw).hexdigest()
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+                members = zf.infolist()
+                if len(members) > RELEASE_MAX_MEMBERS:
+                    raise LicensedError("LIC-RELEASE-SIZE", "the archive holds more files than a release does")
+                for info in members:
+                    what = "" if info.is_dir() else _wanted(info.filename)
+                    if not what:
+                        continue
+                    if info.file_size > RELEASE_MAX_FILE:
+                        raise LicensedError("LIC-RELEASE-SIZE", "a file of the archive is larger than a release's")
+
+                    def read(info: zipfile.ZipInfo = info) -> bytes:
+                        with zf.open(info) as fh:
+                            data = fh.read(RELEASE_MAX_FILE + 1)
+                        if len(data) > RELEASE_MAX_FILE:  # the size its header states was not its size
+                            raise LicensedError("LIC-RELEASE-SIZE", "a file of the archive is larger than it says")
+                        return data
+
+                    take(what, info.filename, read)
+        except (zipfile.BadZipFile, NotImplementedError, RuntimeError, OSError) as exc:
+            raise LicensedError("LIC-RELEASE-ARCHIVE", f"the archive cannot be read ({type(exc).__name__})") from exc
+    else:
+        raise LicensedError("LIC-RELEASE-SOURCE", "the release is a folder or a zip file; neither was found")
+    missing = [what for what in _RELEASE_FILES if what not in found]
+    if missing:
+        said = {"readme": "readme.txt", "medis": "nmain*.txt", "medis_modifier": "mdfy*.txt", INDEX: "index*.txt"}
+        said.update({"ttl:medis": "ttl_main.txt", "ttl:medis_modifier": "ttl_mdfy.txt", f"ttl:{INDEX}": "ttl_idx.txt"})
+        raise LicensedError("LIC-RELEASE-MISSING", "the release lacks " + ", ".join(said[m] for m in missing))
+    return found, names, sha
+
+
+def _titles(data: bytes) -> list[str]:
+    """The column titles of a ``ttl_*.txt``: the cells of its one line, or one title on each line."""
+    try:
+        text, _enc = encoding.decode(data, ("cp932",))
+    except encoding.EncodingRefused as exc:
+        raise LicensedError("LIC-ENCODING", str(exc)) from exc
+    rows = [
+        r for r in csv.reader(io.StringIO(text), delimiter=_sniff(text.split("\n", 1)[0])) if any(c.strip() for c in r)
+    ]
+    if len(rows) == 1:
+        return [c.strip() for c in rows[0]]
+    if rows and all(len([c for c in r if c.strip()]) == 1 for r in rows):
+        return [next(c.strip() for c in r if c.strip()) for r in rows]
+    raise LicensedError("LIC-RELEASE-TITLES", "a title file is neither one line of titles nor one title on each line")
+
+
+def _read_release(source: Path | str) -> tuple[dict[str, Any], list[tuple[Parsed, str, str]]]:
+    files, names, sha = _release_files(source)
+    try:
+        readme, _enc = encoding.decode(files["readme"], ("cp932",))
+    except encoding.EncodingRefused as exc:
+        raise LicensedError("LIC-ENCODING", str(exc)) from exc
+    first = unicodedata.normalize("NFKC", readme.lstrip("﻿").split("\n", 1)[0])
+    m = _README.search(first)
+    if not m:
+        raise LicensedError(
+            "LIC-RELEASE-README", "readme.txt's first line does not give the version and date (V5.18 2026年6月1日)"
+        )
+    version = m.group(1)
+    released = f"{int(m.group(2)):04d}-{int(m.group(3)):02d}-{int(m.group(4)):02d}"
+    parts: list[tuple[Parsed, str, str]] = []
+    skipped: list[tuple[str, int, str]] = []
+    for table in RELEASE_TABLES:
+        try:
+            parsed = parse(table, files[table], _titles(files[f"ttl:{table}"]))
+        except LicensedError as exc:
+            raise LicensedError(exc.code, f"{names[table]}: {exc.message}") from exc
+        parts.append((parsed, hashlib.sha256(files[table]).hexdigest(), names[table]))
+        skipped += [(table, n, why) for n, why in parsed.skipped]
+    by_kind = {p.kind: p for p, _sha, _name in parts}
+    report = {
+        "version": version,
+        "released": released,
+        "disease_rows": by_kind["medis"].rows,
+        "disease_current": by_kind["medis"].current,
+        "modifier_rows": by_kind["medis_modifier"].rows,
+        "index_rows": by_kind[INDEX].rows,
+        "skipped": skipped,
+        "sha256": sha,
+    }
+    return report, parts
+
+
+def check_release(source: Path | str) -> dict[str, Any]:
+    """What :func:`load_release` would load from ``source``, read by the same code, with nothing written: the same
+    keys. A person is shown this before approving the load."""
+    return _read_release(source)[0]
+
+
+def load_release(store: TermStore, source: Path | str, *, by: str, audit_dir: Path | None = None) -> dict[str, Any]:
+    """Load a MEDIS ICD10対応標準病名マスター release as MEDIS ships it (D-1257). ``source`` is the release's folder or
+    its zip (``readme.txt``, ``main/nmain*.txt`` 病名基本, ``main/mdfy*.txt`` 修飾語, ``main/index*.txt`` 索引,
+    ``option/ttl_main.txt``, ``ttl_mdfy.txt``, ``ttl_idx.txt``; anything else in it is ignored). The column titles
+    come from ``option/`` (the tables have no header row); the version and the release date from readme's first
+    line, and a readme that does not give them refuses the load (no version is guessed). The three tables are
+    written in one transaction: all or nothing.
+
+    Returns ``{"version", "released" (YYYY-MM-DD), "disease_rows", "disease_current", "modifier_rows",
+    "index_rows", "skipped": [(table, line, reason)], "sha256"}``: ``sha256`` of the zip, or for a folder of its
+    release files. Nothing of the release is kept outside the terminology store; the file itself is the site's and
+    never part of TrialBox."""
+    report, parts = _read_release(source)
+    store.load_parsed(
+        parts,
+        version=report["version"],
+        by=by,
+        meta={"released": report["released"], "release_sha256": report["sha256"]},
+        audit_dir=audit_dir,
+    )
+    return report
+
+
+def status(url: str | None = None, all_lists: bool = False) -> list[dict[str, Any]]:
     """:meth:`TermStore.status`, or every list ``not loaded`` (with ``store: unavailable``) when there is no store."""
     try:
         st = TermStore(url)
@@ -425,12 +840,17 @@ def status(url: str | None = None) -> list[dict[str, Any]]:
                 "source": "",
                 "rows": 0,
                 "loaded_at": "",
+                "released": "",
+                "table_rows": 0,
+                "current_rows": 0,
+                "loaded_by": "",
+                "sha256": "",
                 "store": "unavailable",
             }
-            for n, k in KINDS.items()
+            for n, k in (ALL_KINDS if all_lists else KINDS).items()
         ]
     try:
-        return st.status()
+        return st.status(all_lists)
     finally:
         st.close()
 
@@ -483,18 +903,40 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="adapter.licensed", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     ld = sub.add_parser("load", help="load one licensed release into the terminology store")
-    ld.add_argument("--kind", required=True, choices=sorted(KINDS))
+    ld.add_argument("--kind", required=True, choices=sorted(ALL_KINDS))
     ld.add_argument("--file", required=True, type=Path)
     ld.add_argument("--version", required=True, help="the release's version as printed on it")
     ld.add_argument("--columns", help="column names in file order, for a release without a header row")
     ld.add_argument("--by", default=os.environ.get("USER", "admin"))
+    lr = sub.add_parser("load-release", help="load a MEDIS release as MEDIS ships it (its folder or its zip)")
+    lr.add_argument("--source", required=True, type=Path)
+    lr.add_argument("--check", action="store_true", help="read it and say what would be loaded; write nothing")
+    lr.add_argument("--by", default=os.environ.get("USER", "admin"))
     sub.add_parser("status", help="which lists are loaded")
     a = ap.parse_args(argv)
+    if a.cmd == "load-release":
+        try:
+            if a.check:
+                out = check_release(a.source)
+            else:
+                st = TermStore()
+                try:
+                    out = load_release(st, a.source, by=a.by)
+                finally:
+                    st.close()
+        except LicensedError as exc:
+            print(f"not loaded: {exc.message}", file=sys.stderr)
+            return 1
+        print(json.dumps(out, ensure_ascii=False, indent=1))
+        return 0
     if a.cmd == "status":
-        for s in status():
-            line = f"{s['kind']:7} {s['label']}: "
+        for s in status(all_lists=True):
+            line = f"{s['kind']:14} {s['label']}: "
             line += (
-                f"loaded, version {s['version']}, {s['rows']} codes, {s['source']}, {s['loaded_at']}"
+                f"loaded, version {s['version']}"
+                + (f" ({s['released']})" if s["released"] else "")
+                + f", {s['rows']} codes, {s['table_rows']} rows ({s['current_rows']} current), {s['source']}, "
+                f"{s['loaded_at']} by {s['loaded_by']}"
                 if s["state"] == "loaded"
                 else "not loaded (its codes stay unknown)"
             )

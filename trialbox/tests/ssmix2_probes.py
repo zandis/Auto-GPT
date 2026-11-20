@@ -158,28 +158,28 @@ DISEASE_CHANGE = {"99990008": "1", "99990009": "X"}
 #: a synthetic 修飾語テーブル (M (2)): 修飾語管理番号 -> (変更区分, 修飾語表記, 修飾語交換用コード, 接続位置区分,
 #: 修飾語区分). The class is the second character of 修飾語区分 (M (2)⑦). Words are ordinary Japanese; codes made up.
 MODIFIERS = {
-    "99980001": ("0", "下葉", "ZM01", "50", "21000000"),  # 部位 (class 1), before the name
-    "99980002": ("0", "左", "ZM02", "60", "22000000"),  # 位置 (2)
-    "99980003": ("0", "右", "ZM03", "60", "22000001"),  # 位置 (2)
-    "99980004": ("0", "細菌性", "ZM04", "40", "23000000"),  # 病因 (3)
-    "99980005": ("0", "急性", "ZM05", "30", "24000000"),  # 経過表現 (4)
-    "99980006": ("0", "慢性", "ZM06", "30", "24000001"),  # 経過表現 (4)
-    "99980007": ("0", "重症", "ZM07", "20", "25000000"),  # 状態表現 (5)
-    "99980008": ("0", "老人性", "ZM08", "20", "26000000"),  # 患者帰属 (6)
-    "99980009": ("0", "高度", "ZM09", "20", "27000000"),  # その他 (7)
-    "99980010": ("0", "の疑い", "ZM10", "1", "28000000"),  # 接尾語 (8), after the name
-    "99980011": ("0", "術後", "ZM11", "1", "28000001"),  # 接尾語 (8)
-    "99980012": ("0", "第１大臼歯", "ZM12", "10", "29000000"),  # 歯科 (9)
-    "99980013": ("1", "旧左", "ZM13", "60", "22000002"),  # retired in this version (変更区分 1)
-    "99980014": ("0", "不明区分", "ZM14", "20", "20000000"),  # a class character outside 1 to 9
-    "99980015": ("0", "の後遺症", "ZM15", "1", "28000002"),  # 接尾語 (8)
-    "99980016": ("3", "上", "ZM16", "60", "22000003"),  # 位置 (2), added in this release: current
-    "99980017": ("5", "下", "ZM17", "60", "22000004"),  # 位置 (2), changed in this release: current
-    "99980018": ("D", "前", "ZM18", "60", "22000005"),  # a 変更区分 the specification does not define
-    "99980019": ("9", "後", "ZM19", "60", "22000006"),  # a 変更区分 the specification does not define
-    "99980020": ("", "外", "ZM20", "60", "22000007"),  # no 変更区分
-    "99980021": ("0", "左", "ZM21", "60", "0" + "22000000"),  # a 修飾語区分 of nine characters (built: the data scan)
-    "99980022": ("0", "右", "ZM22", "60", "2200000"),  # a 修飾語区分 of seven characters
+    "99980001": ("0", "下葉", "ZM01", "50", "A1000000"),  # 部位 (class 1), before the name
+    "99980002": ("0", "左", "ZM02", "60", "A2000000"),  # 位置 (2)
+    "99980003": ("0", "右", "ZM03", "60", "A2000001"),  # 位置 (2)
+    "99980004": ("0", "細菌性", "ZM04", "40", "A3000000"),  # 病因 (3)
+    "99980005": ("0", "急性", "ZM05", "30", "A4000000"),  # 経過表現 (4)
+    "99980006": ("0", "慢性", "ZM06", "30", "A4000001"),  # 経過表現 (4)
+    "99980007": ("0", "重症", "ZM07", "20", "A5000000"),  # 状態表現 (5)
+    "99980008": ("0", "老人性", "ZM08", "20", "A6000000"),  # 患者帰属 (6)
+    "99980009": ("0", "高度", "ZM09", "20", "A7000000"),  # その他 (7)
+    "99980010": ("0", "の疑い", "ZM10", "1", "A8000000"),  # 接尾語 (8), after the name
+    "99980011": ("0", "術後", "ZM11", "1", "A8000001"),  # 接尾語 (8)
+    "99980012": ("0", "第１大臼歯", "ZM12", "10", "A9000000"),  # 歯科 (9)
+    "99980013": ("1", "旧左", "ZM13", "60", "A2000002"),  # retired in this version (変更区分 1)
+    "99980014": ("0", "不明区分", "ZM14", "20", "A0000000"),  # a class character outside 1 to 9
+    "99980015": ("0", "の後遺症", "ZM15", "1", "A8000002"),  # 接尾語 (8)
+    "99980016": ("3", "上", "ZM16", "60", "A2000003"),  # 位置 (2), added in this release: current
+    "99980017": ("5", "下", "ZM17", "60", "A2000004"),  # 位置 (2), changed in this release: current
+    "99980018": ("D", "前", "ZM18", "60", "A2000005"),  # a 変更区分 the specification does not define
+    "99980019": ("9", "後", "ZM19", "60", "A2000006"),  # a 変更区分 the specification does not define
+    "99980020": ("", "外", "ZM20", "60", "A2000007"),  # no 変更区分
+    "99980021": ("0", "左", "ZM21", "60", "0" + "A2000000"),  # a 修飾語区分 of nine characters (built: the data scan)
+    "99980022": ("0", "右", "ZM22", "60", "A200000"),  # a 修飾語区分 of seven characters
 }
 
 
@@ -630,7 +630,8 @@ def modifier_cases() -> list[Case]:
             # the modified name a code of its own (then the coded concept would silently be the unmodified one);
             # 4 経過表現 and 5 状態表現 can say "old", "after", "in remission": unknown, as 6, 7 and 8 are
             own_code = any(name == text for name, _e, _i in DISEASES.values())
-            eight = len(cls) == 8 and cls.isdigit()  # M (2)⑦: 修飾語区分 is 8 characters
+            # M (2)⑦: 修飾語区分 is 8 characters, the class the second; the release writes a letter first (D-1257)
+            eight = len(cls) == 8 and cls.isascii() and cls[1] in "123456789"
             ok = eight and (cls[1] in "129" or (cls[1] == "3" and not own_code)) and _chg in ("0", "3", "5")
             specs.append((f"modifier class {cls[1]} {word} on {base}", no, text, [z], "NC", "CA" if ok else "NC", ""))
 

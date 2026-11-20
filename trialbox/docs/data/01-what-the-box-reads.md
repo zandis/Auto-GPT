@@ -76,6 +76,14 @@ message is listed with its reason, STD-020). A site that finds these counts shou
 | A drug line whose TQ1 the message structure does not tie to it | The timing could belong to another drug | Kept without a daily dose |
 | An administration of a drug its order does not hold, of no drug code, fitting several lines, or whose order number is filed on several days | It cannot be told which line it was given for | Kept as a row of its own, counted |
 
+**An SS-MIX2 site that sends ZPR segments needs the MEDIS master loaded (D-1257).** Without the site's own
+ICD10対応標準病名マスター (the disease table and the modifier table), a diagnosis whose ZPR names its disease by a code
+PRB-3 does not itself carry reads as certainty unknown: the 病名管理番号 and the 病名交換用コード cannot be compared
+without the master. The night's reader counts say how many, under one reason: "a ZPR disease code cannot be verified
+without the MEDIS master". The cure is to load the release as MEDIS ships it, its folder or its zip:
+`python -m adapter.licensed load-release --source byomei518.zip` (`--check` reads it and writes nothing). The
+release is the site's licensed file and is never part of TrialBox.
+
 **Known limits (D-1252).** What the reader does in these cases, written down so a site can look for them; no test
 pins any of it as right:
 
@@ -125,7 +133,7 @@ Count: of the 26 types, **0 read in full**, **10 partly** (ADT-00, 12, 22, 52, P
 
 **Code lists.** ICD-10-CM 2026 in full (98,186 codes, public domain) for lookups and family groupers. The licensed
 Japanese lists (MEDIS 標準病名, JLAC10, YJ) are loaded by the site from its own licensed files
-(`python -m adapter.licensed load --kind medis|medis_modifier|jlac10|yj --file … --version …`, D-137, D-1252); each release is kept with its
+(`python -m adapter.licensed load --kind medis|medis_modifier|jlac10|yj --file … --version …`, D-137, D-1252; the MEDIS master whole, as MEDIS ships it, with `load-release --source <folder or zip>`, D-1257); each release is kept with its
 version, sha256 and who loaded it, and every load is audited. A MEDIS disease or modifier table without its
 変更区分 column, or with it empty in every row, is refused at load (D-1252). The demo rows are synthetic and marked `verify`.
 The clinical item catalogue (scores, labs, findings and phenotypes mapped to LOINC, OMOP, OHDSI phenotypes and

@@ -61,7 +61,7 @@ def test_the_modifier_table_loads_through_the_licensed_path_with_its_class_and_p
     rel = _synthetic_release()
     left = rel["medis_modifier"]["99980002"]
     assert left["display"] == "左"
-    assert '"modifier_class": "22000000"' in left["extra"] and '"position": "60"' in left["extra"]
+    assert '"modifier_class": "A2000000"' in left["extra"] and '"position": "60"' in left["extra"]
     assert '"exchange_code": "ZM02"' in left["extra"] and '"change": "0"' in left["extra"]
     assert "medis_modifier" in lic.KINDS
 
@@ -208,7 +208,7 @@ def test_the_loader_refuses_a_master_table_without_its_change_column(kind: str) 
     row = (
         '"99990001","肺炎","ｶﾅ","1","ZA01","J189"'
         if kind == "medis"
-        else '"99980002","左","ｶﾅ","ZM02","60","22000000","","",""'
+        else '"99980002","左","ｶﾅ","ZM02","60","A2000000","","",""'
     )
     with pytest.raises(lic.LicensedError, match="変更区分"):
         lic.parse(kind, row.encode("cp932"), header)
@@ -243,10 +243,10 @@ def test_the_loader_reads_neither_row_of_a_code_given_twice_with_different_conte
     """The second tester's class D: which of two different rows is the master's cannot be told; an identical repeat
     keeps the row, as before."""
     rows = [
-        '"0","99980002","左","ｶﾅ","ZM02","60","22000000","","",""',
-        '"1","99980002","左","ｶﾅ","ZM02","60","22000000","","",""',
-        '"0","99980003","右","ｶﾅ","ZM03","60","22000001","","",""',
-        '"0","99980003","右","ｶﾅ","ZM03","60","22000001","","",""',
+        '"0","99980002","左","ｶﾅ","ZM02","60","A2000000","","",""',
+        '"1","99980002","左","ｶﾅ","ZM02","60","A2000000","","",""',
+        '"0","99980003","右","ｶﾅ","ZM03","60","A2000001","","",""',
+        '"0","99980003","右","ｶﾅ","ZM03","60","A2000001","","",""',
     ]
     parsed = lic.parse("medis_modifier", "\r\n".join(rows).encode("cp932"), MODIFIER_COLUMNS.split(","))
     assert [c["code"] for c in parsed.concepts] == ["99980003"]

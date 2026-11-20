@@ -58,8 +58,9 @@ def test_without_the_master_a_zpr_disease_code_that_is_not_prb3s_own_is_never_co
     nights.snapshot(st, f"{D1}090000000", [nights.prb("DX01", code="12345678", name="糖尿病"), zpr])
     (row,), _dead, src = _read(st, "diagnosis")
     assert row["suspected"] == "U"
-    why = f"ZPR-{field} and PRB-3 cannot be compared without the master"
-    assert src.stats[f"PPR-01:certainty unknown ({why})"] == 1
+    assert field in (2, 5)  # whichever field carries it, the site sees one counted reason
+    assert src.stats[f"PPR-01:certainty unknown ({reader.NEEDS_MASTER})"] == 1
+    assert reader.NEEDS_MASTER == "a ZPR disease code cannot be verified without the MEDIS master"
 
 
 @pytest.mark.parametrize(
@@ -635,3 +636,77 @@ def test_the_licensed_store_says_when_the_tables_it_gave_were_loaded(monkeypatch
     assert lic.loaded_at_of(given) == "2026-11-17T03:00:00+00:00"
     assert lic.loaded_at_of(dict(given)) is None and lic.loaded_at_of(nights.EMPTY) is None
     assert reader._latest_local(lic.loaded_at_of(given)) == "2026-11-17 17:00:00"  # the latest local time anywhere
+
+
+# ------------------------------------------------------------------ no id the reader ever published is left behind
+def _order(number: str, day: str, stamp: str, drugs: list[str], typ: str = "OMP-01", placer: str | None = None) -> Any:
+    def write(st: kit.Storage) -> None:
+        nights.rx(st, number, day, stamp, [("NW", str(n), d) for n, d in enumerate(drugs, 1)], typ=typ, placer=placer)
+
+    return write
+
+
+def _past(stamp: str) -> Any:
+    return lambda st: nights.rename_to_past(next(st.root.rglob(f"*_{stamp}_*_1")))
+
+
+S1, S2, S3 = f"{D1}090000000", f"{D2}090000000", f"{D2}100000000"
+E16 = "20261116"
+#: every form an order id has had (plain, by its lines, by its day, by its type, by both, full-width), as night one
+#: leaves it, and the change night two brings: ``(name, night one, night two, the ids a full night two holds)``
+KEY_CHANGES: list[tuple[str, list[Any], list[Any], set[str]]] = [
+    ("plain to its day", [_order("RX1", D1, S1, [DRUG_A])], [_order("RX1", D2, S2, [DRUG_A])],
+     {f"RX1@{D1}", f"RX1@{D2}"}),
+    ("plain to its lines", [_order("RX1", D1, S1, [DRUG_A])], [_past(S1), _order("RX1", D1, S2, [DRUG_A, DRUG_B])],
+     {f"RX1#1:{DRUG_A}", f"RX1#2:{DRUG_B}"}),
+    ("its lines to plain", [_order("RX1", D1, S1, [DRUG_A, DRUG_B])], [_past(S1), _order("RX1", D1, S2, [DRUG_B])],
+     {"RX1"}),
+    ("plain to its type", [_order("RX1", D1, S1, [DRUG_A])], [_order("RX1", D1, S2, [DRUG_B], "OMP-02")],
+     {"RX1@OMP-01", "RX1@OMP-02"}),
+    ("its day to its type and day",
+     [_order("RX1", D1, S1, [DRUG_A]), _order("RX1", E16, f"{D1}100000000", [DRUG_A])],
+     [_order("RX1", D2, S2, [DRUG_B], "OMP-02")],
+     {f"RX1@OMP-01@{D1}", f"RX1@OMP-01@{E16}", "RX1@OMP-02"}),
+    ("its type to its type and day",
+     [_order("RX1", D1, S1, [DRUG_A]), _order("RX1", D1, f"{D1}100000000", [DRUG_B], "OMP-02")],
+     [_order("RX1", D2, S2, [DRUG_A])],
+     {f"RX1@OMP-01@{D1}", f"RX1@OMP-01@{D2}", "RX1@OMP-02"}),
+    ("its lines to its lines and day", [_order("RX1", D1, S1, [DRUG_A, DRUG_B])], [_order("RX1", D2, S2, [DRUG_A])],
+     {f"RX1@{D1}#1:{DRUG_A}", f"RX1@{D1}#2:{DRUG_B}", f"RX1@{D2}"}),
+    ("full-width, a version in the other width", [_order("ＲＸ１", D1, S1, [DRUG_A])],
+     [_past(S1), _order("RX1", D1, S2, [DRUG_B])], {"ＲＸ１:RX1"}),
+    ("full-width, a version in the other width that writes ORC-2 as before", [_order("ＲＸ１", D1, S1, [DRUG_A])],
+     [_past(S1), _order("RX1", D1, S2, [DRUG_B], placer="ＲＸ１")], {"ＲＸ１"}),
+    ("half-width, a version in full width", [_order("RX1", D1, S1, [DRUG_A])],
+     [_past(S1), _order("ＲＸ１", D1, S2, [DRUG_B])], {"RX1:ＲＸ１"}),
+    ("full-width to its day", [_order("ＲＸ１", D1, S1, [DRUG_A])], [_order("ＲＸ１", D2, S2, [DRUG_A])],
+     {f"ＲＸ１@{D1}", f"ＲＸ１@{D2}"}),
+    ("full-width on one day, half-width on another", [_order("ＲＸ１", D1, S1, [DRUG_A])],
+     [_order("RX1", D2, S2, [DRUG_A])], {f"ＲＸ１@{D1}", f"RX1@{D2}"}),
+    ("an administration with no order, then its order", [lambda st: nights.given(st, "RX1", D1, S1, DRUG_A)],
+     [_order("RX1", D1, S2, [DRUG_A])], {"RX1"}),
+    ("a deleted order of a number another type holds",
+     [_order("RX1", D1, S1, [DRUG_A]), _order("RX1", D1, f"{D1}100000000", [DRUG_B], "OMP-02")],
+     [lambda st: nights.rx(st, "RX1", D1, S3, [("CA", "1", DRUG_B)], typ="OMP-02", flag="0")],
+     {"RX1@OMP-01"}),
+]  # fmt: skip
+
+
+@pytest.mark.parametrize(("name", "first", "second", "ids"), KEY_CHANGES, ids=[c[0] for c in KEY_CHANGES])
+def test_no_id_the_reader_ever_published_is_left_behind_by_a_key_change(
+    tmp_path: Path, name: str, first: list[Any], second: list[Any], ids: set[str]
+) -> None:
+    """The lesson of :777, as one rule over every key form: night one under the old form, night two under the new.
+    The delta night leaves exactly what a full night leaves: the new ids, and none of the old."""
+
+    def night1(st: kit.Storage) -> None:
+        for write in first:
+            write(st)
+
+    def night2(st: kit.Storage) -> None:
+        for write in second:
+            write(st)
+
+    full, delta = nights.two_nights(tmp_path, "medication", night1, night2)
+    assert set(full) == {f"{P}/{rid}" for rid in ids}, name
+    assert delta == full, name
