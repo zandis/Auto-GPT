@@ -138,7 +138,8 @@ def _serving_problems(path: str, profile: str, root: Path) -> list[str]:
             f"serving record {path} was made under the ballast stand-in ({capped!r}, plan 10 row 10E-28): "
             "a stand-in record is never a tier record"
         ]
-    why = serving_config.measured_for(rec, profile)
+    # a record check, not a host check: the memory of the machine running it says nothing of the record
+    why = serving_config.measured_for(rec, profile, lambda: None)
     return [f"serving record {path}: {w}" for w in why]
 
 
