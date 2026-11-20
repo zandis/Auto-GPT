@@ -444,6 +444,15 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None, declared
 _ROW_FIELDS = ("kana", "change", "adoption", "multi_class", "field", "successor", "no_solo", "no_claim", "receipt_code")
 
 
+def icd_comparable(value: str) -> str:
+    """An ICD-10 code of the release as two rows' codes are compared: NFKC, blanks and the dot removed, and the one
+    lower-case letter the release writes after some codes (``E109a``, a Japanese sub-classification) dropped. The
+    store keeps what the release writes."""
+    v = re.sub(r"\s+", "", unicodedata.normalize("NFKC", value or "")).replace(".", "")
+    m = re.fullmatch(r"([A-Z][0-9]{2,4})[a-z]", v)
+    return m.group(1) if m else v
+
+
 def _medis_concepts(
     rows: list[dict[str, str]], line: dict[str, int]
 ) -> tuple[list[dict[str, str]], list[tuple[int, str]]]:
@@ -474,7 +483,8 @@ def _medis_concepts(
             return (int(m["adoption"]) if m.get("adoption", "").isdigit() else 9, m["no"])
 
         best = min(current or members, key=rank)
-        icds = {m["icd"] for m in current if m["icd"]}
+        # compared as codes, not as text: ``E109`` and ``E109a`` are one ICD-10 code (deep review of #1238, L6)
+        icds = {icd_comparable(m["icd"]) for m in current if m["icd"]}
         extra: dict[str, Any] = {"management_no": best["no"], **{f: best[f] for f in _ROW_FIELDS if best.get(f)}}
         extra["rows"] = [{k: v for k, v in m.items() if v} for m in members]
         icd = best["icd"]
@@ -509,10 +519,14 @@ def medis_rows(medis: dict[str, dict[str, Any]]) -> dict[str, dict[str, str]]:
         members = extra.get("rows")
         if not isinstance(members, list):
             members = [{"no": extra.get("management_no", ""), "name": concept.get("display", ""),
-                        "icd": concept.get("target_code", ""), "change": extra.get("change", "")}]  # fmt: skip
+                        "icd": concept.get("target_code", "")}]  # fmt: skip
+            if "change" in extra:
+                members[0]["change"] = extra["change"]
+        conflict = "1" if extra.get("icd_conflict") else ""
         for m in members:
             if m.get("no"):
-                out[str(m["no"])] = {**{k: str(v) for k, v in m.items()}, "exchange": str(exchange)}
+                row = {**{k: str(v) for k, v in m.items()}, "exchange": str(exchange), "conflict": conflict}
+                out[str(m["no"])] = row
     return out
 
 

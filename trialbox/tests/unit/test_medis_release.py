@@ -286,9 +286,59 @@ def test_the_icd10_of_a_diagnosis_comes_from_its_own_row_by_either_code(tmp_path
     by_exchange = _diagnosis(tmp_path / "a", "YA04", "１型試験病", [])
     by_number = _diagnosis(tmp_path / "b", "80000006", "１型試験病", [])
     assert (by_exchange["icd10"], by_number["icd10"]) == ("E10.9", "E10.9")
-    assert _diagnosis(tmp_path / "c", "YA05", "分類未定試験病", [])["icd10"] == ""  # the hyphen form: unknown
+    hyphen = _diagnosis(tmp_path / "c", "YA05", "分類未定試験病", [])
+    assert (hyphen["icd10"], hyphen["suspected"]) == ("", "U")  # the hyphen form: unknown
     assert _diagnosis(tmp_path / "d", "YA01", "試験性肺炎", [], icd="J189")["suspected"] == ""
     assert _diagnosis(tmp_path / "e", "YA01", "試験性肺炎", [], icd="J180")["suspected"] == "U"  # not the master's
+
+
+# ------------------------------------------------------------------ the deep review of #1238: M2, M3, L6
+def test_a_master_icd10_the_reader_cannot_read_never_confirms_the_hospitals_own(tmp_path: Path) -> None:
+    """M2: the master writes ``A99-9`` for the disease and the message says ``B99``. Nothing was compared, so
+    nothing is confirmed (before: the check was skipped and the diagnosis read confirmed B99)."""
+    row = _diagnosis(tmp_path, "YA05", "分類未定試験病", [], icd="B99")
+    assert row["suspected"] == "U"
+    assert _diagnosis(tmp_path / "g", "YA05", "分類未定試験病", [])["suspected"] == "U"  # nor without one of its own
+
+
+@pytest.mark.parametrize(
+    ("code", "name"),
+    [
+        ("80000003", "旧試験病"),  # a deleted row, by its 病名管理番号
+        ("YA03", "廃止試験病"),  # a code every row of which is deleted
+        ("YA01", "試験性肺炎"),  # a code whose current rows disagree on ICD-10
+        ("80000001", "試験性肺炎"),  # a row of that code, by its number
+    ],
+)
+def test_with_the_disease_table_alone_only_a_current_agreeing_row_gives_an_icd10(
+    tmp_path: Path, code: str, name: str
+) -> None:
+    """M3: the disease table alone is loaded (the ICD-10 look-up, D-137; no modifier table, so no master rule). A
+    deleted number, an all-deleted code and a conflicting code each gave ('A', '', its ICD-10). The successor of a
+    deleted row is not followed: unknown, and no ICD-10."""
+    odd = [*DISEASES, _disease("0", "80000009", "別分類試験性肺炎", "3", "YA01", "J180")]
+    tables = {**_tables(odd), "medis_modifier": {}}
+    row = _diagnosis(tmp_path, code, name, [], tables)
+    assert (row["suspected"], row["icd10"]) == ("U", "")
+
+
+def test_with_the_disease_table_alone_a_current_row_still_gives_its_icd10(tmp_path: Path) -> None:
+    """Guard for M3."""
+    tables = {**_tables(), "medis_modifier": {}}
+    for n, (code, name) in enumerate([("YA01", "試験性肺炎"), ("80000004", "新試験病"), ("YA02", "新試験病")]):
+        row = _diagnosis(tmp_path / str(n), code, name, [], tables)
+        assert (row["suspected"], row["icd10"]) == ("", "J18.9" if code == "YA01" else "K29.7"), code
+
+
+def test_the_masters_suffix_form_is_one_code_with_the_plain_form(tmp_path: Path) -> None:
+    """L6: ``E109`` and ``E109a`` on two current rows of one code are no conflict, and a hospital that writes the
+    master's own ``E109a`` in PRB-10 is not contradicting the master."""
+    both = [*DISEASES, _disease("0", "80000010", "１型試験病（別表記）", "3", "YA04", "E109")]
+    concept = next(c for c in lic.parse("medis", _table(both), TTL_MAIN).concepts if c["code"] == "YA04")
+    assert "icd_conflict" not in json.loads(concept["extra"]) and concept["target_code"] == "E109a"
+    row = _diagnosis(tmp_path, "YA04", "１型試験病", [], icd="E109a")
+    assert (row["suspected"], row["icd10"]) == ("", "E10.9")
+    assert lic.icd_comparable("E10.9") == lic.icd_comparable("E109a") == "E109"
 
 
 # ------------------------------------------------------------------ the release as MEDIS ships it

@@ -4,8 +4,12 @@
 over it. The full lake is never seeded with night 1's rows (review of #1189): a record night 2 neither sends nor
 tombstones is in ``delta`` and not in ``full``, and the comparison fails.
 
-The lake here is a dictionary of ``<mrn>/<key>`` (a record is its patient and its number), merged as
-``ndjson.write_snapshot`` merges a night: live rows over the lake; a tombstone removes an id the night did not send.
+The lake is keyed by the ids the adapter itself gives (deep review of #1238, H3): ``Mapper.row_id`` of the JP site
+mapping for a live row, ``Mapper.tombstones`` for a deleted one. It is merged as ``ndjson.write_snapshot`` merges a
+night: live rows over the lake; a tombstone removes an id the night did not send. While the adapter's id is made of
+the key column alone, two patients' records with one number are ONE lake row here, as they are in the box (D-1253,
+pull request #1192, makes the id per patient; this harness follows whatever ``row_id`` does). What the two functions
+return is shown as ``<mrn>/<key>`` of the row each lake id holds.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from adapter.mapping.engine import Mapper, Mapping
 from adapter.sources.ssmix2.source import Ssmix2Source
 
 from tests import ssmix2_spec_kit as kit
@@ -31,6 +36,15 @@ KEY = {"diagnosis": "diag_no", "medication": "rx_no", "lab": "lab_no", "encounte
 D1, D2 = "20261110", "20261117"  # night 1 writes on D1, night 2 on D2
 SINCE = "2026-11-16"
 Lake = dict[str, dict[str, Any]]
+_MAPPING = Path(__file__).resolve().parents[1] / "services/adapter/mapping/jp_core/ssmix2_site.yaml"
+_MAPPER: list[Mapper] = []
+
+
+def lake_ids(table: str, row: dict[str, Any]) -> list[str]:
+    """The lake ids of one source row, as the adapter gives them: ``<resource type>/<id>``."""
+    if not _MAPPER:
+        _MAPPER.append(Mapper(Mapping.load(_MAPPING), b"k" * 32, "s"))
+    return [f"{typ}/{rid}" for typ, rid in _MAPPER[0].tombstones(table, iter([row]))]
 Reader = Callable[[Path], Ssmix2Source]
 
 
@@ -45,15 +59,21 @@ def night(src: Ssmix2Source, table: str, since: str | None) -> tuple[list[dict[s
 
 
 def apply(lake: Lake, table: str, live: list[dict[str, Any]], dead: list[dict[str, Any]]) -> None:
+    """One night merged into ``lake`` (keyed by the adapter's ids)."""
     sent = set()
     for row in live:
-        rid = f"{row['mrn']}/{row[KEY[table]]}"
-        lake[rid] = row
-        sent.add(rid)
+        for rid in lake_ids(table, row):
+            lake[rid] = row
+            sent.add(rid)
     for row in dead:
-        rid = f"{row['mrn']}/{row[KEY[table]]}"
-        if rid not in sent:
-            lake.pop(rid, None)
+        for rid in lake_ids(table, row):
+            if rid not in sent:
+                lake.pop(rid, None)
+
+
+def shown(lake: Lake, table: str) -> Lake:
+    """The lake by ``<mrn>/<key>`` of the row each id holds."""
+    return {f"{row['mrn']}/{row[KEY[table]]}": row for row in lake.values()}
 
 
 def two_nights(
@@ -76,7 +96,7 @@ def two_nights(
     full: Lake = {}
     apply(full, table, *night(read2(st.root), table, None))
     apply(delta, table, *night(read2(st.root), table, since))
-    return full, delta
+    return shown(full, table), shown(delta, table)
 
 
 def rename_to_past(path: Path) -> None:

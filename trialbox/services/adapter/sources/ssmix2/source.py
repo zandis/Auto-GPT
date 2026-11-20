@@ -275,6 +275,9 @@ def key_part(value: str) -> str:
 
 
 _NINES = re.compile(r"^9{4,}$")
+#: the 診療日 and the 発生日時 of a standardised file name, as a name must write them to be read as one
+_NAME_DAY = re.compile(r"^(\d{8}|\d{6}|\d{4}|-)$")
+_NAME_STAMP = re.compile(r"^\d{8,}$")  # a stamp too short to be valid is still a stamp in its place
 
 
 def no_order(value: str) -> bool:
@@ -840,18 +843,21 @@ def rx_lines(msg: hl7.Message) -> list[tuple[hl7.Segment, hl7.Segment, hl7.Segme
     return out
 
 
-def order_no(sf: StoredFile, orc: hl7.Segment, written: str | None = None) -> str:
+def order_no(sf: StoredFile, orc: hl7.Segment, written: str | None = None, raw: bool = False) -> str:
     """An order's key (third review of PR #1095 item 6): the file's オーダNo, which with the patient, the day and the
     type is the specification's unique key, and ORC-2 (the placer order number) when it says something else, as
     ``<file order>:<ORC-2>``; ORC-2 alone for a file whose order number is "ALL9" or "-". Empty when neither says:
     the caller quarantines the message. ``written``: the オーダNo as the record's first file wrote it, when the
-    reader knows it (:meth:`Ssmix2Source._written`)."""
+    reader knows it (:meth:`Ssmix2Source._written`). ``raw``: ORC-2 compared as written, as readers before D-1257's
+    review did (only to name the ids they published, for tombstones)."""
     placer = orc.comp(2, 1).strip()
     # D-1257 (review of #1189, :777): the id is written as the file and the message write it, as every reader
     # before #1189 published it; only the comparison is normalised (D-1252 P8: "ＲＸ０１" is the order RX01). #1189
     # wrote the normalised number, so an id an earlier night stored was neither replaced nor tombstoned
     filed = "" if no_order(sf.order) else (sf.order if written is None else written)
-    if filed and placer and placer != filed:
+    # deep review of #1238 (H2): ORC-2 says "something else" only as the key compares it. An ORC-2 that is the file's
+    # number in another width is the same number, and the id stays the first-written form (I1)
+    if filed and placer and (placer != filed if raw else key_part(placer) != key_part(filed)):
         return f"{filed}:{placer}"
     return filed or placer
 
@@ -1028,7 +1034,12 @@ class Ssmix2Source:
         self._no_lines: set[Path] = set()  # order messages with no drug line: not a version that can be read
         self._first: dict[Path, str] = {}  # a version -> the オーダNo as the record's oldest file wrote it
         self._mixed: dict[tuple[str, str, str, str], list[StoredFile]] = {}  # records written in several widths
+        self._icd_doubt = ""  # why the licensed master's ICD-10 for the diagnosis being read was not taken
         self._own_form = False  # while True, an id is built from the file's own オーダNo (to tombstone that form)
+        self._raw_placer = False  # while True, ORC-2 is compared as written (to tombstone the id that gave)
+        # records one of whose versions writes ORC-2 as its オーダNo in another width: a reader before D-1257's
+        # review published ``<number>:<ORC-2>`` for them
+        self._wide: dict[tuple[str, str, str, str], list[StoredFile]] = {}
         self._live: dict[str, set[tuple[str, str]]] = {}  # table -> (mrn, key) of every row of the last whole read
         self._gone: dict[str, list[StoredFile]] = {}  # newest version deleted (flag 0), by message type
         self._older: dict[Path, list[StoredFile]] = {}  # a record's newest file -> every version it supersedes
@@ -1116,7 +1127,7 @@ class Ssmix2Source:
             index: dict[str, list[StoredFile]] = {}
             gone: dict[str, list[StoredFile]] = {}
             self._doubt, self._fallback, self._older, self._decide = {}, {}, {}, {}
-            self._first, self._mixed = {}, {}
+            self._first, self._mixed, self._wide = {}, {}, {}
             chosen: dict[tuple[str, str, str, str], StoredFile] = {}
             for key, versions in sorted(groups.items()):
                 state, sf, candidates, older = resolve(versions)
@@ -1422,15 +1433,19 @@ class Ssmix2Source:
 
     def deleted_rows(self, table: str, source_name: str, delta_column: str | None, since: str | None) -> Iterator[Row]:
         """:meth:`_deleted_rows`, and never the id of a record in force (D-1257, review of #1189 :1348): a tombstone
-        whose patient and key a row of the table's whole read carries is not sent. A delta night sends only the rows
-        in its window, so such a tombstone would remove an unchanged record the night does not send again (the plain
-        ``RX01`` of two re-keyed prescriptions is also an injection's id). Counted."""
+        whose key a row of the table's whole read carries is not sent (the plain ``RX01`` of two re-keyed
+        prescriptions is also an injection's id). Counted. The row that carries the key is sent on that night
+        (:meth:`_rows`), so what an earlier night stored under the id is replaced, never left.
+
+        The key alone is compared, whatever the patient (deep review of #1238, H3): the adapter's id is made of the
+        key column (``mapping/engine.py`` ``row_id``), so one patient's tombstone of ``RX01`` is the id of another
+        patient's order ``RX01``. With an id per patient (D-1253) the comparison is only stricter than it need be."""
         col = _KEY_OF.get(table, "")
-        live = self._live_ids(table) if col else set()
+        live = {key for _mrn, key in self._live_ids(table)} if col else set()
         sent: set[tuple[str, str]] = set()
         for row in self._deleted_rows(table, source_name, delta_column, since):
             rid = (str(row.get("mrn")), str(row.get(col))) if col else None
-            if rid is not None and rid in live:
+            if rid is not None and rid[1] in live:
                 self.stats[f"{table}:tombstone not sent (a record in force carries the id)"] += 1
                 continue
             if rid is not None and rid in sent:
@@ -1438,6 +1453,17 @@ class Ssmix2Source:
             if rid is not None:
                 sent.add(rid)
             yield public(row)
+
+    def _named(self, table: str, since: str | None) -> set[str]:
+        """The keys tonight's tombstones would name (nothing counted, the tombstone lists left as they were). A row
+        in force that carries one is sent on every night: its tombstone is not sent, so only the row itself can
+        replace what an earlier night stored under the id (deep review of #1238, H2)."""
+        col = _KEY_OF[table]
+        counts = (self.stats.copy(), self.missed.copy(), self.drug_lines.copy(), list(self.quarantined))
+        try:
+            return {str(row.get(col)) for row in self._deleted_rows(table, table, None, since)}
+        finally:
+            self.stats, self.missed, self.drug_lines, self.quarantined = counts
 
     def _live_ids(self, table: str) -> set[tuple[str, str]]:
         """``(mrn, key)`` of every row the table's whole read gives (no window). :meth:`rows` records it; when the
@@ -1470,7 +1496,11 @@ class Ssmix2Source:
         if table == "diagnosis":
             yield from list(self._dx_dead)
         if table == "medication":
-            yield from [dict(r) for r in self._rx_dead]
+            for r in self._rx_dead:
+                # an id an administration no longer has: named on the nights its files, or its order's, changed
+                if r.get("_changed") and since and not after(str(r["_changed"]), since):
+                    continue
+                yield dict(r)
         self._files()
         build: Callable[[StoredFile, hl7.Message], Iterator[Row]] = getattr(self, f"_{table}")
         # a deleted file is read only to name its records: what that read appends to the tombstone lists is taken
@@ -1538,26 +1568,31 @@ class Ssmix2Source:
 
     def _own_forms(self, typ: str) -> Iterator[Row]:
         """Tombstones for a record whose versions write the オーダNo in several widths (D-1257): the ids each version
-        gives when read by its own file name, which a reader before D-1252 published as records of their own. The
-        form a record in force carries is never sent (:meth:`deleted_rows`)."""
+        gives when read by its own file name, which a reader before D-1252 published as records of their own; and for
+        a record whose ORC-2 is its number in another width, the ``<number>:<ORC-2>`` a reader that compared ORC-2 as
+        written published (deep review of #1238, H2). The form a record in force carries is never sent
+        (:meth:`deleted_rows`)."""
         col = _KEY_OF[_TABLE_OF[typ]]
-        for key, versions in sorted(self._mixed.items()):
+        records = {**self._wide, **self._mixed}
+        for key, versions in sorted(records.items()):
             if key[1] != typ:
                 continue
             seen: set[str] = set()
-            for mode in (KEY_PARTS, *EARLIER_KEYS):
-                self._own_form, self._key_mode = True, mode
-                try:
-                    for version in versions:
-                        if version.deleted:
-                            continue  # no reader ever published a row for a file of flag 0
-                        for row in self._version_rows(typ, version):
-                            if str(row[col]) not in seen:
-                                seen.add(str(row[col]))
-                                self.stats[f"{typ}:the id of a version named in another width tombstoned"] += 1
-                                yield row
-                finally:
-                    self._own_form, self._key_mode = False, KEY_PARTS
+            forms = [(True, False), (True, True), (False, True)] if key in self._mixed else [(False, True)]
+            for own, raw in forms:
+                for mode in (KEY_PARTS, *EARLIER_KEYS):
+                    self._own_form, self._raw_placer, self._key_mode = own, raw, mode
+                    try:
+                        for version in versions:
+                            if version.deleted:
+                                continue  # no reader ever published a row for a file of flag 0
+                            for row in self._version_rows(typ, version):
+                                if str(row[col]) not in seen:
+                                    seen.add(str(row[col]))
+                                    self.stats[f"{typ}:the id of a version named in another width tombstoned"] += 1
+                                    yield row
+                    finally:
+                        self._own_form, self._raw_placer, self._key_mode = False, False, KEY_PARTS
 
     def _day_of(self, sf: StoredFile) -> str:
         """The day as far as it is part of the record's key (D-1000): always under ``per_day`` and for data no order
@@ -1715,12 +1750,15 @@ class Ssmix2Source:
             out = self._lab_corrections(out)
         if table in _KEY_OF:  # what the whole table holds tonight, for :meth:`deleted_rows` (D-1257)
             self._live[table] = {(str(r["mrn"]), str(r[_KEY_OF[table]])) for r in out}
+        named = self._named(table, since) if table in _KEY_OF and delta_column and since else set()
         for row in out:
             # the change time: the delta column, a class change or end, and for a diagnosis the time its snapshot
             # file was written (a diagnosis recorded long ago and ended last night is a change, review of PR
             # #1095 item 2)
             changed = str(row.get("_changed") or "")
             always = row.get("_always", "")
+            if named and str(row[_KEY_OF[table]]) in named:
+                always = "1"  # its id is one a tombstone names tonight: the row itself replaces what is stored
             if row.get("_master"):
                 # D-1257 (review of #1189, :1524): read through the licensed master, so the master's load is a change
                 # of the row. Not told when it was loaded, the reader sends the row on every night
@@ -1784,23 +1822,46 @@ class Ssmix2Source:
     # ------------------------------------------------------------------ code lookups
     def _icd(self, byomei: str) -> str:
         """標準病名 -> WHO ICD-10 through the licensed MEDIS release, then the site's lookup file. The MEDIS target
-        is kept even when ICD-10-CM has no such code (D-314: Japan's ICD-10 is WHO's)."""
-        hit = self.licensed.get("medis", {}).get(byomei.upper()) if byomei else None
-        if byomei and self.licensed.get("medis"):
+        is kept even when ICD-10-CM has no such code (D-314: Japan's ICD-10 is WHO's).
+
+        Deep review of #1238 (M2, M3): the master's answer is taken only from a row it holds as current (変更区分 0, 3,
+        5), of a code whose current rows agree, in a form the reader reads. A deleted number, a code every row of
+        which is deleted, a conflicting code or an ICD-10 written in a form not read (``A99-9``) gives no ICD-10 and
+        ``_icd_doubt``: the diagnosis is read as unknown, and the site's own file is not asked in the master's
+        place. The successor of a deleted row (移行先病名管理番号) is not followed."""
+        medis = self.licensed.get("medis") or {}
+        if byomei and medis:
             self._consulted = True  # found or not, the answer is the licensed table's (D-1257)
-            if not hit:  # D-1257: PRB-3 may carry the 病名管理番号 (the specification's recommendation): its own row
+            found: dict[str, str] | None = None
+            concept = medis.get(byomei.upper())
+            if concept:
+                extra = _extra_raw(concept)
+                found = {"icd": str(concept.get("target_code") or ""), "conflict": str(extra.get("icd_conflict") or "")}
+                if "change" in extra:
+                    found["change"] = str(extra["change"])
+            else:  # D-1257: PRB-3 may carry the 病名管理番号 (the specification's recommendation): its own row
                 if self._medis_rows is None:
                     from adapter.licensed import medis_rows
 
-                    self._medis_rows = medis_rows(self.licensed["medis"])
-                row = self._medis_rows.get(key_part(byomei))
-                hit = {"target_code": row.get("icd", "")} if row else None
-        if hit and medis_icd(hit.get("target_code") or ""):
-            code = medis_icd(hit["target_code"])
-            self.stats["diagnosis:licensed"] += 1
-            if not self._in_cm(code):
-                self.stats["diagnosis:licensed WHO-only code"] += 1
-            return code
+                    self._medis_rows = medis_rows(medis)
+                found = self._medis_rows.get(key_part(byomei))
+            if found is not None:
+                why = ""
+                if "change" in found and found["change"] not in CURRENT_ROW:
+                    why = "the licensed master holds the disease code as deleted"
+                elif found.get("conflict"):
+                    why = "the licensed master's current rows disagree on the ICD-10 of the disease code"
+                elif found.get("icd") and not medis_icd(found["icd"]):
+                    why = "the licensed master's ICD-10 for the disease is in a form the reader does not read"
+                if why:
+                    self._icd_doubt = why
+                    return ""
+                code = medis_icd(found.get("icd") or "")
+                if code:
+                    self.stats["diagnosis:licensed"] += 1
+                    if not self._in_cm(code):
+                        self.stats["diagnosis:licensed WHO-only code"] += 1
+                    return code
         return who_icd10(self.byomei.get(byomei, ""))
 
     def _in_cm(self, code: str) -> bool:
@@ -1979,7 +2040,7 @@ class Ssmix2Source:
                 codes = (who_icd10(t[0]) for t in triples if t[2] in _ICD10_SYS)
                 return next((c for c in codes if _WHO_SHAPE.match(c)), "")
 
-            self._consulted = False
+            self._consulted, self._icd_doubt = False, ""
             icd = shaped(_triples(prb, 10))  # 10B-3: the specification's place for ICD-10
             if icd:
                 self.stats["PPR-01:ICD-10 from PRB-10"] += 1
@@ -2021,6 +2082,8 @@ class Ssmix2Source:
                 status = "E"
                 self.stats["PPR-01:end or outcome date without a read outcome (ended)"] += 1
             modifiers, unrecognised, full = self._modifiers(prb, zprs)
+            if not unrecognised and self._icd_doubt:
+                unrecognised = self._icd_doubt
             if not unrecognised and (before or odd):
                 unrecognised = f"a {(before or odd)[0]} segment the reader does not read"
             if not unrecognised:
@@ -2213,8 +2276,18 @@ class Ssmix2Source:
             causes = [
                 c for f in (1, 3) for c, _t, _s in triples(f) if master.modifiers[c]["cls"] == MODIFIER_CLASS_CAUSE
             ]
-            icd = medis_icd(master.icd.get(number, ""))
-            icds = {who_icd10(c) for f in (3, 10) for c, _t, s in _triples(prb, f) if s in _ICD10_SYS and c.strip()}
+            theirs = master.icd.get(number, "")
+            icd = medis_icd(theirs)
+            # the hospital may write the master's own form (``E109a``): compared as the master's is (deep review, L6)
+            icds = {
+                medis_icd(c) or who_icd10(c)
+                for f in (3, 10)
+                for c, _t, s in _triples(prb, f)
+                if s in _ICD10_SYS and c.strip()
+            }
+            if theirs.strip() and not icd and icds:
+                # M2: the master has an ICD-10 for the disease that the reader cannot read: nothing was compared
+                return texts, "the master's ICD-10 for the disease is in a form the reader does not read", name
             if icd and icds - {icd}:
                 return texts, "the ICD-10 is not the master's for the disease", name
             if causes and master.names.get(key_part(full), number) != number:
@@ -2260,7 +2333,10 @@ class Ssmix2Source:
             self.stats["medication:ATC from the ingredient table"] += 1
         if not atc:
             self.missed[f"medication:{source}"] += 1
-        rx_no = order_no(sf, orc, self._written(sf))
+        rx_no = order_no(sf, orc, self._written(sf), self._raw_placer)
+        if not self._raw_placer and not self._own_form and rx_no != order_no(sf, orc, self._written(sf), True):
+            record = self._key(sf.patient, sf.type, sf.order, sf.day)
+            self._wide.setdefault(record, [sf, *self._older.get(sf.path, [])])
         # a record written in several widths: its rows are sent on every night, since its other forms are tombstoned
         # on every night (a version back-filed in another width may be the oldest, and the id its form)
         rekeyed = self._key(sf.patient, sf.type, sf.order, sf.day) in self._mixed
@@ -2410,8 +2486,18 @@ class Ssmix2Source:
         # when that number is filed on several days, which day's order was given cannot be told from the number: the
         # administration fills no line (it is a row of its own, counted)
         lines: dict[tuple[str, str, str], list[Row]] = {}
+        ids: dict[tuple[str, str], set[str]] = {}  # (patient, kind) -> the ids its rows carry (looked up, not scanned)
         for r in rows:
             lines.setdefault((r["mrn"], r["rx_kind"], str(r.get("_number") or key_part(str(r["rx_no"])))), []).append(r)
+            ids.setdefault((r["mrn"], r["rx_kind"]), set()).add(str(r["rx_no"]))
+        # deep review of #1238 (H1): whether an administration fills a line, is a row of its own, and under which id,
+        # is decided by the order files of its number (either kind, any day, any flag) as much as by its own file:
+        # the newest 発生日時 of those is part of its change time
+        orders: dict[tuple[str, str], str] = {}
+        for typ in CROSS_DAY_TYPES:
+            for sf in (*self._files().get(typ, []), *self._gone.get(typ, [])):
+                at = (sf.patient, key_part(sf.order))
+                orders[at] = max(orders.get(at, ""), self._stamp_of(sf))
         for typ in CHANGES["medication"]:
             for sf, msg in self._messages(typ):
                 orc, rxa = msg.first("ORC"), msg.first("RXA")
@@ -2434,17 +2520,23 @@ class Ssmix2Source:
                     r for r in candidates
                     if given & {str(r.get(c) or "") for c in ("nhi_drug_code", "hot_code", "source_drug_code")} - {""}
                 ]  # fmt: skip
+                changed = max(self._stamp_of(sf), orders.get((sf.patient, key_part(sf.order)), ""))
+                # the order is named by ORC-2 and not by the file's own number: which files decide is not indexed
+                loose = no_order(sf.order) or key_part(key) != key_part(sf.order)
+                code = codes["yj"] or codes["hot"] or "-"
                 if len(same) == 1 and not several_days:
                     order = same[0]
                     order["_changed"] = max(str(order.get("_changed") or ""), self._stamp_of(sf))  # D-1252
+                    # the id it had as a row of its own, on a night it was not tied, is gone (deep review, L1)
+                    self._rx_dead.append({"mrn": sf.patient, "rx_no": f"{key}~{code}", "_changed": changed})
                     for k, v in {**done, "hot_code": codes["hot"], "nhi_drug_code": codes["yj"]}.items():
                         if v and not order.get(k):
                             order[k] = v
                     self.stats[f"{typ}:with its order"] += 1
                     continue
                 row = self._drug_row(sf, orc, codes)
-                other = [r for k, rs in lines.items() if k[0] == sf.patient and k[1] != kind for r in rs]
-                taken = any(r["rx_no"] == row["rx_no"] for r in other)  # an order of the other kind has this id
+                other_kind = "prescription" if kind == "injection" else "injection"
+                taken = row["rx_no"] in ids.get((sf.patient, other_kind), set())  # the other kind's order has this id
                 if candidates or taken:  # its order is here, but not one line of it is certainly this drug
                     why = "no drug code" if not given else ("several lines" if same else "another drug")
                     if several_days:
@@ -2452,16 +2544,22 @@ class Ssmix2Source:
                     if not candidates:
                         why = "the number is an order of another kind"
                     self.stats[f"{typ}:administration not tied to an order line ({why})"] += 1
-                    row["rx_no"] = f"{key}~{codes['yj'] or codes['hot'] or '-'}"
+                    plain, row["rx_no"] = row["rx_no"], f"{key}~{code}"
+                    unsure = several_days or taken or loose
+                    self._rx_dead.append({"mrn": sf.patient, "rx_no": plain, "_changed": "" if unsure else changed})
                 else:
                     self.stats[f"{typ}:without an order"] += 1
+                    self._rx_dead.append({"mrn": sf.patient, "rx_no": f"{key}~{code}", "_changed": changed})
                 # an administration alone says nothing of the doses a day: the daily dose is unknown, never RXA-6
                 row.update(doses_per_day="", doses_per_day_from="", usage_code="", usage_text="", daily_dose="")
                 row.update(done)
-                row["_changed"] = self._stamp_of(sf)
+                row["_changed"] = changed
+                if several_days or taken or loose:
+                    row["_always"] = "1"
                 row["_number"], row["_dayed"] = key_part(key), "1" if several_days else ""
                 rows.append(row)
                 lines.setdefault((sf.patient, kind, key_part(key)), []).append(row)
+                ids.setdefault((sf.patient, kind), set()).add(str(row["rx_no"]))
         return rows
 
     def _lab(self, sf: StoredFile, msg: hl7.Message) -> Iterator[Row]:
@@ -2619,7 +2717,10 @@ class Ssmix2Source:
                 stem = f.name.rsplit(".", 1)[0] if f.is_file() and "." in f.name else f.name
                 sf = parse_name(Path(stem))
                 bits = stem.split("_")
-                if len(bits) == 7 and patient_id(bits[0]) != patient_id(patient):
+                # deep review of #1238 (M1): only a name that reads as the standardised form (its 診療日 and its
+                # 発生日時 in their places) names a patient; seven parts alone are any file with six underscores
+                named = len(bits) == 7 and bool(bits[0]) and _NAME_DAY.match(bits[1]) and _NAME_STAMP.match(bits[4])
+                if named and patient_id(bits[0]) != patient_id(patient):
                     # D-1257 (both reviews of #1095, A :1674 and B :1665): a name in the standardised form that
                     # names another patient is never a document of the folder's patient. Not read, counted and
                     # listed for the site; the id an earlier night stored it under is tombstoned
