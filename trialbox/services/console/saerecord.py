@@ -290,6 +290,15 @@ class SaeStore:
         )
         return [{**r, "body": json.loads(r["body"])} for r in rows]
 
+    def told_cover(self, rs: str, record: str, event: str, who: str, by: str, at: str) -> None:
+        """9f-3 (D-1383): the person holding the PI's cover that day was told of the new case at once (a trail row)."""
+        with self.db.transaction() as tx:
+            self._trail(tx, rs, record, event, "told_cover", {"to": who}, by, at)
+
+    def told_cover_names(self, rs: str, record: str, event: str) -> set[str]:
+        """The accounts told of the case at once as the PI's cover (the escalation does not mail them again)."""
+        return {str(r["body"].get("to") or "") for r in self.trail(rs, record, event) if r["action"] == "told_cover"}
+
     # ------------------------------------------------------------------ writes (each one also a trail row)
     def _trail(self, tx: Any, rs: str, record: str, event: str, action: str, body: dict[str, Any], by: str,
                at: str) -> None:  # fmt: skip
@@ -575,7 +584,8 @@ def escalate_once(store: SaeStore, rs: str, record: str, event: str, hours: int,
             return None
         tries = sum(1 for r in rows if str(r[0]) == "escalate_retry")
         body = {**send(), "hours": hours}
-        final = int(body.get("sent") or 0) > 0
+        # reached somebody: a mail went, or the only people left had the case at once as the PI's cover (9f-3)
+        final = int(body.get("sent") or 0) > 0 or bool(body.get("already_told"))
         body["final"] = final
         if final:
             body["attempt"] = tries + 1

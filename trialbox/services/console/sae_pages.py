@@ -249,6 +249,16 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
         without the AE term. Nobody to tell is audited (``notice_nobody``); a mail that fails is in the audit; the
         register and the pages do not depend on it."""
         to = told_at_once(rid)
+        # 9f-3 (D-1383): the person whose cover is in effect today also hears of it, in addition to the PI, never
+        # instead; the escalation later leaves them out of this case (``told_cover`` trail row)
+        cover = h.covering_now(rid) if h.covering_now is not None else None
+        cover_acct = h.users.get(cover.username) if cover is not None else None
+        cover_to = cover_acct.mailbox if cover_acct is not None and cover_acct.mailbox else ""
+        if cover is not None and not cover_to:
+            au.append("console.sae", ruleset=rid, actor=SYNC,
+                      detail={"action": "cover_unreachable", "record": v["record"], "event": v["event"]})  # fmt: skip
+        if cover_to:
+            to = list(dict.fromkeys([*to, cover_to]))
         if not to:
             au.append("console.sae", ruleset=rid, actor=SYNC,
                       detail={"action": "notice_nobody", "record": v["record"], "event": v["event"]})  # fmt: skip
@@ -256,8 +266,13 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
         subject, body = office_notice(rid, v, rules)
         try:
             bk.send_notice("N2", to, subject, body, actor.SAE_SYNC)  # T-715: the sync's own name
+            pi = h.team.pi_of(rid, today()) if h.team is not None else None
             detail = {"action": "office_copy", "record": v["record"], "event": v["event"], "to": ", ".join(to)}
+            if cover_to:  # both recipients named: the PI the log names and the person holding the cover
+                detail |= {"pi": pi.username if pi is not None else "", "covering": cover.username if cover else ""}
             au.append("console.sae", ruleset=rid, actor=SYNC, detail=detail)
+            if cover_to and cover is not None:
+                reg.told_cover(rid, str(v["record"]), str(v["event"]), cover.username, SYNC, stamp())
         except Exception as exc:
             au.append("console.sae", ruleset=rid, actor=SYNC,
                       detail={"action": "office_copy_failed", "record": v["record"], "event": v["event"],
@@ -314,7 +329,12 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
         short: list[str] = []
         failed: list[str] = []
         unreachable: list[str] = []
+        already = reg.told_cover_names(rid, str(v["record"]), str(v["event"]))  # told at once as the PI's cover
+        skipped: list[str] = []
         for name, role in told_later(rid, day):
+            if name in already:  # one mail of this case each: the cover's person had it at once
+                skipped.append(name)
+                continue
             u = h.users.get(name)  # an enabled account that has not expired, else None
             if u is None or not u.mailbox:
                 unreachable.append(name)
@@ -337,7 +357,7 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
             sent.append(name)
             (full if sees else short).append(name)
         return {"to": ", ".join(sent), "sent": len(sent), "full": full, "short": short, "failed": failed,
-                "unreachable": unreachable, "case_no": no}  # fmt: skip
+                "unreachable": unreachable, "case_no": no, "already_told": skipped}  # fmt: skip
 
     def escalate(rid: str) -> list[str]:
         """9f-4 (b): each serious AE of the study the PI has not acknowledged ``TB_SAE_ESCALATE_HOURS`` hours (default
@@ -373,7 +393,7 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
                 got = escalation_mail(rid, v, rules, n, day)
                 names.update(got)
                 # per recipient: who was reached (full or short notice), whose mail failed, who has no mailbox
-                return {k: got[k] for k in ("to", "sent", "full", "short", "failed", "unreachable")}
+                return {k: got[k] for k in ("to", "sent", "full", "short", "failed", "unreachable", "already_told")}
 
             def audit_it(body: dict[str, Any], key: tuple[str, str] = key, names: dict[str, Any] = names,
                          since: str = str(case.get("created_at") or "")) -> None:  # fmt: skip

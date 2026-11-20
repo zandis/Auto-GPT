@@ -15,8 +15,10 @@ new heading with the version and date, in the same pull request that sets the ve
   study only (never the delegation log, its monthly check, the study's state or the IRB records); a serious adverse
   event the PI has not acknowledged after `TB_SAE_ESCALATE_HOURS` (default 24) is mailed once to the study's
   sub-investigators and coordinators on its log. **On the first run after the update every unacknowledged serious
-  adverse event already older than that is mailed at once, one mail per case and person.** A task on the opening page
-  may name its owner from the study's log.
+  adverse event already older than that is mailed at once, one mail per case and person;** after that, one escalation
+  per case, and none again when the hours change. A new serious adverse event is also told at once to the person whose
+  PI cover is in effect that day, in addition to the PI (and that person is not mailed the escalation of that case). A
+  task on the opening page may name its owner from the study's log.
 - Silent set-up choices guarded (10K-21): a new PRODUCTION site must answer the chart-number question (choosing
   "as written" is an answer; leaving it empty is not), in the settings wizard and on the box's first-run page. A box
   names the person who opens its health page every working day (its backup alert route); the name is shown with the

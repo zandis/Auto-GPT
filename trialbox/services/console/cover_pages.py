@@ -433,6 +433,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         """The covers of the study whose IRB task is open: entered, not ended before it began, IRB not told."""
         return [c for c in team.covers(rid) if not c.irb_told_on and c.last_day()]
 
+    def covering_now(rid: str) -> Cover | None:
+        """9f-3 (D-1383): the cover in effect today in study ``rid``, the state the banner and ``log_rights`` read (in
+        effect, never lapsed); None without one. Read only: it writes no edge."""
+        day = today()
+        entries = team.entries(rid)
+        return next((c for c in reversed(team.covers(rid))
+                     if c.in_effect_on(day) and cover_state(entries, c, day)[0] == "effective"), None)  # fmt: skip
+
+    h.covering_now = covering_now
     h.cover_view = cover_view
     h.cover_lines = cover_lines
     h.task_owners = task_owners

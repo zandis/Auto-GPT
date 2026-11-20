@@ -18,8 +18,7 @@
     migration 5 carries the checks a row can hold alone (`start_day <= end_day`, `entered_on <= start_day`, the PI is
     not the covering person, a known lapse reason). Migration 5 is not on master yet, so it changed in this card; its
     checksum pin in `tests/unit/test_migrations.py` holds the new value. **Chained covers** (90 days, then another 90)
-    are allowed: each is entered by the PI by their own entry, the next only once the days are free (a question is
-    with the owner whether a chain needs a limit).
+    are allowed: each is entered by the PI by their own entry, the next only once the days are free (the owner ruled 2026-11-20: no limit on a chain).
     **When it gives anything:** on a site day (D-270) from the first to the last day, only while every condition has
     held **on every day since it was entered**: the PI covered is still the PI the log names (from the day it was
     entered), and the covering person's own sub-investigator entry is active (from its first day)
@@ -38,7 +37,7 @@
     `notmatched.sample`, `notmatched.send_back` (the weekly sample of criteria-not-matched patients) and
     `team.task_owner` (a task's owner; not a matrix row). SAE acknowledgement and sign-off are the `sae.*` rows of the
     role, not PI rows: the covering person does them in their own name. **Withheld on purpose**
-    (`teamstore.COVER_WITHHELD`; the study's administration, a question is with the owner): `delegation.keep` (the
+    (`teamstore.COVER_WITHHELD`; the study's administration; the owner ruled 2026-11-20 that a cover gives clinical rights only): `delegation.keep` (the
     log's rows, entering a cover), `delegation.check` (the monthly comparison of the log), `monitor.grant`,
     `study.state` (open, pause, close), `study.reopen`, `study.irb_text`, `irb.edit`, `edc.switch_on`,
     `edc.switch_off`, `breakglass.study`, `profile.research_layers` and `criteria.approve` (the role row the console
@@ -110,6 +109,25 @@
     (the `console.referral` events'): the pseudonym as `pid` for call, find information and prepare, a referral's
     `id`, a cover's `cover`; the owner and the owner before. Who sees a task does not change. Team schema version 5
     (`pi_cover`, `task_owner`), appended in the product's form (D-204, its checksum pinned in `test_migrations`).
+  - **Told at once to the cover's person (9f-3, ruled 2026-11-20 08:25 UTC).** The immediate notice of a new
+    serious AE (D-764, `sae_pages.office_copy`: the office mailbox and the PI) also goes, **in addition to the PI and
+    never instead**, to the person whose cover is in effect that site day in that study (`console.cover_pages`
+    `covering_now`: the state the banner and `log_rights` read: in effect, not lapsed; read only, no edge is written).
+    It is the same one mail (same subject: study, screening number, event, so two cases the same day are two mails with
+    distinct duplicate keys); the audit event `office_copy` names both: `pi` and `covering` (accounts). A covering
+    person with no mailbox is a `cover_unreachable` event. The day after the cover ends, a lapsed cover, a cover of
+    another study and no cover: the PI only. **The rule for the escalation:** a person told at once as the PI's cover
+    has a `told_cover` trail row on that case and is **left out of that case's escalation** (they are not mailed a
+    second copy); the escalation's trail and audit name them as `already_told`; a round whose only people left were
+    already told is final (nobody is left to reach). Any other case, or the same person on a case before the cover,
+    is as before.
+- **The owner's ruling (2026-11-20 08:25 UTC, relayed by the integrator), all as recommended:** (1) a cover gives
+  clinical rights only, exactly `COVER_RIGHTS` (no study open, pause, close or reopen, no IRB record, no EDC prefill
+  switch, no monthly delegation-log check): kept; (2) covers may follow one another, each entered by the PI and
+  audited: kept, no limit on a chain; (3) the immediate SAE notice also goes to the covering person inside the cover's
+  dates: built, above; (4) a coordinator on the study's log may assign a task's owner: kept; (5) first-run
+  escalations accepted and said in the release note (CHANGELOG, Unreleased), then one escalation per SAE and no
+  resend when the hours change: kept.
 - **Routes:** `POST /studies/{rs}/cover`, `POST /studies/{rs}/cover/{cid}/end`, `POST /studies/{rs}/cover/{cid}/irb`,
   `POST /studies/{rs}/tasks/owner`, each with its `/api/v1` twin, and `GET /api/v1/studies/{rs}/cover`; rows in
   `route_actions.yaml`, the design table regenerated (rows added only).

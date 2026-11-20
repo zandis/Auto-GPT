@@ -342,7 +342,7 @@ def test_the_migration_adds_the_two_tables_and_an_older_release_still_opens_the_
 
 
 # ---------------------------------------------------------------------------------------------- 9f-4 (b): escalation
-def _case(lb: dict[str, Any]) -> str:  # noqa: F811
+def _case(lb: dict[str, Any], before_sync: Any = None) -> str:  # noqa: F811
     from tests.console.test_console_app import name_pi
 
     name_pi(lb, "pi")
@@ -361,6 +361,8 @@ def _case(lb: dict[str, Any]) -> str:  # noqa: F811
     lb["clock"]["now"] = datetime(2026, 11, 10, 1, 0, tzinfo=UTC)
     c.post("/studies/GZQO/setup/sae", data={"csrf": csrf, "rule_set": "tw_trial"}, follow_redirects=True)
     lb["oc"].put(f"/studies/GZQO/data/{no}", json={"event": "ae1", "values": FATAL, "by": "rc:read"})
+    if before_sync is not None:
+        before_sync(h)
     assert c.post("/studies/GZQO/sae/sync", data={"csrf": csrf}).status_code in (200, 303)
     return str(no)
 
@@ -685,3 +687,86 @@ def test_a_later_change_of_n_does_not_tell_a_case_again(lb: dict[str, Any], monk
     assert len(_sync(lb, 6.5)) == 2
     monkeypatch.setenv("TB_SAE_ESCALATE_HOURS", "12")
     assert _sync(lb, 12.5) == [] and _sync(lb, 48) == []
+
+
+# ---------------------------------------------------------------------------------------------- 9f-3: told at once
+def _at_once(lb: dict[str, Any]) -> list[tuple[str, list[str], str, str]]:  # noqa: F811
+    return [n for n in lb["backend"].notices if "SAE GZQO" in n[2] and "waited" not in n[2]]
+
+
+def _audit(lb: dict[str, Any], action: str) -> list[dict[str, Any]]:  # noqa: F811
+    rows = [json.loads(x) for f in sorted(lb["backend"].audit_dir.glob("*.jsonl")) for x in f.read_text().splitlines()
+            if x and json.loads(x).get("event") == "console.sae"]  # fmt: skip
+    return [r["detail"] for r in rows if r["detail"].get("action") == action]
+
+
+def _cover_for(who: str, start: int, end: int, rs: str = RS, entered: int = 0) -> Any:
+    """``before_sync`` of ``_case``: the PI (``pi``) enters a cover of ``who`` from day ``start`` to day ``end`` counted
+    from the case's day (2026-11-10), entered ``entered`` days from it."""
+    day = date(2026, 11, 10)
+
+    def make(h: Any) -> None:
+        h.team.add_cover(rs, username=who, start=(day + timedelta(days=start)).isoformat(),
+                         end=(day + timedelta(days=end)).isoformat(), today=day + timedelta(days=entered), by="pi",
+                         at=AT)  # fmt: skip
+
+    return make
+
+
+def test_a_new_case_is_told_at_once_to_the_pi_and_to_the_person_holding_the_cover(
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TB_SAE_OFFICE_MAILBOX", raising=False)
+    monkeypatch.delenv("TB_SAE_ESCALATE_HOURS", raising=False)
+    no = _case(lb, _cover_for("subi", 0, 2))  # in effect on the case's day
+    (mail,) = _at_once(lb)
+    assert sorted(mail[1]) == ["pi@hospa.test", "subi@hospa.test"]  # in addition to the PI, never instead
+    assert no in mail[2] and "ae1" in mail[2]  # the subject carries the case: two cases are two mails
+    (ev,) = _audit(lb, "office_copy")
+    assert ev["pi"] == "pi" and ev["covering"] == "subi" and "subi@hospa.test" in ev["to"]  # both named
+
+    from console.saerecord import SaeStore
+
+    reg = SaeStore()
+    assert reg.told_cover_names(RS, no, "ae1") == {"subi"}
+    # a second case the same day is its own mail with its own subject
+    _second_case(lb)
+    mails = _at_once(lb)
+    assert len(mails) == 2 and len({m[2] for m in mails}) == 2
+    # the escalation of the first case: the covering person is not mailed again (told at once), the others are
+    told = _sync(lb, 24.5)
+    assert sorted(n[1][0] for n in told) == ["crc@hospa.test", "crc@hospa.test"]  # crc only: two cases
+    assert all("subi@hospa.test" not in n[1] for n in told)
+    esc = _audit(lb, "escalated")
+    assert len(esc) == 2 and all(e["already_told"] == ["subi"] and e["to"] == "crc" for e in esc)
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["the day after the cover ended", "a lapsed cover", "another study's cover", "no cover"],
+)
+def test_outside_a_cover_only_the_pi_is_told_at_once(
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+) -> None:
+    monkeypatch.delenv("TB_SAE_OFFICE_MAILBOX", raising=False)
+
+    def before(h: Any) -> None:
+        if case == "the day after the cover ended":
+            _cover_for("subi", -5, -1, entered=-5)(h)  # its last day was yesterday
+        elif case == "a lapsed cover":
+            _cover_for("subi", 0, 2)(h)
+            e = next(x for x in h.team.entries(RS) if x.username == "subi")
+            h.team.update_entry(RS, e.id, tasks=(), end="2026-11-09", training_day=None, training_ref=None, by="pi",
+                                at=AT)  # fmt: skip  # the covering person's own entry ended: the cover lapsed
+        elif case == "another study's cover":
+            _entry(h.team, "pi", "pi", rs=OTHER)
+            _cover_for("subo", 0, 2, rs=OTHER)(h)
+
+    _case(lb, before)
+    (mail,) = _at_once(lb)
+    assert mail[1] == ["pi@hospa.test"]
+    (ev,) = _audit(lb, "office_copy")
+    assert "covering" not in ev and lb["app"].state.helpers.covering_now(RS) is None
