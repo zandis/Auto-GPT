@@ -8856,7 +8856,6 @@
      "set": "CRC improved",
      "concept_id": 36558447,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma with apocrine metaplasia of hepatic flexure of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -8865,7 +8864,6 @@
      "set": "CRC improved",
      "concept_id": 36542645,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell carcinoma of appendix",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -8874,7 +8872,6 @@
      "set": "CRC improved",
      "concept_id": 36557132,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell carcinoma of ascending colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -8883,7 +8880,6 @@
      "set": "CRC improved",
      "concept_id": 36518465,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell carcinoma of cecum",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -8892,7 +8888,6 @@
      "set": "CRC improved",
      "concept_id": 36555908,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell carcinoma of colon, NOS",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -8901,7 +8896,6 @@
      "set": "CRC improved",
      "concept_id": 36532893,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell carcinoma of descending colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -8910,7 +8904,6 @@
      "set": "CRC improved",
      "concept_id": 36529793,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell carcinoma of hepatic flexure of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -8919,7 +8912,6 @@
      "set": "CRC improved",
      "concept_id": 36539611,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell carcinoma of overlapping lesion of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -8928,7 +8920,6 @@
      "set": "CRC improved",
      "concept_id": 36554231,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell carcinoma of rectosigmoid junction",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -8937,7 +8928,6 @@
      "set": "CRC improved",
      "concept_id": 36563434,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell carcinoma of rectum, NOS",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -8946,7 +8936,6 @@
      "set": "CRC improved",
      "concept_id": 36524507,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell carcinoma of sigmoid colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -8955,7 +8944,6 @@
      "set": "CRC improved",
      "concept_id": 36553857,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell carcinoma of splenic flexure of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -8964,7 +8952,6 @@
      "set": "CRC improved",
      "concept_id": 36522964,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell carcinoma of transverse colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -8973,7 +8960,6 @@
      "set": "CRC improved",
      "concept_id": 36528383,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell cystadenocarcinoma of appendix",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -8982,7 +8968,6 @@
      "set": "CRC improved",
      "concept_id": 36547074,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell cystadenocarcinoma of ascending colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -8991,7 +8976,6 @@
      "set": "CRC improved",
      "concept_id": 36550422,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell cystadenocarcinoma of cecum",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9000,7 +8984,6 @@
      "set": "CRC improved",
      "concept_id": 36534614,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell cystadenocarcinoma of colon, NOS",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9009,7 +8992,6 @@
      "set": "CRC improved",
      "concept_id": 36557152,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell cystadenocarcinoma of descending colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9018,7 +9000,6 @@
      "set": "CRC improved",
      "concept_id": 36534051,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell cystadenocarcinoma of hepatic flexure of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9027,7 +9008,6 @@
      "set": "CRC improved",
      "concept_id": 36546447,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell cystadenocarcinoma of overlapping lesion of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9036,7 +9016,6 @@
      "set": "CRC improved",
      "concept_id": 36555551,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell cystadenocarcinoma of rectosigmoid junction",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9045,7 +9024,6 @@
      "set": "CRC improved",
      "concept_id": 36549328,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell cystadenocarcinoma of rectum, NOS",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9054,7 +9032,6 @@
      "set": "CRC improved",
      "concept_id": 36541764,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell cystadenocarcinoma of sigmoid colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9063,7 +9040,6 @@
      "set": "CRC improved",
      "concept_id": 36555420,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell cystadenocarcinoma of splenic flexure of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9072,7 +9048,6 @@
      "set": "CRC improved",
      "concept_id": 36549710,
      "vocabulary": "ICDO3",
-     "name": "Acinar cell cystadenocarcinoma of transverse colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9081,7 +9056,6 @@
      "set": "CRC improved",
      "concept_id": 44500019,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyp of appendix",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9090,7 +9064,6 @@
      "set": "CRC improved",
      "concept_id": 44500410,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyp of ascending colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9099,7 +9072,6 @@
      "set": "CRC improved",
      "concept_id": 44500863,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyp of cecum",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9108,7 +9080,6 @@
      "set": "CRC improved",
      "concept_id": 44501634,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyp of colon, NOS",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9117,7 +9088,6 @@
      "set": "CRC improved",
      "concept_id": 44500874,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyp of descending colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9126,7 +9096,6 @@
      "set": "CRC improved",
      "concept_id": 44502935,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyp of hepatic flexure of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9135,7 +9104,6 @@
      "set": "CRC improved",
      "concept_id": 36529078,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyp of overlapping lesion of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9144,7 +9112,6 @@
      "set": "CRC improved",
      "concept_id": 44503086,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyp of rectosigmoid junction",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9153,7 +9120,6 @@
      "set": "CRC improved",
      "concept_id": 44499501,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyp of rectum, NOS",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9162,7 +9128,6 @@
      "set": "CRC improved",
      "concept_id": 44500411,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyp of sigmoid colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9171,7 +9136,6 @@
      "set": "CRC improved",
      "concept_id": 44500245,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyp of splenic flexure of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9180,7 +9144,6 @@
      "set": "CRC improved",
      "concept_id": 44502529,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyp of transverse colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9189,7 +9152,6 @@
      "set": "CRC improved",
      "concept_id": 36524553,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyposis coli of appendix",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9198,7 +9160,6 @@
      "set": "CRC improved",
      "concept_id": 36546337,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyposis coli of ascending colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9207,7 +9168,6 @@
      "set": "CRC improved",
      "concept_id": 36556767,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyposis coli of cecum",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9216,7 +9176,6 @@
      "set": "CRC improved",
      "concept_id": 44500059,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyposis coli of colon, NOS",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9225,7 +9184,6 @@
      "set": "CRC improved",
      "concept_id": 36556262,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyposis coli of descending colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9234,7 +9192,6 @@
      "set": "CRC improved",
      "concept_id": 36529455,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyposis coli of hepatic flexure of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9243,7 +9200,6 @@
      "set": "CRC improved",
      "concept_id": 36552724,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyposis coli of overlapping lesion of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9252,7 +9208,6 @@
      "set": "CRC improved",
      "concept_id": 36552772,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyposis coli of rectosigmoid junction",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9261,7 +9216,6 @@
      "set": "CRC improved",
      "concept_id": 36551689,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyposis coli of rectum, NOS",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9270,7 +9224,6 @@
      "set": "CRC improved",
      "concept_id": 44499436,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyposis coli of sigmoid colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9279,7 +9232,6 @@
      "set": "CRC improved",
      "concept_id": 36522002,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyposis coli of splenic flexure of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9288,7 +9240,6 @@
      "set": "CRC improved",
      "concept_id": 36535150,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in adenomatous polyposis coli of transverse colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9297,7 +9248,6 @@
      "set": "CRC improved",
      "concept_id": 36547484,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in multiple adenomatous polyps of appendix",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9306,7 +9256,6 @@
      "set": "CRC improved",
      "concept_id": 36518315,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in multiple adenomatous polyps of ascending colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9315,7 +9264,6 @@
      "set": "CRC improved",
      "concept_id": 44500353,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in multiple adenomatous polyps of cecum",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9324,7 +9272,6 @@
      "set": "CRC improved",
      "concept_id": 44501009,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in multiple adenomatous polyps of colon, NOS",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9333,7 +9280,6 @@
      "set": "CRC improved",
      "concept_id": 36548040,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in multiple adenomatous polyps of descending colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9342,7 +9288,6 @@
      "set": "CRC improved",
      "concept_id": 36565190,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in multiple adenomatous polyps of hepatic flexure of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9351,7 +9296,6 @@
      "set": "CRC improved",
      "concept_id": 36541062,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in multiple adenomatous polyps of overlapping lesion of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9360,7 +9304,6 @@
      "set": "CRC improved",
      "concept_id": 36536908,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in multiple adenomatous polyps of rectosigmoid junction",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9369,7 +9312,6 @@
      "set": "CRC improved",
      "concept_id": 36553700,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in multiple adenomatous polyps of rectum, NOS",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9378,7 +9320,6 @@
      "set": "CRC improved",
      "concept_id": 44500060,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in multiple adenomatous polyps of sigmoid colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -9387,7 +9328,6 @@
      "set": "CRC improved",
      "concept_id": 36566260,
      "vocabulary": "ICDO3",
-     "name": "Adenocarcinoma in multiple adenomatous polyps of splenic flexure of colon",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
