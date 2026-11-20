@@ -651,3 +651,29 @@ table.worklist tr[data-status="new"] td:first-child { box-shadow: inset 3px 0 0 
 .ph h1 { margin-bottom: 6px; }
 .ph-ctx { flex: 0 0 100%; margin: 0; font-size: var(--t-meta); color: var(--muted); }
 .ph-act { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+/* 10F-1 (D-1387): a person's own look (console.prefs; base.html puts each value other than the default on <html> as
+   a data attribute). Only the look changes: spacing, the type tokens and the colour tokens; never what a page holds,
+   and never a target under 44 px. The colour modes are token sets on the root element: "light" and "dark" are the
+   two system palettes above, chosen by the person (tests/unit/test_console_tokens_and_type.py holds them equal to
+   them), and "contrast" is a high-contrast palette (text 7:1). */
+:root[data-mode="light"] { color-scheme: light;
+  --bg: #f6f7f9; --card: #fff; --ink: #1b2430; --muted: #5b6676; --line: #d8dde4;
+  --accent: #1d5fa8; --accent-ink: #fff; --ok: #1e6b3a; --ok-bg: #e5f3ea; --bad: #9b1c1c; --bad-bg: #fbe9e9;
+  --warn: #7a4d00; --warn-bg: #fff4dc; --banner: #253a5e; --control: #7b8594; }
+:root[data-mode="dark"] { color-scheme: dark;
+  --bg: #11161d; --card: #1a212b; --ink: #e6eaf0; --muted: #a5afbd; --line: #2e3845;
+  --accent: #6aa8f0; --accent-ink: #0d1520; --ok: #8fd9a8; --ok-bg: #18301f; --bad: #f2a3a3; --bad-bg: #3a1c1c;
+  --warn: #f3cf7a; --warn-bg: #3a2e12; --banner: #2c3f63; --control: #7c8797; }
+:root[data-mode="contrast"] { color-scheme: light;
+  --bg: #fff; --card: #fff; --ink: #000; --muted: #2b2b2b; --line: #595959;
+  --accent: #003a80; --accent-ink: #fff; --ok: #00451a; --ok-bg: #eef8f1; --bad: #7a0000; --bad-bg: #fff0f0;
+  --warn: #4a2e00; --warn-bg: #fff4d6; --banner: #000; --control: #000; }
+:root[data-text-size="125"] { --t-meta: calc(15px * 1.25); --t-body: calc(16px * 1.25); --t-h2: calc(17px * 1.25);
+  --t-lead: calc(18px * 1.25); --t-h1: calc(22px * 1.25); --t-num: calc(26px * 1.25); }
+:root[data-text-size="150"] { --t-meta: calc(15px * 1.5); --t-body: calc(16px * 1.5); --t-h2: calc(17px * 1.5);
+  --t-lead: calc(18px * 1.5); --t-h1: calc(22px * 1.5); --t-num: calc(26px * 1.5); }
+:root[data-density="compact"] main { padding: 10px 12px; }
+:root[data-density="compact"] .card { padding: 10px 12px; margin-bottom: 10px; }
+:root[data-density="compact"] .grid { gap: 10px; }
+:root[data-density="compact"] th, :root[data-density="compact"] td { padding: 3px 6px; }
+:root[data-density="compact"] h1 { margin: 4px 0 8px; }

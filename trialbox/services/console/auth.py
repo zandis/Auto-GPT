@@ -35,7 +35,7 @@ import ipaddress
 import json
 import re
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -44,6 +44,7 @@ from zoneinfo import ZoneInfo
 
 from tb_common.authz import permit
 
+from console import prefs
 from console.storedb import open_db
 from console.timefmt import local_today, site_zone
 
@@ -201,7 +202,21 @@ SCHEMA_V8 = """
 ALTER TABLE users ADD COLUMN last_acting_role TEXT;
 ALTER TABLE pending_logins ADD COLUMN role TEXT
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8)
+# 10F-1 (D-1387): a person's own preferences (``console.prefs``: density, text size, colour mode, language), one row
+# per key that differs from its default; a closed set of values per key, no free text, nothing patient-linked. A new
+# table only (IF NOT EXISTS): nothing that is stored changes
+SCHEMA_V9 = """
+CREATE TABLE IF NOT EXISTS user_pref (
+  username TEXT COLLATE "C" NOT NULL,
+  name TEXT NOT NULL,
+  value TEXT NOT NULL,
+  at TEXT COLLATE "C" NOT NULL,
+  PRIMARY KEY (username, name)
+)
+"""
+MIGRATIONS: tuple[str, ...] = (
+    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9
+)  # fmt: skip
 FACTORS = ("password", "totp")
 FACTOR_WINDOW = timedelta(days=30)  # D-719: the owner's rule, not a setting: one factor at a time for 30 days
 _COLS = "username, role, mailbox, affiliation, studies, expires"
@@ -637,10 +652,13 @@ class UserStore:
             tx.execute("DELETE FROM pending_logins WHERE username = ?", (username,))  # a half-done sign-in too
 
     def disable(self, username: str) -> None:
+        """The account can no longer sign in: its sessions and half-done sign-ins end, and its preferences go
+        (10F-1, D-1387: a disabled account keeps no per-person setting; enabled again, it starts from the defaults)."""
         with self.db.transaction() as tx:
             tx.execute("UPDATE users SET disabled = 1 WHERE username = ?", (username,))
             tx.execute("DELETE FROM sessions WHERE username = ?", (username,))
             tx.execute("DELETE FROM pending_logins WHERE username = ?", (username,))
+            tx.execute("DELETE FROM user_pref WHERE username = ?", (username,))
 
     def enable(self, username: str) -> None:
         """D-178 (review J-14): the undo of :meth:`disable`. The password is the one the account had; its sessions
@@ -761,6 +779,8 @@ class UserStore:
         token = secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
         now = self.clock().isoformat()
+        if not is_api_via(via):  # 10F-1 (D-1387): a language the person chose survives sign-out
+            lang = prefs.session_lang(self.prefs(user.username)) or lang
         self.db.execute(
             "INSERT INTO sessions (token_sha, username, csrf, created, last_seen, lang, via) VALUES (?,?,?,?,?,?,?)",
             (_sha(token), user.username, csrf, now, now, lang, via[:16]),
@@ -1222,6 +1242,39 @@ class UserStore:
 
     def set_lang(self, session: Session, lang: str) -> None:
         self.db.execute("UPDATE sessions SET lang = ? WHERE token_sha = ?", (lang, session.token_sha))
+
+    # ------------------------------------------------------------------ 10F-1 (D-1387): the person's own preferences
+    def prefs(self, username: str) -> dict[str, str]:
+        """Every preference key of ``username`` with its value (``console.prefs.of``: a stored value, else the
+        default). Reads that person's rows only."""
+        rows = self.db.fetchall("SELECT name, value FROM user_pref WHERE username = ?", (username,))
+        return prefs.of({str(n): str(v) for n, v in rows})
+
+    def set_prefs(self, username: str, values: Mapping[str, str]) -> list[tuple[str, str, str]]:
+        """Store ``values`` for ``username`` (each key and value from the closed set of ``console.prefs.KEYS``, else
+        :class:`AuthError` and nothing is stored); a default value is stored as no row. Returns (key, from, to) of
+        each key that changed, for the audit line."""
+        bad = sorted(k for k, v in values.items() if not prefs.valid(k, v))
+        if bad:
+            raise AuthError(f"not a preference value: {', '.join(bad)}")
+        at = self.clock().isoformat()
+        done: list[tuple[str, str, str]] = []
+        with self.db.transaction() as tx:
+            rows = tx.fetchall("SELECT name, value FROM user_pref WHERE username = ?", (username,))
+            now = prefs.of({str(n): str(v) for n, v in rows})
+            for key in prefs.KEYS:
+                if key not in values or values[key] == now[key]:
+                    continue
+                if values[key] == prefs.DEFAULTS[key]:
+                    tx.execute("DELETE FROM user_pref WHERE username = ? AND name = ?", (username, key))
+                else:
+                    tx.execute(
+                        "INSERT INTO user_pref (username, name, value, at) VALUES (?,?,?,?) "
+                        "ON CONFLICT (username, name) DO UPDATE SET value = excluded.value, at = excluded.at",
+                        (username, key, values[key], at),
+                    )
+                done.append((key, now[key], values[key]))
+        return done
 
     def end_session(self, token: str) -> None:
         self.db.execute("DELETE FROM sessions WHERE token_sha = ?", (_sha(token),))

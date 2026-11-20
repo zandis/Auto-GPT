@@ -131,7 +131,7 @@ def test_a_failed_post_shows_the_summary_tied_to_each_field(box: dict[str, Any],
     _c, r, _ = _failed(box, name, lang)
     assert r.status_code == 400, r.text[-500:]
     assert f'data-testid="{case.testid}"' in r.text  # the testid the form's earlier tests read
-    assert _title(r.text).startswith(cat["fe.title"].format(title=cat["sstate.title"]))
+    assert _title(r.text).startswith(cat["fe.title"].format(title=cat[case.title_key]))
     got = _summary(r.text)
     assert got is not None
     head, links = got
@@ -177,11 +177,13 @@ def test_typed_values_come_back_and_secrets_never_do(box: dict[str, Any], name: 
 @pytest.mark.parametrize("name", sorted(CASES))
 def test_csrf_is_still_enforced_and_a_right_post_saves_as_before(box: dict[str, Any], name: str) -> None:  # noqa: F811
     case = CASES[name]
-    want = {"identity": "/studies/GZQO/state?saved=identity",
-            "irb-text": "/studies/GZQO/state?saved=irb_text#irb-text"}[name]  # fmt: skip
+    want = case.saved_at
     for lang in LANGS:
         c = _client(box, case, lang)
         page = c.get(case.page).text
+        if case.reset:  # a form that audits only a change (10F-1): back to where a save changes something
+            r = c.post(case.action, data={"csrf": _csrf(page), **case.reset}, follow_redirects=False)
+            assert r.status_code == 303
         before = len(_events(box, case.saved_event))
         for token in ("", "x" * 32):
             r = c.post(case.action, data={"csrf": token, **case.bad}, follow_redirects=False)

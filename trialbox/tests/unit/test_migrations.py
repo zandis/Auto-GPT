@@ -386,6 +386,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "4775e64bb8830064e1a8b965c60bb4cd34bf2e5fae88e5ca7136d3d892606a77",
         # STEPS-ROLE-2 (D-1151): users.last_acting_role, the next sign-in's role
         "dfab16954d5d5931634cc8fa42810402cae9d271cfa6072ec0886f81e87b25eb",
+        # 10F-1 (D-1387): user_pref, a person's own preferences (a new table only)
+        "9409f881862035ee5dffac8b332111fb15b01b5229f76ab666d511b7c62156d3",
     ),
     # D-301: migration 3, the one-million block and the vocabulary tables
     # T-106 (D-339): migration 4, the large clinical tables partitioned by year

@@ -6,6 +6,11 @@ in the style sheet or in any template. The contrast of the pairs that matter is 
 formula, in pure Python, in both modes: text 4.5:1, a field's border 3:1 (1.4.11, A11Y-1), the amber row's text on
 ``--warn-bg`` (A11Y-2). This file is a guard (it reads the tree; no database), so CI runs it on every tier.
 
+10F-1 (D-1387): the colour mode a person chooses (light, dark, high contrast) is a token set on the root element
+itself (``:root[data-mode="light|dark|contrast"]``, exactly those three selectors); each sets every colour token,
+the chosen light and dark are the system's two palettes value for value, and the high-contrast set passes every pair
+at 7:1 for text and 4.5:1 for the rest.
+
 9k-2: the type scale and line heights are tokens; Japanese and Traditional Chinese pages get their own line height,
 ``line-break: strict`` and the word-break rules, and no italic for Han emphasis. System fonts only.
 """
@@ -48,6 +53,10 @@ HEX = re.compile(r"#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})\b")
 FUNC = re.compile(r"\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\(", re.I)
 #: a ``:root`` rule whose selector is ``:root`` alone (a list such as ``.x, :root`` is an ordinary rule)
 ROOT_BLOCK = re.compile(r"(?:^|(?<=[{}]))\s*:root\s*\{[^{}]*\}")
+#: 10F-1 (D-1387): the colour modes a person chooses, each a token set on the root element (``console.prefs``)
+CHOSEN = ("light", "dark", "contrast")
+MODE_ROOT = re.compile(r':root\[data-mode="(light|dark|contrast)"\]')
+MODE_BLOCK = re.compile(r'(?:^|(?<=[{}]))\s*:root\[data-mode="(\w+)"\]\s*\{([^{}]*)\}')
 JS = CONSOLE / "static" / "console.js"
 DARK = "@media (prefers-color-scheme: dark)"
 #: colour tokens deliberately the same in both modes, so the dark block need not repeat them: the banner's own ink and
@@ -69,13 +78,14 @@ def _value_literals(prop: str, value: str) -> list[str]:
 
 
 def literal_colours(css: str) -> list[str]:
-    """Every literal colour in ``css`` except a custom property's value in a rule whose selector is ``:root`` alone:
-    hex, a colour function, a named colour in a declaration's value. A ``:root`` rule's ordinary property (``color``)
-    and a selector list that holds ``:root`` among others are checked like any rule."""
+    """Every literal colour in ``css`` except a custom property's value in a rule whose selector is ``:root`` alone,
+    or one of the three chosen colour modes on the root element (10F-1): hex, a colour function, a named colour in a
+    declaration's value. A ``:root`` rule's ordinary property (``color``) and a selector list that holds ``:root``
+    among others are checked like any rule."""
     css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     found: list[str] = []
     for selector, body in re.findall(r"([^{}]*)\{([^{}]*)\}", css):  # the innermost blocks: declarations
-        is_root = selector.strip() == ":root"
+        is_root = selector.strip() == ":root" or bool(MODE_ROOT.fullmatch(selector.strip()))
         for decl in body.split(";"):
             if ":" not in decl:
                 continue
@@ -150,6 +160,12 @@ def tokens(css: str | None = None) -> tuple[dict[str, str], dict[str, str]]:
     light_block, dark_block = root_blocks(_css() if css is None else css)
     light = _decls(light_block)
     return light, {**light, **_decls(dark_block)}
+
+
+def chosen_modes(css: str | None = None) -> dict[str, dict[str, str]]:
+    """10F-1 (D-1387): each chosen colour mode's own tokens (``:root[data-mode="..."]``), by mode."""
+    text = re.sub(r"/\*.*?\*/", "", _css() if css is None else css, flags=re.S)
+    return {m.group(1): _decls(m.group(2)) for m in MODE_BLOCK.finditer(text)}
 
 
 def _is_colour(value: str) -> bool:
@@ -342,7 +358,7 @@ PAIRS: list[Pair] = [
 def contrast_failures(css: str, mode: str, pairs: list[Pair] = PAIRS) -> list[str]:
     """Each pair of ``pairs`` under its minimum in ``mode`` of ``css``, as a sentence."""
     light, dark = tokens(css)
-    t = light if mode == "light" else dark
+    t = light if mode == "light" else dark if mode == "dark" else {**light, **chosen_modes(css)[mode]}
     bad: list[str] = []
     for fg, bg, minimum in pairs:
         name = _rule_token(css, *fg) if isinstance(fg, tuple) else fg
@@ -360,6 +376,50 @@ def _id(p: object) -> str:
 @pytest.mark.parametrize(("fg", "bg", "minimum"), PAIRS, ids=_id)
 def test_contrast_of_each_pair_in_each_mode(mode: str, fg: str | tuple[str, str], bg: str, minimum: float) -> None:
     assert contrast_failures(_css(), mode, [(fg, bg, minimum)]) == []
+
+
+# ------------------------------------------------------------------------------------------- 10F-1: the chosen modes
+
+
+def test_each_chosen_mode_sets_every_colour_token() -> None:
+    light, _ = tokens()
+    colours = {k for k, v in light.items() if _is_colour(v)} - SAME_IN_BOTH
+    modes = chosen_modes()
+    assert sorted(modes) == sorted(CHOSEN)
+    for mode, decls in modes.items():
+        assert colours <= set(decls), (mode, sorted(colours - set(decls)))
+        assert set(decls) <= set(light), (mode, sorted(set(decls) - set(light)))  # no token of its own
+        assert all(_is_colour(v) for v in decls.values()), mode
+
+
+def test_the_chosen_light_and_dark_are_the_system_palettes() -> None:
+    """A person who chooses light or dark gets the palette the system's light or dark gives, value for value: the two
+    copies cannot drift apart."""
+    light, dark = tokens()
+    modes = chosen_modes()
+    assert {k: light[k] for k in modes["light"]} == modes["light"]
+    assert {k: dark[k] for k in modes["dark"]} == modes["dark"]
+
+
+@pytest.mark.parametrize(("fg", "bg", "minimum"), PAIRS, ids=_id)
+def test_contrast_of_each_pair_in_high_contrast(fg: str | tuple[str, str], bg: str, minimum: float) -> None:
+    """The high-contrast mode: every pair at 7:1 where the others ask 4.5:1 (WCAG 1.4.6), 4.5:1 where they ask 3:1."""
+    stricter = 7.0 if minimum >= 4.5 else 4.5
+    assert contrast_failures(_css(), "contrast", [(fg, bg, stricter)]) == []
+
+
+def test_only_the_three_chosen_modes_may_hold_a_colour_on_the_root_element() -> None:
+    assert literal_colours(':root[data-mode="dark"] { --bg: #111; }') == []
+    assert literal_colours(':root[data-mode="neon"] { --bg: #111; }') == ["--bg: #111"]
+    assert literal_colours(':root[data-density="compact"] { --bg: #111; }') == ["--bg: #111"]
+    assert literal_colours('.x :root[data-mode="dark"] { --bg: #111; }') == ["--bg: #111"]
+    assert literal_colours(':root[data-mode="dark"] { color: #111; }') == ["color: #111"]  # a property, not a token
+    planted = _css().replace(':root[data-mode="contrast"] { color-scheme: light;\n  --bg: #fff;',
+                             ':root[data-mode="contrast"] { color-scheme: light;\n  --bg: #777;')  # fmt: skip
+    assert planted != _css()
+    assert any(
+        "--ink" in x and "--bg #777" in x for x in contrast_failures(planted, "contrast", [("--ink", "--bg", 7.0)])
+    )
 
 
 def test_a_bad_dark_link_colour_fails_and_light_stays_green() -> None:
