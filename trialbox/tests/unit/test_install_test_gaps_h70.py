@@ -33,7 +33,11 @@ def _bin(tmp: Path, scripts: dict[str, str]) -> Path:
 @pytest.mark.parametrize(("has_buildx", "rc"), [(False, 2), (True, 0)])
 def test_images_names_buildx_before_it_builds(tmp_path: Path, has_buildx: bool, rc: int) -> None:
     log = tmp_path / "docker.log"
-    answer = "echo 'github.com/docker/buildx v0.17.1'; exit 0" if has_buildx else "echo \"docker: 'buildx' is not a docker command.\" >&2; exit 1"
+    answer = (
+        "echo 'github.com/docker/buildx v0.17.1'; exit 0"
+        if has_buildx
+        else "echo \"docker: 'buildx' is not a docker command.\" >&2; exit 1"
+    )
     bin_dir = _bin(tmp_path, {"docker": f'echo "docker $*" >> {log}\ncase "$1" in buildx) {answer};; esac\nexit 1\n'})
     env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path)}
     r = subprocess.run(["make", "--no-print-directory", "buildx-check"], cwd=ROOT, env=env, capture_output=True,
