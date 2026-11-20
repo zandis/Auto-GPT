@@ -115,9 +115,10 @@ class Stored:
 def protocol_lines(stored: Stored, job: str) -> tuple[str, str, list[dict[str, Any]], dict[str, Any]]:
     """(ruleset id on the box, language, the protocol's lines in order with absolute ``parent``, what is known) from
     the ``ir_extract`` prompts the run stored for the FEAS job. A call whose lines were all asked before is the
-    compile's retry of lines without an answer (D-912), not a new part."""
+    compile's retry of lines without an answer (D-912), not a new part. A line is its kind, words and source
+    reference (9h-2: the same words at two references are two lines)."""
     lines: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     ruleset, language = "", "en"
     answered = unanswered = 0
     for x in stored.calls(job, "ir_extract"):
@@ -129,7 +130,7 @@ def protocol_lines(stored: Stored, job: str) -> tuple[str, str, list[dict[str, A
             unanswered += 1
         else:
             answered += 1
-        keys = [(str(ln.get("kind")), norm(ln.get("text"))) for ln in part]
+        keys = [(str(ln.get("kind")), norm(ln.get("text")), str(ln.get("source_ref") or "")) for ln in part]
         if part and all(k in seen for k in keys):
             continue
         start = len(lines)
@@ -241,9 +242,10 @@ class Recompiled:
     known: dict[str, Any] = field(default_factory=dict)
 
 
-def recompile(stored: Stored, job: str, index_date: date, tz: str) -> Recompiled:
+def recompile(stored: Stored, job: str, index_date: date, tz: str, model: ReplayModel | None = None) -> Recompiled:
     """``Compiler.compile`` on the stored lines and replies. No translator, no FHIR server, no lake: the equivalence
-    step reports "unavailable" and fails nothing (it is not run)."""
+    step reports "unavailable" and fails nothing (it is not run). ``model``: another stored-reply model (9h-2's,
+    which answers from the job's own replies only); by default :class:`ReplayModel`."""
     import tb_contracts as c
     from criteria_compiler.repo import RulesetRepo
     from criteria_compiler.service import CompileFailed, Compiler, CompilerDeps
@@ -254,7 +256,7 @@ def recompile(stored: Stored, job: str, index_date: date, tz: str) -> Recompiled
     ruleset, language, lines, known = protocol_lines(stored, job)
     if not lines:
         return Recompiled(ruleset or job, "not_rerun", "ir_extract", "the run stored no ir_extract prompt for the job")
-    model = ReplayModel(stored, job)
+    model = model or ReplayModel(stored, job)
     with tempfile.TemporaryDirectory(prefix="tb-replay-") as t:
         tmp = Path(t)
         store = FsStore(tmp / "obj")

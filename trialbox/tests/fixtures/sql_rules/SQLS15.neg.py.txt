@@ -1,0 +1,8 @@
+# synthetic: an environment variable read, checked as an int, and bound or given through int()
+import os
+
+
+def tune(con):
+    mb = int(os.environ.get("SYNTH_WORK_MB", "64"))
+    con.execute(f"SET work_mem = '{mb}MB'")
+    con.execute("SELECT set_config('work_mem', ?, false)", (os.environ.get("SYNTH_WORK_MEM", "64MB"),))

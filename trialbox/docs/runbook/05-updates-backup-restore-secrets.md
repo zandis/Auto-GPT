@@ -418,3 +418,9 @@ The mail passwords and a cloud-model key are the hospital's: change them at thei
 box installed before step 8 keeps its shared `TB_SERVICE_TOKEN` (with a warning) until the first full rotation;
 outside DEV and TEST the gateway (D-437) and the orchestrator (D-464) refuse it, so run `secrets init` first. The
 administrator's token for scripts is `deploy/secrets/services/operator.token` (header `X-TB-Service-Token`).
+
+**The health page's watcher** (D-1365). With `TB_BACKUP_ALERT_ROUTE=health-page`, name the person who opens it every
+working day in `TB_BACKUP_ALERT_WATCHER`; the install note and `doctor` show the name, or warn while nobody is named.
+A name holds letters and digits of any script, single spaces and `. , - ( ) （ ） / ’ ' ・ · 〜 ～` only (`'` not
+first or last), at most 100 characters; anything else (a line break, a double quote, `$`, a backslash) is refused,
+so a name can never add or change a setting.

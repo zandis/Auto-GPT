@@ -1,0 +1,40 @@
+# Synthetic allow-list for tests/unit/test_vex.py (card 10G-8, D-1339): made-up ids and packages, two images and the lock.
+vulnerabilities:
+  - id: CVE-2099-0001
+    package: libexample1
+    image: example/upstream
+    reason: Debian package of a made-up upstream image; waits for a patched tag pinned by digest
+    date: 2099-01-02
+    review_by: 2099-03-01
+    owner: security owner (D-9999)
+  - id: CVE-2099-0002
+    package: stdlib
+    image: example/login
+    reason: "Not reachable: the flaw is in a server handshake the made-up login image never accepts"
+    date: 2099-01-03
+    review_by: 2099-03-01
+    owner: lane H
+  - id: GHSA-aaaa-bbbb-cccc
+    package: examplepkg
+    reason: A made-up Python package of the lock, accepted until its fixed release is locked
+    date: 2099-01-04
+    review_by: 2099-02-01
+    owner: release owner
+  - id: "*"
+    package: linux-libc-dev
+    image: example/upstream
+    reason: Made-up build-time headers of the upstream image, not the running kernel
+    date: 2099-01-02
+    review_by: 2099-03-01
+    owner: security owner (D-9999)
+licences:
+  - package: examplelib
+    class: lgpl
+    reason: a licence entry is no vulnerability waiver; the VEX tool never reads it
+    review_by: 2099-05-01
+os_packages_unreadable:
+  - image: example/login
+    reason: The made-up login image ships no package database; its binary is scanned and gated
+    date: 2099-01-03
+    review_by: 2099-03-01
+    owner: security owner (D-9999)

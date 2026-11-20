@@ -1,0 +1,7 @@
+{
+  "format": "trialbox-images-lock/1",
+  "third_party": {
+    "upstream": {"image": "example/upstream:1.2.3", "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+    "login": {"image": "example/login:4.5", "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"}
+  }
+}

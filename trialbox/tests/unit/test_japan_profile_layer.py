@@ -67,7 +67,7 @@ def _jp() -> country_layer.Layer:
 # ------------------------------------------------------------------------------------------------ P1 to P16
 def test_the_japan_profile_lists_p1_to_p16_by_name() -> None:
     lay = _jp()
-    assert lay.on and lay.country == "JP" and lay.version == "1.0.0"
+    assert lay.on and lay.country == "JP" and lay.version == "1.1.0"
     assert {pid: p.name for pid, p in lay.parts.items()} == P1_TO_P16
     assert tuple(lay.parts) == tuple(P1_TO_P16)  # in order
 
@@ -120,7 +120,7 @@ def test_the_layer_is_versioned_and_its_digest_is_the_files() -> None:
 
     lay = _jp()
     assert lay.digest == hashlib.sha256(LAYER.read_bytes()).hexdigest()
-    assert country_layer.stamp("jp") == {"country": "JP", "version": "1.0.0", "digest": lay.digest}
+    assert country_layer.stamp("jp") == {"country": "JP", "version": "1.1.0", "digest": lay.digest}
     assert country_layer.stamp("TW") is None and country_layer.stamp("") is None and country_layer.stamp(None) is None
 
 
@@ -240,6 +240,7 @@ def _renamed(code: str) -> country_layer.Layer:
 def _calls(country: str) -> dict[str, Any]:
     """Every reader of the layer, called for a site of ``country``: what each gives."""
     from datacore import lifecycle
+    from sitesetup import mapping
 
     cal = workdays.for_country(country, {})
     defaults = dataclasses.asdict(site_country.from_layer(country.lower()))
@@ -255,6 +256,7 @@ def _calls(country: str) -> dict[str, Any]:
         "working_2027_01_04": cal.is_working_day(__import__("datetime").date(2027, 1, 4)),
         "working_2026_12_30": cal.is_working_day(__import__("datetime").date(2026, 12, 30)),
         "stems": bool(country_layer.value(country, "P7", "ingredient_stems")),
+        "code_tables": [p.relative_to(mapping.MAPPING_DIR).as_posix() for _k, p, *_c in mapping.code_tables(country)],
     }
 
 
@@ -296,6 +298,7 @@ def test_switching_it_on_turns_on_p1_to_p16_from_data() -> None:
     assert (d["locale"], d["retention_rules"], d["data_source_type"], d["printed_dates"], d["year_basis"]) == (
         "ja", "jp", "ssmix2", "both", "fiscal")  # fmt: skip
     assert d["consent_proxy"] and d["mapping"] == "mapping/jp_core/ssmix2_site.yaml" and d["one_zone"]
+    assert on["code_tables"] == _jp().value("P7", "code_tables")  # the set-up's code tables (D-1255)
 
 
 def test_the_same_layer_under_another_country_code_runs_the_same_calls_with_the_same_results() -> None:
@@ -579,7 +582,7 @@ def test_the_layers_version_is_in_the_site_profiles_record_and_not_in_the_audit_
     # the same profile under the release's next layer: nothing is written, as on master (the record keeps the layer
     # read at the load; no event, no write without one)
     before = (lake / asp.RECORD).read_bytes()
-    newer = dataclasses.replace(_jp(), version="1.1.0", digest="f" * 64)
+    newer = dataclasses.replace(_jp(), version="1.2.0", digest="f" * 64)
     with _layers({"JP": newer}):
         assert asp.activate(p, lake, site_id=p.site_id, by="steward-b", audit_dir=audit) is None
     assert (lake / asp.RECORD).read_bytes() == before and len(_load_events(audit)) == 1
@@ -613,7 +616,6 @@ QUESTION = "the words of the country question and its answers (jp = Japan)"
 SHIPPED_DATA = "shipped mapping data and the synthetic Japanese hospital's profile (data, read as data)"
 READING = "the one reading of a zone or a language as a country, and the answers file written before 10K-1 (LEGACY)"
 LAYER_INDEX = "the layer's own index: which country each shipped layer file is"
-NOT_YET = "not yet a layer reader (D-1250, what remains): the follow-up card moves it into the layer"
 ALLOWED: dict[tuple[str, str], tuple[int, str]] = {
     **{(f, line): (n, READING) for f, line, n in (
         ('libs/tb_common/derived.py', 'if tz in ("Asia/Tokyo", "Japan"):', 2),
@@ -638,6 +640,8 @@ ALLOWED: dict[tuple[str, str], tuple[int, str]] = {
         ('libs/tb_common/refdata_jp.py', 'country="JP", decision="D-174", fetch=False, parse=parse_jlac10_loinc,', 1),
         ('libs/tb_common/refdata_jp.py', 'country="JP", decision="D-317", fetch=False, parse=parse_jrct,', 1),
         ('libs/tb_common/retention.py', '"jp": {**_COMMON, "mail_log_days": 5 * 365},', 1),
+        ('services/adapter/site_questionnaire.py', '"jp_core",', 1),
+        ('services/adapter/site_questionnaire.py', '"jp_core": _SEMVER,', 1),
         ('services/console/i18n_demoja.py', '"jp_yj_atc": "YJ code (7-character stem) -> ATC (TrialBox, stems from the MHLW 薬価基準収載品目リスト)",', 1),
         ('services/console/i18n_demoja.py', '"jp_yj_atc": "YJ コード（先頭7桁）→ ATC（TrialBox、厚生労働省 薬価基準収載品目リストから作成）",', 1),
         ('services/console/i18n_demoja.py', '"jp_yj_atc": "YJ 代碼（前7碼）→ ATC（TrialBox，取自日本厚生勞動省 薬価基準収載品目リスト）",', 1),
@@ -649,6 +653,9 @@ ALLOWED: dict[tuple[str, str], tuple[int, str]] = {
         ('services/datacore/lifecycle.py', 'RULE_ALIASES = {"jp": "jp_gcp_ii", "tw": "tw_trial"}  # the box-wide names before D-277 (TB_SAE_RULES)', 2),
         ('services/guard/recognisers.py', 'yield Finding("JP_MY_NUMBER" if ok else "ID_NUMBER", m.start(), m.end(), ok)', 1),
         ('services/orchestrator/scenarios/consent.py', 'code = {"en": "en", "ja": "ja", "jp": "ja", "zh": "zh-TW", "zh-tw": "zh-TW", "tw": "zh-TW"}.get(tok.lower())', 1),
+        ('services/sitesetup/mapping.py', '"jp_core/byomei_to_icd10.csv",', 1),
+        ('services/sitesetup/mapping.py', '"jp_core/jlac10_to_loinc.csv",', 1),
+        ('services/sitesetup/mapping.py', '"jp_core/yj_to_atc.csv",', 1),
         ('services/sitesetup/ocr.py', 'LANGS = ("jpn", "chi_tra", "eng")', 1),
     )},
     **{(f, line): (n, SOURCE_TYPE) for f, line, n in (
@@ -666,15 +673,6 @@ ALLOWED: dict[tuple[str, str], tuple[int, str]] = {
         ('services/adapter/mapping/jp_core/ssmix2_site.yaml', 'tz: Asia/Tokyo', 1),
         ('services/adapter/mapping/profile/synthetic-jp-ss/profile.yaml', 'country: jp', 1),
         ('services/adapter/mapping/profile/synthetic-jp-ss/profile.yaml', 'jp_core: 1.1.0       # the profiles the mapping puts on the resources (mapping/jp_core/ssmix2_site.yaml)', 1),
-    )},
-    **{(f, line): (n, NOT_YET) for f, line, n in (
-        ('services/sitesetup/mapping.py', '("drug", MAPPING_DIR / "jp_core" / "yj_to_atc.csv", "yj_code"),', 1),
-        ('services/sitesetup/mapping.py', '("drug", MAPPING_DIR / "jp_core" / "yj_to_atc.csv", "yj_code", "atc", "name"),', 1),
-        ('services/sitesetup/mapping.py', '("dx", MAPPING_DIR / "jp_core" / "byomei_to_icd10.csv", "code"),', 1),
-        ('services/sitesetup/mapping.py', '("dx", MAPPING_DIR / "jp_core" / "byomei_to_icd10.csv", "code", "icd10", "name"),', 1),
-        ('services/sitesetup/mapping.py', '("lab", MAPPING_DIR / "jp_core" / "jlac10_to_loinc.csv", "local_code"),', 1),
-        ('services/sitesetup/mapping.py', '("lab", MAPPING_DIR / "jp_core" / "jlac10_to_loinc.csv", "local_code", "code", "display"),', 1),
-        ('services/sitesetup/mapping.py', 'path = MAPPING_DIR / "jp_core" / "byomei_to_icd10.csv"', 1),
     )},
 }  # fmt: skip
 JAPAN = ("jp", "jpn", "japan", "日本", "asia/tokyo", "tokyo", "jst")
