@@ -43,7 +43,7 @@ from typing import Any
 
 from criteria_compiler.compile_sql.generator import SqlGenerator
 from criteria_compiler.semantics import CompileError, Kind, atoms, kind, window
-from criteria_compiler.terminology.mapper import Terminology, ValueSets
+from criteria_compiler.terminology.mapper import ValueSets
 from pydantic import ValidationError
 from tb_common.reasons import Reason
 from tb_contracts import Atom, BoolExpr, CriterionIR
@@ -171,7 +171,9 @@ class V3Stage:
     # ------------------------------------------------------------------------------------------- the compiled SQL
     def _valuesets(self) -> ValueSets:
         if self._vs is None:
-            self._vs = ValueSets(self.run.rs.id, self.run.rs.valuesets, Terminology())
+            # the ruleset's own value sets only: the SQL generator reads their codes, families and stems, and the
+            # matching service does not read the loaded terminology tables
+            self._vs = ValueSets(self.run.rs.id, self.run.rs.valuesets, None)
         return self._vs
 
     def _sql(self, crit: list[CriterionIR]) -> str:

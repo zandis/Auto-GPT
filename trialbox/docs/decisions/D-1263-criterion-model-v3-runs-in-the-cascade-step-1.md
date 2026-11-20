@@ -28,6 +28,19 @@ Nothing here is a new design. Model v3 is the one already written: `libs/tb_cont
    the compiler already shows a line it cannot compile: class `human`, the line as its question, no coded logic. So
    a service that does not evaluate model v3 says "a person decides" and never answers such a criterion.
 
+6. **Why no v1 reader can decide a v3-only criterion.** Held as a property of the stand-in (no coded logic: the
+   compiler refuses it; no SQL column; class `human`; no note question), not by a walk of every reader. Read by
+   hand, with what each does for such a criterion: the cascade (`engine.py`: not among the applied criteria, among
+   the human ones, `pending_human` unless the v3 stage answers); the v1 evaluator (`evaluate.py`: `human_verdict`,
+   never `structured_verdict`); the trace-to-verdict mapping (`screen_cascade.py`); the one status rule
+   (`matching/decision.py`: open, its question in the actions, never an exclusion); the SQL generator and the
+   guarded SQL (`compile_sql`: only classes `structured` and `mixed` compile); `semantics.py` (`compiled`,
+   `class_split`, `kind`); the record checks (`coverage.py`, `carried.py`, `recorded.py`, `proposed.py`,
+   `stored_scores.py`: called for compiled criteria only); the compiler's `demote_uncompilable` and
+   `build_artifacts`; the answer store. Not read one by one: the console pages, the reports and workbooks, NAV,
+   COHORT, FEAS, TWPAS, the deliverables pack and the tools; they take a criterion's class and verdict from the
+   above.
+
 ## 2. The engine
 
 `services/matching/cascade/v3.py`, called from S1 of the cascade (`engine.py`). A ruleset with no v3 file builds no
