@@ -28,6 +28,8 @@ from typing import Any, Protocol
 
 from doc_parser.hidden_text import hidden_text
 from tb_common import encoding, instruments
+from tb_common.output_gate import prepare_output
+from tb_common.phi_guard import DOB_LABELLED
 from tb_common.quotes import quote_in
 from tb_llm.budget import estimate_tokens
 
@@ -418,16 +420,25 @@ def extract(
     lang: str,
     job_id: str | None = None,
     switches: Mapping[str, instruments.Switch] | None = None,
+    mrn_regex: str | None = None,
 ) -> tuple[list[dict[str, str]], int]:
     """``(proposed facts, facts dropped)``: a fact whose quote is not in the chart is dropped, never kept. A chart
     longer than the model's context allows is read in parts (:func:`chart_parts`), each fact kept once. An item
     answer of a score-only instrument is dropped unless the site switched that instrument with a licence reference
     (``switches``, T-307)."""
-    facts: list[dict[str, Any]] = []
-    for part in chart_parts(text, part_budget(llm, lang)):
+    # A labelled demographic header can be read locally. Keep the site's proposed DOB fact
+    # and its source quote even though the model can no longer read that value.
+    facts: list[dict[str, Any]] = [
+        {"domain": "birth_date", "value": match["v"], "quote": match[0]}
+        for line in text.splitlines()
+        if (match := DOB_LABELLED.match(line.strip()))
+    ]
+    # Analyse the complete chart before a context boundary can divide a name.
+    safe = prepare_output("chart_facts", "model", {"text": text, "language": lang}, mrn_regex=mrn_regex)
+    for part in chart_parts(safe["text"], part_budget(llm, lang)):
         res = llm.chat_json(
             "chart_facts",
-            {"text": part, "language": lang, "language_name": LANGUAGE_NAMES.get(lang, "English")},
+            {**safe, "text": part},
             job_id=job_id,
         )
         data = res.data if hasattr(res, "data") else res

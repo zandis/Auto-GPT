@@ -155,6 +155,7 @@ class GatewayJudge:
         purpose: str,
     ) -> JudgeReply:
         from tb_common.llm import load_prompt, render
+        from tb_common.output_gate import OutputRefused, prepare_output
         from tb_contracts import inline_schema, load_schema, null_absent, schema_errors
         from tb_llm import CallLabels, GatewayDown, GatewayRefused, json_schema_format
         from tb_llm.outage import MODEL_FAULTS, OutageBudget, wait_and_retry
@@ -173,8 +174,6 @@ class GatewayJudge:
             "criterion_text": criterion_text,
             "note_question": note_question,
             "index_date": index_date.isoformat(),
-            # D-644: what a model reads of an excerpt, as NoteJudge sends it. Never the record's id (``did``): an
-            # identifier has no place in a prompt, and a hex id holds digit runs the PHI tripwire refuses
             "excerpts": [budget.shown(e) for e in excerpts],
         }
         labels = CallLabels(
@@ -187,6 +186,11 @@ class GatewayJudge:
             step_id=step_id,
             prompt_sha=p.sha256,
         )
+        try:
+            body_vars = prepare_output("judge", "model", body_vars)
+        except OutputRefused as exc:
+            self.refusals.append(exc.reason)
+            return JudgeReply("unknown", 0.0, None, None, exc.reason, refused=exc.reason)
         self.calls += 1
         try:
             res = wait_and_retry(
@@ -256,13 +260,28 @@ class AgreementJudge:
     disagreements: int = 0
 
     def judge(self, *, role: str, **kw: Any) -> JudgeReply:
+        from tb_common.output_gate import OutputRefused, prepare_output
+
+        try:
+            shown = prepare_output(
+                "judge",
+                "model",
+                {
+                    "criterion_text": kw["criterion_text"],
+                    "note_question": kw["note_question"],
+                    "excerpts": kw["excerpts"],
+                },
+            )
+        except OutputRefused as exc:
+            return JudgeReply("unknown", 0.0, None, None, exc.reason, refused=exc.reason)
+        routing = {k: kw[k] for k in ("index_date", "study_id", "data_class", "step_id", "purpose") if k in kw}
         if role != "judge":
-            reply: JudgeReply = self.verifier.judge(role=role, **kw)
+            reply: JudgeReply = self.verifier.judge(role=role, **shown, **routing)
             return reply
-        first: JudgeReply = self.primary.judge(role=role, **kw)
+        first: JudgeReply = self.primary.judge(role=role, **shown, **routing)
         if not needs_verifier(_vote(first)):
             return first
-        second: JudgeReply = self.verifier.judge(role=role, **kw)
+        second: JudgeReply = self.verifier.judge(role=role, **shown, **routing)
         answered = second
         mismatch = (first.prompt, first.prompt_sha) != (second.prompt, second.prompt_sha)
         if mismatch:

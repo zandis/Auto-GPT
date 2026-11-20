@@ -140,14 +140,8 @@ class SiteSetup:
     def redact(self, text: str, chart_no: str = "", keep: tuple[str, ...] = ()) -> str:
         """Identifiers out of a chart text: the chart number given with it, and what the box's guard recognises
         (names, other numbers, phones, addresses; dates of birth unless kept)."""  # the guard also knows the pattern
-        if chart_no:
-            # NEW-DIN-3c (D-546, the review): the number as the site writes it, which is how a chart carries it;
-            # the typed spellings only when they are as long (typed `2` for chart `00000002` must not mask every 2)
-            whole = chartno.normalise(None, chart_no)
-            typed = {chart_no.strip(), messy.half_width(chart_no).strip()}
-            for v in sorted({whole} | {t for t in typed if len(t) >= len(whole)}, key=len, reverse=True):
-                if v:
-                    text = text.replace(v, "[MRN]")
+        for value in _chart_numbers(chart_no):
+            text = text.replace(value, "[MRN]")
         g = self._guard()
         spans = [f for f in g.detect(text) if f.kind not in keep]
         out, pos = [], 0
@@ -273,6 +267,13 @@ class SiteSetup:
             ct = charts.chart_text("pasted.txt" if pasted else name, data, self.ocr)
         except charts.ChartError as exc:
             raise SetupError(exc.code, exc.message) from exc
+        # Refuse before writing the input or asking the local storage scrubber to read it.
+        patterns = [re.escape(v) for v in _chart_numbers(chart_no)]
+        if self.mrn_regex:
+            patterns.append(self.mrn_regex.strip("^$"))
+        mrn_regex = "(?:" + "|".join(patterns) + ")"
+        switches = instruments.switches(self.store.setting(instruments.SETTING))
+        found, dropped = charts.extract(self.llm, ct.text, lang, switches=switches, mrn_regex=mrn_regex)
         clean_name = "pasted.txt" if pasted else (SAFE_NAME.sub("_", Path(name).name)[-80:] or "chart")
         day = messy.parse_date(_first_date(ct.text) or "").iso or self.today().isoformat()
         iid = self.store.add_input(ws, "chart", clean_name, sha256_bytes(data), "", "", by, self.stamp(), {}, pid, day)
@@ -280,8 +281,6 @@ class SiteSetup:
         (self.root / f"{ws}/inputs/{iid}.txt").write_text(ct.text, encoding="utf-8")
         (self.root / f"{ws}/inputs/{iid}.lake.txt").write_text(self.redact(ct.text, chart_no), encoding="utf-8")
         self.store.set_input(iid, path=rel)
-        switches = instruments.switches(self.store.setting(instruments.SETTING))  # T-307: the site's licences
-        found, dropped = charts.extract(self.llm, ct.text, lang, switches=switches)
         for f in found:
             for k, v in list(f.items()):  # D-146 (J-07): nothing the model wrote back may carry a NUL either
                 if isinstance(v, str):
@@ -726,6 +725,15 @@ def _held_refusal(exc: Exception) -> bool:
         return True
     resp = getattr(exc, "response", None)
     return getattr(resp, "status_code", None) == 409 and "running job" in str(getattr(resp, "text", ""))
+
+
+def _chart_numbers(chart_no: str) -> list[str]:
+    """Use the site's normalised number and full-length typed spellings. Padding a short key must not hide doses."""
+    if not chart_no:
+        return []
+    whole = chartno.normalise(None, chart_no)
+    typed = {chart_no.strip(), messy.half_width(chart_no).strip()}
+    return sorted({whole} | {t for t in typed if t and len(t) >= len(whole)}, key=len, reverse=True)
 
 
 def _first_date(text: str) -> str | None:

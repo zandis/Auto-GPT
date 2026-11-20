@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from tb_common.output_gate import prepare_output
+
 from matching.registry_match.config import Settings, settings
 
 Messages = list[dict[str, str]]
@@ -64,7 +66,8 @@ def call_model(client: ChatClient | None, messages: Messages, *, json_mode: bool
         raise NoClientInjected(
             "registry_match has no model client: inject one (the tb-gateway client) into LLMClient(client=...)"
         )
-    return client(messages, json_mode=json_mode)
+    safe = prepare_output("chat", "model", {"messages": messages})
+    return client(safe["messages"], json_mode=json_mode)
 
 
 @dataclass
@@ -137,6 +140,7 @@ class LLMClient:
 
     # ---------------------------------------------------------------- calls
     def chat_json(self, messages: Messages, *, json_mode: bool = True) -> LLMResult:
+        messages = prepare_output("chat", "model", {"messages": messages})["messages"]
         key = _key(self.cfg.model, messages, json_mode)
         hit = self._load(key) if self.cache or self.cfg.llm_mode == "cassette" else None
         if hit is not None:

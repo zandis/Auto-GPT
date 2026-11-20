@@ -1208,6 +1208,8 @@ def note_spans(text: str, mrn_regex: str | None = None) -> list[tuple[str, int, 
 def mask_note(text: str, mrn_regex: str | None = None) -> str:
     """Note text with every span of :func:`note_spans` masked, the length and the white space kept."""
     spans = note_spans(text, mrn_regex)
+    if not isinstance(spans, list):
+        raise ValueError("analysis_unavailable")
     if not spans:
         return text
     out = list(text)

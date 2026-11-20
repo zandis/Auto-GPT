@@ -26,6 +26,7 @@ from typing import Any, Protocol
 
 from embed_service.embedder import Embedder
 from matching.cascade.s2b_semantic import SourceFallback, SourceNote, SourceRanking
+from tb_common.output_gate import prepare_output
 from tb_common.phi_guard import NOTE_MASK_VERSION
 
 from vec.index import Note, note_chunks
@@ -81,7 +82,7 @@ def rank_chunks(
         want |= {(note.did, c[0]) for c in expect}
     if not want:
         return {"state": "vec", "model": model, "hits": []}
-    qvec = embedder.embed([query])[0]
+    qvec = embedder.embed(prepare_output("embedding", "model", {"texts": [query]})["texts"])[0]
     total = sum(len(v) for v in stored.values())
     hits = [h for h in store.search(qvec, model, k=total, pids=[pid]) if (str(h["did"]), int(h["chunk_no"])) in want]
     if {(str(h["did"]), int(h["chunk_no"])) for h in hits} != want:

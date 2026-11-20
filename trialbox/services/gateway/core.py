@@ -77,6 +77,7 @@ from registry.registry import Registry, RegistryError, Resolved, check_served, p
 from tb_common.audit import AuditLog, canonical
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_text
+from tb_common.output_gate import OutputRefused, prepare_output
 from tb_common.policy.classes import Environment, Topology
 from tb_common.ulid import new_ulid
 from tb_contracts.dataclass import ClassLabel, DataClass
@@ -130,20 +131,6 @@ _OPEN = ": unavailable (breaker open)"
 _RETRIED = " (tried twice)"  # a server error or a transport error that the one retry on the same build met again
 # T-601: a transport error or HTTP 5xx is tried once more on the same build after this pause
 RETRY_DELAY_S = 0.5
-# the body fields a caller may send on to the model server (T-605, D-431, review LLM-019); sampling is then forced
-UPSTREAM_FIELDS = frozenset(
-    {
-        "messages",
-        "max_tokens",
-        "max_completion_tokens",
-        "response_format",
-        "temperature",
-        "top_p",
-        "seed",
-        "reasoning",
-        "reasoning_effort",
-    }
-)
 # an upstream 4xx is the call's own fault or a configuration fault, so no other build is tried; except these two
 _TRANSIENT_4XX = (408, 429)
 # what vLLM (and OpenAI-compatible servers) say when the prompt plus max_tokens is over the model's context
@@ -537,7 +524,12 @@ class Gateway:
             if rf.get("type") != "json_schema" or not isinstance(rf.get("json_schema"), dict):
                 raise Refusal("schema_required", "a json_schema response_format is required for this role (LLM-22)")
         self._resolve_prompt(call, h, label, messages, response_format, free_form)
+        try:
+            body = prepare_output("chat", "model", body)
+        except OutputRefused as exc:
+            raise Refusal(exc.reason, exc.reason, status=422) from exc
 
+        # Routing still examines the original text so a masking hit cannot clear the on-box tripwire.
         # 3 route
         flags = frozenset(x.strip() for x in h.get("x-tb-flags", "").split(",") if x.strip())
         cfg = self.config
@@ -577,9 +569,16 @@ class Gateway:
         if label.data_class.rank <= 2 and not cfg.phi_tripwire:
             call.guard = "off"
         elif label.data_class.rank <= 2:
-            verdict = self.guard.tripwire(_content_text(messages))
+            from tb_common.phi_guard import MASK_CHAR
+
+            content = _content_text(messages)
+            verdict = self.guard.tripwire(content)
+            # A client that already masked an identifier still needs the on-box route.
+            masked = MASK_CHAR in content
             call.guard = "hit:" + ",".join(verdict.kinds) if verdict.hit else "clear"
-            if verdict.hit:
+            if masked and not verdict.hit:
+                call.guard = "hit:masked"
+            if verdict.hit or masked:
                 # on the box: a perimeter endpoint on topology A only. On topology B the perimeter is the tenant's
                 # serving router, which is not on the box (D-142, ``RoutingPolicy.perimeter_checked``; review of D-792)
                 on_box = [c for c in candidates if c.endpoint.zone == "perimeter" and cfg.topology == Topology.A]
@@ -723,8 +722,7 @@ class Gateway:
             return self._allow(call, hit, label, body)
 
         # only allow-listed fields go upstream (T-605, review LLM-019): no n, logit_bias, stop or chat_template_kwargs
-        upstream = {k: v for k, v in body.items() if k in UPSTREAM_FIELDS}
-        upstream.update(sampling)
+        upstream = {**body, **sampling}
         upstream.pop("provider", None)  # provider routing comes from the registry pin only, never from the caller
         upstream["model"] = res.served_name
         if res.build.provider_pin is not None:
@@ -870,6 +868,10 @@ class Gateway:
         tells the endpoint's breaker: an answer below 500 closes it; a connection error, a batch read timeout or a
         5xx after the retry counts toward opening it; an interactive read timeout counts for nothing (busy, not
         dead)."""
+        try:
+            upstream = prepare_output("dispatch", "model", upstream)
+        except OutputRefused as exc:
+            raise Refusal(exc.reason, exc.reason, status=422) from exc
         breaker = lane.breaker if lane is not None else None
         resp: httpx.Response | None = None
         for attempt in (1, 2):

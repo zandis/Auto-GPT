@@ -38,6 +38,7 @@ from matching import decision
 from matching import excerpts as excerpt_builder
 from tb_common import chartno, dates
 from tb_common.crypto import sha256_bytes
+from tb_common.output_gate import prepare_output
 from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
 from tb_common.routing import is_internal
@@ -106,6 +107,7 @@ def chart_excerpts(text: str, filename: str, fallback: date) -> list[dict[str, A
     paragraph and the ones after it until the next date; paragraphs before any date carry the fallback (the upload
     date), flagged ``date_source: "upload"`` so the sheet can say the chart did not date them."""
     text = unicodedata.normalize("NFKC", text).replace("\r", "")
+    text = prepare_output("chart_text", "model", {"text": text})["text"]
     paras = [p.strip() for p in re.split(r"\n\s*\n|\n(?=\s*(?:#|【|\[))", text) if p.strip()]
     out: list[dict[str, Any]] = []
     current: date | None = None
@@ -240,7 +242,7 @@ class ChartJudge:
         else:
             # T-710 (D-479): the chart's window through the one excerpt builder and the judge's own budget; before,
             # the whole upload went to the models with no budget and nothing counted as left out
-            notes = [excerpt_builder.Note(str(e["did"]), str(e["date"]), str(e.get("note_type") or "note"),
+            notes = [excerpt_builder.Note(str(e["did"]), str(e["date"]), "chart",
                                           str(e["text"])) for e in ex]  # fmt: skip
             room = self.judge.excerpt_budget(c, index_date)
             got = excerpt_builder.build(notes, {}, room if room is not None else excerpt_builder.DEFAULT_TOKENS)

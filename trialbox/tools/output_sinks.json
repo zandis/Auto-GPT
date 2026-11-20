@@ -1,0 +1,2890 @@
+[
+  {
+    "file": "libs/tb_common/audit_writer.py",
+    "function": "Drain.open",
+    "area": "log",
+    "sink": "error",
+    "expression": "20a7e3ba581d",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/audit_writer.py",
+    "function": "Drain.run",
+    "area": "log",
+    "sink": "error",
+    "expression": "b185350d394f",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/audit_writer.py",
+    "function": "Drain.step",
+    "area": "log",
+    "sink": "warning",
+    "expression": "a6a52ce7a028",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/db.py",
+    "function": "Database.migrate",
+    "area": "log",
+    "sink": "warning",
+    "expression": "a247571aed46",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/derived_store.py",
+    "function": "run_batch",
+    "area": "log",
+    "sink": "warning",
+    "expression": "04659bbfde4f",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/deterministic.py",
+    "function": "normalize_ooxml",
+    "area": "package",
+    "sink": "writestr",
+    "expression": "21f6d7db6bd6",
+    "why": "The office archive normalizer still copies members supplied by its caller."
+  },
+  {
+    "file": "libs/tb_common/flags.py",
+    "function": "Flags.get",
+    "area": "log",
+    "sink": "debug",
+    "expression": "e1a212d27f93",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/flags.py",
+    "function": "Flags.get",
+    "area": "log",
+    "sink": "error",
+    "expression": "9fa125b1907b",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/flags.py",
+    "function": "Flags.get",
+    "area": "log",
+    "sink": "warning",
+    "expression": "cc37612e7587",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/flags.py",
+    "function": "Flags.seed",
+    "area": "log",
+    "sink": "warning",
+    "expression": "80dd7257ecb2",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/flags.py",
+    "function": "Flags.set",
+    "area": "log",
+    "sink": "exception",
+    "expression": "e11918074035",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/http.py",
+    "function": "EgressGuard._refuse",
+    "area": "log",
+    "sink": "warning",
+    "expression": "fbc087620e06",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/http.py",
+    "function": "make_app.access_log",
+    "area": "log",
+    "sink": "error",
+    "expression": "6b9df0fd62c1",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/http.py",
+    "function": "make_app.access_log",
+    "area": "log",
+    "sink": "info",
+    "expression": "0dd3cdb5e4bb",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/llm.py",
+    "function": "chat_json",
+    "area": "model",
+    "sink": "chat_json",
+    "expression": "0cd41220b0ce",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "libs/tb_common/logging.py",
+    "function": "JsonFormatter.format",
+    "area": "log",
+    "sink": "formatException",
+    "expression": "d9fb6037a2dc",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/logging.py",
+    "function": "JsonFormatter.format",
+    "area": "log",
+    "sink": "getMessage",
+    "expression": "b50318d0e3c4",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/output_gate.py",
+    "function": "_refuse",
+    "area": "log",
+    "sink": "error",
+    "expression": "2108438d0eb8",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/refdata.py",
+    "function": "Cassette.body",
+    "area": "package",
+    "sink": "addfile",
+    "expression": "b70dd0558aaa",
+    "why": "The reference-data packer still writes the supplied archive members using its own manifest rules."
+  },
+  {
+    "file": "libs/tb_common/refdata.py",
+    "function": "Cassette.body",
+    "area": "package",
+    "sink": "writestr",
+    "expression": "b71f96043b65",
+    "why": "The reference-data packer still writes the supplied archive members using its own manifest rules."
+  },
+  {
+    "file": "libs/tb_common/refdata.py",
+    "function": "RefStore.load",
+    "area": "log",
+    "sink": "warning",
+    "expression": "3fc9f7035630",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/refdata.py",
+    "function": "pack_tar",
+    "area": "package",
+    "sink": "add",
+    "expression": "5806c8c3ded6",
+    "why": "The reference-data packer still writes the supplied archive members using its own manifest rules."
+  },
+  {
+    "file": "libs/tb_common/refdata_jp.py",
+    "function": "parse_jlac10_loinc",
+    "area": "log",
+    "sink": "warning",
+    "expression": "6698cfa892c4",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/refdata_jp.py",
+    "function": "parse_jrct",
+    "area": "log",
+    "sink": "info",
+    "expression": "ebaf64b88cf2",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/ruleset.py",
+    "function": "approved_here",
+    "area": "log",
+    "sink": "warning",
+    "expression": "86ca5c2cfb1f",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/service_auth.py",
+    "function": "_say_no_key",
+    "area": "log",
+    "sink": "error",
+    "expression": "92e2e56b1bbb",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_common/service_auth.py",
+    "function": "_warn_once",
+    "area": "log",
+    "sink": "warning",
+    "expression": "a76ff168d220",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "libs/tb_llm/client.py",
+    "function": "GatewayClient.chat",
+    "area": "model",
+    "sink": "complete",
+    "expression": "f7957d29f279",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "libs/tb_llm/client.py",
+    "function": "GatewayClient.chat",
+    "area": "model",
+    "sink": "complete",
+    "expression": "f7957d29f279",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "libs/tb_llm/client.py",
+    "function": "GatewayClient.contexts",
+    "area": "log",
+    "sink": "warning",
+    "expression": "7aa6c6f91233",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/app.py",
+    "function": "_run_in_process",
+    "area": "log",
+    "sink": "exception",
+    "expression": "dec8781297f4",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/app.py",
+    "function": "publish.work",
+    "area": "log",
+    "sink": "log_failure",
+    "expression": "f170c3118984",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/app.py",
+    "function": "run.work",
+    "area": "log",
+    "sink": "log_failure",
+    "expression": "01f166f78885",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/backfill.py",
+    "function": "_publish",
+    "area": "log",
+    "sink": "info",
+    "expression": "31ddcbdbb43f",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/backfill.py",
+    "function": "_publish",
+    "area": "log",
+    "sink": "log_failure",
+    "expression": "024836cfa674",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/backfill.py",
+    "function": "backfill",
+    "area": "log",
+    "sink": "info",
+    "expression": "dd6ea51f18b1",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/backfill.py",
+    "function": "backfill",
+    "area": "log",
+    "sink": "warning",
+    "expression": "26573a0ea9f9",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/backfill.py",
+    "function": "backfill",
+    "area": "log",
+    "sink": "warning",
+    "expression": "445f2cc27001",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/backfill.py",
+    "function": "backfill",
+    "area": "log",
+    "sink": "warning",
+    "expression": "5594acdbfc2f",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/backfill.py",
+    "function": "backfill",
+    "area": "log",
+    "sink": "warning",
+    "expression": "9e6bc1d8bfd0",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/dual_write.py",
+    "function": "_load",
+    "area": "log",
+    "sink": "error",
+    "expression": "00e97df2b00a",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/dual_write.py",
+    "function": "_load",
+    "area": "log",
+    "sink": "error",
+    "expression": "459cf9651984",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/dual_write.py",
+    "function": "_load",
+    "area": "log",
+    "sink": "warning",
+    "expression": "f8fb2763c5a9",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/dual_write.py",
+    "function": "_record_failure",
+    "area": "log",
+    "sink": "exception",
+    "expression": "529ea05d6e15",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/dual_write.py",
+    "function": "load_night",
+    "area": "log",
+    "sink": "error",
+    "expression": "7202449e60bc",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/dual_write.py",
+    "function": "load_night",
+    "area": "log",
+    "sink": "error",
+    "expression": "9d130aa2efa0",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/dual_write.py",
+    "function": "load_night.done",
+    "area": "log",
+    "sink": "info",
+    "expression": "89e50cdb5769",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/failure.py",
+    "function": "local_lake",
+    "area": "log",
+    "sink": "log_failure",
+    "expression": "4bc6f8afeaed",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/failure.py",
+    "function": "log_failure",
+    "area": "log",
+    "sink": "error",
+    "expression": "35619fd9660e",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/failure.py",
+    "function": "log_failure",
+    "area": "log",
+    "sink": "error",
+    "expression": "4a35a6ebbea3",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/full_nights.py",
+    "function": "completed",
+    "area": "log",
+    "sink": "warning",
+    "expression": "2d8b69e34862",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/full_nights.py",
+    "function": "read",
+    "area": "log",
+    "sink": "warning",
+    "expression": "667ee104447e",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/load_fhir.py",
+    "function": "_begin_night",
+    "area": "log",
+    "sink": "warning",
+    "expression": "fbfcaa28e3e7",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/load_fhir.py",
+    "function": "_sync",
+    "area": "log",
+    "sink": "info",
+    "expression": "900e5f752650",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/load_fhir.py",
+    "function": "_sync",
+    "area": "log",
+    "sink": "info",
+    "expression": "94715fa55132",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/load_fhir.py",
+    "function": "load_snapshot",
+    "area": "log",
+    "sink": "info",
+    "expression": "8fbd58a1cbb8",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/night_runs.py",
+    "function": "record",
+    "area": "log",
+    "sink": "warning",
+    "expression": "187fb1c2f974",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "error",
+    "expression": "4f67850c941b",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "error",
+    "expression": "4f67850c941b",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "error",
+    "expression": "4f67850c941b",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "info",
+    "expression": "6ee862d6a61e",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "info",
+    "expression": "7fe5f9e9abe7",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "info",
+    "expression": "869364900d95",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "info",
+    "expression": "9b5e1bb95cbe",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "info",
+    "expression": "a6f31ae10cc3",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "info",
+    "expression": "cd33551217e9",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "log_failure",
+    "expression": "024836cfa674",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "log_failure",
+    "expression": "6531b8d5f369",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "warning",
+    "expression": "08fef47acd78",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "warning",
+    "expression": "29b1fb742779",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "warning",
+    "expression": "6164b7ee0e93",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "warning",
+    "expression": "89fe012ae529",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "warning",
+    "expression": "dcf0f7a5acea",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "_run_ingest",
+    "area": "log",
+    "sink": "warning",
+    "expression": "fb83e4ce4c3d",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "jp_core_check",
+    "area": "log",
+    "sink": "warning",
+    "expression": "44c7391a0551",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "load_site_profile",
+    "area": "log",
+    "sink": "warning",
+    "expression": "b901dc1df194",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "prune_lake",
+    "area": "log",
+    "sink": "error",
+    "expression": "94f585c66821",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "prune_lake",
+    "area": "log",
+    "sink": "warning",
+    "expression": "6fb3d1b1f3d7",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "prune_lake.drop",
+    "area": "log",
+    "sink": "info",
+    "expression": "710082194011",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "reference_maps.ask",
+    "area": "log",
+    "sink": "warning",
+    "expression": "2540fa8269c4",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "run_ingest",
+    "area": "log",
+    "sink": "error",
+    "expression": "9a72dcec16df",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/pipeline.py",
+    "function": "run_ingest",
+    "area": "log",
+    "sink": "exception",
+    "expression": "2233c2983a94",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/publish.py",
+    "function": "_recover",
+    "area": "log",
+    "sink": "error",
+    "expression": "3720218ccc34",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/publish.py",
+    "function": "_recover",
+    "area": "log",
+    "sink": "warning",
+    "expression": "8856048957d2",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/publish.py",
+    "function": "_recover",
+    "area": "log",
+    "sink": "warning",
+    "expression": "88cacab70c2c",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/publish.py",
+    "function": "finish_served",
+    "area": "log",
+    "sink": "error",
+    "expression": "16af6960edc7",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/publish.py",
+    "function": "finish_served",
+    "area": "log",
+    "sink": "warning",
+    "expression": "f86a2729d33a",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/publish.py",
+    "function": "publish_night",
+    "area": "log",
+    "sink": "log_failure",
+    "expression": "c229217bd983",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/publish.py",
+    "function": "publish_night",
+    "area": "log",
+    "sink": "warning",
+    "expression": "6b371b3bb326",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/publish.py",
+    "function": "publish_night.fhir_back",
+    "area": "log",
+    "sink": "log_failure",
+    "expression": "10e8d1c1e6c6",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/run_job.py",
+    "function": "main",
+    "area": "log",
+    "sink": "log_failure",
+    "expression": "51db66a43a6e",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/sources/csv/source.py",
+    "function": "CsvSource._quarantine",
+    "area": "log",
+    "sink": "warning",
+    "expression": "d7de81e0eeab",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/adapter/sources/ssmix2/source.py",
+    "function": "Ssmix2Source._quarantine",
+    "area": "log",
+    "sink": "warning",
+    "expression": "a2fa14b111c8",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/channels/native/engine.py",
+    "function": "NativeEngine.classify",
+    "area": "model",
+    "sink": "chat",
+    "expression": "2ccca85192ef",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "services/console/admin_flags.py",
+    "function": "register.stored",
+    "area": "log",
+    "sink": "warning",
+    "expression": "e608c40d21cb",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/admin_flags.py",
+    "function": "seed_at_start",
+    "area": "log",
+    "sink": "warning",
+    "expression": "d46a86840296",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/app.py",
+    "function": "build_sponsor_pack",
+    "area": "package",
+    "sink": "writestr",
+    "expression": "25d4c373e48e",
+    "why": "The sponsor study package still selects and serializes report members using its local rules."
+  },
+  {
+    "file": "services/console/app.py",
+    "function": "create_app.cascade_file",
+    "area": "download",
+    "sink": "Response",
+    "expression": "0f853358a767",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/app.py",
+    "function": "create_app.job_file",
+    "area": "download",
+    "sink": "Response",
+    "expression": "8aaf951e1696",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/app.py",
+    "function": "create_app.job_view_file",
+    "area": "download",
+    "sink": "file route",
+    "expression": "2dcc66b30ee6",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/app.py",
+    "function": "create_app.registry_export",
+    "area": "download",
+    "sink": "Response",
+    "expression": "bba6be15f0c3",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/app.py",
+    "function": "create_app.sponsor_pack",
+    "area": "download",
+    "sink": "Response",
+    "expression": "166889f61bc7",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/app.py",
+    "function": "create_app.sponsor_pack",
+    "area": "package",
+    "sink": "build_sponsor_pack",
+    "expression": "7d54f2e5bcde",
+    "why": "The sponsor study package still selects and serializes report members using its local rules."
+  },
+  {
+    "file": "services/console/app.py",
+    "function": "create_app.submit",
+    "area": "log",
+    "sink": "exception",
+    "expression": "7f3cd0d44606",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/audit_page.py",
+    "function": "register.audit_patient_csv",
+    "area": "download",
+    "sink": "StreamingResponse",
+    "expression": "07f5b4a06410",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/audit_page.py",
+    "function": "register.audit_provenance",
+    "area": "log",
+    "sink": "warning",
+    "expression": "8e900a603cb4",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/backend.py",
+    "function": "HttpBackend.send_test_mail",
+    "area": "mail",
+    "sink": "send_message",
+    "expression": "f7f66e6ce120",
+    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+  },
+  {
+    "file": "services/console/breached.py",
+    "function": "check",
+    "area": "log",
+    "sink": "error",
+    "expression": "dcc855364c73",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/cascade.py",
+    "function": "CascadeRuns.start.work",
+    "area": "log",
+    "sink": "error",
+    "expression": "bebd40a4fde8",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/committee_pages.py",
+    "function": "register",
+    "area": "log",
+    "sink": "warning",
+    "expression": "9a15daf0a82a",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/conflicts_page.py",
+    "function": "register.conflicts_resolve",
+    "area": "log",
+    "sink": "warning",
+    "expression": "888b22e7093d",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/copy_assist_page.py",
+    "function": "register.copy_csv",
+    "area": "download",
+    "sink": "Response",
+    "expression": "a38b529ca0e5",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/demo_guard.py",
+    "function": "DemoGuard.audit_refused",
+    "area": "log",
+    "sink": "exception",
+    "expression": "3d1cebd00230",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/edc_pages.py",
+    "function": "register.api_export",
+    "area": "download",
+    "sink": "file route",
+    "expression": "0bba5e820adc",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/edc_pages.py",
+    "function": "register.edc_odm",
+    "area": "download",
+    "sink": "Response",
+    "expression": "eb103f0935a3",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/entry_pages.py",
+    "function": "register.api_export",
+    "area": "download",
+    "sink": "Response",
+    "expression": "eb418cec763c",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/entry_pages.py",
+    "function": "register.download",
+    "area": "download",
+    "sink": "Response",
+    "expression": "eb418cec763c",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/feedback.py",
+    "function": "main",
+    "area": "log",
+    "sink": "write",
+    "expression": "4ee32e1689d4",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/feedback.py",
+    "function": "register.feedback_export",
+    "area": "download",
+    "sink": "Response",
+    "expression": "c72dfa277947",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/instruments_page.py",
+    "function": "register.current",
+    "area": "log",
+    "sink": "warning",
+    "expression": "cb559f6baf66",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/instruments_page.py",
+    "function": "register.instruments_switch",
+    "area": "log",
+    "sink": "warning",
+    "expression": "28592e430b61",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/instruments_page.py",
+    "function": "register.instruments_switch",
+    "area": "log",
+    "sink": "warning",
+    "expression": "9eb058f20d4b",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/instruments_page.py",
+    "function": "register.instruments_view",
+    "area": "log",
+    "sink": "warning",
+    "expression": "0304f82da3df",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/items_page.py",
+    "function": "register.items_view",
+    "area": "log",
+    "sink": "warning",
+    "expression": "cfb65e4e7056",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/lifecycle_pages.py",
+    "function": "register.api_enrolment_file",
+    "area": "download",
+    "sink": "Response",
+    "expression": "eb418cec763c",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/lifecycle_pages.py",
+    "function": "register.enrolment_file",
+    "area": "download",
+    "sink": "Response",
+    "expression": "eb418cec763c",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/night_funnel.py",
+    "function": "night_card",
+    "area": "log",
+    "sink": "error",
+    "expression": "6744bb8d1af5",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/notify.py",
+    "function": "_collect",
+    "area": "log",
+    "sink": "exception",
+    "expression": "3940c06a81f8",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/notify.py",
+    "function": "_collect",
+    "area": "log",
+    "sink": "exception",
+    "expression": "90c38eacfbcc",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/notify.py",
+    "function": "site_calendar",
+    "area": "log",
+    "sink": "exception",
+    "expression": "55db86090d9e",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/ops_pages.py",
+    "function": "register.network_file",
+    "area": "download",
+    "sink": "FileResponse",
+    "expression": "f07642795421",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/person_state.py",
+    "function": "read",
+    "area": "log",
+    "sink": "error",
+    "expression": "979dcfd1a483",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/console/phone.py",
+    "function": "register.favicon",
+    "area": "download",
+    "sink": "FileResponse",
+    "expression": "78495f2b447d",
+    "why": "The phone route directly returns the installed static icon file."
+  },
+  {
+    "file": "services/console/screening_log.py",
+    "function": "register.research_office_xlsx",
+    "area": "download",
+    "sink": "Response",
+    "expression": "b22ddf1bbd66",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/screening_log.py",
+    "function": "register.screening_log_xlsx",
+    "area": "download",
+    "sink": "Response",
+    "expression": "59bc33c14b80",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/screening_log.py",
+    "function": "register.screening_log_xlsx",
+    "area": "download",
+    "sink": "Response",
+    "expression": "b22ddf1bbd66",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/site_pages.py",
+    "function": "register.template_file",
+    "area": "download",
+    "sink": "Response",
+    "expression": "c4b8bcb1bbfa",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/console/timers.py",
+    "function": "_guarded.run",
+    "area": "log",
+    "sink": "exception",
+    "expression": "124c07fec02d",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/criteria_compiler/app.py",
+    "function": "_answer",
+    "area": "log",
+    "sink": "error",
+    "expression": "4aeb7cd7fe5c",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/criteria_compiler/compile_sql/overlay.py",
+    "function": "_render",
+    "area": "log",
+    "sink": "warning",
+    "expression": "ebc5af8d6c12",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/criteria_compiler/compile_sql/overlay.py",
+    "function": "_render",
+    "area": "log",
+    "sink": "warning",
+    "expression": "ec891a897ef9",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/criteria_compiler/ctgov.py",
+    "function": "CtGov.search",
+    "area": "log",
+    "sink": "warning",
+    "expression": "fc03e3bd17fe",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/criteria_compiler/review.py",
+    "function": "draft_zip",
+    "area": "package",
+    "sink": "writestr",
+    "expression": "a05ecc9be71f",
+    "why": "The rule-set archive still accepts the compiled and extra member maps from its caller."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._approve",
+    "area": "log",
+    "sink": "warning",
+    "expression": "812f3216733b",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._ask_extract",
+    "area": "model",
+    "sink": "chat_json",
+    "expression": "bebe3115925f",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._ask_in_halves",
+    "area": "log",
+    "sink": "warning",
+    "expression": "aacb05ca822e",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._concept_map.fn",
+    "area": "model",
+    "sink": "chat_json",
+    "expression": "b07c9d0d5eb7",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._equivalence",
+    "area": "log",
+    "sink": "warning",
+    "expression": "4c9da0770031",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._package",
+    "area": "package",
+    "sink": "draft_zip",
+    "expression": "f62b6d83ac52",
+    "why": "The compiler still constructs and publishes the draft rule-set archive from its locally selected members."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._package",
+    "area": "package",
+    "sink": "store zip",
+    "expression": "fbb8c2986213",
+    "why": "The compiler still constructs and publishes the draft rule-set archive from its locally selected members."
+  },
+  {
+    "file": "services/datacore/generations.py",
+    "function": "guarded",
+    "area": "log",
+    "sink": "warning",
+    "expression": "246f7cbeee73",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/datacore/generations.py",
+    "function": "guarded",
+    "area": "log",
+    "sink": "warning",
+    "expression": "623a1167971b",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/datacore/optout_worker.py",
+    "function": "_omop_stores",
+    "area": "log",
+    "sink": "error",
+    "expression": "c9669434b562",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/datacore/optout_worker.py",
+    "function": "clear_omop",
+    "area": "log",
+    "sink": "error",
+    "expression": "6d3e4ace0128",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/datacore/optout_worker.py",
+    "function": "minutes",
+    "area": "log",
+    "sink": "error",
+    "expression": "8cc6fdeebd9d",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/datacore/optout_worker.py",
+    "function": "run_once",
+    "area": "log",
+    "sink": "error",
+    "expression": "620a6212d979",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/datacore/optout_worker.py",
+    "function": "run_once",
+    "area": "log",
+    "sink": "error",
+    "expression": "c3618af10c0c",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/datacore/optout_worker.py",
+    "function": "start",
+    "area": "log",
+    "sink": "info",
+    "expression": "64bb59ccba4d",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/datacore/optout_worker.py",
+    "function": "tick",
+    "area": "log",
+    "sink": "exception",
+    "expression": "f0ec1d7df9e0",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/deliverables/render.py",
+    "function": "_fixed_zip_times",
+    "area": "package",
+    "sink": "writestr",
+    "expression": "bce21aee3664",
+    "why": "The study deliverable renderer still serializes its local report data and workbook members."
+  },
+  {
+    "file": "services/deliverables/render.py",
+    "function": "render_all",
+    "area": "package",
+    "sink": "write_bytes",
+    "expression": "44158fcc745f",
+    "why": "The study deliverable renderer still serializes its local report data and workbook members."
+  },
+  {
+    "file": "services/deliverables/render.py",
+    "function": "render_all",
+    "area": "package",
+    "sink": "write_bytes",
+    "expression": "ae27d5b7ee98",
+    "why": "The study deliverable renderer still serializes its local report data and workbook members."
+  },
+  {
+    "file": "services/deliverables/render.py",
+    "function": "render_all",
+    "area": "package",
+    "sink": "write_bytes",
+    "expression": "f7848099c648",
+    "why": "The study deliverable renderer still serializes its local report data and workbook members."
+  },
+  {
+    "file": "services/deliverables/render.py",
+    "function": "render_all",
+    "area": "package",
+    "sink": "write_text",
+    "expression": "a3037e0b3bc9",
+    "why": "The study deliverable renderer still serializes its local report data and workbook members."
+  },
+  {
+    "file": "services/deliverables/render.py",
+    "function": "render_all",
+    "area": "package",
+    "sink": "write_text",
+    "expression": "d0f614be8858",
+    "why": "The study deliverable renderer still serializes its local report data and workbook members."
+  },
+  {
+    "file": "services/edc/service.py",
+    "function": "EdcService._reread",
+    "area": "log",
+    "sink": "error",
+    "expression": "5ac0935717a4",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/edc/service.py",
+    "function": "EdcService.build",
+    "area": "log",
+    "sink": "error",
+    "expression": "7086a775d501",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/edc/service.py",
+    "function": "EdcService.build",
+    "area": "log",
+    "sink": "error",
+    "expression": "9eb9f06d3ae3",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/embed_service/embedder.py",
+    "function": "HttpEmbedder._post",
+    "area": "log",
+    "sink": "warning",
+    "expression": "ecb8c8e505c3",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/gateway/app.py",
+    "function": "StartCheck.run_safe",
+    "area": "log",
+    "sink": "exception",
+    "expression": "7278409fc9e3",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/gateway/app.py",
+    "function": "_get_models",
+    "area": "log",
+    "sink": "warning",
+    "expression": "02159a6389c7",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/gateway/app.py",
+    "function": "create_app.chat",
+    "area": "model",
+    "sink": "chat",
+    "expression": "de3ca74f4f47",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "services/gateway/core.py",
+    "function": "Gateway.__init__",
+    "area": "log",
+    "sink": "warning",
+    "expression": "b487a796c62f",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/gateway/core.py",
+    "function": "Gateway._allow",
+    "area": "log",
+    "sink": "trace write",
+    "expression": "35886e79dbad",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/gateway/core.py",
+    "function": "Gateway._trace_refusal",
+    "area": "log",
+    "sink": "trace write",
+    "expression": "9cba91c1f605",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/gateway/core.py",
+    "function": "_tripwire_setting",
+    "area": "log",
+    "sink": "warning",
+    "expression": "edfaf2bc14b0",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/gateway/load.py",
+    "function": "LoadControl.__init__",
+    "area": "log",
+    "sink": "info",
+    "expression": "cf5c6f77ef9e",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/lake/build.py",
+    "function": "main",
+    "area": "log",
+    "sink": "exception",
+    "expression": "9a4401a8ba4f",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/lake/source.py",
+    "function": "omop_rows",
+    "area": "log",
+    "sink": "info",
+    "expression": "40e697fdcca6",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/lake/source.py",
+    "function": "record_source",
+    "area": "log",
+    "sink": "info",
+    "expression": "244525fb5d99",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/lake/source.py",
+    "function": "record_source",
+    "area": "log",
+    "sink": "warning",
+    "expression": "f970fde113a0",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/lake/store.py",
+    "function": "Lake._embed",
+    "area": "log",
+    "sink": "info",
+    "expression": "ece794b6b542",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/lake/store.py",
+    "function": "Lake._point_alias",
+    "area": "log",
+    "sink": "warning",
+    "expression": "f93556973a0d",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/lake/store.py",
+    "function": "Lake._rebuild",
+    "area": "log",
+    "sink": "warning",
+    "expression": "c31648df5105",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/lake/store.py",
+    "function": "Lake._rebuild",
+    "area": "log",
+    "sink": "warning",
+    "expression": "c31648df5105",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/lake/store.py",
+    "function": "Lake.connect",
+    "area": "log",
+    "sink": "error",
+    "expression": "cdb849cc196a",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/lake/store.py",
+    "function": "Lake.query",
+    "area": "log",
+    "sink": "error",
+    "expression": "73334d26715f",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/lake/store.py",
+    "function": "Lake.query",
+    "area": "log",
+    "sink": "error",
+    "expression": "d246f26b4897",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/lake/store.py",
+    "function": "Lake.run_rebuild_job",
+    "area": "log",
+    "sink": "error",
+    "expression": "ecbfcf527598",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/lake/store.py",
+    "function": "Lake.start_rebuild",
+    "area": "log",
+    "sink": "exception",
+    "expression": "3d4588e0376e",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/lake/store.py",
+    "function": "error_answer",
+    "area": "log",
+    "sink": "warning",
+    "expression": "e0dcf50e9cc2",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/lake/store.py",
+    "function": "reader_path",
+    "area": "log",
+    "sink": "warning",
+    "expression": "ed8b5e972bd7",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/mail_gateway/app.py",
+    "function": "outbox_loop",
+    "area": "log",
+    "sink": "exception",
+    "expression": "ca0bd99dbdd0",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/mail_gateway/app.py",
+    "function": "outbox_loop",
+    "area": "log",
+    "sink": "info",
+    "expression": "d318cf02e68c",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/mail_gateway/app.py",
+    "function": "send",
+    "area": "mail",
+    "sink": "deliver",
+    "expression": "d06d3e5fd36b",
+    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+  },
+  {
+    "file": "services/mail_gateway/gateway.py",
+    "function": "Gateway._after_main",
+    "area": "mail",
+    "sink": "transport",
+    "expression": "460f3dee82c4",
+    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+  },
+  {
+    "file": "services/mail_gateway/gateway.py",
+    "function": "Gateway._attempt",
+    "area": "log",
+    "sink": "error",
+    "expression": "80a73e2762c7",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/mail_gateway/gateway.py",
+    "function": "Gateway._attempt",
+    "area": "log",
+    "sink": "error",
+    "expression": "9ec104a99715",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/mail_gateway/gateway.py",
+    "function": "Gateway._attempt",
+    "area": "log",
+    "sink": "error",
+    "expression": "d98c8e236646",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/mail_gateway/gateway.py",
+    "function": "Gateway._attempt",
+    "area": "mail",
+    "sink": "transport",
+    "expression": "9036def5d94f",
+    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+  },
+  {
+    "file": "services/mail_gateway/gateway.py",
+    "function": "Gateway._hold",
+    "area": "log",
+    "sink": "warning",
+    "expression": "15257c9e99a8",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/mail_gateway/gateway.py",
+    "function": "Gateway._reject",
+    "area": "log",
+    "sink": "warning",
+    "expression": "a25415b7be90",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/mail_gateway/gateway.py",
+    "function": "Gateway._reply",
+    "area": "log",
+    "sink": "warning",
+    "expression": "b5815aae0c7d",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/mail_gateway/gateway.py",
+    "function": "Gateway._reply",
+    "area": "mail",
+    "sink": "transport",
+    "expression": "cf3af13f2f7d",
+    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+  },
+  {
+    "file": "services/mail_gateway/gateway.py",
+    "function": "Gateway.handle",
+    "area": "log",
+    "sink": "warning",
+    "expression": "0eadcb4ad5e3",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/mail_gateway/gateway.py",
+    "function": "Gateway.loop",
+    "area": "log",
+    "sink": "exception",
+    "expression": "052c79741b4d",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/mail_gateway/gateway.py",
+    "function": "Gateway.loop",
+    "area": "log",
+    "sink": "warning",
+    "expression": "241cc22fc6cc",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/mail_gateway/gateway.py",
+    "function": "Gateway.poll_once",
+    "area": "log",
+    "sink": "exception",
+    "expression": "d88ec7bfcef1",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/mail_gateway/gateway.py",
+    "function": "Gateway.send",
+    "area": "mail",
+    "sink": "deliver",
+    "expression": "c4429eabbe13",
+    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+  },
+  {
+    "file": "services/mail_gateway/outbound.py",
+    "function": "seven_zip",
+    "area": "package",
+    "sink": "writestr",
+    "expression": "f337cb5b4674",
+    "why": "The mail attachment packer still writes the supplied attachment bytes under its own archive rules."
+  },
+  {
+    "file": "services/mail_gateway/outbound.py",
+    "function": "smtp_transport.send",
+    "area": "mail",
+    "sink": "send",
+    "expression": "de5fadc0fd28",
+    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+  },
+  {
+    "file": "services/matching/cascade/s2b_semantic.py",
+    "function": "screen",
+    "area": "model",
+    "sink": "embed",
+    "expression": "ddb598157828",
+    "why": "Embeddings use windows cut from gated sentences. The inventory cannot prove the origin through both comprehensions."
+  },
+  {
+    "file": "services/model_guard/__init__.py",
+    "function": "make_handler.Handler.log_message",
+    "area": "log",
+    "sink": "write",
+    "expression": "8e4a31c4e84d",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/omop/load.py",
+    "function": "_dqd_hold",
+    "area": "log",
+    "sink": "warning",
+    "expression": "3cf59bb08c90",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/omop/load.py",
+    "function": "_tombstone_guard",
+    "area": "log",
+    "sink": "warning",
+    "expression": "3cf59bb08c90",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/actor.py",
+    "function": "_count",
+    "area": "log",
+    "sink": "warning",
+    "expression": "b76c81fc7059",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/actor.py",
+    "function": "_count",
+    "area": "log",
+    "sink": "warning",
+    "expression": "f5e347dea271",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/actor.py",
+    "function": "record_refusal",
+    "area": "log",
+    "sink": "error",
+    "expression": "385de61ecc6a",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/app.py",
+    "function": "_flush_main",
+    "area": "log",
+    "sink": "exception",
+    "expression": "d207b06b40a5",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/app.py",
+    "function": "notice",
+    "area": "mail",
+    "sink": "send",
+    "expression": "625cbb8404b9",
+    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+  },
+  {
+    "file": "services/orchestrator/app.py",
+    "function": "registry_export",
+    "area": "download",
+    "sink": "Response",
+    "expression": "2981deb375b0",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/orchestrator/app.py",
+    "function": "ruleset_detail",
+    "area": "log",
+    "sink": "info",
+    "expression": "aaee607bfcbc",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/callers.py",
+    "function": "Gate.record",
+    "area": "log",
+    "sink": "exception",
+    "expression": "82f81832270c",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/canary_gate.py",
+    "function": "check_pair",
+    "area": "log",
+    "sink": "error",
+    "expression": "da2958c43cab",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/clients.py",
+    "function": "AdapterHttp._running",
+    "area": "log",
+    "sink": "warning",
+    "expression": "9bbed7619ad9",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/clients.py",
+    "function": "MailHttp.send",
+    "area": "mail",
+    "sink": "post",
+    "expression": "7c4ffee11d1e",
+    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Ctx.copy_object",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "d5f7a87875e4",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator._deliver",
+    "area": "mail",
+    "sink": "send",
+    "expression": "979eefe2d76c",
+    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator._deliver",
+    "area": "mail",
+    "sink": "send",
+    "expression": "d83792a81ead",
+    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator._end_hold",
+    "area": "log",
+    "sink": "exception",
+    "expression": "e0e5f5c3afc2",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator._failed_mail",
+    "area": "log",
+    "sink": "warning",
+    "expression": "b247ec608610",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator._failed_mail",
+    "area": "mail",
+    "sink": "send",
+    "expression": "c35446d6248e",
+    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator._received_mail",
+    "area": "log",
+    "sink": "warning",
+    "expression": "f200c8363304",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator._received_mail",
+    "area": "mail",
+    "sink": "send",
+    "expression": "291e0bda4d55",
+    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator._recover_or_watch",
+    "area": "log",
+    "sink": "warning",
+    "expression": "be4b6c19cb03",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator._run",
+    "area": "log",
+    "sink": "exception",
+    "expression": "5cee86ded147",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator._worker",
+    "area": "log",
+    "sink": "exception",
+    "expression": "958a2ed43da3",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator._worker",
+    "area": "log",
+    "sink": "exception",
+    "expression": "b08e6384d9e1",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator._worker",
+    "area": "log",
+    "sink": "info",
+    "expression": "64f8f9b8eff8",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator._worker",
+    "area": "log",
+    "sink": "warning",
+    "expression": "083d84a9800b",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator.run",
+    "area": "log",
+    "sink": "warning",
+    "expression": "a8a921ffbbb5",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator.send",
+    "area": "mail",
+    "sink": "send",
+    "expression": "0864476611cc",
+    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+  },
+  {
+    "file": "services/orchestrator/core.py",
+    "function": "Orchestrator.set_state",
+    "area": "log",
+    "sink": "exception",
+    "expression": "efe3d2a7c458",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/datacore_api.py",
+    "function": "router.export_data",
+    "area": "download",
+    "sink": "file envelope",
+    "expression": "2164fbbfc75b",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/orchestrator/datacore_api.py",
+    "function": "router.export_data",
+    "area": "download",
+    "sink": "file envelope",
+    "expression": "edda10ac1ace",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/orchestrator/dataops_api.py",
+    "function": "router.decide",
+    "area": "log",
+    "sink": "warning",
+    "expression": "d597c514de85",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/dataops_api.py",
+    "function": "router.decide.run",
+    "area": "log",
+    "sink": "warning",
+    "expression": "5d61892b6156",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/decision_context.py",
+    "function": "DecisionContext.consent",
+    "area": "log",
+    "sink": "error",
+    "expression": "8b4c2238a834",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/derive.py",
+    "function": "GenerationReader._readable",
+    "area": "log",
+    "sink": "info",
+    "expression": "2c2d9c2f81d4",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/derive.py",
+    "function": "GenerationReader._readable",
+    "area": "log",
+    "sink": "info",
+    "expression": "663fac42acf4",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/derive.py",
+    "function": "after_ingest",
+    "area": "log",
+    "sink": "exception",
+    "expression": "939b74e960dc",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/derive.py",
+    "function": "after_ingest",
+    "area": "log",
+    "sink": "info",
+    "expression": "101f2d641505",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/derive.py",
+    "function": "after_ingest",
+    "area": "log",
+    "sink": "warning",
+    "expression": "4fa516f57d3e",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/derive.py",
+    "function": "after_ingest",
+    "area": "log",
+    "sink": "warning",
+    "expression": "c3c0e49889e7",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/edc_api.py",
+    "function": "router.export_odm",
+    "area": "download",
+    "sink": "file envelope",
+    "expression": "276af1035e8b",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/orchestrator/jobs.py",
+    "function": "GuardedLlm.chat_json",
+    "area": "model",
+    "sink": "chat_json",
+    "expression": "9602996dafdc",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "services/orchestrator/jobs.py",
+    "function": "PinnedLake._hold",
+    "area": "log",
+    "sink": "warning",
+    "expression": "9c89ab986715",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/jobs.py",
+    "function": "PinnedLake.query",
+    "area": "log",
+    "sink": "warning",
+    "expression": "43edc346de00",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/jobs.py",
+    "function": "PinnedLake.release",
+    "area": "log",
+    "sink": "warning",
+    "expression": "25758b44aa10",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/jobs.py",
+    "function": "release_hold",
+    "area": "log",
+    "sink": "warning",
+    "expression": "e6293f3992fb",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/lifecycle_api.py",
+    "function": "router.get_report_file",
+    "area": "download",
+    "sink": "file envelope",
+    "expression": "959dd6a92116",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/orchestrator/lifecycle_api.py",
+    "function": "router.get_report_file",
+    "area": "download",
+    "sink": "file envelope",
+    "expression": "d007f39373b5",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/orchestrator/night.py",
+    "function": "_say",
+    "area": "log",
+    "sink": "error",
+    "expression": "4c1cfc979cb2",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/night.py",
+    "function": "_say",
+    "area": "log",
+    "sink": "warning",
+    "expression": "345699fad177",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/night.py",
+    "function": "advance",
+    "area": "log",
+    "sink": "exception",
+    "expression": "19de372b5520",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/night_work.py",
+    "function": "note",
+    "area": "log",
+    "sink": "warning",
+    "expression": "533c0ec19520",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/notmatched_sample.py",
+    "function": "weekly",
+    "area": "log",
+    "sink": "error",
+    "expression": "65925a6ab51b",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/notmatched_sample.py",
+    "function": "weekly",
+    "area": "log",
+    "sink": "exception",
+    "expression": "f7d16004fa43",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/scenarios/admin.py",
+    "function": "ingest",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "160653abaec4",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/admin.py",
+    "function": "twins_after_ingest",
+    "area": "log",
+    "sink": "warning",
+    "expression": "d8fc6c1ae08f",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/scenarios/approve.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "ab77edb89e07",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/calibration.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "3e89da6c546d",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/case.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "7213a1aa7de6",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/case.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "7cd39c5319fd",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/cohort.py",
+    "function": "run_cohort",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "07d5ed811341",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/cohort.py",
+    "function": "run_cohort",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "1320c8b505ea",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/cohort.py",
+    "function": "run_cohort",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "33b4cd6ace87",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/cohort.py",
+    "function": "run_cohort",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "e92f88e80126",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/cohort.py",
+    "function": "run_merge",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "eac15a5e6144",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/consent.py",
+    "function": "Models.chat",
+    "area": "model",
+    "sink": "chat_json",
+    "expression": "772553ea5836",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "services/orchestrator/scenarios/consent.py",
+    "function": "_translate",
+    "area": "model",
+    "sink": "chat",
+    "expression": "8c10792d5c06",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "services/orchestrator/scenarios/consent.py",
+    "function": "_verify",
+    "area": "model",
+    "sink": "chat",
+    "expression": "6788c0d4b1ff",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "services/orchestrator/scenarios/consent.py",
+    "function": "draft",
+    "area": "model",
+    "sink": "chat",
+    "expression": "1f3b46efc3fc",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "services/orchestrator/scenarios/consent.py",
+    "function": "release",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "64d2a4d77897",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/consent.py",
+    "function": "release",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "f2b645b00228",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/consent.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "aceab63006d8",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/consent.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "e3c9a39cced2",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/consent.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "e8fb6abe7a21",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/feas.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "1d2031eedf82",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/feas.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "38ba315235b9",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/feas.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "5c26f3578d98",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/feas.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "86b7ffa1f66d",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/feas.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "a2a848e88825",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/microbatch.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "0868372a4678",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/microbatch.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "9e27166105b7",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/microbatch.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "bcd8ddee35ac",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/nav.py",
+    "function": "_draft",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "f9479981abde",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/nav.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "629cc31eb68a",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/nav.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "a87f86d99134",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/nav.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "e5ad03b1b9d9",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/retention.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "530ccc648a90",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/review.py",
+    "function": "review_delivery",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "2c6c62324e28",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/screen.py",
+    "function": "deliver_lists",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "7f0143deeaa5",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/screen.py",
+    "function": "deliver_lists",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "834a9ffb1a0c",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/screen.py",
+    "function": "deliver_lists",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "f852f5f326c9",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/screen.py",
+    "function": "publish_excluded",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "2beff063a32b",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/screen.py",
+    "function": "publish_excluded",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "e6800b0cf72e",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/screen.py",
+    "function": "publish_s2b_source",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "d9f0b3f9b755",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/screen.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "61b77270995a",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/screen.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "6b8d8740ef06",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/screen_cascade.py",
+    "function": "screen_embedder",
+    "area": "model",
+    "sink": "embed",
+    "expression": "219969e7516a",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "services/orchestrator/scenarios/submit.py",
+    "function": "run",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "df4cd7ed089c",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/twpas.py",
+    "function": "attach",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "3b26a94a0f4f",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scenarios/twpas.py",
+    "function": "attach",
+    "area": "job file",
+    "sink": "publish",
+    "expression": "7a840f86d378",
+    "why": "The job publishes a caller-built artifact. Its bytes and audience still depend on the scenario’s own release rules."
+  },
+  {
+    "file": "services/orchestrator/scheduler.py",
+    "function": "_held",
+    "area": "log",
+    "sink": "error",
+    "expression": "b1c010eaead1",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/scheduler.py",
+    "function": "_held",
+    "area": "log",
+    "sink": "error",
+    "expression": "b7e62c3e6c6c",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/scheduler.py",
+    "function": "_held",
+    "area": "log",
+    "sink": "info",
+    "expression": "942312097370",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/scheduler.py",
+    "function": "_held",
+    "area": "log",
+    "sink": "warning",
+    "expression": "345699fad177",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/scheduler.py",
+    "function": "_held",
+    "area": "log",
+    "sink": "warning",
+    "expression": "345699fad177",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/scheduler.py",
+    "function": "_held",
+    "area": "log",
+    "sink": "warning",
+    "expression": "ed8ba94e1b1a",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/scheduler.py",
+    "function": "_submit",
+    "area": "log",
+    "sink": "warning",
+    "expression": "834c1469636e",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/scheduler.py",
+    "function": "after_ingest",
+    "area": "log",
+    "sink": "exception",
+    "expression": "d16b2f7bc316",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/scheduler.py",
+    "function": "night_gate",
+    "area": "log",
+    "sink": "exception",
+    "expression": "f25b3a0b094b",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/scheduler.py",
+    "function": "require_open",
+    "area": "log",
+    "sink": "warning",
+    "expression": "4f2cdf365cd3",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/scheduler.py",
+    "function": "require_open",
+    "area": "log",
+    "sink": "warning",
+    "expression": "ef50262bbee7",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/scheduler.py",
+    "function": "start",
+    "area": "log",
+    "sink": "info",
+    "expression": "e1c87369c7ba",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/selftest.py",
+    "function": "check_model",
+    "area": "model",
+    "sink": "chat_json",
+    "expression": "5c5c93ccfe6d",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "services/orchestrator/selftest.py",
+    "function": "record",
+    "area": "log",
+    "sink": "error",
+    "expression": "f61c8aec0d96",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/selftest.py",
+    "function": "record",
+    "area": "log",
+    "sink": "warning",
+    "expression": "0db048a57c52",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/selftest.py",
+    "function": "record",
+    "area": "log",
+    "sink": "warning",
+    "expression": "6a0e5974ccf0",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/setup_api.py",
+    "function": "router.assist",
+    "area": "model",
+    "sink": "chat_json",
+    "expression": "7e24d696ebb2",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "services/orchestrator/setup_api.py",
+    "function": "router.get_feasibility",
+    "area": "log",
+    "sink": "warning",
+    "expression": "3d248d9fd148",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/setup_api.py",
+    "function": "router.get_patients",
+    "area": "log",
+    "sink": "warning",
+    "expression": "86aed7587c5d",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/setup_api.py",
+    "function": "router.template",
+    "area": "download",
+    "sink": "file envelope",
+    "expression": "6fdbfb7d4d54",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/orchestrator/study_api.py",
+    "function": "StudyService.lifecycle",
+    "area": "log",
+    "sink": "warning",
+    "expression": "d8a7d9715f1f",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/twophase.py",
+    "function": "DeferredVerifier.resolve.one",
+    "area": "model",
+    "sink": "chat_json",
+    "expression": "e064dc31bc17",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "services/orchestrator/twophase.py",
+    "function": "Gpu.use",
+    "area": "log",
+    "sink": "error",
+    "expression": "2695956c6444",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/twophase.py",
+    "function": "MemoClient.chat_json",
+    "area": "model",
+    "sink": "chat_json",
+    "expression": "3c3b11e84729",
+    "why": "This caller delegates to a gated model boundary. Its own prompt or wrapper has no locally proven output policy."
+  },
+  {
+    "file": "services/orchestrator/twophase.py",
+    "function": "two_phase",
+    "area": "log",
+    "sink": "info",
+    "expression": "12c63e8ea9dc",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/orchestrator/twophase.py",
+    "function": "two_phase",
+    "area": "log",
+    "sink": "info",
+    "expression": "40e021ca433b",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/patient_profile/twin.py",
+    "function": "after_ingest",
+    "area": "log",
+    "sink": "error",
+    "expression": "81b6a08c8cd8",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/patient_profile/twin.py",
+    "function": "after_ingest",
+    "area": "log",
+    "sink": "info",
+    "expression": "ba45cb242ca7",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/patient_profile/twin.py",
+    "function": "build",
+    "area": "log",
+    "sink": "warning",
+    "expression": "5924779d25d3",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/rc_sim/app.py",
+    "function": "_file_call",
+    "area": "download",
+    "sink": "Response",
+    "expression": "02f39c812788",
+    "why": "This route or file envelope still selects the downloadable artifact and its contents locally."
+  },
+  {
+    "file": "services/tracestore/app.py",
+    "function": "create_app.write",
+    "area": "log",
+    "sink": "trace write",
+    "expression": "76afd397fc08",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "services/tracestore/app.py",
+    "function": "refusal",
+    "area": "log",
+    "sink": "warning",
+    "expression": "4437b350ecb7",
+    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "_audit_part",
+    "area": "support",
+    "sink": "b.add",
+    "expression": "2555c32a78d8",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "_audit_part",
+    "area": "support",
+    "sink": "b.add",
+    "expression": "cd2acf23f8f7",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "_audit_part",
+    "area": "support",
+    "sink": "b.add",
+    "expression": "ebc241c4ddb3",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "_box_part",
+    "area": "support",
+    "sink": "b.add",
+    "expression": "829d50f32b8f",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "_box_part",
+    "area": "support",
+    "sink": "b.add",
+    "expression": "83b31da35eb2",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "_box_part",
+    "area": "support",
+    "sink": "b.add",
+    "expression": "e158b59a6df5",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "_box_part",
+    "area": "support",
+    "sink": "b.add",
+    "expression": "e1aca856162f",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "_box_part",
+    "area": "support",
+    "sink": "b.add",
+    "expression": "f3a540bd78ac",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "_cmd_part",
+    "area": "support",
+    "sink": "b.add",
+    "expression": "6115e4cc5383",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "_cmd_part",
+    "area": "support",
+    "sink": "b.add",
+    "expression": "cd90a6c79173",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "_logs_part",
+    "area": "support",
+    "sink": "b.add",
+    "expression": "4ac0a1022a29",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "_write_tar",
+    "area": "support",
+    "sink": "addfile",
+    "expression": "cb15abb49392",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "build",
+    "area": "support",
+    "sink": "_write_tar",
+    "expression": "8906e539815c",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "build",
+    "area": "support",
+    "sink": "b.add",
+    "expression": "7c86c10f185c",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "build",
+    "area": "support",
+    "sink": "part.replace",
+    "expression": "db96fee32b2d",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  }
+]

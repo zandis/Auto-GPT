@@ -25,8 +25,10 @@ def store() -> ObjectStore:
 def _ie_locator(job_id: str | None) -> Any:
     def locate(sections: list[dict[str, Any]]) -> dict[str, list[str]]:
         from tb_common.llm import chat_json
+        from tb_common.output_gate import prepare_output
 
-        return chat_json("ie_locate", {"sections": sections}, job_id=job_id).data
+        safe = prepare_output("ie_locate", "model", {"sections": sections})
+        return chat_json("ie_locate", safe, job_id=job_id).data
 
     return locate
 

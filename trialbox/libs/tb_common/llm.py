@@ -53,6 +53,7 @@ from tb_llm.timeouts import caller_timeout, once_more
 from tb_common.audit import AuditLog
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import sha256_text
+from tb_common.output_gate import OutputRefused, prepare_output
 from tb_common.phi_guard import PhiClearance, variables_text
 
 _FM = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.S)
@@ -370,6 +371,11 @@ class LlmClient:
         prompt_id = prompt.meta.id
         schema_name = schema or prompt.meta.output_schema
         json_schema = inline_schema(schema_name)
+        if prompt_id in ("judge", "chart_facts", "crf_prefill", "ie_locate", "draft_doc"):
+            try:
+                variables = prepare_output(prompt_id, "model", variables)
+            except OutputRefused as exc:
+                raise LlmError(exc.reason) from exc
         messages = render(prompt, variables)
         input_text = "\n".join(m["content"] for m in messages)
         input_sha = sha256_text(input_text)
@@ -418,6 +424,10 @@ class LlmClient:
                 build_sha = str((payload.get("tb") or {}).get("build_sha") or "")
                 call_id = str((payload.get("tb") or {}).get("call_id") or "")
             else:
+                try:
+                    body = prepare_output("chat", "model", body)
+                except OutputRefused as exc:
+                    raise LlmError(exc.reason) from exc
                 try:  # a dropped connection once more, a timeout never (T-608, D-445)
                     resp = once_more(partial(self.http.post, f"{base}/chat/completions", json=body, headers=headers))
                 except httpx.TimeoutException as exc:  # never a model fault: the server may still be working on it
@@ -532,7 +542,10 @@ class LlmClient:
         )
         if job_id and not labels.step_id:
             labels = replace(labels, step_id=job_id)  # the step the gateway's confirmer checks (LLM-2; T-604)
-        req = {k: v for k, v in body.items() if k != "model"}
+        try:
+            req = prepare_output("chat", "model", {k: v for k, v in body.items() if k != "model"})
+        except OutputRefused as exc:
+            raise LlmError(exc.reason) from exc
         try:
             payload: dict[str, Any] = self.gateway.complete(req, labels)
         except GatewayRefused as exc:

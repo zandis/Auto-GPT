@@ -101,7 +101,9 @@ def python_hits(source: str) -> list[int]:
 def scan(root: Path) -> list[str]:
     out: list[str] = []
     for path in sorted(root.rglob("*")):
-        if not path.is_file() or any(part in SKIP_DIRS or part.endswith(".egg-info") for part in path.parts):
+        if not path.is_file() or any(
+            part in SKIP_DIRS or part.endswith(".egg-info") for part in path.relative_to(root).parts
+        ):
             continue
         rel = path.relative_to(root).as_posix()
         if _allowed(rel):

@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from embed_service.embedder import Embedder
+from tb_common.output_gate import prepare_output
 from tb_common.phi_guard import NOTE_MASK_VERSION, mask_note
 
 from vec.chunker import OVERLAP, SIZE, chunk_note
@@ -70,7 +71,8 @@ def embed_missing(store: Store, texts: dict[str, str], embedder: Embedder) -> in
     n = 0
     for i in range(0, len(missing), BATCH):
         batch = missing[i : i + BATCH]
-        vecs = embedder.embed([texts[s] for s in batch])
+        safe = prepare_output("embedding", "model", {"texts": [texts[s] for s in batch]})
+        vecs = embedder.embed(safe["texts"])
         if len(vecs) != len(batch):
             raise VecError(f"the embedder returned {len(vecs)} vectors for {len(batch)} texts")
         bad = sorted({len(v) for v in vecs} - {dim})
