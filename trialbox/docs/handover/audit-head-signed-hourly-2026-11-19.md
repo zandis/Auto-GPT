@@ -21,7 +21,7 @@ root can write refused, and `doctor` failing a head older than 2 h. Decision **D
 | --- | --- |
 | `audit-sign` every hour at :50; `logs daily` stays at 00:20 on its own line | `deploy/install.sh`; `audit_heads.cron_lines` |
 | an updated box's nightly cron line moved to the hourly one, idempotently | `tools/trialbox/prestart.py` step "hourly audit head" |
-| a run fails when the host's root could write the newest head of a folder | `audit_heads.overwritable`, `sign_on_box` |
+| a run fails (exit 1) when the host's root could write the newest head of a folder; `doctor` FAILs it in PRODUCTION, WARNs in VALIDATION, TEST and DEV | `audit_heads.overwritable`, `sign_on_box`, `kind` |
 | `TB_AUDIT_HEAD_MAX_AGE_H` 36 -> 2; the FAIL line says since when and what to run | `libs/tb_common/config.py`, `tools/trialbox/doctor.py` |
 | a head dated more than 2 h ahead of the clock FAILs and names both times | `doctor.check_audit_heads` |
 
@@ -48,7 +48,8 @@ and in the next run.
 **What it does not stop.** The box's root can change events written since the last signed head (at most about an
 hour, two with one missed run) and sign over them; the key lives on the box, as review 16 says. It does not stop the
 box's root from deleting heads where the share lets it (H10G2-01), or anything on an anchor folder on the box's own
-disk without `chattr +i` (the run then fails, by design). It does not hide the chain from anyone who can read the
+disk without `chattr +i` (the run then fails, by design; `doctor` WARNs outside PRODUCTION, so a VALIDATION box on a
+local folder is told, not stopped). It does not hide the chain from anyone who can read the
 audit volume.
 
 ## Findings

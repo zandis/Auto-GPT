@@ -149,7 +149,9 @@ health line warns 90 days before the list runs out and is red after it.
    asked for a Taiwan site only. Where TrialBox holds no value for the country the question has no default. An
    answers file without `country` reads exactly as before. Mail: the hospital MTA must add an `Authentication-Results` header; answer
    `mta_authserv_id` with its first token (for example `mx.hospital.tw`). A mail command is accepted on `dmarc=pass`,
-   or on an SPF or DKIM pass for the From: domain.
+   or on an SPF or DKIM pass for the From: domain. Audit anchor: set `TB_AUDIT_ANCHOR_TARGETS` in `deploy/.env` to
+   a folder on the hospital's share that the box's root cannot write over (root squashed, or WORM); a folder the
+   box's root can write is a WARN in VALIDATION and a FAIL in PRODUCTION of `doctor` (`audit_heads`, D-1345, §2).
 4. **Mapping.** Copy a template from `services/adapter/mapping/templates/` to
    `deploy/site/mapping/tw_core/<site>.yaml` (its lab lookup beside it; keep `extends`: the shared mapping comes from
    the image) and check it against an export, in the release's Python image once the one command has loaded it

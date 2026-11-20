@@ -15,8 +15,10 @@
    KEK; the services that mount them (orchestrator, adapter) mount the audit volume read-only. No new key.
 4. After each run on a site box the host (root, from cron) asks the kernel whether it could write the newest head of
    each anchor folder (`access(2)`). If it could, the run fails: the head is still written, the problem is in the
-   result file and in the event's `failed`, and `doctor` FAILs on it. A folder passes only when the box's root is
-   refused: the hospital's share with root squashed, a WORM share, or `chattr +i` on each head.
+   result file (`kind: open_to_root`) and in the event's `failed`. `doctor` FAILs on it in PRODUCTION and WARNs in
+   VALIDATION, TEST and DEV (a result file without `kind`, from before, reads as a refusal, as it did). A folder
+   passes only when the box's root is refused: the hospital's share with root squashed, a WORM share, or
+   `chattr +i` on each head. RUNBOOK 01 step 3 says so at install.
 5. `TB_AUDIT_HEAD_MAX_AGE_H` defaults to 2 (was 36): `doctor` (`audit_heads`) FAILs in VALIDATION and PRODUCTION
    (WARN elsewhere) when the newest signed head of any folder is older than 2 h, or dated more than 2 h ahead of the
    box's clock, and says since when and what to run. No head yet is a WARN while the audit key is younger than the

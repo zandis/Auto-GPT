@@ -1179,12 +1179,13 @@ HEAD_MAX_AGE_H = 2.0  # TB_AUDIT_HEAD_MAX_AGE_H: the job is hourly (10G-2, D-134
 def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
     """NEW-STD-2 (STD-002, LIFE-010, D-562): the signed audit heads of D-355 are in force only when a folder off the
     audit volume takes one every hour (10G-2, D-1345). FAIL in VALIDATION and PRODUCTION (WARN elsewhere) when no
-    anchor folder is set, a folder is on the audit volume, the audit signing key is missing, the last run failed
-    (among its reasons: a folder whose heads the box's root could overwrite), or the newest signed head of any folder
-    is older than ``TB_AUDIT_HEAD_MAX_AGE_H``, or dated ahead of the clock by more than it. No head yet is a WARN
-    while the audit key is younger than the limit (a box installed within the hour). The signatures are checked by
-    ``trialbox audit-sign`` each run and by ``tools/audit_verify.py --heads``; this check reads each head's date and
-    that this box's key signed it."""
+    anchor folder is set, a folder is on the audit volume, the audit signing key is missing, the last run failed,
+    or the newest signed head of any folder is older than ``TB_AUDIT_HEAD_MAX_AGE_H``, or dated ahead of the clock
+    by more than it. A run whose only problem is a folder the box's root could overwrite (result kind
+    ``open_to_root``) is a FAIL in PRODUCTION and a WARN elsewhere. No head yet is a WARN while the audit key is
+    younger than the limit (a box installed within the hour). The signatures are checked by ``trialbox audit-sign``
+    each run and by ``tools/audit_verify.py --heads``; this check reads each head's date and that this box's key
+    signed it."""
     if inp.platform:  # nothing signs heads on a platform yet: said, not passed (the review's M6)
         return Check("audit_heads", "WARN", "on a platform no host cron signs the audit head: STD-002 is open there")
     from tb_common import audit, kek
@@ -1226,9 +1227,15 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
         last = json.loads(state.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         last = None
+    open_to_root: list[str] = []  # 10G-2 (D-1345): FAIL in PRODUCTION only, WARN in VALIDATION, TEST and DEV
     if isinstance(last, dict) and last.get("ok") is False:
         said = "; ".join(str(x) for x in (last.get("problems") or [])[:2])[:500]
-        problems.append(f"the last audit-sign ({last.get('at')}) was refused or failed: {said}")
+        if last.get("kind") == "open_to_root":  # a file without "kind" (before 10G-2) is a refusal, as it was
+            (problems if env == "PRODUCTION" else open_to_root).append(
+                f"the last audit-sign ({last.get('at')}): {said}"
+            )
+        else:
+            problems.append(f"the last audit-sign ({last.get('at')}) was refused or failed: {said}")
     try:
         own: dict[str, bytes] | None = audit_heads.own_keys(secrets)
     except (OSError, ValueError):
@@ -1281,9 +1288,9 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
         else:
             newest.append(f"{t}: {age:.0f} h")
     if problems:
-        return Check("audit_heads", soft, "; ".join(problems + waiting))
-    if waiting:
-        return Check("audit_heads", "WARN", "; ".join(waiting))
+        return Check("audit_heads", soft, "; ".join(problems + open_to_root + waiting))
+    if open_to_root or waiting:
+        return Check("audit_heads", "WARN", "; ".join(open_to_root + waiting))
     return Check("audit_heads", "PASS", "newest signed head " + ", ".join(newest))
 
 

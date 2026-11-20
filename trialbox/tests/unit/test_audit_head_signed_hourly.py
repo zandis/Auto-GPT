@@ -146,11 +146,13 @@ def _box_env(box: dict[str, Path]) -> dict[str, str]:
 
 
 def _signer(box: dict[str, Path]) -> Any:
-    """The signer's container, replaced: it writes a head into the folder, as the real one does, and answers."""
+    """The signer's container, replaced: the head it would write is signed for real first (``_sign``), so that the
+    folder holds one genuine head; the replacement only answers as the container does."""
+    _key_made(box, SIGNED - timedelta(days=2))
+    _sign(box)
 
     def run(argv: list[str], **_kw: Any) -> str:
         if "run" in argv[:3]:
-            _head(box["share"])
             return json.dumps({"ok": True, "problems": [], "signed": {"lines": 3, "hash": "ab" * 32, "key_id": "k"},
                                "detail": {"lines": 3, "head": "ab" * 32, "key_id": "k", "anchors": 1}})  # fmt: skip
         return ""
@@ -158,20 +160,64 @@ def _signer(box: dict[str, Path]) -> Any:
     return run
 
 
-def test_a_folder_the_boxs_root_can_write_over_fails_the_run_and_doctor(box: dict[str, Path]) -> None:
+def _open_to_root_run(box: dict[str, Path]) -> audit_heads.Night:
     night = audit_heads.sign_on_box(box["deploy"], _box_env(box), run=_signer(box), writable=lambda _p: True)
-    assert not night.ok
+    audit_heads.write_state(audit_heads.state_file(box["deploy"], {}), night)
+    return night
+
+
+def test_a_folder_the_boxs_root_can_write_over_fails_the_run_and_says_its_kind(box: dict[str, Path]) -> None:
+    night = _open_to_root_run(box)
+    assert not night.ok  # the command exits 1 in every environment
     assert any("lets this box's root overwrite a signed head" in p and str(box["share"]) in p for p in night.problems)
     assert any("overwrite" in f for f in (night.detail or {}).get("failed", []))  # the event says so too
+    state = json.loads(audit_heads.state_file(box["deploy"], {}).read_text(encoding="utf-8"))
+    assert state["ok"] is False and state["kind"] == "open_to_root"
+
+
+@pytest.mark.parametrize(
+    ("env", "status"), [("PRODUCTION", "FAIL"), ("VALIDATION", "WARN"), ("TEST", "WARN"), ("DEV", "WARN")]
+)
+def test_doctor_fails_a_folder_open_to_root_in_production_and_warns_elsewhere(
+    box: dict[str, Path], env: str, status: str
+) -> None:
+    _open_to_root_run(box)
+    c = _doctor(box, SIGNED + timedelta(minutes=10), env=env)
+    assert c.status == status, c.detail
+    assert "overwrite a signed head" in c.detail and "root squashed" in c.detail and "RUNBOOK 02" in c.detail
+
+
+def test_a_real_refusal_beside_a_folder_open_to_root_is_still_a_refusal(box: dict[str, Path]) -> None:
+    night = audit_heads.sign_on_box(box["deploy"], {**_box_env(box), "TB_AUDIT_ANCHOR_TARGETS": os.pathsep.join(
+        [str(box["share"]), str(box["deploy"] / "not-mounted")])}, run=_signer(box), writable=lambda _p: True)  # fmt: skip
+    assert audit_heads.kind(night) == "refused"
+    audit_heads.write_state(audit_heads.state_file(box["deploy"], {}), night)
+    c = _doctor(box, SIGNED + timedelta(minutes=10), env="VALIDATION")
+    assert c.status == "FAIL" and "was refused or failed" in c.detail
+
+
+@pytest.mark.parametrize("kind", [None, "", ["open_to_root"], 7, "something else"])
+def test_a_result_file_without_a_known_kind_reads_as_before(box: dict[str, Path], kind: Any) -> None:
+    """A result file written before 10G-2 has no "kind": a failed run there is a refusal, as it always was."""
+    _key_made(box, SIGNED - timedelta(days=2))
+    _sign(box)
+    doc: dict[str, Any] = {"at": "2026-11-19T09:50:00+00:00", "ok": False, "problems": ["x"], "lines": None}
+    if kind is not None:
+        doc["kind"] = kind
     state = audit_heads.state_file(box["deploy"], {})
-    audit_heads.write_state(state, night)
-    c = _doctor(box, SIGNED + timedelta(minutes=10))
-    assert c.status == "FAIL" and "overwrite a signed head" in c.detail
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text(json.dumps(doc), encoding="utf-8")
+    for env, status in (("VALIDATION", "FAIL"), ("DEV", "WARN")):
+        c = _doctor(box, SIGNED + timedelta(minutes=10), env=env)
+        assert c.status == status and "was refused or failed: x" in c.detail
 
 
 def test_a_folder_the_boxs_root_cannot_write_over_passes(box: dict[str, Path]) -> None:
     night = audit_heads.sign_on_box(box["deploy"], _box_env(box), run=_signer(box), writable=lambda _p: False)
     assert night.ok, night.problems
+    assert audit_heads.kind(night) == "ok" and night.open_to_root == []
+    audit_heads.write_state(audit_heads.state_file(box["deploy"], {}), night)
+    assert _doctor(box, SIGNED + timedelta(minutes=10)).status == "PASS"
 
 
 # ------------------------------------------------------------------------------------------------ schedule and key

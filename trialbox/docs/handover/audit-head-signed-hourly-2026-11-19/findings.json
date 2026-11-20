@@ -16,7 +16,7 @@
   {
    "id": "H10G2-02",
    "severity": "Medium",
-   "claim": "The refusal has not been run on a real anchor folder (the hospital's share with root squashed, a WORM share, chattr +i on a local disk): it is shown on a read-only file and a non-root account only. The first box's install shows it: an anchor on the box's own disk must make audit-sign exit 1 and doctor audit_heads FAIL with 'lets this box's root overwrite a signed head'",
+   "claim": "The refusal has not been run on a real anchor folder (the hospital's share with root squashed, a WORM share, chattr +i on a local disk): it is shown on a read-only file and a non-root account only. The first box's install shows it: an anchor on the box's own disk must make audit-sign exit 1 and doctor audit_heads say 'lets this box's root overwrite a signed head' (FAIL in PRODUCTION, WARN in VALIDATION)",
    "lane": "Int",
    "basis": "not_run",
    "state": "open"

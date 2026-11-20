@@ -56,6 +56,8 @@ class Night:
     problems: list[str] = field(default_factory=list)
     signed: dict[str, Any] | None = None
     detail: dict[str, Any] | None = None
+    #: 10G-2: the problems that are only "the box's root could overwrite a head" (doctor: FAIL in PRODUCTION only)
+    open_to_root: list[str] = field(default_factory=list)
 
 
 def _libs() -> None:
@@ -240,8 +242,10 @@ def sign_on_box(deploy: Path, env: Mapping[str, str], run: Run = _run,
         return Night(False, [f"the signer did not answer ({exc}): nothing was recorded"])
     open_to_root = [f"the anchor folder {t} lets this box's root overwrite a signed head ({head.name} is writable): "
                     "a head there proves nothing against the box's own root. Make it a folder the box's root "
-                    "cannot write over (the hospital's share with root squashed, a WORM share, or chattr +i on "
-                    "each head) (10G-2, D-1345)" for t in targets if (head := overwritable(t, writable))]  # fmt: skip
+                    "cannot write over: TB_AUDIT_ANCHOR_TARGETS on the hospital's share with root squashed, a WORM "
+                    "share, or chattr +i on each head (RUNBOOK 02, D-1345)"
+                    for t in targets if (head := overwritable(t, writable))]  # fmt: skip
+    night.open_to_root = open_to_root
     if absent or open_to_root:
         night.ok = False
         night.problems += absent + open_to_root
@@ -350,10 +354,20 @@ def state_file(deploy: Path, env: Mapping[str, str]) -> Path:
     return Path(env.get("TB_LOG_DIR") or deploy / "logs") / "audit-sign.json"
 
 
+def kind(night: Night) -> str:
+    """What the result file says the run was, for ``doctor``: ``ok``; ``open_to_root`` when the only problems are
+    folders the box's root could write over (10G-2: FAIL in PRODUCTION, WARN elsewhere); ``refused`` for anything
+    else (FAIL in VALIDATION and PRODUCTION). A file written before 10G-2 has no kind and reads as before."""
+    if night.ok:
+        return "ok"
+    only_root = night.open_to_root and all(p in night.open_to_root for p in night.problems)
+    return "open_to_root" if only_root else "refused"
+
+
 def write_state(path: Path, night: Night) -> None:
     """The night's result, so that a refused night is a FAIL line of ``doctor`` and not only a line in a log."""
     doc = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "ok": night.ok, "problems": night.problems[:5],
-           "lines": (night.signed or {}).get("lines")}  # fmt: skip
+           "lines": (night.signed or {}).get("lines"), "kind": kind(night)}  # fmt: skip
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(f".{path.name}.tmp")
