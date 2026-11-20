@@ -1,0 +1,8 @@
+# synthetic: hand quoting that doubles embedded quotes; a constant name
+SCHEMA = "app"
+
+
+def use(con, schema):
+    q = schema.replace('"', '""')
+    con.execute(f'SET search_path TO "{q}"')
+    con.execute(f'SET search_path TO "{SCHEMA}"')

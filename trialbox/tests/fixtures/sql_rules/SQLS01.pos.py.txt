@@ -1,0 +1,7 @@
+# synthetic: an f-string with a value into execute
+def by_name(cur, name):
+    cur.execute(f"SELECT id FROM item WHERE name = {name}")  # hit
+
+
+def by_table(db, table, key):
+    return db.fetchval(f"SELECT count(*) FROM {table} WHERE k = ?", (key,))  # hit
