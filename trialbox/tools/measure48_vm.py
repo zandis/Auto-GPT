@@ -9,7 +9,6 @@ library only: the VM runs it with its own python3 before any venv exists (as box
     python3 measure48_vm.py pack --run DIR --out DIR [--mask-file F ...]   # the allow-listed records, redacted
     python3 measure48_vm.py summary DIR                          # --collect: what the run measured
     python3 measure48_vm.py quota DIR --zone Z --disk-gb N [--hdb-free-gb N]  # the driver's preflight: GPU, CPU, disk
-    python3 measure48_vm.py host-need [--pull]                   # on an existing host (H-67): GB in each place
 
 Every figure of ``STAGES`` is H-47's (docs/plan/measurements/48gb-measuring-run-2026-11-19.md, section 5), unchanged:
 the unattended form does the same steps in the same order; only the disk is smaller (100 GB, the region's
@@ -60,7 +59,6 @@ LADDER = ["pair-32k", "pair-16k", "judge-alone"]  # lane J's order (runbook 29 s
 # line by line (REDACT, box_vm.py's own pattern, and every value of --mask-file) before it is written to the stage.
 ALLOW = [
     "steps.json", "decisions.json", "disk.jsonl", "clock.txt", "vm.log",
-    "host.log", "preflight.txt", "records/docker-objects.json",  # the host form (H-67, tools/measure48-host.sh)
     "records/o0-card.csv", "records/plan.txt", "records/ballast.log", "records/head.json",
     "records/tb-dgpu48-*/measure.*.json", "records/tb-dgpu48-*/serving_config.dgpu48.*.json",
     "records/tb-dgpu48-*/canary.*.json",
@@ -70,7 +68,7 @@ ALLOW = [
 ]  # fmt: skip
 DENY = [
     "raw/*", "*/raw/*", "*.env", "*/.env", "*secrets*", "*down.json", "*verifier-flag.yml", "*poc-up*", "*.key",
-    "*.pem", "*key*.json", "*/.serving_config.*", "*gpu-pin.yml", "kv/*",
+    "*.pem", "*key*.json", "*/.serving_config.*",
 ]  # fmt: skip
 REDACT = re.compile(r"(password|passwort|enrol|enroll|secret|token|api[_-]?key|authorization|bearer)", re.I)
 MAX_LOG_LINES = 400  # a step's log goes up as its last lines (the end of a log says what failed)
@@ -87,21 +85,6 @@ NEED_GB = {
     "screen": 3.0,  # PostgreSQL for 1,000 synthetic patients, the part's folder, screenshots (not measured; small)
     "host53": 1.0,  # one more measure: records only
 }
-
-
-# An existing host (H-67, tools/measure48-host.sh): steps s05 to s14 only. The weights are there already (checked, not
-# fetched); the images go to Docker's data root (the stub's, and the engine's only with --pull); the screen's tools
-# (the venv, node and Chromium, uv's cache) and the screen itself go to the run folder.
-HOST_DOCKER_STEPS = ("stub",)  # + "engine" with --pull
-HOST_RUN_DIR_STEPS = ("tools", "screen", "host53")
-RENTED_DRIVER_BRANCH = "580"  # the rented run's driver (D-966: nvidia-driver-580-server-open); a host's is recorded
-
-
-def host_need(pull: bool = False) -> dict[str, float]:
-    """GB free each place needs before the host form starts, from NEED_GB (the run sheet's figures and margins)."""
-    docker = [*HOST_DOCKER_STEPS, *(("engine",) if pull else ())]
-    return {"docker_root_gb": round(sum(NEED_GB[k] for k in docker), 1),
-            "run_dir_gb": round(sum(NEED_GB[k] for k in HOST_RUN_DIR_STEPS), 1)}  # fmt: skip
 
 
 def hours(with_o: bool) -> tuple[float, float, float]:
@@ -487,16 +470,10 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("--disk-gb", type=int, default=DISK_GB)
     q.add_argument("--hdb-free-gb", type=_hdb_free_gb, default=None)  # H-59: the free figure by hand
     sub.add_parser("stop-line-min").add_argument("--no-o", action="store_true")
-    hn = sub.add_parser("host-need")
-    hn.add_argument("--pull", action="store_true")
     a = ap.parse_args(argv)
     if a.cmd == "estimate":
         est = estimate(not a.no_o, a.disk_gb)
         print(json.dumps(est, indent=1)) if a.json else _print_estimate(est)
-        return 0
-    if a.cmd == "host-need":
-        gb = host_need(a.pull)
-        print(f"{gb['docker_root_gb']:g} {gb['run_dir_gb']:g}")
         return 0
     if a.cmd == "stop-line-min":
         print(vm_stop_line_min(not a.no_o))

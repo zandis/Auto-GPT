@@ -397,9 +397,6 @@ DECLARED: dict[str, Declared] = {
     "TB_B200_STANDIN": Declared(
         "bool", "", "tools/b200_qualify.sh: stand-in nvidia-smi and docker (tests); the record is never passed (T-114)"
     ),
-    "TB_BALLAST_CONTAINER": Declared(
-        "str", "tb-ballast", "tools/ballast.py: the holder's container, tb-ballast-<run id> on an existing host (H-67)"
-    ),
     "TB_BACKUP_ALERT_CMD": Declared("str", "", "command run when the newest good backup is too old"),
     "TB_BACKUP_DIRS": Declared("str", "", "extra host folders put in a backup"),
     "TB_BACKUP_JOB_WAIT_S": Declared(
