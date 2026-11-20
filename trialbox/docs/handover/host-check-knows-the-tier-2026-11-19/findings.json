@@ -1,0 +1,40 @@
+{
+  "card": "H10G11",
+  "title": "the host check knows the tier (card 10G-11)",
+  "date": "2026-11-19",
+  "source": "docs/handover/host-check-knows-the-tier-2026-11-19.md",
+  "findings": [
+    {
+      "id": "H10G11-01",
+      "severity": "Low",
+      "claim": "on Windows with WSL2 the disk is judged by deploy/windows/wsl2_policy.py (BitLocker's protectors), which does not read the tier: a desk-side Windows box with a TPM-only BitLocker protector is not given the desk-side rule of D-1342",
+      "lane": "H",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H10G11-02",
+      "severity": "Low",
+      "claim": "no tier record states desk_side false, and deploy/install.sh labels a no-GPU install P-GB10 (no record): the server-room box of review 16 section 2.8 reads as unknown and takes the stricter rule until it has a record",
+      "lane": "H",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H10G11-03",
+      "severity": "Low",
+      "claim": "review 16 section 2.8 asks the DGX Spark for TPM and PIN with no unattended unlock; check_host.sh takes the Spark as unknown (desk-side), which refuses TPM alone but passes a Tang binding",
+      "lane": "H",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "H10G11-04",
+      "severity": "Low",
+      "claim": "the desk-side rule was run only against the fake host of the tests (TB_HOST_ROOT, stub cryptsetup and clevis); no box with a real LUKS volume and TPM was used",
+      "lane": "H",
+      "basis": "hypothesis",
+      "state": "open"
+    }
+  ]
+}

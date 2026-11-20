@@ -1,0 +1,7 @@
+# synthetic: concatenation into execute
+def by_name(cur, name):
+    cur.execute("SELECT id FROM item WHERE name = '" + name + "'")  # hit
+
+
+def suffix(db, extra):
+    return db.fetchall("SELECT id FROM item WHERE " + extra)  # hit

@@ -1,0 +1,30 @@
+{
+ "card": "H63",
+ "title": "the coverage ratchet red while every test passed",
+ "date": "2026-11-19",
+ "source": "docs/handover/coverage-ratchet-lost-lines-2026-11-19.md",
+ "findings": [
+  {
+   "id": "H63-01",
+   "severity": "Medium",
+   "claim": "two tests in tests/unit/test_test_shard.py started pytest in trialbox/ with CI's PYTEST_ADDOPTS (--cov); pytest-cov then combined and deleted the coverage files that finished xdist workers had saved there, so shard 3 lost one worker's lines (18,738 in run 44628868228) while every test passed, and the ratchet reported a false fall on the required check unit",
+   "severity_basis": "a person misled: a required check red on a change that touches no service code, cleared only by a rerun",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 081e9d8edbaf051d6cfa66c394ee1686e2b5e3b7",
+   "fix": "the nested runs drop PYTEST_ADDOPTS; tools/coverage_shards.py refuses a nested pytest that measures coverage in the outer run's folder; tests/unit/test_coverage_shards_h63.py",
+   "from": "unit job 135944262250 of run 44628868228 against unit job 135898844783 of run 44614992770, shard 3's coverage.db compared; the integrator's report of train 100"
+  },
+  {
+   "id": "H63-02",
+   "severity": "Low",
+   "claim": "an xdist worker that returns no coverage data, or a shard whose coverage.db never reaches the unit job, lost its lines without a failing step: pytest-cov names such a worker only in the report CI turns off, and the combine reads a glob",
+   "severity_basis": "the same false fall could come by another way; not seen in the runs read",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 081e9d8edbaf051d6cfa66c394ee1686e2b5e3b7",
+   "fix": "tools/coverage_shards.py: the controller fails the run and names the worker; unit's step 'Every shard's coverage data is present' names a missing shard before the combine",
+   "from": "pytest-cov 7.1.0 engine.DistMaster.testnodedown and summary; a pytest -n 2 --cov run whose worker exits after its last test, green before the fix"
+  }
+ ]
+}
