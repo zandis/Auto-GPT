@@ -987,6 +987,14 @@ class Ssmix2Source:
 
         if licensed is None:
             licensed = lic.tables()
+        if lic.unavailable(licensed):
+            # deep review of #1238 (M4): read without the master tonight, the diagnoses would be stored as a site
+            # without one has them, and no later night would send them again. The night is held instead
+            raise lic.LicensedError(
+                "LIC-STORE-DOWN",
+                "the terminology store cannot be reached: the SS-MIX2 storage is not read without the site's "
+                "licensed lists (run the night again when the store is back)",
+            )
         if licensed_loaded_at is None:  # known when the tables came from ``adapter.licensed.tables()`` (D-1257)
             licensed_loaded_at = lic.loaded_at_of(licensed)
         self.licensed = licensed

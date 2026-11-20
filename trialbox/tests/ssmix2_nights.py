@@ -45,6 +45,8 @@ def lake_ids(table: str, row: dict[str, Any]) -> list[str]:
     if not _MAPPER:
         _MAPPER.append(Mapper(Mapping.load(_MAPPING), b"k" * 32, "s"))
     return [f"{typ}/{rid}" for typ, rid in _MAPPER[0].tombstones(table, iter([row]))]
+
+
 Reader = Callable[[Path], Ssmix2Source]
 
 
