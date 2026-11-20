@@ -16,13 +16,14 @@ from typing import Any
 import pytest
 import yaml
 from criteria_compiler.compile_sql.generator import SqlGenerator
-from criteria_compiler.terminology.mapper import Terminology, ValueSets
+from criteria_compiler.terminology.mapper import FAMILY_EXT, Terminology, ValueSets
 from embed_service.embedder import HashEmbedder
 from jsonschema import Draft202012Validator
 from lake.client import LakeLocal
 from matching.cascade.engine import CascadeConfig, criterion_hashes, run_cascade, write_outputs
 from matching.cascade.model import Outcome, PatientTrace
 from orchestrator import answer_store
+from orchestrator.scenarios.evaluate import SqlEngine, evaluate_patients
 from orchestrator.scenarios.screen_cascade import verdict_of, verdicts_of
 from pydantic import ValidationError
 from tb_common.reasons import LABELS, Reason, code_of
@@ -200,16 +201,21 @@ def _valueset(name: str) -> dict[str, Any]:
     }  # fmt: skip
 
 
-def _ruleset() -> Ruleset:
-    """The ruleset as it is read from its files; its SQL holds the criteria v1 can express, as a compile gives."""
+def _ruleset(criteria: list[dict[str, Any]] | None = None, family: str | None = None) -> Ruleset:
+    """The ruleset as it is read from its files; its SQL holds the criteria v1 can express, as a compile gives.
+    ``family``: that value set also stands for a code family (a grouper, D-113)."""
+    criteria = CRITERIA if criteria is None else criteria
     base = yaml.safe_load((ROOT / "rulesets" / "GOUT-COH" / "manifest.yaml").read_text("utf-8"))
-    manifest = {**base, "id": "M3", "criteria": [c["id"] for c in CRITERIA]}
+    manifest = {**base, "id": "M3", "criteria": [c["id"] for c in criteria]}
     manifest.pop("library", None)
     files = {"manifest.yaml": yaml.safe_dump(manifest, allow_unicode=True).encode("utf-8")}
-    for c in CRITERIA:
+    for c in criteria:
         files[f"ir/{c['id']}.json"] = json.dumps(c).encode("utf-8")
     for name in VALUESETS:
-        files[f"valuesets/{name}.json"] = json.dumps(_valueset(name)).encode("utf-8")
+        vs = _valueset(name)
+        if name == family:
+            vs["extension"] = [{"url": FAMILY_EXT, "valueString": f"{VALUESETS[name][0]}|3877"}]
+        files[f"valuesets/{name}.json"] = json.dumps(vs).encode("utf-8")
     rs = Ruleset.from_files(files)
     coded = [c for c in rs.criteria if c.class_ == "structured"]
     rs.sql = SqlGenerator("M3", rs.version, ValueSets("M3", rs.valuesets, Terminology())).render(coded)
@@ -496,6 +502,38 @@ def test_the_trace_file_holds_the_new_keys_for_v3_outcomes_only(world: dict[str,
     assert d27["M3-EXC-01"]["flip_date"] == "2026-11-22" and d27["M3-EXC-01"]["anchor"]["kind"] == "planned_start"
     assert "flip_date" not in d27["M3-INC-07"] and "anchor" not in d27["M3-INC-07"]  # the v1 criterion: as before
     assert "flip_date" not in by["W-D29"]["outcomes"]["M3-EXC-01"]
+
+
+def test_what_step_1_does_not_run_is_a_persons_in_the_cascade_too(world: dict[str, Any]) -> None:
+    """Windows on two anchors in one criterion, and an event whose value set stands for a code family (a record of
+    the family outside the list could be the last operation): the engine gives no answer, a person decides."""
+    two = json.loads(json.dumps(WASHOUT))
+    two["atoms"].append({**CREATININE["atoms"][0], "id": "a2"})
+    two["logic"] = {"op": "and", "args": ["a1", "a2"]}
+    for rs in (_ruleset([two, ADULT_V1]), _ruleset([INFECTION, ADULT_V1], family="VS_SURGERY")):
+        cid = rs.manifest.criteria[0]
+        cfg = CascadeConfig(study_id="M3", run_date=RUN, index_mode="single", population=["W-D27", "E-INF"],
+                            snapshot=None, anchors=ANCHORS)  # fmt: skip
+        res = run_cascade(world["lake"], rs, cfg)
+        for t in res.traces.values():
+            assert t.outcomes[cid].status == "pending_human" and t.exit_stage is None, (cid, t.pid)
+            assert t.outcomes["M3-INC-07"].status == "pass"
+        assert "model_v3" not in res.stage("S1").detail
+
+
+def test_the_v1_evaluator_never_answers_a_v3_only_criterion(world: dict[str, Any]) -> None:
+    """The path that does not evaluate model v3 (MICROBATCH's re-check, ``TB_SCREEN_PIPELINE=v1``): a criterion v1
+    cannot write is a person's there, whatever the records say; the one v1 can write is answered as a v1 criterion."""
+    rs = world["rs"]
+    got = evaluate_patients(rs, sorted(RECORDS), RUN, SqlEngine(world["lake"], None), None, 0.75, note_block=False)
+    for pid, pv in got.items():
+        by = {v.id: v for v in pv.verdicts}
+        for cid in ("M3-EXC-01", "M3-INC-02", "M3-EXC-03", "M3-EXC-04", "M3-EXC-05"):
+            assert by[cid].verdict == "pending_human", (pid, cid)
+        assert pv.flips == {}
+    d27 = {v.id: v.verdict for v in got["W-D27"].verdicts}
+    assert d27["M3-EXC-06"] == "fail" and got["W-D27"].tier == "excluded"  # the dose 27 days ago, by the v1 SQL
+    assert {v.id: v.verdict for v in got["W-D29"].verdicts}["M3-EXC-06"] == "pass"
 
 
 # ----------------------------------------------------------------------------------------------- v1 unchanged

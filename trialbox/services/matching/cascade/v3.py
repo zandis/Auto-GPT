@@ -81,7 +81,8 @@ class Form:
 
 
 def _pseudo(ruleset: str, n: int, logic: dict[str, Any]) -> CriterionIR:
-    doc = {"id": f"V3-INC-{n:03d}", "ruleset": ruleset, "kind": "inclusion", "class": "structured", "text": "-"}
+    cid = f"V3-{n // 1000}-INC-{n % 1000:03d}"  # any number of them fits the criterion id's pattern
+    doc = {"id": cid, "ruleset": ruleset, "kind": "inclusion", "class": "structured", "text": "-"}
     return CriterionIR.model_validate({**doc, "logic": logic})
 
 
@@ -149,6 +150,9 @@ class V3Stage:
                 form = Form(CriterionIR.model_validate(doc), anchor, event, pick)
                 if event is not None:
                     self._event_logic(event, NO_DAY)
+                    if self._valuesets().families(str(event.valueset)):
+                        # a record of the family outside the list could be the first or the last event (D-113)
+                        raise NotStep1(f"{c.id}: the event's value set stands for a code family; a person decides")
                 self._sql([form.cx])
             except (NotStep1, CompileError, ValidationError) as exc:
                 self.left[c.id] = str(exc)
@@ -163,10 +167,13 @@ class V3Stage:
         return [f.cx for f in self.forms.values()]
 
     # ------------------------------------------------------------------------------------------- the compiled SQL
-    def _sql(self, crit: list[CriterionIR]) -> str:
+    def _valuesets(self) -> ValueSets:
         if self._vs is None:
             self._vs = ValueSets(self.run.rs.id, self.run.rs.valuesets, Terminology())
-        return SqlGenerator(self.run.rs.id, self.run.rs.version, self._vs).render(crit)
+        return self._vs
+
+    def _sql(self, crit: list[CriterionIR]) -> str:
+        return SqlGenerator(self.run.rs.id, self.run.rs.version, self._valuesets()).render(crit)
 
     def _rows(self, crit: list[CriterionIR], need: dict[date, set[str]]) -> dict[tuple[str, date], dict[str, Any]]:
         """The compiled SQL of ``crit`` for each day's patients: ``(pid, day) -> row``."""
