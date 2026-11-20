@@ -1,0 +1,213 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:b812b8da-98f5-5f2d-b30a-47750bc3e8a5",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2099-01-31T00:00:00Z",
+    "component": {
+      "type": "application",
+      "bom-ref": "trialbox",
+      "name": "trialbox",
+      "version": "9.9.9"
+    },
+    "properties": [
+      {
+        "name": "trialbox:source",
+        "value": "deploy/supply-chain-allowlist.yaml"
+      },
+      {
+        "name": "trialbox:decision",
+        "value": "D-1339"
+      }
+    ]
+  },
+  "components": [
+    {
+      "type": "container",
+      "bom-ref": "subject:example/login",
+      "name": "example/login",
+      "version": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "components": [
+        {
+          "type": "library",
+          "bom-ref": "subject:example/login#stdlib",
+          "name": "stdlib"
+        }
+      ],
+      "properties": [
+        {
+          "name": "trialbox:os-packages-unreadable",
+          "value": "The made-up login image ships no package database; its binary is scanned and gated"
+        },
+        {
+          "name": "trialbox:owner",
+          "value": "security owner (D-9999)"
+        },
+        {
+          "name": "trialbox:waiver-date",
+          "value": "2099-01-03"
+        },
+        {
+          "name": "trialbox:review-by",
+          "value": "2099-03-01"
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "bom-ref": "subject:example/upstream",
+      "name": "example/upstream",
+      "version": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "components": [
+        {
+          "type": "library",
+          "bom-ref": "subject:example/upstream#libexample1",
+          "name": "libexample1"
+        },
+        {
+          "type": "library",
+          "bom-ref": "subject:example/upstream#linux-libc-dev",
+          "name": "linux-libc-dev"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "subject:requirements.lock",
+      "name": "requirements.lock",
+      "components": [
+        {
+          "type": "library",
+          "bom-ref": "subject:requirements.lock#examplepkg",
+          "name": "examplepkg"
+        }
+      ]
+    }
+  ],
+  "vulnerabilities": [
+    {
+      "bom-ref": "waiver:*@example/upstream#linux-libc-dev",
+      "id": "*",
+      "description": "every finding of linux-libc-dev in example/upstream (one package-wide waiver, D-622)",
+      "analysis": {
+        "state": "exploitable",
+        "response": [
+          "update"
+        ],
+        "detail": "Made-up build-time headers of the upstream image, not the running kernel",
+        "firstIssued": "2099-01-02T00:00:00Z"
+      },
+      "affects": [
+        {
+          "ref": "subject:example/upstream#linux-libc-dev"
+        }
+      ],
+      "properties": [
+        {
+          "name": "trialbox:owner",
+          "value": "security owner (D-9999)"
+        },
+        {
+          "name": "trialbox:waiver-date",
+          "value": "2099-01-02"
+        },
+        {
+          "name": "trialbox:review-by",
+          "value": "2099-03-01"
+        }
+      ]
+    },
+    {
+      "bom-ref": "waiver:CVE-2099-0001@example/upstream#libexample1",
+      "id": "CVE-2099-0001",
+      "analysis": {
+        "state": "exploitable",
+        "response": [
+          "update"
+        ],
+        "detail": "Debian package of a made-up upstream image; waits for a patched tag pinned by digest",
+        "firstIssued": "2099-01-02T00:00:00Z"
+      },
+      "affects": [
+        {
+          "ref": "subject:example/upstream#libexample1"
+        }
+      ],
+      "properties": [
+        {
+          "name": "trialbox:owner",
+          "value": "security owner (D-9999)"
+        },
+        {
+          "name": "trialbox:waiver-date",
+          "value": "2099-01-02"
+        },
+        {
+          "name": "trialbox:review-by",
+          "value": "2099-03-01"
+        }
+      ]
+    },
+    {
+      "bom-ref": "waiver:CVE-2099-0002@example/login#stdlib",
+      "id": "CVE-2099-0002",
+      "analysis": {
+        "state": "not_affected",
+        "justification": "code_not_reachable",
+        "detail": "Not reachable: the flaw is in a server handshake the made-up login image never accepts",
+        "firstIssued": "2099-01-03T00:00:00Z"
+      },
+      "affects": [
+        {
+          "ref": "subject:example/login#stdlib"
+        }
+      ],
+      "properties": [
+        {
+          "name": "trialbox:owner",
+          "value": "lane H"
+        },
+        {
+          "name": "trialbox:waiver-date",
+          "value": "2099-01-03"
+        },
+        {
+          "name": "trialbox:review-by",
+          "value": "2099-03-01"
+        }
+      ]
+    },
+    {
+      "bom-ref": "waiver:GHSA-aaaa-bbbb-cccc@requirements.lock#examplepkg",
+      "id": "GHSA-aaaa-bbbb-cccc",
+      "analysis": {
+        "state": "exploitable",
+        "response": [
+          "update"
+        ],
+        "detail": "A made-up Python package of the lock, accepted until its fixed release is locked",
+        "firstIssued": "2099-01-04T00:00:00Z"
+      },
+      "affects": [
+        {
+          "ref": "subject:requirements.lock#examplepkg"
+        }
+      ],
+      "properties": [
+        {
+          "name": "trialbox:owner",
+          "value": "release owner"
+        },
+        {
+          "name": "trialbox:waiver-date",
+          "value": "2099-01-04"
+        },
+        {
+          "name": "trialbox:review-by",
+          "value": "2099-02-01"
+        }
+      ]
+    }
+  ]
+}

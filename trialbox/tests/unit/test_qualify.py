@@ -259,6 +259,33 @@ def _rows(**judge: str) -> list[Any]:
     return out
 
 
+def test_10e24_medium_1_the_licence_step_asks_no_revision_of_a_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Card 10E-24 leaves the release gate as it was: the pins are held by the register check, not by this step."""
+    monkeypatch.setattr(licence_register, "load", _rows)
+    ctx, builds = _judge_ctx(tmp_path)
+    builds["verifier"].revision = None
+    r = q.step_licence(ctx)
+    assert r.status == "passed", r.reason
+
+
+def test_10e24_medium_2_the_committed_judge_row_pins_no_text_so_line_endings_do_not_matter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The judge's committed row keeps no text hash (card 10E-24 adds none): a text beside the folder with other line
+    endings is recorded, not refused, as before."""
+    judge_row = next(x for x in ROWS if x.id == "model-gemma-4-26b-a4b-nvfp4")
+    assert judge_row.raw["text_sha256"] == ""
+    ctx, _ = _judge_ctx(tmp_path)
+    beside = tmp_path / "models" / "licences" / "gemma-folder"
+    beside.mkdir(parents=True)
+    (beside / "LICENSE").write_bytes(b"licence text\r\nsecond line\r\n")
+    monkeypatch.setattr(licence_register, "load", _rows)  # the judge's row as committed
+    r = q.step_licence(ctx)
+    assert r.status == "passed", r.reason
+
+
 def test_hw004_a_source_with_no_licence_file_is_checked_against_its_register_row(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

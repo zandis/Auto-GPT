@@ -1,10 +1,11 @@
-"""Syft and Trivy, fetched as release archives whose sha256 is pinned here (D-186), never by an install script.
+"""Syft, Trivy and Dockle, fetched as release archives whose sha256 is pinned here (D-186), never by an install script.
 
     python -m tools.supply_chain scanners --dest .cache/scanners      # then put .cache/scanners/bin on PATH
 
 The sums are the ones the projects publish in their ``*_checksums.txt`` for these releases (fetched 2026-11-10 and
-checked against the downloaded archives). To move a version, change the version and both sums together, in one pull
-request the security owner approves. An archive whose sha256 differs is refused and nothing is installed.
+checked against the downloaded archives); Dockle's (D-1343, card 10G-41) from ``dockle_0.4.15_checksums.txt``,
+fetched and checked against both archives 2026-11-19. To move a version, change the version and both sums together,
+in one pull request the security owner approves. An archive whose sha256 differs is refused and nothing is installed.
 """
 
 from __future__ import annotations
@@ -30,7 +31,9 @@ class Asset:
 
 SYFT_VERSION = "1.57.1"
 TRIVY_VERSION = "0.76.2"
+DOCKLE_VERSION = "0.4.15"
 _SYFT = f"https://github.com/anchore/syft/releases/download/v{SYFT_VERSION}/syft_{SYFT_VERSION}_linux_{{arch}}.tar.gz"
+_DOCKLE = f"https://github.com/goodwithtech/dockle/releases/download/v{DOCKLE_VERSION}/dockle_{DOCKLE_VERSION}_Linux-{{arch}}.tar.gz"
 _TRIVY = f"https://github.com/aquasecurity/trivy/releases/download/v{TRIVY_VERSION}/trivy_{TRIVY_VERSION}_Linux-{{arch}}.tar.gz"
 ASSETS = (
     Asset("syft", SYFT_VERSION, "amd64", _SYFT.format(arch="amd64"),
@@ -41,7 +44,12 @@ ASSETS = (
           "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf"),
     Asset("trivy", TRIVY_VERSION, "arm64", _TRIVY.format(arch="ARM64"),
           "ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3"),
+    Asset("dockle", DOCKLE_VERSION, "amd64", _DOCKLE.format(arch="64bit"),
+          "8bfc9183d1d3d67800edb45bea4bb63ddf1d28bec5f89944075a07007d79caad"),
+    Asset("dockle", DOCKLE_VERSION, "arm64", _DOCKLE.format(arch="ARM64"),
+          "14c2fbcd675afaa0f1717e97ab71eee178dabdef676066189f49bad0f53b8762"),
 )  # fmt: skip
+TOOLS = ("syft", "trivy", "dockle")
 
 
 class ScannerError(RuntimeError):

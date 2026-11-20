@@ -1,0 +1,9 @@
+# synthetic: SQL built in a variable, then run
+def by_name(cur, name):
+    sql = f"SELECT id FROM item WHERE name = {name!r}"  # hit
+    cur.execute(sql)
+
+
+def by_where(db, where):
+    q = "SELECT id FROM item WHERE " + where  # hit
+    return db.fetchall(q)
