@@ -9,7 +9,7 @@ of the record, as every v1 window does (D-17). All patients and records are synt
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -178,6 +178,27 @@ RECORDS: dict[str, list[dict[str, Any]]] = {
     # 100 doses, every third day from 330 to 33 days before the run
     "W-MANY": [_med(f"m-many-{n}", "W-MANY", "L01XA01", (RUN - timedelta(days=33 + 3 * n)).isoformat())
                for n in range(100)],
+    # orders that carry a therapy period: the order is of 2026-10-01 (50 days before the start), the therapy runs on
+    "W-SUPPLY": [{**_med("m-sup", "W-SUPPLY", "L01XA01", "2026-10-01"),
+                  "dispenseRequest": {"expectedSupplyDuration": {"value": 60, "unit": "d", "code": "d"}}}],
+    "W-BOUNDS": [{**_med("m-bnd", "W-BOUNDS", "L01XA01", "2026-10-01"),
+                  "dosageInstruction": [{"timing": {"repeat": {"boundsPeriod": {"start": "2026-10-01",
+                                                                                 "end": "2026-11-15"}}}}]}],
+    "W-STMT": [{"resourceType": "MedicationStatement", "id": "m-stm", "status": "completed",
+                "subject": {"reference": "Patient/W-STMT"},
+                "medicationCodeableConcept": {"coding": [{"system": ATC, "code": "L01XA01"}]},
+                "effectivePeriod": {"start": "2026-10-01", "end": "2026-11-15"}}],
+    # a therapy period that ended on 2026-09-01, long before the 28 days
+    "W-ENDED": [{**_med("m-end", "W-ENDED", "L01XA01", "2026-08-01"),
+                 "dosageInstruction": [{"timing": {"repeat": {"boundsPeriod": {"start": "2026-08-01",
+                                                                                "end": "2026-09-01"}}}}]}],
+    # operated 2026-09-01; chemotherapy 2026-08-20 (12 days before); an infection recorded 2026-10-15
+    "H-OP": [_surgery("p-hop", "H-OP", "2026-09-01"), _med("m-hop", "H-OP", "L01XA01", "2026-08-20"),
+             _infection("c-hop", "H-OP", "2026-10-15")],
+    # born 2007-09-01 (19 today, 17 at the operation of 2025-06-01); chemotherapy 2025-07-01
+    "H-YOUNG": [_surgery("p-hyo", "H-YOUNG", "2025-06-01"), _med("m-hyo", "H-YOUNG", "L01XA01", "2025-07-01")],
+    "H-OPTODAY": [_surgery("p-hot", "H-OPTODAY", "2026-11-20")],
+    "H-OPAHEAD": [_surgery("p-hoa", "H-OPAHEAD", "2026-12-01")],  # an operation dated after the day of the run
     # a planned start in the future (2026-12-01)
     "F-DOSED": [_med("m-fut", "F-DOSED", "L01XA01", "2026-11-10")],  # 21 days before the start: stays inside
     "F-CLEAN": [_med("m-fcl", "F-CLEAN", "A10BA02", "2026-11-01")],  # none so far; 11 days are still to come
@@ -197,6 +218,7 @@ RECORDS: dict[str, list[dict[str, Any]]] = {
                   _infection("c-und", "E-UNDATED", "2026-09-20")],  # one operation has no date: which is last?
     "E-RECENT": [_surgery("p-rec", "E-RECENT", "2026-11-10"), _infection("c-rec", "E-RECENT", "2026-01-05")],
 }  # fmt: skip
+BORN = {"H-YOUNG": "2007-09-01"}
 ANCHORS = {
     **{p: {"planned_start": RUN} for p in RECORDS if p.startswith("W-") and p != "W-NOSTART"},
     "W-PAST": {"planned_start": date(2026, 11, 1)},
@@ -246,7 +268,8 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     src.mkdir()
     by_type: dict[str, list[dict[str, Any]]] = {
         "Patient": [
-            {"resourceType": "Patient", "id": p, "birthDate": "1970-01-01", "gender": "female"} for p in RECORDS
+            {"resourceType": "Patient", "id": p, "birthDate": BORN.get(p, "1970-01-01"), "gender": "female"}
+            for p in RECORDS
         ]
     }
     for rows in RECORDS.values():
@@ -274,6 +297,11 @@ def _excluded(o: Outcome) -> bool:
 
 def _met(o: Outcome) -> bool:
     return o.status == "pass" and o.unknown_kind is None
+
+
+def _found(o: Outcome) -> tuple[str, str | None] | None:
+    """What the flip-date search kept on the outcome: ``(kind, date)``."""
+    return None if o.flip is None else (o.flip["kind"], o.flip.get("date"))
 
 
 def _open(o: Outcome, reason: Reason | None = None) -> bool:
@@ -392,7 +420,10 @@ def test_the_28_day_washout_before_the_planned_start(
 ) -> None:
     o = _out(world, pid, "M3-EXC-01")
     assert (_excluded(o), _met(o)) == (excluded, not excluded), (o.status, o.reason)
-    assert o.flip_date == flip
+    # the day is the earliest planned start for which the washout is over. It is kept in the trace with that kind
+    # and NOT stored as a day to re-check on: moving the run day does not move the planned start
+    assert _found(o) == (("earliest_anchor", flip) if flip else None)
+    assert o.flip_date is None
     assert o.anchor == {"kind": "planned_start", "date": "2026-11-20"} and o.stage == "S1"
 
 
@@ -449,6 +480,8 @@ def test_the_flip_date_search_is_bounded(world: dict[str, Any], monkeypatch: pyt
     res = run_cascade(world["lake"], _ruleset([wide, ADULT_V1]), cfg)
     many, d27 = res.traces["W-MANY"].outcomes["M3-EXC-06"], res.traces["W-D27"].outcomes["M3-EXC-06"]
     assert _excluded(many) and many.flip_date is None
+    # and it says so: on the outcome, and as a count in S1's stage detail
+    assert many.flip == {"kind": "search_stopped", "tried": "64"} and res.stage("S1").detail["flip_bound_hit"] == 1
     assert _excluded(d27) and d27.flip_date == "2027-10-25"  # one dose, 2026-10-24: 366 days later it is outside
     # the queries of the run: no event; none of its own answers (the ruleset's SQL gave them); the records' dates
     # on the day of the run; then the day of the run and at most MAX_DAYS days more for W-MANY, one more for W-D27
@@ -465,7 +498,8 @@ def test_a_planned_start_in_the_future(world: dict[str, Any]) -> None:
     # start 2026-12-01; a dose on 2026-11-10 is 21 days before it and stays inside: excluded today. The washout
     # would be over for a start on 2026-12-09
     o = _out(world, "F-DOSED", "M3-EXC-01")
-    assert _excluded(o) and o.flip_date == "2026-12-09" and o.anchor == {"kind": "planned_start", "date": "2026-12-01"}
+    assert _excluded(o) and _found(o) == ("earliest_anchor", "2026-12-09") and o.flip_date is None
+    assert o.anchor == {"kind": "planned_start", "date": "2026-12-01"}
     # no chemotherapy so far, but 11 days of the window are still to come: not "no chemotherapy", a person confirms
     o = _out(world, "F-CLEAN", "M3-EXC-01")
     assert _open(o, Reason.VERIFY_AT_ANCHOR) and o.status == "pass" and o.flip_date is None
@@ -479,6 +513,7 @@ def test_the_same_washout_on_the_index_date_gets_its_flip_date_from_model_v3(wor
     for pid, flip in want.items():
         o = _out(world, pid, "M3-EXC-06")
         assert _excluded(o) is (flip is not None) and o.flip_date == flip and o.anchor is None, pid
+        assert _found(o) == (("answer_changes", flip) if flip else None), pid  # the one kind that is stored
     assert _open(_out(world, "W-UNDATED", "M3-EXC-06")) and _out(world, "W-UNDATED", "M3-EXC-06").flip_date is None
 
 
@@ -486,13 +521,14 @@ def test_the_same_washout_on_the_index_date_gets_its_flip_date_from_model_v3(wor
 def test_a_window_before_the_screening_visit(world: dict[str, Any]) -> None:
     # 1.0 mg/dL on 2026-11-10, ten days before the visit: met. 2026-11-24 is its 14th day; too old on 2026-11-25
     o = _out(world, "S-OK", "M3-INC-02")
-    assert _met(o) and o.flip_date == "2026-11-25" and o.anchor == {"kind": "screening", "date": "2026-11-20"}
+    assert _met(o) and _found(o) == ("anchor_window_empties", "2026-11-25") and o.flip_date is None
+    assert o.anchor == {"kind": "screening", "date": "2026-11-20"}
     # 1.0 mg/dL on 2026-11-01, 19 days before: no result in the window. Not "not met": nothing was measured
     o = _out(world, "S-OLD", "M3-INC-02")
     assert _open(o, Reason.DATA_GAP) and o.status == "unknown" and o.flip_date is None
     # 2.0 mg/dL on 2026-11-15: not met. From 2026-11-30 that result is out of the window and no longer decides
     o = _out(world, "S-HIGH", "M3-INC-02")
-    assert _excluded(o) and o.flip_date == "2026-11-30"
+    assert _excluded(o) and _found(o) == ("anchor_window_empties", "2026-11-30") and o.flip_date is None
     o = _out(world, "S-NOVISIT", "M3-INC-02")
     assert _open(o, Reason.ANCHOR_DATE_UNKNOWN) and o.status == "unknown" and o.flip_date is None
     # visit on 2026-11-25; 1.0 mg/dL on 2026-11-18 is inside its window, but "the latest result counts" and a week
@@ -558,7 +594,9 @@ def test_only_the_washouts_exclude_and_the_stage_log_counts_the_v3_criteria(worl
 def test_the_flip_date_reaches_the_answer_store_row_and_only_there(world: dict[str, Any]) -> None:
     rs, res = world["rs"], world["res"]
     pv = verdicts_of(rs, res.traces["W-D27"])
-    assert pv.flips == {"M3-EXC-01": "2026-11-22", "M3-EXC-06": "2026-11-22"}
+    # only the washout on the index date: from 2026-11-22 a run gives the opposite answer. The same day found for
+    # the planned start (M3-EXC-01) is not a day to re-check on and is not stored
+    assert pv.flips == {"M3-EXC-06": "2026-11-22"}
     rows = answer_store.rows_of("M3", rs.version, {"W-D27": pv}, RUN, SNAPSHOT, "job-1", "2026-11-20T00:00:00+00:00")
     from orchestrator.db import ANSWER_COLUMNS
 
@@ -573,8 +611,11 @@ def test_the_trace_file_holds_the_new_keys_for_v3_outcomes_only(world: dict[str,
     paths = write_outputs(world["res"], world["tmp"] / "out")
     by = {json.loads(x)["pid"]: json.loads(x) for x in paths["traces"].read_text("utf-8").splitlines()}
     d27 = by["W-D27"]["outcomes"]
-    assert d27["M3-EXC-01"]["flip_date"] == "2026-11-22" and d27["M3-EXC-01"]["anchor"]["kind"] == "planned_start"
-    assert "flip_date" not in d27["M3-INC-07"] and "anchor" not in d27["M3-INC-07"]  # the v1 criterion: as before
+    assert d27["M3-EXC-01"]["flip"] == {"date": "2026-11-22", "kind": "earliest_anchor"}
+    assert "flip_date" not in d27["M3-EXC-01"] and d27["M3-EXC-01"]["anchor"]["kind"] == "planned_start"
+    assert d27["M3-EXC-06"]["flip_date"] == "2026-11-22" and d27["M3-EXC-06"]["flip"]["kind"] == "answer_changes"
+    for key in ("flip_date", "flip", "anchor"):  # the v1 criterion: as before
+        assert key not in d27["M3-INC-07"]
     assert "flip_date" not in by["W-D29"]["outcomes"]["M3-EXC-01"]
 
 
@@ -661,6 +702,338 @@ def test_the_new_reason_codes_are_worded_in_three_languages_and_no_v1_answer_can
         if any(f"Reason.{c.upper()}" in p.read_text("utf-8") for c in new)
     )
     assert users == ["services/matching/cascade/v3.py"]
+
+
+# ----------------------------------------------------------------------------------------------- the deep review
+#: "Exclusion: a surgical site infection on record AND chemotherapy in the 28 days before the last operation."
+H1_INFECTION: dict[str, Any] = {
+    "ir_version": "3.0.0", "id": "M3-EXC-11", "ruleset": "M3", "kind": "exclusion", "class": "structured",
+    "text": {"source": "A surgical site infection on record and chemotherapy in the 28 days before the last operation."},
+    "logic": {"op": "and", "args": ["a1", "a2"]},
+    "atoms": [{"id": "e1", "domain": "procedure", "valueset": "VS_SURGERY"},
+              {"id": "a1", "domain": "condition", "valueset": "VS_SSI", "quantifier": "any"},
+              {"id": "a2", "domain": "medication", "valueset": "VS_CHEMO", "quantifier": "any",
+               "window": {"from_days": -28, "to_days": 0, "anchor": "event", "event_atom": "e1",
+                          "event_pick": "last"}}],
+}  # fmt: skip
+#: "Inclusion: 18 years or older AND chemotherapy within 60 days after the first operation."
+H1_AGE: dict[str, Any] = {
+    "ir_version": "3.0.0", "id": "M3-INC-12", "ruleset": "M3", "kind": "inclusion", "class": "structured",
+    "text": {"source": "18 years or older and chemotherapy within 60 days after the first operation."},
+    "logic": {"op": "and", "args": ["a1", "a2"]},
+    "atoms": [{"id": "e1", "domain": "procedure", "valueset": "VS_SURGERY"},
+              {"id": "a1", "domain": "demographic", "valueset": "NONE", "age": {"min": 18}},
+              {"id": "a2", "domain": "medication", "valueset": "VS_CHEMO", "quantifier": "any",
+               "window": {"from_days": 0, "to_days": 60, "anchor": "event", "event_atom": "e1",
+                          "event_pick": "first"}}],
+}  # fmt: skip
+#: "Exclusion: an operation on the index day or in the 30 days after it."
+H3_AHEAD: dict[str, Any] = {
+    "ir_version": "3.0.0", "id": "M3-EXC-13", "ruleset": "M3", "kind": "exclusion", "class": "structured",
+    "text": {"source": "An operation on the index day or in the 30 days after it."}, "logic": "a1",
+    "atoms": [{"id": "a1", "domain": "procedure", "valueset": "VS_SURGERY", "quantifier": "any",
+               "window": {"from_days": 0, "to_days": 30, "anchor": "index"}}],
+}  # fmt: skip
+#: "Inclusion: an operation on record 30 or more days before today."
+L2_ENTERS: dict[str, Any] = {
+    "ir_version": "3.0.0", "id": "M3-INC-14", "ruleset": "M3", "kind": "inclusion", "class": "structured",
+    "text": {"source": "An operation 30 or more days ago."}, "logic": "a1",
+    "atoms": [{"id": "a1", "domain": "procedure", "valueset": "VS_SURGERY", "quantifier": "any",
+               "window": {"to_days": -30, "anchor": "index"}}],
+}  # fmt: skip
+#: "Exclusion: chemotherapy in the 400 days before the last operation."
+L2_EVENT: dict[str, Any] = {
+    "ir_version": "3.0.0", "id": "M3-EXC-15", "ruleset": "M3", "kind": "exclusion", "class": "structured",
+    "text": {"source": "Chemotherapy in the 400 days before the last operation."}, "logic": "a1",
+    "atoms": [{"id": "e1", "domain": "procedure", "valueset": "VS_SURGERY"},
+              {"id": "a1", "domain": "medication", "valueset": "VS_CHEMO", "quantifier": "any",
+               "window": {"from_days": -400, "to_days": 0, "anchor": "event", "event_atom": "e1",
+                          "event_pick": "last"}}],
+}  # fmt: skip
+#: "Exclusion: 18 years or older AND any chemotherapy in the last 28 days."
+L2_AGE: dict[str, Any] = {
+    "ir_version": "3.0.0", "id": "M3-EXC-16", "ruleset": "M3", "kind": "exclusion", "class": "structured",
+    "text": {"source": "18 years or older and any chemotherapy in the last 28 days."},
+    "logic": {"op": "and", "args": ["a1", "a2"]},
+    "atoms": [{"id": "a1", "domain": "demographic", "valueset": "NONE", "age": {"min": 18}},
+              {"id": "a2", "domain": "medication", "valueset": "VS_CHEMO", "quantifier": "any",
+               "window": {"from_days": -28, "to_days": 0, "anchor": "index"}}],
+}  # fmt: skip
+#: "Exclusion: the latest creatinine of the last 14 days is above 1.5 mg/dL."
+L2_CREATININE: dict[str, Any] = {
+    "ir_version": "3.0.0", "id": "M3-EXC-17", "ruleset": "M3", "kind": "exclusion", "class": "structured",
+    "text": {"source": "Latest creatinine of the last 14 days above 1.5 mg/dL."}, "logic": "a1",
+    "atoms": [{"id": "a1", "domain": "observation", "valueset": "VS_CREATININE", "quantifier": "latest",
+               "value": {"op": ">", "num": 1.5, "unit": "mg/dL"},
+               "window": {"from_days": -14, "to_days": 0, "anchor": "index"}}],
+}  # fmt: skip
+REVIEW = [H1_INFECTION, H1_AGE, H3_AHEAD, L2_ENTERS, L2_EVENT, L2_AGE, ADULT_V1]
+
+
+@pytest.fixture(scope="module")
+def review(world: dict[str, Any]) -> dict[str, Any]:
+    rs = _ruleset(REVIEW)
+    pids = ["H-OP", "H-YOUNG", "H-OPTODAY", "H-OPAHEAD", "W-NONE", "W-D27", "E-RECENT", "E-INF"]
+    cfg = CascadeConfig(study_id="M3", run_date=RUN, index_mode="single", population=pids, snapshot=None)
+    return {"rs": rs, "res": run_cascade(world["lake"], rs, cfg)}
+
+
+def _one(review: dict[str, Any], pid: str, cid: str) -> Outcome:
+    out: Outcome = review["res"].traces[pid].outcomes[cid]
+    return out
+
+
+def test_h1_an_atom_read_at_the_index_date_never_moves_onto_the_anchor(review: dict[str, Any]) -> None:
+    """A criterion that mixes a window on an event (or a planned start) with an atom v1 reads at the index date
+    (no window, an age, a score) names two dates. Step 1 runs one: a person decides, the engine gives no answer."""
+    for doc, why in ((H1_INFECTION, "a1"), (H1_AGE, "a1")):
+        with pytest.raises(NotStep1, match=f"atom {why} is read at the index date"):
+            index_form(CriterionIRv3.model_validate(doc))
+    planned = json.loads(json.dumps(H1_AGE))
+    planned["atoms"][2]["window"] = {"from_days": -28, "to_days": 0, "anchor": "planned_start"}
+    with pytest.raises(NotStep1, match="read at the index date, its other windows at planned_start"):
+        index_form(CriterionIRv3.model_validate(planned))
+    derived = json.loads(json.dumps(WASHOUT))
+    derived["atoms"].append({"id": "a2", "domain": "observation", "valueset": "VS_CREATININE",
+                             "derived": {"calc": "egfr_ckd_epi_2021@1.0.0"}, "value": {"op": ">=", "num": 30},
+                             "window": {"from_days": -30, "to_days": 0, "anchor": "planned_start"}})  # fmt: skip
+    derived["logic"] = {"op": "and", "args": ["a1", "a2"]}
+    with pytest.raises(NotStep1, match="atom a2 is read at the index date"):
+        index_form(CriterionIRv3.model_validate(derived))
+    # operated 2026-09-01, chemotherapy 12 days before, an infection on record (2026-10-15): the sentence excludes.
+    # Run at the operation's date the infection "on record" would be cut off and the patient read as MET
+    o = _one(review, "H-OP", "M3-EXC-11")
+    assert o.status == "pending_human" and not _met(o) and not o.hard
+    # 19 today, chemotherapy 30 days after the first operation: the sentence is met. At the operation's date the
+    # patient was 17 and would be excluded
+    o = _one(review, "H-YOUNG", "M3-INC-12")
+    assert o.status == "pending_human" and not o.hard and review["res"].traces["H-YOUNG"].exit_stage is None
+    assert review["res"].traces["H-YOUNG"].outcomes["M3-INC-07"].status == "pass"  # 18 or older today, by v1
+
+
+@pytest.mark.parametrize("pid", ["W-SUPPLY", "W-BOUNDS", "W-STMT"])
+def test_h2_a_washout_is_not_answered_from_the_order_date_of_a_therapy_that_ran_on(
+    world: dict[str, Any], pid: str
+) -> None:
+    """The order is of 2026-10-01, 50 days before the start, but the therapy ran to 2026-11-15 or 2026-11-30:
+    inside the 28 days. The record rule reads the order date; the answer is therefore open, and no date is kept."""
+    for cid in ("M3-EXC-01", "M3-EXC-06"):
+        o = _out(world, pid, cid)
+        assert _open(o, Reason.ORDER_DATES_MISSING) and o.status == "pass" and not _met(o), (cid, o.reason)
+        assert o.flip_date is None and o.flip is None and o.evidence[0]["record"].startswith("m-")
+    assert world["res"].traces[pid].exit_stage is None and world["res"].traces[pid].tier == "potential:data_gap"
+
+
+def test_h2_an_order_with_no_period_or_one_that_ended_before_the_window_stays_decided(world: dict[str, Any]) -> None:
+    for cid in ("M3-EXC-01", "M3-EXC-06"):
+        assert _excluded(_out(world, "W-D27", cid))  # a request with a date and no period: the dose 27 days ago
+        assert _met(_out(world, "W-ENDED", cid))  # the therapy ended 2026-09-01, 80 days before
+    from matching.cascade.v3 import MED_PERIODS
+
+    got = {r["mid"] for r in world["lake"].query(MED_PERIODS, [sorted(RECORDS)], None).to_pylist()}
+    assert got == {"m-sup", "m-bnd", "m-stm", "m-end"}
+
+
+def test_h3_a_window_on_the_index_date_that_reaches_ahead_is_not_answered_by_absence(review: dict[str, Any]) -> None:
+    rs = review["rs"]
+    # no v1 reader is handed it (v1 would answer "no operation in the next 30 days" from today's records)
+    assert rs.by_id()["M3-EXC-13"].class_ == "human" and '"C_M3-EXC-13"' not in rs.sql
+    o = _one(review, "W-NONE", "M3-EXC-13")  # no operation so far; 30 days are still to come
+    assert _open(o, Reason.VERIFY_AT_ANCHOR) and o.status == "pass" and not _met(o)
+    o = _one(review, "H-OPTODAY", "M3-EXC-13")  # operated today: a record that meets it and stays
+    assert _excluded(o)
+    o = _one(review, "H-OPAHEAD", "M3-EXC-13")  # an operation dated 2026-12-01: not a fact yet, never an exclusion
+    assert _open(o, Reason.VERIFY_AT_ANCHOR) and not o.hard
+    assert review["res"].traces["H-OPAHEAD"].exit_criterion != "M3-EXC-13"
+
+
+def test_m1_the_weekly_recheck_leaves_a_v3_only_criterion_alone(world: dict[str, Any]) -> None:
+    from orchestrator.scenarios.microbatch import recheck_ids
+
+    rs = world["rs"]
+    assert rs.by_id()["M3-EXC-01"].time_sensitive and rs.by_id()["M3-EXC-01"].class_ == "human"
+    assert recheck_ids(rs) == {"M3-EXC-06", "M3-INC-07"}  # the two v1 can evaluate; never the stand-ins
+
+
+def test_m2_a_v3_exclusion_nobody_answered_is_an_open_point_of_the_candidate(world: dict[str, Any]) -> None:
+    """S-OK has no planned start, and no source holds a device or an allergy: three exclusions nobody answered.
+    The candidate is not "strong", the queue item names them, and each keeps its question for a person."""
+    rs, res = world["rs"], world["res"]
+    t = res.traces["S-OK"]
+    open_ids = ["M3-EXC-01", "M3-EXC-04", "M3-EXC-05"]
+    assert all(t.outcomes[c].status == "pass" and t.outcomes[c].unknown_kind == "data_gap" for c in open_ids)
+    assert t.exit_stage is None and t.tier == "potential:data_gap"
+    item = next(q for q in res.queue if q.pid == "S-OK")
+    assert item.tier == "potential:data_gap" and set(open_ids) <= set(item.data_gap)
+    pv = verdicts_of(rs, t)
+    assert pv.tier == "review" and pv.n_unknown >= 3
+    for c in open_ids:
+        assert rs.by_id()[c].human_question in pv.actions, c
+    assert not any(t.tier == "strong" for t in res.traces.values())  # every patient has those open exclusions
+
+
+def test_m5_a_soft_or_dependent_filter_is_never_run_as_a_hard_one(world: dict[str, Any]) -> None:
+    for extra in ({"filter_class": "soft"}, {"depends_on": ["M3-INC-07"]}):
+        doc = {**WASHOUT_TODAY, **extra}
+        ir = CriterionIRv3.model_validate(doc)
+        with pytest.raises(NotStep1, match="soft filter or one that depends"):
+            index_form(ir)
+        assert v1_face(ir)["class"] == "human" and v1_face(ir)["logic"] == {"domain": "demographic", "valueset": "NONE"}
+        rs = _ruleset([doc, ADULT_V1])
+        assert '"C_M3-EXC-06"' not in rs.sql
+        cfg = CascadeConfig(study_id="M3", run_date=RUN, index_mode="single", population=["W-D27"], snapshot=None)
+        t = run_cascade(world["lake"], rs, cfg).traces["W-D27"]
+        assert t.outcomes["M3-EXC-06"].status == "pending_human" and t.exit_stage is None  # a dose 27 days ago
+    hard = CriterionIRv3.model_validate({**WASHOUT_TODAY, "filter_class": "hard", "safety_critical": True})
+    assert v1_face(hard)["class"] == "structured" and index_form(hard)[1][0] == "index"  # these change no answer
+
+
+def test_m6_the_compiler_does_not_rewrite_a_ruleset_with_v3_files() -> None:
+    import inspect
+
+    from criteria_compiler.service import V3_NOT_REWRITTEN, CompileFailed, Compiler
+    from tb_contracts import DiffRequest
+
+    rs = _ruleset()
+    files = {"M3/manifest.yaml": yaml.safe_dump(rs.manifest.model_dump(mode="json", exclude_none=True)).encode()}
+    for c in CRITERIA:
+        files[f"M3/ir/{c['id']}.json"] = json.dumps(c).encode()
+
+    class _Repo:
+        def files(self, ref: str, prefix: str) -> dict[str, bytes]:
+            return {k: v for k, v in files.items() if k.startswith(prefix)}
+
+    class _Deps:
+        repo = _Repo()
+
+    comp = Compiler.__new__(Compiler)
+    comp.d = _Deps()  # type: ignore[assignment]
+    want = V3_NOT_REWRITTEN.format(ruleset="M3")
+    with pytest.raises(CompileFailed) as said:
+        comp._approved("M3")
+    assert want in str(said.value) and "model v3" in want
+    with pytest.raises(CompileFailed, match="does not rewrite"):
+        comp.diff(DiffRequest(ruleset="M3", new_doc_key="k"))
+    assert "self._approved(ruleset)" in inspect.getsource(Compiler.compile)  # the recompile asks the same way
+    files = {k: v for k, v in files.items() if k.endswith(("manifest.yaml", "M3-INC-07.json"))}
+    v1 = comp._approved("M3")  # a v1 ruleset is read as before
+    assert v1 is not None and v1.v3 == {} and [c.id for c in v1.criteria] == ["M3-INC-07"]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"W-D27": {"planned_start": datetime(2026, 11, 20, 9, 0)}},
+        {"W-D27": {"planned_start": "2026-11-20"}},
+        {"W-D27": {"randomization": RUN}},
+    ],
+)
+def test_m7_an_anchor_that_is_not_a_date_stops_the_run_before_it_reads_a_patient(
+    world: dict[str, Any], bad: dict[str, Any]
+) -> None:
+    from matching.cascade.v3 import AnchorError
+
+    cfg = CascadeConfig(study_id="M3", run_date=RUN, index_mode="single", population=["W-D27", "W-D28"],
+                        snapshot=None, anchors={**ANCHORS, **bad})  # fmt: skip
+    with pytest.raises(AnchorError):
+        run_cascade(world["lake"], world["rs"], cfg)
+
+
+def test_l1_the_day_of_the_run_is_the_run_date_in_the_month_end_mode(world: dict[str, Any]) -> None:
+    """Index date 2026-10-31 (the month end before the run of 2026-11-20). Doses on 2026-10-24 and 2026-11-10: the
+    second is after the index date but not after the day of the run, so it is a fact and the search goes on: the
+    washout on the index date is over from 2026-12-09."""
+    rs = _ruleset([WASHOUT_TODAY, ADULT_V1])
+    cfg = CascadeConfig(study_id="M3", run_date=RUN, index_mode="month_ends", lookback_months=1,
+                        population=["W-TWO", "W-AHEADONLY"], snapshot=None)  # fmt: skip
+    res = run_cascade(world["lake"], rs, cfg)
+    assert res.index_dates == [date(2026, 10, 31)]
+    o = res.traces["W-TWO"].outcomes["M3-EXC-06"]
+    assert _excluded(o) and o.flip_date == "2026-12-09"
+    assert res.traces["W-AHEADONLY"].outcomes["M3-EXC-06"].flip is None  # dated 2026-12-05: after the run day
+
+
+def test_l2_a_record_entering_a_window_gives_the_day_the_answer_turns_to_met(review: dict[str, Any]) -> None:
+    # operated 2026-11-10, ten days ago: not yet "30 or more days ago". It is on 2026-12-10 (2026-11-10 + 30)
+    o = _one(review, "E-RECENT", "M3-INC-14")
+    assert _excluded(o) and _found(o) == ("answer_changes", "2026-12-10") and o.flip_date == "2026-12-10"
+    o = _one(review, "E-INF", "M3-INC-14")  # operated 2026-09-01: met, and it stays met
+    assert _met(o) and o.flip is None
+
+
+def test_l2_no_flip_date_on_an_event_anchor_nor_beside_an_age(review: dict[str, Any]) -> None:
+    # chemotherapy 12 days before the last operation: excluded. The operation's date does not move with the days,
+    # though run on 2027-09-25 as an index date the SQL would say otherwise: nothing is searched
+    o = _one(review, "H-OP", "M3-EXC-15")
+    assert _excluded(o) and o.flip is None and o.flip_date is None
+    # an age beside the washout: the answer also changes with birthdays, which the search does not try
+    o = _one(review, "W-D27", "M3-EXC-16")
+    assert _excluded(o) and o.flip is None and o.flip_date is None
+
+
+def test_l2_no_flip_date_when_the_fresh_sql_does_not_give_the_stored_answer(world: dict[str, Any]) -> None:
+    """The ruleset's own SQL answers a criterion v1 can write. Here that SQL is of another threshold (5.0) than
+    the criterion file (1.5): it says "not excluded" for a creatinine of 2.0, the file's logic says excluded. The
+    search runs the file's logic; where it does not give the outcome's answer on the day, it computes nothing."""
+    rs = _ruleset([L2_CREATININE, ADULT_V1])
+    other = json.loads(json.dumps(L2_CREATININE))
+    other["atoms"][0]["value"]["num"] = 5.0
+    rs.sql = _ruleset([other, ADULT_V1]).sql
+    cfg = CascadeConfig(study_id="M3", run_date=RUN, index_mode="single", population=["S-HIGH", "S-OK"], snapshot=None)
+    res = run_cascade(world["lake"], rs, cfg)
+    o = res.traces["S-HIGH"].outcomes["M3-EXC-17"]
+    assert _met(o) and o.flip is None and o.flip_date is None
+    rs.sql = _ruleset([L2_CREATININE, ADULT_V1]).sql  # with the file's own SQL: excluded until the result is too old
+    o = run_cascade(world["lake"], rs, cfg).traces["S-HIGH"].outcomes["M3-EXC-17"]
+    assert _excluded(o) and _found(o) == ("window_empties", "2026-11-30") and o.flip_date is None
+
+
+def test_l4_one_run_asks_the_lake_about_a_bounded_number_of_days(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the run's bound at one day, only the soonest day any patient needs (2026-11-22) is asked. W-D27's
+    answer changes that day; W-TWO's does not (its later dose is still inside) and its search says it was cut."""
+    from matching.cascade import v3
+
+    monkeypatch.setattr(v3, "MAX_RUN_DAYS", 1)
+    asked: list[list[date]] = []
+    rows = v3.V3Stage._rows
+
+    def counted(self: Any, crit: Any, need: Any) -> Any:
+        asked.append(sorted(need))
+        return rows(self, crit, need)
+
+    monkeypatch.setattr(v3.V3Stage, "_rows", counted)
+    cfg = CascadeConfig(study_id="M3", run_date=RUN, index_mode="single", population=["W-D27", "W-TWO"],
+                        snapshot=None)  # fmt: skip
+    res = run_cascade(world["lake"], _ruleset([WASHOUT_TODAY, ADULT_V1]), cfg)
+    assert asked[-1] == [RUN, date(2026, 11, 22)]
+    assert res.traces["W-D27"].outcomes["M3-EXC-06"].flip_date == "2026-11-22"
+    two = res.traces["W-TWO"].outcomes["M3-EXC-06"]
+    assert two.flip_date is None and two.flip == {"kind": "search_stopped", "tried": "1"}
+    assert res.stage("S1").detail["flip_bound_hit"] == 1 and v3.MAX_RUN_DAYS == 1
+
+
+def test_a_proposed_operation_is_no_anchor_and_leaves_the_last_one_unknown(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """E-INF was operated on 2026-09-01. A second operation that a person has not confirmed yet (a proposed fact)
+    may be the last one: the anchor is unknown, though an infection followed the confirmed operation."""
+    from matching.proposed import FactRow, Proposed
+
+    real = Proposed.load.__func__  # type: ignore[attr-defined]
+
+    def with_fact(cls: Any, *a: Any, **k: Any) -> Any:
+        got = real(cls, *a, **k)
+        got.rows.setdefault("E-INF", []).append(FactRow("f-op", "procedure", "387713003", SCT, date(2026, 10, 1)))
+        return got
+
+    monkeypatch.setattr(Proposed, "load", classmethod(with_fact))
+    cfg = CascadeConfig(study_id="M3", run_date=RUN, index_mode="single", population=["E-INF", "E-LATE"],
+                        snapshot=None)  # fmt: skip
+    res = run_cascade(world["lake"], world["rs"], cfg)
+    assert _open(res.traces["E-INF"].outcomes["M3-EXC-03"], Reason.ANCHOR_DATE_UNKNOWN)
+    assert _met(res.traces["E-LATE"].outcomes["M3-EXC-03"])  # no proposed operation: the dated one is the last
 
 
 # ----------------------------------------------------------------------------------------------- v1 unchanged

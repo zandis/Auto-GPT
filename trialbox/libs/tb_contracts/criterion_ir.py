@@ -621,8 +621,24 @@ class NotStep1(ValueError):
     """The v3 criterion uses a construct the engine does not evaluate in step 1: a person decides it."""
 
 
+def _conditional(ir: CriterionIRv3) -> bool:
+    """Whether ``ir`` is not an unconditional hard filter: a soft filter, or one that depends on other criteria.
+    v1 has neither notion and would run it as a hard filter, so nothing evaluates it in step 1."""
+    return ir.filter_class == "soft" or bool(ir.depends_on)
+
+
+def _reaches_ahead(ir: CriterionIRv3) -> bool:
+    """Whether a window of ``ir`` ends after its anchor's day (``to_days`` above 0): on the index date such a
+    window reaches past the day of the run, and v1 would answer it from the days already recorded alone."""
+    return any(a.window is not None and (a.window.to_days or 0) > 0 for a in ir.atoms)
+
+
 def _plain(ir: CriterionIRv3) -> CriterionIRv3:
-    """``ir`` without the annotations v1 has no field for (and without the language tag of its text)."""
+    """``ir`` without the annotations v1 has no field for (and without the language tag of its text). Dropped
+    because they change no answer: ``library_ref``, ``canonical_hash``, ``flip_rule``, ``lexicon_keys``,
+    ``computability``, ``safety_critical``, ``index`` (the engine's index-condition rescue is not run for a v3
+    criterion in step 1), and ``filter_class: hard``. The two that would change an answer, ``filter_class: soft``
+    and ``depends_on``, are never dropped: see :func:`_conditional`."""
     d = ir.model_dump(mode="json", by_alias=True, exclude_unset=True)
     for k in _NO_V1_FIELD:
         d.pop(k, None)
@@ -641,7 +657,10 @@ def v1_face(ir: CriterionIRv3) -> dict[str, Any]:
     question and no coded logic, so that a service that does not evaluate model v3 says "a person decides" and never
     answers it. The engine answers it from the v3 criterion, kept beside this one (``Ruleset.v3``)."""
     try:
-        return downgrade_to_v1(_plain(ir))
+        # a soft or dependent filter, and a window that ends after its anchor's day, are never handed to v1: v1
+        # would run the first as an unconditional hard filter and answer the second from the past days alone
+        if not (_conditional(ir) or _reaches_ahead(ir)):
+            return downgrade_to_v1(_plain(ir))
     except NotV1Expressible:
         pass
     d = ir.model_dump(mode="json", by_alias=True, exclude_unset=True)
@@ -674,6 +693,8 @@ def index_form(ir: CriterionIRv3) -> tuple[dict[str, Any], tuple[str, Atom | Non
         raise NotStep1(f"{ir.id}: class {ir.class_} is not evaluated from model v3 in step 1")
     if ir.macros:
         raise NotStep1(f"{ir.id}: macros are not evaluated in step 1")
+    if _conditional(ir):
+        raise NotStep1(f"{ir.id}: a soft filter or one that depends on other criteria is not evaluated in step 1")
     by_id = {a.id: a for a in ir.atoms}
     in_logic = set(_logic_refs(ir.logic))
     hung = {
@@ -686,6 +707,14 @@ def index_form(ir: CriterionIRv3) -> tuple[dict[str, Any], tuple[str, Atom | Non
     kind, event_id, pick = next(iter(hung)) if hung else ("index", None, None)
     if kind not in STEP1_ANCHORS:
         raise NotStep1(f"{ir.id}: anchor {kind} is not evaluated in step 1")
+    if kind != "index":
+        # In v1 an atom with no window means "up to the index date" and an age or a score is taken at the index
+        # date. Run at the anchor's date they would silently move onto it (an age at an operation years ago, a
+        # diagnosis "on record" cut off at the planned start). Two dates in one criterion are not evaluated in
+        # step 1: a person decides
+        for a in ir.atoms:
+            if a.id in in_logic and (a.window is None or a.domain == "demographic" or a.derived is not None):
+                raise NotStep1(f"{ir.id}: atom {a.id} is read at the index date, its other windows at {kind}")
     event: Atom | None = None
     if kind == "event":
         if event_id is None or pick not in ("first", "last"):

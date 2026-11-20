@@ -606,7 +606,8 @@ class _Run:
             if first_fail:
                 self.exclude(t, "S1", first_fail)
         # D-1263: the v3 criteria the ruleset's SQL did not answer, at their anchors' dates, and the flip dates
-        n_v3 = self.v3.evaluate({a.id for a in applied}) if self.v3 else 0
+        n_v3 = self.v3.evaluate([a.id for a in applied]) if self.v3 else 0
+        n_cut = self.v3.flip_bound_hit if self.v3 else 0
         n_scope = self.metrics.n_scope = sum(1 for t in self.traces.values() if t.in_scope)
         self.metrics.n_after["S0"] = n_scope
         self.stages[0].patients_out = n_scope
@@ -629,6 +630,7 @@ class _Run:
             ),
             **({"proposed_fact": n_prop} if n_prop else {}),  # D-135, only when a site has proposed facts
             **({"model_v3": n_v3} if n_v3 else {}),  # D-1263, only for a ruleset with v3 criteria
+            **({"flip_bound_hit": n_cut} if n_cut else {}),  # flip-date searches cut short by their bound
         )
         self.metrics.n_after["S1"] = len(alive)
         return applied
@@ -1409,6 +1411,8 @@ class _Run:
                 t.tier = "watchlist" if timed else "excluded"
                 continue
             kinds = {o.unknown_kind for o in t.outcomes.values() if o.status == "unknown"}
+            if any(self._v3_open(o) for o in t.outcomes.values()):
+                kinds.add("data_gap")  # D-1263: a v3 exclusion nobody could answer is never "strong"
             if any(o.status == "fail" and not o.hard for o in t.outcomes.values()):
                 kinds.add("uncertain")  # soft note fail (D-97): a person decides
             if t.notes_over_budget:
@@ -1423,6 +1427,12 @@ class _Run:
                 t.tier = "potential:data_gap"
             else:
                 t.tier = "strong"
+
+    def _v3_open(self, o: Outcome) -> bool:
+        """A v3 exclusion left unknown (kept, as every unknown exclusion is, D-18): for a criterion written in
+        model v3 it is an open point of the candidate: its tier is not "strong" and its queue item names it. A v1
+        criterion's kept exclusion is read as before."""
+        return o.criterion_id in self.rs.v3 and o.status == "pass" and o.unknown_kind == "data_gap"
 
     def _weak_met(self, o: Outcome) -> bool:
         """A judged "met" whose confidence is below the floor: it keeps the patient and never counts as strong
@@ -1446,7 +1456,7 @@ class _Run:
                 data_gap=sorted(
                     o.criterion_id
                     for o in t.outcomes.values()
-                    if o.status == "unknown" and o.unknown_kind == "data_gap"
+                    if (o.status == "unknown" and o.unknown_kind == "data_gap") or self._v3_open(o)
                 ),
                 department=t.department,
             )

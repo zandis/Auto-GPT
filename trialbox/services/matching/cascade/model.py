@@ -50,6 +50,9 @@ class Outcome:
     # not the index date. Both None, and left out of the trace file, for every v1 criterion
     flip_date: str | None = None
     anchor: dict[str, str] | None = None
+    # what the flip-date search found, with its kind (``matching.cascade.v3``): only the kind ``answer_changes``
+    # is a day to re-check on and is also in ``flip_date``; the others stay here, in the trace
+    flip: dict[str, str] | None = None
 
 
 @dataclass
@@ -81,7 +84,7 @@ class PatientTrace:
         if d["s2b_source"] is None:
             del d["s2b_source"]
         for o in d["outcomes"].values():  # D-1263: a v1 criterion's outcome is written as before model v3
-            for k in ("flip_date", "anchor"):
+            for k in ("flip_date", "anchor", "flip"):
                 if o[k] is None:
                     del o[k]
         return d
