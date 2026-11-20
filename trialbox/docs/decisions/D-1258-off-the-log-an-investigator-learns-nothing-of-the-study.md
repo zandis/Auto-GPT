@@ -3,137 +3,184 @@
 - **Task:** card 10C-3c of plan 10 (Track C), lane J. The integrator ruled on PR #639 (comments of 2026-11-19, 02:03
   and 22:40 UTC) that three gaps against the rule of D-147 and D-273 are fixed, as narrowing only. The pages touch
   permissions, so the coordinator runs two independent reviews. Lane J's block (D-1220 to D-1319) holds the number.
-- **Date:** 2026-11-19
-- **Status:** accepted. Gaps 1 and 2 narrow access under rules already ruled. Gap 3 and the sweep's 14 routes are
-  closed by the owner's decision below. The coordinator read that decision as also covering the design table's
-  matching cells and the walk's new row key, under conditions this change meets.
+- **Date:** 2026-11-19 (the owner's decisions of 2026-11-19 and 2026-11-20)
+- **Status:** accepted
 - **Builds on:** D-147 and D-273 (the delegation log decides an investigator's study rows on every page that shows one
   study's patients), D-380 (no PI named, nobody is PI), D-425 (one question per page), D-430 (one break-glass rule),
   D-125 (the API answers in JSON), D-1225 (J-6: the opening page reads only what the pages would show), D-1241
   (10C-3b: the header search)
 
-## The owner's decision
+## The owner's decisions
 
-Recorded by the lane J coordinator on PR #1239 (2026-11-19, about 23:32 UTC), answering the coordinator's direct
-question "which pages should be closed to an investigator off the study's log?": **close all 14.**
+All three were recorded by the lane J coordinator on PR #1239.
 
-> An investigator who is not on a study's delegation log is refused every one of these routes of that study, as its
-> week and patient pages are refused today; the break-glass grant on the job page stays.
+1. **2026-11-19, about 23:32 UTC: "close all 14".** "An investigator who is not on a study's delegation log is
+   refused every one of these routes of that study, as its week and patient pages are refused today; the
+   break-glass grant on the job page stays."
+2. **2026-11-20: "close all 4".** Ticking and labelling criteria in the study's approval round, and downloading or
+   viewing the study's job output files.
+3. **2026-11-20: "empty log open, listed = in".** "While a study's log names nobody, investigators see the study as
+   today (a doctor can read the feasibility report before agreeing to be its investigator). Once anyone is named,
+   an investigator gets in only with an active entry of their own, with or without a ticked task. An ended entry is
+   out. What a task tick itself allows elsewhere does not change."
 
-The permission covered `tests/console/data/route_actions.yaml`, for exactly those 14 rows and only to add the
-delegation condition for the off-log investigator. It did not cover `authz_matrix.yaml`, `authz.py` or any other
-row, cell or role. The coordinator's reading of the same decision (on PR #1239) also covers:
-- the 14 matching cells of the design table `tests/console/data/role_route_matrix.md` (column `pi`, which the
-  table defines as "an investigator the GZQO log does not name");
-- one new optional row key in `tools/role_walk.py`, `log: on_log`, under three conditions, each held by a test:
-  1. only these 14 rows carry it, and `on_log` is its only value;
-  2. it can only make a row stricter;
-  3. its rule is held equal to the console's.
+Decisions 1 and 2 allow these edits: the 18 rows of `tests/console/data/route_actions.yaml` gain the delegation
+condition, and their investigator cells change in the design table `tests/console/data/role_route_matrix.md`. The
+coordinator's rulings on the same PR allow one new row key, `log: on_log`, in `tools/role_walk.py`, under three
+conditions:
+- a test pins the rows that carry it;
+- it only makes a row stricter;
+- its rule is held equal to the console's.
 
 ## The rule
 
-An investigator (principal or sub-investigator) who is not named on a study's delegation log is refused that study's
-pages, as its week list, candidates and patient pages refuse them (403, `console.denied`). An API route gives its own
-JSON refusal (D-125). Anywhere else, such as a list, a count, a link or a name, the study is answered as one that
-does not exist to them.
+On the study's doors, an investigator gets in while the study's delegation log names nobody (no entry at all). Once
+the log has any entry, an investigator gets in only with an active entry of their own on it, as PI, sub-investigator
+(ticked for any task or for none) or monitor. An ended entry is out. An investigator kept out is refused as the
+study's week and patient pages refuse them: 403 with one `console.denied` row, or on an API route the API's own JSON
+refusal (D-125). In a list, a count, a link or a name, the study is answered as one that does not exist for them.
 
-The check is the one the neighbouring pages already ask: `Helpers.delegated` / `Helpers.delegated_ok`
-(`services/console/home.py`). The study-level pages ask it with any study task (`Helpers.on_log`, `STUDY_TASKS`), so
-a sub-investigator ticked for any task is on the log. Serious adverse events use `sae_pages.sae_scope`. No second
-rule is written and no role name appears inline. The rule narrows only the roles whose `task.*` rows the log
-decides; in the matrix that is the investigator. Every other role is answered as before.
+The rule applies to the roles whose `task.*` rows the log decides (the matrix's conditions; in the matrix, the
+investigator). Every other role passes it and meets its own rows on the page. It decides who reaches the doors,
+never what a task tick allows. Patient rows, screening, marking, data entry and serious-AE pages stay on their own
+task checks (`Helpers.delegated`, `sae_scope`, the `task.*` rows), exactly as before.
+
+In code:
+- `console.team.listed(team, user, rs, today)` reads the log;
+- `Helpers.on_log_ok(user, rid)` answers yes or no;
+- `Helpers.on_log(sess, rid, path)` refuses and audits;
+- the job's doors ask `_on_log_or_grant`, which lets an open break-glass grant for that job through (D-430). The
+  page or file records the use as before.
+
+The study id is read in upper case, as the log keeps it, so a job filed under `gzqo` asks GZQO's log, not an empty
+one.
 
 ## The three gaps
 
 1. **The header search** (`/cmd?q=`, `services/console/step4.py`). Already closed on master by D-1241 (PR #1138).
    The proof test of PR #1132 is a plain passing test in `tests/console/test_header_search_off_log.py`. Run at
-   `origin/master` d28f6c03: 9 passed. Nothing more is needed.
+   `origin/master` d28f6c03: 9 passed.
 2. **The investigator's start page.** An investigator holds `list.mark`, so `/home` sends them to `/week`. On
-   master, for every study in the account's scope, `/week` (`home.week_any`):
+   master, for every study in the account's scope, `/week`:
    - showed the unacknowledged serious AEs (participant record, study, AE term, onset day, a link to the
-     participant) and the overdue or undated SAE reports (record, study, party, due day), because
-     `lifecycle_pages.life_home(sess)` was called with no filter;
-   - listed each trial with a screening run (a link to its week page) and each registry with one (its cohort page),
-     and redirected (303) to the week page of the only screened trial;
+     participant) and the overdue or undated SAE reports;
+   - linked each trial's week page and each registry's cohort page, and redirected to the only screened trial's week
+     page;
    - showed the "criteria waiting for approval" lines.
 
-   Now the list, the cohorts and the redirect ask `Helpers.delegated_ok`. The serious AEs and reports are read only
-   where `reads_saes` admits the account, as the J-6 opening page reads them. The page shows no visit and reads
-   none. The "criteria waiting" lines (`approvals()`, also on each study's week page) ask the approval page's rule.
-3. **The job page and the state page**, and the sweep's other 12 routes (below): closed by the owner's decision.
-   - Each asks `Helpers.on_log` after its existing checks.
-   - The job page first lets through an account with an open break-glass grant for that job. `_job_page` records
-     the grant's use as before (D-430). A job with no study is as before.
-   - The approval page asks before it redirects a decided round to the job page.
+   Now:
+   - the list, the cohorts and the redirect ask the week page's own check (`Helpers.delegated_ok`);
+   - the serious AEs and reports are read only where `reads_saes` admits the account;
+   - the "criteria waiting" lines ask `Helpers.on_log_ok`.
 
-The lists that pointed at these pages leave the study out for the same account:
+   A sub-investigator ticked only for `run`, `refer` or `enter_data` gets the page with no study listed, since the
+   week page itself refuses them. Their serious-AE banners appear only where the SAE pages show them (the review's
+   F5, accepted).
+3. **The job page and the state page**, with the sweep's other routes: the 18 doors below.
+
+The lists that pointed at these doors leave the study out for the same account:
 - the J-6 opening page's Next line, which linked to the feasibility report;
-- `/reports`, which showed each study's feasibility summary.
+- `/reports`, which showed each study's feasibility summary;
+- `/jobs`, which listed job ids and links. Its own answer is unchanged (200), so it needs no row.
 
-## The sweep: the 14 routes
+## The 18 doors
 
-The console's own role walk (`tools/role_walk.py`, `ROLE_WALK_OUT`) was run at `origin/master` d28f6c03. Column
-`inv` is an investigator on no entry of GZQO's log, whose log names a PI. These are all the GET routes that take a
-study, ruleset, job or patient and answered it with success. None showed a patient row; the walk's data check finds
-no seeded pseudonym. All 14 are now refused.
+The console's own role walk (`tools/role_walk.py`, `ROLE_WALK_OUT`) was run at `origin/master` d28f6c03 and on this
+change. Column `inv` is an investigator on no entry of GZQO's log, which names a PI; it is the walk's only off-log
+investigator column. "Master" is that column's answer on master.
 
-| Route | Master | Now | What it showed the off-log investigator |
+| Route | Master | Now | What it showed or let the off-log investigator do |
 |---|---|---|---|
-| `/pilot/jobs/{job_id}` | 200 | 403 | the job: command line, state, mail thread, audit rows, aggregate outputs (feasibility funnel, top barriers) |
-| `/pilot/jobs/{job_id}/approval` | 303 | 403 | the criteria under review and the change since the approved version; a decided round redirects to the job |
-| `/studies/{rs}/state` | 200 | 403 | the study's state and its history with reasons and actors, identifiers, the IRB-text record, committee status |
-| `/studies/{rs}/feasibility` | 200 | 403 | the feasibility report (aggregate counts), site profile, competing trials, target and screen-fail rate |
-| `/studies/{rs}/forms` | 200 | 403 | the study's form definitions and their owners |
-| `/studies/{rs}/irb` | 200 | 403 | the IRB record: approval dates, protocol version, warnings |
-| `/studies/{rs}/setup` | 200 | 403 | the study settings (list rules, reasons, contact) and the REDCap link and reads |
-| `/studies/{rs}/sources` | 200 | 403 | the data sources and their fields |
-| `/studies/{rs}/team` | 200 | 403 | the delegation log: names, roles, ticked tasks, dates, training |
-| `/api/v1/studies/{rs}/delegation` | 200 | 403 JSON | the delegation log |
-| `/api/v1/studies/{rs}/forms` | 200 | 403 JSON | the forms |
-| `/api/v1/studies/{rs}/icf` | 200 | 403 JSON | the consent-form versions and their history |
-| `/api/v1/studies/{rs}/irb` | 200 | 403 JSON | the IRB fields and warnings |
-| `/api/v1/studies/{rs}/sources` | 200 | 403 JSON | the data sources |
+| `GET /pilot/jobs/{job_id}` | 200 | 403 | the job: command line, state, mail thread, audit rows, aggregate outputs (feasibility funnel, top barriers) |
+| `GET /pilot/jobs/{job_id}/approval` | 303 | 403 | the criteria under review and the change since the approved version |
+| `GET /studies/{rs}/state` | 200 | 403 | the study's state and history with reasons and actors, identifiers, the IRB-text record, committee status |
+| `GET /studies/{rs}/feasibility` | 200 | 403 | the feasibility report (aggregate counts), site profile, competing trials, target and screen-fail rate |
+| `GET /studies/{rs}/forms` | 200 | 403 | the form definitions and their owners |
+| `GET /studies/{rs}/irb` | 200 | 403 | the IRB record: approval dates, protocol version, warnings |
+| `GET /studies/{rs}/setup` | 200 | 403 | the study settings (list rules, reasons, contact) and the REDCap link and reads |
+| `GET /studies/{rs}/sources` | 200 | 403 | the data sources and their fields |
+| `GET /studies/{rs}/team` | 200 | 403 | the delegation log: names, roles, ticked tasks, dates, training |
+| `GET /api/v1/studies/{rs}/delegation` | 200 | 403 JSON | the delegation log |
+| `GET /api/v1/studies/{rs}/forms` | 200 | 403 JSON | the forms |
+| `GET /api/v1/studies/{rs}/icf` | 200 | 403 JSON | the consent-form versions and their history |
+| `GET /api/v1/studies/{rs}/irb` | 200 | 403 JSON | the IRB fields and warnings |
+| `GET /api/v1/studies/{rs}/sources` | 200 | 403 JSON | the data sources |
+| `POST /pilot/jobs/{job_id}/approval/tick` | 409 (walk) | 409 (walk) | a tick on a criterion of the study's round, counted toward it, audited as `console.code_tick` |
+| `POST /pilot/jobs/{job_id}/approval/label` | 400 (walk) | 400 (walk) | a label stored for the study's criterion (`console.criterion_label`) |
+| `GET /pilot/jobs/{job_id}/files/{filename}` | 404 (walk) | 403 | the job's aggregate files: the feasibility PDF and JSON, the criteria review workbook (`console.download`) |
+| `GET /pilot/jobs/{job_id}/view/{filename}` | 404 (walk) | 403 | the job's aggregate pages in the browser |
 
-The full walk, master against this change, covers 4452 cells. 15 differ, all in column `inv`: the 14 above and
-`GET /week` (303 to GZQO's week, now 200: gap 2). The PI, the sub-investigator on the log, the coordinators, the
-administrator, the steward, the privacy office, the viewer and the CRO accounts answer as before on every route.
-Five more GET routes answer `inv` 404 because the walk seeds no such object: `/pilot/cascade/{run_id}` and its
-files, `/pilot/jobs/{job_id}/files/{filename}`, `/pilot/jobs/{job_id}/view/{filename}`, `/site/templates/{name}.xlsx`.
-The job's files and views already ask `Helpers.delegated` for every non-aggregate output.
+The walk does not reach the last four with a real target:
+- the walk's job is not waiting for approval, so the round answers 409 or 400 before the log check, on master and
+  here;
+- the walk seeds no file named `1`, so a file answered 404 on master; it is now refused (403) before the lookup, so
+  a refused account cannot tell which file names exist.
+
+`tests/console/test_offlog_study_pages_10c3c.py` reaches all four with a waiting round and real files. None of the
+18 showed a patient row to this column: the walk's data check finds no seeded pseudonym.
 
 ## The tables
 
-- `tests/console/data/route_actions.yaml`: the 14 rows keep their actions or kind and gain `log: on_log`. Their
-  `why` names this decision.
-- `tools/role_walk.py`: a row's `log: on_log` refuses a column that `on_log_of` refuses, before the row's own gate.
-  `on_log_of(role, standing)` is read from the matrix and the column's standing, as the walk reads every gate; the
-  walk does not import the console's code.
-- `tests/console/data/role_route_matrix.md`: on the 14 rows, column `pi` changes from `Y` (`U` on the API forms and
-  sources) to `-`. Every other cell is unchanged; `lpi`, the investigator the log names as PI, is still `Y`.
+- `tests/console/data/route_actions.yaml`: the 18 rows keep their actions or kind and gain `log: on_log`. Their
+  `why` names the decision.
+- `tools/role_walk.py`: a row's `log: on_log` refuses a column `on_log` refuses, before the row's own gate.
+  `on_log_of(role, log_empty=, listed=)` is decision 3, read from the matrix's conditions. The walk does not import
+  the console's code; a test holds the two equal.
+- `tests/console/data/role_route_matrix.md`: on 16 of the 18 rows, column `pi` changes. That column is defined in
+  the test's docstring as "an investigator the GZQO log does not name". The changes are `Y` → `-` on the 14, `U` →
+  `-` on the two API rows forms and sources, and `n` → `-` on files and view. Tick and label do not move (the empty
+  test body is answered before the log). `lpi`, the logged PI, and every other cell are unchanged.
+
+## What still names a study to an off-log investigator (not in this card; the owner to decide)
+
+These answer the same as on master. They show a study's id, version or kind, or its state, to any account that sees
+the study:
+- `/api/v1/studies`, `/pilot/registry`, `/pilot/consent`, `/pilot/protocol`, `/pilot/case`, `/pilot/cascade`,
+  `/site*`: their study pickers and lists;
+- the header search: a study's name (D-1241 item 5);
+- the assistant (`/ask`, `/api/v1/ask`), checked for this card:
+  - a "why" question about a patient already asks the week page's log check (`trail`, D-273), so it answers nothing
+    for a study off the log;
+  - a "next" question (also what an empty question gets) is answered for any account that marks lists or sets up
+    the site, investigators included. It reads the named study's set-up readiness (`/setup/{ws}/readiness`) and
+    says which set-up steps are missing, with their counts, and links to the study's week page (which refuses
+    them);
+  - so an off-log investigator can learn a study's set-up readiness from `/ask?study=<id>`, but not its feasibility
+    figures or criteria text. Not changed without the coordinator's word.
 
 ## Held by
 
-- `tests/console/test_offlog_start_page_10c3c.py` (gap 2). The accounts are:
-  - the coordinator, GZQO's PI and a sub-investigator on GZQO's log, who are served as before;
-  - an investigator on RA-BIO's log only and an investigator on no log, who see no serious AE, report, record,
-    term or GZQO link, and are not redirected to GZQO's week.
-- `tests/console/test_offlog_study_pages_10c3c.py` (gap 3, the lists and the walk key):
-  - the two off-log investigators are refused all 14 routes. The pages are refused word for word as the week
-    page; the API routes with `{"error": "forbidden", "detail": {}}`. Each refusal has a `console.denied` row;
-  - the PI and sub-investigators ticked "screen" or only "run" get the coordinator's status on all 14, with no
-    refusal row;
-  - a break-glass grant opens the job page and records its use, and the study's other pages still refuse;
-  - `/week`, `/reports` and the J-6 opening page leave the study out for the off-log accounts and keep it for the
+- `tests/console/test_offlog_start_page_10c3c.py` (gap 2):
+  - the coordinator, GZQO's PI and a sub-investigator on the log are served as before;
+  - an investigator on RA-BIO's log only and one on no log see no serious AE, report, record, term or GZQO link,
+    and are not sent to GZQO's week.
+- `tests/console/test_offlog_study_pages_10c3c.py`:
+  - three accounts are refused all 18 doors with the week page's refusal word for word, or the JSON refusal, each
+    with its `console.denied` row and no download: on RA-BIO's log only, on no log, an ended entry on GZQO's log;
+  - the PI and sub-investigators ticked "screen", only "run", or nothing get the coordinator's status on every door;
+  - with GZQO's log empty, every investigator gets the coordinator's status (decision 3 (i));
+  - a break-glass grant opens the job page and its files and records the use; the study's other doors and other jobs
+    still refuse;
+  - off the log, a tick or a label is refused, nothing is stored or counted, and no tick or label row is written;
+    the PI ticks and labels as before;
+  - a job filed under `gzqo` asks GZQO's log;
+  - `/week`, `/reports`, `/jobs` and the J-6 page leave the study out for the off-log accounts and keep it for the
     on-log ones;
-  - only the 14 rows carry `log:`, any other value is refused, and the key never widens a row (all rows and all
-    columns, and rows whose actions refuse);
-  - `on_log_of` equals `Helpers.delegated_ok` with every study task, for every role and every standing.
+  - the walk key: the 18 rows pinned by a literal list; any value but `on_log` is refused; it never widens any row
+    for any column; and `on_log_of` equals `Helpers.on_log_ok` over `console.team.listed` for every role and every
+    state of a log (empty; others only; one's own active entry as PI, sub ticked or not, monitor; one's own ended
+    entry, with or without a PI).
 - Every test of a refusal fails on `origin/master`. Without the break-glass branch, the grant test fails.
-- `tests/console/test_matrix_role_walk.py` and `test_role_route_matrix.py` hold every other role's answer.
+- Existing tests:
+  - `test_t102b_roles::test_role_008` is as on master: GZQO's log is empty there, so the investigator sees the log
+    page and its "no PI" note;
+  - in `test_home_today`, "other", an investigator off GZQO's log (which names a PI and a sub-investigator), now
+    sees no GZQO line or link. In `test_a_refused_investigator_s_home_reads_no_patient_level_row` and
+    `test_no_link_of_the_home_opens_a_refusal_for_any_kind_of_account` that assertion is stricter than master;
+  - in `test_home_today`, the PI's line for OTHER1 (a study whose log names nobody) is as on master.
 
 ## Remains
 
-- On `/week`, the administrator, the steward and the privacy office are answered as before. The list does not ask
-  `phi.view`, so with one screened study they are redirected to its week page, which refuses them. This is not this
-  card's gap, and it is unchanged.
-- The header search still names a study in the account's scope (D-1241 item 5: a study's name is not its rows).
+- On `/week`, the administrator, the steward and the privacy office are answered as before. With one screened study
+  they are redirected to its week page, which refuses them.
+- The list above of what still names a study, and the assistant's readiness answer: the owner's.

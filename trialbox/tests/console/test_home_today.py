@@ -444,8 +444,7 @@ def test_a_refused_investigator_s_home_reads_no_patient_level_row(lb: dict[str, 
     page = pi.get("/home").text
     assert any(c.startswith("GET /studies/GZQO/") for c in calls), calls
     assert not [c for c in calls if "OTHER1" in c], calls
-    # D-1258: the PI is on no entry of OTHER1's log (it names no one), so the page names OTHER1 nowhere
-    assert 'data-testid="next-OTHER1"' not in page and "/studies/OTHER1/" not in _region(page)
+    assert _next(page, "OTHER1")[0] in ("report", "report_none")
 
 
 def test_a_sub_investigator_ticked_for_data_entry_gets_the_participant_pages_lines(lb: dict[str, Any]) -> None:

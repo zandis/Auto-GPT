@@ -99,9 +99,9 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/pilot/consent` | Y | Y | Y | Y | Y | - | Y | Y | Y |
 | GET | `/pilot/jobs/{job_id}` | Y | Y | - | Y | Y | - | - | Y | Y |
 | GET | `/pilot/jobs/{job_id}/approval` | Y | Y | - | Y | Y | - | - | Y | Y |
-| GET | `/pilot/jobs/{job_id}/files/{filename}` | n | n | n | n | n | - | - | n | n |
+| GET | `/pilot/jobs/{job_id}/files/{filename}` | n | n | - | n | n | - | - | n | n |
 | GET | `/pilot/jobs/{job_id}/sponsor-pack.zip` | n | n | - | - | n | - | - | - | - |
-| GET | `/pilot/jobs/{job_id}/view/{filename}` | n | n | n | n | n | - | - | n | n |
+| GET | `/pilot/jobs/{job_id}/view/{filename}` | n | n | - | n | n | - | - | n | n |
 | GET | `/pilot/mailbox` | Y | Y | Y | Y | - | - | - | Y | Y |
 | GET | `/pilot/protocol` | Y | Y | Y | Y | Y | - | Y | Y | Y |
 | GET | `/pilot/registry` | Y | Y | Y | Y | Y | - | - | Y | Y |

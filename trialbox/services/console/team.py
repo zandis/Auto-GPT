@@ -170,6 +170,16 @@ def standing(team: TeamStore, user: User, rs: str, today: date) -> Standing:
     return Standing(is_pi, tasks, pi is not None, pi if is_pi else own)
 
 
+def listed(team: TeamStore, user: User, rs: str, today: date) -> bool:
+    """D-1258 (the owner's decision of 2026-11-20, "empty log open, listed = in"): is the account on study ``rs``'s
+    delegation log, for the study's pages? While the log names nobody (no entry at all), yes: a doctor reads the
+    feasibility report before agreeing to be the study's investigator. Once the log has any entry, only with an active
+    entry of the account's own (any role on the log, with or without a ticked task); an ended entry is out. What a
+    task tick allows is the ``task.*`` rows' (:func:`standing`), not this."""
+    entries = team.entries(rs)
+    return not entries or any(e.username == user.username and e.active_on(today) for e in entries)
+
+
 def check_due(team: TeamStore, rs: str, today: date, tz: ZoneInfo) -> bool:
     """The monthly comparison with the office's signed log is due (or was never made) for a study with a log.
 
@@ -309,6 +319,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return rid
 
     h.pi_missing = pi_missing
+    h.listed = lambda user, rid: listed(team, user, rid, today())  # D-1258
     h.team_due = lambda rid: check_due(team, rid, today(), site_zone(bk))
 
     def deny(sess: Session, path: str) -> Exception:

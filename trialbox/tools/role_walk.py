@@ -383,23 +383,25 @@ LOGS = ("", "on_log")  # D-1258: a row's ``log``
 
 
 def on_log(col: Column) -> bool:
-    """D-1258 (10C-3c): does the study's delegation log admit the column to a page of the study (a row's ``log:
-    on_log``)? :func:`on_log_of` with the column's role and standing in GZQO; signed out, never."""
+    """D-1258 (10C-3c): does the study's delegation log admit the column to a door of the study (a row's ``log:
+    on_log``)? :func:`on_log_of` with GZQO's log as the walk writes it (it names a PI, so it is not empty) and the
+    column's own entry on it (``Column.log``); signed out, never."""
     if col.role is None:
         return False
-    return on_log_of(str(col.role), standing(col))
+    return on_log_of(str(col.role), log_empty=False, listed=bool(col.log))
 
 
-def on_log_of(role: str, held: Any) -> bool:
-    """The rule of ``Helpers.delegated_ok`` with every study task, from the matrix alone: a role whose ``task.*`` rows
-    the log decides (the matrix's conditions) passes only with one of those tasks in its standing ``held``; every
-    other role passes. ``tests/console/test_offlog_study_pages_10c3c.py`` holds it equal to the console's rule over
-    every role and standing."""
-    from tb_common.authz import STUDY_TASKS, conditional, permit
+def on_log_of(role: str, *, log_empty: bool, listed: bool) -> bool:
+    """The owner's rule of D-1258 ("empty log open, listed = in"), from the matrix alone: a role whose ``task.*``
+    rows the delegation log decides (the matrix's conditions) passes while the study's log names nobody, or with an
+    active entry of its own (``listed``, ticked or not); every other role passes. The rule of
+    ``Helpers.on_log_ok``; ``tests/console/test_offlog_study_pages_10c3c.py`` holds the two equal over every role
+    and every state of a log."""
+    from tb_common.authz import STUDY_TASKS, conditional
 
     if not any(conditional(role, f"task.{t}") for t in STUDY_TASKS):
         return True
-    return any(permit(role, f"task.{t}", held).allowed for t in STUDY_TASKS)
+    return log_empty or listed
 
 
 @dataclass(frozen=True)

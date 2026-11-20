@@ -188,6 +188,9 @@ class Helpers:
     # set by console.team (D-1245): would the study's candidate list admit this account (user, study) -> bool; None in
     # bare test apps (nobody is admitted)
     admits_candidates: Callable[[Any, str], bool] | None = None
+    # set by console.team (D-1258): is the account on the study's delegation log (``console.team.listed``); None in
+    # bare test apps (nobody the log decides is on it)
+    listed: Callable[[Any, str], bool] | None = None
     breakglass_find: Callable[..., Any] | None = None  # T-716 (D-484): the open grant, found and not used
     breakglass_note: Callable[..., Any] | None = None  # the audit event of a use the orchestrator recorded
     # T-310a (D-446): set by register(): the latest run's not-matched list and its rows as the page shows them; set by
@@ -233,12 +236,22 @@ class Helpers:
             raise self.problem(403, "forbidden")
 
     def on_log(self, sess: Session, rid: str, path: str) -> None:
-        """D-1258 (10C-3c): the study-level pages of one study (its job and approval pages, its state, feasibility,
-        set-up, forms, sources, IRB record, consent forms and delegation log, on the page and on ``/api/v1``) ask
-        D-147's rule of :meth:`delegated` with any study task: an investigator the study's log does not name is
-        refused them as its week and patient pages refuse it (403, audited). The roles the log does not decide pass
-        and meet their own rows on the page."""
-        self.delegated(sess, rid, path, STUDY_TASKS)
+        """D-1258 (10C-3c): the study-level doors of one study (its job page, files and approval round, its state,
+        feasibility, set-up, forms, sources, IRB record, consent forms and delegation log, on the page and on
+        ``/api/v1``) refuse an account :meth:`on_log_ok` says no to, as its week and patient pages refuse it (403,
+        one ``console.denied`` row)."""
+        if not self.on_log_ok(sess.user, rid):
+            self.au.append("console.denied", actor=self.actor(sess), detail={"action": path[:80]})
+            raise self.problem(403, "forbidden")
+
+    def on_log_ok(self, user: Any, rid: str | None) -> bool:
+        """The owner's rule of D-1258 as a yes or no: for a role whose ``task.*`` rows the delegation log decides (the
+        matrix's conditions, as :meth:`delegated_ok`), the study's log names nobody yet or holds an active entry of
+        the account's own (``console.team.listed``); every other role passes and meets its own rows on the page. It
+        decides who reaches the study's doors, never what a task tick allows."""
+        if not any(conditional(user.role, f"task.{t}") for t in STUDY_TASKS):
+            return True
+        return bool(rid) and self.listed is not None and bool(self.listed(user, str(rid).upper()))
 
     def need_rows(self, sess: Session, rid: str, path: str) -> None:
         """ROLE-017 (T-102c, D-425): who reads one study's patient-level rows. A page, its XLSX and its ``/api/v1``
@@ -359,7 +372,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             for j in bk.list_jobs(limit=500)
             if j.state == "awaiting_approval" and j.ruleset and sess.user.sees_study(j.ruleset)
             and any(o.filename.startswith("review_") and o.filename.endswith(".xlsx") for o in j.outputs or [])
-            and h.delegated_ok(sess.user, j.ruleset.upper(), STUDY_TASKS)
+            and h.on_log_ok(sess.user, j.ruleset)
         ]  # fmt: skip
 
     def study_or_404(sess: Session, rs: str) -> str:
@@ -673,7 +686,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         grants = {g[0]: g for g in (h.monitor_grants(user) if h.monitor_grants else [])}
         for r in studies:
             rs = r.id
-            if not h.delegated_ok(user, rs, STUDY_TASKS):  # D-1258: a study off the account's log is not named
+            if not h.on_log_ok(user, rs):  # D-1258: a study off the account's log is not named
                 continue
             if rs not in readable:  # no patient-level read in this study: the aggregate reads only
                 step = home_today.report_step(report=st.latest_job(jobs, rs, ("FEAS",)) is not None,
@@ -770,7 +783,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         jobs = bk.list_jobs(limit=500)
         rows = []
         for r in trials(sess):
-            if not h.delegated_ok(sess.user, r.id, STUDY_TASKS):  # D-1258: as the study's feasibility page
+            if not h.on_log_ok(sess.user, r.id):  # D-1258: as the study's feasibility page
                 continue
             job = st.latest_job(jobs, r.id, ("FEAS",))
             res = load(job, "feasibility_", ".json", "aggregate")
