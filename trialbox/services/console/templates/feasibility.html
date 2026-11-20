@@ -27,7 +27,7 @@
     <p class="big" data-testid="per-month">{{ s.per_month[1] }} <small>/ {{ t('feas.month') }}</small></p>
     <p class="hint">{{ t('feas.range', low=s.per_month[0], high=s.per_month[2]) }} · {{ t('feas.horizon', months=s.months, low=s.horizon[0], mid=s.horizon[1], high=s.horizon[2]) }}</p></div>
   <div class="tile"><p class="hint">{{ t('feas.tile.reading') }}</p>
-    <p class="big" data-testid="reading">{% if s.reading %}<span class="pill" data-tone="{{ tone('reading', s.reading) }}">{{ t('reading.' + s.reading) }}</span>{% else %}–{% endif %}</p>
+    <p class="big" data-testid="reading">{% if s.reading %}<span class="pill rd-{{ s.reading }}">{{ t('reading.' + s.reading) }}</span>{% else %}–{% endif %}</p>
     <p class="hint">{% if s.target_n %}{{ t('feas.target', n=s.target_n, months=s.target_months) }}{% else %}{{ t('reading.none') }}{% endif %}</p></div>
   <div class="tile"><p class="hint">{{ t('feas.tile.pool') }}</p>
     <p class="big" data-testid="pool">{{ s.pool_now }} / {{ s.potential }}</p>

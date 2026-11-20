@@ -14,7 +14,7 @@
 <td>{{ (r.job.run_date.isoformat() if r.job.run_date else r.job.updated_at|local(10)) if r.job else '–' }}</td>
 {% if r.summary %}
 <td class="num">{{ r.summary.per_month[1] }} <span class="hint">({{ r.summary.per_month[0] }}–{{ r.summary.per_month[2] }})</span></td>
-<td>{% if r.summary.reading %}<span class="pill" data-tone="{{ tone('reading', r.summary.reading) }}">{{ t('reading.' + r.summary.reading) }}</span>{% else %}<span class="hint">{{ t('reading.none') }}</span>{% endif %}</td>
+<td>{% if r.summary.reading %}<span class="pill rd-{{ r.summary.reading }}">{{ t('reading.' + r.summary.reading) }}</span>{% else %}<span class="hint">{{ t('reading.none') }}</span>{% endif %}</td>
 <td class="num">{{ r.summary.pool_now }} / {{ r.summary.potential }}</td>
 <td><a href="/studies/{{ r.id }}/feasibility">{{ tp('home.open_report') }}</a></td>
 {% else %}<td colspan="4" class="hint">{{ t('home.feas.none') }}</td>{% endif %}

@@ -21,11 +21,11 @@
 <thead><tr><th>{{ t('wb.c.patient') }}</th><th>{{ t('patient.tier') }}</th><th>{{ t('team.cand.doctor') }}</th><th>{{ t('wb.c.visit') }}</th><th>{{ t('wb.c.needed') }}</th><th>{{ t('team.log.referral') }}</th><th>{{ t('log.mark') }}</th><th>{{ t('person.col.state') }}</th></tr></thead>
 <tbody>{% for r in rows %}<tr data-testid="cand-{{ r.short }}">
 <td><a href="/studies/{{ rs }}/candidates/{{ r.pid }}" data-testid="cand-open-{{ r.short }}"><b class="nowrap">{{ t('week.patient', p=r.short) }}</b></a>{% if r.screening_no %}<br><span class="hint mono">{{ r.screening_no }}</span>{% endif %}</td>
-<td><span class="pill" data-tone="{{ tone('tier', r.tier) }}">{{ t('tier.' + r.tier) }}</span></td>
+<td><span class="pill tier-{{ r.tier }}">{{ t('tier.' + r.tier) }}</span></td>
 <td data-testid="doctor-{{ r.short }}">{% if r.doctor.known %}{{ given(r.doctor.name) }} <span class="hint">{{ t('team.doctor.suggested') }}</span>{% else %}<span class="pill warn">{{ t('team.doctor.unknown') }}</span>{% endif %}{% if r.department %}<br><span class="hint">{{ given(r.department) }}</span>{% endif %}</td>
 <td class="num">{{ r.visit_text or t('week.no_visit') }}</td>
 <td class="num">{{ r.n_open }}</td>
-<td>{% if r.referral %}<span class="pill" data-tone="{{ tone('referral', r.referral.state) }}">{{ t('team.state.' + r.referral.state) }}</span>{% else %}–{% endif %}</td>
+<td>{% if r.referral %}<span class="pill ref-{{ r.referral.state }}">{{ t('team.state.' + r.referral.state) }}</span>{% else %}–{% endif %}</td>
 <td data-testid="cand-mark-{{ r.short }}">{% if r.mark %}{{ t('mark.' + r.mark.mark) }}{% if r.mark.mark == 'not_now' and r.mark.reason %} · {{ t('mark.recheck_on', d=r.mark.reason) }}{% endif %}{% else %}–{% endif %}</td>
 <td>{{ person_pill(r.person, 'cand-state-' + r.short) }}</td>
 </tr>{% endfor %}</tbody></table></div>

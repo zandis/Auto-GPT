@@ -1,6 +1,0 @@
-{# 9k-5 (D-1380; review 09 DS-5): the page header. One <h1>, the study or context line above it if the page has one,
-   and the page's one primary act beside it (the body of a call block: at most one primary button, or a link styled as
-   one). The page sets its name once, as `{% set page_title = (the page's text) %}` before its content block: base.html puts that
-   same string in <title>, and the page passes it here as the heading, so the title and the heading cannot differ.
-   {% call page_header(page_title, ctx) %}<button>The act</button>{% endcall %}  (no call block: no act) #}
-{% macro page_header(title, ctx='') %}<header class="ph">{% if ctx %}<p class="ph-ctx">{{ ctx }}</p>{% endif %}<h1>{{ title }}</h1>{% if caller is defined %}<div class="ph-act">{{ caller() }}</div>{% endif %}</header>{% endmacro %}

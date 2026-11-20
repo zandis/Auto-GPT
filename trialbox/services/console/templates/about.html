@@ -1,9 +1,8 @@
 {% extends "base.html" %}
-{% from "_ds.html" import page_header %}
-{% set page_title = t('about.title') %}
+{% block title %}{{ t('about.title') }}{% endblock %}
 {% block content %}
 {# T-617a (STD-044): the third-party notices of NOTICE; the notice texts are the licences' own English #}
-{{ page_header(page_title) }}
+<h1>{{ t('about.title') }}</h1>
 <p class="hint">{{ t('about.intro') }}</p>
 <section class="card" data-testid="about-release"><h2>{{ t('about.release') }}</h2>
 <p class="mono">{{ t('about.version') }}: <span data-testid="about-version">{{ release.version or t('about.unknown') }}</span><br>

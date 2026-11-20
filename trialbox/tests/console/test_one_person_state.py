@@ -195,10 +195,7 @@ def test_the_registry_adds_by_chart_number_but_sets_no_status(study: dict[str, A
     page = crc.get("/pilot/registry/GZQO").text
     n_rows = len(re.findall(r'<tr data-pid="', page))
     listed = len(
-        re.findall(
-            r'<tr data-pid="[^"]*"[^>]*>\s*<td[^>]*>[^<]*</td>\s*<td><span class="pill" data-tone="neutral" data-state="listed"',
-            page,
-        )
+        re.findall(r'<tr data-pid="[^"]*"[^>]*>\s*<td[^>]*>[^<]*</td>\s*<td><span class="pill ps-listed"', page)
     )
     assert n_rows == sum(_strip(page, "registry-counts").values()) + listed == 5
 

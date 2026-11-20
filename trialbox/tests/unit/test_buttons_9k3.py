@@ -139,7 +139,7 @@ def test_9k3_the_d133_layer_re_sets_nothing() -> None:
         (".markrow form.inline select", "min-height"), ("input", "min-height"), ("select", "min-width"),
         ("nav a", "min-height"), (".rail a", "display"), ("details > summary", "min-height"),
         ("details.more > summary", "min-height"), (".helpq", "width"), (".brand", "min-height"), (".skip:focus", "padding"),
-        (".pill", "padding"), ("th", "letter-spacing"), (".markrow", "gap"),
+        (".pill", "padding"), (".state", "padding"), ("th", "letter-spacing"), (".markrow", "gap"),
         ("form.cmd input[type=search]", "min-height"), ("body", "font-size"),
     }  # fmt: skip
     seen: dict[tuple[str, str], int] = {}

@@ -51,6 +51,9 @@ input firewall, SSH, offline OS patches, and `deploy/check_host.sh` that checks 
 - **SSH.** `SSH=off` (the default) stops and disables the service. `SSH=it`: port 22 from `IT_RANGES` only and
   `sshd_config.d/50-trialbox.conf` (keys only, no root login, no forwarding, three tries), checked with `sshd -t`.
   The host check FAILs password or root login while SSH runs.
+  **Over SSH, `SSH=off` would lock the session out**: `apply.sh` refuses it from an SSH session and changes nothing,
+  and `install.sh` asks the same rule (`apply.sh check`) before it loads anything (H-70): run it from the box's
+  console, set `SSH=it` with your address in `IT_RANGES`, or add `--ssh-off-over-ssh` to either to go ahead.
 - **OS patches (OPS-024).** Who and how fast is RUNBOOK §24. Offline, Aimedics ships a dated apt snapshot as a signed
   bundle (`deploy/hardening/ospatch.py make`, then `tools/sign_bundle.py`); hospital IT applies it in the window with
   `tools/apply_update.sh ospatch <bundle>`: the signature and every package are checked first, the snapshot must be
