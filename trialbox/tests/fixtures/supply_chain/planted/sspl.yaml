@@ -1,0 +1,7 @@
+# planted (9g-15): an unknown-class entry that records an SSPL licence; allowlist-check must refuse it
+licences:
+  - package: planted-sspl-package
+    class: unknown
+    licence: SSPL (planted entry; the licence of the package's metadata)
+    reason: Planted entry for the refusal test of card 9g-15, never a real acceptance
+    review_by: 2027-01-10

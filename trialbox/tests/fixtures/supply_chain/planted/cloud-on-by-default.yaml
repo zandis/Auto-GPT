@@ -1,0 +1,7 @@
+# planted (9g-15): an entry that records cloud features on by default; allowlist-check must refuse it
+licences:
+  - package: planted-cloud-package
+    class: unknown
+    licence: MIT, with cloud features on by default (planted entry)
+    reason: Planted entry for the refusal test of card 9g-15, never a real acceptance
+    review_by: 2027-01-10
