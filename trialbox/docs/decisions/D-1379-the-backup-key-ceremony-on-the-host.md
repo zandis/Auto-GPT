@@ -199,8 +199,8 @@
   shares, which `python -m tools.keys init`, `escrow-shares` and `ceremony-record` already do (D-893, D-894) and which
   this card does not change; a rotation of the backup key through this command.
 - **Open follow-ups (other open cards hold these files; not changed here):** the install and the runbooks still send
-  hospital IT to the unwitnessed `trialbox backup-keygen` for the one-time key: `deploy/install.sh` (line 905),
-  `docs/runbook/05-updates-backup-restore-secrets.md` (line 75), `docs/runbook/01-install-a-new-site.md` (line 176,
+  hospital IT to the unwitnessed `trialbox backup-keygen` for the one-time key: `deploy/install.sh` (line 932),
+  `docs/runbook/05-updates-backup-restore-secrets.md` (line 75), `docs/runbook/01-install-a-new-site.md` (line 177,
   step 9, by way of runbook 05) and `docs/security/10-key-ceremony-and-escrow.md` §1's table and §4 step 1 (lines 12
   and 47-48), which got only a pointer line at its end. Each should name this command instead. Also open: a power
   loss between the audit line and the public key's link (the audit then refuses a rerun; RUNBOOK §25), and ordinary
