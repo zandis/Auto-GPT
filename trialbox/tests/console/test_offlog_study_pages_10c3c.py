@@ -117,9 +117,11 @@ def _jobs(box: dict[str, Any]) -> None:  # noqa: F811
     out = JobOutput(filename="review_GZQO_v1.0.0_r1.xlsx", sha256=sha256_bytes(book), minio_key=key, recipients=[],
                     tag="aggregate")  # fmt: skip
     now = datetime(2026, 11, 19, 9, 0, tzinfo=UTC)
-    for jid, rs, state, outs in ((WAIT, STUDY, "awaiting_approval", [out]), (LOWER, "gzqo", "done", [])):
-        bk.add_job(Job(job_id=jid, type="FEAS", ruleset=rs, ruleset_version="1.0.0", requested_by="crc@hospa.test",
-                       received_at=now, updated_at=now, state=state, options={}, inputs=[], outputs=outs))  # fmt: skip
+    bk.add_job(Job(job_id=WAIT, type="FEAS", ruleset=STUDY, ruleset_version="1.0.0", requested_by="crc@hospa.test",
+                   received_at=now, updated_at=now, state="awaiting_approval", options={}, inputs=[],
+                   outputs=[out]))  # fmt: skip
+    bk.add_job(Job(job_id=LOWER, type="FEAS", ruleset="gzqo", ruleset_version="1.0.0", requested_by="crc@hospa.test",
+                   received_at=now, updated_at=now, state="done", options={}, inputs=[], outputs=[]))  # fmt: skip
 
 
 def _accounts(box: dict[str, Any], log: bool = True) -> dict[str, tuple[TestClient, TestClient]]:  # noqa: F811
