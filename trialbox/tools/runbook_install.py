@@ -322,6 +322,7 @@ NOT_ON_PATH: list[tuple[str, str]] = [
     (r"python3 -m tools\.holidays_import .*", "the vendor's yearly holiday update (10C-14), not an install step"),
     (r"tools/apply_update\.sh trialbox-<version>\.tar", "step 2: the installer loads the bundle"),
     (r"make images(-multiarch)?", "step 2: a development host builds instead"),
+    (r"docker buildx version", "step 2: the build host's buildx check (H-70); a development host builds instead"),
     (r"docker compose exec criteria-compiler .*", "step 2: a synthetic run on a PRODUCTION box, optional"),
     (r"python -m tools\.settings_wizard .*", "step 3: the installer runs the wizard"),
     (r"--answers site\.yaml", "step 3: the installer runs the wizard with the answers"),
