@@ -16,8 +16,8 @@
 {% if not sources %}<p class="empty">{{ t('dataops.sources.none') }}</p>{% else %}
 <ul class="plain">{% for s in sources %}<li data-testid="source" data-source="{{ s.source }}" data-light="{{ s.light }}">{{ pill(s.light) }} <span class="mono">{{ s.source }}</span> · {{ s.snapshot }} · {{ t('dataops.state.' + s.state) }}{% if s.unmapped %} · <a href="/data-ops/batches/{{ s.id }}" data-testid="source-unmapped">{{ t('dataops.unmapped.mark', n='{:,}'.format(s.unmapped)) }}</a>{% endif %}</li>{% endfor %}</ul>
 <p class="hint" data-testid="dataops-counts">{% for st, n in counts|dictsort %}{{ t('dataops.state.' + st) }}: {{ n }}{{ ' · ' if not loop.last else '' }}{% endfor %}</p>
-{% if full_night %}{% set fn = full_night %}{% set upd = t('dataops.full_night.update') if fn.deltas == 1 else t('dataops.full_night.updates', n=fn.deltas) %}<p class="{{ 'warn' if fn.warn else 'hint' }}" data-testid="dataops-full-night"{% if fn.warn %} data-warn="1"{% endif %}>{% if fn.last_full %}{{ t('dataops.full_night.known', date=fn.last_full, ago=(t('dataops.full_night.today') if fn.days == 0 else t('dataops.full_night.day') if fn.days == 1 else t('dataops.full_night.days', n=fn.days)), updates=upd) }}{% else %}{{ t('dataops.full_night.unknown', updates=upd) }}{% endif %}{% if fn.warn %} {{ t('dataops.full_night.why') }}{% endif %}</p>
-{% endif %}{% endif %}
+{#FN#}{% if full_night %}{% set fn = full_night %}{% set upd = t('dataops.full_night.update') if fn.deltas == 1 else t('dataops.full_night.updates', n=fn.deltas) %}<p class="{{ 'warn' if fn.warn else 'hint' }}" data-testid="dataops-full-night"{% if fn.warn %} data-warn="1"{% endif %}>{% if fn.last_full %}{{ t('dataops.full_night.known', date=fn.last_full, ago=(t('dataops.full_night.today') if fn.days == 0 else t('dataops.full_night.day') if fn.days == 1 else t('dataops.full_night.days', n=fn.days)), updates=upd) }}{% else %}{{ t('dataops.full_night.unknown', updates=upd) }}{% endif %}{% if fn.warn %} {{ t('dataops.full_night.why') }}{% endif %}</p>
+{% endif %}{#/FN#}{% endif %}
 </section>
 
 <section class="card attention" data-testid="dataops-held">

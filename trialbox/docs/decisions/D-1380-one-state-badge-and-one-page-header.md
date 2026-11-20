@@ -68,3 +68,21 @@
   three tones would add one to all of them; a rule for job pills alone would need a selector the table does not give.
   info and neutral keep their border as before.
 - **Held by:** `tests/unit/test_state_tone_9k4.py`, `tests/unit/test_page_header_9k5.py`.
+
+## Files outside the card
+
+- `tests/console/test_dataops_full_night.py` (lane J's, 10B-23 / D-1254), and `tests/console/dataops_sources_master.json`
+  (used by that test alone, removed). Pull request #1272 was taken off train 108 because this test held the
+  data-operations sources section byte for byte against a stored copy of master's markup, and this card changes the
+  pill markup that section holds. The integrator's ruling of 2026-11-20: compare with the card against without the
+  card, as the J-6 and J-8 flag-off tests do, and keep what the test proves. Lane J reads this file.
+  - Before: `test_no_record_and_no_delta_night_is_masters_page_byte_for_byte` rendered the sources section for a night
+    with no record (and for one with an unknown record and no delta night) in three languages and compared it with
+    the stored `dataops_sources_master.json` (markup rendered from master `f6c42230`).
+  - After: `test_no_record_and_no_delta_night_is_the_page_without_this_card` renders that section twice in the same
+    run from the current templates, once as they are and once with every 10B-23 part of `dataops.html` (now between
+    `{#FN#}` and `{#/FN#}`) taken out, and compares the two byte for byte, for the same two nights and three
+    languages. Nothing is stripped (no volatile attribute is on that section), and the pill is the same on both sides.
+    It also asserts that the line is absent and that a source is on the page. What it proves is kept: a night with no
+    record and no delta night adds nothing to the page. It fails if the card renders even one character in that case
+    (shown by a temporary extra character inside the marked parts: both cases failed).
