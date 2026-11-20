@@ -17,6 +17,8 @@
 # and deploy/windows/wsl2_policy.py judges BitLocker, the page file, hibernation, WSL swap, Remote Desktop, Windows
 # Update restarts, the start-at-boot task, the clocks and the disk file, as preflight.ps1 does before the install.
 # TB_HOST_ROOT moves every host file it reads (/etc, /run, /dev, /var, /proc) under a folder: the tests only.
+# With gb10, a host under 96 GiB of memory (MemTotal, deploy/gpu_profile.sh memory-class) FAILs: it is the 64 GB
+# Spark class, refused by install.sh (card 10E-5, D-1335; H10E5-03). TB_TEST_MEM_KIB stands in for MemTotal in tests.
 set -u
 GB10=0; GPU_PROFILE=""; GPU_ONLY=0; BASELINE=0; ENV_FILE="$(dirname "$0")/.env"
 WSL2=0; WSL2_DISTRO="${WSL_DISTRO_NAME:-}"; ESCROW=""
@@ -60,10 +62,16 @@ gpu_image_check() {
   [ "$n" -gt 0 ] && FAILS=$((FAILS + n))
   echo "$out" | grep -qE '^(PASS|WARN|FAIL) ' || FAILS=$((FAILS + 1))
 }
+# a GB10 host under 96 GiB is the 64 GB class (gb10-64): the same refusal as install.sh's; unknown memory is not judged
+gb10_memory_check() {
+  [ "$(sh "$ROOT_DIR/deploy/gpu_profile.sh" memory-class "${TB_TEST_MEM_KIB:-}")" = gb10-64 ] || return 0
+  fail "this DGX Spark has under 96 GiB of memory (the 64 GB class): TrialBox does not serve the model pair on it. The gb10 profile is sized for 128 GB, and no profile of the 64 GB class is measured, so none is guessed (card 10E-5, D-1335). Install with --mode stub, or use a 128 GB Spark or another measured box"
+}
 [ -n "$GPU_PROFILE" ] || [ "$(envget TB_LLM_MODE)" != vllm ] || GPU_PROFILE=default
 if [ "$GPU_ONLY" = 1 ]; then
   [ -n "$GPU_PROFILE" ] || { echo "--gpu-only needs --gpu <profile> or --gb10" >&2; exit 2; }
   [ "$GB10" = 1 ] && { [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || fail "GB10 profile on $(uname -m)"; }
+  [ "$GB10" = 1 ] && gb10_memory_check
   gpu_image_check
   echo "---"
   [ "$FAILS" -eq 0 ] && { echo "GPU host checks passed"; exit 0; } || { echo "$FAILS GPU check(s) failed"; exit 1; }
@@ -280,6 +288,7 @@ fi
 # GPU / GB10 (§2; docker-compose.gb10.yml)
 if [ "$GB10" = 1 ]; then
   [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || fail "GB10 profile on $(uname -m)"
+  gb10_memory_check
   d=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
   if [ "$d" = "580.142" ]; then pass "NVIDIA driver 580.142 (pinned)"; else fail "NVIDIA driver '${d:-none}' (GB10 requires 580.142; hold it with apt-mark)"; fi
   if apt-mark showhold 2>/dev/null | grep -q nvidia; then pass "NVIDIA driver packages held"; else warn "driver packages not held (apt-mark hold)"; fi
