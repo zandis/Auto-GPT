@@ -1,7 +1,7 @@
 #!/bin/sh
 # The host baseline (T-634, D-408; OPS-052): the input firewall and SSH. Run as root on the box; install.sh runs it.
 #
-#   deploy/hardening/apply.sh [--conf deploy/site/hardening.conf] [--dry-run] [all|firewall|ssh|render]
+#   deploy/hardening/apply.sh [--conf deploy/site/hardening.conf] [--dry-run] [--ssh-off-over-ssh] [all|firewall|ssh|render]
 #
 # firewall: the nftables table inet trialbox_input, written to /etc/trialbox/input.nft and loaded at every boot by
 #   trialbox-input.service (before the network). Input policy drop: loopback, replies, ICMP that IP needs, DHCP
@@ -11,6 +11,8 @@
 #   drops 443 to this host from any other source. Forwarded container traffic stays the egress table's (network.sh).
 # ssh: SSH=off stops and disables the service; SSH=it writes /etc/ssh/sshd_config.d/50-trialbox.conf (keys only, no
 #   root, no forwarding), checks it with `sshd -t` and reloads.
+#   H-70: SSH=off run from an SSH session would lock that session out. apply.sh then refuses and changes nothing,
+#   unless --ssh-off-over-ssh (or TB_SSH_OFF_OVER_SSH=yes in the environment, for install.sh) says to go ahead.
 # render: print the firewall ruleset and change nothing.
 # deploy/check_host.sh checks both. Nothing here touches the egress table, the disk or the keys.
 set -eu
@@ -22,14 +24,33 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --conf) CONF="$2"; shift ;;
     --dry-run) DRY=1 ;;
+    --ssh-off-over-ssh) OVER_SSH=yes ;;
     all|firewall|ssh|render) WHAT="$1" ;;
-    -h|--help) sed -n 2,16p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,18p "$0"; exit 0 ;;
     *) echo "apply.sh: unknown option $1" >&2; exit 2 ;;
   esac
   shift
 done
 CLINIC_RANGES=""; IT_RANGES=""; SSH=off; MDNS=off
 hb_load_conf "$CONF"
+
+# H-70: is this run inside an SSH session? sudo drops SSH_CONNECTION and SSH_TTY, so the parent chain is walked too
+# (an sshd process above this one). It reads $HR/proc: the tests stand a process tree in under TB_HOST_ROOT.
+on_ssh() {
+  [ -n "${SSH_CONNECTION:-}${SSH_TTY:-}" ] && return 0
+  pid=self; n=0
+  while [ "$n" -lt 64 ] && [ -r "$HR/proc/$pid/status" ]; do
+    name=$(sed -n 's/^Name:[[:space:]]*//p' "$HR/proc/$pid/status")
+    case "$name" in sshd|sshd-*) return 0 ;; esac
+    pid=$(sed -n 's/^PPid:[[:space:]]*//p' "$HR/proc/$pid/status")
+    case "$pid" in ''|0|*[!0-9]*) return 1 ;; esac
+    n=$((n + 1))
+  done
+  return 1
+}
+if [ "$SSH" = off ] && [ "$WHAT" != render ] && [ "${OVER_SSH:-${TB_SSH_OFF_OVER_SSH:-}}" != yes ] && on_ssh; then
+  hb_die "SSH=off would stop sshd and close port 22 under this SSH session, locking it out; nothing was changed. Run it from the box's console, or add --ssh-off-over-ssh (install.sh: TB_SSH_OFF_OVER_SSH=yes) to do it anyway"
+fi
 
 # a range is digits, dots, colons, hex and one slash: anything else is refused before it reaches nft
 check_ranges() {

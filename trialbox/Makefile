@@ -18,7 +18,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: differential cross-card objects-dir embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure guard test-compose walk bench-gate bench-baseline console-timing e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models fetch-weights selftest canary poc poc-down poc-status rehearse-box runbook-install test-console test-console-e2e site site-preview clean \
+.PHONY: differential cross-card objects-dir embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure guard test-compose walk bench-gate bench-baseline console-timing e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch buildx-check two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models fetch-weights selftest canary poc poc-down poc-status rehearse-box runbook-install test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle security-contact-check supply-chain release-version release-tag media-linux
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -415,7 +415,12 @@ jvm-deps:
 # docker-compose.gb10.yml names it; unset, this machine's own
 PLATFORM ?=
 PLATFORM_ARG := $(if $(PLATFORM),--platform $(PLATFORM),)
-images: jvm-deps $(FONTS)
+# H-70: every Dockerfile uses RUN --mount, which needs BuildKit: without the buildx plugin `docker build` falls back to
+# the legacy builder and stops with "the --mount option requires BuildKit". Say so before anything is fetched.
+buildx-check:
+	@docker buildx version >/dev/null 2>&1 || { echo "images: Docker's buildx plugin is missing (docker buildx version failed); install docker-buildx-plugin (Docker's packages) or docker-buildx (Ubuntu's), then run make again" >&2; exit 1; }
+
+images: buildx-check jvm-deps $(FONTS)
 	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) --build-arg TB_REVISION=$(TB_REVISION) \
 		-f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
 	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/backup.Dockerfile \
@@ -435,7 +440,7 @@ embed-start:
 # both architectures (x86_64 servers, GB10 aarch64); push to the site registry or export with --output type=oci
 PLATFORMS ?= linux/amd64,linux/arm64
 REGISTRY ?= localhost:5000
-images-multiarch: jvm-deps $(FONTS)
+images-multiarch: buildx-check jvm-deps $(FONTS)
 	docker buildx build --platform $(PLATFORMS) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) \
 		--build-arg TB_REVISION=$(TB_REVISION) -f deploy/docker/python.Dockerfile -t $(REGISTRY)/trialbox-py:1.0.0 --push .
 	docker buildx build --platform $(PLATFORMS) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) \
