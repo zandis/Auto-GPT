@@ -98,8 +98,24 @@ def test_the_name_comes_first_then_the_index_by_its_groups(master: mm.Master) ->
     assert mm.by_name(master, "旧テスト症ノ別名", look)["method"] == "licensed_successor"
     related = mm.by_name(master, "テスト関連病", look)
     assert related["method"] == "licensed_related" and float(related["confidence"]) < 1
-    for never in ("テスト非推奨名", "テスト検索語", "テスト廃語", "ダミーガワ"):  # 8, 9, 0000, a modifier's spelling
-        assert mm.by_name(master, never, look) == {}, never
+    for never in ("テスト非推奨名", "テスト検索語", "テスト廃語", "ダミーガワ", "テスト非推奨異字"):
+        assert mm.by_name(master, never, look) == {}, never  # 8, 9, 0000, a modifier's spelling, 8 as a variant form
+    two = mm.by_name(master, "テスト二群語", look)  # in group 0 (ZA01) and group 2 (ZA02): the first group answers
+    assert two["code"] == "E11.9" and two["method"] == "licensed"
+    assert mm.by_name(master, "テストb型病", look)["code"] == "B18.1"  # the 病名表記 too is compared in upper case
+
+
+def test_the_code_0000_is_never_suggested_even_where_an_exchange_code_has_it() -> None:
+    t = fx.concepts()
+    t["0000"] = dict(t["ZA01"])
+    m = mm.rows({"medis": t})
+    rows = [{"term": "テスト廃語", "code": "0000", "target_kind": "1", "synonym": "0", "variant": "9"}]
+    assert m is not None and mm.by_name(m, "テスト廃語", lambda term: rows) == {}
+
+
+def test_a_codes_deleted_row_does_not_cloud_its_current_rows(master: mm.Master) -> None:
+    # ZA06 holds a deleted row whose successor (ZA05) has another ICD-10: the code's current rows answer
+    assert mm.by_code(master, "ZA06")["code"] == "M19.9"
 
 
 def test_a_synonym_shows_the_name_it_borrows_and_the_hints_are_said(master: mm.Master) -> None:
