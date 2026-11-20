@@ -1849,13 +1849,19 @@ class Mapper:
         return str(value)
 
     def _for_review(self, rs: ResourceSpec, row: Row) -> bool:
-        """Whether the record ``rs`` makes of ``row`` had, under the earlier rule, an id a steward decided: the
-        earlier rule's id was the type and the number with its suffix, whoever the patient."""
+        """Whether a steward decided the record ``rs`` makes of ``row`` before the rebuild: by its earlier-rule id
+        (the type and the number with its suffix, whoever the patient), or by its own id (a rebuild of this rule's
+        lake, when the SS-MIX2 order key changed, keeps this rule's decisions: D-1253 second review, finding 9)."""
         col = rs.id.get("hid")
         if col is None or row.get(col) is None:
             return False
         earlier = resource_id(self.key, rs.type, f"{row[col]}{rs.id.get('suffix', '')}")
-        return (rs.type, earlier) in self.review
+        if (rs.type, earlier) in self.review:
+            return True
+        try:
+            return (rs.type, self.row_id(rs, row)) in self.review
+        except (MappingError, KeyError, TypeError, ValueError):
+            return False
 
     def tombstones(self, table: str, rows: Iterator[Row], deleted: bool = True) -> Iterator[tuple[str, str]]:
         """``(resource type, id)`` of every resource a deleted source row would have made (dataflow review P0-1).

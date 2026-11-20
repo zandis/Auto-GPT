@@ -756,3 +756,20 @@ def test_a_record_keyed_by_the_chart_number_keeps_its_spelling_rule_beside_anoth
     assert mp.row_id(by_chart, row) == mp.row_id(by_chart, wide)
     assert mp.row_id(by_lab, row) == mp.row_id(by_lab, {**row, "lab_no": "77"})
     assert mp.row_id(by_lab, {**row, "lab_no": "077"}) != mp.row_id(by_lab, row)  # another number is not re-spelt
+
+
+def test_a_record_decided_under_this_rule_awaits_review_after_a_rebuild_of_this_rule(tmp_path: Path) -> None:
+    """D-1253 second review, finding 9: a rebuild of a rule-2 lake (the SS-MIX2 order key changed) keeps the rule-2
+    decisions, but the night looked only for rule-1 ids, so a rejected diagnosis whose id did not change came back
+    coded. The night marks a record whose own id is listed as well as one whose earlier-rule id is."""
+    from adapter.mapping.engine import BASIS
+    from tb_common import id_rule
+
+    assert night(tmp_path, "csv", canonical(A), "2026-10-01").passed
+    first = list(read_type(snapshot_dir(tmp_path / "lake", "2026-10-01"), "Condition"))
+    decided = first[0]["id"]
+    id_rule.write_review(tmp_path / "lake" / id_rule.REVIEW, [("Condition", decided, "rejected")])
+    assert night(tmp_path, "csv", canonical(A), "2026-10-02").passed
+    again = {r["id"]: r for r in read_type(snapshot_dir(tmp_path / "lake", "2026-10-02"), "Condition")}
+    tags = again[decided].get("meta", {}).get("tag") or []
+    assert {"system": BASIS, "code": "proposed"} in tags and id_rule.REVIEW_TAG in tags
