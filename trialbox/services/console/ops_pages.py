@@ -34,7 +34,7 @@ from console.home import Helpers
 from console.i18n import translate
 
 ROOT = Path(__file__).resolve().parents[2]
-TABS = ("overview", "backups", "update", "logs", "secrets", "network")
+TABS: tuple[str, ...] = ("overview", "backups", "update", "logs", "secrets", "network")
 # action -> (authz action, the tab it belongs to)
 ACTIONS: dict[str, tuple[str, str]] = {
     "backup": ("ops.backup", "backups"),
@@ -61,6 +61,11 @@ def _hours_since(iso: str, now: datetime) -> float | None:
 
 
 DRILL_CMD = "sudo python3 -m tools.trialbox restore-drill {file} --key <the key from the envelope>"
+
+# 10K-5 (D-1381): the support bundle, a tab and an action of their own, under the right that opens these pages
+# (``ops.view``, the administrator only); its download route is ``console/support_bundle_page.py``. A block of its own.
+TABS = (*TABS, "support")
+ACTIONS["support_bundle"] = ("ops.view", "support")
 
 
 def _drill(st: Mapping[str, Any], now: datetime, env: Mapping[str, str]) -> dict[str, Any]:
@@ -91,6 +96,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     inline = (env.get("TB_OPS_RUNNER") or "host").strip().lower() == "inline"
     deploy = Path(env.get("TB_OPS_DEPLOY") or ROOT / "deploy")
     runner = tb_ops.OpsRunner(tb_ops.Box.local(deploy, env), ops) if inline else None
+    if runner is not None:  # 10K-5 (D-1381): the support bundle's make event, through this console's own writer
+        setattr(runner, "audit_local", lambda d: au.append("console.ops", actor="trialbox-ops", detail=d))  # noqa: B010
 
     def need_ops(request: Request, action: str = "ops.view") -> Session:
         sess = h.need(request)

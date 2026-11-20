@@ -311,6 +311,7 @@ class OpsRunner:
     def __init__(self, box: Box, ops: OpsDir) -> None:
         self.box = box
         self.ops = ops
+        self.request_id = ""  # the request the running action answers (run_one sets it)
 
     def now(self) -> datetime:
         return datetime.now(UTC)
@@ -402,6 +403,8 @@ class OpsRunner:
             except BlockingIOError:
                 return []
             try:
+                with contextlib.suppress(Exception):  # 10K-5 (D-1381): the support bundles past their age, audited
+                    getattr(self, "sweep_support", lambda: None)()
                 done = []
                 for req in self.ops.pending():
                     res = self._one(req)
@@ -501,6 +504,7 @@ class OpsRunner:
             if action in COMPOSE_ONLY and self.box.kind != "compose":
                 raise OpsFailed("this runs on a site box only (the host's docker compose)")
             fn = cast(Callable[[Mapping[str, str]], tuple[str, list[str]]], getattr(self, f"do_{action}"))
+            self.request_id = str(req.get("id") or "")  # 10K-5 (D-1381): the action's own request, for its events
             summary, lines = fn(dict(req.get("args") or {}))
             ok = True
         except Exception as exc:  # every failure is a result the console shows, never a crash of the timer
@@ -881,3 +885,12 @@ def main(action: str, deploy: Path, ops_dir: Path | None, local: bool, watch: in
         if watch <= 0:
             return 0
         time.sleep(watch)
+
+
+# 10K-5 (D-1381): the support bundle as one more action; its code is ``tools/trialbox/ops_support.py``, which calls
+# the same builder and scan as ``trialbox support-bundle`` (tools/support_bundle.py). Kept in a block of its own.
+from tools.trialbox import ops_support as _ops_support  # noqa: E402
+
+ACTIONS = (*ACTIONS, _ops_support.ACTION)
+setattr(OpsRunner, f"do_{_ops_support.ACTION}", _ops_support.do_support_bundle)
+setattr(OpsRunner, "sweep_support", _ops_support.sweep)  # noqa: B010

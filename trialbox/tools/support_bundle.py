@@ -573,9 +573,19 @@ def _write_tar(target: Path, members: Mapping[str, str], at: datetime) -> None:
 
 def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterable[Path] = (),
           runner: Runner = run_cmd, commands: bool = True, now: datetime | None = None,
-          say: Callable[[str], None] = print) -> Path:  # fmt: skip
+          say: Callable[[str], None] = print, given: Mapping[str, str] | None = None,
+          given_left_out: Sequence[Mapping[str, str]] = (),
+          scanned: Callable[[str, int], None] | None = None) -> Path:  # fmt: skip
     """Make the bundle in ``out_dir``; return its path. :class:`BundleRefused` when it would hold something it must
-    not (an ``--add`` path under /data, a key, a file the scan cannot read); then nothing is written."""
+    not (an ``--add`` path under /data, a key, a file the scan cannot read); then nothing is written.
+
+    The console's button (10K-5, D-1381) passes the last three; the command passes none, and left as they are the
+    bundle is made exactly as before. ``given``: the members, made by the caller from allow-listed fields
+    (``tools/trialbox/support_fields.py``); the builder then reads nothing of the box for them (no snapshot, .env,
+    audit chain, command or log, and no ``--add``) and only runs its line scan, its credential and secret-value checks,
+    the MANIFEST and the last look. ``given_left_out``: MANIFEST ``left_out`` rows (``what``, ``why``) for such a
+    bundle. ``scanned``: called, once the bundle has its final name, with the sha256 and the size of the copy the last
+    look scanned."""
 
     now = now or datetime.now(UTC)
     deploy = deploy.resolve()
@@ -595,13 +605,22 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
             raise BundleRefused(f"{p}: larger than {MAX_MEMBER // 2**20} MB")
     b = Bundle()
     mrn = mrn_pattern(deploy)
-    _box_part(b, deploy, env, now)
-    _audit_part(b, env)
-    if commands:
-        _cmd_part(b, deploy, runner)
+    if given is not None:  # 10K-5 (D-1381): the caller's allow-listed members; nothing of the box is read here
+        if extra:
+            raise BundleRefused("an --add file cannot join a bundle made of given members")
+        for name, body in sorted(given.items()):
+            b.add(name, body, "allow-listed fields (tools/trialbox/support_fields.py)")
+        for row in given_left_out:
+            b.leave_out(str(row["what"]), str(row["why"]))
+        log_days: list[str] = []
     else:
-        b.leave_out("cmd/", "--no-commands")
-    log_days = _logs_part(b, deploy, env, days, mrn)
+        _box_part(b, deploy, env, now)
+        _audit_part(b, env)
+        if commands:
+            _cmd_part(b, deploy, runner)
+        else:
+            b.leave_out("cmd/", "--no-commands")
+        log_days = _logs_part(b, deploy, env, days, mrn)
     used: set[str] = set()
     for p in extra:
         text = _read(p)
@@ -656,12 +675,16 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
     target = out_dir / f"trialbox-support-{now:%Y%m%dT%H%M%SZ}.tar.gz"
     part = out_dir / f".{target.name}.part"
     part.unlink(missing_ok=True)
+    looked = ("", 0)
     try:
         _write_tar(part, b.members, now)
         with tempfile.TemporaryDirectory(prefix="tb-support-scan-") as tmp:  # the scan names a member by path
             scan_copy = Path(tmp) / target.name
             scan_copy.write_bytes(part.read_bytes())
             hits = last_look(scan_copy)
+            if scanned is not None:  # 10K-5 (D-1381): the copy as the last look read it
+                seen = scan_copy.read_bytes()
+                looked = (hashlib.sha256(seen).hexdigest(), len(seen))
         if hits:
             raise BundleRefused("the finished bundle still holds what the scan flags: " + "; ".join(
                 f"{Path(h.where).name}:{h.line}: {h.pattern}" for h in hits[:5]))  # fmt: skip
@@ -679,6 +702,8 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
         part.replace(target)
     finally:
         part.unlink(missing_ok=True)
+    if scanned is not None:
+        scanned(*looked)
     total = sum(int(v.get("lines_removed", 0)) for v in b.changed.values())
     red = sum(int(v.get("redacted", 0)) for v in b.changed.values())
     say(f"wrote {target}: {len(b.members)} files; scrubber replaced {red} value(s); {hidden} secret value(s) of the "

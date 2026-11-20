@@ -177,6 +177,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/admin/jobs/{job_id}/cancel` | Y | - | - | - | - | - | - | - | - |
 | POST | `/admin/jobs/{job_id}/retry` | Y | - | - | - | - | - | - | - | - |
 | POST | `/admin/models/canary` | Y | - | - | - | - | - | - | - | - |
+| POST | `/admin/ops/support/{rid}` | Y | - | - | - | - | - | - | - | - |
 | POST | `/admin/ops/{action}` | n | n | n | n | n | n | n | n | n |
 | POST | `/admin/redcap` | Y | - | - | - | - | - | - | - | - |
 | POST | `/admin/redcap/{ref}/test` | Y | - | - | - | - | - | - | - | - |

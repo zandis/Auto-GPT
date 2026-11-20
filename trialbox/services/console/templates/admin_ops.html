@@ -117,6 +117,9 @@
 <p class="hint">{{ t('ops.secrets.rotate') }}</p>
 </section>
 
+{# 10K-5 (D-1381): the support bundle's tab, a template of its own #}
+{% elif tab == 'support' %}{% include "_ops_support_bundle.html" %}
+
 {% else %}
 <section class="card" data-testid="ops-network">
 <p class="hint">{{ t('ops.network.help') }}</p>
