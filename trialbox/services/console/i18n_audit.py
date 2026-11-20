@@ -463,6 +463,12 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "ops.watchdog.restart": ("Service restarted", "サービスの再起動", "重新啟動服務"),
     "ops.watchdog.restart_failed": ("Service restart failed", "サービス再起動の失敗", "重新啟動服務失敗"),
     "ops.watchdog.gave_up": ("Service restarts stopped", "サービス再起動の停止", "停止重新啟動服務"),
+    # D-1372 (10D-3): the coordinating centre's host command wrote a signed study package (in the approval family)
+    "approve.study_package_exported": (
+        "Study package written for other sites",
+        "他施設向けの試験パッケージを作成",
+        "已產生供其他院所使用的試驗套件",
+    ),
 }
 
 #: detail keys the browser shows (``console.audit_page.SHOWN``)

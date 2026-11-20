@@ -7,23 +7,27 @@ site part: no scopes, routing, review or IRB record, no criterion review record,
 data (the synthetic test patients are a protocol file).
 
 * :func:`build` / :func:`build_dir` write a package; the same study, date and key give the same bytes.
-* :func:`verify` / :func:`verify_file` check one against the trusted public keys the caller passes, in a fixed order,
-  and raise :class:`PackageRefused` with one sentence at the first check that fails. They write nothing anywhere.
+* :func:`verify` / :func:`verify_file` check one against the trusted keys the caller passes (:class:`TrustedKey`: each
+  for the studies its entry names, :func:`load_trust`), in a fixed order, and raise :class:`PackageRefused` with one
+  sentence at the first check that fails. They write nothing anywhere.
 
 The format is written in D-1372 precisely enough for a second implementation: the member order, the tar block's
 fixed fields, the header's fields, the signed byte string and the caps. **Nothing on the live path reads a package
-yet**: import, the register of coordinating-centre keys and the audit are 10D-4's.
+yet**: import, the register of coordinating-centre keys and the audit of an import are 10D-4's (the operator's
+command ``tools.study_package`` audits each package it writes).
 """
 
 from __future__ import annotations
 
+import functools
 import hashlib
+import hmac
 import math
 import os
 import re
 import stat
 import struct
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import date
 from itertools import accumulate
@@ -90,6 +94,44 @@ PLACEHOLDER_PRACTITIONERS = frozenset(
 PLACEHOLDER_DEPARTMENTS = frozenset({"RHEU", "META", "NEPH", "CARD", "FM", "ONC", "ORTH", "NEUR", "PSY"})
 #: the organisations a test patient's ``Organization/`` reference may point at (the shipped studies' placeholders)
 PLACEHOLDER_ORGANIZATIONS = frozenset({"hospital", "nhi"})
+#: the synthetic site's pseudonym key: the test stack's ``site_hmac.key`` (Makefile ``.cache/test-secrets``,
+#: ``tests/conftest.py``), public and in the repository, so it is no secret and no box's key. The shipped test patients
+#: are the synthetic hospital's records ingested under it (``tools/build_rulesets.py``): each ``Patient.id`` is
+#: ``hex(HMAC-SHA256(this key, chart number))[:32]`` (``tb_common.crypto.pid_for_mrn``) of a synthetic chart number.
+#: A box's ingest of its own patients uses its own secret key, so its pseudonyms are not these (D-1372, H1).
+SYNTHETIC_SITE_KEY = b"trialbox-test-site-key-0123456789abcdef"
+#: the synthetic generators' chart numbers: one digit, the site's prefix (``tools/make_fixtures.py`` site-a ``1``,
+#: site-b ``2``; ``tools.synth_hospital`` ``2`` onwards), then the patient's number in seven digits, from 1 to
+#: :data:`SYNTHETIC_MAX_PATIENTS` (the CI profiles' largest site, 2,500; site-a holds 600)
+SYNTHETIC_MRN = re.compile(r"[1-9][0-9]{7}")
+SYNTHETIC_MAX_PATIENTS = 2500
+#: the identifier system of a synthetic test patient's pseudonym (site ``DEMO-A``, ``tools/build_rulesets.py``)
+SYNTHETIC_PID_SYSTEM = "https://trialbox.local/fhir/sid/pid/DEMO-A"
+#: ``tests/expected.json`` (the synthetic verdicts, H2): its fields, those it must have, and the closed sets its two
+#: label fields take (measured from the eight shipped studies; the tools that write the file name the engine and the
+#: synthetic source, nothing else). A new engine or generator run is a new release of this list, not free text.
+EXPECTED = "tests/expected.json"
+EXPECTED_FIELDS = frozenset({"agreement", "engine", "index_date", "patients", "ruleset", "source", "version"})
+EXPECTED_REQUIRED = EXPECTED_FIELDS - {"agreement"}
+EXPECTED_ENGINES = frozenset(
+    {
+        "hapi-cr 8.12 $evaluate",
+        "cqf-fhir-cql 4.13.0 LibraryEngine in process (CQL engine 5.4.0, as HAPI 8.12 CR $evaluate)",
+        "duckdb sql, equal to the generator's planted gold on every coded criterion; CQL (HAPI) not run",
+    }
+)
+EXPECTED_SOURCES = frozenset(
+    {
+        "tests/fixtures/synthetic_patients/site-a (tools/make_fixtures.py defaults)",
+        "tools.synth_hospital --profile jp-ad --ref-date 2026-11-01 (site jp-ad; its Alzheimer's patients)",
+        "tools.synth_hospital --profile jp-ad --ref-date 2026-11-01 (site jp-ad; every patient)",
+        "tools.synth_hospital --profile tw-ra --ref-date 2026-11-01 (site tw-ra; its rajak patients and the gate's "
+        "stratified sample)",
+    }
+)
+#: ``agreement`` (``tools/build_scenario_ruleset.record``): exactly these fields; ``known_differences`` empty
+#: (its ``KNOWN`` table is empty, and its values would be words)
+EXPECTED_AGREEMENT_FIELDS = frozenset({"all_equal", "known_differences", "patients", "per_criterion"})
 #: the test patients' allow-list (D-1372), measured from the shipped studies' ``tests/patients.ndjson`` (GOUT-COH,
 #: GZQO, ONC-OSI, RA-BIO, RA-COH; a test measures them again): each resource type they hold and, for each, every
 #: element they carry, as a path of keys from the resource (an array's items take the array's path). Any other
@@ -322,6 +364,28 @@ class PackageRefused(ValueError):
     def __init__(self, step: str, sentence: str) -> None:
         super().__init__(sentence)
         self.step = step
+
+
+#: what a trusted key is for (H5): a coordinating centre's key signs study packages; a key marked ``update`` (the
+#: vendor's update key, whose ``sign-file`` signs raw bytes with no prefix) is refused for them, so one key does not
+#: serve both channels
+STUDY_PURPOSE = "study-package"
+TRUST_PURPOSES = frozenset({STUDY_PURPOSE, "update"})
+TRUST_FORMAT = "tb-study-trust/1"
+#: a study id as a manifest writes it (``RA-JAK``, ``GOUT-COH``): what a trust entry's ``studies`` names
+_STUDY_ID = re.compile(r"[A-Z0-9]+(?:-[A-Z0-9]+)*")
+#: at most this many entries in a trust file (a site trusts a few coordinating centres)
+TRUST_MAX_KEYS = 64
+
+
+@dataclass(frozen=True)
+class TrustedKey:
+    """One key the verifier trusts (H5): its public key (PEM), the studies it may sign for, and what it is for. A key
+    is trusted only for the studies its entry names; an entry naming none is refused (default deny)."""
+
+    public_pem: bytes
+    studies: frozenset[str]
+    purpose: str = STUDY_PURPOSE
 
 
 @dataclass(frozen=True)
@@ -608,39 +672,112 @@ def header_of(data: bytes) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------------------------- verify
-def _trusted(keys: Iterable[bytes]) -> dict[str, bytes]:
-    out: dict[str, bytes] = {}
-    for pem in keys:
+def _trusted(keys: Iterable[TrustedKey]) -> dict[str, TrustedKey]:
+    """``{key id: entry}``; refused (step ``signature``) for a key that is not an Ed25519 public key, a bare key with
+    no entry (it names no study: default deny), an entry naming no study or a purpose not known, and a key given
+    twice (one key, one entry: it cannot be trusted for updates and for studies at once)."""
+    out: dict[str, TrustedKey] = {}
+    for entry in keys:
+        if not isinstance(entry, TrustedKey):
+            raise PackageRefused(
+                "signature",
+                "a trusted key was given without the studies it may sign for; a coordinating-centre key is trusted "
+                "only for the studies its entry names",
+            )
+        if entry.purpose not in TRUST_PURPOSES or not entry.studies:
+            raise PackageRefused(
+                "signature", "a trusted key's entry names no study it may sign for, or a purpose that is not known"
+            )
         try:
-            out[key_id(pem)] = pem
+            kid = key_id(entry.public_pem)
         except ValueError:
             raise PackageRefused("signature", "a trusted key given is not an Ed25519 public key (PEM)") from None
+        if kid in out:
+            raise PackageRefused("signature", f"the key {kid} is given twice; a key has one trust entry")
+        out[kid] = entry
     return out
 
 
-def verify(data: bytes, trusted_keys: Iterable[bytes]) -> Package:
-    """A package checked against ``trusted_keys`` (Ed25519 public keys, PEM), in this order, each refusal one
-    sentence (:class:`PackageRefused`): (1) a well-formed canonical archive within the caps, only allowed names; (2)
-    the signature valid for a trusted key, the one the header names; (3) every member's sha256 the one in the hash
-    list; (4) no member outside the list and none missing; (5) the protocol part holds its criteria hash, the carried
-    files are the protocol's files in their canonical form, the criteria hash computed again from them by
-    ``tb_common.study_manifest`` is the header's, and the header's package id is the one its content gives. Every
-    JSON member is refused before it is parsed when it nests deeper than :data:`STUDY_PACKAGE_MAX_JSON_DEPTH`.
-    Writes nothing anywhere; it holds about twice the package's bytes in memory (the input and its members)."""
+def load_trust(data: bytes) -> list[TrustedKey]:
+    """The keys of a study-package trust file (H5; the minimal form 10D-4's register of coordinating-centre keys is to
+    carry): RFC 8259 JSON ``{"format": "tb-study-trust/1", "keys": [{"key_id", "public_key", "purpose", "studies"}]}``,
+    exactly these fields; ``public_key`` the PEM text, ``key_id`` its :func:`key_id`, ``purpose`` one of
+    :data:`TRUST_PURPOSES`, ``studies`` a non-empty list of study ids. Raises ``ValueError`` with one sentence."""
+    try:
+        doc = sm.load_json(data)
+    except (ValueError, UnicodeDecodeError):
+        raise ValueError("the trust file is not JSON") from None
+    if not isinstance(doc, dict) or set(doc) != {"format", "keys"} or doc["format"] != TRUST_FORMAT:
+        raise ValueError(f"the trust file is not a {TRUST_FORMAT} file (format and keys, nothing else)")
+    keys = doc["keys"]
+    if not isinstance(keys, list) or not 0 < len(keys) <= TRUST_MAX_KEYS:
+        raise ValueError(f"the trust file's keys are a list of 1 to {TRUST_MAX_KEYS} entries")
+    out: list[TrustedKey] = []
+    for n, entry in enumerate(keys, 1):
+        if not isinstance(entry, dict) or set(entry) != {"key_id", "public_key", "purpose", "studies"}:
+            raise ValueError(f"trust entry {n} does not have exactly key_id, public_key, purpose and studies")
+        studies = entry["studies"]
+        if (
+            not isinstance(studies, list)
+            or not studies
+            or not all(isinstance(s, str) and _STUDY_ID.fullmatch(s) for s in studies)
+            or len(set(studies)) != len(studies)
+        ):
+            raise ValueError(f"trust entry {n} names its studies as a list of distinct study ids (at least one)")
+        if entry["purpose"] not in TRUST_PURPOSES:
+            raise ValueError(f"trust entry {n} has a purpose that is not one of {', '.join(sorted(TRUST_PURPOSES))}")
+        pem = entry["public_key"].encode("ascii", "replace") if isinstance(entry["public_key"], str) else b""
+        try:
+            kid = key_id(pem)
+        except ValueError:
+            raise ValueError(f"trust entry {n}'s public_key is not an Ed25519 public key (PEM)") from None
+        if entry["key_id"] != kid:
+            raise ValueError(f"trust entry {n}'s key_id is not the id of its public key")
+        out.append(TrustedKey(pem, frozenset(studies), entry["purpose"]))
+    if len({key_id(t.public_pem) for t in out}) != len(out):
+        raise ValueError("the trust file names a key twice; a key has one trust entry")
+    return out
+
+
+def verify(data: bytes, trusted_keys: Iterable[TrustedKey]) -> Package:
+    """A package checked against ``trusted_keys`` (:class:`TrustedKey`: an Ed25519 public key, PEM, the studies it may
+    sign for and its purpose), in this order, each refusal one sentence (:class:`PackageRefused`): (1) a well-formed
+    canonical archive within the caps, only allowed names; (2) the header's key one of the trusted keys, trusted for
+    study packages (not a key marked for updates), the signature valid with it, and the header's study one its entry
+    names; (3) every member's sha256 the one in the hash list; (4) no member outside the list and none missing; (5)
+    the protocol part holds its criteria hash, the carried files are the protocol's files in their canonical form,
+    the criteria hash computed again from them by ``tb_common.study_manifest`` is the header's, the header's package
+    id is the one its content gives, and the criteria the protocol part names are exactly the ``ir/`` files carried
+    (and its CQL library's files are carried). Every JSON member is refused before it is parsed when it nests deeper
+    than :data:`STUDY_PACKAGE_MAX_JSON_DEPTH`. Writes nothing anywhere; it holds about twice the package's bytes in
+    memory (the input and its members)."""
     trusted = _trusted(trusted_keys)
     members, header, hashes = _structure(data)
-    # (2) the signature
+    # (2) the signature, by a key trusted for study packages and for this study
     kid = header["key_id"]
     if kid not in trusted:
         raise PackageRefused(
             "signature",
             f"this study package is signed by the key {kid}, which is not a trusted coordinating-centre key",
         )
-    if not ed25519_verify(trusted[kid], signed_bytes(members[HEADER], members[HASHES]), members[SIGNATURE]):
+    entry = trusted[kid]
+    if entry.purpose != STUDY_PURPOSE:
+        raise PackageRefused(
+            "signature",
+            f"this study package is signed by the key {kid}, which is trusted for {entry.purpose}, not for study "
+            "packages; one key does not serve both",
+        )
+    if not ed25519_verify(entry.public_pem, signed_bytes(members[HEADER], members[HASHES]), members[SIGNATURE]):
         raise PackageRefused(
             "signature",
             f"this study package's signature does not verify with the key {kid}: its header or hash list was changed "
             "after it was signed, or another key signed it",
+        )
+    if header["study_id"] not in entry.studies:
+        raise PackageRefused(
+            "signature",
+            f"this study package is for the study {header['study_id']}, which the key {kid} is not trusted to sign "
+            "for (its trust entry names the studies it coordinates)",
         )
     # (3) each member against the hash list
     for name in sorted(hashes):
@@ -702,7 +839,41 @@ def _protocol(members: Mapping[str, bytes], header: Mapping[str, Any]) -> Packag
         raise refuse("has files whose criteria hash is not the one its header states")
     if header["package_id"] != package_id(header["study_id"], header["version"], members[HASHES]):
         raise refuse("has a header whose package_id is not the one its study, version and hash list give")
+    why = criteria_refusal(manifest, files)
+    if why:
+        raise refuse(why)
     return Package(dict(header), dict(protocol), files)
+
+
+def criteria_refusal(manifest: Mapping[str, Any], files: Mapping[str, bytes]) -> str | None:
+    """Why a study's files do not hold exactly the criteria its manifest names, or None (H3): each id in ``criteria``
+    once, each with its ``ir/<id>.json`` whose ``id`` is that id, no ``ir/*.json`` the manifest does not name, and,
+    when the manifest names a CQL ``library``, its ``cql/<library>.cql`` and ``cql/elm/<library>.json``. The screening
+    engine loads every ``ir/*.json`` and the library by name (``Ruleset.from_files``), so a criterion named without
+    its file would screen without it, and a file not named would screen unlisted. ``files``: path -> bytes."""
+    named = manifest.get("criteria")
+    if not isinstance(named, list) or not all(isinstance(c, str) for c in named) or len(set(named)) != len(named):
+        return "names its criteria not as a list of distinct criterion ids"
+    ir = {p[len("ir/") : -len(".json")]: b for p, b in files.items() if p.startswith("ir/") and p.endswith(".json")}
+    missing = sorted(set(named) - set(ir))
+    if missing:
+        return f"names the criterion {missing[0]} but carries no ir/{missing[0]}.json"
+    unnamed = sorted(set(ir) - set(named))
+    if unnamed:
+        return f"carries ir/{unnamed[0]}.json, a criterion its manifest does not name"
+    for cid in sorted(ir):
+        try:
+            doc = sm.load_json(ir[cid])
+        except (ValueError, UnicodeDecodeError):
+            return f"carries ir/{cid}.json, which is not JSON"
+        if not isinstance(doc, dict) or doc.get("id") != cid:
+            return f"carries ir/{cid}.json, which does not hold the criterion {cid}"
+    library = manifest.get("library")
+    if library is not None:
+        for path in (f"cql/{library}.cql", f"cql/elm/{library}.json"):
+            if not isinstance(library, str) or path not in files:
+                return f"names the CQL library {library} but carries no {path}"
+    return None
 
 
 def read_file(path: Path) -> bytes:
@@ -713,7 +884,7 @@ def read_file(path: Path) -> bytes:
     return path.read_bytes()
 
 
-def verify_file(path: Path, trusted_keys: Iterable[bytes]) -> Package:
+def verify_file(path: Path, trusted_keys: Iterable[TrustedKey]) -> Package:
     """:func:`verify` of a file, its size checked before it is read."""
     return verify(read_file(path), trusted_keys)
 
@@ -862,6 +1033,7 @@ def _test_patients_refusal(data: bytes) -> str | None:
         return why
     if _BOM in data:
         return f"{TEST_PATIENTS} holds a byte-order mark; it is written as UTF-8 without one"
+    resources: list[tuple[int, dict[str, Any]]] = []
     for number, line in enumerate(data.splitlines(), 1):
         if not line.strip():
             continue
@@ -874,6 +1046,149 @@ def _test_patients_refusal(data: bytes) -> str | None:
         why = _resource_refusal(resource)
         if why:
             return f"line {number} of {TEST_PATIENTS} {why}"
+        resources.append((number, resource))
+    return _synthetic_refusal(resources)
+
+
+@functools.cache
+def synthetic_pseudonyms() -> dict[str, str]:
+    """``{pseudonym: chart number}`` of every synthetic chart number (:data:`SYNTHETIC_MRN`, patients 1 to
+    :data:`SYNTHETIC_MAX_PATIENTS` of each one-digit prefix) under :data:`SYNTHETIC_SITE_KEY`: the HMAC of
+    ``pid_for_mrn`` taken on the chart number as written (a synthetic one is plain digits, which every chart-number
+    rule leaves as it is), so no setting of the box changes it. 22,500 HMACs, taken once."""
+    return {
+        hmac.new(SYNTHETIC_SITE_KEY, mrn.encode("ascii"), hashlib.sha256).hexdigest()[:32]: mrn
+        for mrn in (f"{p}{i:07d}" for p in "123456789" for i in range(1, SYNTHETIC_MAX_PATIENTS + 1))
+    }
+
+
+def _patient_references(node: Any) -> Iterator[str]:
+    stack = [node]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            ref = item.get("reference")
+            if isinstance(ref, str) and ref.startswith("Patient/"):
+                yield ref[len("Patient/") :]
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+
+
+def _synthetic_refusal(resources: list[tuple[int, dict[str, Any]]]) -> str | None:
+    """Why the test patients are not the synthetic site's, or None (H1): each ``Patient`` once, its ``id`` the
+    pseudonym of a synthetic chart number under the synthetic site's public key (:func:`synthetic_pseudonyms`), its
+    ``identifier`` exactly that pseudonym under :data:`SYNTHETIC_PID_SYSTEM`; every ``Patient/`` reference of every
+    line one of those patients. It shows where the records were pseudonymised, not what they say (D-1372)."""
+    pseudonyms = synthetic_pseudonyms()
+    patients: set[str] = set()
+    for number, resource in resources:
+        if resource["resourceType"] != "Patient":
+            continue
+        pid = resource.get("id")
+        if pid not in pseudonyms:
+            return (
+                f"line {number} of {TEST_PATIENTS} is a patient whose id is not the pseudonym of a synthetic chart "
+                "number under the synthetic site's public key; only the synthetic hospital's test patients travel"
+            )
+        idents = resource.get("identifier")
+        if (
+            not isinstance(idents, list)
+            or not idents
+            or any(i != {"system": SYNTHETIC_PID_SYSTEM, "value": pid} for i in idents)
+        ):
+            return (
+                f"line {number} of {TEST_PATIENTS} is a patient whose identifier is not its own pseudonym under the "
+                f"synthetic site's system {SYNTHETIC_PID_SYSTEM}"
+            )
+        if pid in patients:
+            return f"line {number} of {TEST_PATIENTS} is a patient the file already holds"
+        patients.add(pid)
+    for number, resource in resources:
+        if any(ref not in patients for ref in _patient_references(resource)):
+            return f"line {number} of {TEST_PATIENTS} refers to a patient that is not one of the file's test patients"
+    return None
+
+
+def test_patient_chart_numbers(data: bytes) -> set[str]:
+    """The synthetic chart numbers of the ``Patient`` lines of test patients that passed :func:`_test_patients_refusal`
+    (what ``tests/expected.json`` is keyed by)."""
+    pseudonyms = synthetic_pseudonyms()
+    out: set[str] = set()
+    for line in data.splitlines():
+        if line.strip():
+            resource = sm.load_json(line)
+            if resource.get("resourceType") == "Patient":
+                out.add(pseudonyms[resource["id"]])
+    return out
+
+
+def _expected_refusal(data: bytes, manifest: Mapping[str, Any], chart_numbers: set[str] | None) -> str | None:
+    """Why ``tests/expected.json`` may not leave the box, or None (H2): an object of :data:`EXPECTED_FIELDS` (those of
+    :data:`EXPECTED_REQUIRED` present); ``ruleset`` and ``version`` the manifest's; ``index_date`` a date; ``engine``
+    and ``source`` one of the closed sets; ``patients`` 1 to 10,000 entries, each key a synthetic chart number
+    (:data:`SYNTHETIC_MRN`, at most :data:`SYNTHETIC_MAX_PATIENTS` per prefix) and, when the study carries test
+    patients, exactly the chart numbers of its ``Patient`` lines (``chart_numbers``); each value an object of
+    criterion ids the manifest names to ``true``, ``false`` or ``null``; ``agreement`` (optional) exactly its four
+    fields: ``all_equal`` a boolean, ``known_differences`` empty, ``patients`` the number of patients,
+    ``per_criterion`` criterion ids to a number from 0 to 100. No other text travels in it."""
+    head = f"{EXPECTED} "
+    try:
+        doc = sm.load_json(data)
+    except (ValueError, UnicodeDecodeError):
+        return head + "is not JSON"
+    if not isinstance(doc, dict) or not set(doc) <= EXPECTED_FIELDS or not set(doc) >= EXPECTED_REQUIRED:
+        return head + (
+            "is not the synthetic verdicts' file: an object of " + ", ".join(sorted(EXPECTED_FIELDS)) + " (all but "
+            "agreement required), nothing else"
+        )
+    if doc["ruleset"] != manifest.get("id") or doc["version"] != manifest.get("version"):
+        return head + "names another study or version than its manifest"
+    day = doc["index_date"]
+    try:
+        if not (isinstance(day, str) and _DAY.match(day)):
+            raise ValueError
+        date.fromisoformat(day)
+    except ValueError:
+        return head + "has an index_date that is not a date written YYYY-MM-DD"
+    if doc["engine"] not in EXPECTED_ENGINES or doc["source"] not in EXPECTED_SOURCES:
+        return head + "names an engine or a source that is not one of the product's (the synthetic generators' runs)"
+    criteria = set(manifest.get("criteria") or ())
+    patients = doc["patients"]
+    if not isinstance(patients, dict) or not 0 < len(patients) <= 10_000:
+        return head + "holds its patients not as an object of 1 to 10,000 synthetic chart numbers"
+    for mrn, verdicts in patients.items():
+        if not SYNTHETIC_MRN.fullmatch(mrn) or not 0 < int(mrn[1:]) <= SYNTHETIC_MAX_PATIENTS:
+            return head + (
+                "holds a patient key that is not a synthetic chart number (a site digit and seven digits, at most "
+                f"{SYNTHETIC_MAX_PATIENTS:,} patients a site)"
+            )
+        if not isinstance(verdicts, dict) or not all(
+            c in criteria and (v is None or isinstance(v, bool)) for c, v in verdicts.items()
+        ):
+            return head + "holds a verdict that is not true, false or null for a criterion its manifest names"
+    if chart_numbers is not None and set(patients) != chart_numbers:
+        return head + "holds patients that are not exactly the chart numbers of the study's synthetic test patients"
+    agreement = doc.get("agreement")
+    if agreement is not None:
+        per = agreement.get("per_criterion") if isinstance(agreement, dict) else None
+        if (
+            not isinstance(agreement, dict)
+            or set(agreement) != EXPECTED_AGREEMENT_FIELDS
+            or not isinstance(agreement["all_equal"], bool)
+            or agreement["known_differences"] != {}
+            or type(agreement["patients"]) is not int
+            or agreement["patients"] != len(patients)
+            or not isinstance(per, dict)
+            or not all(
+                c in criteria and not isinstance(v, bool) and isinstance(v, int | float) and 0 <= v <= 100
+                for c, v in per.items()
+            )
+        ):
+            return head + (
+                "has an agreement that is not all_equal (a boolean), known_differences (empty), patients (their "
+                "number) and per_criterion (criterion ids to a number from 0 to 100)"
+            )
     return None
 
 
@@ -1004,8 +1319,11 @@ def build(files: Mapping[str, bytes], private_pem: bytes, created: str) -> bytes
     Ed25519 private key (PEM); ``created`` is the writer's date, YYYY-MM-DD (the library reads no clock). Refused
     (``ValueError``, one sentence) for a study whose folder holds its docx template, has no ``protocol_version``,
     holds a file the criteria hash covers or the engine reads that a package does not carry (:data:`PACKAGE_FILES`),
-    a JSON file that is not JSON, an IR or value set file that does not load through its model, or test patients
-    outside the allow-list of D-1372 (:func:`_resource_refusal`). The result is verified before it is returned."""
+    a JSON file that is not JSON, an IR or value set file that does not load through its model, test patients
+    outside the allow-list of D-1372 (:func:`_resource_refusal`) or not the synthetic site's
+    (:func:`_synthetic_refusal`), a ``tests/expected.json`` outside its allow-list (:func:`_expected_refusal`), or
+    criteria that are not exactly its ``ir/`` files (:func:`criteria_refusal`). The result is verified, with its key
+    trusted for this study only, before it is returned."""
     try:
         public_pem = ed25519_public_of(private_pem)
     except (TypeError, ValueError):
@@ -1028,10 +1346,19 @@ def build(files: Mapping[str, bytes], private_pem: bytes, created: str) -> bytes
             f"the study folder holds its template {docx}: a v1 package does not carry a template (its bytes would "
             "travel as they are, with whatever names its document properties hold)"
         )
+    chart_numbers: set[str] | None = None
     if TEST_PATIENTS in protocol["files"]:
         why = _test_patients_refusal(files[TEST_PATIENTS])
         if why:
             raise ValueError(f"the study folder cannot be packaged: {why}")
+        chart_numbers = test_patient_chart_numbers(files[TEST_PATIENTS])
+    if EXPECTED in protocol["files"]:
+        why = _expected_refusal(files[EXPECTED], manifest, chart_numbers)
+        if why:
+            raise ValueError(f"the study folder cannot be packaged: {why}")
+    why = criteria_refusal(manifest, {p: files[p] for p in protocol["files"]})
+    if why:
+        raise ValueError(f"the study folder cannot be packaged: it {why}")
     for field in ("id", "version", "protocol_version"):
         if not (isinstance(manifest.get(field), str) and manifest[field]):
             raise ValueError(
@@ -1073,7 +1400,7 @@ def build(files: Mapping[str, bytes], private_pem: bytes, created: str) -> bytes
         SIGNATURE: ed25519_sign(private_pem, signed_bytes(header_bytes, hashes_bytes)),
     }
     data = tar_bytes(members)
-    verify(data, [public_pem])
+    verify(data, [TrustedKey(public_pem, frozenset({manifest["id"]}))])
     return data
 
 

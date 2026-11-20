@@ -37,6 +37,19 @@ SHIPPED = sorted(p.parent.name for p in SEED_RULESETS.glob("*/manifest.yaml"))
 DAY = "2026-11-19"
 PRIV, PUB = ed25519_generate()
 OTHER_PRIV, OTHER_PUB = ed25519_generate()
+#: each key trusted for every shipped study (H5: a key is trusted only for the studies its entry names)
+TRUST = sp.TrustedKey(PUB, frozenset(SHIPPED))
+OTHER_TRUST = sp.TrustedKey(OTHER_PUB, frozenset(SHIPPED))
+
+
+def _patient_lines(n: int, ruleset: str = "GZQO") -> list[bytes]:
+    """The first ``n`` Patient lines of a shipped study's synthetic test patients (the synthetic site's pseudonyms)."""
+    lines = (SEED_RULESETS / ruleset / "tests" / "patients.ndjson").read_bytes().splitlines()
+    return [line for line in lines if b'"resourceType":"Patient"' in line][:n]
+
+
+SYN1, SYN2 = _patient_lines(2)
+PID1 = json.loads(SYN1)["id"]
 
 
 def _folder(ruleset: str) -> dict[str, bytes]:
@@ -45,15 +58,18 @@ def _folder(ruleset: str) -> dict[str, bytes]:
 
 
 def _small() -> dict[str, bytes]:
-    """A small study: RA-JAK's manifest, two criteria (one rejected), a value set and two synthetic test patients."""
+    """A small study: RA-JAK's manifest naming two criteria (one rejected) and no CQL library, their two IR files, a
+    value set and two synthetic test patients (the synthetic site's, the first line written with CR LF)."""
     full = _folder("RA-JAK")
-    files = {p: full[p] for p in ("manifest.yaml", "ir/RA-JAK-INC-01.json", "valuesets/VS_HBSAG.json")}
+    files = {p: full[p] for p in ("ir/RA-JAK-INC-01.json", "valuesets/VS_HBSAG.json")}
+    m = yaml.safe_load(full["manifest.yaml"])
+    m["criteria"] = ["RA-JAK-EXC-01", "RA-JAK-INC-01"]
+    del m["library"]
+    files["manifest.yaml"] = yaml.safe_dump(m, allow_unicode=True).encode()
     exc = json.loads(full["ir/RA-JAK-EXC-01.json"])
     exc["review"] = {"status": "rejected", "by": "crc1@hospa.test", "at": "2026-11-11T04:31:43+08:00"}
     files["ir/RA-JAK-EXC-01.json"] = json.dumps(exc, indent=2).encode()
-    files["tests/patients.ndjson"] = (
-        b'{"resourceType":"Patient","id":"syn-1"}\r\n{"resourceType":"Patient","id":"syn-2"}\n'
-    )
+    files["tests/patients.ndjson"] = SYN1 + b"\r\n" + SYN2 + b"\n"
     return files
 
 
@@ -66,9 +82,9 @@ def _members(data: bytes) -> dict[str, bytes]:
     return sp.read_tar(data)
 
 
-def _refused(data: bytes, keys: list[bytes] | None = None) -> sp.PackageRefused:
+def _refused(data: bytes, keys: list[sp.TrustedKey] | None = None) -> sp.PackageRefused:
     with pytest.raises(sp.PackageRefused) as exc:
-        sp.verify(data, keys if keys is not None else [PUB])
+        sp.verify(data, keys if keys is not None else [TRUST])
     sentence = str(exc.value)
     assert sentence.startswith("this study package") and "\n" not in sentence
     return exc.value
@@ -91,13 +107,13 @@ def _resigned(members: dict[str, bytes], private: bytes = PRIV, header: dict[str
 def test_every_changed_byte_fails_verification(small: bytes) -> None:
     """Every byte position, flipped (one bit, and all bits), is refused: nothing in a package is outside the
     signature, the hash list or the canonical framing."""
-    assert sp.verify(small, [PUB]).header["study_id"] == "RA-JAK"
+    assert sp.verify(small, [TRUST]).header["study_id"] == "RA-JAK"
     for mask in (0x01, 0xFF):
         for i in range(len(small)):
             changed = bytearray(small)
             changed[i] ^= mask
             with pytest.raises(sp.PackageRefused):
-                sp.verify(bytes(changed), [PUB])
+                sp.verify(bytes(changed), [TRUST])
 
 
 def _offsets(data: bytes) -> dict[str, tuple[int, int]]:
@@ -162,7 +178,7 @@ def test_same_study_twice_gives_the_same_bytes(small: bytes) -> None:
 @pytest.mark.parametrize("ruleset", SHIPPED)
 def test_every_shipped_study_packs_and_verifies(ruleset: str) -> None:
     data = sp.build_dir(SEED_RULESETS / ruleset, PRIV, DAY)
-    got = sp.verify(data, [OTHER_PUB, PUB])
+    got = sp.verify(data, [OTHER_TRUST, TRUST])
     parts = sm.split_dir(SEED_RULESETS / ruleset)
     assert got.header["criteria_sha256"] == parts.criteria_sha256 == got.protocol["criteria_sha256"]
     assert got.protocol == parts.protocol and set(got.files) == set(parts.protocol["files"])
@@ -182,11 +198,12 @@ def test_every_shipped_study_packs_and_verifies(ruleset: str) -> None:
 
 # ---------------------------------------------------------------------------------------------- the order
 def test_an_untrusted_or_missing_key_is_refused(small: bytes) -> None:
-    assert _refused(small, [OTHER_PUB]).step == "signature"
+    assert _refused(small, [OTHER_TRUST]).step == "signature"
     assert "not a trusted coordinating-centre key" in str(_refused(small, []))
     assert _refused(sp.build(_small(), OTHER_PRIV, DAY)).step == "signature"
     with pytest.raises(sp.PackageRefused, match="not an Ed25519 public key"):
-        sp.verify(small, [b"-----BEGIN PUBLIC KEY-----\nnot a key\n-----END PUBLIC KEY-----\n"])
+        sp.verify(small, [sp.TrustedKey(b"-----BEGIN PUBLIC KEY-----\nnot a key\n-----END PUBLIC KEY-----\n",
+                                        frozenset({"RA-JAK"}))])  # fmt: skip
     # a header naming a trusted key id but signed by another key
     members = _members(small)
     header = json.loads(members[sp.HEADER])
@@ -328,7 +345,7 @@ def test_verify_writes_nothing(small: bytes, monkeypatch: pytest.MonkeyPatch) ->
         bad[-2000] ^= 1
         for data in (small, bytes(bad)):
             with contextlib.suppress(sp.PackageRefused):
-                sp.verify(data, [PUB])
+                sp.verify(data, [TRUST])
     finally:
         monkeypatch.setattr(builtins, "open", real_open)
 
@@ -374,7 +391,7 @@ def test_planted_site_data_is_in_no_byte_of_the_package() -> None:
     folder = "\n".join(f.decode("utf-8", "replace") for f in files.values())
     assert all(p in folder for p in PLANTED)  # each is in the folder
     data = sp.build(files, PRIV, DAY)
-    got = sp.verify(data, [PUB])
+    got = sp.verify(data, [TRUST])
     for planted in PLANTED:
         for enc in ("utf-8", "utf-16-le", "utf-16-be"):
             assert planted.encode(enc) not in data, planted
@@ -394,7 +411,7 @@ def test_a_study_folder_holding_its_template_is_not_packed() -> None:
     with pytest.raises(ValueError, match="does not carry a template"):
         sp.build(files, PRIV, DAY)
     del files["form.docx"]  # named but not in the folder: not hashed (D-1366), packed
-    assert sp.verify(sp.build(files, PRIV, DAY), [PUB]).protocol["manifest"]["docx_template"] == "form.docx"
+    assert sp.verify(sp.build(files, PRIV, DAY), [TRUST]).protocol["manifest"]["docx_template"] == "form.docx"
 
 
 def test_test_patients_name_only_placeholders() -> None:
@@ -405,12 +422,12 @@ def test_test_patients_name_only_placeholders() -> None:
     good = {
         "resourceType": "Appointment",
         "id": "a1",
-        "participant": [{"actor": {"reference": "Practitioner/P12345"}}, {"actor": {"reference": "Patient/syn-1"}}],
+        "participant": [{"actor": {"reference": "Practitioner/P12345"}}, {"actor": {"reference": f"Patient/{PID1}"}}],
         "serviceType": [{"coding": [{"system": dept, "code": "RHEU"}]}],
     }
     files = _small()
-    files["tests/patients.ndjson"] = json.dumps(good).encode() + b"\n"
-    assert sp.verify(sp.build(files, PRIV, DAY), [PUB]).files["tests/patients.ndjson"]
+    files["tests/patients.ndjson"] = SYN1 + b"\n" + json.dumps(good).encode() + b"\n"
+    assert sp.verify(sp.build(files, PRIV, DAY), [TRUST]).files["tests/patients.ndjson"]
     bad_cases = {
         "practitioner": (
             {**good, "participant": [{"actor": {"reference": "Practitioner/PLANTPRAC77"}}]},
@@ -424,7 +441,7 @@ def test_test_patients_name_only_placeholders() -> None:
         "record": ({"resourceType": "Practitioner", "id": "P12345", "name": [{"text": "Planted"}]}, "record"),
     }
     for resource, says in bad_cases.values():
-        files["tests/patients.ndjson"] = json.dumps(good).encode() + b"\n" + json.dumps(resource).encode() + b"\n"
+        files["tests/patients.ndjson"] = SYN1 + b"\n" + json.dumps(resource).encode() + b"\n"
         with pytest.raises(ValueError, match=f"line 2 of tests/patients.ndjson .*{re.escape(says)}"):
             sp.build(files, PRIV, DAY)
     files["tests/patients.ndjson"] = b'{"resourceType": "Patient"\n'
@@ -641,7 +658,7 @@ def test_cql_elm_json_must_be_json_and_the_verifier_takes_only_carriable_names(s
     with pytest.raises(ValueError, match="cql/elm/TB_X.json is not JSON"):
         sp.build(files, PRIV, DAY)
     files = {**_small(), "cql/elm/TB_X.json": b'{"library": {"identifier": {"id": "TB_X"}}}'}
-    assert "cql/elm/TB_X.json" in sp.verify(sp.build(files, PRIV, DAY), [PUB]).files
+    assert "cql/elm/TB_X.json" in sp.verify(sp.build(files, PRIV, DAY), [TRUST]).files
     members = _members(small)
     for name in ("files/cql/elm/NOTES", "files/cql/elm/.x.json", "files/ir/sub/deep.json"):
         got = _refused(_resigned({**members, name: b"{}"}))
@@ -658,7 +675,7 @@ def _write_folder(root: Path, files: dict[str, bytes]) -> None:
 def test_build_dir_refuses_links_and_files_that_are_not_regular(tmp_path: Path, kind: str) -> None:
     study = tmp_path / "RA-JAK"
     _write_folder(study, _small())
-    assert sp.verify(sp.build_dir(study, PRIV, DAY), [PUB])
+    assert sp.verify(sp.build_dir(study, PRIV, DAY), [TRUST])
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "x.json").write_bytes(b'{"PROBE": 1}')
@@ -830,7 +847,7 @@ def test_a_value_sets_extension_and_tag_are_the_compilers(extra: dict[str, Any])
         extension=[{"url": sp.FAMILY_EXT, "valueString": "http://hl7.org/fhir/sid/icd-10-cm|M05"}],
         meta={"tag": [{"system": sp.REVIEW_TAG_SYSTEM, "code": "needs_review"}]},
     )
-    assert sp.verify(sp.build(good, PRIV, DAY), [PUB])
+    assert sp.verify(sp.build(good, PRIV, DAY), [TRUST])
 
 
 @pytest.mark.parametrize(
@@ -881,7 +898,7 @@ def test_an_ir_field_by_its_python_name_is_refused() -> None:
     with pytest.raises(ValueError, match="does not load as a criterion"):
         sp.build(files, PRIV, DAY)
     carried = sp.verify(
-        sp.build(_ir_with(flags=["needs_review"], provenance={"calls": ["01JABCDEF"]}), PRIV, DAY), [PUB]
+        sp.build(_ir_with(flags=["needs_review"], provenance={"calls": ["01JABCDEF"]}), PRIV, DAY), [TRUST]
     )
     assert b"01JABCDEF" in carried.files["ir/RA-JAK-INC-01.json"]  # call ids travel (D-1372, for the owner)
 
@@ -1040,16 +1057,297 @@ def test_a_size_that_runs_into_the_next_header_says_so(small: bytes) -> None:
     assert "declares a size that does not match its bytes" in str(got)
 
 
+# ---------------------------------------------------------------------------------------------- review of f1d1fe3c
+#: the review of f1d1fe3c (PR 1183), H1 to H5: each test is the reviewer's probe at the real call, refused now
+
+
+def test_h1_test_patients_not_of_the_synthetic_site_are_refused() -> None:
+    """H1: the reviewer's probe (a patient with a chart number, a birth date and a report's narrative) and each way a
+    record can be other than the synthetic site's: a patient whose id is not the pseudonym of a synthetic chart number
+    under the public synthetic key, an identifier other than its own pseudonym, a patient twice, a reference to a
+    patient the file does not hold. The refusal repeats no value. Every shipped study still packs (below)."""
+    base = SYN1 + b"\n"
+    probe = [
+        {"resourceType": "Patient", "id": "probe42", "birthDate": "1950-01-01", "gender": "male",
+         "identifier": [{"system": sp.SYNTHETIC_PID_SYSTEM, "value": "DEMO-MRN-42"}]},
+        {"resourceType": "DiagnosticReport", "id": "dr42", "status": "final",
+         "conclusion": "Example patient has lymphoma", "subject": {"reference": "Patient/probe42"}},
+    ]  # fmt: skip
+    real_looking = json.loads(SYN1)
+    hospital_pid = hashlib.sha256(b"a hospital's own key|10000001").hexdigest()[:32]  # a pseudonym under another key
+    cases = {
+        "the reviewer's probe": (b"".join(json.dumps(r).encode() + b"\n" for r in probe), "line 2", "pseudonym"),
+        "another key's pseudonym": (
+            json.dumps(
+                {
+                    **real_looking,
+                    "id": hospital_pid,
+                    "identifier": [{"system": sp.SYNTHETIC_PID_SYSTEM, "value": hospital_pid}],
+                }
+            ).encode(),
+            "line 2",
+            "pseudonym",
+        ),
+        "an identifier that is a chart number": (
+            json.dumps(
+                {**real_looking, "identifier": [{"system": sp.SYNTHETIC_PID_SYSTEM, "value": "10000001"}]}
+            ).encode(),
+            "line 1",
+            "identifier",
+        ),
+        "no identifier": (
+            json.dumps({k: v for k, v in real_looking.items() if k != "identifier"}).encode(),
+            "line 1",
+            "identifier",
+        ),
+        "a patient twice": (SYN1, "line 2", "already holds"),
+        "a record of a patient not in the file": (
+            json.dumps({"resourceType": "Condition", "id": "c1", "subject": {"reference": "Patient/probe42"}}).encode(),
+            "line 2",
+            "not one of the file's test patients",
+        ),
+    }
+    for why, (lines, where, says) in cases.items():
+        files = _small()
+        body = lines if where == "line 1" else base + lines
+        files["tests/patients.ndjson"] = body if body.endswith(b"\n") else body + b"\n"
+        with pytest.raises(ValueError, match=f"cannot be packaged: {where} of tests/patients.ndjson .*{says}") as e:
+            sp.build(files, PRIV, DAY)
+        message = str(e.value)
+        assert not any(v in message for v in ("probe42", "DEMO-MRN", "lymphoma", "1950", hospital_pid)), why
+    # the shipped test patients: every Patient the synthetic site's, every chart number one the generators write
+    pseudonyms = sp.synthetic_pseudonyms()
+    assert len(pseudonyms) == 9 * sp.SYNTHETIC_MAX_PATIENTS
+    for path in sorted(SEED_RULESETS.glob("*/tests/patients.ndjson")):
+        mrns = sp.test_patient_chart_numbers(path.read_bytes())
+        assert len(mrns) == 200 and all(m.startswith("1") for m in mrns)  # site-a of tools/make_fixtures.py
+    # the key is the test stack's, as the conftest and the Makefile write it
+    assert sp.SYNTHETIC_SITE_KEY in (ROOT / "Makefile").read_bytes()
+
+
+def _expected(files: dict[str, bytes], **change: Any) -> dict[str, bytes]:
+    doc = json.loads(files["tests/expected.json"])
+    doc.update(change)
+    return {**files, "tests/expected.json": json.dumps(doc).encode()}
+
+
+def test_h2_expected_verdicts_carry_no_identifier_and_no_free_text() -> None:
+    """H2: ``tests/expected.json`` holds only synthetic chart numbers (those of the study's test patients when it
+    carries them), the protocol's criteria, verdicts true, false or null, and labels from a closed set."""
+    jak = _folder("RA-JAK")  # expected.json, no test patients
+    gzqo = _folder("GZQO")  # expected.json and test patients
+    one = next(iter(json.loads(gzqo["tests/expected.json"])["patients"]))
+    cases = {
+        "the reviewer's probe": {**jak, "tests/expected.json": b'{"patients":{"DEMO-MRN-42":{"RA-JAK-EXC-01":true}}}'},
+        "a chart number outside the generators'": _expected(jak, patients={"20009999": {"RA-JAK-EXC-01": True}}),
+        "a text verdict": _expected(jak, patients={"20000002": {"RA-JAK-EXC-01": "PROBE has lymphoma"}}),
+        "a criterion the protocol does not name": _expected(jak, patients={"20000002": {"PROBE-NOTE": True}}),
+        "a free-text source": _expected(jak, source="PROBE chart review at the hospital, Dr Example"),
+        "a free-text engine": _expected(jak, engine="PROBE"),
+        "a field more": _expected(jak, note="PROBE"),
+        "another study": _expected(jak, ruleset="GZQO"),
+        "a known difference in words": _expected(
+            jak,
+            agreement={
+                **json.loads(jak["tests/expected.json"])["agreement"],
+                "known_differences": {"RA-JAK-EXC-01": "PROBE patient 20000002 differs"},
+            },
+        ),
+        "not the test patients' chart numbers": _expected(
+            gzqo, patients={**json.loads(gzqo["tests/expected.json"])["patients"], "10000002": {}}
+        ),
+        "a test patient left out": _expected(
+            gzqo, patients={k: v for k, v in json.loads(gzqo["tests/expected.json"])["patients"].items() if k != one}
+        ),
+    }
+    for why, files in cases.items():
+        with pytest.raises(ValueError, match="cannot be packaged: tests/expected.json ") as e:
+            sp.build(files, PRIV, DAY)
+        assert "PROBE" not in str(e.value) and "DEMO-MRN" not in str(e.value), why
+    # the shipped files: each label in its closed set, each key a synthetic chart number
+    for path in sorted(SEED_RULESETS.glob("*/tests/expected.json")):
+        doc = json.loads(path.read_bytes())
+        assert doc["engine"] in sp.EXPECTED_ENGINES and doc["source"] in sp.EXPECTED_SOURCES, path
+        assert set(doc) <= sp.EXPECTED_FIELDS
+    assert {json.loads(p.read_bytes())["source"] for p in SEED_RULESETS.glob("*/tests/expected.json")} == (
+        sp.EXPECTED_SOURCES
+    )
+    assert {json.loads(p.read_bytes())["engine"] for p in SEED_RULESETS.glob("*/tests/expected.json")} == (
+        sp.EXPECTED_ENGINES
+    )
+
+
+def _without_member(members: dict[str, bytes], path: str, add: dict[str, bytes] | None = None) -> bytes:
+    """A package signed by a trusted key whose protocol part, hash list and header are made again without the carried
+    file ``path`` (and with ``add``): every check before the criteria set holds."""
+    body = {k: v for k, v in members.items() if k != FILES_PREFIX + path}
+    body.update({FILES_PREFIX + k: v for k, v in (add or {}).items()})
+    protocol = json.loads(members[sp.PROTOCOL])
+    protocol["files"] = {k[len(FILES_PREFIX) :]: hashlib.sha256(v).hexdigest() for k, v in body.items()
+                         if k.startswith(FILES_PREFIX)}  # fmt: skip
+    protocol["criteria_sha256"] = sm.criteria_sha256(protocol)
+    body[sp.PROTOCOL] = sm.dumps(protocol)
+    header = {**json.loads(members[sp.HEADER]), "criteria_sha256": protocol["criteria_sha256"]}
+    del header["package_id"]
+    return _resigned(body, header=header)
+
+
+FILES_PREFIX = sp.FILES
+
+
+def test_h3_the_criteria_named_are_exactly_the_ir_files() -> None:
+    """H3: the writer and the verifier refuse a study whose manifest names a criterion without its ``ir/`` file, an
+    ``ir/`` file it does not name, an IR holding another criterion, and a named CQL library without its files. The
+    verifier's check is the last of step 5 (protocol), after the signature, the hashes, the member set and the
+    criteria hash: a trusted key that signed such a package still meets it."""
+    jak = _folder("RA-JAK")
+    lacking = {k: v for k, v in jak.items() if k != "ir/RA-JAK-EXC-01.json"}
+    with pytest.raises(ValueError, match="names the criterion RA-JAK-EXC-01 but carries no ir/RA-JAK-EXC-01.json"):
+        sp.build(lacking, PRIV, DAY)
+    extra_ir = json.loads(jak["ir/RA-JAK-EXC-01.json"])
+    unnamed = {**jak, "ir/RA-JAK-EXC-99.json": json.dumps({**extra_ir, "id": "RA-JAK-EXC-99"}).encode()}
+    with pytest.raises(ValueError, match="carries ir/RA-JAK-EXC-99.json, a criterion its manifest does not name"):
+        sp.build(unnamed, PRIV, DAY)
+    other_id = {**jak, "ir/RA-JAK-EXC-01.json": json.dumps({**extra_ir, "id": "RA-JAK-EXC-02"}).encode()}
+    with pytest.raises(ValueError, match="does not hold the criterion RA-JAK-EXC-01"):
+        sp.build(other_id, PRIV, DAY)
+    no_elm = {k: v for k, v in jak.items() if k != "cql/elm/TB_RA_JAK_v1_0.json"}
+    with pytest.raises(ValueError, match="names the CQL library TB_RA_JAK_v1_0 but carries no cql/elm/"):
+        sp.build(no_elm, PRIV, DAY)
+    # the verifier: a trusted key signs a package without a criterion's file, or with one more
+    unnamed_carried = sm.carried("ir/RA-JAK-EXC-99.json", unnamed["ir/RA-JAK-EXC-99.json"]) or b""
+    members = _members(sp.build(jak, PRIV, DAY))
+    got = _refused(_without_member(members, "ir/RA-JAK-EXC-01.json"))
+    assert got.step == "protocol" and "names the criterion RA-JAK-EXC-01 but carries no" in str(got)
+    got = _refused(_without_member(members, "", {"ir/RA-JAK-EXC-99.json": unnamed_carried}))
+    assert got.step == "protocol" and "a criterion its manifest does not name" in str(got)
+    got = _refused(_without_member(members, "cql/TB_RA_JAK_v1_0.cql"))
+    assert got.step == "protocol" and "carries no cql/TB_RA_JAK_v1_0.cql" in str(got)
+    # every shipped study names exactly its IR files
+    for ruleset in SHIPPED:
+        files = _folder(ruleset)
+        assert sp.criteria_refusal(yaml.safe_load(files["manifest.yaml"]), files) is None, ruleset
+
+
+def test_h4_a_package_is_released_only_after_its_audit_event(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """H4: the host command writes the box's audit event (who, the study, version, package id, sha256, key id; no
+    content) before the package takes its name, gives the event's files to the audit folder's owner (injected here:
+    the test runs as any user), and leaves no package when there is no audit folder, the event cannot be written, or
+    the study is not approved."""
+    from tools import study_package as tool
+
+    study = tmp_path / "RA-JAK"
+    _write_folder(study, _small())
+    key = tmp_path / "cc.key"
+    key.write_bytes(PRIV)
+    key.chmod(0o600)
+    audit = tmp_path / "audit"
+    audit.mkdir()
+    out = tmp_path / "out" / "RA-JAK.tbstudy"
+    out.parent.mkdir()
+    owned: list[tuple[Path, bool]] = []
+
+    def own(folder: Path) -> None:  # called after the event, before the package is renamed
+        owned.append((folder, out.exists()))
+
+    with pytest.raises(ValueError, match="no audit directory"):
+        tool.write(study, key, out, DAY, audit_dir=None, own=own)
+    with pytest.raises(ValueError, match="is not a folder"):
+        tool.write(study, key, out, DAY, audit_dir=tmp_path / "missing", own=own)
+    assert not out.exists() and not (tmp_path / "missing").exists()
+    h = tool.write(study, key, out, DAY, audit_dir=audit, tz="Asia/Taipei", by="host:crc-test", own=own)
+    assert owned == [(audit, False)]  # the event was written, and the folder given back, before the package's name
+    assert out.read_bytes() and out.stat().st_mode & 0o777 == 0o600
+    assert not list(out.parent.glob(".*")), "no hidden part file left"
+    events = [json.loads(x) for f in sorted(audit.glob("*.jsonl")) for x in f.read_text().splitlines() if x]
+    exported = [e for e in events if e["event"] == tool.EVENT]
+    assert len(exported) == 1
+    ev = exported[0]
+    assert ev["actor"] == "host:crc-test" and ev["ruleset"] == "RA-JAK" and ev["ruleset_version"] == "1.0.0"
+    assert ev["output_sha"] == hashlib.sha256(out.read_bytes()).hexdigest() == h["sha256"]
+    assert ev["detail"] == {"package_id": h["package_id"], "key_id": sp.key_id(PUB), "created": DAY,
+                            "protocol_version": h["protocol_version"], "criteria_sha256": h["criteria_sha256"]}  # fmt: skip
+    assert PID1 not in json.dumps(events)  # no content of the package in the audit
+
+    # the event cannot be written: no package, no part file
+    def full(*_a: Any, **_k: Any) -> None:
+        raise OSError("disk full")
+
+    from tb_common import audit as audit_mod
+
+    monkeypatch.setattr(audit_mod.AuditLog, "append", full)
+    second = tmp_path / "out" / "second.tbstudy"
+    with pytest.raises(ValueError, match="audit event could not be written"):
+        tool.write(study, key, second, DAY, audit_dir=audit, own=own)
+    assert not second.exists() and not list(out.parent.glob(".*"))
+    monkeypatch.undo()
+    # a draft is not packed
+    m = yaml.safe_load((study / "manifest.yaml").read_bytes())
+    m["status"] = "draft"
+    (study / "manifest.yaml").write_text(yaml.safe_dump(m, allow_unicode=True), encoding="utf-8")
+    with pytest.raises(ValueError, match="status: approved"):
+        tool.write(study, key, tmp_path / "out" / "draft.tbstudy", DAY, audit_dir=audit, own=own)
+    assert not (tmp_path / "out" / "draft.tbstudy").exists()
+    # the default gives the folder back only as root (backup._own_writes, D-724): a no-op for another user
+    if os.geteuid() != 0:
+        tool._own_writes(audit)
+
+
+def test_h5_a_key_signs_only_the_studies_its_entry_names() -> None:
+    """H5: a site that trusts centre A for RA-JAK and centre B for GZQO refuses a RA-JAK package signed by B; a key
+    marked for updates is refused for study packages; a key given with no studies, or twice, is refused (default
+    deny); the trust file has exactly its fields."""
+    jak = _small()
+    by_b = sp.build(jak, OTHER_PRIV, DAY)
+    a_for_jak = sp.TrustedKey(PUB, frozenset({"RA-JAK"}))
+    b_for_gzqo = sp.TrustedKey(OTHER_PUB, frozenset({"GZQO"}))
+    got = _refused(by_b, [a_for_jak, b_for_gzqo])
+    assert got.step == "signature" and "not trusted to sign for" in str(got)
+    assert sp.verify(sp.build(jak, PRIV, DAY), [a_for_jak, b_for_gzqo]).header["study_id"] == "RA-JAK"
+    update = sp.TrustedKey(OTHER_PUB, frozenset({"RA-JAK"}), "update")
+    got = _refused(by_b, [update])
+    assert got.step == "signature" and "trusted for update, not for study packages" in str(got)
+    for keys, says in (
+        ([OTHER_PUB], "without the studies"),
+        ([sp.TrustedKey(OTHER_PUB, frozenset())], "names no study"),
+        ([sp.TrustedKey(OTHER_PUB, frozenset({"RA-JAK"}), "anything")], "purpose that is not known"),
+        ([OTHER_TRUST, sp.TrustedKey(OTHER_PUB, frozenset({"RA-JAK"}), "update")], "given twice"),
+    ):
+        with pytest.raises(sp.PackageRefused, match=says):
+            sp.verify(by_b, keys)  # type: ignore[arg-type]
+    entry = {"key_id": sp.key_id(PUB), "public_key": PUB.decode(), "purpose": "study-package", "studies": ["RA-JAK"]}
+    assert sp.load_trust(json.dumps({"format": sp.TRUST_FORMAT, "keys": [entry]}).encode()) == [a_for_jak]
+    for bad in (
+        {"format": sp.TRUST_FORMAT, "keys": [{**entry, "studies": []}]},
+        {"format": sp.TRUST_FORMAT, "keys": [{**entry, "studies": ["ra jak"]}]},
+        {"format": sp.TRUST_FORMAT, "keys": [{**entry, "key_id": sp.key_id(OTHER_PUB)}]},
+        {"format": sp.TRUST_FORMAT, "keys": [{**entry, "note": "x"}]},
+        {"format": sp.TRUST_FORMAT, "keys": [entry, {**entry, "purpose": "update"}]},
+        {"format": "tb-study-trust/2", "keys": [entry]},
+        {"format": sp.TRUST_FORMAT, "keys": []},
+    ):
+        with pytest.raises(ValueError):
+            sp.load_trust(json.dumps(bad).encode())
+
+
 # ---------------------------------------------------------------------------------------------- the tool
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
-    # PYTHONUNBUFFERED out: a CI runner does not set it
-    env = {k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"}
+    # PYTHONUNBUFFERED out: a CI runner does not set it; no audit folder from the environment
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUNBUFFERED", "TB_AUDIT_DIR")}
     env["PYTHONPATH"] = "libs:services:."
     return subprocess.run(
         [sys.executable, "-m", "tools.study_package", *args], check=False, cwd=ROOT, env=env, capture_output=True,
         text=True,
         timeout=300,
     )  # fmt: skip
+
+
+def _trust_file(path: Path, entries: list[tuple[bytes, list[str], str]]) -> Path:
+    """A tb-study-trust/1 file of ``(public PEM, studies, purpose)``."""
+    keys = [{"key_id": sp.key_id(pem), "public_key": pem.decode(), "purpose": purpose, "studies": studies}
+            for pem, studies, purpose in entries]  # fmt: skip
+    path.write_text(json.dumps({"format": sp.TRUST_FORMAT, "keys": keys}), encoding="utf-8")
+    return path
 
 
 def test_command_line(tmp_path: Path) -> None:
@@ -1064,42 +1362,58 @@ def test_command_line(tmp_path: Path) -> None:
         (study / path).parent.mkdir(parents=True, exist_ok=True)
         (study / path).write_bytes(data)
     out = tmp_path / "RA-JAK.tbstudy"
-    w = _run("write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY)
+    audit = tmp_path / "audit"
+    audit.mkdir()
+    # no audit folder: no package (H4)
+    none = _run("write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY)
+    assert none.returncode == 1 and "no audit directory" in none.stderr and not out.exists()
+    w = _run("write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY, "--audit-dir", str(audit))
     assert w.returncode == 0, w.stderr
     assert "package RA-JAK-1.0.0-" in w.stdout and sp.key_id(pub.read_bytes()) in w.stdout
-    v = _run("verify", str(out), "--trust", str(pub))
+    assert out.stat().st_mode & 0o777 == 0o600 and not list(tmp_path.glob(".*.part"))
+    events = [json.loads(x) for f in sorted(audit.glob("*.jsonl")) for x in f.read_text().splitlines() if x]
+    assert [e["event"] for e in events if e["event"].startswith("approve.")] == ["approve.study_package_exported"]
+    trust = _trust_file(tmp_path / "trust.json", [(pub.read_bytes(), ["RA-JAK"], sp.STUDY_PURPOSE)])
+    v = _run("verify", str(out), "--trust-file", str(trust))
     assert v.returncode == 0 and v.stdout.startswith("verified "), v.stderr
     s = _run("show", str(out))
     assert s.returncode == 0 and json.loads(s.stdout.split("\n(")[0])["study_id"] == "RA-JAK"
     assert "not checked" in s.stdout
-    # another key, and a changed byte: refused with one sentence, exit 1
-    other = tmp_path / "other.pub"
-    other.write_bytes(OTHER_PUB)
-    bad = _run("verify", str(out), "--trust", str(other))
+    # another key, a key for another study, and a changed byte: refused with one sentence, exit 1
+    other = _trust_file(tmp_path / "other.json", [(OTHER_PUB, ["RA-JAK"], sp.STUDY_PURPOSE)])
+    bad = _run("verify", str(out), "--trust-file", str(other))
     assert bad.returncode == 1 and bad.stderr.count("\n") == 1 and "not a trusted" in bad.stderr
+    scoped = _trust_file(tmp_path / "scoped.json", [(pub.read_bytes(), ["GZQO"], sp.STUDY_PURPOSE)])
+    wrong = _run("verify", str(out), "--trust-file", str(scoped))
+    assert wrong.returncode == 1 and "not trusted to sign for" in wrong.stderr
     flipped = bytearray(out.read_bytes())
     flipped[1000] ^= 1
     out.write_bytes(bytes(flipped))
-    assert _run("verify", str(out), "--trust", str(pub)).returncode == 1
+    assert _run("verify", str(out), "--trust-file", str(trust)).returncode == 1
     # an existing --out is not replaced without --force
-    again = _run("write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY)
+    again = _run(
+        "write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY, "--audit-dir", str(audit)
+    )
     assert again.returncode == 1 and "--force" in again.stderr and out.read_bytes() == bytes(flipped)
-    forced = _run("write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY, "--force")
-    assert forced.returncode == 0 and _run("verify", str(out), "--trust", str(pub)).returncode == 0
+    forced = _run("write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY, "--force",
+                  "--audit-dir", str(audit))  # fmt: skip
+    assert forced.returncode == 0 and _run("verify", str(out), "--trust-file", str(trust)).returncode == 0
     # an encrypted key: one sentence, exit 1, no traceback
     locked = tmp_path / "locked.key"
     locked.write_bytes(_locked(priv.read_bytes()))
     locked.chmod(0o600)
-    enc = _run("write", str(study), "--key", str(locked), "--out", str(tmp_path / "y"), "--created", DAY)
+    enc = _run("write", str(study), "--key", str(locked), "--out", str(tmp_path / "y"), "--created", DAY,
+               "--audit-dir", str(audit))  # fmt: skip
     assert enc.returncode == 1 and enc.stderr.count("\n") == 1 and "Traceback" not in enc.stderr
     assert "unencrypted" in enc.stderr
     # a key file others may read is not used
     priv.chmod(0o644)
-    loose = _run("write", str(study), "--key", str(priv), "--out", str(tmp_path / "x"), "--created", DAY)
+    loose = _run("write", str(study), "--key", str(priv), "--out", str(tmp_path / "x"), "--created", DAY,
+                 "--audit-dir", str(audit))  # fmt: skip
     assert loose.returncode == 1 and "make it 600" in loose.stderr and not (tmp_path / "x").exists()
     # no key material is ever printed
     secret = priv.read_bytes()
-    for result in (r, w, v, s, bad, loose, again, forced, enc):
+    for result in (r, w, v, s, bad, wrong, loose, again, forced, enc, none):
         text = result.stdout + result.stderr
         assert "PRIVATE KEY" not in text and "PUBLIC KEY" not in text
         assert not any(line in text for line in secret.decode().splitlines()[1:-1])

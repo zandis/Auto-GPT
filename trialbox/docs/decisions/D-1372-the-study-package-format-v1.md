@@ -7,16 +7,18 @@
   D-555 (a refusal is a returned sentence)
 - **The owner's yes:** 2026-11-19 20:20 UTC, relayed by the integrator (D-504): "10D-3 study package export: yes."
   The export is the package as this file lists it, nothing more (see "What leaves the box" below).
-- **What this card does not do, plainly:** nothing on the live path reads a package. No import, console page, route,
-  role or audit row changes; `tb_common.study_package` is called only by the tests and by the operator's tool
-  `python -m tools.study_package`, which no console action calls.
+- **What this card does not do, plainly:** nothing on the live path reads a package. No import, console page, route
+  or role changes; `tb_common.study_package` is called only by the tests and by the operator's host command
+  `python -m tools.study_package`, which no console action calls. The one audit change is that command's own event
+  `approve.study_package_exported` (H4 below), with its label in `console/i18n_audit.py`.
 - **Decision:**
   - A study travels as **one file** that `tb_common.study_package.build` writes from a study folder `rulesets/<ID>/`
-    and a coordinating-centre Ed25519 private key, and `verify` checks against the trusted public keys its caller
-    passes. The tool: `keygen --out DIR` (`cc_ed25519.key`, PKCS8 PEM, mode 600; `cc_ed25519.pub`, SubjectPublicKeyInfo
+    and a coordinating-centre Ed25519 private key, and `verify` checks against the trusted keys its caller
+    passes, each trusted only for the studies its entry names (H5). The tool: `keygen --out DIR` (`cc_ed25519.key`, PKCS8 PEM, mode 600; `cc_ed25519.pub`, SubjectPublicKeyInfo
     PEM: the formats of `tools/sign_bundle.py keygen` and `tb_common.crypto`), `write STUDY --key K --out F
     [--created YYYY-MM-DD] [--force]` (a key file others may read, and an encrypted key, are refused; an existing
-    `F` is replaced only with `--force`), `verify F --trust PUB [--trust PUB…]`, `show F`
+    `F` is replaced only with `--force`; and see "The export, audited" below), `verify F --trust-file T` (see "Trusted
+    keys" below), `show F`
     (the header; the signature is not checked, and it says so). It prints key ids, never key material. No new
     dependency and no new cryptography: Ed25519 through `tb_common.crypto`.
   - **What a package carries:** the protocol part of D-1366 and the protocol's files, nothing else. No site part:
@@ -78,13 +80,17 @@
     and `signature.ed25519`), all members together at most 200,000,000 bytes, the member's bytes present, the
     canonical header block, zero padding and name order; then the four fixed members present, only allowed names, a
     64-byte signature, the header's nesting, JSON, RFC 8785 form and v1 fields, the hash list's nesting, JSON, RFC 8785
-    form and entries; (2) `signature`: the header's `key_id` is one of the trusted keys and the signature
-    verifies with it; (3) `hashes`: each member's sha256 is the listed one; (4) `members`: no member outside the list,
+    form and entries; (2) `signature`: the header's `key_id` is one of the trusted keys, that key's entry is for
+    study packages (not `update`), the signature verifies with it, and the header's `study_id` is one the entry names
+    (H5); (3) `hashes`: each member's sha256 is the listed one; (4) `members`: no member outside the list,
     none missing; (5) `protocol`: `protocol.json` is a protocol part that holds its own criteria hash
     (`study_manifest.protocol_refusal`), the header's `study_id`, `version`, `protocol_version` and
     `criteria_sha256` are its, each carried file is in its canonical form, the files' hashes are exactly the protocol
     part's `files`, the criteria hash computed again from them is the header's, and the header's `package_id` is the
-    one its `study_id`, `version` and `hashes.json` give.
+    one its `study_id`, `version` and `hashes.json` give, and then (H3, the last check) the criteria the protocol part's
+    manifest names are exactly the carried `ir/` files (`criteria_refusal`: each id once, each with its
+    `ir/<id>.json` whose `id` is that id, no `ir/*.json` it does not name, and, when it names a CQL `library`, its
+    `cql/<library>.cql` and `cql/elm/<library>.json` carried). The writer makes the same check before it signs.
   - **"A changed byte fails verification"** is held by flipping every byte of a package (one bit, then all eight),
     and by named classes: header, hash list, signature, protocol part, a protocol file, a tar header's name, mode,
     mtime, owner, checksum and unused bytes, the padding, the end blocks, bytes appended, the archive cut short.
@@ -134,9 +140,27 @@
     line re-serialised from the checked object would change the shipped studies' criteria hashes. What travels is
     the checked line itself: whitespace between JSON tokens and the escapes inside a string are the only bytes that
     are not a checked value, and an escape decodes to a character the checks above saw.
-  - **What the guard cannot prove:** that the test patients are synthetic. It holds them to the shape of the shipped
-    synthetic files, not to their origin. These leaves travel **as typed**, unchecked against any real record (each
-    within the type and the 200-character cap above): every `id` and `reference` id (a FHIR id, so `Patient/` and
+  - **The test patients are the synthetic site's (review of f1d1fe3c, H1).** After every line passes the allow-list,
+    `build` refuses, naming the line and never a value: a `Patient` whose `id` is not the pseudonym, under the
+    **synthetic site's public key** (`SYNTHETIC_SITE_KEY`, the test stack's `site_hmac.key` of the Makefile and
+    `tests/conftest.py`), of a **synthetic chart number** (`SYNTHETIC_MRN`: a site digit 1 to 9, then the patient's
+    number in seven digits, 1 to `SYNTHETIC_MAX_PATIENTS` = 2,500, as `tools/make_fixtures.py` and
+    `tools.synth_hospital` number them; `synthetic_pseudonyms()`, 22,500 HMAC-SHA256 truncated to 32 hex as
+    `pid_for_mrn` takes them, on the chart number as written, so no chart-number setting of the box changes it); a
+    `Patient` whose `identifier` is not exactly `[{"system": "https://trialbox.local/fhir/sid/pid/DEMO-A", "value":
+    <its id>}]` (each entry; at least one); a `Patient` twice; and any line with a `Patient/` reference to a patient
+    the file does not hold. All five shipped files pass unchanged (each `Patient` is site-a's, chart numbers
+    10000001 to 10000600), so no fixture and no criteria hash changed. This was chosen over a new marker stamped by
+    the generator because a marker in the test patients would change them and so every shipped criteria hash
+    (D-1366) and the goldens that pin them; the pseudonym scheme is already in every shipped file.
+  - **What H1 proves, and what it does not.** It proves where the records were pseudonymised: by the test stack,
+    from a chart number in the synthetic generators' numbering, under a key published in the repository. A box's own
+    patients are pseudonymised under that box's secret key (D-09), so an export of a box's real ingested records is
+    refused (the chance that a real pseudonym equals one of the 22,500 is about 22,500 in 2^128). It does **not**
+    prove that the content is synthetic: the key is public, so anyone can compute a synthetic pseudonym and write a
+    real person's dates, codes or report under it by hand; and a real hospital that numbered its chart numbers in
+    the same range and ingested them under the public test key would pass. The leaves below still travel **as
+    typed**, unchecked against any real record (each within the type and the 200-character cap above): every `id` and `reference` id (a FHIR id, so `Patient/` and
     the like may carry any 64 letters, digits, `.` and `-`), `Patient.birthDate`, `Patient.gender`,
     `Patient.identifier.value`, `Encounter.identifier.value`, every date and time (`birthDate`, `onsetDateTime`,
     `recordedDate`, `effectiveDateTime`, `performedDateTime`, `authoredOn`, `created`, `dateTime`, `start`, `end`,
@@ -146,9 +170,22 @@
     `unit`, `code`), the `status`, `intent`, `use`, `outcome`, `class.code` and `provision.type` codes,
     `Claim.insurance.focal` and the `sequence` numbers, `DiagnosticReport.conclusion` (free text: a report's
     conclusion) and `ClaimResponse.disposition` (free text). The shipped files carry no name, telecom, address,
-    contact, photo or note, and those are refused. A coordinating centre that types real patients into those fields
-    gets them packed: the export is safe only when the test patients are generated (`tools.synth`), which is the
-    owner's call, not something the writer can see.
+    contact, photo or note, and those are refused. A coordinating centre that types real patients' details into
+    those fields under synthetic pseudonyms gets them packed: that the content was generated (`tools.synth`) is the
+    owner's rule (synthetic or public data only), which the writer supports but cannot see.
+  - **`tests/expected.json` (H2).** `build` refuses, in one sentence that repeats no value, an `expected.json` that is
+    not JSON or not an object of exactly `EXPECTED_FIELDS` (`engine`, `index_date`, `patients`, `ruleset`,
+    `source`, `version`, and optional `agreement`); whose `ruleset` and `version` are not its manifest's; whose
+    `index_date` is not a date; whose `engine` or `source` is not one of the closed sets measured from the eight
+    shipped files (`EXPECTED_ENGINES`, 3; `EXPECTED_SOURCES`, 4: the synthetic generators' runs; a test holds both
+    equal to the shipped labels); whose `patients` is not an object of 1 to 10,000 entries keyed by synthetic chart
+    numbers (as above), each an object of criterion ids the manifest names to `true`, `false` or `null`; whose
+    patients, when the study carries test patients, are not exactly the chart numbers of its `Patient` lines (the
+    five shipped pairs match exactly, 200 each); and whose `agreement`, when present, is not exactly `all_equal` (a
+    boolean), `known_differences` (empty: the writer's `KNOWN` table is empty, and its values would be words),
+    `patients` (the integer number of patients) and `per_criterion` (criterion ids to a number from 0 to 100). So no
+    free text and no identifier but a synthetic chart number travels in it. For the three studies with no test
+    patients (AD-MAB, NEUR-COH, RA-JAK) the keys are only held to the synthetic numbering, not tied to records.
   - **Protocol files a package carries (`PACKAGE_FILES`, `carriable`).** The criteria hash (D-1366,
     `study_manifest.PROTOCOL_FILES`, unchanged) covers every file the engine reads, including any file under
     `cql/elm/` and files in subfolders, so that a planted file changes the hash. A package carries only one file name
@@ -187,8 +224,43 @@
     for the manifest, 100,000,000 bytes for a protocol file, 200,000,000 together). The docx template, and a file
     the hash covers or under `ir/`, `valuesets/`, `cql/` or `sql/` that a package does not carry, refuse the folder
     without being read; every other file (`tests/equivalence.json`, notes, anything else) is not read at all.
-  - Only the writer checks the test patients and the models; a package from elsewhere is not refused for them (the
-    verifier's checks and their order are as above). 10D-4's import should run the same guard.
+  - Only the writer checks the test patients (H1), `tests/expected.json` (H2) and the models; a package from
+    elsewhere is not refused for them (the verifier's checks and their order are as above; the criteria set, H3, is
+    checked by both). 10D-4's import should run the same guards.
+- **The export, audited (review of f1d1fe3c, H4).** Packing is a host command of the coordinating centre's
+  operator, not a console act: no console route is added. `tools.study_package write` (`write()`), in this order:
+  refuses with no audit folder (`--audit-dir`, else `TB_AUDIT_DIR`) or one that is not a folder; refuses an existing
+  `--out` without `--force`; reads the folder (`read_folder`) and refuses a study whose `manifest.yaml` does not say
+  `status: approved` (a draft is not packed: decision 51, feasibility on a draft at several sites, is open and is
+  10D-12's); builds and self-verifies the package; writes it beside `--out` under a hidden name
+  (`.<name>.<pid>.part`, `O_EXCL`, `O_NOFOLLOW`, mode 600, fsync); appends **`approve.study_package_exported`** to
+  the box's audit chain through `tb_common.audit.AuditLog` (actor `host:<user>`, as 10D-28's `export_part`;
+  `ruleset`, `ruleset_version`, `output_sha` the package's sha256; `detail`: `package_id`, `key_id`, `created`,
+  `protocol_version`, `criteria_sha256`; never a byte of the content); gives what it wrote in the audit folder to
+  the folder's owner (`backup._own_writes`, D-724: only as root; injected in the tests, which run as any user); and
+  only then gives the package its name (`os.link`, which never overwrites, or `os.replace` with `--force`). An event
+  that cannot be written removes the part file and leaves no package (fail closed). The event is in the approval
+  family (`audit_writer.ROLE_EVENTS`: the criteria compiler's), written to the chain file directly as the host's
+  backup and restore events are, so it carries no journal role.
+  - **What H4 enforces, and what it does not.** Enforced: no package without its durable audit event naming who,
+    when, which study and version, which package and key; only an approved protocol; the package file is mode 600 (so
+    the umask cannot make it readable to other local accounts). Not enforced, because a host command cannot: a
+    console role or a study-access check. Whoever can read the study folder and the coordinating-centre key and
+    write the box's audit folder can export; on a box that is root or the audit writer's account. **For the owner:**
+    whether packing should also need a console role (for example the PI's or the steward's approval of the export)
+    is a new role power this card does not invent; it would be a console act, 10D-4's or a later card's.
+- **Trusted keys (review of f1d1fe3c, H5).** `verify` takes `TrustedKey` entries, not bare keys: an Ed25519 public
+  key (PEM), the `studies` it may sign for (at least one), and its `purpose` (`study-package` or `update`). A bare key
+  or an entry naming no study is refused (default deny), and so is a key given twice (one key, one entry). Step 2
+  refuses a key whose entry is marked `update` (the vendor's update key, whose `sign-file` signs raw bytes with no
+  prefix, is kept apart from a coordinating centre's) and, after the signature verifies, a package whose `study_id`
+  the entry does not name. `build` self-verifies with its key trusted for that one study. The command reads a trust
+  file (`load_trust`): RFC 8259 JSON, exactly `{"format": "tb-study-trust/1", "keys": [{"key_id", "public_key",
+  "purpose", "studies"}]}`, `public_key` the PEM text, `key_id` its id (checked), `studies` distinct study ids, at
+  most 64 entries. This is the verifier's side only, with the minimal scope field: **10D-4's register of
+  coordinating-centre keys must carry, per key, the studies (or the coordinating centre's scope) it signs for and
+  its purpose, and refuse a key equal to the vendor's update key** (`deploy/updates/trust.json`,
+  `deploy/keys/vendor_ed25519.pub`), which this card does not read.
 - **What leaves the box** in a package: `protocol.json`, `hashes.json`, `header.json` (with the writer's date and
   the key id), `signature.ed25519`, and the protocol files under `files/` exactly as `PACKAGE_FILES` names them.
   Nothing else. Within those, this travels **as typed** by whoever wrote the study, checked for shape only:
@@ -208,8 +280,9 @@
   - **each value set**: `id`, `url`, `version`, `name`, `title`, `status`, each include's `system` and each
     concept's `code` and `display`, and the code families (`<system>|<prefix>`);
   - `labels.yaml` as text; `cql/*.cql` and `sql/*.sql` as text, comments included; `cql/elm/*.json` as written
-    below its `library` (its annotations hold the CQL source and comments); `tests/expected.json` as JSON, free
-    text included;
+    below its `library` (its annotations hold the CQL source and comments); `tests/expected.json` within its
+    allow-list (H2: synthetic chart numbers, the protocol's criterion ids, verdicts, numbers, a date and two labels
+    from closed sets);
   - `tests/patients.ndjson`: the leaves listed under "What the guard cannot prove" above, quantities included.
 - **Stopped on (rule 11), for the owner, not changed here:**
   - `tests/patients.ndjson` is a protocol file (D-1366 rule 4), and in five shipped studies (GOUT-COH, GZQO,
@@ -230,10 +303,13 @@
   sites (10D-12, the owner's decision 51: v1 packs whatever protocol the folder holds and says nothing of its status).
   10D-28 carries a rule set in a vendor-signed update bundle for the dry run only; it is not this format.
 - **For 10D-4, which v1 does not stop:**
+  - the register must give each key its studies and purpose (H5 above) and run the writer's guards on import: the
+    verifier checks the criteria set (H3) but, as before, not the test patients (H1) or `tests/expected.json` (H2);
   - an older valid package, or the same content signed again with another `created`, verifies: import needs "not
     older than the one installed" per study and coordinating-centre key;
   - the register of coordinating-centre keys must refuse a key equal to the vendor's update key: the update bundle's
     `sign-file` signs raw bytes with no prefix, so one key must not serve both channels;
   - two member paths that differ only by case are distinct here and collide on a case-insensitive disk: extraction
     must refuse them.
-- **Held by:** `tests/unit/test_study_package.py`.
+- **Held by:** `tests/unit/test_study_package.py` (the review of f1d1fe3c: `test_h1_…` to `test_h5_…`, each the
+  reviewer's probe at the real call, each seen failing on f1d1fe3c first).
