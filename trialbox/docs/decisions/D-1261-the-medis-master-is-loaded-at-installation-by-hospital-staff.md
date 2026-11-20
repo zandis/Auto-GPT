@@ -32,7 +32,8 @@ built from テスト and ダミー.
 
 ### A. The step (`/site/codes/medis`)
 
-1. **Where it appears.**
+1. **Where it appears.** The country layer gains a value and its reader, a MINOR step: the layer file goes from
+   1.1.0 (D-1255) to 1.2.0.
    - The country layer says whether a site uses the master: value `P7` `medis_master`, read by
      `sitesetup.medis_release:applies` (D-1250).
    - At such a site, the site set-up pages register the step, and the local codes page links to it.
