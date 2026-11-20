@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -97,9 +98,7 @@ def test_the_old_token_is_refused_outside_dev_and_test_with_one_warning_and_no_v
 
 @pytest.mark.parametrize("mode", ["registry", "shared"])
 @pytest.mark.parametrize("env", ["DEV", "TEST"])
-def test_dev_and_test_keep_todays_rule(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: str, mode: str
-) -> None:
+def test_dev_and_test_keep_todays_rule(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: str, mode: str) -> None:
     if mode == "registry":
         _registry_box(tmp_path, monkeypatch)
     else:
@@ -184,7 +183,7 @@ def _install(tmp: Path, before: str | None, wizard: str) -> subprocess.Completed
     script = (
         "set -euo pipefail\n"
         f'ROOT="{tmp}"\ncd "$ROOT"\n'
-        f'python3() {{ PYTHONPATH="{pypath}" command "{os.sys.executable}" "$@"; }}\n'
+        f'python3() {{ PYTHONPATH="{pypath}" command "{sys.executable}" "$@"; }}\n'
         "HAD_SHARED=unset\n"
         f"{_old_token_line()}\n"
         f"cat > deploy/.env <<'EOF'\n{wizard}EOF\n"
@@ -247,7 +246,9 @@ def test_doctor_fails_outside_dev_and_test_with_a_plain_line_and_the_fix(
     assert "Fix: sudo python3 -m tools.trialbox secrets rotate" in check.detail
     assert SHARED not in check.detail and sa.token_hash(SHARED) not in check.detail
     assert doctor.check_legacy_token in doctor.CHECKS
-    (line,) = [c for c in doctor.run(doctor.DoctorInputs(env={"TB_ENV": env}, deploy=deploy)) if c.name == "legacy_token"]
+    (line,) = [
+        c for c in doctor.run(doctor.DoctorInputs(env={"TB_ENV": env}, deploy=deploy)) if c.name == "legacy_token"
+    ]
     assert line.status == "FAIL"
 
 
@@ -273,7 +274,8 @@ class _Box:
     name = "compose"
 
     def __init__(self, deploy: Path, env: str) -> None:
-        self.deploy, self.env, self._env = deploy, {}, env
+        self.deploy, self._env = deploy, env
+        self.env: dict[str, str] = {}
 
     def environment(self) -> str:
         return self._env

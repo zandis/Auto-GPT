@@ -474,13 +474,16 @@ def _secrets_cmd(a: argparse.Namespace) -> int:
                 f"registry {sx.registry_path(a.deploy)}"
             )
             if res.legacy_kept:
-                print("the old shared token is kept (legacy): DEV and TEST accept it, every other TB_ENV refuses it "
-                      "(D-1349); end it with: trialbox secrets rotate")
+                print(
+                    "the old shared token is kept (legacy): DEV and TEST accept it, every other TB_ENV refuses it "
+                    "(D-1349); end it with: trialbox secrets rotate"
+                )
             return 0
         res = sx.rotate(a.deploy, a.service, do_restart=not a.no_restart)
         print(f"rotated: {', '.join(res.rotated)}")
         print(f"restarted: {', '.join(res.restarted) or 'none (restart them yourself)'}")
-        print("old shared token: " + ("kept, accepted in DEV and TEST only (rotate every token to end it)" if res.legacy_kept else "gone"))
+        kept = "kept, accepted in DEV and TEST only (rotate every token to end it)"
+        print("old shared token: " + (kept if res.legacy_kept else "gone"))
         return 0
     except sx.SecretsError as exc:
         print(f"secrets: {exc}", file=sys.stderr)
