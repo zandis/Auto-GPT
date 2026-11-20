@@ -1,8 +1,9 @@
-# D-1258 Off a study's delegation log, an investigator learns nothing of the study (10C-3c)
+# D-1258 Off a study's delegation log, an investigator is refused the study's 18 doors and its lines in the lists that point at them (10C-3c)
 
-- **Task:** card 10C-3c of plan 10 (Track C), lane J. The integrator ruled on PR #639 (comments of 2026-11-19, 02:03
-  and 22:40 UTC) that three gaps against the rule of D-147 and D-273 are fixed, as narrowing only. The pages touch
-  permissions, so the coordinator runs two independent reviews. Lane J's block (D-1220 to D-1319) holds the number.
+- **Task:** card 10C-3c of plan 10 (Track C), lane J: three gaps against the rule of D-147 and D-273, closed as
+  narrowing only, and the doors the sweep found, closed by the owner's decisions recorded on PR #1239 (three comments
+  of the lane J coordinator, 2026-11-19 and 2026-11-20). The pages touch permissions, so the coordinator runs two
+  independent reviews. Lane J's block (D-1220 to D-1319) holds the number.
 - **Date:** 2026-11-19 (the owner's decisions of 2026-11-19 and 2026-11-20)
 - **Status:** accepted
 - **Builds on:** D-147 and D-273 (the delegation log decides an investigator's study rows on every page that shows one
@@ -38,7 +39,9 @@ On the study's doors, an investigator gets in while the study's delegation log n
 the log has any entry, an investigator gets in only with an active entry of their own on it, as PI, sub-investigator
 (ticked for any task or for none) or monitor. An ended entry is out. An investigator kept out is refused as the
 study's week and patient pages refuse them: 403 with one `console.denied` row, or on an API route the API's own JSON
-refusal (D-125). In a list, a count, a link or a name, the study is answered as one that does not exist for them.
+refusal (D-125). The lists that pointed at those doors leave the study out for them (below). Nothing else changes
+here: other pages still name the study (its id, version or kind) to such an investigator (see "What still names a
+study").
 
 The rule applies to the roles whose `task.*` rows the log decides (the matrix's conditions; in the matrix, the
 investigator). Every other role passes it and meets its own rows on the page. It decides who reaches the doors,
@@ -78,10 +81,14 @@ one.
    F5, accepted).
 3. **The job page and the state page**, with the sweep's other routes: the 18 doors below.
 
-The lists that pointed at these doors leave the study out for the same account:
-- the J-6 opening page's Next line, which linked to the feasibility report;
-- `/reports`, which showed each study's feasibility summary;
-- `/jobs`, which listed job ids and links. Its own answer is unchanged (200), so it needs no row.
+Exactly what is closed, then:
+- the 18 doors below;
+- the lines of the study in these lists, for the same account:
+  - `/week`: its week or cohort link, the redirect to its week page, its serious AEs and SAE reports, its "criteria
+    waiting" lines (the "criteria waiting" lines on each study's week page too);
+  - the J-6 opening page: its Next line, which linked to the feasibility report;
+  - `/reports`: its row, the feasibility summary;
+  - `/jobs`: its jobs' rows (ids and links). The page's own answer is unchanged (200), so it needs no row.
 
 ## The 18 doors
 
@@ -133,10 +140,9 @@ The walk does not reach the last four with a real target:
 
 ## What still names a study to an off-log investigator (not in this card; the owner to decide)
 
-These answer the same as on master. They show a study's id, version or kind, or its state, to any account that sees
-the study:
-- `/api/v1/studies`, `/pilot/registry`, `/pilot/consent`, `/pilot/protocol`, `/pilot/case`, `/pilot/cascade`,
-  `/site*`: their study pickers and lists;
+These answer the same as on master. They show a study's id, version or kind to any account that sees the study:
+- `/api/v1/studies`, `/pilot/registry`, `/pilot/mailbox`, `/pilot/consent`, `/pilot/protocol`, `/pilot/case`,
+  `/pilot/cascade`, `/site` and its pages: their study pickers and lists;
 - the header search: a study's name (D-1241 item 5);
 - the assistant (`/ask`, `/api/v1/ask`), checked for this card:
   - a "why" question about a patient already asks the week page's log check (`trail`, D-273), so it answers nothing
@@ -183,4 +189,6 @@ the study:
 
 - On `/week`, the administrator, the steward and the privacy office are answered as before. With one screened study
   they are redirected to its week page, which refuses them.
-- The list above of what still names a study, and the assistant's readiness answer: the owner's.
+- What still names a study to an off-log investigator (the section above: `/api/v1/studies`, `/pilot/registry`,
+  `/pilot/mailbox`, `/pilot/consent`, `/pilot/protocol`, `/pilot/case`, `/pilot/cascade`, `/site`, the header
+  search: id, version, kind) and the assistant's readiness answer: the owner's.

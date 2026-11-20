@@ -380,6 +380,7 @@ ALLOWED_X, REFUSED_X = "ALLOWED-BUT-MATRIX-REFUSES", "REFUSED-BUT-MATRIX-ALLOWS"
 DECLARED = ROOT / "tests" / "console" / "data" / "route_actions.yaml"
 KINDS = ("actions", "public", "signed_in", "scope")
 LOGS = ("", "on_log")  # D-1258: a row's ``log``
+ROW_KEYS = ("kind", "actions", "mode", "why", "log")
 
 
 def on_log(col: Column) -> bool:
@@ -441,9 +442,12 @@ def load_declared(path: Path = DECLARED) -> dict[tuple[str, str], Declared]:
         bad = [a for a in acts if a.lstrip("!") not in MATRIX]
         if bad:
             raise ValueError(f"{key}: not rows of the matrix: {bad}")
-        log = str(row.get("log") or "")
-        if log not in LOGS:
+        unknown = sorted(str(k) for k in row if k not in ROW_KEYS)
+        if unknown:  # D-1258 (review B2): a misspelled key never reads as "no condition"
+            raise ValueError(f"{key}: not keys of a row: {unknown} (a row has {', '.join(ROW_KEYS)})")
+        if "log" in row and row["log"] not in LOGS[1:]:  # a falsy value (no, off, 0, "", ~) is no way to say "none"
             raise ValueError(f"{key}: log is one of {', '.join(LOGS[1:])}, or left out")
+        log = str(row.get("log") or "")
         out[(method, route)] = Declared(kind, acts, str(row.get("mode") or "all"), str(row["why"]), log)
     return out
 

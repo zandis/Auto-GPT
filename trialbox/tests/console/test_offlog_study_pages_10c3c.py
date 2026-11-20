@@ -241,7 +241,7 @@ def test_off_the_log_an_investigator_neither_ticks_nor_labels_the_studys_criteri
     c = _accounts(box)
     store = box["app"].state.helpers.store
     crit = f"{STUDY}-INC-01"
-    for name in ("pi", *OFF):
+    for name in OFF:
         _lang(c[name][0], "ja")
     for name in OFF:
         page, _ = c[name]
@@ -252,12 +252,29 @@ def test_off_the_log_an_investigator_neither_ticks_nor_labels_the_studys_criteri
             assert f"/pilot/jobs/{WAIT}/approval/{what}"[:80] in _denied(box, name)
         assert store.code_ticks(WAIT) == {} and store.labels(STUDY, "ja") == {}, name  # nothing stored or counted
     assert not [r for r in _rows(box) if r["event"] in ("console.code_tick", "console.criterion_label")]
-    # the study's PI ticks and labels as before
-    pi = c["pi"][0]
+    # on the log, ticked or not, the round takes them as before (the review's B4: listed with no task, ticked only
+    # for "run", the PI)
+    for name in ("subnone", "subrun", "pi"):
+        page = c[name][0]
+        _lang(page, "ja")
+        for what, data in (("tick", {"crit": crit}), ("label", {"crit": crit, "text": "年齢"})):
+            r = page.post(f"/pilot/jobs/{WAIT}/approval/{what}", data={"csrf": _csrf(page), **data},
+                          follow_redirects=False)  # fmt: skip
+            assert r.status_code == 303, (name, what, r.status_code)
+        assert store.code_ticks(WAIT)[crit][0] == name and store.labels(STUDY, "ja") == {crit: "年齢"}, name
+
+
+def test_while_the_log_names_nobody_an_investigator_ticks_and_labels(box: dict[str, Any]) -> None:  # noqa: F811
+    from tests.console.test_home_today import _lang
+
+    c = _accounts(box, log=False)
+    page = c["nolog"][0]
+    _lang(page, "ja")
+    crit = f"{STUDY}-INC-01"
     for what, data in (("tick", {"crit": crit}), ("label", {"crit": crit, "text": "年齢"})):
-        r = pi.post(f"/pilot/jobs/{WAIT}/approval/{what}", data={"csrf": _csrf(pi), **data}, follow_redirects=False)
+        r = page.post(f"/pilot/jobs/{WAIT}/approval/{what}", data={"csrf": _csrf(page), **data},
+                      follow_redirects=False)  # fmt: skip
         assert r.status_code == 303, (what, r.status_code)
-    assert crit in store.code_ticks(WAIT) and store.labels(STUDY, "ja") == {crit: "年齢"}
 
 
 def test_a_study_id_in_lower_case_asks_the_same_log(box: dict[str, Any]) -> None:  # noqa: F811
@@ -310,11 +327,21 @@ def test_the_rows_that_ask_the_log_are_exactly_the_owners_18() -> None:
 def test_a_log_value_other_than_on_log_is_refused(tmp_path: Any) -> None:
     from tools import role_walk as rw
 
-    for value in ("on", "pi", "off_log", "true"):
-        f = tmp_path / f"{value}.yaml"
+    # a wrong value, and a falsy one (YAML reads no, off, false and 0 as such, ~ as none): never "no condition"
+    for i, value in enumerate(("on", "pi", "off_log", "true", "no", "off", "false", "0", '""', "~", "On_log")):
+        f = tmp_path / f"v{i}.yaml"
         f.write_text(f'routes:\n  "GET /x": {{kind: scope, log: {value}, why: "test"}}\n', "utf-8")
         with pytest.raises(ValueError, match="log is one of on_log"):
             rw.load_declared(f)
+    # a misspelled key
+    for i, row in enumerate(("Log: on_log", "logs: on_log", "on_log: true", "log_: on_log")):
+        f = tmp_path / f"k{i}.yaml"
+        f.write_text(f'routes:\n  "GET /x": {{kind: scope, {row}, why: "test"}}\n', "utf-8")
+        with pytest.raises(ValueError, match="not keys of a row"):
+            rw.load_declared(f)
+    f = tmp_path / "ok.yaml"  # the one way to say it
+    f.write_text('routes:\n  "GET /x": {kind: scope, log: on_log, why: "test"}\n', "utf-8")
+    assert rw.load_declared(f)[("GET", "/x")].log == "on_log"
 
 
 def test_the_log_key_only_turns_an_allow_into_a_refuse() -> None:
@@ -331,8 +358,8 @@ def test_the_log_key_only_turns_an_allow_into_a_refuse() -> None:
     for (method, path), d in rows:
         with_log, without = replace(d, log="on_log"), replace(d, log="")
         for col in rw.COLUMNS:
-            path_in = path.replace("{rs}", STUDY)
-            a, b = rw.expected_of(col, method, path_in, with_log), rw.expected_of(col, method, path_in, without)
+            a, b = rw.expected_of(col, method, path, with_log), rw.expected_of(col, method, path, without)  # the
+            # template path, as judge_declared passes it (the study-scope rule reads it)
             assert not (a and not b), (method, path, col.name)  # never wider
             narrowed += b and not a
     assert narrowed > 0  # and it does narrow (column inv)
@@ -378,3 +405,38 @@ def test_the_walks_rule_is_the_consoles_over_every_role_and_every_log() -> None:
     assert ("investigator", "others only", False) in seen and ("investigator", "own ended", False) in seen
     assert ("investigator", "empty", True) in seen and ("investigator", "own sub, no tick", True) in seen
     assert ("coordinator", "others only", True) in seen
+
+
+def test_every_column_of_the_walk_gets_a_real_job_file_as_its_row_says(box: dict[str, Any]) -> None:  # noqa: F811
+    """The review's B5: the role walk asks the file routes for a file named ``1`` and gets 404, so it cannot see these
+    doors. Here every column of the walk (its own accounts and GZQO log) asks for the real aggregate outputs of a
+    prepared SCREEN run of GZQO (the walk's own kind of job: a feasibility run's files are open to the aggregate-only
+    accounts by D-146, which the row does not describe), and each answer is judged against the declared row as the walk
+    judges it: a door reopened for any column fails here."""
+    from tests.console.test_console_app import _done_screen
+    from tests.console.test_matrix_role_walk import clients
+    from tools import role_walk as rw
+
+    jid = _ulid(1260)
+    job = _done_screen(box["backend"], jid)
+    page = b"<p>synthetic list explainer</p>"
+    box["backend"].objects[f"outputs/{jid}/screen_GZQO_en.html"] = page
+    extra = JobOutput(filename="screen_GZQO_en.html", sha256=sha256_bytes(page),
+                      minio_key=f"outputs/{jid}/screen_GZQO_en.html", recipients=[], tag="aggregate")  # fmt: skip
+    box["backend"].jobs[jid] = job.model_copy(update={"outputs": [*(job.outputs or []), extra]})
+    paths = [f"/pilot/jobs/{jid}/files/{o.filename}" for o in job.outputs or [] if o.tag == "aggregate"]
+    paths.append(f"/pilot/jobs/{jid}/view/screen_GZQO_en.html")
+    assert len(paths) == 3
+    cols = clients(box)
+    declared = rw.load_declared()
+    judged: dict[str, set[str]] = {"A": set(), "R": set()}
+    for path in paths:
+        template = re.sub(r"/pilot/jobs/[^/]+/(files|view)/[^/]+$", r"/pilot/jobs/{job_id}/\1/{filename}", path)
+        row = declared[("GET", template)]
+        for col in rw.COLUMNS:
+            r = cols[col.name][0].get(path, follow_redirects=False)
+            got, why = rw.decide(col, template, r.status_code, r.headers.get("location", ""))
+            want = rw.expected_of(col, "GET", template, row)
+            assert got == ("A" if want else "R"), (path, col.name, r.status_code, why)
+            judged[got].add(col.name)
+    assert "inv" in judged["R"] and {"pi", "sub", "crc"} <= judged["A"]  # the off-log column refused, the rest served
