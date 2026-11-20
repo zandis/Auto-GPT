@@ -80,7 +80,9 @@ def trialgpt_messages(ctype: str, criterion: str, note: list[str]) -> list[dict[
         f"Element 3: classify the patient eligibility for this {ctype} criterion: {_TRIALGPT_LABELS[ctype]}\n"
         'Output only a JSON object: {"reasoning": str, "evidence": [int], "label": str}.'
     )
-    numbered = "\n".join(f"{i}. {s}" for i, s in enumerate(note))
+    from tb_common.phi_guard import mask_name_parts
+
+    numbered = "\n".join(f"{i}. {s}" for i, s in enumerate(mask_name_parts(note)))
     user = (
         f"Here is the patient note, each sentence is led by a sentence_id:\n{numbered}\n\n"
         f"Here is the {ctype} criterion:\n{criterion}\n\nPlain JSON output:"

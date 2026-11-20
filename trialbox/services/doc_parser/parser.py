@@ -32,6 +32,7 @@ from typing import Any, Literal
 from guard.guard import Guard
 from tb_common import encoding
 from tb_common.crypto import sha256_bytes
+from tb_common.phi_guard import mask_name_parts
 from tb_contracts import DocSection, DocTable, IEBlock, ItemRef, ParsedDoc
 
 from doc_parser.hidden_text import hidden_text
@@ -397,9 +398,15 @@ def locator_sections(secs: list[DocSection], guard: Guard) -> tuple[list[dict[st
     out: list[dict[str, Any]] = []
     masked: set[str] = set()
     n = 0
+    # Keep name context across lines and sections, including the part beyond the locator's budget.
+    fields = [field for s in secs for field in (s.title, s.text)]
+    safe = iter(mask_name_parts(fields))
     for s in secs[:60]:
-        title, k1 = mask_contacts(s.title, guard)
-        text, k2 = mask_contacts(s.text[:4000], guard)
+        heading, body = next(safe), next(safe)
+        title, k1 = mask_contacts(heading, guard)
+        text, k2 = mask_contacts(body[:4000], guard)
+        if heading != s.title or body[:4000] != s.text[:4000]:
+            k1.append("NAME")
         if k1 or k2:
             n += 1
             masked.update(k1 + k2)

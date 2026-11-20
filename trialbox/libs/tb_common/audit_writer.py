@@ -228,6 +228,16 @@ def open_audit(directory: Path | None = None, tz: str | None = None, env: Mappin
     return AuditLog(where, tz) if tz else AuditLog(where)  # no zone given: the file writer's own, as before
 
 
+def record_mask_refusal(audit: AuditLog | None = None) -> None:
+    """Record the refusal without accepting note text or the dictionary's exception message."""
+    ledger = audit if audit is not None else open_audit()
+    try:
+        ledger.append("llm.mask.refuse", detail={"reason": "name_analyser_unavailable"})
+    finally:
+        if audit is None and isinstance(ledger, DbAuditWriter):
+            ledger.close()
+
+
 # ------------------------------------------------------------------------------------------------ the drain
 @dataclass(frozen=True)
 class Cursor:

@@ -25,6 +25,7 @@ from typing import Any, Protocol
 
 from tb_common.llm import no_sentinel_date
 from tb_common.pair import Vote, combine, needs_verifier, served_keys
+from tb_common.phi_guard import masked_excerpts
 from tb_common.quotes import quote_in, quote_key
 from tb_llm import budget
 from tb_llm.budget import estimate_tokens
@@ -169,6 +170,7 @@ class GatewayJudge:
 
         p = load_prompt(self.prompt_id)
         prompt = f"{p.meta.id}@{p.meta.version}"
+        excerpts = masked_excerpts(excerpts)
         body_vars = {
             "criterion_text": criterion_text,
             "note_question": note_question,

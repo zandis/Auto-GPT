@@ -79,11 +79,14 @@ def unmasked(text: str, ids: list[str], guard: Any) -> list[str]:
     out = []
     for value in ids:
         i = text.index(value)
-        if any(
-            not text[j].isspace() and (masked[j] != MASK_CHAR or not any(s <= j < e for s, e in spans))
-            for j in range(i, i + len(value))
-        ):
-            out.append(value)
+        while i >= 0:
+            if any(
+                not text[j].isspace() and (masked[j] != MASK_CHAR or not any(s <= j < e for s, e in spans))
+                for j in range(i, i + len(value))
+            ):
+                out.append(value)
+                break
+            i = text.find(value, i + 1)
     return out
 
 

@@ -139,6 +139,7 @@ def synthetic_excerpts(lang: str, n: int = N_EXCERPTS, seed: int = SEED) -> list
 def judge_messages(excerpt: str, lang: str, prompt: Any, case: int = 0) -> list[dict[str, str]]:
     """The product's ``judge`` prompt rendered over one synthetic excerpt (a gout-flare note question)."""
     from tb_common.llm import render
+    from tb_common.phi_guard import masked_note_variables
 
     variables = {
         "criterion_text": "At least two gout flares in the past 12 months",
@@ -146,7 +147,7 @@ def judge_messages(excerpt: str, lang: str, prompt: Any, case: int = 0) -> list[
         "index_date": "2026-06-30",
         "excerpts": [{"date": "2026-06-0" + str(1 + case % 9), "note_type": "progress", "text": excerpt}],
     }
-    return render(prompt, variables)
+    return render(prompt, masked_note_variables("judge", variables))
 
 
 # ---------------------------------------------------------------- HTTP to the VM's own model servers

@@ -96,7 +96,13 @@
     "開始",
     "評価",
     "介入",
-    "訓練"
+    "訓練",
+    "ECOG",
+    "ECOG PS",
+    "PS",
+    "Blood Pressure",
+    "Beta Blocker",
+    "ASA"
   ],
   "prefixes_before_title": [
     "老",
