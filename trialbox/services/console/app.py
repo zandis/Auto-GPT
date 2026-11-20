@@ -66,6 +66,7 @@ from console import (
     person_state,
     phone,
     plain_menu,
+    state_tone,  # 9k-4 (D-1380)
 )
 from console import actor as console_actor
 from console import timing as server_time
@@ -98,6 +99,7 @@ from console.identity import (
     secure_cookie_default,
 )
 from console.identity import register as register_identity
+from console.night_funnel import NIGHT_JOBS, night_card
 from console.proposals import Classifier, Proposal, ProposalError, job_create, propose
 from console.refusals import localize as localize_refusal
 from console.timefmt import local_time, local_today, site_zone
@@ -570,6 +572,7 @@ def create_app(
     # D-1258 (10C-3c): the menu offers a study's pages only to a reader its doors admit (``Helpers.on_log_ok``); no
     # workspace, no log: as before. Display only: every door still asks its own rule
     templates.env.globals["on_log"] = lambda user, rs: "h" not in reader or reader["h"].on_log_ok(user, str(rs).upper())
+    templates.env.globals["tone"] = state_tone.tone  # 9k-4 (D-1380): a badge's tone from one table
     templates.env.globals["theme_color"] = phone.THEME  # 9k-1 (D-1368): no colour in a page
     bk: Backend = backend
     au: AuditLog = audit
@@ -1824,6 +1827,7 @@ def create_app(
             screen=_screen_card(job, sess, revealed, bg=grant is not None),
             recheck=_recheck_share(job, sess, bg=grant is not None, read=budget_event),
             first_load=_first_load(job, sess, read=budget_event),
+            night=_night_funnel(job, sess),
             compile_answers=_compile_answers(job, recs_all) if reading else None,
             breakglass=grant,
         )
@@ -1901,6 +1905,11 @@ def create_app(
         if n > 0:
             out["nights"] = -(-waiting // n)
         return out
+
+    def _night_funnel(job: Job, sess: Session) -> dict[str, Any] | None:
+        """10E-12 (D-1259): the night's pre-filter funnel card (``console.night_funnel.night_card``: the gate, then
+        the night's jobs; ``NIGHT_JOBS`` of them at most)."""
+        return night_card(job, sess.user, helpers.admits_candidates, bk.list_jobs, NIGHT_JOBS)
 
     _case_pids: dict[str, str] = {}  # job id -> its subject's pseudonym: a job's chart number never changes
 

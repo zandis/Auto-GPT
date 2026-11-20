@@ -81,15 +81,6 @@ suppressions:
     reviewer: lane H (code read on master f6c42230)
     reviewed: 2026-11-19
     review_by: 2027-05-18
-  - path: services/criteria_compiler/terminology/installed.py
-    rule: S314
-    code: "return ET.fromstring(data)"
-    verdict: finding
-    finding: H10G39-01
-    reason: "the byte guard above looks for <!DOCTYPE and <!ENTITY in the raw bytes; a UTF-16 document holds neither as bytes, passes the guard, and its internal entity is expanded (shown with expat 2.9.0); expat's own limits still apply. Kept out of safe: H10G39-01"
-    reviewer: lane H (code read on master f6c42230)
-    reviewed: 2026-11-19
-    review_by: 2027-05-18
   - path: services/rc_sim/app.py
     rule: S314
     code: "root = ET.fromstring(text)"

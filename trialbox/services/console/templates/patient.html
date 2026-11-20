@@ -13,12 +13,12 @@
 {% include "_asof.html" %}
 <dl class="facts">
   <dt>{{ t('patient.visit') }}</dt><dd><span class="nowrap">{{ (row.next_appointment or '')[:16].replace('T', ' ') or t('week.no_visit') }}</span> · {{ given(practitioner) }}{% if row.department %} · {{ given(row.department) }}{% endif %}</dd>
-  <dt>{{ t('patient.tier') }}</dt><dd><span class="pill tier-{{ row.tier }}">{{ t('tier.' + row.tier) }}</span> {{ person_pill(person, 'patient-state') }}</dd>
+  <dt>{{ t('patient.tier') }}</dt><dd><span class="pill" data-tone="{{ tone('tier', row.tier) }}">{{ t('tier.' + row.tier) }}</span> {{ person_pill(person, 'patient-state') }}</dd>
   <dt>{{ t('patient.why') }}</dt><dd data-testid="why">{{ fit_line(fit) }}</dd>
   <dt>{{ t('patient.open') }}</dt><dd>{{ open_items(fit, row.actions or []) }}</dd>
 </dl>
 {{ toast(rs, pid, 'patient', request.query_params.get('done', '')) }}
-<p class="hint"><a href="/studies/{{ rs }}/candidates/{{ pid }}?purpose=referral" data-testid="ask-doctor">{{ t('mark.ask_doctor') }}</a>{% if ref_wait %} · <span class="pill ref-{{ ref_wait.state }}">{{ t('team.state.' + ref_wait.state) }}</span>{% endif %}</p>
+<p class="hint"><a href="/studies/{{ rs }}/candidates/{{ pid }}?purpose=referral" data-testid="ask-doctor">{{ t('mark.ask_doctor') }}</a>{% if ref_wait %} · <span class="pill" data-tone="{{ tone('referral', ref_wait.state) }}">{{ t('team.state.' + ref_wait.state) }}</span>{% endif %}</p>
 {% set pf = user.can_mark and request.state is defined and request.state.phone_first %}{# D-1222 (E-M5): read, then mark #}{% set markpart %}<section class="card">{% if user.can_mark %}<h2>{{ t('patient.your_mark') }}</h2>{{ mark_box(rs, pid, 'patient', reasons, mark, today) }}{% if contact and contact.why == 'limit' %}<p class="pill warn" data-testid="contact-limit-pi">{{ t('outcome.limit.pi', max=contact.max) }}</p>{% endif %}{% endif %}
 {{ outcome_box(rs, pid, 'patient', outcome_keys, screening_no, outcomes, mark, contact, person, study_closed) }}</section>{% endset %}{% if not pf %}{{ markpart }}{% endif %}
 {% include "_criteria.html" %}{% if pf %}{{ markpart }}{% endif %}

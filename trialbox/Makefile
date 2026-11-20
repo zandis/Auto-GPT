@@ -18,8 +18,8 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: differential cross-card objects-dir embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure guard test-compose walk bench-gate bench-baseline console-timing e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models fetch-weights selftest canary poc poc-down poc-status rehearse-box runbook-install test-console test-console-e2e site site-preview clean \
-	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle security-contact-check supply-chain release-version release-tag media-linux
+.PHONY: differential cross-card objects-dir embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure guard test-compose walk bench-gate bench-baseline console-timing e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch buildx-check two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models fetch-weights selftest canary poc poc-down poc-status rehearse-box runbook-install test-console test-console-e2e site site-preview clean \
+	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates vocab-bundle-check release-bundle security-contact-check supply-chain release-version release-tag media-linux
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
 # Every temporary root of a run derives from TB_TEST_ROOT: one per branch, under TB_SCRATCH (an agent's scratchpad;
@@ -79,6 +79,7 @@ lint: contracts-check
 	$(PY) -m mypy libs services tools tests
 	$(PY) tools/doclint.py
 	PYTHONPATH=libs:services:. $(PY) -m tools.text_keys  # D-1220: no conflicting double, no missing key
+	$(PY) -m tools.form_fields  # D-1376: every POST form uses the field macro or is on the ratchet
 	$(PY) -m tools.findings_register --check
 	$(PY) -m tools.inline_suppressions --check  # D-1338: every `# nosec` and `# noqa: S` line has a reviewed ledger line
 	$(PY) -m tools.vex check  # D-1339: every vulnerability waiver with an owner, a date and a reason (no calendar rule)
@@ -300,7 +301,7 @@ demo:
 
 # the same as one image file for the demo VM (docs/RUNBOOK.md §11): dist/trialbox-demo.tar.gz
 # T-501: the jar the compiler reads FHIRHelpers from comes from jvm-deps (the Dockerfile fetches it on a fresh clone)
-demo-bundle: jvm-deps
+demo-bundle: jvm-deps vocab-bundle-check
 	docker build $(CA_SECRET) -f demo/Dockerfile -t trialbox-demo:step5 .
 	mkdir -p dist && docker save trialbox-demo:step5 | gzip > dist/trialbox-demo.tar.gz
 	@ls -l dist/trialbox-demo.tar.gz
@@ -415,7 +416,12 @@ jvm-deps:
 # docker-compose.gb10.yml names it; unset, this machine's own
 PLATFORM ?=
 PLATFORM_ARG := $(if $(PLATFORM),--platform $(PLATFORM),)
-images: jvm-deps $(FONTS)
+# H-70: every Dockerfile uses RUN --mount, which needs BuildKit: without the buildx plugin `docker build` falls back to
+# the legacy builder and stops with "the --mount option requires BuildKit". Say so before anything is fetched.
+buildx-check:
+	@docker buildx version >/dev/null 2>&1 || { echo "images: Docker's buildx plugin is missing (docker buildx version failed); install docker-buildx-plugin (Docker's packages) or docker-buildx (Ubuntu's), then run make again" >&2; exit 1; }
+
+images: buildx-check jvm-deps $(FONTS)
 	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) --build-arg TB_REVISION=$(TB_REVISION) \
 		-f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
 	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/backup.Dockerfile \
@@ -435,7 +441,7 @@ embed-start:
 # both architectures (x86_64 servers, GB10 aarch64); push to the site registry or export with --output type=oci
 PLATFORMS ?= linux/amd64,linux/arm64
 REGISTRY ?= localhost:5000
-images-multiarch: jvm-deps $(FONTS)
+images-multiarch: buildx-check jvm-deps $(FONTS)
 	docker buildx build --platform $(PLATFORMS) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) \
 		--build-arg TB_REVISION=$(TB_REVISION) -f deploy/docker/python.Dockerfile -t $(REGISTRY)/trialbox-py:1.0.0 --push .
 	docker buildx build --platform $(PLATFORMS) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) \
@@ -719,6 +725,13 @@ sc-images: deploy/.env
 	@[ -n "$(SC_LOCAL_IMAGES)" ] || case " $(SC_IMAGES) " in *" registry:"*) ;; \
 		*) echo "sc-images: no third-party images (docker compose config gave none)" >&2; exit 1 ;; esac
 
+# card 22-4 (root review 22): no row of a vocabulary the licence register classes c (must not ship) in a shipped
+# terminology artefact (tables, maps, value sets) or in VOCAB_BUNDLE_PATHS; make_bundle.sh checks what it stages
+# beside the images itself (rule-set zips, reference data packs, the models folder)
+VOCAB_BUNDLE_PATHS ?=
+vocab-bundle-check:
+	PYTHONPATH=libs:services:. $(PY) -m tools.vocab_bundle_check --tree $(VOCAB_BUNDLE_PATHS)
+
 # D-1343 (10G-41, review 21 OT-3): every Dockerfile under trialbox/ is linted by hadolint. HADOLINT_GATING are the
 # three the CI `images` job gates on at warning since D-206 (unchanged); HADOLINT_REPORT are linted report-only
 # (`make hadolint-report`, the CI job's report step: findings in the job summary and artifact, never a failure)
@@ -756,7 +769,7 @@ hadolint-report:
 # inside it with release.json. BUNDLE_ARGS="--key ... --id ... --release-seq N --out ..."
 # 10G-9 (D-1239): no release bundle while the public security contact (deploy/security/contact.json) is not set; a
 # --rehearsal or --allow-dirty bundle, which is no release, passes with a warning
-release-bundle: security-contact-check release-gates
+release-bundle: security-contact-check release-gates vocab-bundle-check
 	tools/make_bundle.sh --gates $(SC_DIR)/gates.json --sbom-dir dist/sbom $(BUNDLE_ARGS)
 
 # OPS-006 (D-966): the offline media of a bare Ubuntu box from a signed bundle and the packages of

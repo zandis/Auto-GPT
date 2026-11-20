@@ -1,0 +1,25 @@
+{
+ "card": "H70",
+ "title": "two gaps an install test on a real server found: buildx for make images, SSH=off over SSH",
+ "date": "2026-11-20",
+ "source": "docs/handover/install-test-runbook-gaps-2026-11-20.md",
+ "note": "basis 'shown' means shown by the install test's report (F-5, F-6) and by the card's unit tests with stand-ins; not re-run on a real host.",
+ "findings": [
+  {
+   "id": "H70-01",
+   "severity": "Medium",
+   "claim": "make images failed on a Docker host without the buildx plugin with Docker's own legacy-builder error (the Dockerfiles use RUN --mount), and runbook 01 step 2 did not name buildx; make images and images-multiarch now stop first with a line naming buildx, and the runbook names it with its check",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 5f714bfc95437156a7cd53bc3e02662614d946bc"
+  },
+  {
+   "id": "H70-02",
+   "severity": "High",
+   "claim": "deploy/hardening/apply.sh with SSH=off, the example's default, stopped sshd and dropped port 22 under an install run over SSH, locking it out; it now refuses from an SSH session and changes nothing, and install.sh asks the same rule at its start, before it loads anything, unless --ssh-off-over-ssh (apply.sh or install.sh) or TB_SSH_OFF_OVER_SSH=yes is given",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 3baa1977ba696e8e7085d56b55a58ba13e080200"
+  }
+ ]
+}

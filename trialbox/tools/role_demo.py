@@ -137,10 +137,15 @@ class InprocBackend:
     def waiting_studies(self) -> list[str]:
         return [str(s) for s in self.c.get("/jobs/waiting-studies").json()]
 
-    def list_jobs(self, limit: int = 100, state: str | None = None) -> list[Any]:
+    def list_jobs(
+        self, limit: int = 100, state: str | None = None, *, ruleset: str | None = None, type_: str | None = None
+    ) -> list[Any]:
+        from urllib.parse import urlencode
+
         from tb_contracts import Job
 
-        q = f"/jobs?limit={limit}" + (f"&state={state}" if state else "")
+        query = {"limit": str(limit), "state": state, "ruleset": ruleset, "type": type_}  # 10E-12: as the backend asks
+        q = "/jobs?" + urlencode({k: v for k, v in query.items() if v})
         return [Job.model_validate(j) for j in self.c.get(q).json()]
 
     def get_job(self, job_id: str) -> Any:

@@ -36,7 +36,7 @@ from tb_common.authz import permit
 from tb_common.config import environment_name
 from tb_common.retention import STUDY_YEARS_AFTER_CLOSE, STUDY_YEARS_MAX, kept_until
 
-from console import actor, s28
+from console import actor, form_errors, s28
 from console import studies as st
 from console.api_first import before_body
 from console.auth import Session, User
@@ -66,6 +66,22 @@ _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REF = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 _PRACT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$")
 CONSENT_SCOPES = ("opt-in", "opt-out", "waiver")
+# 9k-6a (D-1376): the message of each field the identifiers' and the IRB record's checks name (``problems()``)
+IDENTITY_MESSAGES = {
+    "sponsor": "fe.sid.sponsor",
+    "protocol_no": "fe.sid.protocol_no",
+    "siv_date": "fe.sid.siv_date",
+    "registry.nct": "fe.sid.registry_nct",
+    "registry.jrct": "fe.sid.registry_jrct",
+    "registry.umin": "fe.sid.registry_umin",
+    "registry.tw": "fe.sid.registry_tw",
+}
+IRB_TEXT_MESSAGES = {
+    "approval_ref": "fe.irbt.approval_ref",
+    "text_version": "fe.irbt.text_version",
+    "approved_on": "fe.irbt.approved_on",
+    "note": "fe.irbt.note",
+}
 LINK_TEXT = (
     "dag",
     "link_field",
@@ -610,8 +626,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 "saved": request.query_params.get("saved", ""),
                 "err": None,
                 "bad": [],
-                "irbt_err": None,
-                "irbt_bad": [],
+                "fe": None,  # 9k-6a (D-1376): the identifiers' or the IRB record's failed POST
                 "close": None,
                 **extra,
             },
@@ -820,8 +835,10 @@ def register(app: FastAPI, h: Helpers) -> None:
             registry_ids={r: text(f"registry_{r}", 60) for r in REGISTRIES if text(f"registry_{r}", 60)},
         )
         bad = ident.problems()
-        if bad:
-            return state_page(request, sess, rid, status=400, ident=ident, bad=bad, err="sid.bad")
+        if bad:  # 9k-6a (D-1376): the summary and each field's own message; what was typed is shown again
+            fe = form_errors.failed("identity", "id", [(b.replace(".", "_"), IDENTITY_MESSAGES[b])
+                                                       for b in bad], form.multi_items())  # fmt: skip
+            return state_page(request, sess, rid, status=form_errors.FAILED, ident=ident, fe=fe)
         saved = store.save_study_identity(rid, ident, h.actor(sess), h.clock().isoformat())
         au.append("console.study_identity", ruleset=rid, actor=h.actor(sess),
                   detail={"fields": [k for k, _v in saved.lines()], **saved.registry_ids})  # fmt: skip
@@ -848,8 +865,9 @@ def register(app: FastAPI, h: Helpers) -> None:
                       text_version=text("text_version", 60), approved_on=text("approved_on", 20),
                       note=text("note", 260))  # fmt: skip
         bad = rec.problems(h.today())
-        if bad:
-            return state_page(request, sess, rid, status=400, irbt=rec, irbt_bad=bad, irbt_err="irbt.bad")
+        if bad:  # 9k-6a (D-1376): the summary and each field's own message; what was typed is shown again
+            fe = form_errors.failed("irb-text", "irbt", [(b, IRB_TEXT_MESSAGES[b]) for b in bad], form.multi_items())
+            return state_page(request, sess, rid, status=form_errors.FAILED, irbt=rec, fe=fe)
 
         def audit(new: IrbText) -> None:
             au.append("console.irb_text", ruleset=rid, actor=h.actor(sess),

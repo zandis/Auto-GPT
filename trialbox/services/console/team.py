@@ -729,7 +729,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         s = stand(sess.user, rid)
         entries = team.entries(rid)
         writable = log_roles_for(sess, s)
-        return h.page(request, "team_log.html", sess, rs=rid, entries=entries, standing=s, tasks=TASKS,
+        ending = [(e, e.days_left(today())) for e in entries if e.days_left(today()) is not None]  # 9f-4 (a)
+        return h.page(request, "team_log.html", sess, rs=rid, entries=entries, standing=s, tasks=TASKS, ending=ending,
                       log_roles=writable, accounts=accounts(rid), checks=team.checks(rid)[:12],
                       due=check_due(team, rid, today(), site_zone(bk)), history=team.history(rid)[-30:], today=today(),
                       can_edit=bool(writable), can_tick=permit(sess.user.role, "delegation.keep", s.grant()).allowed,
