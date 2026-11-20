@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ t('nav.cascade') }} {{ run.trial }}{% endblock %}
 {% block content %}
-<h1>{{ t('nav.cascade') }} · {{ run.trial }} <span class="state s-{{ run.state }}" data-testid="cascade-state" data-state="{{ run.state }}">{{ state(run.state) }}</span></h1>
+<h1>{{ t('nav.cascade') }} · {{ run.trial }} <span class="pill" data-tone="{{ tone('job', run.state) }}" data-testid="cascade-state" data-state="{{ run.state }}">{{ state(run.state) }}</span></h1>
 <p class="mono">{{ run.run_id }} · {{ run.started_by }} · {{ run.seconds }} s</p>
 <p class="hint">{{ t('cascade.same_funnel') }}</p>
 {% if refresh %}<p class="hint" role="status">{{ t('job.refresh') }}</p>{% endif %}

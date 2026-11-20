@@ -132,7 +132,7 @@
 <thead><tr><th scope="col">{{ t('col.job') }}</th><th scope="col">{{ t('col.type') }}</th><th scope="col">{{ t('col.ruleset') }}</th><th scope="col">{{ t('col.state') }}</th><th scope="col">{{ t('col.received') }}</th><th scope="col">{{ t('admin.jobs.actions') }}</th></tr></thead>
 <tbody>{% for j in jobs %}<tr data-job="{{ j.job_id }}">
 <td class="mono"><a href="/pilot/jobs/{{ j.job_id }}">{{ j.job_id[-8:] }}</a></td><td>{{ j.type|upper }}</td><td>{{ j.ruleset or '–' }}</td>
-<td><span class="state s-{{ j.state }}" data-state="{{ j.state }}">{{ state(j.state) }}</span>{% if j.error %}<br><span class="hint mono">{{ j.error.step }}</span>{% endif %}</td>
+<td><span class="pill" data-tone="{{ tone('job', j.state) }}" data-state="{{ j.state }}">{{ state(j.state) }}</span>{% if j.error %}<br><span class="hint mono">{{ j.error.step }}</span>{% endif %}</td>
 <td class="nowrap">{{ j.received_at.strftime('%Y-%m-%d %H:%M') }}</td>
 <td>{% if j.state not in terminal and can_cancel %}<form method="post" action="/admin/jobs/{{ j.job_id }}/cancel" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small secondary" data-testid="cancel-{{ j.job_id }}">{{ t('admin.jobs.cancel') }}</button></form>{% endif %}
 {% if j.state == 'failed' and j.job_id in can_retry %}<form method="post" action="/admin/jobs/{{ j.job_id }}/retry" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small" data-testid="retry-{{ j.job_id }}">{{ t('admin.jobs.retry') }}</button></form>{% endif %}</td>

@@ -83,12 +83,6 @@ form.inline select { width: auto; min-height: 44px; padding: 8px 14px; }
 .pill { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: var(--t-meta); font-weight: 700; }
 .pill.ok { background: var(--ok-bg); color: var(--ok); padding: 1px 8px; }
 .pill.bad { background: var(--bad-bg); color: var(--bad); padding: 1px 8px; }
-.state { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: var(--t-meta); font-weight: 700;
-  border: 1px solid var(--line); }
-.s-done { background: var(--ok-bg); color: var(--ok); }
-.s-failed, .s-cancelled { background: var(--bad-bg); color: var(--bad); }
-.s-awaiting_approval { background: var(--warn-bg); color: var(--warn); }
-.s-running, .s-received, .s-parsing, .s-compiling, .s-reporting { background: var(--bg); color: var(--accent); }
 .kv { display: inline-block; font-size: var(--t-meta); color: var(--muted); margin-right: 6px; }
 progress { width: 140px; height: 12px; vertical-align: middle; }
 .kvlist { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; }
@@ -120,13 +114,6 @@ details > summary { display: flex; align-items: center; min-height: 44px; cursor
 ol.stages { padding-left: 20px; } ol.stages li { margin: 4px 0; }
 table.compact td, table.compact th { padding: 3px 8px; }
 /* D-1221: a person's one state (console.person_state), the same colour on every list */
-.pill.ps-consented, .pill.ps-enrolled, .pill.ps-on_study, .pill.ps-completed { background: var(--ok-bg); color: var(--ok); }
-.pill.ps-need_info, .pill.ps-to_contact, .pill.ps-contacted { background: var(--warn-bg); color: var(--warn); }
-.pill.ps-set_aside, .pill.ps-not_approached, .pill.ps-declined, .pill.ps-screen_fail, .pill.ps-withdrawn { background: var(--bad-bg); color: var(--bad); }
-.pill.ps-listed { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
-.pill.ref-agreed { background: var(--ok-bg); color: var(--ok); }  /* D-147: referral states */
-.pill.ref-declined { background: var(--bad-bg); color: var(--bad); }
-.pill.ref-asked, .pill.ref-discuss { background: var(--warn-bg); color: var(--warn); }
 td form.inline select, td form.inline input { max-width: 140px; }
 
 /* models-and-policy card (D-97) */
@@ -137,9 +124,6 @@ dl.facts dd { margin: 0; }
 @media (max-width: 640px) { dl.facts { grid-template-columns: 1fr; } dl.facts dd { margin-bottom: 6px; } }
 
 /* coordinator screen (D-99) */
-.pill.tier-high { background: var(--ok-bg); color: var(--ok); }
-.pill.tier-review { background: var(--warn-bg); color: var(--warn); }
-.pill.tier-excluded { background: var(--bad-bg); color: var(--bad); }
 table.candidates td { vertical-align: top; }
 table.candidates blockquote.quote { margin: 0 0 6px; padding: 4px 8px; border-left: 3px solid var(--line); font-size: var(--t-meta); }
 .bad-text { color: var(--bad); }
@@ -167,9 +151,6 @@ details.more[open] > summary { background: var(--bg); }
 .big { font-size: var(--t-num); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.25; }
 .big small { font-size: var(--t-meta); font-weight: 500; color: var(--muted); }
 ul.plain { list-style: none; padding: 0; margin: 6px 0; }
-.pill.rd-go { background: var(--ok-bg); color: var(--ok); }
-.pill.rd-conditional { background: var(--warn-bg); color: var(--warn); }
-.pill.rd-nogo { background: var(--bad-bg); color: var(--bad); }
 .big .pill { font-size: var(--t-lead); padding: 2px 12px; }
 table.funnel td.barcol, table.funnel th.barcol { width: 34%; min-width: 120px; }
 svg.bar { width: 100%; height: 14px; display: block; }
@@ -182,19 +163,8 @@ svg .line { fill: none; stroke: var(--accent); stroke-width: 2.5; }
 svg .target { stroke: var(--warn); stroke-width: 1.5; stroke-dasharray: 5 4; }
 svg .axis { stroke: var(--line); stroke-width: 1; }
 .formgrid { display: grid; gap: 4px 16px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
-.prow { padding: 12px 16px; }
-.prow .why { margin: 6px 0; font-size: var(--t-body); }
-.prow .open { margin: 4px 0 8px; }
-.prow.st-new { border-left: 4px solid var(--accent); }
 .visit { font-variant-numeric: tabular-nums; }
 .markrow form.inline select { width: auto; max-width: 180px; min-height: 44px; padding: 8px 14px; }
-.pill.mk-approach { background: var(--ok-bg); color: var(--ok); }
-.pill.mk-need_info, .pill.stt-new { background: var(--warn-bg); color: var(--warn); }
-.pill.mk-not_suitable, .pill.mk-not_now { background: var(--bad-bg); color: var(--bad); }
-.pill.vd-pass { background: var(--ok-bg); color: var(--ok); }
-.pill.vd-fail { background: var(--bad-bg); color: var(--bad); }
-.pill.vd-unknown { background: var(--warn-bg); color: var(--warn); }
-.pill.vd-pending_human { background: var(--bg); color: var(--accent); border: 1px solid var(--line); }
 .markform { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
 .markform label { margin: 0; }
 .markform input, .markform select { width: auto; max-width: 260px; }
@@ -246,7 +216,6 @@ table.worklist { width: 100%; border-collapse: collapse; font-size: var(--t-meta
 table.worklist th { text-align: left; font-size: var(--t-meta);  letter-spacing: .04em; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 table.worklist td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 table.worklist tr.sel td { background: var(--warn-bg); }
-table.worklist tr.st-new td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 table.worklist td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 table.worklist td.needed { font-size: var(--t-meta); color: var(--warn); }
 table.worklist .bad { color: var(--bad); font-weight: 600; }
@@ -441,9 +410,6 @@ ol.steps-list { padding-left: 22px; } ol.steps-list li { margin: 6px 0; }
 .savebar button { margin: 0; }
 
 /* TB-PLAN-04 step 5 (D-134): participants, visits, the schedule; serious AEs stand out */
-.pill.life-consented, .pill.life-enrolled, .pill.life-on_study, .pill.v-done, .pill.life-completed { background: var(--ok-bg); color: var(--ok); }
-.pill.life-withdrawn, .pill.life-screen_fail, .pill.v-overdue, .pill.v-missed { background: var(--bad-bg); color: var(--bad); }
-.pill.v-open { background: var(--warn-bg); color: var(--warn); }
 ul.vlist { list-style: none; padding: 0; margin: 0; }
 ul.vlist li.vrow { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--line); }
 ul.vlist li.vrow:first-child { border-top: 0; }
@@ -483,9 +449,6 @@ article.fact form.markform > .markbar { position: static; }
 ul.clist li.crow { padding: 10px 0; border-top: 1px solid var(--line); }
 ul.clist li.crow:first-child { border-top: 0; }
 ul.clist li.crow p { margin: 2px 0; }
-.pill.pc-ready { background: var(--ok-bg); color: var(--ok); }
-.pill.pc-needs { background: var(--warn-bg); color: var(--warn); }
-.pill.pc-not_eligible { background: var(--bad-bg); color: var(--bad); }
 @media (max-width: 760px) {
   ul.miss li { flex-direction: column; align-items: stretch; }
   .formstack button, ul.miss li .button { width: 100%; }
@@ -508,7 +471,7 @@ body [lang="en"] { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "H
    anywhere, does not lower the minimum width. */
 body:lang(ja), body:lang(zh-TW) { line-break: strict; line-height: var(--lh-cjk); word-break: normal; overflow-wrap: break-word; }
 em:lang(ja), em:lang(zh-TW) { font-style: normal; font-weight: 700; }  /* 9k-2: no italic for Han emphasis (CLReq, JLReq); an em in English keeps it */
-.pill, .state, button, .button { word-break: keep-all; overflow-wrap: break-word; }
+.pill, button, .button { word-break: keep-all; overflow-wrap: break-word; }
 nav a, .rail a > span:first-child, details.more > summary, .steps b, .wizard-steps li, th { word-break: keep-all; }
 /* the worklist's visit column wraps between date and time (each one a no-wrap span), never inside a CJK phrase, so
    the status column keeps its pills whole without the table scrolling sideways on a desktop */
@@ -591,10 +554,10 @@ body.phone-first .pfweek > .fold-toggle:not(:checked) ~ .pf-fold { display: none
   body.phone-first table.worklist td.needed { grid-column: 1 / -1; grid-row: 4; }
   body.phone-first table.worklist td[data-label]::before { content: attr(data-label) " "; color: var(--muted); font-weight: 600; }
   body.phone-first table.worklist td:nth-child(3)[data-label]::before { display: block; font-weight: 400; }
+  body.phone-first table.worklist tr[data-status="new"] { box-shadow: inset 3px 0 0 var(--accent); }
+  body.phone-first table.worklist tr[data-status="new"] td:first-child { box-shadow: none; }
   body.phone-first table.worklist tr.sel { background: var(--warn-bg); }
   body.phone-first table.worklist tr.sel td { background: transparent; }
-  body.phone-first table.worklist tr.st-new { box-shadow: inset 3px 0 0 var(--accent); }
-  body.phone-first table.worklist tr.st-new td:first-child { box-shadow: none; }
   body.phone-first table.worklist a.rowlink::after { content: ""; position: absolute; inset: 0; }
   body.phone-first table.worklist details.quick { position: relative; z-index: 1; }
 }
@@ -674,3 +637,17 @@ nav.ptabs .ptabs-rs { color: var(--muted); }
 .idle-warn { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 40; max-width: 36rem; margin: 0 auto; border: 2px solid var(--warn); }
 .idle-warn[hidden], .idle-warn [hidden] { display: none; }
 .idle-warn button { min-height: 44px; }
+
+/* 9k-4 (D-1380): the one state badge. A badge is <span class="pill" data-tone="ok|warn|bad|info|neutral">; the tone
+   comes from console.state_tone, never from a class named for a state. */
+.pill[data-tone="ok"] { background: var(--ok-bg); color: var(--ok); }
+.pill[data-tone="warn"] { background: var(--warn-bg); color: var(--warn); }
+.pill[data-tone="bad"] { background: var(--bad-bg); color: var(--bad); }
+.pill[data-tone="info"] { background: var(--bg); color: var(--accent); border: 1px solid var(--line); }
+.pill[data-tone="neutral"] { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+table.worklist tr[data-status="new"] td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+/* 9k-5 (D-1380): the page header, templates/_ds.html. One h1, its context line, and the page's one primary act. */
+.ph { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; justify-content: space-between; }
+.ph h1 { margin-bottom: 6px; }
+.ph-ctx { flex: 0 0 100%; margin: 0; font-size: var(--t-meta); color: var(--muted); }
+.ph-act { display: flex; flex-wrap: wrap; gap: 6px 14px; }
