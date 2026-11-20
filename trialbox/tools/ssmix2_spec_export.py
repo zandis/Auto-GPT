@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -55,6 +56,8 @@ LOCAL_TO_JLAC10 = {
     "HCGU": "4F040000001305911",
 }
 _PRESENCE = {"POS": "陽性", "NEG": "陰性"}
+# a WHO ICD-10 code without its dot (S 表3-47 PRB-10 example K297)
+WHO_ICD10 = re.compile(r"^[A-Z][0-9]{2}[0-9]?$")
 INJECTABLE = ("L04AB", "L04AC", "A10BJ", "A10BX")  # the same split as the legacy exporter (biologics, GLP-1)
 
 
@@ -248,7 +251,7 @@ ADT_STRUCT = {  # S 3.4.n: the message structure each ADT event uses (and HL7 v2
     "A15": "ADT_A15",
     "A26": "ADT_A21",
     "A02": "ADT_A02",
-    "A12": "ADT_A12",
+    "A12": "ADT_A09",
     "A16": "ADT_A16",
     "A25": "ADT_A21",
     "A03": "ADT_A03",
@@ -508,7 +511,10 @@ def prb(
     """PRB (S 表3-47): PRB-1 action (R; HL7 0287, C 表35), PRB-2 its time (R), PRB-3 the 病名管理番号 under ``MDCDX2``
     (R), PRB-4 the instance id (R), PRB-7 診断日, PRB-9 終了日, PRB-10 ``<ICD-10>^^I10^<診断種別>^<text>^JHSD0004``
     (C 表94: O 外来時), PRB-14 転帰 (HL7 0241, C 表34), PRB-15 転帰日 (equal to PRB-9 for death, recovery and full
-    recovery), PRB-16 onset, PRB-18 病名区分 (JHSD0007, C 表97: 1 主診断, 2 副診断)."""
+    recovery), PRB-16 onset, PRB-18 病名区分 (JHSD0007, C 表97: 1 主診断, 2 副診断). PRB-10 only for a WHO ICD-10
+    code (I10, HL7 table 0396): the synthetic hospital also holds ICD-10-CM codes (M10.071), left to the exchange
+    code."""
+    who = icd10.replace(".", "") if WHO_ICD10.match(icd10.replace(".", "")) else ""
     return seg(
         "PRB",
         {
@@ -518,7 +524,7 @@ def prb(
             4: esc(instance),
             7: diagnosed,
             9: ended,
-            10: f"{icd10.replace('.', '')}^^I10^O^外来時^JHSD0004" if icd10 else "",
+            10: f"{who}^^I10^O^外来時^JHSD0004" if who else "",
             14: outcome,
             15: ended if outcome else "",
             16: onset,
@@ -621,7 +627,9 @@ def _medicines(st: SpecStorage, people: Patients, rows: list[dict[str, str]]) ->
             total = dose
         typ, done_typ = ("OMP-02", "OMP-12") if injection else ("OMP-01", "OMP-11")
         cls = "O"
-        orc = {1: "NW", 2: number, 4: number, 9: ordered, 17: f"{esc(dept)}^^{CS_ORDER}"}
+        # ORC-5 the order status (HL7 0038): SS-MIX2 "O", sent when the HIS has it (S 表3-4)
+        status = {"active": "IP", "completed": "CM", "stopped": "DC"}.get(m.get("status", ""), "")
+        orc = {1: "NW", 2: number, 4: number, 5: status, 9: ordered, 17: f"{esc(dept)}^^{CS_ORDER}"}
         if injection:
             orc[29] = "O^外来^HL70482"
             body = [
@@ -765,7 +773,7 @@ def _exams(st: SpecStorage, people: Patients, reports: list[dict[str, str]], enc
             continue
         ordered, done = plus(day + "090000", days=-1), day + "110000"
         obr = {1: "1", 2: number, 4: f"{test}^{CS_ORDER}"}
-        orc = {1: "NW", 2: number, 9: ordered, 12: "D0001^医師^一郎^^^^^^^L^^^^^I"}
+        orc = {1: "NW", 2: number, 9: ordered, 12: "D0001^医師^一郎^^^^^^^L^^^^^I", 17: f"01^^{CS_ORDER}"}
         tq1 = seg("TQ1", {1: "1", 9: "R^^HL70485"})
         st.put(
             mrn,
