@@ -573,9 +573,13 @@ def _write_tar(target: Path, members: Mapping[str, str], at: datetime) -> None:
 
 def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterable[Path] = (),
           runner: Runner = run_cmd, commands: bool = True, now: datetime | None = None,
-          say: Callable[[str], None] = print) -> Path:  # fmt: skip
+          say: Callable[[str], None] = print, logs_left_out: str | None = None) -> Path:  # fmt: skip
     """Make the bundle in ``out_dir``; return its path. :class:`BundleRefused` when it would hold something it must
-    not (an ``--add`` path under /data, a key, a file the scan cannot read); then nothing is written."""
+    not (an ``--add`` path under /data, a key, a file the scan cannot read); then nothing is written.
+
+    ``logs_left_out`` (10K-5, D-1381; the command never passes it): a reason; when given, no service log is read
+    and ``MANIFEST.json`` lists ``logs/`` as left out with that reason (``log_days`` empty). Left as None, the
+    bundle is made exactly as before."""
 
     now = now or datetime.now(UTC)
     deploy = deploy.resolve()
@@ -601,7 +605,11 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
         _cmd_part(b, deploy, runner)
     else:
         b.leave_out("cmd/", "--no-commands")
-    log_days = _logs_part(b, deploy, env, days, mrn)
+    if logs_left_out is None:
+        log_days = _logs_part(b, deploy, env, days, mrn)
+    else:
+        log_days = []
+        b.leave_out("logs/", logs_left_out)
     used: set[str] = set()
     for p in extra:
         text = _read(p)

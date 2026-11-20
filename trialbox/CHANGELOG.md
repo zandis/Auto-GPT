@@ -12,8 +12,10 @@ new heading with the version and date, in the same pull request that sets the ve
 
 - The support bundle is a button (10K-5, D-1381): the administrator makes it on the Operations page's new
   "Support bundle" tab and downloads it from there, in en, ja and zh-TW. The box makes it with the same tool and scan
-  as `trialbox support-bundle`, with nothing added; a bundle that does not pass the scan is not handed out and the
-  page says so. Each download is recorded in the audit trail with who, when, the file's size and its SHA-256.
+  as `trialbox support-bundle`, with nothing added and, for now, without TrialBox's service logs (they can carry
+  patient pseudonyms; only the host's command, run as root, adds them); a bundle that does not pass the scan is not
+  handed out and the page says so. The making is recorded in the audit trail before the file is released (no record,
+  no file), and each download when it starts, with who, when, the file's size and its SHA-256.
 - Silent set-up choices guarded (10K-21): a new PRODUCTION site must answer the chart-number question (choosing
   "as written" is an answer; leaving it empty is not), in the settings wizard and on the box's first-run page. A box
   names the person who opens its health page every working day (its backup alert route); the name is shown with the

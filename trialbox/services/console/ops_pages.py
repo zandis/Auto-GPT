@@ -96,6 +96,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     inline = (env.get("TB_OPS_RUNNER") or "host").strip().lower() == "inline"
     deploy = Path(env.get("TB_OPS_DEPLOY") or ROOT / "deploy")
     runner = tb_ops.OpsRunner(tb_ops.Box.local(deploy, env), ops) if inline else None
+    if runner is not None:  # 10K-5 (D-1381): the support bundle's make event, through this console's own writer
+        setattr(runner, "audit_local", lambda d: au.append("console.ops", actor="trialbox-ops", detail=d))  # noqa: B010
 
     def need_ops(request: Request, action: str = "ops.view") -> Session:
         sess = h.need(request)

@@ -2,10 +2,13 @@
 """10K-5 (D-1381): the support bundle as a button on the operations pages.
 
 The button is the operations action ``support_bundle``; the runner (inline here, the host's on a box) calls the same
-builder and scan as ``trialbox support-bundle``. Held here: the happy path (confirm, make, download, the audit events
-with size and sha256 and never a line of the bundle), every other role of the matrix refused the tab, the making and
-the download, a bundle that fails the scan is not handed out and the page says so, a file changed on disk is not
-handed out, CSRF, the texts in en, ja and zh-TW. Synthetic data only: the one log line planted is invented.
+builder and scan as ``trialbox support-bundle``, without the service logs (the review of 83a0640a: they can carry
+patient pseudonyms). Held here: the happy path (confirm, make, download, the audit events with size and sha256 and
+never a line of the bundle; no log member and the MANIFEST saying why), every other role of the matrix refused the
+tab, the making and the download, signed-out access, a bundle that fails the scan is not handed out and the page says
+so, the make event written before the file gets its final name and no bundle without it, the folder's check (a link,
+a folder others may write), a file changed on disk or a link at its place not handed out, HEAD, CSRF, the texts in
+en, ja and zh-TW. Synthetic data only: the one log line planted is invented.
 
 Not held here: the refusal while a support session is on (10K-15, #1170, not on master when this was built)."""
 
@@ -15,6 +18,7 @@ import gzip
 import hashlib
 import io
 import json
+import os
 import re
 import tarfile
 from pathlib import Path
@@ -23,6 +27,7 @@ from typing import Any
 import pytest
 from console.i18n import CATALOGUES
 from console.i18n_support_bundle import EN, JA, ZH
+from fastapi.testclient import TestClient
 from tb_common.authz import MATRIX_ROLES, admin_allowed
 
 from tests.console.test_console_app import login
@@ -80,7 +85,7 @@ def test_every_other_role_is_refused_the_tab_the_making_and_the_download(ob: dic
     assert sorted(p.name for p in (ob["dir"] / "ops" / "requests").glob("*.json")) == before  # nothing asked
     denied = [e["detail"]["action"] for e in _events(ob["audit"], "console.denied")]
     assert {"/admin/ops", "/admin/ops/support_bundle", f"/admin/ops/support/{rid}"} <= set(denied)
-    downloads = [e for e in _events(ob["audit"], "console.ops") if e["detail"]["action"] == "support_bundle_download"]
+    downloads = [e for e in _events(ob["audit"], "console.ops") if e["detail"]["action"].startswith("support_bundle_d")]
     assert downloads == []
 
 
@@ -108,9 +113,12 @@ def test_the_button_asks_first_makes_the_bundle_with_the_same_builder_and_hands_
     r = c.post("/admin/ops/support_bundle", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=False)
     assert r.status_code == 303
     rid = r.headers["location"].rsplit("=", 1)[1]
-    # the same builder, with nothing added: no --add file, the default log days, into <ops>/support/
-    assert len(calls) == 1 and calls[0]["deploy"] == ob["deploy"] and calls[0]["out"] == ob["dir"] / "ops" / "support"
+    # the same builder, with nothing added (no --add file) and the service logs left out, into <ops>/support/.making
+    support = ob["dir"] / "ops" / "support"
+    assert len(calls) == 1 and calls[0]["deploy"] == ob["deploy"] and calls[0]["out"] == support / ".making"
     assert "add" not in calls[0] and "days" not in calls[0] and calls[0]["commands"] is False
+    assert calls[0]["logs_left_out"] == ops_support.LOGS_LEFT_OUT
+    assert list((support / ".making").iterdir()) == []  # moved out once audited
     [f] = _bundles(ob)
     assert ops_support.NAME.fullmatch(f.name)
     page = c.get(r.headers["location"]).text
@@ -124,15 +132,23 @@ def test_the_button_asks_first_makes_the_bundle_with_the_same_builder_and_hands_
     with tarfile.open(fileobj=io.BytesIO(d.content), mode="r:gz") as tar:
         names = tar.getnames()
         manifest = json.loads(tar.extractfile("support/MANIFEST.json").read())  # type: ignore[union-attr]
-    assert "support/MANIFEST.json" in names and "support/logs/2026-11-18/console.log" in names
+    assert "support/MANIFEST.json" in names and "support/env.redacted" in names
+    assert not [n for n in names if n.startswith("support/logs")]  # the planted log day is NOT in it
     assert not [n for n in names if n.startswith("support/added/")]  # nothing added to what the bundle holds
     assert manifest["tool"].startswith("tools/support_bundle.py") and "the audit chain" in manifest["never"]
+    assert manifest["log_days"] == [] and {"what": "logs/", "why": ops_support.LOGS_LEFT_OUT} in manifest["left_out"]
+    assert "pseudonyms" in ops_support.LOGS_LEFT_OUT and "D-1381" in ops_support.LOGS_LEFT_OUT
+    assert {"what": "cmd/", "why": "--no-commands"} in manifest["left_out"]  # the in-process box runs no command
     ev = [e["detail"] for e in _events(ob["audit"], "console.ops")]
-    assert [e["action"] for e in ev] == ["support_bundle", "support_bundle.done", "support_bundle_download"]
-    assert ev[0] == {"action": "support_bundle", "request": rid} and ev[1]["ok"] is True
-    assert ev[2] == {"action": "support_bundle_download", "request": rid, "file": f.name, "bytes": len(d.content),
+    assert [e["action"] for e in ev] == ["support_bundle", "support_bundle.made", "support_bundle.done",
+                                         "support_bundle_download.started"]  # fmt: skip
+    assert ev[0] == {"action": "support_bundle", "request": rid} and ev[2]["ok"] is True
+    assert ev[1] == {"action": "support_bundle.made", "request": rid, "file": f.name, "bytes": len(d.content),
                      "sha256": sha}  # fmt: skip
-    assert all(e["actor"] == "console:admin" for e in _events(ob["audit"], "console.ops"))
+    assert ev[3] == {"action": "support_bundle_download.started", "request": rid, "file": f.name,
+                     "bytes": len(d.content), "sha256": sha}  # fmt: skip
+    actors = [e["actor"] for e in _events(ob["audit"], "console.ops")]
+    assert actors == ["console:admin", "trialbox-ops", "console:admin", "console:admin"]
     chain = "".join(p.read_text(encoding="utf-8") for p in sorted(ob["audit"].glob("*.jsonl")))
     assert "synthetic test line" not in chain and "MANIFEST" not in chain  # never the contents
 
@@ -168,6 +184,111 @@ def test_a_bundle_that_fails_the_scan_is_not_handed_out_and_the_page_says_so(
     assert c.get(f"/admin/ops/support/{rid}").status_code == 404
     ev = [e["detail"] for e in _events(ob["audit"], "console.ops")]
     assert [e["action"] for e in ev] == ["support_bundle", "support_bundle.done"] and ev[1]["ok"] is False
+
+
+def test_the_make_event_is_written_before_the_file_gets_its_final_name(
+    ob: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    support = ob["dir"] / "ops" / "support"
+    seen: list[tuple[list[str], list[str]]] = []
+    real = ops_support._audit_made
+
+    def spy(runner: Any, rec: Any, rid: str) -> None:
+        seen.append(
+            (sorted(p.name for p in support.iterdir()), sorted(p.name for p in (support / ".making").iterdir()))
+        )
+        real(runner, rec, rid)
+
+    monkeypatch.setattr(ops_support, "_audit_made", spy)
+    _make(ob)
+    [f] = _bundles(ob)
+    assert seen == [([".making"], [f.name])]  # at the event the file was still in .making, not in support/
+
+
+def test_no_make_event_no_bundle_and_the_page_says_so(ob: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(runner: Any, rec: Any, rid: str) -> None:
+        raise OSError("the audit chain cannot be written (synthetic)")
+
+    _plant_log(ob)
+    monkeypatch.setattr(ops_support, "_audit_made", broken)
+    c, _csrf, rid = _make(ob)
+    assert _bundles(ob) == [] and list((ob["dir"] / "ops" / "support" / ".making").iterdir()) == []  # removed
+    res = tb_ops.OpsDir(ob["dir"] / "ops").result(rid)
+    assert res is not None and res["ok"] is False and res["summary"].startswith("BundleNotAudited: not released")
+    assert "synthetic" not in res["summary"] and ops_support.record(res) is None
+    page = c.get(f"/admin/ops?tab=support&req={rid}").text
+    assert 'data-testid="sbundle-unaudited"' in page and EN["sbundle.unaudited"].replace("'", "&#39;") in page
+    assert f'href="/admin/ops/support/{rid}"' not in page
+    assert c.get(f"/admin/ops/support/{rid}").status_code == 404
+    ev = [e["detail"]["action"] for e in _events(ob["audit"], "console.ops")]
+    assert ev == ["support_bundle", "support_bundle.done"]
+
+
+def test_a_link_planted_at_the_support_folder_is_refused_and_nothing_is_written_through_it(
+    ob: dict[str, Any], tmp_path: Path
+) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    ops_root = ob["dir"] / "ops"
+    ops_root.mkdir(parents=True, exist_ok=True)
+    (ops_root / "support").symlink_to(elsewhere)
+    mode = elsewhere.stat().st_mode
+    c, _csrf, rid = _make(ob)
+    res = tb_ops.OpsDir(ops_root).result(rid)
+    assert res is not None and res["ok"] is False and res["summary"].startswith("SupportFolderRefused")
+    assert "a link" in res["summary"]
+    assert list(elsewhere.iterdir()) == [] and elsewhere.stat().st_mode == mode  # nothing made, chmod-ed or chown-ed
+    assert (ops_root / "support").is_symlink()
+    page = c.get(f"/admin/ops?tab=support&req={rid}").text
+    assert 'data-testid="sbundle-folder"' in page and EN["sbundle.folder"].replace("'", "&#39;") in page
+    assert c.get(f"/admin/ops/support/{rid}").status_code == 404
+
+
+def test_the_folder_check_refuses_a_linked_or_open_operations_folder_and_a_file_in_the_place(tmp_path: Path) -> None:
+    real = tmp_path / "real-ops"
+    real.mkdir(mode=0o755)
+    (tmp_path / "linked-ops").symlink_to(real)
+    with pytest.raises(ops_support.SupportFolderRefused, match="without a link"):
+        ops_support._open_support(tmp_path / "linked-ops", 10001)
+    assert not (real / "support").exists()
+    real.chmod(0o775)
+    with pytest.raises(ops_support.SupportFolderRefused, match="group or others"):
+        ops_support._open_support(real, 10001)
+    real.chmod(0o755)
+    (real / "support").write_bytes(b"not a folder")
+    with pytest.raises(ops_support.SupportFolderRefused, match="not a folder"):
+        ops_support._open_support(real, 10001)
+    (real / "support").unlink()
+    sfd, mfd = ops_support._open_support(real, 10001)  # a plain folder: made, .making inside it, 0700
+    os.close(sfd)
+    os.close(mfd)
+    assert (real / "support" / ".making").is_dir() and ((real / "support" / ".making").stat().st_mode & 0o777) == 0o700
+
+
+def test_signed_out_gets_no_bytes(ob: dict[str, Any]) -> None:
+    _admin, _csrf, rid = _make(ob)
+    assert len(_bundles(ob)) == 1
+    r = TestClient(ob["app"]).get(f"/admin/ops/support/{rid}", follow_redirects=False)
+    assert r.status_code in (303, 401) and not r.content.startswith(b"\x1f\x8b")
+    assert not [e for e in _events(ob["audit"], "console.ops") if e["detail"]["action"].startswith("support_bundle_d")]
+
+
+def test_a_link_at_the_bundle_path_is_not_followed(ob: dict[str, Any], tmp_path: Path) -> None:
+    c, _csrf, rid = _make(ob)
+    [f] = _bundles(ob)
+    copy = tmp_path / "copy.tar.gz"
+    copy.write_bytes(f.read_bytes())  # the same bytes and hash: only the link makes it wrong
+    f.unlink()
+    f.symlink_to(copy)
+    assert c.get(f"/admin/ops/support/{rid}").status_code == 404
+
+
+def test_head_is_not_answered_and_a_range_gets_the_whole_file(ob: dict[str, Any]) -> None:
+    c, _csrf, rid = _make(ob)
+    [f] = _bundles(ob)
+    assert c.head(f"/admin/ops/support/{rid}").status_code == 405
+    r = c.get(f"/admin/ops/support/{rid}", headers={"Range": "bytes=0-9"})
+    assert r.status_code == 200 and r.content == f.read_bytes()  # D-1381: the whole file, 200
 
 
 def test_a_file_changed_on_disk_is_not_handed_out(ob: dict[str, Any]) -> None:
@@ -237,13 +358,19 @@ def test_the_runner_knows_the_action_and_ignores_its_arguments(tmp_path: Path, m
 
     monkeypatch.setattr(support_bundle, "build", fake_build)
     ops = tb_ops.OpsDir(tmp_path / "ops")
-    runner = tb_ops.OpsRunner(tb_ops.Box.local(tmp_path / "deploy", {}), ops)
+    runner = tb_ops.OpsRunner(tb_ops.Box.local(tmp_path / "deploy", {"TB_AUDIT_DIR": str(tmp_path / "audit")}), ops)
     rid = ops.submit("support_bundle", "console:admin", {"add": "/data/lake.duckdb", "days": "999"})
     res = runner.run_one({"id": rid, "action": "support_bundle", "by": "console:admin",
                           "args": {"add": "/data/lake.duckdb", "days": "999"}})  # fmt: skip
-    assert res["ok"] is True and seen == [{"commands": False, "say": seen[0]["say"]}]
-    assert ops_support.record(res) == {"file": "trialbox-support-20261119T010203Z.tar.gz", "bytes": 9,
-                                       "sha256": hashlib.sha256(b"synthetic").hexdigest()}  # fmt: skip
+    assert res["ok"] is True
+    assert seen == [{"commands": False, "say": seen[0]["say"], "logs_left_out": ops_support.LOGS_LEFT_OUT}]
+    rec = {"file": "trialbox-support-20261119T010203Z.tar.gz", "bytes": 9,
+           "sha256": hashlib.sha256(b"synthetic").hexdigest()}  # fmt: skip
+    assert ops_support.record(res) == rec
+    # no console here: the in-process box's make event goes to the box's own writer (TB_AUDIT_DIR)
+    assert [e["detail"] for e in _events(tmp_path / "audit", "console.ops")] == [
+        {"action": "support_bundle.made", "request": rid, **rec}
+    ]
 
 
 def test_on_a_site_box_the_runner_audits_the_made_bundle_with_its_size_and_hash(tmp_path: Path) -> None:
@@ -262,3 +389,25 @@ def test_on_a_site_box_the_runner_audits_the_made_bundle_with_its_size_and_hash(
     detail = json.loads(argvs[0][-1])
     assert detail == {"action": "support_bundle.made", "request": "20261119T010203Z-abcdef", **rec}
     assert re.search(r"open_audit\(\)\.append\('console\.ops'", argvs[0][-2])
+
+
+def test_on_a_site_box_a_failed_make_event_removes_the_bundle_before_it_is_released(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(argv: Any, timeout: Any) -> str:  # the orchestrator's exec exits non-zero (run_cmd raises)
+        raise tb_ops.OpsFailed("exit 1: synthetic")
+
+    def fake_build(deploy: Path, out_dir: Path, **kw: Any) -> Path:
+        f = out_dir / "trialbox-support-20261119T010203Z.tar.gz"
+        f.write_bytes(b"synthetic")
+        return f
+
+    monkeypatch.setattr(support_bundle, "build", fake_build)
+    ops = tb_ops.OpsDir(tmp_path / "ops")
+    runner = tb_ops.OpsRunner(tb_ops.Box("compose", tmp_path / "deploy", {}, run=fail), ops)
+    rid = ops.submit("support_bundle", "console:admin", {})
+    res = runner.run_one({"id": rid, "action": "support_bundle", "by": "console:admin", "args": {}})
+    assert res["ok"] is False and res["summary"].startswith("BundleNotAudited: not released")
+    assert "synthetic" not in res["summary"] and ops_support.record(res) is None
+    assert sorted(p.name for p in (tmp_path / "ops" / "support").iterdir()) == [".making"]
+    assert list((tmp_path / "ops" / "support" / ".making").iterdir()) == []
