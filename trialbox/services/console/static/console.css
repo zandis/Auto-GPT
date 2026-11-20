@@ -189,14 +189,6 @@ svg .axis { stroke: var(--line); stroke-width: 1; }
 }
 
 /* ---------------------------------------------------------------- D-105 clinic workbench */
-.steps { list-style: none; display: flex; flex-wrap: wrap; margin: 0 0 12px; padding: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--card); }
-.steps li { flex: 1 1 120px; display: grid; gap: 2px; padding: 8px 10px; border-right: 1px solid var(--line); min-width: 0; }
-.steps li:last-child { border-right: 0; }
-.steps b { font-size: var(--t-meta); }
-.steps span { font-size: var(--t-meta); color: var(--muted); }
-.steps li.done { background: var(--ok-bg); }
-.steps li.done b::before { content: "✓ "; color: var(--ok); }
-.steps li.now { box-shadow: inset 0 -3px 0 var(--accent); }
 .bench { display: grid; grid-template-columns: 210px minmax(0, 1fr) minmax(0, 460px); gap: 12px; align-items: start; }
 .bench > * { min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 6px; }
 .rail { padding: 8px; display: grid; gap: 2px; align-content: start; }
@@ -273,7 +265,6 @@ table.worklist .bad { color: var(--bad); font-weight: 600; }
 .critl .ic.vd-pending_human { background: var(--bg); color: var(--accent); border: 1px solid var(--line); }
 main:has(.bench), main:has(.crcgrid) { max-width: 1480px; }
 .crcgrid .empty { margin: 0; padding: 4px 12px 12px; }
-@media (max-width: 760px) { .steps li { flex-basis: 30%; padding: 6px 8px; } .steps span { display: none; } }
 
 /* D-108 build step 2: S20 approval, mark and outcome boxes */
 table.approval tr.amber td { background: var(--warn-bg); }
@@ -472,7 +463,7 @@ body [lang="en"] { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "H
 body:lang(ja), body:lang(zh-TW) { line-break: strict; line-height: var(--lh-cjk); word-break: normal; overflow-wrap: break-word; }
 em:lang(ja), em:lang(zh-TW) { font-style: normal; font-weight: 700; }  /* 9k-2: no italic for Han emphasis (CLReq, JLReq); an em in English keeps it */
 .pill, button, .button { word-break: keep-all; overflow-wrap: break-word; }
-nav a, .rail a > span:first-child, details.more > summary, .steps b, .wizard-steps li, th { word-break: keep-all; }
+nav a, .rail a > span:first-child, details.more > summary, .ps b, .wizard-steps li, th { word-break: keep-all; }
 /* the worklist's visit column wraps between date and time (each one a no-wrap span), never inside a CJK phrase, so
    the status column keeps its pills whole without the table scrolling sideways on a desktop */
 table.worklist td.visit { white-space: normal; word-break: keep-all; }
@@ -651,3 +642,17 @@ table.worklist tr[data-status="new"] td:first-child { box-shadow: inset 3px 0 0 
 .ph h1 { margin-bottom: 6px; }
 .ph-ctx { flex: 0 0 100%; margin: 0; font-size: var(--t-meta); color: var(--muted); }
 .ph-act { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+
+/* 9k-10 (D-1385): the phase strip, templates/_steps.html. An ordered list; each item says its state in words for a
+   screen reader (.sr) and in marks and colour for the eye: done (tick), current (underline), todo (plain), off (muted,
+   dashed). The cells are drawn by a one-pixel gap on the line colour; on a phone the strip has three columns, so six
+   phases are two lines. */
+.ps { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 1px; margin: 0 0 12px; padding: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--line); }
+.ps li { display: grid; gap: 2px; align-content: start; padding: 8px 10px; min-width: 0; overflow-wrap: break-word; background: var(--card); }
+.ps b { font-size: var(--t-meta); }
+.ps .who { font-size: var(--t-meta); color: var(--muted); }
+.ps li[data-state="done"] { background: var(--ok-bg); }
+.ps li[data-state="done"] b::before { content: "✓ "; color: var(--ok); }
+.ps li[data-state="current"] { box-shadow: inset 0 -3px 0 var(--accent); }
+.ps li[data-state="off"] { color: var(--muted); box-shadow: inset 0 -2px 0 var(--line); }
+@media (max-width: 760px) { .ps { grid-template-columns: repeat(3, minmax(0, 1fr)); } .ps li { padding: 6px 8px; } .ps .who { display: none; } }
