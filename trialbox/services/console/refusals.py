@@ -240,6 +240,39 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "分担医師は医師アカウントでログインします",
         "協同主持人須以醫師帳號登入",
     ),
+    # 9f-3, 9f-5 (D-1383), a block of its own: the PI's cover and a task's owner
+    "only the PI the study's log names enters a cover": (
+        "代行を登録できるのは、試験のリストにある治験責任医師だけです",
+        "只有試驗紀錄表上的試驗主持人可以登錄代理",
+    ),
+    "choose the sub-investigator who covers": ("代行する治験分担医師を選んでください", "請選擇擔任代理的協同主持人"),
+    "a cover names another person than the PI": (
+        "代行者には治験責任医師本人以外の人を指名してください",
+        "代理人須為試驗主持人本人以外的人",
+    ),
+    "a cover needs its first and its last day": ("代行には開始日と最終日が必要です", "代理需要第一天與最後一天"),
+    "a cover starts today or later": ("代行の開始日は今日以降にしてください", "代理須自今天或之後開始"),
+    "a cover is at most 90 days": ("代行は最長 90 日です", "代理最長 90 天"),
+    "the person who covers is a sub-investigator on this study's log for every day of the cover": (
+        "代行者は、代行期間のすべての日にこの試験のリストに治験分担医師として載っている必要があります",
+        "代理人在代理期間的每一天，都須以協同主持人身分列在本試驗的紀錄表上",
+    ),
+    "another cover of this study holds some of these days": (
+        "この試験の別の代行と期間が重なっています",
+        "與本試驗的另一項代理期間重疊",
+    ),
+    "no such cover in this study": ("この試験にその代行はありません", "本試驗沒有此代理"),
+    "this cover is already over": ("この代行はすでに終了しています", "此代理已經結束"),
+    "the IRB was already told of this cover": ("この代行はすでに IRB に連絡済みです", "此代理已通知 IRB"),
+    "the person who covers signs in with an investigator account of this study": (
+        "代行者は、この試験の医師アカウントでログインする人です",
+        "代理人須以本試驗的醫師帳號登入",
+    ),
+    "no such task": ("その作業はありません", "沒有此工作"),
+    "a task's owner is a person on this study's delegation log": (
+        "作業の担当者は、この試験の治験分担医師・治験協力者リストに載っている人です",
+        "工作負責人須為本試驗授權紀錄表上的人",
+    ),
     "give a chart number or a pseudonym": ("カルテ番号か仮名IDを入力してください", "請輸入病歷號或假名代碼"),
     # NEW-DIN-3 (D-544): console.team.CANNOT_CHECK
     "TrialBox cannot check this chart number now: to register it without the check, write why "

@@ -31,7 +31,7 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -46,6 +46,7 @@ from console.backend import Problem, Unavailable
 from console.entry_pages import record_key
 from console.home import Helpers
 from console.i18n import CATALOGUES, translate
+from console.notify import base_url
 from console.saerecord import (
     PARTIES,
     SYNC,
@@ -55,6 +56,7 @@ from console.saerecord import (
     check_ref,
     day_of,
     downgraded_view,
+    escalate_once,
     followup_rules,
     office_notice,
     sort_key,
@@ -67,11 +69,23 @@ _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _EV = re.compile(r"^ae\d{1,3}$")
 _ID = re.compile(r"[0-9]{1,18}")
 AE_FORM = "tb_adverse_event"
+#: 9f-4 (b), D-1383: the log roles told of a serious AE the PI has not acknowledged after ``TB_SAE_ESCALATE_HOURS``
+ESCALATE_ROLES = ("sub_pi", "crc")
+ESCALATE_ENV = "TB_SAE_ESCALATE_HOURS"
 DATE_ALERTS = ("nostart", "aware_before_onset", "future_date", "bad_sent", "serious_mismatch", "noclock")
 RULE_ALERTS = set(lc.RULE_ALERTS)
 
 for _lang, _cat in (("en", i18n_sae.EN), ("ja", i18n_sae.JA), ("zh-TW", i18n_sae.ZH)):
     CATALOGUES[_lang].update(_cat)
+
+
+def escalate_hours(env: Any) -> int:
+    """9f-4 (b): the hours an unacknowledged serious AE waits before the escalation (``TB_SAE_ESCALATE_HOURS``,
+    default 24, a whole number from 1 to 720). Anything else is refused (ValueError): no preference silences it."""
+    raw = str(env.get(ESCALATE_ENV) or "24").strip()
+    if not raw.isdigit() or not 1 <= int(raw) <= 720:
+        raise ValueError(f"{ESCALATE_ENV} must be a whole number of hours from 1 to 720, got {raw!r}")
+    return int(raw)
 
 
 def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
@@ -250,14 +264,140 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
 
     def hook(rid: str) -> None:
         """``h.sae_sync``: called after an AE form is saved, an acknowledgement and by the notice job. Never fails
-        the caller's write: what it cannot write now, the next write or the daily job writes."""
+        the caller's write: what it cannot write now, the next write or the daily job writes. 9f-4 (b): then the
+        escalation of the study's unacknowledged cases (:func:`escalate`)."""
         try:
             sync_study(rid)
         except Exception as exc:
             au.append("console.sae", ruleset=rid, actor=SYNC,
                       detail={"action": "sync_failed", "error": type(exc).__name__})  # fmt: skip
+        escalate_safe(rid)
+
+    def escalate_safe(rid: str) -> None:
+        """:func:`escalate`, never failing its caller: a failure is a ``console.sae`` event; the next round tries."""
+        try:
+            escalate(rid)
+        except Exception as exc:
+            au.append("console.sae", ruleset=rid, actor=SYNC,
+                      detail={"action": "escalate_failed", "error": type(exc).__name__})  # fmt: skip
+
+    # ------------------------------------------------------------------ 9f-4 (b), D-1383: the escalation
+    escalate_hours(os.environ)  # a broken TB_SAE_ESCALATE_HOURS stops the console at start, never a quiet default
+
+    def told_later(rid: str, day: date) -> list[tuple[str, str]]:
+        """Who hears of a case the PI has not acknowledged after the threshold: each account with an entry active on
+        ``day`` on the study's delegation log as sub-investigator or coordinator (``crc``), once, as (account, log
+        role; a person on the log as both is told as sub-investigator). Nobody else; no notice setting applies."""
+        if h.team is None:
+            return []
+        out: dict[str, str] = {}
+        for e in h.team.entries(rid):
+            if e.username and e.role in ESCALATE_ROLES and e.active_on(day) and out.get(e.username) != "sub_pi":
+                out[e.username] = e.role
+        return sorted(out.items())
+
+    def escalation_mail(rid: str, v: dict[str, Any], rules: dict[str, Any], n: int, day: date) -> dict[str, Any]:
+        """Mail each person :func:`told_later` names, one mail each (an address the orchestrator refuses loses only
+        its own). The mail is the PI's own notice of the case (``office_notice``: study, screening number, event,
+        dates, fatal or not, rule set, deadlines; never the AE term, a chart number or a name) after one line saying
+        why; a person whose own rights do not read this study's serious AEs gets the line and the link only, without
+        the screening number, the event or the dates. Returns the trail body and the audit's names."""
+        _subject, notice = office_notice(rid, v, rules)
+        url = f"{base_url()}/studies/{rid}/subjects"
+        sent: list[str] = []
+        full: list[str] = []
+        short: list[str] = []
+        failed: list[str] = []
+        unreachable: list[str] = []
+        for name, role in told_later(rid, day):
+            u = h.users.get(name)  # an enabled account that has not expired, else None
+            if u is None or not u.mailbox:
+                unreachable.append(name)
+                continue
+            try:
+                lang = h.store.notify_person(name).lang
+            except Exception:  # the site store cannot say: the mail still goes, in English
+                lang = "en"
+            lang = lang if lang in ("en", "ja", "zh-TW") else "en"
+            lead = translate(lang, "sae.escalate.sub_pi" if role == "sub_pi" else "sae.escalate.crc", rs=rid, n=n)
+            sees = reads_saes(u, rid)
+            body = "\n".join([lead, "", notice] if sees else [lead, "", translate(lang, "sae.escalate.open", url=url)])
+            try:
+                bk.send_notice("N2", [u.mailbox], translate(lang, "sae.escalate.subject", rs=rid, n=n), body,
+                               actor.SAE_SYNC)  # fmt: skip
+            except Exception:  # one refused address does not stop the others; the audit names it
+                failed.append(name)
+                continue
+            sent.append(name)
+            (full if sees else short).append(name)
+        return {"to": ", ".join(sent), "sent": len(sent), "full": full, "short": short, "failed": failed,
+                "unreachable": unreachable}  # fmt: skip
+
+    def escalate(rid: str) -> list[str]:
+        """9f-4 (b): each serious AE of the study the PI has not acknowledged ``TB_SAE_ESCALATE_HOURS`` hours (default
+        24) after the register first had it (``sae_case.created_at``, the moment it became one waiting for the PI) is
+        mailed to the study's sub-investigators and coordinators, once per case and threshold (a trail row
+        ``escalated`` and a ``console.sae`` event naming who was told, in one transaction). Returns the cases told."""
+        n = escalate_hours(os.environ)
+        day, at = today(), now()
+        out = fetch(rid, day)
+        rules = dict(out.get("rules") or {})
+        fu = followup_rules(os.environ.get("TB_SAE_FOLLOWUP_DAYS", ""))
+        done: list[str] = []
+        for a in out.get("aes") or []:
+            if not a.get("serious") or not a.get("needs_ack"):
+                continue
+            key = (str(a["record"]), str(a["event"]))
+            case = reg.case(rid, *key)
+            if case is None or case.get("pi_ack_by"):
+                continue
+            try:
+                since = datetime.fromisoformat(str(case.get("created_at") or ""))
+            except ValueError:
+                continue
+            since = since if since.tzinfo else since.replace(tzinfo=UTC)
+            if at - since < timedelta(hours=n):
+                continue
+            v = case_view(a, case, reg.reports(rid, *key), day, fu, at, rules)
+            names: dict[str, Any] = {}
+
+            def send(v: dict[str, Any] = v, names: dict[str, Any] = names) -> dict[str, Any]:
+                got = escalation_mail(rid, v, rules, n, day)
+                names.update(got)
+                return {"to": got["to"], "sent": got["sent"]}
+
+            def audit_it(body: dict[str, Any], key: tuple[str, str] = key, names: dict[str, Any] = names,
+                         since: str = str(case.get("created_at") or "")) -> None:  # fmt: skip
+                au.append("console.sae", ruleset=rid, actor=SYNC,
+                          detail={"action": "escalated", "record": key[0], "event": key[1], "hours": n,
+                                  "since": since, **names})  # fmt: skip
+
+            if escalate_once(reg, rid, *key, n, send, SYNC, stamp(), audit_it) is not None:
+                done.append(f"{key[0]}/{key[1]}")
+        return done
+
+    def escalate_all() -> list[str]:
+        """The hourly round (``console.timers``): every study's register brought up to date and escalated, its
+        patient reads signed as the morning mail's principal (NEW-SEC-1)."""
+        told: list[str] = []
+        for r in bk.rulesets():
+            if not _RS.match(r.id):
+                continue
+            with actor.reading_as(actor.NOTIFY):
+                try:
+                    sync_study(r.id)
+                except Exception as exc:
+                    au.append("console.sae", ruleset=r.id, actor=SYNC,
+                              detail={"action": "sync_failed", "error": type(exc).__name__})  # fmt: skip
+                try:
+                    told += [f"{r.id}:{x}" for x in escalate(r.id)]
+                except Exception as exc:
+                    au.append("console.sae", ruleset=r.id, actor=SYNC,
+                              detail={"action": "escalate_failed", "error": type(exc).__name__})  # fmt: skip
+        return told
 
     h.sae_sync = hook
+    h.sae_escalate = escalate_all
     prev_reports = h.life_reports
 
     def life_reports(rid: str) -> list[dict[str, Any]]:
@@ -450,6 +590,7 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
             sync_study(rid)
         except (Problem, Unavailable):
             raise h.problem(503, "unavailable", detail="orchestrator") from None
+        escalate_safe(rid)  # 9f-4 (b): the write path escalates too
         return RedirectResponse("/sae", status_code=303)
 
     @app.post("/studies/{rs}/sae/{record}/{event}/{what}")

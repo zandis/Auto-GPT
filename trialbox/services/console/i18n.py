@@ -1248,3 +1248,11 @@ from console.i18n_profile_form import ZH as _PF_ZH  # noqa: E402
 EN.update(_PF_EN)
 JA.update(_PF_JA)
 ZH.update(_PF_ZH)
+# 9f-3, 9f-4 (b), 9f-5 (D-1383), a block of its own: the PI's cover, the SAE escalation mail, a task's owner
+from console.i18n_cover import EN as _COV_EN  # noqa: E402
+from console.i18n_cover import JA as _COV_JA  # noqa: E402
+from console.i18n_cover import ZH as _COV_ZH  # noqa: E402
+
+EN.update(_COV_EN)
+JA.update(_COV_JA)
+ZH.update(_COV_ZH)

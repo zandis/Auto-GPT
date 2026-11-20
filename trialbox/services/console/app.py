@@ -33,7 +33,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
@@ -569,11 +569,22 @@ def create_app(
     templates.env.globals["BEST"] = BEST_STANDING
     templates.env.globals["theme_color"] = phone.THEME  # 9k-1 (D-1368): no colour in a page
     bk: Backend = backend
-    au: AuditLog = audit
+    # 9f-3 (D-1383): an event a person writes in a study while covering its PI names both (console.cover_pages)
+    from console.cover_pages import CoverAudit
+
+    au: AuditLog = cast(AuditLog, CoverAudit(audit, lambda name, rs: _cover_of(name, rs)))  # noqa: PLW0108 - defined below
     us: UserStore = users
     us.zone = site_tz  # an account's end date is a site day (D-270)
     us.enrol_ttl = timedelta(hours=settings.identity.enrol_hours)  # D-719: TB_CONSOLE_ENROL_CODE_HOURS
     account_team: dict[str, Any] = {}  # the study team store, once the workspace registers it (D-719: the PIs)
+
+    def _cover_of(name: str, rs: str) -> Any:
+        """The PI cover ``name`` holds in study ``rs`` today, by the one reading of the log (None without one)."""
+        hp = account_team.get("h")
+        team_store = getattr(hp, "team", None)
+        if hp is None or team_store is None:
+            return None
+        return team_store.rights(rs, name, hp.today()).cover
 
     def account_tell(name: str, subject: str, body: str, by: str) -> None:
         """D-719 (a): the steward and the PI of each of the account's studies are told, as for break-glass."""
@@ -845,6 +856,12 @@ def create_app(
             return []
         return list(hp.pi_missing(sess.user))
 
+    def _cover_hook(what: str, sess: Session | None, rs: str) -> Any:
+        """9f-3 (D-1383): ``console.cover_pages``' banner or log-page card for study ``rs`` (None without it)."""
+        hp = getattr(app.state, "helpers", None)
+        fn = getattr(hp, "cover_view", None) if sess is not None else None
+        return fn(what, sess, rs) if fn is not None else None
+
     def _account_notices(sess: Session | None, lang: str) -> list[str]:
         """D-719 (a): who reset which factor of this account when, or when it was opened; each line once."""
         if sess is None or not us.has_notices(sess.user.username):
@@ -933,6 +950,9 @@ def create_app(
             # NEW-JRN-8 (D-772): a CRO account's monitor grants, read only by the pages that show them (the menu)
             "monitoring": _once(lambda: helpers.monitor_grants(sess.user) if sess and helpers.monitor_grants else []),
             "account_notices": _account_notices(sess, lang),  # D-719 (a): read once, on the next page
+            # 9f-3 (D-1383): a study's cover today (the banner of the team pages), and the cover card of its log page
+            "cover_banner": lambda rs: _cover_hook("banner", sess, rs),
+            "cover_card": lambda rs: _cover_hook("card", sess, rs),
             # D-1370 (9g-19): the idle warning's clock (idle limit, seconds to the idle lock and to the absolute end)
             "session_left": _once(lambda: us.session_left(sess.token_sha) if sess else None),
             # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake
@@ -1538,6 +1558,9 @@ def create_app(
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
     raw_env = _env_map(env)
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
+    from console import cover_pages
+
+    cover_pages.register(app, helpers)  # 9f-3, 9f-5 (D-1383): the PI's cover and a task's owner, after team (its store)
     committee_pages.register(app, helpers)  # 10C-4 (D-1227): the Japan profile's committees, after team (its store)
     if helpers.chart_to_pid is not None:  # NEW-JRN-6 (D-771): the audit browser's chart number door
         audit_hooks.doors["chart_to_pid"] = helpers.chart_to_pid

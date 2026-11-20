@@ -78,6 +78,7 @@ from console.teamstore import (
     ROUTES,
     TASKS,
     VIEW_PURPOSES,
+    Cover,
     Entry,
     IcfVersion,
     Irb,
@@ -126,10 +127,17 @@ class Standing:
     logged: bool  # the study's log names a PI
     entry: Entry | None = None  # the account's own active entry, if any
     monitor: Entry | None = None  # the account's monitor grant in the study today (FIT-002)
+    cover: Cover | None = None  # 9f-3 (D-1383): the PI's cover this account holds today (``pi`` is then True)
 
     def grant(self) -> Grant:
         """This standing as ``tb_common.authz.permit`` reads it."""
         return Grant(is_pi=self.pi, tasks=self.tasks, log_names_pi=self.logged, monitor=self.monitor is not None)
+
+    def own_grant(self) -> Grant:
+        """9f-3 (D-1383): the standing without a cover's PI rights, for the delegation log's own rows: under a cover
+        the log stays the PI's (and the steward's); the covering person neither adds, changes nor ends an entry."""
+        return Grant(is_pi=self.pi and self.cover is None, tasks=self.tasks, log_names_pi=self.logged,
+                     monitor=self.monitor is not None)  # fmt: skip
 
 
 def log_account(user: User) -> bool:
@@ -155,19 +163,20 @@ def standing(team: TeamStore, user: User, rs: str, today: date) -> Standing:
     matrix's ``task.*`` rows (``tb_common.authz.permit``); this reads the study's delegation log into them."""
     if not user.sees_study(rs):
         return Standing(False, frozenset(), False)
-    entries = team.entries(rs)
-    pi = next((e for e in reversed(entries) if e.role == "pi" and e.active_on(today)), None)
-    mine = [e for e in entries if e.username == user.username and e.active_on(today)]
+    # 9f-3 (D-1383): the log and its covers read once, by the one reading both services share (default deny)
+    r = team.rights(rs, user.username, today)
     if user.aggregate_only:  # a CRO account: only a monitor grant (FIT-002), never a study task
-        grant = next((e for e in reversed(mine) if e.role == "monitor"), None) if monitor_account(user) else None
-        return Standing(False, frozenset(), pi is not None, grant, grant)
-    own = mine[-1] if mine else None
-    # D-380 (ROLE-008): the bootstrap is closed. Only the PI the log names is PI; with no PI named, nobody is.
-    is_pi = log_account(user) and pi is not None and pi.username == user.username
-    ticked = frozenset(t for e in mine if e.role == "sub_pi" for t in e.tasks)
-    held = Grant(is_pi=is_pi, tasks=ticked, log_names_pi=pi is not None)  # the log as the ``task.*`` rows read it
+        grant = next((e for e in reversed(r.mine) if e.role == "monitor"), None) if monitor_account(user) else None
+        return Standing(False, frozenset(), r.pi is not None, grant, grant)
+    own = r.mine[-1] if r.mine else None
+    # D-380 (ROLE-008): the bootstrap is closed. Only the PI the log names is PI; with no PI named, nobody is. 9f-3:
+    # or the sub-investigator of the same log who covers that PI today
+    is_pi = log_account(user) and r.is_pi
+    cover = r.cover if is_pi else None
+    held = Grant(is_pi=is_pi, tasks=r.ticked, log_names_pi=r.pi is not None)  # the log as the ``task.*`` rows read it
     tasks = frozenset(t for t in STUDY_TASKS if permit(user.role, f"task.{t}", held))
-    return Standing(is_pi, tasks, pi is not None, pi if is_pi else own)
+    # under a cover the account's own entry is its own sub-investigator entry: it signs and is named as itself
+    return Standing(is_pi, tasks, r.pi is not None, r.pi if is_pi and cover is None else own, cover=cover)
 
 
 def check_due(team: TeamStore, rs: str, today: date, tz: ZoneInfo) -> bool:
@@ -699,8 +708,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
 
     def log_roles_for(sess: Session, s: Standing) -> tuple[str, ...]:
         """The log roles this account may write (D-380): the logged PI every role; the steward the PI entry (study
-        set-up, from the signed log) and monitor grants; nobody else any."""
-        g = s.grant()
+        set-up, from the signed log) and monitor grants; nobody else any. 9f-3: a cover gives none of these."""
+        g = s.own_grant()
         out = set(LOG_ROLES) if permit(sess.user.role, "delegation.keep", g) else set()
         if permit(sess.user.role, "delegation.name_pi", g):
             out.add("pi")
@@ -794,7 +803,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         need_csrf(sess, form)
         rid = study_or_404(sess, rs)
         s = stand(sess.user, rid)
-        if not permit(sess.user.role, "delegation.keep", s.grant()):
+        if not permit(sess.user.role, "delegation.keep", s.own_grant()):  # 9f-3: never under a cover
             raise deny(sess, request.url.path)
         try:
             e = team.update_entry(rid, eid, tasks=form.getlist("tasks"), end=str(form.get("end") or ""),

@@ -1,0 +1,20 @@
+{# 9f-3 (D-1383): the PI's cover on the delegation log page: the covers (in effect, to come, over), the PI's form to
+   name a sub-investigator of this log for at most max_days days, an early end, and the IRB task. Needs rs. #}
+{% set cv = cover_card(rs) if cover_card is defined else None %}{% if cv %}
+<section class="card" id="cover" data-testid="cover-card"><h2>{{ t('cover.title') }}</h2>
+<p class="hint">{{ t('cover.help', n=cv.max_days) }}</p>
+{% set done = request.query_params.get('done', '') %}{% if done == 'cover' %}<p class="ok" role="status" data-testid="cover-done">{{ t('cover.done.cover') }}</p>{% elif done == 'cover_end' %}<p class="ok" role="status" data-testid="cover-done">{{ t('cover.done.cover_end') }}</p>{% elif done == 'cover_irb' %}<p class="ok" role="status" data-testid="cover-done">{{ t('cover.done.cover_irb') }}</p>{% endif %}
+{% if cv.covers %}<ul class="plain" data-testid="cover-list">{% for c in cv.covers %}{% set last = c.last_day() %}<li data-testid="cover-{{ c.id }}">
+{{ t('cover.row', name=c.name, pi=c.pi_name, start=c.start, end=c.end) }}
+{% if c.in_effect_on(cv.today) %}<span class="pill" data-testid="cover-on-{{ c.id }}">{{ t('cover.state.on') }}</span>{% elif not last or last < cv.today.isoformat() %}<span class="pill">{{ t('cover.state.over') }}</span>{% if c.ended_on %} <span class="hint">{{ t('cover.ended', day=c.ended_on, by=c.ended_by) }}</span>{% endif %}{% else %}<span class="pill">{{ t('cover.state.coming') }}</span>{% endif %}
+{% if c.irb_told_on %} <span class="hint">{{ t('cover.irb.told', day=c.irb_told_on, by=c.irb_told_by) }}</span>{% elif last and cv.may_irb %}<form method="post" action="/studies/{{ rs }}/cover/{{ c.id }}/irb" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small secondary" data-testid="cover-irb-{{ c.id }}">{{ t('cover.irb.done') }}</button></form>{% endif %}
+{% if last and last >= cv.today.isoformat() and (cv.may_add or c.username == cv.me) %}<form method="post" action="/studies/{{ rs }}/cover/{{ c.id }}/end" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small secondary" data-testid="cover-end-{{ c.id }}">{{ t('cover.end') }}</button></form>{% endif %}
+</li>{% endfor %}</ul>{% else %}<p class="empty hint">{{ t('cover.none') }}</p>{% endif %}
+{% if cv.may_add %}{% if cv.subs %}<form method="post" action="/studies/{{ rs }}/cover" class="markform" data-testid="cover-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="cover-who">{{ t('cover.who') }}</label><select id="cover-who" name="username" data-testid="cover-who">{% for u, n in cv.subs %}<option value="{{ u }}">{{ n }} · {{ u }}</option>{% endfor %}</select>
+<label for="cover-start">{{ t('team.log.start') }}</label><input id="cover-start" name="start" type="date" lang="{{ lang }}" value="{{ cv.today.isoformat() }}" required><span class="hint datefmt">{{ t('date.fmt') }}</span>
+<label for="cover-end">{{ t('team.log.end') }}</label><input id="cover-end" name="end" type="date" lang="{{ lang }}" required data-testid="cover-end"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+<button type="submit" data-testid="cover-save">{{ t('cover.save') }}</button>
+</form>{% else %}<p class="hint" data-testid="cover-no-sub">{{ t('cover.no_sub') }}</p>{% endif %}{% endif %}
+</section>{% endif %}

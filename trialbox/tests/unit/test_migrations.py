@@ -463,6 +463,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "ad5cea87a2f6b2b0210c392f8c698a0c72253a93cbbb6ec74915bf0cefbd076f",
         "e3f9d90d7bb93b34988eed53250d15178b95f8b39de74d715c67a7bae376574f",
         "e809e7b52e7924ed036f15b206359d3c7382270d0a67eda81d762cecb288333a",
+        # 9f-3, 9f-5 (D-1383): team version 5, the PI's cover (``pi_cover``) and a task's owner (``task_owner``)
+        "c1076acdf1d19b4abe885dd93fa5f4601825d83a2856dd177cb745a5d85a60b8",
     ),
     # D-280: the break-glass grants, new after the baseline
     # T-309 (D-430): version 2, each use of a grant (the steward's review list)

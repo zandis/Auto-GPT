@@ -83,18 +83,16 @@ def record_use(
 
 def log_standing(username: str, study: str, today: date, url: str | None = None) -> Standing:
     """The account's standing in ``study`` as the delegation log has it today: the PI the log names (nobody while it
-    names none, D-380), the tasks ticked for a sub-investigator."""
+    names none, D-380), or the sub-investigator covering that PI today (9f-3, D-1383), and the tasks ticked for a
+    sub-investigator. The one reading of the log, ``console.teamstore.log_rights``, as the console's."""
     from console.teamstore import TeamStore
 
     team = TeamStore(url)
     try:
-        entries = team.entries(study)
+        r = team.rights(study, username, today)
     finally:
         team.close()
-    pi = next((e for e in reversed(entries) if e.role == "pi" and e.active_on(today)), None)
-    mine = [e for e in entries if e.username == username and e.active_on(today)]
-    ticked = frozenset(t for e in mine if e.role == "sub_pi" for t in e.tasks)
-    return Standing(is_pi=pi is not None and pi.username == username, tasks=ticked, log_names_pi=pi is not None)
+    return Standing(is_pi=r.is_pi, tasks=r.ticked, log_names_pi=r.pi is not None)
 
 
 def person_right(role: str, username: str, study: str, today: date, url: str | None = None) -> str:

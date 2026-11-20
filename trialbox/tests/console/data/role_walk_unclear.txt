@@ -280,6 +280,9 @@ POST /api/v1/studies/{rs}/aes/{record}/{event}/ack pi
 POST /api/v1/studies/{rs}/aes/{record}/{event}/ack sub
 POST /api/v1/studies/{rs}/conflicts/{cid} crc
 POST /api/v1/studies/{rs}/conflicts/{cid} smo_in
+POST /api/v1/studies/{rs}/cover pi
+POST /api/v1/studies/{rs}/cover/{cid}/end pi
+POST /api/v1/studies/{rs}/cover/{cid}/irb pi
 POST /api/v1/studies/{rs}/edc/copy/{record}/tick crc
 POST /api/v1/studies/{rs}/edc/copy/{record}/tick pi
 POST /api/v1/studies/{rs}/edc/copy/{record}/tick smo_in
@@ -328,6 +331,7 @@ POST /api/v1/studies/{rs}/sources/{name}/sync smo_in
 POST /api/v1/studies/{rs}/state/take-back pi
 POST /api/v1/studies/{rs}/subjects/{record}/step crc
 POST /api/v1/studies/{rs}/subjects/{record}/step smo_in
+POST /api/v1/studies/{rs}/tasks/owner pi
 POST /audit/patients/by-chart privacy
 POST /audit/patients/by-chart steward
 POST /breakglass pi
@@ -435,6 +439,9 @@ POST /site/staff privacy
 POST /site/staff steward
 POST /studies/{rs}/conflicts/{cid} crc
 POST /studies/{rs}/conflicts/{cid} smo_in
+POST /studies/{rs}/cover pi
+POST /studies/{rs}/cover/{cid}/end pi
+POST /studies/{rs}/cover/{cid}/irb pi
 POST /studies/{rs}/deviations crc
 POST /studies/{rs}/deviations smo_in
 POST /studies/{rs}/edc/copy/{record}/tick crc
@@ -517,6 +524,7 @@ POST /studies/{rs}/subjects/{record}/step crc
 POST /studies/{rs}/subjects/{record}/step smo_in
 POST /studies/{rs}/subjects/{record}/undo crc
 POST /studies/{rs}/subjects/{record}/undo smo_in
+POST /studies/{rs}/tasks/owner pi
 POST /studies/{rs}/team pi
 POST /studies/{rs}/team steward
 POST /studies/{rs}/team/check crc

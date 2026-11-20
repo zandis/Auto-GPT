@@ -984,6 +984,9 @@ DECLARED: dict[str, Declared] = {
         "str", "", "working days: the New Year break MM-DD/MM-DD or none (empty: the country's, 10C-14)"
     ),
     "TB_SAE_FOLLOWUP_DAYS": Declared("int", "", "SAE: follow-up days"),
+    "TB_SAE_ESCALATE_HOURS": Declared(
+        "int", "24", "SAE: hours a case waits for the PI before the sub-investigators and coordinators are told (9f-4)"
+    ),
     "TB_SAE_OFFICE_MAILBOX": Declared("str", "", "SAE: office mailbox"),
     "TB_SAE_REPORT_DAYS": Declared("int", "", "SAE: report days"),
     "TB_SAE_RULES": Declared("str", "", "SAE: rules file"),

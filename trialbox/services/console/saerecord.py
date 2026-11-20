@@ -541,6 +541,33 @@ class SaeStore:
         return body
 
 
+# ---------------------------------------------------------------------------------------------- 9f-4 (b), D-1383
+def escalated_hours(trail: list[dict[str, Any]]) -> set[int]:
+    """The thresholds (hours) at which a case was already escalated, from its trail."""
+    return {int(t["body"].get("hours") or 0) for t in trail if t["action"] == "escalated"}
+
+
+def escalate_once(store: SaeStore, rs: str, record: str, event: str, hours: int, send: Callable[[], dict[str, Any]],
+                  by: str, at: str, before_commit: Callable[[dict[str, Any]], None] | None = None,
+                  ) -> dict[str, Any] | None:  # fmt: skip
+    """Escalate one unacknowledged case once per threshold: under a lock per case, when its trail has no
+    ``escalated`` row for ``hours``, ``send`` mails the recipients and gives the row's body; the row and
+    ``before_commit`` (the audit event) are written in the same transaction. None when it was escalated already."""
+    with store.db.transaction() as tx:
+        tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"sae-escalate:{rs}:{record}:{event}",))
+        rows = tx.fetchall(
+            "SELECT body FROM sae_trail WHERE ruleset = ? AND record = ? AND event = ? AND action = 'escalated'",
+            (rs, record, event),
+        )
+        if hours in {int(json.loads(str(r[0])).get("hours") or 0) for r in rows}:
+            return None
+        body = {**send(), "hours": hours}
+        store._trail(tx, rs, record, event, "escalated", body, by, at)
+        if before_commit is not None:
+            before_commit(body)
+    return body
+
+
 def check_ref(ref: str) -> str:
     """A receiver's reference: letters, digits and - / _ . # only, at most :data:`REF_MAX` characters; anything else
     (a sentence, a name) is refused, so no patient text reaches the register."""

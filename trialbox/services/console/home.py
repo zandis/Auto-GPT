@@ -196,6 +196,16 @@ class Helpers:
     excluded_bundle: Callable[[str], tuple[Job | None, dict[str, Any] | None]] | None = None
     excluded_rows: Callable[[str, dict[str, Any], str], list[dict[str, Any]]] | None = None
     not_matched: Any = None
+    # 9f-3, 9f-5 (D-1383), a block of its own: set by console.cover_pages (the PI's cover: the team pages' banner and
+    # card, the N1 line, the daily start and end events; a task's owner) and console.sae_pages (9f-4 (b): the SAE
+    # escalation round). None in bare test apps (no cover, no owner, no escalation)
+    cover_view: Callable[..., Any] | None = None
+    cover_lines: Callable[..., list[tuple[str, str, str]]] | None = None
+    cover_edges: Callable[[date], list[str]] | None = None
+    cover_tasks: Callable[[str], list[Any]] | None = None
+    task_owners: Callable[[str], tuple[dict[tuple[str, str], Any], list[tuple[str, str]]]] | None = None
+    keeps_tasks: Callable[[Any, str], bool] | None = None
+    sae_escalate: Callable[[], list[str]] | None = None
 
     def gone(self) -> set[str]:
         """D-273 (PV-4): the pseudonyms on the opt-out register now. Every patient-level reader (lists, the excluded
@@ -483,6 +493,26 @@ def register(app: FastAPI, h: Helpers) -> None:
             if any(o["state"] == "enrolled" for o in r["elsewhere"]):
                 r["fit"].open.append(translate(lang, "elsewhere.open"))
 
+    def own_tasks(sess: Session, rs: str, tasks: list[dict[str, Any]], today: date) -> None:
+        """9f-3 (D-1383): the task "tell the IRB of the cover" for each cover of the study whose IRB task is open;
+        9f-5: each task's owner (``owner``: the name, '' without one), the people on the study's log who may own it
+        (``owners``) and whether this account may set it (``may_own``). Who sees a task does not change."""
+        if h.cover_tasks is not None:
+            for c in h.cover_tasks(rs):
+                tasks.append({"kind": "cover_irb", "rs": rs, "short": c.name, "href": f"/studies/{rs}/team#cover",
+                              "due": date.fromisoformat(local_date(c.at, site_zone(h.bk))), "detail": c.pi_name,
+                              "ref": str(c.id), "cover": c.id})  # fmt: skip
+        if h.task_owners is None:
+            return
+        owners, people = h.task_owners(rs)
+        may = bool(h.keeps_tasks is not None and h.keeps_tasks(sess.user, rs))
+        for tk in tasks:
+            if "ref" not in tk:
+                continue
+            o = owners.get((tk["kind"], tk["ref"]))
+            tk["owner"], tk["owner_id"] = (o.owner_name or o.owner, o.owner) if o is not None else ("", "")
+            tk["owners"], tk["may_own"] = people, may
+
     def study_card(sess: Session, r: Any, jobs: list[Job]) -> dict[str, Any]:
         rs = r.id
         feas_job = st.latest_job(jobs, rs, ("FEAS",))
@@ -531,24 +561,26 @@ def register(app: FastAPI, h: Helpers) -> None:
                 # T-516 (UX-013): no call task while a referral asked after Approach waits for the doctor
                 due = date.fromisoformat(local_date(mk.at, site_zone(h.bk))) + timedelta(days=2)
                 tasks.append({"kind": "call", "rs": rs, "short": w["short"], "href": href, "due": due,
-                              "detail": mk.note or open_items})  # fmt: skip
+                              "detail": mk.note or open_items, "ref": str(w["pid"])})  # fmt: skip
             elif mk is not None and mk.mark == "need_info":
                 due = date.fromisoformat(local_date(mk.at, site_zone(h.bk))) + timedelta(days=3)
                 tasks.append({"kind": "info", "rs": rs, "short": w["short"], "href": href, "due": due,
-                              "detail": mk.note or open_items})  # fmt: skip
+                              "detail": mk.note or open_items, "ref": str(w["pid"])})  # fmt: skip
             if when is not None and today <= when <= today + timedelta(days=14):
                 clinic.append({**w, "rs": rs, "href": href, "open_items": open_items})
                 if mk is None and when <= today + timedelta(days=2):
                     tasks.append({"kind": "prepare", "rs": rs, "short": w["short"], "href": href, "due": when,
-                                  "detail": open_items})  # fmt: skip
+                                  "detail": open_items, "ref": str(w["pid"])})  # fmt: skip
         if h.team is not None:  # D-147: doctors to ask for a referral; the monthly delegation-log comparison
             for ref in h.team.latest_referrals(rs).values():
                 if ref.open and any(w["pid"] == ref.pid for w in rows):
                     tasks.append({"kind": "refer", "rs": rs, "short": ref.pid[:8], "due": today,
-                                  "href": f"/studies/{rs}/referrals#r{ref.id}", "detail": ref.physician})  # fmt: skip
+                                  "href": f"/studies/{rs}/referrals#r{ref.id}", "detail": ref.physician,
+                                  "ref": str(ref.id)})  # fmt: skip
             if h.team_due is not None and h.team_due(rs):
                 tasks.append({"kind": "delegation", "rs": rs, "short": "", "href": f"/studies/{rs}/team#check",
-                              "due": today, "detail": ""})  # fmt: skip
+                              "due": today, "detail": "", "ref": ""})  # fmt: skip
+        own_tasks(sess, rs, tasks, today)  # 9f-3, 9f-5 (D-1383)
         for tk in tasks:
             tk["late"] = tk["due"] < today
         return {
