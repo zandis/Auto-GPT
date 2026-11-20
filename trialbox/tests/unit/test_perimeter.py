@@ -134,7 +134,7 @@ def test_gateway_re_resolves_and_refuses_when_a_name_moves_off_the_box(
     assert rec[-1]["detail"]["phase"] == "call" and rec[-1]["detail"]["caller"] == "orchestrator"
     # LLM-043: the gateway's reads need the token too
     assert client.get("/v1/models").status_code == 401
-    assert client.get("/v1/models", headers=tok).status_code == 200
+    assert client.get("/v1/models", headers=tok).status_code == 403  # D-1349: the old shared token, PRODUCTION
     get_config.cache_clear()
 
 

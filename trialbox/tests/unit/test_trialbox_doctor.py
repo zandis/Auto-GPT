@@ -50,6 +50,7 @@ def test_default_install_passes() -> None:
         "secure_cookie",
         "phi_tripwire",  # 9g-11, D-1348
         "console_mfa",
+        "legacy_token",  # D-1349
         "ldap_ca",  # D-722
         "publish_gate",
         "note_block",

@@ -96,7 +96,9 @@ def test_token_from_file(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None
     f.write_text(TOKEN + "\n")
     monkeypatch.setenv("TB_SERVICE_TOKEN_FILE", str(f))
     assert sa.service_token() == TOKEN
-    assert sa.check("POST", TOKEN, "PRODUCTION") is None
+    assert sa.check("POST", TOKEN, "TEST") is None
+    refused = sa.check("POST", TOKEN, "PRODUCTION")  # D-1349: one token, no registry: the old shared token
+    assert refused is not None and refused[0] == 403 and "(D-1349)" in refused[1]
 
 
 _LIMITS: dict[str, Any] = {}
