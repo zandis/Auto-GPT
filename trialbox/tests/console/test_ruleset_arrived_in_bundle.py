@@ -56,8 +56,9 @@ def test_the_administrators_home_without_step_4_marks_it() -> None:
     env = Environment(loader=FileSystemLoader(Path(console.__file__).parent / "templates"),
                       undefined=ChainableUndefined, autoescape=True)  # fmt: skip
     env.filters.update(local=lambda v, n=16: str(v), mask_ids=str, who=str)
-    env.globals.update(t=lambda k, **kw: translate("ja", k), permit=lambda *a, **k: None, public_url="",
-                       reason_label=lambda *a: "", feas_notes=lambda *a: "")  # fmt: skip
+    env.globals.update(t=lambda k, **kw: translate("ja", k), tp=lambda k, **kw: translate("ja", k),
+                       permit=lambda *a, **k: None, public_url="", reason_label=lambda *a: "",
+                       feas_notes=lambda *a: "")  # fmt: skip
     rulesets = [RulesetInfo("GZQO", "1.0.0", "approved", "trial", "vendor_bundle"),
                 RulesetInfo("RA-BIO", "1.0.0", "approved", "nhi")]  # fmt: skip
     page = env.get_template("home_admin.html").render(
