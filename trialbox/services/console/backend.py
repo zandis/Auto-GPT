@@ -19,6 +19,7 @@ from email.message import EmailMessage
 from email.utils import make_msgid
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import urlencode
 
 import httpx
 from tb_common.audit import AuditLog
@@ -156,7 +157,9 @@ Signer = Callable[[str, str, Any], dict[str, str]]
 
 
 class Backend(Protocol):
-    def list_jobs(self, limit: int = 100, state: str | None = None) -> list[Job]: ...
+    def list_jobs(
+        self, limit: int = 100, state: str | None = None, *, ruleset: str | None = None, type_: str | None = None
+    ) -> list[Job]: ...
     def waiting_studies(self) -> list[str]: ...
     def get_job(self, job_id: str) -> Job | None: ...
     def create_job(self, req: JobCreate, by: str = "", role: str = "") -> Job: ...
@@ -359,11 +362,15 @@ class HttpBackend:
         if gateway_url:
             self.services["gateway"] = gateway_url.removesuffix("/v1")
 
-    def list_jobs(self, limit: int = 100, state: str | None = None) -> list[Job]:
+    def list_jobs(
+        self, limit: int = 100, state: str | None = None, *, ruleset: str | None = None, type_: str | None = None
+    ) -> list[Job]:
         """The newest ``limit`` jobs; ``state``: of that state only (the orchestrator filters, so a job that
-        waits behind many newer ones is still found)."""
+        waits behind many newer ones is still found); ``ruleset`` and ``type_`` the same (10E-12: one study's
+        nightly jobs, for the night's funnel on its job page)."""
+        query = {"limit": str(limit), "state": state, "ruleset": ruleset, "type": type_}
         try:
-            data = self.orch.get_json(f"/jobs?limit={limit}" + (f"&state={state}" if state else ""))
+            data = self.orch.get_json("/jobs?" + urlencode({k: v for k, v in query.items() if v}))
         except ServiceError as exc:
             raise failed(exc) from exc
         return [Job.model_validate(j) for j in data]

@@ -596,8 +596,17 @@ def screen_scope(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> list[S
     """The patients a screen of ``rs`` would look at now, the opt-out register applied: what :func:`run_screen`
     hands its ``select`` (D-646: the weekly run counts its excluded patients in scope before it spends its
     allowance, and passes the list on as ``scope``)."""
+    return screen_scope_read(ctx, rs, run_date, snapshot)[0]
+
+
+def screen_scope_read(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> tuple[list[Scoped], list[str]]:
+    """:func:`screen_scope`, and the patients of the scope the opt-out register removed (10E-12, D-1259: the
+    nightly job counts them in its pre-filter record; the ids are never stored)."""
     practitioners, depts, window, recent = _scope_terms(ctx, rs, True)
-    return drop_opted_out(ctx, scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot))
+    raw = scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot)
+    kept = drop_opted_out(ctx, raw)
+    keep = {s.pid for s in kept}
+    return kept, [s.pid for s in raw if s.pid not in keep]
 
 
 def run_screen(

@@ -1,0 +1,5 @@
+{
+ "en": "\n<h2>Sources</h2>\n\n<ul class=\"plain\"><li data-testid=\"source\" data-source=\"csv\" data-light=\"green\"><span class=\"pill rd-go\" data-light=\"green\">published</span> <span class=\"mono\">csv</span> · 2026-11-10 · published</li></ul>\n<p class=\"hint\" data-testid=\"dataops-counts\">published: 1</p>\n\n",
+ "ja": "\n<h2>データソース</h2>\n\n<ul class=\"plain\"><li data-testid=\"source\" data-source=\"csv\" data-light=\"green\"><span class=\"pill rd-go\" data-light=\"green\">公開済み</span> <span class=\"mono\">csv</span> · 2026-11-10 · 公開済み</li></ul>\n<p class=\"hint\" data-testid=\"dataops-counts\">公開済み: 1</p>\n\n",
+ "zh-TW": "\n<h2>資料來源</h2>\n\n<ul class=\"plain\"><li data-testid=\"source\" data-source=\"csv\" data-light=\"green\"><span class=\"pill rd-go\" data-light=\"green\">已發布</span> <span class=\"mono\">csv</span> · 2026-11-10 · 已發布</li></ul>\n<p class=\"hint\" data-testid=\"dataops-counts\">已發布: 1</p>\n\n"
+}

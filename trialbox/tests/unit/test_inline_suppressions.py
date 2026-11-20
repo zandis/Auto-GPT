@@ -166,7 +166,9 @@ def test_the_review_date_is_held(
 
 
 def test_a_finding_is_never_filed_as_safe() -> None:
-    """The ledger's `finding` entries name a finding of the card's findings file."""
+    """The ledger's `finding` entries name the open findings of the card's findings file, each of them; a finding the
+    file says is fixed has no line left in the ledger at its file (H10G39-01, fixed in 47e63df: its suppressed call is
+    gone, so neither a `finding` nor a `safe` line stays for it)."""
     import json
 
     ledger = IS.load_ledger(IS.LEDGER)
@@ -174,7 +176,13 @@ def test_a_finding_is_never_filed_as_safe() -> None:
         (IS.ROOT / "docs" / "handover" / "bandit-weekly-ledger-2026-11-19" / "findings.json").read_text(
             encoding="utf-8"
         )
-    )
-    ids = {f["id"] for f in findings["findings"]}
+    )["findings"]
+    assert findings
+    open_ids = {f["id"] for f in findings if f.get("state", "open") == "open"}
+    fixed = [f for f in findings if str(f.get("state", "")).startswith("fixed ")]
+    assert {f["id"] for f in findings} == open_ids | {f["id"] for f in fixed}  # each finding is one or the other
     kept = [e for e in ledger if e.verdict == "finding"]
-    assert kept and all(e.finding in ids for e in kept)
+    assert {e.finding for e in kept} == open_ids
+    for f in fixed:
+        at = f["place"].split(":", 1)[0]
+        assert not [e for e in ledger if e.path == at], (f["id"], at)

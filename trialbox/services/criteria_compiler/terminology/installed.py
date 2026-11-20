@@ -29,6 +29,7 @@ TERM-2 (D-1113 to D-1116), in the order the site's IT loads them (``docs/handove
 
 from __future__ import annotations
 
+import codecs
 import hashlib
 import json
 import os
@@ -39,6 +40,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from xml.parsers import expat
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -138,11 +140,99 @@ def zip_member(z: zipfile.ZipFile, suffix: str) -> bytes:
     return z.read(names[0])
 
 
-def _xml(data: bytes) -> ET.Element:
-    """A release's XML, refused when it declares a DTD or an entity: nothing for the parser to expand or fetch."""
-    if b"<!DOCTYPE" in data or b"<!ENTITY" in data:
-        raise ValueError("the release's XML declares a DTD or an entity: refused, not a CMS ICD-10-CM file")
-    return ET.fromstring(data)  # noqa: S314 - refused above when the document declares a DTD or an entity
+#: byte order marks, longest first (a UTF-32 LE mark begins with the UTF-16 LE one)
+_BOMS = (
+    (codecs.BOM_UTF32_LE, "utf-32-le"),
+    (codecs.BOM_UTF32_BE, "utf-32-be"),
+    (codecs.BOM_UTF8, "utf-8"),
+    (codecs.BOM_UTF16_LE, "utf-16-le"),
+    (codecs.BOM_UTF16_BE, "utf-16-be"),
+)
+#: the first four bytes of a document with no mark that starts with "<" (XML 1.0, appendix F)
+_SNIFF = {
+    b"\x00\x00\x00<": "utf-32-be",
+    b"<\x00\x00\x00": "utf-32-le",
+    b"\x00<\x00?": "utf-16-be",
+    b"<\x00?\x00": "utf-16-le",
+}
+#: the encodings a release may be written in: the ones the XML parser itself reads (UTF-8 and UTF-16, ASCII and
+#: Latin-1) and UTF-32; any other declared name is refused, never guessed
+_FAMILY = {
+    "utf-8": "utf-8", "utf8": "utf-8",
+    "utf-16": "utf-16", "utf-16le": "utf-16", "utf-16be": "utf-16",
+    "utf-32": "utf-32", "utf-32le": "utf-32", "utf-32be": "utf-32",
+    "us-ascii": "ascii", "ascii": "ascii", "iso-8859-1": "latin-1", "latin1": "latin-1", "latin-1": "latin-1",
+}  # fmt: skip
+_DECL = re.compile(r"""<\?xml[^>]*?\sencoding\s*=\s*["']([^"']*)["']""")
+
+
+def _family(codec: str) -> str:
+    return codec.removesuffix("-le").removesuffix("-be")
+
+
+def xml_text(data: bytes, what: str = "the release's XML") -> str:
+    """The document's text, its encoding decided first (H10G39-01): the byte order mark, else the first four bytes
+    (XML 1.0 appendix F), else the XML declaration, else UTF-8. Refused when the bytes are not that encoding, or when
+    the declaration names an encoding outside :data:`_FAMILY` or another one than the bytes are in. A guard that reads
+    raw bytes misses ``<!DOCTYPE`` written in UTF-16 or UTF-32; the caller's guard reads this text instead."""
+    codec, body = None, data
+    for bom, c in _BOMS:
+        if data.startswith(bom):
+            codec, body = c, data[len(bom) :]
+            break
+    codec = codec or _SNIFF.get(data[:4])
+    if codec is None:  # an ASCII-compatible start: the declaration, read byte for byte, names the encoding
+        m = _DECL.match(data.decode("latin-1"))
+        declared = m.group(1).strip().lower() if m else "utf-8"
+        family = _FAMILY.get(declared)
+        if family is None or family in ("utf-16", "utf-32"):
+            raise ValueError(f"{what} declares the encoding {declared!r} and is not written in it: refused")
+        codec = family
+    try:
+        text = body.decode(codec)
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"{what} is not {codec} text: refused") from exc
+    if "\x00" in text:  # U+0000 is no XML character: UTF-16 or UTF-32 with neither a mark nor a declaration
+        raise ValueError(f"{what} holds NUL characters as {codec}: its encoding cannot be decided, refused")
+    m = _DECL.match(text)
+    if m is not None and _FAMILY.get(m.group(1).strip().lower()) != _family(codec):
+        raise ValueError(f"{what} declares {m.group(1)!r} and its bytes are {codec}: refused")
+    return text
+
+
+def declares_dtd(text: str) -> bool:
+    """The guard, on the decoded text: a document type or an entity declaration anywhere."""
+    return "<!DOCTYPE" in text or "<!ENTITY" in text
+
+
+def _xml(data: bytes, what: str = "the release's XML") -> ET.Element:
+    """A release's XML, refused when it declares a DTD or an entity: nothing for the parser to expand or fetch.
+
+    H10G39-01: the encoding is decided first (:func:`xml_text`) and the guard reads the decoded text; the parser is
+    then given that text as UTF-8 with the encoding fixed (the declaration's name no longer counts) and refuses a
+    document type or an entity declaration itself, so the two can never read different characters."""
+    text = xml_text(data, what)
+    if declares_dtd(text):
+        raise ValueError(f"{what} declares a DTD or an entity: refused, not a CMS ICD-10-CM file")
+    builder = ET.TreeBuilder()
+    p = expat.ParserCreate(encoding="UTF-8")
+    p.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_NEVER)
+
+    def no_dtd(*_: Any) -> None:
+        raise ValueError(f"{what} declares a DTD or an entity: refused, not a CMS ICD-10-CM file")
+
+    p.StartDoctypeDeclHandler = no_dtd
+    p.EntityDeclHandler = no_dtd
+    p.UnparsedEntityDeclHandler = no_dtd
+    p.ExternalEntityRefHandler = no_dtd  # type: ignore[assignment]
+    p.StartElementHandler = builder.start
+    p.EndElementHandler = builder.end
+    p.CharacterDataHandler = builder.data
+    try:
+        p.Parse(text.encode("utf-8"), True)
+    except expat.ExpatError as exc:
+        raise ValueError(f"{what} is not well-formed XML (line {exc.lineno}): refused") from None
+    return builder.close()
 
 
 def icd10cm_blocks(tabular: bytes) -> list[dict[str, str]]:
