@@ -499,6 +499,16 @@ def _whose(path: Path, r: ResourceSpec) -> str | None:
     * A mapping cannot leave the patient out by forgetting it: an ``hid`` id that is neither is refused."""
     where = f"{path}: {r.type} from {r.table}"
     named = _patient_columns(r.elements)
+    for element, expr in r.elements.items():
+        # Only a reference element names a patient. A pid interpolated into a label is not an owner.
+        if (
+            element.endswith(".reference")
+            and isinstance(expr, dict)
+            and not {"const", "column", "builder"} & expr.keys()
+        ):
+            template = expr.get("template")
+            if isinstance(template, str) and (match := re.fullmatch(r"Patient/\{pid:([^{}]+)\}", template)):
+                named.add(match[1])
     said = r.id.get("patient")
     if said is not None and not (isinstance(said, str) and said):
         raise MappingError(f"{where}: id.patient names the column of the record's patient")
@@ -547,7 +557,10 @@ def _whose(path: Path, r: ResourceSpec) -> str | None:
                 f"of no patient: {', '.join(sorted(SITE_WIDE_TYPES))})"
             )
         if named:
-            raise MappingError(f"{where} names a patient: its id cannot be site-wide")
+            raise MappingError(
+                f"{where} names a patient: its id cannot be site-wide / "
+                "紀錄指向病人，不得使用全院共用 ID / 患者を参照する記録に施設共通 ID は使えません"
+            )
         if suffix:
             raise MappingError(f"{where}: a site-wide id has no suffix (one type, one number, one record)")
         return None

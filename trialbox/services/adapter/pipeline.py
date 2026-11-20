@@ -724,7 +724,9 @@ def _run_ingest(
 
         over = merge_base(cfg.lake_dir, snap)
         said = sp.night_profile(snapshot_dir(cfg.lake_dir, over)) if over else None
-        if (said or {}).get("digest") != (profile.digest if profile is not None else None):
+        previous_source = _source_of(snapshot_dir(cfg.lake_dir, over)) if over else None
+        profile_changed = (said or {}).get("digest") != (profile.digest if profile is not None else None)
+        if profile_changed and previous_source in (None, source_kind):
             log.warning("site profile changed since night %s: this night reads whole, not since %s", over, since)
             since, profile_full = None, True
     at["step"] = "read"
@@ -966,21 +968,6 @@ def _run_ingest(
     from adapter.publish import finish_served
 
     finish_served(cfg)  # T-723 second review (H2): a served night whose pid map step did not end is finished first
-    if patient_pairs:
-        pm = cfg.pidmap()
-        try:
-            # T-723 (D-489, F-12): the night's chart numbers are staged, not written: they enter the pid map when
-            # the night is published (adapter.publish), so a held night's never reach the reverse map. The staged
-            # rows of nights that are no longer held (rejected, replaced) are dropped here; never the served
-            # night's (its pid map step may still be owed: ``finish_served``)
-            still_held = _held_nights(cfg)
-            if still_held is not None:
-                served_now = _current(cfg.lake_dir)
-                pm.discard(still_held | {snap} | ({served_now} if served_now else set()))
-            pm.stage(snap, patient_pairs, identities or [])
-            aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
-        finally:
-            pm.close()
     # NDJSON snapshot (delta runs merge over the previous snapshot and drop what the source deleted)
     final_dir = out_dir = snapshot_dir(cfg.lake_dir, snap)
     # D-271: a re-run of a promoted night is written beside it and moved in only when it passes; a held re-run never
@@ -991,6 +978,8 @@ def _run_ingest(
     rerun = (final_dir / PASSED).exists() or _current(cfg.lake_dir) == snap
     if rerun:
         out_dir = cfg.lake_dir / RERUN_DIR / snap
+    prior_source_hold = requires_full_ingest(out_dir)
+    if rerun:
         shutil.rmtree(out_dir, ignore_errors=True)
     prev = [s for s in list_snapshots(cfg.lake_dir) if s < snap]
     last_good = merge_base(cfg.lake_dir, snap)  # D-271: never a held night's NDJSON
@@ -1007,13 +996,42 @@ def _run_ingest(
                 f"delta night over snapshot {last_good}, whose SS-MIX2 orders are keyed {keyed}; the reader keys them "
                 f"{order_id_form()}: run the one rebuild ({id_rule.COMMAND}), then a full night"
             )
-    if base is not None and (read_from := _source_of(base)) and read_from != source_kind:
+    read_from = _source_of(base) if base is not None else None
+    held_record: dict[str, Any] = {"snapshot": snap, "errors": errors}
+    refused_source = read_from is not None and read_from != source_kind
+    if refused_source:
         # D-1253 review ruling 7: one record from a mapped feed and from a FHIR bulk export has two ids; a site
         # changes its source only with a full night, never a delta merged over another source's snapshot
         errors.append(
-            f"delta night from {source_kind} over snapshot {last_good}, which was read from {read_from}: a site "
-            "changes its source only with a full night (run it without since)"
+            f"delta night from {source_kind} over snapshot {last_good}, which was read from {read_from}: "
+            f"{SOURCE_CHANGE}"
         )
+        base = None  # Keep only the incoming delta for inspection. Never merge the two sources.
+        out_dir.mkdir(parents=True, exist_ok=True)
+        id_rule.write_snapshot_record(out_dir)
+        held_record["requires_full_ingest"] = True
+        _write_hold(out_dir, held_record)
+        patient_pairs, identities = [], []  # Nothing from the refused source may enter the reverse map.
+    if refused_source or prior_source_hold:
+        # This attempt replaces a refused candidate. Types absent from the new source must not survive the retry.
+        for old_type in out_dir.glob("*.ndjson"):
+            old_type.unlink()
+    stage_patients = bool(patient_pairs) or prior_source_hold or refused_source
+    if stage_patients:
+        pm = cfg.pidmap()
+        try:
+            # T-723 (D-489, F-12): the night's chart numbers are staged, not written: they enter the pid map when
+            # the night is published (adapter.publish), so a held night's never reach the reverse map. The staged
+            # rows of nights that are no longer held (rejected, replaced) are dropped here; never the served
+            # night's (its pid map step may still be owed: ``finish_served``)
+            still_held = _held_nights(cfg)
+            if still_held is not None:
+                served_now = _current(cfg.lake_dir)
+                pm.discard(still_held | {snap} | ({served_now} if served_now else set()))
+            pm.stage(snap, patient_pairs, identities)
+            aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
+        finally:
+            pm.close()
     from adapter.publish import RECORD as PUBLISH_RECORD
 
     try:  # T-723: the step record of an earlier publish of this folder (kept only for the same content)
@@ -1021,7 +1039,7 @@ def _run_ingest(
     except OSError:
         prior_record = None
     carried: set[str] = set()
-    if not patient_pairs:
+    if not stage_patients:
         # NEW-B-36 (D-677; review DATA-006): the merges are applied to every night, whether or not it sends a patient
         # row with a chart number (a FHIR bulk night never does), and on a delta night to what it carries over too.
         # Without them a merged chart would stand as its own patient: the night is held and says why
@@ -1269,7 +1287,7 @@ def _run_ingest(
     body = json.dumps(dump(report), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     (out_dir / "ingest_report.json").write_bytes(body)
     if held:  # T-611: the folder says so itself, for the steward and for any later publish
-        (out_dir / HELD).write_text(json.dumps({"snapshot": snap, "errors": errors}) + "\n", encoding="utf-8")
+        _write_hold(out_dir, held_record)
     else:
         (out_dir / HELD).unlink(missing_ok=True)
     pruning: PruneResult | None = None
@@ -1609,6 +1627,32 @@ def jp_core_check(cfg: AdapterConfig, picked: list[Resource], out_dir: Path) -> 
 
 PASSED = "passed.json"  # written in a snapshot's NDJSON folder when its night passed (D-271)
 HELD = "held.json"  # written in a snapshot's NDJSON folder when its night was held, with why (T-611)
+SOURCE_CHANGE = (
+    "a site changes its source only with a full night (run it without since) / "
+    "更換來源時必須完整匯入，請勿指定 since / "
+    "ソースを変更するには since を指定せずに全件取り込みを実行してください"
+)
+
+
+def _write_hold(folder: Path, record: dict[str, Any]) -> None:
+    tmp = folder / f"{HELD}.tmp"
+    tmp.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    tmp.replace(folder / HELD)
+
+
+def requires_full_ingest(folder: Path) -> bool:
+    """Read the original refusal, including holds written before steward acceptance enforced it."""
+    try:
+        held = json.loads((folder / HELD).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return False
+    if held.get("requires_full_ingest"):
+        return True
+    # Earlier held.json files recorded this refusal only in the errors array.
+    return any(
+        e.startswith("delta night from ") and "changes its source only with a full night" in e
+        for e in held.get("errors", [])
+    )
 
 
 #: NEW-B-39 (D-740): the kinds of D-580's counter (the owner's yes, 2026-11-13). ``code_unknown``: a code no look-up,
