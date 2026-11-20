@@ -91,6 +91,9 @@ if t == "ballast48":
             if "--keep" in a:
                 (out / "down.json").write_text(json.dumps({"cmd": ["docker"], "env": {"VLLM_API_KEY": KEY}}))
         sys.exit(0 if started else 1)
+    if sub == "plan" and os.environ.get("M48_PLAN_REFUSED"):
+        print("ballast48: refused: " + os.environ["M48_PLAN_REFUSED"], file=sys.stderr)
+        sys.exit(2)
     if sub == "during":
         parts = pathlib.Path(arg("--dir")) / "parts"
         parts.mkdir(parents=True, exist_ok=True)
@@ -373,6 +376,21 @@ def test_a_gated_weight_fails_its_step_and_nothing_waits(rig: Rig) -> None:
     r = rig.boot(M48_WEIGHTS_RC="1")
     assert r.returncode == 0
     assert "no token is sent" in rig.steps()["s04-weights"]["note"]
+    assert (rig.tmp / "powered-off").exists()
+
+
+def test_a_ballast48_plan_refusal_ends_the_run_naming_both_free_figures(rig: Rig) -> None:
+    """H-66: the 11-19 run ended at s07 with "ballast48 plan refused (records/plan.txt)" and no figures; the refusal's
+    own line (both figures) is now the step's note and the run's end reason. The run still ends cleanly: the ballast
+    released, the records up, the VM off."""
+    why = "49776 MiB free, not 49140 +/- 512 (nvidia-smi memory.free; 48111 used, 0 reserved by the driver)"
+    r = rig.boot(M48_PLAN_REFUSED=why)
+    assert r.returncode == 0, r.stdout[-2000:]
+    steps = rig.steps()
+    assert steps["s07-ballast"]["rc"] == 1 and "s08-ladder" not in steps and steps["s14-release"]["rc"] == 0
+    assert steps["s07-ballast"]["note"] == f"ballast48 plan refused (records/plan.txt): ballast48: refused: {why}"
+    ended = json.loads((rig.up / "steps.json").read_text())["ended"]
+    assert ended.startswith("s07-ballast failed: ballast48 plan refused") and "49776 MiB free, not 49140" in ended
     assert (rig.tmp / "powered-off").exists()
 
 
