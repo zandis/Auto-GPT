@@ -72,7 +72,7 @@
 </div>
 <details class="mt" data-testid="rc-more"><summary>{{ t('rc.more') }}</summary>
 <div class="grid2">
-  <div><label for="screenfail_choice_map">{{ t('rc.sf_map') }}</label><input id="screenfail_choice_map" name="screenfail_choice_map" class="mono" value="{{ sf_map if not lk_form else (lk_form.screenfail_choice_map.items()|map('join', '=')|join(', ')) }}"{{ dis }}><p class="hint">{{ t('rc.sf_map.help') }}</p></div>
+  <div><label for="screenfail_choice_map">{{ t('rc.sf_map') }}</label><input id="screenfail_choice_map" name="screenfail_choice_map" class="mono" value="{{ sf_map if not lk_form else (lk_form.screenfail_choice_map.items()|map('join', '=')|join(', ')) }}"{{ dis }}>{#J7#}{% if pm %}<p class="hint" data-testid="typed-codes">{{ t('pm.rc.sf_map.example') }} <code>1=inclusion</code>, <code>2=exclusion</code>. {{ t('pm.rc.sf_map.categories') }}: {% for c in ('inclusion', 'exclusion', 'consent_withdrawn', 'lost_contact', 'other') %}<code>{{ c }}</code>{{ ', ' if not loop.last else '' }}{% endfor %}</p>{% else %}{#/J7#}<p class="hint">{{ t('rc.sf_map.help') }}</p>{#J7#}{% endif %}{#/J7#}</div>
   <div><label for="dag">{{ t('rc.dag') }}</label><input id="dag" name="dag" class="mono" value="{{ f.dag or '' }}"{{ dis }}></div>
   <div><label for="consent_event">{{ t('rc.consent_event') }}</label><input id="consent_event" name="consent_event" class="mono" value="{{ f.consent_event or '' }}"{{ dis }}></div>
   <div class="full"><h3>{{ t('rc.write.title') }}</h3><p class="hint">{{ t('rc.write.help') }}</p></div>
