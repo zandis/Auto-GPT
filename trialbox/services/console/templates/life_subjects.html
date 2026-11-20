@@ -20,7 +20,7 @@
 <td>{% if s.record %}<a href="/studies/{{ rs }}/subjects/{{ s.record|urlencode }}" class="mono">{{ s.record }}</a>{% else %}<span class="mono" data-testid="log-only">–</span>{% endif %}</td>
 <td>{{ person_pill(s.person, 'state-' + (s.record or 'log-' ~ loop.index)) }}{% if s.consent and s.consent.proxy is defined and s.consent.proxy %}{% for w in s.consent.proxy.warnings %} <a href="/studies/{{ rs }}/subjects/{{ s.record|urlencode }}#consent-record" class="pill warn" data-testid="proxy-{{ s.record }}-{{ w }}">{{ t('consent.proxy.short.' + w) }}</a>{% endfor %}{% endif %}</td>
 <td class="nowrap">{{ s.since }}</td>
-<td>{% for k in ('overdue', 'open', 'done') %}{% if s.visits[k] %}<span class="pill v-{{ k }}">{{ t('life.vstate.' + k) }} {{ s.visits[k] }}</span> {% endif %}{% endfor %}</td>
+<td>{% for k in ('overdue', 'open', 'done') %}{% if s.visits[k] %}<span class="pill" data-tone="{{ tone('visit', k) }}">{{ t('life.vstate.' + k) }} {{ s.visits[k] }}</span> {% endif %}{% endfor %}</td>
 </tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>
 {% endblock %}

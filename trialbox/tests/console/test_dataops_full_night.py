@@ -5,13 +5,12 @@ The adapter keeps the lake's record (``adapter.full_nights``) in each night's ev
 in its counts area: "Last full night: <date> (N days ago), M nightly updates since", in the page's warning style with
 one sentence on what a full night corrects when it is older than ``FULL_NIGHT_STALE_DAYS`` and delta nights ran
 since, or not known and delta nights ran. The line is shown to exactly the accounts that read the page (the matrix's
-``dataops.view``); with no record and no delta night the counts area is master's, byte for byte
-(``dataops_sources_master.json``: rendered from master f6c42230 with this file's night). Synthetic data only."""
+``dataops.view``); with no record and no delta night the sources section is the page's without this card, byte for byte
+(both rendered in the test, from the current templates; D-1380). Synthetic data only."""
 
 from __future__ import annotations
 
 import html
-import json
 import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -31,7 +30,6 @@ from tests.console.test_console_app import box, login  # noqa: F401 - the fixtur
 from tests.console.test_role_pages import PW, _user
 
 AT = "2026-11-11T02:00:00+09:00"
-MASTER = Path(__file__).with_name("dataops_sources_master.json")
 LANGS = ("en", "ja", "zh-TW")
 NO_RECORD = object()
 
@@ -180,13 +178,37 @@ def test_the_line_is_shown_to_exactly_the_accounts_that_read_the_page(box: dict[
 
 
 @pytest.mark.parametrize("record", [NO_RECORD, {"last_full": None, "deltas": 0}], ids=["none", "not-known-no-delta"])
-def test_no_record_and_no_delta_night_is_masters_page_byte_for_byte(box: dict[str, Any], record: Any) -> None:
-    master = json.loads(MASTER.read_text(encoding="utf-8"))
+def test_no_record_and_no_delta_night_is_the_page_without_this_card(box: dict[str, Any], record: Any,
+                                                                    monkeypatch: Any) -> None:  # fmt: skip
+    """Every 10B-23 part of ``dataops.html`` sits between ``{#FN#}`` and ``{#/FN#}``. With no record and no delta
+    night the sources section is the same, byte for byte, as the one from the template with those parts taken out
+    (the page as it was before this card), in three languages. Both sides are rendered here, from the current
+    templates (the card's own pill included), and nothing is stripped. (Until D-1380 the other side was a stored
+    copy of master's markup, ``dataops_sources_master.json``, which a change of the pill markup broke.)"""
+    import jinja2
+
+    form = ["with"]
+    real = jinja2.FileSystemLoader.get_source
+
+    def source(self: Any, env: Any, name: str) -> Any:
+        text, path, _uptodate = real(self, env, name)
+        if name == "dataops.html" and form[0] == "without":
+            text = re.sub(r"\{#FN#\}.*?\{#/FN#\}", "", text, flags=re.S)
+        return text, path, lambda: False  # never kept: each render reads the form asked for
+
+    monkeypatch.setattr(jinja2.FileSystemLoader, "get_source", source)  # before any page is rendered
     _night(box, record)
     c, csrf = _steward(box)
-    for lang in LANGS:
-        c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"})
-        assert _sources(c.get("/data-ops").text) == master[lang], lang
+    pages: dict[str, list[str]] = {"with": [], "without": []}
+    for f in ("with", "without"):
+        form[0] = f
+        for lang in LANGS:
+            c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"})
+            pages[f].append(_sources(c.get("/data-ops").text))
+    assert 'data-testid="dataops-full-night"' not in "".join(pages["with"])
+    assert 'data-light="green"' in pages["with"][0]  # a section with a source in it, not an empty one
+    for lang, a, b in zip(LANGS, pages["with"], pages["without"], strict=True):
+        assert a == b, lang
 
 
 def test_the_seven_is_a_named_constant() -> None:
