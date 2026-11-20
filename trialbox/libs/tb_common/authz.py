@@ -88,6 +88,9 @@ class Standing:
 
 
 NO_STANDING = Standing()
+#: 9f-3 (D-1383): the job option the console sets on a run started by a right held only through a cover of the PI;
+#: the orchestrator then sends no patient-level file to the person who asked (``scenarios.screen.list_recipients``)
+COVER_RUN_OPTION = "cover_run"
 BEST_STANDING = Standing(is_pi=True, tasks=frozenset(STUDY_TASKS), log_names_pi=True)  # the most a role could have
 
 

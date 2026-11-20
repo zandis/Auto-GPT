@@ -19,7 +19,7 @@ from matching import coded_values
 from matching.coverage import unknown_system_counts
 from tb_common import lakeprobe
 from tb_common import provenance as ai_provenance
-from tb_common.authz import norm
+from tb_common.authz import COVER_RUN_OPTION, norm
 from tb_common.dates import site_dates
 from tb_common.llm import LlmError, LlmPromptUnqualified, load_prompt
 from tb_common.reasons import Reason
@@ -841,6 +841,19 @@ def persist_pool(ctx: Ctx, rs: Ruleset, rows: list[CandidateRow]) -> None:
     )
 
 
+def list_recipients(routing: Routing | None, kind: str | None, requester: str,
+                    options: dict[str, str] | None) -> list[str]:  # fmt: skip
+    """Who receives a run's patient-level lists: the ruleset's ``list_to``. D-108: a cohort (registry) ruleset has no
+    clinic list address; its member list goes to the coordinator who asked (already allowed to request this study),
+    never to the aggregate recipients. 9f-3 (D-1383): not to a person who asked by a right held only through a cover
+    of the PI (``COVER_RUN_OPTION``, set by the console): a cover gives no export, so such a run has no recipient of
+    its own and is refused for its routing, as a run with no ``list_to``."""
+    list_to = sorted(set(routing.list_to or [])) if routing else []
+    if not list_to and kind == "cohort" and (options or {}).get(COVER_RUN_OPTION) != "1":
+        list_to = [norm(requester)]
+    return list_to
+
+
 def deliver_lists(
     ctx: Ctx,
     rs: Ruleset,
@@ -852,11 +865,8 @@ def deliver_lists(
 ) -> tuple[list[Delivery], dict[str, Any]]:
     """Candidate workbook + JSON to list_to; one referral workbook per routed department (phi)."""
     routing: Routing | None = rs.manifest.routing
-    list_to = sorted(set(routing.list_to or [])) if routing else []
-    if not list_to and rs.manifest.kind == "cohort":
-        # D-108: a cohort (registry) ruleset has no clinic list address; its member list goes to the coordinator who
-        # asked (already allowed to request this study), never to the aggregate recipients
-        list_to = [norm(ctx.job.requested_by)]
+    list_to = list_recipients(routing, rs.manifest.kind, ctx.job.requested_by, ctx.job.options)
+    if list_to and not (routing and routing.list_to):
         routing = routing.model_copy(update={"list_to": list_to}) if routing else Routing(list_to=list_to)
     if not list_to:
         raise StepFailed("routing", f"Ruleset {rs.id} has no routing.list_to; patient lists cannot be sent.")

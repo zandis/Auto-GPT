@@ -1124,3 +1124,78 @@ def test_two_owner_changes_at_once_each_audit_the_true_owner_before(cb: dict[str
     for s in others:
         s.close()
     assert sorted(befores) in (["cov", "crc"], ["crc", "lpi"])  # one saw crc, the other the first one's owner
+
+
+def _phi_job(cb: dict[str, Any], jid: str) -> Any:
+    """A finished SCREEN job of GZQO with patient-level files whose named recipients (the study's routing) are the PI
+    and the sub-investigator ``cov``, and an aggregate summary."""
+    from tb_common.crypto import sha256_bytes
+    from tb_contracts import Job, JobOutput
+
+    now = datetime(2026, 11, 20, 1, 0, tzinfo=UTC)
+    files = {("patients_GZQO.json", "phi"): b'{"rows": []}', ("patients_GZQO.csv", "phi"): b"pid\n",
+             ("summary_GZQO.pdf", "aggregate"): b"%PDF-1.4 x"}  # fmt: skip
+    outs = []
+    for (name, tag), data in files.items():
+        cb["backend"].objects[f"outputs/{jid}/{name}"] = data
+        outs.append(JobOutput(filename=name, sha256=sha256_bytes(data), minio_key=f"outputs/{jid}/{name}",
+                              recipients=["lpi@hospa.test", "cov@hospa.test"], tag=tag))  # type: ignore[arg-type]  # fmt: skip
+    return cb["backend"].add_job(Job(job_id=jid, type="SCREEN", ruleset="GZQO", requested_by="lpi@hospa.test",
+                                     received_at=now, updated_at=now, state="done", outputs=outs))  # fmt: skip
+
+
+def test_a_cover_opens_no_jobs_patient_level_file_and_adds_no_recipient(cb: dict[str, Any]) -> None:
+    """The coordinator's follow-up of D1-H1 (a cover gives no export): every job file route of the route table (and
+    any ``/api/v1`` twin) refuses a patient-level file held only through a cover, the same with and without it,
+    while the PI's own account still downloads it and the job's page opens to the covering person; a run started
+    under the cover adds the person who asked to no patient-level recipient list."""
+    jid = "01JZZZZZZZZZZZZZZZZZZZZZZZ"
+    _phi_job(cb, jid)
+    routes = sorted({r.path for r in cb["app"].routes if "GET" in getattr(r, "methods", set())
+                     and "/files/" in r.path})  # fmt: skip
+    job_routes = [p for p in routes if "{job_id}" in p]
+    assert job_routes, routes  # the job file route; an /api/v1 twin, if the table has one, is walked with them
+    phi = ["patients_GZQO.json", "patients_GZQO.csv"]
+
+    def urls() -> list[str]:
+        out = []
+        for p in routes:
+            for f in phi:
+                out.append(p.replace("{job_id}", jid).replace("{filename}", f).replace("{run_id}", jid)
+                           .replace("{name}", f))  # fmt: skip
+        return out
+
+    cov, _ = login(cb["app"], "cov", PW)
+    lpi, _ = login(cb["app"], "lpi", PW)
+    before = {u: cov.get(u, follow_redirects=False).status_code for u in urls()}
+    pi_before = {u: lpi.get(u, follow_redirects=False).status_code for u in urls() if "{job_id}" in u or jid in u}
+    cb["h"].team.add_cover("GZQO", username="cov", start=_days(0), end=_days(6), today=DAY, by="lpi", at=AT)
+    assert cb["h"].stand(cb["users"].get("cov"), "GZQO").pi
+    inside = {u: cov.get(u, follow_redirects=False).status_code for u in urls()}
+    assert inside == before and all(c != 200 for c in inside.values()), inside  # refused, as without the cover
+    assert all(c in (403, 404) for c in inside.values())
+    pi_inside = {u: lpi.get(u, follow_redirects=False).status_code for u in pi_before}
+    assert pi_inside == pi_before and any(c == 200 for c in pi_before.values())  # the PI's own account: unchanged
+    assert cov.get(f"/pilot/jobs/{jid}").status_code == 200  # the job's page with its counts: a clinical read
+    assert not [e for e in _events(cb, "console.download") if e["actor"] == "console:cov"]
+    # a run started by the cover's right is marked, so the orchestrator sends its lists to the study's own routing
+    # only: the person who asked is on no patient-level recipient list they would not be on without the cover
+    pcov, pcsrf = login(cb["app"], "cov", PW)
+    assert pcov.post("/pilot/request", data={"csrf": pcsrf, "kind": "SCREEN", "ruleset": "GZQO"},
+                     follow_redirects=False).status_code == 303  # fmt: skip
+    plpi, lcsrf = login(cb["app"], "lpi", PW)
+    assert plpi.post("/pilot/request", data={"csrf": lcsrf, "kind": "SCREEN", "ruleset": "GZQO"},
+                     follow_redirects=False).status_code == 303  # fmt: skip
+    from orchestrator.scenarios.screen import list_recipients
+    from tb_common.authz import COVER_RUN_OPTION
+    from tb_contracts.generated.models import Routing
+
+    by_cov, by_pi = cb["backend"].created[-2:]
+    assert (by_cov.options or {}).get(COVER_RUN_OPTION) == "1" and COVER_RUN_OPTION not in (by_pi.options or {})
+    marked = {COVER_RUN_OPTION: "1"}
+    study = Routing(list_to=["team@hospa.test"])
+    for kind in ("screening", "cohort"):
+        assert list_recipients(study, kind, "cov@hospa.test", marked) == list_recipients(
+            study, kind, "cov@hospa.test", None) == ["team@hospa.test"]  # fmt: skip
+    assert list_recipients(None, "cohort", "cov@hospa.test", marked) == []  # never the covering person
+    assert list_recipients(None, "cohort", "lpi@hospa.test", None) == ["lpi@hospa.test"]  # D-108, by own right

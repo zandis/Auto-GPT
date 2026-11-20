@@ -106,6 +106,8 @@ EXPORT_ROUTES = {
     ("GET", "/studies/{rs}/edc/copy.csv"),
     ("GET", "/api/v1/studies/{rs}/edc/copy"),
     ("GET", "/studies/{rs}/edc/copy/{record}"),
+    ("GET", "/studies/{rs}/enrolment.{fmt}"),
+    ("GET", "/api/v1/studies/{rs}/enrolment/{fmt}"),
 }
 END_ROWS = {("POST", "/studies/{rs}/cover/{cid}/end"), ("POST", "/api/v1/studies/{rs}/cover/{cid}/end")}
 

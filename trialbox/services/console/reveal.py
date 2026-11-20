@@ -323,7 +323,7 @@ class Reveal:
         purpose, via = "workbook", "download"
         rid = str(job.ruleset or "")
         path = path or f"workbook {job.job_id}"
-        basis = self.own_basis(sess, rid)
+        basis = self.own_basis(sess, rid, export=True)  # 9f-3 (D-1383): a patient-level file, never by a cover
         if not basis:
             raise self.refuse(sess, path, rid, "", purpose, "", via, self._why_not(sess, rid), 404, "notfound",
                               job_id=job.job_id)  # fmt: skip

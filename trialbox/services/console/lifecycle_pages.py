@@ -333,6 +333,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def read_report_file(sess: Session, rs: str, fmt: str) -> tuple[str, str, bytes]:
         rid = study_or_404(sess, rs)
+        h.need_export(sess, rid, f"enrolment {rid}", PARTICIPANT_TASKS)  # 9f-3 (D-1383): a file, never by a cover
         if fmt not in ("csv", "xlsx"):
             raise h.problem(404, "notfound")
         out = actor.call(h, sess, "phi.view", rid, "GET", f"/studies/{rid}/report/{fmt}")

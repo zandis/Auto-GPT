@@ -54,9 +54,18 @@
     `RevealGate.own_basis(export=True)`), and the rows `edc.export` and `edc.copy` (`teamstore.COVER_NO_EXPORT`:
     `Helpers.permit` and the EDC pages ask them of the standing without the cover, and the signed assertion to the
     orchestrator carries that standing for them). The clinical actions those rows share (`task.screen`,
-    `task.enter_data`: the patient pages, data entry, the records API) stay open under the cover. Not changed: a
-    job's patient-level file mailed to its named recipients (D-369) and its guarded browser download, which follow
-    the run the covering person may start (a question with the owner if it should be refused too). `tests/console/test_role_route_matrix_cover.py` pins the two lists against every PI
+    `task.enter_data`: the patient pages, data entry, the records API) stay open under the cover. Also the
+    enrolment report's file (`/studies/{rs}/enrolment.{fmt}` and `/api/v1/studies/{rs}/enrolment/{fmt}`), and a
+    **job's patient-level files** (the coordinator's ruling on the PR's open point, 2026-11-20: a file downloaded or
+    mailed is an export): the guarded download of a job's file (`/pilot/jobs/{job_id}/files/{filename}`, D-369;
+    no `/api/v1` twin exists) asks `Helpers.export_ok`, so a named recipient who reads the study only through a cover
+    meets the route's own refusal (404, as without the cover), and the candidate workbook's reveal asks the log
+    without the cover; a run the person may start only through the cover (`Helpers.cover_only`) carries the job
+    option `cover_run` (`tb_common.authz.COVER_RUN_OPTION`), and the orchestrator then never adds the person who
+    asked to its patient-level recipients (`scenarios.screen.list_recipients`: a cohort ruleset with no `list_to`,
+    whose list D-108 sends to the requester, is refused for its routing instead). The study's routing (`list_to`)
+    is configuration: the recipient list of a job mail is the same with and without a cover. The job's page with its
+    counts stays open as a clinical read. What the PI's own account gets is unchanged. `tests/console/test_role_route_matrix_cover.py` pins the two lists against every PI
     row of the matrix and walks the router table under a cover: the PI's column less the log's rows and less every
     route whose declared row is withheld. The orchestrator reads the same list (`orchestrator.grants.log_standing`);
     the console's signed assertion to the orchestrator names one action, and under a cover carries `is_pi` only when
@@ -207,7 +216,9 @@
   (D1-M3); an acknowledgement after the round's first look stops it (D2-M1); a round cut off after its mails mails
   nobody again and the audit names the mails (D2-M2); an old case told its real waiting time (D2-M3); a disabled
   owner refused, the API's `in_effect`, two owner changes at once, the IRB task and the owner forms under the flag
-  `layout.home_today` (Lows). `team_log.html`'s cover button is secondary (one primary per page, D-1380).
+  `layout.home_today` (Lows). `team_log.html`'s cover button is secondary (one primary per page, D-1380). The follow-up on job files: `test_a_cover_opens_no_jobs_patient_level_file_and_adds_no_recipient` (every
+  job file route of the route table, the PI's download unchanged, the job page open, the run's option and the
+  recipient list).
 
 - **Registries.** `team.pi_cover` holds staff user names and days, no patient data: in `libs/tb_common/erasure.py`
   with the delegation log's treatment (the staff rule) and on the record inventory's row R-04. `team.task_owner` is

@@ -306,6 +306,13 @@ class Helpers:
         standing = self._own_standing(user, rid)
         return bool(rid) and any(permit_row(user.role, f"task.{t}", standing) for t in tasks)
 
+    def cover_only(self, user: Any, rid: str | None, action: str) -> bool:
+        """9f-3 (D-1383): the account holds row ``action`` in study ``rid`` only through a cover of the PI (the row is
+        allowed with the cover and refused by its own entries)."""
+        return bool(self.permit(user, action, rid).allowed) and not permit_row(
+            user.role, action, self._own_standing(user, rid)
+        )
+
     def need_export(self, sess: Session, rid: str, path: str, tasks: tuple[str, ...] = ("screen",)) -> None:
         """:meth:`export_ok` or 403, the refusal audited (``console.denied``) as :meth:`delegated`'s."""
         if not self.export_ok(sess.user, rid, tasks):

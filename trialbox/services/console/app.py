@@ -44,7 +44,7 @@ from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
-from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
+from tb_common.authz import BEST_STANDING, COVER_RUN_OPTION, admin_allowed, permit, role_allowed, role_rights
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
@@ -1067,6 +1067,10 @@ def create_app(
         # WALK-1 (F-14): a new study is known as such before its job makes the ruleset (the review of D-1153: its
         # state is written only once the job is accepted, so a refused request leaves no study behind)
         new = req.type == "FEAS" and bool(inputs) and bool(req.ruleset) and not known_ruleset(str(req.ruleset))
+        if study and helpers.cover_only(sess.user, study, f"command.{req.type}"):
+            # 9f-3 (D-1383): a run started by a right held only through a cover sends no patient-level file to the
+            # person who asked (the run's lists go to the study's own list recipients only, as without the cover)
+            req = req.model_copy(update={"options": {**(req.options or {}), COVER_RUN_OPTION: "1"}})
         try:
             # D-146 (review J-01): the orchestrator authorises by the signed-in person's role, sent signed
             made = bk.create_job(req, by=actor(sess), role=sess.user.role)
@@ -2111,7 +2115,8 @@ def create_app(
             and box in named
             and sess.user.can_view_phi
             and sess.user.sees_study(job.ruleset or "")
-            and helpers.delegated_ok(sess.user, job.ruleset)
+            # 9f-3 (D-1383): the study's log by the account's own entries (a file that leaves: never by a cover)
+            and helpers.export_ok(sess.user, job.ruleset)
         )
 
     @app.get("/pilot/jobs/{job_id}/files/{filename}")
