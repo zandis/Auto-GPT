@@ -582,7 +582,7 @@ def test_a_part_whose_hash_does_not_match_is_refused(
         ruleset_bundle.build(priv, "x1", [bad], tmp_path / "x.tar", release_seq=4)
     # signed past the tool (sign_bundle directly): the receiving box refuses it and rolls back
     sign_bundle.build(priv, "2026.11-1-rs2", [("ruleset", bad, bad.name)], tmp_path / "bad.tar", release_seq=4)
-    with pytest.raises(UpdateFailed, match="part sha256 .* refused.*rolled back"):
+    with pytest.raises(UpdateFailed, match="(?s)part sha256 .* refused.*rolled back"):
         apply_bundle(tmp_path / "bad.tar", pub, box, updates, tmp_path / "stage")
     assert "GZQO/v1.0.0" not in RulesetRepo(tmp_path / "site").tags()
     events = [e["event"] for e in audit_events(tmp_path / "audit")]

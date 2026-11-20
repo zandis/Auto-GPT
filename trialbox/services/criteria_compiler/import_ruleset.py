@@ -316,6 +316,15 @@ def install_outcome(
     newest = max((t.split("/v", 1)[1] for t in repo.tags(f"{rid}/v")), key=_semver, default=None)
     if newest is not None and _semver(version) < _semver(newest):
         raise ImportRefused(f"{tag} is older than the approved {rid} v{newest} on this box: a rule set never goes back")
+    if origin is None and files == shipped_files(rid):
+        # D-640 (runbook 01's synthetic run): exactly the example this box's own image ships, the release the vendor
+        # signed: nothing from outside; installed as before this card, with the example's routing
+        if check_only:
+            return {**out, "imported": False, "checked": True}
+        repo.write_dir("main", "main", f"{rid}/", files, f"install {tag} ({by})", author=by.replace(" ", "_"))
+        repo.tag(tag, "main", f"{tag} (offline update, {by})")
+        repo.materialize(rid, "main")
+        return {**out, "imported": True}
     if not check_only:
         _gate(verified, data, what, origin)
     m = {**m, **site_profile(repo, rid, version, sha)}
@@ -333,6 +342,17 @@ def install_outcome(
     return {**out, "imported": True}
 
 
+def shipped_files(rid: str) -> dict[str, bytes] | None:
+    """The files of ``rid`` as this box's own image ships them (``tb_common.ruleset.SEED_RULESETS``); None when it
+    ships none."""
+    from tb_common.ruleset import SEED_RULESETS
+
+    root = SEED_RULESETS / rid
+    if not RULESET_ID.fullmatch(rid) or not (root / "manifest.yaml").is_file():
+        return None
+    return {f.relative_to(root).as_posix(): f.read_bytes() for f in sorted(root.rglob("*")) if f.is_file()}
+
+
 def _gate(verified: Verified | None, data: bytes, what: str, origin: dict[str, Any] | None) -> None:
     """(i) of :func:`install_outcome`: the update path's evidence for exactly these bytes and, for a part, a box on at
     least the release that compiled it (``compiled_on.release_seq``, 1 or more, :func:`tb_common.ruleset_part
@@ -345,7 +365,7 @@ def _gate(verified: Verified | None, data: bytes, what: str, origin: dict[str, A
     if origin is not None:
         need = (origin.get("compiled_on") or {}).get("release_seq")
         have = verified.box_release_seq
-        if not _whole(need) or have is None or have < need:
+        if not isinstance(need, int) or have is None or have < need or not _whole(need):
             raise ImportRefused(_three("release", what=what, need=need, have=have))
 
 

@@ -231,6 +231,7 @@ def test_4_a_criterion_the_manifest_lists_is_in_the_part(
 def test_5_an_arrived_rule_set_screens_only_inside_its_accepted_restriction(
     head: RulesetRepo, keys: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from orchestrator.clients import StepFailed
     from orchestrator.scenarios import screen
 
     priv, pub = keys
@@ -271,7 +272,7 @@ def test_5_an_arrived_rule_set_screens_only_inside_its_accepted_restriction(
     assert pids({"pract": "P1,P2"}) == ["A"]
     monkeypatch.setattr(screen, "study_scope", lambda _c, _r: {"mode": "hospital"})
     assert pids({}) == ["A"]  # nor does the study's set-up page
-    with pytest.raises(screen.StepFailed):
+    with pytest.raises(StepFailed):
         pids({"dept": "META"})
 
 
@@ -293,7 +294,7 @@ def test_6_a_repeat_applies_the_sites_current_routing(
     ruleset_bundle.build(priv, "rs2", [part], tmp_path / "rs2.tar", release_seq=5)
     assert apply_bundle(tmp_path / "rs2.tar", pub, box, updates, tmp_path / "s2")["ok"]
     rs = load_approved(box.repo_dir, "GZQO")
-    assert rs.manifest.routing.list_to == ["corrected@site.test"]  # type: ignore[union-attr]
+    assert rs.manifest.routing.list_to == ["corrected@site.test"]
 
 
 # ------------------------------------------------------------------------------ 7: value-set scalar fields

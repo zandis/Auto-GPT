@@ -245,8 +245,11 @@ verifies the bundle again). It writes nothing new unless, in this order:
    zip's sha256. `ComposeBox.rulesets` mounts it read-only beside the zip and passes `--verified`; the import holds
    it to its strict form (`Verified.from_record`), requires the file to be root's and writable by root alone, and the
    zip's sha256 to be one the bundle staged. Without it the command line refuses any write (en, ja, zh-TW) and only
-   checks (`--check`). The only writes without evidence change no content: a repeat of what the box holds, and the
-   D-640 retag of a shipped example of exactly the same bytes (runbook 01's synthetic run, `tools/rehearse_box`).
+   checks (`--check`). The only writes without evidence: a repeat of what the box holds, the D-640 retag of a
+   seeded example of exactly the same bytes, and the install of a rule set whose files are exactly those this box's
+   own image ships (`tb_common.ruleset.SEED_RULESETS`; runbook 01's synthetic run on a box that seeds none,
+   `tools/rehearse_box`), with the example's routing as before this card. That content came with the release the
+   vendor signed; it is not from outside. **For the owner:** it needs no act at the site.
 2. **The release that compiled a part.** `ORIGIN.json` `compiled_on.release_seq` is required, a whole number of 1 or
    more (the export refuses without it; zero, missing, negative, a boolean or a non-integer is refused by
    `check_origin` at the vendor's tool and at the box). The rule: a box takes a part only on that release or a later
