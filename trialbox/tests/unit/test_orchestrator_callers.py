@@ -115,7 +115,9 @@ def test_every_identity_has_a_row_and_the_rows_are_what_the_card_says() -> None:
     assert set(IDENTITIES) <= set(rows)
     mail = rows["mail-gateway"]
     # D-863: and whether a job's outputs are still current, asked before it sends them (a yes or no, no patient)
-    assert mail.routes == {"POST /jobs", "GET /jobs/{job_id}", "GET /jobs/{job_id}/outputs-current"}
+    # D-1364 (10K-15, H5): and whether a support session runs (a yes or no), asked before every send
+    assert mail.routes == {"POST /jobs", "GET /jobs/{job_id}", "GET /jobs/{job_id}/outputs-current",
+                           "GET /support-session"}  # fmt: skip
     assert mail.own_jobs == "mail"
     # the commands the mail intake accepts (tb_common.subject)
     assert mail.job_types is not None and set(mail.job_types) == set(COMMANDS)
