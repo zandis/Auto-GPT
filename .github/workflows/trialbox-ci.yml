@@ -148,6 +148,9 @@ jobs:
       - name: findings register (every row well formed; plan 8 criterion 11; D-1180)
         if: ${{ !cancelled() }}
         run: .venv/bin/python -m tools.findings_register --check
+      - name: inline security suppressions (every nosec and noqa S line in the reviewed ledger; 10G-39, D-1338)
+        if: ${{ !cancelled() }}
+        run: .venv/bin/python -m tools.inline_suppressions --check
       - name: waivers (every vulnerability waiver has an owner, a date and a reason; no calendar rule; D-1339)
         if: ${{ !cancelled() }}
         run: .venv/bin/python -m tools.vex check
