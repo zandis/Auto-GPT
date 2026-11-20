@@ -102,6 +102,50 @@ def test_the_plain_set_counts_what_the_flip_costs() -> None:
     assert held == PLAIN_HELD  # [by the cue reading, not recognised]
 
 
+INDEPENDENT = DEV.parent / "independent"
+# (must-hold lines that run, plain lines held by the cue reading, plain lines held as not recognised)
+INDEPENDENT_COUNTS = {
+    "tester1_round1.tsv": (0, 49, 13),
+    "tester1_round2.tsv": (0, 2, 6),
+    "tester2_round1.tsv": (0, 44, 10),
+    "tester2_round2.tsv": (0, 22, 1),
+    "tester3_blind.tsv": (0, 7, 31),
+    "tester3_clauses.tsv": (0, 0, 0),
+    "tester3_informed.tsv": (0, 0, 0),
+    "tester4_informed_held.tsv": (12, 0, 0),
+    "tester4_realistic_runs.tsv": (0, 4, 19),
+}
+# the twelve lines of tester4_informed_held.tsv that run: each a value that contradicts the name it stands beside,
+# which the words alone cannot tell (D-1248, limits)
+CONTRADICTED_BY_A_VALUE = {
+    "Osteoporosis with T-score ≥ -1.0",
+    "Osteoporosis with T-score above -1.0",
+    "Obesity with BMI below 25 kg/m2",
+    "Obesity with body mass index less than 25 kg/m2",
+    "Heart failure with reduced ejection fraction, LVEF ≥ 55%",
+    "Hepatitis B with HBsAg < 0.05 IU/mL",
+    "Hepatitis B with HBsAg below 0.05 IU/ml",
+    "骨粗鬆症（Tスコア -1.0以上）",
+    "駆出率の低下した心不全、左室駆出率 55%以上",
+    "骨質疏鬆症（T值≥-1.0）",
+    "B型肝炎（HBsAg 低於 0.05 IU/mL）",
+    "心衰竭，左心室射出分率 55%以上",
+}
+
+
+@pytest.mark.parametrize("name", sorted(INDEPENDENT_COUNTS))
+def test_the_independent_sets_as_counted(name: str) -> None:
+    """The testers' files (``independent/README.md``). Their author has read them all now, so these are regression
+    lines, not a measure of the rule on unseen lines: every must-hold line of each is held, but the twelve of the
+    informed set whose value contradicts the name; the plain lines held are the count D-1248 reports."""
+    rows = read_rows(INDEPENDENT / name)
+    compiled = compile_rows(rows)
+    missed = {r["text"] for r, (net, _) in zip(rows, compiled, strict=True) if r["expect"] == "held" and net is None}
+    assert missed == (CONTRADICTED_BY_A_VALUE if name == "tester4_informed_held.tsv" else set())
+    plain = [net for r, (net, _) in zip(rows, compiled, strict=True) if r["expect"] == "runs"]
+    assert (len(missed), plain.count("cue"), plain.count("unrecognised")) == INDEPENDENT_COUNTS[name]
+
+
 LINE = ("Diagnosis of asthma for at least 12 months", "asthma", "condition")
 
 
