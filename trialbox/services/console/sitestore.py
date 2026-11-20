@@ -570,11 +570,10 @@ class SiteStore:
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"pi_marks:{ruleset}:{m.pid}",))
             if tx.fetchone("SELECT 1 FROM pi_marks WHERE undoes = ?", (done_id,)) is not None:
                 return "already"
-            last = tx.fetchone(
-                "SELECT id FROM pi_marks WHERE ruleset = ? AND pid = ? ORDER BY at DESC, id DESC LIMIT 1",
-                (ruleset, m.pid),
+            rows = tx.fetchall(
+                "SELECT id FROM pi_marks WHERE ruleset = ? AND pid = ? ORDER BY at, id", (ruleset, m.pid)
             )
-            if last is None or int(last[0]) != done_id:
+            if not rows or int(rows[-1][0]) != done_id:  # a later row: the mark changed since
                 return "changed"
             tx.execute(
                 "INSERT INTO pi_marks (ruleset, pid, mark, reason, note, by, at, job_id, version, undoes) "

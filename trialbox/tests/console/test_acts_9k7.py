@@ -46,7 +46,8 @@ from tests.console.test_console_app import (  # noqa: F401 - the fixture is used
 )
 from tests.console.test_data_pages import dcb  # noqa: F401 - the fixture is used by name
 from tests.console.test_flags_page import _fresh_cache  # noqa: F401 - autouse there, so here too
-from tests.console.test_ops_pages import ob, sb  # noqa: F401 - the fixtures are used by name
+from tests.console.test_ops_pages import ob  # noqa: F401 - the fixture is used by name
+from tests.console.test_site_setup_pages import sb  # noqa: F401 - the fixture is used by name
 from tests.console.test_step4 import b4  # noqa: F401 - the fixture is used by name
 from tools.form_fields import ACTION_ATTR, scan
 

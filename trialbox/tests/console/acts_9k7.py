@@ -13,7 +13,7 @@ import hashlib
 import inspect
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -75,14 +75,14 @@ def changed(before: dict[str, str], after: dict[str, str]) -> list[str]:
     return out
 
 
-def route_of(url: str, routes: Any = SHEETS) -> str | None:
+def route_of(url: str, routes: Iterable[str] = SHEETS) -> str | None:
     """The route pattern of ``routes`` that a request path matches (``{x}`` is one segment)."""
     path = url.split("://", 1)[-1]
     path = path[path.find("/") :] if "://" in url else path
     path = path.split("?", 1)[0]
     for r in sorted(routes, key=lambda x: x.count("{")):
         if re.fullmatch(re.sub(r"\\\{\w+\\\}", "[^/]+", re.escape(r)), path):
-            return r
+            return str(r)
     return None
 
 
