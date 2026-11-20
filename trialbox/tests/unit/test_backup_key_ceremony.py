@@ -745,9 +745,59 @@ def test_a_file_that_turns_readable_after_it_is_made_is_refused_and_removed(
     _nothing_kept(box)
 
 
-def _writer_owned_audit(b: dict[str, Path], fresh: bool) -> tuple[int, int]:
+class _SimUids:
+    """The ceremony's view of ``os`` with the owners simulated, so the owner logic runs the same as root and as any
+    other user (CI's runner is not root). Files this process makes read as root's (uid 0, gid 0); ``chown`` records
+    an owner by inode instead of calling the system (and so needs no privilege); ``geteuid`` says 0. Everything else
+    is the real ``os``, looked up when called, so the other tests' patches of ``os.fstat`` and ``os.fsync`` still
+    apply under it. Installed into the module as ``bkc.os``; the test's own ``os`` is the real one."""
+
+    def __init__(self) -> None:
+        self.owner: dict[int, tuple[int, int]] = {}
+        self.chowns: list[tuple[str, int, int]] = []
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(os, name)
+
+    def geteuid(self) -> int:
+        return 0
+
+    def _view(self, st: os.stat_result) -> os.stat_result:
+        vals = list(st)[:10]
+        uid, gid = self.owner.get(st.st_ino, (0 if st.st_uid == os.geteuid() else st.st_uid,
+                                              0 if st.st_gid == os.getegid() else st.st_gid))  # fmt: skip
+        vals[4], vals[5] = uid, gid
+        return os.stat_result(vals)
+
+    def stat(self, *a: Any, **k: Any) -> os.stat_result:
+        return self._view(os.stat(*a, **k))
+
+    def lstat(self, *a: Any, **k: Any) -> os.stat_result:
+        return self._view(os.lstat(*a, **k))
+
+    def fstat(self, fd: int) -> os.stat_result:
+        return self._view(os.fstat(fd))
+
+    def chown(self, path: Any, uid: int, gid: int, **k: Any) -> None:
+        self.chowns.append((str(path), uid, gid))
+        self.owner[os.stat(path, follow_symlinks=k.get("follow_symlinks", True)).st_ino] = (uid, gid)
+
+    def owner_of(self, path: Path) -> tuple[int, int]:
+        st = self.lstat(path)
+        return st.st_uid, st.st_gid
+
+
+@pytest.fixture
+def sim(monkeypatch: pytest.MonkeyPatch) -> _SimUids:
+    s = _SimUids()
+    monkeypatch.setattr(bkc, "os", s)
+    return s
+
+
+def _writer_owned_audit(b: dict[str, Path], fresh: bool, sim: _SimUids) -> tuple[int, int]:
     """The audit folder as the deployed writer (uid 10001) has it: owned by it, its files 0640; with ``fresh`` an
-    empty folder (the ceremony makes the lock, the day file and the head anchor), else a chain of an earlier day."""
+    empty folder (the ceremony makes the lock, the day file and the head anchor), else a chain of an earlier day.
+    The owner is simulated (:class:`_SimUids`): no privilege is needed to set it."""
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
@@ -756,49 +806,51 @@ def _writer_owned_audit(b: dict[str, Path], fresh: bool) -> tuple[int, int]:
         tb_audit.AuditLog(b["audit"], tz="Asia/Tokyo").append(
             "x.synthetic", actor="test", ts=datetime(2026, 1, 1, tzinfo=ZoneInfo("Asia/Tokyo")))  # fmt: skip
     for p in [b["audit"], *b["audit"].rglob("*")]:
-        os.chown(p, *writer)
+        sim.chown(p, *writer)
         if p.is_file():
             p.chmod(0o640)
+    sim.chowns.clear()
     return writer
 
 
 @pytest.mark.parametrize("fresh", [True, False])
 def test_what_the_ceremony_writes_in_the_audit_folder_stays_the_writers(
-    box: dict[str, Path], capsys: pytest.CaptureFixture[str], fresh: bool
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], sim: _SimUids, fresh: bool
 ) -> None:
     """H3: root appends the event; every file it made or replaced in the audit folder (the lock, the day file, the
-    head anchor) is given the folder's owner, and the mode of the writer's files, so the writer can append next."""
-    assert os.geteuid() == 0, "this lane's container runs as root; the owner change needs it"
-    writer = _writer_owned_audit(box, fresh)
+    head anchor) is given the folder's owner, and the mode of the writer's files, so the writer can append next.
+    The uids are simulated, so this holds the same run as root or as another user."""
+    writer = _writer_owned_audit(box, fresh, sim)
     rc, out = _main(box, capsys)
     assert rc == 0, out
     files = sorted(p for p in box["audit"].rglob("*") if p.is_file())
     assert {p.name for p in files} >= {".lock", "HEAD.json"}
+    # the owner change was asked for each file the ceremony made or replaced (an earlier lock is the writer's already)
+    assert {Path(c[0]).name for c in sim.chowns} >= {"HEAD.json"} | ({".lock"} if fresh else set())
     for p in files:
-        st = p.stat()
-        assert (st.st_uid, st.st_gid) == writer, (p, st.st_uid)
+        assert sim.owner_of(p) == writer, (p, sim.owner_of(p))
         if not fresh:  # the new day file takes the earlier day file's mode, the head anchor its own again
-            assert stat.S_IMODE(st.st_mode) == 0o640, (p, oct(st.st_mode))
+            assert stat.S_IMODE(p.stat().st_mode) == 0o640, (p, oct(p.stat().st_mode))
 
 
 def test_an_audit_owner_that_cannot_be_given_back_is_said(
-    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, sim: _SimUids
 ) -> None:
     """H3, checked after the append: a file left root's (the owner change failed) is named, with the folder's
-    owner, after the closing text, and the run exits 2."""
-    assert os.geteuid() == 0, "this lane's container runs as root; the owner change needs it"
-    _writer_owned_audit(box, fresh=True)
-    real = os.chown
+    owner, after the closing text, and the run exits 2. The uids are simulated (any user runs this)."""
+    _writer_owned_audit(box, fresh=True, sim=sim)
+    real = sim.chown
 
     def chown(path: Any, uid: int, gid: int, **k: Any) -> None:
         if str(path).endswith("/.lock"):
             raise PermissionError(errno.EPERM, "Operation not permitted")
         real(path, uid, gid, **k)
 
-    monkeypatch.setattr(os, "chown", chown)
+    monkeypatch.setattr(sim, "chown", chown)
     rc, out = _main(box, capsys)
     assert rc == bkc.KEPT_EXIT, out
     assert bkc.AUDIT_OWNER_LEFT["en"].format(files=box["audit"] / ".lock", owner="10001:10001") in out
+    assert sim.owner_of(box["audit"] / ".lock")[0] == 0  # still root's
     assert len(_events(box)) == 1 and box["pub"].exists()
 
 
