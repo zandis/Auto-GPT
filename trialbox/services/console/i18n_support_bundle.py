@@ -89,7 +89,7 @@ ZH: dict[str, str] = {
     "sbundle.in": "內容：版本與更新紀錄、本機的健康狀態與營運頁面的狀態（機密資訊只有名稱與天數）、所有機密值都已取代"
     "的 .env 檔、稽核紀錄的驗證結果（只有筆數，不含紀錄本身）、doctor 與主機檢查的輸出、所有機密值都已取代的 docker "
     "compose config、容器清單與重新啟動次數，以及磁碟與 GPU 狀態。",
-    "sbundle.never": "絕不放入：病人資料或任何資料庫、資料資料夾與 Docker 磁碟區、機密資訊、金鑰與權杖、備份、稽核紀錄"
+    "sbundle.never": "絕不放入：病人資料或任何資料庫、資料資料夾與 Docker 磁碟區、機密資訊與金鑰、備份、稽核紀錄"
     "本身、院方的 settings.yaml，以及 PostgreSQL、HAPI FHIR 與 vLLM 的日誌。在這裡製作的檔案暫時也不放入 TrialBox 自"
     "身的服務日誌：日誌中可能有病人的假名代碼，因此只有在主機上以需要 root 權限的指令「trialbox support-bundle」製作時"
     "才會放入。",
