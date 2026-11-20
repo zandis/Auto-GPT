@@ -158,6 +158,17 @@ Before this card, the Japanese table had none of these classes. English had no c
      denied a replacement. It is fixed.
    - The new tests run against master: 187 of 390 fail. The 203 that pass are honest lines and denials that master
      already passed.
+   - **Second round (§8).** 67 parts of the role reading were each removed in turn. All 67 fail at least one test,
+     with `tests/unit/test_wording_en_ja_roles.py` added to the files above.
+     - The first pass left 11 parts no test decided. Each now has a sentence it decides.
+     - Four anchors had moved under the formatter and were corrected.
+   - **The first round's 84 removals were run again on the second round's code.** All 84 are killed.
+     - Seven had survived or failed to load. The product's voice now decides a sentence that names no one, so the
+       old subject parts decide only where a person is named beside the product, and tests now say so.
+     - One mutation had broken the module's syntax, not the rule; it was corrected.
+     - English's causative is gone, as above.
+   - `test_wording_en_ja_roles.py` run against master dfb92007: 246 of its 566 tests then fail. The rest are honest
+     lines and counter-cases that master already passed.
 6. **zh-TW reads as before, except for §7's six fixes.** Its fixtures and D-1247's sets run untouched. Two tests of
    `test_wording_zh_tw.py` recorded the gap this card closes, and are updated to say so:
    - `test_one_rule_two_tables` now lists three tables;

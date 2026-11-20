@@ -599,6 +599,7 @@ PARTS_EN = [
     ("a therapy chosen by someone", "Checks each criterion of the chosen therapy.", False),
     ("a disease named by its adjective", "This patient is hypertensive.", True),
     ("an aim", "The registry aims to reduce readmissions.", False),
+    ("a passive's agent", "The judgement is made by the AI.", True),
 ]
 PARTS_JA = [
     ("the product as subject", "本システムが寛解率を高めます。", True),
@@ -658,6 +659,15 @@ PARTS_JA = [
     ("a patient and a disease, no finding", "この患者に糖尿病の資料を渡します。", False),
     ("a word is not its own object", "回復までの日数を表示します。", False),
     ("a published standard grades", "CTCAEにより貧血の重症度を評価します。", False),
+    # the first round's subject reading still decides where a person is named beside the product
+    ("the product's own act beside a person", "医師が見るのはTrialBoxの糖尿病治療です。", True),
+    ("a cause beside a person", "医師はAIに治療を決めさせます。", True),
+    ("a cause in a person's place", "医師ではなくAIに治療を決めさせます。", True),
+    ("the product's own judgement beside a person", "医師はAIの判断を確認します。", True),
+    ("an earlier clause's product beside a person", "本システムは記録を表示せず、医師の糖尿病の患者を治療します。", True),
+    ("the product's act noun beside a person", "医師はTrialBoxの治療効果を確認します。", True),
+    ("an earlier clause's product that only shows, then judges", "本システムは記録を表示し、判断します。", True),
+    ("a cause with no subject", "AIに判断させます。", True),
     ("a document quoted", "計画書より引用：「妊娠中の患者は除外する」", False),
     ("the product quoted", "本システムは「この患者は除外」と判定します。", True),
     ("a document named after its quotation", "「HBs抗原陽性は除外」と計画書に記載されています。", False),
