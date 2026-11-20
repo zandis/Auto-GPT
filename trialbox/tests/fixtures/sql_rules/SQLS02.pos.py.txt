@@ -1,0 +1,7 @@
+# synthetic: %-formatting into execute
+def by_name(cur, name):
+    cur.execute("SELECT id FROM item WHERE name = '%s'" % name)  # hit
+
+
+def two(cur, table, col):
+    cur.executemany("INSERT INTO %s (%s) VALUES (?)" % (table, col), [(1,)])  # hit

@@ -1054,7 +1054,7 @@ def read_jmed(cache: Path, n: int = 40, key: str = keys.CURRENT) -> Bundle:
 
     keys.check(key)
     b = Bundle("jmed")
-    t = pq.read_table(io.BytesIO(_read_cached(cache, "jmed_personas_01.parquet")), use_threads=False).to_pylist()
+    t = pq.ParquetFile(io.BytesIO(_read_cached(cache, "jmed_personas_01.parquet"))).read(use_threads=False).to_pylist()
     rng = random.Random(SEED)
     strata: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for r in t:
@@ -1128,7 +1128,11 @@ def read_notes_only(cache: Path, name: str, n: int = 20, get: Any = None) -> Bun
     elif name == "opentw":
         import pyarrow.parquet as pq
 
-        rows = pq.read_table(io.BytesIO(_read_cached(cache, "opentw_medicine.parquet")), use_threads=False).to_pylist()
+        rows = (
+            pq.ParquetFile(io.BytesIO(_read_cached(cache, "opentw_medicine.parquet")))
+            .read(use_threads=False)
+            .to_pylist()
+        )
         vign = [r for r in rows if VIGNETTE.search(str(r.get("question") or ""))]
         rng.shuffle(vign)
         for r in vign[:n]:

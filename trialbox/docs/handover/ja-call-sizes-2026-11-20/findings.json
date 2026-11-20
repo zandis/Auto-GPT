@@ -1,0 +1,41 @@
+{
+ "card": "H10E38",
+ "title": "Japanese judge-call sizes at 8k and 32k, counted offline on synthetic charts (plan 10 row 10E-38, O-6, A6)",
+ "date": "2026-11-20",
+ "source": "docs/handover/ja-call-sizes-2026-11-20.md",
+ "note": "basis 'shown' means shown by tools/ja_call_sizes.py's record (docs/handover/ja-call-sizes-2026-11-20/record.json) and its unit tests; no GPU, no model, no gateway, no network.",
+ "findings": [
+  {
+   "id": "H10E38-01",
+   "severity": "Medium",
+   "claim": "A6 passes at +0 points only on the synthetic Japanese hospital: 0 of 352 judge calls cut at 8k and at 32k, the largest call 35 % of 8k by the box's estimate. The synthetic notes are short (the largest window's excerpts 2,410 estimated tokens against a budget of about 5,500), so this does not show that real Japanese charts fit 8k. Review 19's N4 stays open until a longer, still non-real chart set (10G-23's generated charts, or a site's shadow run) is counted with tools/ja_call_sizes.py",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10E38-02",
+   "severity": "Low",
+   "claim": "Six of the eight shipped rulesets (AD-MAB, GOUT-COH, NEUR-COH, RA-BIO, RA-COH, RA-JAK) put no question to the judge on the Japanese synthetic sites jp-a and jp-ad (mix_jp_ad), so O-6 covers GZQO and ONC-OSI only; why (no note criterion, no patient reaching S3, or the memory clinic's notes not matching) was not traced here",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10E38-03",
+   "severity": "Medium",
+   "claim": "The true token count of a Japanese judge call is not known: the judge's tokenizer is not in the repository and not installed, so the record's sizes are the box's estimate (true_count false). On the repository's 200 measured Japanese excerpts the judge counted 0.53 to 0.91 of the estimate, but the English prompt template is not in that set; the integrator's GPU session (or the tokenizer file added to the repository under its licence) should count the record's calls",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10E38-04",
+   "severity": "Low",
+   "claim": "tools/ja_call_sizes.py gives each synthetic site its own database schemas only when TB_DB_URL is not set; with TB_DB_URL given (a box, CI's own server) several sites of one run share one schema prefix, so a multi-site run there should be one site per run",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

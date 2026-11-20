@@ -1,0 +1,9 @@
+# synthetic: a WHERE list of fixed clauses, values bound
+def fine(db, state=None, kind=None):
+    where, args = [], []
+    for col, val in (("state = ?", state), ("kind = ?", kind)):
+        if val is not None:
+            where.append(col)
+            args.append(val)
+    sql = "SELECT id FROM item" + (" WHERE " + " AND ".join(where) if where else "")
+    return db.fetchall(sql, args)
