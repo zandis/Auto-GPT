@@ -386,3 +386,5 @@
   - Ruling 9: a DuckDB file does not carry its own rule. Today's evidence stands for 1.0 (above); no code.
   - Ruling 1: no tool yet takes a reviewed record off the review list. While its earlier id is listed, the lake keeps
     it out of the coded tables, whatever the steward decided in OMOP; OMOP itself counts it once confirmed.
+    A follow-up card (lane J) builds it: a steward's confirmation takes the record off `id_rule_review.json` and the
+    next night codes it, audited.
