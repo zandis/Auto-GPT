@@ -9,6 +9,7 @@
 {% set done = request.query_params.get('done', '') %}
 {% if done in ('add', 'update', 'check') %}<p class="ok" role="status" data-testid="log-done">{{ t('team.log.done.' + done) }}</p>{% endif %}
 {% if due %}<p class="warn" role="alert" data-testid="check-due">{{ t('team.log.check_due') }}</p>{% endif %}
+{% if ending %}<section class="warn" role="alert" data-testid="ending-soon"><p><strong>{{ t('team.ending.title') }}</strong></p><ul class="plain">{% for e, left in ending %}<li data-testid="ending-{{ e.id }}">{{ e.name }} · {{ t('team.role.' + e.role) }} · {{ t('team.ending.today', end=e.end) if left == 0 else t('team.ending.days', n=left, end=e.end) }}</li>{% endfor %}</ul></section>{% endif %}
 {% if not has_pi %}<p class="warn" data-testid="no-pi">{{ t('team.log.no_pi') }}</p>{% endif %}
 <section class="card">
 {% if not entries %}<p class="empty">{{ t('team.log.empty') }}</p>{% else %}
