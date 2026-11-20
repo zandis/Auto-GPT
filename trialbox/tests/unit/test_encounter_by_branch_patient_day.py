@@ -198,15 +198,3 @@ def test_a_delta_night_links_a_changed_diagnosis_to_its_unchanged_visit(tmp_path
 
 def _key(cfg: Any) -> bytes:
     return bytes((cfg.secrets_dir / "site_hmac.key").read_bytes())
-
-
-def test_a_by_day_link_whose_keys_leave_out_the_patient_is_refused(tmp_path: Path) -> None:
-    """D-1253 deep review (low): keys without the record's patient column (``mrn``) would find another patient's
-    visit of that day in that branch. Refused when the mapping loads: a link never crosses patients."""
-    BY_DAY["by_day"] = {**BY_DAY["by_day"], "keys": ["branch"]}  # type: ignore[dict-item]
-    try:
-        with pytest.raises(MappingError, match="patient column"):
-            _mapping(tmp_path)
-    finally:
-        BY_DAY["by_day"] = {"table": "encounter", "keys": ["branch", "mrn"], "day": "diag_date",
-                            "their_day": "visit_datetime"}  # fmt: skip

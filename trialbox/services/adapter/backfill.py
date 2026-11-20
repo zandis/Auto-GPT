@@ -131,9 +131,6 @@ class BackfillReport:
     incomplete: list[str] = field(default_factory=list)  # the completeness gate's problems (the load is held)
     errors: list[str] = field(default_factory=list)
     spool_reused: bool = False
-    # D-1253 (deep review): a kept spool made under another lake-id rule (before the update) is never reused: it is
-    # read again from the source, and said here
-    spool_of_another_id_rule: bool = False
     seconds: float = 0.0
     lake: dict[str, Any] | None = None
     omop: dict[str, Any] | None = None
@@ -176,19 +173,12 @@ def _atomic_json(path: Path, body: Any) -> None:
 
 
 def _fingerprint(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str) -> str:
-    """What a kept spool must have been made with to be reused: the source, the snapshot, the site, the mapping as
-    resolved (its version hashes the file and the base it ``extends``) and the lake-id rule (D-1253 deep review: a
-    spool made before the update holds the earlier rule's ids)."""
-    from tb_common import id_rule
-
     h = hashlib.sha256()
+    # The spool and every sorted run already contain mapped IDs. A pre-upgrade fingerprint
+    # (which carried no rule) must miss even when source, mapping and date all match.
     h.update(json.dumps([source_kind, str(source_path), snap, cfg.site_id, id_rule.RULE], sort_keys=True).encode())
     if cfg.mapping_path.is_file():
         h.update(cfg.mapping_path.read_bytes())
-        if source_kind != "fhir_bulk":
-            from adapter.mapping.engine import Mapping
-
-            h.update(Mapping.load(cfg.mapping_path).version.encode())  # the base it extends, too
     return h.hexdigest()
 
 
@@ -433,8 +423,6 @@ def _merged(runs: Path, buckets: list[str], rtype: str, clash: list[int] | None 
 def _write_merged(
     runs: Path, buckets: list[str], out: Path, collisions: dict[str, int] | None = None
 ) -> dict[str, int]:
-    from tb_common import id_rule
-
     types = sorted({p.stem for b in buckets for p in (runs / b).glob("*.ndjson")})
     out.mkdir(parents=True, exist_ok=True)
     id_rule.write_snapshot_record(out)  # D-1253: the back-fill maps every year under the current id rule
@@ -543,17 +531,10 @@ def backfill(
     marker = spool / SPOOL_DONE
     done_spool = json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else None
 
-    if done_spool is not None and done_spool.get("id_rule") != id_rule.RULE:
-        # D-1253 (deep review): made before the update (no rule) or by another release: its ids are not this rule's
-        log.warning("back-fill %s: the kept spool was made under another lake-id rule (%s): it is not reused; the "
-                    "source is read again", snap, done_spool.get("id_rule", 1))  # fmt: skip
-        rep.spool_of_another_id_rule = True
-        done_spool = None
-
     def read_source() -> dict[str, Any]:
         _progress(work, rep, "spool")
         shutil.rmtree(runs, ignore_errors=True)  # runs of another source are void
-        got = {"fingerprint": fp, "id_rule": id_rule.RULE, **_spool(cfg, source_kind, source_path, snap, spool, key)}
+        got = {"fingerprint": fp, **_spool(cfg, source_kind, source_path, snap, spool, key)}
         _atomic_json(marker, got)
         return got
 
@@ -792,7 +773,6 @@ def _audit(cfg: AdapterConfig, rep: BackfillReport) -> None:
             "counts": rep.counts,
             "rejected": rep.rejected or None,
             "id_collisions": rep.id_collisions or None,  # D-1253 review F: as the night's detail
-            "spool_of_another_id_rule": rep.spool_of_another_id_rule or None,
             "links_to_absent_records": {t: sum(by.values()) for t, by in sorted(rep.links_to_absent_records.items())}
             or None,
             "rejected_no_patient": rep.rejected_no_patient or None,

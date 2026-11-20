@@ -59,8 +59,8 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import yaml
+from tb_common import chartno, labvalue
 from tb_common import dates as tb_dates
-from tb_common import labvalue
 from tb_common.codekey import HALF_WIDTH, fold_key
 from tb_common.crypto import pid_for_mrn
 
@@ -526,10 +526,19 @@ def _whose(path: Path, r: ResourceSpec) -> str | None:
         )
     if r.id.get("site_wide") and "hid" not in r.id:
         raise MappingError(f"{where}: site_wide is said of an hid id only")
-    if "column" in r.id and r.type not in SITE_WIDE_TYPES and r.type != "Patient":
+    if any(key == "id" or key.startswith(("id.", "id[")) for key in r.elements):
+        raise MappingError(
+            f"{where}: elements cannot assign id / elements 不得設定 id / elements で id は設定できません"
+        )
+    if "pid" in r.id and r.type != "Patient":
+        raise MappingError(
+            f"{where}: id.pid is for Patient only / id.pid 僅適用於 Patient / id.pid は Patient 専用です"
+        )
+    if "column" in r.id and r.type != "Patient" and (named or r.type not in SITE_WIDE_TYPES):
         raise MappingError(
             f"{where}: a {r.type} belongs to a patient: its id cannot be the source's number as it is "
-            "(id: {column: ...}): two patients with one number would be one record. Use id: {hid: <col>}"
+            "(id: {column: ...}): two patients with one number would be one record. Use id: {hid: <col>} / "
+            "病人的紀錄必須使用 hid / 患者のレコードには hid が必要です"
         )
     if r.id.get("site_wide"):
         if r.type not in SITE_WIDE_TYPES:
@@ -604,17 +613,16 @@ def _by_day_links(path: Path, order: list[str], resources: list[ResourceSpec]) -
                 if not isinstance(spec, dict) or spec.get("table") not in order:
                     raise MappingError(f"{where} names no table of the mapping")
                 there = str(spec["table"])
-                if not any(o.table == there and o.type == rtype for o in resources):
+                targets = [o for o in resources if o.table == there and o.type == rtype]
+                if not targets:
                     raise MappingError(f"{where}: the table {there} makes no {rtype}")
                 keys = spec.get("keys")
                 if not isinstance(keys, list) or not keys or not all(isinstance(k, str) and k for k in keys):
                     raise MappingError(f"{where} needs keys: the columns both tables hold (branch, patient)")
-                if r.patient is None or r.patient not in keys:
-                    # D-1253 deep review: without the patient among its keys, a link by day could find another
-                    # patient's visit of that day: never across patients
+                if any(o.patient and (o.patient != r.patient or o.patient not in keys) for o in targets):
                     raise MappingError(
-                        f"{where}: its keys must hold the record's patient column ({r.patient or 'none named'}), so "
-                        "it links to the same patient's visit only (D-1253)"
+                        f"{where}: keys must include the shared patient column / "
+                        "keys 必須包含共同的病歷號欄位 / keys に両テーブル共通の患者列が必要です"
                     )
                 if not str(spec.get("day") or "") or not str(spec.get("their_day") or ""):
                     raise MappingError(f"{where} needs day and their_day: the day column of each table")
@@ -1132,6 +1140,14 @@ class Mapper:
         self._mapped: dict[tuple[str, ...], str | None] = {}  # (from, to, code, accepted) → the one code, asked once
         self.mapped: Counter[tuple[str, str]] = Counter()  # D-689: rows that gained a mapped coding, by (table, map)
         self.m = mapping
+        # Only a key declared to be the chart number follows chart spelling rules. References
+        # use the target's declaration, even if their source column has a different name.
+        self._chart_keys = {
+            (r.type, r.id.get("suffix", "")) for r in mapping.resources if r.patient and r.id.get("hid") == r.patient
+        }
+        self._chart_keys.difference_update(
+            (r.type, r.id.get("suffix", "")) for r in mapping.resources if r.id.get("hid") != r.patient
+        )
         self.key = site_key
         self.site_id = site_id
         self.ingest_time = ingest_time  # a FHIR instant: set, every resource carries its row provenance (DATA-010)
@@ -1317,6 +1333,8 @@ class Mapper:
             if suffix:  # the loader refuses it (_whose, _id_rules): a suffix never runs into a site-wide number
                 raise MappingError(f"{rtype}: a site-wide id has no suffix")
             return resource_id(self.key, rtype, value)
+        if (rtype, suffix) in self._chart_keys:
+            value = chartno.normalise(None, value)
         return patient_resource_id(self.key, rtype, self.patient_of(rs, row), value, suffix)
 
     def tombstones_without_patient(self) -> dict[str, int]:
@@ -1768,6 +1786,8 @@ class Mapper:
         if path == "$merge":
             if not isinstance(value, dict):
                 raise MappingError("$merge expects an object")
+            if "id" in value:
+                raise MappingError("$merge cannot assign id / $merge 不得設定 id / $merge で id は設定できません")
             res.update(value)
             return
         parts = path.split(".")

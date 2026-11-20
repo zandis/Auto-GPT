@@ -108,13 +108,15 @@ COUNTS: dict[str, tuple[str, ...]] = {
     "profile": ("tb_patient_profile",),
     "orch": ("pool",),
 }
-OMOP_FEED = "source_kind = 'feed' AND resource_type <> 'Patient'"
+OMOP_FEED = "source_kind = 'feed' AND resource_type NOT IN ('Patient', 'Practitioner')"
 #: the OMOP feed records of patients' clinical data (``OMOP_FEED``), written out: what the plan counts and the rebuild
 #: clears table by table
-OMOP_FEED_COUNT = "SELECT count(*) FROM tb_record WHERE source_kind = 'feed' AND resource_type <> 'Patient'"
+OMOP_FEED_COUNT = (
+    "SELECT count(*) FROM tb_record WHERE source_kind = 'feed' AND resource_type NOT IN ('Patient', 'Practitioner')"
+)
 OMOP_FEED_TABLES = (
-    "SELECT DISTINCT cdm_table FROM tb_record WHERE source_kind = 'feed' AND resource_type <> 'Patient' AND "
-    "cdm_table IS NOT NULL"
+    "SELECT DISTINCT cdm_table FROM tb_record WHERE source_kind = 'feed' AND "
+    "resource_type NOT IN ('Patient', 'Practitioner') AND cdm_table IS NOT NULL"
 )
 #: the derived conflicts a person resolved, and every conflict they were carried from: kept
 KEPT_CONFLICTS = (
@@ -188,7 +190,8 @@ def month_ends(lake: Path, today: date) -> list[str]:
     months = 12 * 100  # every completed month on the box
     here, aside = id_rule.snapshot_names(lake), id_rule.snapshot_names(lake / ASIDE)
     current = (lake / "CURRENT").read_text().strip() if (lake / "CURRENT").is_file() else None
-    good = good_snapshots(lake, here, current) | good_snapshots(lake / ASIDE, aside)
+    # a month-end already moved aside was chosen as one: it stays the month's (the builder's review fix 8)
+    good = good_snapshots(lake, here, current) | aside
     return sorted(snapshots_to_keep(here | aside, today, 0, months, good))
 
 
@@ -230,6 +233,19 @@ def newer(lake: Path, url: str | None) -> list[str]:
             rule = id_rule.snapshot_rule(snap)
             if rule > id_rule.RULE:
                 found.append(f"the lake snapshot {folder}/{snap.name} is of id rule {rule}")
+    from lake.store import ID_RULE_SIDECAR
+
+    for root in (lake / "db", lake / ASIDE / "db"):
+        for side in sorted(root.glob(f"*.duckdb{ID_RULE_SIDECAR}")):
+            try:
+                rule = int(side.read_text(encoding="utf-8").strip())
+            except (ValueError, OSError):
+                rule = 0
+            if rule <= 0 or rule > id_rule.RULE:
+                found.append(
+                    f"{side.relative_to(lake)}: unsupported id rule / 不支援的 ID 規則 / "
+                    f"未対応の ID 規則 ({rule or '?'})"
+                )
     if not url:
         return found
     from omop.schema import schema_for
@@ -511,15 +527,15 @@ def _clear_omop(db: Any) -> dict[str, int]:
                 raise Refused(f"the OMOP store holds feed records of table {t}, which this rebuild does not know")
             counts[t] = tx.execute(
                 _q("DELETE FROM {} WHERE {} IN (SELECT record_id FROM tb_record WHERE source_kind = 'feed' AND "
-                   "resource_type <> 'Patient' AND cdm_table = ?)", t, col),
+                   "resource_type NOT IN ('Patient', 'Practitioner') AND cdm_table = ?)", t, col),
                 (t,),
             )  # fmt: skip
         counts["tb_record_event"] = tx.execute(
             "DELETE FROM tb_record_event WHERE record_key IN (SELECT record_key FROM tb_record WHERE "
-            "source_kind = 'feed' AND resource_type <> 'Patient')"
+            "source_kind = 'feed' AND resource_type NOT IN ('Patient', 'Practitioner'))"
         )
         counts["tb_record"] = tx.execute(
-            "DELETE FROM tb_record WHERE source_kind = 'feed' AND resource_type <> 'Patient'"
+            "DELETE FROM tb_record WHERE source_kind = 'feed' AND resource_type NOT IN ('Patient', 'Practitioner')"
         )  # the rows OMOP_FEED names
         _stamp(tx)
     return counts
