@@ -161,3 +161,46 @@ def test_the_texts_exist_in_three_languages() -> None:
         assert all(k in CATALOGUES[lang] and CATALOGUES[lang][k] != CATALOGUES["en"][k] for k in keys), lang
     for k in ("team.ending.days", "team.ending.today"):
         assert all("{end}" in CATALOGUES[lang][k] for lang in CATALOGUES), k
+
+
+def test_a_crc_entry_with_a_ticked_task_shows_it_on_that_persons_page_only(box: dict[str, Any]) -> None:  # noqa: F811
+    h = box["app"].state.helpers
+    crc = _user(box, "crc7", "coordinator")
+    sub = _user(box, "drkato", "investigator")
+    _entry(h, "crc7", "crc", "2026-01-01", None, ("screen",))
+    _entry(h, "drkato", "sub_pi", "2026-01-01", None, ("enter_data",))
+    page = crc.get("/account").text
+    line = page.split('data-testid="role-GZQO-crc"')[1].split("</li>")[0]
+    assert "See candidates" in line  # the task label the delegation-log page uses
+    other = sub.get("/account").text
+    assert "role-GZQO-crc" not in other and "See candidates" not in other and "crc7" not in other
+
+
+def test_a_name_with_markup_is_escaped_on_the_log_and_account_pages(box: dict[str, Any]) -> None:  # noqa: F811
+    h = box["app"].state.helpers
+    pi = _user(box, "drsato", "investigator")
+    _entry(h, "drsato", "pi", "2026-01-01", None)
+    _entry(h, None, "other", "2026-01-01", "2026-11-24", name="<script>alert(1)</script>")
+    _noon(h, "2026-11-10")
+    log = pi.get("/studies/GZQO/team").text
+    assert "<script>alert(1)</script>" not in log and "&lt;script&gt;alert(1)&lt;/script&gt;" in log
+    assert 'data-testid="ending-soon"' in log
+    # the account page prints the person's own entries; a markup name on an own entry must not come through raw
+    _entry(h, "drsato", "sub_pi", "2026-01-01", None, ("screen",), name="<script>alert(2)</script>")
+    acc = pi.get("/account").text
+    assert "alert(2)" not in acc  # the account page does not print an entry name; if it ever does, it must escape it
+
+
+def test_a_monitor_sees_its_own_grant_and_ending_warning_on_the_account_page_only(box: dict[str, Any]) -> None:  # noqa: F811
+    h = box["app"].state.helpers
+    _user(box, "drsato", "investigator")
+    mon = _user(box, "mon9", "cro", affiliation="cro", studies="GZQO")
+    _entry(h, "drsato", "pi", "2026-01-01", None, name="Dr Sato")
+    eid = _entry(h, "mon9", "monitor", "2026-01-01", "2026-11-24", name="CRA Nine")
+    _noon(h, "2026-11-10")
+    assert mon.get("/studies/GZQO/team").status_code == 403  # the log page stays closed to a monitor
+    acc = mon.get("/account").text
+    assert 'data-testid="role-GZQO-monitor"' in acc and 'data-testid="role-ending-GZQO-monitor"' in acc
+    assert "ends in 14 days (last day 2026-11-24)" in acc
+    assert "Dr Sato" not in acc and "drsato" not in acc and f"ending-{eid}" not in acc  # nothing else of the log
+    assert 'data-testid="role-GZQO-pi"' not in acc
