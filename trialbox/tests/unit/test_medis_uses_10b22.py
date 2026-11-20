@@ -271,3 +271,10 @@ def test_an_index_term_in_lower_case_is_found_as_the_hospital_writes_it(master: 
 
     assert mm.by_name(master, "テストａ病", lookup)["code"] == "E11.9"  # full-width lower case, as stored
     assert mm.by_name(master, "テストｂ型名", lookup)["code"] == "B18.1"  # lower case typed, stored upper
+
+
+def test_a_name_whose_own_entry_gives_nothing_is_still_read_in_the_index(master: mm.Master) -> None:
+    # テスト病丁 is an entry of its own (U04.9: not in ICD-10-CM); the index names another disease for the same words
+    rows = [{"term": "テスト病丁", "code": "ZA01", "target_kind": "1", "synonym": "1", "variant": "9"}]
+    assert mm.by_name(master, "テスト病丁") == {}
+    assert mm.by_name(master, "テスト病丁", lambda t: rows)["code"] == "E11.9"
