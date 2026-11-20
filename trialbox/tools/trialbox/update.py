@@ -644,28 +644,6 @@ class Updater:
             raise UpdateRefused(f"{problem}; nothing was changed")
         return [] if value == "off" else [f"TB_TLS_OLD_CLIENTS={value} (audited): 443 serves the old-client suites"]
 
-    def _legacy_token(self) -> list[str]:
-        """D-1349: outside DEV and TEST the services refuse the old shared service token. A PRODUCTION or VALIDATION
-        compose box that still holds one (``svc_secrets.legacy_held``: ``TB_SERVICE_TOKEN`` in ``deploy/.env``, the
-        ``legacy`` hash in ``tokens.json``) is refused before anything changes: the operator rotates every token
-        first, so no caller still presents it. Names the places, never a value."""
-        deploy = getattr(self.box, "deploy", None)
-        if getattr(self.box, "name", "") != "compose" or deploy is None:
-            return []
-        env = self.environment()
-        if env not in STRICT_ENVS:
-            return []
-        from tools.trialbox import svc_secrets
-
-        held = svc_secrets.legacy_held(Path(deploy))
-        if held:
-            raise UpdateRefused(
-                f"this {env} box still holds the old shared service token ({'; '.join(held)}), which the services "
-                "refuse outside DEV and TEST (D-1349): run `sudo python3 -m tools.trialbox secrets rotate` (every "
-                "token), then this update again; nothing was changed"
-            )
-        return []
-
     def preflight(self, plan: Plan, backup: bool = True) -> list[str]:
         """Every refusal that needs nothing changed: compat.json against the live box, the release sequence, the
         box's own checks, the free space. Raises :class:`UpdateRefused`; returns notes."""
@@ -674,7 +652,6 @@ class Updater:
         notes: list[str] = []
         notes += self._tls_old_clients()
         notes += self._from_a_commit(plan)
-        notes += self._legacy_token()
         if plan.release_seq is not None:
             inst = us.installed(self.dir)
             have = int(inst["release_seq"])
