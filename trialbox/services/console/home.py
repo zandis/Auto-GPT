@@ -58,6 +58,7 @@ from console.sitestore import (
     StudySettings,
 )
 from console.studies import known_study
+from console.teamstore import COVER_NO_EXPORT
 from console.timefmt import local_date, local_today, site_zone
 
 # D-178 (review J-14): the contact outcomes that end the contact; each names its consequence before it is recorded
@@ -196,6 +197,21 @@ class Helpers:
     excluded_bundle: Callable[[str], tuple[Job | None, dict[str, Any] | None]] | None = None
     excluded_rows: Callable[[str, dict[str, Any], str], list[dict[str, Any]]] | None = None
     not_matched: Any = None
+    # 9f-3, 9f-5 (D-1383), a block of its own: set by console.cover_pages (the PI's cover: the team pages' banner and
+    # card, the N1 line, the daily start and end events; a task's owner) and console.sae_pages (9f-4 (b): the SAE
+    # escalation round). None in bare test apps (no cover, no owner, no escalation)
+    cover_view: Callable[..., Any] | None = None
+    cover_lines: Callable[..., list[tuple[str, str, str]]] | None = None
+    cover_edges: Callable[[date], list[str]] | None = None
+    cover_tasks: Callable[[str], list[Any]] | None = None
+    task_owners: Callable[[str], tuple[dict[tuple[str, str], Any], list[tuple[str, str]]]] | None = None
+    keeps_tasks: Callable[[Any, str], bool] | None = None
+    task_keys: Callable[[Any, str], set[tuple[str, str]]] | None = None  # 9f-5: a study's tasks today, (kind, ref)
+    sae_escalate: Callable[[], list[str]] | None = None
+    covering_now: Callable[[str], Any] | None = None  # 9f-3: the cover in effect today in a study (read only), or None
+    # 9k-6a (D-1376): the page again for a failed POST of a form on it (the owner's); None: the role has no such page
+    home_again: Callable[..., Response | None] | None = None
+    team_log_again: Callable[..., Response | None] | None = None  # set by console.team: the delegation log, again
 
     def gone(self) -> set[str]:
         """D-273 (PV-4): the pseudonyms on the opt-out register now. Every patient-level reader (lists, the excluded
@@ -263,12 +279,45 @@ class Helpers:
         """T-102c (D-425): the one question pages and ``/api/v1`` ask: ``tb_common.authz.permit`` for ``action``,
         with the account's standing in study ``rid`` read from the delegation log. No study, a study the account does
         not see, or no log store: no standing, so no condition holds (fails closed; the team fallback is gone)."""
+        if action in COVER_NO_EXPORT:  # 9f-3 (D-1383): an export row, never by a cover
+            return permit_row(user.role, action, self._own_standing(user, rid))
         standing = NO_STANDING
         if rid and self.stand is not None and user.sees_study(rid):
             stand = self.stand
             # once per page view and study (J-6, D-1225): a page that asks several rows reads the log once
             standing = ps.per_view(f"standing:{user.username}:{user.role}", rid, lambda: stand(user, rid).grant())
         return permit_row(user.role, action, standing)
+
+    def _own_standing(self, user: Any, rid: str | None) -> Any:
+        """9f-3 (D-1383): the account's standing in study ``rid`` by its own entries only, without a cover
+        (``console.team.Standing.own_grant``, ``teamstore.LogRights.own``); no study, no standing."""
+        if not (rid and self.stand is not None and user.sees_study(rid)):
+            return NO_STANDING
+        stand = self.stand
+        return ps.per_view(f"standing.own:{user.username}:{user.role}", rid, lambda: stand(user, rid).own_grant())
+
+    def export_ok(self, user: Any, rid: str | None, tasks: tuple[str, ...] = ("screen",)) -> bool:
+        """9f-3 (D-1383, the owner's ruling 2026-11-20: a cover gives no export): the rule of :meth:`delegated_ok`
+        for a file of a study's patients that leaves TrialBox (the data export in each format and its ``/api/v1``
+        twin, the screening log's workbook, the chart-number workbook), asked of the account's own entries only: a
+        study task held only through a cover of the PI never satisfies it."""
+        if not any(conditional(user.role, f"task.{t}") for t in tasks):
+            return True
+        standing = self._own_standing(user, rid)
+        return bool(rid) and any(permit_row(user.role, f"task.{t}", standing) for t in tasks)
+
+    def cover_only(self, user: Any, rid: str | None, action: str) -> bool:
+        """9f-3 (D-1383): the account holds row ``action`` in study ``rid`` only through a cover of the PI (the row is
+        allowed with the cover and refused by its own entries)."""
+        return bool(self.permit(user, action, rid).allowed) and not permit_row(
+            user.role, action, self._own_standing(user, rid)
+        )
+
+    def need_export(self, sess: Session, rid: str, path: str, tasks: tuple[str, ...] = ("screen",)) -> None:
+        """:meth:`export_ok` or 403, the refusal audited (``console.denied``) as :meth:`delegated`'s."""
+        if not self.export_ok(sess.user, rid, tasks):
+            self.au.append("console.denied", actor=self.actor(sess), detail={"action": path[:80], "why": "export"})
+            raise self.problem(403, "forbidden")
 
     def may_run(self, user: Any, rid: str | None, command: str) -> bool:
         """T-512 (D-349, Q-04): may this account start ``command`` on study ``rid``? The ``command.*`` row decides,
@@ -483,6 +532,28 @@ def register(app: FastAPI, h: Helpers) -> None:
             if any(o["state"] == "enrolled" for o in r["elsewhere"]):
                 r["fit"].open.append(translate(lang, "elsewhere.open"))
 
+    def own_tasks(sess: Session, rs: str, tasks: list[dict[str, Any]], today: date) -> None:
+        """9f-3 (D-1383): the task "tell the IRB of the cover" for each cover of the study whose IRB task is open;
+        9f-5: each task's owner (``owner``: the name, '' without one), the people on the study's log who may own it
+        (``owners``) and whether this account may set it (``may_own``). Who sees a task does not change."""
+        if h.cover_tasks is not None:
+            for c in h.cover_tasks(rs):
+                tasks.append({"kind": "cover_irb", "rs": rs, "short": c.name, "href": f"/studies/{rs}/team#cover",
+                              "due": date.fromisoformat(local_date(c.at, site_zone(h.bk))), "detail": c.pi_name,
+                              "ref": str(c.id), "cover": c.id})  # fmt: skip
+        if h.task_owners is None or not any("ref" in tk for tk in tasks):
+            return  # no task to name an owner of: no read of the log
+        owners, people = h.task_owners(rs)
+        may = bool(h.keeps_tasks is not None and h.keeps_tasks(sess.user, rs))
+        for tk in tasks:
+            if "ref" not in tk:
+                continue
+            o = owners.get((tk["kind"], tk["ref"]))
+            tk["owner"], tk["owner_id"] = (o.owner_name or o.owner, o.owner) if o is not None else ("", "")
+            tk["owners"], tk["may_own"] = people, may
+            # 9f-5: an owner whose own entry on the log has ended stays named, shown as lapsed (never deleted)
+            tk["owner_lapsed"] = o is not None and all(u != o.owner for u, _n in people)
+
     def study_card(sess: Session, r: Any, jobs: list[Job]) -> dict[str, Any]:
         rs = r.id
         feas_job = st.latest_job(jobs, rs, ("FEAS",))
@@ -531,24 +602,26 @@ def register(app: FastAPI, h: Helpers) -> None:
                 # T-516 (UX-013): no call task while a referral asked after Approach waits for the doctor
                 due = date.fromisoformat(local_date(mk.at, site_zone(h.bk))) + timedelta(days=2)
                 tasks.append({"kind": "call", "rs": rs, "short": w["short"], "href": href, "due": due,
-                              "detail": mk.note or open_items})  # fmt: skip
+                              "detail": mk.note or open_items, "ref": str(w["pid"])})  # fmt: skip
             elif mk is not None and mk.mark == "need_info":
                 due = date.fromisoformat(local_date(mk.at, site_zone(h.bk))) + timedelta(days=3)
                 tasks.append({"kind": "info", "rs": rs, "short": w["short"], "href": href, "due": due,
-                              "detail": mk.note or open_items})  # fmt: skip
+                              "detail": mk.note or open_items, "ref": str(w["pid"])})  # fmt: skip
             if when is not None and today <= when <= today + timedelta(days=14):
                 clinic.append({**w, "rs": rs, "href": href, "open_items": open_items})
                 if mk is None and when <= today + timedelta(days=2):
                     tasks.append({"kind": "prepare", "rs": rs, "short": w["short"], "href": href, "due": when,
-                                  "detail": open_items})  # fmt: skip
+                                  "detail": open_items, "ref": str(w["pid"])})  # fmt: skip
         if h.team is not None:  # D-147: doctors to ask for a referral; the monthly delegation-log comparison
             for ref in h.team.latest_referrals(rs).values():
                 if ref.open and any(w["pid"] == ref.pid for w in rows):
                     tasks.append({"kind": "refer", "rs": rs, "short": ref.pid[:8], "due": today,
-                                  "href": f"/studies/{rs}/referrals#r{ref.id}", "detail": ref.physician})  # fmt: skip
+                                  "href": f"/studies/{rs}/referrals#r{ref.id}", "detail": ref.physician,
+                                  "ref": str(ref.id)})  # fmt: skip
             if h.team_due is not None and h.team_due(rs):
                 tasks.append({"kind": "delegation", "rs": rs, "short": "", "href": f"/studies/{rs}/team#check",
-                              "due": today, "detail": ""})  # fmt: skip
+                              "due": today, "detail": "", "ref": ""})  # fmt: skip
+        own_tasks(sess, rs, tasks, today)  # 9f-3, 9f-5 (D-1383)
         for tk in tasks:
             tk["late"] = tk["due"] < today
         return {
@@ -593,11 +666,23 @@ def register(app: FastAPI, h: Helpers) -> None:
         """The jobs both forms of the opening page read (J-6 shares the coordinator home's one read)."""
         return list(bk.list_jobs(limit=500))
 
+    def task_keys(sess: Session, rs: str) -> set[tuple[str, str]]:
+        """9f-5 (D-1383): the study's tasks today as this account's opening page has them, (kind, ref): a task's owner
+        is set only on one of them."""
+        r = next((x for x in trials(sess) if x.id == rs), None)
+        if r is None:
+            return set()
+        return {(tk["kind"], str(tk["ref"])) for tk in study_card(sess, r, recent_jobs())["tasks"] if "ref" in tk}
+
+    h.task_keys = task_keys
+
     @app.get("/home")
     def home(request: Request, view: str = "", today: str = "") -> Response:
         sess = h.need(request)
         if getattr(request.state, "home_today", False) and sess.user.role in home_today.ROLES:  # J-6 (D-1225)
-            return today_home(request, sess, every=today == "all")
+            page = today_home(request, sess, every=today == "all")
+            assert page is not None  # only a failed POST (home_again) has no page to show
+            return page
         # T-102c (D-425): each role starts on the page of its first right in this order (the matrix's rows)
         for action, start in HOME_STARTS:
             if permit_row(sess.user.role, action):
@@ -605,6 +690,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         if sess.user.is_admin and view != "studies":
             admin_page = getattr(h, "admin_page", None)  # step 4: S13 with its tabs (console.step4)
             return admin_page(request, sess, "health") if admin_page else admin_home(request, sess)
+        return crc_home(request, sess)
+
+    def crc_home(request: Request, sess: Session, **extra: Any) -> Response:
         jobs = recent_jobs()
         cards = [study_card(sess, r, jobs) for r in trials(sess)]
         tasks = sorted((tk for c in cards for tk in c["tasks"]), key=lambda tk: (tk["due"], tk["rs"]))
@@ -613,9 +701,21 @@ def register(app: FastAPI, h: Helpers) -> None:
         return h.page(
             request, "home_crc.html", sess, cards=cards, tasks=tasks, clinic=clinic if phi else [], steps=st.STEPS,
             pipeline_keys=st.PIPELINE, models=bk.models(), life=h.life_home(sess) if h.life_home and phi else None,
+            **{"fe": None, **extra},
         )  # fmt: skip
 
-    def today_home(request: Request, sess: Session, every: bool) -> Response:
+    def home_again(request: Request, sess: Session, fe: Any) -> Response | None:
+        """9k-6a (D-1376): the opening page again, 400, for a task's owner the person typed wrong (the form is on the
+        coordinator's page only: None for a role whose opening page is another, which gets the refusal)."""
+        if getattr(request.state, "home_today", False) and sess.user.role in home_today.ROLES:
+            return today_home(request, sess, every=False, fe=fe)
+        if any(permit_row(sess.user.role, action) for action, _start in HOME_STARTS) or sess.user.is_admin:
+            return None
+        return crc_home(request, sess, status=400, fe=fe)
+
+    h.home_again = home_again
+
+    def today_home(request: Request, sess: Session, every: bool, fe: Any = None) -> Response | None:
         """J-6 (D-1225): "Needs you today" and one "Next" line per study (``console.home_today``). A study's
         patient-level sources (its people, visits and serious AEs) are read only where the participant pages would let
         this account read them (``lifecycle_pages.reads_participants``, the rule of their ``study_or_404``); within
@@ -706,11 +806,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         weeks = [r.id for r in studies if h.reads(user, r.id)]
         week_href = f"/studies/{weeks[0]}/week" if len(weeks) == 1 else "/week" if weeks else ""
         template = "home_crc.html" if coordinator_card else "home_today.html"
+        if fe is not None and not coordinator_card:
+            return None  # the owner's form is on the coordinator's page only (home_again)
         return h.page(
             request, template, sess, today=True, every=every, lines=shown, more=len(lines) - len(shown),
             total=len(lines), nexts=nexts, today_failed=failed, cards=cards, tasks=[], clinic=[], steps=st.STEPS,
             pipeline_keys=st.PIPELINE, models=bk.models() if coordinator_card else None, life=None,
-            week_href=week_href,
+            week_href=week_href, fe=fe, **({"status": 400} if fe is not None else {}),
         )  # fmt: skip
 
     def admin_home(request: Request, sess: Session) -> Response:

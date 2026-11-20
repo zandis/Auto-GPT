@@ -417,6 +417,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
         h.need_rows(sess, rid, request.url.path)  # ROLE-017: the page's question (it holds pseudonyms, D-280)
+        h.need_export(sess, rid, request.url.path)  # 9f-3 (D-1383): a file that leaves, never by a cover
         if layout not in ("", "sponsor"):
             raise h.problem(404, "notfound")
         wb = Workbook()

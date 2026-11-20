@@ -212,7 +212,8 @@ def test_the_recount_equals_a_fresh_measurement() -> None:
     assert {t: n for t, (n, _r) in form_fields.read_action_list(_ratchet()).items()} == broken
     tree = form_fields.scan()
     assert sum(1 for forms in tree.values() for f in forms if f.name is None) == n_typed + n_action
-    assert (n_typed, n_action, len(typed), sum(broken.values())) == (102, 51, 62, 0)  # as measured on 2026-11-20
+    assert (n_typed, n_action, len(typed), sum(broken.values())) == (102, 54, 62, 0)  # as measured on 2026-11-20
+    # 9f-3/5 added three button-only forms (no typed input, none broken): 51 -> 54 action forms
 
 
 def test_the_typed_list_did_not_go_up_against_master() -> None:

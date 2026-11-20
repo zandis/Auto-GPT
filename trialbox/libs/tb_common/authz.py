@@ -76,15 +76,21 @@ class Standing:
     """An account's standing in one study, from the study's delegation log (the console reads it; ``permit`` only
     looks). ``is_pi``: the PI the study's log names (D-380, ROLE-008: while the log names none, nobody is PI);
     ``tasks``: the study tasks (for a ``task.*`` row, the ticks the PI gave); ``log_names_pi``: the log names a PI;
-    ``monitor``: the account holds a monitor grant in the study today (FIT-002)."""
+    ``monitor``: the account holds a monitor grant in the study today (FIT-002). ``pi_rights``: None, or the only
+    actions whose ``pi`` and ``logged_pi`` conditions ``is_pi`` meets (9f-3, D-1383: a cover of the PI carries the
+    allow-list ``console.teamstore.COVER_RIGHTS``; any other PI row is refused under it, default deny)."""
 
     is_pi: bool = False
     tasks: frozenset[str] = frozenset()
     log_names_pi: bool = True
     monitor: bool = False
+    pi_rights: frozenset[str] | None = None
 
 
 NO_STANDING = Standing()
+#: 9f-3 (D-1383): the job option the console sets on a run started by a right held only through a cover of the PI;
+#: the orchestrator then sends no patient-level file to the person who asked (``scenarios.screen.list_recipients``)
+COVER_RUN_OPTION = "cover_run"
 BEST_STANDING = Standing(is_pi=True, tasks=frozenset(STUDY_TASKS), log_names_pi=True)  # the most a role could have
 
 
@@ -141,10 +147,11 @@ MATRIX_WHAT: dict[str, str] = {
 
 
 def _holds(cond: str, action: str, s: Standing) -> bool:
+    pi = s.is_pi and (s.pi_rights is None or action in s.pi_rights)  # 9f-3 (D-1383): a cover's allow-list
     if cond == "pi":
-        return s.is_pi
+        return pi
     if cond == "logged_pi":
-        return s.log_names_pi and s.is_pi
+        return s.log_names_pi and pi
     if cond == "logged_tick":
         return s.log_names_pi and action.removeprefix("task.") in s.tasks
     if cond == "unlogged":

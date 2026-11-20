@@ -605,6 +605,9 @@ def test_the_shared_reader_knows_the_store_version_that_makes_the_tables() -> No
     D-683): its version is the team store's that adds the committee tables."""
     from console import teamstore
 
-    assert (
-        len(teamstore.MIGRATIONS) == cm.TEAM_VERSION and "committee_open" in teamstore.MIGRATIONS[cm.TEAM_VERSION - 1]
-    )
+    # the reader's version is exactly the migration that makes the committee tables, and no other migration names
+    # them; a sixth migration fails here, so this guard is looked at again (9f-3, 9f-5 added the fifth, D-1383)
+    assert teamstore.MIGRATIONS[cm.TEAM_VERSION - 1] is teamstore.SCHEMA_V4
+    assert "CREATE TABLE committee_open" in teamstore.SCHEMA_V4
+    assert not any("committee_open" in m for i, m in enumerate(teamstore.MIGRATIONS) if i != cm.TEAM_VERSION - 1)
+    assert len(teamstore.MIGRATIONS) == 5

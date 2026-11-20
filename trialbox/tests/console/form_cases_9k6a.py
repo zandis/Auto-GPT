@@ -24,6 +24,14 @@ class Case:
     testid: str  # the summary's data-testid on this page (the one its earlier tests read)
     saved_event: str  # the audit event a saving POST writes
     kept: tuple[str, ...] = field(default=())  # fields whose typed value must come back as typed
+    # 9f-3, 9f-5 (D-1383): what a case on another page needs. ``title_key``: the catalogue key the page's title
+    # begins with; ``saved_n``: how many ``saved_event`` rows a saving POST writes; ``prepare``: the name of the
+    # setup in ``test_form_errors_9k6a.PREPARE`` run before the page is read (the study's log, a cover); a value
+    # ``{+N}`` in ``bad`` or ``good`` is the day N days after today (and after the language's turn: a cover cannot
+    # be entered twice for the same days)
+    title_key: str = "sstate.title"
+    saved_n: int = 1
+    prepare: str = ""
 
 
 CASES: dict[str, Case] = {
@@ -70,5 +78,36 @@ CASES: dict[str, Case] = {
         testid="irbt-error",
         saved_event="console.irb_text",
         kept=("text_version", "approved_on", "note"),
+    ),
+    # 9f-3 (D-1383): the PI's cover on the delegation log page. One message at a time: the store's first refusal.
+    "cover": Case(
+        template="team_log.html",
+        role="pi",
+        page="/studies/GZQO/team",
+        action="/studies/GZQO/cover",
+        prefix="cover",
+        bad={"username": "cov", "start": "", "end": ""},
+        failing=("start", "end"),
+        good={"username": "cov", "start": "{+10}", "end": "{+13}"},  # from a later day: no start event yet
+        testid="cover-error",
+        saved_event="console.cover",
+        kept=("start", "end"),
+        title_key="team.log.title",
+        prepare="cover",
+    ),
+    # 9f-5 (D-1383): a task's owner on the coordinator's opening page (one form per task: the IRB task of a cover)
+    "task-owner": Case(
+        template="home_crc.html",
+        role="coordinator",
+        page="/home",
+        action="/studies/GZQO/tasks/owner",
+        prefix="own-cover_irb-GZQO-1",
+        bad={"kind": "cover_irb", "ref": "1", "owner": "nobody-synthetic"},
+        failing=("owner",),
+        good={"kind": "cover_irb", "ref": "1", "owner": "crc1"},
+        testid="task-owner-error",
+        saved_event="console.task_owner",
+        title_key="home.studies",
+        prepare="owner",
     ),
 }

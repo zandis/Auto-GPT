@@ -95,6 +95,7 @@ KINDS: tuple[str, ...] = (
     "prepare",
     "refer",
     "delegation",
+    "cover_irb",  # 9f-3 (D-1383): tell the IRB of a cover (its text: console.i18n_cover)
 )
 #: the ordering rule: safety clocks, then overdue, then due today
 SAFETY, OVERDUE, TODAY = 0, 1, 2
@@ -203,6 +204,7 @@ class TodayLine:
     due: str = ""  # YYYY-MM-DD, empty for none
     what: str = ""  # the event, the patient or the count the line is about; its identity on the page
     values: dict[str, Any] = field(default_factory=dict)
+    task: Mapping[str, Any] | None = None  # 9f-5 (D-1383): the home's task of a task line (its owner and its form)
 
     @property
     def key(self) -> str:
@@ -262,7 +264,7 @@ def visit_lines(rs: str, overdue: int, today_n: int, day: date) -> list[TodayLin
 
 #: the home's tasks (``home.study_card``) that are this page's lines; "approve" is the investigator's step and is
 #: the study's Next line
-TASK_KINDS = ("site", "call", "info", "prepare", "refer", "delegation")
+TASK_KINDS = ("site", "call", "info", "prepare", "refer", "delegation", "cover_irb")  # 9f-3: and a cover's IRB task
 
 
 def task_lines(tasks: Iterable[Mapping[str, Any]], today: date) -> list[TodayLine]:
@@ -274,7 +276,8 @@ def task_lines(tasks: Iterable[Mapping[str, Any]], today: date) -> list[TodayLin
             continue
         rank = OVERDUE if due < today else TODAY
         out.append(TodayLine(str(tk["kind"]), str(tk["rs"]), str(tk["href"]), rank, due.isoformat(),
-                             str(tk.get("short") or ""), {"p": tk.get("short") or "", "rs": tk["rs"]}))  # fmt: skip
+                             str(tk.get("short") or ""), {"p": tk.get("short") or "", "rs": tk["rs"]},
+                             task=tk if "ref" in tk else None))  # fmt: skip
     return out
 
 

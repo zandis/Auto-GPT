@@ -60,7 +60,7 @@ from tb_common.config import environment_name
 from tb_common.optout import SOURCES, OptOutError, OptOutRegister
 
 from console import actor as acting
-from console import s28
+from console import form_errors, s28
 from console import studies as st
 from console.api_first import before_body, page_twin
 from console.auth import REVEAL_REASONS, Session, User
@@ -73,11 +73,13 @@ from console.teamstore import (
     ANSWERS,
     CHANNELS,
     CHECK_RESULTS,
+    COVER_RIGHTS,
     DECLINE_REASONS,
     LOG_ROLES,
     ROUTES,
     TASKS,
     VIEW_PURPOSES,
+    Cover,
     Entry,
     IcfVersion,
     Irb,
@@ -126,16 +128,41 @@ class Standing:
     logged: bool  # the study's log names a PI
     entry: Entry | None = None  # the account's own active entry, if any
     monitor: Entry | None = None  # the account's monitor grant in the study today (FIT-002)
+    cover: Cover | None = None  # 9f-3 (D-1383): the PI's cover this account holds today (``pi`` is then True)
+    own_tasks: frozenset[str] | None = None  # 9f-3: the study tasks the account's own entries give (None: ``tasks``)
 
     def grant(self) -> Grant:
-        """This standing as ``tb_common.authz.permit`` reads it."""
-        return Grant(is_pi=self.pi, tasks=self.tasks, log_names_pi=self.logged, monitor=self.monitor is not None)
+        """This standing as ``tb_common.authz.permit`` reads it; under a cover the PI's rows are only those of
+        ``teamstore.COVER_RIGHTS`` (9f-3, D-1383: default deny)."""
+        return Grant(is_pi=self.pi, tasks=self.tasks, log_names_pi=self.logged, monitor=self.monitor is not None,
+                     pi_rights=COVER_RIGHTS if self.cover is not None else None)  # fmt: skip
+
+    def pi_for(self, right: str) -> bool:
+        """9f-3 (D-1383): the PI's standing for one right that is not a matrix row (``criteria.approve``,
+        ``team.task_owner``): the PI by their own entry, or a cover when the right is in ``COVER_RIGHTS``."""
+        return self.pi and (self.cover is None or right in COVER_RIGHTS)
+
+    def own_grant(self) -> Grant:
+        """9f-3 (D-1383): the standing without anything a cover gives (``teamstore.LogRights.own``): neither the PI's
+        rows nor the study tasks it adds. Asked by the delegation log's own rows (under a cover the log stays the PI's
+        and the steward's) and by every export (the owner's ruling, 2026-11-20: a cover gives no export)."""
+        tasks = self.tasks if self.own_tasks is None else self.own_tasks
+        return Grant(is_pi=self.pi and self.cover is None, tasks=tasks, log_names_pi=self.logged,
+                     monitor=self.monitor is not None)  # fmt: skip
 
 
 def log_account(user: User) -> bool:
     """An account whose study tasks the delegation log gives (the matrix's ``task.*`` conditions: the investigator,
     as PI or sub-investigator; T-102c, D-425)."""
     return conditional(user.role, "task.screen")
+
+
+def cover_account(user: User | None, rs: str) -> bool:
+    """9f-3 (D-1383): may a cover row of study ``rs`` give this account anything? The account conditions
+    :func:`standing` asks before the log's cover (an enabled account, ``None`` otherwise; not a CRO account; an
+    investigator account, :func:`log_account`; one that sees the study). The audit stamp, the immediate SAE notice,
+    the banner and the cover card ask this one test, so none of them names a person ``standing`` gives nothing."""
+    return user is not None and not user.aggregate_only and log_account(user) and user.sees_study(rs)
 
 
 def monitor_account(user: User) -> bool:
@@ -155,19 +182,27 @@ def standing(team: TeamStore, user: User, rs: str, today: date) -> Standing:
     matrix's ``task.*`` rows (``tb_common.authz.permit``); this reads the study's delegation log into them."""
     if not user.sees_study(rs):
         return Standing(False, frozenset(), False)
-    entries = team.entries(rs)
-    pi = next((e for e in reversed(entries) if e.role == "pi" and e.active_on(today)), None)
-    mine = [e for e in entries if e.username == user.username and e.active_on(today)]
+    # 9f-3 (D-1383): the log and its covers read once, by the one reading both services share (default deny)
+    r = team.rights(rs, user.username, today)
     if user.aggregate_only:  # a CRO account: only a monitor grant (FIT-002), never a study task
-        grant = next((e for e in reversed(mine) if e.role == "monitor"), None) if monitor_account(user) else None
-        return Standing(False, frozenset(), pi is not None, grant, grant)
-    own = mine[-1] if mine else None
-    # D-380 (ROLE-008): the bootstrap is closed. Only the PI the log names is PI; with no PI named, nobody is.
-    is_pi = log_account(user) and pi is not None and pi.username == user.username
-    ticked = frozenset(t for e in mine if e.role == "sub_pi" for t in e.tasks)
-    held = Grant(is_pi=is_pi, tasks=ticked, log_names_pi=pi is not None)  # the log as the ``task.*`` rows read it
-    tasks = frozenset(t for t in STUDY_TASKS if permit(user.role, f"task.{t}", held))
-    return Standing(is_pi, tasks, pi is not None, pi if is_pi else own)
+        grant = next((e for e in reversed(r.mine) if e.role == "monitor"), None) if monitor_account(user) else None
+        return Standing(False, frozenset(), r.pi is not None, grant, grant)
+    own = r.mine[-1] if r.mine else None
+    # D-380 (ROLE-008): the bootstrap is closed. Only the PI the log names is PI; with no PI named, nobody is. 9f-3:
+    # or the sub-investigator of the same log who covers that PI today
+    is_pi = log_account(user) and r.is_pi
+    cover = r.cover if is_pi else None
+
+    def tasks_of(pi_now: bool) -> frozenset[str]:  # the log as the ``task.*`` rows read it
+        held = Grant(is_pi=pi_now, tasks=r.ticked, log_names_pi=r.pi is not None)
+        return frozenset(t for t in STUDY_TASKS if permit(user.role, f"task.{t}", held))
+
+    tasks = tasks_of(is_pi)
+    # the tasks without the cover (``LogRights.own``): what an export and the log's own rows ask (no export by cover)
+    own_tasks = tasks_of(log_account(user) and r.own().is_pi) if cover is not None else None
+    # under a cover the account's own entry is its own sub-investigator entry: it signs and is named as itself
+    return Standing(is_pi, tasks, r.pi is not None, r.pi if is_pi and cover is None else own, cover=cover,
+                    own_tasks=own_tasks)  # fmt: skip
 
 
 def check_due(team: TeamStore, rs: str, today: date, tz: ZoneInfo) -> bool:
@@ -266,7 +301,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
 
     def may_approve(user: User, rid: str) -> bool:
         """FR-AUTH-13 and D-147: only the PI the study's log names approves (D-380: no PI named, nobody)."""
-        return user.can_approve and stand(user, rid).pi
+        return user.can_approve and stand(user, rid).pi_for("criteria.approve")  # 9f-3: never under a cover
 
     h.may_approve, h.stand = may_approve, stand  # T-512, T-102c: h.permit and h.may_run read the standing
 
@@ -699,8 +734,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
 
     def log_roles_for(sess: Session, s: Standing) -> tuple[str, ...]:
         """The log roles this account may write (D-380): the logged PI every role; the steward the PI entry (study
-        set-up, from the signed log) and monitor grants; nobody else any."""
-        g = s.grant()
+        set-up, from the signed log) and monitor grants; nobody else any. 9f-3: a cover gives none of these."""
+        g = s.own_grant()
         out = set(LOG_ROLES) if permit(sess.user.role, "delegation.keep", g) else set()
         if permit(sess.user.role, "delegation.name_pi", g):
             out.add("pi")
@@ -708,22 +743,31 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             out.add("monitor")
         return tuple(r for r in LOG_ROLES if r in out)
 
+    def log_page(request: Request, sess: Session, rid: str, status: int = 200, fe: Any = None) -> Response:
+        s = stand(sess.user, rid)
+        entries = team.entries(rid)
+        writable = log_roles_for(sess, s)
+        ending = [(e, e.days_left(today())) for e in entries if e.days_left(today()) is not None]  # 9f-4 (a)
+        return h.page(request, "team_log.html", sess, status=status, rs=rid, entries=entries, standing=s, tasks=TASKS,
+                      ending=ending, log_roles=writable, accounts=accounts(rid), checks=team.checks(rid)[:12],
+                      due=check_due(team, rid, today(), site_zone(bk)), history=team.history(rid)[-30:], today=today(),
+                      can_edit=bool(writable), can_tick=permit(sess.user.role, "delegation.keep", s.grant()).allowed,
+                      can_check=permit(sess.user.role, "delegation.check", s.grant()).allowed,
+                      results=CHECK_RESULTS, has_pi=names_pi(rid), fe=fe)  # fmt: skip
+
+    def log_again(request: Request, sess: Session, rid: str, fe: Any) -> Response | None:
+        """9k-6a (D-1376): the log page again, 400, for a cover the person typed wrong (``console.cover_pages``)."""
+        return None if sess.user.aggregate_only else log_page(request, sess, rid, status=form_errors.FAILED, fe=fe)
+
+    h.team_log_again = log_again
+
     @app.get("/studies/{rs}/team")
     def team_page(request: Request, rs: str) -> Response:
         sess = h.need(request)
         rid = log_or_404(sess, rs)
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
-        s = stand(sess.user, rid)
-        entries = team.entries(rid)
-        writable = log_roles_for(sess, s)
-        ending = [(e, e.days_left(today())) for e in entries if e.days_left(today()) is not None]  # 9f-4 (a)
-        return h.page(request, "team_log.html", sess, rs=rid, entries=entries, standing=s, tasks=TASKS, ending=ending,
-                      log_roles=writable, accounts=accounts(rid), checks=team.checks(rid)[:12],
-                      due=check_due(team, rid, today(), site_zone(bk)), history=team.history(rid)[-30:], today=today(),
-                      can_edit=bool(writable), can_tick=permit(sess.user.role, "delegation.keep", s.grant()).allowed,
-                      can_check=permit(sess.user.role, "delegation.check", s.grant()).allowed,
-                      results=CHECK_RESULTS, has_pi=names_pi(rid))  # fmt: skip
+        return log_page(request, sess, rid)
 
     @app.post("/studies/{rs}/team")
     async def team_add(request: Request, rs: str) -> Response:
@@ -795,7 +839,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         need_csrf(sess, form)
         rid = study_or_404(sess, rs)
         s = stand(sess.user, rid)
-        if not permit(sess.user.role, "delegation.keep", s.grant()):
+        if not permit(sess.user.role, "delegation.keep", s.own_grant()):  # 9f-3: never under a cover
             raise deny(sess, request.url.path)
         try:
             e = team.update_entry(rid, eid, tasks=form.getlist("tasks"), end=str(form.get("end") or ""),

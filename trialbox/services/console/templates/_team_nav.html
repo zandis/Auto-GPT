@@ -5,3 +5,4 @@
  · <a href="/studies/{{ rs }}/team" data-testid="to-team"{% if path.endswith('/team') %} aria-current="page"{% endif %}>{{ t('team.log.title') }}</a>
  · <a href="/studies/{{ rs }}/irb" data-testid="to-irb"{% if path.endswith('/irb') %} aria-current="page"{% endif %}>{{ t('team.irb.title') }}</a>
  · <a href="/studies/{{ rs }}/screening-log">{{ t('log.title') }}</a></p>
+{#9f3#}{% set cov = cover_banner(rs) if cover_banner is defined else None %}{% if cov %}<p class="warn" role="note" data-testid="cover-banner">{{ t('cover.banner', name=cov.name, pi=cov.pi_name, end=cov.last_day()) }}</p>{% endif %}{#/9f3#}

@@ -11,6 +11,10 @@ Environment:
 * ``TB_NOTICE_N1_AT`` (``07:00``), ``TB_NOTICE_N2_AT`` (``07:30``), ``TB_REDCAP_READ_AT`` (``03:00``, after the
   nightly ingest): local times in the site's zone.
 * ``TB_HEALTH_MAIL_AT`` (``07:00``): the administrators' daily health mail (T-209a, D-379).
+* 9f-4 (b), D-1383: every hour at :20, the escalation of serious AEs the PI has not acknowledged
+  (``TB_SAE_ESCALATE_HOURS``, ``console.sae_pages``). Like every job here it runs only where the timers run
+  (``TB_CONSOLE_TIMERS``, on by default in VALIDATION and PRODUCTION): with the timers off only the register's writes
+  (an AE form saved, an acknowledgement, a sync) escalate.
 
 Each run is the same call as its button (admin "Send notices now", S21 "Run now"); a notice still goes at most once
 per person and day, so a timer and a button on the same morning never send twice.
@@ -83,7 +87,11 @@ def jobs(h: Any) -> dict[str, Callable[[], object]]:
     def health() -> object:
         return notify.send_all(h, h.today(), ("HEALTH",), by="console:timer")
 
-    return {"redcap_read": rc, "notice_n1": n1, "notice_n2": n2, "health_mail": health}
+    def sae_escalate() -> object:  # 9f-4 (b), D-1383: hourly, so a case is told within the hour after its threshold
+        fn = getattr(h, "sae_escalate", None)
+        return fn() if fn is not None else []
+
+    return {"redcap_read": rc, "notice_n1": n1, "notice_n2": n2, "health_mail": health, "sae_escalate": sae_escalate}
 
 
 def _guarded(name: str, fn: Callable[[], object]) -> Callable[[], None]:
@@ -108,5 +116,7 @@ def start(h: Any, env: Mapping[str, str], tz: Any) -> Any:
     calls = jobs(h)
     for t in plan(env):
         sched.add_job(_guarded(t.name, calls[t.name]), "cron", id=t.name, hour=t.hour, minute=t.minute)
+    # 9f-4 (b), D-1383: the SAE escalation round, every hour at :20 (no setting silences it)
+    sched.add_job(_guarded("sae_escalate", calls["sae_escalate"]), "cron", id="sae_escalate", minute=20)
     sched.start()
     return sched

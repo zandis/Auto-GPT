@@ -140,9 +140,12 @@ def build_n1(
     studies: Sequence[tuple[str, list[dict[str, Any]]]],
     life: dict[str, dict[str, Any]] | None = None,
     cal: Calendar = WEEKDAYS_ONLY,
+    covers: Sequence[tuple[str, str, str]] = (),
 ) -> Notice | None:
     """The investigator's pre-clinic mail for ``today``, or None when today is not a mail day for them. ``cal``: the
-    site's working days (10C-14): the weekly list goes on the week's first working day (Monday unless it is off)."""
+    site's working days (10C-14): the weekly list goes on the week's first working day (Monday unless it is off).
+    ``covers`` (9f-3, D-1383): (study, PI's name, last day) of each PI cover the investigator holds today: one line
+    each; the study's rows are in ``studies`` because the standing is the PI's that day."""
     lang = person.lang
     all_rows = [(rs, r) for rs, rows in studies for r in rows]
     known = bool(person.practitioner_id)
@@ -179,6 +182,8 @@ def build_n1(
     week_rows.sort(key=lambda x: x[1]["visit"])
     url = base_url()
     parts = [translate(lang, "n1.hello"), ""]
+    if covers:  # 9f-3: whom the investigator covers, and until when
+        parts += [translate(lang, "n1.cover", rs=rs, pi=pi, end=end) for rs, pi, end in covers] + [""]
     if today_rows:
         parts += [f"## {translate(lang, 'n1.today', day=today.isoformat(), n=len(today_rows))}", ""]
         parts += [f"- {_line(lang, r, rs)}" for rs, r in today_rows]
@@ -453,10 +458,16 @@ def _collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[N
                                                 "nos": nos, "referrals": refs}))  # fmt: skip
         last = store.last_notice("N2", u.username) if kind == "N2" else None
 
+        def covers_of(who: User, st: list[Any] = studies) -> list[tuple[str, str, str]]:  # 9f-3: the PI covers today
+            fn = getattr(h, "cover_lines", None)
+            if fn is None:
+                return []
+            return [c for c in fn(who, today) if any(row[0] == c[0] for row in st)]
+
         def build(c: Calendar, k: str = kind, who: User = u, p: NotifyPerson = person, st: list[Any] = studies,
                   lf: dict[str, dict[str, Any]] = life, before: str | None = last) -> Notice | None:  # fmt: skip
             if k == "N1":
-                return build_n1(who, p, today, st, lf, c)
+                return build_n1(who, p, today, st, lf, c, covers_of(who))
             return build_n2(who, p, today, st, before, lf, health_now(), c)
 
         try:
@@ -474,6 +485,12 @@ def _collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[N
 
 
 def send_all(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2"), by: str = "console:notify") -> list[Notice]:
+    edges = getattr(h, "cover_edges", None)
+    if edges is not None:  # 9f-3 (D-1383): each cover's start and end in the audit trail, at the latest this morning
+        try:
+            edges(today)
+        except Exception:  # never stops a round; the next round or page writes them
+            log.exception("the covers' start and end events could not be written this round")
     sent = []
     for n in collect(h, today, kinds):
         h.bk.send_notice(n.kind, [n.to], n.subject, n.body, actor.NOTIFY)  # T-715: the timer's own name

@@ -31,7 +31,7 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -46,7 +46,9 @@ from console.backend import Problem, Unavailable
 from console.entry_pages import record_key
 from console.home import Helpers
 from console.i18n import CATALOGUES, translate
+from console.notify import base_url
 from console.saerecord import (
+    NOTICE_WAITING,
     PARTIES,
     SYNC,
     SaeError,
@@ -55,6 +57,7 @@ from console.saerecord import (
     check_ref,
     day_of,
     downgraded_view,
+    escalate_once,
     followup_rules,
     office_notice,
     sort_key,
@@ -67,6 +70,9 @@ _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _EV = re.compile(r"^ae\d{1,3}$")
 _ID = re.compile(r"[0-9]{1,18}")
 AE_FORM = "tb_adverse_event"
+#: 9f-4 (b), D-1383: the log roles told of a serious AE the PI has not acknowledged after ``TB_SAE_ESCALATE_HOURS``
+ESCALATE_ROLES = ("sub_pi", "crc")
+ESCALATE_ENV = "TB_SAE_ESCALATE_HOURS"
 DATE_ALERTS = ("nostart", "aware_before_onset", "future_date", "bad_sent", "serious_mismatch", "noclock")
 RULE_ALERTS = set(lc.RULE_ALERTS)
 
@@ -74,7 +80,20 @@ for _lang, _cat in (("en", i18n_sae.EN), ("ja", i18n_sae.JA), ("zh-TW", i18n_sae
     CATALOGUES[_lang].update(_cat)
 
 
-def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
+def escalate_hours(env: Any) -> int:
+    """9f-4 (b): the hours an unacknowledged serious AE waits before the escalation (``TB_SAE_ESCALATE_HOURS``,
+    default 24, a whole number from 1 to 720). Anything else is refused (ValueError): no preference silences it."""
+    raw = str(env.get(ESCALATE_ENV) or "24").strip()
+    if not raw.isdigit() or not 1 <= int(raw) <= 720:
+        raise ValueError(f"{ESCALATE_ENV} must be a whole number of hours from 1 to 720, got {raw!r}")
+    return int(raw)
+
+
+def register(app: FastAPI, h: Helpers, store: SaeStore | None = None, env: Any = None) -> None:
+    """The SAE register's pages. ``env``: the settings mapping the console was created with (None: the process
+    environment, read when asked); the escalation reads its threshold there (9f-4 (b))."""
+    cfg: Any = env if env is not None else os.environ
+    app.state.sae_env = cfg  # the settings the escalation reads (the tests reach them here)
     bk, au = h.bk, h.au
     tz = site_zone(bk)
     reg = store if store is not None else SaeStore()
@@ -234,30 +253,205 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
         without the AE term. Nobody to tell is audited (``notice_nobody``); a mail that fails is in the audit; the
         register and the pages do not depend on it."""
         to = told_at_once(rid)
-        if not to:
+        # 9f-3 (D-1383): the person whose cover is in effect today also hears of it, in addition to the PI, never
+        # instead, by a send of its own after the PI's and the office's: an address the orchestrator refuses loses
+        # only its own mail. The escalation later leaves them out of this case (``told_cover`` trail row, written
+        # only when their mail went)
+        cover = h.covering_now(rid) if h.covering_now is not None else None
+        cover_acct = h.users.get(cover.username) if cover is not None else None
+        cover_to = cover_acct.mailbox if cover_acct is not None and cover_acct.mailbox else ""
+        if cover is not None and not cover_to:
+            au.append("console.sae", ruleset=rid, actor=SYNC,
+                      detail={"action": "cover_unreachable", "record": v["record"], "event": v["event"]})  # fmt: skip
+        if not to and not cover_to:
             au.append("console.sae", ruleset=rid, actor=SYNC,
                       detail={"action": "notice_nobody", "record": v["record"], "event": v["event"]})  # fmt: skip
             return
         subject, body = office_notice(rid, v, rules)
+        case = {"record": v["record"], "event": v["event"]}
+        pi = h.team.pi_of(rid, today()) if h.team is not None else None
+        first_ok = False
+        if to:
+            try:
+                bk.send_notice("N2", to, subject, body, actor.SAE_SYNC)  # T-715: the sync's own name
+                first_ok = True
+                detail = {"action": "office_copy", **case, "to": ", ".join(to)}
+                if cover is not None:  # the PI the log names, while a cover is in effect (its mail is its own)
+                    detail["pi"] = pi.username if pi is not None else ""
+                au.append("console.sae", ruleset=rid, actor=SYNC, detail=detail)
+            except Exception as exc:
+                au.append("console.sae", ruleset=rid, actor=SYNC,
+                          detail={"action": "office_copy_failed", **case, "to": ", ".join(to),
+                                  "error": type(exc).__name__})  # fmt: skip
+        if not cover_to or cover is None:
+            return
+        told = {"action": "cover_told", **case, "to": cover_to, "covering": cover.username,
+                "pi": pi.username if pi is not None else ""}  # fmt: skip
+        if cover_to in to:  # the same mailbox as the office's: that one mail was theirs too
+            if first_ok:
+                au.append("console.sae", ruleset=rid, actor=SYNC, detail={**told, "same_mail": True})
+                reg.told_cover(rid, str(v["record"]), str(v["event"]), cover.username, SYNC, stamp())
+            return
         try:
-            bk.send_notice("N2", to, subject, body, actor.SAE_SYNC)  # T-715: the sync's own name
-            detail = {"action": "office_copy", "record": v["record"], "event": v["event"], "to": ", ".join(to)}
-            au.append("console.sae", ruleset=rid, actor=SYNC, detail=detail)
-        except Exception as exc:
+            bk.send_notice("N2", [cover_to], subject, body, actor.SAE_SYNC)
+        except Exception as exc:  # their mail only: the PI's and the office's went (or failed) on their own
             au.append("console.sae", ruleset=rid, actor=SYNC,
-                      detail={"action": "office_copy_failed", "record": v["record"], "event": v["event"],
-                              "error": type(exc).__name__})  # fmt: skip
+                      detail={**told, "action": "cover_told_failed", "error": type(exc).__name__})  # fmt: skip
+            return
+        au.append("console.sae", ruleset=rid, actor=SYNC, detail=told)
+        reg.told_cover(rid, str(v["record"]), str(v["event"]), cover.username, SYNC, stamp())
 
     def hook(rid: str) -> None:
         """``h.sae_sync``: called after an AE form is saved, an acknowledgement and by the notice job. Never fails
-        the caller's write: what it cannot write now, the next write or the daily job writes."""
+        the caller's write: what it cannot write now, the next write or the daily job writes. 9f-4 (b): then the
+        escalation of the study's unacknowledged cases (:func:`escalate`)."""
         try:
             sync_study(rid)
         except Exception as exc:
             au.append("console.sae", ruleset=rid, actor=SYNC,
                       detail={"action": "sync_failed", "error": type(exc).__name__})  # fmt: skip
+        escalate_safe(rid)
+
+    def escalate_safe(rid: str) -> None:
+        """:func:`escalate`, never failing its caller: a failure is a ``console.sae`` event; the next round tries."""
+        try:
+            escalate(rid)
+        except Exception as exc:
+            au.append("console.sae", ruleset=rid, actor=SYNC,
+                      detail={"action": "escalate_failed", "error": type(exc).__name__})  # fmt: skip
+
+    # ------------------------------------------------------------------ 9f-4 (b), D-1383: the escalation
+    escalate_hours(cfg)  # a broken TB_SAE_ESCALATE_HOURS stops the console at start, never a quiet default
+
+    def told_later(rid: str, day: date) -> list[tuple[str, str]]:
+        """Who hears of a case the PI has not acknowledged after the threshold: each account with an entry active on
+        ``day`` on the study's delegation log as sub-investigator or coordinator (``crc``), once, as (account, log
+        role; a person on the log as both is told as sub-investigator). Nobody else; no notice setting applies."""
+        if h.team is None:
+            return []
+        out: dict[str, str] = {}
+        for e in h.team.entries(rid):
+            if e.username and e.role in ESCALATE_ROLES and e.active_on(day) and out.get(e.username) != "sub_pi":
+                out[e.username] = e.role
+        return sorted(out.items())
+
+    def escalation_plan(rid: str, v: dict[str, Any], rules: dict[str, Any], waited: int, day: date) -> dict[str, Any]:
+        """Who :func:`told_later` names, each with their own mail (one mail each: an address the orchestrator refuses
+        loses only its own). The mail is the PI's own notice of the case (``office_notice``: study, screening number,
+        event, dates, fatal or not, rule set, deadlines; never the AE term, a chart number or a name) after one line
+        saying why and how long the case has really waited (``waited``, whole hours since the register first had it:
+        the first round after the update tells an old case its true age); a person whose own rights do not read this
+        study's serious AEs gets the line and the link only, without the screening number, the event or the dates.
+        Returns ``recipients`` (each: ``name``, ``full``, ``mailbox``, ``subject``, ``body``), ``unreachable`` (no
+        enabled account or no mailbox) and ``already_told`` (told at once as the PI's cover, 9f-3)."""
+        _subject, notice = office_notice(rid, v, rules, NOTICE_WAITING)
+        url = f"{base_url()}/studies/{rid}/subjects"
+        # the subject names the case, so two cases of one study told the same day are two mails (the orchestrator's
+        # duplicate key is day, kind, recipients and subject): the full notice names it as the PI's office notice
+        # does (screening number, event); the short one by the register's case number, with no patient meaning
+        no = reg.case_no(rid, str(v["record"]), str(v["event"]))
+        recipients: list[dict[str, Any]] = []
+        unreachable: list[str] = []
+        already = reg.told_cover_names(rid, str(v["record"]), str(v["event"]))  # told at once as the PI's cover
+        skipped: list[str] = []
+        for name, role in told_later(rid, day):
+            if name in already:  # one mail of this case each: the cover's person had it at once
+                skipped.append(name)
+                continue
+            u = h.users.get(name)  # an enabled account that has not expired, else None
+            if u is None or not u.mailbox:
+                unreachable.append(name)
+                continue
+            try:
+                lang = h.store.notify_person(name).lang
+            except Exception:  # the site store cannot say: the mail still goes, in English
+                lang = "en"
+            lang = lang if lang in ("en", "ja", "zh-TW") else "en"
+            lead = translate(lang, "sae.escalate.sub_pi" if role == "sub_pi" else "sae.escalate.crc", rs=rid, n=waited)
+            sees = reads_saes(u, rid)
+            body = "\n".join([lead, "", notice] if sees else [lead, "", translate(lang, "sae.escalate.open", url=url)])
+            subject = (
+                translate(lang, "sae.escalate.subject", rs=rid, n=waited, case=f"{v['record']} {v['event']}")
+                if sees
+                else translate(lang, "sae.escalate.subject.short", rs=rid, n=waited, case=no or "-")
+            )
+            recipients.append({"name": name, "full": sees, "mailbox": u.mailbox, "subject": subject, "body": body})
+        return {"recipients": recipients, "unreachable": unreachable, "already_told": skipped, "case_no": no}
+
+    def escalate(rid: str) -> list[str]:
+        """9f-4 (b): each serious AE of the study the PI has not acknowledged ``TB_SAE_ESCALATE_HOURS`` hours (default
+        24) after the register first had it (``sae_case.created_at``, the moment it became one waiting for the PI) is
+        mailed to the study's sub-investigators and coordinators, at most once per case whatever the threshold (a
+        later change of ``TB_SAE_ESCALATE_HOURS`` tells no case again; ``saerecord.escalate_once``: the people to mail
+        are claimed in the trail before any mail goes, the acknowledgement read again under the case's lock, each mail
+        that went audited at once): a round that reached somebody writes the trail row ``escalated`` with each
+        recipient's outcome; a round that reached nobody is not final and is tried again on the next round (a bounded
+        ``escalate_retry`` note). Returns the cases told."""
+        n = escalate_hours(cfg)
+        day, at = today(), now()
+        out = fetch(rid, day)
+        rules = dict(out.get("rules") or {})
+        fu = followup_rules(str(cfg.get("TB_SAE_FOLLOWUP_DAYS", "") or ""))
+        done: list[str] = []
+        for a in out.get("aes") or []:
+            if not a.get("serious") or not a.get("needs_ack"):
+                continue
+            key = (str(a["record"]), str(a["event"]))
+            case = reg.case(rid, *key)
+            if case is None or case.get("pi_ack_by"):
+                continue
+            try:
+                since = datetime.fromisoformat(str(case.get("created_at") or ""))
+            except ValueError:
+                continue
+            since = since if since.tzinfo else since.replace(tzinfo=UTC)
+            if at - since < timedelta(hours=n):
+                continue
+            waited = int((at - since).total_seconds() // 3600)  # whole hours really waited (M3: never understated)
+            v = case_view(a, case, reg.reports(rid, *key), day, fu, at, rules)
+            extra: dict[str, Any] = {}
+
+            def plan(v: dict[str, Any] = v, waited: int = waited, extra: dict[str, Any] = extra) -> dict[str, Any]:
+                got = escalation_plan(rid, v, rules, waited, day)
+                extra["case_no"] = got.pop("case_no")
+                return got
+
+            def send_one(r: dict[str, Any]) -> None:
+                bk.send_notice("N2", [r["mailbox"]], r["subject"], r["body"], actor.SAE_SYNC)
+
+            def audit_it(action: str, body: dict[str, Any], key: tuple[str, str] = key, extra: dict[str, Any] = extra,
+                         since: str = str(case.get("created_at") or ""), waited: int = waited) -> None:  # fmt: skip
+                au.append("console.sae", ruleset=rid, actor=SYNC,
+                          detail={"action": action, "record": key[0], "event": key[1], "since": since,
+                                  "waited_hours": waited, **extra, **body, "hours": n})  # fmt: skip
+
+            got = escalate_once(reg, rid, *key, n, plan, send_one, SYNC, stamp(), audit_it)
+            if got is not None and got.get("final"):
+                done.append(f"{key[0]}/{key[1]}")
+        return done
+
+    def escalate_all() -> list[str]:
+        """The hourly round (``console.timers``): every study's register brought up to date and escalated, its
+        patient reads signed as the morning mail's principal (NEW-SEC-1)."""
+        told: list[str] = []
+        for r in bk.rulesets():
+            if not _RS.match(r.id):
+                continue
+            with actor.reading_as(actor.NOTIFY):
+                try:
+                    sync_study(r.id)
+                except Exception as exc:
+                    au.append("console.sae", ruleset=r.id, actor=SYNC,
+                              detail={"action": "sync_failed", "error": type(exc).__name__})  # fmt: skip
+                try:
+                    told += [f"{r.id}:{x}" for x in escalate(r.id)]
+                except Exception as exc:
+                    au.append("console.sae", ruleset=r.id, actor=SYNC,
+                              detail={"action": "escalate_failed", "error": type(exc).__name__})  # fmt: skip
+        return told
 
     h.sae_sync = hook
+    h.sae_escalate = escalate_all
     prev_reports = h.life_reports
 
     def life_reports(rid: str) -> list[dict[str, Any]]:
@@ -450,6 +644,7 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
             sync_study(rid)
         except (Problem, Unavailable):
             raise h.problem(503, "unavailable", detail="orchestrator") from None
+        escalate_safe(rid)  # 9f-4 (b): the write path escalates too
         return RedirectResponse("/sae", status_code=303)
 
     @app.post("/studies/{rs}/sae/{record}/{event}/{what}")

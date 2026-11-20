@@ -35,6 +35,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/api/v1/studies/{rs}/candidates` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/candidates/{pid}` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/conflicts` | - | U | - | U | U | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/cover` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | GET | `/api/v1/studies/{rs}/delegation` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | GET | `/api/v1/studies/{rs}/edc` | - | U | - | U | U | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/edc/copy` | - | U | - | U | U | - | - | - | - |
@@ -195,6 +196,9 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/api/v1/studies/{rs}/aes/{record}/{event}/ack` | - | - | - | n | - | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/candidates/{pid}/referral` | - | - | - | Y | - | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/conflicts/{cid}` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/cover` | - | - | - | Y | - | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/cover/{cid}/end` | - | - | - | n | - | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/cover/{cid}/irb` | - | - | - | n | - | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/edc/copy/{record}/tick` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/edc/dictionary` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/edc/drafts` | - | Y | - | Y | Y | - | - | - | - |
@@ -215,10 +219,11 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/api/v1/studies/{rs}/patients/{pid}/outcome` | Y | Y | - | - | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/patients/{pid}/reveal` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/referrals/{ref_id}/answer` | - | Y | - | Y | Y | - | - | - | - |
-| POST | `/api/v1/studies/{rs}/sources/{name}/sync` | - | n | - | - | n | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/setup/consent-ages` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/sources/{name}/sync` | - | n | - | - | n | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/state/take-back` | - | - | - | Y | - | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/subjects/{record}/step` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/tasks/owner` | - | - | - | Y | - | - | - | - | - |
 | POST | `/audit/patients/by-chart` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/audit/verify` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/breakglass` | Y | - | Y | Y | - | - | - | - | - |
@@ -265,6 +270,9 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/candidates/{pid}/referral` | - | - | - | Y | - | - | - | - | - |
 | POST | `/studies/{rs}/candidates/{pid}/reveal` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | POST | `/studies/{rs}/conflicts/{cid}` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/cover` | - | - | - | Y | - | - | - | - | - |
+| POST | `/studies/{rs}/cover/{cid}/end` | - | - | - | n | - | - | - | - | - |
+| POST | `/studies/{rs}/cover/{cid}/irb` | - | - | - | n | - | - | - | - | - |
 | POST | `/studies/{rs}/deviations` | - | n | - | - | n | - | - | - | - |
 | POST | `/studies/{rs}/edc/copy/{record}/tick` | - | n | - | n | n | - | - | - | - |
 | POST | `/studies/{rs}/edc/decide/{draft_id}` | - | n | - | n | n | - | - | - | - |
@@ -300,8 +308,8 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/sae/{record}/{event}/{what}` | n | n | n | n | n | - | - | n | n |
 | POST | `/studies/{rs}/schedule` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/setup` | - | Y | - | - | Y | - | - | - | - |
-| POST | `/studies/{rs}/setup/contact` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/setup/consent-ages` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/setup/contact` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/setup/log` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/setup/redcap` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/setup/redcap/test` | - | Y | - | - | Y | - | - | - | - |
@@ -317,6 +325,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/subjects/{record}/aes/{event}/ack` | - | - | - | n | - | - | - | - | - |
 | POST | `/studies/{rs}/subjects/{record}/step` | - | U | - | - | U | - | - | - | - |
 | POST | `/studies/{rs}/subjects/{record}/undo` | - | U | - | - | U | - | - | - | - |
+| POST | `/studies/{rs}/tasks/owner` | - | - | - | Y | - | - | - | - | - |
 | POST | `/studies/{rs}/team` | - | - | - | Y | - | - | - | Y | - |
 | POST | `/studies/{rs}/team/check` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/studies/{rs}/team/{eid}` | - | - | - | Y | - | - | - | - | - |

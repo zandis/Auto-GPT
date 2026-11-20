@@ -79,7 +79,13 @@ def test_jobs_are_the_button_calls(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_start_schedules_the_jobs_in_the_site_zone() -> None:
     sched = timers.start(_Helpers(), {"TB_CONSOLE_TIMERS": "on"}, ZoneInfo("Asia/Tokyo"))
     try:
-        assert sorted(j.id for j in sched.get_jobs()) == ["health_mail", "notice_n1", "notice_n2", "redcap_read"]
+        assert sorted(j.id for j in sched.get_jobs()) == [
+            "health_mail",
+            "notice_n1",
+            "notice_n2",
+            "redcap_read",
+            "sae_escalate",
+        ]  # 9f-4 (b): hourly
         assert str(sched.timezone) == "Asia/Tokyo"
         # review F-14 (D-130): a run missed by a reboot (up to 6 h) still runs once; missed runs coalesce
         assert all(j.misfire_grace_time == 6 * 3600 and j.coalesce for j in sched.get_jobs())

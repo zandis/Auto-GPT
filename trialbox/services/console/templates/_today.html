@@ -1,12 +1,12 @@
 {# J-6 (D-1225, flag layout.home_today): "Needs you today" (at most five lines unless the whole list is asked for) and
    one "Next" line per study. The same markup on a desktop and a phone. #}
 {% from "_life.html" import sae_failed with context %}
-{% macro today_block(lines, more, total, every, failed) %}<section class="card today" data-testid="today" aria-labelledby="today-h">
+{% macro today_block(lines, more, total, every, failed, task_bits=none) %}<section class="card today" data-testid="today" aria-labelledby="today-h">
 <div class="headrow"><h2 id="today-h">{{ t('today.all.title') if every else t('today.title') }}</h2><span class="hint">{{ t('today.help') }}</span></div>
 {{ sae_failed(failed) }}
 {% if not lines %}<p class="empty" data-testid="today-none">{{ t('today.none') }}</p>{% endif %}
 {% if lines %}<ol class="tasks today-lines">{% for ln in lines %}<li class="tl{{ ' tl-bad' if ln.rank == 0 else (' tl-warn' if ln.rank == 1 else '') }}" data-testid="today-{{ ln.kind }}" data-what="{{ ln.rs }}/{{ ln.what }}">
-<a href="{{ ln.href }}">{{ t(ln.key, **ln.values) }}</a>{% if ln.rank == 1 %} <span class="due late">{{ t('today.overdue') }}</span>{% elif ln.due and ln.rank == 2 %} <span class="due">{{ t('today.due', day=ln.due) }}</span>{% endif %}
+<a href="{{ ln.href }}">{{ t(ln.key, **ln.values) }}</a>{% if ln.rank == 1 %} <span class="due late">{{ t('today.overdue') }}</span>{% elif ln.due and ln.rank == 2 %} <span class="due">{{ t('today.due', day=ln.due) }}</span>{% endif %}{#9f5#}{% if ln.task and task_bits %} {{ task_bits(ln.task, fe if fe is defined else none) }}{% endif %}{#/9f5#}
 </li>{% endfor %}</ol>{% endif %}
 {% if more > 0 %}<p class="chartlinks"><a class="button secondary" href="/home?today=all" data-testid="today-more">{{ t('today.more', n=more) }}</a></p>{% endif %}
 {% if every %}<p class="chartlinks"><a href="/home" data-testid="today-back">{{ t('today.all.back') }}</a></p>{% endif %}

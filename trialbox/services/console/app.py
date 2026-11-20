@@ -33,7 +33,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
@@ -44,7 +44,7 @@ from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
-from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
+from tb_common.authz import BEST_STANDING, COVER_RUN_OPTION, admin_allowed, permit, role_allowed, role_rights
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
@@ -572,11 +572,29 @@ def create_app(
     templates.env.globals["tone"] = state_tone.tone  # 9k-4 (D-1380): a badge's tone from one table
     templates.env.globals["theme_color"] = phone.THEME  # 9k-1 (D-1368): no colour in a page
     bk: Backend = backend
-    au: AuditLog = audit
+    # 9f-3 (D-1383): an event a person writes in a study while covering its PI names both (console.cover_pages)
+    from console.cover_pages import CoverAudit
+
+    au: AuditLog = cast(AuditLog, CoverAudit(audit, lambda name, rs: _cover_of(name, rs)))  # noqa: PLW0108 - defined below
     us: UserStore = users
     us.zone = site_tz  # an account's end date is a site day (D-270)
     us.enrol_ttl = timedelta(hours=settings.identity.enrol_hours)  # D-719: TB_CONSOLE_ENROL_CODE_HOURS
     account_team: dict[str, Any] = {}  # the study team store, once the workspace registers it (D-719: the PIs)
+
+    def _cover_of(name: str, rs: str) -> Any:
+        """The PI cover ``name`` holds in study ``rs`` today, by the one reading of the log (None without one), with
+        ``console.team.standing``'s own conditions: an account that sees the study and whose tasks the log gives (an
+        investigator account); computed when the event is written (a request across the site's midnight is stamped
+        by the day of its write)."""
+        from console.team import cover_account
+
+        hp = account_team.get("h")
+        team_store = getattr(hp, "team", None)
+        if hp is None or team_store is None:
+            return None
+        if not cover_account(us.get(name), rs):  # the one account test (9f-3: also the SAE notice and the banner)
+            return None
+        return team_store.rights(rs, name, hp.today()).cover
 
     def account_tell(name: str, subject: str, body: str, by: str) -> None:
         """D-719 (a): the steward and the PI of each of the account's studies are told, as for break-glass."""
@@ -848,6 +866,12 @@ def create_app(
             return []
         return list(hp.pi_missing(sess.user))
 
+    def _cover_hook(what: str, sess: Session | None, rs: str) -> Any:
+        """9f-3 (D-1383): ``console.cover_pages``' banner or log-page card for study ``rs`` (None without it)."""
+        hp = getattr(app.state, "helpers", None)
+        fn = getattr(hp, "cover_view", None) if sess is not None else None
+        return fn(what, sess, rs) if fn is not None else None
+
     def _account_notices(sess: Session | None, lang: str) -> list[str]:
         """D-719 (a): who reset which factor of this account when, or when it was opened; each line once."""
         if sess is None or not us.has_notices(sess.user.username):
@@ -936,6 +960,9 @@ def create_app(
             # NEW-JRN-8 (D-772): a CRO account's monitor grants, read only by the pages that show them (the menu)
             "monitoring": _once(lambda: helpers.monitor_grants(sess.user) if sess and helpers.monitor_grants else []),
             "account_notices": _account_notices(sess, lang),  # D-719 (a): read once, on the next page
+            # 9f-3 (D-1383): a study's cover today (the banner of the team pages), and the cover card of its log page
+            "cover_banner": lambda rs: _cover_hook("banner", sess, rs),
+            "cover_card": lambda rs: _cover_hook("card", sess, rs),
             # D-1370 (9g-19): the idle warning's clock (idle limit, seconds to the idle lock and to the absolute end)
             "session_left": _once(lambda: us.session_left(sess.token_sha) if sess else None),
             # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake
@@ -1040,11 +1067,21 @@ def create_app(
         # WALK-1 (F-14): a new study is known as such before its job makes the ruleset (the review of D-1153: its
         # state is written only once the job is accepted, so a refused request leaves no study behind)
         new = req.type == "FEAS" and bool(inputs) and bool(req.ruleset) and not known_ruleset(str(req.ruleset))
+        if study and helpers.cover_only(sess.user, study, f"command.{req.type}"):
+            # 9f-3 (D-1383): a run started by a right held only through a cover sends no patient-level file to the
+            # person who asked (the run's lists go to the study's own list recipients only, as without the cover)
+            req = req.model_copy(update={"options": {**(req.options or {}), COVER_RUN_OPTION: "1"}})
         try:
             # D-146 (review J-01): the orchestrator authorises by the signed-in person's role, sent signed
             made = bk.create_job(req, by=actor(sess), role=sess.user.role)
         except Refused as exc:
-            au.append("console.refused", job_id=job_id, actor=actor(sess), detail={"reason": str(exc)[:200]})
+            au.append(
+                "console.refused",
+                job_id=job_id,
+                actor=actor(sess),
+                ruleset=req.ruleset or None,
+                detail={"reason": str(exc)[:200]},
+            )  # 9f-3: the study, so a cover's note is written (D-1383)
             raise refusal_problem(str(exc), cmd, mailbox) from exc
         if new:
             try:
@@ -1542,6 +1579,9 @@ def create_app(
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
     raw_env = _env_map(env)
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
+    from console import cover_pages
+
+    cover_pages.register(app, helpers)  # 9f-3, 9f-5 (D-1383): the PI's cover and a task's owner, after team (its store)
     committee_pages.register(app, helpers)  # 10C-4 (D-1227): the Japan profile's committees, after team (its store)
     if helpers.chart_to_pid is not None:  # NEW-JRN-6 (D-771): the audit browser's chart number door
         audit_hooks.doors["chart_to_pid"] = helpers.chart_to_pid
@@ -1584,7 +1624,7 @@ def create_app(
     metrics_page.register(app, helpers)  # T-209a (D-379): /metrics and the box's health for the morning mail
     from console import sae_pages
 
-    sae_pages.register(app, helpers)  # the SAE register and its worklist (D-191)
+    sae_pages.register(app, helpers, env=env)  # the SAE register and its worklist (D-191); env: 9f-4 (b)
     from console import admin_accounts
 
     admin_accounts.register(app, helpers)  # T-209c (D-406): backup, update and account tiles; unused-account report
@@ -2075,7 +2115,8 @@ def create_app(
             and box in named
             and sess.user.can_view_phi
             and sess.user.sees_study(job.ruleset or "")
-            and helpers.delegated_ok(sess.user, job.ruleset)
+            # 9f-3 (D-1383): the study's log by the account's own entries (a file that leaves: never by a cover)
+            and helpers.export_ok(sess.user, job.ruleset)
         )
 
     @app.get("/pilot/jobs/{job_id}/files/{filename}")
