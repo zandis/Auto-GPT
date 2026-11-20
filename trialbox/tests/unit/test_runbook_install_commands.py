@@ -187,6 +187,18 @@ def run_make_images_multiarch(tmp: Path) -> None:
     _make_dry("images-multiarch")
 
 
+def run_buildx_check(tmp: Path) -> None:
+    """H-70: the build host's buildx check, with a stand-in ``docker``: a version passes, no plugin stops ``make``."""
+    for has, rc in ((True, 0), (False, 2)):
+        bin_dir = tmp / f"buildx-{has}"
+        _stand_in(
+            bin_dir, "docker", f"import sys\nsys.exit(0 if {has} and sys.argv[1:] == ['buildx', 'version'] else 1)\n"
+        )
+        out = _run(["make", "--no-print-directory", "buildx-check"], PATH=f"{bin_dir}{os.pathsep}/usr/bin:/bin")
+        assert out.returncode == rc, out.stderr
+        assert ("Docker's buildx plugin is missing" in out.stderr) is (not has)
+
+
 def run_apply_update(tmp: Path) -> None:
     from tests.unit.test_host_tree import _bundle
     from tools.sign_bundle import keygen
@@ -429,6 +441,7 @@ RUNNERS: list[tuple[str, Callable[[Path], None]]] = [
     (r"tools/apply_update\.sh trialbox-<version>\.tar", run_apply_update),
     (r"make images", run_make_images),
     (r"make images-multiarch", run_make_images_multiarch),
+    (r"docker buildx version", run_buildx_check),
     (r"python -m tools\.settings_wizard --out deploy/settings\.yaml --env-out deploy/\.env", run_wizard_questions),
     (r"--answers site\.yaml", run_wizard_answers),
     (
