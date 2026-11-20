@@ -766,6 +766,7 @@ PINNED_EN = [
     ("screening", "Stroke within 90 days before screening."),
     ("possible", "Possible candidates for the asthma study with diabetes."),
     ("instrument", "International Prognostic Index"),
+    ("organisation", "U.S. National Cancer Institute, Cancer Therapy Evaluation Program."),
 ]
 PINNED_JA = [
     ("可能性", "糖尿病研究の参加条件に合う可能性のある患者。"),
@@ -819,7 +820,10 @@ def test_the_known_limits_are_what_d1256_says() -> None:
     """D-1256's known limits, recorded so that a change to them is seen."""
     assert en("Is the patient sick? The system will tell you.") == []  # a claim split across two sentences
     assert en("TrialBox shines a light on patients hiding in the records.") == []  # a metaphor with no claim word
-    assert en("Can treat depression.") == []  # an act on a disease with no subject
+    # an act on a disease with no subject was a limit of the first round; the role reading (D-1256 §8) reads a sentence
+    # that names no one as the product's own, so it is refused now
+    assert en("Can treat depression.") != []
+    assert ja("肺炎治療。") == []  # a Japanese line with no kana is a term, not a statement: still not read as an act
     assert check("TrialBox prevents strokes.") == []  # English text the caller does not name en: not read
     assert ja("本システムは外来記録からうつ病の兆候を読み取ります。") == []  # 読み取り is the product's word
     assert en("A pregnancy diagnosis within 280 days.") != []  # a criterion's diagnosis with no subject: refused

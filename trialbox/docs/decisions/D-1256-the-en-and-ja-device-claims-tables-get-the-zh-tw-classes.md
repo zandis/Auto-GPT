@@ -3,7 +3,7 @@
 - **Task:** card 10C-5c of plan 10 (`docs/plan/47-plan-10-2026-11-18.md`, Track C; lane J), the follow-up that
   D-1247 names: "the Japanese table has no treat, prevent, state, decide or remind class, and English has no claim
   table". PR #1234.
-- **Date:** 2026-11-19
+- **Date:** 2026-11-19; second round (§8) 2026-11-20
 - **Status:** accepted; reserved for the pull request of card 10C-5c (lane J's block D-1220 to D-1319)
 - **Builds on:** D-1228 (the Japanese device-claims rule), D-1247 (the zh-TW table and its classes), D-351 (a
   record's own field and quoted source text are not the product's wording), TB-IU-01 (`docs/plan/intended-use.md`)
@@ -190,6 +190,74 @@ Before this card, the Japanese table had none of these classes. English had no c
      treatment word followed by a record word (紀錄, 記錄, 史, 清單, 資料, 欄位, 歷程) is not the object of a
      decision. Japanese has 歴, 記録, 履歴, 一覧, データ, 欄, and English has records, history, list, data, fields,
      log. 系統建議病人的用藥 is still refused.
+8. **Second round: the role reading, after the first blind measurement.** The coordinator measured head 1d0cc50a on
+   300 sentences this card never saw (75 claims and 75 honest lines per language), through the full gate
+   `check(text, lang)`. English refused 42 of 75 claims (39 by the claim tables alone; master 6) and passed 73 of 75
+   honest lines. Japanese refused 29 of 75 claims (22 by the tables alone; master 16) and passed 69 of 75 honest
+   lines. That is far from the development figures below: the first round learned its sets, not the classes. Most
+   missed claims named no subject, or named the product only as a cause or a means ("Patients matched by TrialBox
+   recover faster", 生存率の向上に貢献いたします).
+   - **The mechanism.** Each class is now a verb with its object. It is a claim only in the **product's voice**:
+     one function, `_voice`, over a `Roles` per language (`ROLES_EN`, `ROLES_JA`), read by one reader,
+     `_roles_in`. The voice is decided by who acts:
+     - the product is the subject, the cause or the means, or **no one is named**. A sentence of the product's
+       own text that names no one is the product speaking ("Proven to improve survival", 生存期間の延長が実証されています);
+     - a qualified person acts: not a claim, unless the product acts in the person's place ("on behalf of the
+       physician", 医師の代わりに);
+     - a record or a document says it ("according to the chart", "the protocol recommends", 計画書には…と記載):
+       not a claim. Neither is a study's question or aim ("assess whether", "aims to", かを検討). Both hold unless
+       the product is the subject. A product that only reads or shows a record (読み取ります, "TrialBox shows the
+       chart") is the record speaking;
+     - another agent before the word acts: the study drug, a vaccine, the study, or a published standard (CTCAE,
+       NYHA). Not a claim;
+     - Japanese only: a sentence that names no one and ends in a plain verb names a task (適格かどうかを判断する,
+       a team's purpose), not the product's statement (判断します).
+   - **The classes.**
+     - An **outcome**: a benefit verb with a good outcome ("raises response rates", 治療効果を高める,
+       生存期間の延長); a harm-reducing verb with a harm ("cuts infections", 重症化を防ぐ, 副作用から守る,
+       見逃しをなくす); or an outcome in one phrase ("live longer", 予防効果があります).
+     - A **decision for the clinician**: a decision word with a care object (a treatment, a dose, a referral,
+       enrolment, eligibility). It counts in any voice the product owns: active, passive with the product as
+       agent, the product's noun ("the model's recommendation") or a heading ("Recommended therapy:",
+       推奨される治療：). A decision named only as a noun ("eligibility decisions") is the product's only with the
+       product as its subject or possessor. When the user is told to choose ("Select the dose", 選択してください),
+       the user decides. A document about care ("the eligibility sheet", "the enrolment code") is no care.
+     - A **directive on care**: an imperative, a prohibition, a modal, a need or an urgency ("Start insulin for this
+       patient", "Do not give", "must be started", "who need their dose changed", 中止してください,
+       投与しないでください, 至急、…). It needs a care act on a care object; prescribing and giving a dose need no
+       object. A prohibition directs care, so it is not a denial. A record's order ("Per the chart: start
+       insulin") is not the product's.
+     - A **finding of one patient's disease**: "this patient has", "in this patient", この患者は…です,
+       と考えられます, 機能に異常があります. It is not refused in a criterion's or a question's form, a history
+       ("has a history of asthma") or from a named record.
+     - A **disease's stage, grade, severity, type or cause, or the disease itself**, by other verbs ("computes the
+       disease stage", "grades each tumour", 重症度を自動で評価, 病名を特定, 病気を突き止める). In Japanese the
+       verb must be verbal (分類します): an instrument's name (Hoehn-Yahr 重症度分類, 病期分類の版) is not one.
+     - The Japanese table reads 診断支援 and 推定診断 outright, and 病気を診断します, 適格性を判定します and
+       見逃しを防ぐ through the classes. The first blind measurement found that only `FORBIDDEN` caught these.
+   - **The first round's act class** (treat, cure, prevent ...) reads a sentence that names no one as the product's
+     too, so "Can treat depression." is now refused. A Japanese line with no kana (肺炎治療) is a term, not a
+     statement, and is not read so.
+   - **Quotation.** A quotation is masked before any rule reads it, `FORBIDDEN` included, when a document is named as
+     saying it ('The protocol says: "..."', 計画書より引用：「…」, 「…」と計画書に記載されています). When the product is
+     the speaker ('TrialBox says: "..."', 本システムは「…」と判定します), the quotation is not masked.
+   - **`FORBIDDEN` in text named en or ja.**
+     - "excluded" and 除外 as a person's own act pass ("the physician excluded two candidates",
+       責任医師が…除外しました, コーディネーターが…).
+     - A Japanese topic's person past a comma is the subject (診断と治療は、本システムではなく担当の医師が行います).
+     - 判定 of a named non-medical object, in a sentence with no medical word, passes (文字コードを自動で判定します).
+     - 判定 as a passive with no agent (不適格と判定されました) is refused again, as on master. The first round
+       had masked it, and the blind measurement found that regression. Only a disease's diagnosis as a passive
+       (関節リウマチと診断されている) is a record.
+   - **Smaller parts.**
+     - Japanese 個人情報 is no patient, so 警告：出力ファイルには個人情報が含まれます warns of no patient.
+     - An English organisation's proper name ("the Cancer Therapy Evaluation Program") is a pinned allowed
+       context.
+     - A comparative ("better", "longer", "no longer") is not deniable.
+   - **A result line with no source** ("Result: positive for hepatitis C"): the coordinator left this to the card.
+     When no patient is named, it is a record value the product shows, so it passes. Said of one patient ("The
+     patient is positive for hepatitis C") it is a finding and is refused.
+   - **zh-TW and text with no language** are not read by the role reading: no zh-TW verdict changed.
 
 ## Measured (the development set; not independent)
 
@@ -237,7 +305,70 @@ diagnosis or a topic, and 循環器医により…と診断された.
 
 **The after figures are not a measurement**: every sentence was used to fix the rule. The three claims still missed
 are kept as `KNOWN_MISSES`. D-1247's experience is the warning: its development sets reached 100 %, then an
-independent set written before reading the code found 34 of 150 claims passing.
+independent set written before reading the code found 34 of 150 claims passing. The first blind measurement (§8)
+found the same.
+
+### Second round (§8; development and held-out figures, not independent)
+
+`ROUND2_EN` and `ROUND2_JA` in `tests/unit/test_wording_en_ja_roles.py` hold 150 sentences per language: 12 claims
+and 12 honest counter-cases for each of the six classes the blind measurement named, and 3 and 3 quotations. They were
+written by class from the measurement's description, before the rule changed. The coordinator's own example lines
+were not copied into them. Then they were used to change the rule.
+
+| Language | Class | Before (head 1d0cc50a) | After |
+| --- | --- | --- | --- |
+| en | efficacy, as a cause or with no subject | 2 / 12 | 12 / 12 |
+| en | prevent and reduce, other verbs | 1 / 12 | 12 / 12 |
+| en | decide, recommend, conclude | 1 / 12 | 12 / 12 |
+| en | a patient's disease stated | 3 / 12 | 12 / 12 |
+| en | a directive on care | 1 / 12 | 12 / 12 |
+| en | stage, grade, classify | 3 / 12 | 12 / 12 |
+| en | **claims refused** (with 3 quotation claims) | **14 / 75** | **75 / 75** |
+| en | **honest lines passed** | **72 / 75** | **75 / 75** |
+| ja | efficacy | 0 / 12 | 12 / 12 |
+| ja | prevent and reduce | 2 / 12 | 12 / 12 |
+| ja | decide | 4 / 12 | 12 / 12 |
+| ja | a patient's disease stated | 1 / 12 | 12 / 12 |
+| ja | a directive on care | 0 / 12 | 12 / 12 |
+| ja | stage, grade, classify | 5 / 12 | 12 / 12 |
+| ja | **claims refused** (with 3 quotation claims) | **15 / 75** | **75 / 75** |
+| ja | **honest lines passed** | **70 / 75** | **75 / 75** |
+
+The honest lines refused before were the quotations and a person's act under `FORBIDDEN` ("excluded", 除外, 診断),
+and 判定 of a non-medical object.
+
+**Held out, same author.** `HELD_OUT_EN` and `HELD_OUT_JA` (20 claims and 20 honest lines per language) were written
+after the change and measured once, before any further change:
+
+| | claims refused | honest lines passed |
+| --- | --- | --- |
+| en, master d28f6c03 | 0 / 20 | 19 / 20 |
+| en, measured once | 14 / 20 | 19 / 20 |
+| ja, master d28f6c03 | 1 / 20 | 19 / 20 |
+| ja, measured once | 17 / 20 | 19 / 20 |
+
+They missed unlisted outcome and decision words ("climb", "shortens", "picks", "get well", 入院期間が短くなります,
+治療がうまくいく). They over-refused an unlisted source ("per the referral letter") and a role D-1228's person
+list lacks (コーディネーター). Those classes were then widened. The set now passes in full, so it is a development
+set too. **The once-measured figure is the honest one: a vocabulary-bound class misses what its words do not
+name.** `PROBE_EN` (33) and `PROBE_JA` (32) are honest product lines that use the same verbs ("Stop the service",
+"Raise the upload limit", 処方データを取り込みます). One English line, "The study aims to reduce readmissions",
+was refused and led to the study-aim rule.
+
+**Catalogue.** On every catalogue string and criterion label (30,603 items, master dfb92007 against the head) there
+is one verdict change, the same as in the first round: RA-JAK-INC-02 now passes. While the role reading was being
+built, 14 strings were newly refused, and each was fixed in the mechanism:
+- "the chosen study" as an adjective;
+- an account's "enrolment code";
+- "eligibility decisions" as a noun in a denied list;
+- a team's purpose in a plain verb (適格かどうかを判断する);
+- "MEDIS standard disease names";
+- "kept as written";
+- 「今すぐ実行」 as a button's name;
+- "Send the referral request";
+- CTCAE as the grading standard.
+
+The page walk then found the Cancer Therapy Evaluation Program on /about, now an allowed organisation name.
 
 ## Consequences
 
@@ -246,11 +377,21 @@ independent set written before reading the code found 34 of 150 claims passing.
 Known limits, stated rather than chased (`test_the_known_limits_are_what_d1256_says` records them):
 - **a claim split across sentences**: "Is the patient sick? The system will tell you.";
 - **a metaphor with no claim word**: "shines a light on patients hiding in the records";
-- **a claim with no subject** of the act, state and decide classes: "Can treat depression.", 可治療憂鬱症 (as zh-TW);
+- **a claim with no subject** in zh-TW: 可治療憂鬱症. In English and Japanese the role reading (§8) reads a
+  sentence that names no one as the product's own, so "Can treat depression." is refused now;
+- **a claim with no object** (§8): 中止してください, ご提案いたします, 本システムが決定します, 直ちに対応してください. With
+  no care or medical object, no class can tell them from a workflow's words;
+- **the classes are bound to their words** (§8): an outcome, a decision or a care act the lists do not name is not
+  seen. The held-out figure shows it;
+- **the product's voice by default** (§8): an honest sentence that names no one and pairs a class's verb with its
+  object is refused. An example is a protocol's line pasted with no quotation marks and no named source ("Stop the
+  study drug if the participant becomes pregnant.", 妊娠が判明した場合は治験薬を中止すること). Naming the source or
+  the person, or quoting, is the remedy;
+- **a Japanese claim in a plain verb with no one named** (未然に防止する) reads as a task and passes (§8);
 - **a person's act denied with the product doing it elsewhere**: "Doctors no longer need to diagnose: the software
   does it for them", 医師が診断する必要はなく、ソフトウェアが代わりに行います. The denial masks the verb;
 - **読み取り**: the product's own word for a model reading a record, as 判讀 is in zh-TW, so
-  うつ病の兆候を読み取ります is not seen;
+  うつ病の兆候を読み取ります is not seen. §8 keeps this: a product that only reads or shows is the record speaking;
 - **English text not named en is not read by the English table**: the report, mail and document tests that pass no
   language, and the public site's English page, which no test walks (D-1228's site test reads the Japanese pages
   only). Japanese text not named ja is read by D-1228's table only;

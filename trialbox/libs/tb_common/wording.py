@@ -396,6 +396,37 @@ _TREATMENT_JA: tuple[str, ...] = (
     "適格",
 )
 
+# D-1256, the role reading (the second round, after the first blind measurement): each class is a verb with its
+# object, read by WHO acts (Roles, below). The verbs are deniable like every other claim word.
+# an outcome: a benefit verb with a good outcome (治療効果を高める, 生存期間の延長, 回復が早まる) ...
+_BENEFIT_V_JA: tuple[str, ...] = (
+    "向上", "改善", "回復", "延長", "上昇", "高め", "高ま", "引き上げ", "早ま", "早め", "良くな", "よくな", "和らげ",
+    "緩和", "最大化", "実現", "後押し", "役立", "寄与", "貢献", "促進", "サポート", "得られ", "伸ば", "伸び", "短くな",
+    "短縮", "早く",
+)  # fmt: skip
+_GOOD_N_JA: tuple[str, ...] = (
+    "生存", "治癒", "寛解", "回復", "治療成績", "治療効果", "予防効果", "臨床効果", "効き目", "有効性", "成功率",
+    "健康", "QOL", "生活の質", "症状", "延命", "奏効", "経過が良", "経過がよ", "入院期間", "在院日数", "元気",
+    "治療がうまく", "治療の成功", "治療成功",
+)  # fmt: skip
+# ... or a harm-reducing verb with a harm (重症化を防ぐ, 死亡率が低下, 副作用から守る, 見逃しをなくす)
+_HARM_V_JA: tuple[str, ...] = (
+    "防ぐ", "防ぎ", "防げ", "防止", "予防", "抑制", "抑え", "減ら", "減少", "低下", "下が", "下げ", "低減", "軽減",
+    "回避", "食い止め", "保護", "守る", "守り", "守れ", "遅らせ", "なくし", "なくす", "なくせ", "最小限", "ゼロに",
+)  # fmt: skip
+_HARM_N_JA: tuple[str, ...] = ("相互作用", "副作用", "有害事象", "合併症", "重篤化", "見逃し", "見落とし", "死亡者")
+# deciding for the clinician: a decision word with a care object (最適な治療法を推奨, 参加の可否を決定)
+_DECIDE_MORE_JA: tuple[str, ...] = ("判断", "判定", "結論", "望ましい", "適否", "おすすめ", "お勧め", "提案", "推奨")
+# directing care: a care act in a directive (中止してください, 投与しないでください, 開始する必要があります)
+_CARE_ACT_JA: tuple[str, ...] = (
+    "開始", "中止", "投与", "処方", "切り替え", "切替", "増量", "減量", "休薬", "紹介", "始め", "見送", "オーダー",
+    "変更", "止め", "控え",
+)  # fmt: skip
+# telling or grading a disease by other verbs (病期を算出, 重症度を自動で評価, 病名を特定)
+_STAGE_V_JA: tuple[str, ...] = (
+    "算出", "分類", "判別", "決定", "突き止め", "評価", "特定", "判定", "見分け", "推定", "診断", "割り出", "割り当て",
+)  # fmt: skip
+
 # D-1228's deniable words and clause ends, kept for text not named ja (zh-TW, en, or no language): D-1256's classes
 # read only text named ja, so the Japanese table reads every other text exactly as before
 _DENIABLE_D1228 = sorted(
@@ -423,12 +454,18 @@ _DENIABLE = sorted(
         *CLAIM_ACT_JA,
         *CLAIM_STATE_JA,
         *CLAIM_DECIDE_JA,
+        *_BENEFIT_V_JA,
+        *_HARM_V_JA,
+        *_DECIDE_MORE_JA,
+        *_CARE_ACT_JA,
+        *_STAGE_V_JA,
     },
     key=len,
     reverse=True,
 )
 _DENIABLE_RX = re.compile("|".join(re.escape(w) for w in _DENIABLE))
 _MISS_RX_JA = re.compile("|".join(re.escape(w) for w in CLAIM_MISS_JA))
+_PROHIBIT_JA = re.compile(r"(?:し|せ|さ)?ないで(?:ください|下さい)")
 # A clause ends at 。！？, a line end, or a comma that does not join two claim words of a list (診断、予測、…). A
 # closing bracket does not end it: 「発見しません」という日はない is still one clause. A comma after a verb
 # (AIが患者のリスクを示し、治療は推奨しません) ends the clause even when a claim word follows it.
@@ -497,6 +534,8 @@ def deny_masked_ja(text: str, *, d1228: bool = False) -> str:
             rest = text[m.end() : end.start() if end else len(text)]
         elif _MISS_RX_JA.match(m.group(0)):
             continue
+        elif m.group(0) in _CARE_ACT_JA and _PROHIBIT_JA.match(text, m.end()):
+            continue  # a prohibition directs care (投与しないでください); it denies nothing (D-1256)
         else:
             rest = text[m.end() : _clause_end_ja(text, m.end())]
         if len((_NEGATION if d1228 else _NEGATION_JA).findall(rest)) % 2 == 1:
@@ -1091,7 +1130,9 @@ def _subject(g: Grammar, s: str, start: int, end: int) -> str | None:
         return "actor"  # 依本系統的判斷
     who = _subject_by_position(g, s, start, end, cs)
     if who is None and g.agent_after is not None:
-        m = g.agent_after.match(s, end, _clause_end(g, s, end))
+        # read to the sentence's end: a Japanese topic's agent may stand past a comma (診断は、担当の医師が行います)
+        se = min((i for i in (s.find(c, end) for c in g.sentence_marks) if i >= 0), default=len(s))
+        m = g.agent_after.match(s, end, se)
         if m:
             who = "actor" if m.group("actor") else "person"
     if who is None and _product_acts(g, s, start, cs):
@@ -1262,7 +1303,14 @@ _JA_PARTICLES = (
     r"\s*(?:が|は|も|により|による|によって|で|では|を用いて|を使って|を使い|を使うと|を使えば|なら|のおかげで)"
 )
 _ACTORS_JA = "(?<![A-Za-z])(?:" + "|".join(re.escape(a) for a in CLAIM_ACTORS_JA) + ")(?![A-Za-z])"
-_PERSONS_JA = "(?:" + "|".join(re.escape(p) for p in CLAIM_PERSONS_JA) + r"|[一-鿿]{0,4}医(?![療薬学院]))"
+# D-1256 adds the roles D-1228's list lacks (コーディネーター, 看護師, 薬剤師, 研究チーム), for text named ja only
+_PERSONS_JA = (
+    "(?:"
+    + "|".join(
+        re.escape(p) for p in (*CLAIM_PERSONS_JA, "コーディネーター", "看護師", "薬剤師", "研究チーム", "治験チーム")
+    )
+    + r"|[一-鿿]{0,4}医(?![療薬学院]))"
+)
 GRAMMAR_JA = Grammar(
     clause_marks="、，,；;。！？!?\n",
     sentence_marks="。！？!?\n",
@@ -1282,11 +1330,8 @@ GRAMMAR_JA = Grammar(
         )
     ),
     agent_after=re.compile(
-        r"[^。、，,]*?(?:のは|は|も)\s*(?:(?P<actor>"
-        + _ACTORS_JA
-        + r")|(?P<person>"
-        + _PERSONS_JA
-        + r"))\s*(?:です|だ|が|で|によって|により)"
+        r"[^。、，,]*?(?:のは|は|も)[、，,]?\s*(?:[^。、，,]{0,12}?(?:ではなく|でなく)[、，,]?\s*)?(?:[^。、，,がは]{0,6}?の)?"
+        r"(?:(?P<actor>" + _ACTORS_JA + r")|(?P<person>" + _PERSONS_JA + r"))\s*(?:です|だ|が|で|によって|により)"
     ),
     idle_in_clause=True,
     shows_yields_only_to_a_person=True,
@@ -1298,21 +1343,39 @@ _DISEASE_JA = re.compile(
 )
 # FORBIDDEN's 診断 and 判定 in text named ja are not the product's verdict as a record field (診断名, 診断日), a passive
 # with no product as its agent (関節リウマチと診断された患者) or a person's own act (医師の診断, 診断は医師が行い)
-_VERDICT_JA = re.compile("診断|判定")
+_VERDICT_JA = re.compile("診断|判定|除外")
 _FIELD_AFTER_JA = re.compile(r"\s*(?:名|日|コード|基準|書|時|年月日|年齢|名称|欄|区分|年)")
 
 
 def _passive_ja(text: str, cs: int, m: re.Match[str]) -> bool:
+    # a disease's diagnosis is a record (関節リウマチと診断された患者); a verdict of eligibility is not (適格と判定され
+    # ました is the product's verdict, as before D-1256)
     return (
-        text[max(0, m.start() - 1) : m.start()] == "と"
+        m.group(0) == "診断"
+        and text[max(0, m.start() - 1) : m.start()] == "と"
         and text.startswith("され", m.end())
         and (_subject(GRAMMAR_JA, text, m.start(), m.end()) != "actor")
     )
 
 
+# 判定 of a named non-medical object (文字コードを自動で判定します, インストーラーがOSを判定します) is no
+# verdict about a patient: a を-object in its clause, and no medical word anywhere in the sentence (D-1256)
+_NON_MEDICAL_JUDGE_JA = re.compile(r"[^、。，,を]{1,20}を\s*(?:自動的に|自動で|自動)?\s*判定")
+_MEDICAL_JA = re.compile(
+    "患者|被験者|受診者|対象|症例|候補|基準|条件|適格|適否|可否|該当|参加|陽性|陰性|検査|所見|治療|薬|医|健康|リスク|除外|"
+    + _DISEASE_JA.pattern
+)
+
+
 def _record_masked_ja(text: str) -> str:
-    """:func:`_record_masked` with Japanese 診断 and 判定 (D-1256)."""
-    return _record_masked(text, _VERDICT_JA, _FIELD_AFTER_JA, _passive_ja, GRAMMAR_JA)
+    """:func:`_record_masked` with Japanese 診断, 判定 and 除外 (D-1256), and 判定 of a non-medical object."""
+    out = list(_record_masked(text, _VERDICT_JA, _FIELD_AFTER_JA, _passive_ja, GRAMMAR_JA))
+    for sentence in _SENTENCE.finditer(text):
+        if _MEDICAL_JA.search(sentence.group(0)):
+            continue
+        for m in _NON_MEDICAL_JUDGE_JA.finditer(text, sentence.start(), sentence.end()):
+            out[m.end() - 2 : m.end()] = _MASK * 2
+    return "".join(out)
 
 
 # English device claims (card 10C-5c, D-1256): the same rule, with an English table. Before D-1256 English had no claim
@@ -1449,6 +1512,42 @@ CLAIM_DECIDE_EN: tuple[str, ...] = (
     r"tell(?:s)?",
 )
 CLAIM_JUDGE_EN: tuple[str, ...] = (r"judg(?:e|es|ed|ing|ments?|ements?)", r"diagnos(?:e|es|ed|ing|is)")
+# D-1256, the role reading (second round): the verbs of each class, deniable like every other claim word
+_BENEFIT_V_EN: tuple[str, ...] = (
+    r"improv\w*", r"increas\w*", r"boost\w*", r"enhanc\w*", r"rais(?:e|es|ed|ing)", r"extend\w*", r"prolong\w*",
+    r"restor\w*", r"promot\w*", r"accelerat\w*", r"deliver\w*", r"achiev\w*", r"maximi[sz]\w*", r"gains?", r"better",
+    r"faster", r"sooner", r"quicker", r"longer", r"higher", r"shorter", r"speed(?:s|ed|ing)?\s+up", r"climb\w*",
+    r"ris(?:e|es|ing)", r"rose", r"soar\w*", r"shorten\w*",
+)  # fmt: skip
+_HARM_V_EN: tuple[str, ...] = (
+    r"prevent\w*", r"protect\w*", r"shield\w*", r"guard\w*", r"lower(?:s|ed|ing)?", r"reduc\w*", r"decreas\w*",
+    r"cut(?:s|ting)?", r"fewer", r"less", r"halt\w*", r"slow\w*", r"stop(?:s|ped|ping)?",
+    r"(?:keep(?:s|ing)?|kept)(?=\s+[^,.;:]{0,40}?(?<![A-Za-z])(?:from|down|low|at\s+bay|to\s+a\s+minimum)(?![A-Za-z]))",
+    r"minimi[sz]\w*", r"eliminat\w*", r"avoid\w*", r"avert\w*", r"curb\w*", r"down", r"fall(?:s|ing)?", r"fell",
+    r"drop\w*", r"declin\w*", r"mitigat\w*", r"combat\w*", r"fight\w*", r"lessen\w*", r"eas(?:e|es|ed|ing)",
+    r"reliev\w*", r"alleviat\w*", r"stav\w*\s+off", r"ward\w*\s+off", r"improv\w*",
+)  # fmt: skip
+_COMPARATIVES_EN = (
+    r"better", r"faster", r"sooner", r"quicker", r"longer", r"higher", r"shorter", r"fewer", r"less", r"down",
+    r"gains?",
+)  # fmt: skip
+_DECIDE_MORE_EN: tuple[str, ...] = (
+    r"conclud\w*", r"determin\w*", r"chose", r"(?<!the\s)(?<!a\s)(?<!this\s)chosen", r"generat\w*", r"verdicts?",
+    r"pick(?:s|ed|ing)?",
+)  # fmt: skip
+_CARE_ACT_EN: tuple[str, ...] = (
+    r"start(?:s|ed|ing)?", r"begin(?:s|ning)?", r"began", r"initiat\w*", r"discontinu\w*", r"ceas\w*",
+    r"withh(?:o|e)ld\w*",
+    r"hold", r"held", r"giv(?:e|en|ing)", r"administer\w*", r"prescrib\w*", r"switch\w*", r"chang(?:e|ed|ing)",
+    r"titrat\w*", r"adjust\w*", r"add(?:ed)?", r"resum\w*", r"refer(?:red|ring)?", r"order(?:ed)?", r"send", r"sent",
+    r"book",
+)  # fmt: skip
+_STAGE_V_EN: tuple[str, ...] = (
+    r"grades", r"graded", r"grading", r"stages", r"staged", r"classif(?:y|ies|ied|ying)", r"comput\w*",
+    r"calculat\w*", r"works?\s+out", r"worked\s+out", r"rates", r"rated", r"rating", r"assign\w*",
+    r"names(?=\s+(?:the|a|an|each|every|its|their|which|what)(?![A-Za-z]))",
+    r"establish\w*", r"estimat\w*", r"infer\w*", r"deduc\w*", r"pinpoint\w*", r"identif\w*", r"determin\w*", r"judg\w*",
+)  # fmt: skip
 _DISEASE_EN = re.compile(
     _en(
         (
@@ -1619,7 +1718,7 @@ GRAMMAR_EN = Grammar(
         re.I,
     ),
 )
-_VERDICT_EN = re.compile(r"(?<![A-Za-z_])diagnos(?:is|es)(?![A-Za-z_])", re.I)
+_VERDICT_EN = re.compile(r"(?<![A-Za-z_])(?:diagnos(?:is|es)|excluded)(?![A-Za-z_])", re.I)
 _FIELD_AFTER_EN = re.compile(
     r"\s+(?:codes?|dates?|names?|fields?|columns?|records?|lists?|history|years?|age|categor(?:y|ies)|time)(?![A-Za-z])",
     re.I,
@@ -1650,6 +1749,8 @@ _NEG_EN = re.compile(
     re.I,
 )
 _NOR_EN = re.compile(r"(?<![A-Za-z])nor(?![A-Za-z])", re.I)
+_CARE_ACT_RX_EN = re.compile(_en(_CARE_ACT_EN), re.I)
+_PROHIBIT_EN = re.compile(r"\s*(?:please\s+)?(?:do\s+not|don['’]t|never)\s+", re.I)
 _NEG_AFTER_EN = re.compile(r"\s+(?:nothing|no\s+one|nobody)(?![A-Za-z])", re.I)
 _MISS_EN = re.compile(_en(CLAIM_MISS_EN), re.I)
 _DENIABLE_EN = re.compile(
@@ -1666,6 +1767,11 @@ _DENIABLE_EN = re.compile(
             *CLAIM_DECIDE_EN,
             *CLAIM_JUDGE_EN,
             r"diagnos(?:is|es)",
+            # a comparative is no act to deny ("no longer needed" keeps its "no longer")
+            *(w for w in (*_BENEFIT_V_EN, *_HARM_V_EN) if w not in _COMPARATIVES_EN),
+            *_DECIDE_MORE_EN,
+            *_CARE_ACT_EN,
+            *_STAGE_V_EN,
         )
     ),
     re.I,
@@ -1719,6 +1825,8 @@ def deny_masked_en(text: str) -> str:
         if _MISS_EN.fullmatch(m.group(0)):
             continue
         start = max((b for _, b in ends if b <= m.start()), default=0)
+        if _CARE_ACT_RX_EN.fullmatch(m.group(0)) and _PROHIBIT_EN.fullmatch(text, start, m.start()):
+            continue  # a prohibition directs care (Do not give this patient metformin); it denies nothing (D-1256)
         stop = min((a for a, _ in ends if a >= m.end()), default=len(text))
         n = len(_NEG_EN.findall(text, start, m.start()))
         if n == 0 and _NOR_EN.search(text, start, m.start()):
@@ -1744,11 +1852,70 @@ def _is_ja(lang: str | None) -> bool:
     return (lang or "").strip().lower().startswith("ja")
 
 
+# A quotation that a document is named as saying is the document's wording, not the product's (D-351, D-1256): a
+# protocol's line, a criterion's text, a label's. It is masked, with its marks, when a document or a quoting verb
+# stands before it in its sentence and no product does (TrialBox says: "..." is the product's), or when the document
+# is named straight after it (「…」と計画書に記載されています).
+_QUOTE = re.compile(r"「[^」]*」|『[^』]*』|“[^”]*”|\"[^\"\n]*\"")
+_QUOTE_SOURCE_EN = re.compile(
+    _en(
+        (
+            r"protocols?",
+            r"criteri(?:on|a)",
+            r"guidelines?",
+            r"labels?",
+            r"package\s+inserts?",
+            r"charts?",
+            r"records?",
+            r"notes?",
+            r"letters?",
+            r"reports?",
+            r"quot(?:e|ed|es|ing)",
+            r"text",
+            r"wording",
+            r"verbatim",
+            r"original",
+            r"states?",
+            r"stated",
+            r"says?",
+            r"said",
+            r"reads?",
+            r"writes?",
+            r"written",
+        )
+    ),
+    re.I,
+)
+_QUOTE_AFTER_EN = re.compile(
+    r"\s*,?\s*(?:the\s+)?(?:protocol|criterion|label|guideline|chart|record)\s+(?:states|says|reads)", re.I
+)
+_QUOTE_SOURCE_JA = re.compile(
+    "計画書|プロトコル|引用|基準|記載|原文|カルテ|ガイドライン|添付文書|記録|紹介状|文言|診療録"
+)
+_QUOTE_AFTER_JA = re.compile(r"\s*と[^。]{0,12}?(?:記載|書かれ|定め|規定|引用)")
+
+
+def _quotes_masked(text: str, lang: str | None) -> str:
+    en = _is_en(lang)
+    source, after = (_QUOTE_SOURCE_EN, _QUOTE_AFTER_EN) if en else (_QUOTE_SOURCE_JA, _QUOTE_AFTER_JA)
+    product = ROLES_EN.product if en else ROLES_JA.product
+    marks = ".!?\n" if en else "。！？!?\n"
+    out = list(text)
+    for q in _QUOTE.finditer(text):
+        ss = max(text.rfind(c, 0, q.start()) for c in marks) + 1
+        before = text[ss : q.start()]
+        if (source.search(before) and not product.search(before)) or after.match(text, q.end()):
+            out[q.start() : q.end()] = _MASK * (q.end() - q.start())
+    return "".join(out)
+
+
 def deny_masked(text: str, lang: str | None = None) -> str:
     """``text`` with every denied claim word blanked: Japanese (:func:`deny_masked_ja`) always, zh-TW
     (:func:`deny_masked_zh`) when the caller names the text zh-TW, English (:func:`deny_masked_en`) when it names it
     en. FORBIDDEN's verdict words that name a record field or a person's own act are blanked too, for text named
     zh-TW, ja or en (D-1247, D-1256); text with no language keeps FORBIDDEN as before."""
+    if _is_en(lang) or _is_ja(lang):
+        text = _quotes_masked(text, lang)
     text = deny_masked_ja(text, d1228=not _is_ja(lang))
     if _is_zh(lang):
         return _record_masked_zh(deny_masked_zh(text))
@@ -1768,6 +1935,535 @@ def clean(text: str, lang: str | None = None) -> str:
     removed."""
     text = clean_ja(text)
     return _HAN_SPACE_ZH.sub("", text) if _is_zh(lang) else text
+
+
+# D-1256, the role reading (the second round). The first round read each class by its words and a product subject; the
+# first blind measurement showed that most claims name no subject, or name the product only as a cause or a means
+# (Patients matched by TrialBox recover faster; 生存率の向上に貢献いたします). So each class below is a verb with its
+# object, and it is a claim only in the PRODUCT'S VOICE (:func:`_voice`), decided by who acts:
+# * the product is the subject, the cause or the means, or NO ONE is named: the product speaks (a sentence of the
+#   product's own text that names no one is the product's: 生存期間の延長が実証されています, Proven to ...);
+# * a qualified person acts (the investigator decides, 病理医が判定します): not a claim, unless a verb of replacing says
+#   the product acts in the person's place (医師に代わって判断します);
+# * a record or a document says it (according to the chart, 計画書には…と記載), or it is a study's question (assess
+#   whether the drug improves survival, かを検討します): not a claim, unless the product is the subject;
+# * another agent acts (the study drug improved survival, 治験薬により…延長) and the product is not named: not a claim.
+# A quotation that a document is named as saying is masked before any rule reads it (:func:`_quotes_masked`). A denial
+# is read as before: every verb here is deniable. And the object decides the rest: a non-medical object (an export
+# folder, 文字コード, data loss) is no claim. One reader, :func:`_roles_in`; each language's words are its Roles.
+@dataclass(frozen=True)
+class Roles:
+    product: re.Pattern[str]  # the product named anywhere in the sentence, as subject, cause or means
+    product_denied: re.Pattern[str]  # the product named only to be denied (never by TrialBox, 本システムではなく)
+    person: re.Pattern[str]  # a qualified person named as an agent (not "you": a directive's addressee)
+    replaces: re.Pattern[str]  # a person replaced by the product (on behalf of the physician, 医師の代わりに)
+    other: re.Pattern[str]  # another agent: a study drug, a vaccine, a published scale
+    source: re.Pattern[str]  # a record or a document says it
+    objective: re.Pattern[str]  # a study's question or endpoint
+    clause_marks: str
+    benefit: re.Pattern[str]  # an outcome: a benefit verb with a good outcome ...
+    good: re.Pattern[str]
+    harm_verb: re.Pattern[str]  # ... or a harm-reducing verb with a harm
+    harm: re.Pattern[str]
+    outcome_alone: re.Pattern[str]  # an outcome said in one phrase (live longer, 予防効果があります)
+    decide: re.Pattern[str]  # deciding for the clinician: a decision word with a care object
+    decide_label: re.Pattern[str]  # a heading that is the product's decision (Recommended therapy:, 推奨される治療：)
+    user_choice: Callable[[str, re.Match[str]], bool]  # the user is told to choose (Select a study, 選択してください)
+    care: re.Pattern[str]
+    directive: re.Pattern[str]  # directing care: a directive frame (an imperative, a modal, てください) ...
+    care_act: re.Pattern[str]  # ... with a care act ...
+    care_inherent: re.Pattern[str]  # ... on a care object, or a care act that needs none (prescribe, 投与)
+    state_deixis: re.Pattern[str]  # a finding said of one patient (this patient has, この患者は)
+    state_pred: re.Pattern[str] | None  # what must follow the patient in its clause (です, を患って)
+    state_alone: re.Pattern[str]  # a finding that names no patient (と考えられます, in this patient)
+    state_object: re.Pattern[str]
+    state_not: re.Pattern[str]  # a criterion's or a question's form
+    stage_verb: re.Pattern[str]  # telling or grading a disease by other verbs: a verb ...
+    stage_inherent: re.Pattern[str]  # ... with a disease's own measure (病期, disease stage) ...
+    stage_relational: re.Pattern[str]  # ... or a measure of a disease in the clause (the grade of the tumour)
+    stage_direct: re.Pattern[str]  # ... or the disease itself (names the disease, 病気を突き止める)
+    disease: re.Pattern[str]
+    candidate: re.Pattern[str]  # a study's candidates and criteria: the product's purpose, not a disease's finding
+    # a decision named as a noun (eligibility decisions, the model's recommendation) is the product's only when the
+    # product is its subject or possessor
+    decide_noun: re.Pattern[str] | None = None
+    # Japanese: a clause that ends the sentence in a plain verb names a task (適格かどうかを判断する, a team's purpose),
+    # not the product's statement (判断します), when no one is named
+    plain_task: re.Pattern[str] | None = None
+    statement: re.Pattern[str] = re.compile(r"\S")  # what makes a line a statement (Japanese: a kana verb ending)
+    outright: tuple[str, ...] = ()
+
+
+def _voice(r: Roles, g: Grammar, s: str, start: int, end: int, *, credit: bool = False) -> str:
+    """Who speaks the claim word at ``s[start:end]`` (D-1256): "product", "person", "source" or "other". See the
+    comment above :class:`Roles`. ``credit``: an outcome is the product's whenever the product is named as its cause
+    or means, even with a person as the subject (Nurses using TrialBox see patients recover faster)."""
+    who = _subject(g, s, start, end)
+    if who == "actor":
+        actors = list(g.actor_subject.finditer(s, 0, start))
+        if (
+            actors
+            and _shows_only(g, s, actors[-1].end())
+            and not re.match(r"\s*(?:only\s+)?shows?\s+that", s[actors[-1].end() :])
+        ):
+            return "source"  # the product only reads or shows the record (読み取ります, TrialBox shows the chart)
+        return "product"
+    denied = [(d.start(), d.end()) for d in r.product_denied.finditer(s)]
+    named = any(not any(a <= p.start() < b for a, b in denied) for p in r.product.finditer(s))
+    if r.source.search(s) or r.objective.search(s):
+        return "source"
+    if r.replaces.search(s) or (credit and named):
+        return "product"  # the product acts in a person's place, or takes the credit for an outcome
+    if who == "person":
+        return "person"
+    if named:
+        return "product"
+    if r.person.search(s):
+        return "person"
+    if r.other.search(s, 0, start):  # another agent before the word acts (the study drug improved ...)
+        return "other"
+    if who is None and r.plain_task is not None and r.plain_task.match(s, start):
+        return "person"
+    return "product"
+
+
+def _apart(rx: re.Pattern[str], s: str, m: re.Match[str], cs: int, ce: int) -> bool:
+    """Whether ``rx`` matches in ``s[cs:ce]`` apart from the word ``m`` (an object is never its own verb)."""
+    return any(o.end() <= m.start() or o.start() >= m.end() for o in rx.finditer(s, cs, ce))
+
+
+def _roles_in(s: str, table: ClaimTable) -> list[Hit]:
+    """The claims of the role reading in one sentence ``s`` (D-1256): an outcome, a decision, a directive, a finding
+    of a patient's disease and a disease's stage, each a claim only in the product's voice."""
+    r, g = table.roles, table.grammar
+    assert r is not None and g is not None
+    hits: list[Hit] = []
+
+    def clause(i: int, j: int) -> tuple[int, int]:
+        cs = max(s.rfind(c, 0, i) for c in r.clause_marks) + 1
+        ce = min((k for k in (s.find(c, j) for c in r.clause_marks) if k >= 0), default=len(s))
+        return cs, ce
+
+    def product(m: re.Match[str], credit: bool = False) -> bool:
+        return _voice(r, g, s, m.start(), m.end(), credit=credit) == "product"
+
+    def hit(m: re.Match[str]) -> None:
+        hits.append(Hit(word=m.group(0).lower(), context=s[max(0, m.start() - 30) : m.end() + 30].strip()))
+
+    def paired(verb: re.Pattern[str], obj: re.Pattern[str]) -> None:
+        for m in verb.finditer(s):
+            cs, ce = clause(m.start(), m.end())
+            if _apart(obj, s, m, cs, ce) and product(m, credit=True):
+                hit(m)
+
+    paired(r.benefit, r.good)  # an outcome
+    paired(r.harm_verb, r.harm)
+    for m in r.outcome_alone.finditer(s):
+        if product(m, credit=True):
+            hit(m)
+    for m in r.decide.finditer(s):  # a decision for the clinician
+        cs, ce = clause(m.start(), m.end())
+        if (
+            r.decide_noun is not None
+            and r.decide_noun.fullmatch(m.group(0))
+            and _subject(g, s, m.start(), m.end()) != "actor"
+        ):
+            continue
+        if r.care.search(s, cs, ce) and not r.user_choice(s, m) and product(m):
+            hit(m)
+    for m in r.decide_label.finditer(s):
+        if r.care.search(s, m.end()) and product(m):
+            hit(m)
+    if not r.source.search(s):  # a directive: in the product's text, the product directs; a record's order is quoted
+        for m in r.directive.finditer(s):
+            act = r.care_act.search(s, *clause(m.start(), m.end())) or r.care_act.search(s)
+            if act and (r.care.search(s) or r.care_inherent.match(s, act.start())):
+                hit(m)
+    if not r.state_not.search(s):  # a finding of one patient's disease
+        found = [
+            m
+            for m in r.state_deixis.finditer(s)
+            if r.state_pred is None or r.state_pred.search(s, m.end(), clause(m.start(), m.end())[1])
+        ] + list(r.state_alone.finditer(s))
+        for m in found:
+            cs, ce = clause(m.start(), m.end())
+            if r.state_object.search(s, cs, ce) and product(m):
+                hit(m)
+    for m in r.stage_verb.finditer(s):  # a disease's stage, grade, type or cause; the disease itself
+        cs, ce = clause(m.start(), m.end())
+        inherent = _apart(r.stage_inherent, s, m, cs, ce)
+        relational = _apart(r.stage_relational, s, m, cs, ce) and r.disease.search(s, cs, ce)
+        direct = r.stage_direct.fullmatch(m.group(0)) and r.disease.search(s, cs, ce) and not r.candidate.search(s)
+        if (inherent or relational or direct) and product(m):
+            hit(m)
+    for word in r.outright:
+        for m in re.finditer(re.escape(word), s):
+            hit(m)
+    return hits
+
+
+_PRODUCT_CORE_EN = (
+    r"TrialBox|(?:the|this|our)\s+(?:system|software|product|tool|box|model|algorithm|platform|engine|program|"
+    r"application|app|AI|analysis|matching|service)|our\s+[a-z]+|we|AI|artificial\s+intelligence"
+)
+_CARE_ACT_BASE_EN = (
+    r"start|begin|initiate|stop|discontinue|cease|withhold|hold|give|administer|prescribe|switch|change|increase|"
+    r"decrease|reduce|raise|lower|titrate|adjust|add|resume|refer|order|send|book|avoid"
+)
+_CARE_ACT_PP_EN = (
+    r"started|stopped|discontinued|withheld|held|given|administered|prescribed|switched|changed|increased|decreased|"
+    r"reduced|raised|lowered|titrated|adjusted|added|resumed|referred|sent|ordered|booked"
+)
+_NOT_CARE_DOC_EN = (
+    r"(?!\s+(?:sheets?|forms?|lists?|records?|reports?|criteri\w*|codes?|requests?|letters?|pages?|checks?|status|"
+    r"logs?|history|data|fields?|keys?|links?|tokens?|devices?|factors?)(?![A-Za-z]))"
+)
+# a published standard or scale named as the agent (graded by CTCAE, the NYHA class) is not the product
+_STANDARDS = r"CTCAE|RECIST|TNM|AJCC|UICC|MedDRA|ICD(?:-1[01])?|NCI|" + "|".join(
+    re.escape(n) for n in sorted(NAMED_SCALES, key=len, reverse=True)
+)
+_DISEASE_ROLE_EN = re.compile(
+    _DISEASE_EN.pattern
+    + "|"
+    + _en((r"hypertensive", r"diabetic", r"asthmatic", r"an?aemic", r"septic", r"malignan\w*", r"cancerous")),
+    re.I,
+)
+_PERSON_CORE_ROLE_EN = (
+    r"physicians?|doctors?|clinicians?|investigators?|nurses?|coordinators?|CRCs?|PIs?|surgeons?|pharmacists?|"
+    r"\w+ologists?|specialists?|staff|reviewers?|(?:study|research|care|review|clinical)\s+teams?|Dr\.?\s+[A-Z][a-z]+"
+)
+ROLES_EN = Roles(
+    product=re.compile(r"(?<![A-Za-z])(?:" + _PRODUCT_CORE_EN + r")(?![A-Za-z])", re.I),
+    product_denied=re.compile(
+        r"(?<![A-Za-z])(?:not|never|nor)\s+(?:by\s+|with\s+|from\s+|through\s+)?(?:"
+        + _PRODUCT_CORE_EN
+        + r")(?![A-Za-z])",
+        re.I,
+    ),
+    person=re.compile(r"(?<![A-Za-z])(?:" + _PERSON_CORE_ROLE_EN + r")(?![A-Za-z])", re.I),
+    replaces=re.compile(
+        r"(?<![A-Za-z])(?:instead\s+of|in\s+place\s+of|on\s+behalf\s+of|rather\s+than|replac(?:es|ed|ing)|without)\s+"
+        r"(?:the\s+|a\s+|an\s+|your\s+|any\s+)?(?:" + _PERSON_CORE_ROLE_EN + r")(?![A-Za-z])",
+        re.I,
+    ),
+    other=re.compile(
+        _en(
+            (
+                r"drugs?",
+                r"vaccines?",
+                r"medicines?",
+                r"placebo",
+                r"statins?",
+                r"therap(?:y|ies)",
+                r"treatments?",
+                r"interventions?",
+                r"scales?",
+                r"index",
+                r"indices",
+                r"questionnaires?",
+                r"instruments?",
+                _STANDARDS,
+                r"stud(?:y|ies)",
+                r"trials?",
+            )
+        ),
+        re.I,
+    ),
+    source=re.compile(
+        r"(?<![A-Za-z])(?:according\s+to(?!\s+(?:" + _PRODUCT_CORE_EN + r")(?![A-Za-z]))"
+        r"|(?:recorded|documented|stated|noted|written|listed|copied|entered|transcribed|reported|quoted|taken)\s+"
+        r"(?:in|from|by|on|at)(?!\s+(?:" + _PRODUCT_CORE_EN + r")(?![A-Za-z]))"
+        r"|(?:protocol|guidelines?|label|package\s+insert|chart|records?|EHR|EMR|registry|problem\s+list|"
+        r"(?:referral\s+)?letter|report|notes|literature|criteri(?:on|a))(?:['’]s)?\s+(?:states?|says?|notes?|reads?|"
+        r"lists?|shows?|records?|recommends?|advises?|specifies|describes?|requires?|asks?)"
+        r"|(?:in|from|per)\s+the\s+(?:published\s+|phase\s+\w+\s+|patient['’]s\s+|referral\s+|discharge\s+|"
+        r"pathology\s+)?(?:protocol|chart|records?|EHR|EMR|registry|trial|report|literature|label|notes|letter|"
+        r"problem\s+list|summary)"
+        r"|\(\s*protocol|protocol\s+section)(?![A-Za-z])",
+        re.I,
+    ),
+    objective=re.compile(
+        _en(
+            (
+                r"(?:assess|evaluat|investigat|examin|test|compar|measur|stud|explor|determin)\w*\s+(?:whether|if|how)",
+                r"(?:aims?|objectives?|purpose|goals?)\s+(?:is|are|of)",
+                r"(?:aims?|seeks?|sets?\s+out|intends?)\s+to",
+                r"endpoints?",
+            )
+        ),
+        re.I,
+    ),
+    clause_marks=",;.!?\n",
+    benefit=re.compile(_en(_BENEFIT_V_EN), re.I),
+    good=re.compile(
+        _en(
+            (
+                r"surviv\w*",
+                r"recover\w*",
+                r"remissions?",
+                r"cur(?:e|es|ed)",
+                r"healing",
+                r"heal(?:s|ed)?",
+                r"health",
+                r"response\s+rates?",
+                r"respond\w*",
+                r"outcomes?",
+                r"quality\s+of\s+life",
+                r"life\s+expectancy",
+                r"effectiveness",
+                r"efficacy",
+                r"therapeutic\s+benefits?",
+                r"clinical\s+benefits?",
+                r"treatment\s+effects?",
+                r"hospital\s+stays?",
+                r"intensive\s+care",
+                r"get(?:s|ting)?\s+well",
+                r"(?:therapy|treatment|drug)\s+works",
+            )
+        ),
+        re.I,
+    ),
+    harm_verb=re.compile(_en(_HARM_V_EN), re.I),
+    harm=re.compile(
+        _DISEASE_EN.pattern
+        + "|"
+        + _en(
+            (
+                r"(?:drug\s+)?interactions?",
+                r"adverse\s+(?:drug\s+)?(?:reactions?|events?|effects?)",
+                r"side\s+effects?",
+                r"hospitali[sz]\w*",
+                r"(?:disease\s+)?progression",
+                r"severity",
+                r"fatal\w*",
+                r"missed\s+(?:cases?|diagnos\w*)",
+                r"harm",
+            )
+        ),
+        re.I,
+    ),
+    outcome_alone=re.compile(
+        _en(
+            (
+                r"live\s+longer",
+                r"recover\w*\s+(?:faster|sooner|quicker|better|more\s+quickly)",
+                r"(?:faster|quicker|better|full)\s+recover\w*",
+                r"(?:therapeutic|clinical)\s+benefits?",
+                r"treatment\s+effects?",
+                r"beat(?:s|ing)?\s+(?:the\s+)?(?:cancer|disease|illness)",
+            )
+        ),
+        re.I,
+    ),
+    decide=re.compile(_en((*CLAIM_DECIDE_EN, *_DECIDE_MORE_EN)), re.I),
+    decide_label=re.compile(
+        r"(?:^|[.;]\s+)\s*(?:suggested|recommended|best|preferred|optimal|proposed|advised|our|its|TrialBox['’]s|"
+        r"the\s+(?:system|model|tool|AI)['’]s)\s+(?:next\s+)?(?:step|steps|treatment|therapy|option|options|choice|drug|"
+        r"dose|plan|advice|recommendation|verdict|action|conclusion)(?:\s+[a-z]+){0,2}\s*:",
+        re.I,
+    ),
+    # an imperative that tells the user to choose (Select the dose, Choose a study): the user decides
+    user_choice=lambda s, m: (
+        re.fullmatch(r"\s*(?:please\s+)?", s[: m.start()], re.I) is not None
+        and re.search(r"(?:[^s]s|ed|ing)$", m.group(0), re.I) is None
+    ),
+    care=re.compile(
+        "(?:"
+        + _TREATMENT_EN.pattern
+        + "|"
+        + _en(
+            (
+                r"\w*therap(?:y|ies)",
+                r"statins?",
+                r"warfarin",
+                r"heparin",
+                r"aspirin",
+                r"metformin",
+                r"ibuprofen",
+                r"antibiotics?",
+                r"\w*inhibitors?",
+                r"diuretics?",
+                r"(?:cortico)?steroids?",
+                r"opioids?",
+                r"anti(?:depressant|psychotic|viral|fungal|coagulant|hypertensive)s?",
+                r"blood\s+thinners?",
+                r"antibacterials?",
+                r"anticoagul\w*",
+                r"beta[- ]blockers?",
+                r"surg(?:ery|ical)",
+                r"biops(?:y|ies)",
+                r"oxygen",
+                r"refer\w*\s+(?:this|the|a|each)\s+patient",
+                r"\w+ologists?",
+                r"(?:cardio|onco|nephro|neuro|gastroentero|endocrino|rheumato|pulmono|haemato|hemato|"
+                r"dermato)logy",
+                r"enrol\w*",
+                r"enroll\w*",
+                r"chemo",
+                r"dialysis",
+                r"transfusions?",
+                r"\w+(?:mab|nib|pril|olol|statin|cillin|mycin|floxacin|profen|parin|sartan|azole|dronate)",
+            )
+        )
+        + ")"
+        # a document or a code about care is no care (the eligibility sheet, the enrolment code)
+        + _NOT_CARE_DOC_EN,
+        re.I,
+    ),
+    directive=re.compile(
+        r"(?:^|[:;—–,]\s*|[.!?]\s+)\s*(?:please\s+|now\s+|immediately\s+|urgently\s+|then\s+)?(?:(?:do\s+not|don['’]t|never)\s+)?"
+        r"(?:" + _CARE_ACT_BASE_EN + r")(?![A-Za-z])"
+        r"|(?<![A-Za-z])(?:should|must|ought\s+to|needs?\s+to|has\s+to|have\s+to)\s+(?:now\s+|immediately\s+|urgently\s+)?"
+        r"(?:be\s+)?(?:" + _CARE_ACT_BASE_EN + "|" + _CARE_ACT_PP_EN + r")(?![A-Za-z])"
+        r"|(?<![A-Za-z])need\w*\s+(?:[A-Za-z'’]+\s+){0,3}?(?:" + _CARE_ACT_PP_EN + r")(?![A-Za-z])",
+        re.I,
+    ),
+    care_act=re.compile(_en((_CARE_ACT_BASE_EN, _CARE_ACT_PP_EN)), re.I),
+    care_inherent=re.compile(_en((r"prescrib\w*", r"administer\w*")), re.I),
+    state_deixis=re.compile(
+        r"(?<![A-Za-z])(?:this|the|that|your)\s+patient(?:['’]s)?\s+(?:(?:most\s+)?(?:likely|probably|clearly|definitely|"
+        r"already)\s+)?(?:has|had|is|was|suffers?|suffering|shows?|showing|presents?|presenting|appears?|seems?|developed|"
+        r"has\s+developed|is\s+showing|is\s+in|is\s+suffering)(?![A-Za-z])"
+        r"(?!\s+(?:a\s+|an\s+)?(?:(?:documented|recorded|known|past|prior|previous)\s+)?histor)",
+        re.I,
+    ),
+    state_pred=None,
+    state_alone=re.compile(
+        r"(?<![A-Za-z])in\s+(?:this|the|that)\s+patient(?:['’]s)?(?=\s*(?:[.,;:!?)]|$)|\s+(?:today|now))", re.I
+    ),
+    state_object=_DISEASE_ROLE_EN,
+    state_not=re.compile(
+        r"\?\s*$|(?<![A-Za-z])(?:if|whether|unless|when|must|should|may|might|can|could|would|whose)\s+(?:the\s+|this\s+)?"
+        r"patient",
+        re.I,
+    ),
+    stage_verb=re.compile(_en(_STAGE_V_EN), re.I),
+    stage_inherent=re.compile(_en((r"(?:disease|cancer|tumou?r)\s+stag\w*", r"staging", r"how\s+advanced")), re.I),
+    stage_relational=re.compile(
+        _en(
+            (
+                r"stages?",
+                r"grades?",
+                r"severity",
+                r"types?\s+of",
+                r"kinds?\s+of",
+                r"forms?\s+of",
+                r"causes?\s+of",
+                r"progression",
+                r"subtypes?",
+                r"class(?:es)?\s+of",
+                r"underlying",
+                r"behind",
+            )
+        ),
+        re.I,
+    ),
+    stage_direct=re.compile(
+        r"names|establish\w*|determin\w*|pinpoint\w*|identif\w*|works?\s+out|worked\s+out|grad(?:es|ed|ing)|"
+        r"stag(?:es|ed)|classif\w*|rates|rated",
+        re.I,
+    ),
+    decide_noun=re.compile(
+        r"decisions?|advice|verdicts?|recommendations?|suggestions?|proposals?|choices|selection", re.I
+    ),
+    disease=_DISEASE_ROLE_EN,
+    candidate=_CANDIDATE_EN,
+)
+
+# Japanese: the candidate words that make an early finding the product's purpose (参加条件に合う候補者)
+_CANDIDATE_JA = re.compile("候補者|候補|基準|条件|適格|該当")
+_PRODUCT_JA = "(?:" + _ACTORS_JA + "|当社|弊社|私たち|わたしたち|本サービス|プラットフォーム|マッチング)"
+_PERSON_AGENT_JA = (
+    r"(?:医師|担当者|研究者|CRC|スタッフ|職員|スチュワード|看護師|薬剤師|コーディネーター|研究チーム|治験チーム|"
+    r"[一-鿿]{0,4}医(?![療薬学院]))"
+)
+_DISEASE_ROLE_JA = re.compile(_DISEASE_JA.pattern + "|リウマチ|貧血")
+ROLES_JA = Roles(
+    product=re.compile(_PRODUCT_JA),
+    product_denied=re.compile(_PRODUCT_JA + r"\s*(?:ではなく|でなく|ではありません|ではない)"),
+    person=re.compile(_PERSON_AGENT_JA),
+    replaces=re.compile(
+        _PERSON_AGENT_JA + r"\s*(?:の代わり|に代わって|の代行|を置き換え|は不要|なしで|なしに|を介さず)"
+    ),
+    other=re.compile("治験薬|新薬|ワクチン|薬剤|試験薬|本剤|被験薬|プラセボ|指標|尺度|質問票|スケール|" + _STANDARDS),
+    source=re.compile(
+        r"(?:カルテ|診療録|記録|紹介状|計画書|プロトコル|添付文書|ガイドライン|報告書|文献)"
+        r"(?:に|では|には|によると|より|から|の記載|に基づ|どおり|通り)|記載|転記|引用|によると|記録され|記録して|記録しま"
+    ),
+    objective=re.compile(r"(?:か|かどうか)を(?:検討|評価|検証|比較|調べ|確認|測定)|目的|評価項目|エンドポイント"),
+    clause_marks="、，,；;。！？!?\n",
+    benefit=_alt(_BENEFIT_V_JA),
+    good=_alt(_GOOD_N_JA),
+    harm_verb=_alt(_HARM_V_JA),
+    harm=re.compile(_alt(_HARM_N_JA).pattern + "|" + _DISEASE_JA.pattern),
+    outcome_alone=re.compile(
+        r"(?:予防効果|治療効果|臨床効果|有効性)(?:が|は)(?:あり|ある|認められ|得られ|期待でき|高い|高く)|回復が早|経過が(?:良|よ)く"
+    ),
+    decide=_alt((*CLAIM_DECIDE_JA, *_DECIDE_MORE_JA)),
+    decide_label=re.compile(r"(?:推奨|おすすめ|提案|最適|結論|判定結果)[^：:。]{0,10}[：:]"),
+    # the user is told to choose (一覧から試験を選択してください): the user decides
+    user_choice=lambda s, m: re.match(r"(?:し|して|んで|び|ん)?(?:て|で)?ください", s[m.end() :]) is not None,
+    care=re.compile(
+        "(?:"
+        + _alt(
+            (
+                *_TREATMENT_JA,
+                "療法",
+                "薬剤",
+                "スタチン",
+                "不適格",
+                "適否",
+                "増量",
+                "減量",
+                "休薬",
+                "酸素",
+                "生検",
+                "専門医",
+                "NSAID",
+                "参加の可否",
+                "参加可否",
+            )
+        ).pattern
+        + r")(?!歴|記録|履歴|一覧|データ|欄|の記録)"
+        + r"|(?:ファリン|パリン|ホルミン|スタチン|シリン|マイシン|ピリン|マブ|ニブ|プリル|サルタン|ジピン|プロフェン)"
+        + r"|抗[一-鿿]{1,3}薬|(?:科|医|病院)(?:へ|に)[^。、]{0,10}?紹介"
+        + r"|紹介(?=す?べき|してください|する必要|しなければ)"
+    ),
+    directive=re.compile(
+        r"(?:て|で)ください|べき|必要があ|必要です|が必要|すること(?=$|[。」』）)])|よう[^。]{0,8}?(?:通知|指示|連絡|知らせ|伝え)"
+        # urgency directs the care act it stands before (至急、…中止してください); 「今すぐ実行」 is a button's name
+        r"|(?:至急|直ちに|ただちに|今すぐ|すぐに)[、，,]?(?=[^。」』]{0,24}?(?:" + "|".join(_CARE_ACT_JA) + "))"
+    ),
+    care_act=_alt(_CARE_ACT_JA),
+    care_inherent=re.compile("投与|処方|増量|減量|休薬|投薬"),
+    state_deixis=re.compile(
+        r"(?:この|本|当該|その|こちらの)(?:患者|被験者|方)(?:さん|様)?(?:は|には|に|が|では)|患者(?:さん|様)(?:は|には|に)"
+    ),
+    state_pred=re.compile(
+        r"です|である(?!こと|患者|者)|でしょう|を患|を発症し|を起こし|にかか|が認め|が見られ|の疑い|の可能性|と考えられ|"
+        r"と推定|と思われ|があります|がある(?![患者])"
+    ),
+    state_alone=re.compile(
+        r"と(?:考えられ|推定され|思われ|判断され)(?:ます|る(?=[。]|$))|が(?:疑われ|認められ|見られ|見つかり)(?:ます|ました)"
+        r"|(?:疑い|可能性)が(?:あり|高)|(?:兆候|徴候)(?:が|を)|(?:解析|分析|判定|AI|システム)の(?:結果|所見)|所見[：:]|分析では"
+        r"|(?:機能|値)に異常が(?:あり|ある|見つか|認め)"
+    ),
+    state_object=re.compile(_DISEASE_ROLE_JA.pattern + "|異常"),
+    state_not=re.compile(
+        r"(?:か|ですか|ますか)[。？?]?\s*$|こと[。]?\s*$|を有する|を対象|である(?:患者|者)|(?:患者|者|場合|例)[。]?\s*$"
+    ),
+    # a verb, not a noun: 分類します, 判定され; Hoehn-Yahr 重症度分類 and 病期分類の版 name an instrument
+    stage_verb=re.compile("(?:" + _alt(_STAGE_V_JA).pattern + ")(?=し|す|さ|でき|いた|ま|られ|る|を行|が可能)"),
+    stage_inherent=re.compile("病期|病型|悪性度|重症度|進行度|病名|ステージング"),
+    stage_relational=re.compile("原因|種類|ステージ|グレード|タイプ|程度"),
+    stage_direct=re.compile("突き止め|診断|見分け|判別|特定|推定"),
+    disease=_DISEASE_ROLE_JA,
+    candidate=_CANDIDATE_JA,
+    # a plain verb: not ます, です, でしょう or である, which state
+    statement=re.compile("[ぁ-ん]"),
+    plain_task=re.compile(r"[^。、，,]*?(?:する|(?<![まで])す|(?<!であ)る|(?<!ょ)う|く|ぐ|つ|ぶ|む|ぬ)\s*[。]?\s*$"),
+    outright=("診断支援", "推定診断"),
+)
 
 
 @dataclass(frozen=True)
@@ -1816,6 +2512,7 @@ class ClaimTable:
     patterns: bool = False  # English: the words are patterns with their inflections, matched whole, in any case
     # a word whose past participle names a record (patients diagnosed with RA): not a finding unless the product does it
     find_record: re.Pattern[str] | None = None
+    roles: Roles | None = None  # the role reading (D-1256, second round): read for en and ja only
 
     def rx(self, word: str) -> re.Pattern[str]:
         return _word_rx(word, self.patterns)
@@ -1856,9 +2553,8 @@ _ZH_ACTOR_BEFORE = (
     _ACTORS_ZH + r"\s*(?:" + _zh_alt(("的", "之", "所", "產生的", "計算的", "給出的", "提供的")) + r")?\s*$"
 )
 
-# Japanese: the candidate words that make an early finding the product's purpose, and the allowed contexts the new
-# classes need (a study's candidates who may meet its criteria: 参加条件に合う可能性のある患者)
-_CANDIDATE_JA = re.compile("候補者|候補|基準|条件|適格|該当")
+# Japanese: the allowed contexts the new classes need (a study's candidates who may meet its criteria:
+# 参加条件に合う可能性のある患者); the candidate words are _CANDIDATE_JA, above
 # The English names of the published instruments and measured items the catalogue holds (catalogue/items.csv
 # name_en, catalogue/instruments.csv name) whose name carries a rate word: a record value named by its own name
 # (D-351), as NAMED_INSTRUMENTS_ZH is for zh-TW. A test holds that each is in the catalogue and that every catalogue
@@ -1912,6 +2608,13 @@ CLAIM_ALLOWED_EN: dict[str, tuple[str, ...]] = {
         r"(?:at|before|after|prior\s+to|since|from)\s+(?:the\s+)?(?:pre-?)?screening",
     ),
     "possible": (r"possible\s+candidates?",),
+    # an organisation's proper name (the Cancer Therapy Evaluation Program, the National Cancer Institute): a name,
+    # not an act; capitalised words only, read case-sensitively (D-1256)
+    "organisation": (
+        r"(?-i:(?:[A-Z][\w.'’-]*\s+){1,6}(?:Institutes?|Programs?|Programmes?|Associations?|Society|Societies|"
+        r"Foundations?|Agency|Ministry|Organi[sz]ations?|Councils?|Cent(?:er|re)s?|Departments?|University|"
+        r"Hospitals?|Committees?|Networks?|Consortium|Boards?))",
+    ),
 }
 _CLAIM_CONTINUES_EN = r"(?!\s+(?:predictions?|scores?|scoring|models?|stratif\w*))"
 
@@ -1924,7 +2627,8 @@ CLAIM_TABLES: tuple[ClaimTable, ...] = (
         judge=CLAIM_JUDGE_JA,
         disease=_DISEASE_JA,
         early=re.compile("|".join(re.escape(w) for w in (*CLAIM_EARLY_JA, *CLAIM_EARLY_MORE_JA))),
-        patient=_PATIENT,
+        # 個人情報 (personal data) is no patient: 注意：出力には個人情報が含まれます warns of no patient (D-1256)
+        patient=re.compile("患者|被験者|受診者|対象者|症例|個人(?!情報|データ|識別|番号|名|ID)"),
         allowed=CLAIM_ALLOWED_JA,
         allowed_more=CLAIM_ALLOWED_MORE_JA,
         actor_before=_ACTOR_BEFORE,
@@ -1949,6 +2653,7 @@ CLAIM_TABLES: tuple[ClaimTable, ...] = (
         candidate_after=False,
         object_in_clause=True,
         window=16,
+        roles=ROLES_JA,
     ),
     ClaimTable(
         lang="zh-TW",
@@ -2010,6 +2715,7 @@ CLAIM_TABLES: tuple[ClaimTable, ...] = (
         window=64,
         patterns=True,
         find_record=re.compile(r"diagnosed", re.I),
+        roles=ROLES_EN,
     ),
 )
 CLAIM_TABLE_JA, CLAIM_TABLE_ZH, CLAIM_TABLE_EN = CLAIM_TABLES
@@ -2153,7 +2859,17 @@ def _claims_in(sentence: str, table: ClaimTable) -> list[Hit]:
             on_disease = on_disease or (
                 word in ("確診", "确诊") and _CLAUSE_END_AT_ZH.match(masked, m.end()) is not None
             )
-            if re.search(table.act_actor_before, masked[: m.start()]) or (on_disease and subject(m) == "actor"):
+            # D-1256: for en and ja, an act on a disease that names no one is the product's (Can treat depression), in
+            # a statement: a Japanese line with no kana has no verb ending and is a term (肺炎治療), not a statement
+            voiced = (
+                table.roles is not None
+                and g is not None
+                and table.roles.statement.search(masked) is not None
+                and _voice(table.roles, g, masked, m.start(), m.end())
+            )
+            if re.search(table.act_actor_before, masked[: m.start()]) or (
+                on_disease and (subject(m) == "actor" or voiced == "product")
+            ):
                 hit(m, word)
     for word in table.state:
         for m in table.rx(word).finditer(masked):
@@ -2191,6 +2907,8 @@ def _claims_in(sentence: str, table: ClaimTable) -> list[Hit]:
             persons = [p.end() for p in table.person_subject.finditer(masked, start, m.start())]
             if in_clause or (actors and not persons):
                 hit(m, word)
+    if table.roles is not None:
+        hits += _roles_in(masked, table)
     return hits
 
 
