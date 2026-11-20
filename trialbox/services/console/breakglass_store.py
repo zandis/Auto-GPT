@@ -267,7 +267,6 @@ class BreakGlassStore:
 # "SUP-0042", "#4711"). A pattern cannot prove that no name is typed; it keeps the field to what a number looks like
 _TICKET = re.compile(r"^(?:#|[A-Za-z]{1,6}[-#]?)?[0-9]{1,12}(?:[-/.][0-9]{1,12}){0,3}$")
 HOWS = ("hand", "auto")  # ended by the administrator, or by itself after SUPPORT_SESSION_MINUTES
-_SCOLS = "id, started_by, started_at, ticket, ended_at, ended_by, how, end_audited"
 
 
 class SupportError(ValueError):
@@ -343,7 +342,8 @@ class SupportSessionStore:
         this request, never 2 hours from a time the clock has not reached. ``on_moved(before, after)`` (its audit
         event) runs inside that update's transaction: when it fails the start is not moved and the error goes to the
         caller (the console then answers as on doubt, closed), so a start never moves without its event."""
-        rows = self.db.fetchall(f"SELECT {_SCOLS} FROM support_sessions WHERE ended_at IS NULL OR NOT end_audited "
+        rows = self.db.fetchall("SELECT id, started_by, started_at, ticket, ended_at, ended_by, how, end_audited "
+                                "FROM support_sessions WHERE ended_at IS NULL OR NOT end_audited "
                                 "ORDER BY id")  # fmt: skip
         live: SupportSession | None = None
         unaudited: list[SupportSession] = []
@@ -354,11 +354,18 @@ class SupportSessionStore:
             st = s.start
             if st is not None and st > now:
                 with self.db.transaction() as tx:  # a second process moving the same start at once: one moves it
-                    row = tx.fetchone(f"SELECT {_SCOLS} FROM support_sessions WHERE id = ? AND ended_at IS NULL "
+                    row = tx.fetchone("SELECT id, started_by, started_at, ticket, ended_at, ended_by, how, end_audited "
+                                      "FROM support_sessions WHERE id = ? AND ended_at IS NULL "
                                       "AND started_at = ? FOR UPDATE SKIP LOCKED", (s.id, s.started_at))  # fmt: skip
                     if row is not None:
                         tx.execute("UPDATE support_sessions SET started_at = ? WHERE id = ?", (_iso(now), s.id))
-                        after = _session(tx.fetchone(f"SELECT {_SCOLS} FROM support_sessions WHERE id = ?", (s.id,)))
+                        after = _session(
+                            tx.fetchone(
+                                "SELECT id, started_by, started_at, ticket, ended_at, ended_by, how, end_audited "
+                                "FROM support_sessions WHERE id = ?",
+                                (s.id,),
+                            )
+                        )
                         if on_moved is not None:
                             on_moved(_session(row), after)
                 s = self.get(s.id) or s
@@ -375,7 +382,10 @@ class SupportSessionStore:
     def on_now(self, now: datetime) -> bool:
         """Read only (the orchestrator asks it for the mail gateway, D-1364 H5; it writes no end): is a session not
         ended and inside its 2 hours, or with a start that cannot be read (on, closed on doubt)?"""
-        rows = self.db.fetchall(f"SELECT {_SCOLS} FROM support_sessions WHERE ended_at IS NULL")
+        rows = self.db.fetchall(
+            "SELECT id, started_by, started_at, ticket, ended_at, ended_by, how, end_audited "
+            "FROM support_sessions WHERE ended_at IS NULL"
+        )
         return any(_session(r).active(now) for r in rows)
 
     def audit_end(self, sid: int, write: Callable[[SupportSession], None]) -> bool:
@@ -383,7 +393,8 @@ class SupportSessionStore:
         row ``end_audited``, so a failing ``write`` leaves it to the next request, and two requests never both write
         it. True when this call wrote it."""
         with self.db.transaction() as tx:
-            row = tx.fetchone(f"SELECT {_SCOLS} FROM support_sessions WHERE id = ? AND ended_at IS NOT NULL "
+            row = tx.fetchone("SELECT id, started_by, started_at, ticket, ended_at, ended_by, how, end_audited "
+                              "FROM support_sessions WHERE id = ? AND ended_at IS NOT NULL "
                               "AND NOT end_audited FOR UPDATE SKIP LOCKED", (sid,))  # fmt: skip
             if row is None:
                 return False
@@ -393,16 +404,26 @@ class SupportSessionStore:
 
     def open_rows(self) -> list[SupportSession]:
         """The sessions not ended, read without their times (the page offers each one's end, even a damaged row)."""
-        rows = self.db.fetchall(f"SELECT {_SCOLS} FROM support_sessions WHERE ended_at IS NULL ORDER BY id DESC")
+        rows = self.db.fetchall(
+            "SELECT id, started_by, started_at, ticket, ended_at, ended_by, how, end_audited "
+            "FROM support_sessions WHERE ended_at IS NULL ORDER BY id DESC"
+        )
         return [_session(r) for r in rows]
 
     def get(self, sid: int) -> SupportSession | None:
-        row = self.db.fetchone(f"SELECT {_SCOLS} FROM support_sessions WHERE id = ?", (sid,))
+        row = self.db.fetchone(
+            "SELECT id, started_by, started_at, ticket, ended_at, ended_by, how, end_audited "
+            "FROM support_sessions WHERE id = ?",
+            (sid,),
+        )
         return _session(row) if row else None
 
     def recent(self) -> list[SupportSession]:
         """Every session, newest first (a few a month at most: one per supervised session)."""
-        rows = self.db.fetchall(f"SELECT {_SCOLS} FROM support_sessions ORDER BY id DESC")
+        rows = self.db.fetchall(
+            "SELECT id, started_by, started_at, ticket, ended_at, ended_by, how, end_audited "
+            "FROM support_sessions ORDER BY id DESC"
+        )
         return [_session(r) for r in rows]
 
     def start(self, username: str, ticket: str, now: datetime,
@@ -415,12 +436,21 @@ class SupportSessionStore:
             raise SupportError("support.err.ticket")
         with self.db.transaction() as tx:
             tx.execute("LOCK TABLE support_sessions IN EXCLUSIVE MODE")  # two starts at once: one wins
-            for r in tx.fetchall(f"SELECT {_SCOLS} FROM support_sessions WHERE ended_at IS NULL"):
+            for r in tx.fetchall(
+                "SELECT id, started_by, started_at, ticket, ended_at, ended_by, how, end_audited "
+                "FROM support_sessions WHERE ended_at IS NULL"
+            ):
                 if _session(r).active(now):
                     raise SupportError("support.err.on")
             sid = int(tx.fetchval("INSERT INTO support_sessions (started_by, started_at, ticket) VALUES (?, ?, ?) "
                                   "RETURNING id", (username, _iso(now), ticket)))  # fmt: skip
-            got = _session(tx.fetchone(f"SELECT {_SCOLS} FROM support_sessions WHERE id = ?", (sid,)))
+            got = _session(
+                tx.fetchone(
+                    "SELECT id, started_by, started_at, ticket, ended_at, ended_by, how, end_audited "
+                    "FROM support_sessions WHERE id = ?",
+                    (sid,),
+                )
+            )
             before_commit(got)
         return got
 
@@ -434,6 +464,12 @@ class SupportSessionStore:
                               "end_audited = true WHERE id = ? AND ended_at IS NULL", (_iso(now), by, sid))  # fmt: skip
             if not done:
                 raise SupportError("support.err.none")
-            got = _session(tx.fetchone(f"SELECT {_SCOLS} FROM support_sessions WHERE id = ?", (sid,)))
+            got = _session(
+                tx.fetchone(
+                    "SELECT id, started_by, started_at, ticket, ended_at, ended_by, how, end_audited "
+                    "FROM support_sessions WHERE id = ?",
+                    (sid,),
+                )
+            )
             before_commit(got)
         return got
