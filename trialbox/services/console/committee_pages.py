@@ -214,6 +214,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
         readable(sess, rid, request.url.path)
+        h.on_log(sess, rid, request.url.path)  # D-1258: as the IRB route it mirrors
         rec = team().committee(rid)
         return h.page(request, "committee.html", sess, rs=rid, rec=rec, kinds=cm.KINDS, site=site_id(bk),
                       perm=team().permission(rid, site_id(bk)), st=status(rid), can_edit=may_record(sess, rid),
@@ -254,6 +255,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = api(request)
         rid = study_or_404(sess, rs)
         readable(sess, rid, request.url.path)
+        h.on_log(sess, rid, request.url.path)  # D-1258: as the IRB route it mirrors
         return as_json(rid)
 
     @app.post("/api/v1/studies/{rs}/committee")

@@ -266,7 +266,9 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.get("/studies/{rs}/sources")
     def sources(request: Request, rs: str) -> Response:
         sess = h.need(request)
-        return sources_page(request, sess, study_or_404(sess, rs))
+        rid = study_or_404(sess, rs)
+        h.on_log(sess, rid, request.url.path)  # D-1258
+        return sources_page(request, sess, rid)
 
     @app.post("/studies/{rs}/sources/redcap")
     async def attach(request: Request, rs: str) -> Response:
@@ -415,7 +417,9 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.get("/studies/{rs}/forms")
     def forms(request: Request, rs: str) -> Response:
         sess = h.need(request)
-        return forms_page(request, sess, study_or_404(sess, rs))
+        rid = study_or_404(sess, rs)
+        h.on_log(sess, rid, request.url.path)  # D-1258
+        return forms_page(request, sess, rid)
 
     @app.post("/studies/{rs}/forms/dictionary")
     async def import_dictionary(
@@ -475,6 +479,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def api_sources(request: Request, rs: str) -> dict[str, Any]:
         sess = api_session(request)
         rid = study_or_404(sess, rs)
+        h.on_log(sess, rid, request.url.path)  # D-1258: the JSON refusal of /api/ (D-125)
         data = api_call(read_sources, rid)
         return {"study": rid, "may_change": can_change_setup(sess.user), **data}
 
@@ -511,6 +516,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def api_forms(request: Request, rs: str) -> dict[str, Any]:
         sess = api_session(request)
         rid = study_or_404(sess, rs)
+        h.on_log(sess, rid, request.url.path)  # D-1258: the JSON refusal of /api/ (D-125)
         return {"study": rid, "forms": api_call(read_forms, rid)}
 
     @app.post("/api/v1/studies/{rs}/forms/dictionary")

@@ -45,7 +45,7 @@
         {% if r in ('investigator', 'coordinator', 'admin') %}<a href="/notices/received" data-testid="more-notices">{{ t('received.title') }}</a>{% endif %}
         {% if settings.pilot and permit(r, 'sae.view') %}<a href="/sae" data-testid="more-sae">{{ t('sae.nav') }}</a>{% endif %}{% endset %}{{ grp(pf, 'site', g) }}
         {% if r == 'cro' %}<a href="/reports">{{ t('nav.reports') }}</a>{% else %}
-        {% set g %}{% set sp = path.split('/') %}{% if user.can_view_phi and sp|length > 2 and sp[1] == 'studies' and sp[2] and user.sees_study(sp[2]) %}{% set srs = sp[2]|upper %}
+        {% set g %}{% set sp = path.split('/') %}{% if user.can_view_phi and sp|length > 2 and sp[1] == 'studies' and sp[2] and user.sees_study(sp[2]) and on_log(user, sp[2]) %}{% set srs = sp[2]|upper %}
         <a href="/studies/{{ srs }}/setup" data-testid="more-setup">{{ srs }} · {{ t('setup.title') }}</a>
         <a href="/studies/{{ srs }}/sources" data-testid="more-sources">{{ srs }} · {{ t('dc.sources.title') }}</a>
         <a href="/studies/{{ srs }}/conflicts" data-testid="more-conflicts">{{ srs }} · {{ t('dc.conflicts.title') }}</a>

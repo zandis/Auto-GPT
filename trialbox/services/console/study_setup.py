@@ -279,7 +279,9 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.get("/studies/{rs}/setup")
     def setup(request: Request, rs: str) -> Response:
         sess = h.need(request)
-        return setup_page(request, sess, study_or_404(sess, rs))
+        rid = study_or_404(sess, rs)
+        h.on_log(sess, rid, request.url.path)  # D-1258
+        return setup_page(request, sess, rid)
 
     def save_settings(request: Request, sess: Session, rid: str, s: StudySettings, extra: dict[str, Any],
                       section: str) -> Response:  # fmt: skip
@@ -697,7 +699,9 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.get("/studies/{rs}/state")
     def study_state(request: Request, rs: str) -> Response:
         sess = h.need(request)
-        return state_page(request, sess, study_or_404(sess, rs))
+        rid = study_or_404(sess, rs)
+        h.on_log(sess, rid, request.url.path)  # D-1258
+        return state_page(request, sess, rid)
 
     @app.post("/studies/{rs}/state")
     def change_state(

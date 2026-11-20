@@ -175,6 +175,8 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         if sess.user.aggregate_only:
             raise h.problem(403, "forbidden")
         seen = bk.get_job(job_id) if _ULID.match(job_id) else None
+        if seen is not None and seen.ruleset and sess.user.sees_study(seen.ruleset):
+            h.on_log(sess, seen.ruleset.upper(), request.url.path)  # D-1258: before the redirect of a decided round
         if (
             seen is not None
             and seen.ruleset
@@ -209,6 +211,7 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         job, book = waiting_job(sess, job_id)
+        h.on_log(sess, (job.ruleset or "").upper(), request.url.path)  # D-1258: the round of a study off the log
         ids = {str(r["id"]) for r in review_rows(bk.get_object(book.minio_key))}
         if crit not in ids:
             raise h.problem(404, "notfound")
@@ -237,6 +240,7 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         if sess.lang == "en":
             raise h.problem(400, "request.refused", reason="choose the page language the label is in first")
         job, book = waiting_job(sess, job_id)
+        h.on_log(sess, (job.ruleset or "").upper(), request.url.path)  # D-1258: the round of a study off the log
         ids = {str(r["id"]) for r in review_rows(bk.get_object(book.minio_key))}
         if crit not in ids:
             raise h.problem(404, "notfound")

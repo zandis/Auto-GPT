@@ -569,6 +569,9 @@ def create_app(
     # D-776: the box's own public address for a one-time sign-in link (never the request's Host); "" when not set
     templates.env.globals["public_url"] = (_env_map(env).get("TB_CONSOLE_PUBLIC_URL") or "").strip().rstrip("/")
     templates.env.globals["BEST"] = BEST_STANDING
+    # D-1258 (10C-3c): the menu offers a study's pages only to a reader its doors admit (``Helpers.on_log_ok``); no
+    # workspace, no log: as before. Display only: every door still asks its own rule
+    templates.env.globals["on_log"] = lambda user, rs: "h" not in reader or reader["h"].on_log_ok(user, str(rs).upper())
     templates.env.globals["tone"] = state_tone.tone  # 9k-4 (D-1380): a badge's tone from one table
     templates.env.globals["theme_color"] = phone.THEME  # 9k-1 (D-1368): no colour in a page
     bk: Backend = backend
@@ -1290,7 +1293,9 @@ def create_app(
     @app.get("/jobs", response_class=HTMLResponse)
     def jobs(request: Request) -> Response:
         sess = need(request)
-        items = bk.list_jobs(limit=100)
+        # D-1258: no row of a study whose job page refuses the account (off the study's log)
+        h = reader.get("h")  # no workspace (D-717): no study and no log, the list as before
+        items = [j for j in bk.list_jobs(limit=100) if not j.ruleset or h is None or h.on_log_ok(sess.user, j.ruleset)]
         running = any(j.state not in TERMINAL and j.state != "awaiting_approval" for j in items)
         return page(request, "jobs.html", sess, jobs=items, refresh=running)
 
@@ -1689,6 +1694,7 @@ def create_app(
         """An aggregate HTML output shown in the browser (consent explainer pages); sandboxed, no script."""
         sess = need(request)
         job = _job_or_404(job_id)
+        _on_log_or_grant(request, sess, job)  # D-1258: every view of the job, aggregate ones too
         out = next((o for o in job.outputs or [] if o.filename == filename), None)
         if not _FILE.match(filename) or out is None or not filename.endswith(".html"):
             raise _Problem(404, "notfound")
@@ -1743,7 +1749,20 @@ def create_app(
     def job_view(request: Request, job_id: str) -> Response:
         sess = need(request)
         job = _job_or_404(job_id)
+        _on_log_or_grant(request, sess, job)
         return _job_page(request, sess, job)
+
+    def _on_log_or_grant(request: Request, sess: Session, job: Job) -> None:
+        """D-1258 (10C-3c): the job page and the job's files ask the study's other pages' rule (``Helpers.on_log``);
+        an account with an open break-glass grant for this job keeps them (D-280, D-430), and the page or file
+        records the use as before. A job with no study is as before."""
+        h = reader.get("h")  # no workspace (D-717): no study and no log, the page as before
+        rid = (job.ruleset or "").upper()  # the study id as the delegation log keeps it (approval.py does the same)
+        if h is None or not rid or h.on_log_ok(sess.user, rid):
+            return
+        if h.breakglass_find is not None and h.breakglass_find(sess, job_id=job.job_id) is not None:
+            return
+        h.on_log(sess, rid, request.url.path)
 
     def _bg(sess: Session, job: Job, what: str) -> Any:
         """D-280 (OD-5): the open break-glass grant for this job (one audited use), else None. T-309 (D-430): asked
@@ -2082,6 +2101,7 @@ def create_app(
     def job_file(request: Request, job_id: str, filename: str) -> Response:
         sess = need(request)
         job = _job_or_404(job_id)
+        _on_log_or_grant(request, sess, job)  # D-1258: every file of the job, aggregate ones too
         if not _FILE.match(filename):
             raise _Problem(404, "notfound")
         out = next((o for o in job.outputs or [] if o.filename == filename), None)
