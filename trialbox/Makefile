@@ -79,6 +79,7 @@ lint: contracts-check
 	$(PY) -m mypy libs services tools tests
 	$(PY) tools/doclint.py
 	PYTHONPATH=libs:services:. $(PY) -m tools.text_keys  # D-1220: no conflicting double, no missing key
+	$(PY) -m tools.form_fields  # D-1376: every POST form uses the field macro or is on the ratchet
 	$(PY) -m tools.findings_register --check
 	$(PY) -m tools.inline_suppressions --check  # D-1338: every `# nosec` and `# noqa: S` line has a reviewed ledger line
 	$(PY) -m tools.vex check  # D-1339: every vulnerability waiver with an owner, a date and a reason (no calendar rule)
