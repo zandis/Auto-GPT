@@ -116,6 +116,17 @@ _TABLE_OF = {t: table for table, types in TYPES.items() for t in types}
 ORDER_KEY_ENV = "TB_SSMIX2_ORDER_NUMBERS"
 ORDER_KEYS = ("unique", "per_day")  # D-594
 DEFAULT_ORDER_KEY = "per_day"  # the specification's key (D-1000, amends D-594's default "unique")
+#: D-1253 ruling 11: the form of the order number the ids are made from, per order key, as this reader publishes it.
+#: Each snapshot records it (``id_rule.json``); the one id-rule rebuild treats a snapshot keyed another way as one to
+#: rebuild. The key itself is the reader's (#1238 keys ``<number>@<type>``): a reader that changes it changes this.
+ORDER_ID_FORMS = {"unique": "<number>", "per_day": "<number>@<day>"}
+
+
+def order_id_form(order_key: str | None = None) -> str:
+    """The published form of the order number for ``order_key`` (default: the box's, ``TB_SSMIX2_ORDER_NUMBERS``)."""
+    return ORDER_ID_FORMS[order_key or os.environ.get(ORDER_KEY_ENV) or DEFAULT_ORDER_KEY]
+
+
 # the order number of data no order manages (患者基本, 病名, アレルギー): 構築ガイドライン 3.1 (review 12 §4.2)
 ALL9 = "ALL9"
 CHANGES = {"encounter": ("ADT-52",), "medication": ("OMP-11", "OMP-12")}  # read after the table's own types

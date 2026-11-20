@@ -398,15 +398,23 @@ def earlier(lake: Path, planned: dict[str, Any]) -> list[str]:
     """What holds ids of the earlier rule (D-1253 deep review, finding 5): empty, the rebuild has nothing to do and
     changes nothing. A snapshot with no rule record (``ndjson/``, ``ndjson-rerun/``); a served copy whose NDJSON is
     gone and whose build said no rule; a kept back-fill spool of another rule; a store the plan finds of the earlier
-    rule; an EDC study stamped rule 1. The month-ends already moved aside are the earlier rule's by design."""
+    rule; an EDC study stamped rule 1; a snapshot whose SS-MIX2 orders are keyed another way than the reader now keys
+    them (ruling 11: the rebuild clears it and the next full night reads every order under the reader's key). The
+    month-ends already moved aside are the earlier rule's by design."""
     from lake.store import ID_RULE_SIDECAR
 
     found: list[str] = []
+    from adapter.sources.ssmix2.source import order_id_form
+
+    keyed = order_id_form()  # D-1253 ruling 11: the order key the reader publishes (#1238's)
     for folder in ("ndjson", "ndjson-rerun"):
         root = lake / folder
         if root.is_dir():
-            found += [f"the lake snapshot {folder}/{p.name}" for p in sorted(root.iterdir())
-                      if p.is_dir() and not p.name.startswith(".") and id_rule.snapshot_rule(p) == 1]  # fmt: skip
+            for p in sorted(x for x in root.iterdir() if x.is_dir() and not x.name.startswith(".")):
+                if id_rule.snapshot_rule(p) == 1:
+                    found.append(f"the lake snapshot {folder}/{p.name}")
+                elif (said := id_rule.snapshot_keys(p).get("ssmix2_order")) and said != keyed:
+                    found.append(f"the lake snapshot {folder}/{p.name} (SS-MIX2 orders keyed {said}, not {keyed})")
     for f in sorted((lake / "db").glob("*.duckdb")):
         if not (lake / "ndjson" / f.stem).is_dir() and not f.with_name(f.name + ID_RULE_SIDECAR).exists():
             found.append(f"the served lake snapshot {f.stem}")

@@ -682,3 +682,33 @@ def test_the_id_rule_record_is_synced_before_and_after_its_rename(
     id_rule.write_snapshot_record(folder)
     assert seen == [f".{id_rule.SNAPSHOT_RECORD}.tmp", "rename", "folder"]
     assert id_rule.snapshot_rule(folder) == id_rule.RULE
+
+
+def test_ssmix2_orders_keyed_another_way_are_rebuilt_under_the_readers_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-1253 review ruling 11: the SS-MIX2 order key is the reader's (#1238 keys ``<number>@<type>``). Each snapshot
+    records the key form its ids were made from. When the reader publishes another one, a snapshot of the old key is
+    one the rebuild clears (never merged with the new key's orders: a delta night over it is held), and the next
+    full night reads every order under the new key."""
+    from adapter.sources.ssmix2 import source as ss
+
+    from tests.unit import test_lake_ids_per_patient as ids
+
+    old = ids.night(tmp_path, "ssmix2", ids.canonical(ids.A), "2026-10-01")
+    assert old.passed, old.errors
+    lake = tmp_path / "lake"
+    assert id_rule.snapshot_keys(snapshot_dir(lake, "2026-10-01")) == {"ssmix2_order": "<number>@<day>"}
+    assert rb.plan(lake, None, TODAY)["earlier"] == []  # the reader's key: nothing to do
+    monkeypatch.setitem(ss.ORDER_ID_FORMS, "per_day", "<number>@<type>@<day>")  # the reader's new key
+    assert rb.plan(lake, None, TODAY)["earlier"] == [
+        "the lake snapshot ndjson/2026-10-01 (SS-MIX2 orders keyed <number>@<day>, not <number>@<type>@<day>)"
+    ]
+    held = ids.night(tmp_path, "ssmix2", ids.canonical(ids.A), "2026-10-02", since="2026-10-01")
+    assert not held.passed and any("keyed <number>@<day>" in e for e in held.errors), held.errors
+    rb.rebuild(lake, None, TODAY)
+    assert not (lake / "ndjson").exists()
+    new = ids.night(tmp_path, "ssmix2", ids.canonical(ids.A), "2026-10-03")
+    assert new.passed, new.errors
+    assert id_rule.snapshot_keys(snapshot_dir(lake, "2026-10-03")) == {"ssmix2_order": "<number>@<type>@<day>"}
+    assert rb.plan(lake, None, TODAY)["earlier"] == []

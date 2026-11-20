@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from tb_common import chartno, feedguard, labvalue, refdata
+from tb_common import chartno, feedguard, id_rule, labvalue, refdata
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
@@ -995,12 +995,20 @@ def _run_ingest(
         # NEW-DIN-8 (D-583): on a box a delta is never the first night: it has nothing to merge over and no
         # table of it can be judged complete
         errors.append("delta night: no earlier snapshot passed validation to merge over; run a full load")
-    if base is not None and (said := _source_of(base)) and said != source_kind:
+    if base is not None and source_kind == "ssmix2" and (keyed := id_rule.snapshot_keys(base).get("ssmix2_order")):
+        from adapter.sources.ssmix2.source import order_id_form
+
+        if keyed != order_id_form():  # D-1253 ruling 11: never orders of two keys in one snapshot
+            errors.append(
+                f"delta night over snapshot {last_good}, whose SS-MIX2 orders are keyed {keyed}; the reader keys them "
+                f"{order_id_form()}: run the one rebuild ({id_rule.COMMAND}), then a full night"
+            )
+    if base is not None and (read_from := _source_of(base)) and read_from != source_kind:
         # D-1253 review ruling 7: one record from a mapped feed and from a FHIR bulk export has two ids; a site
         # changes its source only with a full night, never a delta merged over another source's snapshot
         errors.append(
-            f"delta night from {source_kind} over snapshot {last_good}, which was read from {said}: a site changes "
-            "its source only with a full night (run it without since)"
+            f"delta night from {source_kind} over snapshot {last_good}, which was read from {read_from}: a site "
+            "changes its source only with a full night (run it without since)"
         )
     from adapter.publish import RECORD as PUBLISH_RECORD
 
@@ -1044,6 +1052,10 @@ def _run_ingest(
         out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed,
         aliases=aliases if base is not None else None, moved=carried_moved, collisions=collisions,
     )  # fmt: skip
+    if source_kind == "ssmix2":  # D-1253 ruling 11: the order-number form the ids were made from
+        from adapter.sources.ssmix2.source import order_id_form
+
+        id_rule.record_keys(out_dir, {"ssmix2_order": order_id_form(getattr(source, "order_key", None))})
     # D-1253: order-free, over the merged snapshot, in bounded memory
     absent = absent_links(out_dir, site_wide=mapping.site_wide if mapping is not None else ())
     if absent:

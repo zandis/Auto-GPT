@@ -205,6 +205,31 @@ def write_snapshot_record(directory: Path) -> None:
         os.close(dfd)
 
 
+def record_keys(directory: Path, keys: dict[str, str]) -> None:
+    """D-1253 ruling 11: add to the snapshot's record the form of the source numbers its ids were made from (the
+    SS-MIX2 order key), written as the record is: atomically, synced."""
+    path = directory / SNAPSHOT_RECORD
+    body = json.loads(path.read_text(encoding="utf-8"))
+    body["keys"] = dict(sorted({**(body.get("keys") or {}), **keys}.items()))
+    tmp = directory / f".{SNAPSHOT_RECORD}.tmp"
+    tmp.write_text(json.dumps(body, sort_keys=True) + "\n", encoding="utf-8")
+    fd = os.open(tmp, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    tmp.replace(path)
+
+
+def snapshot_keys(directory: Path) -> dict[str, str]:
+    """The source-number forms a snapshot's record says (empty: none said)."""
+    try:
+        got = json.loads((directory / SNAPSHOT_RECORD).read_text(encoding="utf-8")).get("keys") or {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return {str(k): str(v) for k, v in got.items()} if isinstance(got, dict) else {}
+
+
 def snapshot_rule(directory: Path) -> int:
     """The rule a snapshot's ids were made under: 1 when it carries no record (written before D-1253); 0 when the
     record is unreadable or not an integer (``2.0``, ``"2"``, ``true`` are not 2): never taken for the current rule.
