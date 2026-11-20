@@ -54,7 +54,7 @@
 
 1. **The part: criteria and codes only, by allow-lists** (the third review: by file and by key, never by folder or
    deny-list). `python -m criteria_compiler.export_part <ID> --out <file> (--installed installed.json | --release
-   "<bundle id> [(release_seq N)]") [--by NAME]` exports the version of the box's own approval tag as a zip of the
+   "<bundle id> [(release_seq N)]") --by "<your name>"` exports the version of the box's own approval tag as a zip of the
    `import_ruleset` form plus `ORIGIN.json` (`tb_common.ruleset_part`), following the protocol/site split of D-1366
    (10D-2; its field lists are imported from `tb_common.study_manifest`, not copied):
    - **files**, exactly master's `study_manifest.PROTOCOL_FILES` that are criteria and codes, one per name:
@@ -108,6 +108,9 @@
    tag, an approval that names nobody here (a seeded example, also on a DEV box where it loads), and **any version
    that arrived in an update**. It is audited on the head box, before the part is handed out, as
    **`approve.part_exported`** (who, when, the rule set and version, `part_sha256`, the file count, the release).
+   `--by` is required (refused without it): the event names the account the command runs as (`host:<account>`;
+   inside the compiler's container that is the service's account) and, as `by_claimed`, the name the operator typed,
+   which the box cannot verify (the fifth review). The output line prints the part's full `part_sha256`.
    **Whose approval** (the fourth review): the export takes any approval the compiler recorded on this box at the
    tag; it does not check that the approver was the PI or the study's steward. The product's approval model has no
    such check at the tag (the compiler's approval is the approval), and this card adds none.
@@ -124,11 +127,15 @@
    **The bytes signed are the bytes checked** (the fourth review, N1): each part is read once, checked, and handed
    to `sign_bundle.build` as a copy in a private folder of the run; after the build each packed member is read back
    from the bundle, and it and the sha256 the signed manifest records must equal the checked bytes, else the bundle
-   is removed and refused. `tools/sign_bundle.py` is unchanged.
+   is removed and refused. `tools/sign_bundle.py` is unchanged. The command prints each part's full `part_sha256`
+   (`part <ID> v<version> part_sha256 <hash>`): the vendor sends that line to the site with the bundle (the vendor's
+   release note); it is where the site's operator reads the hash it accepts (item 4). The signed manifest's
+   description keeps the first 12 characters only; no other tool prints the hash at the site before the import.
 3. **Verify and apply.** `tools/apply_update.sh` unchanged: the signature, release_seq and every payload's sha256
    first; then the update path. Before writing anything, `import_ruleset` checks a part
    (`tb_common.ruleset_part.open_part`): every zip member is in `<ID>/` or is `ORIGIN.json`; every record field has
-   its strict form (id and version patterns, the approval tag exactly `<ID>/v<version>`, a bundle id, a 40-hex
+   its strict form (id and version patterns, each held whole and in ASCII: `re.fullmatch`, `re.ASCII`, so "1.0.1"
+   with a line break or another script's digits is no version; the approval tag exactly `<ID>/v<version>`, a bundle id, a 40-hex
    commit, no control character anywhere, no unknown field); its pins are the manifest's; the record lists exactly
    the part's files; `part_sha256` matches; every file is exactly what the export writes (the export's allow-lists run
    again on the part and must give back the same bytes: a site field, an unknown key, an annotation, a comment the
@@ -145,32 +152,52 @@
    --site-profile <ID> FILE --version <version> [--part-sha256 <hash>]` (FILE `-`: standard input, as the compiler's
    container does not mount the host's files) writes `profiles/<ID>.yaml` (routing and scopes only: any other key is
    refused; checked against the manifest schema) and beside it `profiles/<ID>.site-set.json`, which records that
-   file's sha256, **the version the site accepts and, when the operator gave it, the part's sha256** (as the export
-   prints it and the vendor's release note carries it); `--version` is required. The import installs a part only
+   file's sha256, the id it is for (a mark naming another id does not count), **the version the site accepts and,
+   when the operator gave it, the part's sha256** (as the export prints it and the vendor's release note carries
+   it); `--version` is required. The profile is read up to 64 KiB (a larger one, a file or standard input, is
+   refused) and parsed strictly: a field the manifest schema's routing and scopes do not name, at any depth, is
+   refused with a sentence. The import installs a part only
    when its version is that version, and its hash that hash when one was given (the fourth review, S2): a later
    version of the same id, or another part of the version, is refused, the update rolls back, nothing is tagged, and
-   the refusal (en, ja and zh-TW in one text, as the operator's terminal and `update.rolled_back` hold one) gives the
-   exact host command that accepts that part: `docker compose exec -T criteria-compiler python -m
-   criteria_compiler.import_ruleset --site-profile <ID> - --version <version> --part-sha256 <its hash> <
-   <profile.yaml>`, after comparing the hash with the vendor's release note. So **every version that can screen
+   the refusal (en, ja and zh-TW) gives the exact host command that accepts that part: `docker compose exec -T
+   criteria-compiler python -m criteria_compiler.import_ruleset --site-profile <ID> - --version <version>
+   --part-sha256 <its hash> --by "<your name>" < <profile.yaml>`, after comparing the hash with the vendor's release
+   note. **Accepting a version without the hash** accepts that version whoever built the part: any vendor-signed part
+   that names this id and version installs. The hash is the normal way (runbook §5 says so); leaving it out is for
+   when the vendor sent none. So **every version that can screen
    patients here had one act by a person at the site.** The example `profiles/<ID>.yaml` a box ships with has no
    such record, and a profile changed by hand since no longer matches it: both are refused, as is a missing
    `routing.list_to` or `scopes.screen`, naming the command. **A profile of the first form** (a mark without a
    version, `trialbox-site-profile/1`, written by this card's earlier form) accepts no version: refused, saying so,
    with the command. This is an interim path for the dry run, and no site has such a profile, so nothing is migrated.
    The command writes **`approve.site_profile_set`** (who, when, the rule set, the version, the part's sha256 when
-   given, the profile's sha256) **before** the profile: when the audit write fails, nothing is written. `update.rolled_back`
-   keeps the first 500 characters of the failure (unchanged): on a container box that is the start of the command
-   line and of the import's last output, not the whole text in three languages. The command is a host command (run on the box's host, not through the console); its actor is `host:<user>` from
-   `getpass.getuser()` (the user variable, else the passwd entry), or `--by`; with neither a user variable nor a
-   passwd entry it does not crash and writes `host:unknown`. The installed manifest is the part's with the site's routing and scopes.
+   given, the profile's sha256) **before** the profile: when the audit write fails, nothing is written.
+   **What reaches the operator** (the fifth review): the update runs the import in the compiler's container and keeps
+   the first line and the last 600 characters of its standard error (`tools/trialbox/update.py` `run_cmd`); the
+   terminal shows that failure, and `update.rolled_back` keeps its first 500 characters (unchanged). The import's
+   refusal of a part prints, as its first line, a short English sentence that the part (its id and version) was
+   refused and that the command follows; then the text in en, ja and zh-TW (1,300 to 1,800 characters, of which the
+   terminal shows only the end); and, as its last line, one ASCII line under 400 characters with the exact command
+   (a command too long for that line would be printed alone on its own line, said so; the longest id and version fit).
+   So the terminal holds the first line and the whole command, and `update.rolled_back` the first line with the id
+   and version. Run by hand on a zip, any refusal ends the same way with exit 2, not a traceback.
+   The command is a host command (run on the box's host, not through the console) and needs `--by "<your name>"`
+   (refused without it, in en, ja and zh-TW, writing nothing): the event names the account and the name the operator
+   typed, which the box cannot verify. The account is `host:<user>` from `getpass.getuser()` (the user variable,
+   else the passwd entry; inside the container the service's user; `host:unknown` with neither); the name is
+   `by_claimed`, a claim, never a verified identity. The installed manifest is the part's with the site's routing and
+   scopes.
 5. **The tag and the audit.** The tag of an installed part reads `<ID>/v<version> (offline update, update:<bundle>);
    arrived in a vendor bundle (interim): update:<bundle>; compiled and approved on another box, release <bundle id>
    (release_seq N, commit C), its tag <ID>/v<version>; part sha256 <hash>`, built from checked fields only. That tag
    counts as an approval (D-640), which is why the import asks for the site's act on the version first (item 4).
    The step `rulesets` and `update.applied` (field `rulesets`, beside the files it already listed) name each zip's
    rule set, version and result, imported or already present (the same part again: nothing changed), as
-   `GZQO v1.0.1: imported (GZQO-1.0.1.part.zip)`, from the import's own output line (the fourth review, N2).
+   `GZQO v1.0.1: imported (GZQO-1.0.1.part.zip)`, from the import's own output line (the fourth review, N2). This
+   changes the text for every bundle: one without a rule-set zip now says `rulesets: 0 imported, 0 already present`
+   (it said `0 imported`), and each `update.applied.rulesets` entry reads `<ID> v<version>: imported (<file>)` (it
+   was the file name). No tool or test of the repository parses either form (`git grep` over `tools/` and `tests/`;
+   two stored evaluation reports under `eval/complete_run/` quote the old step text as a record and are not read).
 6. **The box's release stays.** A bundle of rule-set parts only writes `installed.json` with its own bundle id and
    release_seq, and keeps the commit, `dirty`, `rehearsal` and `vuln_mode` of the release it rides on, and that
    release's bundle id as `release_bundle_id` (the code identity, H-19, reads the commit); `apply_update.sh status`
@@ -204,12 +231,21 @@
 
 ## What an arrived rule set can do before anyone at the site acts
 
-Nothing. A part installs only when its version (and its hash, when the site named one) is the one the site accepted
+This section holds for **parts** (zips with `ORIGIN.json`). A plain vendor rule-set zip (no `ORIGIN.json`, with its
+routing and scopes in its manifest) installs as before this card: through any update the vendor signs, with no act
+at the site, listed as arrived (item 7). That is the vendor's own pre-existing path (D-77), unchanged here.
+
+For a part: nothing. A part installs only when its version (and its hash, when the site named one) is the one the site accepted
 with `--site-profile` (item 4); until then the update is refused and rolled back, no tag is written, and no screen,
 after-ingest run or mail uses it. Once a person at the site has accepted that version and the operator has applied
 the bundle, its tag counts as an approval (D-640): the next MICROBATCH and after-ingest runs screen with it and the
 mail goes to the routing the site set. A later version of the same id needs the site's act again. A version already
 installed stays installed and screening when the site accepts another (a part never goes back, item 3).
+
+**Residual: who can forge an acceptance.** The mark `profiles/<ID>.site-set.json` lives in the rule-set store, which
+the criteria compiler's service account writes. The import does not cross-check the mark against the audit
+(`approve.site_profile_set`): whoever can act as that account (a shell in the compiler's container, the host's
+root) can write a mark and profile that accept a version, with no audit event. No cross-check is built here.
 
 ## What travels (for the owner to rule on)
 
@@ -259,7 +295,8 @@ directly can be valid longer. This predates the card and is not changed by it.
   check that the compiled SQL read the same site tables (D-1366 names the same limit for 10D-5).
 - **Not run on a container box.** The tests run the real verifier, `Updater` and import on an in-process box; the
   compose box's steps (backup, dumps, restart, `docker compose exec criteria-compiler ... import_ruleset`) are
-  unchanged and were not run.
+  unchanged and were not run. What `run_cmd` keeps of a refused import's standard error (its first line and last 600
+  characters) is tested with a real child process, not in a container.
 - `tools/trialbox/update.py` `InProcessBox.rulesets` still imports nothing (the update drill's box); unchanged.
 
 ## Held by
@@ -304,3 +341,11 @@ directly can be valid longer. This predates the card and is not changed by it.
   zip's fails it (run once by hand).
 - `tests/console/test_ruleset_arrived_in_bundle.py`: the overview marks such a version in en, ja and zh-TW; the
   administrator's page (`admin.html`) and the administrator's home without step 4 (`home_admin.html`) mark it too.
+- The fifth review (`tests/unit/test_ruleset_in_update_bundle.py`, `test_r5_*` and the re-check of finding 3): the
+  accept command carries `--by`; `--site-profile` and `export_part` refuse without it and write nothing; their
+  events name the account and `by_claimed`; a refused part's first line holds the id and version within 500
+  characters and its last line the whole command within the last 600, also through the update's own command runner;
+  any other refusal of a hand-run zip ends with exit 2 and no traceback; a version with a line break or other
+  digits, an id with a line break are refused; a profile over 64 KiB (on standard input, read no further) or with an
+  unknown field is refused, nothing written; a mark for another id accepts nothing; a bundle without a rule set says
+  `0 imported, 0 already present`; the vendor tool prints each part's full hash.

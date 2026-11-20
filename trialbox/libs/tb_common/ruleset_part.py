@@ -132,15 +132,17 @@ ELM_STRIPPED_LIBRARY = frozenset({"localId"})
 #: how deep a part's JSON or YAML may nest (the compiler's ELM reaches about 90)
 MAX_DEPTH = 256
 
-RULESET_ID = re.compile(r"^[A-Z0-9][A-Z0-9-]{1,31}$")
-CRITERION_ID = re.compile(r"^[A-Z0-9]+(-[A-Z0-9]+)*-(INC|EXC|REN|DOC)-[0-9]{2,3}$")
-FILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
-FLAG = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
-VERSION = re.compile(r"^\d{1,4}\.\d{1,4}\.\d{1,4}$")
-SHA256 = re.compile(r"^[0-9a-f]{64}$")
-COMMIT = re.compile(r"^[0-9a-f]{40}$")
-BUNDLE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
-PROMPT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+#: D-1369 (the fifth review): every pattern is held whole (``fullmatch``: no trailing line break) and in ASCII
+#: (``re.ASCII``: no other script's digits)
+RULESET_ID = re.compile(r"^[A-Z0-9][A-Z0-9-]{1,31}$", re.ASCII)
+CRITERION_ID = re.compile(r"^[A-Z0-9]+(-[A-Z0-9]+)*-(INC|EXC|REN|DOC)-[0-9]{2,3}$", re.ASCII)
+FILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$", re.ASCII)
+FLAG = re.compile(r"^[a-z][a-z0-9_]{0,47}$", re.ASCII)
+VERSION = re.compile(r"^\d{1,4}\.\d{1,4}\.\d{1,4}$", re.ASCII)
+SHA256 = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
+COMMIT = re.compile(r"^[0-9a-f]{40}$", re.ASCII)
+BUNDLE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$", re.ASCII)
+PROMPT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", re.ASCII)
 CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
 ORIGIN_KEYS = {"format", "ruleset", "version", "part_sha256", "files", "left_out", "approval_tag", "compiled_on",
                "pins"}  # fmt: skip
@@ -207,7 +209,7 @@ def kind_of(path: str) -> str | None:
     if path == LABELS:
         return "labels"
     for prefix, suffix in CARRIED:
-        if path.startswith(prefix) and path.endswith(suffix) and FILE_NAME.match(path[len(prefix) : -len(suffix)]):
+        if path.startswith(prefix) and path.endswith(suffix) and FILE_NAME.fullmatch(path[len(prefix) : -len(suffix)]):
             return _KIND[prefix]
     return None
 
@@ -236,7 +238,7 @@ def neutral_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     if isinstance(eq, dict):
         out["equivalence"] = {k: eq[k] for k in EQUIVALENCE_KEPT if k in eq}
         ids = [*(eq.get("failing") or []), *(eq.get("per_criterion") or {})]
-        bad = [str(i)[:40] for i in ids if not (isinstance(i, str) and CRITERION_ID.match(i))]
+        bad = [str(i)[:40] for i in ids if not (isinstance(i, str) and CRITERION_ID.fullmatch(i))]
         if bad:
             raise PartRefused(f"manifest.yaml equivalence names something other than a criterion id: {bad[:3]}")
     return out
@@ -272,7 +274,9 @@ def neutral_ir(criterion: dict[str, Any]) -> dict[str, Any]:
     if isinstance(review, dict) and review.get("status"):
         out["review"] = {"status": review["status"]}
     flags = out.get("flags")
-    if flags is not None and not (isinstance(flags, list) and all(isinstance(f, str) and FLAG.match(f) for f in flags)):
+    if flags is not None and not (
+        isinstance(flags, list) and all(isinstance(f, str) and FLAG.fullmatch(f) for f in flags)
+    ):
         raise PartRefused(f"{str(out.get('id'))[:40]}: a flag is not one word of the compiler's (a-z, 0-9, _)")
     return out
 
@@ -384,7 +388,7 @@ def neutral_labels(data: bytes, rid: str) -> bytes:
     if doc.get("ruleset") != rid:
         raise PartRefused(f"{LABELS}: its rule set is not {rid}")
     for cid, entry in (doc.get("criteria") or {}).items():
-        if not (isinstance(cid, str) and CRITERION_ID.match(cid)):
+        if not (isinstance(cid, str) and CRITERION_ID.fullmatch(cid)):
             raise PartRefused(f"{LABELS}: {str(cid)[:40]!r} is not a criterion id")
         for k, v in _keys(entry, LABEL_ENTRY_KEYS, f"{LABELS} {cid}").items():
             words = list(_keys(v, LABEL_LANG_KEYS, f"{LABELS} {cid}.{k}").values()) if isinstance(v, dict) else [v]
@@ -430,7 +434,7 @@ def neutral_files(files: dict[str, bytes]) -> dict[str, bytes]:
     manifest = neutral_manifest(load_yaml(files[MANIFEST], MANIFEST) or {})
     _schema_manifest(manifest)
     rid = str(manifest.get("id"))
-    if not RULESET_ID.match(rid):
+    if not RULESET_ID.fullmatch(rid):
         raise PartRefused(f"manifest.yaml: {rid[:40]!r} is not a rule set id")
     out: dict[str, bytes] = {MANIFEST: _yaml(manifest)}
     criteria: list[dict[str, Any]] = []
@@ -531,13 +535,13 @@ def _text(v: Any, cap: int) -> bool:
 def _origin_problems(o: dict[str, Any], ruleset_id: str, version: str, manifest: dict[str, Any]) -> list[str]:
     bad = [f"unexpected field {k!r}" for k in sorted(set(o) - ORIGIN_KEYS)]
     bad += [f"missing field {k!r}" for k in sorted(ORIGIN_KEYS - set(o) - {"left_out"})]
-    if not (isinstance(o.get("ruleset"), str) and RULESET_ID.match(o["ruleset"]) and o["ruleset"] == ruleset_id):
+    if not (isinstance(o.get("ruleset"), str) and RULESET_ID.fullmatch(o["ruleset"]) and o["ruleset"] == ruleset_id):
         bad.append(f"ruleset is not {ruleset_id}")
-    if not (isinstance(o.get("version"), str) and VERSION.match(o["version"]) and o["version"] == str(version)):
+    if not (isinstance(o.get("version"), str) and VERSION.fullmatch(o["version"]) and o["version"] == str(version)):
         bad.append(f"version is not {version}")
     if o.get("approval_tag") != f"{ruleset_id}/v{version}":
         bad.append(f"approval_tag is not {ruleset_id}/v{version}")
-    if not (isinstance(o.get("part_sha256"), str) and SHA256.match(o["part_sha256"])):
+    if not (isinstance(o.get("part_sha256"), str) and SHA256.fullmatch(o["part_sha256"])):
         bad.append("part_sha256 is not 64 lowercase hex digits")
     left = o.get("left_out", [])
     if not (isinstance(left, list) and all(x in LEFT_OUT_DIRS for x in left)):
@@ -546,19 +550,19 @@ def _origin_problems(o: dict[str, Any], ruleset_id: str, version: str, manifest:
     if not isinstance(on, dict) or set(on) - {"bundle_id", "release_seq", "commit"}:
         bad.append("compiled_on is not {bundle_id, release_seq, commit}")
     else:
-        if not (isinstance(on.get("bundle_id"), str) and BUNDLE_ID.match(on["bundle_id"])):
+        if not (isinstance(on.get("bundle_id"), str) and BUNDLE_ID.fullmatch(on["bundle_id"])):
             bad.append("compiled_on.bundle_id is not a bundle id")
         seq = on.get("release_seq")
         if seq is not None and not (isinstance(seq, int) and not isinstance(seq, bool) and 0 <= seq < 10**9):
             bad.append("compiled_on.release_seq is not a whole number")
-        if on.get("commit") is not None and not (isinstance(on["commit"], str) and COMMIT.match(on["commit"])):
+        if on.get("commit") is not None and not (isinstance(on["commit"], str) and COMMIT.fullmatch(on["commit"])):
             bad.append("compiled_on.commit is not a 40-hex commit")
     pins = o.get("pins")
     if not isinstance(pins, dict) or set(pins) - {"judge_prompt", "terminology_release"}:
         bad.append("pins is not {judge_prompt, terminology_release}")
     else:
         if pins.get("judge_prompt") is not None and not (isinstance(pins["judge_prompt"], str) and
-                                                          PROMPT.match(pins["judge_prompt"])):  # fmt: skip
+                                                          PROMPT.fullmatch(pins["judge_prompt"])):  # fmt: skip
             bad.append("pins.judge_prompt is not a prompt name")
         if pins.get("terminology_release") is not None and not _text(pins["terminology_release"], 100):
             bad.append("pins.terminology_release is not one line of at most 100 characters")
@@ -600,7 +604,7 @@ def open_part(data: bytes) -> tuple[str, dict[str, bytes], dict[str, Any], dict[
     if origin is None:
         raise PartRefused(f"no {ORIGIN}: not a rule-set part (python -m criteria_compiler.export_part writes one)")
     rid = origin.get("ruleset")
-    if not (isinstance(rid, str) and RULESET_ID.match(rid)):
+    if not (isinstance(rid, str) and RULESET_ID.fullmatch(rid)):
         raise PartRefused(f"{ORIGIN} names no rule set")
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         names = [n for n in check_ruleset_zip(z) if not n.endswith("/")]

@@ -19,7 +19,7 @@ with no routing or no scope (the form a part's manifest has), is refused: a part
 
     python -m criteria_compiler.import_ruleset ruleset.zip --by update:2026.10-1
     python -m criteria_compiler.import_ruleset --site-profile GZQO site-GZQO.yaml --version 1.0.1 \\
-        [--part-sha256 HASH] [--by operator]          # FILE "-": the profile on standard input
+        [--part-sha256 HASH] --by "<your name>"       # FILE "-": the profile on standard input
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ import getpass
 import hashlib
 import io
 import json
+import re
 import sys
 import zipfile
 from collections.abc import Callable
@@ -36,6 +37,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 import yaml
+from pydantic import ValidationError
 from tb_common.ruleset import SEEDED_TAG
 from tb_common.ruleset_part import (
     RULESET_ID,
@@ -55,6 +57,15 @@ from criteria_compiler.repo import RulesetRepo
 
 class ImportRefused(ValueError):
     pass
+
+
+class NotAccepted(ImportRefused):
+    """D-1369: a part this site has not accepted; carries the id, version and the command that accepts it, so the
+    command line can print it whole as its last line (the fifth review)."""
+
+    def __init__(self, text: str, rid: str, version: str, command: str) -> None:
+        super().__init__(text)
+        self.rid, self.version, self.command = rid, version, command
 
 
 def read_zip(data: bytes) -> tuple[str, dict[str, bytes], dict[str, Any]]:
@@ -170,6 +181,8 @@ def _semver(v: str) -> tuple[int, ...]:
 #: written beside ``profiles/<ID>.yaml`` by ``--site-profile`` alone: the sha256 of the profile it wrote, and the one
 #: version of the id (and, when given, the part's sha256) the site accepted with it
 PROFILE_MARK = "profiles/{rid}.site-set.json"
+#: the largest site profile ``--site-profile`` reads (a file or standard input)
+PROFILE_MAX = 64 * 1024
 PROFILE_MARK_FORMAT = "trialbox-site-profile/2"
 #: the mark's form before a site profile named a version (the first form of PR #1174): it accepts no version
 OLD_PROFILE_MARK_FORMAT = "trialbox-site-profile/1"
@@ -177,12 +190,37 @@ OLD_PROFILE_MARK_FORMAT = "trialbox-site-profile/1"
 
 def accept_command(rid: str, version: str, part_sha256: str | None = None) -> str:
     """The host command that accepts ``version`` of ``rid`` at this site (run in ``deploy/``, the profile file on
-    standard input, as the compiler's container holds the repository and does not mount the host's files)."""
+    standard input, as the compiler's container holds the repository and does not mount the host's files). ``--by``
+    is the name of the person who runs it: inside the container the account is the service's, so the audit records
+    that account and the name typed, which the box cannot verify (the fifth review)."""
     sha = f" --part-sha256 {part_sha256}" if part_sha256 else ""
     return (
         f"docker compose exec -T criteria-compiler python -m criteria_compiler.import_ruleset --site-profile {rid} - "
-        f"--version {version}{sha} < <profile.yaml>"
+        f'--version {version}{sha} --by "<your name>" < <profile.yaml>'
     )
+
+
+#: the command line's refusal reaches the operator whole on a container box (the fifth review): the update keeps the
+#: first line and the last 600 characters of the import's standard error; one line of at most this many characters
+#: holds the command at the end
+ACCEPT_LINE_MAX = 399
+
+
+def refusal_lines(exc: ImportRefused) -> list[str]:
+    """What the command line prints to standard error for a refused zip: first a short English sentence (with the id
+    and version when it is a part the site has not accepted), then the refusal (en, ja and zh-TW), and, for a part
+    not accepted, last one short ASCII line with the exact command that accepts it."""
+    if not isinstance(exc, NotAccepted):
+        return [f"rule set zip REFUSED: {exc}"]
+    head = (
+        f"rule set zip REFUSED: the rule-set part {exc.rid} v{exc.version} is not accepted at this site and was not "
+        "installed; the command that accepts it follows on the last line"
+    )
+    last = f"to accept {exc.rid} v{exc.version}, in deploy/ on the box's host: {exc.command}"
+    if len(last) <= ACCEPT_LINE_MAX:
+        return [head, str(exc), last]
+    return [head, str(exc), "the command that accepts it is too long for one line with words: it follows alone",
+            exc.command]  # fmt: skip
 
 
 #: D-1369 (the review's S2): why a part is not installed for want of the site's act, in the three languages of the
@@ -226,14 +264,38 @@ NOT_ACCEPTED: dict[str, dict[str, str]] = {
 }
 
 
-def _not_accepted(why: str, rid: str, version: str, sha: str, accepted: str = "") -> ImportRefused:
+#: D-1369 (the fifth review): ``--site-profile`` (or ``export_part``) without ``--by``; inside the compiler's container
+#: the account is the service's, so the name of the person is asked for and recorded as what they typed
+NEEDS_BY: dict[str, str] = {
+    "en": '{command} needs --by "<your name>": the audit records the account that ran the command and the name '
+    "you type, which the box cannot verify; nothing was written",
+    "ja": '{command} には --by "<氏名>" が必要です。監査記録には、コマンドを実行したアカウントと入力された氏名が'
+    "記録されますが、ボックスはその氏名を確認できません。何も書き込まれていません",
+    "zh-TW": '{command} 需要 --by "<您的姓名>"：稽核紀錄會記下執行指令的帳號與您輸入的姓名，'
+    "本機無法核實該姓名；未寫入任何內容",
+}
+#: the most a ``--by`` name may hold (one line, no control character)
+BY_MAX = 100
+BY_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+
+
+def by_problem(name: str | None, command: str = "--site-profile") -> str | None:
+    """Why ``--by`` is not a name the audit records (None when it is one); ``command`` names what needs it."""
+    if name is None or not name.strip():
+        return "\n".join(f"{lang}: {text.format(command=command)}" for lang, text in NEEDS_BY.items())
+    if len(name) > BY_MAX or BY_CONTROL.search(name):
+        return f"--by takes a name of at most {BY_MAX} characters on one line, with no control character"
+    return None
+
+
+def _not_accepted(why: str, rid: str, version: str, sha: str, accepted: str = "") -> NotAccepted:
     cmd = accept_command(rid, version, sha)
     lines = [
         NOT_ACCEPTED[why][lang].format(rid=rid, version=version, sha=sha, accepted=accepted)
         + NOT_ACCEPTED["how"][lang].format(sha=sha, cmd=cmd)
         for lang in ("en", "ja", "zh-TW")
     ]
-    return ImportRefused(f"{lines[0]}\n  ja: {lines[1]}\n  zh-TW: {lines[2]}")
+    return NotAccepted(f"{lines[0]}\n  ja: {lines[1]}\n  zh-TW: {lines[2]}", rid, version, cmd)
 
 
 def site_profile(repo: RulesetRepo, rid: str, version: str, part_sha256: str) -> dict[str, Any]:
@@ -242,7 +304,9 @@ def site_profile(repo: RulesetRepo, rid: str, version: str, part_sha256: str) ->
     hand since, has none that matches). Refused without them: a rule set that arrived from another box is never
     screened and sent with another site's people or scope (D-1369). The mark names the one version the site accepted
     (and the part's sha256 when the operator gave it): another version or hash is refused, and so is a mark of the
-    first form, which named none. Each refusal, in en, ja and zh-TW, gives the command that accepts the part."""
+    first form, which named none, or a mark for another id. Each refusal, in en, ja and zh-TW, gives the command that
+    accepts the part. The mark is not held against the audit: the compiler's service account, which writes the
+    repository, could write one (D-1369, a residual)."""
     raw = repo.read("main", f"profiles/{rid}.yaml")
     mark_raw = repo.read("main", PROFILE_MARK.format(rid=rid))
     try:
@@ -250,7 +314,8 @@ def site_profile(repo: RulesetRepo, rid: str, version: str, part_sha256: str) ->
     except ValueError:
         mark = {}
     mark = mark if isinstance(mark, dict) else {}
-    matches = raw is not None and mark.get("sha256") == hashlib.sha256(raw).hexdigest()
+    # the mark is this id's own (the fifth review): a mark copied from another id's profile does not count
+    matches = raw is not None and mark.get("sha256") == hashlib.sha256(raw).hexdigest() and mark.get("ruleset") == rid
     set_here = matches and mark.get("format") == PROFILE_MARK_FORMAT
     prof = (yaml.safe_load(raw.decode("utf-8")) if raw and set_here else None) or {}
     routing, scopes = prof.get("routing"), prof.get("scopes")
@@ -310,22 +375,27 @@ def put_site_profile(
     version: str,
     part_sha256: str | None = None,
     audit: Any,
+    by_claimed: str | None = None,
 ) -> str:
     """``--site-profile``: write this box's own routing and scopes for ``rid`` (``profiles/<ID>.yaml`` on ``main``,
     with its mark), checked against the manifest schema's routing and scopes, before a part of ``rid`` is applied. The
     file holds ``routing`` and ``scopes`` only (any other key is refused). The mark names the one ``version`` of
     ``rid`` the site accepts, and ``part_sha256`` when the operator gives it (from the vendor's release note or the
     export's output): a part of any other version or hash is refused (D-1369, the review's S2). Audited first
-    (``approve.site_profile_set``: who, when, the rule set, the version, the part's sha256 when given, the profile's
-    sha256): when the audit cannot be written, nothing is. Returns the profile's sha256."""
+    (``approve.site_profile_set``: the account ``by``, the name the operator typed as ``by_claimed`` (a claim the box
+    cannot verify), when, the rule set, the version, the part's sha256 when given, the profile's sha256): when the
+    audit cannot be written, nothing is. The profile is at most 64 KiB, and no field is unknown at any depth (the
+    manifest schema's routing and scopes). Returns the profile's sha256."""
     from tb_contracts import RulesetManifest
 
-    if not RULESET_ID.match(rid):
+    if not RULESET_ID.fullmatch(rid):
         raise ImportRefused(f"{rid!r} is not a rule set id")
-    if not VERSION.match(str(version)):
+    if not VERSION.fullmatch(str(version)):
         raise ImportRefused(f"{version!r} is not a rule set version (three numbers, 1.0.1)")
-    if part_sha256 is not None and not SHA256.match(part_sha256):
+    if part_sha256 is not None and not SHA256.fullmatch(part_sha256):
         raise ImportRefused("--part-sha256 takes the part's sha256: 64 lowercase hexadecimal characters")
+    if len(data) > PROFILE_MAX:
+        raise ImportRefused(f"the site profile is larger than {PROFILE_MAX // 1024} KiB: refused")
     try:
         prof = load_yaml(data, "the site profile") or {}
     except PartRefused as exc:
@@ -335,25 +405,31 @@ def put_site_profile(
     extra = sorted(str(k) for k in prof if k not in ("routing", "scopes"))
     if extra:
         raise ImportRefused(f"the site profile holds {', '.join(extra[:5])}: it sets routing and scopes only")
-    RulesetManifest.model_validate(
-        {
-            "id": rid,
-            "kind": "trial",
-            "title": rid,
-            "version": "0.0.0",
-            "index_date_rule": "run_date",
-            "criteria": [],
-            "thresholds": {},
-            "scopes": prof.get("scopes") or {},
-            "routing": prof.get("routing") or {},
-        }
-    )
+    try:  # strict: an unknown field at any depth of routing or scopes is refused (the schema forbids extras)
+        RulesetManifest.model_validate(
+            {
+                "id": rid,
+                "kind": "trial",
+                "title": rid,
+                "version": "0.0.0",
+                "index_date_rule": "run_date",
+                "criteria": [],
+                "thresholds": {},
+                "scopes": prof.get("scopes") or {},
+                "routing": prof.get("routing") or {},
+            }
+        )
+    except ValidationError as exc:  # where and what, never the value typed
+        where = "; ".join(f"{'.'.join(str(x) for x in e['loc'])}: {e['type']}" for e in exc.errors()[:5])
+        raise ImportRefused(
+            f"the site profile does not hold the routing and scopes a rule set takes ({where})"
+        ) from exc
     body = yaml.safe_dump({"routing": prof.get("routing") or {}, "scopes": prof.get("scopes") or {}},
                           allow_unicode=True, sort_keys=False).encode("utf-8")  # fmt: skip
     sha = hashlib.sha256(body).hexdigest()
     audit.append("approve.site_profile_set", actor=by, ruleset=rid, input_sha=sha,
                  detail={"profile": f"profiles/{rid}.yaml", "version": version,
-                         "part_sha256": part_sha256})  # fmt: skip
+                         "part_sha256": part_sha256, "by_claimed": by_claimed})  # fmt: skip
     current = {p[len("profiles/") :]: b for p, b in repo.files("main", "profiles/").items()}
     current[f"{rid}.yaml"] = body
     mark = {"format": PROFILE_MARK_FORMAT, "ruleset": rid, "sha256": sha, "version": version,
@@ -379,8 +455,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("zip", nargs="?")
     ap.add_argument(
         "--by",
-        help="who runs it (default: offline-update for a zip; for --site-profile the user the "
-        "command runs as, host:<user>)",
+        help="who runs it (default: offline-update for a zip); required with --site-profile: the name of the person, "
+        "recorded as typed (by_claimed) beside the account the command runs as (host:<account>)",
     )
     ap.add_argument(
         "--site-profile",
@@ -406,27 +482,36 @@ def main(argv: list[str] | None = None) -> int:
         from tb_common.audit_writer import open_audit
 
         rid, path = args.site_profile
+        why = by_problem(args.by)
+        if why:  # D-1369 (the fifth review): in the container the account is the service's; the person names themself
+            print(f"site profile REFUSED: {why}", file=sys.stderr)
+            return 2
         if path == "-":  # the profile on standard input: the compiler's container does not mount the host's files
-            data = sys.stdin.buffer.read()
+            data = sys.stdin.buffer.read(PROFILE_MAX + 1)
         else:
             with open(path, "rb") as fh:
-                data = fh.read()
-        by = args.by or f"host:{_host_user()}"  # a person, as export_part names one (the re-check of #1174)
+                data = fh.read(PROFILE_MAX + 1)
+        account = f"host:{_host_user()}"  # the account; the name typed is a claim beside it, never a verified identity
         try:
-            sha = put_site_profile(repo, rid, data, by, version=args.version, part_sha256=args.part_sha256,
-                                   audit=open_audit(cfg.env.audit_path, cfg.env.tz))  # fmt: skip
+            sha = put_site_profile(repo, rid, data, account, version=args.version, part_sha256=args.part_sha256,
+                                   audit=open_audit(cfg.env.audit_path, cfg.env.tz), by_claimed=args.by)  # fmt: skip
         except ImportRefused as exc:
             print(f"site profile REFUSED: {exc}", file=sys.stderr)
             return 1
         print(json.dumps({"site_profile": rid, "version": args.version, "part_sha256": args.part_sha256,
-                          "sha256": sha}))  # fmt: skip
+                          "sha256": sha, "by": account, "by_claimed": args.by}))  # fmt: skip
         return 0
     if not args.zip:
         ap.error("a rule set zip, or --site-profile ID FILE")
     gate = float(cfg.settings.thresholds.equivalence_min_pct or 98.0) if cfg.settings.thresholds else 98.0
     with open(args.zip, "rb") as fh:
         data = fh.read()
-    res = install_outcome(repo, data, args.by or "offline-update", gate, box_pins_problem)
+    try:
+        res = install_outcome(repo, data, args.by or "offline-update", gate, box_pins_problem)
+    except ImportRefused as exc:  # the fifth review: lines the operator reads whole, in every channel; no traceback
+        for line in refusal_lines(exc):
+            print(line, file=sys.stderr)
+        return 2
     hits = negated_hits(data)
     for h in hits:  # card 10A-1: installed as approved; a person recompiles these lines (the scan lists them again)
         print(f"WARNING {h}: its line may negate what its logic asks the presence of; recompile and approve",

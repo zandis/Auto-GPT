@@ -10,19 +10,22 @@ part is written (``approve.part_exported``: who, when, the rule set and version,
 family the criteria compiler writes, D-1369). The part holds no time: the same version exported again from the same
 release is the same part, byte for byte.
 
-    python -m criteria_compiler.export_part GZQO --out GZQO-1.0.0.part.zip --installed installed.json [--by NAME]
-    python -m criteria_compiler.export_part GZQO --out GZQO-1.0.0.part.zip --release "2026.11-1 (release_seq 3)"
+    python -m criteria_compiler.export_part GZQO --out GZQO-1.0.0.part.zip --installed installed.json --by "<your name>"
+    python -m criteria_compiler.export_part GZQO --out GZQO-1.0.0.part.zip --release "2026.11-1 (release_seq 3)" \\
+        --by "<your name>"
 
 ``--installed``: the box's ``deploy/updates/installed.json`` (bundle id, release_seq, commit), which names the release
 that compiled it; ``--release``: the bundle id (and ``(release_seq N)``), when the file is not at hand (inside the
 compiler's container); nothing else is taken, so no free words travel.
-``--by``: who runs it (default: the user the command runs as).
+``--by`` (required): the name of the person who runs it. The event records the account the command runs as
+(``host:<account>``; inside the compiler's container that is the service's account) and, as ``by_claimed``, the name
+typed, which the box cannot verify (the fifth review). The output line prints the part's ``part_sha256``: the head
+box's operator sends it with the part, and the vendor's ``tools/ruleset_bundle.py`` prints it again for the site.
 """
 
 from __future__ import annotations
 
 import argparse
-import getpass
 import json
 import re
 import sys
@@ -40,10 +43,12 @@ from tb_common.ruleset_part import (
     origin_of,
 )
 
+from criteria_compiler.import_ruleset import _host_user, by_problem
 from criteria_compiler.repo import RulesetRepo
 
 #: ``--release``: a bundle id, optionally `` (release_seq N)``
-RELEASE = re.compile(r"^(?P<bundle>[A-Za-z0-9][A-Za-z0-9._-]{0,99})(?: \(release_seq (?P<seq>\d{1,9})\))?$")
+RELEASE = re.compile(r"^(?P<bundle>[A-Za-z0-9][A-Za-z0-9._-]{0,99})(?: \(release_seq (?P<seq>\d{1,9})\))?$",
+                     re.ASCII)  # fmt: skip
 
 
 class ExportRefused(ValueError):
@@ -58,7 +63,7 @@ def compiled_on(installed: dict[str, Any] | None = None, release: str | None = N
               "release_seq": installed.get("release_seq"), "commit": installed.get("commit")}  # fmt: skip
         return {k: v for k, v in on.items() if v is not None}
     if release and release.strip():
-        m = RELEASE.match(" ".join(release.split()))
+        m = RELEASE.fullmatch(" ".join(release.split()))
         if not m:
             raise ExportRefused("--release takes a bundle id, optionally followed by (release_seq N), nothing else")
         return {"bundle_id": m["bundle"], **({"release_seq": int(m["seq"])} if m["seq"] else {})}
@@ -66,7 +71,13 @@ def compiled_on(installed: dict[str, Any] | None = None, release: str | None = N
 
 
 def export(
-    repo: RulesetRepo, ruleset_id: str, on: dict[str, Any], *, audit: Any = None, by: str = ""
+    repo: RulesetRepo,
+    ruleset_id: str,
+    on: dict[str, Any],
+    *,
+    audit: Any = None,
+    by: str = "",
+    by_claimed: str | None = None,
 ) -> tuple[bytes, dict[str, Any]]:
     """``(part zip, ORIGIN record)`` of the approved version of ``ruleset_id`` in this box's repository; with
     ``audit``, the event ``approve.part_exported`` (who, the rule set and version, the part's hash, the file count;
@@ -106,7 +117,7 @@ def export(
         audit.append("approve.part_exported", actor=by or "export_part", ruleset=ruleset_id,
                      ruleset_version=rs.version, output_sha=origin["part_sha256"],
                      detail={"files": len(origin["files"]), "left_out": origin["left_out"],
-                             "compiled_on": origin["compiled_on"]})  # fmt: skip
+                             "compiled_on": origin["compiled_on"], "by_claimed": by_claimed})  # fmt: skip
     return data, origin
 
 
@@ -119,18 +130,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--installed", type=Path, help="deploy/updates/installed.json of this box")
     ap.add_argument("--release", help="the release that compiled it, in words")
-    ap.add_argument("--by", help="who runs the export (default: the user the command runs as)")
+    ap.add_argument("--by", help="required: the name of the person who runs the export, recorded as typed (by_claimed) "
+                    "beside the account the command runs as (host:<account>)")  # fmt: skip
     args = ap.parse_args(argv)
+    why = by_problem(args.by, "export_part")
+    if why:  # D-1369 (the fifth review): in the container the account is the service's; the person names themself
+        print(f"export REFUSED: {why}", file=sys.stderr)
+        return 2
     installed = json.loads(args.installed.read_text(encoding="utf-8")) if args.installed else None
     cfg = load()
     repo = RulesetRepo(cfg.env.rulesets_path)
-    try:
-        by = args.by or f"host:{getpass.getuser()}"
-    except Exception:  # no user name in the container: the event still says it was a host command
-        by = "host command"
+    account = f"host:{_host_user()}"  # the account; the name typed is a claim beside it, never a verified identity
     try:
         data, origin = export(repo, args.ruleset, compiled_on(installed, args.release),
-                              audit=open_audit(cfg.env.audit_path, cfg.env.tz), by=by)  # fmt: skip
+                              audit=open_audit(cfg.env.audit_path, cfg.env.tz), by=account,
+                              by_claimed=args.by)  # fmt: skip
     except (ExportRefused, ValueError, RuntimeError) as exc:
         print(f"export REFUSED: {exc}", file=sys.stderr)
         return 1

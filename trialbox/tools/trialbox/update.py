@@ -1053,7 +1053,10 @@ def run_cmd(
             if f:
                 f.close()
     if r.returncode != 0:
-        err = (r.stderr or b"").decode(errors="replace").strip()[-600:]
+        full = (r.stderr or b"").decode(errors="replace").strip()
+        # D-1369 (the fifth review): the first line too (a refusal's short sentence; ``update.rolled_back`` keeps the
+        # first 500 characters of the failure) and the last 600 (a refused part's last line is the accepting command)
+        err = full if len(full) <= 800 else f"{full.splitlines()[0][:200]} [...] {full[-600:]}"
         raise UpdateFailed(f"{shlex.join(list(argv)[:8])} ... exit {r.returncode}: {err}")
     return "" if fout else (r.stdout or b"").decode(errors="replace")
 

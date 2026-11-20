@@ -30,6 +30,7 @@ import yaml
 from criteria_compiler.export_part import ExportRefused, compiled_on, export
 from criteria_compiler.import_ruleset import (
     ImportRefused,
+    accept_command,
     box_pins_problem,
     install,
     install_outcome,
@@ -300,7 +301,10 @@ def test_the_vendor_command_line(head: RulesetRepo, keys: tuple[Path, Path], tmp
     part = make_part(head, tmp_path / "GZQO.part.zip")
     argv = ["--key", str(keys[0]), "--id", "rs1", "--release-seq", "4", "--out", str(tmp_path / "rs.tar"), str(part)]
     assert ruleset_bundle.main(argv) == 0
-    assert "1 rule-set part(s), bundle rs1, release_seq 4" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "1 rule-set part(s), bundle rs1, release_seq 4" in out
+    h = open_part(part.read_bytes())[3]["part_sha256"]  # the fifth review: the full hash the site accepts the part by
+    assert f"part GZQO v1.0.0 part_sha256 {h} (send it to the site with the bundle" in out
     assert verify(tmp_path / "rs.tar", keys[1], installed_file=head_installed(tmp_path))["bundle_id"] == "rs1"
 
 
@@ -954,8 +958,9 @@ def test_recheck_every_shipped_elm_passes_the_allow_lists_and_the_part_holds_onl
 def test_recheck_the_site_profile_names_the_person_who_ran_it(
     tmp_path: Path, site_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Finding 3: ``--site-profile`` without ``--by`` audits ``approve.site_profile_set`` as ``host:<user>`` (as the
-    export does), never the generic "offline-update"."""
+    """Finding 3, as the fifth review corrected it: ``--site-profile`` without ``--by`` is refused (en, ja, zh-TW) and
+    writes nothing; with it, ``approve.site_profile_set`` names the account (``host:<user>``, inside the container the
+    service's) and, as ``by_claimed``, the name typed, which the box cannot verify."""
     import getpass
     from types import SimpleNamespace
 
@@ -971,20 +976,20 @@ def test_recheck_the_site_profile_names_the_person_who_ran_it(
     monkeypatch.setattr(getpass, "getuser", lambda: "opsuser")
     prof = tmp_path / "profile.yaml"
     prof.write_text(yaml.safe_dump(SITE_PROFILE), encoding="utf-8")
-    assert import_ruleset.main(["--site-profile", "GZQO", str(prof), "--version", "1.0.0"]) == 0
+    for by in ([], ["--by", " "]):
+        assert import_ruleset.main(["--site-profile", "GZQO", str(prof), "--version", "1.0.0", *by]) == 2
+    assert not audit_events(tmp_path / "audit")
+    assert RulesetRepo(tmp_path / "s").read("main", "profiles/GZQO.site-set.json") is None
+    assert import_ruleset.main(["--site-profile", "GZQO", str(prof), "--version", "1.0.0", "--by", "A. Named"]) == 0
     (ev,) = [e for e in audit_events(tmp_path / "audit") if e["event"] == "approve.site_profile_set"]
-    assert ev["actor"] == "host:opsuser"
-    assert (
-        import_ruleset.main(["--site-profile", "GZQO", str(prof), "--version", "1.0.0", "--by", "named.operator"]) == 0
-    )
-    assert [e["actor"] for e in audit_events(tmp_path / "audit") if e["event"] == "approve.site_profile_set"] == [
-        "host:opsuser", "named.operator"]  # fmt: skip
+    assert (ev["actor"], ev["detail"]["by_claimed"]) == ("host:opsuser", "A. Named")
+    assert import_ruleset.main(["--site-profile", "GZQO", str(prof), "--version", "1.0.0", "--by", "x\ny"]) == 2
 
     def _no_user() -> str:
         raise KeyError("getpwuid(): uid not found: 4242")
 
     monkeypatch.setattr(getpass, "getuser", _no_user)  # no user variable, no passwd entry: no crash
-    assert import_ruleset.main(["--site-profile", "GZQO", str(prof), "--version", "1.0.0"]) == 0
+    assert import_ruleset.main(["--site-profile", "GZQO", str(prof), "--version", "1.0.0", "--by", "A. Named"]) == 0
     assert [e["actor"] for e in audit_events(tmp_path / "audit") if e["event"] == "approve.site_profile_set"][-1] == (
         "host:unknown"
     )
@@ -1030,7 +1035,7 @@ def test_s2_a_second_version_without_a_new_site_act_is_refused_and_rolled_back(
     text = str(exc.value)
     assert "GZQO v1.0.1 is not the version this site accepted (its site profile accepts v1.0.0)" in text
     cmd = (f"docker compose exec -T criteria-compiler python -m criteria_compiler.import_ruleset --site-profile GZQO - "
-           f"--version 1.0.1 --part-sha256 {h} < <profile.yaml>")  # fmt: skip
+           f'--version 1.0.1 --part-sha256 {h} --by "<your name>" < <profile.yaml>')  # fmt: skip
     assert cmd in text and "rolled back" in text
     assert (
         "ja: GZQO v1.0.1 は、この施設が受け入れた版ではありません" in text
@@ -1211,3 +1216,178 @@ def test_n1_a_part_changed_between_its_check_and_the_signature_is_refused(
     with pytest.raises(SystemExit, match="GZQO.part.zip changed between its check and the signature"):
         ruleset_bundle.build(priv, "rs1", [part], tmp_path / "rs.tar", release_seq=4)
     assert not (tmp_path / "rs.tar").exists()
+
+
+# ------------------------------------------------------------------------------------------------ the fifth review
+def _cli(monkeypatch: pytest.MonkeyPatch, rulesets: Path, audit: Path) -> Any:
+    from types import SimpleNamespace
+
+    import tb_common.audit_writer
+    import tb_common.config
+    from criteria_compiler import import_ruleset
+
+    cfg = SimpleNamespace(env=SimpleNamespace(rulesets_path=rulesets, audit_path=audit, tz="UTC"),
+                          settings=SimpleNamespace(thresholds=None))  # fmt: skip
+    monkeypatch.setattr(tb_common.config, "load", lambda: cfg)
+    monkeypatch.setattr(tb_common.audit_writer, "open_audit", lambda path, _tz: AuditLog(path))
+    monkeypatch.setattr(import_ruleset, "box_pins_problem", lambda _m: None)
+    return import_ruleset
+
+
+def test_r5_the_export_and_the_accept_command_name_the_person_beside_the_account(
+    head: RulesetRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Item 1: the documented accept command carries ``--by``; ``export_part`` refuses without it (en, ja, zh-TW) and
+    writes nothing; with it, ``approve.part_exported`` names the account and, as ``by_claimed``, the name typed."""
+    import getpass
+
+    from criteria_compiler import export_part
+
+    assert accept_command("GZQO", "1.0.1").endswith('--version 1.0.1 --by "<your name>" < <profile.yaml>')
+    _cli(monkeypatch, tmp_path / "head", tmp_path / "head-audit")
+    monkeypatch.setattr(getpass, "getuser", lambda: "tbsvc")
+    out = tmp_path / "GZQO.part.zip"
+    argv = ["GZQO", "--out", str(out), "--release", "2026.11-1 (release_seq 3)"]
+    assert export_part.main(argv) == 2
+    err = capsys.readouterr().err
+    assert 'export_part needs --by "<your name>"' in err and "ja: export_part には --by" in err and "zh-TW:" in err
+    assert not out.exists() and not audit_events(tmp_path / "head-audit")
+    assert export_part.main([*argv, "--by", "A. Named"]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    (ev,) = [e for e in audit_events(tmp_path / "head-audit") if e["event"] == "approve.part_exported"]
+    assert (ev["actor"], ev["detail"]["by_claimed"]) == ("host:tbsvc", "A. Named")
+    assert printed["part_sha256"] == ev["output_sha"] == open_part(out.read_bytes())[3]["part_sha256"]
+
+
+def test_r5_a_refused_part_reaches_the_operator_whole(
+    head: RulesetRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Item 2: the command line's refusal of a part the site has not accepted: exit 2, no traceback; its first line a
+    short English sentence with the id and version, its last line the exact accepting command (under 400
+    characters). The update keeps the import's first line and the last 600 characters of its standard error
+    (``run_cmd``), and ``update.rolled_back`` the first 500 characters of the failure: both hold what is needed."""
+    import sys
+
+    from criteria_compiler.import_ruleset import ACCEPT_LINE_MAX, NotAccepted, refusal_lines
+
+    from tools.trialbox.update import run_cmd
+
+    box, _updates = site_box(tmp_path)  # accepts v1.0.0
+    part = _versioned(head, "1.0.1", tmp_path / "p" / "GZQO.part.zip")
+    h = open_part(part.read_bytes())[3]["part_sha256"]
+    cli = _cli(monkeypatch, box.repo_dir, tmp_path / "a")
+    assert cli.main([str(part), "--by", "update:x"]) == 2
+    err = capsys.readouterr().err
+    cmd = accept_command("GZQO", "1.0.1", h)
+    lines = err.splitlines()
+    assert lines[-1] == f"to accept GZQO v1.0.1, in deploy/ on the box's host: {cmd}" and len(lines[-1]) < 400
+    assert lines[-1].isascii() and cmd in err[-600:]
+    assert lines[0].isascii() and lines[0].startswith("rule set zip REFUSED: the rule-set part GZQO v1.0.1 is not ")
+    assert "GZQO v1.0.1" in err[:500] and "the command that accepts it follows on the last line" in err[:500]
+    assert "ja: GZQO v1.0.1" in err and "zh-TW: GZQO v1.0.1" in err and len(err) > 1300 and "Traceback" not in err
+    assert "GZQO/v1.0.1" not in RulesetRepo(box.repo_dir).tags()
+
+    # the container box: the update's own command runner, then the failure as the update records it
+    script = tmp_path / "say.py"
+    script.write_text(f"import sys\nsys.stderr.write({err!r})\nsys.exit(2)\n", encoding="utf-8")
+    with pytest.raises(UpdateFailed) as exc:
+        run_cmd([sys.executable, str(script)])
+    failed = f"UpdateFailed: {exc.value}"
+    assert cmd in failed  # the terminal's step line and the final message hold the failure whole
+    assert "GZQO v1.0.1 is not accepted at this site" in failed[:500]  # update.rolled_back keeps these 500
+
+    # the longest id and version still fit one line; a longer command goes alone on its own line, said so
+    long = accept_command("A" * 32, "9999.9999.9999", "f" * 64)
+    (short,) = [ln for ln in refusal_lines(NotAccepted("x", "A" * 32, "9999.9999.9999", long)) if long in ln]
+    assert len(short) <= ACCEPT_LINE_MAX
+    over = refusal_lines(NotAccepted("x", "GZQO", "1.0.1", "c" * 400))
+    assert over[-1] == "c" * 400 and "it follows alone" in over[-2]
+
+
+def test_r5_any_other_refusal_of_a_hand_run_zip_ends_without_a_traceback(
+    head: RulesetRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    box, _updates = site_box(tmp_path)
+    bad = _tampered(make_part(head, tmp_path / "p.zip"), tmp_path / "bad.zip")
+    assert _cli(monkeypatch, box.repo_dir, tmp_path / "a").main([str(bad), "--by", "update:x"]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("rule set zip REFUSED: rule-set part refused") and "Traceback" not in err
+
+
+def test_r5_patterns_are_held_whole_and_in_ascii(tmp_path: Path, site_env: None) -> None:
+    """Item 4: "1.0.1" plus a line break, other scripts' digits, an id with a line break are no version or id."""
+    from tb_common.ruleset_part import RULESET_ID, SHA256, VERSION
+
+    assert VERSION.fullmatch("1.0.1") and RULESET_ID.fullmatch("GZQO") and SHA256.fullmatch("a" * 64)
+    for v in ("1.0.1\n", "\uff11.0.1", "\u0661.\u0660.\u0661", "\u0967.0.1"):
+        assert not VERSION.fullmatch(v), v
+    assert not RULESET_ID.fullmatch("GZQO\n") and not SHA256.fullmatch("a" * 64 + "\n")
+    repo = RulesetRepo(tmp_path / "s", copy_rulesets(tmp_path / "seed", "GZQO", "GZQO.yaml"))
+    for v in ("1.0.1\n", "\u0661.\u0660.\u0661"):
+        with pytest.raises(ImportRefused, match="is not a rule set version"):
+            put_site_profile(repo, "GZQO", yaml.safe_dump(SITE_PROFILE).encode(), "op", version=v,
+                             audit=AuditLog(tmp_path / "audit"))  # fmt: skip
+    with pytest.raises(ImportRefused, match="is not a rule set id"):
+        put_site_profile(repo, "GZQO\n", yaml.safe_dump(SITE_PROFILE).encode(), "op", version="1.0.1",
+                         audit=AuditLog(tmp_path / "audit"))  # fmt: skip
+    assert not audit_events(tmp_path / "audit")
+
+
+def test_r5_the_site_profile_is_capped_and_strict(
+    tmp_path: Path, site_env: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Item 4: at most 64 KiB (also on standard input, read no further); an unknown field at any depth is refused
+    with a sentence (not a traceback); nothing is audited or written."""
+    import io
+    from types import SimpleNamespace
+
+    repo = RulesetRepo(tmp_path / "s", copy_rulesets(tmp_path / "seed", "GZQO", "GZQO.yaml"))
+    cli = _cli(monkeypatch, tmp_path / "s", tmp_path / "audit")
+    big = yaml.safe_dump(SITE_PROFILE).encode() + b"#" + b"x" * (64 * 1024)
+    stdin = io.BytesIO(big + b"y" * 100000)
+    monkeypatch.setattr("sys.stdin", SimpleNamespace(buffer=stdin))
+    assert cli.main(["--site-profile", "GZQO", "-", "--version", "1.0.1", "--by", "A. Named"]) == 1
+    assert "larger than 64 KiB" in capsys.readouterr().err and stdin.tell() == 64 * 1024 + 1
+    for prof in ({**SITE_PROFILE, "scopes": {"screen": {**SITE_PROFILE["scopes"]["screen"], "zzz": 1}}},
+                 {**SITE_PROFILE, "routing": {**SITE_PROFILE["routing"], "bcc": ["x@y.test"]}}):  # fmt: skip
+        with pytest.raises(ImportRefused, match="does not hold the routing and scopes a rule set takes"):
+            put_site_profile(repo, "GZQO", yaml.safe_dump(prof).encode(), "op", version="1.0.1",
+                             audit=AuditLog(tmp_path / "audit"))  # fmt: skip
+    assert not audit_events(tmp_path / "audit") and repo.read("main", "profiles/GZQO.site-set.json") is None
+
+
+def test_r5_a_mark_for_another_id_does_not_count(head: RulesetRepo, tmp_path: Path) -> None:
+    """Item 4: a site-set mark whose ``ruleset`` is another id (copied beside this id's profile) accepts nothing."""
+    import hashlib
+
+    box, _updates = site_box(tmp_path, profile=False)
+    repo = RulesetRepo(box.repo_dir)
+    body = yaml.safe_dump(SITE_PROFILE, allow_unicode=True, sort_keys=False).encode()
+    current = {p[len("profiles/") :]: b for p, b in repo.files("main", "profiles/").items()}
+    current["GZQO.yaml"] = body
+    current["GZQO.site-set.json"] = json.dumps({"format": "trialbox-site-profile/2", "ruleset": "OTHER",
+                                                "sha256": hashlib.sha256(body).hexdigest(), "version": "1.0.0",
+                                                "part_sha256": None}).encode()  # fmt: skip
+    repo.write_dir("main", "main", "profiles/", current, "a mark of another id")
+    part = make_part(head, tmp_path / "p.zip").read_bytes()
+    with pytest.raises(ImportRefused, match="no routing .* of its own for GZQO"):
+        install(repo, part, "update:x")
+    assert "GZQO/v1.0.0" not in repo.tags()
+
+
+def test_r5_a_bundle_without_a_rule_set_says_0_imported_0_already_present(
+    keys: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """Item 5 (c): the step's text for a bundle with no rule-set zip, and ``update.applied`` with no entry."""
+    priv, pub = keys
+    box, updates = site_box(tmp_path)
+    note = tmp_path / "note.txt"
+    note.write_text("synthetic\n", encoding="utf-8")
+    sign_bundle.build(priv, "2026.11-1-o1", [("other", note, "note.txt")], tmp_path / "o.tar", release_seq=4)
+    said: list[str] = []
+    m = verify(tmp_path / "o.tar", pub, tmp_path / "st", trust_file=updates / "trust.json",
+               installed_file=updates / "installed.json")  # fmt: skip
+    assert Updater(box, updates, say=said.append).run(Plan.load(tmp_path / "st", summary(m)))["ok"]
+    assert any("rulesets: 0 imported, 0 already present" in s for s in said), said
+    (applied,) = [e for e in audit_events(tmp_path / "audit") if e["event"] == "update.applied"]
+    assert applied["detail"]["rulesets"] == []

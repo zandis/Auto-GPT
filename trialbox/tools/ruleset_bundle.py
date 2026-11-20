@@ -82,7 +82,10 @@ def build(key: Path, bundle_id: str, parts: list[Path], out: Path, *, release_se
             compat=compat,
         )  # fmt: skip
     _signed_is_checked(out, m, checked)
-    return m
+    # D-1369 (the fifth review): each part's full sha256, which the command line prints for the vendor to send to
+    # the site with the bundle (the site accepts the part by it); a copy of the manifest, the signed one is unchanged
+    return {**m, "parts": [{"ruleset": o["ruleset"], "version": o["version"], "part_sha256": o["part_sha256"]}
+                           for o in origins]}  # fmt: skip
 
 
 def _signed_is_checked(out: Path, manifest: dict[str, Any], checked: dict[str, bytes]) -> None:
@@ -141,6 +144,9 @@ def main(argv: list[str] | None = None) -> int:
               valid_days=args.valid_days)  # fmt: skip
     print(f"wrote {args.out}: {len(m['files'])} rule-set part(s), bundle {m['bundle_id']}, release_seq "
           f"{m['release_seq']}; apply it with tools/apply_update.sh")  # fmt: skip
+    for part in m["parts"]:  # the site accepts each part by this hash (--site-profile ... --part-sha256): send it along
+        print(f"part {part['ruleset']} v{part['version']} part_sha256 {part['part_sha256']} "
+              "(send it to the site with the bundle: the site accepts the part by it)")  # fmt: skip
     return 0
 
 
