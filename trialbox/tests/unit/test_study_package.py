@@ -13,6 +13,7 @@ from __future__ import annotations
 import builtins
 import contextlib
 import hashlib
+import inspect
 import io
 import json
 import os
@@ -1551,8 +1552,8 @@ def test_a_the_package_is_written_by_descriptor_and_a_failed_rename_says_the_eve
 
     old = os.umask(0)
     try:
-        monkeypatch.setattr(tool.os, "open", spy)
-        monkeypatch.setattr(tool.os, "link", no_link)
+        monkeypatch.setattr(os, "open", spy)
+        monkeypatch.setattr(os, "link", no_link)
         with pytest.raises(ValueError) as e:
             tool.write(study, key, out, DAY, audit_dir=audit, by="host:crc-test", own=lambda _f: None)
         monkeypatch.undo()
@@ -1614,7 +1615,7 @@ def test_a_the_audit_files_go_back_by_descriptor_regular_files_only(tmp_path: Pa
     assert st["sub"].st_uid == me and st["deep"].st_uid == me
     assert st["2026-11-19.jsonl"].st_uid == (65534 if me == 0 else me)
     assert stat_mode(st["2026-11-19.jsonl"]) == 0o640
-    assert tool.write.__kwdefaults__["own"] is tool._give_back
+    assert inspect.signature(tool.write).parameters["own"].default is tool._give_back
 
 
 def stat_mode(st: os.stat_result) -> int:
