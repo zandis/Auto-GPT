@@ -912,12 +912,15 @@ def _retag(toks: list[Token], an: Analyser) -> list[Token]:
     return out
 
 
-def name_spans(text: str, an: Analyser, *, protect: bool = True, japanese: bool | None = None) -> list[tuple[int, int]]:
+def name_spans(
+    text: str, an: Analyser, *, protect: bool = True, japanese: bool | None = None, cued: bool = False
+) -> list[tuple[int, int]]:
     """``(start, end)`` of every person name the rule takes from the analyser's tags, the positions beside titles and
     labels, and Latin letters. ``japanese``: the caller knows the text is Japanese (the guard decides from the site's
     note language and the text, ``phi_guard.japanese_names``); None: only a text with kana or 歳 is read.
     ``protect=False``: every word the analyser tags as a person name, with no rule (what the analyser alone would mask,
-    to show what the rule does)."""
+    to show what the rule does). ``cued``: only a name beside a cue (a title or an honorific after it, a label or a role
+    before it), never one on the analyser's tags or an age alone (a kana-free note at a site of unknown language)."""
     if not protect:
         return [
             (o + t.start, o + t.end) for o, piece in _pieces(text) if piece.strip() for t in an.tokens(piece) if t.name
@@ -928,30 +931,33 @@ def name_spans(text: str, an: Analyser, *, protect: bool = True, japanese: bool 
     for offset, piece in _pieces(text):
         if not piece.strip():
             continue
-        key = (id(an), piece)
+        key = (id(an), cued, piece)
         if key not in _PIECE_CACHE:
             if len(_PIECE_CACHE) >= _PIECE_CACHE_MAX:
                 _PIECE_CACHE.clear()  # bounded, as the reading cache
-            _PIECE_CACHE[key] = _piece_spans(piece, an)
+            _PIECE_CACHE[key] = _piece_spans(piece, an, cued)
         out.extend((offset + s, offset + e) for s, e in _PIECE_CACHE[key])
     return sorted(set(out))
 
 
 #: a line read once is not read again (a template line, a note's repeated header): bounded
-_PIECE_CACHE: dict[tuple[int, str], list[tuple[int, int]]] = {}
+_PIECE_CACHE: dict[tuple[int, bool, str], list[tuple[int, int]]] = {}
 _PIECE_CACHE_MAX = 1024
 
 
-def _piece_spans(piece: str, an: Analyser) -> list[tuple[int, int]]:
-    """The names of one piece of text (a line, or a part of a long one), relative to the piece."""
+def _piece_spans(piece: str, an: Analyser, cued: bool = False) -> list[tuple[int, int]]:
+    """The names of one piece of text (a line, or a part of a long one), relative to the piece; ``cued``: only those
+    beside a cue (:func:`name_spans`)."""
     toks = _Words(_retag([t for t in an.tokens(piece) if t.surface not in _DOT], an))
+    found = [*_before_title(piece, toks), *_after_label(piece, toks), *_after_cue(piece, toks)]
+    if cued:
+        return sorted({(s, _with_brackets(piece, toks, s, e)) for s, e in found})
     out = [
         (s, _with_brackets(piece, toks, s, e))
         for s, e, words, run_end in _proposals(piece, toks)
         if not _protected(piece, s, e, words, run_end)
     ]
-    found = [*_before_title(piece, toks), *_after_label(piece, toks), *_before_age(piece, toks)]
-    found += [*_after_cue(piece, toks), *_after_age_sex(piece, toks), *romaji_spans(piece, an)]
+    found += [*_before_age(piece, toks), *_after_age_sex(piece, toks), *romaji_spans(piece, an)]
     out += [(s, _with_brackets(piece, toks, s, e)) for s, e in found]
     return sorted(set(out))
 

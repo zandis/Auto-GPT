@@ -1189,22 +1189,63 @@ _ZH_TEXT = re.compile(
     "斷腦臟舊麼沒寫處雙雜續轉關點药检发会学国经区断脑脏与没写处双杂续转关价压诊确认无]"
 )
 _JA_HAN = re.compile(f"[{_JA_KANJI}]")
+_KANA_ANY = re.compile("[ぁ-ゖァ-ヺｦ-ﾝ]")
 #: two Latin words; a match starts only at a word's start, so a long run of letters is read once (linear, not square)
 _LATIN_TWO_WORDS = re.compile("(?<![A-Za-zＡ-Ｚａ-ｚ])[A-Za-zＡ-Ｚａ-ｚ]{2,}[ 　]{1,2}[A-Za-zＡ-Ｚａ-ｚ]{2}")
 _JA_ANALYSER = threading.local()  # one tokenizer per thread: a Sudachi tokenizer is not shared between threads
 
 
-def site_notes_language() -> str | None:
-    """The site's declared note language (``settings.site.notes_language``: ``ja``, ``zh-TW`` or ``en``), or None
-    (``auto``, or no site configuration readable)."""
+def _site_reading() -> tuple[str | None, str | None, str] | None:
+    """``(declared note language, time zone, locale)`` of the site's configuration, or None when none is readable."""
     try:
         from tb_common.config import get_config
 
-        site = get_config().settings.site
-        lang = getattr(site, "notes_language", None) if site is not None else None
+        cfg = get_config()
+        site = cfg.settings.site
     except Exception:
         return None
-    return lang if lang in ("ja", "zh-TW", "en") else None
+    if site is None:
+        return None
+    declared = getattr(site, "notes_language", None)
+    return (
+        str(declared) if declared is not None else None,
+        getattr(getattr(cfg, "env", None), "tz", None),
+        str(getattr(site, "locale", "") or ""),
+    )
+
+
+def site_notes_language() -> str | None:
+    """The language of the site's notes (``ja``, ``zh-TW`` or ``en``), or None when it is not known. The site's
+    declared one (``settings.site.notes_language``) wins; when it is ``auto`` and the site's country is known (the
+    reading ``tb_common.derived.country_of`` gives from the site's time zone and locale), the country's: its layer's
+    language (``P5 report_language``), else the language of the site's locale. None: no declaration and no country (or
+    a country layer that is broken, or no site configuration readable)."""
+    reading = _site_reading()
+    if reading is None:
+        return None
+    declared, tz, locale = reading
+    if declared in _NOTE_LANGS:
+        return declared
+    from tb_common import country_layer
+    from tb_common.derived import country_of
+
+    country = country_of(tz, locale)
+    if country is None:
+        return None
+    try:
+        lang = country_layer.value(country, "P5", "report_language")
+    except country_layer.LayerError:
+        return None  # a broken layer: the country's language is not known, never another country's
+    return _locale_language(str(lang or locale))
+
+
+_NOTE_LANGS = ("ja", "zh-TW", "en")
+
+
+def _locale_language(locale: str) -> str | None:
+    """The language a locale names (``ja-JP`` -> ``ja``, ``zh-TW`` -> ``zh-TW``, ``en-US`` -> ``en``), else None."""
+    low = locale.lower()
+    return "ja" if low.startswith("ja") else "zh-TW" if low.startswith("zh") else "en" if low.startswith("en") else None
 
 
 def japanese_text(text: str) -> bool:
@@ -1241,7 +1282,10 @@ def japanese_names(text: str) -> list[tuple[int, int]]:
     an = getattr(_JA_ANALYSER, "an", None)
     if an is None:
         an = _JA_ANALYSER.an = ja_names.analyser("sudachi-small")
-    return ja_names.name_spans(text, an, japanese=True)
+    # a note with no kana at a site whose language is not known: Chinese and Japanese share these kanji, so a word
+    # is a name only beside a cue (a label, a title, an honorific), never on its dictionary reading alone
+    cued = _KANA_ANY.search(text) is None and site_notes_language() is None
+    return ja_names.name_spans(text, an, japanese=True, cued=cued)
 
 
 #: 10C-1b: name recognisers beyond the patterns, each ``text -> (start, end) spans``, added to :func:`note_spans` (and
@@ -1317,14 +1361,16 @@ def _whole_names(text: str, found: list[tuple[str, int, int]]) -> list[tuple[str
 
 
 def _repeated_names(text: str, found: list[tuple[str, int, int]]) -> list[tuple[str, int, int]]:
-    """10C-1b: in a Japanese note, a span in a name's place that is no name is dropped (主治医：交代予定:
-    ``tb_common.ja_names.not_a_name``), and a name masked once is masked at its other bare occurrences in the same
-    note (河野さんへ。河野は不在。: ``tb_common.ja_names.repeat_spans``)."""
-    if not any(kind == "name" for kind, _s, _e in found) or not japanese_text(text):
+    """10C-1b: a span in a name's place that is no name is dropped in any language (主治医：交代予定, 担当医：当番医:
+    ``tb_common.ja_names.not_a_name``); in a Japanese note, a name masked once is masked at its other bare occurrences
+    in the same note (河野さんへ。河野は不在。: ``tb_common.ja_names.repeat_spans``)."""
+    if not any(kind == "name" for kind, _s, _e in found):
         return found
-    from tb_common import ja_names
+    from tb_common import ja_names  # no analyser: the word lists only
 
     found = [f for f in found if f[0] != "name" or not ja_names.not_a_name(text[f[1] : f[2]])]  # 主治医：交代予定
+    if not japanese_text(text):
+        return found
     names = [text[s:e] for kind, s, e in found if kind == "name"]
     return found + [("name", s, e) for s, e in ja_names.repeat_spans(text, names)]
 

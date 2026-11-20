@@ -63,6 +63,23 @@ _ENV = {
 }
 
 
+_SITE_READING = phi_guard._site_reading
+JP_SITE = ("auto", "Asia/Tokyo", "ja-JP")  # a site of the Japan country reading, notes_language auto
+TW_SITE = ("auto", "Asia/Taipei", "zh-TW")  # a site of the Taiwan country reading, notes_language auto
+NO_COUNTRY = ("auto", "UTC", "en")  # a site whose country is not known
+
+
+def _at(monkeypatch: pytest.MonkeyPatch, site: tuple[str, str, str]) -> None:
+    """Put the guard at ``site`` (declared note language, time zone, locale): only what it reads of the site."""
+    monkeypatch.setattr(phi_guard, "_site_reading", lambda: site)
+
+
+@pytest.fixture(autouse=True)
+def _jp_site(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Japanese fixtures are read at a site of the Japan country reading; a test that needs another site says so."""
+    _at(monkeypatch, JP_SITE)
+
+
 def _fresh(code: str) -> str:
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=_ENV, check=True)
     return out.stdout.strip()
@@ -302,31 +319,77 @@ def test_the_name_is_masked_never_the_title_beside_it(line: dict[str, str]) -> N
 
 @pytest.mark.req("PRIV-29")
 def test_the_language_comes_from_the_site_and_the_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A kanji-only line is read when the site declares Japanese notes, or declares nothing and every kanji in it is
-    one of everyday Japanese (JIS level 1) or it holds a sign only Japanese writes (氏名, 様, 旧姓); never when the site
-    declares Chinese or English notes. Kana is Japanese at any site. A Chinese line keeps its words: 屬, 來, 顯 and 值
-    are forms Japanese does not write."""
+    """The site's language: declared, else its country's (a Japan site reads Japanese, a Taiwan site Chinese), else
+    not known. A kanji-only line is read as Japanese at a Japanese site, never at a Chinese or English one; at a site
+    of no known language when every kanji in it is everyday Japanese (JIS level 1) and no letter only Chinese writes
+    is in it, and then, with no kana in the note, a name only beside a cue. Kana is Japanese at any site. A Chinese
+    line keeps its words: 屬, 來, 顯 and 值 are forms Japanese does not write."""
     kanji, chinese, kana = "森本裕子", "這位病人是森本裕子", "森本裕子さんが来院"
-    monkeypatch.setattr(phi_guard, "site_notes_language", lambda: None)
+    for site in (JP_SITE, ("ja", "UTC", "en")):
+        _at(monkeypatch, site)
+        assert phi_guard.site_notes_language() == "ja"
+        assert [phi_guard.japanese_text(t) for t in (kanji, chinese, kana)] == [True, True, True]
+        assert mask_note(kanji) == "○○○○"
+    for site in (TW_SITE, ("zh-TW", "Asia/Tokyo", "ja-JP"), ("en", "UTC", "en")):
+        _at(monkeypatch, site)
+        assert phi_guard.site_notes_language() in ("zh-TW", "en")
+        assert [phi_guard.japanese_text(t) for t in (kanji, chinese, kana)] == [False, False, True]
+        assert mask_note(kanji) == kanji
+    _at(monkeypatch, NO_COUNTRY)
+    assert phi_guard.site_notes_language() is None
     assert [phi_guard.japanese_text(t) for t in (kanji, chinese, kana)] == [True, False, True]
-    assert mask_note(kanji) == "○○○○"
+    assert mask_note(kanji) == kanji  # no kana, no cue: the stated limit
+    assert mask_note("森本医師より") == "○○医師より"  # kana in the note: read in full
+    assert mask_note("森本医師") == "○○医師"  # no kana, beside a cue
+    assert mask_note("氏名：森本裕子") == "氏名：○○○○"
     for line in ("氏名：森本裕子", "森本裕子様", "担当 渡辺医師", "既往歴 高血圧", "旧姓 渡邊"):
         assert phi_guard.japanese_text(line), line
     for line in ("家屬林淑芬來電詢問病情。", "胸部 X 光未見明顯浸潤。", "值班護理師交班", "病人主訴頭痛三天，無發燒"):
         assert not phi_guard.japanese_text(line), line
         assert phi_guard.japanese_names(line) == [], line
-    monkeypatch.setattr(phi_guard, "site_notes_language", lambda: "ja")
-    assert [phi_guard.japanese_text(t) for t in (kanji, chinese, kana)] == [True, True, True]
-    assert mask_note(kanji) == "○○○○"
-    for lang in ("zh-TW", "en"):
-        monkeypatch.setattr(phi_guard, "site_notes_language", lambda lang=lang: lang)
-        assert [phi_guard.japanese_text(t) for t in (kanji, chinese, kana)] == [False, False, True]
-        assert mask_note(kanji) == kanji
+
+
+ZH = json.loads((SYNTH / "zh_tw_no_name_lines.json").read_text())
+ZH_LINES = [
+    pytest.param(t, marks=pytest.mark.xfail(strict=True, reason="master's Chinese rule: " + ZH["master_over_masks"][t]))
+    if t in ZH["master_over_masks"]
+    else t
+    for t in ZH["lines"]
+]
+
+
+@pytest.mark.req("PRIV-29")
+@pytest.mark.parametrize("site", [TW_SITE, NO_COUNTRY], ids=["taiwan-site", "no-country"])
+@pytest.mark.parametrize("text", ZH_LINES)
+def test_a_chinese_line_with_no_name_loses_nothing(monkeypatch: pytest.MonkeyPatch, site: Any, text: str) -> None:
+    """Traditional Chinese clinical lines whose words are also Japanese surname or given-name shapes (精神, 護理,
+    長庚, 安寧, 平安, 和平, 陳述): unchanged at a Taiwan site and at a site of no known country."""
+    _at(monkeypatch, site)
+    assert not ja_name_eval.changed(text, Guard(None)), mask_note(text)
+
+
+@pytest.mark.req("PRIV-29")
+def test_master_s_own_chinese_over_masks_are_master_s(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The two lines that change are changed by master's Chinese rules alone, the analyser off."""
+    _at(monkeypatch, TW_SITE)
+    monkeypatch.setattr(phi_guard, "NAME_RECOGNISERS", [])
+    for text, out in ZH["master_over_masks"].items():
+        assert mask_note(text) == out
+
+
+@pytest.mark.req("PRIV-29")
+@pytest.mark.parametrize("site", [JP_SITE, TW_SITE, NO_COUNTRY, ("zh-TW", "Asia/Taipei", "zh-TW"), ("ja", "UTC", "en")])
+def test_a_role_word_in_a_name_s_place_is_no_name_in_any_language(monkeypatch: pytest.MonkeyPatch, site: Any) -> None:
+    _at(monkeypatch, site)
+    for text in ("担当医：当番医", "主治医：交代予定"):
+        assert mask_note(text) == text, (site, mask_note(text))
 
 
 @pytest.mark.req("PRIV-29")
 def test_the_site_language_is_the_declared_notes_language(monkeypatch: pytest.MonkeyPatch) -> None:
     import tb_common.config as config
+
+    monkeypatch.setattr(phi_guard, "_site_reading", _SITE_READING)  # the real reader, over a stub configuration
 
     class Site:
         notes_language = "zh-TW"

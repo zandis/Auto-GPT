@@ -148,6 +148,35 @@ unmasked as an eponym, and a search over two Latin words that took 3.8 s on 30,0
   space, katakana and hiragana with a space, kanji before 様, free or after a line break), for the masker and the
   tripwire: their 14 strict expected failures are removed.
 
+**Sixth round** (the coordinator's run on 35c8936e: 0 of 214 names leaked, 0 of 150 no-name lines over-masked; at a
+site that declares no note language, 2 of 20 fresh Traditional Chinese no-name lines lost words, 病人今日精神佳 ->
+病人今日○○○ and 護理長交班 -> ○○長交班, and at a declared zh-TW site 担当医：当番医 -> 担当医：○○○). Kanji that both
+languages share cannot be told apart line by line, so the site decides:
+- **The site's language** (`phi_guard.site_notes_language`): the declared `settings.site.notes_language`; when it is
+  `auto`, the language of the site's country, by the reading every other country behaviour uses
+  (`tb_common.derived.country_of`, from `site.tz` and `site.locale`): the country layer's language (`P5
+  report_language`) where the country has a layer, else the language of the site's locale. No country word in the
+  guard; a broken layer counts as no known language. No set-up step writes `notes_language`: it is `auto` (the
+  settings schema's default) unless a person sets it in `settings.yaml`, so an installed site resolves through its
+  country.
+- **No known language** (no declaration, no country): a note with no kana in it is read for names only beside a cue
+  (a title or honorific after the word, a label or a role before it, from the cue data), never on the analyser's
+  tags or an age alone.
+- **A role word in a name's place is no name in any language setting** (担当医：当番医 stays at a zh-TW site too): the
+  `not_a_name` filter runs on every text, the repeats only on Japanese.
+- **At a site whose notes are Chinese (declared `zh-TW`, or `auto` at a site of the Taiwan reading), kanji-only
+  Japanese names are not read**: bare 森本裕子, 宮本 修 医師, 百目鬼 透 氏, 野村 Dr., 担当PT：浅野 (7 of the
+  coordinator's 214). This is intended: there the kanji are Chinese, and reading them as Japanese takes Chinese words
+  (精神, 護理, 長庚) for names; the guard's Chinese rules cover the names of Chinese notes. A name with kana or a
+  Japanese-only form beside it (森本さん, 森本様, 歳) is read at any site.
+- Fixtures: 40 Traditional Chinese no-name lines of the lane's own (`eval/phi_synth/zh_tw_no_name_lines.json`) lose
+  nothing at a Taiwan site and at a site of no country, but 2 that master's own Chinese rules change with the analyser
+  off (家屬陳述 -> 家屬○○○, 照護理師訪視 -> 照護理師○○): strict expected failures, not this card's. On 35c8936e 7 of
+  the 40 changed. The Japanese fixtures run at a Japan site, unchanged. The guard's false-positive measure on its
+  negatives: 0 of 29 (zh-TW 0 of 8) before and after.
+
+**Limit added**: a bare kanji-only name in a note with no kana at a site of no known language (森本裕子 alone).
+
 **The three named limits** remain: a bare surname with no cue (浅野 alone), a hiragana surname the analyser does not
 know by its reading (すどう alone), a romaji surname alone (Kimura alone).
 
