@@ -7,7 +7,8 @@ reading of the log that ``console.team.standing`` and ``orchestrator.grants.log_
 changed. A cover carries only the PI rights of ``teamstore.COVER_RIGHTS`` (the clinical ones; default deny), never the
 study's administration (``teamstore.COVER_WITHHELD``): the delegation log, its monthly check, the study's state, the
 IRB records, prefill on and off stay the PI's. A cover that lapses (the PI covered no longer the PI the log names, or
-the covering person's own entry not active) is ended for good when first observed (``console.cover`` ``lapsed``). Every audit event the covering person's acts write in that study while
+the covering person's own entry not active) is ended for good when first observed (``console.cover`` ``lapsed``).
+Every audit event the covering person's acts write in that study while
 the cover is in effect carries ``covering_for`` with both names (:class:`CoverAudit`); the actor stays the covering
 person, never the PI. The entry, an early end, the start and the end of a cover are ``console.cover`` events; the start
 and the end once each (:func:`record_edges`: when a cover is entered for today, when a page first reads it in effect,
