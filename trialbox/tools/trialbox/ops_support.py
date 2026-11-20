@@ -37,9 +37,11 @@ import os
 import re
 import stat
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any
+
+from tools.trialbox import support_fields as sf
 
 ACTION = "support_bundle"
 SUBDIR = "support"
@@ -48,33 +50,21 @@ NAME = re.compile(r"trialbox-support-\d{8}T\d{6}Z\.tar\.gz", re.ASCII)  # the bu
 LINE_FILE, LINE_BYTES, LINE_SHA = "file ", "bytes ", "sha256 "
 _SHA = re.compile(r"[0-9a-f]{64}", re.ASCII)
 MAKING = ".making"  # <ops>/support/.making: root alone; a bundle is made here and moved out only once audited
-#: D-1381 (the review of 83a0640a): the reason a bundle made from the button holds no service log, in its MANIFEST
-LOGS_LEFT_OUT = (
-    "left out of a bundle made from the console's button (D-1381): TrialBox's service logs can carry patient "
-    "pseudonyms, which the scrubber does not catch; they are in a bundle only when it is made on the host with "
-    "`trialbox support-bundle`, as root"
-)
-#: D-1381 (the review of 31935cc4): the members a bundle made from the button never holds, each with its reason in the
-#: MANIFEST; the commands named are not run. Until the builder's redaction catches a secret by its value wherever it
-#: stands (lane H's cure), these come back only through the host tool.
-_BY_NAME = ("the builder redacts a secret by the setting's name and the user:password of a URL, so a secret under a "
-            "name it does not know, or in a URL's query, would go through")  # fmt: skip
-LEFT_OUT: Mapping[str, str] = MappingProxyType({
-    "env.redacted": f"left out of a bundle made from the console's button (D-1381): {_BY_NAME}",
-    "cmd/compose-config.yaml": "left out of a bundle made from the console's button (D-1381): docker compose config "
-    f"prints every service's resolved settings; {_BY_NAME}",
-    "cmd/doctor.json": "left out of a bundle made from the console's button (D-1381): doctor prints setting values "
-    "(the gateway's and the verifier's URLs among them) without that redaction, and texts it reads from the database "
-    "(the reason given for the hold after a restore, which a person may type)",
-    "cmd/check_host.txt": "left out of a bundle made from the console's button (D-1381): check_host.sh runs doctor and "
-    "prints what doctor prints",
-})  # fmt: skip
-#: D-1381 (the review of 31935cc4): why the free text of the history and the ops snapshot is marked
-TEXTS_MARKED = (
-    "replaced by a mark with the text's length and the error's type name in a bundle made from the console's button "
-    "(D-1381): an error text can quote a patient-linked value (a failed migration's database error quotes the key "
-    "that clashed, a pseudonym among them)"
-)
+MAX_AGE_DAYS = 14  # a kept bundle older than this is removed by the runner's next pass (the review of 48b3210c, L6)
+#: D-1381 (the review of 48b3210c): the reasons in the MANIFEST of a bundle made from the button. Every member is made
+#: from allow-listed fields of closed kinds (tools/trialbox/support_fields.py); everything else stays on the box.
+ALLOWED = ("made from the console's button (D-1381): only the fields on this member's allow-list, each a number, a "
+           "yes/no, a time, a value from a fixed set or a string of a declared pattern; every other field (texts, "
+           "paths, file names, command lines, ids) stays on the box")  # fmt: skip
+LEFT_OUT: tuple[tuple[str, str], ...] = (
+    ("logs/", "a bundle made from the console's button holds no service log (D-1381): a log line is free text and "
+              "can carry a patient pseudonym"),
+    ("env.redacted, cmd/compose-config.yaml, cmd/doctor.json, cmd/check_host.txt",
+     "a bundle made from the console's button holds no setting and no command's text (D-1381): settings are "
+     "redacted by name, and these print setting values and texts a person typed"),
+    ("the raw ops snapshot, update history, audit verification and command outputs",
+     "a bundle made from the console's button holds their allow-listed fields only (D-1381)"),
+)  # fmt: skip
 
 
 def support_dir(ops_root: Path) -> Path:
@@ -185,21 +175,51 @@ def _open_support(ops_root: Path, uid: int) -> tuple[int, int]:
         os.close(ofd)
 
 
-def _prune(d: Path, keep: int) -> list[str]:
-    old = sorted(p.name for p in d.iterdir() if NAME.fullmatch(p.name) and p.is_file())[:-keep]
-    for name in old:
+def _old(d: Path, keep: int, now: float) -> list[tuple[str, str]]:
+    """The kept bundles to remove, with why: beyond the newest ``keep``, or older than :data:`MAX_AGE_DAYS`."""
+    names = sorted(p.name for p in d.iterdir() if NAME.fullmatch(p.name) and p.is_file())
+    out = [(n, "count") for n in names[:-keep]] if keep else [(n, "count") for n in names]
+    for n in names[-keep:] if keep else []:
+        with contextlib.suppress(OSError):
+            if now - (d / n).stat().st_mtime > MAX_AGE_DAYS * 86400:
+                out.append((n, "age"))
+    return out
+
+
+def _prune(runner: Any, d: Path, keep: int) -> list[str]:
+    """Remove the bundles :func:`_old` names, each with the event ``support_bundle.removed`` (the file and why).
+    Removing is the safe direction: a bundle is removed even when its event cannot be written (best effort)."""
+    import time
+
+    gone = []
+    for name, why in _old(d, keep, time.time()):
+        with contextlib.suppress(Exception):
+            _audit(runner, {"action": f"{ACTION}.removed", "file": name, "why": why})
         with contextlib.suppress(OSError):
             (d / name).unlink()
-    return old
+            gone.append(name)
+    return gone
+
+
+def sweep(runner: Any) -> list[str]:
+    """``OpsRunner.sweep_support``: each runner pass removes the kept bundles older than :data:`MAX_AGE_DAYS`."""
+    d = support_dir(runner.ops.root)
+    if not d.is_dir() or d.is_symlink():
+        return []
+    return _prune(runner, d, KEEP)
 
 
 def _audit_made(runner: Any, rec: Mapping[str, Any], rid: str) -> None:
     """``console.ops`` with ``support_bundle.made``, the request, the file name, its size and its sha256, BEFORE the
-    file gets its final name. On a site box it is written inside the orchestrator as
+    file gets its final name. Never best effort: no event, no bundle."""
+    _audit(runner, {"action": f"{ACTION}.made", "request": rid, **rec})
+
+
+def _audit(runner: Any, detail: Mapping[str, Any]) -> None:
+    """One ``console.ops`` event of the runner. On a site box it is written inside the orchestrator as
     :meth:`tools.trialbox.ops.OpsRunner.audit` writes the result's event, and a failure raises (the command's exit);
     on the in-process box through the console's own writer (``audit_local``, set by ``console/ops_pages.py``), else
-    the box's writer (:func:`tb_common.audit_writer.open_audit`). Never best effort: no event, no bundle."""
-    detail = {"action": f"{ACTION}.made", "request": rid, **rec}
+    the box's writer (:func:`tb_common.audit_writer.open_audit`)."""
     if runner.box.kind == "compose":
         from tools.trialbox.update import ComposeBox
 
@@ -220,9 +240,99 @@ def _audit_made(runner: Any, rec: Mapping[str, Any], rid: str) -> None:
     open_audit(env=runner.box.env).append("console.ops", actor="trialbox-ops", detail=detail)
 
 
+def _read_json(p: Path) -> Any:
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def members(runner: Any, run: sf.Runner | None = None) -> tuple[dict[str, str], list[dict[str, str]]]:
+    """The button's members, each from its allow-list (:mod:`tools.trialbox.support_fields`), and the MANIFEST's
+    ``left_out`` rows: what was dropped, member by member, and what is never in such a bundle."""
+    from tb_common import audit, metrics
+
+    from tools import support_bundle
+    from tools.trialbox import logs as tb_logs
+    from tools.trialbox import ops as tb_ops
+
+    box, deploy = runner.box, Path(runner.box.deploy)
+    env = {**support_bundle._env_file(deploy), **dict(box.env or {}),
+           **{k: v for k, v in os.environ.items() if k in ("TB_LOG_DIR", "TB_AUDIT_HOST_DIR")}}  # fmt: skip
+    updates = deploy / "updates"
+    installed = _read_json(updates / "installed.json")
+    labels = sf.Labels(str(installed.get("bundle_id") or "") if isinstance(installed, Mapping) else "")
+    targets = [str(t) for t in box.targets()]
+    disks = sf.Disks(deploy, str(env.get("TB_DOCKER_ROOT") or "/var/lib/docker"), targets)
+    raw: dict[str, Any] = {}
+    try:
+        snap = tb_ops.snapshot(box)
+    except Exception as exc:  # the bundle reports, it does not stop: the type only
+        snap = {"error": type(exc).__name__}
+    raw["ops-snapshot.json"] = sf.snapshot(snap, labels, disks)
+    facts = snap.get("health") if isinstance(snap.get("health"), Mapping) else None
+    try:
+        evaluated = metrics.evaluate(facts, None, datetime.now(UTC), metrics.Thresholds.from_env(env)).as_dict()
+    except Exception:
+        evaluated = {}
+    raw["health.json"] = sf.health(evaluated)
+    rel = _read_json(deploy / "release.json")
+    raw["release.json"] = sf.release(tb_ops._version(), installed, rel, labels)
+    try:
+        hist = (updates / "history.jsonl").read_text(encoding="utf-8").splitlines()[-support_bundle.HISTORY_LINES :]
+    except OSError:
+        hist = None
+    adir = Path(env.get("TB_AUDIT_HOST_DIR") or tb_logs.DEFAULT_AUDIT)
+    try:
+        raw["audit-verify.json"] = (sf.audit_verify(audit.verify(adir), state="verified") if adir.is_dir()
+                                    else sf.audit_verify(state="not_here"))  # fmt: skip
+    except PermissionError as exc:
+        raw["audit-verify.json"] = sf.audit_verify(state="unreadable", error=type(exc).__name__)
+    except Exception as exc:
+        raw["audit-verify.json"] = sf.audit_verify(state="failed", error=type(exc).__name__)
+    left: list[dict[str, str]] = [{"what": w, "why": y} for w, y in LEFT_OUT]
+    if box.kind == "compose":
+        run = run or support_bundle.run_cmd
+        comp = tb_logs.compose(deploy)
+        rc, ids = run([*comp, *sf.PS_IDS], 60)
+        lines: list[str] = []
+        if rc == 0 and ids.split():
+            rc, out = run(["docker", "inspect", "--format", sf.INSPECT_FORMAT, *ids.split()], 60)
+            lines = out.splitlines() if rc == 0 else []
+        raw["services.json"] = sf.services(lines)
+        rc, out = run(list(sf.DF), 30)
+        raw["disks.json"] = sf.df(out.splitlines() if rc == 0 else [], disks)
+        rc, out = run(list(sf.GPU), 60)
+        raw["gpu.json"] = sf.gpu(out.splitlines() if rc == 0 else [])
+    else:
+        left.append({"what": "services.json, disks.json, gpu.json", "why": "the in-process box runs no command"})
+    given: dict[str, str] = {}
+    for name, value in raw.items():
+        kept, dropped = sf.keep(sf.SCHEMAS[name], value)
+        given[name] = json.dumps(kept, indent=1, ensure_ascii=True, sort_keys=True) + "\n"
+        if dropped:
+            left.append({"what": f"{name}: {dropped} field(s) not on its allow-list", "why": ALLOWED})
+    if hist is not None:
+        rows, dropped = [], 0
+        for line in hist:
+            try:
+                row = json.loads(line)
+            except ValueError:
+                row = None
+            kept, n = sf.keep(sf.SCHEMAS["history.jsonl"], sf.history_line(row, labels))
+            dropped += n + (not isinstance(row, Mapping))
+            if kept is not None and kept is not sf._DROP:
+                rows.append(json.dumps(kept, ensure_ascii=True, sort_keys=True))
+        given["history.jsonl"] = "\n".join(rows) + ("\n" if rows else "")
+        if dropped:
+            left.append({"what": f"history.jsonl: {dropped} field(s) or line(s) not on its allow-list", "why": ALLOWED})
+    return given, left
+
+
 def do_support_bundle(runner: Any, args: Mapping[str, str]) -> tuple[str, list[str]]:
-    """``OpsRunner.do_support_bundle``: the bundle, made by :func:`tools.support_bundle.build` into
-    ``<ops>/support/.making``, audited, then given its final name in ``<ops>/support``; ``args`` unread."""
+    """``OpsRunner.do_support_bundle``: the members (:func:`members`), checked and written by
+    :func:`tools.support_bundle.build` into ``<ops>/support/.making``, audited, then given their final name in
+    ``<ops>/support``; ``args`` unread."""
     from tools import support_bundle
     from tools.trialbox.ops import SERVICE_UID
 
@@ -231,12 +341,9 @@ def do_support_bundle(runner: Any, args: Mapping[str, str]) -> tuple[str, list[s
     try:
         said: list[str] = []
         looked: list[tuple[str, int]] = []
-        # a site box runs docker, df and nvidia-smi as the command does; the in-process box has no docker.
-        # D-1381: no service log, whatever the days; no .env, compose config, doctor or check_host.sh; the history's
-        # and the snapshot's texts marked. All constants of this module: the console passes nothing.
-        made = support_bundle.build(runner.box.deploy, out / MAKING, commands=runner.box.kind == "compose",
-                                    say=said.append, logs_left_out=LOGS_LEFT_OUT, left_out=LEFT_OUT,
-                                    texts_marked=TEXTS_MARKED, scanned=lambda h, n: looked.append((h, n)))  # fmt: skip
+        given, left = members(runner)
+        made = support_bundle.build(runner.box.deploy, out / MAKING, commands=False, say=said.append, given=given,
+                                    given_left_out=left, scanned=lambda h, n: looked.append((h, n)))  # fmt: skip
         name = made.name
         if not NAME.fullmatch(name):
             raise SupportFolderRefused(f"the builder named its file {name[:80]!r}: not released")
@@ -256,7 +363,7 @@ def do_support_bundle(runner: Any, args: Mapping[str, str]) -> tuple[str, list[s
                 os.unlink(name, dir_fd=mfd)
                 raise SupportFolderRefused(f"{name} is already in {out}: not released")
             rec = {"file": name, "bytes": size, "sha256": sha}
-            rid = next((str(r.get("id")) for r in runner.ops.running() if r.get("action") == ACTION), "")
+            rid = str(getattr(runner, "request_id", "") or "")  # set by OpsRunner.run_one from the request itself
             try:
                 _audit_made(runner, rec, rid)
             except Exception as exc:
@@ -272,7 +379,7 @@ def do_support_bundle(runner: Any, args: Mapping[str, str]) -> tuple[str, list[s
     finally:
         os.close(mfd)
         os.close(sfd)
-    removed = _prune(out, KEEP)
+    removed = _prune(runner, out, KEEP)
     lines = [x.replace(str(out / MAKING) + os.sep, "").replace(str(out) + os.sep, "") for x in said][-30:]
     if removed:
         lines.append(f"older bundles removed (the newest {KEEP} are kept): {', '.join(removed)}")

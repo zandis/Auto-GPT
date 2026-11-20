@@ -3,7 +3,6 @@
 # as a pass. tests/console/test_matrix_role_walk.py fails on an unclear cell not listed here, and on a listed
 # cell that is now decided. The reason per cell is in docs/plan/measurements/role-walk-2026-11-17/walk.json.
 GET /admin/ops/network/{name} admin
-GET /admin/ops/support/{rid} admin
 GET /api/edc/oidc/.well-known/openid-configuration admin
 GET /api/edc/oidc/.well-known/openid-configuration crc
 GET /api/edc/oidc/.well-known/openid-configuration cro_in

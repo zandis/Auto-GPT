@@ -367,82 +367,6 @@ class Bundle:
         self.left_out.append({"what": what, "why": why})
 
 
-# ------------------------------------------------------------------------------------------------ 10K-5 (D-1381)
-#: the keys of an update history line (``tools/trialbox/update.py`` ``_history``) filled from fixed words, ids, times
-#: and a yes/no; every other key (``detail``: a step's note or an error, a failed command's last 600 characters of
-#: stderr among them) is free text
-HISTORY_FIELDS = ("at", "bundle", "box", "step", "ok")
-#: the keys of the ops snapshot (``tools/trialbox/ops.py`` ``snapshot``, its health facts and this builder's fallback)
-#: whose value can be an error text or a person's words, wherever they stand in it
-TEXT_KEYS = frozenset({"error", "detail", "drill_error", "why", "reason", "message"})
-_ERROR_TYPE = re.compile(r"([A-Za-z_][A-Za-z0-9_]{0,48}(?:Error|Exception|Failed|Refused|Interrupt|Expired|Timeout|"
-                         r"Violation|Exit))(?::|$)")  # fmt: skip
-#: the one backup problem that quotes an error (``backup_schedule.drill_failure``): its words stay, the error does not
-_DRILL = re.compile(r"^(the restore drill of \S+ failed: )(.*)( \(trialbox restore-drill, RUNBOOK §5\))$", re.S)
-#: what ``texts_marked`` changes, as MANIFEST.json's ``left_out`` names it
-MARKED = (
-    "the free text of history.jsonl and ops-snapshot.json: each history line's detail (and any key its writer does "
-    "not write, and a line that is not JSON), the snapshot's error, detail, drill_error, why, reason and message "
-    "values, and the restore drill's error in the backup problems; health.json is evaluated from the marked snapshot"
-)
-#: the members ``left_out`` may name
-LEAVABLE = ("env.redacted", "cmd/doctor.json", "cmd/check_host.txt", "cmd/compose-config.yaml", "cmd/compose-ps.txt",
-            "cmd/df.txt", "cmd/nvidia-smi.txt")  # fmt: skip
-
-
-def mark(text: str) -> str:
-    """A text left out: a fixed mark with its length and, when it starts with one, the error's type name."""
-    m = _ERROR_TYPE.match(text)
-    return f"[text left out: {m.group(1) + ', ' if m else ''}{len(text)} characters]"
-
-
-def mark_history(text: str) -> tuple[str, int]:
-    """The update history with every free-text value marked (:func:`mark`); the text and how many were marked."""
-    out, n = [], 0
-    for line in text.splitlines():
-        try:
-            row = json.loads(line)
-        except ValueError:
-            row = None
-        if not isinstance(row, dict):
-            out.append(mark(line) if line else line)
-            n += bool(line)
-            continue
-        for k, v in row.items():
-            plain = isinstance(v, (bool, type(None))) or (isinstance(v, str) and k in HISTORY_FIELDS and k != "ok")
-            if (k in HISTORY_FIELDS and plain) or v in ("", None):
-                continue
-            row[k] = mark(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False, default=str))
-            n += 1
-        out.append(json.dumps(row, ensure_ascii=False))
-    return "\n".join(out) + ("\n" if text.endswith("\n") else ""), n
-
-
-def mark_texts(obj: Any) -> tuple[Any, int]:
-    """The ops snapshot with every value of :data:`TEXT_KEYS` marked, and the error in the restore drill's problem."""
-    if isinstance(obj, list):
-        pairs = [mark_texts(v) for v in obj]
-        return [v for v, _ in pairs], sum(k for _, k in pairs)
-    if not isinstance(obj, dict):
-        return obj, 0
-    out: dict[str, Any] = {}
-    n = 0
-    for key, v in obj.items():
-        if key in TEXT_KEYS and v not in ("", None):
-            out[key] = mark(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False, default=str))
-            n += 1
-        elif key == "problems" and isinstance(v, list):
-            out[key] = []
-            for p in v:
-                m = _DRILL.match(p) if isinstance(p, str) else None
-                out[key].append(f"{m[1]}{mark(m[2])}{m[3]}" if m else p)
-                n += bool(m)
-        else:
-            out[key], k = mark_texts(v)
-            n += k
-    return out, n
-
-
 def _json(d: Any) -> str:
     return json.dumps(d, indent=1, ensure_ascii=False, sort_keys=True, default=str) + "\n"
 
@@ -475,8 +399,7 @@ def _env_file(deploy: Path) -> dict[str, str]:
     return {k: v.strip("\"'") for k, v in tb_logs.env_file(deploy).items()}
 
 
-def _box_part(b: Bundle, deploy: Path, env: Mapping[str, str], now: datetime,
-              left_out: Mapping[str, str] | None = None, texts_marked: str | None = None) -> None:  # fmt: skip
+def _box_part(b: Bundle, deploy: Path, env: Mapping[str, str], now: datetime) -> None:
     from tb_common import metrics
 
     from tools.trialbox import ops as tb_ops
@@ -486,9 +409,6 @@ def _box_part(b: Bundle, deploy: Path, env: Mapping[str, str], now: datetime,
         snap = tb_ops.snapshot(box)
     except Exception as exc:  # the bundle reports, it does not stop
         snap = {"error": f"{type(exc).__name__}: {exc}"[:300]}
-    if texts_marked is not None:  # 10K-5 (D-1381): before health.json is evaluated from it
-        snap, marked = mark_texts(snap)
-        b.note("ops-snapshot.json", "texts_marked", marked)
     b.add("ops-snapshot.json", _json(snap), "trialbox ops snapshot")
     facts = snap.get("health") if isinstance(snap.get("health"), dict) else None
     health = metrics.evaluate(facts, None, now, metrics.Thresholds.from_env(env)).as_dict()
@@ -506,20 +426,12 @@ def _box_part(b: Bundle, deploy: Path, env: Mapping[str, str], now: datetime,
                 rel[key] = {"error": f"{f.name} is not JSON"}
     b.add("release.json", _json(rel), "pyproject version, deploy/updates/installed.json, deploy/release.json")
     hist = _read(updates / "history.jsonl")
-    if hist is not None and texts_marked is not None:  # 10K-5 (D-1381)
-        text, marked = mark_history("\n".join(hist.splitlines()[-HISTORY_LINES:]) + "\n")
-        b.add("history.jsonl", text, "deploy/updates/history.jsonl")
-        b.note("history.jsonl", "texts_marked", marked)
-    elif hist is not None:
+    if hist is not None:
         b.add("history.jsonl", "\n".join(hist.splitlines()[-HISTORY_LINES:]) + "\n", "deploy/updates/history.jsonl")
     else:
         b.leave_out("history.jsonl", "no update has run on this box yet")
-    if texts_marked is not None:
-        b.leave_out(MARKED, texts_marked)
     raw_env = _read(deploy / ".env")
-    if left_out and "env.redacted" in left_out:  # 10K-5 (D-1381)
-        b.leave_out("env.redacted", left_out["env.redacted"])
-    elif raw_env is not None:
+    if raw_env is not None:
         text, n = redact_secrets(raw_env)
         b.add("env.redacted", text, "deploy/.env, secret values redacted")
         b.note("env.redacted", "secrets_redacted", n)
@@ -555,7 +467,7 @@ def _audit_part(b: Bundle, env: Mapping[str, str]) -> None:
     b.leave_out("the audit chain", "its events name pseudonyms and jobs; only the verification is included")
 
 
-def _cmd_part(b: Bundle, deploy: Path, runner: Runner, left_out: Mapping[str, str] | None = None) -> None:
+def _cmd_part(b: Bundle, deploy: Path, runner: Runner) -> None:
     from tools.trialbox import logs as tb_logs
 
     comp = tb_logs.compose(deploy)
@@ -574,9 +486,6 @@ def _cmd_part(b: Bundle, deploy: Path, runner: Runner, left_out: Mapping[str, st
         ("nvidia-smi.txt", ["nvidia-smi"], 60, False),
     ]
     for name, argv, timeout, secret in cmds:
-        if left_out and f"cmd/{name}" in left_out:  # 10K-5 (D-1381): not run at all
-            b.leave_out(f"cmd/{name}", left_out[f"cmd/{name}"])
-            continue
         rc, out = runner(argv, timeout)
         if secret:
             out, n = redact_secrets(out)
@@ -664,24 +573,19 @@ def _write_tar(target: Path, members: Mapping[str, str], at: datetime) -> None:
 
 def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterable[Path] = (),
           runner: Runner = run_cmd, commands: bool = True, now: datetime | None = None,
-          say: Callable[[str], None] = print, logs_left_out: str | None = None,
-          left_out: Mapping[str, str] | None = None, texts_marked: str | None = None,
+          say: Callable[[str], None] = print, given: Mapping[str, str] | None = None,
+          given_left_out: Sequence[Mapping[str, str]] = (),
           scanned: Callable[[str, int], None] | None = None) -> Path:  # fmt: skip
     """Make the bundle in ``out_dir``; return its path. :class:`BundleRefused` when it would hold something it must
     not (an ``--add`` path under /data, a key, a file the scan cannot read); then nothing is written.
 
-    ``logs_left_out`` (10K-5, D-1381; the command never passes it): a reason; when given, no service log is read
-    and ``MANIFEST.json`` lists ``logs/`` as left out with that reason (``log_days`` empty). Left as None, the
-    bundle is made exactly as before.
-
-    The console's button (10K-5, D-1381) passes three more, each a constant of ``tools/trialbox/ops_support.py``; the
-    command passes none, and left as None each changes nothing:
-
-    ``left_out``: members of :data:`LEAVABLE` mapped to a reason; such a member is not made (its command is not run)
-    and ``MANIFEST.json`` lists it under ``left_out`` with the reason. ``texts_marked``: a reason; every free-text
-    value of ``history.jsonl`` and ``ops-snapshot.json`` (:data:`MARKED`) becomes :func:`mark` (a fixed mark, its
-    length, the error's type name), and ``left_out`` lists :data:`MARKED` with the reason. ``scanned``: called, once
-    the bundle has its final name, with the sha256 and the size of the copy the last look scanned."""
+    The console's button (10K-5, D-1381) passes the last three; the command passes none, and left as they are the
+    bundle is made exactly as before. ``given``: the members, made by the caller from allow-listed fields
+    (``tools/trialbox/support_fields.py``); the builder then reads nothing of the box for them (no snapshot, .env,
+    audit chain, command or log, and no ``--add``) and only runs its line scan, its credential and secret-value checks,
+    the MANIFEST and the last look. ``given_left_out``: MANIFEST ``left_out`` rows (``what``, ``why``) for such a
+    bundle. ``scanned``: called, once the bundle has its final name, with the sha256 and the size of the copy the last
+    look scanned."""
 
     now = now or datetime.now(UTC)
     deploy = deploy.resolve()
@@ -689,9 +593,6 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
     raw = {k: v for k, v in _raw_env(deploy).items()}
     sec = [deploy / "secrets", *(Path(p) for p in (raw.get("TB_SECRETS_HOST_DIR") or "").split(os.pathsep) if p)]
     values = secret_values(raw, os.environ, sec)
-    unknown = sorted(set(left_out or {}) - set(LEAVABLE))
-    if unknown:
-        raise ValueError(f"left_out names no member the builder can leave out: {unknown}")
     extra = list(add)
     for p in extra:  # before any work: a refused path stops the whole bundle
         why = refusal(p, deploy, env)
@@ -704,17 +605,22 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
             raise BundleRefused(f"{p}: larger than {MAX_MEMBER // 2**20} MB")
     b = Bundle()
     mrn = mrn_pattern(deploy)
-    _box_part(b, deploy, env, now, left_out, texts_marked)
-    _audit_part(b, env)
-    if commands:
-        _cmd_part(b, deploy, runner, left_out)
+    if given is not None:  # 10K-5 (D-1381): the caller's allow-listed members; nothing of the box is read here
+        if extra:
+            raise BundleRefused("an --add file cannot join a bundle made of given members")
+        for name, body in sorted(given.items()):
+            b.add(name, body, "allow-listed fields (tools/trialbox/support_fields.py)")
+        for row in given_left_out:
+            b.leave_out(str(row["what"]), str(row["why"]))
+        log_days: list[str] = []
     else:
-        b.leave_out("cmd/", "--no-commands")
-    if logs_left_out is None:
+        _box_part(b, deploy, env, now)
+        _audit_part(b, env)
+        if commands:
+            _cmd_part(b, deploy, runner)
+        else:
+            b.leave_out("cmd/", "--no-commands")
         log_days = _logs_part(b, deploy, env, days, mrn)
-    else:
-        log_days = []
-        b.leave_out("logs/", logs_left_out)
     used: set[str] = set()
     for p in extra:
         text = _read(p)

@@ -2,19 +2,21 @@
 
 The button is the operations action ``support_bundle`` (``POST /admin/ops/support_bundle``: CSRF, the confirmation
 that names what goes in and what never does, ``console.ops`` audit events, one request at a time; ``ops_pages``).
-The host's runner makes the bundle with the SAME builder and scan as ``trialbox support-bundle``
-(``tools/trialbox/ops_support.py`` over ``tools/support_bundle.py``) into ``<ops>/support/``. This module adds the
-tab's texts and the one download route:
+The host's runner makes the bundle from allow-listed fields only (``tools/trialbox/ops_support.py``,
+``tools/trialbox/support_fields.py``) and has the SAME builder as ``trialbox support-bundle`` scan and write it
+(``tools/support_bundle.py``) into ``<ops>/support/``. This module adds the tab's texts and the one download route:
 
-``GET /admin/ops/support/{rid}``
-    the bundle request ``rid`` made, only when the runner's result for it is a success that names the file, its size
-    and its sha256 (a bundle that failed the scan has no file and no result to name one: 404), and only when the file
-    on disk still has that sha256 (else 404). The same open file is hashed and then sent. Each download is the audit
-    event ``console.ops`` with ``support_bundle_download.started``, the request, the file name, its size and its
-    sha256, written when the response starts: it records that the file was handed to the response, not that every
-    byte arrived (as the console's other files, the feedback and audit CSVs, record theirs); when it cannot be
-    written, the file is closed and the answer is 503 with no byte of it. The bundle's contents are never read into an
-    event or a log. A ``Range`` request gets the whole file with 200; HEAD answers 405.
+``POST /admin/ops/support/{rid}``
+    a form with the session's CSRF token and nothing typed (the review of 48b3210c, L8: not a link another site could
+    have a signed-in browser follow). It hands out the bundle request ``rid`` made, only when the runner's result for
+    it is a success that names the file, its size and its sha256, and only when the file on disk still has that size
+    and sha256; otherwise it answers 303 back to the tab, which says the bundle is not on the box as it was made (a
+    changed file is also the event ``support_bundle_download.refused``). The same open file is hashed and then sent.
+    Each download is the audit event ``console.ops`` with ``support_bundle_download.started``, the request, the file
+    name, its size and its sha256, written when the response starts: it records that the file was handed to the
+    response, not that every byte arrived (as the console's other files, the feedback and audit CSVs, record theirs);
+    when it cannot be written, the file is closed and the answer is 503 with no byte of it. The bundle's contents are
+    never read into an event or a log. GET and HEAD answer 405.
 
 Who may: the right that opens the operations pages, ``ops.view`` (:func:`tb_common.authz.admin_allowed`: the
 administrator only). No new matrix row; every other role gets 403, audited as ``console.denied``.
@@ -30,8 +32,8 @@ from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Form, Request, Response
+from fastapi.responses import RedirectResponse, StreamingResponse
 from tb_common.authz import admin_allowed
 
 from console import i18n_support_bundle
@@ -69,17 +71,24 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             raise h.problem(403, "forbidden")
         return sess
 
-    @app.get("/admin/ops/support/{rid}")
-    def support_bundle_download(request: Request, rid: str) -> Response:
+    def gone(rid: str) -> Response:
+        """Back to the tab, which says the bundle is not on the box (any more) or not as it was made."""
+        where = f"&req={rid}" if _REQ.fullmatch(rid) else ""
+        return RedirectResponse(f"/admin/ops?tab=support{where}&gone=1", status_code=303)
+
+    @app.post("/admin/ops/support/{rid}")
+    def support_bundle_download(request: Request, rid: str, csrf: str = Form("")) -> Response:
         sess = need(request)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
         rec = ops_support.record(ops.result(rid)) if _REQ.fullmatch(rid) else None
         if rec is None:
-            raise h.problem(404, "notfound")
+            return gone(rid)
         path = ops_support.support_dir(ops.root) / rec["file"]
         try:
             fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-        except OSError as exc:  # removed (only the newest bundles are kept) or never readable here
-            raise h.problem(404, "notfound") from exc
+        except OSError:  # removed (only the newest bundles are kept, none past its age) or never readable here
+            return gone(rid)
         fh = os.fdopen(fd, "rb")
         try:
             sha, size = ops_support.sha256_of(fh)
@@ -87,7 +96,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                 au.append("console.ops", actor=h.actor(sess),
                           detail={"action": "support_bundle_download.refused", "request": rid, "file": rec["file"],
                                   "why": "the file on disk is not the one the runner made"})  # fmt: skip
-                raise h.problem(404, "notfound")
+                fh.close()
+                return gone(rid)
             fh.seek(0)
         except BaseException:
             fh.close()

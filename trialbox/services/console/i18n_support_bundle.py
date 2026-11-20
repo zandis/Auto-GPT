@@ -6,41 +6,34 @@ from __future__ import annotations
 EN: dict[str, str] = {
     "ops.tab.support": "Support bundle",
     "ops.action.support_bundle": "Make a support bundle",
-    "ops.confirm.support_bundle": "Make a support bundle now? The box puts part of its state into one file for a "
-    "support ticket: the Operations page's status, its health, the release record, the update history (times, steps "
-    "and results), the audit trail's check result (counts, no event), and on a site box the container list with its "
-    "addresses and ports, the restart counts, df and nvidia-smi. The site's host names, addresses, ports and folder "
-    "paths are in it as these print them. Left out of a bundle made here: TrialBox's service logs (they can carry "
-    "patient pseudonyms); the .env file and docker compose config (secrets are redacted by the setting's name, "
-    "which can miss one); doctor and check_host.sh (doctor prints setting values, among them the backup-alert "
-    "watcher's name, who confirmed the TLS root, the serious adverse event office's mail address and service URLs, "
-    "and texts read from the database). The error and detail texts of the update history and the Operations status "
-    "are replaced by their length and the error's type: they can quote patient-linked values. A credential scan and "
-    "a data-handling scan run on the finished file and a file that fails is not handed out; neither scan is proof. "
-    "Making it and every download are recorded in the audit trail.",
+    "ops.confirm.support_bundle": "Make a support bundle now? The box puts its state into one file for a support "
+    "ticket, field by field from fixed lists, and only values of these kinds: numbers (sizes, counts, ages, "
+    "percentages, temperatures), yes or no, times, and values from fixed sets (update steps, health checks and "
+    'their levels, service names and states, error types, labels such as "backup" or "bundle-2"). No text, '
+    "path, file name, setting, command line, log line or audit event goes in: they stay on the box. The "
+    "data-handling scan still runs on the finished file as a second check; it is not what keeps them out. Making it "
+    "and every download are recorded in the audit trail.",
     "sbundle.help": 'One file for a support ticket, made on the box by the same tool as the command "trialbox '
     'support-bundle". Nothing is sent from the box: you hand the file to support yourself.',
-    "sbundle.in": "What it holds: MANIFEST.json (each file, what was changed or left out, and why); "
-    "ops-snapshot.json (the Operations page's status: version, updates, rollback points, backups by name, age and "
-    "folder path, secrets by name and age only, disks); health.json; release.json; history.jsonl (the last 400 "
-    "update steps: time, step, bundle and result); audit-verify.json (the audit trail's check: counts and errors, "
-    "no event); and on a site box cmd/compose-ps.txt (the containers, their addresses and ports), cmd/restarts.txt, "
-    "cmd/df.txt (disks and mounts) and cmd/nvidia-smi.txt. The site's host names, addresses, ports and folder paths "
-    "are in it as these print them.",
-    "sbundle.never": "Left out of a bundle made here, and why: TrialBox's service logs (they can carry patient "
-    "pseudonyms); the .env file and docker compose config (secrets are redacted by the setting's name, which can "
-    "miss one); doctor and check_host.sh (doctor prints setting values, among them the backup-alert watcher's name, "
-    "who confirmed the TLS root, the serious adverse event office's mail address and service URLs, and texts read "
-    "from the database); the error and detail texts of the update history and the Operations status, each replaced "
-    "by its length and the error's type (they can quote patient-linked values). These go into a bundle only when it "
-    'is made on the host with the command "trialbox support-bundle", which needs root. Never copied in by either: '
-    "the data folder and the Docker volumes, any database table, the secrets folder, keys, backups, the audit trail "
-    "itself, the site's settings.yaml, and the logs of PostgreSQL, HAPI FHIR and vLLM. A credential scan and a "
-    "data-handling scan run on the finished file, and a file that fails is not handed out; neither scan is proof.",
+    "sbundle.in": "What it holds, as numbers, yes or no, times and values from fixed sets only: MANIFEST.json (each "
+    "file, and how many fields were left out of it); ops-snapshot.json (the version, updates by step and result, "
+    "rollback points, backups by count, age and size, secrets by name and age, disks under fixed labels); "
+    "health.json (each check's level and measure); release.json (the version, the release number and hashes); "
+    "history.jsonl (each update step's time, step and result, an error only as its type and a length range); "
+    "audit-verify.json (whether the audit trail verified, and counts); and on a site box services.json (each "
+    'service\'s state, health, restart count and start time), disks.json (sizes under labels such as "system" or '
+    '"backup") and gpu.json (memory, load, temperature and driver version).',
+    "sbundle.never": "What never goes in: any text a person typed or a program wrote (error messages, notes, "
+    "reasons, log lines, audit events), paths and file names (backup folders, USB disks, mount folders), settings "
+    "and the .env file, command lines and command output, host names and addresses, the ids of update bundles, "
+    "patient data, any database table, secrets, keys, backups and the audit trail itself. A field that is not on a "
+    "file's list is dropped and counted in MANIFEST.json. The fuller bundle, with logs and settings, is made only "
+    'on the host with the command "trialbox support-bundle", which needs root.',
     "sbundle.who": "Only the administrator may make or download a bundle, and any administrator may download any "
     "bundle kept on the box. Making it is recorded in the audit trail before the file is released, and each download "
     "when it starts, with who, when, the file's size and its SHA-256, never its contents.",
-    "sbundle.kept": "The newest {n} bundles are kept on the box; an older one is removed when a new one is made.",
+    "sbundle.kept": "The newest {n} bundles are kept on the box, each for at most {days} days; an older one is "
+    "removed, and the removal is recorded in the audit trail.",
     "sbundle.list": "Bundles made on this box",
     "sbundle.none": "No support bundle made yet.",
     "sbundle.download": "Download",
@@ -53,44 +46,39 @@ EN: dict[str, str] = {
     "may write). Ask the person who runs the box to check it.",
     "sbundle.err.audit": "Not handed out: the download could not be recorded in the audit trail, so no byte of the "
     "file was sent. Check the audit trail's health, then download it again.",
+    "sbundle.gone": "Not handed out: that bundle is not on the box as it was made (it was removed, or the file "
+    "changed). Make a new one.",
 }
 
 JA: dict[str, str] = {
     "ops.tab.support": "サポート用ファイル",
     "ops.action.support_bundle": "サポート用ファイルを作る",
-    "ops.confirm.support_bundle": "今すぐサポート用ファイルを作りますか？この機器の状態の一部を、サポートへの問い合"
-    "わせ用に1つのファイルにまとめます。内容は、運用画面の状態、機器の状態、リリースの記録、更新履歴（時刻・手順・結"
-    "果）、監査記録の検証結果（件数のみ、記録そのものは含まない）、さらにサイトの機器ではコンテナの一覧（アドレスと"
-    "ポートを含む）・再起動回数・df・nvidia-smi の出力です。施設のホスト名、アドレス、ポート、フォルダのパスは、これ"
-    "らの出力に出るとおり含まれます。ここで作るファイルに入れないもの：TrialBox のサービスログ（患者の仮名IDが含まれ"
-    "ることがあるため）、.env ファイルと docker compose config（秘密情報は設定の名前で伏せるため、漏れることがあるた"
-    "め）、doctor と check_host.sh（doctor は設定の値を表示し、その中にはバックアップ警告の担当者の名前、TLS ルート"
-    "を確認した人、重篤な有害事象の窓口のメールアドレス、サービスの URL が含まれ、データベースから読んだ文も表示する"
-    "ため）。更新履歴と運用画面の状態にあるエラーや詳細の文は、長さとエラーの種類に置き換えます。患者に結びつく値を"
-    "引用することがあるためです。完成したファイルには認証情報の検査とデータ取扱いスキャンを行い、通らないファイルは"
-    "渡しません。ただし、どちらの検査も完全な保証ではありません。作成とダウンロードはすべて監査記録に残ります。",
+    "ops.confirm.support_bundle": "今すぐサポート用ファイルを作りますか？この機器の状態を、決められた一覧の項目ごと"
+    "に、サポートへの問い合わせ用の1つのファイルにまとめます。入るのは次の種類の値だけです：数値（サイズ、件数、経過"
+    "時間、割合、温度）、はい・いいえ、時刻、決められた集合の値（更新の手順、状態の点検とその水準、サービス名とその"
+    "状態、エラーの種類、「backup」や「bundle-2」のような名札）。文章、パス、ファイル名、設定、コマンドライン、ログ"
+    "の行、監査記録の事項は入らず、機器に残ります。完成したファイルには二重の確認としてデータ取扱いスキャンも行いま"
+    "すが、それが入らないようにしている仕組みではありません。作成とダウンロードはすべて監査記録に残ります。",
     "sbundle.help": "サポートへの問い合わせ用のファイルです。コマンド「trialbox support-bundle」と同じ仕組みで、この機"
     "器の上で作られます。機器からは何も送信されません。ファイルはご自身でサポートに渡してください。",
-    "sbundle.in": "含まれるもの：MANIFEST.json（各ファイル、変更したものと入れなかったもの、その理由）、ops-snapshot"
-    ".json（運用画面の状態：バージョン、更新、切り戻し地点、バックアップの名前・経過時間・フォルダのパス、秘密情報は"
-    "名前と経過日数のみ、ディスク）、health.json、release.json、history.jsonl（直近 400 件の更新手順：時刻・手順・バ"
-    "ンドル・結果）、audit-verify.json（監査記録の検証：件数とエラーのみ、記録そのものは含まない）、さらにサイトの機"
-    "器では cmd/compose-ps.txt（コンテナとそのアドレス・ポート）、cmd/restarts.txt、cmd/df.txt（ディスクとマウント）"
-    "、cmd/nvidia-smi.txt。施設のホスト名、アドレス、ポート、フォルダのパスは、これらの出力に出るとおり含まれます。",
-    "sbundle.never": "ここで作るファイルに入れないものとその理由：TrialBox のサービスログ（患者の仮名IDが含まれるこ"
-    "とがあるため）、.env ファイルと docker compose config（秘密情報は設定の名前で伏せるため、漏れることがあるため）"
-    "、doctor と check_host.sh（doctor は設定の値を表示し、その中にはバックアップ警告の担当者の名前、TLS ルートを確"
-    "認した人、重篤な有害事象の窓口のメールアドレス、サービスの URL が含まれ、データベースから読んだ文も表示するため"
-    "）、更新履歴と運用画面の状態にあるエラーや詳細の文（長さとエラーの種類に置き換えます。患者に結びつく値を引用す"
-    "ることがあるため）。これらは、root 権限が必要なホスト上のコマンド「trialbox support-bundle」で作るときだけ入り"
-    "ます。どちらの方法でも決して入れないもの：データフォルダと Docker のボリューム、データベースの表、秘密情報のフ"
-    "ォルダ、鍵、バックアップ、監査記録そのもの、施設の settings.yaml、PostgreSQL・HAPI FHIR・vLLM のログ。完成した"
-    "ファイルには認証情報の検査とデータ取扱いスキャンを行い、通らないファイルは渡しません。ただし、どちらの検査も完"
-    "全な保証ではありません。",
+    "sbundle.in": "含まれるもの（数値、はい・いいえ、時刻、決められた集合の値のみ）：MANIFEST.json（各ファイルと、そ"
+    "こから除いた項目の数）、ops-snapshot.json（バージョン、手順と結果ごとの更新、切り戻し地点、件数・経過時間・サイ"
+    "ズごとのバックアップ、名前と経過日数ごとの秘密情報、決められた名札ごとのディスク）、health.json（各点検の水準と"
+    "測定値）、release.json（バージョン、リリース番号、ハッシュ）、history.jsonl（各更新手順の時刻・手順・結果。エラ"
+    "ーは種類と長さの範囲のみ）、audit-verify.json（監査記録の検証が通ったかと件数）、さらにサイトの機器では service"
+    "s.json（各サービスの状態・ヘルス・再起動回数・開始時刻）、disks.json（「system」や「backup」などの名札ごとのサ"
+    "イズ）、gpu.json（メモリ、負荷、温度、ドライバのバージョン）。",
+    "sbundle.never": "決して含まれないもの：人が入力した、またはプログラムが書いた文章（エラーメッセージ、メモ、理由"
+    "、ログの行、監査記録の事項）、パスとファイル名（バックアップのフォルダ、USB ディスク、マウント先のフォルダ）、"
+    "設定と .env ファイル、コマンドラインとコマンドの出力、ホスト名とアドレス、更新バンドルの ID、患者データ、データ"
+    "ベースの表、秘密情報、鍵、バックアップ、監査記録そのもの。ファイルごとの一覧にない項目は除かれ、その数が MANIFE"
+    "ST.json に記されます。ログと設定を含むより詳しいファイルは、root 権限が必要なホスト上のコマンド「trialbox suppo"
+    "rt-bundle」でだけ作られます。",
     "sbundle.who": "ファイルを作成・ダウンロードできるのは管理者だけで、どの管理者も機器に残っているどのファイルでも"
     "ダウンロードできます。作成はファイルを渡す前に、ダウンロードは開始時に、誰が、いつ、ファイルのサイズと SHA-256 "
     "とともに監査記録に残ります。中身は記録されません。",
-    "sbundle.kept": "機器には最新の {n} 個だけが残り、新しく作ると古いものは削除されます。",
+    "sbundle.kept": "機器には最新の {n} 個だけが、それぞれ最長 {days} 日間残ります。それより古いものは削除され、その"
+    "削除は監査記録に残ります。",
     "sbundle.list": "この機器で作ったファイル",
     "sbundle.none": "サポート用ファイルはまだ作られていません。",
     "sbundle.download": "ダウンロード",
@@ -103,37 +91,33 @@ JA: dict[str, str] = {
     "ルダ）。機器を管理する担当者に確認を依頼してください。",
     "sbundle.err.audit": "渡せません：ダウンロードを監査記録に残せなかったため、ファイルは1バイトも送っていません。"
     "監査記録の状態を確認してから、もう一度ダウンロードしてください。",
+    "sbundle.gone": "渡せません：そのファイルは、作ったときのままでは機器にありません（削除されたか、ファイルが変わ"
+    "りました）。新しく作ってください。",
 }
 
 ZH: dict[str, str] = {
     "ops.tab.support": "支援檔案",
     "ops.action.support_bundle": "製作支援檔案",
-    "ops.confirm.support_bundle": "現在製作支援檔案嗎？本機會把自己的部分狀態整理成一個檔案，供支援工單使用：營運頁"
-    "面的狀態、本機的健康狀態、版本發行紀錄、更新紀錄（時間、步驟與結果）、稽核紀錄的驗證結果（只有筆數，不含紀錄本"
-    "身），以及在院方主機上的容器清單（含位址與連接埠）、重新啟動次數、df 與 nvidia-smi 的輸出。院方的主機名稱、位址"
-    "、連接埠與資料夾路徑，會依這些輸出原樣放入。在這裡製作的檔案不放入：TrialBox 的服務日誌（可能有病人的假名代碼）"
-    "；.env 檔與 docker compose config（機密資訊是依設定名稱遮蔽，可能漏掉）；doctor 與 check_host.sh（doctor 會印出"
-    "設定值，其中有備份警示負責人的姓名、確認 TLS 根憑證的人、嚴重不良事件窗口的電子郵件地址與服務網址，也會印出從資"
-    "料庫讀到的文字）。更新紀錄與營運狀態中的錯誤與細節文字會換成其長度與錯誤類型：這些文字可能引用與病人相關的值。"
-    "完成的檔案會經過憑證檢查與資料處理掃描，未通過的檔案不會交出；但兩種檢查都不是保證。製作與每次下載都會記入稽核"
-    "紀錄。",
+    "ops.confirm.support_bundle": "現在製作支援檔案嗎？本機會依固定清單逐一取出欄位，把狀態整理成一個檔案供支援工單"
+    "使用，且只放入下列種類的值：數字（大小、筆數、時間長度、百分比、溫度）、是或否、時間，以及固定集合中的值（更新"
+    "步驟、健康檢查與其等級、服務名稱與狀態、錯誤類型、像「backup」或「bundle-2」這樣的標籤）。文字、路徑、檔名、設"
+    "定、指令列、日誌行與稽核紀錄的事項都不會放入，會留在本機。完成的檔案仍會經過資料處理掃描作為第二道檢查，但擋住"
+    "這些內容的不是掃描。製作與每次下載都會記入稽核紀錄。",
     "sbundle.help": "供支援工單使用的單一檔案，在本機上以與指令「trialbox support-bundle」相同的工具製作。本機不會傳送"
     "任何東西：請您自行把檔案交給支援人員。",
-    "sbundle.in": "內容：MANIFEST.json（每個檔案、改動或未放入的項目及原因）、ops-snapshot.json（營運頁面的狀態：版"
-    "本、更新、回復點、備份的名稱、時間與資料夾路徑、機密資訊只有名稱與天數、磁碟）、health.json、release.json、hist"
-    "ory.jsonl（最近 400 個更新步驟：時間、步驟、套件與結果）、audit-verify.json（稽核紀錄的驗證：只有筆數與錯誤，不"
-    "含紀錄本身），以及在院方主機上的 cmd/compose-ps.txt（容器及其位址與連接埠）、cmd/restarts.txt、cmd/df.txt（磁碟"
-    "與掛載）與 cmd/nvidia-smi.txt。院方的主機名稱、位址、連接埠與資料夾路徑，會依這些輸出原樣放入。",
-    "sbundle.never": "在這裡製作的檔案不放入的項目與原因：TrialBox 的服務日誌（可能有病人的假名代碼）；.env 檔與 doc"
-    "ker compose config（機密資訊是依設定名稱遮蔽，可能漏掉）；doctor 與 check_host.sh（doctor 會印出設定值，其中有"
-    "備份警示負責人的姓名、確認 TLS 根憑證的人、嚴重不良事件窗口的電子郵件地址與服務網址，也會印出從資料庫讀到的文字"
-    "）；更新紀錄與營運狀態中的錯誤與細節文字（換成其長度與錯誤類型，因為可能引用與病人相關的值）。這些只有在主機上"
-    "以需要 root 權限的指令「trialbox support-bundle」製作時才會放入。兩種方式都絕不放入：資料資料夾與 Docker 磁碟區"
-    "、任何資料庫表格、機密資訊資料夾、金鑰、備份、稽核紀錄本身、院方的 settings.yaml，以及 PostgreSQL、HAPI FHIR 與"
-    " vLLM 的日誌。完成的檔案會經過憑證檢查與資料處理掃描，未通過的檔案不會交出；但兩種檢查都不是保證。",
+    "sbundle.in": "內容（只有數字、是或否、時間與固定集合中的值）：MANIFEST.json（每個檔案，以及從中略去的欄位數）、"
+    "ops-snapshot.json（版本、依步驟與結果的更新、回復點、依數量、時間與大小的備份、依名稱與天數的機密資訊、依固定標"
+    "籤的磁碟）、health.json（每項檢查的等級與量測值）、release.json（版本、發行序號與雜湊值）、history.jsonl（每個"
+    "更新步驟的時間、步驟與結果；錯誤只有類型與長度範圍）、audit-verify.json（稽核紀錄是否通過驗證與筆數），以及在院"
+    "方主機上的 services.json（每個服務的狀態、健康、重新啟動次數與啟動時間）、disks.json（依「system」或「backup」"
+    "等標籤的大小）與 gpu.json（記憶體、負載、溫度與驅動程式版本）。",
+    "sbundle.never": "絕不放入：任何人輸入或程式寫出的文字（錯誤訊息、備註、理由、日誌行、稽核紀錄的事項）、路徑與檔"
+    "名（備份資料夾、USB 磁碟、掛載資料夾）、設定與 .env 檔、指令列與指令的輸出、主機名稱與位址、更新套件的代號、病"
+    "人資料、任何資料庫表格、機密資訊、金鑰、備份，以及稽核紀錄本身。不在檔案清單上的欄位會被略去，數量記在 MANIFEST"
+    ".json 中。含日誌與設定的完整檔案，只有在主機上以需要 root 權限的指令「trialbox support-bundle」才會製作。",
     "sbundle.who": "只有管理者可以製作或下載，且任何管理者都可以下載本機保留的任何檔案。製作會在檔案交出前、每次下載會"
     "在開始時記入稽核紀錄，記下是誰、何時、檔案大小與 SHA-256，絕不記錄內容。",
-    "sbundle.kept": "本機只保留最新的 {n} 個檔案；製作新的檔案時，較舊的會被刪除。",
+    "sbundle.kept": "本機只保留最新的 {n} 個檔案，每個最多保留 {days} 天；較舊的會被刪除，刪除也會記入稽核紀錄。",
     "sbundle.list": "本機製作的檔案",
     "sbundle.none": "尚未製作支援檔案。",
     "sbundle.download": "下載",
@@ -145,4 +129,5 @@ ZH: dict[str, str] = {
     "。",
     "sbundle.err.audit": "未交出：下載無法記入稽核紀錄，因此檔案一個位元組都沒有送出。請先確認稽核紀錄的狀態，再重新"
     "下載。",
+    "sbundle.gone": "未交出：該檔案已不是製作時的樣子（已刪除，或檔案已變動）。請重新製作。",
 }
