@@ -412,6 +412,28 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "update.downgrade": ("Downgrade", "ダウングレード", "降版"),
     "update.backup_skipped": ("Update without a backup", "バックアップなしの更新", "未備份即更新"),
     "update.rolled_back": ("Update rolled back", "更新の差し戻し", "更新已還原"),
+    # D-1369 (10D-28): a rule set exported for a vendor bundle; a site's own routing and scope for one that arrives.
+    # In the approval family: the criteria compiler writes them, and that family is its own (audit_writer.ROLE_EVENTS)
+    "approve.part_exported": (
+        "Rule set exported for a vendor bundle (interim)",
+        "ベンダー更新バンドル用に基準を書き出し（暫定）",
+        "匯出條件供廠商更新包使用（暫行）",
+    ),
+    "approve.ruleset_installed": (
+        "Example rule set installed by hand (shipped files)",
+        "同梱の例の基準を手作業でインストール",
+        "手動安裝隨機附帶的範例條件",
+    ),
+    "job.ruleset_refused": (
+        "Job refused: a rule set from another box runs only as SCREEN or MICROBATCH",
+        "処理の拒否：別のボックスで承認された基準は SCREEN と MICROBATCH のみ",
+        "作業已拒絕：來自另一台機器的條件只能以 SCREEN 或 MICROBATCH 執行",
+    ),
+    "approve.site_profile_set": (
+        "Site routing and scope set for a rule set",
+        "基準の施設別送付先・対象範囲を設定",
+        "設定條件的本院寄送對象與範圍",
+    ),
     "case.opt_out_refused": (
         "Case run refused: the patient opted out",
         "症例処理の拒否：利用拒否の患者",

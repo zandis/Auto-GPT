@@ -22,7 +22,7 @@
     <p class="big">{{ waiting|length }}</p>
     <p class="hint">{{ t('admin.waiting') }}</p>
     <ul class="plain">{% for j in waiting[:5] %}<li><a href="/pilot/jobs/{{ j.job_id }}">{{ j.ruleset }} · {{ j.type }}</a></li>{% endfor %}
-    {% for r in rulesets if r.status == 'approved' %}<li class="hint">{{ r.id }} v{{ r.version }} · {{ t('admin.approved') }}</li>{% endfor %}</ul>
+    {% for r in rulesets if r.status == 'approved' %}<li class="hint">{{ r.id }} v{{ r.version }} · {{ t('admin.approved') }}{% if r.origin == 'vendor_bundle' %} · {{ t('overview.arrived_in_bundle') }}{% endif %}</li>{% endfor %}</ul>
   </section>
   <section class="card tile" data-testid="tile-audit">
     <h2>{{ t('admin.audit24') }}</h2>

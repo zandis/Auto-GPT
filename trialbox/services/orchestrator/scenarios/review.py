@@ -24,7 +24,7 @@ def approved_or_none(ctx: Ctx, ruleset: str, version: str | None = None, run: bo
     from criteria_compiler.terminology import resolver
 
     try:
-        return load_approved(
+        rs = load_approved(
             ctx.rulesets_dir,
             ruleset,
             version,
@@ -37,6 +37,61 @@ def approved_or_none(ctx: Ctx, ruleset: str, version: str | None = None, run: bo
         if version:  # a specific version was requested and is not the approved one
             raise
         return None
+    if run:
+        guard_arrived(ctx, rs)
+    return rs
+
+
+#: D-1369 (the review of f8fcc04e, H1): what each job type does with a rule set installed from outside the box
+#: through the gate (``tb_common.ruleset.site_scoped``). ``narrows``: it runs it inside the site's accepted
+#: practitioners and departments (``screen._scope_terms``, ``screen.in_arrived_scope``); ``refuses``: it refuses it
+#: (:func:`guard_arrived`, audited ``job.ruleset_refused``); ``no rule set run``: it runs no rule set over patients.
+#: A job type missing here refuses (tests/unit/test_ruleset_part_gate.py holds the table to the registry).
+ARRIVED_RULE: dict[str, str] = {
+    "SCREEN": "narrows", "MICROBATCH": "narrows",
+    "FEAS": "refuses", "NAV": "refuses", "COHORT": "refuses", "CASE": "refuses", "SUBMIT": "refuses",
+    "CALIBRATION": "refuses",
+    "APPROVE": "no rule set run", "FEEDBACK": "no rule set run", "STATUS": "no rule set run",
+    "CANCEL": "no rule set run", "INGEST": "no rule set run", "RETENTION": "no rule set run",
+    "CONSENT": "no rule set run", "RELEASE": "no rule set run",
+}  # fmt: skip
+
+#: the refusal, in the three languages of the box
+ARRIVED_REFUSED = {
+    "en": "{rid} v{version} arrived in an update (approved on another box): this box runs it only as SCREEN and "
+    "MICROBATCH, inside the practitioners and departments the site accepted; a {kind} job is refused (D-1369)",
+    "ja": "{rid} v{version} は更新で届いた基準です（別のボックスで承認）。このボックスでは SCREEN と MICROBATCH "
+    "として、施設が受け入れた医師と診療科の範囲内でのみ実行します。{kind} の処理は拒否されました（D-1369）",
+    "zh-TW": "{rid} v{version} 是經由更新送達的條件（於另一台機器核准）：本機只以 SCREEN 與 MICROBATCH 執行，"
+    "且限於本院接受的醫師與科別；{kind} 作業已拒絕（D-1369）",
+}
+
+
+def guard_arrived(ctx: Ctx, rs: Ruleset) -> None:
+    """D-1369 (H1): the one check every job that runs a rule set passes (:func:`approved_or_none` with ``run``): a
+    rule set installed through the gate runs only as a job type that narrows it to the site's accepted scope
+    (:data:`tb_common.ruleset.ARRIVED_NARROWS`), and only while that scope names someone; any other job type is refused
+    with a sentence in en, ja and zh-TW and the audited event ``job.ruleset_refused``. A rule set approved here is
+    unchanged."""
+    from tb_common.ruleset import ARRIVED_NARROWS, ArrivedScopeClosed, arrived_scope
+
+    try:
+        scope = arrived_scope(ctx.rulesets_dir, rs)
+        closed = None
+    except ArrivedScopeClosed as exc:
+        scope, closed = (None, None), str(exc)
+    if scope is None:
+        return
+    job = getattr(ctx, "job", None)
+    kind = str(getattr(job, "type", None) or "unknown")
+    if kind in ARRIVED_NARROWS and closed is None:
+        return
+    why = closed or "\n".join(f"{lang}: {t.format(rid=rs.id, version=rs.version, kind=kind)}"
+                              for lang, t in ARRIVED_REFUSED.items())  # fmt: skip
+    ctx.orch.audit.append("job.ruleset_refused", job_id=getattr(job, "job_id", None), ruleset=rs.id,
+                          ruleset_version=rs.version,
+                          detail={"job_type": kind, "closed": closed is not None})  # fmt: skip
+    raise StepFailed("ruleset", why)
 
 
 def pin_state(rs: Ruleset) -> dict[str, Any]:

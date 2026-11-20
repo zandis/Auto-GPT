@@ -44,7 +44,7 @@ File: [runbook/04-troubleshooting.md](runbook/04-troubleshooting.md). Parts: [RU
 
 ## 5. Updates, backup, restore, secrets
 
-File: [runbook/05-updates-backup-restore-secrets.md](runbook/05-updates-backup-restore-secrets.md). In it: [Secrets (D-128, D-138): the one place to rotate them](runbook/05-updates-backup-restore-secrets.md#secrets-d-128-d-138-the-one-place-to-rotate-them).
+File: [runbook/05-updates-backup-restore-secrets.md](runbook/05-updates-backup-restore-secrets.md). In it: [Secrets (D-128, D-138): the one place to rotate them](runbook/05-updates-backup-restore-secrets.md#secrets-d-128-d-138-the-one-place-to-rotate-them), [A rule set from the head box (interim, dry run only; D-1369)](runbook/05-updates-backup-restore-secrets.md#a-rule-set-from-the-head-box-interim-dry-run-only-d-1369).
 
 ## 6. Go-live acceptance
 

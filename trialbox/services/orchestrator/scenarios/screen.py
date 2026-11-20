@@ -577,9 +577,41 @@ def practitioners_of(ctx: Ctx, rs: Ruleset) -> list[str] | None:
     return pract
 
 
+def _arrived(ctx: Ctx, rs: Ruleset) -> tuple[list[str] | None, list[str] | None] | None:
+    """D-1369: the scope a rule set installed through the gate may screen (``tb_common.ruleset.arrived_scope``: the
+    site's accepted practitioners and departments, read now); None for a rule set approved here. Closed, never open:
+    no scope refuses the run."""
+    from tb_common.ruleset import ArrivedScopeClosed, arrived_scope
+
+    try:
+        where = ctx.rulesets_dir
+    except AttributeError:  # a context with no rule-set repository (a test's stand-in): nothing arrived
+        return None
+    if not where:
+        return None
+    try:
+        return arrived_scope(Path(where), rs)
+    except ArrivedScopeClosed as exc:
+        raise StepFailed("running", str(exc)) from exc
+
+
+def _within(asked: list[str] | None, allowed: list[str] | None, what: str, rid: str) -> list[str] | None:
+    """D-1369 (the review of edb77053, 5): an arrived rule set screens only inside the restriction its accepted site
+    profile states: what is asked (None: everyone) is narrowed to it, never widened; nothing left is refused."""
+    if not allowed:
+        return asked
+    keep = list(allowed) if asked is None else [a for a in asked if a in allowed]
+    if not keep:
+        raise StepFailed("running", f"{rid} arrived in an update: it screens only the {what} its accepted site "
+                         f"profile names ({', '.join(allowed)}), not those asked.")  # fmt: skip
+    return keep
+
+
 def _scope_terms(ctx: Ctx, rs: Ruleset, ask: bool) -> tuple[list[str] | None, list[str], int, int]:
     """Who a screen of ``rs`` looks at: the practitioners (``ask``: False when the patients are given), the
-    departments, the appointment window in days and the months an encounter counts as recent."""
+    departments, the appointment window in days and the months an encounter counts as recent. D-1369: a rule set
+    that arrived in an update screens only inside its accepted profile's practitioners and departments
+    (``scopes.screen``), whatever the job or the study's set-up page asks."""
     opts = ctx.job.options or {}
     sc = rs.manifest.scopes.screen if rs.manifest.scopes and rs.manifest.scopes.screen else None
     practitioners = practitioners_of(ctx, rs) if ask else []
@@ -589,7 +621,25 @@ def _scope_terms(ctx: Ctx, rs: Ruleset, ask: bool) -> tuple[list[str] | None, li
         raise StepFailed("running", "window must be a number of days") from exc
     depts = [d.strip().upper() for d in opts["dept"].split(",")] if opts.get("dept") else []
     recent = int(sc.recent_encounter_months if sc and sc.recent_encounter_months else 12)
+    scope = _arrived(ctx, rs)
+    if scope is not None:
+        if ask:
+            practitioners = _within(practitioners, scope[0], "practitioners", rs.id)
+        depts = _within(depts or None, scope[1], "departments", rs.id) or []
     return practitioners, depts, window, recent
+
+
+def in_arrived_scope(ctx: Ctx, rs: Ruleset, given: list[Scoped]) -> list[Scoped]:
+    """D-1369 (the review of f8fcc04e, M2): patients given by name (MICROBATCH's pool rows of another version) are
+    kept only inside an arrived rule set's accepted practitioners and departments; for a rule set approved here they
+    are kept as given."""
+    scope = _arrived(ctx, rs)
+    if scope is None:
+        return given
+    pract, depts = scope
+    return [
+        s for s in given if (pract is None or s.practitioner_id in pract) and (depts is None or s.department in depts)
+    ]
 
 
 def screen_scope(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> list[Scoped]:
@@ -627,7 +677,7 @@ def run_screen(
     practitioners, depts, window, recent = _scope_terms(ctx, rs, given is None)
     # D-147: the research office's opt-out register applies to every screening run (and MICROBATCH's incident run)
     if given is not None:
-        scoped = drop_opted_out(ctx, list(given))
+        scoped = drop_opted_out(ctx, in_arrived_scope(ctx, rs, list(given)))
     elif scope is not None:
         scoped = list(scope)
     else:

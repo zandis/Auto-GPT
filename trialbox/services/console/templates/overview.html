@@ -37,7 +37,7 @@
 <h2>{{ t('overview.rulesets') }}</h2>
 <table data-testid="rulesets">
 <thead><tr><th scope="col">{{ t('col.ruleset') }}</th><th scope="col">{{ t('col.version') }}</th><th scope="col">{{ t('col.status') }}</th></tr></thead>
-<tbody>{% for r in rulesets %}<tr><td>{% if r.status == 'approved' and r.kind == 'trial' %}<a href="/pilot/request?ruleset={{ r.id }}">{{ r.id }}</a>{% else %}{{ r.id }}{% endif %}</td><td>{{ r.version or '–' }}</td><td>{{ r.status }}{% if r.kind %} · {{ r.kind }}{% endif %}</td></tr>{% endfor %}</tbody>
+<tbody>{% for r in rulesets %}<tr><td>{% if r.status == 'approved' and r.kind == 'trial' %}<a href="/pilot/request?ruleset={{ r.id }}">{{ r.id }}</a>{% else %}{{ r.id }}{% endif %}</td><td>{{ r.version or '–' }}</td><td>{{ r.status }}{% if r.kind %} · {{ r.kind }}{% endif %}{% if r.origin == 'vendor_bundle' %} · <span data-testid="arrived-in-bundle">{{ t('overview.arrived_in_bundle') }}</span>{% endif %}</td></tr>{% endfor %}</tbody>
 </table>
 <h2 class="mt">{{ t('overview.mail') }}</h2>
 <p>{{ t('overview.mail.help', intake=settings.intake_addr, mailbox=(user.mailbox or settings.admin_email or '–')) }}</p>

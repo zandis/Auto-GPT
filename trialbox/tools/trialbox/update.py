@@ -39,6 +39,7 @@ it, with a real backup, a real ``pg_dump`` / ``pg_restore`` and real migrations)
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -121,6 +122,8 @@ class Plan:
     release: dict[str, Any] | None = None
     trust_sha256: str | None = None  # the trust.json verify read (None: none, the deploy/keys files)
     no_backup_reason: str | None = None  # D-1321: why the backup is skipped (--no-backup-reason), audited
+    #: D-1369: the update's evidence for the rule-set import (:func:`ruleset_evidence`), set by ``Updater.run``
+    evidence: dict[str, Any] | None = None
 
     @classmethod
     def load(cls, stage: Path, summary: dict[str, Any]) -> Plan:
@@ -486,6 +489,62 @@ def rulesets_tag(bundle_id: str) -> str:
     return f"refs/tags/trialbox-update/{safe}-before"
 
 
+def ruleset_line(file: str, out: str | dict[str, Any] | None) -> str:
+    """D-1369 (10D-28, the review's N2): one rule-set zip's result as the step and ``update.applied`` name it: the id
+    and version, and whether it was imported or already present (a repeat: nothing changed), from the import's last
+    output line that holds ``imported`` (``criteria_compiler.import_ruleset`` prints it before its last line) or its
+    result."""
+    res: dict[str, Any] = out if isinstance(out, dict) else {}
+    for ln in reversed((out if isinstance(out, str) else "").splitlines()):
+        try:
+            data = json.loads(ln)
+        except ValueError:  # not JSON (a warning, a stand-in run in a test): the next line up
+            continue
+        if isinstance(data, dict) and "imported" in data:
+            res = data
+            break
+    rid, version = res.get("ruleset"), res.get("version")
+    if not rid or not version or "imported" not in res:
+        return f"{file}: imported (no result line read)"
+    what = "imported" if res["imported"] else "already present, nothing changed"
+    return f"{rid} v{version}: {what} ({file})"
+
+
+#: D-1369 (the review of edb77053, 1-3): the record ``criteria_compiler.import_ruleset.Verified`` reads
+RULESET_EVIDENCE_FORMAT = "trialbox-ruleset-evidence/1"
+RULESET_EVIDENCE = "ruleset-evidence.json"
+
+
+def ruleset_evidence(plan: Plan, box_release_seq: Any) -> dict[str, Any]:
+    """D-1369: the evidence that each staged rule-set zip arrived in this bundle, whose vendor signature the verifier
+    checked in this run (``apply_update.sh`` verifies before the update path runs, into its root-owned stage): the
+    bundle's id and release_seq, the signed manifest's sha256, the release the box is on once this bundle is in
+    (the higher of its installed release_seq and the bundle's when the bundle carries a release: the review of
+    f8fcc04e, M4), the stage, and each rule-set payload's sha256 **as the signed manifest records it** (L4): the
+    staged manifest must hash to the one verified, and each staged zip to its recorded sha256, else the update
+    fails here. The rule-set import installs nothing from outside without it (``import_ruleset.install_outcome``)."""
+    rs = plan.kind("ruleset")
+    zips = sorted(rs.rglob("*.zip")) if rs.is_dir() else []
+    files: dict[str, str] = {}
+    if zips:
+        raw = (plan.stage / "manifest.json").read_bytes()
+        if hashlib.sha256(raw).hexdigest() != plan.manifest_sha256:
+            raise UpdateFailed("the staged manifest is not the one verified; no rule set is imported")
+        signed = {str(f.get("path")): str(f.get("sha256")) for f in json.loads(raw).get("files") or []
+                  if f.get("kind") == "ruleset"}  # fmt: skip
+        for z in zips:
+            name = z.relative_to(rs).as_posix()
+            if signed.get(name) != hashlib.sha256(z.read_bytes()).hexdigest():
+                raise UpdateFailed(f"the staged rule set {name} is not the one the signed manifest records")
+            files[name] = signed[name]
+    seq = box_release_seq if isinstance(box_release_seq, int) and not isinstance(box_release_seq, bool) else None
+    if seq is not None and plan.release is not None and isinstance(plan.release_seq, int):
+        seq = max(seq, plan.release_seq)  # M4: a part that rides with its release is on that release once applied
+    return {"format": RULESET_EVIDENCE_FORMAT, "bundle_id": plan.bundle_id, "release_seq": plan.release_seq,
+            "manifest_sha256": plan.manifest_sha256, "box_release_seq": seq, "stage": str(plan.stage),
+            "files": files}  # fmt: skip
+
+
 def _last_json(out: str) -> dict[str, Any]:
     lines = [ln for ln in out.splitlines() if ln.strip()]
     if not lines:
@@ -789,6 +848,7 @@ class Updater:
             raise UpdateFailed(f"could not take the rollback point, nothing was changed: {exc}") from exc
         step("rollback point", True, f"{len(point.images)} images, {len(point.dumps)} databases")
         failed: str | None = None
+        imported: list[str] = []
         try:
             enter("apply")
             applied = self.box.apply(plan, rb, point)
@@ -798,9 +858,13 @@ class Updater:
             self.box.restart(plan)
             step("migrate and restart", True)
             enter("rulesets")
+            plan.evidence = ruleset_evidence(plan, us.installed(self.dir).get("release_seq"))  # D-1369: this run's
             rulesets = getattr(self.box, "rulesets", None)
             done = rulesets(plan) if rulesets is not None else self.box.post_apply(plan)
-            step("rulesets", True, f"{len(done)} imported")
+            present = sum("already present" in d for d in done)  # D-1369 (N2): a repeat is said as such
+            step("rulesets", True, f"{len(done) - present} imported, {present} already present"
+                 + (f": {'; '.join(done)}" if done else ""))  # fmt: skip
+            imported = list(done)  # D-1369: named in update.applied, each with its id, version and result
             enter("check")
             step("check", True, self.box.check(plan))
         except (Exception, KeyboardInterrupt) as exc:  # Ctrl-C rolls back too; kill -9 leaves the marker
@@ -835,7 +899,7 @@ class Updater:
             {"bundle_id": plan.bundle_id, "signer": plan.signer, "files": plan.files, "backup": backup,
              "release_seq": plan.release_seq, "key_id": plan.key_id,
              "rotation": plan.manifest_sha256 in (plan.trust_after or {}).get("rotations", []),
-             "refdata_failed": refdata_note or None, "rollback_point_removed": True},
+             "refdata_failed": refdata_note or None, "rollback_point_removed": True, "rulesets": imported},
         )  # fmt: skip
         step("audited update.applied", True)
         self._done(plan, rb)
@@ -847,7 +911,8 @@ class Updater:
 
         if plan.release_seq is None:
             return
-        prev = us.installed(self.dir).get("state") or {}
+        before = us.installed(self.dir)
+        prev = before.get("state") or {}
         state: dict[str, Any] = {k: prev.get(k) for k in us.DIMENSIONS}
         provides = (plan.compat or {}).get("provides") or {}
         for k in us.DIMENSIONS:
@@ -874,6 +939,10 @@ class Updater:
             record["commit"] = commit if isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit) else None
         if (plan.release or {}).get("rehearsal") is True:
             record["rehearsal"] = True  # D-887: the pin reads it (a site box refuses such a bundle)
+        if plan.release is None and plan.files and all(f.get("kind") == "ruleset" for f in plan.files):
+            # D-1369 (10D-28): a rule-set-only bundle changes no code: the release it rides on stays the box's release
+            record["release_bundle_id"] = before.get("release_bundle_id") or before.get("bundle_id")
+            record.update({k: before[k] for k in ("commit", "dirty", "rehearsal", "vuln_mode") if k in before})
         marked = getattr(self.box, "rehearsal_mark", None)
         if marked is not None and marked():
             record["rehearsal_box"] = True  # D-887 (i): install.sh --rehearsal's mark, recorded; the pin reads it
@@ -1023,7 +1092,10 @@ def run_cmd(
             if f:
                 f.close()
     if r.returncode != 0:
-        err = (r.stderr or b"").decode(errors="replace").strip()[-600:]
+        full = (r.stderr or b"").decode(errors="replace").strip()
+        # D-1369 (the fifth review): the first line too (a refusal's short sentence; ``update.rolled_back`` keeps the
+        # first 500 characters of the failure) and the last 600 (a refused part's last line is the accepting command)
+        err = full if len(full) <= 800 else f"{full.splitlines()[0][:200]} [...] {full[-600:]}"
         raise UpdateFailed(f"{shlex.join(list(argv)[:8])} ... exit {r.returncode}: {err}")
     return "" if fout else (r.stdout or b"").decode(errors="replace")
 
@@ -1670,20 +1742,27 @@ class ComposeBox(_DockerImages):
     def rulesets(self, plan: Plan) -> list[str]:
         done = []
         rs = plan.kind("ruleset")
-        for z in sorted(rs.rglob("*.zip")) if rs.is_dir() else []:
+        zips = sorted(rs.rglob("*.zip")) if rs.is_dir() else []
+        evidence = plan.stage / RULESET_EVIDENCE
+        if zips:  # D-1369: the update's evidence, root's in its root-owned stage, read-only in the container
+            evidence.write_text(json.dumps(plan.evidence or ruleset_evidence(plan, None), sort_keys=True) + "\n")
+            evidence.chmod(0o644)
+        for z in zips:
             # 10G-1 (D-1323): a one-off container with the file bind-mounted read-only; ``compose cp`` cannot write
             # into criteria-compiler, whose root is read-only and /tmp a tmpfs. Named, so one a failure left running
             # is removed (review D3)
             self._rm_run(RULESET_RUN)
             try:
-                self.run(self._c("run", "--rm", "--no-deps", "-T", "--name", RULESET_RUN,
-                                 "-v", f"{z.resolve()}:/in/ruleset.zip:ro",
-                                 "criteria-compiler", "python", "-m", "criteria_compiler.import_ruleset",
-                                 "/in/ruleset.zip", "--by", f"update:{plan.bundle_id}"))  # fmt: skip
+                out = self.run(self._c("run", "--rm", "--no-deps", "-T", "--name", RULESET_RUN,
+                                       "-v", f"{z.resolve()}:/in/ruleset.zip:ro",
+                                       "-v", f"{evidence.resolve()}:/in/verified.json:ro",
+                                       "criteria-compiler", "python", "-m", "criteria_compiler.import_ruleset",
+                                       "/in/ruleset.zip", "--by", f"update:{plan.bundle_id}",
+                                       "--verified", "/in/verified.json"))  # fmt: skip
             except (UpdateFailed, subprocess.TimeoutExpired):
                 self._rm_run(RULESET_RUN)
                 raise
-            done.append(z.name)
+            done.append(ruleset_line(z.name, out))  # D-1369 (N2): id, version, imported or already present
         return done
 
     def refdata(self, plan: Plan) -> list[str]:
@@ -2176,7 +2255,10 @@ def main_apply(
                           f"{inst['release_seq']}")  # fmt: skip
                     return 1
                 if plan.kind("ruleset").is_dir():
-                    print("rulesets: imported when the box runs (tools/apply_update.sh <bundle> again after the start)")
+                    # the review of f8fcc04e, L7: applying this bundle again is "already installed", so it never
+                    # imports them; say what does
+                    print("rulesets: NOT imported by a first install; once the box runs, the vendor sends them in a "
+                          "bundle of their own (python -m tools.ruleset_bundle, a new release_seq)")  # fmt: skip
                 for tar in refdata_packs(plan):  # install.sh loads deploy/refdata/pending/*.tar once the box runs
                     pend = deploy / "refdata" / "pending"
                     pend.mkdir(parents=True, exist_ok=True)

@@ -75,6 +75,25 @@ new heading with the version and date, in the same pull request that sets the ve
   citations are no longer kept: the reference data store drops them from the records it holds when the box upgrades
   (refdata schema version 4, which rewrites only the records holding one). Free text in a record is not cleaned.
   Nothing to do.
+- A rule set from the head box in a vendor update bundle (10D-28, interim, for the dry run only): the box that
+  compiled and approved a study exports it as a rule-set part (`python -m criteria_compiler.export_part`, audited):
+  the protocol's criteria, codes and compiled files, by a list of files and keys (any other file, key or comment
+  refuses the export), with the routing, scope, approver and reviewer records, IRB fields, the site's code tables,
+  the protocol's file names and free population notes removed, and its hash (no time in it) and the release that
+  compiled it. The vendor signs it with
+  the vendor key, alone (`python -m tools.ruleset_bundle`, valid 30 days, one number of the vendor's release
+  sequence) or beside a release; `tools/apply_update.sh` installs it on a screen-only site box as any update, once the
+  site has set its own routing and scope for the study and accepted the version it carries
+  (`python -m criteria_compiler.import_ruleset --site-profile ID FILE --version V [--part-sha256 H] --by NAME`,
+  audited with the account and the name typed, which the box cannot verify; the export needs `--by` too; the
+  example profile a box ships with does not count; another version or hash is refused, its first line saying so and
+  its last line the command that accepts it; give the hash, which the vendor's tool prints: a version accepted
+  without it takes any vendor-signed part of that version).
+  The site box refuses a part whose record or content does not match its hash, an older version, or a version it
+  holds with other content; names the rule set in `update.applied`; keeps the release it runs. Every rule set that
+  arrived in an update is now listed as "arrived in a vendor bundle (interim): approved elsewhere, not on this box"
+  (en, ja, zh-TW), and the sponsor pack says so instead of an approver. A box that receives no such bundle screens
+  as before (D-1369).
 - Dates on printed pages and the fiscal year 年度 (10C-13, 10C-15): a site may print dates in Western form (ISO, as
   before), Japanese era (令和8年11月18日) or both (2026年（令和8年）11月18日) on the feasibility report, the NHI
   navigation summary and application form, the CASE sheet and the released consent page (`site.printed_dates`); the

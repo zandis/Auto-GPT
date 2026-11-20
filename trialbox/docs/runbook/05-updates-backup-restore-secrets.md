@@ -301,3 +301,63 @@ working day in `TB_BACKUP_ALERT_WATCHER`; the install note and `doctor` show the
 A name holds letters and digits of any script, single spaces and `. , - ( ) （ ） / ’ ' ・ · 〜 ～` only (`'` not
 first or last), at most 100 characters; anything else (a line break, a double quote, `$`, a backslash) is refused,
 so a name can never add or change a setting.
+
+## A rule set from the head box (interim, dry run only; D-1369)
+
+Until the coordinating centre's study package exists, a study compiled and approved on the head box reaches a
+screen-only site box in a vendor bundle:
+
+1. On the head box, in `deploy/`: `docker compose exec criteria-compiler python -m criteria_compiler.export_part <ID>
+   --out /data/objects/<ID>-<version>.part.zip --release "<bundle id> (release_seq N)" --by "<your name>"` (the
+   bundle id and release_seq of `tools/apply_update.sh status`; `--by` is required; audited `approve.part_exported`
+   with the container's account and the name you typed, which the box cannot verify), then `docker compose cp
+   criteria-compiler:/data/objects/<ID>-<version>.part.zip .`. The container does not mount `deploy/updates` and
+   its root is read-only, so `--installed` and a relative `--out` do not work there: `/data/objects` is the volume
+   it mounts read-write (`objects-data`). The command prints the part's `part_sha256`: send it with the part. The
+   part carries criteria and codes only: no routing, scope, approver, reviewer, IRB record, site code table, file off
+   the list or comment.
+2. The vendor: `python -m tools.ruleset_bundle --key <vendor key> --id <id> --release-seq <N> --out <bundle>.tar
+   <part>`. **A rule-set bundle uses one number of the vendor's `release_seq`**, like a release: the next release
+   takes the number after it. It is valid 30 days (`--valid-days`, at most 90). It prints each part's full
+   `part_sha256` (`part <ID> v<version> part_sha256 <hash>`), as the export printed it: the vendor sends that line
+   to the site with the bundle (the vendor's release note); it is where the site's operator reads the hash.
+3. On the site box, before each bundle, for the version it carries: the site's own routing and screening scope
+   for the study, and the one version it accepts, in `deploy/`: `docker compose exec -T criteria-compiler python -m
+   criteria_compiler.import_ruleset --site-profile <ID> - --version <version> --part-sha256 <part_sha256> --by
+   "<your name>" < <profile.yaml>` (a YAML file of at most 64 KiB with `routing` and `scopes` only, no other field
+   at any depth; the example profile shipped with the box does not count; `--by` is required; audited
+   `approve.site_profile_set`: the account the command ran as, which inside the container is the service's, and the
+   name you typed as `by_claimed`, which the box cannot verify, the rule set, the version and the hash). **Give the
+   hash**: it is the normal way. Accepted without it, the version is accepted whoever built the part: any
+   vendor-signed part that names this id and version installs. Without the step, or for another version or hash of
+   the id, the bundle is refused and rolled back; the import's first line says the part was refused, with its id and
+   version, then the refusal in en, ja and zh-TW, and its last line is this command for the version it carries
+   (`apply_update.sh` shows the first line and the last 600 characters): a new version never screens until a person
+   at the site runs it. A profile written before the profile named a version accepts no version.
+4. `sudo tools/apply_update.sh <bundle>.tar` as for any update. The box keeps the release it runs (`apply_update.sh
+   status` shows it as `release (code)`); the console lists the study as "arrived in a vendor bundle (interim)".
+
+The id and version must be new on the site box: a version the box already holds with other content (a shipped
+example included) is refused, and so is a version older than the box's newest of that id. The bundle also refuses a
+box on an older release than the head box's, or on another terminology release; the import refuses prompt pins that
+do not stand on the box.
+
+**What it costs on a PRODUCTION box.** A rule-set-only bundle of a few kilobytes goes through the whole update: it is
+refused while a job runs, every service is stopped, both databases are dumped and backed up, the services restart,
+and on a GPU box `doctor --weights` checks the weights (up to an hour). Plan it as a full quiet-hour downtime, like
+a release; this card does not shorten it. Each such bundle uses one number of the vendor's `release_seq`.
+
+**Only through the update (the review of edb77053).** A rule set from outside the box is installed only by
+`apply_update.sh`: the update hands the import its evidence that it verified the bundle's vendor signature in this
+run, and the import writes nothing without it. `python -m criteria_compiler.import_ruleset <zip>` run by hand writes
+no new rule set (it says so in en, ja and zh-TW); `--check` checks a zip and writes nothing. A plain vendor rule-set
+zip (no `ORIGIN.json`) needs the site's step 3 too, with its sha256 as the bundle signed it as the hash; runbook 01's
+install of the shipped example, of exactly the shipped files, still works by hand. `--release` needs its
+`(release_seq N)`: a part names the release that compiled it, and a box on an older release refuses it. A study that
+arrived this way runs only as SCREEN and MICROBATCH, and screens only the practitioners and departments the site's
+accepted profile names, whatever a job or the study's set-up page asks; FEAS, NAV, COHORT, CASE, SUBMIT and
+CALIBRATION jobs are refused for it (audited `job.ruleset_refused`). A profile must name practitioners or departments
+(`scopes.screen`); one that names neither is refused. A new `--site-profile` for the version already installed takes
+effect at once (routing and scope); a profile for another version narrows the installed one at once and never widens
+it. A rule set in a first-install bundle is not imported by `install.sh`'s load: the vendor sends it in a bundle of
+its own once the box runs.

@@ -288,6 +288,97 @@ def seeded_approval(rulesets_dir: Path, ruleset_id: str, version: str) -> bool:
     return not isinstance(obj, Tag) or SEEDED_TAG in obj.message.decode("utf-8", "replace")
 
 
+def arrived_in_bundle(rulesets_dir: Path, ruleset_id: str, version: str) -> bool:
+    """Whether the approval tag of ``ruleset_id`` v``version`` says the version arrived in a vendor bundle (a
+    rule-set part compiled and approved on another box, or any offline update's rule set, D-77; D-1369,
+    ``tb_common.ruleset_part.arrived``): the box screens with it, and every page that lists it says it was not
+    approved here."""
+    from tb_common.ruleset_part import arrived
+
+    msg = _tag_text(rulesets_dir, ruleset_id, version)
+    return msg is not None and arrived(msg)
+
+
+def site_scoped(rulesets_dir: Path, ruleset_id: str, version: str) -> bool:
+    """D-1369 (the review of edb77053, 5): whether ``ruleset_id`` v``version`` was installed from outside this box
+    through the gate with the site's accepted profile (a rule-set part, or a vendor rule set zip since then): it
+    screens only inside that profile's practitioners and departments (``scopes.screen``)."""
+    from tb_common.ruleset_part import site_scoped as scoped
+
+    msg = _tag_text(rulesets_dir, ruleset_id, version)
+    return msg is not None and scoped(msg)
+
+
+#: D-1369 (the review of f8fcc04e, H1): the job types that run a rule set installed through the gate, each narrowed
+#: to the site's accepted practitioners and departments (``orchestrator.scenarios.screen``); every other job type
+#: refuses such a rule set (``orchestrator.scenarios.review.approved_or_none``)
+ARRIVED_NARROWS = frozenset({"SCREEN", "MICROBATCH"})
+
+
+class ArrivedScopeClosed(RulesetNotApproved):
+    """An arrived rule set whose accepted scope names no practitioner and no department, or nothing left: closed."""
+
+
+def arrived_scope(rulesets_dir: Path, rs: Ruleset) -> tuple[list[str] | None, list[str] | None] | None:
+    """D-1369: the practitioners and departments a rule set installed through the gate may screen, read now: the
+    lists installed with it (its manifest's ``scopes.screen``), each narrowed by the site's current accepted profile
+    for the id (a list the profile drops is not widened; one it narrows is narrowed at once, the review of f8fcc04e,
+    M3). None for a rule set approved here (or installed before the gate). Closed, never open (M1): a scope that names
+    no practitioner and no department, or a list left empty, raises :class:`ArrivedScopeClosed`."""
+    from tb_common.ruleset_part import accepted_profile, screen_lists
+
+    if not site_scoped(rulesets_dir, rs.id, rs.version):
+        return None
+    sc = rs.manifest.scopes.screen if rs.manifest.scopes and rs.manifest.scopes.screen else None
+    lists: list[list[str] | None] = (
+        [list(sc.practitioners or []) or None, list(sc.departments or []) or None] if sc else [None, None]
+    )
+    prof = accepted_profile(lambda path: main_file(rulesets_dir, path), rs.id)
+    if prof is not None:
+        for i, now in enumerate(screen_lists(prof.get("scopes"))):
+            had = lists[i]
+            if now is not None:
+                lists[i] = list(now) if had is None else [x for x in had if x in now]
+    if (lists[0] is None and lists[1] is None) or lists[0] == [] or lists[1] == []:
+        raise ArrivedScopeClosed(
+            f"ruleset {rs.id} v{rs.version} arrived in an update and its accepted site profile names no practitioner "
+            "and no department to screen (or none is left): it screens nobody until the site names them "
+            "(import_ruleset --site-profile)"
+        )
+    return lists[0], lists[1]
+
+
+def main_file(rulesets_dir: Path, path: str) -> bytes | None:
+    """One file of ``main`` of the rule-set repository (what ``--site-profile`` wrote); None without it."""
+    if not (rulesets_dir / ".git").exists():
+        return None
+    from dulwich.object_store import tree_lookup_path
+    from dulwich.repo import Repo
+
+    repo: Any = Repo(str(rulesets_dir))
+    try:
+        commit = repo[repo.refs[b"refs/heads/main"]]
+        _mode, sha = tree_lookup_path(repo.__getitem__, commit.tree, path.encode())
+        return bytes(repo[sha].data)
+    except KeyError:
+        return None
+
+
+def _tag_text(rulesets_dir: Path, ruleset_id: str, version: str) -> str | None:
+    """The message of the annotated approval tag of ``ruleset_id`` v``version``; None without one."""
+    if not (rulesets_dir / ".git").exists():
+        return None
+    from dulwich.objects import Tag
+    from dulwich.repo import Repo
+
+    refs: Any = Repo(str(rulesets_dir)).refs
+    tag = f"refs/tags/{ruleset_id}/v{version}".encode()
+    if tag not in refs:
+        return None
+    obj: Any = Repo(str(rulesets_dir))[refs[tag]]
+    return obj.message.decode("utf-8", "replace") if isinstance(obj, Tag) else None
+
+
 def approved_here(rulesets_dir: Path, ruleset_id: str) -> bool:
     """Whether ``ruleset_id`` has an approved version this box may run (:func:`load_approved` without a run date or
     a terminology check): what a timer asks before it starts a job for it. A ruleset that cannot be read (a broken
