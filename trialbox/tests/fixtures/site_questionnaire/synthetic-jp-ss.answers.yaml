@@ -1,0 +1,197 @@
+# The site questionnaire's answers for the repository's synthetic Japanese hospital (10B-19, D-1249): the worked
+# example of `python -m adapter.site_profile fill`. Synthetic only: the codes are tools.synth_hospital's, the same rows
+# as the shipped sample tables of services/adapter/mapping/jp_core, and every row is `verify` (never checked against
+# a MEDIS, YJ or JLAC10 release). Questions: review 12 section 9 (docs/reviews/2026-11-root/12-ssi-data.md).
+format: tb-site-questionnaire/1
+profile:
+  id: synthetic-jp-ss
+  site_id: jp-ss
+  country: jp
+  version: "1.1.0"
+  synthetic: true
+door: ssmix2
+data_types: [ADT-00, ADT-12, ADT-22, ADT-52, PPR-01, OMP-01, OMP-02, OMP-11, OMP-12, OML-11, document, vital, report,
+             procedure, appointment, claim, registry]
+standards:
+  ssmix2: "1.2"
+  jp_core: "1.1.0"
+  icd10: WHO-2013
+tables:
+  diagnosis:
+    source: {master: synthetic}
+    rows:
+      - {code: ZB01, name: "肺結核", icd10: A15.0, state: verify}
+      - {code: ZB02, name: "敗血症", icd10: A41.9, state: verify}
+      - {code: ZB03, name: "慢性B型肝炎", icd10: B18.1, state: verify}
+      - {code: ZB04, name: "結腸癌", icd10: C18.9, state: verify}
+      - {code: ZB05, name: "右上葉肺癌", icd10: C34.11, state: verify}
+      - {code: ZB06, name: "肺癌", icd10: C34.90, state: verify}
+      - {code: ZB07, name: "皮膚悪性腫瘍", icd10: C44.91, state: verify}
+      - {code: ZB08, name: "右乳癌", icd10: C50.911, state: verify}
+      - {code: ZB09, name: "甲状腺癌", icd10: C73, state: verify}
+      - {code: ZB10, name: "1型糖尿病", icd10: E10.9, state: verify}
+      - {code: ZB11, name: "2型糖尿病", icd10: E11.9, state: verify}
+      - {code: ZB12, name: "多腺性機能不全", icd10: E31.22, state: verify}
+      - {code: ZB13, name: "肥満症", icd10: E66.9, state: verify}
+      - {code: ZB14, name: "脂質異常症", icd10: E78.5, state: verify}
+      - {code: ZB15, name: "本態性高血圧症", icd10: I10, state: verify}
+      - {code: ZB16, name: "急性心筋梗塞", icd10: I21.9, state: verify}
+      - {code: ZB17, name: "心不全", icd10: I50.9, state: verify}
+      - {code: ZB18, name: "脳梗塞", icd10: I63.9, state: verify}
+      - {code: ZB19, name: "肺炎", icd10: J18.9, state: verify}
+      - {code: ZB20, name: "逆流性食道炎", icd10: K21.9, state: verify}
+      - {code: ZB21, name: "急性膵炎", icd10: K85.90, state: verify}
+      - {code: ZB22, name: "慢性膵炎", icd10: K86.1, state: verify}
+      - {code: ZB23, name: "関節リウマチ", icd10: M05.79, state: verify}
+      - {code: ZB24, name: "関節リウマチ", icd10: M06.9, state: verify}
+      - {code: ZB25, name: "痛風発作", icd10: M10.071, state: verify}
+      - {code: ZB26, name: "痛風", icd10: M10.9, state: verify}
+      - {code: ZB27, name: "慢性痛風", icd10: M1A.9XX0, state: verify}
+      - {code: ZB28, name: "変形性膝関節症", icd10: M17.11, state: verify}
+      - {code: ZB29, name: "腰痛症", icd10: M54.50, state: verify}
+      - {code: ZB30, name: "骨粗鬆症", icd10: M81.0, state: verify}
+      - {code: ZB31, name: "慢性腎臓病", icd10: N18.30, state: verify}
+      - {code: ZB32, name: "妊娠", icd10: Z33.1, state: verify}
+  drug:
+    source: {master: synthetic}
+    rows:
+      - {code: "3943001F1020", name: "アロプリノール錠100mg", atc: M04AA01, state: verify}
+      - {code: "3942001F1020", name: "ベンズブロマロン錠50mg", atc: M04AB03, state: verify}
+      - {code: "3941001F1020", name: "コルヒチン錠0.5mg", atc: M04AC01, state: verify}
+      - {code: "3962002F1020", name: "メトホルミン塩酸塩錠500mg", atc: A10BA02, state: verify}
+      - {code: "2171022F1020", name: "アムロジピン錠5mg", atc: C08CA01, state: verify}
+      - {code: "2189015F1020", name: "アトルバスタチン錠10mg", atc: C10AA05, state: verify}
+      - {code: "3999016M1020", name: "メトトレキサートカプセル2mg", atc: L04AX03, state: verify}
+      - {code: "4419001F1020", name: "ヒドロキシクロロキン錠200mg", atc: P01BA02, state: verify}
+      - {code: "6219001F1020", name: "サラゾスルファピリジン錠500mg", atc: A07EC01, state: verify}
+      - {code: "2456001F1020", name: "プレドニゾロン錠5mg", atc: H02AB06, state: verify}
+      - {code: "6222001F1020", name: "イソニアジド錠100mg", atc: J04AC01, state: verify}
+      - {code: "3949003F1020", name: "フェブキソスタット錠20mg", atc: M04AA03, state: verify}
+      - {code: "3999019F1020", name: "レフルノミド錠20mg", atc: L04AA13, state: verify}
+      - {code: "6250029F1020", name: "エンテカビル錠0.5mg", atc: J05AF10, state: verify}
+      - {code: "2499417G1020", name: "セマグルチド皮下注", atc: A10BJ06, state: verify}
+      - {code: "2499410G1020", name: "リラグルチド皮下注", atc: A10BJ02, state: verify}
+      - {code: "2499415G1020", name: "デュラグルチド皮下注", atc: A10BJ05, state: verify}
+      - {code: "2499418G1020", name: "チルゼパチド皮下注", atc: A10BX16, state: verify}
+      - {code: "3999426G1020", name: "アダリムマブ皮下注40mg", atc: L04AB04, state: verify}
+      - {code: "3999418G1020", name: "エタネルセプト皮下注50mg", atc: L04AB01, state: verify}
+      - {code: "6399421G1020", name: "トシリズマブ皮下注162mg", atc: L04AC07, state: verify}
+      - {code: "4291045F1020", name: "オシメルチニブ錠80mg", atc: L01EB04, state: verify}
+  lab:
+    source: {master: synthetic}
+    rows:
+      - code: "3C020000002327101"
+        loinc: 3084-1
+        display: "Urate [Mass/volume] in Serum or Plasma"
+        unit: "mg/dL"
+        factor: 1
+        category: laboratory
+        kind: quantity
+        state: verify
+      - code: "3C015000002327101"
+        loinc: 2160-0
+        display: "Creatinine [Mass/volume] in Serum or Plasma"
+        unit: "mg/dL"
+        factor: 1
+        category: laboratory
+        kind: quantity
+        state: verify
+      - code: "3D046000001906202"
+        loinc: 4548-4
+        display: "Hemoglobin A1c/Hemoglobin.total in Blood"
+        unit: "%"
+        factor: 1
+        category: laboratory
+        kind: quantity
+        state: verify
+      - code: "3B045000002327201"
+        loinc: 1742-6
+        display: "Alanine aminotransferase [Enzymatic activity/volume] in Serum or Plasma"
+        unit: "U/L"
+        factor: 1
+        category: laboratory
+        kind: quantity
+        state: verify
+      - code: "2A080000001930101"
+        loinc: 4537-7
+        display: "Erythrocyte sedimentation rate by Westergren method"
+        unit: "mm/h"
+        factor: 1
+        category: laboratory
+        kind: quantity
+        state: verify
+      - code: "5C070000002306001"
+        loinc: 1988-5
+        display: "C reactive protein [Mass/volume] in Serum or Plasma"
+        unit: "mg/L"
+        factor: 10
+        category: laboratory
+        kind: quantity
+        source_unit: "mg/dL"
+        state: verify
+      - code: "5F016141002305911"
+        loinc: 5196-1
+        display: "Hepatitis B virus surface Ag [Presence] in Serum or Plasma by Immunoassay"
+        factor: 1
+        category: laboratory
+        kind: coded
+        answers: [{word: POS, code: LA6576-8, display: Positive}, {word: NEG, code: LA6577-6, display: Negative}]
+        state: verify
+      - code: "5F018141002305911"
+        loinc: 16933-4
+        display: "Hepatitis B virus core Ab [Presence] in Serum"
+        factor: 1
+        category: laboratory
+        kind: coded
+        answers: [{word: POS, code: LA6576-8, display: Positive}, {word: NEG, code: LA6577-6, display: Negative}]
+        state: verify
+      - code: "5E071160001905911"
+        loinc: 71774-4
+        display: "Mycobacterium tuberculosis stimulated gamma interferon [Presence] in Blood"
+        factor: 1
+        category: laboratory
+        kind: coded
+        answers: [{word: POS, code: LA6576-8, display: Positive}, {word: NEG, code: LA6577-6, display: Negative}]
+        state: verify
+      - code: "4F040000001305911"
+        loinc: 2106-3
+        display: "Choriogonadotropin (pregnancy test) [Presence] in Urine"
+        factor: 1
+        category: laboratory
+        kind: coded
+        answers: [{word: POS, code: LA6576-8, display: Positive}, {word: NEG, code: LA6577-6, display: Negative}]
+        state: verify
+      - code: "TJC28"
+        score: TJC28
+        display: "Tender joint count (28 joints)"
+        unit: "1"
+        factor: 1
+        category: survey
+        kind: quantity
+        source_unit: "{count}"
+        state: verify
+      - code: "SJC28"
+        score: SJC28
+        display: "Swollen joint count (28 joints)"
+        unit: "1"
+        factor: 1
+        category: survey
+        kind: quantity
+        source_unit: "{count}"
+        state: verify
+      - code: "PTGA"
+        score: PTGA
+        display: "Patient global assessment of disease activity (VAS 0-100 mm)"
+        unit: "mm"
+        factor: 1
+        category: survey
+        kind: quantity
+        state: verify
+      - code: "EGFRT"
+        score: EGFR-MUT
+        display: "EGFR gene mutation (exon 19 del / L858R)"
+        factor: 1
+        category: laboratory
+        kind: coded
+        answers: [{word: POS, code: LA9633-4, display: Present}, {word: NEG, code: LA9634-2, display: Absent}]
+        state: verify
