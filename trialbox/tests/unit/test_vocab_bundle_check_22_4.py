@@ -243,7 +243,7 @@ def _approved(tmp_path: Path, excepts: str, paths: str) -> Path:
     reg = tmp_path / "docs/licences/register.csv"
     reg.parent.mkdir(parents=True, exist_ok=True)
     text = (ROOT / "docs/licences/register.csv").read_text(encoding="utf-8")
-    text = "".join(ln for ln in text.splitlines(keepends=True) if not ln.startswith("catalogue-evidence-concept-ids,"))
+    text = "".join(ln for ln in text.splitlines(keepends=True) if not ln.startswith("catalogue-"))
     row = {c: "x" for c in lr.COLUMNS}
     row.update(id="approved-file", kind=lr.EXCEPTION_KIND, status=lr.APPROVED, checked="2026-11-19", text_sha256="",
                athena="", athena_never="", paths=paths, excepts=excepts)  # fmt: skip
@@ -264,6 +264,38 @@ def test_an_owner_approved_exception_lets_through_the_ids_of_its_vocabularies_on
     assert [p for p in vbc.check([other], register=reg, root=tmp_path).problems if "'ICDO3'" in p]
     table = _write(tmp_path / "data/ids.csv", "concept_id,vocabulary_id\n900001,SNOMED\n")
     assert [p for p in vbc.check([table], register=reg, root=tmp_path).problems if "'SNOMED'" in p]
+
+
+def test_an_exception_naming_ids_lets_through_those_ids_only_in_tables_and_objects(tmp_path: Path) -> None:
+    reg = _approved(tmp_path, "ICDO3:C99|900007", "data/codes.csv;data/ids.json")
+    table = _write(tmp_path / "data/codes.csv", "row,system,code,name_in_source\nph.x,ICD-O-3,C99,\n")
+    rep = vbc.check([table], register=reg, root=tmp_path)
+    assert rep.problems == [] and [n for n in rep.notes if "1 concept id(s) of vocabulary 'ICDO3'" in n]
+    _write(table, "row,system,code,name_in_source\nph.x,ICD-O-3,C99,\nph.y,ICD-O-3,C98,\n")
+    got = vbc.check([table], register=reg, root=tmp_path).problems
+    assert [p for p in got if "line 3 of vocabulary 'ICDO3' has id 'C98', which the register row does not list" in p]
+    assert [p for p in got if "2 row(s) of vocabulary 'ICDO3'" in p]
+    _write(table, "row,system,code,name_in_source\nph.x,ICD-O-3,C99,Invented site name\n")
+    got = vbc.check([table], register=reg, root=tmp_path).problems
+    assert [p for p in got if "carries text in 'name_in_source'" in p]
+    doc = {"c": [{"concept_id": 900007, "vocabulary": "ICDO3"}, {"concept_id": 900008, "vocabulary": "ICDO3"}]}
+    ids = _write(tmp_path / "data/ids.json", json.dumps(doc))
+    got = vbc.check([ids], register=reg, root=tmp_path).problems
+    assert [p for p in got if "has id 900008, which the register row does not list" in p]
+
+
+def test_two_exception_rows_naming_one_file_let_through_both_vocabularies(tmp_path: Path) -> None:
+    reg = _approved(tmp_path, "SNOMED", "data/ids.json")
+    row = {c: "x" for c in lr.COLUMNS}
+    row.update(id="second-row", kind=lr.EXCEPTION_KIND, status=lr.APPROVED, checked="2026-11-19", text_sha256="",
+               athena="", athena_never="", paths="data/ids.json", excepts="ICDO3:5")  # fmt: skip
+    row["class"] = ""
+    reg.write_text(reg.read_text(encoding="utf-8") + ",".join(row[c] for c in lr.COLUMNS) + "\n", encoding="utf-8")
+    doc = {"c": [{"concept_id": 1, "vocabulary": "SNOMED"}, {"concept_id": 5, "vocabulary": "ICDO3"}]}
+    rep = vbc.check([_write(tmp_path / "data/ids.json", json.dumps(doc))], register=reg, root=tmp_path)
+    assert rep.problems == []
+    assert [n for n in rep.notes if "'SNOMED', ids only, allowed by register row approved-file" in n]
+    assert [n for n in rep.notes if "'ICDO3', ids only, allowed by register row second-row" in n]
 
 
 def test_an_owner_approved_exception_fails_a_labelled_object_that_carries_text(tmp_path: Path) -> None:

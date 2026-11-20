@@ -33,7 +33,8 @@ The check fails when:
 * a ``bundle-exception`` row (card 22-4: files ``tools.vocab_bundle_check`` warns about instead of failing, while an
   owner decision is pending) lacks status ``decision-pending`` or ``owner-approved`` or paths, or has a class or
   vocabularies; an ``owner-approved`` row (the owner ruled) names in ``excepts`` the must-not-ship vocabularies whose
-  concept ids, and nothing else of them, its files may carry; no other row has ``excepts``;
+  concept ids, and nothing else of them, its files may carry (``VOCAB``, or ``VOCAB:id|id`` naming the ids); no other
+  row has ``excepts``;
 * a row's class is not one of ``a b c d open``; a row naming Athena vocabularies has no class; a class ``c`` row names
   a vocabulary in ``athena`` (the loader would load it) or a row of another class names one in ``athena_never``; a
   vocabulary is named twice;
@@ -136,6 +137,16 @@ def load(path: Path = REGISTER) -> list[Row]:
         )
         for r in rows
     ]
+
+
+def excepted(r: Row) -> dict[str, frozenset[str] | None]:
+    """The ``excepts`` of an owner-approved exception row: vocabulary -> the ids it names (``VOCAB:id|id``), or None
+    when it names none (``VOCAB``: any concept id of that vocabulary, ids only)."""
+    out: dict[str, frozenset[str] | None] = {}
+    for e in r.excepts:
+        vocab, sep, ids = e.partition(":")
+        out[vocab.strip()] = frozenset(i.strip() for i in ids.split("|") if i.strip()) if sep else None
+    return out
 
 
 def _split(value: str) -> tuple[str, ...]:
@@ -284,7 +295,9 @@ def row_problems(rows: list[Row]) -> list[str]:
             named.setdefault(key, r.id)
     never = {fold(n.strip()) for r in rows for e in _split(r.raw.get("athena_never", "")) for n in e.split("|")}
     for r in rows:
-        for v in r.excepts:
+        for v, ids in excepted(r).items():
+            if ids is not None and not ids:
+                out.append(f"row {r.id}: excepts {v!r} with ':' and no id after it")
             if fold(v) not in never:
                 out.append(f"row {r.id}: excepts {v!r}, which no row names in athena_never (only must-not-ship "
                            "vocabularies need an exception)")  # fmt: skip

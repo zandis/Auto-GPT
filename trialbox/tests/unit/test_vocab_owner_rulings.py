@@ -106,12 +106,12 @@ def _strings(node: Any) -> list[str]:
     return [node] if isinstance(node, str) else []
 
 
-# ------------------------------------------------------------------------------------------------ ruling 1
-def test_snomed_and_cpt4_ship_as_concept_ids_only() -> None:
-    """No SNOMED CT or CPT4 name, description, code or other text in the files the exception covers."""
+# ------------------------------------------------------------------------------------------------ rulings 1 and 2: the register
+def test_snomed_cpt4_and_icdo3_ship_as_concept_ids_only() -> None:
+    """No SNOMED CT, CPT4 or ICD-O-3 name, description, code or other text in the files the exceptions cover."""
     for path in EVIDENCE:
         doc = json.loads(path.read_text(encoding="utf-8"))
-        licensed = [e for e in _entries(path) if e.get("vocabulary") in ("SNOMED", "CPT4")]
+        licensed = [e for e in _entries(path) if e.get("vocabulary") in ("SNOMED", "CPT4", "ICDO3")]
         assert licensed, path
         for e in licensed:
             assert set(e) <= ID_ONLY_KEYS, (path.name, e)
@@ -120,21 +120,34 @@ def test_snomed_and_cpt4_ship_as_concept_ids_only() -> None:
     assert {"CPT4", "SNOMED"} <= cv.NAMELESS_VOCABULARIES
 
 
-def test_the_register_holds_the_owners_named_exception_and_no_other() -> None:
-    rows = [r for r in lr.load() if r.kind == lr.EXCEPTION_KIND]
-    assert [r.id for r in rows] == ["catalogue-evidence-concept-ids"]
-    (row,) = rows
-    assert row.status == lr.APPROVED
-    assert set(row.excepts) == {"SNOMED", "CPT4"}
-    assert set(row.paths) == {str(p.relative_to(ROOT)) for p in EVIDENCE}
-    assert row.raw["checked"] == RULING_DATE
-    assert RULING_DATE in row.raw["evidence"] and "named exception in the licence register" in row.raw["evidence"]
+def test_the_register_holds_the_owners_two_named_exceptions_and_no_other() -> None:
+    rows = {r.id: r for r in lr.load() if r.kind == lr.EXCEPTION_KIND}
+    assert sorted(rows) == ["catalogue-evidence-concept-ids", "catalogue-icdo3-concept-ids"]
+    for r in rows.values():
+        assert r.status == lr.APPROVED and r.raw["checked"] == RULING_DATE
+        assert RULING_DATE in r.raw["evidence"] and "D-1260" in r.raw["evidence"]
+        assert not [p for p in r.paths if "*" in p]  # the files are named, never a wildcard
+    snomed = rows["catalogue-evidence-concept-ids"]
+    assert lr.excepted(snomed) == {"SNOMED": None, "CPT4": None}
+    assert set(snomed.paths) == {str(p.relative_to(ROOT)) for p in EVIDENCE}
+    assert "named exception in the licence register" in snomed.raw["evidence"]
+    icdo3 = rows["catalogue-icdo3-concept-ids"]
+    assert lr.excepted(icdo3) == {"ICDO3": frozenset({*map(str, ICDO3_IDS), "C50"})}
+    assert set(icdo3.paths) == {"catalogue/verification/evidence.json", "catalogue/codes_checked.csv"}
+    assert "their ids kept" in icdo3.raw["evidence"] and "C50" in icdo3.raw["evidence"]
+
+
+def test_c50_stays_an_icdo3_id_without_a_name() -> None:
+    with (ROOT / "catalogue/codes_checked.csv").open(encoding="utf-8", newline="") as fh:
+        rows = [r for r in csv.DictReader(fh) if r["system"] == "ICD-O-3"]
+    assert [(r["row"], r["code"], r["name_in_source"]) for r in rows] == [("ph.breast_cancer", "C50", "")]
 
 
 def test_the_shipped_tree_carries_no_text_of_an_excepted_vocabulary() -> None:
     rep = vbc.check(tree=True)
     assert not [p for p in rep.problems if "carries text" in p]
-    assert not [p for p in rep.problems if "'SNOMED'" in p or "'CPT4'" in p]
+    assert not [p for p in rep.problems if "'SNOMED'" in p or "'CPT4'" in p or "'ICDO3'" in p]
+    assert rep.problems == []  # make vocab-bundle-check exits 0
 
 
 # ------------------------------------------------------------------------------------------------ ruling 2

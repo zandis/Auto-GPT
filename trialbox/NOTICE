@@ -180,6 +180,8 @@ SNOMED CT
   A named exception (the owner's ruling of 2026-11-19, register row catalogue-evidence-concept-ids):
   catalogue/verification/evidence.json and its test fixture keep the OMOP concept ids of the OHDSI cohorts'
   SNOMED and CPT4 entry concepts, ids only: no SNOMED CT or CPT4 code, name or description ships with them.
+  A second named exception by the same ruling (register row catalogue-icdo3-concept-ids, D-1260): the 60 ICD-O-3
+  concept ids of that evidence file and the ICD-O-3 code C50 in catalogue/codes_checked.csv are kept without names.
   A hospital feed that carries SNOMED CT codes is still read on the box.
 
 

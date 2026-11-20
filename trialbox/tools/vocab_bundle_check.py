@@ -31,10 +31,13 @@ check the tree.
 **Exceptions.** A register row of kind ``bundle-exception`` (status ``decision-pending``: an owner decision is
 pending) names shipped files in ``paths``; a hit in such a file is printed as a warning, not a failure. A row of status
 ``owner-approved`` (the owner ruled) names in ``excepts`` the vocabularies whose concept ids, and nothing else of them,
-its files may carry: in those files a JSON or YAML object labelled with an excepted vocabulary passes, as a note, only
-while it carries no text (no key naming a name, display, description, definition, title, synonym, designation, term or
-text with a value); a hit of any other vocabulary, a labelled object with text, and a hit in any other kind of file
-(a table, other text) still fail. The register holds the rows; this tool holds no list of its own.
+its files may carry (``VOCAB``, or ``VOCAB:id|id`` to name the ids). In those files an entry labelled with an excepted
+vocabulary passes, as a note, only while it carries no text (no key or column naming a name, display, description,
+definition, title, synonym, designation, term or text with a value) and, where the row names ids, its id
+(``concept_id``, ``code`` or ``concept_code``) is one of them; a JSON or YAML object passes so, a table row only when
+the row names ids. A hit of any other vocabulary, an entry that fails those tests, a hit counted beyond the entries
+let through (a URI in prose) and a hit in any other kind of file still fail. The register holds the rows; this tool
+holds no list of its own.
 """
 
 from __future__ import annotations
@@ -113,12 +116,13 @@ Hits = dict[tuple[str, str], int]  # (vocabulary, register row) -> rows
 @dataclass(frozen=True)
 class ExceptionRow:
     """A register row of kind bundle-exception: its id, path patterns, status and (owner-approved) the register
-    vocabulary ids whose concept ids its files may carry."""
+    vocabulary ids whose concept ids its files may carry, each with the ids it lists (None: any id)."""
 
     row: str
     patterns: tuple[str, ...]
     status: str = lr.PENDING
-    excepts: frozenset[str] = frozenset()
+    excepts: dict[str, frozenset[str] | None] = field(default_factory=dict)
+    owners: dict[str, str] = field(default_factory=dict)  # vocabulary -> the row that excepts it
 
 
 # the keys of a labelled object that carry a concept's text, not its id (folded: lower case, no punctuation)
@@ -157,12 +161,12 @@ def rules(register: Path = REGISTER) -> Rules:
                 if "://" in f or f.startswith("urn:oid:") or OID.fullmatch(f):
                     needles.setdefault(f, (v, c.row))
                     names.setdefault(fold(f), (v, c.row))
-    exceptions = tuple(
-        ExceptionRow(r.id, r.paths, r.status, frozenset(names[fold(v)][0] for v in r.excepts if fold(v) in names))
-        for r in rows
-        if r.kind == lr.EXCEPTION_KIND
-    )
-    return Rules(names, needles, exceptions)
+    exceptions = []
+    for r in rows:
+        if r.kind == lr.EXCEPTION_KIND:
+            excepts = {names[fold(v)][0]: ids for v, ids in lr.excepted(r).items() if fold(v) in names}
+            exceptions.append(ExceptionRow(r.id, r.paths, r.status, excepts))
+    return Rules(names, needles, tuple(exceptions))
 
 
 @dataclass
@@ -215,10 +219,16 @@ class Checker:
             rel = f.resolve().relative_to(self.root).as_posix()
         except ValueError:
             return None
-        for e in self.r.exceptions:
-            if any(re.fullmatch(lr._glob_rx(pat), rel) for pat in e.patterns):
-                return e
-        return None
+        found = [e for e in self.r.exceptions if any(re.fullmatch(lr._glob_rx(pat), rel) for pat in e.patterns)]
+        if len(found) <= 1:
+            return found[0] if found else None
+        # several rows name the file: their excepted vocabularies together; a pending row keeps the file a warning
+        merged = ExceptionRow(" and ".join(e.row for e in found), (),
+                              lr.PENDING if any(e.status == lr.PENDING for e in found) else lr.APPROVED)  # fmt: skip
+        for e in found:
+            merged.excepts.update(e.excepts)
+            merged.owners.update(dict.fromkeys(e.excepts, e.row))
+        return merged
 
     def data(self, name: str, blob: bytes, mode: str, depth: int, exception: ExceptionRow | None = None) -> None:
         low = name.lower()
@@ -240,7 +250,8 @@ class Checker:
             return None
         self.report.artefacts += 1
         hits: dict[tuple[str, str], int] = {}
-        texts: list[str] = []  # in an owner-approved exception: labelled objects that carry text
+        texts: list[str] = []  # in an owner-approved exception: labelled entries it does not let through
+        allowed: dict[str, int] = {}  # vocabulary -> labelled entries it lets through (an id only, listed if listed)
         if low.endswith(".parquet"):
             self._parquet(name, blob, mode, hits)
         else:
@@ -260,41 +271,76 @@ class Checker:
             else:  # SQL, CQL, a dump, any other text: its delimited fields, and the URIs and OIDs it mentions
                 self._fields(text, hits)
                 self._mentions(text, hits, skip=hits)
-            if exception and exception.excepts and low.endswith((*JSON_DOC, *YAML)):
-                for doc in _documents(text, yaml_=low.endswith(YAML)):
-                    self._texts(doc, exception.excepts, texts)
-        structured = low.endswith((*JSON_DOC, *YAML))
+            if exception and exception.excepts:
+                if low.endswith((*JSON_DOC, *YAML)):
+                    for doc in _documents(text, yaml_=low.endswith(YAML)):
+                        self._excepted_objects(doc, exception, allowed, texts)
+                elif low.endswith((".csv", ".tsv", ".txt")):
+                    self._excepted_rows(text, exception, allowed, texts)
         for (vocab, row), n in sorted(hits.items()):
             line = f"{name}: {n} row(s) of vocabulary {vocab!r}, licence class c, must not ship (register row {row})"
             if exception and exception.status == lr.PENDING:
                 self.report.warnings.append(f"WARNING {line}; allowed for now by register row {exception.row} "
                                             "(owner decision pending)")  # fmt: skip
-            elif exception and vocab in exception.excepts and structured:
+            elif exception and vocab in exception.excepts and allowed.get(vocab, 0) == n:
+                owner = exception.owners.get(vocab, exception.row)
                 self.report.notes.append(f"{name}: {n} concept id(s) of vocabulary {vocab!r}, ids only, allowed by "
-                                         f"register row {exception.row} (owner-approved)")  # fmt: skip
+                                         f"register row {owner} (owner-approved)")  # fmt: skip
             else:
                 self.report.problems.append(line)
         for t in texts:
             self.report.problems.append(f"{name}: {t}; register row {exception.row if exception else ''} lets "
-                                        "through concept ids only, never their text")  # fmt: skip
+                                        "through the concept ids it names, never their text")  # fmt: skip
         return None
 
-    def _texts(self, node: Any, excepts: frozenset[str], out: list[str]) -> None:
-        """Objects labelled with an excepted vocabulary that carry a concept's text (an owner-approved exception
-        covers ids only)."""
+    def _excepted(self, vocab: str, ident: Any, entry: dict[str, Any], exc: ExceptionRow, what: str,
+                  allowed: dict[str, int], out: list[str]) -> None:  # fmt: skip
+        """One labelled entry of an excepted vocabulary: let through when it carries no text and, where the row lists
+        ids, its id is listed."""
+        ok = True
+        for k, v in entry.items():
+            if isinstance(k, str) and TEXT_KEY.search(_key(k)) and v not in (None, "", [], {}):
+                out.append(f"{what} of vocabulary {vocab!r} carries text in {k!r}")
+                ok = False
+        ids = exc.excepts[vocab]
+        if ids is not None and str(ident if ident is not None else "").strip() not in ids:
+            out.append(f"{what} of vocabulary {vocab!r} has id {ident!r}, which the register row does not list")
+            ok = False
+        if ok:
+            allowed[vocab] = allowed.get(vocab, 0) + 1
+
+    def _vocab_of(self, k: Any, v: Any, exc: ExceptionRow) -> str | None:
+        if isinstance(k, str) and isinstance(v, str) and v and (is_vocab_key(k) or is_system_key(k)):
+            got = self.r.names.get(fold(v))
+            if got is not None and got[0] in exc.excepts:
+                return got[0]
+        return None
+
+    def _excepted_objects(self, node: Any, exc: ExceptionRow, allowed: dict[str, int], out: list[str]) -> None:
         if isinstance(node, dict):
-            vocab = next((self.r.names[fold(v)][0] for k, v in node.items()
-                          if isinstance(v, str) and v and (is_vocab_key(k) or is_system_key(k))
-                          and fold(v) in self.r.names and self.r.names[fold(v)][0] in excepts), None)  # fmt: skip
-            if vocab is not None:
-                for k, v in node.items():
-                    if TEXT_KEY.search(_key(k)) and v not in (None, "", [], {}):
-                        out.append(f"an object of vocabulary {vocab!r} carries text in {k!r}")
+            for k, v in node.items():
+                vocab = self._vocab_of(k, v, exc)
+                if vocab is not None:
+                    ident = node.get("concept_id", node.get("code"))
+                    self._excepted(vocab, ident, node, exc, "an object", allowed, out)
             for v in node.values():
-                self._texts(v, excepts, out)
+                self._excepted_objects(v, exc, allowed, out)
         elif isinstance(node, list):
             for v in node:
-                self._texts(v, excepts, out)
+                self._excepted_objects(v, exc, allowed, out)
+
+    def _excepted_rows(self, text: str, exc: ExceptionRow, allowed: dict[str, int], out: list[str]) -> None:
+        head = text.split("\n", 1)[0]
+        delim = "\t" if head.count("\t") >= max(head.count(","), 1) else ","
+        for n, r in enumerate(csv.DictReader(io.StringIO(text), delimiter=delim), start=2):
+            for k, v in r.items():
+                vocab = self._vocab_of(k, v, exc)
+                if vocab is not None and exc.excepts[vocab] is None:
+                    out.append(f"line {n} of vocabulary {vocab!r} is a table row: the register row lets a table "
+                               "through only for the ids it lists")  # fmt: skip
+                elif vocab is not None:
+                    ident = next((r[c] for c in ("concept_id", "code", "concept_code") if r.get(c)), None)
+                    self._excepted(vocab, ident, r, exc, f"line {n}", allowed, out)
 
     def cannot(self, name: str, why: str) -> None:
         self.report.problems.append(f"{name}: cannot be checked: {why}")
