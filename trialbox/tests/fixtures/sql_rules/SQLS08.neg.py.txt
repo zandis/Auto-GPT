@@ -1,0 +1,7 @@
+# synthetic: text() with literal SQL and bound parameters; text() that is not SQL
+from sqlalchemy import text
+
+
+def rows(con, name, ax):
+    ax.text(0, 1, f"label {name}")
+    return con.execute(text("SELECT * FROM item WHERE name = :n"), {"n": name})
