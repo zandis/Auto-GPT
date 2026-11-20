@@ -67,7 +67,8 @@ FILES = (  # every kind of job file: the aggregate PDF and JSON, the review work
     f"/pilot/jobs/{WAIT}/files/review_GZQO_v1.0.0_r1.xlsx",
     f"/pilot/jobs/{JOB}/view/{VIEW}",
 )
-#: the 18 rows of route_actions.yaml that ask the log (the owner's two decisions); a 19th needs a decision of its own
+#: the 18 rows of route_actions.yaml that ask the log (the owner's two decisions); with JAPAN_ROUTES the 20 doors, and a
+#: 21st needs a decision of its own
 ROUTES = (
     "GET /pilot/jobs/{job_id}",
     "GET /pilot/jobs/{job_id}/approval",
@@ -88,6 +89,9 @@ ROUTES = (
     "GET /pilot/jobs/{job_id}/files/{filename}",
     "GET /pilot/jobs/{job_id}/view/{filename}",
 )
+#: the 2 rows of route_actions_japan.yaml that ask the log: the Japan profile's committee page and its API mirror the
+#: study's IRB route (10C-4, D-1227), closed with it by the owner's decision of 2026-11-20, "close both"
+JAPAN_ROUTES = ("GET /studies/{rs}/committee", "GET /api/v1/studies/{rs}/committee")
 OFF = ("offlog", "nolog", "ended")  # on RA-BIO's log only; on no log; an ended entry on GZQO's log
 ON = ("pi", "subg", "subrun", "subnone")  # GZQO's PI; subs ticked "screen", only "run", or nothing
 
@@ -316,14 +320,16 @@ def test_the_opening_page_names_no_study_off_the_log(box: dict[str, Any]) -> Non
 
 
 # ---------------------------------------------------------------------------------------------- the walk's ``log:`` key
-def test_the_rows_that_ask_the_log_are_exactly_the_owners_18() -> None:
-    """A 19th row with ``log:`` needs a decision of its own (D-1258); ``on_log`` is the only value."""
+def test_the_rows_that_ask_the_log_are_exactly_the_owners_20() -> None:
+    """18 rows of the route table and the 2 committee rows of the Japan route table; a 21st row with ``log:`` needs a
+    decision of its own (D-1258); ``on_log`` is the only value."""
     from tools import role_walk as rw
 
-    declared = rw.load_declared()
-    assert len(ROUTES) == len(set(ROUTES)) == 18
+    declared, japan = rw.load_declared(), rw.load_declared(rw.DECLARED.parent / "route_actions_japan.yaml")
+    assert len(ROUTES) == len(set(ROUTES)) == 18 and len(set(JAPAN_ROUTES)) == 2
     assert {f"{m} {p}" for (m, p), d in declared.items() if d.log} == set(ROUTES)
-    assert {d.log for d in declared.values()} == {"", "on_log"}
+    assert {f"{m} {p}" for (m, p), d in japan.items() if d.log} == set(JAPAN_ROUTES)
+    assert {d.log for d in (*declared.values(), *japan.values())} == {"", "on_log"}
 
 
 def test_a_log_value_other_than_on_log_is_refused(tmp_path: Any) -> None:
@@ -353,7 +359,7 @@ def test_the_log_key_only_turns_an_allow_into_a_refuse() -> None:
 
     from tools import role_walk as rw
 
-    rows = list(rw.load_declared().items())
+    rows = [*rw.load_declared().items(), *rw.load_declared(rw.DECLARED.parent / "route_actions_japan.yaml").items()]
     rows += [(("GET", "/studies/{rs}/x"), rw.Declared("actions", (a,), "all", "test"))
              for a in ("ops.view", "breakglass.review", "!phi.view", "task.screen", "request.prepare")]  # fmt: skip
     narrowed = 0
@@ -442,3 +448,49 @@ def test_every_column_of_the_walk_gets_a_real_job_file_as_its_row_says(box: dict
             assert got == ("A" if want else "R"), (path, col.name, r.status_code, why)
             judged[got].add(col.name)
     assert "inv" in judged["R"] and {"pi", "sub", "crc"} <= judged["A"]  # the off-log column refused, the rest served
+
+
+# ---------------------------------------------------------------------------------------------- the committee doors
+#: the Japan profile's committee page and its API (10C-4, D-1227), and the IRB doors they mirror
+COMMITTEE = (f"/studies/{STUDY}/committee", f"/api/v1/studies/{STUDY}/committee")
+IRB = (f"/studies/{STUDY}/irb", f"/api/v1/studies/{STUDY}/irb")
+
+
+@pytest.fixture
+def jbox(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """The console's test box at a Japanese site, where the committee routes exist (as test_committees_10c4)."""
+    monkeypatch.setenv("TB_TZ", "Asia/Tokyo")
+    monkeypatch.setenv("TB_SITE_ID", "SAMPLE-A")
+    return dict(request.getfixturevalue("box"))
+
+
+def _pair(c: tuple[TestClient, TestClient], page: str, api: str) -> tuple[int, int]:
+    return c[0].get(page, follow_redirects=False).status_code, c[1].get(api).status_code
+
+
+def test_off_the_log_the_committee_doors_refuse_as_the_irb_doors_they_mirror(jbox: dict[str, Any]) -> None:
+    """The owner's decision of 2026-11-20, "close both": off the log, refused on both, as on the IRB doors, with the
+    same refusal and a console.denied row each; on the log, served as the IRB doors and the coordinator."""
+    c = _accounts(jbox)
+    want = _pair(c["crc"], *COMMITTEE)
+    assert want == (200, 200) and _pair(c["crc"], *IRB) == (200, 200)
+    for name in OFF:
+        page, api = c[name]
+        assert _pair(c[name], *IRB) == (403, 403), name  # the control
+        r = page.get(COMMITTEE[0], follow_redirects=False)
+        assert r.status_code == 403, name
+        week = _main(page.get(f"/studies/{STUDY}/week").text).replace(f"/studies/{STUDY}/week", "<path>")
+        assert _main(r.text).replace(COMMITTEE[0], "<path>") == week, name
+        r = api.get(COMMITTEE[1])
+        assert r.status_code == 403 and r.json() == {"error": "forbidden", "detail": {}}, (name, r.text)
+        assert set(COMMITTEE) <= set(_denied(jbox, name)), name
+    for name in ON:
+        assert _pair(c[name], *COMMITTEE) == _pair(c[name], *IRB) == want, name
+
+
+def test_with_the_log_empty_every_investigator_reads_the_committee_doors_as_the_irb_doors(
+    jbox: dict[str, Any],
+) -> None:
+    c = _accounts(jbox, log=False)
+    for name in (*ON, *OFF):
+        assert _pair(c[name], *COMMITTEE) == _pair(c[name], *IRB) == (200, 200), name

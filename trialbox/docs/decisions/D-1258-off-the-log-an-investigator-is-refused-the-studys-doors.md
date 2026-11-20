@@ -1,8 +1,8 @@
-# D-1258 Off a study's delegation log, an investigator is refused the study's 18 doors and its lines in the lists that point at them (10C-3c)
+# D-1258 Off a study's delegation log, an investigator is refused the study's 20 doors and its lines in the lists that point at them (10C-3c)
 
 - **Task:** card 10C-3c of plan 10 (Track C), lane J: three gaps against the rule of D-147 and D-273, closed as
-  narrowing only, and the doors the sweep found, closed by the owner's decisions recorded on PR #1239 (three comments
-  of the lane J coordinator, 2026-11-19 and 2026-11-20). The pages touch permissions, so the coordinator runs two
+  narrowing only, and the doors the sweep found, closed by the owner's decisions recorded on PR #1239 (comments of the
+  lane J coordinator, 2026-11-19 and 2026-11-20). The pages touch permissions, so the coordinator runs two
   independent reviews. Lane J's block (D-1220 to D-1319) holds the number.
 - **Date:** 2026-11-19 (the owner's decisions of 2026-11-19 and 2026-11-20)
 - **Status:** accepted
@@ -13,7 +13,7 @@
 
 ## The owner's decisions
 
-All three were recorded by the lane J coordinator on PR #1239.
+All four were recorded by the lane J coordinator on PR #1239.
 
 1. **2026-11-19, about 23:32 UTC: "close all 14".** "An investigator who is not on a study's delegation log is
    refused every one of these routes of that study, as its week and patient pages are refused today; the
@@ -24,9 +24,14 @@ All three were recorded by the lane J coordinator on PR #1239.
    today (a doctor can read the feasibility report before agreeing to be its investigator). Once anyone is named,
    an investigator gets in only with an active entry of their own, with or without a ticked task. An ended entry is
    out. What a task tick itself allows elsewhere does not change."
+4. **2026-11-20: "close both".** The Japan profile's committee page and its API (`GET /studies/{rs}/committee`,
+   `GET /api/v1/studies/{rs}/committee`, card 10C-4, D-1227) mirror the study's IRB route, which decision 1 closed.
+   They are closed with it, under the same rule.
 
 Decisions 1 and 2 allow these edits: the 18 rows of `tests/console/data/route_actions.yaml` gain the delegation
-condition, and their investigator cells change in the design table `tests/console/data/role_route_matrix.md`. The
+condition, and their investigator cells change in the design table `tests/console/data/role_route_matrix.md`.
+Decision 4 allows the same for the 2 committee GET rows of `tests/console/data/route_actions_japan.yaml` and their
+investigator cells in `tests/console/data/role_route_matrix_japan.md`. The
 coordinator's rulings on the same PR allow one new row key, `log: on_log`, in `tools/role_walk.py`, under three
 conditions:
 - a test pins the rows that carry it;
@@ -79,10 +84,10 @@ one.
    A sub-investigator ticked only for `run`, `refer` or `enter_data` gets the page with no study listed, since the
    week page itself refuses them. Their serious-AE banners appear only where the SAE pages show them (the review's
    F5, accepted).
-3. **The job page and the state page**, with the sweep's other routes: the 18 doors below.
+3. **The job page and the state page**, with the sweep's other routes: the 20 doors below.
 
 Exactly what is closed, then:
-- the 18 doors below;
+- the 20 doors below;
 - the lines of the study in these lists, for the same account:
   - `/week`: its week or cohort link, the redirect to its week page, its serious AEs and SAE reports, its "criteria
     waiting" lines (the "criteria waiting" lines on each study's week page too);
@@ -90,7 +95,7 @@ Exactly what is closed, then:
   - `/reports`: its row, the feasibility summary;
   - `/jobs`: its jobs' rows (ids and links). The page's own answer is unchanged (200), so it needs no row.
 
-## The 18 doors
+## The 20 doors
 
 The console's own role walk (`tools/role_walk.py`, `ROLE_WALK_OUT`) was run at `origin/master` d28f6c03 and on this
 change. Column `inv` is an investigator on no entry of GZQO's log, which names a PI; it is the walk's only off-log
@@ -116,6 +121,11 @@ investigator column. "Master" is that column's answer on master.
 | `POST /pilot/jobs/{job_id}/approval/label` | 400 (walk) | 400 (walk) | a label stored for the study's criterion (`console.criterion_label`) |
 | `GET /pilot/jobs/{job_id}/files/{filename}` | 404 (walk) | 403 | the job's aggregate files: the feasibility PDF and JSON, the criteria review workbook (`console.download`) |
 | `GET /pilot/jobs/{job_id}/view/{filename}` | 404 (walk) | 403 | the job's aggregate pages in the browser |
+| `GET /studies/{rs}/committee` (Japan) | 200 | 403 | the ethics committee record and the site's permission, as the IRB page |
+| `GET /api/v1/studies/{rs}/committee` (Japan) | 200 | 403 JSON | the same, as the IRB API |
+
+The two committee routes exist only at a Japanese site, so the walk outside Japan does not have them; their "Master"
+is the answer of `test_committee_walks_japan`'s walk, whose column `pi` is this column.
 
 The walk does not reach the last four with a real target:
 - tick and label: their walk cells do not move. The walk's job is not waiting for approval, so the round answers
@@ -128,7 +138,7 @@ The walk does not reach the last four with a real target:
 `tests/console/test_offlog_study_pages_10c3c.py` reaches all four with a waiting round and real files, and asks real
 aggregate outputs of a prepared SCREEN run as every column of the walk, judged against the declared rows (the
 review's B5), so a reopened file door fails for any column. None of the
-18 showed a patient row to this column: the walk's data check finds no seeded pseudonym.
+20 showed a patient row to this column: the walk's data check finds no seeded pseudonym.
 
 ## The tables
 
@@ -141,6 +151,9 @@ review's B5), so a reopened file door fails for any column. None of the
   the test's docstring as "an investigator the GZQO log does not name". The changes are `Y` → `-` on the 14, `U` →
   `-` on the two API rows forms and sources, and `n` → `-` on files and view. Tick and label do not move (the empty
   test body is answered before the log). `lpi`, the logged PI, and every other cell are unchanged.
+- `tests/console/data/route_actions_japan.yaml`: the two committee GET rows gain `log: on_log`;
+  `tests/console/data/role_route_matrix_japan.md`: their column `pi`, `Y` → `-`, as the IRB rows. The two committee
+  POST rows do not change (their IRB rows did not).
 
 ## What still names a study to an off-log investigator (not in this card; the owner to decide)
 
@@ -184,10 +197,14 @@ These answer the same as on master. They show a study's id, version or kind to a
   - a job filed under `gzqo` asks GZQO's log;
   - `/week`, `/reports`, `/jobs` and the J-6 page leave the study out for the off-log accounts and keep it for the
     on-log ones;
-  - the walk key: the 18 rows pinned by a literal list; any value but `on_log` is refused; it never widens any row
-    for any column; and `on_log_of` equals `Helpers.on_log_ok` over `console.team.listed` for every role and every
-    state of a log (empty; others only; one's own active entry as PI, sub ticked or not, monitor; one's own ended
-    entry, with or without a PI).
+  - at a Japanese site, the committee page and its API refuse the three off-log accounts as the IRB doors do (the
+    week page's refusal word for word, the JSON refusal, a `console.denied` row each), and answer the on-log ones
+    and, with the log empty, every investigator as the IRB doors;
+  - the walk key: the 20 rows pinned by a literal list (18 in the route table, 2 in the Japan route table); any value
+    but `on_log` is refused; it never widens any row for any column; and `on_log_of` equals `Helpers.on_log_ok` over
+    `console.team.listed` for every role and every state of a log (empty; others only; one's own active entry as PI,
+    sub ticked or not, monitor; one's own ended entry, with or without a PI).
+- `test_committee_walks_japan` and `test_committees_10c4`, unedited, hold the committee doors to the IRB doors.
 - Every test of a refusal fails on `origin/master`. Without the break-glass branch, the grant test fails.
 - Existing tests:
   - `test_t102b_roles::test_role_008` is as on master: GZQO's log is empty there, so the investigator sees the log
