@@ -51,7 +51,7 @@
 {% if reads_subjects %}<p><a href="/studies/{{ rs }}/reconsent" data-testid="to-reconsent">{{ t('reconsent.title') }}</a></p>{% endif %}
 {% if can_edit %}<form method="post" action="/studies/{{ rs }}/irb/icf" class="markform" data-testid="icf-form" data-fields="icf" data-guard>
 <input type="hidden" name="csrf" value="{{ csrf }}">
-{{ fm.field(fe, 'icf', 'icf', 'version', t('icf.col.version'), '', attrs={'maxlength': '40', 'data-testid': 'icf-version'}) }}
+{{ fm.field(fe, 'icf', 'icf', 'version', t('icf.col.version'), '', attrs={'maxlength': '40', 'required': 'required', 'data-testid': 'icf-version'}) }}
 {{ fm.field(fe, 'icf', 'icf', 'version_date', t('icf.col.date'), '', type='date', hint=t('date.fmt'), attrs={'lang': lang}) }}
 {{ fm.field(fe, 'icf', 'icf', 'irb_approved_on', t('icf.col.approved'), '', type='date', hint=t('date.fmt'), attrs={'lang': lang, 'data-testid': 'icf-approved-on'}) }}
 {{ fm.field(fe, 'icf', 'icf', 'effective_from', t('icf.col.from'), '', type='date', hint=t('date.fmt') ~ ' · ' ~ t('icf.from.help'), attrs={'lang': lang, 'data-testid': 'icf-from'}) }}

@@ -220,3 +220,70 @@ def test_the_keyboard_reaches_each_field_from_the_summary(jbox: dict[str, Any], 
     )  # fmt: skip
     res = json.loads(r.stdout.strip().splitlines()[-1])
     assert r.returncode == 0 and res["failed"] == {} and res["checked"] == len(pages), (res, r.stderr[-2000:])
+
+
+@pytest.mark.parametrize("name", sorted(CASES))
+def test_the_browsers_own_checks_are_as_on_master(request: pytest.FixtureRequest, name: str) -> None:
+    """``required`` and ``minlength`` that master had on these fields are still there (the server's checks are
+    unchanged and still answer a post that skips the browser), on the page as first shown and as shown again."""
+    case = CASES[name]
+    b = _box(request, case)
+    c = _client(b, case.role, "en")
+    first = c.get(case.page).text
+    _c, r = _failed(b, case, "en")
+    for page in (first, r.text):
+        els = _parse(page)
+        for f in case.required:
+            assert "required" in els.ids[f"{case.prefix}-{f}"][1], f
+        for f, n in case.minlength.items():
+            assert els.ids[f"{case.prefix}-{f}"][1].get("minlength") == n, f
+
+
+@pytest.mark.parametrize("name", sorted(CASES))
+def test_a_page_shown_again_after_a_refused_post_is_not_cached(request: pytest.FixtureRequest, name: str) -> None:
+    """What was typed (a chart number on the opt-out page) comes back only in a response the browser and any proxy
+    are told not to keep."""
+    case = CASES[name]
+    b = _box(request, case)
+    _c, r = _failed(b, case, "en")
+    assert r.status_code == 400 and "no-store" in r.headers.get("cache-control", "")
+
+
+GUARD = Path(__file__).with_name("form_guard_9k6b.js")
+
+
+@pytest.mark.skipif(not _node_playwright(), reason="Node Playwright is not available")
+def test_data_guard_is_armed_on_the_page_shown_again(jbox: dict[str, Any], tmp_path: Path) -> None:
+    """Measured in Chromium: a page shown again after a refused post asks before it is left (its typed values are
+    not saved); a fresh page does not ask until a guarded field is edited."""
+    out = tmp_path / "pages"
+    out.mkdir()
+    pages: list[dict[str, Any]] = []
+    css = ""
+    for name in sorted(CASES):
+        case = CASES[name]
+        for step in case.prep:
+            PREP[step](jbox)
+        c, r = _failed(jbox, case, "en")
+        assert r.status_code == 400
+        css = css or c.get("/static/console.css").text
+        (out / f"{name}.html").write_text(
+            r.text.replace('href="/static/console.css"', 'href="console.css"'), encoding="utf-8"
+        )
+        pages.append({"name": f"{name}-again", "file": f"{name}.html", "expect": True, "type": None})
+        if name == "irb":
+            fresh = c.get(case.page).text.replace('href="/static/console.css"', 'href="console.css"')
+            (out / "fresh.html").write_text(fresh, encoding="utf-8")
+            pages.append({"name": "fresh-untouched", "file": "fresh.html", "expect": False, "type": None})
+            pages.append({"name": "fresh-edited", "file": "fresh.html", "expect": True, "type": "#irb-approval_no"})
+    (out / "console.css").write_text(css, encoding="utf-8")
+    r2 = subprocess.run(
+        [shutil.which("node") or "node", str(GUARD), json.dumps({"dir": str(out), "pages": pages})],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=900,
+        check=False,
+    )
+    res = json.loads(r2.stdout.strip().splitlines()[-1])
+    assert r2.returncode == 0 and res["failed"] == {} and res["checked"] == len(pages), (res, r2.stderr[-2000:])

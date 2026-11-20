@@ -101,6 +101,9 @@ _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # a screening number (re
 CHECK_DAYS = 30  # the copy is compared with the office's signed log every month
 IRB_REASON_MIN = 10  # D-380 (ROLE-015): the written reason for a change to a study's IRB record
 LIFT_REASON_MIN = 10  # D-380 (ROLE-005): the written reason for lifting an opt-out
+IRB_REASON_WHY = f"say why the IRB record changes (at least {IRB_REASON_MIN} characters)"
+LIFT_REASON_WHY = f"say why the opt-out is lifted (at least {LIFT_REASON_MIN} characters)"
+IRB_NUMBER_WHY = "give the IRB approval number with the approval date"
 # NEW-DIN-3 (D-544): an opt-out typed by chart number for a pseudonym the pid map does not hold is registered only
 # with a written reason of this length; without one the desk says this
 UNKNOWN_REASON_MIN = 10
@@ -123,8 +126,8 @@ IRB_DATES = {"approved_on": "fe.irb.approved_on", "expires_on": "fe.irb.expires_
 ICF_DATES = {"version_date": "fe.icf.version_date", "irb_approved_on": "fe.icf.irb_approved_on",
              "effective_from": "fe.icf.effective_from"}  # fmt: skip
 IRB_REFUSALS: dict[str, form_errors.Rule] = {
-    "give the IRB approval number with the approval date": ("approval_no", "fe.irb.approval_no"),
-    f"say why the IRB record changes (at least {IRB_REASON_MIN} characters)": ("reason", "fe.irb.reason"),
+    IRB_NUMBER_WHY: ("approval_no", "fe.irb.approval_no"),
+    IRB_REASON_WHY: ("reason", "fe.irb.reason"),
     "dates are YYYY-MM-DD": lambda form: form_errors.bad_dates(form, IRB_DATES, IRB_DATES),
     "the approval expires before it was given": ("expires_on", "fe.irb.expires_early"),
 }
@@ -144,7 +147,7 @@ OPTOUT_REFUSALS: dict[str, form_errors.Rule] = {
     CANNOT_CHECK: ("unknown_reason", "fe.optout.unknown_cannot"),
 }  # fmt: skip
 LIFT_REFUSALS: dict[str, form_errors.Rule] = {
-    f"say why the opt-out is lifted (at least {LIFT_REASON_MIN} characters)": ("note", "fe.lift.note"),
+    LIFT_REASON_WHY: ("note", "fe.lift.note"),
 }
 STAFF_REFUSALS: dict[str, form_errors.Rule] = {
     "give the person's name": ("name", "fe.staff.name"),
@@ -866,12 +869,12 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         before = team.irb(rid)
         new = Irb(body.approval_no, body.approved_on, body.expires_on, body.icf_version, body.icf_date)
         if new.approved_on.strip() and not new.approval_no.strip():
-            raise refused(TeamError("give the IRB approval number with the approval date"))
+            raise refused(TeamError(IRB_NUMBER_WHY))
         fields = IRB_FIELDS
         changed = [k for k in fields if str(getattr(before, k) or "") != str(getattr(new, k) or "").strip()]
         reason = body.reason.strip()
         if before.at and changed and len(reason) < IRB_REASON_MIN:
-            raise refused(TeamError(f"say why the IRB record changes (at least {IRB_REASON_MIN} characters)"))
+            raise refused(TeamError(IRB_REASON_WHY))
         try:
             rec = team.save_irb(rid, new, sess.user.username, now())
         except TeamError as exc:
@@ -1196,7 +1199,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if not can_keep_optouts(sess.user):
             raise deny(sess, path)
         if body.lift and len(body.note.strip()) < LIFT_REASON_MIN:  # D-380 (ROLE-005): a lift says why
-            raise refused(OptOutError(f"say why the opt-out is lifted (at least {LIFT_REASON_MIN} characters)"))
+            raise refused(OptOutError(LIFT_REASON_WHY))
         by_chart = bool(body.chart_no.strip()) and not body.pid.strip()
         if by_chart:
             chart_lookup(sess, "optout")
@@ -1288,7 +1291,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             if bad is None:
                 raise
             lift = form.get("lift") == "1"
-            fe = form_errors.failed("optout-lift" if lift else "optout", f"lift-{body.pid[:8]}" if lift else "oo", bad,
+            fe = form_errors.failed("optout-lift" if lift else "optout", f"lift-{body.pid}" if lift else "oo", bad,
                                     form.multi_items())  # fmt: skip
             return optout_view(request, sess, status=form_errors.FAILED, fe=fe)
         done = ("lifted" if body.lift else "added") if changed else "same"

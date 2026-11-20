@@ -624,7 +624,7 @@ def test_the_form_behaves_as_on_master(
     assert [s["step"] for s in got] == [s["step"] for s in want]
     for g, w in zip(got, want, strict=True):
         assert g["status"] == w["status"], (name, g["step"], "status")
-        assert g["location"].split("&on=")[0] == w["location"].split("&on=")[0], (name, g["step"], "where it goes")
+        assert g["location"] == w["location"], (name, g["step"], "where it goes")
         assert g["events"] == w["events"], (name, g["step"], "audit events")
         assert g["stored"] == w["stored"], (name, g["step"], "stored result")
         assert g.get("body") == w.get("body"), (name, g["step"], "api body")

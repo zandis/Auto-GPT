@@ -32,6 +32,8 @@ class Case:
     prep: tuple[str, ...] = field(default=())  # what the box needs before (names of test_form_errors_9k6b.PREP)
     japan: bool = False  # the box is made at a Japanese site (the committee record is there only then)
     checked: tuple[str, ...] = field(default=())  # checkboxes of ``bad`` that must come back ticked
+    required: tuple[str, ...] = field(default=())  # fields the browser's ``required`` holds, as on master
+    minlength: dict[str, str] = field(default_factory=dict)  # fields the browser's ``minlength`` holds, as on master
 
 
 CASES: dict[str, Case] = {
@@ -89,6 +91,7 @@ CASES: dict[str, Case] = {
         want="/studies/GZQO/irb?icf=1#icf",
         title="team.irb.title",
         kept=("version", "version_date", "irb_approved_on", "effective_from", "note"),
+        required=("version",),
     ),
     "committee": Case(
         template="committee.html",
@@ -151,6 +154,7 @@ CASES: dict[str, Case] = {
         want="/site/staff?done=add",
         title="team.staff.title",
         kept=("department", "practitioner_id", "role", "contact"),
+        required=("name",),
     ),
     "contact": Case(
         template="site_staff.html",
@@ -166,6 +170,7 @@ CASES: dict[str, Case] = {
         want="/site/staff?done=contact",
         title="team.staff.title",
         kept=("contact",),
+        required=("department", "name"),
     ),
     "optout": Case(
         template="site_optouts.html",
@@ -187,7 +192,7 @@ CASES: dict[str, Case] = {
         role="steward",
         page="/site/opt-outs",
         action="/site/opt-outs",
-        prefix="lift-dddddddd",
+        prefix="lift-" + "d" * 32,
         bad={"pid": "d" * 32, "lift": "1", "note": "short"},
         failing=("note",),
         good={"pid": "d" * 32, "lift": "1", "note": "synthetic reason to lift this"},
@@ -197,6 +202,8 @@ CASES: dict[str, Case] = {
         title="team.optout.title",
         kept=("note",),
         prep=("optout_d",),
+        required=("note",),
+        minlength={"note": "10"},
     ),
     "state": Case(
         template="study_state.html",
@@ -227,5 +234,6 @@ CASES: dict[str, Case] = {
         want="/studies/GZQO/state?saved=state",
         title="sstate.title",
         prep=("closed_today",),
+        required=("reason",),
     ),
 }

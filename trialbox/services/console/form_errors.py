@@ -119,8 +119,8 @@ def from_refusal(
     the list (a refusal that names no field, as "dates are YYYY-MM-DD"). None when ``exc`` is not a refusal, its
     sentence is not on the table, or the function found no field to blame: the caller raises it as before (a refusal
     of a valid request, a 403, a missing study)."""
-    if getattr(exc, "key", None) != "request.refused":
-        return None
+    if getattr(exc, "key", None) != "request.refused" or getattr(exc, "status", None) != FAILED:
+        return None  # only a refusal answered 400 becomes a field error: a 409 is a refusal of a valid request
     values = getattr(exc, "values", None)
     reason = values.get("reason") if isinstance(values, Mapping) else None
     rule = table.get(reason) if isinstance(reason, str) else None
