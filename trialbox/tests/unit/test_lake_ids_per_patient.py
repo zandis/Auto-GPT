@@ -116,14 +116,22 @@ def write_csv(mapping: Path, feed: Path, tables: dict[str, list[dict[str, str]]]
             w.writerows(src)
 
 
+CREATE = "CREATE TABLE {} ({})"  # a synthetic source table: its name and columns quoted as identifiers
+INSERT = "INSERT INTO {} VALUES ({})"
+
+
+def _ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
 def write_sql(mapping: Path, db: Path, tables: dict[str, list[dict[str, str]]]) -> str:
     db.unlink(missing_ok=True)
     con = sqlite3.connect(db)
     for table, rows in tables.items():
         name, src = _as_source(mapping, table, rows)
         cols = list(dict.fromkeys(k for r in src for k in r))
-        con.execute(f"CREATE TABLE {name} ({', '.join(f'{c} TEXT' for c in cols)})")
-        con.executemany(f"INSERT INTO {name} VALUES ({', '.join('?' for _ in cols)})",
+        con.execute(CREATE.format(_ident(name), ", ".join(f"{_ident(c)} TEXT" for c in cols)))
+        con.executemany(INSERT.format(_ident(name), ", ".join("?" for _ in cols)),
                         [[r.get(c, "") for c in cols] for r in src])  # fmt: skip
     con.commit()
     con.close()

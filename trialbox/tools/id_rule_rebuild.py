@@ -25,6 +25,9 @@ It holds the lake lock for the whole lake part.
   (:func:`tb_common.id_rule.snapshot_names`) and moved whole, one file or folder at a time (:func:`_parts`).
 - Each resolved conflict of the derived store, with the score row it names, is **kept**. It is marked ``id_rule =
   1`` and its row is superseded, so screening never reads it again.
+- Each OMOP feed record a person decided (a status change) is **kept** with its history, out of the feed's reach
+  (:data:`KEPT_KIND`). Its earlier id goes to ``<lake>/id_rule_review.json``; every record the next nights make from
+  it, for each patient, is proposed until a steward reviews it (ruling 1: never carried over by guess).
 - EDC's trail stays: append-only, D-281.
 - The site key, the pid map, the site set-up's facts, the embedding cache and the FHIR ledger stay. The ledger is how
   the next load deletes the old ids from fhir-store.
@@ -39,8 +42,8 @@ leaves a box that serves nothing of the old rule, and a second run finishes the 
    feed's date.
 4. **The stores**:
    - the OMOP store of record (``TB_OMOP_DB_URL`` when set, else the trial database: the store the night probes).
-     Its feed records of patients' clinical data go. Persons, site records, vocabulary, conflicts, loads and ruleset
-     releases stay.
+     Its feed records of patients' clinical data go, but for those a person decided (above). Persons, practitioners,
+     site records, vocabulary, conflicts, loads and ruleset releases stay.
    - the derived store: scores, inputs, open conflicts and batch runs. The definitions and the resolved conflicts
      (above) stay.
    - the note chunks, the twin's documents and the pool.
@@ -89,6 +92,12 @@ def _record(lake_dir: Path) -> Path:
     return lake_dir / "id_rule_rebuild.json"
 
 
+def _review(lake_dir: Path) -> Path:
+    """Ruling 1's review list (``tb_common.id_rule.REVIEW``): ``lake:id_rule_review.json`` in the erasure registry,
+    spelt out so its scan finds it."""
+    return lake_dir / "id_rule_review.json"
+
+
 ASIDE = "id_rule_1"  # <lake>/id_rule_1/{ndjson,db,parquet}/...: rule-1 month-ends kept under retention, never read
 #                      (adapter.pipeline.ID_RULE_ASIDE: the nightly prune lets each go when retention does)
 #: step 2: what is served; step 3: the rest of the lake made from the snapshots (``tb_common.erasure``'s lake entries)
@@ -118,6 +127,19 @@ OMOP_FEED_TABLES = (
     "SELECT DISTINCT cdm_table FROM tb_record WHERE source_kind = 'feed' AND "
     "resource_type NOT IN ('Patient', 'Practitioner') AND cdm_table IS NOT NULL"
 )
+#: D-1253 ruling 1: the OMOP feed records of patients' clinical data a person decided (a status change: a steward's
+#: rejection, a confirmation). Kept with their history under :data:`KEPT_KIND`, never deleted, never carried over by
+#: guess: the records the next nights make from their earlier ids are marked for a steward's review
+OMOP_DECIDED = (
+    "SELECT DISTINCT r.record_key FROM tb_record r JOIN tb_record_event e ON e.record_key = r.record_key "
+    "WHERE e.event = 'status' AND r.source_kind = 'feed' AND r.resource_type NOT IN ('Patient', 'Practitioner')"
+)
+KEPT_KIND = "feed:id_rule_1"
+REVIEW_REASON = (
+    "D-1253 ruling 1: kept by the id rebuild; the records the next nights make from this id are "
+    "proposed until a steward reviews them"
+)
+OMOP_KEPT = "SELECT resource_type, source_record_id, status FROM tb_record WHERE source_kind = 'feed:id_rule_1'"
 #: the derived conflicts a person resolved, and every conflict they were carried from: kept
 KEPT_CONFLICTS = (
     "WITH RECURSIVE k(id) AS (SELECT id FROM conflict WHERE resolution IS NOT NULL UNION SELECT c.carried_from FROM "
@@ -373,7 +395,10 @@ def plan(lake: Path, url: str | None, today: date | None = None) -> dict[str, An
         row: dict[str, Any] = {"schema": full, "present": True, "rule": id_rule.probe(where, store, name)}
         with Database.connect(where, name) as db:
             if store is id_rule.OMOP and _has(db, "tb_record"):
-                row["cleared"] = {"feed_records": int(db.fetchval(OMOP_FEED_COUNT))}
+                decided = len(db.fetchall(OMOP_DECIDED))
+                row["cleared"] = {"feed_records": int(db.fetchval(OMOP_FEED_COUNT)) - decided}
+                if decided:
+                    row["kept"] = {"decided_records_for_review": decided}
             else:
                 row["cleared"] = {t: int(db.fetchval(_q("SELECT count(*) FROM {}", t))) for t in COUNTS.get(name, ())
                                   if _has(db, t)}  # fmt: skip
@@ -538,6 +563,17 @@ def _clear_omop(db: Any) -> dict[str, int]:
                    "resource_type NOT IN ('Patient', 'Practitioner') AND cdm_table = ?)", t, col),
                 (t,),
             )  # fmt: skip
+        decided = [int(r[0]) for r in tx.fetchall(OMOP_DECIDED)]
+        if decided:  # ruling 1: kept, out of the feed's reach; the event says why (the history stays whole)
+            tx.execute(
+                "INSERT INTO tb_record_event (record_key, event, from_status, to_status, actor, reason, record_before) "
+                "SELECT record_key, 'update', status, status, 'id-rule-rebuild', ?, row_to_json(r)::jsonb FROM "
+                "tb_record r WHERE record_key = ANY(?)",
+                (REVIEW_REASON, decided),
+            )
+            tx.execute("UPDATE tb_record SET source_kind = ?, record_id = NULL, changed_at = now() "
+                       "WHERE record_key = ANY(?)", (KEPT_KIND, decided))  # fmt: skip
+        counts["kept_for_review"] = len(decided)
         counts["tb_record_event"] = tx.execute(
             "DELETE FROM tb_record_event WHERE record_key IN (SELECT record_key FROM tb_record WHERE "
             "source_kind = 'feed' AND resource_type NOT IN ('Patient', 'Practitioner'))"
@@ -598,6 +634,9 @@ def _stores(lake: Path, url: str, before: dict[str, Any]) -> dict[str, Any]:
         with Database.connect(omop_url, omop) as db:
             if _has(db, "tb_record"):
                 done["omop"] = _clear_omop(db)
+                kept = [(str(t), str(i), str(st)) for t, i, st in db.fetchall(OMOP_KEPT)]
+                if kept:  # from the store, so a second run after a crash writes the same list
+                    id_rule.write_review(_review(lake), kept)
     if prefix + "derived" in present:
         with Database.connect(url, "derived") as db:
             done["derived"] = _clear_derived(db)

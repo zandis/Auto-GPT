@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-246 entries: 90 erase, 29 keep, 127 no patient data. 28 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+247 entries: 90 erase, 29 keep, 128 no patient data. 28 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -132,6 +132,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `lake:FEED` | the date of the last feed snapshot |
 | `lake:holds` | a job's hold on a snapshot: job id and date |
 | `lake:id_rule_rebuild.json` | D-1253: the one id-rule rebuild's record: counts, snapshot dates and EDC study keys; no patient |
+| `lake:id_rule_review.json` | D-1253 ruling 1: the earlier rule's ids (record-number pseudonyms, no patient) of the OMOP records a person decided before the one id rebuild, with their status; the night marks the records made from them for review |
 | `lake:locks` | lock files of the lake's readers and writers (T-722), rebuild job states (T-690) |
 | `library.criterion_library` | the criteria library |
 | `library.criterion_library_lexicon_key` | the criteria library |

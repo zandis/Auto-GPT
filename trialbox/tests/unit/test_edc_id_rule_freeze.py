@@ -64,8 +64,14 @@ def test_the_migration_stamps_every_study_with_drafts_rule_1_and_a_later_study_s
 
 def _counts(svc: Any) -> dict[str, int]:
     db = svc.store.db
-    return {t: int(db.fetchval(f"SELECT count(*) FROM {t} WHERE study = ?", (k.STUDY,)))
-            for t in ("draft", "decision", "sent", "copy_tick", "signature")}  # fmt: skip
+    asked = {  # written out, one per table (no query made from strings)
+        "draft": "SELECT count(*) FROM draft WHERE study = ?",
+        "decision": "SELECT count(*) FROM decision WHERE study = ?",
+        "sent": "SELECT count(*) FROM sent WHERE study = ?",
+        "copy_tick": "SELECT count(*) FROM copy_tick WHERE study = ?",
+        "signature": "SELECT count(*) FROM signature WHERE study = ?",
+    }
+    return {t: int(db.fetchval(q, (k.STUDY,))) for t, q in asked.items()}
 
 
 def test_a_study_of_the_earlier_rule_with_a_trail_is_frozen_on_every_write_path(tmp_path: Path) -> None:

@@ -246,7 +246,8 @@
       3. it clears the rest of the lake;
       4. it clears the stores, each stamped rule 2 in the same transaction:
          - the OMOP store the night probes (`TB_OMOP_DB_URL` when set): its feed records of patients' clinical
-           data. The persons stay.
+           data. The persons and the practitioners stay (#1258), and so does every record a person decided
+           (ruling 1, below).
          - the derived scores, inputs, open conflicts and batch runs;
          - the note chunks, the twin's documents and the pool;
          - the data-ops `built` and `built_kept` rows;
@@ -270,8 +271,7 @@
         the night, the readers and the rebuild alike: move that unfinished snapshot out of the lake and run the
         night again.
       - **The back-fill's spool.** A spool kept from before the update is never reused: its fingerprint holds the
-        id rule and the mapping as resolved (with the base it `extends`), and the spool records its rule. It is read
-        again from the source, counted (`spool_of_another_id_rule`) and said.
+        id rule (#1258), so a spool of the earlier rule misses and is read again from the source.
       - **Backups.** The backup takes `id_rule_1/<ndjson|db|parquet>` by the rules of the live folders: a month-end
         aside is an older snapshot (its NDJSON and older generations left out; its DuckDB, generation records and
         Parquet kept), as before the move.
@@ -279,6 +279,33 @@
         keeps them out as it keeps out the service's nights. The night's FHIR step checks the snapshot's rule before
         its ledger is read or written. An EDC store not yet migrated refuses the rebuild (start the services once
         first), as the derived store does. A link by day must name the record's patient among its keys.
+    - **The integrator's review (#1258) and the owner's rulings (2026-11-20).** Twelve findings: eight fixed by
+      the integrator's builder with failing-first tests (`tests/unit/test_id_rule_review.py`), four ruled.
+      - **Fixed (#1258).** A practitioner survives the rebuild. A back-fill spool of the earlier rule is never
+        resumed. A mapping cannot give a patient's record an id of its own choosing (`elements` or `$merge` setting
+        `id`, `id.pid` on a record that is not a Patient, `column` on a record that names its patient). A link by
+        day names the record's patient among its keys. A chart number keys a record however it is spelt
+        (`chartno.normalise`). The month-end kept is the last night that passed. The rebuild's later-release check
+        reads the DuckDB files' rule records too. A confirmed value an ODM import cited survives the rebuild.
+      - **Ruling 1: a steward's decision on an id two patients shared.** Which chart the decision meant cannot be
+        told, so it is never carried over by guess and never deleted. The rebuild keeps every OMOP feed record a
+        person decided (a status change), with its whole history, as `source_kind = 'feed:id_rule_1'` (out of the
+        feed's reach, no OMOP row, one more event saying why). It lists their earlier ids in
+        `<lake>/id_rule_review.json` (`lake:id_rule_review.json`: record-number pseudonyms, no patient). Every
+        record a night or a back-fill makes from such a number, for each patient, is a proposed fact (D-135's
+        basis tag, never coded in the lake, status `proposed` in OMOP) and carries the tag
+        `urn:trialbox:review|id-rule-steward-review`. The night counts them (`steward_review_needed`, kept on the
+        data-ops batch row). A steward reviews each in OMOP (`proposed` to `confirmed` or `rejected`); an unchanged
+        night keeps that status.
+      - **Ruling 7: one record from a mapped feed and from a FHIR bulk export.** A site changes source only with a
+        full night: a delta night over a snapshot read from another source is held, both ways, with that message.
+      - **Ruling 9: the DuckDB file's own rule record.** For 1.0 the rebuild and the readers keep today's evidence
+        (the snapshot's `id_rule.json`, and `db/<s>.duckdb.id_rule` for a file served without its NDJSON).
+        `test_id_rule_review.py::test_duckdb_owns_its_rule` stays a strict expected failure.
+      - **Ruling 11: SS-MIX2 order ids.** The key is the reader's, owned by #1238 (it keys `<number>@<type>`). Each
+        SS-MIX2 snapshot records the key form its order ids were made from (`id_rule.json` `keys.ssmix2_order`). A
+        snapshot of another form is one the rebuild clears (a delta night over it is held), and the next full
+        night reads every order under the reader's key.
   - **A box with real data** follows the same steps.
     - Nothing a person decided and nothing retention keeps is deleted.
     - What is cleared is made again from the sources: the first night after the rebuild reads every table whole,
@@ -338,6 +365,8 @@
     - resolved conflicts kept, the data-ops reset;
     - `TB_OMOP_DB_URL`, the audit event;
     - the frozen EDC study, the host command.
+    - ruling 1 (two charts sharing a number, a steward's rejection), ruling 11 (SS-MIX2 orders under the reader's
+      key);
   - `tests/unit/test_edc_id_rule_freeze.py`: the migration's stamp, every write path of a frozen study, no
     `source_changed`, open drafts waiting, a study whose decided value cites no lake row (not frozen, freed by the
     rebuild), the trail tables held to the schema.
@@ -351,3 +380,9 @@
   - `tests/console/test_id_rule_pages.py`.
   - `tests/integration/test_vec_store.py::test_new_chunks_are_refused_beside_chunks_of_the_earlier_id_rule`.
   - `tools/goldens_id_proof.py`.
+  - `tests/unit/test_id_rule_review.py` (#1258: one test per finding; `test_duckdb_owns_its_rule` a strict expected
+    failure, ruling 9).
+- **Remains.**
+  - Ruling 9: a DuckDB file does not carry its own rule. Today's evidence stands for 1.0 (above); no code.
+  - Ruling 1: no tool yet takes a reviewed record off the review list. While its earlier id is listed, the lake keeps
+    it out of the coded tables, whatever the steward decided in OMOP; OMOP itself counts it once confirmed.

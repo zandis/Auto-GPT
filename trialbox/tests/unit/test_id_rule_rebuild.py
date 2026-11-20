@@ -407,7 +407,7 @@ def test_a_resolved_derived_conflict_is_kept_marked_and_never_read_and_built_is_
         db.execute("INSERT INTO definition VALUES ('d1', 's', 1, 'x', '{}', 't')")
         rows = [db.fetchval("INSERT INTO score_row (pid, score, def_version, def_sha, mapping_version, anchor_oid, "
                             "anchor_date, value, unit, inputs, fingerprint, computed_at) VALUES ('p1', 's', 'd1', "
-                            f"'x', 'm', 'o{i}', '2026-01-0{i}', 1, 'u', '[]', 'f', 't') RETURNING id")
+                            "'x', 'm', ?, ?, 1, 'u', '[]', 'f', 't') RETURNING id", (f"o{i}", f"2026-01-0{i}"))
                 for i in (1, 2)]  # fmt: skip
         for i, (row, resolution) in enumerate(zip(rows, ("keep_documented", None), strict=True)):
             db.execute("INSERT INTO conflict (kind, pid, score, row_id, documented_id, documented_status, "
@@ -712,3 +712,72 @@ def test_ssmix2_orders_keyed_another_way_are_rebuilt_under_the_readers_key(
     assert new.passed, new.errors
     assert id_rule.snapshot_keys(snapshot_dir(lake, "2026-10-03")) == {"ssmix2_order": "<number>@<type>@<day>"}
     assert rb.plan(lake, None, TODAY)["earlier"] == []
+
+
+def test_a_stewards_rejection_of_a_number_two_charts_shared_is_kept_and_both_rebuilt_records_await_review(
+    tmp_path: Path, db_url: str
+) -> None:
+    """D-1253 review ruling 1. Under the earlier rule two charts' diagnosis ``D1`` were one record, and a steward
+    rejected it. Which chart the rejection meant cannot be told, so it is never carried over by guess and never
+    deleted: the decision stays with its history, and both records the next full night makes from ``D1`` are proposed
+    (never coded) and marked for a steward's review. ``D2`` (nobody decided it) is coded as before."""
+    from adapter.mapping.engine import BASIS, resource_id
+    from omop.load import load_batch, set_status
+    from omop.schema import schema_for
+
+    cfg = _old_lake(tmp_path)
+    with (tmp_path / "feed" / "diagnosis.csv").open("w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["diag_no", "enc_no", "mrn", "icd10", "diag_date", "recorded_date", "status"])
+        w.writerow(["D1", "E1", "10000001", "M10.9", "2026-09-01", "2026-09-01", "A"])
+        w.writerow(["D1", "E7", "10000002", "J45.9", "2026-09-03", "2026-09-03", "A"])  # another chart, one number
+        w.writerow(["D2", "E1", "10000001", "E11.9", "2026-09-01", "2026-09-01", "A"])
+    earlier = resource_id(KEY, "Condition", "D1")  # the one id both charts' D1 had under the earlier rule
+    key = ("feed", "Condition", earlier, 0)
+    from omop import schema
+
+    with schema.connect(db_url, schema_for(cfg.lake_dir)) as db:
+        load_batch(db, "feed", "2026-10-01", {
+            "Patient": [{"resourceType": "Patient", "id": "P1", "birthDate": "1960-01-01", "gender": "female"}],
+            "Condition": [{"resourceType": "Condition", "id": earlier, "subject": {"reference": "Patient/P1"},
+                           "code": {"coding": [{"system": ICD, "code": "M10.9"}]}, "onsetDateTime": "2026-09-01"}],
+        }, tz="Asia/Taipei")  # fmt: skip
+        set_status(db, key, "rejected", by="steward-1", reason="not this patient's diagnosis")
+        db.execute("DELETE FROM tb_id_rule")  # the store as the release before D-1253 left it
+        history = db.fetchall("SELECT event, actor, reason FROM tb_record_event e JOIN tb_record r USING (record_key) "
+                              "WHERE r.source_record_id = ? ORDER BY event_id", (earlier,))  # fmt: skip
+    assert rb.plan(cfg.lake_dir, db_url, TODAY)["omop"]["kept"] == {"decided_records_for_review": 1}
+    done = rb.rebuild(cfg.lake_dir, db_url, TODAY)
+    assert done["omop"]["kept_for_review"] == 1
+    with schema.connect(db_url, schema_for(cfg.lake_dir)) as db:
+        row = db.fetchone("SELECT source_kind, status, record_id FROM tb_record WHERE source_record_id = ?", (earlier,))
+        assert row == (rb.KEPT_KIND, "rejected", None)  # kept, decided as it was, out of the feed's reach
+        after = db.fetchall("SELECT event, actor, reason FROM tb_record_event e JOIN tb_record r USING (record_key) "
+                            "WHERE r.source_record_id = ? ORDER BY event_id", (earlier,))  # fmt: skip
+    assert after[: len(history)] == history and ("status", "steward-1", "not this patient's diagnosis") in after
+    assert after[len(history) :] == [("update", "id-rule-rebuild", rb.REVIEW_REASON)]
+    assert id_rule.read_review(cfg.lake_dir) == {("Condition", earlier)}
+
+    rep = run_ingest(cfg, "csv", str(tmp_path / "feed"), snapshot="2026-10-02", load_fhir=False, validate=False)
+    assert rep.passed, rep.errors
+    conds = list(read_type(snapshot_dir(cfg.lake_dir, "2026-10-02"), "Condition"))
+    by_code = {r["code"]["coding"][0]["code"]: r for r in conds}
+    assert len(conds) == 3
+    for code in ("M10.9", "J45.9"):  # both charts' D1: proposed, marked for review
+        tags = by_code[code]["meta"]["tag"]
+        assert {"system": BASIS, "code": "proposed"} in tags and id_rule.REVIEW_TAG in tags, code
+    assert not any(t.get("system") in (BASIS, id_rule.REVIEW_TAG["system"]) for t in by_code["E11.9"]["meta"]["tag"])
+    events = [json.loads(line) for f in sorted((tmp_path / "audit").rglob("*.jsonl")) for line in f.open()]
+    night = [e for e in events if str(e.get("event", "")).startswith("ingest.")][-1]
+    assert night["detail"]["steward_review_needed"] == {"diagnosis": 2}  # the batch row keeps it (DETAIL_KEYS)
+
+    # what the lake and the OMOP store read from them: a proposed fact, never coded (D-135), until a steward reviews
+    from lake.flatten import basis_of
+    from omop.load import status_for
+
+    assert sorted(status_for(basis_of(r)) for r in conds) == ["coded", "proposed", "proposed"]
+    with schema.connect(db_url, schema_for(cfg.lake_dir)) as db:  # the kept decision is untouched by the night
+        assert db.fetchone("SELECT source_kind, status FROM tb_record WHERE source_record_id = ?", (earlier,)) == (
+            rb.KEPT_KIND,
+            "rejected",
+        )

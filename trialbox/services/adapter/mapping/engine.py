@@ -59,7 +59,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import yaml
-from tb_common import chartno, labvalue
+from tb_common import chartno, id_rule, labvalue
 from tb_common import dates as tb_dates
 from tb_common.codekey import HALF_WIDTH, fold_key
 from tb_common.crypto import pid_for_mrn
@@ -1177,6 +1177,10 @@ class Mapper:
         self.from_verify: Counter[str] = Counter()
         # D-1253: the deleted rows that name no patient, by table (counts only)
         self.dead_without_patient: Counter[str] = Counter()
+        # D-1253 ruling 1: (type, earlier-rule id) of the records a person decided before the id rebuild
+        # (``tb_common.id_rule.read_review``); each record made from such a number is marked for a steward's review
+        self.review: frozenset[tuple[str, str]] = frozenset()
+        self.for_review: Counter[str] = Counter()  # the records so marked, by table (counts only)
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
@@ -1838,6 +1842,15 @@ class Mapper:
             return self.number_id(rs.type, rs, row, str(value), str(rs.id.get("suffix", "")))
         return str(value)
 
+    def _for_review(self, rs: ResourceSpec, row: Row) -> bool:
+        """Whether the record ``rs`` makes of ``row`` had, under the earlier rule, an id a steward decided: the
+        earlier rule's id was the type and the number with its suffix, whoever the patient."""
+        col = rs.id.get("hid")
+        if col is None or row.get(col) is None:
+            return False
+        earlier = resource_id(self.key, rs.type, f"{row[col]}{rs.id.get('suffix', '')}")
+        return (rs.type, earlier) in self.review
+
     def tombstones(self, table: str, rows: Iterator[Row], deleted: bool = True) -> Iterator[tuple[str, str]]:
         """``(resource type, id)`` of every resource a deleted source row would have made (dataflow review P0-1).
         ``deleted`` False: a live row's ids (D-528's "left the feed"), never counted as a delete.
@@ -1900,6 +1913,13 @@ class Mapper:
             meta = res.setdefault("meta", {})
             meta["tag"] = [*(meta.get("tag") or []), {"system": BASIS, "code": VERIFY_BASIS}]
             self.from_verify[rs.table] += 1
+        if self.review and self._for_review(rs, row):
+            # D-1253 ruling 1: a record whose earlier-rule id a steward decided. Two patients may have shared that
+            # id: neither record takes the decision by guess. Each is a proposed fact (never coded) until reviewed
+            meta = res.setdefault("meta", {})
+            tags = [t for t in meta.get("tag") or [] if t.get("system") != BASIS]
+            meta["tag"] = [*tags, {"system": BASIS, "code": "proposed"}, dict(id_rule.REVIEW_TAG)]
+            self.for_review[rs.table] += 1
         if self.ingest_time:
             meta = res.setdefault("meta", {})
             meta["source"] = f"{self.site_id}/{rs.table}#{self.row_hash(row)}"

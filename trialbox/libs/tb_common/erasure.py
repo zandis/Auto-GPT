@@ -539,6 +539,10 @@ LAKE: dict[str, Entry] = {
     "lake:id_rule_rebuild.json": _none(
         "D-1253: the one id-rule rebuild's record: counts, snapshot dates and EDC study keys; no patient"
     ),
+    "lake:id_rule_review.json": _none(
+        "D-1253 ruling 1: the earlier rule's ids (record-number pseudonyms, no patient) of the OMOP records a person "
+        "decided before the one id rebuild, with their status; the night marks the records made from them for review"
+    ),
     "lake:ndjson-rerun": _owed("a re-run of a promoted night until it passes the gate (D-271)", _SNAPSHOTS),
     "lake:db": _owed("the DuckDB snapshots (nightly and month-end) and their side files", _SNAPSHOTS),
     "lake:parquet": _owed("the Parquet copy of each snapshot", _SNAPSHOTS),

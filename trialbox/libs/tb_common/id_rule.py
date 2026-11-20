@@ -221,6 +221,51 @@ def record_keys(directory: Path, keys: dict[str, str]) -> None:
     tmp.replace(path)
 
 
+#: D-1253 ruling 1: the earlier rule's ids of the OMOP records a person decided (a steward's rejection, a
+#: confirmation), which the rebuild kept: ``lake:id_rule_review.json`` in the erasure registry. Record-number
+#: pseudonyms only, no patient
+REVIEW = "id_rule_review.json"
+#: the meta.tag a record carries while a steward has still to review it (with D-135's basis ``proposed``)
+REVIEW_TAG = {"system": "urn:trialbox:review", "code": "id-rule-steward-review"}
+
+
+def write_review(path: Path, records: list[tuple[str, str, str]]) -> None:
+    """The decided records the rebuild kept, as ``(resource type, earlier id, status)``, written to ``path`` (the
+    lake's :data:`REVIEW`) atomically, synced. Every record of the next nights whose earlier-rule id is one of them is
+    marked for a steward's review: when the old id was shared by two patients, both records are (never carried over
+    by guess)."""
+    body = {"rule": RULE, "records": [{"type": t, "earlier_id": i, "status": s} for t, i, s in sorted(set(records))]}
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(json.dumps(body, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    fd = os.open(tmp, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    tmp.replace(path)
+    dfd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
+
+
+def read_review(lake_dir: Path) -> frozenset[tuple[str, str]]:
+    """``(resource type, earlier id)`` of each record the rebuild kept for review; none when the rebuild kept none.
+    A list that cannot be read stops the night: no record a steward decided is ever coded unreviewed."""
+    path = lake_dir / REVIEW
+    if not path.exists():
+        return frozenset()
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+        return frozenset((str(r["type"]), str(r["earlier_id"])) for r in body["records"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise RuntimeError(
+            f"{REVIEW} in the lake cannot be read (D-1253): it lists the records a steward decided before the id "
+            f"rebuild, which are marked for review. Nothing was written. Restore it from the backup ({RUNBOOK})"
+        ) from exc
+
+
 def snapshot_keys(directory: Path) -> dict[str, str]:
     """The source-number forms a snapshot's record says (empty: none said)."""
     try:

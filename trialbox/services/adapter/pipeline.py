@@ -765,6 +765,7 @@ def _run_ingest(
             mrn_regex=cfg.mrn_regex,  # CGRD-A4 (D-816, lane E's hunk): a masked text uses the site's pattern
         )  # fmt: skip
         fhir_profiles = mapping.fhir_profiles
+        mapper.review = id_rule.read_review(cfg.lake_dir)  # D-1253 ruling 1: decided records, marked for review
         if profile is not None:  # 10B-6 (D-1233): a fact from a row still to verify carries D-135's basis tag
             from adapter.site_profile import verify_rules
 
@@ -937,6 +938,9 @@ def _run_ingest(
         for table, n in mapper.tombstones_without_patient().items():  # D-1253: counts only
             tables[table]["deletes_without_patient"] = n
             log.warning("%s: %d deleted rows name no patient: they remove nothing", table, n)
+        for table, n in sorted(mapper.for_review.items()):  # D-1253 ruling 1: counts only
+            tables[table]["steward_review_needed"] = n
+            log.warning("%s: %d records a steward decided before the id rebuild await review: not coded", table, n)
         unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
     at.update(step="snapshot", table=None)
     unit_defaults = mapping.unit_defaults if mapping is not None else _bulk_unit_defaults(cfg.mapping_path)
@@ -1335,6 +1339,10 @@ def _run_ingest(
                 # to a patient's record the merged snapshot does not hold, per table; rows and deletes with no patient
                 "id_collisions": dict(sorted(collisions.items())) or None,
                 "links_to_absent_records": {t: sum(by.values()) for t, by in sorted(absent.items())} or None,
+                "steward_review_needed": {  # D-1253 ruling 1: proposed (never coded) until a steward reviews them
+                    t: v["steward_review_needed"] for t, v in sorted(tables.items()) if v.get("steward_review_needed")
+                }
+                or None,
                 "rejected_no_patient": {
                     t: v["rejected_no_patient"] for t, v in sorted(tables.items()) if v.get("rejected_no_patient")
                 }

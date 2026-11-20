@@ -338,7 +338,8 @@ Nothing is half-migrated, and nothing goes on until the box is rebuilt once, fro
    3. It clears the rest of the lake's snapshots.
    4. It clears the **stores** and stamps each one with the new rule:
       - the OMOP store the night probes (`TB_OMOP_DB_URL` when it is set): its feed records of patients' clinical
-        data. The persons stay.
+        data. The persons and the practitioners stay. So does every record a person decided (a steward's rejection
+        or confirmation), with its history: see step 5.
       - the derived scores. A conflict a person resolved stays, marked with the earlier rule; its score row is never
         read again.
       - the note chunks, the patient twin's documents and the candidate pool;
@@ -361,6 +362,16 @@ Nothing is half-migrated, and nothing goes on until the box is rebuilt once, fro
 4. **Start the services.** The first night after the rebuild reads every table whole (there is no snapshot to merge
    over) and loads OMOP and the lake from it. The next jobs fill the derived scores, the note chunks, the twin and
    the pool again. fhir-store follows by itself: its ledger deletes the old ids and loads the new ones.
+
+5. **Records a steward decided before the update.** Under the earlier rule two patients who shared a number shared
+   one record, so a decision on it cannot be given to either by guess. The rebuild keeps each such decision, with
+   its history, and lists its earlier id in `/data/lake/id_rule_review.json` (no patient). From the first night on,
+   every record made from that number, for each patient, is **proposed**: never coded in the lake, status
+   `proposed` in OMOP. The night's data-ops page counts them (`steward_review_needed`). A steward reviews each in
+   OMOP and confirms or rejects it; the next unchanged night keeps that decision.
+
+**Changing source.** A site changes its source (a mapped feed, a FHIR bulk export, SS-MIX2) only with a full night.
+A delta night over a snapshot read from another source is held, with that message: run it again without `since`.
 
 **Restoring a backup.**
 - A backup made under the new rule (after this update) is restored on a box that runs this release or a later one.
