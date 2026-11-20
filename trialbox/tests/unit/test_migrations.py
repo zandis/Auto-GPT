@@ -343,7 +343,7 @@ def store_migrations() -> dict[str, list[str]]:
         "sitesetup": [sitesetup.SCHEMA, sitesetup.SCHEMA_V2],
         "mail": list(mail.MIGRATIONS),
         "library": [library.DDL],
-        "terminology": [licensed.SCHEMA],
+        "terminology": list(licensed.MIGRATIONS),
         "pidmap": list(pidmap.MIGRATIONS),
         "omop": omop.migrations(),
         "trace": [trace.SCHEMA_V1],
@@ -493,6 +493,13 @@ ADDED: dict[str, tuple[str, ...]] = {
         "885e09aba43f78d4d69e16a0f210ccbc9e9442c25e8e60cc6ef704856c7c34c7",
         # D-1360 (card 10A-4): orch version 7, the answer store (``answers``)
         "0f873592d582096e522578242e31e2320cc1ccda209273f28403b599fd217625",
+    ),
+    # D-1257 (card 10B-2c): terminology version 2, what a licensed release says of itself (``release.meta``: its
+    # date, its table's rows and current rows, the sha256 of the whole release) and a term looked up by its text
+    "terminology": (
+        "ff10b0fd76dbf874f3b3a7e6c7a523adf06da4c4ffc455048c6402d2ee03f628",
+        # D-1257, the deep review of #1238: version 3, one active release of a list (a unique partial index)
+        "b99ffbc143642378f3e2efe06d6aa7264c62195eb3e03541ed070d8bfac6a646",
     ),
     # T-310a (D-446): the weekly PI sample of criteria not matched and the site's check, new after the baseline
     "tuned": ("e8565a9e2288df90d120272ab2956fafe4595465ecd7c58c2e2debb35ee934a1",),

@@ -73,8 +73,10 @@ def test_a_an_action_code_the_reader_does_not_recognise_is_unknown(tmp_path: Pat
 
 
 def test_a_an_outcome_date_with_no_outcome_code_is_ended(tmp_path: Path) -> None:
-    (row,), _ = _dx(tmp_path, _prb(f15="20261020"))
-    assert (row["status"], row["outcome_date"]) == ("E", "2026-10-20")
+    """The outcome day is before the day the file was written (D-1257: one that had not come yet says nothing has
+    ended and is unknown, ``test_ssmix2_10b2c_reviews.py``; this test's day was 20 October in a file of 1 October)."""
+    (row,), _ = _dx(tmp_path, _prb(f15="20260920"))
+    assert (row["status"], row["outcome_date"]) == ("E", "2026-09-20")
 
 
 @pytest.mark.parametrize(("field", "column"), [("f9", "end_date"), ("f15", "outcome_date"), ("f16", "")])

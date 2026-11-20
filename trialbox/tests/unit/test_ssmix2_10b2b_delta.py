@@ -9,65 +9,22 @@ these tests are the proof. Each storage is synthetic; each case failed on #1095'
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import pytest
-from adapter.sources.ssmix2.source import Ssmix2Source
 
+from tests import ssmix2_nights as nights
 from tests import ssmix2_spec_kit as kit
 
-EMPTY: dict[str, dict[str, dict[str, str]]] = {"medis": {}, "jlac10": {}, "yj": {}}
-#: the delta column of each table in the JP site mapping (jp_core/ssmix2_site.yaml, through tw_core/demo_his.yaml)
-DELTA = {
-    "diagnosis": "recorded_date",
-    "medication": "order_date",
-    "lab": "sample_datetime",
-    "encounter": "visit_datetime",
-}
-KEY = {"diagnosis": "diag_no", "medication": "rx_no", "lab": "lab_no", "encounter": "enc_no"}
-D1, D2 = "20261110", "20261117"  # night 1 writes on D1, night 2 on D2
-SINCE = "2026-11-16"
+EMPTY = nights.EMPTY
+DELTA, KEY = nights.DELTA, nights.KEY
+D1, D2 = nights.D1, nights.D2  # night 1 writes on D1, night 2 on D2
+SINCE = nights.SINCE
 P = kit.P1
-
-
-def _night(root: Path, table: str, since: str | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    src = Ssmix2Source(root, licensed=EMPTY)
-    live = list(src.rows(table, table, DELTA[table], since))
-    dead = list(src.deleted_rows(table, table, DELTA[table], since))
-    return live, dead
-
-
-def _apply(lake: dict[str, dict[str, Any]], table: str, live: list[dict[str, Any]], dead: list[dict[str, Any]]) -> None:
-    """As ``ndjson.write_snapshot`` merges a night: live rows over the lake; a tombstone removes an id the night did
-    not send again."""
-    sent = set()
-    for row in live:
-        rid = f"{row['mrn']}/{row[KEY[table]]}"
-        lake[rid] = row
-        sent.add(rid)
-    for row in dead:
-        rid = f"{row['mrn']}/{row[KEY[table]]}"
-        if rid not in sent:
-            lake.pop(rid, None)
-
-
-def _two_nights(tmp_path: Path, table: str, night1: Callable[[kit.Storage], None], night2: Callable[[kit.Storage], None]) -> tuple[dict[str, Any], dict[str, Any]]:  # fmt: skip
-    st = kit.Storage(tmp_path / "ss", tmp_path / "ss" / "extended_storage")
-    night1(st)
-    lake: dict[str, dict[str, Any]] = {}
-    _apply(lake, table, *_night(st.root, table, None))
-    night2(st)
-    full, delta = dict(lake), dict(lake)
-    _apply(full, table, *_night(st.root, table, None))
-    _apply(delta, table, *_night(st.root, table, SINCE))
-    return full, delta
-
-
-def _rename_to_past(path: Path) -> None:
-    """The guideline's procedure for a new version (構築ガイドライン 3.1.4 (2) ⑥ 1)): the earlier file becomes flag 2."""
-    path.rename(path.with_name(path.name[:-1] + "2"))
+#: review of #1189 (D-1257): "full" is night 2's storage read whole into an empty lake, never seeded with night 1's
+#: rows; "delta" is night 1's lake with night 2's window merged over it (``tests/ssmix2_nights.py``)
+_two_nights = nights.two_nights
+_rename_to_past = nights.rename_to_past
 
 
 def _rx(st: kit.Storage, number: str, day: str, stamp: str, lines: list[tuple[str, str, str]], orc5: str = "IP",
