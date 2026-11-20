@@ -28,10 +28,13 @@ def production(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TB_SERVICE_TOKEN", "box-secret-123")
 
 
-def test_changing_calls_need_the_token(production: None) -> None:
+def test_changing_calls_need_the_token(production: None, monkeypatch: pytest.MonkeyPatch) -> None:
     c = TestClient(_app())
     assert c.post("/query").status_code == 401
     assert c.post("/query", headers={TOKEN_HEADER: "guess"}).status_code == 403
+    # D-1349: one token and no registry is the old shared token, refused outside DEV and TEST
+    assert "(D-1349)" in c.post("/query", headers=auth_headers()).json()["detail"]
+    monkeypatch.setenv("TB_ENV", "TEST")
     assert c.post("/query", headers=auth_headers()).json() == {"rows": "all of them"}
     assert c.get("/healthz").status_code == 200 and c.get("/snapshots").status_code == 200
 
@@ -48,7 +51,7 @@ def test_the_model_stub_stays_open(production: None) -> None:
     assert TestClient(_app(token=False)).post("/query").status_code == 200
 
 
-def test_reads_are_protected_where_asked(production: None) -> None:
+def test_reads_are_protected_where_asked(production: None, monkeypatch: pytest.MonkeyPatch) -> None:
     """Plan v4 F4 (D-130): ``protect_reads`` puts GET / HEAD behind the token; /healthz stays open."""
     app = make_app("mail-gateway", protect_reads=True)
 
@@ -59,6 +62,8 @@ def test_reads_are_protected_where_asked(production: None) -> None:
     c = TestClient(app)
     assert c.get("/threads/J1").status_code == 401 and c.head("/threads/J1").status_code == 401
     assert c.get("/threads/J1", headers={TOKEN_HEADER: "guess"}).status_code == 403
+    assert "(D-1349)" in c.get("/threads/J1", headers=auth_headers()).json()["detail"]  # the old shared token
+    monkeypatch.setenv("TB_ENV", "TEST")
     assert c.get("/threads/J1", headers=auth_headers()).json() == {"job": "J1"}
     assert c.get("/healthz").status_code == 200
     assert TestClient(_app()).get("/snapshots").status_code == 200  # a service that did not ask keeps open reads

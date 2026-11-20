@@ -326,7 +326,10 @@ fi
 
 # ------------------------------------------------------------------------------------------------ 3. settings
 say "settings"
-FRESH=0; [ -f deploy/.env ] || FRESH=1   # a box installed before step 8 keeps its shared token until rotation
+# D-1349: whether deploy/.env held a shared service token before this install (a box installed before step 8);
+# read before the settings wizard, which writes one of its own
+HAD_SHARED=0
+if [ -f deploy/.env ] && grep -q '^TB_SERVICE_TOKEN=.' deploy/.env && ! grep -q '^TB_SERVICE_TOKEN=change-me' deploy/.env; then HAD_SHARED=1; fi
 # D-837: a TB_ENV written into deploy/.env before the wizard rewrites the file (ENVIRONMENT below keeps it)
 PRE_ENV=""; [ -f deploy/.env ] && PRE_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
 mkdir -p deploy/keys deploy/secrets deploy/site/mapping deploy/site/terminology
@@ -398,15 +401,18 @@ for k in POSTGRES_PASSWORD POSTGRES_WF_PASSWORD TB_DB_PW_LAKE TB_DB_PW_CRITERIA_
   fi
 done
 rm -f deploy/.env.bak
-# D-128, D-138: one token per service (deploy/secrets/services/, 0600; never printed). A new box has no shared
-# token at all; an older box keeps its shared one working, with a warning, until `trialbox secrets rotate`.
-if [ "$FRESH" = 1 ] || grep -q '^TB_SERVICE_TOKEN=change-me' deploy/.env; then sed -i '/^TB_SERVICE_TOKEN=/d' deploy/.env; fi
+# SERVICE TOKENS (D-128, D-138, D-1349): one token per service (deploy/secrets/services/, 0600; never printed). A box
+# whose deploy/.env held no shared token before this install has none after it (the settings wizard's own is dropped,
+# also when deploy/.env was written before the wizard, D-837); a box installed before step 8 keeps its shared one as
+# `legacy` until `trialbox secrets rotate`: DEV and TEST accept it, every other TB_ENV refuses it, doctor says so
+if [ "$HAD_SHARED" != 1 ]; then sed -i '/^TB_SERVICE_TOKEN=/d' deploy/.env; fi
 if command -v python3 >/dev/null; then
   python3 -m tools.trialbox secrets init --deploy "$ROOT/deploy" | sed 's/^/    /'
 else
   tree_args
   docker run --rm --user 0 -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" python -m tools.trialbox secrets init --deploy /d | sed 's/^/    /'
 fi
+# ---- end of SERVICE TOKENS
 # D-126: the host tools reach the one trial database as `trialbox`; each service has its own role (D-378)
 WF_PW="$(sed -n 's/^POSTGRES_WF_PASSWORD=//p' deploy/.env | tail -1)"
 sed -i "/^TB_DB_URL=/d" deploy/.env && echo "TB_DB_URL=postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" >> deploy/.env

@@ -13,10 +13,14 @@ token, never a token itself), finds which service is calling, and accepts only t
 number. ``operator`` is the administrator's own token on the host (scripts and ``curl``); it is never mounted into a
 container. The registry is re-read when it changes, so a rotation needs only the rotated service restarted.
 
-**The old shared token** (one ``TB_SERVICE_TOKEN`` for the whole box) keeps working until the box's tokens are
-rotated: with a registry, ``tokens.json`` may carry its hash as ``legacy`` (accepted from any caller, with a warning
-in the log); without a registry (tests, ``make demo``, a box installed before step 8) the shared token is the only
-rule, as before, and the service warns once that it should be migrated (``trialbox secrets init``).
+**The old shared token** (one ``TB_SERVICE_TOKEN`` for the whole box): with a registry, ``tokens.json`` may carry
+its hash as ``legacy``; without a registry (tests, a box installed before step 8) the shared token is the only rule,
+and the service warns once that it should be migrated (``trialbox secrets init``). Either way it names no service.
+DEV and TEST accept it (with a warning in the log); every other ``TB_ENV`` refuses it with 403 and one warning in
+the log, never the token (D-1349, as D-447 refuses the v1 actor form). The orchestrator and the gateway, which
+refuse it themselves with an audit event (D-464, D-437), get it passed on to that refusal. ``trialbox secrets
+rotate`` of every token removes it from the box; ``doctor`` (``legacy_token``) and the update's preflight say so
+before it bites.
 
 Without any token: DEV and TEST boxes (tests, ``make demo``) accept unauthenticated calls; any other ``TB_ENV``, and
 an unset one, refuses every changing call with 503 until a token is configured (fail closed).
@@ -474,6 +478,7 @@ def authorize(
         reg = registry()
     except RegistryError as exc:
         return (503, str(exc)), None
+    open_env = environment.upper() in OPEN_ENVS
     if reg is not None:
         if not presented:
             return (401, f"missing {TOKEN_HEADER}"), None
@@ -482,29 +487,45 @@ def authorize(
             return (403, f"wrong {TOKEN_HEADER}"), None
         if not allowed(callee, caller):
             return (403, f"{caller} may not call {callee}"), caller
-        if caller == LEGACY:
+        if caller != LEGACY:
+            return None, caller
+        if open_env:
             _warn_once(
                 "legacy-used",
                 "a caller used the old shared service token (D-128): rotate the box's tokens with "
                 "`trialbox secrets rotate` so that each service has its own",
             )
-        return None, caller
-    tok = service_token()
-    if not tok:
-        if environment.upper() in OPEN_ENVS:
-            return None, None
-        return (503, "no service token configured (TB_SERVICE_TOKEN): calls are refused"), None
-    if environment.upper() not in OPEN_ENVS and os.environ.get("TB_SERVICE_NAME"):  # a deployed service, not a test
-        _warn_once(
-            "legacy-mode",
-            "one shared service token for the whole box (D-128): run `trialbox secrets init` and restart with "
-            "deploy/docker-compose.secrets.yml so that each service has its own",
-        )
-    if not presented:
-        return (401, f"missing {TOKEN_HEADER}"), None
-    if not hmac.compare_digest(presented.encode("utf-8"), tok.encode("utf-8")):
-        return (403, f"wrong {TOKEN_HEADER}"), None
-    return None, LEGACY
+            return None, caller
+    else:
+        tok = service_token()
+        if not tok:
+            if open_env:
+                return None, None
+            return (503, "no service token configured (TB_SERVICE_TOKEN): calls are refused"), None
+        if not open_env and os.environ.get("TB_SERVICE_NAME"):  # a deployed service, not a test
+            _warn_once(
+                "legacy-mode",
+                "one shared service token for the whole box (D-128): run `trialbox secrets init` and restart with "
+                "deploy/docker-compose.secrets.yml so that each service has its own",
+            )
+        if not presented:
+            return (401, f"missing {TOKEN_HEADER}"), None
+        if not hmac.compare_digest(presented.encode("utf-8"), tok.encode("utf-8")):
+            return (403, f"wrong {TOKEN_HEADER}"), None
+        if open_env:
+            return None, LEGACY
+    # D-1349: outside DEV and TEST the old shared token (the registry's ``legacy`` hash, or the one token of a box
+    # without a registry) names no service, so it is refused, as the v1 actor form is (D-447). The orchestrator (its
+    # route gate, on every route; D-464) and the gateway (on every call that reaches a model or swaps one; D-437)
+    # refuse it themselves and write an audit event, so there it is passed on to that refusal.
+    if callee == "orchestrator" or (callee == "gateway" and m not in SAFE_METHODS):
+        return None, LEGACY
+    _warn_once(
+        "legacy-refused",
+        "a caller presented the old shared service token and was refused (D-1349): run "
+        "`sudo python3 -m tools.trialbox secrets rotate` so that each service presents its own",
+    )
+    return (403, f"the old shared {TOKEN_HEADER} is refused outside DEV and TEST (D-1349)"), LEGACY
 
 
 def check(

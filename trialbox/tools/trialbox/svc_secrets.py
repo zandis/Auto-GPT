@@ -43,8 +43,10 @@ passphrase and the host tools' keys in every container that does not need them (
 ``tests/unit/test_compose_secret_reach.py``).
 
 **Migration.** A box installed before step 8 has one shared ``TB_SERVICE_TOKEN`` in ``deploy/.env``. ``init`` keeps
-it working: its hash goes into ``tokens.json`` as ``legacy`` (accepted from any caller, with a warning in the
-service log). ``rotate`` of every token removes it from both files: from then on only per-service tokens work.
+its hash in ``tokens.json`` as ``legacy``: DEV and TEST accept it from any caller, with a warning in the service log;
+every other ``TB_ENV`` refuses it (D-1349), and ``doctor`` (``legacy_token``) and the update's preflight say so
+there (:func:`legacy_held`). ``rotate`` of every token removes it from both files: from then on only per-service
+tokens work.
 
 **Rotation** writes the new token, puts both the old and the new hash in ``tokens.json`` (callers re-read it when it
 changes), recreates the rotated services so they read their new file, then drops the old hash. The restart command is
@@ -315,6 +317,20 @@ def _set_env(env_file: Path, updates: dict[str, str | None]) -> None:
 def legacy_token(env_file: Path) -> str:
     tok = _read_env(env_file).get("TB_SERVICE_TOKEN", "")
     return "" if not tok or tok.startswith("change-me") else tok
+
+
+def legacy_held(deploy: Path, env_file: Path | None = None) -> list[str]:
+    """Where this box still holds the old shared token (D-1349): ``TB_SERVICE_TOKEN`` in ``deploy/.env`` and the
+    ``legacy`` hash in ``tokens.json``. Names only, never a value; empty when it holds none. Outside DEV and TEST
+    every service but the orchestrator and the gateway refuses that token, and they refuse it too (D-464, D-437);
+    ``rotate`` of every token removes it from both files."""
+    env_file = env_file or deploy / ".env"
+    held = []
+    if legacy_token(env_file):
+        held.append(f"TB_SERVICE_TOKEN in {env_file}")
+    if isinstance(_load_registry(deploy).get("legacy"), str):
+        held.append(f"the legacy hash in {registry_path(deploy)}")
+    return held
 
 
 def _load_registry(deploy: Path) -> dict[str, object]:
