@@ -234,6 +234,7 @@ _D1 = {
     "Simulation",
     "JobError",
     "JobMetrics",
+    "PrefilterRecord",  # 10E-12 (D-1259): a nightly job's stage counts, no patient id; exact on internal pages only
     "IngestRequest",
     "RebuildRequest",
     "RebuildResult",
