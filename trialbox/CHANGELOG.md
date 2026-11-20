@@ -13,9 +13,13 @@ new heading with the version and date, in the same pull request that sets the ve
 - The support bundle is a button (10K-5, D-1381): the administrator makes it on the Operations page's new
   "Support bundle" tab and downloads it from there, in en, ja and zh-TW. The box makes it with the same tool and scan
   as `trialbox support-bundle`, with nothing added and, for now, without TrialBox's service logs (they can carry
-  patient pseudonyms; only the host's command, run as root, adds them); a bundle that does not pass the scan is not
-  handed out and the page says so. The making is recorded in the audit trail before the file is released (no record,
-  no file), and each download when it starts, with who, when, the file's size and its SHA-256.
+  patient pseudonyms), the .env file, docker compose config, doctor and check_host.sh (the redaction goes by a
+  setting's name, and doctor prints setting values and database texts), and with the error texts of the update
+  history and the Operations status replaced by their length and type (they can quote patient-linked values); only
+  the host's command, run as root, adds them. A bundle that does not pass the scan is not handed out and the page
+  says so, and the file released is checked to be the one scanned. The making is recorded in the audit trail before
+  the file is released (no record, no file), and each download when it starts, with who, when, the file's size and
+  its SHA-256 (no record, no download).
 - Silent set-up choices guarded (10K-21): a new PRODUCTION site must answer the chart-number question (choosing
   "as written" is an answer; leaving it empty is not), in the settings wizard and on the box's first-run page. A box
   names the person who opens its health page every working day (its backup alert route); the name is shown with the

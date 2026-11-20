@@ -107,7 +107,7 @@ def test_the_button_asks_first_makes_the_bundle_with_the_same_builder_and_hands_
     assert 'data-testid="opstab-support"' in page and 'data-testid="ops-support_bundle"' in page
     assert 'data-testid="sbundle-none"' in page and 'data-testid="sbundle-never"' in page
     r = c.post("/admin/ops/support_bundle", data={"csrf": csrf})  # no confirmation yet: the sheet, nothing made
-    assert 'data-testid="confirm-text"' in r.text and "never go in" in r.text
+    assert 'data-testid="confirm-text"' in r.text and "Left out of a bundle made here" in r.text
     assert 'href="/admin/ops?tab=support" data-testid="confirm-no"' in r.text
     assert not _bundles(ob) and not _events(ob["audit"], "console.ops")
     r = c.post("/admin/ops/support_bundle", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=False)
@@ -117,7 +117,8 @@ def test_the_button_asks_first_makes_the_bundle_with_the_same_builder_and_hands_
     support = ob["dir"] / "ops" / "support"
     assert len(calls) == 1 and calls[0]["deploy"] == ob["deploy"] and calls[0]["out"] == support / ".making"
     assert "add" not in calls[0] and "days" not in calls[0] and calls[0]["commands"] is False
-    assert calls[0]["logs_left_out"] == ops_support.LOGS_LEFT_OUT
+    assert calls[0]["logs_left_out"] == ops_support.LOGS_LEFT_OUT and calls[0]["left_out"] is ops_support.LEFT_OUT
+    assert calls[0]["texts_marked"] == ops_support.TEXTS_MARKED and callable(calls[0]["scanned"])
     assert list((support / ".making").iterdir()) == []  # moved out once audited
     [f] = _bundles(ob)
     assert ops_support.NAME.fullmatch(f.name)
@@ -132,7 +133,14 @@ def test_the_button_asks_first_makes_the_bundle_with_the_same_builder_and_hands_
     with tarfile.open(fileobj=io.BytesIO(d.content), mode="r:gz") as tar:
         names = tar.getnames()
         manifest = json.loads(tar.extractfile("support/MANIFEST.json").read())  # type: ignore[union-attr]
-    assert "support/MANIFEST.json" in names and "support/env.redacted" in names
+    assert "support/MANIFEST.json" in names and "support/env.redacted" not in names
+    assert sorted(names) == [
+        "support/MANIFEST.json",
+        "support/audit-verify.json",
+        "support/health.json",
+        "support/ops-snapshot.json",
+        "support/release.json",
+    ]  # no update ran, no command here
     assert not [n for n in names if n.startswith("support/logs")]  # the planted log day is NOT in it
     assert not [n for n in names if n.startswith("support/added/")]  # nothing added to what the bundle holds
     assert manifest["tool"].startswith("tools/support_bundle.py") and "the audit chain" in manifest["never"]
@@ -354,6 +362,7 @@ def test_the_runner_knows_the_action_and_ignores_its_arguments(tmp_path: Path, m
         out_dir.mkdir(parents=True, exist_ok=True)
         f = out_dir / "trialbox-support-20261119T010203Z.tar.gz"
         f.write_bytes(b"synthetic")
+        kw["scanned"](hashlib.sha256(b"synthetic").hexdigest(), 9)  # what the builder's last look read
         return f
 
     monkeypatch.setattr(support_bundle, "build", fake_build)
@@ -363,7 +372,9 @@ def test_the_runner_knows_the_action_and_ignores_its_arguments(tmp_path: Path, m
     res = runner.run_one({"id": rid, "action": "support_bundle", "by": "console:admin",
                           "args": {"add": "/data/lake.duckdb", "days": "999"}})  # fmt: skip
     assert res["ok"] is True
-    assert seen == [{"commands": False, "say": seen[0]["say"], "logs_left_out": ops_support.LOGS_LEFT_OUT}]
+    assert seen == [{"commands": False, "say": seen[0]["say"], "logs_left_out": ops_support.LOGS_LEFT_OUT,
+                     "left_out": ops_support.LEFT_OUT, "texts_marked": ops_support.TEXTS_MARKED,
+                     "scanned": seen[0]["scanned"]}]  # fmt: skip
     rec = {"file": "trialbox-support-20261119T010203Z.tar.gz", "bytes": 9,
            "sha256": hashlib.sha256(b"synthetic").hexdigest()}  # fmt: skip
     assert ops_support.record(res) == rec
@@ -400,6 +411,7 @@ def test_on_a_site_box_a_failed_make_event_removes_the_bundle_before_it_is_relea
     def fake_build(deploy: Path, out_dir: Path, **kw: Any) -> Path:
         f = out_dir / "trialbox-support-20261119T010203Z.tar.gz"
         f.write_bytes(b"synthetic")
+        kw["scanned"](hashlib.sha256(b"synthetic").hexdigest(), 9)
         return f
 
     monkeypatch.setattr(support_bundle, "build", fake_build)
@@ -411,3 +423,235 @@ def test_on_a_site_box_a_failed_make_event_removes_the_bundle_before_it_is_relea
     assert "synthetic" not in res["summary"] and ops_support.record(res) is None
     assert sorted(p.name for p in (tmp_path / "ops" / "support").iterdir()) == [".making"]
     assert list((tmp_path / "ops" / "support" / ".making").iterdir()) == []
+
+
+# ---------------------------------------------------------------------------------------------- the review of 31935cc4
+#: a synthetic pseudonym-like token (invented; no site makes pseudonyms of this form)
+PSEUDO = "PSN-K10K5-SYNTH-7Q4K2X9M"
+#: a synthetic URL whose query carries a password, and a secret-like setting no list of the builder names (invented)
+QUERY_URL = "http://verifier.example.test:8000/v1?user=svc&password=SYNTH-qpw-31935"
+UNLISTED = "synth-login-31935-k10k5"
+
+
+def _members(blob: bytes) -> dict[str, str]:
+    with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tar:
+        return {m.name: tar.extractfile(m).read().decode("utf-8") for m in tar.getmembers()}  # type: ignore[union-attr]
+
+
+def _plant_history(deploy: Path) -> str:
+    """A failed migration's stderr quoting a patient's pseudonym in the update history (synthetic), a line that is not
+    JSON, a key the writer never writes, and a restore drill's error quoting it in the key-check record."""
+    detail = (f"UpdateFailed: docker compose exec -T db psql ... exit 1: ERROR: duplicate key value violates unique "
+              f"constraint DETAIL: Key (pseudonym)=({PSEUDO}) already exists.")  # fmt: skip
+    rows = [
+        {"at": "2026-11-19T01:00:00+00:00", "bundle": "trialbox-update-20261119-x", "box": "compose",
+         "step": "apply", "ok": True, "detail": "3 payloads"},
+        {"at": "2026-11-19T01:01:00+00:00", "bundle": "trialbox-update-20261119-x", "box": "compose",
+         "step": "update", "ok": False, "detail": detail},
+        {"at": "2026-11-19T01:02:00+00:00", "bundle": "trialbox-update-20261119-x", "box": "compose",
+         "step": "rollback", "ok": True, "detail": "", "note": f"by hand {PSEUDO}"},
+    ]  # fmt: skip
+    updates = deploy / "updates"
+    updates.mkdir(parents=True, exist_ok=True)
+    lines = [json.dumps(r) for r in rows] + [f"not json {PSEUDO}"]
+    (updates / "history.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (deploy / "site").mkdir(parents=True, exist_ok=True)
+    (deploy / "site" / "backup-verified.json").write_text(json.dumps({
+        "at": "2026-11-01T00:00:00+00:00", "file": "trialbox-20261101T000000Z.tbbak", "sha256": "c" * 64,
+        "drill_failed_at": "2026-11-18T00:00:00+00:00", "drill_error": f"IntegrityError: Key (pseudonym)=({PSEUDO})",
+    }), encoding="utf-8")  # fmt: skip
+    return detail
+
+
+def _plant_env(deploy: Path) -> None:
+    (deploy / ".env").write_text(f"TB_ENV=TEST\nLLM_VERIFIER_BASE_URL={QUERY_URL}\nTB_SMTP_LOGIN={UNLISTED}\n"
+                                 "TB_BACKUP_ALERT_WATCHER=Synthetic Watcher\n", encoding="utf-8")  # fmt: skip
+
+
+def test_no_error_or_detail_text_of_the_history_or_the_ops_snapshot_reaches_the_buttons_bundle(
+    ob: dict[str, Any],
+) -> None:
+    """Review of 31935cc4, item 1 (BLOCKER): the update history's ``detail`` (a failed command's stderr) and the ops
+    snapshot's texts are replaced by a mark with their length and the error's type name; the structured fields stay."""
+    detail = _plant_history(ob["deploy"])
+    c, _csrf, rid = _make(ob)
+    d = c.get(f"/admin/ops/support/{rid}")
+    assert d.status_code == 200, d.text
+    members = _members(d.content)
+    for name, text in members.items():
+        assert PSEUDO not in text, name
+    hist = [json.loads(x) for x in members["support/history.jsonl"].splitlines() if x.startswith("{")]
+    assert [(h["at"], h["bundle"], h["box"], h["step"], h["ok"]) for h in hist] == [
+        ("2026-11-19T01:00:00+00:00", "trialbox-update-20261119-x", "compose", "apply", True),
+        ("2026-11-19T01:01:00+00:00", "trialbox-update-20261119-x", "compose", "update", False),
+        ("2026-11-19T01:02:00+00:00", "trialbox-update-20261119-x", "compose", "rollback", True),
+    ]
+    assert hist[0]["detail"] == "[text left out: 10 characters]"
+    assert hist[1]["detail"] == f"[text left out: UpdateFailed, {len(detail)} characters]"
+    assert hist[2]["detail"] == "" and hist[2]["note"] == f"[text left out: {len('by hand ' + PSEUDO)} characters]"
+    assert (
+        members["support/history.jsonl"].splitlines()[3] == f"[text left out: {len('not json ' + PSEUDO)} characters]"
+    )
+    snap = json.loads(members["support/ops-snapshot.json"])
+    [row] = snap["updates"]
+    assert (
+        row["bundle"] == "trialbox-update-20261119-x" and row["step"] == "rollback" and row["outcome"] == "rolled_back"
+    )
+    assert row["detail"] == ""  # the last line's detail was empty
+    verified = snap["health"]["verified"]
+    assert (
+        verified["drill_error"]
+        == f"[text left out: IntegrityError, {len('IntegrityError: Key (pseudonym)=(' + PSEUDO + ')')} characters]"
+    )
+    assert verified["file"] == "trialbox-20261101T000000Z.tbbak" and verified["drill_failed_at"].startswith(
+        "2026-11-18"
+    )
+    manifest = json.loads(members["support/MANIFEST.json"])
+    assert {"what": support_bundle.MARKED, "why": ops_support.TEXTS_MARKED} in manifest["left_out"]
+
+
+def test_an_ops_snapshot_that_fails_gives_its_error_type_and_length_only(
+    ob: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = tb_ops.snapshot
+
+    def broken(box: Any) -> dict[str, Any]:  # the builder's snapshot (a site box's), not the runner's status
+        if box.kind != "compose":
+            return real(box)
+        raise ValueError(f"synthetic failure quoting {PSEUDO}")
+
+    monkeypatch.setattr(tb_ops, "snapshot", broken)
+    c, _csrf, rid = _make(ob)
+    members = _members(c.get(f"/admin/ops/support/{rid}").content)
+    assert not [n for n, t in members.items() if PSEUDO in t]
+    want = len(f"ValueError: synthetic failure quoting {PSEUDO}")
+    assert (
+        json.loads(members["support/ops-snapshot.json"])["error"] == f"[text left out: ValueError, {want} characters]"
+    )
+
+
+def test_the_env_file_is_not_in_the_buttons_bundle_so_a_query_password_and_an_unlisted_secret_stay_out(
+    ob: dict[str, Any],
+) -> None:
+    """Review of 31935cc4, item 2: the builder redacts by name; ``env.redacted`` is left out of the button's bundle."""
+    _plant_env(ob["deploy"])
+    c, _csrf, rid = _make(ob)
+    members = _members(c.get(f"/admin/ops/support/{rid}").content)
+    assert "support/env.redacted" not in members
+    for name, text in members.items():
+        assert "SYNTH-qpw-31935" not in text and UNLISTED not in text and "Synthetic Watcher" not in text, name
+    manifest = json.loads(members["support/MANIFEST.json"])
+    assert {"what": "env.redacted", "why": ops_support.LEFT_OUT["env.redacted"]} in manifest["left_out"]
+
+
+def test_on_a_site_box_doctor_check_host_and_compose_config_are_not_run_for_the_button(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of 31935cc4, items 2 and 4: doctor (and check_host.sh, which runs doctor) prints setting values and
+    texts read from the database; docker compose config prints every resolved setting. None is run for the button."""
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    _plant_env(deploy)
+    ran: list[list[str]] = []
+
+    def cmd(argv: Any, timeout: int) -> tuple[int, str]:
+        argv = list(argv)
+        ran.append(argv)
+        if argv[-1] == "-q":
+            return 0, ""
+        if "ps" in argv:
+            return 0, "trialbox-console-1  Up 2 hours  0.0.0.0:443->8443/tcp\n"
+        if argv[0] in ("df", "nvidia-smi"):
+            return 0, f"{argv[0]} (synthetic)\n"
+        return 0, f"verifier {QUERY_URL}\nlogin {UNLISTED}\nheld after a restore ({PSEUDO})\n"  # what they could echo
+
+    real = support_bundle.build
+
+    def with_commands(d: Path, out: Path, **kw: Any) -> Path:
+        return real(d, out, **{**kw, "commands": True, "runner": cmd})
+
+    monkeypatch.setattr(support_bundle, "build", with_commands)
+    ops = tb_ops.OpsDir(tmp_path / "ops")
+    runner = tb_ops.OpsRunner(tb_ops.Box("compose", deploy, {}, run=lambda argv, timeout: ""), ops)
+    rid = ops.submit("support_bundle", "console:admin", {})
+    res = runner.run_one({"id": rid, "action": "support_bundle", "by": "console:admin", "args": {}})
+    assert res["ok"] is True, res
+    rec = ops_support.record(res)
+    assert rec is not None
+    members = _members((tmp_path / "ops" / "support" / rec["file"]).read_bytes())
+    for name, text in members.items():
+        assert "SYNTH-qpw-31935" not in text and UNLISTED not in text and PSEUDO not in text, name
+    assert {"support/cmd/compose-ps.txt", "support/cmd/df.txt", "support/cmd/nvidia-smi.txt",
+            "support/cmd/restarts.txt"} <= set(members)  # fmt: skip
+    for gone in ("cmd/doctor.json", "cmd/check_host.txt", "cmd/compose-config.yaml", "env.redacted"):
+        assert f"support/{gone}" not in members
+    assert not [a for a in ran if "doctor" in a or "check_host.sh" in " ".join(a) or a[-1] == "config"]
+    left = json.loads(members["support/MANIFEST.json"])["left_out"]
+    for gone in ("cmd/doctor.json", "cmd/check_host.txt", "cmd/compose-config.yaml"):
+        assert {"what": gone, "why": ops_support.LEFT_OUT[gone]} in left
+
+
+def test_a_download_whose_start_cannot_be_audited_closes_the_file_and_is_refused(
+    ob: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of 31935cc4, item 5: the open file is closed when the ``.started`` event cannot be written."""
+    from console import support_bundle_page
+    from tb_common.audit import AuditLog
+
+    c, _csrf, rid = _make(ob)
+    opened: list[Any] = []
+    real_fdopen = os.fdopen
+
+    def spy(fd: int, *a: Any, **kw: Any) -> Any:
+        fh = real_fdopen(fd, *a, **kw)
+        if os.readlink(f"/proc/self/fd/{fd}").endswith(".tar.gz"):  # the bundle, not another file of the request
+            opened.append(fh)
+        return fh
+
+    real_append = AuditLog.append
+
+    def append(self: Any, event: str, *a: Any, **kw: Any) -> Any:
+        if (kw.get("detail") or {}).get("action") == "support_bundle_download.started":
+            raise OSError("the audit chain cannot be written (synthetic)")
+        return real_append(self, event, *a, **kw)
+
+    monkeypatch.setattr(support_bundle_page.os, "fdopen", spy)
+    monkeypatch.setattr(AuditLog, "append", append)
+    try:
+        r = c.get(f"/admin/ops/support/{rid}")
+    except OSError:
+        r = None
+    assert len(opened) == 1 and opened[0].closed
+    assert r is not None and r.status_code == 503 and not r.content.startswith(b"\x1f\x8b")
+    assert EN["sbundle.err.audit"].replace("'", "&#39;") in r.text
+
+
+def test_the_file_released_is_the_file_the_last_look_scanned(
+    ob: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of 31935cc4, item 5: a file changed in ``.making`` after the builder's scan is not released."""
+    real = support_bundle.build
+    scanned: list[str] = []
+    real_look = support_bundle.last_look
+
+    def look(archive: Path) -> list[Any]:
+        scanned.append(hashlib.sha256(archive.read_bytes()).hexdigest())
+        return real_look(archive)
+
+    def swapped(d: Path, out: Path, **kw: Any) -> Path:
+        made = real(d, out, **kw)
+        made.write_bytes(made.read_bytes() + b"changed after the scan")
+        return made
+
+    monkeypatch.setattr(support_bundle, "last_look", look)
+    monkeypatch.setattr(support_bundle, "build", swapped)
+    c, _csrf, rid = _make(ob)
+    res = tb_ops.OpsDir(ob["dir"] / "ops").result(rid)
+    assert res is not None and res["ok"] is False and res["summary"].startswith("BundleChanged"), res
+    assert _bundles(ob) == [] and list((ob["dir"] / "ops" / "support" / ".making").iterdir()) == []
+    assert c.get(f"/admin/ops/support/{rid}").status_code == 404
+    monkeypatch.setattr(support_bundle, "build", real)  # unchanged: released, and its hash is the scanned copy's
+    scanned.clear()
+    _c, _csrf, rid = _make(ob)
+    rec = ops_support.record(tb_ops.OpsDir(ob["dir"] / "ops").result(rid))
+    assert rec is not None and scanned == [rec["sha256"]]

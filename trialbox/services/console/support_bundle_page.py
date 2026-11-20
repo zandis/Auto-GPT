@@ -12,8 +12,9 @@ tab's texts and the one download route:
     on disk still has that sha256 (else 404). The same open file is hashed and then sent. Each download is the audit
     event ``console.ops`` with ``support_bundle_download.started``, the request, the file name, its size and its
     sha256, written when the response starts: it records that the file was handed to the response, not that every
-    byte arrived (as the console's other files, the feedback and audit CSVs, record theirs). The bundle's contents
-    are never read into an event or a log. A ``Range`` request gets the whole file with 200; HEAD answers 405.
+    byte arrived (as the console's other files, the feedback and audit CSVs, record theirs); when it cannot be
+    written, the file is closed and the answer is 503 with no byte of it. The bundle's contents are never read into an
+    event or a log. A ``Range`` request gets the whole file with 200; HEAD answers 405.
 
 Who may: the right that opens the operations pages, ``ops.view`` (:func:`tb_common.authz.admin_allowed`: the
 administrator only). No new matrix row; every other role gets 403, audited as ``console.denied``.
@@ -91,8 +92,15 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         except BaseException:
             fh.close()
             raise
-        au.append("console.ops", actor=h.actor(sess),
-                  detail={"action": "support_bundle_download.started", "request": rid, **rec})  # fmt: skip
+        try:
+            au.append("console.ops", actor=h.actor(sess),
+                      detail={"action": "support_bundle_download.started", "request": rid, **rec})  # fmt: skip
+        except Exception as exc:  # the start could not be recorded: no byte is sent, and the file is closed
+            fh.close()
+            raise h.problem(503, "sbundle.err.audit") from exc
+        except BaseException:
+            fh.close()
+            raise
         return StreamingResponse(
             _chunks(fh),
             media_type="application/gzip",

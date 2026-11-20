@@ -4,9 +4,14 @@ The console's "Make a support bundle" button writes an ``support_bundle`` reques
 every other operation (``tools/trialbox/ops.py``); the host's runner takes it and calls the SAME builder as
 ``trialbox support-bundle`` (:func:`tools.support_bundle.build`), with its scrubbers, the line scan and the last look
 at the finished archive (D-405, D-723, D-747, D-962). Nothing is added to what the bundle holds: no ``--add`` file,
-and the request's ``args`` are never read (the console's user writes the request file). One thing is taken out: the
-service logs (:data:`LOGS_LEFT_OUT`, the review of 83a0640a: they can carry patient pseudonyms, which the scrubber
-does not catch); the builder's MANIFEST says so.
+and the request's ``args`` are never read (the console's user writes the request file). Some members are left out
+and some texts marked, each by a constant of this module that the console cannot pass or change, and the MANIFEST
+says which and why: the service logs (:data:`LOGS_LEFT_OUT`, the review of 83a0640a: they can carry patient
+pseudonyms, which the scrubber does not catch); ``env.redacted``, ``docker compose config``, ``doctor`` and
+``check_host.sh`` (:data:`LEFT_OUT`, the review of 31935cc4: the redaction is by name, and doctor prints setting
+values and texts read from the database); and the error and detail texts of the update history and the ops snapshot
+become a mark with their length and the error's type name (:data:`TEXTS_MARKED`: an error text can quote a
+patient-linked value).
 
 The folder: ``<ops>`` is opened without following a link and must belong to the runner's user (root on the host) and
 not be writable by group or others; ``support`` (0750, root and the console's group) and ``support/.making`` (0700,
@@ -16,9 +21,11 @@ A bundle that fails the scan raises :class:`tools.support_bundle.BundleRefused`;
 nothing, and the result says ``BundleRefused: ...`` (pattern ids and member names, never a value), which the page
 shows as "not handed out". A bundle that passes is made in ``.making``, hashed, and the audit event ``console.ops``
 ``support_bundle.made`` (the request, file name, size and sha256, never a line of the bundle) is written; only then is
-the file moved to ``<ops>/support/`` (file 0640). No event, no bundle: the file is removed and the result says
-``BundleNotAudited: ...``. Its file name, size and sha256 are the result's last three lines, and only the newest
-:data:`KEEP` bundles stay.
+the file moved to ``<ops>/support/`` (file 0640). The sha256 is taken from the made file's fd and compared with the
+sha256 of the copy the builder's last look scanned (else :class:`BundleChanged`, nothing released), and the name
+in ``<ops>/support/`` is checked to be that fd's file after the move. No event, no bundle: the file is removed and
+the result says ``BundleNotAudited: ...``. Its file name, size and sha256 are the result's last three lines, and only
+the newest :data:`KEEP` bundles stay.
 """
 
 from __future__ import annotations
@@ -31,6 +38,7 @@ import re
 import stat
 from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 ACTION = "support_bundle"
@@ -45,6 +53,27 @@ LOGS_LEFT_OUT = (
     "left out of a bundle made from the console's button (D-1381): TrialBox's service logs can carry patient "
     "pseudonyms, which the scrubber does not catch; they are in a bundle only when it is made on the host with "
     "`trialbox support-bundle`, as root"
+)
+#: D-1381 (the review of 31935cc4): the members a bundle made from the button never holds, each with its reason in the
+#: MANIFEST; the commands named are not run. Until the builder's redaction catches a secret by its value wherever it
+#: stands (lane H's cure), these come back only through the host tool.
+_BY_NAME = ("the builder redacts a secret by the setting's name and the user:password of a URL, so a secret under a "
+            "name it does not know, or in a URL's query, would go through")  # fmt: skip
+LEFT_OUT: Mapping[str, str] = MappingProxyType({
+    "env.redacted": f"left out of a bundle made from the console's button (D-1381): {_BY_NAME}",
+    "cmd/compose-config.yaml": "left out of a bundle made from the console's button (D-1381): docker compose config "
+    f"prints every service's resolved settings; {_BY_NAME}",
+    "cmd/doctor.json": "left out of a bundle made from the console's button (D-1381): doctor prints setting values "
+    "(the gateway's and the verifier's URLs among them) without that redaction, and texts it reads from the database "
+    "(the reason given for the hold after a restore, which a person may type)",
+    "cmd/check_host.txt": "left out of a bundle made from the console's button (D-1381): check_host.sh runs doctor and "
+    "prints what doctor prints",
+})  # fmt: skip
+#: D-1381 (the review of 31935cc4): why the free text of the history and the ops snapshot is marked
+TEXTS_MARKED = (
+    "replaced by a mark with the text's length and the error's type name in a bundle made from the console's button "
+    "(D-1381): an error text can quote a patient-linked value (a failed migration's database error quotes the key "
+    "that clashed, a pseudonym among them)"
 )
 
 
@@ -80,6 +109,11 @@ def record(result: Mapping[str, Any] | None) -> dict[str, Any] | None:
 class SupportFolderRefused(RuntimeError):
     """``<ops>`` or ``<ops>/support`` is not what the runner may write into (a link, not a folder, not owned by the
     runner's user, writable by group or others): nothing is made."""
+
+
+class BundleChanged(RuntimeError):
+    """The made file is not the copy the builder's last look scanned (another hash), or the released name is not the
+    file that was hashed: removed, never released."""
 
 
 class BundleNotAudited(RuntimeError):
@@ -196,10 +230,13 @@ def do_support_bundle(runner: Any, args: Mapping[str, str]) -> tuple[str, list[s
     sfd, mfd = _open_support(runner.ops.root, SERVICE_UID)
     try:
         said: list[str] = []
-        # a site box runs doctor, docker, df and nvidia-smi as the command does; the in-process box has no docker.
-        # D-1381 (the review of 83a0640a): no service log, whatever the days (they can carry pseudonyms)
+        looked: list[tuple[str, int]] = []
+        # a site box runs docker, df and nvidia-smi as the command does; the in-process box has no docker.
+        # D-1381: no service log, whatever the days; no .env, compose config, doctor or check_host.sh; the history's
+        # and the snapshot's texts marked. All constants of this module: the console passes nothing.
         made = support_bundle.build(runner.box.deploy, out / MAKING, commands=runner.box.kind == "compose",
-                                    say=said.append, logs_left_out=LOGS_LEFT_OUT)  # fmt: skip
+                                    say=said.append, logs_left_out=LOGS_LEFT_OUT, left_out=LEFT_OUT,
+                                    texts_marked=TEXTS_MARKED, scanned=lambda h, n: looked.append((h, n)))  # fmt: skip
         name = made.name
         if not NAME.fullmatch(name):
             raise SupportFolderRefused(f"the builder named its file {name[:80]!r}: not released")
@@ -209,19 +246,29 @@ def do_support_bundle(runner: Any, args: Mapping[str, str]) -> tuple[str, list[s
                 os.fchown(fh.fileno(), 0, SERVICE_UID)
                 os.fchmod(fh.fileno(), 0o640)
             sha, size = sha256_of(fh)
-        with contextlib.suppress(FileNotFoundError):
-            os.stat(name, dir_fd=sfd, follow_symlinks=False)
-            os.unlink(name, dir_fd=mfd)
-            raise SupportFolderRefused(f"{name} is already in {out}: not released")
-        rec = {"file": name, "bytes": size, "sha256": sha}
-        rid = next((str(r.get("id")) for r in runner.ops.running() if r.get("action") == ACTION), "")
-        try:
-            _audit_made(runner, rec, rid)
-        except Exception as exc:
-            os.unlink(name, dir_fd=mfd)
-            raise BundleNotAudited(f"not released: the audit event of its making could not be written "
-                                   f"({type(exc).__name__}); the bundle was removed") from exc  # fmt: skip
-        os.rename(name, name, src_dir_fd=mfd, dst_dir_fd=sfd)
+            hashed = os.fstat(fh.fileno())
+            if looked != [(sha, size)]:  # the file released is the file the last look scanned: checked, not assumed
+                os.unlink(name, dir_fd=mfd)
+                raise BundleChanged("not released: the made file is not the copy the scan read (another sha256); "
+                                    "the bundle was removed")  # fmt: skip
+            with contextlib.suppress(FileNotFoundError):
+                os.stat(name, dir_fd=sfd, follow_symlinks=False)
+                os.unlink(name, dir_fd=mfd)
+                raise SupportFolderRefused(f"{name} is already in {out}: not released")
+            rec = {"file": name, "bytes": size, "sha256": sha}
+            rid = next((str(r.get("id")) for r in runner.ops.running() if r.get("action") == ACTION), "")
+            try:
+                _audit_made(runner, rec, rid)
+            except Exception as exc:
+                os.unlink(name, dir_fd=mfd)
+                raise BundleNotAudited(f"not released: the audit event of its making could not be written "
+                                       f"({type(exc).__name__}); the bundle was removed") from exc  # fmt: skip
+            os.rename(name, name, src_dir_fd=mfd, dst_dir_fd=sfd)
+            moved = os.stat(name, dir_fd=sfd, follow_symlinks=False)
+            if (moved.st_dev, moved.st_ino) != (hashed.st_dev, hashed.st_ino):
+                os.unlink(name, dir_fd=sfd)
+                raise BundleChanged("not released: the file under its final name is not the file that was hashed; "
+                                    "removed")  # fmt: skip
     finally:
         os.close(mfd)
         os.close(sfd)
