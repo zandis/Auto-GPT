@@ -853,10 +853,10 @@ def _tokens() -> list[str]:
 def _job(
     b: dict[str, Any],
     n: int,
-    kind: str,
+    kind: Any,
     options: dict[str, str],
     files: list[tuple[str, bytes, str]],
-    state: str = "done",
+    state: Any = "done",
 ) -> Any:
     from datetime import UTC, datetime
 
