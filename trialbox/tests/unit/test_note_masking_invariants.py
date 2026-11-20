@@ -384,7 +384,9 @@ def test_latin_note_also_refuses_on_load_failure(route: str, monkeypatch: pytest
 
 
 def test_site_refusal_uses_upload_ledger(
-    svc: SiteSetup, monkeypatch: pytest.MonkeyPatch, tmp_path: Path  # noqa: F811
+    svc: SiteSetup,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     monkeypatch.delattr(phi_guard._JA_ANALYSER, "an", raising=False)
     monkeypatch.setattr(ja_names, "analyser", Mock(side_effect=OSError(NOTE)))
