@@ -10,6 +10,16 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- Silent set-up choices guarded (10K-21): a new PRODUCTION site must answer the chart-number question (choosing
+  "as written" is an answer; leaving it empty is not), in the settings wizard and on the box's first-run page. A box
+  names the person who opens its health page every working day (its backup alert route); the name is shown with the
+  route. With the box's own certificate authority, who in hospital IT confirmed its root is on the clinic PCs, and
+  when, is recorded once the root exists (the box's first-run page, or two lines in `deploy/.env`). **An installed
+  site is not stopped by the upgrade**: `doctor` warns, with the line to add to `deploy/.env`, for each of the three
+  it lacks (D-1365). A typed name holds letters, digits, single spaces and a few marks only, and the wizard writes no
+  `deploy/.env` value with a line break, a control character or a byte that is not UTF-8 in it, so a name can never
+  add or change a setting; O'Brien and full-width brackets are names. An unknown `--environment` stops the installer
+  before it loads or writes anything.
 - The one page for hospital IT (10K-18, D-1378) is made from the box's own preflight list, one page per delivered
   form, in en, ja and zh-TW: for a box its supplier prepared it asks IT for six things (name and certificate, clock,
   mail relay, backup share, audit share, data feed) with the words the box shows on a red line, and names the three

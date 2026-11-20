@@ -2,6 +2,8 @@
 
 Made from the help TrialBox shows on each page, so it says what the screens say. Print it for training; Help shows the latest one.
 
+To install the console as an app, choose Install in Edge on Windows, Add to Dock in Safari on macOS, or Share → Add to Home Screen in Safari on iOS. On Android, open the browser menu and choose Install or Add to Home screen. Your device must trust the certificate authority (CA) provided by hospital IT. On an FSLogix virtual desktop, open the console in the browser.
+
 ## What you do
 
 You read the aggregate reports of your studies. You do not see patients.

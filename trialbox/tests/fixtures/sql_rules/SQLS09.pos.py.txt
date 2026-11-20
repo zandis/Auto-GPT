@@ -1,0 +1,6 @@
+# synthetic: psycopg sql.SQL given a built string
+from psycopg import sql
+
+
+def drop(cur, table):
+    cur.execute(sql.SQL(f"DROP TABLE {table}"))  # hit

@@ -1242,3 +1242,12 @@ from console.i18n_committee import ZH as _CMT_ZH  # noqa: E402
 EN.update(_CMT_EN)
 JA.update(_CMT_JA)
 ZH.update(_CMT_ZH)
+
+# 10B-19 (D-1249): the site questionnaire form's words (python -m adapter.site_profile fill; a command, not a page)
+from console.i18n_profile_form import EN as _PF_EN  # noqa: E402
+from console.i18n_profile_form import JA as _PF_JA  # noqa: E402
+from console.i18n_profile_form import ZH as _PF_ZH  # noqa: E402
+
+EN.update(_PF_EN)
+JA.update(_PF_JA)
+ZH.update(_PF_ZH)

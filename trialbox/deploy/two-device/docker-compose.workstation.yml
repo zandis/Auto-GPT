@@ -36,6 +36,8 @@ services:
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
     mem_limit: 1g   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    pids_limit: 512   # the x-py default of docker-compose.yml for this image (T-108a), not measured (H58-03)
+    labels: {tb.watchdog: restart}   # a stateless relay: the watchdog restarts it, as the gateway (D-360)
     logging:
       driver: json-file
       options: {max-size: "50m", max-file: "5"}

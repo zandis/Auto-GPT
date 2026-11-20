@@ -1,0 +1,8 @@
+# synthetic: an environment variable reaches SQL text
+import os
+
+
+def tune(con):
+    con.execute(f"SET work_mem = '{os.environ['SYNTH_WORK_MEM']}'")  # hit
+    spill = os.getenv("SYNTH_SPILL", "/tmp/x")
+    con.execute("SET temp_directory = '" + spill + "'")  # hit
