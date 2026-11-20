@@ -151,6 +151,9 @@ jobs:
       - name: inline security suppressions (every nosec and noqa S line in the reviewed ledger; 10G-39, D-1338)
         if: ${{ !cancelled() }}
         run: .venv/bin/python -m tools.inline_suppressions --check
+      - name: waivers (every vulnerability waiver has an owner, a date and a reason; no calendar rule; D-1339)
+        if: ${{ !cancelled() }}
+        run: .venv/bin/python -m tools.vex check
       - name: licence register (every shipped data file has a row; no SNOMED CT; model licence rows; T-617b, D-342)
         if: ${{ !cancelled() }}
         run: PYTHONPATH=libs:services:. .venv/bin/python -m tools.licence_register --check
