@@ -2081,7 +2081,11 @@ def test_r1_the_depth_scan_is_linear_and_the_meta_members_are_capped_before_any_
     anyone = [sp.TrustedKey(pub, frozenset({"RA-JAK"}))]
     for n in (40_000, 2 << 20):  # 80 KB, and 4 MiB (the old cap)
         evil = b'"' + b'\\"' * n
-        assert _timed(lambda e=evil: sp.json_depth(e)) < 2.0
+
+        def scan(e: bytes = evil) -> int:
+            return sp.json_depth(e)
+
+        assert _timed(scan) < 2.0
     at_cap = b'"' + b'\\"' * ((sp.STUDY_PACKAGE_MAX_HEADER_BYTES - 1) // 2)
     assert len(at_cap) <= sp.STUDY_PACKAGE_MAX_HEADER_BYTES
     data = sp.tar_bytes({"hashes.json": b"{}", "header.json": at_cap, "protocol.json": b"{}",
@@ -2184,11 +2188,11 @@ def test_r3_a_seeded_fuzz_lets_nothing_but_a_refusal_out(small: bytes, tmp_path:
         for junk in (b"", b"null", b"[]", b"{}", b'"x"', b"1", b"1e400", b"\xff\xfe", b'{"id": 1}', b'{"review": []}'):
             cases.append(_resigned({**members, name: junk}))
     assert len(cases) > 300
-    for data in cases:
-        if data == small:
+    for case in cases:
+        if case == small:
             continue
         with pytest.raises(sp.PackageRefused):
-            sp.verify(data, [TRUST])
+            sp.verify(case, [TRUST])
     # the command: a refusal is one line and exit 1; anything else one sentence and exit 2
     trust = _trust_file(tmp_path / "trust.json", [(PUB, ["RA-JAK"], sp.STUDY_PURPOSE)])
     bad = tmp_path / "bad.tbstudy"
@@ -2328,10 +2332,11 @@ def test_r7_only_the_configured_store_and_the_compilers_own_approval_tag_are_pac
     refused(_store(tmp_path / "suffix", _small(), message="RA-JAK v1.0.0 approved by crc1@hospa.test\n"), "not the")
     bare = _store(tmp_path / "bare", _small())
     repo = Repo(str(bare.parent))
+    refs: Any = repo.refs
     try:
-        commit = repo.refs[b"refs/heads/main"]
-        del repo.refs[b"refs/tags/RA-JAK/v1.0.0"]
-        repo.refs[b"refs/tags/RA-JAK/v1.0.0"] = commit  # a lightweight tag names nobody
+        commit = refs[b"refs/heads/main"]
+        del refs[b"refs/tags/RA-JAK/v1.0.0"]
+        refs[b"refs/tags/RA-JAK/v1.0.0"] = commit  # a lightweight tag names nobody
     finally:
         repo.close()
     refused(bare, "names nobody")
@@ -2341,9 +2346,11 @@ def test_r7_only_the_configured_store_and_the_compilers_own_approval_tag_are_pac
     h = tool.write(real, key, tmp_path / "out" / "ok.tbstudy", DAY, audit=log, euid=_not_root)
     a = h["approval"]
     repo = Repo(str(real.parent))
+    refs = repo.refs
     try:
-        assert a.tag_sha == repo.refs[b"refs/tags/RA-JAK/v1.0.0"].decode()
-        assert a.commit == repo[repo.refs[b"refs/tags/RA-JAK/v1.0.0"]].object[1].decode()
+        tag_obj: Any = repo[refs[b"refs/tags/RA-JAK/v1.0.0"]]
+        assert a.tag_sha == refs[b"refs/tags/RA-JAK/v1.0.0"].decode()
+        assert a.commit == tag_obj.object[1].decode()
     finally:
         repo.close()
     assert a.by == "crc1@hospa.test"

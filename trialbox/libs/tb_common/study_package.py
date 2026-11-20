@@ -473,7 +473,8 @@ class TrustedKey:
     is trusted only for the studies its entry names; an entry naming none is refused (default deny)."""
 
     public_pem: bytes
-    studies: frozenset[str]
+    #: exact study ids, a frozenset or a tuple (a text is refused: it would match by substring)
+    studies: frozenset[str] | tuple[str, ...]
     purpose: str = STUDY_PURPOSE
 
 
