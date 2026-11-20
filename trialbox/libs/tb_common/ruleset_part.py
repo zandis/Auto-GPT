@@ -25,7 +25,8 @@ A part is a zip of the ``import_ruleset`` form (one folder ``<ID>/``) with one m
     YAML (no comment survives);
   - **each criterion**: the fields of :data:`IR_KEYS` only (the criterion schema's but ``provenance``; ``review``
     keeps its status), checked against the criterion schema; a flag is one word of the compiler's;
-  - **value sets**: the keys the compiler writes (:data:`VALUESET_KEYS`) only, else refused; **ELM**
+  - **value sets**: the keys the compiler writes (:data:`VALUESET_KEYS`) only, else refused, every scalar field a
+    string, a number or true/false (never a mapping or a list), at the export and at the receiving box; **ELM**
     (:func:`elm_allowed`): the top level ``library`` only, the library's keys of :data:`ELM_LIBRARY_KEYS`, every key
     below of :data:`ELM_NODE_KEYS` (the keys the compiler's translator writes), any other key refused naming its path
     (at the export and at the receiving box); its ``annotation`` entries (the translator's copy of the CQL source, its
@@ -38,6 +39,12 @@ A part is a zip of the ``import_ruleset`` form (one folder ``<ID>/``) with one m
     checked against the CQL either, and its values are not type-checked: any string value under an allowed key
     travels as written; it is not checked against the CQL.
 
+* **Every criterion the manifest lists is there** (:func:`criteria_files_match`): the manifest's ``criteria`` are
+  exactly the ``ir/`` files, both ways, at the export, the vendor's tool and the receiving box.
+* **No byte outside the members** (:func:`check_zip_layout`): no archive or member comment, no extra field, nothing
+  before, between or after the members; the vendor signs the whole zip, so it holds nothing the hash does not cover.
+* **The release that compiled it**: ``compiled_on.release_seq`` is required, a whole number of 1 or more; it is the
+  bundle's floor (``tools.ruleset_bundle``) and the receiving box refuses the part on an older release.
 * **The part's hash** (:func:`part_sha256`) covers every carried file (path and bytes) and every field of
   ``ORIGIN.json`` but the hash itself. No time is in it: the same approved version exported again from the same
   release is the same part, byte for byte (the export's time is the audit event's). Every field is checked against a
@@ -302,17 +309,38 @@ def _keys(obj: Any, allowed: set[str], where: str) -> dict[str, Any]:
     return obj
 
 
+def _scalars(obj: dict[str, Any], keys: set[str], where: str) -> None:
+    """D-1369 (the review of edb77053, 7): each of ``keys`` present in ``obj`` is a string, a number or true/false,
+    never a mapping, a list or null: a scalar field carries no structure (a record would travel inside it)."""
+    for k in sorted(keys & set(obj)):
+        v = obj[k]
+        if not isinstance(v, (str, int, float, bool)):
+            raise PartRefused(f"{where}.{k} is not a string, a number or true/false: a part carries no structure there")
+
+
+def _list(v: Any, where: str) -> list[Any]:
+    if v is None:
+        return []
+    if not isinstance(v, list):
+        raise PartRefused(f"{where} is not a list")
+    return v
+
+
 def check_valueset(data: bytes, path: str) -> None:
-    """A value set holds the compiler's keys only, at every level; its name is its file's."""
+    """A value set holds the compiler's keys only, at every level; its name is its file's; every scalar field is a
+    scalar (:func:`_scalars`), ``compose``, ``include``, ``concept`` and ``extension`` the mapping or list they are."""
     vs = _keys(load_json(data, path), VALUESET_KEYS, path)
+    _scalars(vs, VALUESET_KEYS - {"compose", "extension"}, path)
     if vs.get("name") != _stem(path):
         raise PartRefused(f"{path}: its name is not {_stem(path)}")
     compose = _keys(vs.get("compose"), {"include"}, f"{path} compose")
-    for i, inc in enumerate(compose.get("include") or []):
+    for i, inc in enumerate(_list(compose.get("include"), f"{path} compose.include")):
         _keys(inc, VALUESET_INCLUDE_KEYS, f"{path} compose.include[{i}]")
-        for j, concept in enumerate(inc.get("concept") or []):
+        _scalars(inc, {"system"}, f"{path} compose.include[{i}]")
+        for j, concept in enumerate(_list(inc.get("concept"), f"{path} compose.include[{i}].concept")):
             _keys(concept, VALUESET_CONCEPT_KEYS, f"{path} compose.include[{i}].concept[{j}]")
-    for i, ext in enumerate(vs.get("extension") or []):
+            _scalars(concept, VALUESET_CONCEPT_KEYS, f"{path} compose.include[{i}].concept[{j}]")
+    for i, ext in enumerate(_list(vs.get("extension"), f"{path} extension")):
         _keys(ext, VALUESET_EXTENSION_KEYS, f"{path} extension[{i}]")
         if ext.get("url") != CODE_FAMILY or not isinstance(ext.get("valueString"), str):
             raise PartRefused(f"{path} extension[{i}] is not the compiler's code family")
@@ -437,6 +465,7 @@ def neutral_files(files: dict[str, bytes]) -> dict[str, bytes]:
     if not RULESET_ID.fullmatch(rid):
         raise PartRefused(f"manifest.yaml: {rid[:40]!r} is not a rule set id")
     out: dict[str, bytes] = {MANIFEST: _yaml(manifest)}
+    criteria_files_match(files, manifest)
     criteria: list[dict[str, Any]] = []
     for path in sorted(p for p in files if kind_of(p) == "ir"):
         c = neutral_ir(load_json(files[path], path))
@@ -458,6 +487,25 @@ def neutral_files(files: dict[str, bytes]) -> dict[str, bytes]:
         elif kind in ("cql", "sql"):
             out[path] = _code(path, data, manifest, criteria)
     return out
+
+
+def criteria_files_match(files: dict[str, bytes], manifest: dict[str, Any]) -> None:
+    """D-1369 (the review of edb77053, 4): the criteria the manifest lists are exactly the ``ir/<id>.json`` files of the
+    rule set, both ways: a listed exclusion whose file is missing would never be evaluated while the version keeps its
+    approval and equivalence; a file nobody lists would be. Used by the export, the vendor's tool, and the receiving
+    box for a part and for a plain rule set zip alike."""
+    listed = manifest.get("criteria") if isinstance(manifest, dict) else None
+    if not (isinstance(listed, list) and all(isinstance(c, str) for c in listed)):
+        raise PartRefused("manifest.yaml criteria is not a list of criterion ids")
+    present = {_stem(p) for p in files if p.startswith("ir/") and p.endswith(".json")}
+    missing, unlisted = sorted(set(listed) - present), sorted(present - set(listed))
+    if missing or unlisted or len(set(listed)) != len(listed):
+        raise PartRefused(
+            "the criteria manifest.yaml lists are not the rule set's ir/ files (missing: "
+            f"{', '.join(missing[:5]) or '-'}; not listed: {', '.join(unlisted[:5]) or '-'}; listed twice: "
+            f"{len(listed) - len(set(listed))}): a listed "
+            "criterion that is not there would never be evaluated; refused"
+        )
 
 
 def check_neutral(files: dict[str, bytes]) -> None:
@@ -553,8 +601,10 @@ def _origin_problems(o: dict[str, Any], ruleset_id: str, version: str, manifest:
         if not (isinstance(on.get("bundle_id"), str) and BUNDLE_ID.fullmatch(on["bundle_id"])):
             bad.append("compiled_on.bundle_id is not a bundle id")
         seq = on.get("release_seq")
-        if seq is not None and not (isinstance(seq, int) and not isinstance(seq, bool) and 0 <= seq < 10**9):
-            bad.append("compiled_on.release_seq is not a whole number")
+        if not (isinstance(seq, int) and not isinstance(seq, bool) and 1 <= seq < 10**9):
+            # D-1369 (the review of edb77053, 2): required, a whole number of at least 1: the release that compiled the
+            # part is the lowest a box may run to take it (the bundle's floor and the import's check); never zero
+            bad.append("compiled_on.release_seq is not the whole number (1 or more) of the release that compiled it")
         if on.get("commit") is not None and not (isinstance(on["commit"], str) and COMMIT.fullmatch(on["commit"])):
             bad.append("compiled_on.commit is not a 40-hex commit")
     pins = o.get("pins")
@@ -596,6 +646,45 @@ def check_origin(
                           f"{ORIGIN} records; refused")  # fmt: skip
 
 
+_LOCAL, _CENTRAL, _END = b"PK\x03\x04", b"PK\x01\x02", b"PK\x05\x06"
+
+
+def check_zip_layout(data: bytes) -> None:
+    """D-1369 (the review of edb77053, 8): no byte of a part's zip stands outside its members: the vendor signs the
+    whole file, and the part's hash covers the members only. Refused: an archive comment, a member's comment or extra
+    field, a data descriptor, bytes before the first member, between members, between the members and the central
+    directory, or after its end record; Zip64. What remains is each member's fixed header, its name and its data."""
+    end = len(data) - 22
+    if end < 0 or data[end : end + 4] != _END:
+        raise PartRefused("the part's zip ends otherwise than with its end record (a comment or bytes after it)")
+    disk, cd_disk, n_here, n_all = (int.from_bytes(data[end + o : end + o + 2], "little") for o in (4, 6, 8, 10))
+    cd_size = int.from_bytes(data[end + 12 : end + 16], "little")
+    cd_off = int.from_bytes(data[end + 16 : end + 20], "little")
+    if disk or cd_disk or n_here != n_all or cd_off + cd_size != end:
+        raise PartRefused("the part's zip has bytes between its central directory and its end record, or spans disks")
+    pos, cd, members = 0, cd_off, 0
+    while cd < end:
+        if data[cd : cd + 4] != _CENTRAL:
+            raise PartRefused("the part's zip central directory is not a list of members")
+        flags = int.from_bytes(data[cd + 8 : cd + 10], "little")
+        csize = int.from_bytes(data[cd + 20 : cd + 24], "little")
+        n, e, c = (int.from_bytes(data[cd + o : cd + o + 2], "little") for o in (28, 30, 32))
+        off = int.from_bytes(data[cd + 42 : cd + 46], "little")
+        if e or c or flags & 0x08 or csize == 0xFFFFFFFF or off != pos:
+            raise PartRefused("a member of the part's zip has a comment, an extra field, a data descriptor or bytes "
+                              "before it: a part holds nothing outside its members")  # fmt: skip
+        if data[pos : pos + 4] != _LOCAL:
+            raise PartRefused("the part's zip has bytes where a member should start")
+        ln, le = (int.from_bytes(data[pos + o : pos + o + 2], "little") for o in (26, 28))
+        if le or ln != n or data[pos + 30 : pos + 30 + ln] != data[cd + 46 : cd + 46 + n]:
+            raise PartRefused("a member of the part's zip has an extra field or another name in its header")
+        pos += 30 + ln + csize
+        cd += 46 + n
+        members += 1
+    if pos != cd_off or members != n_all:
+        raise PartRefused("the part's zip has bytes between its last member and its central directory")
+
+
 def open_part(data: bytes) -> tuple[str, dict[str, bytes], dict[str, Any], dict[str, Any]]:
     """``(id, files, manifest, origin)`` of a part, checked as the receiving box checks it (the vendor's tool reads it
     before signing): every member inside the folder or ``ORIGIN.json``, the record's form, pins and hash, every file
@@ -603,6 +692,7 @@ def open_part(data: bytes) -> tuple[str, dict[str, bytes], dict[str, Any], dict[
     origin = origin_of(data)
     if origin is None:
         raise PartRefused(f"no {ORIGIN}: not a rule-set part (python -m criteria_compiler.export_part writes one)")
+    check_zip_layout(data)
     rid = origin.get("ruleset")
     if not (isinstance(rid, str) and RULESET_ID.fullmatch(rid)):
         raise PartRefused(f"{ORIGIN} names no rule set")
@@ -644,6 +734,17 @@ def part_sha_on_tag(tag_message: str) -> str | None:
     the bundle named before it are not read as a hash."""
     m = re.search(r"; part sha256 ([0-9a-f]{64})\Z", tag_message.rstrip())
     return m.group(1) if m else None
+
+
+#: D-1369 (the review of edb77053, 5): written on the tag of a vendor rule set zip (no ``ORIGIN.json``) installed
+#: through the gate with the site's accepted profile; a part's tag says :data:`ARRIVED_MARK`
+SITE_SCOPED_MARK = "screens inside the site profile it was accepted with"
+
+
+def site_scoped(tag_message: str) -> bool:
+    """Whether an approval tag records a rule set installed with the site's accepted profile (a part, or a vendor
+    rule set zip through the gate): it screens only inside that profile's practitioners and departments."""
+    return ARRIVED_MARK in tag_message or SITE_SCOPED_MARK in tag_message
 
 
 def arrived(tag_message: str) -> bool:

@@ -577,9 +577,35 @@ def practitioners_of(ctx: Ctx, rs: Ruleset) -> list[str] | None:
     return pract
 
 
+def _arrived(ctx: Ctx, rs: Ruleset) -> bool:
+    """D-1369: whether ``rs`` arrived in an update (approved on another box, installed with this site's accepted
+    profile): its scope is the profile's and nothing widens it."""
+    from tb_common.ruleset import site_scoped
+
+    try:
+        where = ctx.rulesets_dir
+    except AttributeError:  # a context with no rule-set repository (a test's stand-in): nothing arrived
+        return False
+    return bool(where) and site_scoped(Path(where), rs.id, rs.version)
+
+
+def _within(asked: list[str] | None, allowed: list[str] | None, what: str, rid: str) -> list[str] | None:
+    """D-1369 (the review of edb77053, 5): an arrived rule set screens only inside the restriction its accepted site
+    profile states: what is asked (None: everyone) is narrowed to it, never widened; nothing left is refused."""
+    if not allowed:
+        return asked
+    keep = list(allowed) if asked is None else [a for a in asked if a in allowed]
+    if not keep:
+        raise StepFailed("running", f"{rid} arrived in an update: it screens only the {what} its accepted site "
+                         f"profile names ({', '.join(allowed)}), not those asked.")  # fmt: skip
+    return keep
+
+
 def _scope_terms(ctx: Ctx, rs: Ruleset, ask: bool) -> tuple[list[str] | None, list[str], int, int]:
     """Who a screen of ``rs`` looks at: the practitioners (``ask``: False when the patients are given), the
-    departments, the appointment window in days and the months an encounter counts as recent."""
+    departments, the appointment window in days and the months an encounter counts as recent. D-1369: a rule set
+    that arrived in an update screens only inside its accepted profile's practitioners and departments
+    (``scopes.screen``), whatever the job or the study's set-up page asks."""
     opts = ctx.job.options or {}
     sc = rs.manifest.scopes.screen if rs.manifest.scopes and rs.manifest.scopes.screen else None
     practitioners = practitioners_of(ctx, rs) if ask else []
@@ -589,6 +615,10 @@ def _scope_terms(ctx: Ctx, rs: Ruleset, ask: bool) -> tuple[list[str] | None, li
         raise StepFailed("running", "window must be a number of days") from exc
     depts = [d.strip().upper() for d in opts["dept"].split(",")] if opts.get("dept") else []
     recent = int(sc.recent_encounter_months if sc and sc.recent_encounter_months else 12)
+    if sc is not None and _arrived(ctx, rs):
+        if ask:
+            practitioners = _within(practitioners, sc.practitioners, "practitioners", rs.id)
+        depts = _within(depts or None, sc.departments, "departments", rs.id) or []
     return practitioners, depts, window, recent
 
 

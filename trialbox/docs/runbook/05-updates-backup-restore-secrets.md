@@ -346,3 +346,14 @@ do not stand on the box.
 refused while a job runs, every service is stopped, both databases are dumped and backed up, the services restart,
 and on a GPU box `doctor --weights` checks the weights (up to an hour). Plan it as a full quiet-hour downtime, like
 a release; this card does not shorten it. Each such bundle uses one number of the vendor's `release_seq`.
+
+**Only through the update (the review of edb77053).** A rule set from outside the box is installed only by
+`apply_update.sh`: the update hands the import its evidence that it verified the bundle's vendor signature in this
+run, and the import writes nothing without it. `python -m criteria_compiler.import_ruleset <zip>` run by hand writes
+no new rule set (it says so in en, ja and zh-TW); `--check` checks a zip and writes nothing. A plain vendor rule-set
+zip (no `ORIGIN.json`) needs the site's step 3 too, with its sha256 as the bundle signed it as the hash; runbook 01's
+install of the shipped example, of exactly the shipped files, still works by hand. `--release` needs its
+`(release_seq N)`: a part names the release that compiled it, and a box on an older release refuses it. A study that
+arrived this way screens only the practitioners and departments its accepted profile names, whatever a job or the
+study's set-up page asks. After a new `--site-profile` for a version already installed, apply a bundle carrying it
+again to move delivery to the new routing.

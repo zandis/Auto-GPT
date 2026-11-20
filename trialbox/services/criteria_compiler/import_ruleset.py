@@ -2,22 +2,22 @@
 
 The zip holds one ruleset directory (``<ID>/manifest.yaml``, ``ir/``, ``cql/``, ``sql/``, ``valuesets/``, ``tests/``)
 or the same files at the top level. The manifest must be ``status: approved`` with an equivalence result at or above
-the site threshold; the files are committed to ``main`` of the ruleset repository, tagged ``<ID>/v<version>`` (an
-existing tag is never moved) and materialized for the orchestrator.
+the site threshold, and list exactly the criteria of its ``ir/`` files; the files are committed to ``main`` of the
+ruleset repository, tagged ``<ID>/v<version>`` (an existing tag is never moved) and materialized for the orchestrator.
 
-A rule-set part (``ORIGIN.json`` at the zip's root: a rule set compiled and approved on another box, carried in a
-vendor-signed bundle for the dry run, D-1369) is checked first (``tb_common.ruleset_part.open_part``: every member,
-the record's form, the part's sha256, no site or staff field); it is refused when older than the box's newest approved
-version of the id, or when its version is on the box with other content; it takes this box's own routing and scopes
-(``profiles/<ID>.yaml`` as ``--site-profile`` wrote it, audited as ``approve.site_profile_set``; a profile shipped as
-an example or edited by hand since does not count) and is refused without them. The profile names the one version of
-the id the site accepts (and, when the operator gave it, the part's sha256): any other version, or another hash, is
-refused with the command that accepts it, so every version that screens here had one act by a person at the site.
-Its tag records that it arrived in a vendor bundle, from which release, with which hash. A zip whose ``ORIGIN.json``
-is not at its root, or a rule set
-with no routing or no scope (the form a part's manifest has), is refused: a part never installs without its record.
+**One gate** (D-1369, the review of edb77053): :func:`install_outcome` is the one function through which a rule set
+from outside this box is written, and it writes nothing new unless (i) the update path verified the bundle's vendor
+signature in this run and hands it its evidence for exactly these bytes (:class:`Verified`; on the command line
+``--verified``, a root-owned file in the update's root-owned stage), a part also needing the box on at least the
+release that compiled it; and (ii) the site accepted this id and version (and hash, when it named one) with its own
+routing and scopes (``--site-profile``), which replace the zip's, for a rule-set part (``ORIGIN.json``, checked by
+``tb_common.ruleset_part.open_part``) and a plain rule set zip alike. Without evidence the command line checks a zip
+(``--check``) and changes no content: a repeat of what the box holds, or the D-640 retag of a shipped example of
+exactly the same content (runbook 01's synthetic run). A part older than the box's newest version, or of a version
+on the box with other content, is refused. A repeat through the update takes the site's current routing and scopes.
 
-    python -m criteria_compiler.import_ruleset ruleset.zip --by update:2026.10-1
+    python -m criteria_compiler.import_ruleset /in/ruleset.zip --by update:2026.10-1 --verified /in/verified.json
+    python -m criteria_compiler.import_ruleset ruleset.zip --check
     python -m criteria_compiler.import_ruleset --site-profile GZQO site-GZQO.yaml --version 1.0.1 \\
         [--part-sha256 HASH] --by "<your name>"       # FILE "-": the profile on standard input
 """
@@ -29,10 +29,13 @@ import getpass
 import hashlib
 import io
 import json
+import os
 import re
+import stat
 import sys
 import zipfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -40,10 +43,13 @@ import yaml
 from pydantic import ValidationError
 from tb_common.ruleset import SEEDED_TAG
 from tb_common.ruleset_part import (
+    BUNDLE_ID,
     RULESET_ID,
     SHA256,
+    SITE_SCOPED_MARK,
     VERSION,
     PartRefused,
+    criteria_files_match,
     load_yaml,
     open_part,
     origin_of,
@@ -92,24 +98,179 @@ def read_zip(data: bytes) -> tuple[str, dict[str, bytes], dict[str, Any]]:
     return rid, files, manifest
 
 
+#: D-1369 (the review of edb77053, 1-3): the record the update path alone writes, after its verifier checked the
+#: bundle's vendor signature in this run (``tools.trialbox.update.ruleset_evidence``)
+EVIDENCE_FORMAT = "trialbox-ruleset-evidence/1"
+#: the owner an evidence file must have on the command line: the update runs as root and writes it into its root-owned
+#: stage; the compiler's service account cannot make a file root's (a test sets its own account)
+EVIDENCE_OWNER = 0
+
+
+@dataclass(frozen=True)
+class Verified:
+    """D-1369: evidence that a rule set zip arrived inside a bundle whose vendor signature the update path verified in
+    this run: the bundle's id and release_seq, the box's installed release_seq before it (the floor a part needs), the
+    root-owned stage, and the sha256 of each staged rule-set payload. Only ``tools.trialbox.update.Updater`` builds it
+    (in the process, or as the stage's root-owned ``ruleset-evidence.json`` the compiler's container reads)."""
+
+    bundle_id: str
+    release_seq: int
+    box_release_seq: int | None
+    files: tuple[tuple[str, str], ...]
+    stage: str
+
+    @classmethod
+    def of(cls, data: bytes, name: str, *, bundle_id: str, release_seq: int, box_release_seq: int | None,
+           stage: str) -> Verified:  # fmt: skip
+        return cls(bundle_id, release_seq, box_release_seq, ((name, hashlib.sha256(data).hexdigest()),), stage)
+
+    def record(self) -> dict[str, Any]:
+        return {"format": EVIDENCE_FORMAT, "bundle_id": self.bundle_id, "release_seq": self.release_seq,
+                "box_release_seq": self.box_release_seq, "stage": self.stage, "files": dict(self.files)}  # fmt: skip
+
+    @classmethod
+    def from_record(cls, rec: Any) -> Verified:
+        """The record, held to its strict form; refused otherwise."""
+        ok = (
+            isinstance(rec, dict)
+            and rec.get("format") == EVIDENCE_FORMAT
+            and set(rec) == {"format", "bundle_id", "release_seq", "box_release_seq", "stage", "files"}
+            and isinstance(rec["bundle_id"], str) and BUNDLE_ID.fullmatch(rec["bundle_id"]) is not None
+            and _whole(rec["release_seq"])
+            and (rec["box_release_seq"] is None or _whole(rec["box_release_seq"], 0))
+            and isinstance(rec["stage"], str)
+            and isinstance(rec["files"], dict) and bool(rec["files"])
+            and all(isinstance(k, str) and isinstance(v, str) and SHA256.fullmatch(v) for k, v in rec["files"].items())
+        )  # fmt: skip
+        if not ok:
+            raise ImportRefused(_three("evidence_form"))
+        return cls(rec["bundle_id"], rec["release_seq"], rec["box_release_seq"], tuple(sorted(rec["files"].items())),
+                   rec["stage"])  # fmt: skip
+
+
+def _whole(v: Any, low: int = 1) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool) and low <= v < 10**9
+
+
+#: D-1369 (the review of edb77053): the gate's refusals, in the three languages of the box (the operator's terminal
+#: and ``update.rolled_back`` hold one text)
+GATE: dict[str, dict[str, str]] = {
+    "unverified": {
+        "en": "{what} is not from a bundle the update verified in this run (no evidence of a verified vendor "
+        "signature): a rule set from outside this box is installed only by tools/apply_update.sh; this command "
+        "checks a zip (--check) and writes nothing",
+        "ja": "{what} は、この実行で更新処理が検証したバンドルからのものではありません（ベンダー署名を検証した証跡が"
+        "ありません）。このボックスの外から来たルールセットは tools/apply_update.sh だけがインストールします。"
+        "このコマンドは zip を確認するだけで（--check）、何も書き込みません",
+        "zh-TW": "{what} 不是本次執行中更新程序已驗證的更新包內容（沒有廠商簽章已驗證的證據）：來自本機以外的"
+        "規則集只由 tools/apply_update.sh 安裝；此指令只檢查 zip（--check），不寫入任何內容",
+    },
+    "evidence_form": {
+        "en": "the evidence of a verified bundle is not of its form; nothing was installed",
+        "ja": "検証済みバンドルの証跡が所定の形式ではありません。何もインストールされていません",
+        "zh-TW": "已驗證更新包的證據格式不符；未安裝任何內容",
+    },
+    "evidence_file": {
+        "en": "the evidence file {path} was not written by the update (it must be root's and writable by root "
+        "alone); nothing was installed",
+        "ja": "証跡ファイル {path} は更新処理が書いたものではありません（root が所有し、root だけが書き込める必要が"
+        "あります）。何もインストールされていません",
+        "zh-TW": "證據檔 {path} 不是更新程序寫入的（必須屬於 root 且只有 root 可寫入）；未安裝任何內容",
+    },
+    "other_bytes": {
+        "en": "{what} is not a zip the update verified in bundle {bundle} (its sha256 {sha} is not one the bundle "
+        "staged); nothing was installed",
+        "ja": "{what} は、更新処理がバンドル {bundle} で検証した zip ではありません（sha256 {sha} はバンドルが"
+        "配置したものではありません）。何もインストールされていません",
+        "zh-TW": "{what} 不是更新程序在更新包 {bundle} 中驗證過的 zip（其 sha256 {sha} 不是更新包所放置的）；"
+        "未安裝任何內容",
+    },
+    "release": {
+        "en": "{what} was compiled on release_seq {need}; this box runs release_seq {have}: install that release (or a "
+        "later one) first; nothing was installed",
+        "ja": "{what} は release_seq {need} でコンパイルされました。このボックスは release_seq {have} です。"
+        "先にそのリリース（またはそれ以降）をインストールしてください。何もインストールされていません",
+        "zh-TW": "{what} 是在 release_seq {need} 編譯的；本機為 release_seq {have}：請先安裝該版本（或更新的版本）；"
+        "未安裝任何內容",
+    },
+    "part": {
+        "en": "rule-set part refused: {why}",
+        "ja": "ルールセットのパーツを拒否しました（理由は上の英語の行）。何もインストールされていません",
+        "zh-TW": "已拒絕規則集部件（原因見上方英文行）；未安裝任何內容",
+    },
+    "criteria": {
+        "en": "{what}: {why}",
+        "ja": "{what}：マニフェストに記載された基準が ir/ のファイルと一致しません（記載された除外基準などが評価され"
+        "なくなります）。何もインストールされていません",
+        "zh-TW": "{what}：清單所列的條件與 ir/ 檔案不一致（所列的排除條件等將不會被評估）；未安裝任何內容",
+    },
+}
+
+
+def _three(key: str, **kw: Any) -> str:
+    en, ja, zh = (GATE[key][lang].format(**kw) for lang in ("en", "ja", "zh-TW"))
+    return f"{en}\n  ja: {ja}\n  zh-TW: {zh}"
+
+
 def install(
-    repo: RulesetRepo, data: bytes, by: str, min_equivalence: float = 98.0, pins_problem: PinsCheck | None = None
+    repo: RulesetRepo,
+    data: bytes,
+    by: str,
+    min_equivalence: float = 98.0,
+    pins_problem: PinsCheck | None = None,
+    *,
+    verified: Verified | None = None,
 ) -> str:
     """The tag of the installed (or already present) version; :func:`install_outcome` says which."""
-    return str(install_outcome(repo, data, by, min_equivalence, pins_problem)["installed"])
+    return str(install_outcome(repo, data, by, min_equivalence, pins_problem, verified=verified)["installed"])
+
+
+def _without_site(raw: bytes | None) -> Any:
+    try:
+        m = yaml.safe_load(raw.decode("utf-8")) if raw is not None else None
+    except (UnicodeDecodeError, yaml.YAMLError):
+        return None
+    return {k: v for k, v in m.items() if k not in ("routing", "scopes")} if isinstance(m, dict) else m
+
+
+def _same_content(existing: dict[str, bytes], files: dict[str, bytes]) -> bool:
+    """The same rule set: the same files, the manifest the same but for routing and scopes (the site's own replace
+    them at install, D-1369)."""
+    if existing.keys() != files.keys():
+        return False
+    if any(existing[p] != files[p] for p in files if p != "manifest.yaml"):
+        return False
+    return existing.get("manifest.yaml") == files.get("manifest.yaml") or _without_site(
+        existing.get("manifest.yaml")
+    ) == _without_site(files.get("manifest.yaml"))
 
 
 def install_outcome(
-    repo: RulesetRepo, data: bytes, by: str, min_equivalence: float = 98.0, pins_problem: PinsCheck | None = None
+    repo: RulesetRepo,
+    data: bytes,
+    by: str,
+    min_equivalence: float = 98.0,
+    pins_problem: PinsCheck | None = None,
+    *,
+    verified: Verified | None = None,
+    check_only: bool = False,
 ) -> dict[str, Any]:
     """Install the zip; returns ``installed`` (the tag), ``ruleset``, ``version`` and ``imported``: False when the
-    same content was already there and nothing changed (D-1369, the review's N2: a repeat is said as such)."""
+    same content was already there and nothing changed (D-1369, the review's N2: a repeat is said as such).
+
+    D-1369 (the review of edb77053, 1-3): **the one gate** through which a rule set from outside this box becomes
+    installed. Nothing new is written unless (i) ``verified`` is the update path's evidence for exactly these bytes
+    (:class:`Verified`; a part also needs the box on at least the release that compiled it), and (ii) the site
+    accepted this id and version (and hash, when it named one) with its own routing and scopes
+    (:func:`site_profile`), for a part and for a plain rule set zip alike; the site's routing and scopes replace the
+    zip's. Without evidence only what changes no content is done: a repeat of what is already here, or the D-640
+    retag of a shipped example of exactly the same content. ``check_only``: every check but (i), nothing written."""
     try:  # D-1369: a part from another box: every member, its record, its hash, no site field, before anything else
         origin = origin_of(data)
         if origin is not None:
             open_part(data)
     except PartRefused as exc:
-        raise ImportRefused(f"rule-set part refused: {exc}") from exc
+        raise ImportRefused(_three("part", why=str(exc))) from exc
     rid, files, m = read_zip(data)
     if m.get("status") != "approved":
         raise ImportRefused(f"{rid}: only approved rulesets are installed (status {m.get('status')!r})")
@@ -117,32 +278,93 @@ def install_outcome(
     eq = equivalence.get("overall_pct") if isinstance(equivalence, dict) else None
     if eq is None or float(eq) < min_equivalence:
         raise ImportRefused(f"{rid}: equivalence {eq} below the compile gate {min_equivalence}%")
-    tag = f"{rid}/v{m.get('version')}"
-    out = {"installed": tag, "ruleset": rid, "version": str(m.get("version"))}
-    if origin is not None:
-        return {**out, "imported": _install_part(repo, rid, files, m, origin, by, pins_problem)}
-    if not m.get("routing") or not m.get("scopes"):
-        # D-1369 (the third review's S2): a part's manifest without its ORIGIN.json; no rule set the vendor ships
-        # has no routing or scope, and none is screened without them
+    version = str(m.get("version"))
+    tag = f"{rid}/v{version}"
+    what = f"{rid} v{version}"
+    try:  # (the review of edb77053, 4) every listed criterion is there, both forms
+        criteria_files_match(files, m)
+    except PartRefused as exc:
+        raise ImportRefused(_three("criteria", what=what, why=str(exc))) from exc
+    out = {"installed": tag, "ruleset": rid, "version": version}
+    sha = str(origin["part_sha256"]) if origin is not None else hashlib.sha256(data).hexdigest()
+    if f"refs/tags/{tag}".encode() in repo.refs:  # what this box holds already: nothing from outside is written
+        if origin is not None:
+            if part_sha_on_tag(repo.tag_message(tag)) != origin["part_sha256"]:
+                raise ImportRefused(
+                    f"{tag} already exists on this box with other content (a part of another hash, a "
+                    "local approval or a shipped example): the head box exports a new version or id"
+                )
+        else:
+            existing = {p[len(rid) + 1 :]: b for p, b in repo.files(f"refs/tags/{tag}", f"{rid}/").items()}
+            if not _same_content(existing, files):
+                raise ImportRefused(f"{tag} already exists with different content; bump the version")
+            if SEEDED_TAG in repo.tag_message(tag) and existing == files:
+                # D-640: what is there is the example the first start seeded from this box's own image; the
+                # operator's install is what the tag records from now on (no content changes)
+                if not check_only:
+                    repo.retag(tag, f"{tag} (offline update, {by})")
+                return {**out, "imported": not check_only}
+        if verified is not None and not check_only:
+            _refresh_site(repo, rid, version, by)  # (the review of edb77053, 6): the site's current routing
+        return {**out, "imported": False}
+    if origin is None and (not m.get("routing") or not m.get("scopes")):
+        # D-1369 (the third review's S2): a part's manifest without its ORIGIN.json
         raise ImportRefused(
             f"{rid}: a rule set with no routing or no screening scope (a rule-set part without its ORIGIN.json?) is "
             "never installed through an update; nothing was installed"
         )
-    message = f"{tag} (offline update, {by})"
-    if f"refs/tags/{tag}".encode() in repo.refs:
-        existing = {p[len(rid) + 1 :]: b for p, b in repo.files(f"refs/tags/{tag}", f"{rid}/").items()}
-        if existing == files:
-            # same content already installed. D-640: when what is there is the example the first start seeded, the
-            # operator's install is what the tag records from now on (a site box refuses a seeded approval)
-            if SEEDED_TAG in repo.tag_message(tag):
-                repo.retag(tag, message)
-                return {**out, "imported": True}
-            return {**out, "imported": False}
-        raise ImportRefused(f"{tag} already exists with different content; bump the version")
+    newest = max((t.split("/v", 1)[1] for t in repo.tags(f"{rid}/v")), key=_semver, default=None)
+    if newest is not None and _semver(version) < _semver(newest):
+        raise ImportRefused(f"{tag} is older than the approved {rid} v{newest} on this box: a rule set never goes back")
+    if not check_only:
+        _gate(verified, data, what, origin)
+    m = {**m, **site_profile(repo, rid, version, sha)}
+    why = pins_problem(m) if pins_problem is not None else None
+    if why:
+        raise ImportRefused(f"{tag}: {why}; it would not screen as approved on the head box; nothing was installed")
+    if check_only:
+        return {**out, "imported": False, "checked": True}
+    files = {**files, "manifest.yaml": yaml.safe_dump(m, allow_unicode=True, sort_keys=False).encode("utf-8")}
+    note = tag_note(origin, by) if origin is not None else f"{SITE_SCOPED_MARK}; zip sha256 {sha}"
+    message = f"{tag} (offline update, {by}); {note}"
     repo.write_dir("main", "main", f"{rid}/", files, f"install {tag} ({by})", author=by.replace(" ", "_"))
     repo.tag(tag, "main", message)
     repo.materialize(rid, "main")
     return {**out, "imported": True}
+
+
+def _gate(verified: Verified | None, data: bytes, what: str, origin: dict[str, Any] | None) -> None:
+    """(i) of :func:`install_outcome`: the update path's evidence for exactly these bytes and, for a part, a box on at
+    least the release that compiled it (``compiled_on.release_seq``, 1 or more, :func:`tb_common.ruleset_part
+    .check_origin`)."""
+    if not isinstance(verified, Verified):
+        raise ImportRefused(_three("unverified", what=what))
+    sha = hashlib.sha256(data).hexdigest()
+    if sha not in dict(verified.files).values():
+        raise ImportRefused(_three("other_bytes", what=what, bundle=verified.bundle_id, sha=sha))
+    if origin is not None:
+        need = (origin.get("compiled_on") or {}).get("release_seq")
+        have = verified.box_release_seq
+        if not _whole(need) or have is None or have < need:
+            raise ImportRefused(_three("release", what=what, need=need, have=have))
+
+
+def _refresh_site(repo: RulesetRepo, rid: str, version: str, by: str) -> None:
+    """A repeat of an installed version (the review of edb77053, 6): when the site set its routing and scopes again
+    since (``--site-profile``), main's manifest of that version takes them now, so delivery never goes to superseded
+    recipients. Nothing else changes; the approval tag stays."""
+    prof = _site_set(repo, rid)
+    raw = repo.read("main", f"{rid}/manifest.yaml")
+    m = yaml.safe_load(raw.decode("utf-8")) if raw else None
+    if prof is None or not isinstance(m, dict) or str(m.get("version")) != version:
+        return
+    if m.get("routing") == prof["routing"] and m.get("scopes") == prof["scopes"]:
+        return
+    files = {p[len(rid) + 1 :]: b for p, b in repo.files("main", f"{rid}/").items()}
+    files["manifest.yaml"] = yaml.safe_dump({**m, **prof}, allow_unicode=True, sort_keys=False).encode("utf-8")
+    repo.write_dir("main", "main", f"{rid}/", files, f"site routing {rid} v{version} ({by})",
+                   author=by.replace(" ", "_"))  # fmt: skip
+    repo.materialize(rid, "main")
 
 
 #: D-1369: what a part's pins need of this box; returns the sentence of a mismatch, or None
@@ -298,6 +520,26 @@ def _not_accepted(why: str, rid: str, version: str, sha: str, accepted: str = ""
     return NotAccepted(f"{lines[0]}\n  ja: {lines[1]}\n  zh-TW: {lines[2]}", rid, version, cmd)
 
 
+def _site_set(repo: RulesetRepo, rid: str) -> dict[str, Any] | None:
+    """The routing and scopes ``--site-profile`` wrote for ``rid`` (its mark of the current form matching the profile),
+    whatever version it accepts; None when there are none."""
+    raw = repo.read("main", f"profiles/{rid}.yaml")
+    mark_raw = repo.read("main", PROFILE_MARK.format(rid=rid))
+    try:
+        mark = json.loads(mark_raw) if mark_raw else {}
+    except ValueError:
+        return None
+    if not (isinstance(mark, dict) and raw is not None and mark.get("ruleset") == rid
+            and mark.get("format") == PROFILE_MARK_FORMAT
+            and mark.get("sha256") == hashlib.sha256(raw).hexdigest()):  # fmt: skip
+        return None
+    prof = yaml.safe_load(raw.decode("utf-8")) or {}
+    routing, scopes = prof.get("routing"), prof.get("scopes")
+    if not (isinstance(routing, dict) and routing.get("list_to") and isinstance(scopes, dict) and scopes.get("screen")):
+        return None
+    return {"routing": routing, "scopes": scopes}
+
+
 def site_profile(repo: RulesetRepo, rid: str, version: str, part_sha256: str) -> dict[str, Any]:
     """This box's own ``routing`` and ``scopes`` for ``rid``: ``profiles/<ID>.yaml`` on ``main`` of its repository as
     ``--site-profile`` wrote it (its mark records the profile's sha256; a shipped example profile, or one changed by
@@ -328,42 +570,6 @@ def site_profile(repo: RulesetRepo, rid: str, version: str, part_sha256: str) ->
     if mark.get("part_sha256") and mark.get("part_sha256") != part_sha256:
         raise _not_accepted("hash", rid, version, part_sha256, str(mark.get("part_sha256")))
     return {"routing": routing, "scopes": scopes}
-
-
-def _install_part(
-    repo: RulesetRepo,
-    rid: str,
-    files: dict[str, bytes],
-    m: dict[str, Any],
-    origin: dict[str, Any],
-    by: str,
-    pins_problem: PinsCheck | None = None,
-) -> bool:
-    """D-1369: a rule-set part. Never older than the box's newest approved version of the id; the same version again
-    is a no-op only when it is the same part (its hash on the tag); installed only when the site accepted this version
-    (and hash, when it named one), with the site's own routing and scope. True when installed, False on a repeat."""
-    version = str(m.get("version"))
-    tag = f"{rid}/v{version}"
-    newest = max((t.split("/v", 1)[1] for t in repo.tags(f"{rid}/v")), key=_semver, default=None)
-    if newest is not None and _semver(version) < _semver(newest):
-        raise ImportRefused(f"{tag} is older than the approved {rid} v{newest} on this box: a part never goes back")
-    if f"refs/tags/{tag}".encode() in repo.refs:
-        if part_sha_on_tag(repo.tag_message(tag)) == origin["part_sha256"]:
-            return False  # the same part again: nothing to do
-        raise ImportRefused(
-            f"{tag} already exists on this box with other content (a part of another hash, a "
-            "local approval or a shipped example): the head box exports a new version or id"
-        )
-    m = {**m, **site_profile(repo, rid, version, str(origin["part_sha256"]))}
-    why = pins_problem(m) if pins_problem is not None else None
-    if why:
-        raise ImportRefused(f"{tag}: {why}; it would not screen as approved on the head box; nothing was installed")
-    files = {**files, "manifest.yaml": yaml.safe_dump(m, allow_unicode=True, sort_keys=False).encode("utf-8")}
-    message = f"{tag} (offline update, {by}); {tag_note(origin, by)}"
-    repo.write_dir("main", "main", f"{rid}/", files, f"install {tag} ({by})", author=by.replace(" ", "_"))
-    repo.tag(tag, "main", message)
-    repo.materialize(rid, "main")
-    return True
 
 
 def put_site_profile(
@@ -471,6 +677,13 @@ def main(argv: list[str] | None = None) -> int:
         help="with --site-profile: the part's sha256 (the vendor's release note, the export's output); only that "
         "part of the version is accepted",
     )
+    ap.add_argument(
+        "--verified",
+        metavar="FILE",
+        help="D-1369: the update's evidence that the zip arrived in a bundle it verified in this run (written by "
+        "tools/apply_update.sh into its root-owned stage); without it a zip from outside is never installed",
+    )
+    ap.add_argument("--check", action="store_true", help="check the zip as an install would, write nothing")
     args = ap.parse_args(argv)
     if args.site_profile and not args.version:
         ap.error("--site-profile needs --version: the version of the rule set this site accepts")
@@ -507,7 +720,9 @@ def main(argv: list[str] | None = None) -> int:
     with open(args.zip, "rb") as fh:
         data = fh.read()
     try:
-        res = install_outcome(repo, data, args.by or "offline-update", gate, box_pins_problem)
+        verified = evidence_file(args.verified) if args.verified else None
+        res = install_outcome(repo, data, args.by or "offline-update", gate, box_pins_problem, verified=verified,
+                              check_only=args.check)  # fmt: skip
     except ImportRefused as exc:  # the fifth review: lines the operator reads whole, in every channel; no traceback
         for line in refusal_lines(exc):
             print(line, file=sys.stderr)
@@ -516,6 +731,9 @@ def main(argv: list[str] | None = None) -> int:
     for h in hits:  # card 10A-1: installed as approved; a person recompiles these lines (the scan lists them again)
         print(f"WARNING {h}: its line may negate what its logic asks the presence of; recompile and approve",
               file=sys.stderr)  # fmt: skip
+    if args.check:
+        print(json.dumps({"checked": res["installed"], "written": False}))
+        return 0
     part = {"rule_set_part": True} if origin_of(data) is not None else {}  # D-1369
     # D-1369 (N2): the update's step reads this line: imported, or already present (a repeat: nothing changed); the
     # last line stays as it was (runbook 01 reads it)
@@ -523,6 +741,26 @@ def main(argv: list[str] | None = None) -> int:
                       "already_present": not res["imported"]}))  # fmt: skip
     print(json.dumps({"installed": res["installed"], **part, **({"negated_inclusions": hits} if hits else {})}))
     return 0
+
+
+def evidence_file(path: str) -> Verified:
+    """The update's evidence as the compiler's container reads it: a regular file owned by :data:`EVIDENCE_OWNER`
+    (root: the update writes it into its root-owned stage) that no one else may write, of the strict form. The
+    compiler's service account cannot make such a file; root on the host (or anyone who may run containers there)
+    can, as it can write the rule-set repository itself (D-1369, the residual)."""
+    try:
+        st = os.lstat(path)
+        with open(path, "rb") as fh:
+            raw = fh.read(64 * 1024)
+    except OSError as exc:
+        raise ImportRefused(_three("evidence_file", path=path)) from exc
+    if not stat.S_ISREG(st.st_mode) or st.st_uid != EVIDENCE_OWNER or st.st_mode & 0o022:
+        raise ImportRefused(_three("evidence_file", path=path))
+    try:
+        rec = json.loads(raw)
+    except ValueError as exc:
+        raise ImportRefused(_three("evidence_form")) from exc
+    return Verified.from_record(rec)
 
 
 def negated_hits(data: bytes) -> list[str]:

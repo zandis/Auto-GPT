@@ -57,17 +57,27 @@ class ExportRefused(ValueError):
 
 def compiled_on(installed: dict[str, Any] | None = None, release: str | None = None) -> dict[str, Any]:
     """The compiling box's release from its installed record (the release a rule-set-only bundle rode on, D-1369),
-    or as its bundle id (and release_seq): no free words."""
+    or as its bundle id and release_seq: no free words. The release_seq is required, a whole number of 1 or more (the
+    review of edb77053, 2): it is the lowest release a receiving box may run to take the part (the bundle's floor and
+    the import's check), never zero."""
     if installed is not None:
         on = {"bundle_id": installed.get("release_bundle_id") or installed.get("bundle_id"),
               "release_seq": installed.get("release_seq"), "commit": installed.get("commit")}  # fmt: skip
-        return {k: v for k, v in on.items() if v is not None}
-    if release and release.strip():
+        on = {k: v for k, v in on.items() if v is not None}
+    elif release and release.strip():
         m = RELEASE.fullmatch(" ".join(release.split()))
         if not m:
-            raise ExportRefused("--release takes a bundle id, optionally followed by (release_seq N), nothing else")
-        return {"bundle_id": m["bundle"], **({"release_seq": int(m["seq"])} if m["seq"] else {})}
-    raise ExportRefused("name the release that compiled it: --installed deploy/updates/installed.json or --release")
+            raise ExportRefused("--release takes a bundle id followed by (release_seq N), nothing else")
+        on = {"bundle_id": m["bundle"], **({"release_seq": int(m["seq"])} if m["seq"] else {})}
+    else:
+        raise ExportRefused("name the release that compiled it: --installed deploy/updates/installed.json or --release")
+    seq = on.get("release_seq")
+    if not (isinstance(seq, int) and not isinstance(seq, bool) and 1 <= seq < 10**9):
+        raise ExportRefused(
+            "the release that compiled it names no release_seq of 1 or more (installed.json's release_seq, or "
+            '--release "<bundle id> (release_seq N)"): a part names the lowest release a box may run to take it'
+        )
+    return on
 
 
 def export(

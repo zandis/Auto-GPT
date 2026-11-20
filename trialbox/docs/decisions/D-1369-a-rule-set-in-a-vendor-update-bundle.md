@@ -101,7 +101,8 @@
    - **depth**: a JSON or YAML file nested deeper than 256 is refused before it is parsed (no `RecursionError`).
    The record holds the rule set and version, the file list, what was left out, the approval tag's name, the
    compiling box's release (bundle id, release_seq, commit, from its installed record or from `--release`, which
-   takes a bundle id and an optional `(release_seq N)`, nothing else), and the judge prompt and terminology pins,
+   takes a bundle id and its required `(release_seq N)`, nothing else; a release_seq of 1 or more is required),
+   and the judge prompt and terminology pins,
    **which must equal the manifest's**. It holds **no time**: `part_sha256` (every carried file, path and bytes, and
    every other field of the record) is the same for the same approved version exported again from the same release,
    so the receiving box takes the repeat as the same part. The export refuses a draft, a version with no approval
@@ -231,16 +232,52 @@
 
 ## What an arrived rule set can do before anyone at the site acts
 
-This section holds for **parts** (zips with `ORIGIN.json`). A plain vendor rule-set zip (no `ORIGIN.json`, with its
-routing and scopes in its manifest) installs as before this card: through any update the vendor signs, with no act
-at the site, listed as arrived (item 7). That is the vendor's own pre-existing path (D-77), unchanged here.
+Nothing, for a part and for a plain vendor rule-set zip alike (the review of edb77053 closed the plain zip's road).
 
-For a part: nothing. A part installs only when its version (and its hash, when the site named one) is the one the site accepted
-with `--site-profile` (item 4); until then the update is refused and rolled back, no tag is written, and no screen,
-after-ingest run or mail uses it. Once a person at the site has accepted that version and the operator has applied
-the bundle, its tag counts as an approval (D-640): the next MICROBATCH and after-ingest runs screen with it and the
-mail goes to the routing the site set. A later version of the same id needs the site's act again. A version already
-installed stays installed and screening when the site accepts another (a part never goes back, item 3).
+**The one gate.** `criteria_compiler.import_ruleset.install_outcome` is the one function through which any rule set
+from outside the box is written to the rule-set store (every road calls it: the update step, in the compiler's
+container on a compose box and in the process on the test box; the hand-run command; a retry after a rollback, which
+verifies the bundle again). It writes nothing new unless, in this order:
+
+1. **Evidence of this run's verified bundle.** `Updater.run` writes, after `apply_update.sh` verified the bundle's
+   vendor signature into its root-owned stage, `ruleset-evidence.json` (`tools.trialbox.update.ruleset_evidence`):
+   the bundle's id and release_seq, the box's installed release_seq before it, the stage, and each staged rule-set
+   zip's sha256. `ComposeBox.rulesets` mounts it read-only beside the zip and passes `--verified`; the import holds
+   it to its strict form (`Verified.from_record`), requires the file to be root's and writable by root alone, and the
+   zip's sha256 to be one the bundle staged. Without it the command line refuses any write (en, ja, zh-TW) and only
+   checks (`--check`). The only writes without evidence change no content: a repeat of what the box holds, and the
+   D-640 retag of a shipped example of exactly the same bytes (runbook 01's synthetic run, `tools/rehearse_box`).
+2. **The release that compiled a part.** `ORIGIN.json` `compiled_on.release_seq` is required, a whole number of 1 or
+   more (the export refuses without it; zero, missing, negative, a boolean or a non-integer is refused by
+   `check_origin` at the vendor's tool and at the box). The rule: a box takes a part only on that release or a later
+   one. `tools.ruleset_bundle` makes it the bundle's `min_installed_version` (the verifier refuses an older box before
+   anything changes, so an importer older than this card never sees the part through it), and the import refuses it
+   again when the evidence's box release_seq is lower or unknown (a bundle signed around the part by other means).
+3. **The site's acceptance.** The site profile's mark (`--site-profile`) names this id and version (and hash when the
+   operator gave it: a part's `part_sha256`, a plain zip's sha256 as the bundle signed it); the site's routing and
+   scopes replace the zip's. A plain zip with no acceptance is refused like a part (the vendor's plain path of D-77
+   now needs the same act; nothing in the repository ships or applies one but tests, and runbook 01's hand install
+   of the shipped example is the retag above). Its tag says `screens inside the site profile it was accepted with`.
+4. Every criterion the manifest lists is an `ir/` file and every `ir/` file is listed (both forms; the export and the
+   vendor's tool refuse too), so an exclusion cannot drop out while the version keeps its approval.
+
+**Screening inside the accepted restriction.** A rule set installed through the gate (its tag says it arrived, or
+the mark above) screens only inside its accepted profile's `scopes.screen` practitioners and departments
+(`orchestrator.scenarios.screen._scope_terms`): a job's `pract=`, `dept=` or `scope=hospital` and the study's set-up
+page narrow within it and never widen it; nothing left is refused. Rule sets approved here are unchanged (their
+`scopes.screen.departments` is still not read by screening; not this card's).
+
+**A repeat takes the site's current routing.** The same version again through the update writes the site's current
+routing and scopes into `main`'s manifest of that version when the site set them again since; the tag stays.
+
+**The part's zip holds nothing outside its members** (`check_zip_layout`): no archive or member comment, extra
+field, data descriptor or byte before, between or after the members; value-set scalar fields are strings, numbers
+or true/false only (never a mapping or a list), at both ends.
+
+**Residual: who can forge the evidence.** The evidence is a file, not a signature: root on the host, or anyone who
+may run containers there (root-equivalent), can write a root-owned evidence file for any zip and mount it, and can
+as well write the rule-set store directly. The compiler's service account (a shell in its container) cannot make a
+root-owned file. The import does not re-verify the vendor signature itself.
 
 **Residual: who can forge an acceptance.** The mark `profiles/<ID>.site-set.json` lives in the rule-set store, which
 the criteria compiler's service account writes. The import does not cross-check the mark against the audit
@@ -298,6 +335,8 @@ directly can be valid longer. This predates the card and is not changed by it.
   unchanged and were not run. What `run_cmd` keeps of a refused import's standard error (its first line and last 600
   characters) is tested with a real child process, not in a container.
 - `tools/trialbox/update.py` `InProcessBox.rulesets` still imports nothing (the update drill's box); unchanged.
+- **Not run on a container box (the gate).** The evidence file, its mount and the root-owner check were run with the
+  test's own account standing for root; no compose box ran them.
 
 ## Held by
 
@@ -349,3 +388,13 @@ directly can be valid longer. This predates the card and is not changed by it.
   digits, an id with a line break are refused; a profile over 64 KiB (on standard input, read no further) or with an
   unknown field is refused, nothing written; a mark for another id accepts nothing; a bundle without a rule set says
   `0 imported, 0 already present`; the vendor tool prints each part's full hash.
+- The review of edb77053 (`tests/unit/test_ruleset_part_gate.py`; each test failed on edb77053): a plain zip of a
+  version the site did not accept is refused through the update; a part without a release_seq is refused at the
+  export, the vendor's tool and the box, and a part of release 3 on a box of release 2 is refused; the standalone
+  command writes nothing (en, ja, zh-TW) and only checks; every road with every bypass (no evidence, evidence of
+  other bytes, of an older or unknown release, a plain zip, a forged or group-writable evidence file, a version not
+  accepted, the same bundle again after its rollback) writes no tag, and the update's own road with the site's
+  acceptance installs; a listed exclusion missing from the part is refused at the export and the box; an arrived rule
+  set screens only its profile's practitioner and department whatever the job or set-up page asks; a repeat takes the
+  corrected routing; a nested object, list or null in a value-set scalar is refused; an archive or member comment, an
+  extra field, appended or prepended bytes refuse the part and the bundle.

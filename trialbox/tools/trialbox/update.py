@@ -39,6 +39,7 @@ it, with a real backup, a real ``pg_dump`` / ``pg_restore`` and real migrations)
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -121,6 +122,8 @@ class Plan:
     release: dict[str, Any] | None = None
     trust_sha256: str | None = None  # the trust.json verify read (None: none, the deploy/keys files)
     no_backup_reason: str | None = None  # D-1321: why the backup is skipped (--no-backup-reason), audited
+    #: D-1369: the update's evidence for the rule-set import (:func:`ruleset_evidence`), set by ``Updater.run``
+    evidence: dict[str, Any] | None = None
 
     @classmethod
     def load(cls, stage: Path, summary: dict[str, Any]) -> Plan:
@@ -507,6 +510,24 @@ def ruleset_line(file: str, out: str | dict[str, Any] | None) -> str:
     return f"{rid} v{version}: {what} ({file})"
 
 
+#: D-1369 (the review of edb77053, 1-3): the record ``criteria_compiler.import_ruleset.Verified`` reads
+RULESET_EVIDENCE_FORMAT = "trialbox-ruleset-evidence/1"
+RULESET_EVIDENCE = "ruleset-evidence.json"
+
+
+def ruleset_evidence(plan: Plan, box_release_seq: Any) -> dict[str, Any]:
+    """D-1369: the evidence that each staged rule-set zip arrived in this bundle, whose vendor signature the verifier
+    checked in this run (``apply_update.sh`` verifies before the update path runs, into its root-owned stage): the
+    bundle's id and release_seq, the box's installed release_seq before it, the stage, and each zip's sha256 as
+    staged. The rule-set import installs nothing from outside without it (``import_ruleset.install_outcome``)."""
+    rs = plan.kind("ruleset")
+    files = {z.relative_to(rs).as_posix(): hashlib.sha256(z.read_bytes()).hexdigest()
+             for z in sorted(rs.rglob("*.zip"))} if rs.is_dir() else {}  # fmt: skip
+    seq = box_release_seq if isinstance(box_release_seq, int) and not isinstance(box_release_seq, bool) else None
+    return {"format": RULESET_EVIDENCE_FORMAT, "bundle_id": plan.bundle_id, "release_seq": plan.release_seq,
+            "box_release_seq": seq, "stage": str(plan.stage), "files": files}  # fmt: skip
+
+
 def _last_json(out: str) -> dict[str, Any]:
     lines = [ln for ln in out.splitlines() if ln.strip()]
     if not lines:
@@ -820,6 +841,7 @@ class Updater:
             self.box.restart(plan)
             step("migrate and restart", True)
             enter("rulesets")
+            plan.evidence = ruleset_evidence(plan, us.installed(self.dir).get("release_seq"))  # D-1369: this run's
             rulesets = getattr(self.box, "rulesets", None)
             done = rulesets(plan) if rulesets is not None else self.box.post_apply(plan)
             present = sum("already present" in d for d in done)  # D-1369 (N2): a repeat is said as such
@@ -1703,7 +1725,12 @@ class ComposeBox(_DockerImages):
     def rulesets(self, plan: Plan) -> list[str]:
         done = []
         rs = plan.kind("ruleset")
-        for z in sorted(rs.rglob("*.zip")) if rs.is_dir() else []:
+        zips = sorted(rs.rglob("*.zip")) if rs.is_dir() else []
+        evidence = plan.stage / RULESET_EVIDENCE
+        if zips:  # D-1369: the update's evidence, root's in its root-owned stage, read-only in the container
+            evidence.write_text(json.dumps(plan.evidence or ruleset_evidence(plan, None), sort_keys=True) + "\n")
+            evidence.chmod(0o644)
+        for z in zips:
             # 10G-1 (D-1323): a one-off container with the file bind-mounted read-only; ``compose cp`` cannot write
             # into criteria-compiler, whose root is read-only and /tmp a tmpfs. Named, so one a failure left running
             # is removed (review D3)
@@ -1711,8 +1738,10 @@ class ComposeBox(_DockerImages):
             try:
                 out = self.run(self._c("run", "--rm", "--no-deps", "-T", "--name", RULESET_RUN,
                                        "-v", f"{z.resolve()}:/in/ruleset.zip:ro",
+                                       "-v", f"{evidence.resolve()}:/in/verified.json:ro",
                                        "criteria-compiler", "python", "-m", "criteria_compiler.import_ruleset",
-                                       "/in/ruleset.zip", "--by", f"update:{plan.bundle_id}"))  # fmt: skip
+                                       "/in/ruleset.zip", "--by", f"update:{plan.bundle_id}",
+                                       "--verified", "/in/verified.json"))  # fmt: skip
             except (UpdateFailed, subprocess.TimeoutExpired):
                 self._rm_run(RULESET_RUN)
                 raise

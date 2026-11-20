@@ -295,17 +295,33 @@ def arrived_in_bundle(rulesets_dir: Path, ruleset_id: str, version: str) -> bool
     approved here."""
     from tb_common.ruleset_part import arrived
 
+    msg = _tag_text(rulesets_dir, ruleset_id, version)
+    return msg is not None and arrived(msg)
+
+
+def site_scoped(rulesets_dir: Path, ruleset_id: str, version: str) -> bool:
+    """D-1369 (the review of edb77053, 5): whether ``ruleset_id`` v``version`` was installed from outside this box
+    through the gate with the site's accepted profile (a rule-set part, or a vendor rule set zip since then): it
+    screens only inside that profile's practitioners and departments (``scopes.screen``)."""
+    from tb_common.ruleset_part import site_scoped as scoped
+
+    msg = _tag_text(rulesets_dir, ruleset_id, version)
+    return msg is not None and scoped(msg)
+
+
+def _tag_text(rulesets_dir: Path, ruleset_id: str, version: str) -> str | None:
+    """The message of the annotated approval tag of ``ruleset_id`` v``version``; None without one."""
     if not (rulesets_dir / ".git").exists():
-        return False
+        return None
     from dulwich.objects import Tag
     from dulwich.repo import Repo
 
     refs: Any = Repo(str(rulesets_dir)).refs
     tag = f"refs/tags/{ruleset_id}/v{version}".encode()
     if tag not in refs:
-        return False
+        return None
     obj: Any = Repo(str(rulesets_dir))[refs[tag]]
-    return isinstance(obj, Tag) and arrived(obj.message.decode("utf-8", "replace"))
+    return obj.message.decode("utf-8", "replace") if isinstance(obj, Tag) else None
 
 
 def approved_here(rulesets_dir: Path, ruleset_id: str) -> bool:

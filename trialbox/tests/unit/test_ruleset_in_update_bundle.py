@@ -30,12 +30,13 @@ import yaml
 from criteria_compiler.export_part import ExportRefused, compiled_on, export
 from criteria_compiler.import_ruleset import (
     ImportRefused,
+    Verified,
     accept_command,
     box_pins_problem,
-    install,
     install_outcome,
     put_site_profile,
 )
+from criteria_compiler.import_ruleset import install as _install
 from criteria_compiler.repo import RulesetRepo
 from tb_common.audit import AuditLog
 from tb_common.ruleset import arrived_in_bundle, load_approved
@@ -88,8 +89,12 @@ class ScreenOnlyBox:
         done = []
         rs = plan.kind("ruleset")
         for z in sorted(rs.rglob("*.zip")) if rs.is_dir() else []:
-            res = install_outcome(
-                RulesetRepo(self.repo_dir), z.read_bytes(), f"update:{plan.bundle_id}", pins_problem=box_pins_problem
+            res = install_outcome(  # D-1369: with the update path's own evidence, as the container reads it
+                RulesetRepo(self.repo_dir),
+                z.read_bytes(),
+                f"update:{plan.bundle_id}",
+                pins_problem=box_pins_problem,
+                verified=Verified.from_record(plan.evidence) if plan.evidence else None,
             )
             done.append(ruleset_line(z.name, res))  # as ComposeBox.rulesets reads the import's output line
         return done
@@ -111,6 +116,32 @@ def apply_bundle(bundle: Path, pub: Path, box: ScreenOnlyBox, updates: Path, sta
     """What ``tools/apply_update.sh`` does with the bundle: verify and stage, then the update path."""
     m = verify(bundle, pub, stage, trust_file=updates / "trust.json", installed_file=updates / "installed.json")
     return Updater(box, updates, say=lambda _s: None).run(Plan.load(stage, summary(m)))
+
+
+def evidence(data: bytes, box_release_seq: int | None = 3) -> Verified:
+    """What the update path hands the import for ``data`` staged from a bundle it verified (D-1369)."""
+    return Verified.of(data, "x.zip", bundle_id="2026.11-1-rs1", release_seq=4, box_release_seq=box_release_seq,
+                       stage="/stage")  # fmt: skip
+
+
+def evidence_file(tmp_path: Path, data: bytes, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The update's evidence as ``ComposeBox.rulesets`` writes it into its root-owned stage for the container
+    (``--verified``); the test's own account stands for root (``EVIDENCE_OWNER``)."""
+    import os
+
+    from criteria_compiler import import_ruleset
+
+    monkeypatch.setattr(import_ruleset, "EVIDENCE_OWNER", os.getuid())
+    f = tmp_path / "ruleset-evidence.json"
+    f.write_text(json.dumps(evidence(data).record()))
+    f.chmod(0o644)
+    return f
+
+
+def install(repo: RulesetRepo, data: bytes, by: str, *args: Any, **kw: Any) -> str:
+    """``import_ruleset.install`` as the update path calls it: with its evidence for these bytes (D-1369)."""
+    kw.setdefault("verified", evidence(data))
+    return _install(repo, data, by, *args, **kw)
 
 
 def audit_events(directory: Path) -> list[dict[str, Any]]:
@@ -734,7 +765,7 @@ def test_b2_a_file_name_is_a_library_criterion_or_value_set_name(tmp_path: Path,
     def ir(d: Path) -> None:
         (d / "ir" / "GZQO-INC-01.json").rename(d / "ir" / "CNRYname.json")
 
-    with pytest.raises(ExportRefused, match="ir/CNRYname.json: its id and rule set are not CNRYname"):
+    with pytest.raises(ExportRefused, match="missing: GZQO-INC-01; not listed: CNRYname"):
         export(_head_with(tmp_path / "b", ir), "GZQO", compiled_on(HEAD_RELEASE))
 
 
@@ -859,7 +890,7 @@ def test_no_free_words_of_the_operator_travel(head: RulesetRepo) -> None:
     assert compiled_on(None, "2026.11-1 (release_seq 3)") == {"bundle_id": "2026.11-1", "release_seq": 3}
     with pytest.raises(ExportRefused, match="--release takes a bundle id"):
         compiled_on(None, "2026.11-1 built by Dr Planted")
-    data, _origin = export(head, "GZQO", compiled_on(None, "2026.11-1"))
+    data, _origin = export(head, "GZQO", compiled_on(None, "2026.11-1 (release_seq 3)"))
     m = yaml.safe_load(members(data)["GZQO/manifest.yaml"])
     assert "source_documents" not in m and b"GZQO_protocol_v3.pdf" not in data
 
@@ -1159,9 +1190,10 @@ def test_n2_the_container_box_reads_the_imports_result_line(
     cfg = SimpleNamespace(env=SimpleNamespace(rulesets_path=box.repo_dir), settings=SimpleNamespace(thresholds=None))
     monkeypatch.setattr(tb_common.config, "load", lambda: cfg)
     monkeypatch.setattr(import_ruleset, "box_pins_problem", lambda _m: None)
-    assert import_ruleset.main([str(part), "--by", "update:x"]) == 0
+    ev = str(evidence_file(tmp_path, part.read_bytes(), monkeypatch))
+    assert import_ruleset.main([str(part), "--by", "update:x", "--verified", ev]) == 0
     assert ruleset_line("GZQO.part.zip", capsys.readouterr().out) == "GZQO v1.0.0: imported (GZQO.part.zip)"
-    assert import_ruleset.main([str(part), "--by", "update:y"]) == 0
+    assert import_ruleset.main([str(part), "--by", "update:y", "--verified", ev]) == 0
     out = capsys.readouterr().out
     lines = [json.loads(ln) for ln in out.splitlines()]
     assert lines[0]["already_present"] is True and lines[-1] == {"installed": "GZQO/v1.0.0", "rule_set_part": True}
@@ -1276,7 +1308,8 @@ def test_r5_a_refused_part_reaches_the_operator_whole(
     part = _versioned(head, "1.0.1", tmp_path / "p" / "GZQO.part.zip")
     h = open_part(part.read_bytes())[3]["part_sha256"]
     cli = _cli(monkeypatch, box.repo_dir, tmp_path / "a")
-    assert cli.main([str(part), "--by", "update:x"]) == 2
+    ev = str(evidence_file(tmp_path, part.read_bytes(), monkeypatch))
+    assert cli.main([str(part), "--by", "update:x", "--verified", ev]) == 2
     err = capsys.readouterr().err
     cmd = accept_command("GZQO", "1.0.1", h)
     lines = err.splitlines()
