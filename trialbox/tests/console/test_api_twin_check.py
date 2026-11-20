@@ -39,6 +39,8 @@ EXEMPT: dict[str, str] = {
     "/feedback": "the feedback control about the page on screen (D-331); its comment names that page",
     "/role": "the session's acting role on a test box (D-877), switched in the browser's top bar like /lang; an API "
     "token starts in the account's own role",
+    "/admin/ops/support/{rid}": "the support bundle's download (D-1381): a file handed to the administrator's browser, "
+    "a POST form only so that another site cannot make a signed-in browser fetch it; the API hands out no export file",
 }
 
 # FIT-019 as found on 2026-11-11: page actions that have no /api/v1 twin yet. Follow-up cards close it; the list
