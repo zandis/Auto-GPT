@@ -444,14 +444,14 @@ class Checker:
     def _parquet(self, name: str, blob: bytes, mode: str, hits: dict[tuple[str, str], int]) -> None:
         import pyarrow.parquet as pq
 
-        try:
-            f = pq.ParquetFile(io.BytesIO(blob))
+        try:  # read at once, single-threaded (H-52, H-62: no Python object handed to Arrow's IO pool)
+            table = pq.ParquetFile(io.BytesIO(blob)).read(use_threads=False)
         except Exception as exc:  # any reader error: this file cannot be checked
             self.cannot(name, f"Parquet does not open ({type(exc).__name__})")
             return
-        keep = self._columns(name, f.schema_arrow.names, mode)
+        keep = self._columns(name, table.schema.names, mode)
         if keep:
-            for row in f.read(columns=keep).to_pylist():
+            for row in table.select(keep).to_pylist():
                 for v in row.values():
                     self._hit(v, hits)
 

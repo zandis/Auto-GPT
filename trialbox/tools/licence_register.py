@@ -29,6 +29,16 @@ The check fails when:
 * a build of ``models/registry.yaml`` disagrees with its row: ``verified: true`` needs ``register: <id>``, a ``model``
   row whose source is the build's repository, whose SPDX id is the build's, and whose status is ``cleared`` or
   ``own-work``; a build past ``candidate`` needs ``verified: true``;
+* a candidate model has no row, or a model row breaks its rules (card 10E-24, review 17-9, decision 93; ``D-1347``):
+  every build named in ``CANDIDATES`` (root review 17 §7.2 and §4.3) has a ``model`` row; a row whose licence or SPDX
+  id is a community or health-developer licence has status ``excluded`` (never in the shipped box); a row that says
+  "terms not read" is ``terms-not-read`` or ``excluded``, never cleared; a ``cleared`` model row names one full
+  commit id (``revision <40 hex>``). Checked only beside ``models/registry.yaml``, which holds the candidates;
+* a verified build's pins disagree (``pin_problems``, this check only; ``qualify`` keeps ``model_problems``): the
+  installed ``revision`` and ``expected.revision`` differ, a pin is not a full commit id, a pin is not the revision
+  its cleared row names, or a build past ``candidate`` on a cleared row has no pin. An unpinned ``candidate`` passes:
+  its terms may be read before its weights are measured. A build under a community or health-developer licence is
+  never verified and never past ``candidate``;
 * a vocabulary the OMOP Athena loader allows (``omop.vocab_load.ATHENA_ALLOW``, when it exists) has no row;
 * a ``bundle-exception`` row (card 22-4: files ``tools.vocab_bundle_check`` warns about instead of failing, while an
   owner decision is pending) lacks status ``decision-pending`` or ``owner-approved`` or paths, or has a class or
@@ -82,11 +92,36 @@ KINDS = frozenset({"code-system", "map", "data-set", "fhir", "model", "software"
 EXCEPTION_KIND, PENDING, APPROVED = "bundle-exception", "decision-pending", "owner-approved"
 EXCEPTION_STATUSES = frozenset({PENDING, APPROVED})
 IMAGE = ROOT / "deploy/docker/backup.Dockerfile"  # where a software row's tool is pinned (D-968)
-STATUSES = frozenset({"cleared", "own-work", "synthetic", "site-loaded", "permission-to-ask", "removed", PENDING,
-                      APPROVED})  # fmt: skip
-SHIPS_NOTHING = frozenset({"site-loaded", "removed"})
+STATUSES = frozenset({"cleared", "own-work", "synthetic", "site-loaded", "permission-to-ask", "removed",
+                      "terms-not-read", "excluded", PENDING, APPROVED})  # fmt: skip
+SHIPS_NOTHING = frozenset({"site-loaded", "removed", "terms-not-read", "excluded"})
 MODEL_OK = frozenset({"cleared", "own-work"})
 PAST_CANDIDATE = frozenset({"qualified", "champion", "shadow"})
+# Decision 93 (plan 10, ruled): community and health-developer licences never ship. Matched on the licence and SPDX
+# columns (never the description, where a "community quantisation" is a publisher, not a licence) after lower-casing
+# and dropping everything but letters and digits.
+EXCLUDED_LICENCE = re.compile(r"communit|health(ai)?developer")
+TERMS_NOT_READ = "terms not read"
+FULL_REVISION = re.compile(r"[0-9a-f]{40}")
+# Card 10E-24 (review 17-9): every candidate of root review 17 (§7.2 stage H, both roles, and §4.3's verdicts) by its
+# register row. A row missing here fails the check, so the list lives in the tool, not in a test.
+CANDIDATES: dict[str, str] = {
+    "model-gemma-4-26b-a4b-nvfp4": "judge, shipped (today's pair)",
+    "model-gemma-4-26b-a4b-it": "judge control at full precision (stage H)",
+    "model-gemma-4-31b-it": "judge candidate (stage H)",
+    "model-qwen3.8-27b": "judge candidate (stage H)",
+    "model-qwen3.6-35b-a3b": "judge candidate (stage H)",
+    "model-gpt-oss-120b": "judge candidate (stage H)",
+    "model-llm-jp-4.1-32b-a3b-thinking": "judge candidate, if a provider serves it (stage H)",
+    "model-weblab-medllm-gpt-oss-120b": "judge candidate, if a provider serves it (stage H)",
+    "model-qwen3.5-9b-awq-4bit": "verifier, shipped (today's pair; stage H control)",
+    "model-gemma-4-12b-it": "verifier candidate (stage H)",
+    "model-nemotron-nano-9b-v2-japanese": "verifier candidate, only after its licence is read (stage H)",
+    "model-gpt-oss-20b": "verifier candidate (stage H)",
+    "model-qwen3.8-flash-next": "excluded by decision 93 (review 17 §4.3)",
+    "model-medgemma": "excluded by decision 93 (review 17 §4.3)",
+    "model-qwen4-max": "hosted only, out of scope for the box (review 17 §4.3)",
+}
 
 # the data-file detector (the same rule as tests/unit/test_notice.py, which names the folders in NOTICE)
 SKIP_DIRS = frozenset({".git", ".venv", "node_modules", "__pycache__"})
@@ -356,6 +391,57 @@ def model_problems(rows: list[Row], builds: list[dict[str, Any]]) -> list[str]:
             out.append(f"build {bid}: spdx {lic.get('spdx')!r} is not row {row.id}'s {row.spdx!r}")
         if row.status not in MODEL_OK:
             out.append(f"build {bid}: register row {row.id} has status {row.status}, not cleared")
+    return out
+
+
+def _excluded(*labels: object) -> bool:
+    return any(EXCLUDED_LICENCE.search(re.sub(r"[^a-z0-9]", "", str(x or "").lower())) for x in labels)
+
+
+def candidate_problems(rows: list[Row]) -> list[str]:
+    """Card 10E-24: a row for every candidate, and the model rows' shipping rules (decision 93)."""
+    models = {r.id: r for r in rows if r.kind == "model"}
+    out = [f"candidate {rid} ({role}): no model row in docs/licences/register.csv"
+           for rid, role in CANDIDATES.items() if rid not in models]  # fmt: skip
+    for r in models.values():
+        where = f"register row {r.id}"
+        if _excluded(r.raw["licence"], r.spdx) and r.status != "excluded":
+            out.append(f"{where}: a community or health-developer licence is status {r.status}, not excluded (93)")
+        unread = TERMS_NOT_READ in r.raw["obligation"].lower() or TERMS_NOT_READ in r.raw["evidence"].lower()
+        if unread and r.status not in ("terms-not-read", "excluded"):
+            out.append(f"{where}: says {TERMS_NOT_READ!r} yet is status {r.status}")
+        if r.status == "terms-not-read" and not unread:
+            out.append(f"{where}: status terms-not-read must say {TERMS_NOT_READ!r} in its obligation or evidence")
+        if r.status == "cleared" and not re.fullmatch(rf"revision {FULL_REVISION.pattern}", r.raw["version"]):
+            out.append(f"{where}: a cleared model row names one full commit id (revision <40 hex>), not "
+                       f"{r.raw['version']!r}")  # fmt: skip
+    return out
+
+
+def pin_problems(rows: list[Row], builds: list[dict[str, Any]]) -> list[str]:
+    """A verified build's revision pins against each other and its cleared row (the register check only)."""
+    by_id = {r.id: r for r in rows}
+    out = []
+    for b in builds:
+        bid, lic = b.get("build_id"), dict(b.get("licence") or {})
+        if _excluded(lic.get("name"), lic.get("spdx")) and (
+            lic.get("verified") is True or b.get("status") in PAST_CANDIDATE
+        ):
+            out.append(f"build {bid}: a community or health-developer licence is never verified or promoted (93)")
+        row = by_id.get(str(lic.get("register") or ""))
+        if lic.get("verified") is not True or row is None or row.status != "cleared":
+            continue  # no row: model_problems; own-work: no third-party pin
+        installed, expected = b.get("revision"), (b.get("expected") or {}).get("revision")
+        pins = [str(p) for p in (installed, expected) if p]
+        if installed and expected and installed != expected:
+            out.append(f"build {bid}: installed revision {installed!r} is not the expected revision {expected!r}")
+        out += [f"build {bid}: revision {p!r} is not a full commit id" for p in dict.fromkeys(pins)
+                if not FULL_REVISION.fullmatch(p)]  # fmt: skip
+        named = row.raw["version"].removeprefix("revision ")
+        out += [f"build {bid}: revision {p!r} is not row {row.id}'s {row.raw['version']!r}" for p in dict.fromkeys(pins)
+                if p != named]  # fmt: skip
+        if not pins and b.get("status") in PAST_CANDIDATE:
+            out.append(f"build {bid}: status {b.get('status')} with no pinned revision (row {row.id})")
     return out
 
 
@@ -675,7 +761,8 @@ def check(root: Path = ROOT, register: Path | None = None, models: Path | None =
     out += dataset_file_problems(root, sigir_derived_files(root))
     mfile = models or root / "models/registry.yaml"
     if mfile.is_file():
-        out += model_problems(rows, list((yaml.safe_load(mfile.read_text(encoding="utf-8")) or {}).get("builds") or []))
+        builds = list((yaml.safe_load(mfile.read_text(encoding="utf-8")) or {}).get("builds") or [])
+        out += model_problems(rows, builds) + pin_problems(rows, builds) + candidate_problems(rows)
     image = root / IMAGE.relative_to(ROOT)
     if image.is_file():
         out += software_problems(rows, image.read_text(encoding="utf-8"))

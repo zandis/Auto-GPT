@@ -341,6 +341,9 @@ def pytest_configure(config: pytest.Config) -> None:
     from tests.settings_kept import SettingsKept
 
     config.pluginmanager.register(SettingsKept(), "tb-settings-kept")  # D-637
+    from tools import coverage_shards
+
+    coverage_shards.register(config)  # H-63: a worker that returns no coverage data fails the run, by name
     if config.getoption("--shard", None):  # T-747: after every other selection (-m, -k), only this shard's files
         from tools import test_shard
 

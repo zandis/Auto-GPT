@@ -81,6 +81,7 @@ lint: contracts-check
 	PYTHONPATH=libs:services:. $(PY) -m tools.text_keys  # D-1220: no conflicting double, no missing key
 	$(PY) -m tools.findings_register --check
 	$(PY) -m tools.inline_suppressions --check  # D-1338: every `# nosec` and `# noqa: S` line has a reviewed ledger line
+	$(PY) -m tools.vex check  # D-1339: every vulnerability waiver with an owner, a date and a reason (no calendar rule)
 
 FONTS := .cache/fonts/NotoSansTC-Regular.ttf
 
@@ -219,6 +220,13 @@ security-scan:
 	$(PY) -m tools.security_scan secrets
 	$(PY) -m tools.security_scan sast
 
+# 10G-42 (b), D-1344: the fifteen SQL-from-strings rules (tools/sql_rules.py) over services/, libs/ and deploy/,
+# report-only: the hits, the reviewed ones (tools/sql_rules_ledger.yaml) and the open findings, written to
+# build/sql-rules.json; exit 0 (SQL_RULES_CHECK=1 adds --check: exit 1 on a new hit or a stale ledger line)
+.PHONY: sql-rules
+sql-rules:
+	PYTHONPATH=libs:services:. $(PY) -m tools.sql_rules --json build/sql-rules.json $(if $(SQL_RULES_CHECK),--check,)
+
 # the weekly report-only bandit run (10G-39, D-1338; .github/workflows/trialbox-bandit-weekly.yml): every tracked .py,
 # no severity or confidence filter, --ignore-nosec; SARIF, JSON and a summary in build/bandit-weekly. Gates nothing.
 .PHONY: bandit-weekly
@@ -237,6 +245,7 @@ ci: venv-check
 	PYTHONPATH=libs:services:. $(PY) -m tools.decisions_index --check
 	$(PY) -m tools.findings_register --check
 	$(PY) -m tools.inline_suppressions --check
+	$(PY) -m tools.vex check  # D-1339: every vulnerability waiver with an owner, a date and a reason (no calendar rule)
 	PYTHONPATH=libs:services:. $(PY) -m tools.licence_register --check
 	$(MAKE) contracts-check
 	TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. $(PY) -m tools.build_rulesets --check
@@ -662,7 +671,7 @@ lock-check:
 allowlist-check:
 	$(SC) allowlist-check
 
-# Syft and Trivy release archives with pinned sha256 (tools/supply_chain/scanners.py) into .cache/scanners/bin
+# Syft, Trivy and Dockle release archives with pinned sha256 (tools/supply_chain/scanners.py) into .cache/scanners/bin
 scanners:
 	$(SC) scanners --dest .cache/scanners
 
@@ -716,6 +725,39 @@ sc-images: deploy/.env
 VOCAB_BUNDLE_PATHS ?=
 vocab-bundle-check:
 	PYTHONPATH=libs:services:. $(PY) -m tools.vocab_bundle_check --tree $(VOCAB_BUNDLE_PATHS)
+
+# D-1343 (10G-41, review 21 OT-3): every Dockerfile under trialbox/ is linted by hadolint. HADOLINT_GATING are the
+# three the CI `images` job gates on at warning since D-206 (unchanged); HADOLINT_REPORT are linted report-only
+# (`make hadolint-report`, the CI job's report step: findings in the job summary and artifact, never a failure)
+# until their findings are closed (D-1343). tests/unit/test_image_config_scans.py holds the two lists, the CI job
+# and the tree as one set. No hadolint ignore is added for them (no scan allow-list entry).
+HADOLINT_GATING := deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile
+HADOLINT_REPORT := deploy/docker/backup.Dockerfile deploy/docker/embed.Dockerfile deploy/docker/db.Dockerfile \
+	deploy/redcap-test/Dockerfile tools/rehearse_box/host.Dockerfile
+HADOLINT_IMAGE := hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e
+# each image of SC_OWN_IMAGES and the Dockerfile it is built from
+IMAGE_SCAN_IMAGES ?= trialbox-py:1.0.0=deploy/docker/python.Dockerfile trialbox-backup:1.0.0=deploy/docker/backup.Dockerfile \
+	trialbox-jvm:1.0.0=deploy/docker/jvm.Dockerfile trialbox-embed:1.0.0=deploy/docker/embed.Dockerfile \
+	trialbox-postgres:16-1=deploy/docker/db.Dockerfile trialbox-demo:step5=demo/Dockerfile
+IMAGE_SCAN_DIR ?= build/image-scan
+# three tools per image (hadolint on its Dockerfile, Trivy secret+misconfig, Dockle) and `trivy config` over the
+# Dockerfile folders; JSON and summary.md in IMAGE_SCAN_DIR. Report-only (exit 0) until the date in D-1343, then
+# IMAGE_SCAN_ARGS="--fail-at HIGH". Needs Docker, `make images` and the demo image (trialbox-images.yml builds them).
+.PHONY: image-scan
+image-scan: scanners
+	PATH=$(SCANNERS):$$PATH $(SC) image-scan --out $(IMAGE_SCAN_DIR) --cache-dir $(TRIVY_CACHE) \
+		--hadolint-image $(HADOLINT_IMAGE) $(foreach i,$(IMAGE_SCAN_IMAGES),--image $(i)) \
+		--config-dir deploy/docker --config-dir demo $(IMAGE_SCAN_ARGS)
+
+# D-1343: hadolint on HADOLINT_REPORT, report-only (exit 0 whatever it finds; the hadolint image by digest, Docker).
+HADOLINT_REPORT_OUT ?= build/hadolint-report.txt
+.PHONY: hadolint-report
+hadolint-report:
+	@mkdir -p $(dir $(HADOLINT_REPORT_OUT)); : > $(HADOLINT_REPORT_OUT)
+	@for f in $(HADOLINT_REPORT); do echo "== $$f" >> $(HADOLINT_REPORT_OUT); \
+		docker run --rm -i $(HADOLINT_IMAGE) hadolint --no-fail - < "$$f" >> $(HADOLINT_REPORT_OUT) 2>&1 \
+		|| echo "hadolint did not run on $$f" >> $(HADOLINT_REPORT_OUT); done
+	@cat $(HADOLINT_REPORT_OUT)
 
 # a bundle only from images that passed the gates (make_bundle.sh needs --gates, T-110b); the SBOMs of dist/sbom ride
 # inside it with release.json. BUNDLE_ARGS="--key ... --id ... --release-seq N --out ..."
