@@ -43,7 +43,7 @@ for _p in ("", "libs", "services"):
 
 from criteria_compiler.terminology.mapper import Concept, Terminology  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
-from tb_contracts import LlmConceptMapOutput, LlmExtractOutput  # noqa: E402
+from tb_contracts import ExtractedCriterion, LlmConceptMapOutput, LlmExtractOutput  # noqa: E402
 
 from tools.public_accuracy import rerun  # noqa: E402
 
@@ -247,7 +247,7 @@ def _extraction(stored: rerun.Stored, job: str) -> tuple[str, LlmExtractOutput, 
     ruleset, _, lines, _ = rerun.protocol_lines(stored, job)
     line_keys = [_line_key(line) for line in lines]
     positions: dict[tuple[str, str, str], list[int]] = defaultdict(list)
-    answers = {}
+    answers: dict[int, ExtractedCriterion | dict[str, Any]] = {}
     omissions: Counter[int] = Counter()
     cursor = 0
     calls = stored.calls(job, "ir_extract")

@@ -2,7 +2,7 @@
 
 Public acceptance (separate from these fixtures): 2bcf5ca9:trialbox/.p2b-artefacts/sigir.tgz,
 work/raw-traces.json (SHA256 9804533698469dc8e3a695993e629981f7a20b78a5e5bc0fc08d6215ebfeb878),
-only ir_extract@4 (200) and concept_map@2 (676). With shipped tables and --synonyms, d28f6c03
+only ir_extract@4 (200) and concept_map@2 (676). With shipped tables and --synonyms, e20500dc
 measures 718 calls (target 609–743): observation 386, condition 254, procedure 59, encounter 14,
 claim 5, medication 0. There are 626 stored empty replies, 50 nonempty, and 54 simulated
 invocations without a corresponding stored reply. Across 104 studies and
@@ -17,6 +17,9 @@ import csv
 import hashlib
 import io
 import json
+from collections.abc import Callable, Sequence
+from pathlib import Path
+from typing import Any, Never, assert_type
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -32,10 +35,13 @@ HIT = {"domain": "observation", "name": "Body weight"}
 AGE = {"domain": "demographic", "name": "age"}
 CODE = {"system": "http://loinc.org", "code": "2160-0"}
 
+type JsonObject = dict[str, Any]
+type Cli = Callable[[Sequence[JsonObject] | None, *tuple[str, ...]], Any]
 
-def criterion(text, *candidates):
+
+def criterion(text: str, *candidates: JsonObject) -> JsonObject:
     atoms = [{"domain": c["domain"], "concept": c["name"], "quantifier": "any"} for c in candidates]
-    logic = {"domain": "demographic", "age": {"min": 18}}
+    logic: JsonObject = {"domain": "demographic", "age": {"min": 18}}
     if atoms:
         logic = atoms[0] if len(atoms) == 1 else {"op": "and", "args": atoms}
     return {
@@ -47,7 +53,7 @@ def criterion(text, *candidates):
     }
 
 
-def record(study, prompt, role, inputs, output):
+def record(study: str, prompt: str, role: str, inputs: JsonObject, output: JsonObject | None) -> JsonObject:
     return {
         "attributes": {"tb.study_id": study, "tb.prompt": prompt, "tb.role": role},
         "prompt": [{"role": "user", "content": "```json\n" + json.dumps(inputs) + "\n```"}],
@@ -55,7 +61,7 @@ def record(study, prompt, role, inputs, output):
     }
 
 
-def extract(study, criteria, lines=None):
+def extract(study: str, criteria: list[JsonObject], lines: list[str] | None = None) -> JsonObject:
     if lines is None:
         lines = [c["text"] for c in criteria]
     # Identical ruleset IDs in different study jobs deliberately produce identical local criterion IDs.
@@ -63,7 +69,7 @@ def extract(study, criteria, lines=None):
     return record(study, "ir_extract@4", "extract_criteria", inputs, {"criteria": criteria})
 
 
-def mapping(study, candidate=OBS, chosen=False):
+def mapping(study: str, candidate: dict[str, str] = OBS, chosen: bool = False) -> JsonObject:
     code = {"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "I10"} if candidate == COND else CODE
     inputs = {"concept": candidate["name"], "domain": candidate["domain"], "candidates": [code]}
     choices = [{**code, "confidence": 1.0}] if chosen else []
@@ -71,14 +77,14 @@ def mapping(study, candidate=OBS, chosen=False):
 
 
 @pytest.fixture
-def cli(tmp_path, capsys, monkeypatch):
-    def unexpected(*args, **kwargs):
+def cli(tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> Cli:
+    def unexpected(*args: object, **kwargs: object) -> Never:
         pytest.fail("attempted a live model call")
 
     monkeypatch.setattr(llm.LlmClient, "chat_json", unexpected)
     monkeypatch.setattr(llm, "chat_json", unexpected)
 
-    def run(records, *args):
+    def run(records: Sequence[JsonObject] | None, *args: str) -> str | JsonObject:
         argv = list(args)
         if records is not None:
             path = tmp_path / "protocol.json"
@@ -91,7 +97,7 @@ def cli(tmp_path, capsys, monkeypatch):
     return run
 
 
-def test_counts_real_fallback_invocations_including_repetitions(cli):
+def test_counts_real_fallback_invocations_including_repetitions(cli: Cli) -> None:
     records = [extract("A", [criterion("A", HIT, AGE, OBS), criterion("B", OBS, COND)])]
     records.append(mapping("A"))
     result = cli(records, "--model-calls", "--json")
@@ -101,14 +107,14 @@ def test_counts_real_fallback_invocations_including_repetitions(cli):
     assert result["table_resolved"] == 1
 
 
-def test_synonyms_can_resolve_before_fallback(cli):
+def test_synonyms_can_resolve_before_fallback(cli: Cli) -> None:
     records = [extract("A", [criterion("A", {**OBS, "synonyms": [HIT["name"]]})])]
     assert cli(records, "--model-calls", "--json")["model_calls"] == 1
     result = cli(records, "--model-calls", "--synonyms", "--json")
     assert (result["model_calls"], result["table_resolved"]) == (0, 1)
 
 
-def test_existing_site_table_is_read_only(cli, tmp_path):
+def test_existing_site_table_is_read_only(cli: Cli, tmp_path: Path) -> None:
     where = tmp_path / "installed"
     where.mkdir()
     table = where / "site_synthetic.parquet"
@@ -129,7 +135,7 @@ def test_existing_site_table_is_read_only(cli, tmp_path):
     manifest = {"tables": {table.stem: {"sha256": hashlib.sha256(table.read_bytes()).hexdigest(), "rows": 1}}}
     (where / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
-    def snapshot():
+    def snapshot() -> dict[str, bytes]:
         return {p.name: p.read_bytes() for p in where.iterdir()}
 
     before = snapshot()
@@ -142,7 +148,7 @@ def test_existing_site_table_is_read_only(cli, tmp_path):
 
 
 @pytest.mark.parametrize("missing_record", [False, True])
-def test_demand_empty_nonempty_and_unknown_are_independent(cli, missing_record):
+def test_demand_empty_nonempty_and_unknown_are_independent(cli: Cli, missing_record: bool) -> None:
     other = {**OBS, "name": "other creatinine"}
     records = [
         extract("A", [criterion("A", OBS), criterion("B", other), criterion("C", COND)]),
@@ -162,7 +168,7 @@ def test_demand_empty_nonempty_and_unknown_are_independent(cli, missing_record):
 
 
 @pytest.mark.parametrize("chosen_b", [False, True])
-def test_flag_is_scoped_to_study_and_repeatable(cli, chosen_b):
+def test_flag_is_scoped_to_study_and_repeatable(cli: Cli, chosen_b: bool) -> None:
     line = criterion("A", OBS)
     records = [extract("A", [line]), extract("B", [line]), mapping("A"), mapping("B", chosen=chosen_b)]
     for _ in range(2):
@@ -172,15 +178,15 @@ def test_flag_is_scoped_to_study_and_repeatable(cli, chosen_b):
         assert result["concept_unmapped"] == (1 if chosen_b else 2)
 
 
-def test_replay_aligns_parts_and_retries_before_counting_final_flags(cli, monkeypatch):
+def test_replay_aligns_parts_and_retries_before_counting_final_flags(cli: Cli, monkeypatch: pytest.MonkeyPatch) -> None:
     first = extract("A", [criterion("A", HIT)], lines=["A", "B"])
     last = extract("A", [criterion("C")])
     retry = extract("A", [criterion("B", OBS, COND), criterion("A", OBS)])
     records = [{**retry, "ts": "3"}, {**first, "ts": "1"}, {**last, "ts": "2"}, mapping("A"), mapping("A", COND)]
-    final = []
+    final: list[tuple[str, bool]] = []
     real = pp.postprocess
 
-    def observe(*args, **kwargs):
+    def observe(*args: Any, **kwargs: Any) -> pp.PostResult:
         post = real(*args, **kwargs)
         final.extend((c.text, "concept_unmapped" in (c.flags or [])) for c in post.criteria)
         return post
@@ -192,7 +198,7 @@ def test_replay_aligns_parts_and_retries_before_counting_final_flags(cli, monkey
     assert result["concept_unmapped"] == 1
 
 
-def test_repeated_line_in_a_new_part_keeps_its_own_reply(cli):
+def test_repeated_line_in_a_new_part_keeps_its_own_reply(cli: Cli) -> None:
     records = [
         extract("A", [criterion("A", OBS), criterion("B")]),
         extract("A", [criterion("A", HIT), criterion("C")]),
@@ -202,7 +208,7 @@ def test_repeated_line_in_a_new_part_keeps_its_own_reply(cli):
     assert result["by_study"]["A"] == {"criteria": 4, "concept_unmapped": 1, "replay_gaps": 0}
 
 
-def test_omitted_line_needs_a_stored_retry(cli):
+def test_omitted_line_needs_a_stored_retry(cli: Cli) -> None:
     batch = extract("A", [criterion("A", HIT)], lines=["A", "B"])
     partial = cli([batch], "--replay-postprocess", "--json")
     assert partial["concept_unmapped"] is None and partial["replay_gaps"] == 1
@@ -210,14 +216,25 @@ def test_omitted_line_needs_a_stored_retry(cli):
     assert complete["by_study"]["A"] == {"criteria": 2, "concept_unmapped": 0, "replay_gaps": 0}
 
 
-def test_lost_extraction_only_counts_unrecovered_lines(cli):
+def test_lost_extraction_only_counts_unrecovered_lines(cli: Cli) -> None:
     records = [{**extract("A", [], lines=["A", "B"]), "output": None}, extract("A", [criterion("B", HIT)])]
     result = cli(records, "--replay-postprocess", "--json")
     assert result["concept_unmapped"] is None
     assert result["replay_gaps"] == 1
 
 
-def test_legacy_trace_table_json_and_weighted_csv(cli, tmp_path):
+def test_extraction_keeps_a_split_line_beside_a_valid_answer() -> None:
+    batch = assert_type(
+        extract("A", [criterion("A", HIT), criterion("B", OBS), criterion("B", COND)], lines=["A", "B"]),
+        dict[str, Any],
+    )
+    stored = coverage._protocol_records({"traces": [batch]})
+    _, extracted, gaps = coverage._extraction(stored, "A")
+    assert gaps == 0
+    assert [(c.text, c.class_) for c in extracted.criteria] == [("A", "structured"), ("B", "human")]
+
+
+def test_legacy_trace_table_json_and_weighted_csv(cli: Cli, tmp_path: Path) -> None:
     records = [
         {
             "attributes": {"tb.role": "extract_criteria"},
@@ -251,7 +268,7 @@ def test_legacy_trace_table_json_and_weighted_csv(cli, tmp_path):
         ),
     ],
 )
-def test_localized_reports_share_one_json_schema(cli, mode, labels):
+def test_localized_reports_share_one_json_schema(cli: Cli, mode: str, labels: list[str]) -> None:
     records = [extract("A", [criterion("A", OBS)]), mapping("A")]
     results = []
     for lang, label in zip(("en", "zh-TW", "ja"), labels, strict=True):
