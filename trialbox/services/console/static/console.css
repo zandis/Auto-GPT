@@ -643,16 +643,19 @@ table.worklist tr[data-status="new"] td:first-child { box-shadow: inset 3px 0 0 
 .ph-ctx { flex: 0 0 100%; margin: 0; font-size: var(--t-meta); color: var(--muted); }
 .ph-act { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 
-/* 9k-10 (D-1385): the phase strip, templates/_steps.html. An ordered list; each item says its state in words for a
-   screen reader (.sr) and in marks and colour for the eye: done (tick), current (underline), todo (plain), off (muted,
-   dashed). The cells are drawn by a one-pixel gap on the line colour; on a phone the strip has three columns, so six
-   phases are two lines. */
-.ps { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 1px; margin: 0 0 12px; padding: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--line); }
-.ps li { display: grid; gap: 2px; align-content: start; padding: 8px 10px; min-width: 0; overflow-wrap: break-word; background: var(--card); }
-.ps b { font-size: var(--t-meta); }
+/* 9k-10 (D-1385): the phase strip, templates/_steps.html. (`.ps` is the phase strip of review 09; the `ps-` classes of the
+   person's state were deleted by D-1380 and are another thing.) An ordered list; each item says its state in words for a
+   screen reader (.sr) and in marks and colour for the eye: done (tick, green fill from the tone table), current (underline),
+   todo (plain), off (muted, with a dashed line). The cells are drawn by a one-pixel gap on the line colour. A label is
+   never cut: it wraps (a CJK label breaks between characters only when it does not fit the cell, balanced so no line has one character), and on a phone
+   the strip has two columns, so a long Japanese label fits whole. */
+.ps { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1px; margin: 0 0 12px; padding: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--line); }
+.ps li { display: grid; gap: 2px; align-content: start; padding: 8px 10px; min-width: 0; overflow-wrap: anywhere; background: var(--card); }
+.ps b { font-size: var(--t-meta); word-break: keep-all; word-break: auto-phrase; overflow-wrap: anywhere; text-wrap: balance; }
 .ps .who { font-size: var(--t-meta); color: var(--muted); }
-.ps li[data-state="done"] { background: var(--ok-bg); }
-.ps li[data-state="done"] b::before { content: "✓ "; color: var(--ok); }
+.ps li[data-tone="ok"] { background: var(--ok-bg); }
+.ps li[data-state="done"] b::before { content: "✓ "; content: "✓ " / ""; color: var(--ok); }
 .ps li[data-state="current"] { box-shadow: inset 0 -3px 0 var(--accent); }
-.ps li[data-state="off"] { color: var(--muted); box-shadow: inset 0 -2px 0 var(--line); }
-@media (max-width: 760px) { .ps { grid-template-columns: repeat(3, minmax(0, 1fr)); } .ps li { padding: 6px 8px; } .ps .who { display: none; } }
+.ps li[data-state="off"] { color: var(--muted); background-image: repeating-linear-gradient(90deg, var(--muted) 0 4px, transparent 4px 8px); background-size: 100% 2px; background-position: left bottom; background-repeat: no-repeat; }
+@media (forced-colors: active) { .ps li[data-state="current"] { box-shadow: none; border-bottom: 3px solid Highlight; } .ps li[data-state="off"] { background-image: none; border-bottom: 2px dashed GrayText; } }
+@media (max-width: 760px) { .ps { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ps li { padding: 6px 8px; } .ps .who { display: none; } }

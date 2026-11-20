@@ -8,7 +8,7 @@
 <div class="headrow"><h1>{{ t('site.start.title') }} · {{ ws_name(ws) }}</h1></div>
 {{ site_nav(ws, rs, qs) }}
 {% set ns = namespace(l=[]) %}{% for s in steps %}{% set ns.l = ns.l + [{'name': t('site.wiz.' + s + '.short'), 'who': '', 'state': 'done' if loop.index < step else ('current' if loop.index == step else 'todo')}] %}{% endfor %}
-{{ phase_strip(ns.l, t('steps.label'), 'wizard-steps') }}
+{{ phase_strip(ns.l, t('site.start.title'), 'wizard-steps') }}
 <section class="card" data-testid="wizard-{{ key }}">
 <h2>{{ t('site.wiz.' + key + '.q') }}</h2>
 <p>{{ t('site.wiz.' + key + '.why') }}</p>
