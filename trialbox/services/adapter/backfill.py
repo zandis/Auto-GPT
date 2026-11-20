@@ -527,7 +527,7 @@ def backfill(
 
     loaded = None if source_kind == "fhir_bulk" else Mapping.load(cfg.mapping_path)
     site_wide = frozenset() if loaded is None else loaded.site_wide
-    tables = frozenset() if loaded is None else frozenset(loaded.tables)  # D-1253 second review, finding 10
+    mapping_tables = frozenset() if loaded is None else frozenset(loaded.tables)  # D-1253 second review, 10
     work = work_dir or cfg.lake_dir / "backfill" / snap
     work.mkdir(parents=True, exist_ok=True)
     spool, runs = work / "spool", work / "runs"
@@ -636,7 +636,7 @@ def backfill(
                     rebuild_lake,
                     final=False,
                     site_wide=site_wide,
-                    tables=tables,
+                    mapping_tables=mapping_tables,
                     source_kind=source_kind,
                 )
                 if rep.state == "held":
@@ -660,7 +660,7 @@ def backfill(
             rebuild_lake,
             final=True,
             site_wide=site_wide,
-            tables=tables,
+            mapping_tables=mapping_tables,
             source_kind=source_kind,
         )
     rep.seconds = round(time.perf_counter() - t0, 2)
@@ -690,7 +690,7 @@ def _publish(
     *,
     final: bool,
     site_wide: frozenset[str] = frozenset(),
-    tables: frozenset[str] = frozenset(),
+    mapping_tables: frozenset[str] = frozenset(),
     source_kind: str = "",
 ) -> None:
     """Phase 3: the done years as the snapshot's NDJSON, checked, loaded and rebuilt (see the module docstring).
@@ -705,7 +705,7 @@ def _publish(
         id_rule.record_source(stage, source_kind)
     rep.id_collisions = clashes  # D-1253 review F: over the years of this publish
     rep.links_to_absent_records = absent_links(
-        stage, site_wide=site_wide, tables=tables
+        stage, site_wide=site_wide, tables=mapping_tables
     )  # D-1253 round 3: as the night counts
     years = [b for b in buckets if b != BASE]
     _atomic_json(stage / REPORT, {"snapshot": snap, "years": years, "complete": final})
