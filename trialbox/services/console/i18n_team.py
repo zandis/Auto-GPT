@@ -222,6 +222,16 @@ EN: dict[str, str] = {
     "reveal.rate_limited": "Too many chart numbers shown in the last hour (limit {n}). Wait a while, or ask the data steward if your work needs more.",
     "reveal.note_needed": "For “other”, write why you need the chart number ({n} characters or more). It is kept in the audit trail.",
     "optout.rate_limited": "Too many chart numbers looked up in a short time (limit {n}). Wait a while, or ask the data steward.",
+    # 9f-1, 9f-4 (a): a block of its own
+    "team.mine.title": "Your role in each study",
+    "team.mine.help": "Read from each study's delegation log as it stands today. Only your own entries are shown here.",
+    "team.mine.none": "No delegation log names you today.",
+    "team.mine.tasks": "Tasks",
+    "team.mine.no_tasks": "no task ticked",
+    "team.mine.all_tasks": "all study tasks",
+    "team.ending.title": "Delegation log entries that end within two weeks",
+    "team.ending.days": "ends in {n} days (last day {end})",
+    "team.ending.today": "ends today (last day {end})",
 }
 
 JA: dict[str, str] = {
@@ -439,6 +449,16 @@ JA: dict[str, str] = {
     "reveal.rate_limited": "直近1時間にカルテ番号を表示しすぎました（上限 {n}）。しばらく待つか、業務でもっと必要ならデータ管理者に相談してください。",
     "reveal.note_needed": "「その他」のときは、カルテ番号が必要な理由を {n} 文字以上で書いてください。監査記録に残ります。",
     "optout.rate_limited": "短時間にカルテ番号を照会しすぎました（上限 {n}）。しばらく待つか、データ管理者に相談してください。",
+    # 9f-1, 9f-4 (a): a block of its own
+    "team.mine.title": "試験ごとのあなたの役割",
+    "team.mine.help": "各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。",
+    "team.mine.none": "今日時点で、あなたが載っている治験分担医師・治験協力者リストはありません。",
+    "team.mine.tasks": "委任された業務",
+    "team.mine.no_tasks": "チェックされた業務なし",
+    "team.mine.all_tasks": "試験のすべての業務",
+    "team.ending.title": "2週間以内に終了する治験分担医師・治験協力者リストの記載",
+    "team.ending.days": "あと {n} 日で終了（最終日 {end}）",
+    "team.ending.today": "本日で終了（最終日 {end}）",
 }
 
 ZH: dict[str, str] = {
@@ -655,4 +675,14 @@ ZH: dict[str, str] = {
     "reveal.rate_limited": "最近一小時內顯示太多病歷號（上限 {n}）。請稍候；若職責需要更多，請洽資料管理員。",
     "reveal.note_needed": "選「其他」時，請寫下需要病歷號的原因（至少 {n} 個字）。會保存在稽核紀錄中。",
     "optout.rate_limited": "短時間內查詢太多病歷號（上限 {n}）。請稍候，或洽資料管理員。",
+    # 9f-1, 9f-4 (a): a block of its own
+    "team.mine.title": "您在每項試驗中的角色",
+    "team.mine.help": "依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。",
+    "team.mine.none": "目前沒有任何授權紀錄表列有您。",
+    "team.mine.tasks": "授權的職責",
+    "team.mine.no_tasks": "未勾選任何職責",
+    "team.mine.all_tasks": "試驗的所有職責",
+    "team.ending.title": "兩週內結束的授權紀錄表紀錄",
+    "team.ending.days": "還有 {n} 天結束（最後一天 {end}）",
+    "team.ending.today": "今天結束（最後一天 {end}）",
 }
