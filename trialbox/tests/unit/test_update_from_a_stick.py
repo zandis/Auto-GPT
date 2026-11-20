@@ -20,6 +20,7 @@ import subprocess
 import sys
 import sysconfig
 import tarfile
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -940,6 +941,7 @@ def test_7_the_private_copy_budgets_for_the_installers_staging_on_the_same_disk(
     stage = tmp_path / "deploy" / "tmp"
     stage.mkdir(parents=True)
     monkeypatch.setenv("TMPDIR", str(stage))  # where apply_update.sh stages: the same disk as the private copy
+    monkeypatch.setattr(tempfile, "tempdir", None)  # read again from $TMPDIR, not a value cached earlier
     size = f.stat().st_size
     r.disk_free = lambda path: tb_ops.STICK_MIN_FREE + int(size * tb_ops.STICK_MARGIN * 1.5)  # type: ignore[method-assign]
     with pytest.raises(tb_ops.OpsFailed, match="must stay free"):

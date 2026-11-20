@@ -961,7 +961,7 @@ class OpsRunner:
         the payloads in ``$TMPDIR``) need, as ``(where, bytes needed, bytes to stay free)`` per disk: on the private
         copy's disk both copies and :data:`STICK_MIN_FREE` (the databases and the audit share it); on another disk
         (a ``/tmp`` of its own) the staging only."""
-        stage = Path(os.environ.get("TMPDIR") or "/tmp")
+        stage = Path(tempfile.gettempdir())  # $TMPDIR, else the system's temporary folder, as mktemp in the script
         one = int(size * STICK_MARGIN)
         try:
             same = os.stat(stage).st_dev == os.stat(root).st_dev
