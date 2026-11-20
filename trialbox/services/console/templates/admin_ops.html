@@ -2,8 +2,8 @@
 {# D-178 (review J-09, WS-08.5 / WS-14.7): the administrator's operations screens. Every action asks first and names
    its consequence; the host's runner does the work (tools/trialbox/ops.py). Secrets are listed by name, never a value. #}
 {% block title %}{{ t('ops.title') }}{% endblock %}
-{% macro act(action, label, cls='secondary', bundle='') %}{% if allowed[action] %}<form method="post" action="/admin/ops/{{ action }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">{% if bundle %}<input type="hidden" name="bundle" value="{{ bundle }}">{% endif %}<button type="submit" class="{{ cls }}"{% if action in pending %} disabled{% endif %} data-testid="ops-{{ action }}{{ '-' ~ bundle if bundle else '' }}">{{ label }}</button></form>{% endif %}{% endmacro %}
-{% macro res(r) %}{% if r %}<span class="pill {{ 'ok' if r.ok else 'bad' }}" data-result-state="{{ r.state or '' }}" data-testid="ops-result">{{ t('ops.ok') if r.ok else (t('ops.state.' ~ r.state) if r.state in ('interrupted', 'expired') else t('ops.failed')) }}</span> <span class="hint">{{ (r.finished or '')|local }} · {{ r.by|who }}</span>{% if r.summary %}<br><span class="hint mono" data-src="ops">{{ r.summary }}</span>{% endif %}{% endif %}{% endmacro %}
+{% macro act(action, label, cls='secondary', bundle='', shown=none, target='') %}{% if allowed[action] %}<form method="post" action="/admin/ops/{{ action }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">{% if bundle %}<input type="hidden" name="bundle" value="{{ bundle }}">{% endif %}{% if target %}<input type="hidden" name="target" value="{{ target }}">{% endif %}{% if shown %}<input type="hidden" name="sha256" value="{{ shown.sha256 or '' }}"><input type="hidden" name="release" value="{{ shown.bundle_id or '' }}">{% endif %}<button type="submit" class="{{ cls }}"{% if action in pending %} disabled{% endif %} data-testid="ops-{{ action }}{{ '-' ~ bundle if bundle else '' }}{{ '-' ~ target if target and not bundle else '' }}">{{ label }}</button></form>{% endif %}{% endmacro %}
+{% macro res(r) %}{% if r %}<span class="pill {{ 'ok' if r.ok else 'bad' }}" data-result-state="{{ r.state or '' }}" data-testid="ops-result">{{ t('ops.ok') if r.ok else (t('ops.state.' ~ r.state) if r.state in ('interrupted', 'expired', 'cancelled') else t('ops.failed')) }}</span> <span class="hint">{{ (r.finished or '')|local }} · {{ r.by|who }}{% if r.cancelled_by %} · {{ t('ops.cancelled_by') }} {{ r.cancelled_by|who }}{% endif %}</span>{% if r.why == 'unverified' %}<br><span class="warn" data-testid="ops-result-why">{{ t('ops.result.why.unverified') }}</span>{% endif %}{% if r.summary %}<br><span class="hint mono" data-src="ops">{{ r.summary }}</span>{% endif %}{% endif %}{% endmacro %}
 {% block content %}
 <div class="headrow"><h1>{{ t('ops.title') }}</h1><a class="button secondary" href="/admin">{{ t('nav.admin') }}</a></div>
 <nav class="tabs" aria-label="{{ t('ops.title') }}" data-testid="ops-tabs">{% for tb in tabs %}<a href="/admin/ops?tab={{ tb }}" class="{{ 'active' if tb == tab else '' }}" data-testid="opstab-{{ tb }}"{% if tb == tab %} aria-current="page"{% endif %}>{{ t('ops.tab.' + tb) }}</a>{% endfor %}</nav>
@@ -13,6 +13,10 @@
 {% endfor %}</pre></details>{% endif %}
 {% else %}<p><span class="pill warn">{{ t('ops.waiting') }}</span> {{ t('ops.waiting.help') }}</p>{% endif %}
 </section>{% endif %}
+{# the third review, L2: the cancel's record holds (the runner reads it) though its request could not be queued #}
+{% if cancel_recorded %}<p class="warn" role="status" data-testid="ops-cancel-recorded">{{ t('ops.cancel.recorded') }}</p>{% endif %}
+{# 10K-7 (the second review, B): a status file that is not a small JSON object is said plainly; nothing of it is shown #}
+{% if status_unreadable %}<p class="warn" role="alert" data-testid="ops-status-unreadable">{{ t('ops.status.unreadable') }}</p>{% endif %}
 {% if sm.agent_late %}<p class="warn" data-testid="ops-agent-late">{{ t('ops.agent.late') if sm.agent_seen_h is not none else t('ops.agent.never') }}</p>{% endif %}
 
 {% if tab == 'overview' %}
@@ -60,7 +64,7 @@
 {% if history %}<div class="scroll" tabindex="0"><table data-testid="ops-history">
 <thead><tr><th scope="col">{{ t('ops.col.when') }}</th><th scope="col">{{ t('ops.col.action') }}</th><th scope="col">{{ t('ops.col.who') }}</th><th scope="col">{{ t('ops.col.result') }}</th></tr></thead>
 <tbody>{% for r in history %}<tr data-req="{{ r.id }}"><td class="nowrap">{{ r.at|local }}</td><td>{{ t('ops.action.' + r.action) }}{% if r.args and r.args.bundle %} <span class="mono">{{ r.args.bundle }}</span>{% endif %}</td><td>{{ r.by|who }}</td>
-<td>{% if r.result %}<span class="pill {{ 'ok' if r.result.ok else 'bad' }}">{{ t('ops.ok') if r.result.ok else (t('ops.state.' ~ r.result.state) if r.result.state in ('interrupted', 'expired') else t('ops.failed')) }}</span>{% elif r.id in running %}<span class="pill warn">{{ t('ops.running') }}</span>{% else %}<span class="pill warn">{{ t('ops.waiting') }}</span>{% endif %}</td></tr>{% endfor %}</tbody>
+<td>{% if r.result %}<span class="pill {{ 'ok' if r.result.ok else 'bad' }}">{{ t('ops.ok') if r.result.ok else (t('ops.state.' ~ r.result.state) if r.result.state in ('interrupted', 'expired', 'cancelled') else t('ops.failed')) }}</span>{% elif r.id in running %}<span class="pill warn">{{ t('ops.running') }}</span>{% else %}<span class="pill warn">{{ t('ops.waiting') }}</span>{% endif %}</td></tr>{% endfor %}</tbody>
 </table></div>{% else %}<p class="hint" data-testid="ops-history-none">{{ t('ops.recent.none') }}</p>{% endif %}
 </section>
 
@@ -86,9 +90,47 @@
 {% elif tab == 'update' %}
 <section class="card" data-testid="ops-update">
 <p class="hint">{{ t('ops.update.help') }}</p>
+{# 10K-7 (D-1363): the update stick inserted at the box, as the host's runner reads it (read only) #}
+<h2>{{ t('ops.stick.title') }}</h2>
+{% set sk = st.stick %}
+<div data-testid="ops-stick" data-mounted="{{ 'yes' if sk and sk.mounted else 'no' }}">
+<p class="hint">{{ t('ops.stick.help') }}</p>
+{# the third review, M2: the host's runner reads the stick only when asked (a stick that hangs cannot stop backups) #}
+{% if not sk %}<p class="hint" data-testid="ops-stick-unlisted">{{ t('ops.stick.unlisted') }}</p>
+{% elif sk.hung %}<p class="warn" data-testid="ops-stick-hung">{{ t('ops.stick.hung') }}</p>
+{% elif not sk.mounted %}<p class="warn" data-testid="ops-stick-none">{{ t('ops.stick.none', path=sk.path) }}</p>
+{% elif sk.bundles %}<ul class="plain" data-testid="ops-stick-bundles">{% for b in sk.bundles %}<li><span class="mono">{{ b.name }}</span> · {{ (b.bytes / 1048576)|round(1) }} MB · {{ b.at|local }}{% if b.sidecar %} · {{ t('ops.stick.sidecar') }}{% endif %}<br>{{ act('update_stick_check', t('ops.action.update_stick_check'), 'secondary', b.name) }}</li>{% endfor %}</ul>
+{% else %}<p class="hint" data-testid="ops-stick-empty">{{ t('ops.stick.empty') }}</p>{% endif %}
+{% if sk and sk.cut %}<p class="warn" data-testid="ops-stick-cut">{{ t('ops.stick.cut') }}</p>{% endif %}
+{% if sk and sk.refused %}<p class="warn" data-testid="ops-stick-refused">{{ t('ops.stick.refused', n=sk.refused) }}</p>{% endif %}
+{% if sk and st.stick_at %}<p class="hint" data-testid="ops-stick-listed">{{ t('ops.stick.listed') }} {{ st.stick_at|local }}</p>{% endif %}
+<p>{{ act('update_stick_list', t('ops.action.update_stick_list')) }}</p>
+</div>
 <h2>{{ t('ops.update.incoming') }}</h2>
-{% if st.incoming %}<ul class="plain" data-testid="ops-incoming">{% for b in st.incoming %}<li><span class="mono">{{ b.name }}</span> · {{ (b.bytes / 1048576)|round(1) }} MB · {{ b.at|local }}<br>{{ act('update_check', t('ops.action.update_check'), 'secondary', b.name) }} {{ act('update_apply', t('ops.action.update_apply'), 'danger', b.name) }}</li>{% endfor %}</ul>
+{% set q = st.quiet or {} %}{% if q.bad %}<p class="warn" data-testid="ops-quiet-bad">{{ t('ops.update.quiet.bad', name=q.bad) }}</p>{% endif %}
+{# 10K-7 (D-1363): "verified" is the runner's record of this very file (its sha256); the note is read from that
+   file's record only; apply is offered only for a verified file, and its form carries the sha256 and the release id
+   shown here, which the console compares with the record at each post (H2 of the review of d314d016) #}
+{% if st.incoming %}<ul class="plain" data-testid="ops-incoming">{% for b in st.incoming %}{% set ck = checks.get(b.name) %}{% set vf = verified.get(b.name) %}{% set nr = notes.get(b.name) or {} %}<li data-bundle="{{ b.name }}"><span class="mono">{{ b.name }}</span> · {{ (b.bytes / 1048576)|round(1) }} MB · {{ b.at|local }}
+<br><span data-testid="ops-verified">{% if vf %}<span class="pill ok">{{ t('ops.update.checked') }}</span> <span class="hint">{{ (vf.verified_at or '')|local }} · sha256 <span class="mono">{{ (vf.sha256 or '')[:12] }}</span></span>
+<br><span data-testid="ops-release">{{ t('ops.update.release') }}: <span class="mono">{{ vf.bundle_id or '–' }}</span>{% if vf.release_seq is not none %} (release_seq {{ vf.release_seq }}){% endif %}</span>{% if not vf.bundle_id or vf.bundle_id not in b.name %}
+<br><span class="warn" data-testid="ops-release-name-differs">{{ t('ops.update.release.differs') }}</span>{% endif %}{% if vf.refuse %}
+<br><span class="warn" data-testid="ops-verified-refuse">{{ t('ops.update.refuse.' ~ vf.refuse) }}</span>{% endif %}{% elif ck and not ck.ok %}<span class="pill bad">{{ t('ops.update.check_failed') }}</span> <span class="hint">{{ (ck.finished or '')|local }} · {{ ck.by|who }}</span>{% else %}<span class="pill warn">{{ t('ops.update.unchecked') }}</span>{% endif %}</span>
+{% if vf %}{% set rec = nr.rec %}{% set sh = rec.impact if rec else none %}
+{% if sh %}<div class="scroll" tabindex="0"><table data-testid="ops-impact">
+<caption>{{ t('ops.update.impact') }} · {{ rec.bundle_id }} (release_seq {{ rec.release_seq }})</caption>
+<thead><tr><th scope="col">{{ t('ops.update.impact.class') }}</th><th scope="col">{{ t('ops.update.impact.changed') }}</th><th scope="col" lang="ja">{{ t('ops.update.impact.what') }}</th></tr></thead>
+<tbody>{% for r in sh.classes %}<tr data-class="{{ r['class'] }}" data-changed="{{ 'yes' if r.changed else 'no' }}"><td>{{ r['class'] }} {{ t('ops.update.cc.' ~ r['class']) }}</td><td>{{ t('ops.yes') if r.changed else t('ops.no') }}</td><td lang="ja">{{ r.what_ja or '–' }}</td></tr>{% endfor %}</tbody></table></div>
+<ul class="plain" data-testid="ops-impact-facts"><li>{{ t('ops.update.impact.downtime', n=sh.downtime_minutes) }}</li><li>{{ t('ops.update.impact.migration') }}: {{ t('ops.yes') if sh.database_migration else t('ops.no') }}</li><li>{{ t('ops.update.impact.reapproval') }}: {{ t('ops.yes') if sh.ruleset_reapproval else t('ops.no') }}</li></ul>{% endif %}
+{% if rec and rec.note_ja %}<details open><summary>{{ t('ops.update.note') }}</summary><pre class="mono" lang="ja" data-testid="ops-note">{{ rec.note_ja }}</pre></details>{% endif %}
+{% if nr.state == 'too_large' %}<p class="warn" data-testid="ops-note-too-large">{{ t('ops.update.note.too_large') }}</p>
+{% elif not sh or not (rec and rec.note_ja) %}<p class="warn" data-testid="ops-note-none">{{ t('ops.update.note.none') }}</p>{% endif %}
+{% else %}<p class="hint">{{ t('ops.update.note.verify_first') }}</p>{% endif %}
+<br>{{ act('update_check', t('ops.action.update_check'), 'secondary', b.name) }}{% if vf and not vf.refuse %} {{ act('update_quiet', t('ops.action.update_quiet'), '', b.name, vf) }} {{ act('update_apply', t('ops.action.update_apply'), 'danger', b.name, vf) }}{% endif %}</li>{% endfor %}</ul>
+{% if st.incoming_cut %}<p class="warn" data-testid="ops-incoming-cut">{{ t('ops.update.incoming.cut') }}</p>{% endif %}
 {% else %}<p class="hint" data-testid="ops-incoming-none">{{ t('ops.update.incoming.none') }}</p>{% endif %}
+{% if st.waiting %}<h2>{{ t('ops.update.waiting') }}</h2>
+<ul class="plain" data-testid="ops-waiting">{% for w in st.waiting %}<li><span class="mono">{{ w.bundle }}</span> · {{ w.at|local }} · {{ w.by|who }}<br><span class="hint" data-src="ops">{{ w.why }}</span>{% if allowed['update_cancel'] and w.id not in running %}<br>{{ act('update_cancel', t('ops.action.update_cancel'), 'secondary', '', none, w.id) }}{% endif %}</li>{% endfor %}</ul>{% endif %}
 <h2>{{ t('ops.update.history') }}</h2>
 {% if st.updates %}<div class="scroll" tabindex="0"><table data-testid="ops-updates">
 <thead><tr><th scope="col">{{ t('ops.col.bundle') }}</th><th scope="col">{{ t('ops.col.when') }}</th><th scope="col">{{ t('ops.col.result') }}</th></tr></thead>
@@ -97,6 +139,15 @@
 <h2>{{ t('ops.update.rollback') }}</h2>
 <p class="hint">{{ t('ops.update.rollback.help') }}</p>
 {% if st.rollback_points %}<ul class="plain" data-testid="ops-points">{% for p in st.rollback_points %}<li><span class="mono">{{ p.bundle }}</span> · {{ t('ops.update.point', images=p.images, dumps=p.dumps_kept) }} · {{ p.at|local }}</li>{% endfor %}</ul>{% else %}<p class="hint">–</p>{% endif %}
+{# 10K-7 (D-1363): which release "return to the previous release" means, and whether its bundle is here; shown, not a
+   button: an older release's apply from the console waits on the owner's decision #}
+<h3>{{ t('ops.update.previous') }}</h3>
+{% set prev = (st.version or {}).previous %}
+<div data-testid="ops-previous">
+<p>{% if prev %}{{ t('ops.update.previous.release') }}: <span class="mono" data-testid="ops-previous-id">{{ prev }}</span>{% else %}{{ t('ops.update.previous.none') }}{% endif %}</p>
+{% if prev %}{% for name, nt in verified.items() if nt.bundle_id == prev %}<p data-testid="ops-previous-staged">{{ t('ops.update.previous.staged') }}: <span class="mono">{{ name }}</span></p>{% endfor %}{% endif %}
+<p class="hint">{{ t('ops.update.previous.help') }}</p>
+</div>
 </section>
 
 {% elif tab == 'logs' %}

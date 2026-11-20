@@ -13,6 +13,24 @@ The console never runs an operation itself: it writes a request into the operati
 command the runbook names and writes the result and the status back (``tools/trialbox/ops.py``). With
 ``TB_OPS_RUNNER=inline`` (the in-process box, the demo, the tests) the same runner runs at once in this process.
 
+10K-7 (D-1363, review 18 SO-7): the update tab also shows the **update stick** inserted at the box (the bundles the
+host's runner finds on its read-only mount), verifies a bundle from it (the runner copies it into the incoming folder
+first: ``update_stick_check``, the right ``ops.update_check``), shows each verified bundle's result, its Japanese
+release note and change-impact sheet, and asks for the apply **in the quiet hour** (``update_quiet``: D-731's
+``when: quiet``, the right ``ops.update_apply``); the updates waiting for it are listed with why. "Return to the
+previous release" is shown (which release, whether its bundle is here) but not offered as a button: an older
+release's apply from the console needs the owner's decision (D-1363). After the review: "verified" is the runner's
+record of that very file (its sha256), the note is read per bundle from ``<ops>/notes/`` (never from the status),
+apply is offered only for a verified file and sends its sha256, and a waiting quiet apply can be cancelled
+(``update_cancel``, under ``ops.update_apply``).
+
+After the integrator's review of d314d016 (D-1363): the Apply buttons carry the sha256 and the release id of the
+verified bundle the page showed, and so does the confirmation sheet; at each post the console compares them with the
+verified record of that bundle now and refuses (409, translated, ``console.refused``) when it is another file or
+release or there is no record; the queued request carries that sha256, never one read later, and nothing is queued
+without one (H2). A cancel is accepted by writing the update's one decision record (``OpsDir.decide``) before the
+runner writes "start" there immediately before the installer; once the runner has, the cancel is refused (H5).
+
 Who may: :func:`tb_common.authz.admin_allowed` (the administrator only); everyone else gets 403 on every page, action
 and ``/api/v1/admin/ops``, audited as ``console.denied``.
 """
@@ -34,6 +52,9 @@ from console.home import Helpers
 from console.i18n import translate
 
 ROOT = Path(__file__).resolve().parents[2]
+# H2 and H5 of the review of d314d016 (D-1363): the refusals' English text, translated in console.refusals
+NOT_SHOWN = "this is not the verified bundle you were shown: open the update tab again and review it"
+STARTED = "this update has started: it runs to its end or rolls back by itself"
 TABS = ("overview", "backups", "update", "logs", "secrets", "network")
 # action -> (authz action, the tab it belongs to)
 ACTIONS: dict[str, tuple[str, str]] = {
@@ -41,12 +62,22 @@ ACTIONS: dict[str, tuple[str, str]] = {
     "backup_check": ("ops.backup_check", "backups"),
     "update_check": ("ops.update_check", "update"),
     "update_apply": ("ops.update_apply", "update"),
+    "update_stick_check": ("ops.update_check", "update"),  # 10K-7: the same verify, the bundle copied from the stick
+    "update_quiet": ("ops.update_apply", "update"),  # 10K-7: the same apply, in the quiet hour (D-731)
+    "update_cancel": ("ops.update_apply", "update"),  # 10K-7: withdraw a quiet-hour apply (any administrator's)
+    # the third review, M2 (D-1363): the host's runner reads the stick only when this is asked; the verify's right
+    "update_stick_list": ("ops.update_check", "update"),
     "logs_collect": ("ops.logs", "logs"),
     "network_sheet": ("ops.network", "network"),
 }
+# 10K-7 (D-1363): a console action the runner knows by another name, with the arguments that make it so
+RUNS: dict[str, tuple[str, dict[str, str]]] = {
+    "update_stick_check": ("update_check", {"from": "stick"}),
+    "update_quiet": ("update_apply", {"when": "quiet"}),
+}
 SECRET_KEYS = ("name", "present", "age_days", "registered")  # what a secrets row may show; never a value
 _SHEET = re.compile(r"^network-sheet\.(en|ja|zh-TW)\.(html|md)$")
-_BUNDLE = re.compile(r"^[A-Za-z0-9][\w.\-]{0,120}\.tar$")
+# 10K-7 (review B3): the runner's pattern, matched whole (``tools.trialbox.ops.bundle_name``): ASCII, no newline
 _REQ = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{6}$")
 
 
@@ -100,10 +131,15 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return sess
 
     def status() -> dict[str, Any]:
-        st = ops.status()
-        if st is None and runner is not None:
+        st, why = ops.status_state()
+        if why == "missing" and runner is not None:
             st = runner.write_status()
         return st or {}
+
+    def status_unreadable() -> bool:
+        """10K-7 (the second review, B): the status file is there but not a small JSON object (over 64 KiB, a pipe or
+        a folder, not UTF-8, nested too deep): the page says so plainly; nothing of it is shown or guessed."""
+        return ops.status_state()[1] == "unreadable"
 
     def summary() -> dict[str, Any]:
         """The health tab's Operations tile and the overview: version, last backup and its age, the agent."""
@@ -138,7 +174,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     h.ops_status = status  # T-209a: the host's health facts for the health line, the health mail and /metrics
 
     @app.get("/admin/ops")
-    def ops_page(request: Request, tab: str = "overview", req: str = "") -> Response:
+    def ops_page(request: Request, tab: str = "overview", req: str = "", cancelled: str = "") -> Response:
         sess = need_ops(request)
         tab = tab if tab in TABS else "overview"
         st = status()
@@ -147,6 +183,20 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             mine = next((r for r in ops.history(200) if r.get("id") == req), None)
         secrets_rows = [{k: r.get(k) for k in SECRET_KEYS} for r in st.get("secrets") or []]
         sheets = sorted(p.name for p in ops.network.glob("network-sheet.*") if _SHEET.match(p.name))
+        busy = {str(r.get("action")) for r in ops.pending()}
+        checks: dict[str, Any] = {}  # 10K-7: each staged bundle's newest finished verification, by name
+        for r in ops.history(200):
+            b = str((r.get("args") or {}).get("bundle") or "")
+            if r.get("action") == "update_check" and r.get("result") and b not in checks:
+                checks[b] = r["result"]
+        # 10K-7 (D-1363): "verified" is the runner's record of THIS file (its sha256, while size, time and inode are
+        # unchanged), and the note is read from notes/<bundle>.json only when it carries that same sha256
+        verified = {k: v for k, v in (st.get("verified") or {}).items() if isinstance(v, dict)}
+        notes: dict[str, Any] = {}
+        if tab == "update":
+            for name, v in verified.items():
+                state, rec = ops.note_record(name, str(v.get("sha256") or ""))
+                notes[name] = {"state": state, "rec": rec}
         return h.page(
             request,
             "admin_ops.html",
@@ -156,9 +206,14 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             st=st,
             sm=summary(),
             history=ops.history(30),
-            pending=[r.get("action") for r in ops.pending()],
+            pending=[a for a in ACTIONS if RUNS.get(a, (a, {}))[0] in busy],
+            checks=checks,
+            status_unreadable=status_unreadable(),
+            verified=verified,
+            notes=notes,
             running=[r.get("id") for r in ops.running()],
             mine=mine,
+            cancel_recorded=_REQ.fullmatch(cancelled) is not None,  # L2: the cancel holds; its request was not queued
             secrets_rows=secrets_rows,
             sheets=sheets,
             allowed={a: admin_allowed(sess.user.role, z) for a, (z, _) in ACTIONS.items()},
@@ -171,6 +226,9 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         csrf: str = Form(""),
         confirm: str = Form(""),
         bundle: str = Form(""),
+        target: str = Form(""),  # 10K-7: the waiting update a cancel withdraws
+        sha256: str = Form(""),  # H2 (D-1363): the verified file the page showed ...
+        release: str = Form(""),  # ... and its release id
     ) -> Response:
         if action not in ACTIONS:
             raise h.problem(404, "notfound")
@@ -178,25 +236,93 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         sess = need_ops(request, perm)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
+        run_as, extra = RUNS.get(action, (action, {}))
         args: dict[str, str] = {}
-        if action in ("update_check", "update_apply"):
-            if not _BUNDLE.match(bundle):
+        if run_as in ("update_check", "update_apply"):
+            if not tb_ops.bundle_name(bundle):  # the runner's own whole-name check
                 raise h.problem(400, "request.refused", reason="choose a staged bundle")
             args["bundle"] = bundle
+        if run_as == "update_cancel":  # 10K-7: only an update that waits for the quiet hour and has not started
+            waiting = {str(r.get("id")): r for r in ops.pending() if r.get("action") == "update_apply"
+                       and (r.get("args") or {}).get("when") == "quiet"
+                       and not ops.marker(str(r.get("id"))).is_file()}  # fmt: skip
+            if not _REQ.fullmatch(target) or target not in waiting:
+                raise h.problem(400, "request.refused", reason="choose an update that waits for the quiet hour")
+            args["target"] = target
+            bundle = str((waiting[target].get("args") or {}).get("bundle") or "")
         if action == "backup":  # D-455: the snapshot backup; no service is stopped or paused
             args["mode"] = "running"
-        if action in [r.get("action") for r in ops.pending()]:
+        shown: dict[str, str] = {}
+        signed = signed_id = ""  # the third review, M3: the verified record's signed release id, as the page names it
+        if run_as == "update_apply":
+            # H2 (D-1363): the release the administrator was shown, compared with the verified record of that bundle
+            # NOW, at every post (the page's button, the confirmation sheet's Yes); the request carries that sha256
+            rec = (status().get("verified") or {}).get(bundle)
+            rec = rec if isinstance(rec, dict) else {}
+            have = str(rec.get("sha256") or "")
+            why = ""
+            if not tb_ops.SHA256.fullmatch(have):
+                why = "missing"
+            elif sha256 != have or release != str(rec.get("bundle_id") or ""):
+                why = "changed"
+            if why:
+                au.append("console.refused", actor=h.actor(sess),
+                          detail={"action": action, "bundle": bundle, "why": why, "reason": NOT_SHOWN,
+                                  "shown": sha256 if tb_ops.SHA256.fullmatch(sha256) else ""})  # fmt: skip
+                raise h.problem(409, "request.refused", reason=NOT_SHOWN)
+            args["sha256"] = have
+            shown = {"release": release}
+            seq = rec.get("release_seq")
+            signed_id = str(rec.get("bundle_id") or "")
+            signed = str(rec.get("bundle_id") or "–") + (f" (release_seq {seq})" if isinstance(seq, int) else "")
+        if run_as in [r.get("action") for r in ops.pending()]:
             raise h.problem(409, "ops.busy")
         if confirm != "yes" and h.confirm is not None:  # WS-14.7: each action names its consequence first
-            text = translate(sess.lang, f"ops.confirm.{action}", bundle=bundle)
-            return h.confirm(request, sess, text, request.url.path, args, f"/admin/ops?tab={tab}")
-        try:
-            rid = ops.submit(action, h.actor(sess), args)
-        except OSError as exc:  # the folder is not there or not writable: the host runner has never prepared it
-            raise h.problem(503, "ops.unavailable") from exc
-        au.append("console.ops", actor=h.actor(sess), detail={"action": action, "request": rid, **args})
-        if runner is not None:
-            res = runner.run_one({"id": rid, "action": action, "by": h.actor(sess), "args": args})
+            q = status().get("quiet") or {}
+            at, hours = q.get("at") or tb_ops.QUIET_DEFAULT_AT, q.get("hours") or tb_ops.QUIET_DEFAULT_HOURS
+            # the third review, M3: an apply's sheet names the signed release (update_quiet's own text does too)
+            which = "update_apply.signed" if action == "update_apply" else action
+            text = translate(sess.lang, f"ops.confirm.{which}", bundle=bundle, at=at, hours=hours,
+                             wait=tb_ops.QUIET_WAIT_H, release=signed)  # fmt: skip
+            back = f"/admin/ops?tab={tab}"
+            return h.confirm(request, sess, text, request.url.path, {**args, **shown}, back)
+        args.update(extra)  # 10K-7: ``from: stick`` or ``when: quiet``, never from the form
+        rid = ops.new_id()
+        event = {"action": action, "request": rid, **args}
+        if run_as == "update_apply":  # M3: the event names the signed release that was confirmed
+            event["release"] = signed_id
+        if run_as == "update_cancel":
+            # H5 (D-1363): accepted only by writing the update's decision record first; the runner writes "start"
+            # there immediately before the installer, and whichever is first holds
+            try:
+                got = ops.decide(target, "cancel", h.actor(sess))
+            except OSError as exc:
+                raise h.problem(503, "ops.unavailable") from exc
+            if got != "cancel":
+                detail = {"action": action, "target": target, "why": got, "reason": STARTED}
+                au.append("console.refused", actor=h.actor(sess), detail=detail)
+                raise h.problem(409, "request.refused", reason=STARTED)
+            # the third review, L2: the cancel holds from its record on (the runner reads it): audited NOW, and said
+            # as accepted even when the request that tells the runner cannot be queued
+            au.append("console.ops", actor=h.actor(sess), detail=event)
+            try:
+                queued = ops.submit_once(run_as, h.actor(sess), args, busy=(run_as,), rid=rid)
+            except OSError:
+                queued = None
+            if queued is None:
+                return RedirectResponse(f"/admin/ops?tab={tab}&cancelled={target}", status_code=303)
+        else:
+            try:  # L9: the busy check and the queueing as one step: of two posts at once, one wins
+                queued = ops.submit_once(run_as, h.actor(sess), args, busy=(run_as,), rid=rid)
+            except OSError as exc:  # the folder is not there or not writable: the host runner has never prepared it
+                raise h.problem(503, "ops.unavailable") from exc
+            if queued is None:
+                raise h.problem(409, "ops.busy")
+            au.append("console.ops", actor=h.actor(sess), detail=event)
+        if runner is not None and args.get("when") == "quiet":
+            runner.write_status()  # D-731: it waits for the quiet hour; the host's runner takes it then
+        elif runner is not None:
+            res = runner.run_one({"id": rid, "action": run_as, "by": h.actor(sess), "args": args})
             runner.write_status()
             au.append("console.ops", actor=h.actor(sess),
                       detail={"action": f"{action}.done", "request": rid, "ok": bool(res.get("ok"))})  # fmt: skip

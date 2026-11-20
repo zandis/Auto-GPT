@@ -301,3 +301,46 @@ working day in `TB_BACKUP_ALERT_WATCHER`; the install note and `doctor` show the
 A name holds letters and digits of any script, single spaces and `. , - ( ) （ ） / ’ ' ・ · 〜 ～` only (`'` not
 first or last), at most 100 characters; anything else (a line break, a double quote, `$`, a backslash) is refused,
 so a name can never add or change a setting.
+
+## Updates from a stick inserted at the box (10K-7, D-1363)
+
+The host mounts the update stick read-only at `/media/trialbox-update` (`TB_UPDATE_STICK` in `deploy/.env` names
+another folder), with the options `ro,nodev,nosuid,noexec`; the Operations page's update tab lists the bundles on it
+(the first 50 by name, regular files with a bundle's name only: ASCII letters, digits, `_ . -` and `.tar`, a letter
+or digit first, no `..`; it says
+when the list is cut and how many `.tar` files have names a bundle never has). "Verify and copy to the box" copies
+one into `deploy/updates/incoming` and runs the same `--dry-run`: exactly the size seen when the file was opened, and
+only when at least 10 GiB stays free on that disk after the copy (the databases and the audit share it); a copy that
+moves no byte for 2 minutes, runs over 2 hours or reads slower than 1 MB/s after 5 minutes is stopped and removed,
+and a refused bundle is not kept. The check is bound to the file's sha256: the page says "verified" (with the first
+digits of the sha256), shows the Japanese release note (`RELEASE-NOTE.ja.md`) and the change-impact sheet
+(`CHANGE-IMPACT.json`: the change classes CC1 to CC6 of `docs/validation/change-control.md`, the minutes down,
+migration, rulesets to approve again) and offers "Apply" and "Apply in the quiet hour" only for that very file; the
+confirmation carries the sha256 and
+release shown and is refused when the verified record is another file, another release or gone. The runner applies
+a private copy made from one open of the file (`deploy/updates/.ops-held`, root's, removed after): the bytes whose
+sha256 was confirmed are the bytes `apply_update.sh` verifies and installs. A quiet-hour apply that waits can be
+cancelled on the page until the moment it starts, also while a backup runs before it; once started it is not. The tab
+names the previous release and whether its bundle is on the box; returning to it is still
+the "Older releases" path above, at the box. A bundle without the note and sheet is verified with a warning, never
+refused; `tools/make_bundle.sh` refuses to build one without them (`docs/releases/next-release.ja.yaml`,
+`python -m tools.release_note check`). The drill: `python -m tools.update_drill stick` (insert, verify, apply in the
+quiet hour, roll back), held by `tests/unit/test_update_from_a_stick.py`; its `--dir` must not exist yet or be a
+folder a drill made (it holds `.tb-update-drill`), else the drill refuses before removing anything.
+When the runner's `status.json` is not a small JSON object (over 64 KiB, not a regular file, not UTF-8 JSON), the
+page says the status is unreadable and shows nothing of it; `sudo python3 -m tools.trialbox ops status` writes it
+again (the runner's timer does too, within a minute).
+The private copy is made only when the disk keeps 10 GiB free after it and after `apply_update.sh`'s staging (a second
+copy in `$TMPDIR`, counted on the same disk unless `/tmp` is a disk of its own); a copy left by a runner that was cut
+off is removed on its next pass. A `.ops-held` that is a link, not root's or open to others is refused, never mended:
+remove it as root. The runner applies only a file whose sha256 is its own record of a check that passed on this box;
+the page says so in the administrator's language when it refuses one (a request queued before this version names no
+sha256: verify the bundle and ask again). A stick that stops answering mid-read no longer holds the runner: the copy
+is stopped and removed, the next request runs, and the stick is pulled and checked elsewhere. A change-impact sheet
+without the minutes down, the migration or the re-approval is a warning and is not shown.
+The box reads the stick only when "Look at the update stick" is pressed (the page then says when it looked); a stick
+that does not answer within 10 seconds is said, the runner goes on, and the listing is not started again until that
+stick answers or is pulled. An empty mount point is "no stick inserted". Each verified bundle shows its signed release
+(and `release_seq`), and the confirmation names it; the page warns when the file's name does not carry it, and offers
+no Apply for a release already installed, an older one, or one checked before the trusted keys changed (verify again).
+`--dir` of either drill must sit in folders only you or root can change (not one another account made in `/var/tmp`).
