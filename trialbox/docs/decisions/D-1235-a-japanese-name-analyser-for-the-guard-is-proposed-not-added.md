@@ -109,13 +109,23 @@ coordinator's lines, in `eval/phi_synth/ja_name_classes.json`; each class has ro
   42歳), the 先生 of 鈴木一郎先生 never split, a patient number before a half-width kana name never part of it
   (12345 ﾔﾏﾀﾞ ﾀﾛｳ masks the name only).
 
-**Known behaviour**: the brackets around a name's reading are masked with it (工藤（くどう）様 -> ○○○○○○○様); the
-guard's redaction may take the honorific with the name (鈴木一郎先生 -> [NAME]) while the masker keeps it
-(○○○○先生). Master's rule masks the word after `Dr. ` (Dr. 回診 -> Dr. ○○): not this card's.
+**Known behaviour**: the brackets around a name's reading are masked with it (工藤（くどう）様 -> ○○○○○○○様); a
+bracketed note directly after a name can be masked with it (妻・遠藤 由紀子（同居） loses （同居）; a bracket that
+holds a role, a relative or a sex stays: 山田（主治医）); the guard's redaction may take the honorific with the name
+(鈴木一郎先生 -> [NAME]) while the masker keeps it (○○○○先生). Master's rule masks the word after `Dr. ` (Dr. 回診 ->
+Dr. ○○): not this card's.
 
 Development figures: class fixtures (70 name lines, 3 limits) all names masked but the 3 limits, no counter-case
 changed of 46, pinned outputs 10 of 10; the card's lines 11 of 75 and 2 of 30 missed as in round two; no ordinary
 line changed of 266. Time 36.6 ms per 10 kB note (round two 31.1); 400 kB of distinct lines in 3.1 s.
+
+**Fourth round** (the coordinator's run on 8bd8a99d: 1 of 214 names leaked, 0 of 150 no-name lines over-masked):
+a katakana eponym, with or without ・, directly before a clinical head word is no name (ホーン・ヤール分度,
+グラスゴー・コーマ・スケール, ブルンストローム・ステージ): the head words are data (`terms_after_name` in the cue file;
+分度, 変法, 基準, 指数, 検査, ステージ and others added), and a katakana name with ・ before an honorific or an age
+stays masked (ホーン・ヤール氏, マリア・サントス様). A word between a role with の and 先生 or 医師 is a name even when
+the analyser reads it as a common noun (前医の平野先生の記載: 平野 is tagged "plain"); 前医の先生 (no name) stays.
+Each has fixtures that fail on 8bd8a99d.
 
 **The three named limits** remain: a bare surname with no cue (浅野 alone), a hiragana surname the analyser does not
 know by its reading (すどう alone), a romaji surname alone (Kimura alone).

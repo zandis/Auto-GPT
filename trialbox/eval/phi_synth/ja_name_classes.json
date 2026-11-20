@@ -1,5 +1,5 @@
 {
-  "about": "Card 10C-1b, second round (D-1235): Japanese names by class, every one invented, and the counter-cases that must stay as they are. Each `names` line lists the names it holds (`ids`); each `ordinary` line must pass the guard and the masker unchanged; each `pinned` line must mask exactly as given (the name, never the title beside it). `limit` lines are names the guard still misses, kept as strict expected failures so that one that starts to pass must move. Development fixtures: written by the lane that wrote the rule, from the coordinator's reviews of 2026-11-19 (second round) and 2026-11-20 (third round: cue words, brackets, repeats, mixed forms; the coordinator's own lines are not copied).",
+  "about": "Card 10C-1b, second round (D-1235): Japanese names by class, every one invented, and the counter-cases that must stay as they are. Each `names` line lists the names it holds (`ids`); each `ordinary` line must pass the guard and the masker unchanged; each `pinned` line must mask exactly as given (the name, never the title beside it). `limit` lines are names the guard still misses, kept as strict expected failures so that one that starts to pass must move. Development fixtures: written by the lane that wrote the rule, from the coordinator's reviews of 2026-11-19 (second round) and 2026-11-20 (third round: cue words, brackets, repeats, mixed forms; fourth round: a katakana eponym before a clinical head word, a name between a role and 先生; the coordinator's own lines are not copied).",
   "names": [
     {
       "class": "kanji_no_kana",
@@ -490,6 +490,48 @@
       "ids": [
         "ツゲ ショウタ"
       ]
+    },
+    {
+      "class": "cue_role",
+      "text": "前医の野中先生の記載では",
+      "ids": [
+        "野中"
+      ]
+    },
+    {
+      "class": "cue_role",
+      "text": "紹介医の高原先生より",
+      "ids": [
+        "高原"
+      ]
+    },
+    {
+      "class": "cue_role",
+      "text": "主治医の野原医師が説明",
+      "ids": [
+        "野原"
+      ]
+    },
+    {
+      "class": "katakana_foreign",
+      "text": "マリア・サントス様",
+      "ids": [
+        "マリア・サントス"
+      ]
+    },
+    {
+      "class": "katakana_foreign",
+      "text": "グエン・ヴァン・アン 45歳",
+      "ids": [
+        "グエン・ヴァン・アン"
+      ]
+    },
+    {
+      "class": "katakana_foreign",
+      "text": "ホーン・ヤール氏",
+      "ids": [
+        "ホーン・ヤール"
+      ]
     }
   ],
   "limit": [
@@ -603,6 +645,19 @@
     "胃癌（ステージII）",
     "おなか（腹部）の痛み",
     "韓国籍 42歳",
-    "中国出身 35歳"
+    "中国出身 35歳",
+    "パーキンソン病、ホーン・ヤール分度II",
+    "ホーン・ヤール分類3度",
+    "グラスゴー・コーマ・スケール 14点",
+    "ホフマン反射陽性",
+    "ロンベルグ徴候陰性",
+    "クッシング症候群の疑い",
+    "キリップ分類I",
+    "フォレスター分類II",
+    "ミニメンタル・ステート検査 24点",
+    "ブルンストローム・ステージIII",
+    "前医の先生の記載",
+    "主治医の担当先生",
+    "前医の内科先生"
   ]
 }

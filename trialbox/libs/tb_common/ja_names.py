@@ -195,11 +195,23 @@ _DOT = frozenset("・･")
 #: a text the analyser reads: it holds kana or 歳 (the Japanese form; Chinese writes 歲 or 岁)
 _JAPANESE = re.compile("[ぁ-ゖァ-ヺｦ-ﾝ]|歳")
 # step 3: a word of a disease, a sign, a procedure, a scale, an institution or a place; what follows an eponym
-_TERM = (
-    r"(?:病|症候群|症|炎|型|分類|法|式|手術|術|反射|徴候|母斑|白斑|結節|細胞|試験|療法|リンパ腫|腫|ジストロフィー"
-    r"|反応|カテーテル|スコア|スケール|心電図|病院|医院|歯科|内科|外科|科|クリニック|診療所|大学|市|区|町|村|県|駅"
-    r"|製薬|錠|散|液|菌|毒素|ウイルス|抗体|線|管|室|棟|会|社|地方|地区|転移|調律|様[のなに])"
-)
+#: the cue words (titles, roles, words in a name's place that are none): data, not code (third round, D-1235)
+CUES_FILE = Path(__file__).with_name("ja_name_cues.json")
+CUES: dict[str, Any] = json.loads(CUES_FILE.read_text(encoding="utf-8"))
+
+
+def _alt(words: list[str]) -> str:
+    """The words as one alternation, the longest first; a word of Latin letters stands alone (Dr, never Drug)."""
+    out = []
+    for w in sorted(words, key=len, reverse=True):
+        e = re.escape(w)
+        if re.match("[A-Za-z]", w):  # Dr stands alone; Dr. may touch the name (Dr.Kimura)
+            e = rf"(?<![A-Za-z]){e}" + ("" if w.endswith(".") else "(?![A-Za-z])")
+        out.append(e)
+    return "|".join(out)
+
+
+_TERM = rf"(?:{'|'.join(re.escape(w) for w in sorted(CUES['terms_after_name'], key=len, reverse=True))}|様[のなに])"
 # after the name: a term directly, after one space (松本 歯科), or after the rest of a compound (ギラン・バレー症候群)
 _TERM_AFTER = re.compile(
     rf"(?:[ 　]?[0-9０-９IVⅠ-Ⅻ]{{0,3}}|[・･][ァ-ヺー]{{1,12}}){_TERM}"
@@ -385,22 +397,6 @@ def _pieces(text: str) -> Iterator[tuple[int, str]]:
 
 # ------------------------------------------------------------------------------------------------ by position
 # a title or an honorific after a name (the guard's own honorifics, with their ends, and the staff words)
-#: the cue words (titles, roles, words in a name's place that are none): data, not code (third round, D-1235)
-CUES_FILE = Path(__file__).with_name("ja_name_cues.json")
-CUES: dict[str, Any] = json.loads(CUES_FILE.read_text(encoding="utf-8"))
-
-
-def _alt(words: list[str]) -> str:
-    """The words as one alternation, the longest first; a word of Latin letters stands alone (Dr, never Drug)."""
-    out = []
-    for w in sorted(words, key=len, reverse=True):
-        e = re.escape(w)
-        if re.match("[A-Za-z]", w):  # Dr stands alone; Dr. may touch the name (Dr.Kimura)
-            e = rf"(?<![A-Za-z]){e}" + ("" if w.endswith(".") else "(?![A-Za-z])")
-        out.append(e)
-    return "|".join(out)
-
-
 _LATIN_CUES = frozenset(w for k in ("titles_before_name", "titles_after_name") for w in CUES[k] if w[:1].isascii())
 _NOT_A_NAME_WORDS = frozenset(CUES["not_a_name_value"])
 _NOT_A_NAME_ENDING = tuple(CUES["not_a_name_ending"])
@@ -474,6 +470,7 @@ def _protected_word(word: str) -> bool:
     )
 
 
+_ROLE_NO_BEFORE = re.compile(rf"(?:{_alt(CUES['titles_before_name'])})の$")
 _LIKE_BEFORE = re.compile(rf"(?:{phi_guard._JA_LIKE})$")
 _LATIN_BEFORE = re.compile(r"(?<![A-Za-z'])[A-Za-z][A-Za-z']{1,19}$")
 _KANJI_BEFORE = re.compile(f"(?<![{_KANJI}])[{_KANJI}]{{1,4}}$")
@@ -569,8 +566,9 @@ def _name_before(text: str, toks: list[Token], q: int, title: str) -> tuple[int,
         word = run.group(0)
         if _protected_word(word) or _HON_KANJI_OK.match(text, s0) is None:
             return None
-        if not (_not_common(toks, s0, q) or (title in _GIVEN_HON and _starts_word(toks, s0))):
-            return None
+        after_role = title in ("先生", "医師") and _ROLE_NO_BEFORE.search(text, max(0, s0 - 8), s0) is not None
+        if not (_not_common(toks, s0, q) or (title in _GIVEN_HON and _starts_word(toks, s0)) or after_role):
+            return None  # 前医の平野先生: after a role and の, a name even when 平野 reads as "plain"
         inner = _words_in(toks, s0, q)
         for a, b in itertools.pairwise(inner):
             if a.name == "sei" and not _given_after(a, b, _gap(text, a, b), text):
