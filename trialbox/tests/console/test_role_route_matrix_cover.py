@@ -11,7 +11,7 @@ the router table as ``test_role_route_matrix`` does (the page with its CSRF toke
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
@@ -56,8 +56,11 @@ def test_a_cover_opens_the_pis_column_inside_its_dates_and_nothing_else(walked_b
     token, _ = b["users"].new_session(b["users"].get("cov"), via="api")
     api = TestClient(b["app"], headers={"Authorization": f"Bearer {token}"})
     job_id = _ulid(990)
-    day = h.today()
-    iso = lambda n: (day + timedelta(days=n)).isoformat()  # noqa: E731
+    day: date = h.today()
+
+    def iso(n: int) -> str:
+        return (day + timedelta(days=n)).isoformat()
+
     at = "2026-01-01T00:00:00+00:00"
 
     base = _walk(b, page, csrf, api, job_id)
