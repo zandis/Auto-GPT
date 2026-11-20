@@ -72,6 +72,7 @@ site_sheets.html 2 before 9k-6a: converted journey by journey in 9k-6b
 site_staff.html 3 before 9k-6a: converted journey by journey in 9k-6b
 site_wizard.html 1 before 9k-6a: converted journey by journey in 9k-6b
 study_state.html 2 before 9k-6a: converted journey by journey in 9k-6b
+support_session.html 2 10K-15 (D-1364): written before 9k-6a landed; converted with the template's next change
 team_candidate.html 2 before 9k-6a: converted journey by journey in 9k-6b
 team_irb.html 1 before 9k-6a: converted journey by journey in 9k-6b
 team_log.html 3 before 9k-6a: converted journey by journey in 9k-6b
