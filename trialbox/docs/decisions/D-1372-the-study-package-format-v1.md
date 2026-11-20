@@ -247,8 +247,8 @@
 - **The export, audited (review of f1d1fe3c, H4; review of ec90c1b4, items 1 to 4, 6, 7).** Packing is a command of
   the coordinating centre's operator, not a console act: no console route is added.
   - **Who runs it, as which account.** `write` **never runs as root**: run as root it refuses before it reads a file
-    or touches the audit, with one sentence (English, Japanese or Chinese: `--lang`, else `TB_LANG`) that gives the
-    supported way. That way is 10D-28's for `criteria_compiler.export_part` ("in the criteria compiler's
+    or touches the audit, with one sentence (English, Japanese or Chinese: `--lang`, else the shell's `LANG`) that
+    gives the supported way. That way is 10D-28's for `criteria_compiler.export_part` ("in the criteria compiler's
     container"): from `deploy/`, `docker compose run --rm -v <key folder>:/run/tb-study-key:ro -v <output
     folder>:/data/study-out criteria-compiler python -m tools.study_package write /data/rulesets/<ID> --key
     /run/tb-study-key/cc_ed25519.key --out /data/study-out/<ID>-<version>.tbstudy` (`SUPPORTED_RUN`). The container

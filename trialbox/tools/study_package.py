@@ -63,7 +63,7 @@ SUPPORTED_RUN = (
     "criteria-compiler python -m tools.study_package write /data/rulesets/<ID> --key "
     "/run/tb-study-key/cc_ed25519.key --out /data/study-out/<ID>-<version>.tbstudy"
 )
-#: the operator's sentences, in the box's three languages (``--lang``, else ``TB_LANG``)
+#: the operator's sentences, in the box's three languages (``--lang``, else the shell's ``LANG``)
 TEXTS: dict[str, dict[str, str]] = {
     "root": {
         "en": "a study package is never written as root; run it as the criteria compiler's service account, from the "
@@ -83,7 +83,7 @@ TEXTS: dict[str, dict[str, str]] = {
 
 
 def text(key: str, lang: str | None = None, **values: str) -> str:
-    return TEXTS[key][lang_of(lang if lang is not None else os.environ.get("TB_LANG"))].format(**values)
+    return TEXTS[key][lang_of(lang if lang is not None else os.environ.get("LANG"))].format(**values)
 
 
 class RootRefused(ValueError):
@@ -460,7 +460,7 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--force", action="store_true", help="replace --out when it exists")
     w.add_argument("--audit-dir", type=Path, help="without the journal: the audit folder (default: TB_AUDIT_DIR)")
     w.add_argument("--trust-file", type=Path, help="a trust file: a key it trusts for updates is refused")
-    w.add_argument("--lang", help="en, ja or zh-TW (default: TB_LANG)")
+    w.add_argument("--lang", help="en, ja or zh-TW (default: the shell's LANG)")
     v = sub.add_parser("verify", help="check a package against a trust file")
     v.add_argument("package", type=Path)
     v.add_argument(
