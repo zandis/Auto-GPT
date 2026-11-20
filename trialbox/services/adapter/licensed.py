@@ -41,9 +41,10 @@ import sys
 import time
 import unicodedata
 import zipfile
-from collections.abc import Sequence
+import zlib
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -81,7 +82,14 @@ SCHEMA_V2 = """
 ALTER TABLE release ADD COLUMN IF NOT EXISTS meta TEXT NOT NULL DEFAULT '{}';
 CREATE INDEX IF NOT EXISTS concept_display ON concept (release_id, display)
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2)
+#: deep review of #1238 (M5): one active release of a list, held by the database itself. Two loads at once left two
+#: (``status`` showed one, ``tables`` served both); a store that already holds two keeps the newest
+SCHEMA_V3 = """
+UPDATE release SET active = FALSE
+  WHERE active AND id NOT IN (SELECT max(id) FROM release WHERE active GROUP BY kind);
+CREATE UNIQUE INDEX IF NOT EXISTS release_one_active ON release (kind) WHERE active
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3)
 
 
 @dataclass(frozen=True)
@@ -304,7 +312,10 @@ def _decode(data: bytes, declared: str | None) -> tuple[str, str]:
     try:
         text = data.decode(declared)
         # Python's cp932 reads the lone bytes 0x80, 0xA0 and 0xFD to 0xFF as characters Shift_JIS does not have
-        stray = next((i for i, ch in enumerate(text) if ch in _NOT_SHIFT_JIS), -1) if declared == "cp932" else -1
+        # and the user-defined area (lead bytes 0xF0 to 0xF9) as private-use characters, which no release's text is
+        stray = -1
+        if declared == "cp932":
+            stray = next((i for i, ch in enumerate(text) if ch in _NOT_SHIFT_JIS or "\ue000" <= ch <= "\uf8ff"), -1)
         if stray >= 0:
             line = text.count("\n", 0, stray) + 1
             raise LicensedError("LIC-ENCODING", f"not {declared}: a byte that cannot be read (line {line})")
@@ -316,7 +327,38 @@ def _decode(data: bytes, declared: str | None) -> tuple[str, str]:
         raise LicensedError("LIC-ENCODING", f"unknown character set {declared!r}") from exc
 
 
-def parse(kind: str, data: bytes, columns: Sequence[str] | None = None, declared_encoding: str | None = None) -> Parsed:
+#: bounds on what one table may hold (deep review of #1238, M6, L4). The real tables: 27,877, 2,509 and 112,967 rows
+MAX_ROWS = 400_000
+MAX_SKIPPED = 1_000  # rows listed as not read; the rest are counted in one last entry
+MAX_CELL = 1_000  # characters of a code or a display name (the store indexes them)
+
+
+def _lines(text: str) -> Iterator[str]:
+    """The lines of ``text``, each with its line end, one at a time (a ``StringIO`` would hold the text again, four
+    bytes for each character)."""
+    pos, size = 0, len(text)
+    while pos < size:
+        end = text.find("\n", pos)
+        end = size if end < 0 else end + 1
+        yield text[pos:end]
+        pos = end
+
+
+def _refuse_characters(text: str) -> None:
+    """A NUL in the file: the database cannot hold it, so the file is refused where it is read, with its line."""
+    at = text.find("\x00")
+    if at >= 0:
+        line = text.count("\n", 0, at) + 1
+        raise LicensedError("LIC-CHARACTER", f"a NUL character (line {line}): not a text file of a code list")
+
+
+def parse(
+    kind: str,
+    data: bytes,
+    columns: Sequence[str] | None = None,
+    declared_encoding: str | None = None,
+    max_rows: int | None = None,
+) -> Parsed:
     """Read one vendor file. A row whose code does not have the code system's shape is skipped and listed.
 
     The MEDIS 病名基本テーブル (D-1257): a row is identified by its 病名管理番号, and one 病名交換用コード names
@@ -330,13 +372,18 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None, declared
     # the strict read: a file that already holds U+FFFD is refused with its line, as the sheet reader does;
     # ``declared_encoding`` names the character set when the publisher declares it (a table of a MEDIS release)
     text, enc = _decode(data, declared_encoding)
+    _refuse_characters(text)
     first = text.split("\n", 1)[0]
     delim = _sniff(first)
-    rows = list(csv.reader(io.StringIO(text), delimiter=delim))
+    # read row by row: the table is never held as a list of rows beside its text (M6)
+    body = csv.reader(_lines(text), delimiter=delim)
     if columns:
-        header, body, start = list(columns), rows, 1
+        header, start = list(columns), 1
     else:
-        header, body, start = (rows[0] if rows else []), rows[1:], 2
+        try:
+            header, start = next(body, []), 2
+        except csv.Error as exc:
+            raise LicensedError("LIC-FORMAT", f"the first line cannot be read as a table ({exc})") from exc
     index = {_key(h): i for i, h in enumerate(header)}
     code_i = _col(index, k.code)
     part_i = [_col(index, p) for p in k.parts]
@@ -363,9 +410,23 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None, declared
     conflicting: set[str] = set()
     lines: dict[str, int] = {}
     n_rows = 0
-    for n, row in enumerate(body, start=start):
+    not_listed = 0
+    n = start - 1
+    while True:
+        try:
+            row = next(body)
+        except StopIteration:
+            break
+        except csv.Error as exc:
+            raise LicensedError("LIC-FORMAT", f"line {n + 1} cannot be read as a row of a table ({exc})") from exc
+        n += 1
         if not any(c.strip() for c in row):
             continue
+        if max_rows is not None and n_rows + len(skipped) + not_listed >= max_rows:
+            raise LicensedError("LIC-ROWS", f"more than {max_rows} rows: larger than this table can be")
+        if len(skipped) > MAX_SKIPPED:  # listed up to a bound; counted beyond it
+            not_listed += len(skipped) - MAX_SKIPPED
+            del skipped[MAX_SKIPPED:]
 
         def cell(i: int | None, row: list[str] = row) -> str:
             return unicodedata.normalize("NFKC", row[i]).strip() if i is not None and i < len(row) else ""
@@ -375,6 +436,8 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None, declared
         else:
             code = "".join(cell(i) for i in part_i)
         code = code.upper()
+        if len(code) > MAX_CELL or len(cell(disp_i)) > MAX_CELL:
+            raise LicensedError("LIC-LONG", f"line {n}: a code or a name of more than {MAX_CELL} characters")
         if not shape.match(code):
             skipped.append((n, f"code {code!r} is not a {k.label} code"))
             continue
@@ -420,13 +483,23 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None, declared
         lines[ident] = n
         out.append(record)
     n_rows -= len(conflicting)
+    if len(skipped) > MAX_SKIPPED:
+        not_listed += len(skipped) - MAX_SKIPPED
+        del skipped[MAX_SKIPPED:]
+    if not_listed:
+        skipped.append((0, f"{not_listed} more rows were not read (not listed)"))
     if by_number:
         kept = [r for r in out if json.loads(r["extra"])["management_no"] not in conflicting]
         out, more = _medis_concepts(kept, {r["code"]: lines[json.loads(r["extra"])["management_no"]] for r in kept})
         skipped += more
     elif kind == INDEX:
-        for r in out:  # the store's key is the pair; the 対応用語コード itself is kept beside it
-            r["target_code"], r["code"] = r["code"], f"{r['code']}\t{r['display']}"
+        # the store's key is the pair as written; the 対応用語コード is kept beside it. ``display`` is the term as it
+        # is compared (:func:`index_key`), and the term as written is ``extra["term"]``
+        for r in out:
+            written = r["display"]
+            r["target_code"], r["code"] = r["code"], f"{r['code']}\t{written}"
+            r["extra"] = json.dumps({**json.loads(r["extra"]), "term": written}, ensure_ascii=False)
+            r["display"] = index_key(written)
     else:
         out = [r for r in out if r["code"] not in conflicting]
     if not out:
@@ -442,6 +515,22 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None, declared
 
 #: what each row of a MEDIS concept keeps (the keys of ``extra["rows"]``), beside ``no`` and ``name``
 _ROW_FIELDS = ("kana", "change", "adoption", "multi_class", "field", "successor", "no_solo", "no_claim", "receipt_code")
+
+
+def index_key(text: str) -> str:
+    """An index term as it is stored and compared: NFKC, every blank removed (half- and full-width), upper case.
+    ONE function for the stored key and for a query (:meth:`TermStore.lookup_term`), and for any name a caller
+    compares with an index term: ``ｃｏｖｉｄ－１９ 肺炎`` and ``COVID-19肺炎`` are one term."""
+    return re.sub(r"\s+", "", unicodedata.normalize("NFKC", text or "")).upper()
+
+
+def icd_comparable(value: str) -> str:
+    """An ICD-10 code of the release as two rows' codes are compared: NFKC, blanks and the dot removed, and the one
+    lower-case letter the release writes after some codes (``E109a``, a Japanese sub-classification) dropped. The
+    store keeps what the release writes."""
+    v = re.sub(r"\s+", "", unicodedata.normalize("NFKC", value or "")).replace(".", "")
+    m = re.fullmatch(r"([A-Z][0-9]{2,4})[a-z]", v)
+    return m.group(1) if m else v
 
 
 def _medis_concepts(
@@ -474,7 +563,8 @@ def _medis_concepts(
             return (int(m["adoption"]) if m.get("adoption", "").isdigit() else 9, m["no"])
 
         best = min(current or members, key=rank)
-        icds = {m["icd"] for m in current if m["icd"]}
+        # compared as codes, not as text: ``E109`` and ``E109a`` are one ICD-10 code (deep review of #1238, L6)
+        icds = {icd_comparable(m["icd"]) for m in current if m["icd"]}
         extra: dict[str, Any] = {"management_no": best["no"], **{f: best[f] for f in _ROW_FIELDS if best.get(f)}}
         extra["rows"] = [{k: v for k, v in m.items() if v} for m in members]
         icd = best["icd"]
@@ -509,10 +599,14 @@ def medis_rows(medis: dict[str, dict[str, Any]]) -> dict[str, dict[str, str]]:
         members = extra.get("rows")
         if not isinstance(members, list):
             members = [{"no": extra.get("management_no", ""), "name": concept.get("display", ""),
-                        "icd": concept.get("target_code", ""), "change": extra.get("change", "")}]  # fmt: skip
+                        "icd": concept.get("target_code", "")}]  # fmt: skip
+            if "change" in extra:
+                members[0]["change"] = extra["change"]
+        conflict = "1" if extra.get("icd_conflict") else ""
         for m in members:
             if m.get("no"):
-                out[str(m["no"])] = {**{k: str(v) for k, v in m.items()}, "exchange": str(exchange)}
+                row = {**{k: str(v) for k, v in m.items()}, "exchange": str(exchange), "conflict": conflict}
+                out[str(m["no"])] = row
     return out
 
 
@@ -576,14 +670,55 @@ class TermStore:
         """Write the parsed lists ``(parsed, sha256 of its file, source name)`` in ONE transaction: all of them
         become the active release of their list, or none does (D-1257: the three tables of one MEDIS release).
         ``meta`` is what the release says of itself (``released``, ``release_sha256``); each list's row counts are
-        added. Returns the release ids, in order."""
+        added. Returns the release ids, in order.
+
+        Deep review of #1238: one load at a time for a store (an advisory lock for the transaction, M5); the codes of
+        every release older than the one this load replaces are removed (their ``release`` rows stay as the record of
+        what was loaded, L7); and a failure in the database is a :class:`LicensedError` (``LIC-STORE``), with nothing
+        loaded (L4)."""
+        try:
+            ids = self._write(parts, version, by, meta)
+        except (LicensedError, DatabaseError):
+            raise
+        except Exception as exc:
+            if not type(exc).__module__.startswith("psycopg"):
+                raise
+            raise LicensedError(
+                "LIC-STORE", f"the terminology store refused the load ({type(exc).__name__}); nothing was loaded"
+            ) from exc
+        _CACHE.clear()
+        self._audit(parts, version, by, audit_dir)
+        return ids
+
+    def _write(
+        self, parts: Sequence[tuple[Parsed, str, str]], version: str, by: str, meta: dict[str, str] | None
+    ) -> list[int]:
         at = datetime.now(UTC).isoformat(timespec="seconds")
         ids: list[int] = []
         with self._db.transaction() as tx:
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext('terminology.load'), hashtext(current_schema()))")
             for p, sha, source in parts:
                 k = ALL_KINDS[p.kind]
                 about = {**(meta or {}), "table_rows": p.rows, "current_rows": p.current}
+                was = tx.fetchone("SELECT id, sha256, meta FROM release WHERE kind = ? AND active", (p.kind,))
                 tx.execute("UPDATE release SET active = FALSE WHERE kind = ?", (p.kind,))
+                same = False
+                if was is not None:  # the same release: by the sha256 of the whole release when both have one
+                    try:
+                        held = json.loads(was[2] or "{}").get("release_sha256", "")
+                    except ValueError:
+                        held = ""
+                    mine = (meta or {}).get("release_sha256", "")
+                    same = (held == mine) if (held or mine) else str(was[1]) == sha
+                if was is not None and same:
+                    # the same file loaded again: the copy it replaces holds nothing more, so that copy's codes go
+                    # and the release before it stays the one kept
+                    tx.execute("DELETE FROM concept WHERE release_id = ?", (was[0],))
+                elif was is not None:  # the release this one replaces is kept; the codes of older ones go
+                    tx.execute(
+                        "DELETE FROM concept WHERE release_id IN (SELECT id FROM release WHERE kind = ? AND id < ?)",
+                        (p.kind, was[0]),
+                    )
                 rid = tx.fetchval(
                     "INSERT INTO release (kind, system, version, source, sha256, encoding, rows, skipped, loaded_by, "
                     "loaded_at, meta) VALUES (?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
@@ -610,7 +745,9 @@ class TermStore:
                     ],
                 )
                 ids.append(int(rid))
-        _CACHE.clear()
+        return ids
+
+    def _audit(self, parts: Sequence[tuple[Parsed, str, str]], version: str, by: str, audit_dir: Path | None) -> None:
         adir = audit_dir or (Path(os.environ["TB_AUDIT_DIR"]) if os.environ.get("TB_AUDIT_DIR") else None)
         if adir is not None:
             from tb_common.audit_writer import open_audit
@@ -629,7 +766,6 @@ class TermStore:
                         "skipped": len(p.skipped),
                     },
                 )
-        return ids
 
     def releases(self, kind: str | None = None) -> list[dict[str, Any]]:
         q = "SELECT * FROM release" + (" WHERE kind = ?" if kind else "") + " ORDER BY id"
@@ -668,6 +804,23 @@ class TermStore:
             )
         return out
 
+    def snapshot(self, kinds: Sequence[str]) -> tuple[dict[str, dict[str, dict[str, str]]], str]:
+        """The active releases' codes of ``kinds`` and the newest ``loaded_at`` among them, read in ONE statement:
+        one view of the store, never one list from before a load and another from after it (deep review, L7)."""
+        marks = ",".join("?" for _ in kinds)
+        rows = self._db.fetchdicts(
+            "SELECT r.kind, r.loaded_at, c.code, c.display, c.target_system, c.target_code, c.extra FROM release r "
+            f"LEFT JOIN concept c ON c.release_id = r.id WHERE r.active AND r.kind IN ({marks})",
+            tuple(kinds),
+        )
+        out: dict[str, dict[str, dict[str, str]]] = {k: {} for k in kinds}
+        loaded = ""
+        for r in rows:
+            loaded = max(loaded, str(r["loaded_at"] or ""))
+            if r["code"] is not None:
+                out[r["kind"]][r["code"]] = {k: r[k] for k in ("display", "target_system", "target_code", "extra")}
+        return out, loaded
+
     def concepts(self, kind: str) -> dict[str, dict[str, str]]:
         """The active release's codes: ``code -> {display, target_system, target_code, extra}``."""
         rows = self._db.fetchdicts(
@@ -678,16 +831,21 @@ class TermStore:
         return {r["code"]: {k: r[k] for k in ("display", "target_system", "target_code", "extra")} for r in rows}
 
     def lookup_term(self, term: str) -> list[dict[str, str]]:
-        """The rows of the loaded 索引テーブル for one 索引用語 (compared after NFKC, as it is stored): each
-        ``{term, code, target_kind, kana_kanji, synonym, variant}``. ``code`` is the 対応用語コード: the
-        病名交換用コード of a disease (``target_kind`` 1) or the 修飾語交換用コード of a modifier (2); ``0000`` names no
-        current term and is given as it is, never resolved. A term may have several rows (D-1257)."""
+        """The rows of the loaded 索引テーブル for one 索引用語, compared by :func:`index_key` (the term is stored
+        under that key at load): each ``{term, code, target_kind, kana_kanji, synonym, variant}``, ``term`` as the
+        release writes it. ``code`` is the 対応用語コード: the 病名交換用コード of a disease (``target_kind`` 1) or the
+        修飾語交換用コード of a modifier (2); ``0000`` names no current term and is given as it is, never resolved. A
+        term may have several rows (D-1257)."""
         rows = self._db.fetchdicts(
-            "SELECT c.display, c.target_code, c.extra FROM concept c JOIN release r ON r.id = c.release_id "
-            "WHERE r.kind = ? AND r.active AND c.display = ? ORDER BY c.target_code",
-            (INDEX, unicodedata.normalize("NFKC", term).strip()),
+            "SELECT c.code, c.display, c.target_code, c.extra FROM concept c JOIN release r ON r.id = c.release_id "
+            "WHERE r.kind = ? AND r.active AND c.display = ? ORDER BY c.target_code, c.code",
+            (INDEX, index_key(term)),
         )
-        return [{"term": r["display"], "code": r["target_code"], **json.loads(r["extra"] or "{}")} for r in rows]
+        out = []
+        for r in rows:
+            extra = json.loads(r["extra"] or "{}")
+            out.append({"term": extra.pop("term", r["display"]), "code": r["target_code"], **extra})
+        return out
 
 
 # ---------------------------------------------------------------------------------------------- a MEDIS release
@@ -704,11 +862,15 @@ _RELEASE_FILES = {
 }
 RELEASE_TABLES = ("medis", "medis_modifier", INDEX)
 #: bounds on a release archive (V5.18: a zip of 2.8 MB holding tables of 4.4, 6.4 and 0.2 MB)
-RELEASE_MAX_ZIP = 64 * 1024 * 1024
+RELEASE_MAX_ZIP = 32 * 1024 * 1024
 RELEASE_MAX_MEMBERS = 500
-RELEASE_MAX_FILE = 64 * 1024 * 1024
+RELEASE_MAX_FILE = 16 * 1024 * 1024  # deep review of #1238 (M6): the largest real table is 6.4 MB
 #: readme.txt's first line: "ICD10対応標準病名マスター　V5.18　2026年6月1日改訂" (read after NFKC)
-_README = re.compile(r"V\s*(\d+(?:\.\d+)+)\s+(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日")
+#: The line is that and nothing else (deep review of #1238, L5): a version inside a sentence is not the release's
+_README = re.compile(
+    r"^\s*(?:ICD\s*10\s*対応\s*)?標準病名マスター\s*V\s*(\d+(?:\.\d+)+)\s+"
+    r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*(?:改訂|改定|版|発行)?\s*$"
+)
 
 
 def _wanted(name: str) -> str:
@@ -766,7 +928,7 @@ def _release_files(source: Path | str) -> tuple[dict[str, bytes], dict[str, str]
                         return data
 
                     take(what, info.filename, read)
-        except (zipfile.BadZipFile, NotImplementedError, RuntimeError, OSError) as exc:
+        except (zipfile.BadZipFile, NotImplementedError, RuntimeError, OSError, EOFError, zlib.error) as exc:
             raise LicensedError("LIC-RELEASE-ARCHIVE", f"the archive cannot be read ({type(exc).__name__})") from exc
     else:
         raise LicensedError("LIC-RELEASE-SOURCE", "the release is a folder or a zip file; neither was found")
@@ -798,18 +960,33 @@ def _read_release(source: Path | str) -> tuple[dict[str, Any], list[tuple[Parsed
     except LicensedError as exc:
         raise LicensedError(exc.code, f"{names['readme']}: {exc.message}") from exc
     first = unicodedata.normalize("NFKC", readme.lstrip("﻿").split("\n", 1)[0])
-    m = _README.search(first)
+    _refuse_characters(readme)
+    m = _README.match(first.strip())
     if not m:
         raise LicensedError(
-            "LIC-RELEASE-README", "readme.txt's first line does not give the version and date (V5.18 2026年6月1日)"
+            "LIC-RELEASE-README",
+            "readme.txt's first line is not the release's own title with its version and date "
+            "(ICD10対応標準病名マスター V5.18 2026年6月1日改訂)",
         )
     version = m.group(1)
-    released = f"{int(m.group(2)):04d}-{int(m.group(3)):02d}-{int(m.group(4)):02d}"
+    try:
+        released = date(int(m.group(2)), int(m.group(3)), int(m.group(4))).isoformat()
+    except ValueError as exc:
+        raise LicensedError("LIC-RELEASE-README", "readme.txt's first line gives a date that is no date") from exc
+    # the tables carry the version's digits in their names (``nmain518.txt`` of V5.18): a table of another release
+    # in this one's folder is refused
+    digits = version.replace(".", "")
+    for table in RELEASE_TABLES:
+        named = "".join(ch for ch in names[table].rsplit(".", 1)[0] if ch.isdigit())
+        if named and named != digits:
+            raise LicensedError(
+                "LIC-RELEASE-VERSION", f"{names[table]} is not a table of version {version}, which readme.txt names"
+            )
     parts: list[tuple[Parsed, str, str]] = []
     skipped: list[tuple[str, int, str]] = []
     for table in RELEASE_TABLES:
         try:
-            parsed = parse(table, files[table], _titles(files[f"ttl:{table}"]), RELEASE_ENCODING)
+            parsed = parse(table, files[table], _titles(files[f"ttl:{table}"]), RELEASE_ENCODING, MAX_ROWS)
         except LicensedError as exc:
             raise LicensedError(exc.code, f"{names[table]}: {exc.message}") from exc
         parts.append((parsed, hashlib.sha256(files[table]).hexdigest(), names[table]))
@@ -828,13 +1005,58 @@ def _read_release(source: Path | str) -> tuple[dict[str, Any], list[tuple[Parsed
     return report, parts
 
 
-def check_release(source: Path | str) -> dict[str, Any]:
+def _version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in re.findall(r"\d+", version))
+
+
+def _refuse_older(store: TermStore, report: dict[str, Any]) -> None:
+    """A release older than the one loaded is refused (deep review of #1238, L5): it would silently take codes
+    away. Older by its version, or by its date when both say one."""
+    for s in store.status():
+        if s["kind"] != "medis" or s["state"] != "loaded":
+            continue
+        older = _version_key(report["version"]) < _version_key(str(s["version"]))
+        if s["released"] and report["released"] < str(s["released"]):
+            older = True
+        if older:
+            raise LicensedError(
+                "LIC-RELEASE-OLDER",
+                f"version {report['version']} ({report['released']}) is older than the loaded version "
+                f"{s['version']}" + (f" ({s['released']})" if s["released"] else "") + "; not loaded",
+            )
+
+
+def _refuse_same(store: TermStore, report: dict[str, Any]) -> None:
+    """The very release that is loaded (the same sha256) is not loaded again unasked."""
+    for s in store.status():
+        if s["kind"] == "medis" and s["state"] == "loaded" and s["sha256"] == report["sha256"]:
+            raise LicensedError(
+                "LIC-RELEASE-LOADED",
+                f"this release is already loaded (version {s['version']}"
+                + (f", {s['released']}" if s["released"] else "")
+                + f", loaded {s['loaded_at']} by {s['loaded_by']}); not loaded again",
+            )
+
+
+def check_release(source: Path | str, store: TermStore | None = None) -> dict[str, Any]:
     """What :func:`load_release` would load from ``source``, read by the same code, with nothing written: the same
-    keys. A person is shown this before approving the load."""
-    return _read_release(source)[0]
+    keys. A person is shown this before approving the load. With ``store``, a release :func:`load_release` would
+    refuse as older than the loaded one is refused here too."""
+    report = _read_release(source)[0]
+    if store is not None:
+        _refuse_older(store, report)
+    return report
 
 
-def load_release(store: TermStore, source: Path | str, *, by: str, audit_dir: Path | None = None) -> dict[str, Any]:
+def load_release(
+    store: TermStore,
+    source: Path | str,
+    *,
+    by: str,
+    audit_dir: Path | None = None,
+    allow_older: bool = False,
+    allow_reload: bool = False,
+) -> dict[str, Any]:
     """Load a MEDIS ICD10対応標準病名マスター release as MEDIS ships it (D-1257). ``source`` is the release's folder or
     its zip (``readme.txt``, ``main/nmain*.txt`` 病名基本, ``main/mdfy*.txt`` 修飾語, ``main/index*.txt`` 索引,
     ``option/ttl_main.txt``, ``ttl_mdfy.txt``, ``ttl_idx.txt``; anything else in it is ignored). The column titles
@@ -842,11 +1064,20 @@ def load_release(store: TermStore, source: Path | str, *, by: str, audit_dir: Pa
     line, and a readme that does not give them refuses the load (no version is guessed). The three tables are
     written in one transaction: all or nothing.
 
+    A release older than the loaded one is refused (``LIC-RELEASE-OLDER``) unless ``allow_older`` is given: a
+    deliberate step back, never what a page does by default. The release that is already loaded (the same sha256)
+    is refused (``LIC-RELEASE-LOADED``) unless ``allow_reload`` is given: a person's explicit "load again"; the copy
+    it replaces is then not kept twice.
+
     Returns ``{"version", "released" (YYYY-MM-DD), "disease_rows", "disease_current", "modifier_rows",
     "index_rows", "skipped": [(table, line, reason)], "sha256"}``: ``sha256`` of the zip, or for a folder of its
     release files. Nothing of the release is kept outside the terminology store; the file itself is the site's and
     never part of TrialBox."""
     report, parts = _read_release(source)
+    if not allow_older:
+        _refuse_older(store, report)
+    if not allow_reload:
+        _refuse_same(store, report)
     store.load_parsed(
         parts,
         version=report["version"],
@@ -893,32 +1124,57 @@ CACHE_SECONDS = 30.0
 
 def tables(url: str | None = None, *, cached: bool = False) -> dict[str, dict[str, dict[str, str]]]:
     """Every active release's codes by list (empty lists when nothing is loaded or there is no store). ``cached``
-    keeps the answer for :data:`CACHE_SECONDS` (site set-up asks once per code); a load in this process clears it."""
+    keeps the answer for :data:`CACHE_SECONDS` (site set-up asks once per code); a load in this process clears it.
+
+    The lists are one view of the store (:meth:`TermStore.snapshot`). When a store is configured and cannot be
+    reached, the lists are empty and :func:`unavailable` says so of them (deep review of #1238, M4): empty because
+    nothing is loaded and empty because the store is down are not the same night."""
     key = url or os.environ.get(ENV) or ""
     now = time.monotonic()
     hit = _CACHE.get(key)
     if cached and hit and now - hit[0] < CACHE_SECONDS:
         return hit[1]
+    out: dict[str, dict[str, dict[str, str]]]
     try:
         st = TermStore(url)
     except DatabaseError:
-        return {k: {} for k in KINDS}
+        out = {k: {} for k in KINDS}
+        _remember(out, "", down=bool(key))
+        return out
     try:
-        out = {k: st.concepts(k) for k in KINDS}
-        loaded = max((str(r["loaded_at"]) for r in st.status() if r["state"] == "loaded"), default="")
+        out, loaded = st.snapshot(list(KINDS))
+    except Exception as exc:
+        if not (isinstance(exc, DatabaseError) or type(exc).__module__.startswith("psycopg")):
+            raise
+        out = {k: {} for k in KINDS}
+        _remember(out, "", down=True)
+        return out
     finally:
         st.close()
     _CACHE[key] = (now, out)
-    _GIVEN[id(out)] = (out, loaded)
-    while len(_GIVEN) > _GIVEN_MAX:
-        _GIVEN.pop(next(iter(_GIVEN)))
+    _remember(out, loaded, down=False)
     return out
 
 
-#: what :func:`tables` gave lately, each with the load time of the newest active release behind it (D-1257). The
-#: tables themselves are kept, so an identity is never mistaken for another dictionary's
-_GIVEN: dict[int, tuple[dict[str, dict[str, dict[str, str]]], str]] = {}
+#: what :func:`tables` gave lately, each with the load time of the newest active release behind it (D-1257) and
+#: whether the store could not be reached. The tables themselves are kept, so an identity is never mistaken for
+#: another dictionary's
+_GIVEN: dict[int, tuple[dict[str, dict[str, dict[str, str]]], str, bool]] = {}
 _GIVEN_MAX = 8
+
+
+def _remember(out: dict[str, dict[str, dict[str, str]]], loaded: str, *, down: bool) -> None:
+    _GIVEN[id(out)] = (out, loaded, down)
+    while len(_GIVEN) > _GIVEN_MAX:
+        _GIVEN.pop(next(iter(_GIVEN)))
+
+
+def unavailable(given: object) -> bool:
+    """Whether ``given`` (a result of :func:`tables`) is empty because a configured terminology store could not be
+    reached. A reader whose rows depend on the licensed lists does not read then: a night read without the master
+    stores diagnoses as a site without one has them, and no later night sends them again (deep review, M4)."""
+    hit = _GIVEN.get(id(given))
+    return hit is not None and hit[0] is given and hit[2]
 
 
 def loaded_at_of(given: object) -> str | None:
@@ -944,6 +1200,8 @@ def main(argv: list[str] | None = None) -> int:
     lr = sub.add_parser("load-release", help="load a MEDIS release as MEDIS ships it (its folder or its zip)")
     lr.add_argument("--source", required=True, type=Path)
     lr.add_argument("--check", action="store_true", help="read it and say what would be loaded; write nothing")
+    lr.add_argument("--allow-older", action="store_true", help="load a release older than the loaded one")
+    lr.add_argument("--again", action="store_true", help="load the release that is already loaded once more")
     lr.add_argument("--by", default=os.environ.get("USER", "admin"))
     sub.add_parser("status", help="which lists are loaded")
     a = ap.parse_args(argv)
@@ -954,7 +1212,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 st = TermStore()
                 try:
-                    out = load_release(st, a.source, by=a.by)
+                    out = load_release(st, a.source, by=a.by, allow_older=a.allow_older, allow_reload=a.again)
                 finally:
                     st.close()
         except LicensedError as exc:

@@ -105,20 +105,22 @@ def test_a_cancellation_reaches_the_id_an_earlier_reader_published(tmp_path: Pat
     night under the new code brings its cancellation. No active copy of the order may survive."""
     st = _storage(tmp_path)
     nights.rx(st, WIDE, D1, f"{D1}090000000", [("NW", "1", DRUG_A)])
-    lake: nights.Lake = {f"{P}/{WIDE}": {"mrn": P, "rx_no": WIDE, "status": "active"}}  # as #1095's head wrote it
+    lake: nights.Lake = {}
+    nights.apply(lake, "medication", [{"mrn": P, "rx_no": WIDE, "status": "active"}], [])  # as #1095's head wrote it
     nights.rename_to_past(next(st.root.rglob(f"*_{D1}090000000_*_1")))
     nights.rx(st, WIDE, D1, f"{D2}100000000", [("CA", "1", DRUG_A)], orc5="CA")
     nights.apply(lake, "medication", *nights.night(nights.reader(st.root), "medication", nights.SINCE))
-    assert [(rid, r["status"]) for rid, r in lake.items()] == [(f"{P}/{WIDE}", "cancelled")]
+    assert [(rid, r["status"]) for rid, r in nights.shown(lake, "medication").items()] == [(f"{P}/{WIDE}", "cancelled")]
 
 
-@pytest.mark.parametrize(("placer", "rid"), [(WIDE, WIDE), ("RX01", f"{WIDE}:RX01")])
+@pytest.mark.parametrize("placer", [WIDE, "RX01"])
 def test_a_newer_version_named_in_another_width_is_the_same_record_under_its_first_id(
-    tmp_path: Path, placer: str, rid: str
+    tmp_path: Path, placer: str
 ) -> None:
-    """The record's id is built from the オーダNo as its first file wrote it, so a version named in another width
-    keeps the id (ORC-2 the same), or changes it only by what ORC-2 itself says, on the night it arrives; either way
-    the delta night leaves what a full night leaves, and the forms a version's own name would give are tombstoned."""
+    """I1: the record's id is built from the オーダNo as its first file wrote it and never changes, whichever width
+    a later version writes its file name or its ORC-2 in (deep review of #1238, H2: ORC-2 is compared as the key
+    compares it). The delta night leaves what a full night leaves."""
+    rid = WIDE
 
     def night1(st: kit.Storage) -> None:
         nights.rx(st, WIDE, D1, f"{D1}090000000", [("NW", "1", DRUG_A)])
@@ -139,8 +141,8 @@ def test_the_ids_two_widths_gave_an_earlier_reader_are_tombstoned(tmp_path: Path
     nights.rx(st, "RX01", D1, f"{D1}090000000", [("NW", "1", DRUG_A)])
     nights.rx(st, WIDE, D1, f"{D2}100000000", [("NW", "1", DRUG_A)], placer=WIDE)
     rows, dead, _src = _read(st, "medication")
-    assert [r["rx_no"] for r in rows] == [f"RX01:{WIDE}"]
-    assert {r["rx_no"] for r in dead} == {"RX01", WIDE}
+    assert [r["rx_no"] for r in rows] == ["RX01"]
+    assert {r["rx_no"] for r in dead} == {WIDE, f"RX01:{WIDE}"}
 
 
 # ------------------------------------------------------------------ High, source.py:2141 (and reviewer B, :1487)
@@ -270,16 +272,22 @@ def _master(retired: str = "") -> dict[str, dict[str, dict[str, str]]]:
     return tables
 
 
-def test_a_master_change_reaches_a_diagnosis_whose_file_did_not_change_on_a_delta_night(tmp_path: Path) -> None:
+@pytest.mark.parametrize("loaded", [None, "2026-11-17T03:00:00+00:00"])
+def test_a_master_change_reaches_a_diagnosis_whose_file_did_not_change_on_a_delta_night(
+    tmp_path: Path, loaded: str | None
+) -> None:
     """A modifier used by a confirmed diagnosis of D1 is retired in the master the site loads before night 2. No
-    hospital file changes; the delta night must still send the diagnosis, now unconfirmed."""
+    hospital file changes; the delta night must still send the diagnosis, now unconfirmed: when the reader is not
+    told when the master was loaded, and when it is told (the load is inside the night's window)."""
 
     def night1(st: kit.Storage) -> None:
         body = [pb.prb("99990001", "左肺炎", "DX01"), pb.zpr(pre=["99980002"], dis="99990001", pre_ex=["ZM02"])]
         kit._write(st, P, "-", "PPR-01", "ALL9", f"{D1}090000000", pb.ppr(P, body))
 
     def with_master(retired: str = "") -> nights.Reader:
-        return lambda root: Ssmix2Source(root, licensed=_master(retired), today="20261231")
+        return lambda root: Ssmix2Source(
+            root, licensed=_master(retired), today="20261231", licensed_loaded_at=loaded if retired else None
+        )
 
     full, delta = nights.two_nights(
         tmp_path, "diagnosis", night1, lambda st: None, read1=with_master(), read2=with_master("99980002")
@@ -592,21 +600,29 @@ def test_the_dates_the_specification_writes_are_still_real_dates(value: str) -> 
 
 # ------------------------------------------------------------------ the invariant behind the tombstone findings
 @pytest.mark.parametrize("table", ["diagnosis", "medication", "lab"])
-def test_no_tombstone_ever_names_an_id_a_record_in_force_carries(tmp_path: Path, table: str) -> None:
-    """Whatever the storage, on any night: an id the full read gives a row is never among the tombstones. Read on
-    the kit's whole storage and on one that mixes the cases above."""
-    st = kit.build(tmp_path)
-    nights.rx(st, "ALL9", D1, f"{D1}090000000", [("NW", "1", DRUG_B)], typ="OMP-02", placer="RX01")
-    nights.rx(st, "RX01", "20261116", f"{D2}090000000", [("NW", "1", DRUG_A)])
-    nights.rx(st, "RX01", D2, f"{D2}100000000", [("NW", "1", DRUG_A)])
-    nights.lab(st, "L02", D1, f"{D1}090000000", [("LAB-A", "5.1", "F"), ("LAB-B", "1", "F")])
-    nights.lab(st, "L02", D1, f"{D2}090000000", [("LAB-A", "5.1", "F")])
-    nights.lab(st, "L77", D1, f"{D1}090000000", [("LAB-B", "2", "F")])  # another record carries the dropped id
-    src = nights.reader(st.root)
-    key = nights.KEY[table]
-    live = {(r["mrn"], r[key]) for r in src.rows(table, table, None, None)}
-    dead = {(r["mrn"], r[key]) for r in src.deleted_rows(table, table, None, None)}
-    assert live and not (live & dead)
+def test_no_tombstone_ever_removes_a_record_in_force_from_the_lake(tmp_path: Path, table: str) -> None:
+    """Whatever the storage: after a delta night the lake (keyed by the adapter's own ids) holds every record the
+    full read gives, and nothing else. Night one is the kit's whole storage and the first half of the cases above;
+    night two brings the versions that re-key, drop and share ids. (Deep review of #1238: asserted on the lake after
+    two nights, not on the filter that makes it true.)"""
+
+    def night1(st: kit.Storage) -> None:
+        kit.build(st.root.parent)
+        nights.rx(st, "ALL9", D1, f"{D1}090000000", [("NW", "1", DRUG_B)], typ="OMP-02", placer="RX01")
+        nights.rx(st, "RX01", "20261116", f"{D1}100000000", [("NW", "1", DRUG_A)])
+        nights.lab(st, "L02", D1, f"{D1}090000000", [("LAB-A", "5.1", "F"), ("LAB-B", "1", "F")])
+        nights.lab(st, "L77", D1, f"{D1}090000000", [("LAB-B", "2", "F")])  # another record carries the dropped id
+        nights.snapshot(st, f"{D1}090000000", [nights.prb("DX71"), nights.prb("DX72")], patient=Q)
+
+    def night2(st: kit.Storage) -> None:
+        nights.rx(st, "RX01", D2, f"{D2}100000000", [("NW", "1", DRUG_A)])
+        nights.rename_to_past(next(st.root.rglob(f"*_L02_{D1}090000000_*_1")))
+        nights.lab(st, "L02", D1, f"{D2}090000000", [("LAB-A", "5.1", "F")])
+        nights.rename_to_past(next(st.root.rglob(f"{Q}_*_PPR-01_*_{D1}090000000_*_1")))
+        nights.snapshot(st, f"{D2}090000000", [nights.prb("DX71")], patient=Q)
+
+    full, delta = nights.two_nights(tmp_path, table, night1, night2)
+    assert full and delta == full
 
 
 def test_the_licensed_store_says_when_the_tables_it_gave_were_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -618,15 +634,9 @@ def test_the_licensed_store_says_when_the_tables_it_gave_were_loaded(monkeypatch
         def __init__(self, url: str | None = None) -> None:
             pass
 
-        def concepts(self, kind: str) -> dict[str, dict[str, str]]:
-            return {}
-
-        def status(self) -> list[dict[str, Any]]:
-            return [
-                {"kind": "medis", "state": "loaded", "loaded_at": "2026-11-12T01:00:00+00:00"},
-                {"kind": "medis_modifier", "state": "loaded", "loaded_at": "2026-11-17T03:00:00+00:00"},
-                {"kind": "yj", "state": "not_loaded", "loaded_at": ""},
-            ]
+        def snapshot(self, kinds: list[str]) -> tuple[dict[str, dict[str, dict[str, str]]], str]:
+            # the lists and the load time are one read of the store (deep review of #1238, L7): nothing else is asked
+            return {k: {} for k in kinds}, "2026-11-17T03:00:00+00:00"
 
         def close(self) -> None:
             pass
@@ -674,17 +684,38 @@ KEY_CHANGES: list[tuple[str, list[Any], list[Any], set[str]]] = [
     ("its lines to its lines and day", [_order("RX1", D1, S1, [DRUG_A, DRUG_B])], [_order("RX1", D2, S2, [DRUG_A])],
      {f"RX1@{D1}#1:{DRUG_A}", f"RX1@{D1}#2:{DRUG_B}", f"RX1@{D2}"}),
     ("full-width, a version in the other width", [_order("ＲＸ１", D1, S1, [DRUG_A])],
-     [_past(S1), _order("RX1", D1, S2, [DRUG_B])], {"ＲＸ１:RX1"}),
+     [_past(S1), _order("RX1", D1, S2, [DRUG_B])], {"ＲＸ１"}),
     ("full-width, a version in the other width that writes ORC-2 as before", [_order("ＲＸ１", D1, S1, [DRUG_A])],
      [_past(S1), _order("RX1", D1, S2, [DRUG_B], placer="ＲＸ１")], {"ＲＸ１"}),
     ("half-width, a version in full width", [_order("RX1", D1, S1, [DRUG_A])],
-     [_past(S1), _order("ＲＸ１", D1, S2, [DRUG_B])], {"RX1:ＲＸ１"}),
+     [_past(S1), _order("ＲＸ１", D1, S2, [DRUG_B])], {"RX1"}),
     ("full-width to its day", [_order("ＲＸ１", D1, S1, [DRUG_A])], [_order("ＲＸ１", D2, S2, [DRUG_A])],
      {f"ＲＸ１@{D1}", f"ＲＸ１@{D2}"}),
     ("full-width on one day, half-width on another", [_order("ＲＸ１", D1, S1, [DRUG_A])],
      [_order("RX1", D2, S2, [DRUG_A])], {f"ＲＸ１@{D1}", f"RX1@{D2}"}),
     ("an administration with no order, then its order", [lambda st: nights.given(st, "RX1", D1, S1, DRUG_A)],
      [_order("RX1", D1, S2, [DRUG_A])], {"RX1"}),
+    # deep review of #1238, H1: an administration that filled a line becomes a row of its own when its order's
+    # number is filed on a second day; its file is old, and the night must still send it
+    ("an administration that filled a line, then its number on a second day",
+     [_order("RX1", D1, S1, [DRUG_A]), lambda st: nights.given(st, "RX1", D1, f"{D1}100000000", DRUG_A)],
+     [_order("RX1", D2, S2, [DRUG_A])], {f"RX1@{D1}", f"RX1@{D2}", f"RX1~{DRUG_A}"}),
+    ("an administration that filled a line, then a version of the order without its drug",
+     [_order("RX1", D1, S1, [DRUG_A]), lambda st: nights.given(st, "RX1", D1, f"{D1}100000000", DRUG_A)],
+     [_past(S1), _order("RX1", D1, S2, [DRUG_B])], {"RX1", f"RX1~{DRUG_A}"}),
+    # L1: the id it had as a row of its own goes when it is tied
+    ("an administration of another drug, then a version of the order with its drug",
+     [_order("RX1", D1, S1, [DRUG_B]), lambda st: nights.given(st, "RX1", D1, f"{D1}100000000", DRUG_A)],
+     [_past(S1), _order("RX1", D1, S2, [DRUG_A])], {"RX1"}),
+    ("an administration with no order, then its order of two lines",
+     [lambda st: nights.given(st, "RX1", D1, S1, DRUG_A)],
+     [_order("RX1", D1, S2, [DRUG_B, "999000003"])],
+     {f"RX1#1:{DRUG_B}", "RX1#2:999000003", f"RX1~{DRUG_A}"}),
+    # H2 (b), L1: the plain id two days' prescriptions leave is taken by an injection's administration whose file
+    # is old: its tombstone is not sent, so the row itself is
+    ("an injection's administration takes the plain id two days' prescriptions leave",
+     [_order("RX1", D1, S1, [DRUG_A]), lambda st: nights.given(st, "RX1", D1, f"{D1}100000000", DRUG_B, typ="OMP-12")],
+     [_order("RX1", D2, S2, [DRUG_A])], {f"RX1@{D1}", f"RX1@{D2}", "RX1"}),
     ("a deleted order of a number another type holds",
      [_order("RX1", D1, S1, [DRUG_A]), _order("RX1", D1, f"{D1}100000000", [DRUG_B], "OMP-02")],
      [lambda st: nights.rx(st, "RX1", D1, S3, [("CA", "1", DRUG_B)], typ="OMP-02", flag="0")],
@@ -710,3 +741,81 @@ def test_no_id_the_reader_ever_published_is_left_behind_by_a_key_change(
     full, delta = nights.two_nights(tmp_path, "medication", night1, night2)
     assert set(full) == {f"{P}/{rid}" for rid in ids}, name
     assert delta == full, name
+
+
+# ================================================================== the deep review of #1238
+def test_one_patients_nightly_tombstone_never_removes_another_patients_order_of_the_same_number(tmp_path: Path) -> None:
+    """H3: the adapter's id is made of the key column alone, so patient P's tombstone of the plain ``RX01`` (two
+    days' prescriptions, tombstoned on every night) is the id of patient Q's unchanged order ``RX01``. The harness
+    builds its ids with ``Mapper.row_id``; Q's order is in the lake after a delta night as after a full one."""
+
+    def night1(st: kit.Storage) -> None:
+        nights.rx(st, "RX01", D1, f"{D1}090000000", [("NW", "1", DRUG_A)])
+        nights.rx(st, "RX01", "20261111", f"{D1}100000000", [("NW", "1", DRUG_A)])
+        nights.rx(st, "RX01", D1, f"{D1}090000000", [("NW", "1", DRUG_B)], patient=Q)
+
+    def night2(st: kit.Storage) -> None:
+        nights.rx(st, "RX55", D2, f"{D2}090000000", [("NW", "1", DRUG_A)])
+
+    full, delta = nights.two_nights(tmp_path, "medication", night1, night2)
+    assert f"{Q}/RX01" in full and full[f"{Q}/RX01"]["source_drug_code"] == DRUG_B
+    assert delta == full
+
+
+def test_a_lab_result_two_orders_name_keeps_the_value_of_the_order_that_still_holds_it(tmp_path: Path) -> None:
+    """L3: two lab orders share one result id. The order read last drops it in a newer version; its tombstone is not
+    sent (the other order's result carries the id), so that result is sent and the dropped value does not stay."""
+
+    def night1(st: kit.Storage) -> None:
+        nights.lab(st, "L10", D1, f"{D1}090000000", [("LAB-B", "2", "F")])
+        nights.lab(st, "L90", D1, f"{D1}090000000", [("LAB-A", "5.1", "F"), ("LAB-B", "1", "F")])
+
+    def night2(st: kit.Storage) -> None:
+        nights.rename_to_past(next(st.root.rglob(f"*_L90_{D1}090000000_*_1")))
+        nights.lab(st, "L90", D1, f"{D2}090000000", [("LAB-A", "5.1", "F")])
+
+    full, delta = nights.two_nights(tmp_path, "lab", night1, night2)
+    assert full[f"{P}/LAB-B"]["result_value"] == "2"
+    assert delta == full
+
+
+def test_a_document_whose_name_merely_has_seven_parts_is_the_folders_own_document(tmp_path: Path) -> None:
+    """M1: seven parts between underscores are not the standardised form. ``discharge_summary_2026_11_10_final_v2``
+    names no patient: it is read as the folder's document, and the id it is stored under is never tombstoned."""
+    st = _storage(tmp_path)
+    d = st.extended / P[0:3] / P[3:6] / P / "20261001" / "DSC-01"
+    d.mkdir(parents=True)
+    (d / "discharge_summary_2026_11_10_final_v2.txt").write_bytes("退院サマリ".encode())
+    rows, dead, src = _read(st, "note")
+    assert [r["note_no"] for r in rows] == [f"ext/{P}/20261001/DSC-01/discharge_summary_2026_11_10_final_v2.txt"]
+    assert dead == [] and src.quarantined == []
+
+
+def test_an_untied_administration_is_looked_up_not_searched_for(tmp_path: Path) -> None:
+    """M7: each administration that is not tied to a line scanned every order line of every patient. The time for
+    the same administrations must not grow with the lines of other patients (a ratio, not a number of seconds)."""
+    import time
+
+    st = _storage(tmp_path)
+    for n in range(150):
+        nights.given(st, f"RX{n:04d}", D1, f"{D1}09{n % 60:02d}00000", DRUG_A, typ="OMP-12" if n % 2 else "OMP-11")
+
+    def others(count: int) -> list[dict[str, Any]]:
+        return [
+            {"mrn": f"7{n:07d}", "rx_kind": "prescription", "rx_no": f"R{n}", "_number": f"R{n}"} for n in range(count)
+        ]
+
+    def run(count: int) -> float:
+        best = 9e9
+        for _ in range(3):
+            src = nights.reader(st.root)
+            src._files()
+            rows = others(count)
+            t0 = time.perf_counter()
+            out = src._administrations(rows)
+            best = min(best, time.perf_counter() - t0)
+            assert len(out) == count + 150
+        return best
+
+    few, many = run(0), run(60_000)
+    assert many < 3 * few + 0.25, (few, many)
