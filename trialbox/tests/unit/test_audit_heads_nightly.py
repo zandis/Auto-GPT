@@ -207,7 +207,8 @@ def test_on_a_site_box_the_signer_sees_the_audit_volume_read_only_and_the_event_
         calls.append(argv)
         if "run" in argv[:3]:
             return json.dumps({"ok": True, "problems": [], "signed": {"lines": 7, "hash": "ab" * 32, "key_id": "k"},
-                               "detail": {"lines": 7, "head": "ab" * 32, "key_id": "k", "anchors": 1}})  # fmt: skip
+                               "detail": {"lines": 7, "head": "ab" * 32, "key_id": "k", "anchors": 1},
+                               "open_to_root": [], "root_proof": {str(box["share"]): "a nfs4 share ..."}})  # fmt: skip
         return ""
 
     env = {"TB_AUDIT_HOST_DIR": str(box["audit"]), "TB_SECRETS_HOST_DIR": str(box["secrets"]),
@@ -224,15 +225,21 @@ def test_on_a_site_box_the_signer_sees_the_audit_volume_read_only_and_the_event_
 
 
 # ------------------------------------------------------------------------------------------------ doctor
+def _result_ok(box: dict[str, Path]) -> None:
+    """10G-2 (D-1345): doctor fails closed without the hourly run's result file; the run's own success, written."""
+    audit_heads.write_state(audit_heads.state_file(box["deploy"], {}), audit_heads.Night(True))
+
+
 def _doctor(box: dict[str, Path], env: str, now: datetime, **more: str) -> doctor.Check:
     e = {"TB_ENV": env, "TB_SECRETS_HOST_DIR": str(box["secrets"]), "TB_AUDIT_HOST_DIR": str(box["audit"]), **more}
     return doctor.check_audit_heads(doctor.DoctorInputs(env=e, deploy=box["deploy"]), now=now)
 
 
 def test_doctor_passes_a_box_with_a_fresh_head(box: dict[str, Path]) -> None:
+    _result_ok(box)
     _events(AuditLog(box["audit"]), 2)
     assert _night(box, Recorder()).ok
-    c = _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=10), TB_AUDIT_ANCHOR_TARGETS=str(box["share"]))
+    c = _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=1), TB_AUDIT_ANCHOR_TARGETS=str(box["share"]))
     assert (c.name, c.status) == ("audit_heads", "PASS"), c.detail
 
 
@@ -243,6 +250,7 @@ def test_doctor_fails_a_box_with_no_anchor_folder(box: dict[str, Path], env: str
 
 
 def test_doctor_fails_an_old_head_a_folder_with_none_and_a_missing_key(box: dict[str, Path]) -> None:
+    _result_ok(box)
     _events(AuditLog(box["audit"]), 2)
     old = (NIGHT - timedelta(hours=40)).timestamp()  # the key is older than the limit: a missing head is not "new"
     os.utime(box["secrets"] / audit.SIGN_PUB_FILE, (old, old))
@@ -250,9 +258,9 @@ def test_doctor_fails_an_old_head_a_folder_with_none_and_a_missing_key(box: dict
     c = _doctor(box, "PRODUCTION", NIGHT, **targets)
     assert c.status == "FAIL" and "no signed head" in c.detail
     assert _night(box, Recorder()).ok
-    assert _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=35), **targets).status == "PASS"
-    c = _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=37), **targets)
-    assert c.status == "FAIL" and "37 h" in c.detail
+    assert _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=1), **targets).status == "PASS"
+    c = _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=3), **targets)
+    assert c.status == "FAIL" and "3 h" in c.detail
     c = _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=37), TB_AUDIT_HEAD_MAX_AGE_H="48", **targets)
     assert c.status == "PASS"
     both = {"TB_AUDIT_ANCHOR_TARGETS": os.pathsep.join([str(box["share"]), str(box["share2"])])}
@@ -274,7 +282,7 @@ def test_the_check_is_one_of_doctors_and_the_age_is_a_declared_setting() -> None
     from tb_common.config import DECLARED
 
     assert doctor.check_audit_heads in doctor.CHECKS
-    assert DECLARED["TB_AUDIT_HEAD_MAX_AGE_H"].default == "36"
+    assert DECLARED["TB_AUDIT_HEAD_MAX_AGE_H"].default == "2"
 
 
 # ------------------------------------------------------------------------------------------------ the installer
@@ -383,7 +391,7 @@ def test_the_night_leaves_its_result_where_doctor_reads_it(
     assert cli(["audit-sign", "--deploy", str(box["deploy"]), "--local"]) == 0
     state = json.loads((box["deploy"] / "logs" / "audit-sign.json").read_text(encoding="utf-8"))
     assert state["ok"] is True and state["at"]
-    now = datetime.fromisoformat(state["at"]) + timedelta(hours=2)
+    now = datetime.fromisoformat(state["at"]) + timedelta(hours=1)
     targets = {"TB_AUDIT_ANCHOR_TARGETS": str(box["share"])}
     assert _doctor(box, "PRODUCTION", now, **targets).status == "PASS"
     _remove_line_and_rehash(box["audit"], 2)
@@ -406,9 +414,9 @@ def test_no_head_yet_is_a_warning_only_while_the_key_is_new(box: dict[str, Path]
     """Review H1b: a box installed today has no head until the first night; the install must not end in FAIL for it."""
     targets = {"TB_AUDIT_ANCHOR_TARGETS": str(box["share"])}
     made = datetime.fromtimestamp((box["secrets"] / audit.SIGN_PUB_FILE).stat().st_mtime, UTC)
-    c = _doctor(box, "PRODUCTION", made + timedelta(hours=3), **targets)
+    c = _doctor(box, "PRODUCTION", made + timedelta(hours=1), **targets)
     assert c.status == "WARN" and "no signed head" in c.detail
-    c = _doctor(box, "PRODUCTION", made + timedelta(hours=37), **targets)
+    c = _doctor(box, "PRODUCTION", made + timedelta(hours=3), **targets)
     assert c.status == "FAIL" and "no signed head" in c.detail
 
 

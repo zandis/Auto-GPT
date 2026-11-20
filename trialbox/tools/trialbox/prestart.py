@@ -96,12 +96,35 @@ def _ldap_ca(box: ComposeBox) -> str:
     return check.detail
 
 
+def _hourly_audit_head(box: ComposeBox) -> str:
+    """10G-2 (D-1345): this release's doctor FAILs a signed audit head older than 2 h, so a box whose cron file still
+    signs once a night is moved to the hourly line before its stack starts. Never fails the update (an absent or
+    unreadable file is said). Harmless to the release before: its ``audit-sign`` run every hour signs every hour."""
+    import os
+
+    from tools.trialbox import audit_heads
+
+    return audit_heads.hourly_cron(Path(os.environ.get("TB_CRON_DIR") or "/etc/cron.d"))  # as install.sh reads it
+
+
+def _audit_key_root_only(box: ComposeBox) -> str:
+    """10G-2 (D-1345, the review's finding 3): the private audit signing key is root's, mode 0600. A box sealed
+    before this gave it to the services' account (uid 10001, seal_keys.sh), which the adapter and the orchestrator
+    run as: they could open it. Never fails the update (a host without the folder, or not root, is said).
+    Harmless to the release before: only root's signer and tools read that file."""
+    from tools.trialbox import audit_heads
+
+    return audit_heads.key_root_only(audit_heads.host_dirs(box.env)[1])
+
+
 #: name, step; in the order they run. The first two are what every release before this one ran in the updater itself.
 STEPS: list[tuple[str, Callable[[ComposeBox], str]]] = [
     ("image pins", _image_pins),
     ("model key", _model_key),
     ("actor signing key", _actor_key),
     ("FHIR store password", _fhir_password),
+    ("hourly audit head", _hourly_audit_head),  # 10G-2 (D-1345): before the refusal, so that step stays last
+    ("audit key root only", _audit_key_root_only),  # 10G-2 (D-1345): the private audit key root's, 0600
     ("hospital directory CA", _ldap_ca),  # D-722: a refusal, not a making; last, so the order before it stands
 ]
 
