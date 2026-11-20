@@ -212,13 +212,6 @@ svg .axis { stroke: var(--line); stroke-width: 1; }
 .wlist { padding: 10px 0 0; }
 .wlist > .headrow { padding: 0 12px; }
 .wlist .empty { padding: 12px; color: var(--muted); }
-table.worklist { width: 100%; border-collapse: collapse; font-size: var(--t-meta); }
-table.worklist th { text-align: left; font-size: var(--t-meta);  letter-spacing: .04em; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-table.worklist td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-table.worklist tr.sel td { background: var(--warn-bg); }
-table.worklist td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
-table.worklist td.needed { font-size: var(--t-meta); color: var(--warn); }
-table.worklist .bad { color: var(--bad); font-weight: 600; }
 .nowrap { white-space: nowrap; }
 .meter { display: inline-block; width: 48px; height: 6px; border-radius: 3px; background: var(--line); margin-right: 6px; vertical-align: middle; overflow: hidden; }
 .meter i { display: block; height: 100%; background: var(--ok); }
@@ -381,7 +374,6 @@ a.rowlink { min-height: 44px; }
   .chartp.sheet .sheetnav .button { margin: 0; }
   .chartp.sheet .markbar { position: sticky; bottom: 0; margin-top: auto; z-index: 2; box-shadow: 0 -4px 12px var(--shadow-low); }
   body:has(.chartp.sheet) { overflow: hidden; }
-  table.worklist td.needed, table.worklist th:nth-child(4) { display: none; }
   .markbar button, .markbar .button { flex: 1 1 40%; }
 }
 section.card > .markbar { position: sticky; bottom: 0; margin: 10px -16px -16px; border-radius: 0 0 10px 10px; }
@@ -473,12 +465,6 @@ body:lang(ja), body:lang(zh-TW) { line-break: strict; line-height: var(--lh-cjk)
 em:lang(ja), em:lang(zh-TW) { font-style: normal; font-weight: 700; }  /* 9k-2: no italic for Han emphasis (CLReq, JLReq); an em in English keeps it */
 .pill, button, .button { word-break: keep-all; overflow-wrap: break-word; }
 nav a, .rail a > span:first-child, details.more > summary, .steps b, .wizard-steps li, th { word-break: keep-all; }
-/* the worklist's visit column wraps between date and time (each one a no-wrap span), never inside a CJK phrase, so
-   the status column keeps its pills whole without the table scrolling sideways on a desktop */
-table.worklist td.visit { white-space: normal; word-break: keep-all; }
-table.worklist th { white-space: normal; word-break: keep-all; }
-table.worklist th, table.worklist td { padding-left: 8px; padding-right: 8px; }
-table.worklist .meter { width: 40px; }
 /* the patient panel: the "ask the treating doctor" line had no side padding and sat on the panel's edge (UX-025) */
 .chartp > p.hint { margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 /* the full patient page: the same sticky mark bar as the week page's sheet (UX-025) */
@@ -539,28 +525,6 @@ body.phone-first .pfweek > .fold-button::after { content: "▸"; color: var(--ac
 body.phone-first .pfweek > .fold-toggle:checked + .fold-button::after { content: "▾"; }
 body.phone-first .pfweek > .fold-toggle:focus-visible + .fold-button { outline: 3px solid var(--accent); outline-offset: 2px; }
 body.phone-first .pfweek > .fold-toggle:not(:checked) ~ .pf-fold { display: none; }
-/* E-4: the worklist's rows as cards under 640 px: the patient and the criteria met on the first line, then the
-   visit, the status and what is still needed (no column off-screen); the whole card opens the patient */
-@media (max-width: 640px) {
-  body.phone-first table.worklist, body.phone-first table.worklist tbody { display: block; }
-  body.phone-first table.worklist thead { display: none; }
-  body.phone-first table.worklist tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; position: relative;
-    padding: 10px 12px; border-bottom: 1px solid var(--line); }
-  body.phone-first table.worklist td, body.phone-first table.worklist td.needed { display: block; padding: 0; border: 0; text-align: left; }
-  body.phone-first table.worklist td:nth-child(2) { grid-column: 1; grid-row: 1; }
-  body.phone-first table.worklist td:nth-child(3) { grid-column: 2; grid-row: 1; text-align: right; }
-  body.phone-first table.worklist td.visit { grid-column: 1 / -1; grid-row: 2; }
-  body.phone-first table.worklist td:nth-child(5) { grid-column: 1 / -1; grid-row: 3; }
-  body.phone-first table.worklist td.needed { grid-column: 1 / -1; grid-row: 4; }
-  body.phone-first table.worklist td[data-label]::before { content: attr(data-label) " "; color: var(--muted); font-weight: 600; }
-  body.phone-first table.worklist td:nth-child(3)[data-label]::before { display: block; font-weight: 400; }
-  body.phone-first table.worklist tr[data-status="new"] { box-shadow: inset 3px 0 0 var(--accent); }
-  body.phone-first table.worklist tr[data-status="new"] td:first-child { box-shadow: none; }
-  body.phone-first table.worklist tr.sel { background: var(--warn-bg); }
-  body.phone-first table.worklist tr.sel td { background: transparent; }
-  body.phone-first table.worklist a.rowlink::after { content: ""; position: absolute; inset: 0; }
-  body.phone-first table.worklist details.quick { position: relative; z-index: 1; }
-}
 /* the participant's page (life_subject.html): its visits and its step trail as cards under 640 px, each cell with
    its column's name, so the visit window is not clipped and the step is not squeezed to one character a line */
 @media (max-width: 640px) {
@@ -645,9 +609,33 @@ nav.ptabs .ptabs-rs { color: var(--muted); }
 .pill[data-tone="bad"] { background: var(--bad-bg); color: var(--bad); }
 .pill[data-tone="info"] { background: var(--bg); color: var(--accent); border: 1px solid var(--line); }
 .pill[data-tone="neutral"] { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
-table.worklist tr[data-status="new"] td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 /* 9k-5 (D-1380): the page header, templates/_ds.html. One h1, its context line, and the page's one primary act. */
 .ph { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; justify-content: space-between; }
 .ph h1 { margin-bottom: 6px; }
 .ph-ctx { flex: 0 0 100%; margin: 0; font-size: var(--t-meta); color: var(--muted); }
 .ph-act { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+
+/* 9k-14 (D-1386): the person card, templates/_pcard.html. One <article class="pcard"> per person on the weekly list and
+   the cohort list, in place of the table row and its phone-first cards: the name and the figure on the first line,
+   the date and the state, then what is still needed, each part with its column's name. One layout at every width,
+   so no column is off-screen at 390 px; from 641 px the state sits beside the name and the date. */
+.pcards { font-size: var(--t-meta); }
+.pcard { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name met" "meta meta" "state state" "why why";
+  gap: 4px 12px; padding: 10px 12px; border-bottom: 1px solid var(--line); position: relative; margin: 0; align-items: start; }
+.pcard > * { margin: 0; min-width: 0; }
+.pcard-name { grid-area: name; font-size: inherit; font-weight: 400; }
+.pcard-met { grid-area: met; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.pcard-meta { grid-area: meta; font-variant-numeric: tabular-nums; white-space: normal; word-break: keep-all; }
+.pcard-why { grid-area: why; color: var(--warn); }
+.pcard-state { grid-area: state; }
+.pcard [data-col]::before { content: attr(data-col) " "; color: var(--muted); font-weight: 600; }
+.pcard .bad { color: var(--bad); font-weight: 600; }
+.pcard .meter { width: 40px; }
+.pcard.sel { background: var(--warn-bg); }
+.pcard[data-status="new"] { box-shadow: inset 3px 0 0 var(--accent); }
+.pcard a.rowlink::after { content: ""; position: absolute; inset: 0; }
+.pcard details.quick { position: relative; z-index: 1; }
+@media (min-width: 641px) {
+  .pcard { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); grid-template-areas: "name state" "meta state" "met why"; }
+  .pcard-met { text-align: left; }
+}
