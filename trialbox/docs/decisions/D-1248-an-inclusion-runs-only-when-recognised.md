@@ -66,10 +66,10 @@
   | 65f0753c, the cue reading alone | 1 | 5 | 6 | 12 |
   | the experiment's closed list, as merged (96e1fb96) | 75 | 78 | 84 | 237 |
   | this head: by the cue reading | 1 | 4 | 5 | 10 |
-  | this head: not recognised | 15 | 18 | 27 | 60 |
-  | this head: held in all | 16 | 22 | 32 | 70 |
+  | this head: not recognised | 14 | 18 | 26 | 58 |
+  | this head: held in all | 15 | 22 | 31 | 68 |
 
-  Reasons of the 60: 49 a word or a shape not read, 10 a class hold (a bound on a count, TNM zero, a bare value, an
+  Reasons of the 58: 49 a word or a shape not read, 8 a class hold (a bound on a count, a bare value, an
   alternative), 1 the concept not named. The scorer's logic codes only the line's one concept, so a line whose
   measure or second condition a real extraction would code is read here with that condition as plain words.
   - Other plain sets, held by the cue reading + not recognised, of the plain lines in the set:
@@ -77,13 +77,28 @@
     (113 at 76cbcf79); `tester1_round1` 49 + 13 of 109 and `tester1_round2` 2 + 6 of 16 (49 and 1 at #1180's
     71e85bbc); `tester2_round1` 44 + 10 of 122 and `tester2_round2` 22 + 1 of 31 (44 and 21 at 71e85bbc);
     `card_10a1d_development` 4 + 7 of 284.
-- **What a held line costs a study: criteria held per stored protocol.** The 15 stored synthetic extraction replies
-  under `services/llm_stub/cassettes/ir_extract/`, compiled through `postprocess` with an empty terminology: 71
-  inclusion criteria in all (2 to 9 per protocol). Held at 65f0753c: 2 (both in RA-BIO, by the cue reading). Held at
-  this head: 3: the same 2, and 1 in GOUT-COH, a Chinese line whose concept the reply names only in English
-  ("六個月內曾使用降尿酸藥物" coded "urate-lowering therapy"): reason `not_named`. Twelve of the 15 protocols have no
-  held inclusion before or after. A held criterion answers unknown and never excludes; it costs a reviewer's look
-  at the compile's draft.
+- **What a held line costs a study: criteria held per protocol.** Two stored sets, both compiled through
+  `postprocess` with an empty terminology, no model called.
+  - **Public registry protocols as a model extracted them** (the stored P2b replies, branch
+    `integrator/p2b-artefacts`, `{sigir,jmed,tcga}/work/raw-traces.json`; every `ir_extract` reply, identical
+    replies once): 195 replies, 535 inclusion criteria, 2.7 per reply. Held at 65f0753c: 16 (0.08 per reply; 13 of
+    the 195 replies have one or more). **Held at this head: 92** (0.47 per reply; 52 of the 195 have one or more: 30
+    have one, 14 two, 8 three to six): 20 by the cue reading and 72 as not recognised. Reasons of the 72: 28 a word
+    or a shape not read, 20 a class hold, 13 the concept not named, 9 a heading, 1 an ending, 1 a broader name. By
+    the author's own reading of the 72 lines (one reader, not an independent label): about 40 are not plain
+    statements (a group heading such as "Group D - Current smokers with COPD Inclusion:", one arm of a choice
+    ending in "OR", a list of examples, "should have occurred", "elect to stop", "indication for", a line that
+    says "no evidence of" the coded concept); 13 do not name the concept as the extraction named it ("Autoimmune
+    thyroid patients" coded "autoimmune thyroid disease"); about 19 are plain statements the rule does not read
+    ("hospitalized with admitting diagnosis of heart failure in prior 8 weeks" was one, since listed). This is the
+    number to plan a reviewer's time on: on real protocol text about one inclusion in six is held, against one in
+    thirty before.
+  - **The repository's stored synthetic protocols.** The 15 stored synthetic extraction replies under
+    `services/llm_stub/cassettes/ir_extract/`: 71 inclusion criteria in all (2 to 9 per protocol). Held at
+    65f0753c: 2 (both in RA-BIO, by the cue reading). Held at this head: 3: the same 2, and 1 in GOUT-COH, a
+    Chinese line whose concept the reply names only in English ("六個月內曾使用降尿酸藥物" coded "urate-lowering
+    therapy"): reason `not_named`. 13 of the 15 protocols have no held inclusion at this head (14 before).
+  - A held criterion answers unknown and never excludes; it costs a reviewer's look at the compile's draft.
 - **Must-hold lines that run** (all sets seen): 0 of 412 on the development set; 0 of 186 and 0 of 57 (tester 1);
   0 of 194 and 0 of 73 (tester 2); 0 of 198, 0 of 70 and 0 of 12 (tester 3 blind, informed, clauses); **12 of 410 on
   `tester4_informed_held`** (en 7, ja 2, zh 3; 204 with the experiment as merged, 362 at 76cbcf79).

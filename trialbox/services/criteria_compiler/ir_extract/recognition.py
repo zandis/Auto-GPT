@@ -764,15 +764,29 @@ def _bare_value(s: str) -> bool:
     return False
 
 
+_NAME_TAILS = frozenset(
+    "mellitus disease diseases disorder disorders syndrome infection infections status 病 症 疾患 感染症 感染".split()
+)
+
+
 def _only_a_broader_name(u: str, terms: list[str]) -> bool:
-    """The line names the concept only by a name that is part of its primary name ("diabetes" for a concept coded
-    "type 2 diabetes mellitus", 肺癌 for 非小細胞肺癌): the line may then be about another kind ("Type 1 diabetes",
-    小細胞肺癌), which the words alone cannot tell. The primary name is the first of ``terms``."""
+    """The line names the concept only by a name that is the tail of its primary name, with what tells its kind
+    dropped from the front ("diabetes" for a concept coded "type 2 diabetes mellitus", 肺癌 for 非小細胞肺癌): the
+    line may then be about another kind ("Type 1 diabetes", 小細胞肺癌, "heart failure with preserved ejection
+    fraction" for one coded "… with reduced ejection fraction"), which the words alone cannot tell. A name that only
+    drops a word that tells nothing ("type 2 diabetes" for "type 2 diabetes mellitus") is the same kind. The primary
+    name is the first of ``terms``."""
     if not terms:
         return False
     primary = unicodedata.normalize("NFKC", terms[0]).strip().lower()
-    full = [t for t in terms if (k := unicodedata.normalize("NFKC", t).strip().lower()) == primary or k not in primary]
-    return not _mentions(u, _patterns(full))
+
+    def broader(t: str) -> bool:
+        k = unicodedata.normalize("NFKC", t).strip().lower()
+        if k == primary or k not in primary:
+            return False
+        return not (primary.startswith(k) and primary[len(k) :].strip() in _NAME_TAILS)
+
+    return not _mentions(u, _patterns([t for t in terms if not broader(t)]))
 
 
 def not_recognised(

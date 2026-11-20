@@ -96,7 +96,7 @@ holds:  # regular expressions over a clause as read ({X} this concept, {O} anoth
   less_than_once: '(?i)\b(?:less|fewer)\s+than\s+(?:once|one|1)\b(?![.,]?\d)|<\s*1(?![.,\d])\s*(?:times?|episodes?|per\b|/|a\b|$)'
   chapter: '第\s*[一二三四五六七八九十\d]+\s*[章節节條条項项部篇]'
   empty_field: '[(\[{「『【（]\s*[/\-−–—_]?\s*[)\]}」』】）]|_{2,}|□|☐|\[\s\]'  # an empty box or bracket: nothing was ticked
-  tnm_zero: '(?<![A-Za-z])[ytpc]?[TNM](?:0|x|X)(?![A-Za-z0-9])'  # "M0", "cN0", "Mx": the category says none, or not assessed
+  tnm_zero: '\x00\s*[,，、(（:]?\s*[ytpc]?[TNM](?:0|x|X)(?![A-Za-z0-9])'  # "<distant metastasis> (M0)", "<nodal metastasis> cN0", "…, Mx": right after the name the category says none, or not assessed
   other_type: '(?i)\btypes?\s*(?:\d+|[ivx]+)\b[\s\-]*\x00|(?:第\s*)?\d+\s*型\s*\x00|[IVX]+\s*型\s*\x00'  # a type number in front of the name is another kind than the name coded ("Type 1 <diabetes>")
   grade_bound: '(?i)\b(?:grade|stage|class|degree)\s*(?:<=|≤|<|below|under|less\s+than|lower\s+than|up\s+to|at\s+most)\s*\d|(?:グレード|段階|分級|分级|級|级|度)\s*\d+\s*(?:未満|以下)|(?:低於|低于|小於|小于|未滿|未满|不超過|不超过)\s*\d+\s*(?:級|级|度)|(?:分級|分级|等級|等级|級|级|グレード|分期)\s*(?:低於|低于|小於|小于|未滿|未满|<|≤)\s*\d'
   rate_bound: '(?i)\b(?:less\s+than|fewer\s+than|under|below|at\s+most|up\s+to|no\s+more\s+than|<=?|≤)\s*(?:\d+|once|one|twice|two)\s*(?:(?:time|episode|attack|flare|event|exacerbation|relapse)s?\s*)?(?:per|a|an|each|every|in\s+the|/)\s*(?:past\s+|last\s+|previous\s+)?(?:\d+\s*)?(?:day|week|month|year)|(?:年|月|週|周|每年|每月|每週|每周)\s*\d+\s*(?:回|度|次)\s*(?:未満|以下)|(?:每年|每月|每週|每周|年|月|週)(?:低於|低于|少於|少于|不超過|不超过|未滿|未满|至多|最多)\s*\d+\s*次'
@@ -139,9 +139,9 @@ patterns:  # regular expressions (Python), matched at a position; each describes
   # recognised only when it is one of the concept's own codes (from its value set), read as the concept itself
   number: '[-−+]?\d+(?:[.,]\d+)?(?:\s*(?:-|–|〜|~|to|至|到|から)\s*[-−+]?\d+(?:[.,]\d+)?)?'
   roman: '(?<![A-Za-z])(?:i{1,3}|iv|vi{0,3}|ix)[abc]?(?![A-Za-z])'
-  tnm: '(?<![A-Za-z])[ytpc]?[tnm][1-4][a-d]?(?![A-Za-z0-9])'
+  tnm: '(?<![A-Za-z])[ytpc]?[tnm](?:[0-4]|x|is)[a-d]?\+?(?![A-Za-z0-9])'  # a staging written out; "<distant metastasis> (M0)" is held (tnm_zero)
   cjk_number: '[一二兩两三四五六七八九十百]+'
-  bound: '(?:<=|>=|=<|=>|≥|≤|≧|≦|<|>|=)\s*[-−+]?\d+(?:[.,]\d+)?'  # a comparison sign only with its number
+  bound: '(?:>/=|</=|<=|>=|=<|=>|≥|≤|≧|≦|<|>|=)\s*[-−+]?\d+(?:[.,]\d+)?'  # a comparison sign only with its number
   percent: '(?<=\d)\s*%'
   ordinal: '(?<![A-Za-z0-9])\d+(?:st|nd|rd|th)(?![A-Za-z])'
   stage_code: '(?<![A-Za-z0-9])(?:[A-D]|[A-Z][1-9][a-c]?|[1-9][a-c])(?![A-Za-z0-9+])'  # "stage B or C", "F2 or F3", "3b"
@@ -228,7 +228,7 @@ governors:
   en: [with, diagnosis of, diagnoses of, diagnosed with, diagnosed as, diagnosed as having, history of, evidence of,
     presence of, episode of, episodes of, case of, cases of, form of, forms of, onset of, duration of, stage of,
     recurrence of, relapse of, exacerbation of, exacerbations of, flare of, flares of, attack of, attacks of,
-    symptoms of, signs of, features of, findings of, manifestations of, complications of, criteria for, treated for,
+    symptoms of, signs of, clinical signs of, signs and symptoms of, admitting diagnosis of, features of, findings of, manifestations of, complications of, criteria for, treated for,
     treatment for, therapy for, hospitalised for, hospitalized for, admitted for, surgery for, operated for,
     medication for, receiving treatment for, on treatment for, treated with, treatment with, therapy with,
     managed with, controlled with, controlled on, maintained on, stable on, stabilised on, stabilized on,
@@ -299,6 +299,9 @@ languages:
         without, not on, not receiving, not treated with, not controlled with, not controlled on,
         not controlled by, with no, but no, other than, except, except for, excluding,
         requiring, uncomplicated, complicated, unresectable, uncontrolled, unstable, untreated,
+        hospitalised with admitting diagnosis of, hospitalized with admitting diagnosis of, admitting diagnosis of,
+        clinical signs of, signs and symptoms of, will be included, are included, were included, operated on,
+        respiratory tract sample, presentation,
         living with, suffering from, affected by, presenting with, presented with, hospitalised, hospitalized,
         hospitalised with, hospitalized with, admitted, admitted with, born, aged, weighing, enrolled, attending,
         experiencing, experienced, arising, arising in, occurring, located, located in, involving, affecting,

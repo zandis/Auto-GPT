@@ -56,7 +56,7 @@ HELD_ALL_THE_SAME = {
     "統合失調症でPANSS総得点70点以上",
 }
 PLAIN = read_rows(DEV.with_name("card_10a1d_plain.tsv"))
-PLAIN_HELD = {"en": [1, 15], "ja": [4, 18], "zh": [5, 27]}  # [by the cue reading, not recognised]
+PLAIN_HELD = {"en": [1, 14], "ja": [4, 18], "zh": [5, 26]}  # [by the cue reading, not recognised]
 _HELD: list[list[bool]] = []
 
 
