@@ -1260,12 +1260,11 @@ def _store(
     sid: str = "RA-JAK",
     message: str | None = None,
     tagger: str | None = None,
-    configure: bool = True,
 ) -> Path:
     """A rule-set store as the criteria compiler keeps it (``criteria_compiler.repo``), the study committed, tagged
     ``<ID>/v<version>`` as the compiler's approval writes it (message ``<ID> v<version> approved by <who>``, tagger
-    ``<who>``, the manifest's ``review.approved_by`` that person), and materialised: the folder ``write`` packs. With
-    ``configure`` it is the box's configured store (``TB_RULESETS_DIR``)."""
+    ``<who>``, the manifest's ``review.approved_by`` that person), and materialised: the folder ``write`` packs. It is
+    passed to ``write`` as ``store`` (the command never takes one: its store is the fixed ``/data/rulesets``)."""
     from criteria_compiler.repo import RulesetRepo
 
     repo = RulesetRepo(root / "rulesets")
@@ -1275,8 +1274,6 @@ def _store(
     repo.write_dir("main", "main", f"{sid}/", files, f"approve {sid} v{version} by {by}", by)
     repo.tag(f"{sid}/v{version}", "main", message or f"{sid} v{version} approved by {by}", tagger or by)
     repo.materialize(sid)
-    if configure:
-        os.environ["TB_RULESETS_DIR"] = str(root / "rulesets")
     return root / "rulesets" / sid
 
 
@@ -1312,9 +1309,11 @@ def test_h4_a_package_is_released_only_after_its_audit_event(tmp_path: Path, mon
             return super().append(*a, **k)
 
     with pytest.raises(ValueError, match="no audit writer"):
-        tool.write(study, key, out, DAY, audit=None, euid=_not_root)
+        tool.write(study, key, out, DAY, audit=None, store=study.parent, euid=_not_root)
     assert not out.exists()
-    h = tool.write(study, key, out, DAY, audit=Spy(audit, "Asia/Taipei"), by="host:crc-test", euid=_not_root)
+    h = tool.write(
+        study, key, out, DAY, audit=Spy(audit, "Asia/Taipei"), by="host:crc-test", store=study.parent, euid=_not_root
+    )
     assert seen == [False]  # the event was written before the package's name
     assert out.read_bytes() and out.stat().st_mode & 0o777 == 0o600
     assert not list(out.parent.glob(".*")), "no hidden part file left"
@@ -1327,7 +1326,8 @@ def test_h4_a_package_is_released_only_after_its_audit_event(tmp_path: Path, mon
     assert ev["detail"] == {"package_id": h["package_id"], "key_id": sp.key_id(PUB), "created": DAY,
                             "protocol_version": h["protocol_version"], "criteria_sha256": h["criteria_sha256"],
                             "approval_tag": "RA-JAK/v1.0.0", "approval_tag_sha": a.tag_sha,
-                            "approval_commit": a.commit, "approved_by": a.by}  # fmt: skip
+                            "approval_commit": a.commit, "approved_by": a.by, "store": a.store,
+                            "store_dev": a.store_dev, "store_ino": a.store_ino, "store_uid": a.store_uid}  # fmt: skip
     assert re.fullmatch("[0-9a-f]{40}", a.tag_sha) and re.fullmatch("[0-9a-f]{40}", a.commit) and a.by
     assert PID1 not in json.dumps(_events(audit))  # no content of the package in the audit
 
@@ -1338,14 +1338,22 @@ def test_h4_a_package_is_released_only_after_its_audit_event(tmp_path: Path, mon
 
     second = tmp_path / "out" / "second.tbstudy"
     with pytest.raises(ValueError, match="audit event could not be written"):
-        tool.write(study, key, second, DAY, audit=Full(), euid=_not_root)
+        tool.write(study, key, second, DAY, audit=Full(), store=study.parent, euid=_not_root)
     assert not second.exists() and not list(out.parent.glob(".*"))
     # a draft is not packed
     m = yaml.safe_load((study / "manifest.yaml").read_bytes())
     m["status"] = "draft"
     (study / "manifest.yaml").write_text(yaml.safe_dump(m, allow_unicode=True), encoding="utf-8")
     with pytest.raises(ValueError, match="status: approved"):
-        tool.write(study, key, tmp_path / "out" / "draft.tbstudy", DAY, audit=AuditLog(audit), euid=_not_root)
+        tool.write(
+            study,
+            key,
+            tmp_path / "out" / "draft.tbstudy",
+            DAY,
+            audit=AuditLog(audit),
+            store=study.parent,
+            euid=_not_root,
+        )
     assert not (tmp_path / "out" / "draft.tbstudy").exists()
 
 
@@ -1406,6 +1414,22 @@ def _trust_file(path: Path, entries: list[tuple[bytes, list[str], str]]) -> Path
     return path
 
 
+def _main_write(store: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """``write`` through the command's ``main`` in this process, its fixed store (``RULESETS_STORE``) swapped for the
+    test's store: the command line has no way to name one, and ``_run`` shows that it refuses any other."""
+    from tools import study_package as tool
+
+    out, err = io.StringIO(), io.StringIO()
+    keep = tool.RULESETS_STORE
+    tool.RULESETS_STORE = store
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = tool.main(["write", *args])
+    finally:
+        tool.RULESETS_STORE = keep
+    return subprocess.CompletedProcess(["write", *args], rc, out.getvalue(), err.getvalue())
+
+
 def test_command_line(tmp_path: Path) -> None:
     keys = tmp_path / "keys"
     r = _run("keygen", "--out", str(keys))
@@ -1427,7 +1451,12 @@ def test_command_line(tmp_path: Path) -> None:
     # no audit folder: no package (H4)
     none = _run("write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY)
     assert none.returncode == 1 and "no audit directory" in none.stderr and not out.exists()
-    w = _run("write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY, "--audit-dir", str(audit))
+    pinned = _run("write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY, "--audit-dir",
+                  str(audit))  # fmt: skip
+    assert pinned.returncode == 1 and pinned.stderr.count("\n") == 1 and not out.exists(), pinned.stderr
+    assert "rule-set store /data/rulesets" in pinned.stderr and "TB_RULESETS_DIR" not in pinned.stderr
+    w = _main_write(study.parent, str(study), "--key", str(priv), "--out", str(out), "--created", DAY, "--audit-dir",
+                    str(audit))  # fmt: skip
     assert w.returncode == 0, w.stderr
     assert "package RA-JAK-1.0.0-" in w.stdout and sp.key_id(pub.read_bytes()) in w.stdout
     assert "approval tag RA-JAK/v1.0.0" in w.stdout
@@ -1456,29 +1485,29 @@ def test_command_line(tmp_path: Path) -> None:
     out.write_bytes(bytes(flipped))
     assert _run("verify", str(out), "--trust-file", str(trust)).returncode == 1
     # an existing --out is not replaced without --force
-    again = _run(
-        "write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY, "--audit-dir", str(audit)
+    again = _main_write(
+        study.parent, str(study), "--key", str(priv), "--out", str(out), "--created", DAY, "--audit-dir", str(audit)
     )
     assert again.returncode == 1 and "--force" in again.stderr and out.read_bytes() == bytes(flipped)
-    forced = _run("write", str(study), "--key", str(priv), "--out", str(out), "--created", DAY, "--force",
-                  "--audit-dir", str(audit))  # fmt: skip
+    forced = _main_write(study.parent, str(study), "--key", str(priv), "--out", str(out), "--created", DAY,
+                         "--force", "--audit-dir", str(audit))  # fmt: skip
     assert forced.returncode == 0 and _run("verify", str(out), "--trust-file", str(trust)).returncode == 0
     # an encrypted key: one sentence, exit 1, no traceback
     locked = tmp_path / "locked.key"
     locked.write_bytes(_locked(priv.read_bytes()))
     locked.chmod(0o600)
-    enc = _run("write", str(study), "--key", str(locked), "--out", str(tmp_path / "y"), "--created", DAY,
-               "--audit-dir", str(audit))  # fmt: skip
+    enc = _main_write(study.parent, str(study), "--key", str(locked), "--out", str(tmp_path / "y"), "--created",
+                      DAY, "--audit-dir", str(audit))  # fmt: skip
     assert enc.returncode == 1 and enc.stderr.count("\n") == 1 and "Traceback" not in enc.stderr
     assert "unencrypted" in enc.stderr
     # a key file others may read is not used
     priv.chmod(0o644)
-    loose = _run("write", str(study), "--key", str(priv), "--out", str(tmp_path / "x"), "--created", DAY,
-                 "--audit-dir", str(audit))  # fmt: skip
+    loose = _main_write(study.parent, str(study), "--key", str(priv), "--out", str(tmp_path / "x"), "--created",
+                        DAY, "--audit-dir", str(audit))  # fmt: skip
     assert loose.returncode == 1 and "make it 600" in loose.stderr and not (tmp_path / "x").exists()
     # no key material is ever printed
     secret = priv.read_bytes()
-    for result in (r, w, v, s, bad, wrong, loose, again, forced, enc, none):
+    for result in (r, pinned, w, v, s, bad, wrong, loose, again, forced, enc, none):
         text = result.stdout + result.stderr
         assert "PRIVATE KEY" not in text and "PUBLIC KEY" not in text
         assert not any(line in text for line in secret.decode().splitlines()[1:-1])
@@ -1617,7 +1646,7 @@ def test_a_the_package_is_written_by_descriptor_and_a_failed_link_says_the_event
         monkeypatch.setattr(os, "open", spy)
         monkeypatch.setattr(os, "link", no_link)
         with pytest.raises(ValueError) as e:
-            tool.write(study, key, out, DAY, audit=log, by="host:crc-test", euid=_not_root)
+            tool.write(study, key, out, DAY, audit=log, by="host:crc-test", store=study.parent, euid=_not_root)
         monkeypatch.undo()
         said = str(e.value)
         assert "was written" in said and "does not exist" in said and "run the command again" in said, said
@@ -1628,7 +1657,7 @@ def test_a_the_package_is_written_by_descriptor_and_a_failed_link_says_the_event
         need = os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
         assert part[0][1] & need == need
         # the operator runs it again: a package and a second event
-        h = tool.write(study, key, out, DAY, audit=log, by="host:crc-test", euid=_not_root)
+        h = tool.write(study, key, out, DAY, audit=log, by="host:crc-test", store=study.parent, euid=_not_root)
         assert out.stat().st_mode & 0o7777 == 0o600 and h["sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
         assert [ev["event"] for ev in _events(audit)].count(tool.EVENT) == 2
     finally:
@@ -1643,9 +1672,9 @@ def test_a_the_package_is_written_by_descriptor_and_a_failed_link_says_the_event
     before = len(_events(audit))
     for where in (link, folder):
         with pytest.raises(ValueError, match="not a regular file"):
-            tool.write(study, key, where, DAY, audit=log, force=True, euid=_not_root)
+            tool.write(study, key, where, DAY, audit=log, force=True, store=study.parent, euid=_not_root)
     assert len(_events(audit)) == before and target.read_bytes() == b"keep" and link.is_symlink()
-    tool.write(study, key, out, DAY, audit=log, force=True, euid=_not_root)
+    tool.write(study, key, out, DAY, audit=log, force=True, store=study.parent, euid=_not_root)
     assert sp.verify_file(out, [TRUST]) and not [p for p in outdir.iterdir() if p.name.startswith(".")]
 
 
@@ -1732,7 +1761,7 @@ def test_item1_write_never_runs_as_root(tmp_path: Path, monkeypatch: pytest.Monk
             return super().append(*a, **k)
 
     with pytest.raises(tool.RootRefused) as e:
-        tool.write(study, key, outdir / "x.tbstudy", DAY, audit=Spy(audit), euid=lambda: 0)
+        tool.write(study, key, outdir / "x.tbstudy", DAY, audit=Spy(audit), store=study.parent, euid=lambda: 0)
     said = str(e.value)
     assert "never written as root" in said and tool.SUPPORTED_RUN in said and said.count(". ") == 0
     assert "criteria-compiler" in tool.SUPPORTED_RUN and "/data/rulesets/<ID>" in tool.SUPPORTED_RUN
@@ -1791,7 +1820,7 @@ def test_item2_the_export_changes_no_owner_and_no_mode(tmp_path: Path, monkeypat
         for name in names:
             if hasattr(mod, name):
                 monkeypatch.setattr(mod, name, lambda *_a, _n=name, **_k: calls.append(_n))
-    tool.write(study, key, outdir / "RA-JAK.tbstudy", DAY, audit=AuditLog(audit), euid=_not_root)
+    tool.write(study, key, outdir / "RA-JAK.tbstudy", DAY, audit=AuditLog(audit), store=study.parent, euid=_not_root)
     monkeypatch.undo()
     assert calls == [] and not hasattr(tool, "_give_back")
     after = os.lstat(secret)
@@ -1818,7 +1847,7 @@ def test_item3_the_destination_is_checked_and_the_name_is_the_audited_file(
     log = AuditLog(audit)
     for where, says in ((linked, "symbolic link"), (loose, "not this account's alone")):
         with pytest.raises(ValueError, match=says):
-            tool.write(study, key, where / "x.tbstudy", DAY, audit=log, euid=_not_root)
+            tool.write(study, key, where / "x.tbstudy", DAY, audit=log, store=study.parent, euid=_not_root)
     assert not [e for e in _events(audit) if e["event"] == tool.EVENT]
     other = tmp_path / "other.bin"
 
@@ -1834,10 +1863,12 @@ def test_item3_the_destination_is_checked_and_the_name_is_the_audited_file(
     # cannot be linked either, and the sentence says the event names a package that does not exist)
     out = outdir / "RA-JAK.tbstudy"
     with pytest.raises(ValueError, match="could not take the name") as e:
-        tool.write(study, key, out, DAY, audit=Swap(audit), euid=_not_root)
+        tool.write(study, key, out, DAY, audit=Swap(audit), store=study.parent, euid=_not_root)
     assert "names a package that does not exist" in str(e.value)
     assert not out.exists() and not [p for p in outdir.iterdir() if p.name.startswith(".")]
-    h = tool.write(study, key, out, DAY, audit=log, euid=_not_root)  # untouched: the audited bytes are the file's
+    h = tool.write(
+        study, key, out, DAY, audit=log, store=study.parent, euid=_not_root
+    )  # untouched: the audited bytes are the file's
     ev = [e for e in _events(audit) if e["event"] == tool.EVENT][-1]
     assert ev["output_sha"] == h["sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
     assert sp.verify_file(out, [TRUST])
@@ -1846,7 +1877,7 @@ def test_item3_the_destination_is_checked_and_the_name_is_the_audited_file(
     monkeypatch.setattr(os.path, "exists", lambda p: False if str(p).startswith("/proc/self/fd/") else real_exists(p))
     second = outdir / "second.tbstudy"
     with pytest.raises(ValueError, match="is not that package") as e:
-        tool.write(study, key, second, DAY, audit=Swap(audit), euid=_not_root)
+        tool.write(study, key, second, DAY, audit=Swap(audit), store=study.parent, euid=_not_root)
     monkeypatch.undo()
     assert "names a package that does not exist" in str(e.value)
     assert not second.exists() and not [p for p in outdir.iterdir() if p.name.startswith(".")]
@@ -1866,16 +1897,17 @@ def test_item4_only_the_bytes_of_the_approval_tag_are_packed(tmp_path: Path) -> 
     audit.mkdir()
     log = AuditLog(audit)
 
-    def refused(study: Path, says: str) -> None:
+    def refused(study: Path, says: str, store: Path | None = None) -> None:
         out = tmp_path / "out" / f"{study.parent.parent.name}.tbstudy"
         out.parent.mkdir(exist_ok=True)
         with pytest.raises(ValueError, match=says):
-            tool.write(study, key, out, DAY, audit=log, euid=_not_root)
+            tool.write(study, key, out, DAY, audit=log, store=store or study.parent, euid=_not_root)
         assert not out.exists()
 
     plain = tmp_path / "plain" / "RA-JAK"
     _write_folder(plain, _small())
-    refused(plain, "not in the box's rule-set store")
+    refused(plain, "not in the box's rule-set store", store=_store(tmp_path / "base", _small()).parent)
+    refused(plain, "not a git repository")  # a plain folder given as the store is no store
     edited = _store(tmp_path / "edited", _small())
     (edited / "ir" / "RA-JAK-INC-01.json").write_bytes((edited / "ir" / "RA-JAK-INC-01.json").read_bytes() + b" ")
     refused(edited, "differs from its approval tag RA-JAK/v1.0.0")
@@ -1905,7 +1937,7 @@ def test_item4_every_shipped_study_packs_from_its_approval_tag(tmp_path: Path) -
     for ruleset in SHIPPED:
         study = _store(tmp_path / ruleset, _folder(ruleset), sid=ruleset)
         out = tmp_path / "out" / f"{ruleset}.tbstudy"
-        h = tool.write(study, key, out, DAY, audit=AuditLog(audit), euid=_not_root)
+        h = tool.write(study, key, out, DAY, audit=AuditLog(audit), store=study.parent, euid=_not_root)
         assert sp.verify_file(out, [TRUST]).header["criteria_sha256"] == h["criteria_sha256"]
     assert len(SHIPPED) == 8 and len([e for e in _events(audit) if e["event"] == tool.EVENT]) == 8
 
@@ -1994,7 +2026,7 @@ def test_item6_the_actor_is_the_account_and_sudo_user_only_a_claim(
         name = f"uid:{os.getuid()}"
     assert tool.actor() == (f"host:{name}", "claimed-name")
     study, key, audit, outdir = _written(tmp_path)
-    tool.write(study, key, outdir / "RA-JAK.tbstudy", DAY, audit=AuditLog(audit), euid=_not_root)
+    tool.write(study, key, outdir / "RA-JAK.tbstudy", DAY, audit=AuditLog(audit), store=study.parent, euid=_not_root)
     ev = [e for e in _events(audit) if e["event"] == tool.EVENT][-1]
     assert ev["actor"] == f"host:{name}" and ev["detail"]["sudo_user_claimed"] == "claimed-name"
     monkeypatch.setattr(pwd, "getpwuid", lambda _uid: (_ for _ in ()).throw(KeyError(_uid)))
@@ -2299,7 +2331,7 @@ def test_r6_a_key_is_trusted_only_for_exact_study_ids_and_patterns_match_whole(s
 
 def test_r7_only_the_configured_store_and_the_compilers_own_approval_tag_are_packed(tmp_path: Path) -> None:
     """Item 7 (blocker): a forged store (a repository made anywhere, tagged ``RA-JAK/v1.0.0 -m anything``) packed
-    with an ``approve.`` event. Now the store must be the box's configured one (TB_RULESETS_DIR, the same folder),
+    with an ``approve.`` event. Now the store must be the box's (the fixed one; a test gives its own: the same folder),
     and the tag the compiler's approval (message, tagger, the tagged manifest's approver); the event records the tag
     object, the commit and the approver."""
     from dulwich.repo import Repo
@@ -2313,17 +2345,16 @@ def test_r7_only_the_configured_store_and_the_compilers_own_approval_tag_are_pac
     log = AuditLog(audit)
     (tmp_path / "out").mkdir()
 
-    def refused(study: Path, says: str) -> None:
+    def refused(study: Path, says: str, store: Path | None = None) -> None:
         out = tmp_path / "out" / f"{study.parent.parent.name}.tbstudy"
         with pytest.raises(ValueError, match=says):
-            tool.write(study, key, out, DAY, audit=log, euid=_not_root)
+            tool.write(study, key, out, DAY, audit=log, store=store or study.parent, euid=_not_root)
         assert not out.exists()
 
-    real = _store(tmp_path / "real", _small())  # the configured store
-    forged = _store(tmp_path / "forged", _small(), message="anything at all", tagger="x", configure=False)
-    refused(forged, "not in the box's rule-set store")
-    os.environ["TB_RULESETS_DIR"] = str(forged.parent)  # even configured, the tag is not an approval
-    refused(forged, "not the criteria compiler's approval")
+    real = _store(tmp_path / "real", _small())  # the store (given to write, as only a test does)
+    forged = _store(tmp_path / "forged", _small(), message="anything at all", tagger="x")
+    refused(forged, "not in the box's rule-set store", store=real.parent)
+    refused(forged, "not the criteria compiler's approval")  # even as the store, the tag is not an approval
     refused(_store(tmp_path / "tagger", _small(), tagger="someone-else"), "its tagger is not the approver")
     refused(
         _store(tmp_path / "who", _small(), message="RA-JAK v1.0.0 approved by mallory", tagger="mallory"),
@@ -2342,8 +2373,7 @@ def test_r7_only_the_configured_store_and_the_compilers_own_approval_tag_are_pac
     refused(bare, "names nobody")
     assert not [e for e in _events(audit) if e["event"] == tool.EVENT]
     # the real store packs, and the event names the tag object, the commit and the approver
-    os.environ["TB_RULESETS_DIR"] = str(real.parent)
-    h = tool.write(real, key, tmp_path / "out" / "ok.tbstudy", DAY, audit=log, euid=_not_root)
+    h = tool.write(real, key, tmp_path / "out" / "ok.tbstudy", DAY, audit=log, store=real.parent, euid=_not_root)
     a = h["approval"]
     repo = Repo(str(real.parent))
     refs = repo.refs
@@ -2427,8 +2457,8 @@ def test_r9_the_reference_types_are_measured() -> None:
 
 def test_r9_stale_part_files_of_this_command_are_removed_and_named(tmp_path: Path) -> None:
     """Item 9: a SIGKILL between the event and the link left a hidden ``.<name>.<pid>.part`` (0600). The next run
-    removes, in the destination only, regular files of the command's own pattern owned by the running account whose
-    writer is gone, and says which; anything else is kept."""
+    removes, in the destination only, regular files of the command's own pattern owned by the running account that no
+    writer holds locked (review of b9937b0d, item 3), and says which; anything else is kept."""
     from tb_common.audit import AuditLog
 
     from tools import study_package as tool
@@ -2440,13 +2470,255 @@ def test_r9_stale_part_files_of_this_command_are_removed_and_named(tmp_path: Pat
     stale.chmod(0o600)
     final = outdir / f".old.tbstudy.{gone_pid}.part.final"
     final.write_bytes(b"x")
-    live = outdir / f".RA-JAK.tbstudy.{os.getppid()}.part"  # a run that is still going keeps its file
+    live = outdir / f".RA-JAK.tbstudy.{os.getppid()}.part"  # a run that is still going (it holds its lock) keeps it
     live.write_bytes(b"x")
+    import fcntl
+
+    holding = open(live, "rb")  # noqa: SIM115 (held across the write below)
+    fcntl.flock(holding.fileno(), fcntl.LOCK_EX)
     other = outdir / ".notes.part"
     other.write_bytes(b"x")
     linked = outdir / f".link.tbstudy.{gone_pid}.part"
     linked.symlink_to(other)
-    h = tool.write(study, key, outdir / "RA-JAK.tbstudy", DAY, audit=AuditLog(audit), euid=_not_root)
+    h = tool.write(
+        study, key, outdir / "RA-JAK.tbstudy", DAY, audit=AuditLog(audit), store=study.parent, euid=_not_root
+    )
     assert h["removed_parts"] == sorted([stale.name, final.name])
     assert not stale.exists() and not final.exists()
     assert live.exists() and other.exists() and linked.is_symlink()
+    holding.close()
+
+
+# ------------------------------------------------------------------------- review of b9937b0d (the approval binding)
+def test_s1_the_store_is_the_boxs_fixed_one_never_the_callers_and_the_event_names_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Item 1 (blocker): the store was ``TB_RULESETS_DIR`` from the caller's environment, so a git folder of one's own
+    tagged "RA-JAK v1.0.0 approved by alice" packed with an ``approve.`` event that did not name the store; a
+    symlinked store and a tag object named otherwise than its ref were accepted. Now ``write`` packs only from the
+    declared rule-set store (``/data/rulesets``), refuses an environment that names another, a store path that is or
+    holds a link, and a tag object whose name is not its ref's; the event and the success line name the store's real
+    path and (st_dev, st_ino)."""
+    from dulwich.objects import Commit, Tag
+    from dulwich.repo import Repo
+    from tb_common.audit import AuditLog
+    from tb_common.config import DECLARED
+
+    from tools import study_package as tool
+
+    key = _key_file(tmp_path / "cc.key")
+    audit = tmp_path / "audit"
+    audit.mkdir()
+    log = AuditLog(audit)
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    made = iter(range(100))
+
+    def refused(study: Path, says: str, **kw: Any) -> str:
+        out = outdir / f"{next(made)}.tbstudy"
+        with pytest.raises(ValueError, match=says) as e:
+            tool.write(study, key, out, DAY, audit=log, euid=_not_root, **kw)
+        assert not out.exists()
+        return str(e.value)
+
+    own = _store(tmp_path / "own", _small())  # a store of the caller's own, tagged exactly as the compiler tags
+    os.environ["TB_RULESETS_DIR"] = str(own.parent)
+    said = refused(own, "TB_RULESETS_DIR")
+    assert tool.RULESETS_STORE == Path(DECLARED["TB_RULESETS_DIR"].default) == Path("/data/rulesets")
+    assert "/data/rulesets" in said and str(own.parent) in said
+    os.environ.pop("TB_RULESETS_DIR")
+    refused(own, "rule-set store /data/rulesets")  # not in it (or, on a machine without it, no such store)
+    os.environ["TB_RULESETS_DIR"] = "/data/rulesets"  # the declared value itself is no override
+    assert "TB_RULESETS_DIR names" not in refused(own, "rule-set store /data/rulesets")
+    os.environ.pop("TB_RULESETS_DIR")
+    usage = _run("write", "--help")
+    assert usage.returncode == 0 and not re.search(r"--(store|rulesets)", usage.stdout)
+    if os.geteuid() != 0:  # the command line (root is refused before any of this)
+        os.environ["TB_RULESETS_DIR"] = str(own.parent)
+        env_set = _run("write", str(own), "--key", str(key), "--out", str(outdir / "cli.tbstudy"), "--created", DAY,
+                       "--audit-dir", str(audit))  # fmt: skip
+        os.environ.pop("TB_RULESETS_DIR")
+        assert env_set.returncode == 1 and env_set.stderr.count("\n") == 1, env_set.stderr
+        assert f"TB_RULESETS_DIR names {own.parent}" in env_set.stderr and "/data/rulesets" in env_set.stderr
+    # a store path that is, or passes through, a symbolic link
+    link = tmp_path / "storelink"
+    link.symlink_to(own.parent)
+    refused(link / "RA-JAK", "symbolic link", store=link)
+    above = tmp_path / "abovelink"
+    above.symlink_to(tmp_path / "own")
+    refused(above / "rulesets" / "RA-JAK", "symbolic link", store=above / "rulesets")
+    # a tag object whose own name is not its ref's
+    named = _store(tmp_path / "named", _small())
+    repo = Repo(str(named.parent))
+    refs: Any = repo.refs
+    try:
+        old: Any = repo[refs[b"refs/tags/RA-JAK/v1.0.0"]]
+        t = Tag()
+        t.tagger, t.message, t.name = old.tagger, old.message, b"OTHER-NAME"
+        t.object = (Commit, old.object[1])
+        t.tag_time, t.tag_timezone = old.tag_time, old.tag_timezone
+        repo.object_store.add_object(t)
+        refs[b"refs/tags/RA-JAK/v1.0.0"] = t.id
+    finally:
+        repo.close()
+    refused(named, "tag object", store=named.parent)
+    assert not [e for e in _events(audit) if e["event"] == tool.EVENT]
+    # packed from a store given explicitly (the tests' way): the event and the line name it
+    h = tool.write(own, key, outdir / "ok.tbstudy", DAY, audit=log, euid=_not_root, store=own.parent)
+    st = os.stat(own.parent)
+    a = h["approval"]
+    assert (a.store, a.store_dev, a.store_ino, a.store_uid) == (str(own.parent), st.st_dev, st.st_ino, st.st_uid)
+    (ev,) = [e for e in _events(audit) if e["event"] == tool.EVENT]
+    assert ev["detail"]["store"] == str(own.parent)
+    assert (ev["detail"]["store_dev"], ev["detail"]["store_ino"]) == (st.st_dev, st.st_ino)
+    assert ev["detail"]["store_uid"] == st.st_uid and ev["detail"]["approval_tag_sha"] == a.tag_sha
+    if os.geteuid() != 0:
+        monkeypatch.setattr(tool, "RULESETS_STORE", own.parent)
+        capsys.readouterr()
+        assert tool.main(["write", str(own), "--key", str(key), "--out", str(outdir / "main.tbstudy"), "--created",
+                          DAY, "--audit-dir", str(audit)]) == 0  # fmt: skip
+        line = capsys.readouterr().out.splitlines()[0]
+        assert f"rule-set store {own.parent} (device {st.st_dev}, inode {st.st_ino}, owner uid {st.st_uid})" in line
+        assert a.tag_sha in line and a.commit in line and "approved by crc1@hospa.test" in line
+        assert "without an audit" in line
+
+
+def test_s2_every_message_of_the_command_is_printable(tmp_path: Path, capsys: Any) -> None:
+    """Item 2: the command's one exit point printed the exception raw: a study-folder file ``ir/x<ESC>]0;title<BEL>
+    .json`` put ESC and BEL on stderr in ``write``, and a key folder's name in ``keygen``. Every message now goes
+    through ``printable`` there."""
+    from tools import study_package as tool
+
+    def no_control(err: str) -> None:
+        assert err.count("\n") == 1 and "\x1b" not in err and "\x07" not in err and _plain(err), repr(err)
+
+    keys = tmp_path / "k\x1b]0;title\x07"
+    tool.keygen(keys)
+    capsys.readouterr()
+    assert tool.main(["keygen", "--out", str(keys)]) == 1
+    err = capsys.readouterr().err
+    no_control(err)
+    assert "\\x1b]0;title\\x07" in err
+    if os.geteuid() != 0:  # write refuses root before it reads the folder
+        study = tmp_path / "plain" / "RA-JAK"
+        _write_folder(study, {**_small(), "ir/x\x1b]0;title\x07.json": b"{}"})
+        audit = tmp_path / "audit"
+        audit.mkdir()
+        key = _key_file(tmp_path / "cc.key")
+        assert tool.main(["write", str(study), "--key", str(key), "--out", str(tmp_path / "o.tbstudy"),
+                          "--audit-dir", str(audit)]) == 1  # fmt: skip
+        err = capsys.readouterr().err
+        no_control(err)
+        assert "\\x1b]0;title\\x07" in err
+
+
+_HOLDER = """
+import fcntl, os, sys
+fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+fcntl.flock(fd, fcntl.LOCK_EX)
+print("held", flush=True)
+sys.stdin.read()
+os._exit(0)
+"""
+
+
+def test_s3_a_part_file_another_writer_holds_is_never_swept(tmp_path: Path) -> None:
+    """Item 3: the sweep took a writer for gone when ``kill(pid, 0)`` found no such pid here, so a writer in another
+    PID namespace (a second ``docker compose run`` into the same folder) lost its live part file and failed after
+    its event. Now each writer holds ``flock(LOCK_EX)`` on its part file from creation to the link, and the sweep
+    removes a part file only when it can take that lock itself (nobody writes it). Two processes."""
+    import fcntl
+
+    from tb_common.audit import AuditLog
+
+    from tools import study_package as tool
+
+    study, key, audit, outdir = _written(tmp_path)
+    held = outdir / ".RA-JAK.tbstudy.4194305.part"  # its pid is no process in this namespace
+    holder = subprocess.Popen([sys.executable, "-c", _HOLDER, str(held)], stdin=subprocess.PIPE,
+                              stdout=subprocess.PIPE, text=True)  # fmt: skip
+    try:
+        assert holder.stdout is not None and holder.stdout.readline().strip() == "held"
+        unheld = outdir / f".old.tbstudy.{os.getppid()}.part"  # a live pid, but nobody holds the file: stale
+        unheld.write_bytes(b"x")
+        unheld.chmod(0o600)
+        seen: list[Any] = []
+
+        class Second(AuditLog):  # a second writer's sweep while this one is between its event and its link
+            def append(self, *a: Any, **k: Any) -> dict[str, Any]:
+                (mine,) = [p for p in outdir.iterdir() if p.name.startswith(".RA-JAK.tbstudy.") and p != held]
+                with open(mine, "rb") as fh:
+                    try:
+                        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        seen.append("not held")
+                        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                    except BlockingIOError:
+                        seen.append("held")
+                dfd = os.open(outdir, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    seen.append(tool.remove_stale_parts(dfd))
+                finally:
+                    os.close(dfd)
+                return super().append(*a, **k)
+
+        h = tool.write(study, key, outdir / "RA-JAK.tbstudy", DAY, audit=Second(audit), euid=_not_root,
+                       store=study.parent)  # fmt: skip
+        assert held.exists() and held.name not in h["removed_parts"]
+        assert seen == ["held", []]  # this writer's own part file is held, and a second sweep keeps it
+        assert h["removed_parts"] == [unheld.name] and not unheld.exists()
+        assert sp.verify_file(outdir / "RA-JAK.tbstudy", [TRUST])
+    finally:
+        if holder.stdin is not None:
+            holder.stdin.close()
+        holder.wait(timeout=30)
+    h = tool.write(study, key, outdir / "again.tbstudy", DAY, audit=AuditLog(audit), euid=_not_root,
+                   store=study.parent)  # fmt: skip
+    assert h["removed_parts"] == [held.name] and not held.exists()
+
+
+def test_s4_the_trust_file_internal_errors_and_member_names(
+    small: bytes, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Item 4: ``read_trust_file`` read a folder by its own code (a descriptor leaked, IsADirectoryError); an internal
+    error inside ``verify`` exited 1 (only a patched ``verify_file`` was tested); member names were echoed before the
+    signature (a duplicate, an over-cap member, a name a package may not hold). Now the trust file is read with
+    ``read_capped``, an internal error exits 2 through the real path, and a member before the signature is named by
+    its place and length (the format's fixed names excepted)."""
+    from tools import study_package as tool
+
+    def fds() -> int:
+        return len(os.listdir("/proc/self/fd"))
+
+    before = fds()
+    with pytest.raises(ValueError, match="not a regular file"):
+        tool.read_trust_file(tmp_path)
+    assert fds() == before
+    trust = _trust_file(tmp_path / "trust.json", [(PUB, ["RA-JAK"], sp.STUDY_PURPOSE)])
+    trust.chmod(0o644)
+    good = tmp_path / "good.tbstudy"
+    good.write_bytes(small)
+    assert tool.main(["verify", str(good), "--trust-file", str(trust)]) == 0
+
+    def boom(*_a: Any, **_k: Any) -> Any:
+        raise TypeError("secret detail")
+
+    monkeypatch.setattr(sp, "_protocol", boom)
+    capsys.readouterr()
+    assert tool.main(["verify", str(good), "--trust-file", str(trust)]) == 2
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1 and "internal" in err and "secret" not in err
+    monkeypatch.undo()
+    members = _members(small)
+    planted = "files/ir/ALL-CHECKS-PASSED"
+    dup = sp._block(planted, 1) + b"x" + bytes(511)
+    cases = {
+        "twice": dup + dup + bytes(1024),
+        "cap": sp._block(planted, sp.STUDY_PACKAGE_MAX_MEMBER_BYTES + 1) + bytes(1024),
+        "not allowed": sp.tar_bytes({**members, planted: b"x"}),
+    }
+    for what, data in cases.items():
+        got = _refused(data)
+        assert got.step == "tar" and "ALL-CHECKS" not in str(got), (what, str(got))
+        assert f"a name of {len(planted)} bytes" in str(got) and "member " in str(got), (what, str(got))
+    over = _refused(sp.tar_bytes({**members, sp.HEADER: b"{" + b" " * sp.STUDY_PACKAGE_MAX_HEADER_BYTES + b"}"}))
+    assert "header.json of" in str(over)  # the format's own names are not the sender's text

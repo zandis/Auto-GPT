@@ -15,33 +15,40 @@ IRB record, and no patient data. It never prints key material: a key is named by
 account (uid 10001), as 10D-28's ``criteria_compiler.export_part`` does, and audits through the product's writer
 (``tb_common.audit_writer.open_audit``: the journal with ``TB_AUDIT_WRITER=db``, as in that container; else the chain
 in ``TB_AUDIT_DIR``, a folder the running account owns). It packs the bytes of the study's approval tag
-``<ID>/v<version>`` in the box's configured rule-set store (``TB_RULESETS_DIR``: the study folder's parent must be
-that folder), the tag exactly as the criteria compiler writes an approval (message ``<ID> v<version> approved by
-<who>``, tagger and the tagged manifest's ``review.approved_by`` that person): another store, a folder whose files
-differ from that tag, a version with no tag, a tag that names nobody (a shipped example), an approval that arrived in
-an update or any other tag is refused. That proves the store holds such a tag, not that the person acted: the store's
-account (uid 10001) can write one, so it is as strong as that account and the signing key (D-1372). The audit event
-``approve.study_package_exported`` (who: ``host:<account>``, the sudo user only as a claim; the study, version,
-approval tag, its tag object and commit sha and the approver its message names, package id, the package's sha256
-taken from the descriptor that is linked, key id, the date; never content) is written BEFORE the package takes its
-name (stale part files of an interrupted earlier run in the destination are removed first, and named); an event
+``<ID>/v<version>`` in the box's rule-set store, which is fixed (:data:`RULESETS_STORE`, ``/data/rulesets``, the
+declared default of ``TB_RULESETS_DIR``): no option names another, an environment that names another is refused, and
+a store path that is or passes through a link is refused; the study folder's parent must be that folder. The tag
+must be exactly as the criteria compiler writes an approval (the tag object named as its ref, message ``<ID>
+v<version> approved by <who>``, tagger and the tagged manifest's ``review.approved_by`` that person): another store,
+a folder whose files differ from that tag, a version with no tag, a tag that names nobody (a shipped example), an
+approval that arrived in an update or any other tag is refused. That proves the box's store holds such a tag, not
+that the person acted: the store's owner (uid 10001), root, and any account its folders let write can write one,
+and whoever holds the signing key can call the library's ``build`` without an audit, so it is as strong as those
+accounts and that key (D-1372). The audit event ``approve.study_package_exported`` (who: ``host:<account>``, the
+sudo user only as a claim; the study, version, approval tag, its tag object and commit sha and the approver its
+message names, the store's path, device, inode and owner uid, package id, the package's sha256 taken from the
+descriptor that is linked, key id, the date; never content) is written BEFORE the package takes its name (part files
+of an interrupted earlier run in the destination that no writer holds locked are removed first, and named); an event
 that cannot be written, and no package is left (D-1372, H4). The package is written in a destination folder opened
 without following a link, owned by the running account and writable by nobody else, and linked from its descriptor.
 
-``verify`` takes a trust file (``read_trust_file``: no link, nobody else may write it; ``load_trust``): each key
+``verify`` takes a trust file (``read_trust_file``: read as a package file is, no link, nobody else may write it;
+``load_trust``): each key
 with the studies it may sign for and its purpose; a key trusted for updates is refused, and a key signs only the
 studies its entry names (H5).
 ``show`` prints the header with its signature NOT checked: that line first, on stdout and on stderr, then the header
 with every character outside printable ASCII escaped, and exits 3 ("shown, not verified"). No sentence of this command
 echoes text a package's sender chose before its signature is checked; what it prints after is escaped the same way.
-Exit status: 0 done; 1 refused (one sentence on stderr); 2 usage, or an internal error (one sentence, no traceback);
-3 shown, not verified (``show``).
+Every message the command prints is escaped to printable ASCII at its one exit point. Exit status: 0 done; 1
+refused (one sentence on stderr); 2 usage, or an internal error (one sentence, no traceback; ``verify``'s refusal of
+step ``internal`` too); 3 shown, not verified (``show``).
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -57,6 +64,7 @@ from typing import Any
 import yaml
 from tb_common import study_manifest as sm
 from tb_common import study_package as sp
+from tb_common.config import DECLARED
 from tb_common.crypto import ed25519_generate, ed25519_public_of
 from tb_common.preflight import lang_of
 from tb_common.ruleset import SEEDED_TAG
@@ -200,21 +208,70 @@ def actor() -> tuple[str, str | None]:
     return who, (os.environ.get("SUDO_USER") or None)
 
 
+#: the box's rule-set store, fixed (review of b9937b0d, item 1): the declared default of ``TB_RULESETS_DIR``
+#: (``tb_common.config``), the ``rulesets-data`` volume the criteria compiler's container mounts there. ``write``
+#: never takes another from the caller: no option names one, and an environment that names another is refused
+RULESETS_STORE = Path(DECLARED["TB_RULESETS_DIR"].default)
+
+
 def rulesets_store() -> Path:
-    """The box's configured rule-set store: ``TB_RULESETS_DIR`` (``tb_common.config``; ``/data/rulesets`` in the
-    criteria compiler's container)."""
-    return Path(os.environ.get("TB_RULESETS_DIR") or "/data/rulesets")
+    """The store ``write`` packs from: :data:`RULESETS_STORE`, whatever the caller's environment says. A
+    ``TB_RULESETS_DIR`` that names another folder is refused (``ValueError``, one sentence), not followed: the store
+    is the box's, not the caller's."""
+    named = os.environ.get("TB_RULESETS_DIR")
+    if named and Path(named) != RULESETS_STORE:
+        raise ValueError(
+            f"TB_RULESETS_DIR names {named}; a study package is packed only from the box's rule-set store "
+            f"{RULESETS_STORE} (the criteria compiler's), never from a folder the caller names: unset it"
+        )
+    return RULESETS_STORE
+
+
+def _store_identity(store: Path) -> os.stat_result:
+    """The store folder's ``stat``, reached from ``/`` one component at a time, each opened ``O_DIRECTORY |
+    O_NOFOLLOW`` from its parent's descriptor, so a store path that is, or passes through, a symbolic link is refused
+    (its real path is then the path itself); it must be an absolute path and a git repository (``.git`` a folder, not
+    a link). Raises ``ValueError`` with one sentence."""
+    if not store.is_absolute() or any(part in (".", "..") for part in store.parts):
+        raise ValueError(f"the rule-set store {store} is not an absolute path without '.' or '..'")
+    fd = os.open("/", _DIR_FLAGS)
+    try:
+        for part in store.parts[1:]:
+            try:
+                nxt = os.open(part, _DIR_FLAGS, dir_fd=fd)
+            except OSError as exc:
+                raise ValueError(
+                    f"the rule-set store {store} cannot be opened without following a link at {part} ({exc.strerror});"
+                    " a store that is or passes through a symbolic link is not used"
+                ) from None
+            os.close(fd)
+            fd = nxt
+        st = os.fstat(fd)
+        try:
+            git = os.stat(".git", dir_fd=fd, follow_symlinks=False)
+        except OSError:
+            git = None
+    finally:
+        os.close(fd)
+    if git is None or not stat.S_ISDIR(git.st_mode):
+        raise ValueError(f"the rule-set store {store} is not a git repository (its .git is not a folder)")
+    return st
 
 
 @dataclass(frozen=True)
 class Approval:
     """The approval a package was packed from: the tag's name, the tag object's sha, the commit it names and the
-    approver its message names (what the audit event and the success line record, review of 02b55d8a, item 7)."""
+    approver its message names (what the audit event and the success line record, review of 02b55d8a, item 7), and
+    the store that holds it: its real path, ``(st_dev, st_ino)`` and owner uid (review of b9937b0d, item 1)."""
 
     tag: str
     tag_sha: str
     commit: str
     by: str
+    store: str
+    store_dev: int
+    store_ino: int
+    store_uid: int
 
 
 def _approver(message: str, sid: str, version: str) -> str | None:
@@ -236,10 +293,12 @@ def approved_files(
     """The files of ``study`` as its approval tag holds them, and that approval (item 4 of the review of ec90c1b4;
     item 7 of the review of 02b55d8a).
 
-    The folder must be ``<store>/<ID>`` of the box's configured rule-set store (``store``, else
-    :func:`rulesets_store`): its parent is that folder (the same device and inode), which is the criteria compiler's
-    git repository; a store found above an arbitrary path is not. The approval must be the one the compiler writes:
-    an annotated tag ``<ID>/v<version>`` naming a commit, its message exactly ``<ID> v<version> approved by <who>``,
+    The folder must be ``<store>/<ID>`` of the box's rule-set store (``store``, which only the tests give; else
+    :func:`rulesets_store`, the fixed :data:`RULESETS_STORE`): its parent is that folder (the same device and inode),
+    which is the criteria compiler's git repository, reached without following a link (:func:`_store_identity`); a
+    store found above an arbitrary path is not. The approval must be the one the compiler writes:
+    an annotated tag ``<ID>/v<version>`` naming a commit, the tag object's own name that same ``<ID>/v<version>``,
+    its message exactly ``<ID> v<version> approved by <who>``,
     its tagger ``<who> <<who>>``, and the manifest at the tag ``status: approved``, that version, and
     ``review.approved_by`` that same person. The tag's blobs are read once. Refused (``ValueError``, one sentence):
     another store, a folder named otherwise than its manifest's id, no tag for the manifest's version, a bare tag or
@@ -247,22 +306,23 @@ def approved_files(
     manifest that is not the compiler's approval, or a folder whose files differ from the tag's (a file edited after
     approval).
 
-    What it cannot prove: the store's owner (the service account, uid 10001) can write such a tag without the
-    approver's act on the console; so "approved on this box" is as strong as that account (D-1372)."""
+    What it cannot prove: the store's owner (the service account, uid 10001), root, and any account the store's
+    folders let write can write such a tag without the approver's act on the console; so "approved on this box" is
+    as strong as those accounts (D-1372)."""
     from dulwich.object_store import iter_tree_contents
     from dulwich.objects import Commit, Tag
     from dulwich.repo import Repo
 
-    store = store or rulesets_store()
+    store = rulesets_store() if store is None else store
+    here = _store_identity(store)
     try:
-        here, there = os.stat(store), os.stat(study.absolute().parent)
-        same = (here.st_dev, here.st_ino) == (there.st_dev, there.st_ino) and (store / ".git").is_dir()
+        there = os.stat(study.absolute().parent)
+        same = (here.st_dev, here.st_ino) == (there.st_dev, there.st_ino)
     except OSError:
         same = False
     if not same:
         raise ValueError(
-            f"the study folder is not in the box's rule-set store (TB_RULESETS_DIR, {store}): only a study approved "
-            "on this box is packed"
+            f"the study folder is not in the box's rule-set store {store}: only a study approved on this box is packed"
         )
     try:
         manifest = yaml.safe_load(files.get(sm.MANIFEST, b"").decode("utf-8")) or {}
@@ -299,6 +359,8 @@ def approved_files(
             )
         if obj.tagger != f"{by} <{by}>".encode():
             raise ValueError(f"{tag}: its tagger is not the approver its message names; not packed")
+        if obj.name != tag.encode():
+            raise ValueError(f"{tag}: its tag object is named otherwise than its ref; not packed")
         tag_sha = obj.id.decode("ascii")
         commit: Any = repo[obj.object[1]] if obj.object[0] is Commit and obj.object[1] in repo else None
         if not isinstance(commit, Commit):
@@ -327,7 +389,7 @@ def approved_files(
             f"the study folder differs from its approval tag {tag} (a file edited, added or removed after approval); "
             "only the approved files are packed: approve the change first"
         )
-    return tagged, Approval(tag, tag_sha, commit_sha, by)
+    return tagged, Approval(tag, tag_sha, commit_sha, by, str(store), here.st_dev, here.st_ino, here.st_uid)
 
 
 def _destination(folder: Path) -> int:
@@ -353,34 +415,42 @@ def _destination(folder: Path) -> int:
 _PART_NAME = re.compile(r"\.[A-Za-z0-9._-]{1,200}\.(?P<pid>[0-9]{1,10})\.part(?:\.final)?")
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
 def remove_stale_parts(dfd: int) -> list[str]:
     """Remove from the destination's descriptor the hidden part files an earlier run of this command left (a SIGKILL
     between its audit event and its link, review of 02b55d8a item 9) and return their names: only names of this
-    command's own pattern (:data:`_PART_NAME`), only regular files (not followed: ``lstat``) owned by the running
-    account, and only when the process that wrote one is gone (a run still going keeps its file)."""
+    command's own pattern (:data:`_PART_NAME`), only regular files (not followed: ``lstat``, and the descriptor
+    opened ``O_NOFOLLOW`` is that file) owned by the running account, and only when this process can take
+    ``flock(LOCK_EX | LOCK_NB)`` on it: a writer holds that lock on its part file from creation to the link (review of
+    b9937b0d, item 3), whatever PID namespace it runs in, so a file nobody holds is one nobody writes. The pid in the
+    name decides nothing. The caller holds the folder's own lock (:func:`write`), so no writer is between creating
+    its part file and locking it."""
     gone: list[str] = []
     for name in sorted(os.listdir(dfd)):
-        m = _PART_NAME.fullmatch(name)
-        if m is None or int(m["pid"]) == os.getpid() or _alive(int(m["pid"])):
+        if _PART_NAME.fullmatch(name) is None:
             continue
         try:
             st = os.stat(name, dir_fd=dfd, follow_symlinks=False)
         except FileNotFoundError:
             continue
-        if stat.S_ISREG(st.st_mode) and st.st_uid == os.geteuid():
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid():
+            continue
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0), dir_fd=dfd)
+        except OSError:
+            continue
+        try:
+            mine = os.fstat(fd)
+            if (mine.st_dev, mine.st_ino) != (st.st_dev, st.st_ino):
+                continue
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                continue  # a writer holds it: a run still going, in this PID namespace or another
             with contextlib.suppress(FileNotFoundError):
                 os.unlink(name, dir_fd=dfd)
                 gone.append(name)
+        finally:
+            os.close(fd)
     return gone
 
 
@@ -418,29 +488,19 @@ TRUST_FILE_MAX_BYTES = 1 << 20
 def read_trust_file(path: Path) -> list[sp.TrustedKey]:
     """The trusted keys of a ``tb-study-trust/1`` file (``study_package.load_trust``), read safely: opened without
     following a link, a regular file, which no other account may write (no group or other write bit; owned by this
-    account or root), at most :data:`TRUST_FILE_MAX_BYTES`. Raises ``ValueError`` with one sentence."""
-    try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
-    except OSError as exc:
-        if os.path.islink(path):
-            raise ValueError(f"the trust file {path} is a symbolic link; give the file itself") from None
-        raise ValueError(f"the trust file {path} cannot be opened ({exc.strerror})") from None
-    with os.fdopen(fd, "rb") as fh:
-        st = os.fstat(fh.fileno())
-        if not stat.S_ISREG(st.st_mode):
-            raise ValueError(f"the trust file {path} is not a regular file")
+    account or root), at most :data:`TRUST_FILE_MAX_BYTES`: ``study_package.read_capped``, the package file's reader,
+    with those owner checks on its descriptor (review of b9937b0d, item 4). Raises ``ValueError`` with one
+    sentence."""
+
+    def owned(st: os.stat_result) -> None:
         if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
             raise ValueError(
                 f"the trust file {path} is a file others may write (mode {stat.S_IMODE(st.st_mode):o}); make it 644"
             )
         if st.st_uid not in (0, os.geteuid()):
             raise ValueError(f"the trust file {path} is owned by another account (uid {st.st_uid})")
-        if st.st_size > TRUST_FILE_MAX_BYTES:
-            raise ValueError(f"the trust file {path} is over {TRUST_FILE_MAX_BYTES:,} bytes")
-        data = fh.read(TRUST_FILE_MAX_BYTES + 1)
-    if len(data) > TRUST_FILE_MAX_BYTES:
-        raise ValueError(f"the trust file {path} is over {TRUST_FILE_MAX_BYTES:,} bytes")
-    return sp.load_trust(data)
+
+    return sp.load_trust(sp.read_capped(path, TRUST_FILE_MAX_BYTES, "the trust file", check=owned))
 
 
 def write(
@@ -457,8 +517,8 @@ def write(
     store: Path | None = None,
 ) -> dict[str, Any]:
     """Write the package of ``study`` to ``out`` and return its header, sha256, approval (:class:`Approval`) and the
-    stale part files it removed (:func:`remove_stale_parts`); the event first (H4). ``store``: the rule-set store
-    (default :func:`rulesets_store`).
+    stale part files it removed (:func:`remove_stale_parts`); the event first (H4). ``store``: the rule-set store;
+    only the tests give one (the command never does: :func:`rulesets_store`, the fixed :data:`RULESETS_STORE`).
 
     ``audit`` is the product's writer (``open_audit``). Refused (``ValueError``, one sentence, nothing left at
     ``out`` or beside it): run as root (:class:`RootRefused`; ``euid`` is ``os.geteuid`` unless a test gives one), no
@@ -489,9 +549,16 @@ def write(
     dfd = _destination(out.parent)
     fd = -1
     try:
-        removed = remove_stale_parts(dfd)
-        fd = os.open(part, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0), 0o600,
-                     dir_fd=dfd)  # fmt: skip
+        # the folder's lock while stale part files are swept and this run's is made and locked, so no sweep falls
+        # between a writer's create and its lock; the part file's lock is held until it is closed, after the link
+        fcntl.flock(dfd, fcntl.LOCK_EX)
+        try:
+            removed = remove_stale_parts(dfd)
+            fd = os.open(part, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+                         0o600, dir_fd=dfd)  # fmt: skip
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            fcntl.flock(dfd, fcntl.LOCK_UN)
         view = memoryview(data)
         while view:
             view = view[os.write(fd, view) :]
@@ -509,6 +576,10 @@ def write(
             "approval_tag_sha": approval.tag_sha,
             "approval_commit": approval.commit,
             "approved_by": approval.by,
+            "store": approval.store,
+            "store_dev": approval.store_dev,
+            "store_ino": approval.store_ino,
+            "store_uid": approval.store_uid,
         }
         if sudo_claim:
             detail["sudo_user_claimed"] = sudo_claim
@@ -636,8 +707,11 @@ def main(argv: list[str] | None = None) -> int:
                     f"wrote {args.out}: study {h['study_id']} version {h['version']} (protocol "
                     f"{h['protocol_version']}), package {h['package_id']}, criteria hash {h['criteria_sha256']}, "
                     f"signed by key {h['key_id']}, audited as {EVENT}; packed from the approval tag {a.tag} (tag "
-                    f"object {a.tag_sha}, commit {a.commit}) whose message says approved by {a.by}: a tag the rule-set "
-                    "store's account can write, so this is as strong as that account and the signing key"
+                    f"object {a.tag_sha}, commit {a.commit}) in the rule-set store {a.store} (device {a.store_dev}, "
+                    f"inode {a.store_ino}, owner uid {a.store_uid}), whose message says approved by {a.by}: that "
+                    "proves such a tag is in the box's store, which its owner, root, or any account its folders "
+                    "let write can write without the person's act, and whoever holds the signing key can build a "
+                    "package with the library without an audit; so this is as strong as those accounts and that key"
                 )
             )
             print(text("h1_limit", args.lang))
@@ -658,8 +732,12 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(header, ensure_ascii=True, indent=1, sort_keys=True).replace("\x7f", "\\u007f"))
             return SHOWN
     except (ValueError, OSError) as exc:  # PackageRefused is a ValueError
-        print(f"study package: {exc}", file=sys.stderr)  # a PackageRefused is printable ASCII already
-        return 1
+        # the one exit point of every subcommand: every message escaped (review of b9937b0d, item 2), but the root
+        # refusal, the command's own sentence in the operator's language with nothing of a file or a caller in it
+        said = str(exc) if type(exc) is RootRefused else sp.printable(str(exc))
+        print(f"study package: {said}", file=sys.stderr)
+        # verify's boundary refuses the unforeseen as step "internal": an internal error, exit 2 (D-1372)
+        return 2 if isinstance(exc, sp.PackageRefused) and exc.step == "internal" else 1
     except Exception:  # the last resort: one sentence, no traceback (review of 02b55d8a, item 3)
         what = "the package could not be read" if args.cmd in ("verify", "show") else "the command stopped"
         print(f"study package: {what} (internal)", file=sys.stderr)

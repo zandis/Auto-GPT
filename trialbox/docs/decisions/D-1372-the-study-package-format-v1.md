@@ -15,7 +15,7 @@
   - A study travels as **one file** that `tb_common.study_package.build` writes from a study folder `rulesets/<ID>/`
     and a coordinating-centre Ed25519 private key, and `verify` checks against the trusted keys its caller
     passes, each trusted only for the studies its entry names (H5). The tool: `keygen --out DIR` (`cc_ed25519.key`, PKCS8 PEM, mode 600; `cc_ed25519.pub`, SubjectPublicKeyInfo
-    PEM: the formats of `tools/sign_bundle.py keygen` and `tb_common.crypto`), `write <store>/<ID> --key K --out F
+    PEM: the formats of `tools/sign_bundle.py keygen` and `tb_common.crypto`), `write /data/rulesets/<ID> --key K --out F
     [--created YYYY-MM-DD] [--force] [--trust-file T] [--audit-dir D] [--lang en|ja|zh-TW]` (never as root; the key
     file is read once by descriptor; an encrypted key is refused; an existing `F` is replaced only with `--force`;
     and see "The export, audited" below), `verify F --trust-file T` (see "Trusted
@@ -24,7 +24,11 @@
     then the header with every character outside printable ASCII escaped (`ensure_ascii`, and DEL), and the exit
     status is **3, "shown, not verified"**, so a script that tests for 0 cannot take a shown package for a verified
     one; `show` takes no trust file). Exit status: 0 done, 1 refused (one sentence), 2 usage or an internal error
-    (one sentence, "could not be read (internal)", never a traceback), 3 shown, not verified. `keygen` creates both
+    (one sentence, "could not be read (internal)", never a traceback; `verify`'s refusal of step `internal` is such
+    an error and exits 2 too), 3 shown, not verified. Every message the command prints passes through `printable` at
+    its one exit point, whichever subcommand raised it (review of b9937b0d, item 2: a study-folder file named with
+    ESC and BEL put them raw on stderr in `write`); the root refusal alone, the command's own sentence in the
+    operator's language, is printed as written. `keygen` creates both
     files in the folder's descriptor (`O_CREAT | O_EXCL | O_NOFOLLOW`): an existing name, a link among them, is
     refused and nothing is written through it (it may run as root). It prints key ids, never key material. No new
     dependency and no new cryptography: Ed25519 through `tb_common.crypto`.
@@ -82,7 +86,8 @@
     blocks every file open during it): (1) `tar`, its sub-checks in the order the code makes them: the whole package
     at most 200,000,000 bytes (`read_file`: the file opened once, `O_NOFOLLOW | O_NONBLOCK`, a regular file on that
     descriptor, not a FIFO, device or folder, and at most the cap plus one byte read from it; the command's trust
-    file the same way); whole 512-byte blocks, at least two; then for
+    file the same way: `read_trust_file` is `read_capped` with its owner and mode checks run on that descriptor, so a
+    folder is refused in one sentence and no descriptor is left open); whole 512-byte blocks, at least two; then for
     each block: the two end blocks and nothing after them, the checksum and size fields plain octal, the checksum,
     the `ustar` magic, a regular file, an empty prefix field, an ASCII name, the name rules, no duplicate, at most
     2,000 members, the member's size cap (100,000,000 bytes; **64 KiB for `header.json` and 1 MiB for
@@ -261,7 +266,11 @@
     folder has (hidden files, subfolders, links, the template, the manifest's `status`).
   - **No text of the sender before the signature, everything shown escaped (review of 02b55d8a, item 2).** A
     refusal before the signature never echoes text the sender chose: an unknown header field, a pin, a hash-list
-    entry or a bad member name is named by its place (member, field index) and its length. Every `PackageRefused`
+    entry or a bad member name is named by its place (member, field index) and its length; so is a member named
+    twice, a member over its size cap and a name a v1 package may not hold, even one that passes the name rules
+    (review of b9937b0d, item 4: "holds files/ir/ALL-CHECKS-PASSED" was echoed): "member 3 (a name of 26 bytes)".
+    Only the format's own fixed names (`header.json`, `hashes.json`, `signature.ed25519`, `protocol.json`) are named
+    as they are; member names appear only after the signature verifies. Every `PackageRefused`
     sentence is printable ASCII (`printable`: each other character as its `\xNN`, `\uXXXX` escape), so a field
     shown after the signature (a study id a trusted key signed) cannot drive a terminal; the command's success lines
     are escaped the same way.
@@ -310,7 +319,8 @@
     **`approve.study_package_exported`** (actor below; `ruleset`, `ruleset_version`, `output_sha` that sha256;
     `detail`: `package_id`, `key_id`, `created`, `protocol_version`, `criteria_sha256`, `approval_tag`,
     `approval_tag_sha` (the tag object), `approval_commit` (the commit it names), `approved_by` (the person its
-    message names), and `sudo_user_claimed` when set; never a byte of the content); only then links the name **from the same
+    message names), `store` (the store's real path: no component of it is a link), `store_dev` and `store_ino` (its
+    `st_dev`, `st_ino`), `store_uid` (its owner), and `sudo_user_claimed` when set; never a byte of the content); only then links the name **from the same
     descriptor** (`linkat` of `/proc/self/fd/<n>`, which never overwrites; with `--force` to a second hidden name
     renamed over `--out`), fsyncs the folder, and checks that the file now named `--out` is that descriptor's
     (`st_dev`, `st_ino`) and hashes it again from the descriptor before it says success. An event that cannot be
@@ -322,17 +332,32 @@
   - **The approval is bound to the content (item 4; review of 02b55d8a, item 7).** `status: approved` alone was a
     word in the folder, and at 02b55d8a any git repository above the given path served as "the store" and any
     annotated tag as the approval (a `git init`, a commit and `git tag -a RA-JAK/v1.0.0 -m anything` packed with an
-    `approve.` event). Now the folder's parent must be **the box's configured rule-set store** (`TB_RULESETS_DIR`,
-    `/data/rulesets` in the container: the same device and inode), and the tag must be **the approval exactly as the
-    criteria compiler writes it** (`criteria_compiler.service`: `repo.tag(tag, branch, "<ID> v<version> approved by
-    <who>", <who>)`): an annotated tag naming a commit, its message exactly that sentence (one line, printable),
+    `approve.` event). At b9937b0d "the configured store" was still `TB_RULESETS_DIR` from the **caller's**
+    environment (review of b9937b0d, item 1: as another account a reviewer made a git folder of their own, tagged
+    "RA-JAK v1.0.0 approved by alice" with tagger alice, pointed `TB_RULESETS_DIR` at it, and `write` packed it with
+    an event that did not say which store), and a symlinked store and a tag object named otherwise than its ref were
+    accepted. Now **the store is pinned**: `write` packs only from `RULESETS_STORE`, `/data/rulesets`, the declared
+    default of `TB_RULESETS_DIR` (`tb_common.config.DECLARED`), which is where the compose files mount the
+    `rulesets-data` volume in the criteria compiler's container and what they set `TB_RULESETS_DIR` to. The command
+    has no option that names a store; an environment whose `TB_RULESETS_DIR` names any other folder is refused with
+    one sentence that says so, not followed. Only the tests give the library function `write` (and
+    `approved_files`) another store, through its `store` parameter. The store path is reached from `/` one component
+    at a time, each opened `O_DIRECTORY | O_NOFOLLOW` from its parent's descriptor, so a store that is or passes
+    through a symbolic link is refused, and its `.git` must be a folder; the study folder's parent must be that
+    folder (the same `st_dev` and `st_ino`). The tag must be **the approval exactly as the criteria compiler writes
+    it** (`criteria_compiler.service`: `repo.tag(tag, branch, "<ID> v<version> approved by <who>", <who>)`): an
+    annotated tag naming a commit, **the tag object's own name equal to its ref's** (`<ID>/v<version>`), its message
+    exactly that sentence (one line, printable),
     its tagger `<who> <<who>>`, and the manifest at the tag `status: approved`, that version and
     `review.approved_by` that same person; with `export_part`'s checks (not seeded, not arrived in an update). The
-    event and the success line record the tag object's sha, the commit's sha and that person. **What it still
-    cannot prove:** the store is owned by the service account (uid 10001), which can write such a tag without the
-    person's act on the console; and anyone holding the signing key can call the library's `build` without any
-    audit. So "approved on this box" is **as strong as that account and that key**, no stronger; the success line
-    says so. `approved_files` reads the tag's blobs once and refuses: no store behind the folder (a plain folder
+    event and the success line record the store's real path, its `st_dev`, `st_ino` and owner uid, next to the tag
+    object's sha, the commit's sha and that person. **What "approved on this box" rests on, and no more:** that tag
+    is in the box's fixed store, `/data/rulesets`, the `rulesets-data` volume, owned by the criteria compiler's
+    service account (uid 10001, `tb` in the image; the success line prints the owner uid it found). A tag there can
+    be written by that account (so by any code running as it, the compiler's approval or not), by root, and by any
+    account the store's folders let write; none of them needs the person's act on the console. And whoever holds the
+    signing key can call the library's `build` with no store, no tag and no audit. So a package is **as strong as
+    those accounts and that key**, no stronger; the success line says so in those words. `approved_files` reads the tag's blobs once and refuses: no store behind the folder (a plain folder
     is not packed at all), a folder not named as its manifest's `id`, a manifest that is not `status: approved`, no
     tag for the manifest's version, a tag that names nobody (`SEEDED_TAG`: a shipped example), an approval that
     arrived in an update (`(offline update`), a tagged manifest that is not that approved version, and a folder whose
@@ -350,11 +375,17 @@
     centre's: the separation is the verifier's (H5) and 10D-4's register's.
   - **What H4 enforces, and what it does not.** Enforced: no package without its durable audit event naming the
     account, when, which study, version and approval tag, which package (by the sha256 of the linked file) and key;
-    only a version holding this box's approval tag as the compiler writes it, in the configured store, as approved
-    (as strong as the store's account and the signing key, above); never as root; the package file is mode 600; a
-    stale hidden part file a SIGKILL left between the event and the link (`.<name>.<pid>.part`, 0600, complete) is
-    removed by the next run in that destination, only names of this pattern, only regular files the running account
-    owns whose writer is gone, and named on stderr. **The file-mode audit** (`--audit-dir`, a developer shell or the
+    only a version holding this box's approval tag as the compiler writes it, in the box's fixed store (`/data/rulesets`), as
+    approved (as strong as the accounts that can write a tag there and the signing key, above); never as root; the package file is mode 600; a
+    stale hidden part file a SIGKILL left between the event and the link (`.<name>.<pid>.part`, and `.final` with
+    `--force`) is removed by the next run in that destination, and named on stderr: only names of this pattern, only
+    regular files (`lstat`, then opened `O_NOFOLLOW` and checked to be that file) the running account owns, and only
+    when that run can take `flock(LOCK_EX | LOCK_NB)` on it. Its mode and whether it is complete are not checked. Each
+    writer holds `flock(LOCK_EX)` on its own part file from its creation until it is closed after the link, and it
+    sweeps and creates its part file holding the destination folder's own `flock`, so no sweep falls between another
+    writer's create and lock. The pid in the name decides nothing: at b9937b0d the sweep took a writer for gone when
+    `kill(pid, 0)` found no such pid in its own PID namespace, so two `docker compose run` writers into one folder
+    could remove each other's live part file and the victim failed after its event (review of b9937b0d, item 3). **The file-mode audit** (`--audit-dir`, a developer shell or the
     tests) checks its folder with `lstat` and the writer then opens it by path, its parents unchecked: since every
     write branch refuses euid 0, it works with the running account's own power only. Not enforced,
     because a command run in the container cannot: a console role or a study-access check, and the person: whoever
@@ -499,7 +530,17 @@
     (above) and **fixed** (`test_r8_…`).
   - 9, cross-patient references, a reference of the wrong type, duplicate records; a stale part file after a
     SIGKILL; the file-mode audit's power: **fixed**, **fixed**, **stated** (`test_r9_…`).
+- **Review of b9937b0d (delta review, NOT READY), item by item** (each a test at the real call, seen failing on
+  b9937b0d first):
+  - 1 (blocker), the store from the caller's environment, a symlinked store, a tag object named otherwise than its
+    ref, an event that did not name the store: **fixed**, the store pinned to `/data/rulesets` and recorded
+    (above; `test_s1_…`).
+  - 2, the command's exit point printed messages raw: **fixed** (`test_s2_…`).
+  - 3, the stale part sweep by `kill(pid, 0)` across PID namespaces: **fixed**, by `flock` (above; `test_s3_…`, two
+    processes).
+  - 4, the trust file read by its own code, an internal error in `verify` exiting 1, member names before the
+    signature: **fixed** (`test_s4_…`; the internal error through the real `verify`, not a patched `verify_file`).
 - **Held by:** `tests/unit/test_study_package.py` (the review of f1d1fe3c: `test_h1_…` to `test_h5_…`, `test_item6_…`,
   `test_item9_…`, `test_item12_…`, `test_a_…`, `test_b_…`; the review of ec90c1b4: `test_item1_…` to `test_item7_…`;
-  the review of 02b55d8a: `test_r1_…` to `test_r9_…`;
+  the review of 02b55d8a: `test_r1_…` to `test_r9_…`; the review of b9937b0d: `test_s1_…` to `test_s4_…`;
   each the reviewer's probe at the real call, each seen failing first).

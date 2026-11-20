@@ -27,7 +27,7 @@ import os
 import re
 import stat
 import struct
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -563,6 +563,15 @@ def _octal(field: bytes) -> int:
     return int(text, 8)
 
 
+def _member(n: int, name: str) -> str:
+    """A member named before the signature (review of b9937b0d, item 4): by its place in the archive and its length,
+    never its text, which the sender chose (a name that passes the name rules may still say "ALL-CHECKS-PASSED");
+    the format's own fixed names (:data:`_META`, :data:`PROTOCOL`) are this code's text and named as they are."""
+    if name in _META or name == PROTOCOL:
+        return name
+    return f"member {n} (a name of {len(name.encode('utf-8'))} bytes)"
+
+
 def _refuse(sentence: str, step: str = "tar") -> PackageRefused:
     return PackageRefused(step, f"this study package {sentence}")
 
@@ -611,12 +620,13 @@ def read_tar(data: bytes) -> dict[str, bytes]:
         if why:
             raise _refuse(f"is refused: {why}")
         if name in members:
-            raise _refuse(f"holds the member {name} twice")
+            raise _refuse(f"holds {_member(len(members) + 1, name)} twice")
         if len(members) + 1 > STUDY_PACKAGE_MAX_MEMBERS:
             raise _refuse(f"holds more than {STUDY_PACKAGE_MAX_MEMBERS:,} members")
         cap = _MEMBER_CAPS.get(name, STUDY_PACKAGE_MAX_MEMBER_BYTES)
         if size > cap:
-            raise _refuse(f"holds {name} of {size:,} bytes; that member may be at most {cap:,} bytes")
+            raise _refuse(f"holds {_member(len(members) + 1, name)} of {size:,} bytes; that member may be at most "
+                          f"{cap:,} bytes")  # fmt: skip
         total += size
         if total > STUDY_PACKAGE_MAX_BYTES:
             raise _refuse(f"holds more than {STUDY_PACKAGE_MAX_BYTES:,} bytes")
@@ -768,9 +778,9 @@ def _structure(data: bytes) -> tuple[dict[str, bytes], dict[str, Any], dict[str,
     for need in (HEADER, HASHES, SIGNATURE, PROTOCOL):
         if need not in members:
             raise _refuse(f"lacks its {need}")
-    for name in members:
+    for n, name in enumerate(members, 1):
         if not _allowed(name, None):
-            raise _refuse(f"holds {name}, which is not a member a v1 package may hold")
+            raise _refuse(f"holds {_member(n, name)}, which is not a member a v1 package may hold")
     if len(members[SIGNATURE]) != 64:
         raise _refuse("has a signature that is not 64 bytes (Ed25519)")
     header = _canonical_json(HEADER, members[HEADER])
@@ -1062,11 +1072,12 @@ def criteria_refusal(manifest: Mapping[str, Any], files: Mapping[str, bytes]) ->
     return None
 
 
-def read_capped(path: Path, cap: int, what: str) -> bytes:
+def read_capped(path: Path, cap: int, what: str, check: Callable[[os.stat_result], None] | None = None) -> bytes:
     """The bytes of the regular file at ``path``, at most ``cap`` (review of 02b55d8a, item 5): opened once without
     following a link and without blocking (``O_NOFOLLOW | O_NONBLOCK``), checked on that descriptor (a regular file,
-    not a FIFO, a device or a folder; its size), and read from it, at most ``cap + 1`` bytes, so a file that grows
-    is refused too. ``what`` names it in the sentence. Raises ``ValueError`` with one sentence."""
+    not a FIFO, a device or a folder; ``check``, when given, on its ``fstat`` (it raises ``ValueError``); its size),
+    and read from it, at most ``cap + 1`` bytes, so a file that grows is refused too. ``what`` names it in the
+    sentence. The descriptor is closed on every path. Raises ``ValueError`` with one sentence."""
     try:
         fd = os.open(path, _FILE_FLAGS)
     except OSError as exc:
@@ -1075,6 +1086,8 @@ def read_capped(path: Path, cap: int, what: str) -> bytes:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode):
             raise ValueError(f"{what} {path} is not a regular file (a FIFO, a device or a folder is not read)")
+        if check is not None:
+            check(st)
         if st.st_size > cap:
             raise ValueError(f"{what} {path} is {st.st_size:,} bytes; it may be at most {cap:,} bytes")
         chunks: list[bytes] = []
