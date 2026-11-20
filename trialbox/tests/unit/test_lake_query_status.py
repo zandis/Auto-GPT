@@ -183,6 +183,8 @@ CALLERS: dict[tuple[str, str], str] = {
     ("edc/prefill.py", "LakeFacts._q"): GOES_ON,
     ("matching/cascade/engine.py", "_Run.s0"): GOES_ON,
     ("matching/cascade/engine.py", "_Run._s1_rows"): GOES_ON,
+    # D-1263: the v3 criteria's SQL at their anchors' dates; a lake failure stops the run as S1's own query does
+    ("matching/cascade/v3.py", "V3Stage._rows"): GOES_ON,
     ("matching/batches.py", "query_by_patients"): GOES_ON,  # NEW-B-53: FEAS, cohort and SqlEngine ask through it
     ("matching/coverage.py", "Coverage.load"): GOES_ON,
     ("matching/carried.py", "Carried.load"): GOES_ON,  # D-795: the lake's error reaches the run, as Coverage's
