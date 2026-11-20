@@ -320,7 +320,8 @@ def _elm_key(key: Any) -> str:
 
 def _elm_node(node: Any, path: str, where: str, strip: bool) -> Any:
     """``node`` with every key in :data:`ELM_NODE_KEYS`, at every depth; ``annotation`` removed when ``strip`` (the
-    export), refused when not (the receiving box); any other key refused, naming its path (the allowed keys and indices) and the offending key's length, not its text."""
+    export), refused when not (the receiving box); any other key refused, naming its path
+    (the allowed keys and indices) and the offending key's length, not its text."""
     if isinstance(node, dict):
         out = {}
         for k, v in node.items():

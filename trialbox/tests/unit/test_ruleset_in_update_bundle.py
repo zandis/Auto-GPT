@@ -968,7 +968,8 @@ def test_recheck_the_site_profile_names_the_person_who_ran_it(
     monkeypatch.setattr(getpass, "getuser", _no_user)  # no user variable, no passwd entry: no crash
     assert import_ruleset.main(["--site-profile", "GZQO", str(prof)]) == 0
     assert [e["actor"] for e in audit_events(tmp_path / "audit") if e["event"] == "approve.site_profile_set"][-1] == (
-        "host:unknown")
+        "host:unknown"
+    )
 
 
 def test_recheck_a_repeat_is_the_tags_own_hash_field_only(head: RulesetRepo, tmp_path: Path) -> None:
