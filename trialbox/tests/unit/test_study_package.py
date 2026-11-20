@@ -1964,7 +1964,7 @@ def test_item6_the_actor_is_the_account_and_sudo_user_only_a_claim(
     tool.write(study, key, outdir / "RA-JAK.tbstudy", DAY, audit=AuditLog(audit), euid=_not_root)
     ev = [e for e in _events(audit) if e["event"] == tool.EVENT][-1]
     assert ev["actor"] == f"host:{name}" and ev["detail"]["sudo_user_claimed"] == "claimed-name"
-    monkeypatch.setattr(tool.pwd, "getpwuid", lambda _uid: (_ for _ in ()).throw(KeyError(_uid)))
+    monkeypatch.setattr(pwd, "getpwuid", lambda _uid: (_ for _ in ()).throw(KeyError(_uid)))
     monkeypatch.delenv("SUDO_USER")
     assert tool.actor() == (f"host:uid:{os.getuid()}", None)
 
