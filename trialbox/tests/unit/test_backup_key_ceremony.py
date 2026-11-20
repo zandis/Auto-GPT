@@ -3,7 +3,7 @@
 Step 1 the key file and the sheet on the stick, step 2 both read back, step 3 the event through the orchestrator's
 journal, step 4 ``backup.pub`` made new, last. Nothing is undone or deleted; a run cut short is finished by the same
 command with the same stick; "once" is ``backup.pub``. The journal is a stand-in for ``docker compose exec
-orchestrator`` (``TB_COMPOSE``) that runs the command's own journal code against a stub writer and keeps every call's
+orchestrator`` (``bkc.COMPOSE``; ``TB_COMPOSE`` is set to ``true`` and must be ignored) that runs the command's own journal code against a stub writer and keeps every call's
 arguments and environment, so the tests can look for the key in them. The stick's removable-media check is replaced
 by a stub (H2 is tested on its own, on a made-up ``/sys``). Every key is made in the test's tmp folder; the tests pass
 as root and as any other user (the ownership checks compare with the user running them).
@@ -14,6 +14,7 @@ from __future__ import annotations
 import ast
 import base64
 import errno
+import fcntl
 import json
 import os
 import re
@@ -43,17 +44,33 @@ with open(os.path.join(state, "calls.jsonl"), "a", encoding="utf-8") as f:
 assert rest[:5] == ["exec", "-T", "orchestrator", "python", "-c"], rest[:5]
 code, args = rest[5], rest[6:]
 flag = lambda n: os.path.exists(os.path.join(state, n))
-if args[:1] == ["record"] and flag("fail_record"):
+if args[:1] == ["record"] and flag("fail_record"):  # the container answers non-zero before the code runs
     sys.exit(1)
+if args[:1] == ["record"] and flag("silent"):  # a no-op that answers success and stores nothing
+    sys.exit(0)
+journal = os.path.join(state, "journal.jsonl")
 class DbAuditWriter:
+    _dsn = "stand-in"
     def append(self, event, **fields):
-        with open(os.path.join(state, "journal.jsonl"), "a", encoding="utf-8") as f:
+        if flag("append_raises"):  # the journal refuses inside append (AuditUnavailable is an OSError)
+            raise OSError("the audit journal cannot be reached")
+        with open(journal, "a", encoding="utf-8") as f:
             f.write(json.dumps({"event": event, **fields}) + "\n")
+        with open(journal, encoding="utf-8") as f:
+            return {"event": event, "journal": {"seq": len(f.read().splitlines())}}
 class FileWriter:
     def append(self, event, **fields):
         raise AssertionError("a file-mode writer must never be appended to")
+class Con:
+    def close(self):
+        pass
+def connect(dsn, connect_timeout):
+    if flag("db_down"):
+        raise OSError("connection refused")
+    return Con()
 mod = types.ModuleType("tb_common.audit_writer")
 mod.DbAuditWriter = DbAuditWriter
+mod._psycopg = lambda: types.SimpleNamespace(connect=connect)
 mod.open_audit = lambda: FileWriter() if flag("file_mode") else DbAuditWriter()
 sys.modules.update({"tb_common": types.ModuleType("tb_common"), "tb_common.audit_writer": mod})
 sys.argv = ["-c", *args]
@@ -66,6 +83,7 @@ from pathlib import Path
 from tools import backup_key_ceremony as b
 cfg = json.loads(sys.argv[1])
 b.DEPLOY = Path(cfg["deploy"]); b.PUB_DIR = b.DEPLOY / "secrets"
+b.COMPOSE = cfg["compose"]
 b.is_root = lambda: True
 b.stick_problem = lambda dev, devs: False
 def after(name, when=lambda *a: True):
@@ -77,10 +95,12 @@ def after(name, when=lambda *a: True):
         return out
     setattr(b, name, wrapped)
 stop = cfg.get("stop")
-if stop == "key-file":
+if stop == "pending":
+    after("_pending")
+elif stop == "key-file":
     after("_put", lambda dfd, name, *a: name == b.KEY_FILE)
 elif stop == "step1":
-    after("_sync_dir", lambda dfd, n: n == 1)
+    after("_sync_dir", lambda dfd, n: n == 1 and not os.path.samestat(os.fstat(dfd), os.stat(b.PUB_DIR)))
 elif stop == "step2":
     after("_on_stick")
 elif stop == "step3":
@@ -109,13 +129,20 @@ class Box:
         os.chmod(self.deploy, 0o755)
         (tmp / "fake_compose.py").write_text(FAKE_COMPOSE, encoding="utf-8")
         (tmp / "driver.py").write_text(DRIVER, encoding="utf-8")
-        self.compose = f"{sys.executable} {tmp / 'fake_compose.py'} {self.state}"
+        self.compose = [sys.executable, str(tmp / "fake_compose.py"), str(self.state)]
         self.out: list[str] = []
 
     def stick(self, name: str = "usb") -> Path:
         s = self.tmp / name
         s.mkdir(mode=0o700)
         return s
+
+    def flag(self, name: str, on: bool = True) -> None:
+        f = self.state / name
+        f.write_text("") if on else f.unlink()
+
+    def pending(self) -> list[str]:
+        return sorted(p.name for p in self.pub_dir.glob("backup-ceremony-*.pending"))
 
     def journal(self) -> list[dict[str, Any]]:
         f = self.state / "journal.jsonl"
@@ -124,13 +151,14 @@ class Box:
     def env(self) -> dict[str, str]:
         env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUNBUFFERED", "TB_BACKUP_PUBKEY")}
         env.update(PYTHONPATH=os.pathsep.join(str(ROOT / p) for p in ("libs", "services", ".")),
-                   TB_COMPOSE=self.compose, TB_SITE_ID=SITE)  # fmt: skip
+                   TB_COMPOSE="true", TB_SITE_ID=SITE)  # fmt: skip
         return env
 
     def drive(self, stick: Path, stop: str | None = None, spy: Path | None = None) -> subprocess.CompletedProcess[str]:
         """The command in a process of its own; ``stop``: SIGKILL right after that point."""
         argv = ["--stick", str(stick), "--operator", OP, "--witness", WIT]
-        cfg = {"deploy": str(self.deploy), "stop": stop, "argv": argv, "spy": str(spy) if spy else None}
+        cfg = {"deploy": str(self.deploy), "stop": stop, "argv": argv, "spy": str(spy) if spy else None,
+               "compose": self.compose}  # fmt: skip
         r = subprocess.run([sys.executable, str(self.tmp / "driver.py"), json.dumps(cfg)], cwd=ROOT, env=self.env(),
                            capture_output=True, text=True, timeout=120, check=False)  # fmt: skip
         self.out += [r.stdout, r.stderr]
@@ -142,6 +170,7 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Box:
     b = Box(tmp_path)
     monkeypatch.setattr(bkc, "DEPLOY", b.deploy)
     monkeypatch.setattr(bkc, "PUB_DIR", b.pub_dir)
+    monkeypatch.setattr(bkc, "COMPOSE", b.compose)
     monkeypatch.setattr(bkc, "is_root", lambda: True)
     monkeypatch.setattr(bkc, "stick_problem", lambda dev, devs: False)
     monkeypatch.setattr(bkc, "harden", lambda: None)  # H1 runs for real in the processes of the driver
@@ -213,48 +242,58 @@ def test_the_leak_scan_finds_the_key_in_the_key_file_and_in_the_sheet_m8() -> No
 
 # ------------------------------------------------------------------------------------------------ THE INVARIANT
 def _invariant(box: Box, sticks: list[Path]) -> None:
-    """backup.pub exists only if the journal holds the ceremony event for its key and the stick's key file and sheet
-    read back equal to that key; and no private key byte is in the journal, the outputs or any file off the stick."""
+    """backup.pub exists only if the journal holds the ceremony event for its key, the box holds that key's record from
+    before the stick did, and the stick's key file and sheet read back equal to that key; and no private key byte is in
+    the journal, the outputs or any file off the stick."""
     raws = [k for s in sticks if (k := _stick_key(s)) is not None]
     if box.pub.exists():
         fp = bk.fingerprint(bk.load_public(box.pub).public_bytes_raw())
         events = [e for e in box.journal() if e["event"] == bkc.EVENT and e["detail"]["fingerprint"] == fp]
         assert events and all(e["detail"]["operator"] == OP and e["detail"]["witness"] == WIT for e in events)
-        holder = [
-            s
-            for s in sticks
-            if _stick_key(s) is not None and bkc.fingerprint(bkc.public_of(_stick_key(s) or b"")) == fp
-        ]
+        assert bkc.pending_name(fp) in box.pending()
+        holder = [s for s in sticks if (k := _stick_key(s)) is not None and bkc.fingerprint(bkc.public_of(k)) == fp]
         assert holder, "backup.pub names a key no stick holds"
         s = holder[0]
         sheet = bkc.read_sheet((s / bkc.PAPER_FILE).read_bytes())
         assert sheet is not None and sheet[0] == _stick_key(s) and sheet[1] == SITE
-        assert (
-            bk.load_private(s / bkc.KEY_FILE).public_key().public_bytes_raw()
-            == bk.load_public(box.pub).public_bytes_raw()
-        )
+        pub = bk.load_public(box.pub).public_bytes_raw()
+        assert bk.load_private(s / bkc.KEY_FILE).public_key().public_bytes_raw() == pub
     assert _off_stick_leaks(box, raws, sticks) == []
 
 
-@pytest.mark.parametrize("stop", ["key-file", "step1", "step2", "step3", "step4-link"])
+KILLS = ["pending", "key-file", "step1", "step2", "step3", "step4-link"]
+JOURNAL_FAILS = ["fail_record", "append_raises", "silent"]
+
+
+@pytest.mark.parametrize("stop", KILLS + JOURNAL_FAILS)
 def test_invariant_backup_pub_only_after_journal_and_read_back_across_every_stop_point(box: Box, stop: str) -> None:
-    """Killed (SIGKILL) right after each point, then the same command again with the same stick: the invariant holds
-    in the state the kill left and after the rerun, which finishes the run with the same key (or says it is done)."""
+    """Killed (SIGKILL) right after each point, or stopped by a journal that fails (the container answers non-zero,
+    the journal refuses inside append, or a no-op answers success and stores nothing), then the same command again
+    with the same stick: the invariant holds in the state left and after the rerun, which finishes the run with the
+    same key (or a new one when the stick was still empty), or says it is done."""
     stick = box.stick()
-    r = box.drive(stick, stop=stop)
-    assert r.returncode == -signal.SIGKILL, r.stdout + r.stderr
+    if stop in JOURNAL_FAILS:
+        box.flag(stop)
+    r = box.drive(stick, stop=None if stop in JOURNAL_FAILS else stop)
+    if stop in JOURNAL_FAILS:
+        assert r.returncode == 1 and r.stderr.strip() == bkc.JOURNAL_UNSURE["en"], r.stdout + r.stderr
+        box.flag(stop, on=False)
+    else:
+        assert r.returncode == -signal.SIGKILL, r.stdout + r.stderr
     _invariant(box, [stick])
     assert box.pub.exists() == (stop == "step4-link")
-    assert (stick / bkc.PAPER_FILE).exists() == (stop != "key-file")
+    assert (stick / bkc.PAPER_FILE).exists() == (stop not in ("pending", "key-file"))
     key = _stick_key(stick)
-    assert key is not None
+    assert (key is None) == (stop == "pending") and len(box.pending()) == 1
     r = box.drive(stick)
     if stop == "step4-link":
         assert r.returncode == 1 and "the ceremony is done already" in r.stderr
     else:
         assert r.returncode == 0, r.stdout + r.stderr
         assert "done: backup key" in r.stdout
-    assert _stick_key(stick) == key  # the rerun finished the run cut short, with its key
+    if key is not None:
+        assert _stick_key(stick) == key  # the rerun finished the run cut short, with its key
+    assert len(box.pending()) == (2 if stop == "pending" else 1)  # an abandoned key's record stays
     assert len(box.journal()) == (2 if stop == "step3" else 1)  # a rerun after step 3 records the event again
     _invariant(box, [stick])
     assert box.drive(stick).returncode == 1  # once: backup.pub
@@ -264,7 +303,11 @@ def test_invariant_backup_pub_only_after_journal_and_read_back_across_every_stop
 # ------------------------------------------------------------------------------------------------ the whole run
 def test_the_ceremony_writes_the_stick_reads_it_back_records_and_then_makes_backup_pub(box: Box, capsys: Any) -> None:
     stick = box.stick()
-    code, out, err = _main(box, stick, capsys)
+    old = os.umask(0o077)  # backup.pub and the record are 0644 whatever root's umask (A-L3)
+    try:
+        code, out, err = _main(box, stick, capsys)
+    finally:
+        os.umask(old)
     assert code == 0 and err == "", err
     raw = _stick_key(stick)
     assert raw is not None
@@ -273,18 +316,37 @@ def test_the_ceremony_writes_the_stick_reads_it_back_records_and_then_makes_back
     fp = bk.fingerprint(pub)
     [ev] = box.journal()
     assert ev == {"event": bkc.EVENT, "actor": bkc.ACTOR, "detail": {"fingerprint": fp, "operator": OP, "witness": WIT,
-                  "site": SITE, "stick": "key file and sheet read back"}}  # fmt: skip
+                  "site": SITE, "stick": "key file and sheet file read back after sync"}}  # fmt: skip
     assert bkc.read_sheet((stick / bkc.PAPER_FILE).read_bytes()) == (raw, SITE)
     for name in (bkc.KEY_FILE, bkc.PAPER_FILE):
         assert stat.S_IMODE((stick / name).stat().st_mode) == 0o600
     assert out.strip() == bkc.DONE["en"].format(fp=fp, key=bkc.KEY_FILE, paper=bkc.PAPER_FILE, operator=OP,
-                                               witness=WIT, pub=box.pub)  # fmt: skip
-    assert sorted(p.name for p in box.pub_dir.iterdir()) == ["backup.pub"]  # no second name
+                                               witness=WIT, pub=box.pub, seq=1)  # fmt: skip
+    assert sorted(p.name for p in box.pub_dir.iterdir()) == [bkc.pending_name(fp), "backup.pub"]
+    for p in box.pub_dir.iterdir():
+        assert stat.S_IMODE(p.stat().st_mode) == 0o644
+    assert (box.pub_dir / bkc.pending_name(fp)).read_text().splitlines()[:2] == [
+        f"fingerprint {fp}", f"public {base64.b64encode(pub).decode()}"]  # fmt: skip
     calls = [json.loads(x) for x in (box.state / "calls.jsonl").read_text().splitlines()]
-    assert [c["argv"][8] for c in calls] == ["check", "record"]
+    assert [c["argv"][8] for c in calls] == ["check", "record"]  # the stand-in reached, TB_COMPOSE=true ignored
     _invariant(box, [stick])
     code, _, err = _main(box, stick, capsys, "--lang", "ja")
     assert code == 1 and err.strip() == bkc.ALREADY["ja"].format(pub=box.pub, fp=fp)
+
+
+def test_the_paper_sheet_restores_by_its_printed_instruction(box: Box, capsys: Any) -> None:
+    """B-M4: the sheet says to type only the letters between the two bars of each numbered line into a file and give
+    it to restore --key; doing exactly that gives the key (master's backup.load_private, unchanged)."""
+    stick = box.stick()
+    assert _main(box, stick, capsys)[0] == 0
+    sheet = (stick / bkc.PAPER_FILE).read_text(encoding="utf-8")
+    assert "type only the letters between the two bars of each numbered line" in sheet
+    typed = [ln.split("|")[1].strip() for ln in sheet.splitlines() if re.match(r"\d+ \|", ln)]
+    (stick / "typed.txt").write_text("\n".join(typed) + "\n", encoding="utf-8")
+    assert (
+        bk.load_private(stick / "typed.txt").public_key().public_bytes_raw()
+        == bk.load_public(box.pub).public_bytes_raw()
+    )
 
 
 def test_h1_not_dumpable_and_no_core_before_the_key_exists(box: Box) -> None:
@@ -300,8 +362,9 @@ def test_h1_not_dumpable_and_no_core_before_the_key_exists(box: Box) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ refusals
-REFUSALS = ["not-root", "no-witness", "bad-name", "same-person", "pub-dir-missing", "pub-dir-shared", "pub-elsewhere",
-            "file-mode-journal", "no-orchestrator", "no-stick", "not-a-stick", "stick-folder-shared"]  # fmt: skip
+REFUSALS = ["not-root", "no-witness", "bad-name", "same-person", "pub-dir-missing", "pub-dir-shared",
+            "pub-parent-shared", "pub-elsewhere", "busy", "no-tmpfile", "file-mode-journal", "journal-db-down",
+            "no-orchestrator", "a-no-op-orchestrator", "no-stick", "not-a-stick", "stick-folder-shared"]  # fmt: skip
 
 
 @pytest.mark.parametrize("case", REFUSALS)
@@ -322,14 +385,37 @@ def test_a_refusal_writes_nothing(box: Box, case: str, monkeypatch: pytest.Monke
     elif case == "pub-dir-shared":
         os.chmod(box.pub_dir, 0o777)
         want = bkc.PUB_DIR_UNSAFE["en"].format(path=box.pub_dir)
+    elif case == "pub-parent-shared":  # A-L5: a folder above it that others may write (no sticky bit)
+        os.chmod(box.deploy, 0o777)
+        want = bkc.PUB_DIR_UNSAFE["en"].format(path=box.pub_dir)
     elif case == "pub-elsewhere":
         monkeypatch.setenv("TB_BACKUP_PUBKEY", str(box.tmp / "other.pub"))
         want = bkc.PUB_ELSEWHERE["en"].format(path=box.tmp / "other.pub", pub=box.pub)
+    elif case == "busy":  # A-M1: another run holds the folder's lock
+        held = os.open(box.pub_dir, os.O_RDONLY | os.O_DIRECTORY)
+        fcntl.flock(held, fcntl.LOCK_EX)
+        want = bkc.BUSY["en"]
+    elif case == "no-tmpfile":  # A-L2: found before step 1, not after the journal
+        real_open = os.open
+
+        def no_tmpfile(path: Any, flags: int, *a: Any, **k: Any) -> int:
+            if flags & os.O_TMPFILE == os.O_TMPFILE:
+                raise OSError(errno.EOPNOTSUPP, "Operation not supported")
+            return real_open(path, flags, *a, **k)
+
+        monkeypatch.setattr(os, "open", no_tmpfile)
+        want = bkc.NO_TMPFILE["en"].format(path=box.pub_dir)
     elif case == "file-mode-journal":
-        (box.state / "file_mode").write_text("")
+        box.flag("file_mode")
+        want = bkc.NO_JOURNAL["en"]
+    elif case == "journal-db-down":  # B-M2: the journal's database does not answer: refused before any key
+        box.flag("db_down")
         want = bkc.NO_JOURNAL["en"]
     elif case == "no-orchestrator":
-        monkeypatch.setenv("TB_COMPOSE", str(box.tmp / "no-such-docker"))
+        monkeypatch.setattr(bkc, "COMPOSE", [str(box.tmp / "no-such-docker")])
+        want = bkc.NO_JOURNAL["en"]
+    elif case == "a-no-op-orchestrator":  # B-M3: a command that answers success and does nothing
+        monkeypatch.setattr(bkc, "COMPOSE", ["true"])
         want = bkc.NO_JOURNAL["en"]
     elif case == "no-stick":
         stick.rmdir()
@@ -347,25 +433,63 @@ def test_a_refusal_writes_nothing(box: Box, case: str, monkeypatch: pytest.Monke
     assert _tree(box.tmp) == before and box.journal() == []
 
 
-@pytest.mark.parametrize("kind", ["symlink", "dangling", "hardlink", "fifo", "folder"])
+@pytest.mark.parametrize("kind", ["symlink", "dangling", "hardlink", "fifo", "folder", "huge"])
 def test_a_hostile_name_on_the_stick_is_refused_and_never_followed(box: Box, kind: str, capsys: Any) -> None:
     stick, target = box.stick(), box.tmp / "outside.txt"
     target.write_bytes(b"")
     os.chmod(target, 0o600)
     name = stick / bkc.KEY_FILE
-    {"symlink": lambda: name.symlink_to(target), "dangling": lambda: name.symlink_to(box.tmp / "nowhere"),
-     "hardlink": lambda: os.link(stick / "x", name) if (stick / "x").write_bytes(b"") == 0 else None,
-     "fifo": lambda: os.mkfifo(name, 0o600), "folder": lambda: name.mkdir(mode=0o700)}[kind]()  # fmt: skip
-    before = _tree(box.tmp)
+    if kind == "symlink":
+        name.symlink_to(target)
+    elif kind == "dangling":
+        name.symlink_to(box.tmp / "nowhere")
+    elif kind == "hardlink":
+        (stick / "x").write_bytes(b"")
+        os.link(stick / "x", name)
+    elif kind == "fifo":
+        os.mkfifo(name, 0o600)
+    elif kind == "folder":
+        name.mkdir(mode=0o700)
+    else:  # A-L7: a planted large (sparse) file is refused, never read whole
+        with name.open("wb") as f:
+            f.truncate(1 << 30)
+        os.chmod(name, 0o600)
+    before = _tree(box.tmp) if kind != "huge" else None
     code, _, err = _main(box, stick, capsys)
     assert code == 1 and err.strip() == bkc.STICK_BROKEN["en"].format(name=bkc.KEY_FILE)
-    assert _tree(box.tmp) == before and not box.pub.exists() and box.journal() == []
+    assert kind == "huge" or _tree(box.tmp) == before
+    assert not box.pub.exists() and box.journal() == [] and box.pending() == []
     assert not (box.tmp / "nowhere").exists()
 
 
+def test_a_planted_whole_key_file_is_never_adopted(box: Box, capsys: Any) -> None:
+    """A-HIGH: a stick that already holds a whole, self-consistent key file (from a vendor, another box, an attacker)
+    is refused: the box has no record of that key; nothing is written; the planted key is in no journal event."""
+    stick, raw = box.stick(), bkc.new_key()
+    (stick / bkc.KEY_FILE).write_bytes(bkc.key_text(raw))
+    os.chmod(stick / bkc.KEY_FILE, 0o600)
+    before = _tree(box.tmp)
+    code, _, err = _main(box, stick, capsys)
+    assert code == 1 and err.strip() == bkc.STICK_FOREIGN["en"].format(name=bkc.KEY_FILE, path=box.pub_dir)
+    assert _tree(box.tmp) == before and box.journal() == [] and not box.pub.exists()
+    assert _main(box, box.stick("usb-empty"), capsys)[0] == 0  # an empty stick then works
+    assert bkc.fingerprint(bkc.public_of(raw)) not in json.dumps(box.journal())
+
+
+def test_a_sheet_without_a_key_file_is_refused_before_a_key_is_made(box: Box, capsys: Any) -> None:
+    """B-M5: a sheet (of some key) and no key file: refused before any key is made or written; true: nothing written."""
+    stick = box.stick()
+    (stick / bkc.PAPER_FILE).write_bytes(bkc.paper_sheet(bkc.new_key(), SITE, "earlier"))
+    os.chmod(stick / bkc.PAPER_FILE, 0o600)
+    before = _tree(box.tmp)
+    code, _, err = _main(box, stick, capsys)
+    assert code == 1 and err.strip() == bkc.STICK_FOREIGN["en"].format(name=bkc.PAPER_FILE, path=box.pub_dir)
+    assert _tree(box.tmp) == before and box.pending() == []
+
+
 def test_a_stick_that_shows_its_files_to_others_is_refused_then_finished_after_a_remount(box: Box, capsys: Any) -> None:
-    """A FAT stick mounted with a wide mask shows a new file as 0644: refused before a byte of the key; the empty file
-    is kept (nothing is deleted), and once the stick is mounted right the same command finishes in it."""
+    """A FAT stick mounted with a wide mask shows a new file as 0644: refused before any key exists (no record, the
+    file empty); the empty file is kept, and once the stick is mounted right the same command finishes in it."""
     stick = box.stick()
     real_open = os.open
 
@@ -379,24 +503,93 @@ def test_a_stick_that_shows_its_files_to_others_is_refused_then_finished_after_a
         mp.setattr(os, "open", wide)
         code, _, err = _main(box, stick, capsys)
     assert code == 1 and err.strip() == bkc.STICK_UNSAFE["en"].format(path=stick, name=bkc.KEY_FILE)
-    assert (stick / bkc.KEY_FILE).read_bytes() == b"" and not box.pub.exists() and box.journal() == []
+    assert (stick / bkc.KEY_FILE).read_bytes() == b"" and box.pending() == [] and box.journal() == []
     os.chmod(stick / bkc.KEY_FILE, 0o600)  # "mounted with umask=077"
     assert _main(box, stick, capsys)[0] == 0
     _invariant(box, [stick])
 
 
+def test_a_key_file_shown_to_others_after_step_1_says_the_key_is_exposed(box: Box, capsys: Any) -> None:
+    """B-M6: the whole key is in the file, then the stick is mounted with a wide mask: never "nothing was written"."""
+    stick = box.stick()
+    box.flag("fail_record")
+    assert _main(box, stick, capsys)[0] == 1
+    box.flag("fail_record", on=False)
+    os.chmod(stick / bkc.KEY_FILE, 0o644)
+    code, _, err = _main(box, stick, capsys)
+    assert code == 1 and err.strip() == bkc.KEY_EXPOSED["en"].format(path=stick, name=bkc.KEY_FILE)
+    assert "nothing" not in err and not box.pub.exists()
+
+
+def test_another_owner_of_a_stick_file_is_refused_before_any_key_exists(box: Box, capsys: Any) -> None:
+    """The uid check (review B, mutation C): a file shown as another account's is refused, as root and as any user
+    (the owner seen by fstat is changed, since only root could chown)."""
+    stick, real = box.stick(), os.fstat
+
+    def other_owner(fd: int) -> os.stat_result:
+        st = real(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return st
+        return os.stat_result((st.st_mode, st.st_ino, st.st_dev, st.st_nlink, st.st_uid + 1, *tuple(st)[5:10]))
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(os, "fstat", other_owner)
+        code, _, err = _main(box, stick, capsys)
+    assert code == 1 and err.strip() == bkc.STICK_UNSAFE["en"].format(path=stick, name=bkc.KEY_FILE)
+    assert box.pending() == [] and (stick / bkc.KEY_FILE).read_bytes() == b""
+
+
+def test_a_key_file_swapped_for_a_copy_before_the_read_back_is_refused(box: Box, capsys: Any) -> None:
+    """The inode check (review B, mutation B): between step 1 and step 2 the key file is replaced by a copy with the
+    same bytes (another inode): step 2 refuses, saying this run's files stay."""
+    stick, real = box.stick(), bkc._sync_dir
+
+    def swap(dfd: int, n: int) -> None:
+        real(dfd, n)
+        if os.path.samestat(os.fstat(dfd), os.stat(stick)):
+            copy = stick / "copy"
+            copy.write_bytes((stick / bkc.KEY_FILE).read_bytes())
+            os.chmod(copy, 0o600)
+            os.replace(copy, stick / bkc.KEY_FILE)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(bkc, "_sync_dir", swap)
+        code, _, err = _main(box, stick, capsys)
+    assert code == 1 and err.strip() == bkc.STICK_FAULTY["en"].format(name=bkc.KEY_FILE)
+    assert box.journal() == [] and not box.pub.exists()
+
+
+def test_a_write_that_reads_back_wrong_on_its_own_descriptor_is_refused(box: Box, capsys: Any) -> None:
+    """The same-descriptor read-back (review B, mutation D): the first read of the key file after its write gives other
+    bytes: refused at once, on the writing descriptor, before the sheet is written (a later read would be right)."""
+    stick, real, seen = box.stick(), os.pread, list[int]()
+
+    def first_read_wrong(fd: int, n: int, off: int) -> bytes:
+        data = real(fd, n, off)
+        if not seen:
+            seen.append(1)
+            return data[:-2] + b"X\n"
+        return data
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(os, "pread", first_read_wrong)
+        code, _, err = _main(box, stick, capsys)
+    assert code == 1 and err.strip() == bkc.STICK_FAULTY["en"].format(name=bkc.KEY_FILE)
+    assert box.journal() == [] and not box.pub.exists() and not (stick / bkc.PAPER_FILE).exists()
+
+
 # ------------------------------------------------------------------------------------------------ reruns
 def test_a_rerun_with_another_empty_stick_abandons_the_first_and_says_so(box: Box, capsys: Any) -> None:
     first, second = box.stick("usb-a"), box.stick("usb-b")
-    (box.state / "fail_record").write_text("")
+    box.flag("fail_record")
     code, _, err = _main(box, first, capsys)
     assert code == 1 and err.strip() == bkc.JOURNAL_UNSURE["en"] and not box.pub.exists()
     kept = _tree(first)
-    (box.state / "fail_record").unlink()
+    box.flag("fail_record", on=False)
     code, out, _ = _main(box, second, capsys)
     assert code == 0 and "the key on that stick never became the box's key: it stays there until IT wipes" in out
     assert _tree(first) == kept  # nothing of the abandoned run is deleted
-    assert _stick_key(first) != _stick_key(second)
+    assert _stick_key(first) != _stick_key(second) and len(box.pending()) == 2  # its record stays too
     _invariant(box, [first, second])
     assert bk.fingerprint(bkc.public_of(_stick_key(second) or b"")) == box.journal()[-1]["detail"]["fingerprint"]
     assert _main(box, first, capsys)[0] == 1  # done: backup.pub
@@ -404,7 +597,9 @@ def test_a_rerun_with_another_empty_stick_abandons_the_first_and_says_so(box: Bo
 
 @pytest.mark.parametrize("damage", ["torn-key", "other-site", "sheet-of-another-key", "sheet-line-swapped"])
 def test_a_stick_that_cannot_finish_a_run_is_refused_unchanged(box: Box, damage: str, capsys: Any) -> None:
+    """A run of this box cut short (its record is here) whose stick then cannot finish: refused, nothing written."""
     stick, raw = box.stick(), bkc.new_key()
+    (box.pub_dir / bkc.pending_name(bkc.fingerprint(bkc.public_of(raw)))).write_text("record\n")
     key, sheet = bkc.key_text(raw), bkc.paper_sheet(raw, SITE, "earlier")
     name = bkc.PAPER_FILE
     if damage == "torn-key":
@@ -429,12 +624,43 @@ def test_a_stick_that_cannot_finish_a_run_is_refused_unchanged(box: Box, damage:
     assert _off_stick_leaks(box, [raw], [stick]) == []
 
 
+# ------------------------------------------------------------------------------------------------ the journal step
+def test_a_journal_that_does_not_answer_in_time_stops_step_3(box: Box, capsys: Any) -> None:
+    stick, real = box.stick(), subprocess.run
+
+    def slow(argv: list[str], **k: Any) -> Any:
+        if "record" in argv:
+            raise subprocess.TimeoutExpired(argv, bkc.JOURNAL_WAIT_S)
+        return real(argv, **k)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(subprocess, "run", slow)
+        code, _, err = _main(box, stick, capsys)
+    assert code == 1 and err.strip() == bkc.JOURNAL_UNSURE["en"] and not box.pub.exists()
+
+
+def test_a_backup_pub_that_appears_during_the_run_is_not_called_this_runs(box: Box, capsys: Any) -> None:
+    """B-L4: backup.pub made by someone else between the checks and step 4: kept as it is, and said so."""
+    stick, real = box.stick(), bkc.record
+
+    def record_then_planted(detail: Any) -> int:
+        seq = real(detail)
+        box.pub.write_text(base64.b64encode(bkc.public_of(bkc.new_key())).decode() + "\n")
+        return seq
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(bkc, "record", record_then_planted)
+        code, _, err = _main(box, stick, capsys)
+    fp = bk.fingerprint(bk.load_public(box.pub).public_bytes_raw())
+    assert code == 1 and err.strip() == bkc.PUB_TAKEN["en"].format(pub=box.pub, fp=fp)
+
+
 # ------------------------------------------------------------------------------------------------ M6: folder syncs
 def test_m6_a_stick_folder_sync_that_fails_with_einval_stops_before_the_journal(box: Box, capsys: Any) -> None:
     stick, real = box.stick(), os.fsync
 
     def fsync(fd: int) -> None:
-        if stat.S_ISDIR(os.fstat(fd).st_mode):
+        if os.path.samestat(os.fstat(fd), os.stat(stick)):
             raise OSError(errno.EINVAL, "Invalid argument")
         real(fd)
 
@@ -450,10 +676,9 @@ def test_m6_a_stick_folder_sync_that_fails_with_einval_stops_before_the_journal(
 
 def test_m6_a_public_folder_sync_that_fails_says_backup_pub_is_not_confirmed(box: Box, capsys: Any) -> None:
     stick, real = box.stick(), os.fsync
-    pub_ino = os.stat(box.pub_dir).st_ino
 
     def fsync(fd: int) -> None:
-        if os.fstat(fd).st_ino == pub_ino:
+        if os.path.samestat(os.fstat(fd), os.stat(box.pub_dir)) and box.pub.exists():
             raise OSError(errno.ENOTSUP, "Not supported")
         real(fd)
 
@@ -470,49 +695,97 @@ def test_m6_a_public_folder_sync_that_fails_says_backup_pub_is_not_confirmed(box
 def _sysfs(tmp: Path) -> Path:
     sys_root = tmp / "sys"
     dev = sys_root / "devices"
-    for disk, parts, removable in (("sda", ("sda2", "sda3"), "1"), ("sdb", ("sdb1",), "1"), ("sdc", ("sdc1",), "0")):
-        (dev / disk).mkdir(parents=True)
-        (dev / disk / "removable").write_text(removable + "\n")
+    usb = dev / "pci0" / "usb1" / "1-1" / "block"
+    disks = (("sda", ("sda2", "sda3"), "1", dev), ("sdb", ("sdb1", "sdb2"), "1", dev), ("sdc", ("sdc1",), "0", dev),
+             ("sdd", ("sdd1",), "0", usb))  # fmt: skip
+    for disk, parts, removable, under in disks:
+        (under / disk).mkdir(parents=True)
+        (under / disk / "removable").write_text(removable + "\n")
         for p in parts:
-            (dev / disk / p).mkdir()
-            (dev / disk / p / "partition").write_text("1\n")
+            (under / disk / p).mkdir()
+            (under / disk / p / "partition").write_text("1\n")
     (dev / "dm-0" / "slaves").mkdir(parents=True)
     (dev / "dm-0" / "slaves" / "sda2").symlink_to(dev / "sda" / "sda2")
     (sys_root / "dev" / "block").mkdir(parents=True)
     (sys_root / "block").mkdir()
-    nodes = {(8, 2): "sda/sda2", (8, 3): "sda/sda3", (8, 17): "sdb/sdb1", (8, 33): "sdc/sdc1", (253, 0): "dm-0"}
-    for (ma, mi), rel in nodes.items():
-        (sys_root / "dev" / "block" / f"{ma}:{mi}").symlink_to(dev / rel)
-    for disk in ("sda", "sdb", "sdc"):
-        (sys_root / "block" / disk).symlink_to(dev / disk)
+    nodes = {(8, 2): dev / "sda/sda2", (8, 3): dev / "sda/sda3", (8, 17): dev / "sdb/sdb1", (8, 18): dev / "sdb/sdb2",
+             (8, 33): dev / "sdc/sdc1", (8, 49): usb / "sdd/sdd1", (253, 0): dev / "dm-0"}  # fmt: skip
+    for (ma, mi), node in nodes.items():
+        (sys_root / "dev" / "block" / f"{ma}:{mi}").symlink_to(node)
+    for disk, _, _, under in disks:
+        (sys_root / "block" / disk).symlink_to(under / disk)
     return sys_root
+
+
+def _mountinfo(tmp: Path, *lines: str) -> Path:
+    f = tmp / "mountinfo"
+    f.write_text("".join(f"{20 + i} 1 {ln}\n" for i, ln in enumerate(lines)))
+    return f
 
 
 def test_h2_another_partition_of_the_system_disk_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """H2: whole disks are compared, never filesystem ids: a USB-booted box (its system disk removable) with ``/`` on
-    sda2 refuses sda3; an LVM ``/`` over sda2 refuses sda3 too; another removable disk is taken; a fixed disk, a device
-    whose disk cannot be told, or a box whose disk cannot be told is refused."""
+    sda2 refuses sda3; an LVM ``/`` over sda2 refuses sda3 too; another removable disk is taken, and a USB disk shown
+    as not removable is taken by its USB path; a fixed disk, a device whose disk cannot be told, or a box whose disk
+    cannot be told is refused."""
     monkeypatch.setattr(bkc, "SYS", _sysfs(tmp_path))
+    monkeypatch.setattr(bkc, "MOUNTINFO", _mountinfo(tmp_path, "8:2 / / rw - ext4 /dev/sda2 rw"))
     dev = os.makedev
     assert bkc.whole_disks(dev(8, 3)) == {"sda"} and bkc.whole_disks(dev(253, 0)) == {"sda"}
     assert bkc.stick_problem(dev(8, 3), [dev(8, 2)]) is True
     assert bkc.stick_problem(dev(8, 3), [dev(253, 0)]) is True
     assert bkc.stick_problem(dev(8, 17), [dev(8, 2), dev(253, 0)]) is False
+    assert bkc.stick_problem(dev(8, 49), [dev(8, 2)]) is False  # on USB by its path
     assert bkc.stick_problem(dev(8, 33), [dev(8, 2)]) is True  # not removable
     assert bkc.stick_problem(dev(8, 99), [dev(8, 2)]) is True  # its disk cannot be told
     assert bkc.stick_problem(dev(8, 17), [dev(8, 99)]) is True  # the box's disk cannot be told
 
 
+def test_a2_a_usb_disk_that_holds_another_mount_is_not_a_stick(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A-M2: the stick's disk may hold no other mounted filesystem (a USB backup disk with its share mounted)."""
+    monkeypatch.setattr(bkc, "SYS", _sysfs(tmp_path))
+    monkeypatch.setattr(bkc, "MOUNTINFO", _mountinfo(tmp_path, "8:2 / / rw - ext4 /dev/sda2 rw",
+                        "8:17 / /media/usb rw - vfat /dev/sdb1 rw", "8:18 / /backup rw - ext4 /dev/sdb2 rw"))  # fmt: skip
+    assert bkc.stick_problem(os.makedev(8, 17), [os.makedev(8, 2)]) is True
+    monkeypatch.setattr(bkc, "MOUNTINFO", _mountinfo(tmp_path, "8:2 / / rw - ext4 /dev/sda2 rw",
+                        "8:17 / /media/usb rw - vfat /dev/sdb1 rw", "8:17 / /bind rw - vfat /dev/sdb1 rw"))  # fmt: skip
+    assert bkc.stick_problem(os.makedev(8, 17), [os.makedev(8, 2)]) is False  # a second view of the stick itself
+
+
+def test_l1_an_anonymous_device_is_told_only_by_an_absolute_dev_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A-L1: a FUSE filesystem (its user names its source) and a relative source are never resolved to a disk."""
+    node = tmp_path / "sdb1"
+    node.write_text("")  # a name in the working folder that a relative source would find
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(bkc, "SYS", _sysfs(tmp_path))
+    lines = ("0:51 / /media/fuse rw - fuse.sshfs /dev/sdb1 rw", "0:52 / /media/tmp rw - tmpfs sdb1 rw")
+    monkeypatch.setattr(bkc, "MOUNTINFO", _mountinfo(tmp_path, *lines))
+    assert bkc.whole_disks(os.makedev(0, 51)) == set() and bkc.whole_disks(os.makedev(0, 52)) == set()
+
+
 # ------------------------------------------------------------------------------------------------ the parts
-def test_the_journal_code_refuses_a_file_mode_writer_and_records_through_the_journal(monkeypatch: Any) -> None:
+def test_the_journal_code_refuses_a_file_mode_writer_checks_the_database_and_prints_the_number(
+    monkeypatch: Any, capsys: Any
+) -> None:
     got: list[tuple[str, dict[str, Any]]] = []
+    connected: list[str] = []
 
     class DbAuditWriter:
-        def append(self, event: str, **fields: Any) -> None:
+        _dsn = "dsn"
+
+        def append(self, event: str, **fields: Any) -> dict[str, Any]:
             got.append((event, fields))
+            return {"journal": {"seq": 7}}
+
+    class Con:
+        def close(self) -> None:
+            connected.append("closed")
 
     mod = types.ModuleType("tb_common.audit_writer")
     mod.DbAuditWriter = DbAuditWriter  # type: ignore[attr-defined]
+    mod._psycopg = lambda: types.SimpleNamespace(connect=lambda dsn, connect_timeout: Con())  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "tb_common.audit_writer", mod)
     mod.open_audit = object  # type: ignore[attr-defined]
     monkeypatch.setattr(sys, "argv", ["-c", "check"])
@@ -521,13 +794,17 @@ def test_the_journal_code_refuses_a_file_mode_writer_and_records_through_the_jou
     assert e.value.code == 3 and got == []
     mod.open_audit = DbAuditWriter  # type: ignore[attr-defined]
     exec(bkc.JOURNAL_CODE, {})
+    assert connected == ["closed"] and capsys.readouterr().out == "journal ok\n"
     monkeypatch.setattr(sys, "argv", ["-c", "record", bkc.EVENT, bkc.ACTOR, '{"fingerprint": "f"}'])
     exec(bkc.JOURNAL_CODE, {})
     assert got == [(bkc.EVENT, {"actor": bkc.ACTOR, "detail": {"fingerprint": "f"}})]
+    assert capsys.readouterr().out == "journal 7\n"
     monkeypatch.delitem(sys.modules, "tb_common.audit_writer")
-    from tb_common.audit_writer import foreign  # the orchestrator's database role may send the backup family
+    from tb_common.audit_writer import DbAuditWriter as Real
+    from tb_common.audit_writer import _psycopg, foreign  # what the code imports exists in the real module
 
-    assert foreign("tb_orchestrator", bkc.EVENT) == ""
+    assert callable(_psycopg) and hasattr(Real, "append")
+    assert foreign("tb_orchestrator", bkc.EVENT) == ""  # the orchestrator's database role may send the backup family
 
 
 def test_the_key_forms_match_backup_keygen() -> None:
@@ -541,7 +818,7 @@ def test_the_key_forms_match_backup_keygen() -> None:
 def test_every_text_is_in_three_languages_with_the_same_fields() -> None:
     texts = bkc.all_texts()
     names = {n for n, _, _ in texts}
-    assert len(names) >= 18
+    assert len(names) >= 25
     en = {n: t for n, lg, t in texts if lg == "en"}
     for name, lg, t in texts:
         assert t.strip(), (name, lg)

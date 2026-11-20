@@ -8,20 +8,24 @@ each resumable, none undone, nothing ever deleted (D-1379, the owner's four cond
 1. **the stick**: the key is made in memory and written to the stick named, as ``trialbox-backup.key`` (the format
    ``trialbox backup-keygen`` writes; ``restore --key`` reads it) and ``trialbox-backup-key-paper.txt`` (the sheet to
    print: the key in lines of four-letter groups, each line with four check letters, and the key's fingerprint);
-2. **read back**: both files are read again from the stick and must give one and the same key;
+2. **read back**: both files are read again from the stick after a sync (their cached pages dropped first) and must
+   give one and the same key;
 3. **the journal**: the event ``backup.key_ceremony`` (the fingerprint and both names, never the key) goes through the
    orchestrator's audit journal, as ``trialbox audit-sign`` records its event (root writes nothing in the audit
-   folder);
+   folder); the journal must answer with the event's number;
 4. **backup.pub**: only then the public key at ``deploy/secrets/backup.pub``, made new (never over a file), last.
 
-"Once" means ``backup.pub`` exists: then the command says the ceremony is done and changes nothing. A run cut short
-is finished by the same command with the same stick: a stick that holds a whole key file goes on from step 2 with that
-key. A key from an abandoned run (the command run again with another, empty stick) stays on its stick, never the
-box's key, until IT wipes it. The command refuses on a box with no orchestrator journal, and the public key's folder
-is fixed (``deploy/secrets`` of this checkout) and must be root's alone. Every file on the stick is opened through
-the stick's folder held open, never through a link, and must be a plain file of root's alone, one name, on that
-folder's filesystem. The process is made not dumpable and without a core before any key exists; no key byte is put in
-an argument, the environment, an exception, a log or the journal.
+"Once" means ``backup.pub`` exists: then the command says the ceremony is done and changes nothing. Before a new key
+goes to a stick, its fingerprint and public key are recorded in ``deploy/secrets/backup-ceremony-<fp>.pending``
+(never removed). A run cut short is finished by the same command with the same stick: a whole key file on a stick is
+taken up again only when that record of it is on the box; any other key file, or a sheet without a key file, is
+refused. A key from an abandoned run (the command run again with another, empty stick) stays on its stick, never the
+box's key, until IT wipes it; its record stays too. One run at a time (a lock on the folder). The command refuses on a
+box whose orchestrator journal does not answer, and the public key's folder is fixed (``deploy/secrets`` of this
+checkout) and must be root's alone, as every folder above it. Every file on the stick is opened through the stick's
+folder held open, never through a link, and must be a plain file of root's alone, one name, on that folder's
+filesystem. The process is made not dumpable and without a core before any key exists; no key byte is put in an
+argument, the environment, an exception, a log or the journal.
 """
 
 from __future__ import annotations
@@ -29,12 +33,12 @@ from __future__ import annotations
 import argparse
 import base64
 import errno
+import fcntl
 import functools
 import hashlib
 import json
 import os
 import re
-import shlex
 import stat
 import subprocess
 import sys
@@ -58,7 +62,7 @@ PUB_DIR = DEPLOY / "secrets"  # fixed (owner's condition 4): no option names ano
 SYS = Path("/sys")
 MOUNTINFO = Path("/proc/self/mountinfo")
 JOURNAL_WAIT_S = 120  # one `docker compose exec`: a hung daemon stops the step instead of the run hanging
-RERUN = "rerun"
+MAX_FILE = 16384  # a key file or a sheet is far smaller; a planted larger file is refused, never read whole
 
 # ------------------------------------------------------------------------------------------------ texts (en, ja, zh-TW)
 NOT_ROOT = {
@@ -83,18 +87,19 @@ SAME_PERSON = {
 }
 ALREADY = {
     "en": "refused: the ceremony is done already: {pub} exists (key {fp}). Nothing was changed. A new key pair is the "
-    "backup key's rotation (RUNBOOK §25), not this command",
+    "backup key's rotation (docs/security/10-key-ceremony-and-escrow.md §6), not this command",
     "ja": "拒否：手続きはすでに完了しています：{pub} があります（鍵 {fp}）。何も変更していません。新しい鍵の組は"
-    "鍵の更新（RUNBOOK §25）で行い、このコマンドでは行いません",
+    "鍵の更新（docs/security/10-key-ceremony-and-escrow.md §6）で行い、このコマンドでは行いません",
     "zh-TW": "已拒絕：儀式已完成：{pub} 已存在（金鑰 {fp}）。未變更任何內容。新的金鑰組屬於備份金鑰的輪替"
-    "（RUNBOOK §25），不使用此指令",
+    "（docs/security/10-key-ceremony-and-escrow.md §6），不使用此指令",
 }
 PUB_DIR_UNSAFE = {
-    "en": "refused: the public key's folder {path} is not there, or not root's alone (owned by root, written by no "
-    "one else): nothing was written",
-    "ja": "拒否：公開鍵のフォルダー {path} がないか、root だけのものではありません（所有者が root で、ほかの誰も書き"
-    "込めないこと）。何も書いていません",
-    "zh-TW": "已拒絕：公開金鑰的資料夾 {path} 不存在，或不是僅屬 root（須由 root 擁有且他人不可寫入）：未寫入任何內容",
+    "en": "refused: the public key's folder {path} is not there, or it or a folder above it is a link, another "
+    "account's, or writable by others: nothing was written",
+    "ja": "拒否：公開鍵のフォルダー {path} がないか、それかその上のフォルダーがリンク、ほかのアカウントのもの、または"
+    "ほかの人が書き込めるものです。何も書いていません",
+    "zh-TW": "已拒絕：公開金鑰的資料夾 {path} 不存在，或它或其上層資料夾是連結、屬於其他帳號，或他人可寫入："
+    "未寫入任何內容",
 }
 PUB_ELSEWHERE = {
     "en": "refused: TB_BACKUP_PUBKEY names {path}, but the ceremony puts the public key only at {pub}: remove the "
@@ -105,10 +110,11 @@ PUB_ELSEWHERE = {
 }
 NO_JOURNAL = {
     "en": "refused: this box has no orchestrator audit journal to record the ceremony in (the orchestrator is not "
-    "running, or it writes the audit itself): nothing was written",
+    "running, it writes the audit itself, or the journal's database does not answer): nothing was written",
     "ja": "拒否：このボックスには手続きを記録するオーケストレーターの監査ジャーナルがありません（オーケストレーターが"
-    "動いていないか、監査記録を自分で書く構成です）。何も書いていません",
-    "zh-TW": "已拒絕：此主機沒有可記錄儀式的協調器稽核日誌（協調器未執行，或由它自行寫入稽核紀錄）：未寫入任何內容",
+    "動いていないか、監査記録を自分で書く構成か、ジャーナルのデータベースが応答しません）。何も書いていません",
+    "zh-TW": "已拒絕：此主機沒有可記錄儀式的協調器稽核日誌（協調器未執行、由它自行寫入稽核紀錄，或日誌的資料庫無"
+    "回應）：未寫入任何內容",
 }
 NO_STICK = {
     "en": "refused: no stick at {path}: insert the stick and name its mounted folder (it is never made here)",
@@ -117,33 +123,88 @@ NO_STICK = {
     "zh-TW": "已拒絕：{path} 沒有隨身碟：請插入隨身碟並指定其掛載的資料夾（此處不會建立資料夾）",
 }
 NOT_A_STICK = {
-    "en": "refused: {path} is not on a removable stick of its own (it is on a disk of the box, or its disk cannot be "
-    "told): the key goes only to a stick; nothing was written",
-    "ja": "拒否：{path} は独立した取り外せる USB メモリの上にありません（ボックスのディスクの上か、ディスクを判別できま"
-    "せん）。鍵は USB メモリにだけ書きます。何も書いていません",
-    "zh-TW": "已拒絕：{path} 不在獨立的可移除隨身碟上（位於主機的磁碟，或無法判別其磁碟）：金鑰只寫入隨身碟；"
-    "未寫入任何內容",
+    "en": "refused: {path} is not on a removable stick of its own (it is on a disk of the box, on a disk that holds "
+    "another mounted folder, or its disk cannot be told): the key goes only to a stick; nothing was written",
+    "ja": "拒否：{path} は独立した取り外せる USB メモリの上にありません（ボックスのディスク、ほかにマウントされた"
+    "フォルダーがあるディスクの上か、ディスクを判別できません）。鍵は USB メモリにだけ書きます。何も書いていません",
+    "zh-TW": "已拒絕：{path} 不在獨立的可移除隨身碟上（位於主機的磁碟、另有其他掛載資料夾的磁碟，或無法判別其磁碟）："
+    "金鑰只寫入隨身碟；未寫入任何內容",
 }
 STICK_UNSAFE = {
-    "en": "refused: on the stick at {path}, {name} would not be root's alone (the folder or the file is another "
-    "account's, or others may read it): mount the stick with -o uid=0,gid=0,umask=077,nodev,nosuid,noexec; nothing "
-    "of the key was written; then run the same command again with the same stick",
-    "ja": "拒否：{path} の USB メモリでは {name} が root だけのものになりません（フォルダーかファイルがほかのアカウント"
-    "のものか、ほかの人が読めます）。-o uid=0,gid=0,umask=077,nodev,nosuid,noexec でマウントしてください。鍵は何も"
-    "書いていません。その後、同じ USB メモリで同じコマンドをもう一度実行してください",
-    "zh-TW": "已拒絕：在 {path} 的隨身碟上，{name} 不會僅屬 root（資料夾或檔案屬於其他帳號，或他人可讀取）：請以 "
-    "-o uid=0,gid=0,umask=077,nodev,nosuid,noexec 掛載隨身碟；未寫入任何金鑰內容；之後請用同一個隨身碟再次執行同一指令",
+    "en": "refused: on the stick at {path}, {name} would not be root's alone (the folder is another account's or "
+    "others may write in it, or the file is another account's or others may read it): mount the stick with -o "
+    "uid=0,gid=0,umask=077,nodev,nosuid,noexec; nothing of the key is in {name}; then run the same command again with "
+    "the same stick",
+    "ja": "拒否：{path} の USB メモリでは {name} が root だけのものになりません（フォルダーがほかのアカウントのもの"
+    "かほかの人が書き込めるか、ファイルがほかのアカウントのものかほかの人が読めます）。-o "
+    "uid=0,gid=0,umask=077,nodev,nosuid,noexec でマウントしてください。{name} に鍵は入っていません。その後、同じ "
+    "USB メモリで同じコマンドをもう一度実行してください",
+    "zh-TW": "已拒絕：在 {path} 的隨身碟上，{name} 不會僅屬 root（資料夾屬於其他帳號或他人可寫入，或檔案屬於其他帳號或"
+    "他人可讀取）：請以 -o uid=0,gid=0,umask=077,nodev,nosuid,noexec 掛載隨身碟；{name} 中沒有金鑰內容；之後請用同一"
+    "個隨身碟再次執行同一指令",
 }
 STICK_BROKEN = {
     "en": "refused: this stick cannot finish a ceremony: {name} on it is not a plain file of one name, or not a whole "
-    "key of this box, or the two files do not give one key. Nothing was changed. A key on this stick never became the "
-    "box's key; it stays there until IT wipes the stick. Run the command with an empty stick",
-    "ja": "拒否：この USB メモリでは手続きを完了できません：{name} が名前の一つしかない普通のファイルでないか、この"
-    "ボックスの完全な鍵でないか、二つのファイルが同じ鍵になりません。何も変更していません。この USB メモリの鍵が"
-    "ボックスの鍵になったことはありません。情報システム担当が消去するまで残ります。空の USB メモリで実行してください",
-    "zh-TW": "已拒絕：此隨身碟無法完成儀式：其上的 {name} 不是只有一個名稱的一般檔案，或不是此主機完整的金鑰，或兩個"
-    "檔案不是同一把金鑰。未變更任何內容。此隨身碟上的金鑰從未成為主機的金鑰；它會留在那裡直到資訊人員抹除隨身碟。"
-    "請改用空的隨身碟執行",
+    "key, or the two files do not give one key of this box's site. This run wrote nothing to the stick. A key on it "
+    "never became the box's key; it stays there until IT wipes the stick. Run the command with an empty stick",
+    "ja": "拒否：この USB メモリでは手続きを完了できません：{name} が名前の一つしかない普通のファイルでないか、完全な"
+    "鍵でないか、二つのファイルがこのボックスのサイトの同じ鍵になりません。今回の実行は USB メモリに何も書いていま"
+    "せん。この USB メモリの鍵がボックスの鍵になったことはありません。情報システム担当が消去するまで残ります。空の "
+    "USB メモリで実行してください",
+    "zh-TW": "已拒絕：此隨身碟無法完成儀式：其上的 {name} 不是只有一個名稱的一般檔案，或不是完整的金鑰，或兩個檔案不是"
+    "此主機站點的同一把金鑰。本次執行未寫入隨身碟任何內容。其上的金鑰從未成為主機的金鑰；它會留在那裡直到資訊人員"
+    "抹除隨身碟。請改用空的隨身碟執行",
+}
+NO_TMPFILE = {
+    "en": "refused: the filesystem of {path} cannot make an unnamed file (O_TMPFILE), which step 4 needs: nothing was "
+    "written",
+    "ja": "拒否：{path} のファイルシステムは名前のないファイル（O_TMPFILE）を作れません。4 段階目に必要です。何も"
+    "書いていません",
+    "zh-TW": "已拒絕：{path} 的檔案系統無法建立無名稱檔案（O_TMPFILE），第 4 步需要它：未寫入任何內容",
+}
+BUSY = {
+    "en": "refused: another run of the ceremony is going on on this box: nothing was written; wait for it to end",
+    "ja": "拒否：このボックスでは別の手続きが実行中です。何も書いていません。終わるまで待ってください",
+    "zh-TW": "已拒絕：此主機上另一個儀式正在執行：未寫入任何內容；請等它結束",
+}
+KEY_EXPOSED = {
+    "en": "refused: on the stick at {path}, {name} holds the key and others on this host may read it (another owner "
+    "or a wider mode is shown): unmount the stick now, mount it with -o uid=0,gid=0,umask=077,nodev,nosuid,noexec, "
+    "then run the same command again with the same stick",
+    "ja": "拒否：{path} の USB メモリの {name} には鍵が入っており、このホストのほかの人が読める状態です（ほかの所有者"
+    "か広い権限が表示されています）。今すぐ USB メモリをアンマウントし、-o uid=0,gid=0,umask=077,nodev,nosuid,noexec "
+    "でマウントしてから、同じ USB メモリで同じコマンドをもう一度実行してください",
+    "zh-TW": "已拒絕：在 {path} 的隨身碟上，{name} 含有金鑰，而此主機上的他人可讀取（顯示為其他擁有者或較寬的權限）："
+    "請立即卸載隨身碟，以 -o uid=0,gid=0,umask=077,nodev,nosuid,noexec 掛載後，再用同一個隨身碟執行同一指令",
+}
+STICK_FOREIGN = {
+    "en": "refused: this stick holds {name} of a key this box did not make in a ceremony run (no record of it in "
+    "{path}): it is never taken as the box's key. This run wrote nothing to the stick. Run the command with an empty "
+    "stick; IT wipes this one",
+    "ja": "拒否：この USB メモリには、このボックスが手続きの実行で作っていない鍵の {name} があります（{path} に記録が"
+    "ありません）。ボックスの鍵として使うことはありません。今回の実行は USB メモリに何も書いていません。空の USB "
+    "メモリで実行してください。この USB メモリは情報システム担当が消去します",
+    "zh-TW": "已拒絕：此隨身碟上有此主機並未在儀式中建立的金鑰的 {name}（{path} 中沒有其紀錄）：它絕不會成為主機的"
+    "金鑰。本次執行未寫入隨身碟任何內容。請改用空的隨身碟執行；此隨身碟由資訊人員抹除",
+}
+STICK_FAULTY = {
+    "en": "refused: {name} on the stick did not read back as written by this run (a faulty stick, or it was changed "
+    "meanwhile). What this run wrote stays on the stick; its key never became the box's key and stays there until IT "
+    "wipes the stick. backup.pub was not made. Run the command with an empty stick",
+    "ja": "拒否：USB メモリの {name} が今回の実行で書いたとおりに読み直せませんでした（USB メモリの故障か、途中で変更"
+    "されました）。今回書いたものは USB メモリに残ります。その鍵がボックスの鍵になったことはなく、情報システム担当が"
+    "消去するまで残ります。backup.pub は作っていません。空の USB メモリで実行してください",
+    "zh-TW": "已拒絕：隨身碟上的 {name} 讀回的內容與本次執行寫入的不同（隨身碟故障，或期間被變更）。本次寫入的內容留在"
+    "隨身碟上；其金鑰從未成為主機的金鑰，會留在那裡直到資訊人員抹除隨身碟。未建立 backup.pub。請改用空的隨身碟執行",
+}
+PUB_TAKEN = {
+    "en": "stopped at step 4 of 4: {pub} appeared while this run went on (key {fp}); it was not made by this run and "
+    "was not changed. This run's files on the stick and its journal event stay; its key is not the box's key",
+    "ja": "4 段階のうち 4 段階目で止まりました：実行中に {pub} が現れました（鍵 {fp}）。今回の実行で作ったものでは"
+    "なく、変更もしていません。今回の USB メモリのファイルとジャーナルの記録は残ります。その鍵はボックスの鍵では"
+    "ありません",
+    "zh-TW": "於 4 個步驟中的第 4 步停止：執行期間出現了 {pub}（金鑰 {fp}）；它不是本次執行建立的，也未被變更。本次在"
+    "隨身碟上的檔案與日誌紀錄都會保留；其金鑰不是主機的金鑰",
 }
 STEP_FAILED = {
     "en": "stopped at step {n} of 4 ({why}): nothing is undone and nothing is deleted; backup.pub was not made. Run "
@@ -179,20 +240,21 @@ STOPPED = {
     "zh-TW": "已中斷：未復原也未刪除任何內容。請用同一個隨身碟再次執行同一指令：它會完成儀式，或顯示已完成",
 }
 DONE = {
-    "en": "done: backup key {fp}. The stick holds {key} and the paper sheet {paper}, both read back as one key; the "
-    "event backup.key_ceremony naming {operator} and the witness {witness} went through the orchestrator's journal; "
-    "the box keeps the public key only, at {pub}. Unmount (eject) the stick, print the sheet, and seal the stick and "
-    "the paper in hospital IT's envelope. If an earlier run was cut short on another stick, the key on that stick "
-    "never became the box's key: it stays there until IT wipes that stick",
-    "ja": "完了：バックアップ鍵 {fp}。USB メモリには {key} と紙の控え {paper} があり、どちらも読み直して同じ鍵でした。"
-    "{operator} と立会人 {witness} の名前を記した backup.key_ceremony をオーケストレーターのジャーナルに記録しました。"
-    "ボックスには公開鍵（{pub}）だけが残ります。USB メモリをアンマウント（取り出し）し、紙の控えを印刷して、USB "
-    "メモリと紙を病院の情報システム担当の封筒に封をして保管してください。以前の実行が別の USB メモリで途中で止まって"
-    "いた場合、その USB メモリの鍵がボックスの鍵になったことはありません。情報システム担当が消去するまで残ります",
-    "zh-TW": "完成：備份金鑰 {fp}。隨身碟上有 {key} 與紙本 {paper}，兩者讀回後為同一把金鑰；記有 {operator} 與見證人 "
-    "{witness} 的 backup.key_ceremony 已寫入協調器的日誌；主機只保留公開金鑰，位於 {pub}。請卸載（退出）隨身碟、"
-    "列印紙本，並將隨身碟與紙本放入醫院資訊人員的信封密封。若先前的執行在另一個隨身碟上中途停止，該隨身碟上的金鑰"
-    "從未成為主機的金鑰：它會留在那裡直到資訊人員抹除該隨身碟",
+    "en": "done: backup key {fp}. The stick holds {key} and the paper sheet file {paper}, both read back after a sync "
+    "as one key; the orchestrator's journal took the event backup.key_ceremony (journal number {seq}) naming "
+    "{operator} and the witness {witness}; the box keeps the public key only, at {pub}. Unmount (eject) the stick, "
+    "print the sheet, and seal the stick and the paper in hospital IT's envelope. If an earlier run was cut short on "
+    "another stick, the key on that stick never became the box's key: it stays there until IT wipes that stick",
+    "ja": "完了：バックアップ鍵 {fp}。USB メモリには {key} と紙の控えのファイル {paper} があり、同期の後に読み直して"
+    "どちらも同じ鍵でした。{operator} と立会人 {witness} の名前を記した backup.key_ceremony をオーケストレーターの"
+    "ジャーナルが受け付けました（ジャーナル番号 {seq}）。ボックスには公開鍵（{pub}）だけが残ります。USB メモリを"
+    "アンマウント（取り出し）し、紙の控えを印刷して、USB メモリと紙を病院の情報システム担当の封筒に封をして保管して"
+    "ください。以前の実行が別の USB メモリで途中で止まっていた場合、その USB メモリの鍵がボックスの鍵になったことは"
+    "ありません。情報システム担当が消去するまで残ります",
+    "zh-TW": "完成：備份金鑰 {fp}。隨身碟上有 {key} 與紙本檔案 {paper}，同步後讀回為同一把金鑰；協調器的日誌已接受記有 "
+    "{operator} 與見證人 {witness} 的 backup.key_ceremony（日誌編號 {seq}）；主機只保留公開金鑰，位於 {pub}。請卸載"
+    "（退出）隨身碟、列印紙本，並將隨身碟與紙本放入醫院資訊人員的信封密封。若先前的執行在另一個隨身碟上中途停止，"
+    "該隨身碟上的金鑰從未成為主機的金鑰：它會留在那裡直到資訊人員抹除該隨身碟",
 }
 UNEXPECTED = {
     "en": "stopped on an unexpected error ({kind}): nothing is undone and nothing is deleted. Run the same command "
@@ -203,12 +265,16 @@ UNEXPECTED = {
 }
 SHEET_HEAD = {
     "en": "TrialBox backup private key, paper copy. It opens every backup of this box: keep it sealed with hospital "
-    "IT. Each line ends with four check letters, so that a typed copy can be checked line by line.",
+    "IT. To restore from paper: type only the letters between the two bars of each numbered line, one line per line, "
+    "into a file, and give that file to restore --key. The four check letters after the second bar let a typed line "
+    "be checked by hand; they are not typed.",
     "ja": "TrialBox バックアップ秘密鍵（紙の控え）。このボックスのすべてのバックアップを開ける鍵です。病院の情報"
-    "システム担当が封をして保管してください。各行の最後の 4 文字は確認用で、入力した写しを行ごとに確かめる"
-    "ためのものです。",
-    "zh-TW": "TrialBox 備份私密金鑰（紙本）。它能開啟此主機的所有備份：請由醫院資訊人員密封保管。每行最後四個字母為"
-    "檢查碼，可逐行核對輸入的副本。",
+    "システム担当が封をして保管してください。紙から復元するには、番号の付いた各行の二本の縦線の間の文字だけを、一行"
+    "ずつファイルに入力し、そのファイルを restore --key に渡します。二本目の縦線の後の確認用の 4 文字は、入力した行を"
+    "手で確かめるためのもので、入力しません。",
+    "zh-TW": "TrialBox 備份私密金鑰（紙本）。它能開啟此主機的所有備份：請由醫院資訊人員密封保管。從紙本還原時：只將每個"
+    "編號行兩條直線之間的字母逐行輸入到一個檔案，再把該檔案交給 restore --key。第二條直線後的四個檢查字母用於以人工"
+    "核對輸入的行，不需輸入。",
 }
 
 
@@ -332,19 +398,32 @@ def person(name: str | None) -> str:
 
 
 def folded(name: str) -> str:
-    """Two spellings of one person compare equal: NFKC, white space collapsed, case folded."""
+    """Two spellings of one name compare equal: NFKC, white space collapsed, case folded."""
     return " ".join(unicodedata.normalize("NFKC", unicodedata.normalize("NFKC", name).casefold()).split())
 
 
-def _block(dev: int) -> int | None:
-    """The block device under a filesystem: itself, or (btrfs and other anonymous devices) its mount's source."""
-    if os.major(dev) != 0:
-        return dev
+def _mounts() -> list[tuple[str, str, str]]:
+    """``(major:minor, filesystem type, source)`` of every mount this process sees."""
+    out = []
     for line in MOUNTINFO.read_text(encoding="utf-8").splitlines():
         f = line.split()
-        if f[2] == f"0:{os.minor(dev)}" and "-" in f:
+        if "-" in f[6:]:
+            i = f.index("-", 6)
+            out.append((f[2], f[i + 1], f[i + 2] if len(f) > i + 2 else ""))
+    return out
+
+
+def _block(dev: int) -> int | None:
+    """The block device under a filesystem: itself; for an anonymous device (btrfs, a FUSE block filesystem) the block
+    node its mount names, only an absolute /dev path and never a ``fuse.*`` filesystem (whose source its user picks)."""
+    if os.major(dev) != 0:
+        return dev
+    for mm, fstype, src in _mounts():
+        if mm == f"0:{os.minor(dev)}":
+            if (fstype.startswith("fuse") and fstype != "fuseblk") or not src.startswith("/dev/"):
+                return None
             try:
-                st = os.stat(f[f.index("-") + 2])
+                st = os.stat(src)
             except OSError:
                 return None
             return st.st_rdev if stat.S_ISBLK(st.st_mode) else None
@@ -379,14 +458,29 @@ def _removable(disk: str) -> bool:
 
 
 def stick_problem(stick_dev: int, box_devs: Sequence[int]) -> bool:
-    """Whether a folder on ``stick_dev`` may not take the key: its whole disks must be known, removable, and none of
-    the whole disks of the box's folders (``box_devs``: the system and the public key's folder)."""
-    mine, box = whole_disks(stick_dev), [whole_disks(d) for d in box_devs]
-    return not mine or any(not b or b & mine for b in box) or not all(_removable(d) for d in mine)
+    """Whether a folder on ``stick_dev`` may not take the key: its whole disks must be known and removable, and hold
+    no other mounted filesystem (the box's backup disk on USB is not a stick) and none of the box's folders
+    (``box_devs``: the system and the public key's folder)."""
+    mine = whole_disks(stick_dev)
+    if not mine or not all(_removable(d) for d in mine) or any(not (b := whole_disks(d)) or b & mine for d in box_devs):
+        return True
+    others = {os.makedev(int(a), int(b)) for a, b in (mm.split(":") for mm, _, _ in _mounts())} - {stick_dev}
+    return any(whole_disks(d) & mine for d in others)
 
 
 def _root_only(st: os.stat_result) -> bool:
     return st.st_uid == os.geteuid() and stat.S_IMODE(st.st_mode) & 0o022 == 0
+
+
+def _root_path(path: Path) -> bool:
+    """Every folder from / down to ``path`` is no link and is root's (or this user's); none above it is writable by
+    others unless sticky, and ``path`` is not writable by others at all."""
+    for p in [*reversed(path.parents), path]:
+        st = os.lstat(p)
+        shared = stat.S_IMODE(st.st_mode) & 0o022 and (p == path or not st.st_mode & stat.S_ISVTX)
+        if stat.S_ISLNK(st.st_mode) or st.st_uid not in (0, os.geteuid()) or shared:
+            return False
+    return True
 
 
 def _open_dir(path: Path) -> int:
@@ -400,52 +494,78 @@ def _env() -> dict[str, str]:
 
 
 # ------------------------------------------------------------------------------------------------ the journal (step 3)
-#: run in the orchestrator's container, as audit_heads records ``audit.head_signed``; refuses a file-mode writer
+#: run in the orchestrator's container, as audit_heads records ``audit.head_signed``: refuses a file-mode writer;
+#: ``check`` opens one connection to the journal's database; ``record`` prints the journal's number for the event
 JOURNAL_CODE = (
-    "import json, sys\nfrom tb_common.audit_writer import DbAuditWriter, open_audit\nw = open_audit()\n"
+    "import json, sys\nfrom tb_common.audit_writer import DbAuditWriter, _psycopg, open_audit\nw = open_audit()\n"
     "if not isinstance(w, DbAuditWriter):\n    sys.exit(3)\n"
-    "if sys.argv[1:2] == ['record']:\n    w.append(sys.argv[2], actor=sys.argv[3], detail=json.loads(sys.argv[4]))\n"
+    "if sys.argv[1:2] == ['record']:\n"
+    "    rec = w.append(sys.argv[2], actor=sys.argv[3], detail=json.loads(sys.argv[4]))\n"
+    "    print('journal', int(rec['journal']['seq']))\n"
+    "else:\n    _psycopg().connect(w._dsn, connect_timeout=10).close()\n    print('journal ok')\n"
 )
+#: the command that reaches the orchestrator: fixed, never taken from the environment or deploy/.env (tests set it)
+COMPOSE: list[str] | None = None
 
 
-def _journal(env: Mapping[str, str], *args: str) -> int:
-    compose = shlex.split(env.get("TB_COMPOSE") or f"docker compose --project-directory {shlex.quote(str(DEPLOY))}")
+def _journal(*args: str) -> str:
+    """What the orchestrator printed (its last line), or "" when it failed, timed out or could not be started."""
+    compose = COMPOSE or ["docker", "compose", "--project-directory", str(DEPLOY)]
     argv = [*compose, "exec", "-T", "orchestrator", "python", "-c", JOURNAL_CODE, *args]
     try:
-        return subprocess.run(argv, capture_output=True, timeout=JOURNAL_WAIT_S, check=False).returncode
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=JOURNAL_WAIT_S, check=False)
     except (OSError, subprocess.TimeoutExpired):
-        return -1
+        return ""
+    lines = r.stdout.strip().splitlines()
+    return lines[-1] if r.returncode == 0 and lines else ""
 
 
-def record(env: Mapping[str, str], detail: Mapping[str, str]) -> None:
-    if _journal(env, "record", EVENT, ACTOR, json.dumps(dict(detail), ensure_ascii=False)) != 0:
+def record(detail: Mapping[str, str]) -> int:
+    """Step 3: the event through the journal; its number in the journal, which only a stored event has."""
+    said = _journal("record", EVENT, ACTOR, json.dumps(dict(detail), ensure_ascii=False))
+    if not (m := re.fullmatch(r"journal ([1-9][0-9]*)", said)):
         raise Stop(JOURNAL_UNSURE)
+    return int(m.group(1))
 
 
 # ------------------------------------------------------------------------------------------------ files, by descriptor
+def _why(e: OSError) -> str:
+    return errno.errorcode.get(e.errno or 0, "OSError")
+
+
 def _sync_dir(dfd: int, n: int) -> None:
     """M6: a folder's sync that fails, whatever the errno (EINVAL and ENOTSUP included), stops the step."""
     try:
         os.fsync(dfd)
     except OSError as e:
-        raise Stop(STEP_FAILED, n=n, why=errno.errorcode.get(e.errno or 0, "OSError")) from None
+        raise Stop(STEP_FAILED, n=n, why=_why(e)) from None
 
 
 def _safe(fd: int, dev: int, name: str, path: Path) -> os.stat_result:
-    """A stick file is a plain file of one name on the stick's filesystem, root's alone; else refused."""
+    """A stick file is a plain file of one name on the stick's filesystem, root's alone, not larger than a sheet."""
     st = os.fstat(fd)
-    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_dev != dev:
+    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_dev != dev or st.st_size > MAX_FILE:
         raise Stop(STICK_BROKEN, name=name)
     if st.st_uid != os.geteuid() or stat.S_IMODE(st.st_mode) & 0o077:
-        raise Stop(STICK_UNSAFE, path=path, name=name)
+        raise Stop(KEY_EXPOSED if st.st_size else STICK_UNSAFE, path=path, name=name)
     return st
 
 
-def _open_on_stick(dfd: int, name: str, create: bool) -> int:
-    """A name on the stick opened through its folder, never through a link; a name that is there and is not a plain
-    file (a link, a folder, a device, a pipe) is refused before it is opened."""
-    if not create and not stat.S_ISREG(os.stat(name, dir_fd=dfd, follow_symlinks=False).st_mode):
+def _size(dfd: int, name: str) -> int | None:
+    """The size of ``name`` on the stick (None: not there), looked at without following it; not a plain file:
+    refused before it is opened."""
+    try:
+        st = os.stat(name, dir_fd=dfd, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    if not stat.S_ISREG(st.st_mode):
         raise Stop(STICK_BROKEN, name=name)
+    return st.st_size
+
+
+def _open_on_stick(dfd: int, name: str, create: bool) -> int:
+    if not create:
+        _size(dfd, name)
     flags = os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC | (os.O_CREAT | os.O_EXCL if create else 0)
     try:
         return os.open(name, flags, 0o600, dir_fd=dfd)
@@ -455,13 +575,27 @@ def _open_on_stick(dfd: int, name: str, create: bool) -> int:
         raise
 
 
-def _read_all(fd: int, size: int) -> bytes:
-    return os.pread(fd, size + 1, 0)
+def _claim(dfd: int, name: str, dev: int, path: Path) -> None:
+    """``name`` made empty on the stick (or the empty file a run cut short left) and checked as :func:`_safe`."""
+    try:
+        fd = _open_on_stick(dfd, name, create=True)
+    except FileExistsError:
+        fd = _open_on_stick(dfd, name, create=False)
+    try:
+        _safe(fd, dev, name, path)
+    finally:
+        os.close(fd)
+
+
+def _read(fd: int) -> bytes:
+    """The file from the device where the kernel allows: its clean cached pages dropped first (A-M3)."""
+    os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+    return os.pread(fd, MAX_FILE + 1, 0)
 
 
 def _put(dfd: int, name: str, dev: int, path: Path, make: Any) -> tuple[int, bytes | None]:
-    """Make ``name`` new on the stick and write ``make()`` into it; a name already there (a run cut short) is kept
-    as it is and read in step 2, unless it is empty (then it is written now). Returns the inode and what was written."""
+    """Make ``name`` new on the stick and write ``make()`` into it; a name already there (a run cut short) is kept as
+    it is, unless it is empty (then it is written now). Returns the inode and what this run wrote."""
     try:
         fd, new = _open_on_stick(dfd, name, create=True), True
     except FileExistsError:
@@ -474,36 +608,61 @@ def _put(dfd: int, name: str, dev: int, path: Path, make: Any) -> tuple[int, byt
         while done < len(data):
             done += os.write(fd, data[done:])
         os.fsync(fd)
-        if _read_all(fd, len(data)) != data:  # read back from the same descriptor
-            raise Stop(STICK_BROKEN, name=name)
+        if _read(fd) != data:  # read back from the same descriptor
+            raise Stop(STICK_FAULTY, name=name)
         return st.st_ino, data
     finally:
         os.close(fd)
 
 
-def _read_back(dfd: int, name: str, dev: int, path: Path, ino: int, wrote: bytes | None) -> bytes:
-    """Step 2: the file opened again through the stick's folder: the same inode, and the bytes written, if any."""
+def _read_back(dfd: int, name: str, dev: int, path: Path, ino: int | None) -> bytes:
+    """The file opened again through the stick's folder; with ``ino``, it must be that inode."""
     fd = _open_on_stick(dfd, name, create=False)
     try:
         st = _safe(fd, dev, name, path)
-        data = _read_all(fd, max(st.st_size, 1 << 16))
-        if st.st_ino != ino or (wrote is not None and data != wrote):
-            raise Stop(STICK_BROKEN, name=name)
-        return data
+        if ino is not None and st.st_ino != ino:
+            raise Stop(STICK_FAULTY, name=name)
+        return _read(fd)
     finally:
         os.close(fd)
 
 
-def _link_pub(pfd: int, pub: bytes) -> None:
-    """Step 4: backup.pub made new, never over a name, and never seen half written: written whole and synced in an
-    unnamed file of the folder (O_TMPFILE), then given its name by a link, which fails when the name exists, as
-    O_EXCL does. Every error here comes before the name exists."""
-    data = (base64.b64encode(pub).decode() + "\n").encode()
-    fd = os.open(".", os.O_WRONLY | os.O_TMPFILE | os.O_CLOEXEC, 0o644, dir_fd=pfd)
+def _new_file(pfd: int, name: str | None, data: bytes) -> int:
+    """A file of ``data`` in the public key's folder, mode 0644 whatever the umask, written whole and synced: unnamed
+    (O_TMPFILE) when ``name`` is None, else made new under ``name`` (O_EXCL). Returns the open descriptor."""
+    if name is None:
+        fd = os.open(".", os.O_WRONLY | os.O_TMPFILE | os.O_CLOEXEC, 0o600, dir_fd=pfd)
+    else:
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=pfd)
     try:
+        os.fchmod(fd, 0o644)
         if os.write(fd, data) != len(data):
             raise OSError(errno.EIO, "short write")
         os.fsync(fd)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def pending_name(fp: str) -> str:
+    return f"backup-ceremony-{fp}.pending"
+
+
+def _pending(pfd: int, pub: bytes) -> None:
+    """A-H1: before the stick holds a new key, its record on the box (fingerprint and public key; never removed); a
+    key file on a stick is taken up again only when its record is here."""
+    fp = fingerprint(pub)
+    text = f"fingerprint {fp}\npublic {base64.b64encode(pub).decode()}\nmade {datetime.now(UTC).isoformat()}\n"
+    os.close(_new_file(pfd, pending_name(fp), text.encode()))
+    _sync_dir(pfd, 1)
+
+
+def _link_pub(pfd: int, pub: bytes) -> None:
+    """Step 4: backup.pub made new, never over a name, never seen half written: an unnamed synced file given its name
+    by a link, which fails when the name exists, as O_EXCL does. Every error here comes before the name exists."""
+    fd = _new_file(pfd, None, (base64.b64encode(pub).decode() + "\n").encode())
+    try:
         os.link(f"/proc/self/fd/{fd}", PUB_NAME, dst_dir_fd=pfd, follow_symlinks=True)
     finally:
         os.close(fd)
@@ -548,15 +707,25 @@ def run(stick: Path, operator: str | None, witness: str | None, env: Mapping[str
     if (named := env.get("TB_BACKUP_PUBKEY")) and os.path.abspath(named) != os.path.abspath(pub_path):
         raise Stop(PUB_ELSEWHERE, path=named, pub=pub_path)
     try:
+        if not _root_path(PUB_DIR):
+            raise OSError(errno.EPERM, "not root's")
         pfd = _open_dir(PUB_DIR)
     except OSError:
         raise Stop(PUB_DIR_UNSAFE, path=PUB_DIR) from None
     try:
         if not _root_only(os.fstat(pfd)):
             raise Stop(PUB_DIR_UNSAFE, path=PUB_DIR)
+        try:
+            fcntl.flock(pfd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # one run at a time, for the whole run (A-M1)
+        except BlockingIOError:
+            raise Stop(BUSY) from None
         if _exists(pfd, PUB_NAME):  # "once" is backup.pub (owner's condition 2)
             raise Stop(ALREADY, pub=pub_path, fp=_pub_fp(pfd))
-        if _journal(env, "check") != 0:
+        try:
+            os.close(os.open(".", os.O_WRONLY | os.O_TMPFILE | os.O_CLOEXEC, 0o600, dir_fd=pfd))
+        except OSError:
+            raise Stop(NO_TMPFILE, path=PUB_DIR) from None
+        if _journal("check") != "journal ok":
             raise Stop(NO_JOURNAL)
         try:
             sfd = _open_dir(stick)
@@ -570,28 +739,35 @@ def run(stick: Path, operator: str | None, witness: str | None, env: Mapping[str
         os.close(pfd)
 
 
-def _on_stick(sfd: int, dev: int, stick: Path, site: str, step: list[int]) -> bytes:
-    """Steps 1 and 2; returns the public key. Step 1: the key file (the key made now, or the whole key file a run cut
-    short left), then the sheet from that key. Step 2: both read back through the folder held open: one key, and the
-    sheet of this box's site."""
-    made: list[bytes] = []
-
-    def make_key() -> bytes:
-        made.append(new_key())
-        return key_text(made[0])
-
-    k_ino, k_wrote = _put(sfd, KEY_FILE, dev, stick, make_key)
-    key = made[0] if made else read_key(_read_back(sfd, KEY_FILE, dev, stick, k_ino, None))
-    if key is None:
-        raise Stop(STICK_BROKEN, name=KEY_FILE)
+def _on_stick(sfd: int, pfd: int, dev: int, stick: Path, site: str, step: list[int]) -> bytes:
+    """Steps 1 and 2; returns the public key. Step 1: a stick with no key file (or an empty one) and no sheet gets a
+    new key, recorded on the box first; a whole key file is taken up again only when the box holds its record. Then
+    the sheet from that key. Step 2: both read back through the folder held open: one key, of this box's site."""
+    if not _size(sfd, KEY_FILE):
+        if _size(sfd, PAPER_FILE):
+            raise Stop(STICK_FOREIGN, name=PAPER_FILE, path=PUB_DIR)
+        _claim(sfd, KEY_FILE, dev, stick)  # an empty key file, checked before any key exists
+        key = new_key()
+        _pending(pfd, public_of(key))
+    else:
+        found = read_key(_read_back(sfd, KEY_FILE, dev, stick, None))
+        if found is None:
+            raise Stop(STICK_BROKEN, name=KEY_FILE)
+        if not _exists(pfd, pending_name(fingerprint(public_of(found)))):
+            raise Stop(STICK_FOREIGN, name=KEY_FILE, path=PUB_DIR)
+        key = found
+    k_ino, k_wrote = _put(sfd, KEY_FILE, dev, stick, functools.partial(key_text, key))
     sheet_of = functools.partial(paper_sheet, key, site, datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"))
     p_ino, p_wrote = _put(sfd, PAPER_FILE, dev, stick, sheet_of)
     _sync_dir(sfd, 1)
     step[0] = 2
-    if read_key(_read_back(sfd, KEY_FILE, dev, stick, k_ino, k_wrote)) != key:
-        raise Stop(STICK_BROKEN, name=KEY_FILE)
-    if read_sheet(_read_back(sfd, PAPER_FILE, dev, stick, p_ino, p_wrote)) != (key, site or "-"):
-        raise Stop(STICK_BROKEN, name=PAPER_FILE)
+    bad = STICK_FAULTY if k_wrote or p_wrote else STICK_BROKEN
+    data = _read_back(sfd, KEY_FILE, dev, stick, k_ino)
+    if (k_wrote is not None and data != k_wrote) or read_key(data) != key:
+        raise Stop(bad, name=KEY_FILE)
+    data = _read_back(sfd, PAPER_FILE, dev, stick, p_ino)
+    if (p_wrote is not None and data != p_wrote) or read_sheet(data) != (key, site or "-"):
+        raise Stop(bad, name=PAPER_FILE)
     return public_of(key)
 
 
@@ -603,25 +779,26 @@ def _steps(sfd: int, pfd: int, stick: Path, who: str, wit: str, env: Mapping[str
         raise Stop(STICK_UNSAFE, path=stick, name=KEY_FILE)
     site, step = env.get("TB_SITE_ID") or "", [1]
     try:
-        pub = _on_stick(sfd, sst.st_dev, stick, site, step)  # steps 1 and 2; the private key goes out of scope
+        pub = _on_stick(sfd, pfd, sst.st_dev, stick, site, step)  # steps 1 and 2; the private key goes out of scope
     except OSError as e:
-        raise Stop(STEP_FAILED, n=step[0], why=errno.errorcode.get(e.errno or 0, "OSError")) from None
+        raise Stop(STEP_FAILED, n=step[0], why=_why(e)) from None
     fp = fingerprint(pub)
-    detail = {"fingerprint": fp, "operator": who, "witness": wit, "site": site, "stick": "key file and sheet read back"}
-    record(env, detail)  # step 3
+    detail = {"fingerprint": fp, "operator": who, "witness": wit, "site": site,
+              "stick": "key file and sheet file read back after sync"}  # fmt: skip
+    seq = record(detail)  # step 3
     try:  # step 4
         _link_pub(pfd, pub)
     except FileExistsError:
-        raise Stop(ALREADY, pub=PUB_DIR / PUB_NAME, fp=_pub_fp(pfd)) from None
+        raise Stop(PUB_TAKEN, pub=PUB_DIR / PUB_NAME, fp=_pub_fp(pfd)) from None
     except OSError as e:
-        raise Stop(STEP_FAILED, n=4, why=errno.errorcode.get(e.errno or 0, "OSError")) from None
+        raise Stop(STEP_FAILED, n=4, why=_why(e)) from None
     try:
         os.fsync(pfd)
         if _pub_fp(pfd) != fp:
             raise OSError(errno.EIO, "read back")
     except OSError as e:
-        raise Stop(PUB_UNSURE, pub=PUB_DIR / PUB_NAME, why=errno.errorcode.get(e.errno or 0, "OSError")) from None
-    return {**detail, "pub": str(PUB_DIR / PUB_NAME)}
+        raise Stop(PUB_UNSURE, pub=PUB_DIR / PUB_NAME, why=_why(e)) from None
+    return {**detail, "pub": str(PUB_DIR / PUB_NAME), "seq": str(seq)}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -649,7 +826,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(UNEXPECTED[lang].format(kind=type(e).__name__), file=sys.stderr)
         return 1
     print(DONE[lang].format(fp=rec["fingerprint"], key=KEY_FILE, paper=PAPER_FILE, operator=rec["operator"],
-                            witness=rec["witness"], pub=rec["pub"]))  # fmt: skip
+                            witness=rec["witness"], pub=rec["pub"], seq=rec["seq"]))  # fmt: skip
     return 0
 
 

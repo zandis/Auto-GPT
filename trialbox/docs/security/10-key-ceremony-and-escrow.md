@@ -15,7 +15,7 @@ the lost-box list).
 | the escrow set (TPM back end) | `python -m tools.keys escrow-shares` | the escrow custodians, one share each, on removable media | `kek.json` names the set, its custodians and each share's fingerprint; never a share |
 | the ceremony record | `python -m tools.keys ceremony-record` | printed and signed; a copy with the site's validation file | `deploy/site/key-ceremony-<time>.md` and `.json` |
 
-No key, share or passphrase is ever printed, logged, put in the audit or in this record.
+No key, share or passphrase is ever printed (the backup key's paper sheet of §7 aside), logged, put in the audit or in this record.
 
 ## 2. Who attends
 
@@ -119,14 +119,19 @@ can make the backup key with one command instead of step 1 of §4:
 
     python -m tools.backup_key_ceremony --stick /media/usb --operator "<name>" --witness "<name>" [--lang ja]
 
-Mount the stick first with `mount -o uid=0,gid=0,umask=077,nodev,nosuid,noexec <device> /media/usb`. The command
-runs four steps: (1) it makes the key and writes `trialbox-backup.key` and the printable sheet
-`trialbox-backup-key-paper.txt` to the stick; (2) it reads both back and compares them; (3) it records the event
-`backup.key_ceremony` (the fingerprint and both names, never the key) through the orchestrator's audit journal; (4)
-only then it makes `deploy/secrets/backup.pub`. It refuses on a box with no orchestrator journal, on a folder that is
-not a removable stick of its own, and once `backup.pub` exists ("done already"). Nothing is ever undone or deleted.
-**A run cut short (an error, Ctrl-C, a power cut) is finished by running the same command again with the same
-stick.** If the command is run again with another, empty stick instead, it makes a new key there: **the key from the
-abandoned run stays on its stick, never the box's key, until IT wipes that stick.** A stick the command says cannot
-finish a run is wiped by IT too, and the command is run with an empty stick. Then unmount the stick, print the sheet,
-and seal both in hospital IT's envelope.
+Mount an empty stick first with `mount -o uid=0,gid=0,umask=077,nodev,nosuid,noexec <device> /media/usb`. The
+command runs four steps: (1) it makes the key, records its fingerprint and public key on the box
+(`deploy/secrets/backup-ceremony-<fingerprint>.pending`, never removed), and writes `trialbox-backup.key` and the
+printable sheet `trialbox-backup-key-paper.txt` to the stick; (2) it reads both back after a sync and compares them;
+(3) it records the event `backup.key_ceremony` (the fingerprint and both names, never the key) through the
+orchestrator's audit journal, which must answer with the event's number; (4) only then it makes
+`deploy/secrets/backup.pub`. It refuses on a box whose orchestrator journal does not answer, on a folder that is not
+a removable stick of its own, on a stick holding a key file this box has no record of, while another run is going on,
+and once `backup.pub` exists ("done already"). Nothing is ever undone or deleted. **A run cut short (an error,
+Ctrl-C, a power cut) is finished by running the same command again with the same stick.** If the command is run again
+with another, empty stick instead, it makes a new key there: **the key from the abandoned run stays on its stick,
+never the box's key, until IT wipes that stick** (its record on the box stays too). A stick the command says cannot
+finish a run is wiped by IT too, and the command is run with an empty stick. Then unmount the stick, print the sheet
+from the stick on a printer that keeps no copy of the job (not through this host's print spool), and seal both in
+hospital IT's envelope. To restore from the paper alone, type only the letters between the two bars of each numbered
+line, one line per line, into a file and give that file to `restore --key` (the sheet says the same).
