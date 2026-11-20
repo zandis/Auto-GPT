@@ -1,0 +1,17 @@
+{# 10K-5 (D-1381): the support bundle's tab of /admin/ops, included by admin_ops.html. The button is the operations
+   action support_bundle (POST, CSRF, the confirmation); the host's runner makes the bundle with the same builder and
+   scan as `trialbox support-bundle`. A bundle that failed the scan has no file and no download link. #}
+<section class="card" data-testid="ops-support">
+<p class="hint">{{ t('sbundle.help') }}</p>
+<p data-testid="sbundle-in">{{ t('sbundle.in') }}</p>
+<p data-testid="sbundle-never">{{ t('sbundle.never') }}</p>
+<p class="hint">{{ t('sbundle.who') }} {{ t('sbundle.kept', n=3) }}</p>
+{% if allowed['support_bundle'] %}<form method="post" action="/admin/ops/support_bundle" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit"{% if 'support_bundle' in pending %} disabled{% endif %} data-testid="ops-support_bundle">{{ t('ops.action.support_bundle') }}</button></form>{% endif %}
+<h2>{{ t('sbundle.list') }}</h2>
+{% set made = history|selectattr('action', 'equalto', 'support_bundle')|list %}
+{% if made %}<ul class="plain" data-testid="sbundle-list">{% for r in made %}<li data-req="{{ r.id }}">{{ r.at|local }} · {{ r.by|who }} · {% if r.result and r.result.ok %}<span class="pill ok">{{ t('ops.ok') }}</span> <a href="/admin/ops/support/{{ r.id }}" download data-testid="sbundle-download">{{ t('sbundle.download') }}</a><br><span class="hint mono" data-src="ops">{{ r.result.summary }}</span>
+{% elif r.result and (r.result.summary or '').startswith('BundleRefused') %}<span class="pill bad">{{ t('ops.failed') }}</span> <span class="warn" role="alert" data-testid="sbundle-refused">{{ t('sbundle.refused') }}</span>
+{% elif r.result %}<span class="pill bad">{{ t('ops.state.' ~ r.result.state) if r.result.state in ('interrupted', 'expired') else t('ops.failed') }}</span> <span class="hint" data-testid="sbundle-failed">{{ t('sbundle.failed') }}</span>
+{% elif r.id in running %}<span class="pill warn">{{ t('ops.running') }}</span>{% else %}<span class="pill warn">{{ t('ops.waiting') }}</span>{% endif %}</li>{% endfor %}</ul>
+{% else %}<p class="hint" data-testid="sbundle-none">{{ t('sbundle.none') }}</p>{% endif %}
+</section>

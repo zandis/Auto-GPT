@@ -15,6 +15,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/admin/notice` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/ops` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/ops/network/{name}` | n | - | - | - | - | - | - | - | - |
+| GET | `/admin/ops/support/{rid}` | n | - | - | - | - | - | - | - | - |
 | GET | `/admin/redcap` | Y | - | - | - | - | - | - | - | - |
 | GET | `/api/edc/health` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/api/edc/map` | Y | - | - | - | - | - | - | - | - |

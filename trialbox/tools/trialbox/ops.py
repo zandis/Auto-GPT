@@ -881,3 +881,11 @@ def main(action: str, deploy: Path, ops_dir: Path | None, local: bool, watch: in
         if watch <= 0:
             return 0
         time.sleep(watch)
+
+
+# 10K-5 (D-1381): the support bundle as one more action; its code is ``tools/trialbox/ops_support.py``, which calls
+# the same builder and scan as ``trialbox support-bundle`` (tools/support_bundle.py). Kept in a block of its own.
+from tools.trialbox import ops_support as _ops_support  # noqa: E402
+
+ACTIONS = (*ACTIONS, _ops_support.ACTION)
+setattr(OpsRunner, f"do_{_ops_support.ACTION}", _ops_support.do_support_bundle)

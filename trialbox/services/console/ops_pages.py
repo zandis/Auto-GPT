@@ -62,6 +62,11 @@ def _hours_since(iso: str, now: datetime) -> float | None:
 
 DRILL_CMD = "sudo python3 -m tools.trialbox restore-drill {file} --key <the key from the envelope>"
 
+# 10K-5 (D-1381): the support bundle, a tab and an action of their own, under the right that opens these pages
+# (``ops.view``, the administrator only); its download route is ``console/support_bundle_page.py``. A block of its own.
+TABS = (*TABS, "support")
+ACTIONS["support_bundle"] = ("ops.view", "support")
+
 
 def _drill(st: Mapping[str, Any], now: datetime, env: Mapping[str, str]) -> dict[str, Any]:
     """T-730d (D-892): the last restore drill as the health check reads it, and the exact command to type (the newest

@@ -10,6 +10,10 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The support bundle is a button (10K-5, D-1381): the administrator makes it on the Operations page's new
+  "Support bundle" tab and downloads it from there, in en, ja and zh-TW. The box makes it with the same tool and scan
+  as `trialbox support-bundle`, with nothing added; a bundle that does not pass the scan is not handed out and the
+  page says so. Each download is recorded in the audit trail with who, when, the file's size and its SHA-256.
 - The one page for hospital IT (10K-18, D-1378) is made from the box's own preflight list, one page per delivered
   form, in en, ja and zh-TW: for a box its supplier prepared it asks IT for six things (name and certificate, clock,
   mail relay, backup share, audit share, data feed) with the words the box shows on a red line, and names the three
