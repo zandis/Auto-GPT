@@ -27,7 +27,7 @@
       "claim": "tests/unit/test_compose_limits.py lints no two-device compose file: its list of compose files globs deploy/ only (the platform file is added by name), so the link service's limits, log cap, health check and watchdog rule are not checked there",
       "lane": "H",
       "basis": "shown",
-      "state": "open"
+      "state": "fixed d5d75cdc98dd47b7582532cc6abdeec1c88cf640"
     }
   ]
 }
