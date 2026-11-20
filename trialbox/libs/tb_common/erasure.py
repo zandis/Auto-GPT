@@ -387,6 +387,7 @@ TABLES: dict[str, Entry] = {
     "edcdoor.event": _keep("OD-8", "the id of an event the trial's EDC sent, with the EDC's record id; no value"),
     "breakglass.grants": _keep("D-430", "the record of an emergency access to a patient, for the steward's review"),
     "breakglass.uses": _keep("D-430", "each use of a break-glass grant, for the steward's review"),
+    "breakglass.support_sessions": _none("a support session (D-1364): the administrator, start, end, ticket number"),
     "edc.draft": _owed(
         "an EDC draft, by pseudonym, with values read from the chart",
         "the drafts of a patient who never consented: the EDC drafts for any numbered patient (consent is not "

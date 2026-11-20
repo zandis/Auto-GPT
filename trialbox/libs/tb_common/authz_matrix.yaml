@@ -667,6 +667,20 @@ actions:
     steward: false
     privacy: false
 
+  # ---------------------------------------------------------------- the support session (10K-15, D-1364; decision 99)
+  # ``console.support_session``: the hospital's administrator turns it on for a supervised support session; while it
+  # is on, ``permit`` refuses every row outside ``tb_common.authz.SUPPORT_SESSION_OPEN`` to every role (it closes
+  # patient pages; it opens nothing). It ends by hand or by itself after 2 hours.
+  support.session:
+    what: start or end the support session, which closes every patient page to every account for at most 2 hours (decision 99)
+    admin: true
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+
 
   # ---------------------------------------------------------------- the patient twin (T-204, D-440; console.twin_api)
   # The route asks ``profile.read`` and ``Helpers.reads`` (``phi.view``, the delegation log); outside one's own rights

@@ -35,7 +35,7 @@ available, a target that cannot hold). 各シナリオについて、進行役�
 | 4 | Legal electrical inspection / 法定点検による停電 | power off Saturday 08:00 to 17:00 / 土曜 08:00〜17:00 停電 | §22 planned power cut | none (not rehearsed by a test) | | no data lost; morning mail on Monday | |
 | 5 | No morning mail / 朝のメールが届かない | 07:45: no coordinator got the mail / 07:45 どの CRC にもメールが届いていない | §4 morning mail | none (not rehearsed by a test) | | cause found and notices sent by 10:00 | |
 | 6 | Disk full / ディスク容量不足 | `backup-status` red; the data disk at 97 % / `backup-status` が赤、データディスク 97 % | §4 disk full | none (not rehearsed by a test) | | space freed safely the same day | |
-| 7 | Supervised remote session / 立会いのもとでのリモート対応 | tier 2 must see `doctor` output to fix a P2 / P2 の対応で `doctor` の出力を見る必要がある | §21 | none (not rehearsed by a test) | | session by the rules; recorded in the ticket *(default, TB-DR-09 Q2)* | |
+| 7 | Supervised remote session / 立会いのもとでのリモート対応 | tier 2 must see `doctor` output to fix a P2 / P2 の対応で `doctor` の出力を見る必要がある | §21 | `test_runbook_21_support_session` | | session by the rules; recorded in the ticket *(default, TB-DR-09 Q2)* | |
 | 8 | Key steward leaves / 鍵管理者の退職 | a steward holding a KEK share leaves on Friday / KEK の分割鍵を持つ管理者が金曜に退職 | §25 | `test_runbook_25_leaver` | | KEK rotated before the leaving day | |
 | 9 | Certificate ends / 証明書の期限切れ | `check-tls` warns: 20 days left / `check-tls` が残り 20 日を警告 | §12 certificate renewal | `test_runbook_12_certificate_renewal` | | new certificate in before the end | |
 | 10 | Patch window / パッチ適用 | hospital IT plans the monthly OS window / 病院が月例の OS 更新を予定 | §24 | none (not rehearsed by a test) | | `doctor` and the canary pass after | |

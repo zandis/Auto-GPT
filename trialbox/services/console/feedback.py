@@ -32,6 +32,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse, Response
 from starlette.routing import Match
 from tb_common import sheets
+from tb_common.authz import in_support_session
 from tb_common.csvfile import for_spreadsheet
 
 from console import i18n_feedback
@@ -236,7 +237,9 @@ def register(app: FastAPI, h: Helpers, store: FeedbackStore | None = None) -> Fe
     @app.get("/feedback/export.csv")
     def feedback_export(request: Request) -> Response:
         sess = h.need(request)
-        if not sess.user.is_admin:
+        # 10K-15 (D-1364): closed during a support session too; the entries hold the paths of the pages they were
+        # given on (a patient page's pseudonym) and free text. A check that only narrows: no matrix row of its own
+        if not sess.user.is_admin or in_support_session():
             h.au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         rows = fb.entries()

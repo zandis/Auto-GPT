@@ -35,7 +35,7 @@ available, a target that cannot hold). 每個情境由主持人宣讀狀況，�
 | 4 | Planned power or platform outage / 計畫性停電或平台停機 | platform maintenance Saturday 08:00 to 17:00 / 週六 08:00 至 17:00 平台維護 | §22 planned power cut | none (not rehearsed by a test) | | no data lost; morning mail on Monday | |
 | 5 | No morning mail / 早晨郵件未送達 | 07:45: no coordinator got the mail / 07:45 所有研究協調員都沒收到郵件 | §4 morning mail | none (not rehearsed by a test) | | cause found and notices sent by 10:00 | |
 | 6 | Volume full / 磁區已滿 | `backup-status` red; the data volume at 97 % / `backup-status` 紅燈，資料磁區 97 % | §4 disk full | none (not rehearsed by a test) | | space freed safely the same day | |
-| 7 | Supervised remote session / 院方監督的遠端協助 | tier 2 must see `doctor` output to fix a P2 / 處理 P2 時需要看 `doctor` 的輸出 | §21 | none (not rehearsed by a test) | | session by the rules; recorded in the ticket *(default, TB-DR-09 Q2)* | |
+| 7 | Supervised remote session / 院方監督的遠端協助 | tier 2 must see `doctor` output to fix a P2 / 處理 P2 時需要看 `doctor` 的輸出 | §21 | `test_runbook_21_support_session` | | session by the rules; recorded in the ticket *(default, TB-DR-09 Q2)* | |
 | 8 | Key steward leaves / 金鑰保管人離職 | a steward holding a KEK share leaves on Friday / 持有 KEK 分持金鑰的保管人週五離職 | §25 | `test_runbook_25_leaver` | | KEK rotated before the leaving day | |
 | 9 | Certificate ends / 憑證到期 | `check-tls` warns: 20 days left / `check-tls` 警告剩 20 天 | §12 certificate renewal | `test_runbook_12_certificate_renewal` | | new certificate in before the end | |
 | 10 | Platform patch / 平台修補 | the platform team plans a node upgrade / 平台團隊預定升級節點 | §24, §17 | none (not rehearsed by a test) | | `doctor --platform` and the canary pass after | |

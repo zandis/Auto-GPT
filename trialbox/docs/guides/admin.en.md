@@ -10,7 +10,7 @@ You keep the box running: accounts, health, jobs and data sources. You do not ap
 
 ## What TrialBox lets you do
 
-start requests and keep the registry; the research office's yearly counts (small counts hidden); the site's set-up and site facts; the box's REDCap connection and its access key; the hold after a restore: see it and release it; start runs; EDC prefill; operations: backups, updates, logs, network sheet; run a failed nightly job of the box again, with its own inputs; accounts: passwords, disable, enable; break-glass for one patient or one job (60 minutes, reviewed); read break-glass grants; which records a model, build or prompt touched (every search recorded); data operations: the nights of every source (the steward decides on a held night)
+start requests and keep the registry; the research office's yearly counts (small counts hidden); the site's set-up and site facts; the box's REDCap connection and its access key; the hold after a restore: see it and release it; start runs; EDC prefill; operations: backups, updates, logs, network sheet; run a failed nightly job of the box again, with its own inputs; accounts: passwords, disable, enable; break-glass for one patient or one job (60 minutes, reviewed); read break-glass grants; start or end the support session (at most 2 hours; it closes the record pages to every account); which records a model, build or prompt touched (every search recorded); data operations: the nights of every source (the steward decides on a held night)
 
 ## Your pages
 

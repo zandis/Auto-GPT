@@ -29,6 +29,7 @@
       {{ item('/home', 'nav.admin', path == '/home') }}
       {{ item('/home?view=studies', 'nav.studies', false) }}
       {{ item('/ops/users', 'nav.users', path.startswith('/ops/users')) }}
+      {% if permit(r, 'support.session') %}{{ item('/ops/support-session', 'nav.support_session', path.startswith('/ops/support-session')) }}{% endif %}{# 10K-15 (D-1364) #}
       {% if permit(r, 'audit.browse') %}{{ item('/audit', 'nav.audit', path.startswith('/audit')) }}{% endif %}{# T-211c (D-451) #}
     {% else %}
       {{ item('/home', 'nav.studies', path == '/home') }}

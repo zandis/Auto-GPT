@@ -25,7 +25,7 @@
 <div class="crcgrid">
   <section data-testid="tasks">
     <div class="headrow"><h2>{{ t('wb.tasks') }}</h2><span class="hint">{{ t('wb.tasks.help') }}</span></div>
-    {% if not tasks %}<p class="empty hint">{{ t('wb.tasks.none') }}</p>{% endif %}
+    {% if support_closed is defined and support_closed %}<p class="notice" role="status" data-testid="support-closed">{{ t('support.closed') }}</p>{% elif not tasks %}<p class="empty hint">{{ t('wb.tasks.none') }}</p>{% endif %}
     <ul class="tasks">{% for tk in tasks %}<li data-testid="task-{{ tk.kind }}">
       <a href="{{ tk.href }}">{{ t('wb.task.' + tk.kind, p=tk.short, rs=tk.rs) }}</a>
       <span class="due{{ ' late' if tk.late else '' }}">{{ t('wb.overdue') if tk.late else tk.due.isoformat() }}</span>

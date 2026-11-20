@@ -15,6 +15,7 @@
 {% block skips %}{% endblock %}
 <header class="top">
   {% include "_demo_banner.html" %}
+  {% include "_support_banner.html" %}
   {% if pilot %}<div class="banner" role="note" data-testid="banner"><span class="long">{{ t('pilot.banner.public' if settings.data_source == 'public' else 'pilot.banner') }}</span><span class="short">{{ t('pilot.banner.short') }}</span></div>
   {% else %}<div class="banner prod" role="note" data-testid="banner">{{ t('prod.banner') }}</div>{% endif %}
   <div class="bar">

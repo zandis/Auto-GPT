@@ -3,10 +3,10 @@
 {% block content %}
 <h1>{{ job.type }} {{ job.ruleset or '' }}{% if job.ruleset_version %} v{{ job.ruleset_version }}{% endif %} <span class="pill" data-tone="{{ tone('job', job.state) }}" data-testid="job-state" data-state="{{ job.state }}">{{ state(job.state) }}</span></h1>
 <p class="mono">{{ t('col.job') }} {{ job.job_id }} · {{ t('col.by') }} {{ job.requested_by }} · {{ t('col.received') }} {{ job.received_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
-<p>{{ t('job.line') }}: <code data-testid="job-line">{{ line }}</code></p>
+{% if support_closed %}<p class="notice" role="status" data-testid="support-closed">{{ t('support.closed.job') }}</p>{% else %}<p>{{ t('job.line') }}: <code data-testid="job-line">{{ line }}</code></p>{% endif %}
 {% if refresh %}<p class="hint" role="status">{{ t('job.refresh') }}</p>{% endif %}{% if compile_answers is not none %}
 <p role="status" data-testid="compile-answers">{{ t('job.compile.answers', n=compile_answers) }} <span class="hint">{{ t('job.compile.answers.what') }}</span></p>{% endif %}
-{% if job.error %}<p class="error" role="alert">{{ t('job.error', step=job.error.step) }}: {{ job.error.message }}</p>{% endif %}
+{% if job.error and not support_closed %}<p class="error" role="alert">{{ t('job.error', step=job.error.step) }}: {{ job.error.message }}</p>{% endif %}
 
 {% if review %}
 <section class="card attention" data-testid="review">
@@ -158,7 +158,7 @@
 {% else %}<p>–</p>{% endif %}
 </section>
 
-<section class="card">
+{% if not support_closed %}<section class="card">
 <h2>{{ t('job.thread') }}</h2>
 {% if thread %}
 <div class="scroll" tabindex="0"><table data-testid="thread">
@@ -176,5 +176,5 @@
 <details{{ ' open' if audit|length <= 8 else '' }}><summary>{{ t('job.audit.show', n=audit|length) }}</summary>
 {% set rows = audit %}{% include "_audit_table.html" %}
 </details>
-</section>
+</section>{% endif %}
 {% endblock %}

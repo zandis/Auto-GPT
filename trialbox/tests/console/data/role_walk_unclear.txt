@@ -368,6 +368,8 @@ POST /ops/accounts/requests admin
 POST /ops/accounts/requests steward
 POST /ops/flags admin
 POST /ops/identity admin
+POST /ops/support-session admin
+POST /ops/support-session/end admin
 POST /pilot/case admin
 POST /pilot/case crc
 POST /pilot/case pi

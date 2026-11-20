@@ -16,6 +16,7 @@ from edc_backend import events, linkmap, oidc, tools
 from edc_backend import store as door
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
+from tb_common.authz import in_support_session
 
 from console.home import Helpers
 
@@ -68,9 +69,12 @@ def register(app: FastAPI, h: Helpers) -> None:
                         ("id", "type", "project_id", "record_id", "instrument")})  # fmt: skip
         return JSONResponse({"ok": True, "fresh": fresh})
 
-    def admin(request: Request) -> Any:
+    def admin(request: Request, *, closed_in_session: bool = False) -> Any:
         sess = h.need(request)
-        if not h.permit(sess.user, "redcap.connection").allowed:
+        # 10K-15 (D-1364): a tool call (find_patient, draft_form, quality_check, and its confirmation) answers about
+        # one EDC record, so it is refused during a support session, before its CSRF and body are read. The map and
+        # the connection page stay open (``redcap.connection``). A check that only narrows: no matrix row of its own
+        if not h.permit(sess.user, "redcap.connection").allowed or (closed_in_session and in_support_session()):
             h.au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         return sess
@@ -98,7 +102,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     @app.post("/api/edc/tools")
     async def propose(request: Request) -> JSONResponse:
-        sess = admin(request)
+        sess = admin(request, closed_in_session=True)
         if not h.csrf_ok(sess, request.headers.get("x-csrf") or ""):  # D-1045: a tool call is a change
             raise h.problem(400, "csrf")
         try:
@@ -118,7 +122,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     @app.post("/api/edc/tools/{proposal_id}/confirm")
     async def confirm(request: Request, proposal_id: str) -> JSONResponse:
-        sess = admin(request)
+        sess = admin(request, closed_in_session=True)
         csrf = request.headers.get("x-csrf") or ""
         if not csrf and (request.headers.get("content-type") or "").startswith("application/x-www-form-urlencoded"):
             form = await request.form()
@@ -179,6 +183,11 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not oidc.enabled():
             return JSONResponse({"error": "oidc is off"}, status_code=404)
         sess = h.need(request)
+        # 10K-15 (D-1364): no EDC sign-in starts during a support session, whatever the role (the EDC's pages hold
+        # patient records); refused before the request's parameters are read
+        if in_support_session():
+            h.au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
         if request.query_params.get("client_id") != oidc.client_id():
             raise h.problem(400, "bad")
         try:
@@ -205,6 +214,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             or str(form.get("client_id") or "") != oidc.client_id()
         ):
             return JSONResponse({"error": "invalid_client"}, status_code=401)
+        # 10K-15 (D-1364): no EDC sign-in completes during a support session: a code issued before the start is not
+        # redeemed (refused like the sign-in, before the code is read; the switch's middleware answers in JSON)
+        if in_support_session():
+            h.au.append("console.denied", actor="edc", detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
         # D-1045: the redirect and the client the code was issued for are required, and must be the code's own
         try:
             username = oidc.redeem(str(form.get("code") or ""), str(form.get("client_id") or ""),

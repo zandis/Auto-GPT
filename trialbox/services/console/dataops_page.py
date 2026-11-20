@@ -37,7 +37,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from tb_common.authz import permit
+from tb_common.authz import permit, session_on
 from tb_common.config import site_tz
 from tb_common.db import DatabaseError
 
@@ -317,6 +317,16 @@ def unmapped_kinds_of(detail: Any) -> dict[str, dict[str, int]]:
     return out
 
 
+def steps_shown(steps: Any) -> list[dict[str, Any]]:
+    """A batch's steps as a page or the API shows them. 10K-15 (D-1364, the review of aeb978e6 item 6): a step's
+    reason is a steward's free text ("Duplicate chart 70000054" names a patient), so during a support session every
+    reason is withheld (``None``, with ``reason_closed``); the states, who and when stay."""
+    rows = [dict(s) for s in steps or []]
+    if session_on():
+        return [{**r, "reason": None, "reason_closed": True} for r in rows]
+    return rows
+
+
 def light(state: str) -> str:
     return LIGHT.get(state, "amber")
 
@@ -434,7 +444,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "dataops_batch.html",
             sess,
             b=b,
-            steps=read(lambda: ops.steps(bid)),
+            steps=steps_shown(read(lambda: ops.steps(bid))),
             unmapped=unmapped_of(b.detail),
             profile=site_profile_of(b.detail),  # 10B-6 (D-1233)
             layer=country_card() if site_profile_of(b.detail) else None,  # 10C-25 (D-1250): the country layer's lines
@@ -493,7 +503,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if b is None:
             raise h.problem(404, "notfound")
         kinds = unmapped_kinds_of(b.detail)  # NEW-B-39 (D-740)
-        return {"batch": b.as_dict(), "steps": read(lambda: ops.steps(bid)),
+        return {"batch": b.as_dict(), "steps": steps_shown(read(lambda: ops.steps(bid))),
                 "unmapped": [{"table": t, "rows": n, **({"kinds": kinds[t]} if t in kinds else {})}
                              for t, n in unmapped_of(b.detail)],
                 "site_profile": site_profile_of(b.detail)}  # fmt: skip

@@ -38,6 +38,7 @@ from typing import Any
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse, Response
 from tb_common.authz import (
+    BEST_STANDING,
     BREAK_GLASS_MINUTES,
     BREAK_GLASS_NOTE_MIN,
     BREAK_GLASS_REASONS,
@@ -90,6 +91,8 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
     def pi_studies(user: User) -> set[str]:
         """The studies whose delegation log names this investigator as PI today."""
         if not conditional(user.role, "breakglass.study") or h.team is None:  # T-102c: the row's "pi" condition
+            return set()
+        if not permit(user.role, "breakglass.study", BEST_STANDING):  # 10K-15: refused during a support session
             return set()
         out = set()
         for s in h.bk.rulesets():

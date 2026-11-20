@@ -6,9 +6,9 @@
 incidents, notification clocks, the six cases) is T-318, not this page. The sheet the hospital keeps is
 `docs/plan/sites/support-sheet.md` (en, ja, zh-TW).*
 
-**Drill (T-213b):** none yet. The supervised session is not rehearsed by a test: the support-session switch
-and its drill are built by card 10K-15, which names the drill here. Until then a tabletop (a ticket is opened,
-a session runs to the rules below and is recorded) is the only rehearsal.
+**Drill (T-213b):** `test_runbook_21_support_session` (10K-15: a ticket is opened, the administrator turns the
+support-session switch on, Operations and Jobs open, a patient page, a patient list and an export are refused to
+every account, it is ended, two audit events). Its Docker part (the support bundle) is not rehearsed by a test.
 
 ## Who answers
 
@@ -78,18 +78,32 @@ open port (IT security pack A.3). When a fix needs Aimedics to see the box, the 
 screen share. The rules:
 
 1. **The hospital starts it**, with its own approved tool (the one it uses for other vendors), from a hospital PC,
-   for one ticket. Aimedics never starts a session and never keeps one open.
+   for one ticket. Aimedics never starts a session and never keeps one open. **Before the screen share starts**, the
+   site administrator turns the support-session switch on: the administrator's menu, **Support session** (`/ops/support-session`),
+   the ticket number, the tick, Start (10K-15, D-1364; owner decision 99). Only the administrator role may turn it on
+   or off.
 2. **The hospital's person is at the keyboard** the whole time. Aimedics watches and says what to type. Aimedics
    does not take control of the keyboard or the mouse, even if the tool allows it.
 3. **What may be on screen:** a terminal on the box, the administrator's Operations page (§15), the Jobs page, the
    health tab, `doctor`, logs (they hold pseudonyms only). **Never** a patient page, a patient list, a mail with a
-   list, an export or the pid map. Today the administrator role can still open patient data (it loses it with T-102);
-   until then the hospital's person does not open those pages during a session, and closes any window that shows one.
+   list, an export or the pid map. The administrator role opens no patient data on its routine pages (D-280, T-102;
+   one patient or one job only under a break-glass grant), and while the switch is on **every** patient page,
+   patient list, patient-level export, the feedback file (`/feedback/export.csv`) and break-glass grant is refused to
+   **every** account, the administrator included, and so is every answer that would show a sign-in secret (a new
+   one-time password, an enrolment code or link): the page says a support session is running and when it ends at the
+   latest; the administrator's pages show a banner. A file of counts only (a feasibility job's report) can still be
+   downloaded. The hospital's person still closes any other window that shows patient data (a mail, a file).
 4. **No recording, no file transfer** by Aimedics. A file Aimedics needs is sent through the ticket, scanned first.
 5. **The record.** The hospital's person writes in the ticket: the ticket number, the start and end time (site
-   time), the hospital person, the Aimedics person, and what was done. The ticket is the record: a
-   `support.session` audit event is not built yet (T-635 pull request, Remains).
-6. **Ending it.** The hospital's person ends the session. If the hospital person must leave, the session ends.
+   time), the hospital person, the Aimedics person, and what was done. The box keeps its own record: the audit
+   events `console.support_session_start` and `console.support_session_end` (who, when, the ticket number, and how
+   it ended: by hand or by itself), and the list on `/ops/support-session`. Names of the Aimedics person stay in the
+   ticket, never in the box.
+6. **Ending it.** The hospital's person ends the session, and the administrator turns the switch off (End the support
+   session now). If the hospital person must leave, the session ends. The switch ends by itself 2 hours after it was
+   turned on, checked at every request against its stored start (a restart does not end it early or keep it on
+   longer); a longer session is turned on again. When the console cannot read whether a session is running, patient
+   pages stay closed.
 
 A hospital that allows no screen share at all is supported by phone and the ticket only; the RTO of §22 then assumes
 an Aimedics person travels for a hardware fault.
@@ -98,3 +112,17 @@ an Aimedics person travels for a hardware fault.
 
 A failed part under warranty is returned by the hospital to the supplier with Aimedics' help, **after** the disk is
 removed or purged (§20, T-628). A disk never leaves the hospital. The replacement path is §22, "Replacing hardware".
+
+## The support-session switch, what else it closes (D-1364)
+
+While the switch is on, a page that mixes staff and patient content (the study home, a job's page) shows its staff
+parts and the line "Closed during the support session"; a job's page or file is refused unless it is a counts-only
+one (a feasibility report); a page asked just before the start is finished or refused before the start is
+confirmed. Mail with patient details (the morning lists, a job's mail) waits and goes once after the end; the serious
+adverse event notice still goes at once to the trial office's mailbox and the study's PI (the screening number, the
+event, its onset date, the date the site learned of it and whether it was fatal or life-threatening), and so do the
+health mail and the account notice. Not recalled: what is already
+on a screen or in another window, and mail already sent: close them before the share starts.
+
+Rule 3's logs: a log holds pseudonyms, so during a support session no log is shown on the shared screen unless it is
+first filtered to lines without one (the switch closes the console's pages, not a terminal).

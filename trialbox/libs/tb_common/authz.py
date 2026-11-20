@@ -4,6 +4,7 @@ accounts: one permission function, :func:`permit`, over the matrix ``authz_matri
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -154,14 +155,72 @@ def _holds(cond: str, action: str, s: Standing) -> bool:
     return cond.removeprefix("task:") in s.tasks
 
 
+# ---------------------------------------------------------------------------------------------- the support session
+# Card 10K-15 (D-1364, owner decision 99: no standing access for support; a support-session switch). While the
+# hospital's administrator has a support session on (``console.support_session``), every action not named here is
+# refused to every role, here, in the one permission function: a patient-level page or route asks ``permit`` (T-102c,
+# D-425), so a new one is closed by construction, and a new action is closed until it is added to this list. The
+# list holds the operations and account rows the administrator's support work needs, the switch itself, and the two
+# rows that are restrictions, not rights (``report.aggregate_only``, ``report.sponsor_form``): refusing a restriction
+# would widen what a viewer or CRO account sees, so they keep their answer. Nothing here is a patient-level row. A
+# route that asks no row (``is_admin`` only) is not closed here: every route open during a session is pinned, with
+# the roles it is open to, in ``OPEN_DURING_A_SESSION`` (tests/console/test_10k15_support_session.py).
+SUPPORT_SESSION_MINUTES = 120  # it ends by itself 2 hours after it started (checked at every request)
+# H5 of the review of aeb978e6 (D-1364): while a session runs the mail gateway holds every mail (sent once after the
+# end) but those whose idempotency key the orchestrator gave this prefix: the serious adverse event copy to the
+# office (safety mail is never delayed), the box's health mail and the account notice (no patient in either)
+SUPPORT_MAIL_PREFIX = "tbmail-always-"
+SUPPORT_SESSION_OPEN: frozenset[str] = frozenset({
+    "support.session",
+    "ops.view", "ops.backup", "ops.backup_check", "ops.update_check", "ops.update_apply", "ops.logs", "ops.network",
+    "job.retry_scheduled", "command.STATUS",
+    "account.reset", "account.disable", "account.enable", "account.confirm", "account.create.patient-data",
+    "account.create.steward", "account.create.privacy", "account.create.admin", "account.create.aggregate",
+    "site.setup", "redcap.connection", "restore.release", "dataops.view", "edc.switch_off",
+    "report.aggregate_only", "report.sponsor_form",
+})  # fmt: skip
+if SUPPORT_SESSION_OPEN - set(MATRIX):
+    raise MatrixError(f"SUPPORT_SESSION_OPEN names no row: {sorted(SUPPORT_SESSION_OPEN - set(MATRIX))}")
+# the console sets this for one request (``console.support_session``); a process that never sets it (the
+# orchestrator, a tool) answers as before. Default off: the console fails closed itself when it cannot read the state.
+_SUPPORT_SESSION: ContextVar[bool] = ContextVar("tb_support_session", default=False)
+
+
+def support_session_begin(on: bool) -> Token[bool]:
+    """The request now running is under a support session (``on``) or not; the token goes to
+    :func:`support_session_end`."""
+    return _SUPPORT_SESSION.set(bool(on))
+
+
+def support_session_end(token: Token[bool]) -> None:
+    _SUPPORT_SESSION.reset(token)
+
+
+def in_support_session() -> bool:
+    """Is the request now running under a support session (every action outside ``SUPPORT_SESSION_OPEN`` refused)?"""
+    return _SUPPORT_SESSION.get()
+
+
+def session_on() -> bool:
+    """The one question the console's data helpers ask before they hand a page patient-linked content (the review of
+    aeb978e6, D-1364): a page that mixes staff content with patient-linked content is an open row, so the helpers
+    that read patient task lists, notes, candidate lists, job pages, downloads and free-text reasons answer nothing
+    while it is true, and the page shows its staff parts with a "closed during the support session" line. True for a
+    console request under a support session, or one whose state could not be read (closed on doubt)."""
+    return _SUPPORT_SESSION.get()
+
+
 def permit(role: str, action: str, standing: Standing = NO_STANDING) -> Decision:
     """May a console account with ``role`` and this ``standing`` in the study take ``action``? Pure: reads the
-    matrix only, logs nothing. A role or an action not in the matrix is refused."""
+    matrix (and the request's support-session mark) only, logs nothing. A role or an action not in the matrix is
+    refused; during a support session so is every action outside ``SUPPORT_SESSION_OPEN`` (10K-15, D-1364)."""
     if role not in MATRIX_ROLES:
         return Decision(False, role, action, "unknown role")
     row = MATRIX.get(action)
     if row is None:
         return Decision(False, role, action, "unknown action")
+    if _SUPPORT_SESSION.get() and action not in SUPPORT_SESSION_OPEN:
+        return Decision(False, role, action, "support session")
     cell = row.get(role, False)
     if cell is True:
         return Decision(True, role, action, "role")
@@ -202,6 +261,17 @@ COMMANDS: tuple[str, ...] = tuple(a.removeprefix("command.") for a in MATRIX if 
 # ``run`` task. The daily limits of ``daily_limit`` hold for them as for every requester. Read-only: a different
 # answer is a change to the matrix.
 INVESTIGATOR_RUNS: dict[str, frozenset[str]] = {"pi": _granted("pi"), "run": _granted("task:run")}
+
+
+def role_holds(role: str, action: str) -> bool:
+    """Whether ``role`` holds ``action`` in the matrix, whatever the request's support-session mark: only to name who
+    is TOLD of an event (the stewards an account notice goes to, 10K-15 review M-1), never to open a page or read a
+    row. During a session ``permit`` refuses ``breakglass.review`` to everyone, which would leave the steward untold."""
+    token = _SUPPORT_SESSION.set(False)
+    try:
+        return permit(role, action).allowed
+    finally:
+        _SUPPORT_SESSION.reset(token)
 
 
 def role_allowed(role: str, command: str) -> bool:

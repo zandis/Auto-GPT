@@ -10,6 +10,13 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The support-session switch (10K-15, D-1364): before a supervised screen share (runbook 21) the administrator turns
+  it on at **Support session** in the menu. While it runs, every patient page, list, patient-level export, the
+  feedback file and break-glass grant is refused to every account, and so is every answer that would show a
+  one-time password or an enrolment code or link, an EDC tool call about a record and the EDC's sign-in, with a page
+  in English, Japanese and Traditional Chinese that says until when; the administrator's pages show a banner. It
+  ends by hand or by itself 2 hours after it started; the start and the end are in the audit trail. Nothing changes
+  on a box where nobody turns it on.
 - Silent set-up choices guarded (10K-21): a new PRODUCTION site must answer the chart-number question (choosing
   "as written" is an answer; leaving it empty is not), in the settings wizard and on the box's first-run page. A box
   names the person who opens its health page every working day (its backup alert route); the name is shown with the

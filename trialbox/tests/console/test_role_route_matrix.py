@@ -256,6 +256,9 @@ ROUTE_ACTIONS: dict[tuple[str, str], str] = {
     ("POST", "/api/edc/tools/{proposal_id}/confirm"): "redcap.connection",
     ("GET", "/sae"): "sae.view",
     ("GET", "/ops/users"): "ops.view",
+    ("GET", "/ops/support-session"): "support.session",  # 10K-15 (D-1364): the switch, the administrator's only
+    ("POST", "/ops/support-session"): "support.session",
+    ("POST", "/ops/support-session/end"): "support.session",
     # NEW-FLAG-1 (D-706): the page opens for whoever may see the hold after a restore (the administrator, who sees
     # every flag there, and the data steward, who sees that one); which flags it lists is the page's own rule
     ("GET", "/ops/flags"): "restore.release",

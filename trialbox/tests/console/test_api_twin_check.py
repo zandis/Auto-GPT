@@ -39,6 +39,10 @@ EXEMPT: dict[str, str] = {
     "/feedback": "the feedback control about the page on screen (D-331); its comment names that page",
     "/role": "the session's acting role on a test box (D-877), switched in the browser's top bar like /lang; an API "
     "token starts in the account's own role",
+    "/ops/support-session": "the support-session switch (D-1364): the hospital's administrator turns it on in the "
+    "browser at the keyboard before a supervised screen share (runbook 21); it only closes pages",
+    "/ops/support-session/end": "the support-session switch's end by hand (D-1364), in the same browser page as its "
+    "start; it also ends by itself after 2 hours",
 }
 
 # FIT-019 as found on 2026-11-11: page actions that have no /api/v1 twin yet. Follow-up cards close it; the list

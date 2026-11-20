@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{# 10K-15 (D-1364, owner decision 99): the support-session switch. The hospital's administrator turns it on before a
+   supervised screen share (runbook 21); every patient page is closed to every account until it ends, by hand or by
+   itself after {{ minutes }} minutes. #}
+{# 9k-6a (D-1376): the start form's fields use the field macro; a failed POST shows the summary above the h1 #}
+{# 9k-5 (D-1380): the page names itself once (page_header); after a failed POST that name starts with "Error: " #}
+{% import "_fields.html" as fm with context %}
+{% from "_ds.html" import page_header %}
+{% set page_title = fm.title(fe, t('support.title')) %}
+{% block content %}
+{{ fm.error_summary(fe) }}
+{{ page_header(page_title) }}
+<p>{{ t('support.help', minutes=minutes) }}</p>
+{% if done == 'start' %}<div class="notice" role="status" data-testid="support-done"><p>{{ t('support.done.start_waited') if waited else t('support.done.start') }}</p>{% if waited %}<p class="warn" data-testid="support-done-wait">{{ t('support.done.wait', s=drain_s) }}</p>{% endif %}<p class="hint" data-testid="support-done-fine">{{ t('support.done.fine') }}</p></div>
+{% elif done %}<p class="notice" role="status" data-testid="support-done">{{ t('support.done.end') }}</p>{% endif %}
+{% if err %}<p class="error" role="alert" data-testid="support-err">{{ t(err) }}</p>{% endif %}
+{% if open_rows %}
+{% for live in open_rows %}
+<section class="card" data-testid="support-live" data-session="{{ live.id }}">
+<h2>{{ t('support.live') }}</h2>
+<p>{% if live.ends_at %}{{ t('support.live.line', who=live.started_by, at=live.started_at|local(16), until=live.ends_at|local(16)) }}{% else %}{{ t('support.live.damaged', who=live.started_by) }}{% endif %}{% if live.ticket %} · {{ t('support.ticket') }} <span class="mono">{{ live.ticket }}</span>{% endif %}</p>
+<form method="post" action="/ops/support-session/end" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="session" value="{{ live.id }}"><button type="submit" class="secondary danger" data-testid="support-end">{{ t('support.end') }}</button></form>
+</section>
+{% endfor %}
+{% else %}
+<section class="card" aria-labelledby="support-start-h">
+<h2 id="support-start-h">{{ t('support.start.h') }}</h2>
+<form method="post" action="/ops/support-session" class="formstack" data-testid="support-form" data-fields="support-start">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+{{ fm.field(fe, 'support-start', 'support', 'ticket', t('support.ticket.optional'), cls='mono', attrs={'maxlength': '40', 'autocomplete': 'off', 'inputmode': 'text'}) }}
+{{ fm.field(fe, 'support-start', 'support', 'confirm', t('support.confirm'), 'yes', kind='checkbox', required=True) }}
+<button type="submit" data-testid="support-start">{{ t('support.start', minutes=minutes) }}</button>
+</form>
+</section>
+{% endif %}
+<section class="card" aria-labelledby="support-list-h">
+<h2 id="support-list-h">{{ t('support.list') }}</h2>
+{% if recent %}
+<div class="scroll" tabindex="0"><table data-testid="support-list">
+<thead><tr><th>#</th><th>{{ t('support.col.by') }}</th><th>{{ t('support.col.start') }}</th><th>{{ t('support.col.end') }}</th><th>{{ t('support.col.how') }}</th><th>{{ t('support.ticket') }}</th></tr></thead>
+<tbody>{% for s in recent %}<tr><td>{{ s.id }}</td><td>{{ s.started_by }}</td><td>{{ s.started_at|local(16) }}</td><td>{{ s.ended_at|local(16) if s.ended_at else '–' }}</td><td>{% if s.how == 'hand' %}{{ t('support.how.hand') }}{% elif s.how == 'auto' %}{{ t('support.how.auto') }}{% else %}{{ t('support.how.open') }}{% endif %}</td><td class="mono">{{ s.ticket or '–' }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p>{{ t('support.list.none') }}</p>{% endif %}
+</section>
+{% endblock %}

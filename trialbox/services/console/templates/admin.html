@@ -96,6 +96,7 @@
       <li><a href="/ops/identity" data-testid="identity-link">{{ tp('adm.identity') }}</a></li>
       <li><a href="/admin/accounts" data-testid="accounts-report-link">{{ t('adm.report') }}</a></li>
       <li><a href="/ops/flags" data-testid="flags-link">{{ t('adm.flags') }}</a></li>
+      {% if permit(user.role, 'support.session') %}<li><a href="/ops/support-session" data-testid="support-session-link">{{ t('nav.support_session') }}</a></li>{% endif %}{# 10K-15 (D-1364): one click from the Admin page with the plain menu (J-7) too #}
     </ul>
   </section>
   <section class="card tile" data-testid="tile-approvals">

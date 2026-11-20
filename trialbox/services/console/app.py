@@ -44,7 +44,16 @@ from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
-from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
+from tb_common.authz import (
+    BEST_STANDING,
+    admin_allowed,
+    in_support_session,
+    permit,
+    role_allowed,
+    role_holds,
+    role_rights,
+    session_on,
+)
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
@@ -581,7 +590,7 @@ def create_app(
     def account_tell(name: str, subject: str, body: str, by: str) -> None:
         """D-719 (a): the steward and the PI of each of the account's studies are told, as for break-glass."""
         stewards = [*us.users(), *us.disabled_users()]  # a disabled steward is told too (the review of D-719)
-        to = {u.mailbox for u in stewards if permit(u.role, "breakglass.review").allowed and u.mailbox}
+        to = {u.mailbox for u in stewards if role_holds(u.role, "breakglass.review") and u.mailbox}
         target = us.get(name)
         team_store = getattr(account_team.get("h"), "team", None)
         if target is not None and team_store is not None:
@@ -852,9 +861,9 @@ def create_app(
         """D-719 (a): who reset which factor of this account when, or when it was opened; each line once."""
         if sess is None or not us.has_notices(sess.user.username):
             return []
-        stewards = ", ".join(
-            u.username for u in us.users() if permit(u.role, "breakglass.review").allowed
-        ) or translate(lang, "account.notice.the_steward")
+        stewards = ", ".join(u.username for u in us.users() if role_holds(u.role, "breakglass.review")) or translate(
+            lang, "account.notice.the_steward"
+        )
         return [
             translate(lang, f"account.notice.{kind}", by=by, at=at[:16].replace("T", " ") + " UTC", stewards=stewards)
             for kind, by, at in us.take_notices(sess.user.username)
@@ -1310,7 +1319,11 @@ def create_app(
         sess = need(request)
         if not sess.user.is_admin:
             raise _Problem(403, "forbidden")
-        made, pw, _ = one_time.pop(sess.token_sha, ("", "", 0.0))
+        # 10K-15 (D-1364): a one-time password or enrolment code kept before a support session started is not shown
+        # while one runs (a support person may be watching the screen); it stays kept, for its 10 minutes
+        made, pw, kept = ("", "", 0.0) if in_support_session() else one_time.pop(sess.token_sha, ("", "", 0.0))
+        if made and time.monotonic() - kept > 600:  # the review of aeb978e6 item 10: unread for 10 minutes is gone,
+            made, pw = "", ""  # also when no other secret was kept since (held back by a session, then read later)
         code = pw[5:] if pw.startswith("code:") else ""  # D-719: a protected account's enrolment code, no password
         pw = "" if code else pw
         rows = [(u, us.is_sso(u.username)) for u in us.users()]
@@ -1353,6 +1366,9 @@ def create_app(
         name = username.strip().lower()[:32]
         perm = {"reset": "account.reset", "disable": "account.disable", "enable": "account.enable"}.get(action)
         if perm and not admin_allowed(sess.user.role, perm):  # D-178: the one role table (tb_common.authz)
+            au.append("console.denied", actor=actor(sess), detail={"action": f"/ops/users {action}"})
+            raise _Problem(403, "forbidden")
+        if action in ("add", "reset") and in_support_session():  # 10K-15 (D-1364): each shows a secret once
             au.append("console.denied", actor=actor(sess), detail={"action": f"/ops/users {action}"})
             raise _Problem(403, "forbidden")
         try:
@@ -1591,6 +1607,9 @@ def create_app(
     from console import breakglass
 
     breakglass.register(app, helpers)  # D-280 (OD-5): the administrator's break-glass grants and the steward's review
+    from console import support_session
+
+    support_session.register(app, helpers)  # 10K-15 (D-1364): the support-session switch; permit closes patient rows
     from console import notmatched_pages
 
     notmatched_pages.register(app, helpers, raw_env)  # T-310a (D-446): weekly sample, send-back, the site's check
@@ -1785,16 +1804,29 @@ def create_app(
         auto = request.query_params.get("auto") == "1"  # the page's own 5-second refresh (base.html)
         thread_rows = [(m, shown_ids(sess, job, text, "thread", opted_out=out, bg=grant is not None, auto=auto))
                        for m, text in raw_rows]  # fmt: skip
+        # 10K-15 (D-1364, the review of 7ce188c6 L-1): during a support session an open job page (FEAS, SCREEN) shows
+        # its state, type and counts only: no request line, error text, mail thread or audit rows (free text that can
+        # name a patient), and only the files the session serves
+        closed = session_on()
+        if closed:
+            from console.support_session import download_open
+
+            thread_rows, audit_recs = [], []
         return page(
             request,
             "job.html",
             sess,
             job=job,
-            line=job_line(job),
+            support_closed=closed,
+            line="" if closed else job_line(job),
             result=(feas := _feas_result(job)),
             barriers=_barriers(feas),
-            aggregate=[o for o in job.outputs or [] if o.tag == "aggregate"],
-            phi=[o for o in job.outputs or [] if o.tag == "phi"],
+            aggregate=[
+                o
+                for o in job.outputs or []
+                if o.tag == "aggregate" and (not closed or download_open(str(job.type), o.filename))
+            ],
+            phi=[] if closed else [o for o in job.outputs or [] if o.tag == "phi"],
             phi_dl={o.filename for o in job.outputs or [] if o.tag == "phi" and phi_download_ok(sess, job, o)},
             review=_review_book(job) if job.state == "awaiting_approval" else None,
             review_html=review_html,
