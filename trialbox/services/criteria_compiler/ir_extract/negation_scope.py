@@ -42,6 +42,25 @@ concept (R0: a cue in a line that never names it holds, as it may be that concep
 Anything less clear stays held. Each rule has, in the test, lines it lets run and near-miss lines it must hold in
 English, Japanese and Chinese.
 
+Since card 10A-1d (D-1248) this reading is the second net: an inclusion runs only when ``recognition`` reads its line
+as a plain statement of presence AND nothing here holds it. The second review of card 10A-1c (2026-11-19) narrowed
+three releases and widened what holds without a cue:
+
+* R8 never lets go a cue whose object is a source of evidence or the patient ("pulmonary embolism not on CT",
+  "without histological confirmation"), nor, in Japanese, one whose を-object is the giving or receiving of the head
+  ("投与を受けていない化学療法");
+* R9 never lets go an exception whose object is the patient ("除了患者本人之外") or a condition ("other than as a last
+  resort");
+* R1's negated prohibition is not blanked into a statement of receipt: eligibility for the concept ("no known
+  contraindication to X", "X の禁忌がない", "適合接受X", "candidate for X") holds, read by position round the name;
+* a condition on the concept holds ("if X is given", "X を受ければ", "若接受X") unless the criterion's own logic
+  carries it (the atom is one arm of an "or");
+* a status word (uncertain, planned, another person's, over: now also recovered, discontinued, in remission, 中止,
+  康復, 停用, a spouse, 家屬) holds in the sentence that names the concept and in a sentence that names no extracted
+  concept at all ("Chemotherapy. Planned for next week."); an UNCERTAIN word holds even inside the extracted name
+  ("possible sepsis" coded as itself);
+* a count range that starts at zero holds ("0-3 prior cycles", 0～3コース).
+
 The scope reading (ConText's: a cue before the concept, or after it for "not allowed", "なし", "未曾…", in the same
 clause and within a few words; Harkema H, Dowling JN, Thornblade T, Chapman WW. ConText: an algorithm for determining
 negation, experiencer, and temporal status from clinical reports. J Biomed Inform 2009;42(5):839-51) serves only to
@@ -1097,12 +1116,13 @@ def atoms_of(logic: object) -> list[Atom]:
 
 
 def _slug_words(valueset: str | None) -> list[str]:
-    """``VS_CARDIOPULMONARY_DISEASE`` -> ``cardiopulmonary disease`` (a hashed CJK slug gives nothing)."""
-    if not valueset or valueset == "NONE":
+    """``VS_CARDIOPULMONARY_DISEASE`` -> ``cardiopulmonary disease``. A hashed name gives nothing: its slug lost the
+    letters that are not ASCII, and what is left is not a name of the concept (``VS_C_0ECB9BB9`` for 静脈血栓塞栓症
+    gave "c", ``VS_B_…`` for B型肝炎 gave "b", and a one-letter name matched every word that starts with it:
+    "Capriniスコア" was read as the concept itself)."""
+    if not valueset or valueset == "NONE" or re.search(r"_[0-9A-F]{8}$", valueset):
         return []
-    body = re.sub(r"^VS_", "", valueset)
-    body = re.sub(r"_[0-9A-F]{8}$", "", body)
-    words = [w for w in body.split("_") if w and not w.isdigit()]
+    words = [w for w in re.sub(r"^VS_", "", valueset).split("_") if w and not w.isdigit()]
     return [" ".join(words).lower()] if words else []
 
 

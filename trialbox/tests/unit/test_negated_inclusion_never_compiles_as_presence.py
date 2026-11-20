@@ -233,6 +233,23 @@ def test_a_condition_on_receipt_runs_only_when_the_logic_carries_it() -> None:
     assert not negated_presence(text, carried, lambda vs: names[vs])
 
 
+def test_a_hashed_value_set_name_is_not_a_name_of_its_concept() -> None:
+    """A concept named in Japanese or Chinese gets a hashed value-set name (``VS_C_<hash>``, ``VS_B_<hash>`` for
+    B型肝炎). What is left of its slug was read as a name of the concept, and a one-letter name matched every word
+    that starts with it: "Capriniスコア" was the concept itself, so a risk score ran as the diagnosis, and "ACR"
+    was a second mention of 関節リウマチ. A hashed name gives no words."""
+    from criteria_compiler.ir_extract.negation_scope import _slug_words
+
+    assert _slug_words(vs_name_for("静脈血栓塞栓症")) == [] and _slug_words(vs_name_for("B型肝炎")) == []
+    assert _slug_words("VS_CARDIOPULMONARY_DISEASE") == ["cardiopulmonary disease"]
+    vte = {"domain": "condition", "concept": "静脈血栓塞栓症", "quantifier": "any"}
+    cand = [{"domain": "condition", "name": "静脈血栓塞栓症", "synonyms": []}]
+    _held(_one("静脈血栓塞栓症 Capriniスコア 5以上", vte, concepts=cand), "unrecognised")
+    ra = {"text": "2010年ACR/EULAR分類基準を満たす関節リウマチ", "concept": "関節リウマチ", "domain": "condition",
+          "logic": "presence", "synonyms": []}  # fmt: skip
+    _runs(_one(str(ra["text"]), _logic(ra), concepts=_cand(ra)), ra, "structured")
+
+
 def test_status_reading_is_linear_in_repeated_mentions() -> None:
     """The second review, finding 11: "Asthma. " x 4000 took 0.48 s at 65f0753c, four times the cost of x 2000 (each
     sentence rescanned every mention). Doubling the line now about doubles the time."""
