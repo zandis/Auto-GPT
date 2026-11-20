@@ -40,3 +40,24 @@ One path still made a new box *hold* one. An operator who writes `TB_ENV` into `
 No Docker and no box: compose files were read, not started. A box without a token registry in PRODUCTION
 (installed before step 8, never re-installed) now loses every service, not only the orchestrator, until
 `secrets rotate` and an install re-run. An update applied by an older release's code does not run the new preflight.
+
+## The review of 9g-13 (#1267, head 5a421d64), fixed in 9g-13b
+
+Each finding has a test in `tests/unit/test_legacy_token_review.py` that failed on 5a421d64 and passes after the fix
+(commit 5e905001b8706330eb9acf3cb4800dcf68c48468, unless the row says otherwise).
+
+| Finding | Test | Fix |
+| --- | --- | --- |
+| High: an old installed updater skips the new preflight | `test_the_new_trees_pre_start_refuses_...`, `test_the_pre_start_step_stops_before_...` | The new tree's `pre-start` refuses first. Every updater since UPDATE-PRESTART runs that command before the stack starts. |
+| High: a named match beats the legacy hash | `test_a_hash_marked_legacy_is_legacy_even_when_...` | `Registry.identify` decides the legacy mark first. |
+| High: the shell sets the gateway's `TB_ENV` | `test_no_service_of_an_installed_box_takes_tb_env_from_the_shell` | The gateway takes `TB_ENV` from `deploy/.env` only. |
+| Medium: `/v1/serving/release` answers 200 to the old token | `test_the_legacy_token_cannot_release_the_card_with_200` | The gateway's own route gate, a separate commit in `services/gateway/app.py`, asked on #639. |
+| Medium: `secrets rotate` without the secrets overlay | `test_rotation_is_refused_where_...` | Rotation of tokens is refused there. Doctor, the preflight and `pre-start` name the overlay. |
+| Medium: `--firstrun` adds a shared token back | `test_the_first_runs_answers_add_no_shared_token` | `tools.box apply` drops the wizard's token. |
+| Medium: a file-backed shared token is missed | `test_a_file_backed_shared_token_is_held_too` | `legacy_held` counts `TB_SERVICE_TOKEN_FILE` where no registry reaches the services. |
+| Medium: doctor `--env-file` reads the sibling `.env` | `test_doctor_reads_the_env_file_it_was_given` | Doctor reads the file it was given. |
+| Medium: a quoted `TB_ENV` blocks a TEST update | `test_a_quoted_tb_env_is_read_as_compose_reads_it` | Quotes are read as compose reads them. |
+| Low: the registry mount is not checked | `test_every_service_of_an_installed_box_can_read_the_registry_it_needs` | The test, which fails when the adapter's registry mount is removed. |
+
+The orchestrator is no longer passed the old token by name. `make_app` hands the token layer's refusal to the
+orchestrator's route gate, which audits it as before (`test_a_route_gate_can_only_replace_a_legacy_refusal_with_its_own`).
