@@ -508,6 +508,9 @@ DECLARED: dict[str, Declared] = {
     "TB_CONSOLE_URL": Declared("str", "", "mail gateway: console URL in replies"),
     "TB_CONSOLE_WEBMAIL_URL": Declared("str", "", "console: link to the site's webmail"),
     "TB_CONSOLE_WORKSPACE": Declared("str", "", "console: workspace folder (demo)"),
+    "TB_COVERAGE_RUN_DIR": Declared(
+        "path", "", "tests: the folder of the pytest run measuring coverage; set by the run itself (H-63)"
+    ),
     "TB_CQL_LOCAL_LIB": Declared("str", "", "CQL tool: local library folder"),
     "TB_CQL_TRANSLATOR_LIB": Declared("str", "", "compiler: CQL translator library"),
     "TB_CTGOV_BASE_URL": Declared("str", "", "compiler: ClinicalTrials.gov API base"),

@@ -180,7 +180,8 @@ def _fake_bin(tmp_path: Path, arch: str, driver: str, cap: str) -> Path:
 def _check_host(tmp_path: Path, *args: str, arch: str, driver: str, cap: str) -> subprocess.CompletedProcess[str]:
     bin_dir = _fake_bin(tmp_path, arch, driver, cap)
     py = Path(shutil.which("python3") or "/usr/bin/python3").parent
-    env = {"PATH": f"{bin_dir}:{py}:/usr/bin:/bin", "HOME": str(tmp_path)}
+    # a 128 GB Spark's MemTotal (synthetic): the --gb10 memory check never reads this test machine's (H10E5-03)
+    env = {"PATH": f"{bin_dir}:{py}:/usr/bin:/bin", "HOME": str(tmp_path), "TB_TEST_MEM_KIB": "124000000"}
     env.update({k: v for k, v in os.environ.items() if k.startswith("LC_")})
     return subprocess.run(
         ["sh", str(DEPLOY / "check_host.sh"), "--gpu-only", *args, "--env", str(tmp_path / "none.env")],
