@@ -101,16 +101,19 @@ class Reveal:
     study_or_404: Callable[[Session, str], str]
 
     # ------------------------------------------------------------------ the rule
-    def own_basis(self, sess: Session, rid: str | None) -> str:
+    def own_basis(self, sess: Session, rid: str | None, export: bool = False) -> str:
         """The basis on which the account reveals in study ``rid`` by its own rights, or "" when it does not: the
-        ``id.reveal`` row (``role``) in a study it sees, then the delegation log where it decides the role (``log``)."""
+        ``id.reveal`` row (``role``) in a study it sees, then the delegation log where it decides the role (``log``).
+        ``export`` (9f-3, D-1383): a whole list that leaves as a file asks the log without a cover (no export by a
+        cover, ``Helpers.export_ok``)."""
         user = sess.user
         if not rid or not user.sees_study(rid):
             return ""
         if not self.h.permit(user, "id.reveal", rid).allowed:
             return ""
         if conditional(user.role, "task.screen"):
-            return "log" if self.h.delegated_ok(user, rid) else ""
+            ok = self.h.export_ok(user, rid) if export else self.h.delegated_ok(user, rid)
+            return "log" if ok else ""
         return "role"
 
     def may_try(self, sess: Session, rid: str | None) -> bool:
@@ -279,7 +282,7 @@ class Reveal:
         purpose, via = "screening_log", "screening_log"
         rid = rs if _RS.match(rs) else ""
         path = path or f"screening log {rid}"
-        basis = self.own_basis(sess, rid)
+        basis = self.own_basis(sess, rid, export=True)  # 9f-3 (D-1383): the chart-number workbook, never by a cover
         if not basis:
             raise self.refuse(sess, path, rid, "", purpose, reason, via, self._why_not(sess, rid), 403, "forbidden")
         kept = self._reason_ok(sess, path, rid, "", purpose, reason, note, via)

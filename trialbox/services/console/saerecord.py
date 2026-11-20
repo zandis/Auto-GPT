@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from datacore import lifecycle as lc
@@ -560,45 +560,120 @@ class SaeStore:
 
 # ---------------------------------------------------------------------------------------------- 9f-4 (b), D-1383
 ESCALATE_RETRY_NOTES = 3  # a round that reached nobody: at most this many ``escalate_retry`` rows per case
+#: a round's claim (``escalating``) with no closing row this long after it was written is a round that was cut off
+#: (a crash between the mails and the closing row): the next round closes it and mails nobody again
+ESCALATE_STALE = timedelta(minutes=15)
+_CLOSING = ("escalated", "escalate_retry", "escalate_closed")
 
 
-def escalate_once(store: SaeStore, rs: str, record: str, event: str, hours: int, send: Callable[[], dict[str, Any]],
-                  by: str, at: str, before_commit: Callable[[dict[str, Any]], None] | None = None,
-                  ) -> dict[str, Any] | None:  # fmt: skip
-    """Escalate one unacknowledged case once, whatever the threshold (a later change of ``hours`` does not escalate
-    a case again). Under a lock per case, when its trail has no ``escalated`` row, ``send`` mails the recipients and
-    gives the round's body with ``sent`` (how many were reached). A round that reached somebody is final: the
-    ``escalated`` row is written and ``before_commit`` (the audit event) runs, in the same transaction. A round that
-    reached nobody is not final: the next round tries again; it writes an ``escalate_retry`` row (and runs
-    ``before_commit``) only for the first :data:`ESCALATE_RETRY_NOTES` such rounds. The audit log is a file, not the
-    database: if the commit fails after ``before_commit``, the mail went and the audit says so, the trail does not, and
-    the next round mails again. Returns the round's body with ``final``; None when the case was escalated already."""
+def _when(at: str) -> datetime | None:
+    try:
+        t = datetime.fromisoformat(at)
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=UTC)
+
+
+def escalate_once(store: SaeStore, rs: str, record: str, event: str, hours: int,
+                  plan: Callable[[], dict[str, Any]], send_one: Callable[[dict[str, Any]], None], by: str, at: str,
+                  audit: Callable[[str, dict[str, Any]], None]) -> dict[str, Any] | None:  # fmt: skip
+    """Escalate one unacknowledged case at most once, whatever the threshold (a later change of ``hours`` does not
+    escalate it again), with the mails outside any database transaction (an outbox in the trail):
+
+    1. Under a lock per case, in one transaction: the PI's acknowledgement is read again (``FOR UPDATE``: an
+       acknowledgement then waits for this step, and one already made stops the round), and the trail is read. A
+       case with an ``escalated`` row is done. A claim of an earlier round (``escalating``) with no closing row is a
+       round still mailing (nothing is done) or, once :data:`ESCALATE_STALE` old, a round that was cut off: it is
+       once). Otherwise the recipients ``plan()`` named just before (it only reads) are claimed: with somebody to
+       mail, the claim row ``escalating`` naming them is committed **before** any mail goes.
+    2. Each recipient is mailed (``send_one``) unless the PI has acknowledged meanwhile; each mail that went is its
+       own audit event at once (``escalate_sent``), so the audit never lacks a mail that went.
+    3. Under the lock again, the round is closed: ``escalated`` when it reached somebody (or the only people left had
+       the case at once as the PI's cover), with each recipient's outcome; else ``escalate_retry`` for the first
+       :data:`ESCALATE_RETRY_NOTES` such rounds and ``escalate_closed`` after (the next round tries again).
+       ``audit(action, body)`` writes the round's event inside that transaction.
+
+    Returns the round's body with ``final``; None when nothing was done (escalated already, acknowledged, or another
+    round is mailing)."""
+    lock = f"sae-escalate:{rs}:{record}:{event}"
+    if any(t["action"] == "escalated" for t in store.trail(rs, record, event)):
+        return None  # done (read again under the lock below): no recipient is looked up for a case told already
+    p = plan()  # who would be mailed (reads only); the decision is taken under the lock, below
     with store.db.transaction() as tx:
-        tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"sae-escalate:{rs}:{record}:{event}",))
-        rows = tx.fetchall(
-            "SELECT action FROM sae_trail WHERE ruleset = ? AND record = ? AND event = ? AND action IN ('escalated', "
-            "'escalate_retry')",
+        tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (lock,))
+        ack = tx.fetchone("SELECT pi_ack_by FROM sae_case WHERE ruleset = ? AND record = ? AND event = ? FOR UPDATE",
+                          (rs, record, event))  # fmt: skip
+        if ack is None or ack[0]:
+            return None
+        got = tx.fetchall(
+            "SELECT action, body, at FROM sae_trail WHERE ruleset = ? AND record = ? AND event = ? AND action IN "
+            "('escalating', 'escalated', 'escalate_retry', 'escalate_closed') ORDER BY id",
             (rs, record, event),
         )
-        if any(str(r[0]) == "escalated" for r in rows):
+        rows = [(str(r[0]), json.loads(str(r[1])), str(r[2])) for r in got]
+        if any(a == "escalated" for a, _, _ in rows):
             return None
-        tries = sum(1 for r in rows if str(r[0]) == "escalate_retry")
-        body = {**send(), "hours": hours}
-        # reached somebody: a mail went, or the only people left had the case at once as the PI's cover (9f-3)
-        final = int(body.get("sent") or 0) > 0 or bool(body.get("already_told"))
-        body["final"] = final
+        tries = sum(1 for a, _, _ in rows if a == "escalate_retry")
+        closed = {b.get("round") for a, b, _ in rows if a in _CLOSING}
+        claims = [(b, t) for a, b, t in rows if a == "escalating"]
+        open_claim = next(((b, t) for b, t in reversed(claims) if b.get("round") not in closed), None)
+        if open_claim is not None:
+            claimed, when = open_claim
+            then, now = _when(when), _when(at)
+            if then is None or now is None or now - then < ESCALATE_STALE:
+                return None  # another round is mailing now
+            cut = {"round": claimed.get("round"), "interrupted": True, "claimed": list(claimed.get("to") or []),
+                   "hours": hours, "final": True, "attempt": tries + 1}  # fmt: skip
+            store._trail(tx, rs, record, event, "escalated", cut, by, at)
+            audit("escalated", cut)
+            return cut
+        recipients: list[dict[str, Any]] = list(p.get("recipients") or [])
+        unreachable = list(p.get("unreachable") or [])
+        already = list(p.get("already_told") or [])
+        rnd = len(claims) + 1
+        if recipients:
+            store._trail(tx, rs, record, event, "escalating", {"round": rnd, "to": [r["name"] for r in recipients]},
+                         by, at)  # fmt: skip
+    sent: list[str] = []
+    full: list[str] = []
+    short: list[str] = []
+    failed: list[str] = []
+    stopped: list[str] = []
+    for r in recipients:
+        case = store.case(rs, record, event)
+        if case is not None and case.get("pi_ack_by"):  # acknowledged meanwhile: nobody else is mailed
+            stopped.append(r["name"])
+            continue
+        try:
+            send_one(r)
+        except Exception:  # one refused address does not stop the others; the round's event names it
+            failed.append(r["name"])
+            continue
+        sent.append(r["name"])
+        (full if r.get("full") else short).append(r["name"])
+        audit("escalate_sent", {"round": rnd, "to": r["name"], "full": bool(r.get("full")), "hours": hours})
+    body: dict[str, Any] = {"to": ", ".join(sent), "sent": len(sent), "full": full, "short": short, "failed": failed,
+                            "unreachable": unreachable, "already_told": already, "hours": hours}  # fmt: skip
+    if recipients:
+        body["round"] = rnd
+    if stopped:
+        body["stopped_acknowledged"] = stopped
+    final = bool(sent) or bool(already)  # reached somebody, or the only people left had it at once as the cover
+    body["final"] = final
+    with store.db.transaction() as tx:
+        tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (lock,))
         if final:
             body["attempt"] = tries + 1
             store._trail(tx, rs, record, event, "escalated", body, by, at)
-        elif tries < ESCALATE_RETRY_NOTES:
+            audit("escalated", body)
+        elif tries < ESCALATE_RETRY_NOTES and not stopped:
             body["attempt"] = tries + 1
             body["retry"] = "the next round mails again" if tries + 1 < ESCALATE_RETRY_NOTES else (
                 "the next rounds mail again, with no further note")  # fmt: skip
             store._trail(tx, rs, record, event, "escalate_retry", body, by, at)
-        else:
-            return body
-        if before_commit is not None:
-            before_commit(body)
+            audit("escalate_unreached", body)
+        elif recipients:  # the claim is closed, with no note (bounded notes; or the PI acknowledged meanwhile)
+            store._trail(tx, rs, record, event, "escalate_closed", body, by, at)
     return body
 
 

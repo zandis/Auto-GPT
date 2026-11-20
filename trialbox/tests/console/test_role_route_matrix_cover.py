@@ -6,8 +6,9 @@ the router table as ``test_role_route_matrix`` does (the page with its CSRF toke
 * with no cover, then with a cover of another study in effect, a cover of GZQO still to come, a cover ended before it
   began, and a cover ended early: the same answers every time (outside the dates and the study, nothing changes);
 * with a cover of GZQO in effect: exactly the design table's column of the PI the log names (``lpi``), except the
-  delegation log's own rows (add or change an entry, enter a cover) and every route whose declared row is a PI right
-  the cover does not carry (``teamstore.COVER_WITHHELD``: the log's monthly check, the study's state and reopening,
+  delegation log's own rows (add or change an entry, enter a cover), every export of the study's patients
+  (``EXPORT_ROUTES``: a cover gives no export) and every route whose declared row is a PI right the cover does not
+  carry (``teamstore.COVER_WITHHELD``: the log's monthly check, the study's state and reopening,
   the IRB records and the IRB-text answer, prefill on and off, ...), which a cover never gives: the log and the
   study's administration stay the PI's. The cover adds no right that the PI's column does not have, and the matrix
   is not changed.
@@ -84,11 +85,27 @@ def withheld_routes() -> set[tuple[str, str]]:
     return out
 
 
+#: a task's owner and the cover's IRB task: the route declares delegation.keep (the PI's own entry) and
+#: ``cover_pages.keeps_tasks`` adds a coordinator entry of the log, never a cover (``team.task_owner`` is withheld)
 BY_TASK_OWNER = {
     ("POST", "/studies/{rs}/tasks/owner"),
     ("POST", "/api/v1/studies/{rs}/tasks/owner"),
     ("POST", "/studies/{rs}/cover/{cid}/irb"),
     ("POST", "/api/v1/studies/{rs}/cover/{cid}/irb"),
+}
+#: the files of a study's patients that leave TrialBox: never by a cover (the owner's ruling, 2026-11-20), though
+#: their declared rows (``task.screen``, ``task.enter_data``, ``edc.export``, ``edc.copy``) are clinical rows the PI's
+#: column holds (``Helpers.export_ok``, ``teamstore.COVER_NO_EXPORT``)
+EXPORT_ROUTES = {
+    ("GET", "/studies/{rs}/export.{fmt}"),
+    ("GET", "/api/v1/studies/{rs}/export/{fmt}"),
+    ("GET", "/studies/{rs}/screening-log.xlsx"),
+    ("GET", "/pilot/registry/{ruleset}/export.xlsx"),
+    ("GET", "/studies/{rs}/edc/export.odm.xml"),
+    ("GET", "/api/v1/studies/{rs}/edc/export/odm"),
+    ("GET", "/studies/{rs}/edc/copy.csv"),
+    ("GET", "/api/v1/studies/{rs}/edc/copy"),
+    ("GET", "/studies/{rs}/edc/copy/{record}"),
 }
 END_ROWS = {("POST", "/studies/{rs}/cover/{cid}/end"), ("POST", "/api/v1/studies/{rs}/cover/{cid}/end")}
 
@@ -145,11 +162,15 @@ def test_a_cover_opens_the_pis_column_inside_its_dates_and_nothing_else(walked_b
         changed = [f"{m} {p}: {base[(m, p)]} -> {c}" for (m, p), c in sorted(walked.items())
                    if base.get((m, p)) != c and not ((m, p) in END_ROWS and (base[(m, p)], c) == ("-", "n"))]  # fmt: skip
         assert not changed, f"{name}: a cover outside its dates or study changed an answer:\n" + "\n".join(changed)
-    # a task's owner and the cover's IRB task: the route declares delegation.keep (asked of the PI's own entry), and
-    # console/cover_pages.py keeps_tasks then lets the PI's cover by team.task_owner, a right of COVER_RIGHTS
-    withheld = withheld_routes() - BY_TASK_OWNER
+    # a task's owner and the cover's IRB task (declared delegation.keep) and every export: never by a cover
+    withheld = withheld_routes() | EXPORT_ROUTES
+    assert withheld_routes() >= BY_TASK_OWNER, sorted(BY_TASK_OWNER - withheld_routes())
     assert ("POST", "/studies/{rs}/team/check") in withheld and ("POST", "/studies/{rs}/state") in withheld, withheld
-    want = {k: ("-" if k in LOG_ROWS or (k in withheld and design[k]["lpi"] in ("Y", "U")) else design[k]["lpi"])
+    # a route the PI meets as "n" (allowed, then nothing of that id) is refused to the cover before any look-up
+    # when the cover never holds its right (an export, a task's owner, the cover's IRB task)
+    first = EXPORT_ROUTES | BY_TASK_OWNER
+    want = {k: ("-" if k in LOG_ROWS or (k in withheld and design[k]["lpi"] in ("Y", "U"))
+                or (k in first and design[k]["lpi"] == "n") else design[k]["lpi"])
             for k in inside if k in design}  # fmt: skip
     assert set(want) == set(inside), "a route of the walk is not in the design table: regenerate it"
     diff = [f"{m} {p}: the PI's column {want[(m, p)]}, under the cover {c}"

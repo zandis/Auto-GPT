@@ -12,7 +12,9 @@ Environment:
   nightly ingest): local times in the site's zone.
 * ``TB_HEALTH_MAIL_AT`` (``07:00``): the administrators' daily health mail (T-209a, D-379).
 * 9f-4 (b), D-1383: every hour at :20, the escalation of serious AEs the PI has not acknowledged
-  (``TB_SAE_ESCALATE_HOURS``, ``console.sae_pages``).
+  (``TB_SAE_ESCALATE_HOURS``, ``console.sae_pages``). Like every job here it runs only where the timers run
+  (``TB_CONSOLE_TIMERS``, on by default in VALIDATION and PRODUCTION): with the timers off only the register's writes
+  (an AE form saved, an acknowledgement, a sync) escalate.
 
 Each run is the same call as its button (admin "Send notices now", S21 "Run now"); a notice still goes at most once
 per person and day, so a timer and a button on the same morning never send twice.

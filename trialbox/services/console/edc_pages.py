@@ -54,6 +54,7 @@ from console.home import Helpers
 from console.i18n import lookup, translate
 from console.oidc import OidcError
 from console.studies import known_study
+from console.teamstore import COVER_NO_EXPORT
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -336,7 +337,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         """The ``edc.*`` rows (T-102c, D-425) with the account's standing in the study, read once."""
         tasks, pi, _ = stand(sess, rid)
         grant = Grant(is_pi=pi, tasks=tasks, pi_rights=pi_rights(sess, rid))  # 9f-3: a cover's allow-list
-        return {a: permit(sess.user.role, f"edc.{a}", grant).allowed for a in actions}
+        out = {a: permit(sess.user.role, f"edc.{a}", grant).allowed for a in actions}
+        # 9f-3 (D-1383, the owner's ruling: a cover gives no export): the export and copy rows by the account's own
+        # entries only (teamstore.COVER_NO_EXPORT, Helpers.permit)
+        for a in actions:
+            if f"edc.{a}" in COVER_NO_EXPORT and out[a]:
+                out[a] = h.permit(sess.user, f"edc.{a}", rid).allowed
+        return out
 
     def pid_of(rid: str, record: str) -> str:
         """The subject's pseudonymous id from its screening number (the record key in the EDC); never a chart no."""

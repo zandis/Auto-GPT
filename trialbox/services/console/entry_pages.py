@@ -215,6 +215,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def read_export(sess: Session, rs: str, fmt: str) -> tuple[str, str, bytes]:
         """An export of every record: (file name, media type, bytes). Who reads the records may download them."""
         rid = study_or_404(sess, rs)
+        h.need_export(sess, rid, f"export {rid}", ("screen", "enter_data"))  # 9f-3 (D-1383): never by a cover
         if fmt not in FORMATS:
             raise h.problem(404, "notfound")
         out = s28.call(bk, "GET", f"/studies/{rid}/export/{fmt}")  # signed by the account (D-717): no typed name

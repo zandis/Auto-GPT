@@ -586,14 +586,13 @@ def create_app(
         ``console.team.standing``'s own conditions: an account that sees the study and whose tasks the log gives (an
         investigator account); computed when the event is written (a request across the site's midnight is stamped
         by the day of its write)."""
-        from console.team import log_account
+        from console.team import cover_account
 
         hp = account_team.get("h")
         team_store = getattr(hp, "team", None)
         if hp is None or team_store is None:
             return None
-        u = us.get(name)
-        if u is None or u.aggregate_only or not log_account(u) or not u.sees_study(rs):
+        if not cover_account(us.get(name), rs):  # the one account test (9f-3: also the SAE notice and the banner)
             return None
         return team_store.rights(rs, name, hp.today()).cover
 
@@ -1621,7 +1620,7 @@ def create_app(
     metrics_page.register(app, helpers)  # T-209a (D-379): /metrics and the box's health for the morning mail
     from console import sae_pages
 
-    sae_pages.register(app, helpers)  # the SAE register and its worklist (D-191)
+    sae_pages.register(app, helpers, env=env)  # the SAE register and its worklist (D-191); env: 9f-4 (b)
     from console import admin_accounts
 
     admin_accounts.register(app, helpers)  # T-209c (D-406): backup, update and account tiles; unused-account report

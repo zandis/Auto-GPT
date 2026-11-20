@@ -58,6 +58,7 @@ from console.sitestore import (
     StudySettings,
 )
 from console.studies import known_study
+from console.teamstore import COVER_NO_EXPORT
 from console.timefmt import local_date, local_today, site_zone
 
 # D-178 (review J-14): the contact outcomes that end the contact; each names its consequence before it is recorded
@@ -278,12 +279,38 @@ class Helpers:
         """T-102c (D-425): the one question pages and ``/api/v1`` ask: ``tb_common.authz.permit`` for ``action``,
         with the account's standing in study ``rid`` read from the delegation log. No study, a study the account does
         not see, or no log store: no standing, so no condition holds (fails closed; the team fallback is gone)."""
+        if action in COVER_NO_EXPORT:  # 9f-3 (D-1383): an export row, never by a cover
+            return permit_row(user.role, action, self._own_standing(user, rid))
         standing = NO_STANDING
         if rid and self.stand is not None and user.sees_study(rid):
             stand = self.stand
             # once per page view and study (J-6, D-1225): a page that asks several rows reads the log once
             standing = ps.per_view(f"standing:{user.username}:{user.role}", rid, lambda: stand(user, rid).grant())
         return permit_row(user.role, action, standing)
+
+    def _own_standing(self, user: Any, rid: str | None) -> Any:
+        """9f-3 (D-1383): the account's standing in study ``rid`` by its own entries only, without a cover
+        (``console.team.Standing.own_grant``, ``teamstore.LogRights.own``); no study, no standing."""
+        if not (rid and self.stand is not None and user.sees_study(rid)):
+            return NO_STANDING
+        stand = self.stand
+        return ps.per_view(f"standing.own:{user.username}:{user.role}", rid, lambda: stand(user, rid).own_grant())
+
+    def export_ok(self, user: Any, rid: str | None, tasks: tuple[str, ...] = ("screen",)) -> bool:
+        """9f-3 (D-1383, the owner's ruling 2026-11-20: a cover gives no export): the rule of :meth:`delegated_ok`
+        for a file of a study's patients that leaves TrialBox (the data export in each format and its ``/api/v1``
+        twin, the screening log's workbook, the chart-number workbook), asked of the account's own entries only: a
+        study task held only through a cover of the PI never satisfies it."""
+        if not any(conditional(user.role, f"task.{t}") for t in tasks):
+            return True
+        standing = self._own_standing(user, rid)
+        return bool(rid) and any(permit_row(user.role, f"task.{t}", standing) for t in tasks)
+
+    def need_export(self, sess: Session, rid: str, path: str, tasks: tuple[str, ...] = ("screen",)) -> None:
+        """:meth:`export_ok` or 403, the refusal audited (``console.denied``) as :meth:`delegated`'s."""
+        if not self.export_ok(sess.user, rid, tasks):
+            self.au.append("console.denied", actor=self.actor(sess), detail={"action": path[:80], "why": "export"})
+            raise self.problem(403, "forbidden")
 
     def may_run(self, user: Any, rid: str | None, command: str) -> bool:
         """T-512 (D-349, Q-04): may this account start ``command`` on study ``rid``? The ``command.*`` row decides,

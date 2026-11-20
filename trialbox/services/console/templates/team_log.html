@@ -49,7 +49,7 @@
 {{ fm.field(fe, 'cover', 'cover', 'username', t('cover.who'), '', kind='select', options=subs) }}
 {{ fm.field(fe, 'cover', 'cover', 'start', t('team.log.start'), cv.today.isoformat(), type='date', hint=t('date.fmt'), required=True, attrs={'lang': lang}) }}
 {{ fm.field(fe, 'cover', 'cover', 'end', t('team.log.end'), '', type='date', hint=t('date.fmt'), required=True, attrs={'lang': lang}) }}
-<button type="submit" data-testid="cover-save">{{ t('cover.save') }}</button>
+<button type="submit" class="secondary" data-testid="cover-save">{{ t('cover.save') }}</button>
 </form>{% else %}<p class="hint" data-testid="cover-no-sub">{{ t('cover.no_sub') }}</p>{% endif %}{% endif %}
 </section>{% endif %}{#/9f3#}
 {% if can_edit %}<section class="card" data-testid="add-card"><h2>{{ t('team.log.add') }}</h2>

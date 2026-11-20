@@ -243,7 +243,7 @@ REFUSALS: dict[str, tuple[str, str]] = {
     # 9f-3, 9f-5 (D-1383), a block of its own: the PI's cover and a task's owner
     "only the PI the study's log names enters a cover": (
         "代行を登録できるのは、試験のリストにある治験責任医師だけです",
-        "只有試驗紀錄表上的試驗主持人可以登錄代理",
+        "只有授權紀錄表上的試驗主持人可以登錄代理",
     ),
     "choose the sub-investigator who covers": ("代行する治験分担医師を選んでください", "請選擇擔任代理的協同主持人"),
     "a cover names another person than the PI": (
@@ -255,7 +255,7 @@ REFUSALS: dict[str, tuple[str, str]] = {
     "a cover is at most 90 days": ("代行は最長 90 日です", "代理最長 90 天"),
     "the person who covers is a sub-investigator on this study's log for every day of the cover": (
         "代行者は、代行期間のすべての日にこの試験のリストに治験分担医師として載っている必要があります",
-        "代理人在代理期間的每一天，都須以協同主持人身分列在本試驗的紀錄表上",
+        "代理人在代理期間的每一天，都須以協同主持人身分列在本試驗的授權紀錄表上",
     ),
     "another cover of this study holds some of these days": (
         "この試験の別の代行と期間が重なっています",

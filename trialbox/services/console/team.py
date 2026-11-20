@@ -129,6 +129,7 @@ class Standing:
     entry: Entry | None = None  # the account's own active entry, if any
     monitor: Entry | None = None  # the account's monitor grant in the study today (FIT-002)
     cover: Cover | None = None  # 9f-3 (D-1383): the PI's cover this account holds today (``pi`` is then True)
+    own_tasks: frozenset[str] | None = None  # 9f-3: the study tasks the account's own entries give (None: ``tasks``)
 
     def grant(self) -> Grant:
         """This standing as ``tb_common.authz.permit`` reads it; under a cover the PI's rows are only those of
@@ -142,9 +143,11 @@ class Standing:
         return self.pi and (self.cover is None or right in COVER_RIGHTS)
 
     def own_grant(self) -> Grant:
-        """9f-3 (D-1383): the standing without a cover's PI rights, for the delegation log's own rows: under a cover
-        the log stays the PI's (and the steward's); the covering person neither adds, changes nor ends an entry."""
-        return Grant(is_pi=self.pi and self.cover is None, tasks=self.tasks, log_names_pi=self.logged,
+        """9f-3 (D-1383): the standing without anything a cover gives (``teamstore.LogRights.own``): neither the PI's
+        rows nor the study tasks it adds. Asked by the delegation log's own rows (under a cover the log stays the PI's
+        and the steward's) and by every export (the owner's ruling, 2026-11-20: a cover gives no export)."""
+        tasks = self.tasks if self.own_tasks is None else self.own_tasks
+        return Grant(is_pi=self.pi and self.cover is None, tasks=tasks, log_names_pi=self.logged,
                      monitor=self.monitor is not None)  # fmt: skip
 
 
@@ -152,6 +155,14 @@ def log_account(user: User) -> bool:
     """An account whose study tasks the delegation log gives (the matrix's ``task.*`` conditions: the investigator,
     as PI or sub-investigator; T-102c, D-425)."""
     return conditional(user.role, "task.screen")
+
+
+def cover_account(user: User | None, rs: str) -> bool:
+    """9f-3 (D-1383): may a cover row of study ``rs`` give this account anything? The account conditions
+    :func:`standing` asks before the log's cover (an enabled account, ``None`` otherwise; not a CRO account; an
+    investigator account, :func:`log_account`; one that sees the study). The audit stamp, the immediate SAE notice,
+    the banner and the cover card ask this one test, so none of them names a person ``standing`` gives nothing."""
+    return user is not None and not user.aggregate_only and log_account(user) and user.sees_study(rs)
 
 
 def monitor_account(user: User) -> bool:
@@ -181,10 +192,17 @@ def standing(team: TeamStore, user: User, rs: str, today: date) -> Standing:
     # or the sub-investigator of the same log who covers that PI today
     is_pi = log_account(user) and r.is_pi
     cover = r.cover if is_pi else None
-    held = Grant(is_pi=is_pi, tasks=r.ticked, log_names_pi=r.pi is not None)  # the log as the ``task.*`` rows read it
-    tasks = frozenset(t for t in STUDY_TASKS if permit(user.role, f"task.{t}", held))
+
+    def tasks_of(pi_now: bool) -> frozenset[str]:  # the log as the ``task.*`` rows read it
+        held = Grant(is_pi=pi_now, tasks=r.ticked, log_names_pi=r.pi is not None)
+        return frozenset(t for t in STUDY_TASKS if permit(user.role, f"task.{t}", held))
+
+    tasks = tasks_of(is_pi)
+    # the tasks without the cover (``LogRights.own``): what an export and the log's own rows ask (no export by cover)
+    own_tasks = tasks_of(log_account(user) and r.own().is_pi) if cover is not None else None
     # under a cover the account's own entry is its own sub-investigator entry: it signs and is named as itself
-    return Standing(is_pi, tasks, r.pi is not None, r.pi if is_pi and cover is None else own, cover=cover)
+    return Standing(is_pi, tasks, r.pi is not None, r.pi if is_pi and cover is None else own, cover=cover,
+                    own_tasks=own_tasks)  # fmt: skip
 
 
 def check_due(team: TeamStore, rs: str, today: date, tz: ZoneInfo) -> bool:

@@ -1,13 +1,16 @@
 """9f-3 and 9f-5 (D-1383): the PI's cover and a task's owner, each limited to the study's delegation log.
 
 **The cover (9f-3).** While the PI is away, the PI the study's log names (by their own entry, never a covering person)
-names a sub-investigator of the same study's log to hold the PI's rights in that study from a first to a last day
-(at most ``teamstore.COVER_MAX_DAYS``, both required). The rights come from one place: ``teamstore.log_rights``, the
-reading of the log that ``console.team.standing`` and ``orchestrator.grants.log_standing`` both ask; the matrix is not
-changed. A cover carries only the PI rights of ``teamstore.COVER_RIGHTS`` (the clinical ones; default deny), never the
-study's administration (``teamstore.COVER_WITHHELD``): the delegation log, its monthly check, the study's state, the
-IRB records, prefill on and off stay the PI's. A cover that lapses (the PI covered no longer the PI the log names, or
-the covering person's own entry not active) is ended for good when first observed (``console.cover`` ``lapsed``).
+names a sub-investigator of the same study's log to hold the PI's clinical rights in that study from a first to a
+last day (at most ``teamstore.COVER_MAX_DAYS``, both required). Only the PI can be covered (a question with the owner).
+The rights come from one place: ``teamstore.log_rights``, the reading of the log that ``console.team.standing`` and
+``orchestrator.grants.log_standing`` both ask; the matrix is not changed. A cover carries only the PI rights of
+``teamstore.COVER_RIGHTS`` (the clinical ones; default deny), never an export (``LogRights.own``,
+``Helpers.export_ok``, ``teamstore.COVER_NO_EXPORT``) and never the study's administration
+(``teamstore.COVER_WITHHELD``): the delegation log, its monthly check, the study's state, the IRB records, prefill on
+and off, a task's owner and the cover's IRB task stay with the PI and the person's own role. A cover that lapses
+(the PI covered no longer the PI the log names, or the covering person's own entry not active) is ended for good when
+first observed (``console.cover`` ``lapsed``).
 Every audit event the covering person's acts write in that study while
 the cover is in effect carries ``covering_for`` with both names (:class:`CoverAudit`); the actor stays the covering
 person, never the PI. The entry, an early end, the start and the end of a cover are ``console.cover`` events; the start
@@ -19,9 +22,10 @@ standing is the PI's that day), with one line saying whom they cover.
 
 **A task's owner (9f-5).** A task of the opening page (call, find information, prepare, ask a treating doctor, the
 monthly log check, tell the IRB of a cover) may name an owner: a person with an active entry on that study's log (not
-a monitor grant). Who may set or change it: the study's PI (or the PI's cover) and a person whose own active entry on
-that log is the coordinator's (``crc``). Each change is a ``console.task_owner`` event with the owner before and
-after. Who sees a task does not change: the owner is shown on the task line to whoever sees the line.
+a monitor grant), with an enabled account that sees the study. Who may set or change it: the study's PI by their own
+entry and a person whose own active entry on that log is the coordinator's (``crc``); a cover adds nothing to it.
+Each change is a ``console.task_owner`` event with the owner before and after. Who sees a task does not change: the
+owner is shown on the task line to whoever sees the line.
 """
 
 from __future__ import annotations
@@ -41,6 +45,7 @@ from console.api_first import before_body
 from console.auth import Session, User
 from console.home import Helpers
 from console.studies import known_study
+from console.team import cover_account
 from console.teamstore import COVER_MAX_DAYS, COVER_ROLE, OWNER_ROLES, Cover, TeamError, TeamStore, cover_state
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -203,16 +208,21 @@ def register(app: FastAPI, h: Helpers) -> None:
         return bool(s.pi and s.cover is None and permit(user.role, "delegation.keep", s.own_grant()).allowed)
 
     def keeps_tasks(user: User, rid: str) -> bool:
-        """9f-5: may set a task's owner and mark the cover's IRB task done: the study's PI (or the PI's cover), or a
-        person whose own active entry on the study's log is the coordinator's."""
+        """9f-5: may set a task's owner and mark the cover's IRB task done: the study's PI by their own entry, or a
+        person whose own active entry on the study's log is the coordinator's. Never by a cover (the owner's ruling,
+        2026-11-20: a cover gives no administrative right; ``team.task_owner`` is in ``COVER_WITHHELD``): the
+        covering person does neither beyond what their own role allows, so never marks their own cover reported."""
         if user.aggregate_only:
             return False
         if pi_by_entry(user, rid):  # the matrix row the route declares (route_actions.yaml): delegation.keep
             return True
-        s = stand(user, rid)
-        if s.cover is not None and s.pi_for("team.task_owner"):  # the PI's cover: teamstore.COVER_RIGHTS
-            return True
         return any(e.role == "crc" for e in team.rights(rid, user.username, today()).mine)
+
+    def holds(c: Cover, rid: str, entries: list[Any], day: date) -> bool:
+        """9f-3 (D-1383): the cover gives its holder the PI's standing today: in effect, unbroken since it was entered
+        (``cover_state``), and an account ``standing`` would give it to (``console.team.cover_account``)."""
+        return (c.in_effect_on(day) and cover_state(entries, c, day)[0] == "effective"
+                and cover_account(h.users.get(c.username), rid))  # fmt: skip
 
     def cover_or_404(rid: str, cid: int) -> Cover:
         c = team.cover(rid, cid)
@@ -230,13 +240,16 @@ def register(app: FastAPI, h: Helpers) -> None:
         if who and (acct is None or acct.role != "investigator" or not acct.sees_study(rid)):
             raise refused(TeamError("the person who covers signs in with an investigator account of this study",
                                     fields=(("username", "fe.cover.username.sub"),)), soft)  # fmt: skip
+
+        def added(c: Cover) -> None:  # written before the cover is committed: no cover without its ``add`` event
+            au.append("console.cover", ruleset=rid, actor=h.actor(sess),
+                      detail={"action": "add", "max_days": COVER_MAX_DAYS, **cover_detail(c)})  # fmt: skip
+
         try:
             c = team.add_cover(rid, username=who, start=body.start, end=body.end, today=today(), by=sess.user.username,
-                               at=now())  # fmt: skip
+                               at=now(), before_commit=added)  # fmt: skip
         except TeamError as exc:
             raise refused(exc, soft) from exc
-        au.append("console.cover", ruleset=rid, actor=h.actor(sess),
-                  detail={"action": "add", "max_days": COVER_MAX_DAYS, **cover_detail(c)})  # fmt: skip
         record_edges(team, au, today(), now(), [rid])  # a cover from today starts now
         return c
 
@@ -249,12 +262,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         c = cover_or_404(rid, cid)
         if not (pi_by_entry(sess.user, rid) or c.username == me):  # the PI by their own entry, or the covering person
             raise deny(sess, path)
+
+        def ended(out: Cover) -> None:
+            au.append("console.cover", ruleset=rid, actor=h.actor(sess),
+                      detail={"action": "end_early", "ended_on": out.ended_on, **cover_detail(out)})  # fmt: skip
+
         try:
-            out = team.end_cover(rid, cid, today=today(), by=sess.user.username, at=now())
+            out = team.end_cover(rid, cid, today=today(), by=sess.user.username, at=now(), before_commit=ended)
         except TeamError as exc:
             raise refused(exc) from exc
-        au.append("console.cover", ruleset=rid, actor=h.actor(sess),
-                  detail={"action": "end_early", "ended_on": out.ended_on, **cover_detail(out)})  # fmt: skip
         record_edges(team, au, today(), now(), [rid])  # its end, at once
         return out
 
@@ -263,12 +279,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not keeps_tasks(sess.user, rid):
             raise deny(sess, path)
         cover_or_404(rid, cid)
+
+        def told(out: Cover) -> None:
+            au.append("console.cover", ruleset=rid, actor=h.actor(sess),
+                      detail={"action": "irb_told", "on": out.irb_told_on, **cover_detail(out)})  # fmt: skip
+
         try:
-            out = team.irb_told(rid, cid, today=today(), by=sess.user.username)
+            out = team.irb_told(rid, cid, today=today(), by=sess.user.username, before_commit=told)
         except TeamError as exc:
             raise refused(exc) from exc
-        au.append("console.cover", ruleset=rid, actor=h.actor(sess),
-                  detail={"action": "irb_told", "on": out.irb_told_on, **cover_detail(out)})  # fmt: skip
         return out
 
     def set_owner(sess: Session, path: str, rs: str, body: ApiTaskOwner, soft: bool = False) -> dict[str, Any]:
@@ -276,6 +295,11 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not keeps_tasks(sess.user, rid):
             raise deny(sess, path)
         current = h.task_keys(sess, rid) if h.task_keys is not None else None
+        named = body.owner.strip().lower()
+        acct = h.users.get(named) if named else None  # an enabled account that has not expired, else None
+        if named and (acct is None or acct.aggregate_only or not acct.sees_study(rid)):
+            raise refused(TeamError("a task's owner is a person on this study's delegation log",
+                                    fields=(("owner", "fe.owner.owner"),)), soft)  # fmt: skip
         try:
             before, after = team.set_task_owner(rid, kind=body.kind, ref=body.ref, owner=body.owner, day=today(),
                                                 by=sess.user.username, at=now(), current=current)  # fmt: skip
@@ -362,8 +386,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
         day = today()
-        return {"study": rid, "max_days": COVER_MAX_DAYS,
-                "covers": [{**c.as_dict(), "in_effect": c.in_effect_on(day)} for c in team.covers(rid)]}  # fmt: skip
+        entries = team.entries(rid)
+        # in effect: what log_rights gives today (D1-L1), not the dates alone
+        covers = [{**c.as_dict(), "in_effect": holds(c, rid, entries, day)} for c in team.covers(rid)]
+        return {"study": rid, "max_days": COVER_MAX_DAYS, "covers": covers}
 
     @app.post("/api/v1/studies/{rs}/cover")
     @before_body(first_pi)
@@ -405,7 +431,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             record_edges(team, au, day, now(), [rid])  # the first page that finds it in effect or lapsed writes it
             covers = team.covers(rid)
         # the cover log_rights gives today (the same state: in effect, unbroken since it was entered)
-        live = next((c for c in reversed(covers) if c.in_effect_on(day) and states[c.id] == "effective"), None)
+        live = next((c for c in reversed(covers) if holds(c, rid, entries, day)), None)
         if what == "banner":
             return live
         mine_pi = pi_by_entry(sess.user, rid)
@@ -418,7 +444,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         out: list[tuple[str, str, str]] = []
         for rs in team.cover_rulesets():
             r = team.rights(rs, user.username, day)
-            if r.cover is not None and user.sees_study(rs):
+            if r.cover is not None and cover_account(user, rs):
                 out.append((rs, r.cover.pi_name, r.cover.last_day()))
         return out
 
@@ -434,12 +460,12 @@ def register(app: FastAPI, h: Helpers) -> None:
         return [c for c in team.covers(rid) if not c.irb_told_on and c.last_day()]
 
     def covering_now(rid: str) -> Cover | None:
-        """9f-3 (D-1383): the cover in effect today in study ``rid``, the state the banner and ``log_rights`` read (in
-        effect, never lapsed); None without one. Read only: it writes no edge."""
+        """9f-3 (D-1383): the cover in effect today in study ``rid`` that gives its holder the PI's standing, as the
+        banner and ``standing`` read it (:func:`holds`: in effect, never lapsed, and an account that still holds it:
+        enabled, an investigator, seeing the study); None without one. Read only: it writes no edge."""
         day = today()
         entries = team.entries(rid)
-        return next((c for c in reversed(team.covers(rid))
-                     if c.in_effect_on(day) and cover_state(entries, c, day)[0] == "effective"), None)  # fmt: skip
+        return next((c for c in reversed(team.covers(rid)) if holds(c, rid, entries, day)), None)
 
     h.covering_now = covering_now
     h.cover_view = cover_view

@@ -12,10 +12,12 @@ new heading with the version and date, in the same pull request that sets the ve
 
 - The PI's cover, the escalation of an unacknowledged SAE and a task's owner (9f-3, 9f-4 (b), 9f-5; D-1383): the PI
   names a sub-investigator of the study's log to cover them for at most 90 days, with the PI's clinical rights in that
-  study only (never the delegation log, its monthly check, the study's state or the IRB records); a serious adverse
+  study only (no export, never the delegation log, its monthly check, the study's state, the IRB records or a task's
+  owner); a serious adverse
   event the PI has not acknowledged after `TB_SAE_ESCALATE_HOURS` (default 24) is mailed once to the study's
   sub-investigators and coordinators on its log. **On the first run after the update every unacknowledged serious
-  adverse event already older than that is mailed at once, one mail per case and person;** after that, one escalation
+  adverse event already older than that is mailed at once, one mail per case and person, saying how long it has
+  waited;** after that, one escalation
   per case, and none again when the hours change. A new serious adverse event is also told at once to the person whose
   PI cover is in effect that day, in addition to the PI (and that person is not mailed the escalation of that case). A
   task on the opening page may name its owner from the study's log.

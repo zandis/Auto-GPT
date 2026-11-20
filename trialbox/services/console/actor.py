@@ -21,6 +21,7 @@ from tb_common import service_auth as sa
 from tb_common.authz import NO_STANDING
 
 from console import s28
+from console.teamstore import COVER_NO_EXPORT
 
 NIGHTLY = "service:console-nightly"  # the nightly REDCap read (rc_read): no session either
 NOTIFY = "service:console-notify"  # the morning notices: no session (route_actors.yaml names what it may do)
@@ -130,7 +131,9 @@ def assert_for(
         raise h.problem(403, "forbidden")
     standing = NO_STANDING
     if rid and h.stand is not None and user.sees_study(rid):
-        standing = h.stand(user, rid).grant()
+        st = h.stand(user, rid)
+        # 9f-3 (D-1383): an export row is signed with the standing without a cover (teamstore.COVER_NO_EXPORT)
+        standing = st.own_grant() if action in COVER_NO_EXPORT and hasattr(st, "own_grant") else st.grant()
         if standing.pi_rights is not None:  # 9f-3 (D-1383): the assertion names one action; a cover's allow-list
             standing = replace(standing, is_pi=standing.is_pi and action in standing.pi_rights, pi_rights=None)
     token = actor_v3.mint(sub=h.actor(sess), role=user.role, action=action, method=method, path=path, body=body,

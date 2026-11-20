@@ -518,21 +518,28 @@ class Cover:
 
 # 9f-3 (D-1383): the rights a cover carries, an allow-list (default deny: a PI right not named here is refused under a
 # cover, a PI right added later included, until it is listed here or in COVER_WITHHELD on purpose). The PI's clinical
-# rights in the study: the patient pages and reads (the ``task.*`` rows, the prefill pages' read, the weekly sample of
-# criteria-not-matched patients), the runs the PI may start, a task's owner. SAE acknowledgement and sign-off are not
-# PI rows (the ``sae.*`` rows are the role's): the covering person does them in their own name either way.
+# rights in the study (the owner's ruling, 2026-11-20): the patient pages and reads (the ``task.*`` rows, the prefill
+# pages' read, the weekly sample of criteria-not-matched patients) and the runs the PI may start. SAE acknowledgement
+# and sign-off are not PI rows (the ``sae.*`` rows are the role's): the covering person does them in their own name
+# either way. A right held through a cover never opens an export (:data:`COVER_NO_EXPORT`, ``LogRights.own``).
 COVER_RIGHTS: frozenset[str] = frozenset({
     "task.screen", "task.approach", "task.refer", "task.enter_data", "task.run",
     "command.FEAS", "command.SCREEN", "command.CASE", "edc.view", "notmatched.sample", "notmatched.send_back",
-    "team.task_owner",
 })  # fmt: skip
 # ... and the study administration a cover never carries (the log stays the PI's, D-1383; a question is with the
 # owner): the log's rows and its monthly check, a monitor grant, the study's state and its reopening, the IRB records
-# and the IRB-text answer, prefill on and off, the break-glass review, the research layers, the criteria approval.
+# and the IRB-text answer, prefill on and off, the break-glass review, the research layers, the criteria approval, a
+# task's owner and the cover's IRB task (the owner's ruling, 2026-11-20: only as the person's own role allows).
 COVER_WITHHELD: frozenset[str] = frozenset({
     "delegation.keep", "delegation.check", "monitor.grant", "study.state", "study.reopen", "study.irb_text",
     "irb.edit", "edc.switch_on", "edc.switch_off", "breakglass.study", "profile.research_layers", "criteria.approve",
+    "team.task_owner",
 })  # fmt: skip
+# 9f-3 (D-1383, the owner's ruling 2026-11-20: a cover gives no export): the matrix rows that are an export in
+# themselves (the ODM export of the EDC prefill, the copy-assist sheet and its file). Every other export (the study's
+# data export in each format and its ``/api/v1`` twin, the screening log's workbook, the chart-number workbook) asks
+# the clinical row (``task.screen``, ``task.enter_data``) through ``LogRights.own``, the standing without the cover.
+COVER_NO_EXPORT: frozenset[str] = frozenset({"edc.export", "edc.copy"})
 LAPSE_REASONS = ("pi_changed", "entry_ended")
 
 
@@ -586,6 +593,15 @@ class LogRights:
     mine: tuple[Entry, ...]
     cover: Cover | None = None
     pi_rights: frozenset[str] | None = None  # under a cover: COVER_RIGHTS (the PI's own entry: None, every PI row)
+
+    def own(self) -> LogRights:
+        """The same reading without the cover: what the account's own entries give (9f-3, D-1383). An export, the
+        log's own rows and every right a cover withholds ask this, so a right held only through a cover never
+        satisfies them (the owner's ruling, 2026-11-20: a cover gives clinical rights, no export and no
+        administration)."""
+        if self.cover is None:
+            return self
+        return LogRights(self.pi, False, self.ticked, self.mine, None, None)
 
 
 def log_rights(entries: list[Entry], covers: list[Cover], username: str | None, day: date) -> LogRights:
@@ -1180,6 +1196,9 @@ class TeamStore:
     _COVER_SQL = ("SELECT id, ruleset, pi, pi_name, username, name, start_day, end_day, ended_on, ended_by, "
                   "irb_told_on, irb_told_by, start_logged_at, end_logged_at, by, at, entered_on, lapse_reason "
                   "FROM pi_cover WHERE ruleset = ? AND id = ?")  # fmt: skip
+    _COVER_LOCK_SQL = ("SELECT id, ruleset, pi, pi_name, username, name, start_day, end_day, ended_on, ended_by, "
+                       "irb_told_on, irb_told_by, start_logged_at, end_logged_at, by, at, entered_on, lapse_reason "
+                       "FROM pi_cover WHERE ruleset = ? AND id = ? FOR UPDATE")  # fmt: skip
 
     @staticmethod
     def _cover(r: tuple[Any, ...]) -> Cover:
@@ -1200,12 +1219,15 @@ class TeamStore:
         """:func:`log_rights` on this store's log and covers of ``ruleset`` (two reads)."""
         return log_rights(self.entries(ruleset), self.covers(ruleset), username, day)
 
-    def add_cover(self, ruleset: str, *, username: str, start: str, end: str, today: date, by: str, at: str) -> Cover:
+    def add_cover(self, ruleset: str, *, username: str, start: str, end: str, today: date, by: str, at: str,
+                  before_commit: Any = None) -> Cover:  # fmt: skip
         """9f-3: ``by``, the PI the study's log names today by their own entry, names ``username``, a
-        sub-investigator of the same log, to hold the PI's rights in this study from ``start`` to ``end``. Refused
+        sub-investigator of the same log, to hold the PI's clinical rights in this study (:data:`COVER_RIGHTS`; no
+        export, no administration) from ``start`` to ``end``. Refused
         (TeamError): not the PI; the PI names themselves; no end, a start before today, an end before the start or a
         cover longer than :data:`COVER_MAX_DAYS`; a person whose sub-investigator entry does not cover every day;
-        another cover of the study for some of the same days."""
+        another cover of the study for some of the same days. ``before_commit`` (the ``add`` audit event, given the
+        stored cover) runs inside the same transaction: if it fails, no cover is stored (D-1383)."""
         if (pi0 := self.pi_of(ruleset, today)) is None or not pi0.username or pi0.username != by:
             raise TeamError("only the PI the study's log names enters a cover")
         who = (username or "").strip().lower()
@@ -1260,35 +1282,48 @@ class TeamStore:
                 (ruleset, pi.username, pi.name, who, sub.name, s, e, today.isoformat(), by, at),
             )
             assert row is not None
-        out = self.cover(ruleset, int(row[0]))
-        assert out is not None
+            out = self._cover_in(tx, ruleset, int(row[0]))
+            if before_commit is not None:  # the audit event first: no cover takes effect without its ``add`` event
+                before_commit(out)
         return out
 
-    def end_cover(self, ruleset: str, cid: int, *, today: date, by: str, at: str) -> Cover:
-        """End a cover early: from ``today`` (a cover that has not begun never begins). Refused when it is over."""
-        c = self.cover(ruleset, cid)
-        if c is None:
-            raise TeamError("no such cover in this study")
-        if c.over_on(today):
-            raise TeamError("this cover is already over")
-        on = max(today.isoformat(), c.start)
-        self.db.execute("UPDATE pi_cover SET ended_on = ?, ended_by = ? WHERE ruleset = ? AND id = ? AND ended_on IS "
-                        "NULL", (on, by, ruleset, cid))  # fmt: skip
-        out = self.cover(ruleset, cid)
-        assert out is not None
+    def _cover_in(self, tx: Any, ruleset: str, cid: int) -> Cover:
+        row = tx.fetchone(self._COVER_SQL, (ruleset, cid))
+        assert row is not None
+        return self._cover(row)
+
+    def end_cover(self, ruleset: str, cid: int, *, today: date, by: str, at: str, before_commit: Any = None) -> Cover:
+        """End a cover early: from ``today`` (a cover that has not begun never begins). Refused when it is over.
+        ``before_commit`` (the ``end_early`` event, given the cover as ended) runs in the same transaction."""
+        with self.db.transaction() as tx:
+            row = tx.fetchone(self._COVER_LOCK_SQL, (ruleset, cid))
+            if row is None:
+                raise TeamError("no such cover in this study")
+            c = self._cover(row)
+            if c.over_on(today):
+                raise TeamError("this cover is already over")
+            on = max(today.isoformat(), c.start)
+            tx.execute("UPDATE pi_cover SET ended_on = ?, ended_by = ? WHERE ruleset = ? AND id = ? AND ended_on IS "
+                       "NULL", (on, by, ruleset, cid))  # fmt: skip
+            out = self._cover_in(tx, ruleset, cid)
+            if before_commit is not None:
+                before_commit(out)
         return out
 
-    def irb_told(self, ruleset: str, cid: int, *, today: date, by: str) -> Cover:
-        """The task "tell the IRB of the cover" is done (once)."""
-        c = self.cover(ruleset, cid)
-        if c is None:
-            raise TeamError("no such cover in this study")
-        if c.irb_told_on:
-            raise TeamError("the IRB was already told of this cover")
-        self.db.execute("UPDATE pi_cover SET irb_told_on = ?, irb_told_by = ? WHERE ruleset = ? AND id = ?",
-                        (today.isoformat(), by, ruleset, cid))  # fmt: skip
-        out = self.cover(ruleset, cid)
-        assert out is not None
+    def irb_told(self, ruleset: str, cid: int, *, today: date, by: str, before_commit: Any = None) -> Cover:
+        """The task "tell the IRB of the cover" is done (once). ``before_commit`` (the ``irb_told`` event) runs in the
+        same transaction."""
+        with self.db.transaction() as tx:
+            row = tx.fetchone(self._COVER_LOCK_SQL, (ruleset, cid))
+            if row is None:
+                raise TeamError("no such cover in this study")
+            if self._cover(row).irb_told_on:
+                raise TeamError("the IRB was already told of this cover")
+            tx.execute("UPDATE pi_cover SET irb_told_on = ?, irb_told_by = ? WHERE ruleset = ? AND id = ?",
+                       (today.isoformat(), by, ruleset, cid))  # fmt: skip
+            out = self._cover_in(tx, ruleset, cid)
+            if before_commit is not None:
+                before_commit(out)
         return out
 
     def lapse_cover(self, ruleset: str, cid: int, *, reason: str, last: str | None, at: str,
@@ -1366,7 +1401,15 @@ class TeamStore:
                     "a task's owner is a person on this study's delegation log", fields=(("owner", "fe.owner.owner"),)
                 )
             name = e.name
-        before = self.task_owners(ruleset).get((kind, ref))
-        self.db.execute("INSERT INTO task_owner (ruleset, kind, ref, owner, owner_name, by, at) VALUES (?,?,?,?,?,?,?)",
-                        (ruleset, kind, ref, who, name, by, at))  # fmt: skip
+        with self.db.transaction() as tx:
+            # the owner before and the new row under one lock per study: two changes at once each name the true before
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"task_owner:{ruleset}",))
+            row = tx.fetchone(
+                "SELECT kind, ref, owner, owner_name, by, at FROM task_owner WHERE ruleset = ? AND kind = ? "
+                "AND ref = ? ORDER BY at DESC, id DESC LIMIT 1",
+                (ruleset, kind, ref),
+            )
+            before = TaskOwner(*(str(x) for x in row)) if row is not None and row[2] else None
+            tx.execute("INSERT INTO task_owner (ruleset, kind, ref, owner, owner_name, by, at) VALUES (?,?,?,?,?,?,?)",
+                       (ruleset, kind, ref, who, name, by, at))  # fmt: skip
         return before, TaskOwner(kind, ref, who, name, by, at)

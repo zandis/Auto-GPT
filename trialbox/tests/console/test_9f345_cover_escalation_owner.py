@@ -214,17 +214,20 @@ def test_the_pi_enters_a_cover_the_banner_shows_and_acts_under_it_name_both(cb: 
     assert cov.post("/studies/GZQO/team/check", data={"csrf": ccsrf, "result": "match"},
                     follow_redirects=False).status_code == 403  # fmt: skip
     assert not [e for e in _events(cb, "console.delegation") if e["detail"].get("action") == "compare"]
-    # an act under the cover (a task's owner): the actor is the covering person, both names noted
+    # a task's owner is not a cover's to set (the owner's ruling, 2026-11-20: only as the person's own role allows)
     assert (
         cov.post(
             "/studies/GZQO/tasks/owner",
             data={"csrf": ccsrf, "kind": "cover_irb", "ref": "1", "owner": "crc"},
             follow_redirects=False,
         ).status_code
-        == 303
+        == 403
     )
-    (ev,) = _events(cb, "console.task_owner")
-    assert ev["actor"] == "console:cov" and ev["detail"]["cover"] == "1" and "ref" not in ev["detail"]
+    # an act under the cover in the study (an event the console writes for the covering person): the actor is the
+    # covering person, both names noted
+    cb["h"].au.append("console.view", actor="console:cov", ruleset="GZQO", detail={"page": "week"})
+    (ev,) = _events(cb, "console.view")
+    assert ev["actor"] == "console:cov"
     assert ev["detail"]["covering_for"] == {"pi": "lpi", "pi_name": "Dr L", "name": "Dr C", "cover": 1}
     # the log stays the PI's: no entry added or changed, no cover entered, by the covering person
     for path, data in (
@@ -397,8 +400,14 @@ def test_an_unacknowledged_sae_is_told_once_at_n_hours_to_the_logs_sub_investiga
     assert esc["record"] == no and esc["failed"] == [] and esc["unreachable"] == []
 
 
+def _hours(lb: dict[str, Any], n: str) -> None:  # noqa: F811
+    """The console's own settings (``create_app(env=...)``), where the escalation reads its threshold (D2-L6)."""
+    lb["app"].state.sae_env["TB_SAE_ESCALATE_HOURS"] = n
+
+
 def test_the_threshold_is_the_declared_setting(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
-    monkeypatch.setenv("TB_SAE_ESCALATE_HOURS", "6")
+    monkeypatch.setenv("TB_SAE_ESCALATE_HOURS", "48")  # the process environment: not the console's settings (D2-L6)
+    _hours(lb, "6")
     _case(lb)
     assert _sync(lb, 5.5) == []
     assert len(_sync(lb, 6.5)) == 2
@@ -682,10 +691,10 @@ def test_a_round_that_reaches_nobody_is_not_final_and_is_tried_again(
 
 def test_a_later_change_of_n_does_not_tell_a_case_again(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
     """Item 7: once per case, whatever the threshold."""
-    monkeypatch.setenv("TB_SAE_ESCALATE_HOURS", "6")
+    _hours(lb, "6")
     _case(lb)
     assert len(_sync(lb, 6.5)) == 2
-    monkeypatch.setenv("TB_SAE_ESCALATE_HOURS", "12")
+    _hours(lb, "12")
     assert _sync(lb, 12.5) == [] and _sync(lb, 48) == []
 
 
@@ -720,11 +729,14 @@ def test_a_new_case_is_told_at_once_to_the_pi_and_to_the_person_holding_the_cove
     monkeypatch.delenv("TB_SAE_OFFICE_MAILBOX", raising=False)
     monkeypatch.delenv("TB_SAE_ESCALATE_HOURS", raising=False)
     no = _case(lb, _cover_for("subi", 0, 2))  # in effect on the case's day
-    (mail,) = _at_once(lb)
-    assert sorted(mail[1]) == ["pi@hospa.test", "subi@hospa.test"]  # in addition to the PI, never instead
-    assert no in mail[2] and "ae1" in mail[2]  # the subject carries the case: two cases are two mails
+    pi_mail, cover_mail = _at_once(lb)  # in addition to the PI, never instead: a send of its own, after the PI's
+    assert pi_mail[1] == ["pi@hospa.test"] and cover_mail[1] == ["subi@hospa.test"]
+    assert pi_mail[2] == cover_mail[2] and pi_mail[3] == cover_mail[3]  # the same notice
+    assert no in pi_mail[2] and "ae1" in pi_mail[2]  # the subject carries the case: two cases are two mails
     (ev,) = _audit(lb, "office_copy")
-    assert ev["pi"] == "pi" and ev["covering"] == "subi" and "subi@hospa.test" in ev["to"]  # both named
+    assert ev["pi"] == "pi" and ev["to"] == "pi@hospa.test"  # each send audited as it went
+    (cov_ev,) = _audit(lb, "cover_told")
+    assert cov_ev["covering"] == "subi" and cov_ev["pi"] == "pi" and cov_ev["to"] == "subi@hospa.test"
 
     from console.saerecord import SaeStore
 
@@ -733,7 +745,7 @@ def test_a_new_case_is_told_at_once_to_the_pi_and_to_the_person_holding_the_cove
     # a second case the same day is its own mail with its own subject
     _second_case(lb)
     mails = _at_once(lb)
-    assert len(mails) == 2 and len({m[2] for m in mails}) == 2
+    assert len(mails) == 4 and len({m[2] for m in mails}) == 2  # each case: the PI's mail and the cover's
     # the escalation of the first case: the covering person is not mailed again (told at once), the others are
     told = _sync(lb, 24.5)
     assert sorted(n[1][0] for n in told) == ["crc@hospa.test", "crc@hospa.test"]  # crc only: two cases
@@ -770,3 +782,345 @@ def test_outside_a_cover_only_the_pi_is_told_at_once(
     assert mail[1] == ["pi@hospa.test"]
     (ev,) = _audit(lb, "office_copy")
     assert "covering" not in ev and lb["app"].state.helpers.covering_now(RS) is None
+
+
+# ---------------------------------------------------------------------------------------------- the reviews D1 and D2
+#: every file of a study's patients that leaves TrialBox (the owner's ruling, 2026-11-20: a cover gives no export)
+EXPORTS = (
+    "/studies/GZQO/export.csv",
+    "/studies/GZQO/export.xlsx",
+    "/studies/GZQO/screening-log.xlsx",
+    "/studies/GZQO/edc/export.odm.xml",
+    "/studies/GZQO/edc/copy.csv",
+    "/pilot/registry/GZQO/export.xlsx?reason=care&note=x",
+    "/api/v1/studies/GZQO/export/csv",
+)
+
+
+def test_a_cover_opens_no_export_and_the_clinical_actions_it_is_for_do_open(lb: dict[str, Any]) -> None:  # noqa: F811
+    """D1-H1: the seven export URLs and the EDC export and copy rights, without a cover (403) and inside one (still
+    403), while the clinical pages and rows the cover is for open inside it."""
+    from fastapi.testclient import TestClient
+
+    from tests.console.test_console_app import name_pi
+
+    name_pi(lb, "pi")
+    h = lb["app"].state.helpers
+    lb["users"].create("cov", "investigator", PW, "cov@hospa.test")
+    _entry(h.team, "cov", "sub_pi", name="Dr C")  # no task ticked
+    c, csrf = login(lb["app"], "crc", PW)
+    c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})
+    cov, _ = login(lb["app"], "cov", PW)
+    token, _ = lb["users"].new_session(lb["users"].get("cov"), via="api")
+    api = TestClient(lb["app"], headers={"Authorization": f"Bearer {token}"})
+    u = lb["users"].get("cov")
+
+    def walk() -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for p in EXPORTS:
+            r = (api if p.startswith("/api/") else cov).get(p, follow_redirects=False)
+            out[p] = (r.status_code, "attachment" in r.headers.get("content-disposition", ""))
+        out["rows"] = {a: h.permit(u, a, "GZQO").allowed for a in ("edc.export", "edc.copy")}
+        out["export_ok"] = (h.export_ok(u, "GZQO"), h.export_ok(u, "GZQO", ("screen", "enter_data")))
+        return out
+
+    def clinical() -> dict[str, Any]:
+        return {"entry": cov.get("/studies/GZQO/entry").status_code,
+                "records": api.get("/api/v1/studies/GZQO/records").status_code,
+                "rows": {a: h.permit(u, a, "GZQO").allowed for a in ("task.screen", "task.enter_data", "edc.view")}}  # fmt: skip
+
+    shut = {p: (403, False) for p in EXPORTS} | {"rows": {"edc.export": False, "edc.copy": False},
+                                                 "export_ok": (False, False)}  # fmt: skip
+    assert walk() == shut  # without a cover
+    assert clinical()["entry"] == 403
+    today = h.today()
+    h.team.add_cover("GZQO", username="cov", start=today.isoformat(), end=(today + timedelta(days=3)).isoformat(),
+                     today=today, by="pi", at=AT)  # fmt: skip
+    assert h.stand(u, "GZQO").pi  # the cover is in effect
+    inside = walk()
+    assert inside == shut, inside  # inside the cover: still no export
+    assert clinical() == {"entry": 200, "records": 200,
+                          "rows": {"task.screen": True, "task.enter_data": True, "edc.view": True}}  # fmt: skip
+    assert not [e for e in _events(lb, "console.data_export") if e["actor"] == "console:cov"]
+    assert not [e for e in _events(lb, "console.registry") if e["actor"] == "console:cov"
+                and e["detail"].get("action") in ("export", "export_requested")]  # fmt: skip
+
+
+def test_a_cover_sets_no_tasks_owner_and_does_not_mark_its_own_cover_reported(cb: dict[str, Any]) -> None:
+    """D1-H2: beyond the covering person's own role (a sub-investigator sets no owner and marks no IRB task), a cover
+    adds nothing; the coordinator on the log still may (the ruling about their own role)."""
+    from fastapi.testclient import TestClient
+
+    lpi, csrf = login(cb["app"], "lpi", PW)
+    assert lpi.post("/studies/GZQO/cover", data={"csrf": csrf, "username": "cov", "start": _days(0),
+                                                  "end": _days(6)}, follow_redirects=False).status_code == 303  # fmt: skip
+    assert cb["h"].stand(cb["users"].get("cov"), "GZQO").pi
+    cov, ccsrf = login(cb["app"], "cov", PW)
+    owner = {"kind": "cover_irb", "ref": "1", "owner": "crc"}
+    assert (
+        cov.post("/studies/GZQO/tasks/owner", data={"csrf": ccsrf, **owner}, follow_redirects=False).status_code == 403
+    )
+    assert cov.post("/studies/GZQO/cover/1/irb", data={"csrf": ccsrf}, follow_redirects=False).status_code == 403
+    token, _ = cb["users"].new_session(cb["users"].get("cov"), via="api")
+    api = TestClient(cb["app"], headers={"Authorization": f"Bearer {token}"})
+    assert api.post("/api/v1/studies/GZQO/tasks/owner", json=owner).status_code == 403
+    assert api.post("/api/v1/studies/GZQO/cover/1/irb").status_code == 403
+    assert 'data-testid="cover-irb-1"' not in cov.get("/studies/GZQO/team").text
+    assert not _events(cb, "console.task_owner") and cb["h"].team.cover("GZQO", 1).irb_told_on is None
+    crc, kcsrf = login(cb["app"], "crc", PW)  # a coordinator on the study's log: by their own role
+    assert (
+        crc.post("/studies/GZQO/tasks/owner", data={"csrf": kcsrf, **owner}, follow_redirects=False).status_code == 303
+    )
+    assert crc.post("/studies/GZQO/cover/1/irb", data={"csrf": kcsrf}, follow_redirects=False).status_code == 303
+
+
+def test_a_refused_cover_mailbox_never_stops_the_pis_and_the_offices_notice(
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D1-H3: the covering person's notice is a send of its own; an address the orchestrator refuses loses only that
+    mail, and each send's outcome is audited as it was."""
+    from console.backend import Refused
+    from console.saerecord import SaeStore
+
+    monkeypatch.setenv("TB_SAE_OFFICE_MAILBOX", "office@hospa.test")
+    real = lb["backend"].send_notice
+
+    def gate(kind: str, to: list[str], subject: str, body: str, principal: str) -> str:
+        if any(not a.endswith("@hospa.test") for a in to):  # the orchestrator's /notices: hospital addresses only
+            raise Refused("notices go to hospital addresses only")
+        return str(real(kind, to, subject, body, principal))
+
+    lb["backend"].send_notice = gate
+
+    def before(h: Any) -> None:
+        _cover_for("subi", 0, 2)(h)
+        lb["users"].db.execute("UPDATE users SET mailbox = 'subi@home-mail.test' WHERE username = 'subi'")
+
+    no = _case(lb, before)
+    (mail,) = _at_once(lb)
+    assert sorted(mail[1]) == ["office@hospa.test", "pi@hospa.test"]  # the PI and the office are told
+    (ev,) = _audit(lb, "office_copy")
+    assert ev["to"] == "office@hospa.test, pi@hospa.test" and ev["pi"] == "pi"
+    (bad,) = _audit(lb, "cover_told_failed")
+    assert bad["covering"] == "subi" and bad["error"] == "Refused" and not _audit(lb, "cover_told")
+    assert SaeStore().told_cover_names(RS, no, "ae1") == set()  # not told: the escalation still reaches them
+
+
+def test_the_immediate_notice_goes_to_a_cover_only_while_its_account_holds_it(
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D1-M1: an account that lost the study (scope) or the investigator role is not told as the PI's cover."""
+    monkeypatch.delenv("TB_SAE_OFFICE_MAILBOX", raising=False)
+    seen: dict[str, Any] = {}
+
+    def before(h: Any) -> None:
+        _cover_for("subi", 0, 2)(h)
+        lb["users"].set_scope("subi", "hospital", "RA-BIO")  # no longer sees GZQO
+        seen["now"] = h.covering_now("GZQO")
+        seen["banner"] = h.cover_view("banner", SimpleNamespace(user=lb["users"].get("pi")), "GZQO")
+
+    _case(lb, before)
+    assert seen == {"now": None, "banner": None}
+    (mail,) = _at_once(lb)
+    assert mail[1] == ["pi@hospa.test"] and not _audit(lb, "cover_told")
+
+
+def test_a_cover_whose_role_changed_is_not_told(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    """D1-M1 (b): a directory refresh made the covering person a coordinator: no cover's notice."""
+    monkeypatch.delenv("TB_SAE_OFFICE_MAILBOX", raising=False)
+
+    def before(h: Any) -> None:
+        _cover_for("subi", 0, 2)(h)
+        lb["users"].db.execute("UPDATE users SET role = 'coordinator' WHERE username = 'subi'")
+
+    _case(lb, before)
+    (mail,) = _at_once(lb)
+    assert mail[1] == ["pi@hospa.test"] and lb["app"].state.helpers.covering_now(RS) is None
+
+
+def test_no_cover_takes_effect_without_its_add_event(cb: dict[str, Any]) -> None:
+    """D1-M2: the ``add`` event is written inside the cover's transaction: when it cannot be written, no cover."""
+    h = cb["h"]
+    inner = h.au._inner
+    real = inner.append
+
+    def failing(event: str, **kw: Any) -> Any:
+        if event == "console.cover" and (kw.get("detail") or {}).get("action") == "add":
+            raise OSError("disk full (emulated)")
+        return real(event, **kw)
+
+    inner.append = failing
+    lpi, csrf = login(cb["app"], "lpi", PW)
+    try:
+        with pytest.raises(OSError):
+            lpi.post("/studies/GZQO/cover", data={"csrf": csrf, "username": "cov", "start": _days(0),
+                                                  "end": _days(6)}, follow_redirects=False)  # fmt: skip
+    finally:
+        inner.append = real
+    assert h.team.covers(RS) == [] and not h.stand(cb["users"].get("cov"), "GZQO").pi
+    assert not _events(cb, "console.cover")
+    r = lpi.post("/studies/GZQO/cover", data={"csrf": csrf, "username": "cov", "start": _days(0), "end": _days(6)},
+                 follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303 and [e["detail"]["action"] for e in _events(cb, "console.cover")] == ["add", "start"]
+
+
+def test_the_cover_help_says_clinical_rights_no_export_and_only_the_pi(cb: dict[str, Any]) -> None:
+    """D1-M3: the cover card's help says what a cover carries, in each language, and who can be covered."""
+    from console.i18n import translate
+
+    words = {"en": ("clinical rights", "no export", "Only the PI can be covered"),
+             "ja": ("診療上の権限", "エクスポート", "代行できるのは治験責任医師だけ"),
+             "zh-TW": ("臨床權限", "匯出", "只有試驗主持人可以被代理")}  # fmt: skip
+    for lang, want in words.items():
+        text = translate(lang, "cover.help", n=COVER_MAX_DAYS)
+        assert all(w in text for w in want), (lang, text)
+    lpi, _ = login(cb["app"], "lpi", PW)
+    assert "clinical rights" in lpi.get("/studies/GZQO/team").text
+
+
+def test_an_acknowledgement_after_the_check_stops_the_escalation(
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D2-M1: the PI acknowledges on another connection after the round's first look, before any mail: the
+    acknowledgement is read again under the case's lock, so nobody is told and no ``escalated`` row is written."""
+    from console import saerecord
+
+    monkeypatch.delenv("TB_SAE_ESCALATE_HOURS", raising=False)
+    no = _case(lb)
+    real = saerecord.SaeStore.case_no
+    done = {"n": 0}
+
+    def acked_meanwhile(self: Any, rs: str, record: str, event: str) -> Any:
+        if not done["n"]:
+            done["n"] = 1
+            other = saerecord.SaeStore()
+            try:
+                other.db.execute("UPDATE sae_case SET pi_ack_by = 'pi', pi_ack_at = ? WHERE ruleset = 'GZQO'", (AT,))
+            finally:
+                other.close()
+        return real(self, rs, record, event)
+
+    monkeypatch.setattr(saerecord.SaeStore, "case_no", acked_meanwhile)
+    assert _sync(lb, 24.5) == [] and done["n"] == 1
+    store = saerecord.SaeStore()
+    try:
+        assert not [t for t in store.trail(RS, no, "ae1") if t["action"].startswith("escalat")]
+    finally:
+        store.close()
+
+
+def test_a_crash_between_the_mails_and_the_mark_mails_nobody_again_and_the_audit_names_them(
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D2-M2: the people are claimed before the mails; each mail that went is audited at once; a round cut off before
+    its closing row is closed by a later round (``interrupted``), which mails nobody again."""
+    from console import saerecord
+
+    monkeypatch.delenv("TB_SAE_ESCALATE_HOURS", raising=False)
+    no = _case(lb)
+    real = saerecord.SaeStore._trail
+    state = {"crashed": False}
+
+    def trail(self: Any, tx: Any, rs: str, record: str, event: str, action: str, *a: Any, **k: Any) -> Any:
+        if action == "escalated" and not state["crashed"]:
+            state["crashed"] = True
+            raise RuntimeError("synthetic crash between the mails and the mark")
+        return real(self, tx, rs, record, event, action, *a, **k)
+
+    monkeypatch.setattr(saerecord.SaeStore, "_trail", trail)
+    first = _sync(lb, 24.5)
+    assert len(first) == 2 and state["crashed"]
+    sent = sorted(d["to"] for d in _audit(lb, "escalate_sent") if d["record"] == no)
+    assert sent == ["crc", "subi"]  # the audit names each mail that went, though the round's closing row was lost
+    assert _sync(lb, 24.6) == []  # a round still within ESCALATE_STALE of the claim: nothing
+    assert _sync(lb, 25.5) == [] and _sync(lb, 48) == []  # never again
+    (esc,) = _audit(lb, "escalated")
+    assert esc["interrupted"] is True and sorted(esc["claimed"]) == ["crc", "subi"]
+
+
+def test_an_old_case_is_told_its_real_waiting_time(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    """D2-M3: the first round after the update tells a case of ten days its true age, never "24 hours"."""
+    monkeypatch.delenv("TB_SAE_ESCALATE_HOURS", raising=False)
+    _case(lb)
+    told = _sync(lb, 240.5)
+    assert len(told) == 2 and all("240 hours" in n[2] and "240 hours" in n[3] for n in told), [n[2] for n in told]
+    assert all(" 24 hours" not in n[2] for n in told)
+    (esc,) = _audit(lb, "escalated")
+    assert esc["hours"] == 24 and esc["waited_hours"] == 240
+
+
+def test_a_disabled_account_cannot_be_named_a_tasks_owner(cb: dict[str, Any]) -> None:
+    """D2-L1."""
+    cb["users"].disable("crc")
+    lpi, csrf = login(cb["app"], "lpi", PW)
+    r = lpi.post("/studies/GZQO/tasks/owner", data={"csrf": csrf, "kind": "delegation", "ref": "", "owner": "crc"},
+                 follow_redirects=False)  # fmt: skip
+    assert r.status_code == 400 and not _events(cb, "console.task_owner")
+
+
+def test_the_cover_irb_task_and_the_owner_forms_are_on_the_opening_page_under_the_home_flag(cb: dict[str, Any]) -> None:
+    """D2-L2: with ``layout.home_today`` on, the cover's IRB task is a "Needs you today" line with its owner form and
+    its done button, as on the classic page."""
+    from console import home_today as ht
+    from console import phone
+    from tb_common import flags as fl
+
+    cb["h"].team.add_cover("GZQO", username="cov", start=_days(0), end=_days(6), today=DAY, by="lpi", at=AT)
+    fl.Flags(audit=cb["audit"]).set(ht.FLAG, "on", actor="console:admin", reason="9f-3 test (D-1383)")
+    fl.clear_cache()
+    phone.clear_cache()
+    phone.read_now()
+    try:
+        crc, kcsrf = login(cb["app"], "crc", PW)
+        page = crc.get("/home").text
+        assert 'data-testid="today"' in page  # the flag's page
+    finally:
+        fl.clear_cache()
+        phone.clear_cache()
+    assert 'data-testid="today-cover_irb"' in page and 'data-testid="task-own-cover_irb"' in page
+    assert 'action="/studies/GZQO/cover/1/irb"' in page and 'action="/studies/GZQO/tasks/owner"' in page
+    r = crc.post("/studies/GZQO/tasks/owner", data={"csrf": kcsrf, "kind": "cover_irb", "ref": "1", "owner": "cov"},
+                 follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303
+
+
+def test_the_api_cover_list_says_in_effect_only_while_the_cover_gives_it(cb: dict[str, Any]) -> None:
+    """D1-L1: a lapse not yet observed is not ``in_effect``."""
+    from fastapi.testclient import TestClient
+
+    t = cb["h"].team
+    t.add_cover(RS, username="cov", start=_days(0), end=_days(6), today=DAY, by="lpi", at=AT)
+    token, _ = cb["users"].new_session(cb["users"].get("lpi"), via="api")
+    api = TestClient(cb["app"], headers={"Authorization": f"Bearer {token}"})
+    assert [c["in_effect"] for c in api.get("/api/v1/studies/GZQO/cover").json()["covers"]] == [True]
+    e = next(x for x in t.entries(RS) if x.username == "cov")
+    t.update_entry(RS, e.id, tasks=(), end=(DAY - timedelta(days=1)).isoformat(), training_day=None, training_ref=None,
+                   by="lpi", at=AT)  # fmt: skip
+    assert [c["in_effect"] for c in api.get("/api/v1/studies/GZQO/cover").json()["covers"]] == [False]
+
+
+def test_two_owner_changes_at_once_each_audit_the_true_owner_before(cb: dict[str, Any]) -> None:
+    """D2-L7: the read of the owner before and the new row are one transaction under a lock per study."""
+    t = cb["h"].team
+    t.set_task_owner(RS, kind="delegation", ref="", owner="crc", day=DAY, by="lpi", at=AT)
+    others = [TeamStore() for _ in range(2)]
+    befores: list[str] = []
+    gate = threading.Barrier(2)
+
+    def change(store: TeamStore, who: str) -> None:
+        gate.wait()
+        before, _after = store.set_task_owner(RS, kind="delegation", ref="", owner=who, day=DAY, by="lpi", at=AT)
+        befores.append(before.owner if before else "")
+
+    ts = [threading.Thread(target=change, args=(s, w)) for s, w in zip(others, ("cov", "lpi"), strict=True)]
+    for th in ts:
+        th.start()
+    for th in ts:
+        th.join(60)
+    for s in others:
+        s.close()
+    assert sorted(befores) in (["cov", "crc"], ["crc", "lpi"])  # one saw crc, the other the first one's owner
