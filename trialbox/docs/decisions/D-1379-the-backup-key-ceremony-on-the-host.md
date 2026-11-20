@@ -111,10 +111,10 @@
     `os.fsync` of the day file returned (`write_head`, the head anchor, or the listing after it), in the `_write` of
     this ceremony's own event (read from the traceback: this event, this fingerprint), and the audit folder, which
     holds the day file's name, then syncs. The library is not changed; a test holds its order. Since the review of
-    f68e5988 the append runs in a child (below), so this judgement is made in the child, on its own traceback, and
-    only its result crosses to the parent, as one word of a fixed list (`ok`, `line-synced`, `not-written`,
-    `unknown`, `drop-failed`; a child that ends without a word is `unknown`); the parent decides from that word exactly
-    as it decided from the exception before. Then the ceremony goes
+    f68e5988 the append runs in another process (since the review of 1a7426e0: the one audit helper, below), so this
+    judgement is made there, on its own traceback, and only its result crosses to the parent, as one word of a fixed
+    list (`ok`, `line-synced`, `not-written`, `unknown`; `drop-failed` only as the helper's first word; a helper gone
+    without a word is `unknown`); the parent decides from that word exactly as it decided from the exception before. Then the ceremony goes
     on to the link, and does not print its closing text: it prints a translated warning (the key is in place, the
     audit line is written, its head anchor is not confirmed: run `python tools/audit_verify.py <audit folder>` now, do
     not run the ceremony again, unmount the stick) and exits 2. Every other append failure undoes the ceremony, also
@@ -128,9 +128,11 @@
     command derives `backup.pub` from a private key; adding one is a new power, left to the owner); keep that stick
     and sheet sealed (a backup made while its `backup.pub` was there opens only with it); make the new pair as RUNBOOK
     §25 says (`python -m tools.trialbox backup-keygen`) and enter its fingerprint in the ceremony record. **The event
-    counts as on disk from the moment the child says its line is synced** (`ok` or `line-synced`): the state is set
-    then and is not changed by what comes after; Ctrl-C while the child wrote (noted by the parent, which still waits
-    for the child's word) and an interruption or an unexpected error in the check after it are handled as "event
+    counts as on disk from the moment the helper says its line is synced** (`ok` or `line-synced`): the state is set
+    then and is not changed by what comes after; Ctrl-C while the helper wrote (noted by the parent, which still waits
+    for the helper's word: Ctrl-C only shortens that wait to 10 s and is a flag there, never an exception, and an
+    interruption right before or right after the answer is read makes the parent read the pending answer, or take the
+    one already read, before it decides; since the review of 1a7426e0) and an interruption or an unexpected error in the check after it are handled as "event
     present, `backup.pub` not visible" (the undoing first, then the undo), said as interrupted or unexpected, never as
     the audit failing; a listing of the audit folder that fails in that check (`OSError`) is not an error at all: the
     key is put in place and a translated warning says the folder was not checked (exit 2).
@@ -142,36 +144,83 @@
     hole on master for `trialbox backup` and `restore` (reported to the integrator; `libs/tb_common/audit.py` is not
     this card's file and is not changed); this command must not add another root command that reaches it. So the
     give-back of c2fcb044 and bdfbb858 (root appends, then hands the files to the folder's owner) is gone, and with it
-    its residuals and the mode it copied from a file of the writer's. Now: the audit folder is opened with
+    its residuals and the mode it copied from a file of the writer's. The audit folder is opened with
     `O_RDONLY|O_DIRECTORY|O_NOFOLLOW` (a folder named by a link is refused before anything is written, as is a folder
-    of root's that its group or others may write) and its owner is that open folder's `fstat`. Each append (the
-    event, and the undoing) runs in a child process (`fork`, with Ctrl-C blocked across the fork so the child never
-    runs on into the program): the child calls `setgroups([])`, `setgid` and `setuid` to the folder's owner, checks
-    that the real, effective and saved ids are all that owner's and no supplementary group is left, makes itself not
-    dumpable (`prctl(PR_SET_DUMPABLE, 0)`, checked: the folder's owner cannot read its memory, a copy of the
-    ceremony's), `fchdir`s to the folder held open, and appends there with `tb_common.audit` as it is. A link the
-    writer planted is then followed with the writer's own power only. The child writes one word of a fixed list to a
-    pipe (above) and exits; no key material crosses (the event's detail holds none, and nothing is sent back but the
-    word). A child that cannot take the identity writes nothing to the audit, and the ceremony is refused and undone
-    (`AUDIT_DROP_FAILED`, naming the owner). **The child cannot outlive the call:** whatever happens in it (an
-    exception, Ctrl-C, `sys.exit`, a failed drop) it ends with `os._exit` in a `finally`, never returning into the
-    program or running its exit handlers; the parent always waits for it, and kills it (`SIGKILL`) when it takes longer
-    than 120 s, or 10 s after Ctrl-C (at once on a second Ctrl-C); a killed child's append is `unknown` (undone, "the
-    audit may hold"). The cyclic garbage collector runs in the parent before the fork and is off in the child: the
-    first version of this fix hung in the unit suite when its child freed a zstd compressor copied from the test
-    process, whose worker threads do not exist in a child, and that orphan held a test slot until it was killed. Every file in the folder is thus made by its owner, and nothing needs
-    giving back; after each append the folder is listed through a descriptor, read only, and a file of root's found
-    there is named in a translated warning with the folder's owner and `chown` (exit 2); a folder that cannot be
-    listed there is said as not checked (exit 2). **A box whose audit folder is root's** (the audit runs as root
-    there): the append runs in this process, as before, but only after every entry of the folder, listed and looked
-    at through the folder held open without following, was seen to be a regular file with one name; a link, a file
-    with a second name or a special file is refused, naming it, before anything is written (in the checks) and again
-    right before the append (then undone). **Residual, stated:** on such a box a name planted between that listing
-    and the append is followed as root; only a process that may write a folder of root's that its group and others
-    may not, that is root itself, can plant it. The once-only read of the audit (and the "may hold" read after a
-    failed append) still runs as root in the parent; it only reads, follows a planted link to read a file as JSON,
-    and prints the file's path at most, never its content. **Not verified:** the drop on a real deployed box with
-    uid 10001 (the tests drop to uid 65534 for real when run as root, and inject the drop as any other user).
+    of root's that its group or others may write) and its owner is that open folder's `fstat`.
+  - **One audit helper, started before any key exists (after review of 1a7426e0, a Blocker):** until 1a7426e0 each
+    append ran in a child forked from the parent after the key was made; `del` only dropped references, so the
+    child's copy of the parent's memory held the key (the reviewer found 48 of the paper sheet's 52 base32 letters in
+    a dropped child's memory image at `_drop_to` in a real root run, the rest brute-forceable against the audited
+    fingerprint). The writer account cannot `ptrace` a non-dumpable process, but it can signal one of its own uid
+    (`SIGSTOP`, `SIGKILL`, `SIGSEGV`, `SIGQUIT`), and on a host with a crash handler a forced crash could write a core
+    holding the key to the box's disk. Now **the order** is: the checks run (root, the two names, the audit folder
+    opened and checked, `backup.pub` absent); then, still in the checks and before the stick's folder is even opened,
+    the parent runs the cyclic garbage collector, blocks Ctrl-C across one `fork`, and the child becomes **the audit
+    helper**: it closes every descriptor but the audit folder held open and its two pipe ends (0, 1 and 2 become
+    `/dev/null`; `os.closerange`, which is `close_range` on Linux), sets `RLIMIT_CORE` to 0 and `PR_SET_DUMPABLE` to
+    0, calls `setgroups([])`, `setgid` and `setuid` to the folder's owner, checks that the real, effective and saved
+    ids are all that owner's and no supplementary group is left, makes itself not dumpable again (a change of identity
+    resets it), `fchdir`s to the folder held open and closes it, ignores Ctrl-C, turns the cyclic collector off, and
+    only then says `ready`. The parent goes on only after `ready`: the once-only read (below) is the helper's first
+    request; then the stick's checks; then the parent sets `RLIMIT_CORE` to 0 for itself (soft and hard: a crash of
+    root's from then on writes no core), and only then is the key made, the sheet built, both files written and read
+    back. Nothing forks after the key exists. **The protocol** is a pipe pair and one line each way: `earlier?`
+    (answered `none`, `found {"ts","fp"}`, `unreadable {"name"}` or `unknown`), `event <json>` and `undone <json>`
+    (the event's own fields: time, site, fingerprint, the two names, the forms, the paper format, and for the undoing
+    the error's kind; never key material, a line of the sheet or a path on the stick; answered with one word of
+    `ok`, `line-synced`, `not-written`, `unknown`), and `quit`. The helper appends with `tb_common.audit` as it is,
+    with relative paths in its working folder; a link the writer planted is followed with the writer's own power
+    only. **Lifetime:** the helper lives for the whole run and ends on `quit` or when its request pipe closes; every
+    path of it ends with `os._exit` in a `finally`, never returning into the program or running its exit handlers;
+    the parent always reaps it (in a `finally` around the run): an answer that takes longer than 120 s, or 10 s
+    after Ctrl-C (at once on a second Ctrl-C), gets it killed (`SIGKILL`); at the end it is asked to `quit` and
+    killed when it has not ended within 10 s. **A helper that dies, hangs or answers garbage** (not one word of the
+    list, or two answers) is gone for the run: the append it was asked for, and every later one, is `unknown` (the
+    ceremony is undone and the refusal adds that the audit may hold the event), and the refusal says the true cause
+    in three languages: the audit helper stopped answering, and either it was stopped or killed by a signal (seen as
+    a stopped or signalled child by `waitpid`, or state `T` in `/proc`), which the audit folder's owner can do, or it
+    ended, did not answer within 120 s or answered something that is not an outcome; never "full, or a broken chain".
+    A helper that cannot take the identity says `drop-failed` before the key exists: the ceremony is refused naming
+    the owner (`AUDIT_DROP_FAILED`), and nothing at all is made. The cyclic garbage collector runs in the parent
+    before the fork and is off in the helper: the first version of the child hung in the unit suite when it freed a
+    zstd compressor copied from the test process, whose worker threads do not exist in a child, and that orphan held
+    a test slot until it was killed. Every file in the folder is thus made by its owner, and nothing needs giving
+    back; after each append the folder is listed through a descriptor, read only, and a file of root's found there is
+    named in a translated warning with the folder's owner and `chown` (exit 2); a folder that cannot be listed there
+    is said as not checked (exit 2). **How the reviewer's memory probe can be repeated by hand** (not portable to CI,
+    so not a test; the tests pin the order instead): on a scratch host, as root, with an audit folder owned by
+    uid 10001 and a real stick, run the command under `gdb -p` or with a breakpoint on `_new_key` (or simply add a
+    `time.sleep(60)` there in a scratch copy); while it waits, note the helper's pid (the one child of the command,
+    `pgrep -P`), and then, after the key is made (a second pause after the read-back), dump the helper's memory as
+    root (`gcore <pid>`, or read `/proc/<pid>/maps` and `/proc/<pid>/mem`), and search the dump for the paper sheet's
+    letters (`_letters` of the stick key's raw bytes, with and without spaces) and for the raw key bytes: none may be
+    found; the same dump of the parent finds them, which shows the probe works.
+  - **A box whose audit folder is root's** (the audit runs as root there): no helper (no owner to drop to); the
+    once-only read and the appends run in this process. Each append first checks the folder's mode and every entry,
+    listed and looked at through the folder held open since the checks without following, to be a regular file with
+    one name; a link, a file with a second name or a special file is refused, naming it, before anything is written
+    (in the checks) and again right before each append (then undone). Since the review of 1a7426e0 (item 2) the
+    append then `fchdir`s to that same descriptor, appends with relative paths, and `fchdir`s back to the working
+    folder it saved; the folder is never opened by its path again, so a rename-swap of the folder by whoever may
+    write its parent between the check and the append does not redirect the append (the event lands in the folder
+    checked). **Residual, stated:** on such a box a name planted in the folder itself between that listing and the
+    append is followed as root; only a process that may write a folder of root's that its group and others may not,
+    that is root itself, can plant it; and if the `fchdir` back fails after the append (the saved working folder
+    unusable), the run stops on an unexpected error with the event's state taken as not known.
+  - **Residuals of the helper, stated:** the writer account sees the helper (a process of its own uid) and can signal
+    it; the helper holds no key (it was forked before the key existed), no descriptor to the stick or the secrets
+    folder, writes no core and is not dumpable. By stopping or killing it the writer account can make a run fail
+    (said as above) and, with good timing (after the event's line is written and before the answer), leave the event
+    in the audit and so block a rerun of this command; it can already block reruns by appending a forged
+    `backup.key_ceremony` event, so this adds no power. A `SIGKILL` that tears the audit's last line makes the next
+    run refuse with `AUDIT_UNREADABLE` until the writer's next append repairs the line; that refusal now says so. The
+    "may hold" read after a failed append (`_audit_state`) runs in the helper, as the folder's owner, not in the root
+    parent (correcting the text of 1a7426e0); the once-only read of a box whose audit folder is the writer's runs in
+    the helper too; only the read for a `backup.pub` that exists (whether the audit holds a ceremony for that key)
+    still runs as root, by path, before the helper starts and before any key exists; it only reads, follows a planted
+    link to read a file as JSON, and prints the file's path at most. **Not verified:** a run on a real deployed box
+    with uid 10001 (the tests drop to uid 65534 for real when run as root, and inject the drop as any other user), a
+    real stick, and the memory probe above (the order is pinned by tests instead).
   - **What is guaranteed, and what is not:** a run that exits 0 has the key on the stick (both files read back, each
     the key's alone on that filesystem), the event's line in the audit with the head anchor written (by the folder's
     owner), no file of root's found in the audit folder after it, and then the public key at `backup.pub`. A run that exits 2 has the key on the stick
@@ -275,4 +324,17 @@
   written"); an undoing synced and then interrupted (no "rerun refused"; the rerun succeeds); and the kept warning's
   next step in three languages; the child reaped before the call returns whatever happens in it (an exception,
   Ctrl-C, `sys.exit`, a failed drop, a hang, a child that would run on), and garbage of the caller freed in the
-  caller with the collector off in the child. A mutation that skips the real drop fails five of them as root.
+  caller with the collector off in the child. A mutation that skips the real drop fails five of them as root. From
+  the review of 1a7426e0, as root and as uid 65534: the helper alive and dropped (its four uids the writer's in
+  `/proc`) when the key-making function is called, `RLIMIT_CORE` 0 in the parent by then (a spy on `_new_key` and on
+  `os.fork`); no fork after the key is made, also on the path that writes the undoing; every byte the parent sends
+  the helper is a request of the fixed list whose event fields equal the audited detail, holding no form of the key,
+  no line of the sheet and not the stick's path; the helper holding only its two pipes and `/dev/null`, with no core
+  and not dumpable; the real drop in the real helper; the helper reaped whatever happens in it (an exception, Ctrl-C,
+  `sys.exit`, a failed drop, a hang, a helper that never ends, garbage, two answers, a kill, a stop), with the cause
+  said; a real SIGINT while the helper appends (its answer read, the undoing written, a rerun allowed) and an
+  interruption right before or after the answer is read (the same); the helper killed or stopped by the writer (the
+  true cause in en, ja and zh-TW, never "full, or a broken chain"); a folder of root's renamed away after the check
+  (the event in the folder checked, the working folder restored, no fork); and the unreadable-audit text naming the
+  writer's repair. Mutations that skip the pending-answer read, the descriptor closing, the relative append or the
+  parent's core limit each fail their test.

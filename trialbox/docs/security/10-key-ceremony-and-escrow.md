@@ -136,14 +136,19 @@ stick and the printed sheet go into hospital IT's sealed envelope.
 The order: the two files on the stick, read back; the public key as a temporary file beside
 `deploy/secrets/backup.pub`; the audit event `backup.key_ceremony` (when, the fingerprint and both names; never the
 key), its line on disk; only then `backup.pub` at its name, so `trialbox backup` can use the key only once the audit
-holds it. Root never writes in the audit folder: the folder is opened without following a link, and each append
-(the event, and its undoing) runs in a child process that has dropped to the folder's owner (the audit writer: no
-supplementary group, the ids checked, not dumpable) and works in the folder held open; it tells the command only how
-the append ended, as one word, and nothing of the key crosses. A link the writer planted in its folder is followed
-with the writer's own power only. The files are made by their owner, so nothing is given back; afterwards the folder
-is checked, read only, and a file of root's found there is named (exit 2). On a box whose audit folder is root's, the
-append runs in the command itself, only after every entry of the folder was seen to be a plain file with one name (a
-link, a second name or a special file is refused, naming it); D-1379 states the race that is left there (root only).
+holds it. Root never writes in the audit folder: the folder is opened without following a link, and one audit helper
+process, started during the checks before the key exists, drops to the folder's owner (the audit writer: no
+supplementary group, the ids checked, not dumpable, no core, no open file but the audit folder and its two pipes) and
+works in that folder for the whole run: it does the once-only read and each append (the event, and its undoing) on
+request and answers with one word; the requests hold only the event's public fields, and the helper never held the
+key. The command writes no core once the key exists, and starts no process after it. A link the writer planted in its
+folder is followed with the writer's own power only. The files are made by their owner, so nothing is given back;
+afterwards the folder is checked, read only, and a file of root's found there is named (exit 2). The writer account
+can stop or kill the helper (a process of its own); the run then fails and says so, and D-1379 states what that can
+and cannot do. On a box whose audit folder is root's, the append runs in the command itself, through the folder held
+open since the checks (never reopened by its path), only after every entry of the folder was seen to be a plain file
+with one name (a link, a second name or a special file is refused, naming it); D-1379 states the race that is left
+there (root only).
 
 It refuses, with nothing written: not root; one name or none, or one person twice (in any spelling: full-width
 letters, double or ideographic spaces, case); no audit folder; a box with a backup key already, or whose audit holds a

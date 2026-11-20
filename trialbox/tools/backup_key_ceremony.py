@@ -26,13 +26,16 @@ key as a synced temporary file beside ``backup.pub``, the audit event ``backup.k
 fingerprint, the person who ran it and the witness; never the key, a line of the sheet or a path on the stick), and
 only then ``backup.pub`` linked to its name without overwriting: ``trialbox backup`` reads ``backup.pub``, so no
 backup can be made to the key before the event that names it is on disk. Root never writes in the audit folder
-(D-1379): each append (the event, and its undoing) runs in a child process that has dropped to the owner of the audit
-folder (``setgroups([])``, ``setgid``, ``setuid``, checked, then not dumpable), working in the folder held open
-(``O_NOFOLLOW``), and tells this process only how it ended, as one word of a fixed list (nothing of the key crosses;
-the event holds none). The files in the folder are made by their owner; afterwards the folder is checked, read only,
-to hold no file of root's. A box whose audit folder is root's (and not writable by its group or others) is appended
-to in this process, only after every entry of the folder was seen, through the folder held open, to be a plain file
-with one name. The ceremony is one failure domain until the
+(D-1379): one audit helper process is forked in the checks, before the stick is opened and before any key material
+exists in this process, and drops to the owner of the audit folder (every descriptor closed but the folder held open,
+``O_NOFOLLOW``, and its two pipe ends; no core, not dumpable; ``setgroups([])``, ``setgid``, ``setuid``, checked); it
+works in that folder and stays alive for the whole run, doing the once-only read and each append (the event, and its
+undoing) on request over a pipe pair, answering with one word of a fixed list (the requests hold only the event's
+public fields; nothing of the key crosses). This process writes no core once the key exists, and forks nothing after
+it. The files in the folder are made by their owner; afterwards the folder is checked, read only, to hold no file of
+root's. A box whose audit folder is root's (and not writable by its group or others) is appended to in this process,
+through the folder held open (``fchdir``, relative paths), only after every entry of it was seen, through that same
+descriptor, to be a plain file with one name. The ceremony is one failure domain until the
 link: a failure at any step after the first file is made removes every file it made, each only when it is still the
 file made (same device, inode and size), syncs each folder it removed from, and says which were removed, which are
 left, and which removals are not confirmed on disk. When the event is on disk but ``backup.pub`` could not be linked,
@@ -254,11 +257,15 @@ PAPER_FP = {
 }
 AUDIT_UNREADABLE = {
     "en": "refused: the audit file {path} cannot be read whole (a damaged or cut-off line), so whether the ceremony "
-    "was run already cannot be told: run python tools/audit_verify.py {audit} and have a person look",
+    "was run already cannot be told: run python tools/audit_verify.py {audit} and have a person look. A last line cut "
+    "off because the audit writer was killed is repaired by that writer's next append; until then this refusal stands",
     "ja": "拒否：監査記録のファイル {path} を最後まで読めません（壊れた行か途中で切れた行があります）。手続きがすでに"
-    "行われたかを判断できません。python tools/audit_verify.py {audit} を実行し、担当者が確認してください",
+    "行われたかを判断できません。python tools/audit_verify.py {audit} を実行し、担当者が確認してください。監査記録を"
+    "書くプロセスが強制終了されて途中で切れた最後の行は、そのプロセスの次の追記で修復されます。それまではこの拒否が"
+    "続きます",
     "zh-TW": "已拒絕：無法完整讀取稽核紀錄檔 {path}（有損壞或截斷的行），因此無法判斷儀式是否已執行：請執行 "
-    "python tools/audit_verify.py {audit} 並由人員檢查",
+    "python tools/audit_verify.py {audit} 並由人員檢查。因寫入稽核紀錄的程序被終止而截斷的最後一行，會在該程序下次"
+    "追加時修復；在此之前此拒絕會持續",
 }
 NO_CEREMONY_FOR_KEY = {
     "en": "The audit holds no backup-key ceremony for this key (one cut short, or a key made by backup-keygen).",
@@ -484,6 +491,28 @@ AUDIT_DROP_FAILED = {
     "（{owner}）として書きますが、その所有者に切り替えられませんでした。手続きは完了していません",
     "zh-TW": "已拒絕：未將稽核紀錄寫入 {path}：此儀式以稽核紀錄資料夾的擁有者（{owner}）身分寫入，絕不以 root 寫入，"
     "但無法切換為該身分：儀式未完成",
+}
+AUDIT_HELPER_LOST = {
+    "en": "refused: the audit helper for {path} stopped answering, so what it wrote is not known from it: the "
+    "ceremony is not done",
+    "ja": "拒否：{path} の監査記録の補助プロセスが応答しなくなったため、何を書いたかはそこからはわかりません。"
+    "手続きは完了していません",
+    "zh-TW": "已拒絕：{path} 的稽核紀錄輔助程序已停止回應，因此無法從它得知寫入了什麼：儀式未完成",
+}
+HELPER_SIGNALLED = {
+    "en": "The audit helper, a process of the audit folder's owner ({owner}), was stopped or killed by a signal; that "
+    "owner can do this.",
+    "ja": "監査記録の補助プロセス（監査記録のフォルダーの所有者 {owner} のプロセス）がシグナルで停止または強制終了"
+    "されました。この所有者にはそれができます。",
+    "zh-TW": "稽核紀錄輔助程序（稽核紀錄資料夾擁有者 {owner} 的程序）被訊號暫停或終止；該擁有者能這樣做。",
+}
+HELPER_SILENT = {
+    "en": "The audit helper, a process of the audit folder's owner ({owner}), ended, did not answer within {limit} "
+    "seconds, or answered something that is not an outcome, and was stopped.",
+    "ja": "監査記録の補助プロセス（監査記録のフォルダーの所有者 {owner} のプロセス）が終了したか、{limit} 秒以内に"
+    "応答しなかったか、結果ではない応答を返したため、止めました。",
+    "zh-TW": "稽核紀錄輔助程序（稽核紀錄資料夾擁有者 {owner} 的程序）已結束、未在 {limit} 秒內回應，或回應的不是"
+    "結果，已將其停止。",
 }
 SHEET_HEAD = {
     "en": "TrialBox backup private key, paper copy. It opens every backup of this box: keep it sealed with hospital "
@@ -728,11 +757,15 @@ class _Stick:
 
 
 def check(
-    stick: Path, operator: str | None, witness: str | None, pub: Path, sec: Path, audit_dir: Path | None, site: str = ""
-) -> tuple[str, str, _Stick]:
-    """Every refusal before anything is written, in the order a person meets them; returns the two names and the
-    stick's folder held open (:class:`_Stick`; the caller closes it). The removable-media check is made on the
-    folder held open (``/proc/self/fd/<fd>`` leads to that folder, whatever is mounted at the path since)."""
+    stick: Path, operator: str | None, witness: str | None, pub: Path, sec: Path, audit_dir: Path | None,
+    site: str = "", tz: str | None = None,
+) -> tuple[str, str, _Stick, _Audit]:  # fmt: skip
+    """Every refusal before anything is written, in the order a person meets them; returns the two names, the
+    stick's folder held open (:class:`_Stick`) and the audit's writer (:func:`_audit_for`: for a folder of another
+    owner, the audit helper, started here, before the stick is opened and long before any key exists); the caller
+    closes both. The once-only read of the audit is the writer's (the helper's, as the folder's owner). The
+    removable-media check is made on the folder held open (``/proc/self/fd/<fd>`` leads to that folder, whatever is
+    mounted at the path since)."""
     from tools import key_escrow as ke
 
     if not is_root():
@@ -742,19 +775,33 @@ def check(
         raise CeremonyError(SAME_PERSON)
     if audit_dir is None or not audit_dir.is_dir():
         raise CeremonyError(NO_AUDIT)
-    os.close(_open_audit(audit_dir)[0])  # a link, a folder others may plant in: refused before anything is written
-    if os.path.lexists(pub):
-        fp = _pub_fingerprint(pub)
-        err = CeremonyError(ALREADY, fp=fp)
-        with contextlib.suppress(CeremonyError):  # an audit that cannot be read says nothing either way
-            if not any(_detail(r).get("fingerprint") == fp for r in _ceremonies(audit_dir)):
-                err.more.append((NO_CEREMONY_FOR_KEY, {}))
-        raise err
-    if (prev := earlier_ceremony(audit_dir, site)) is not None:
-        det = _detail(prev)
-        err = CeremonyError(AUDITED_ALREADY, at=str(prev.get("ts") or "-"), fp=str(det.get("fingerprint") or "-"))
-        err.more.append((AUDITED_NO_KEY, {"fp": str(det.get("fingerprint") or "-")}))  # no backup.pub: D-1379
-        raise err
+    dfd, uid, gid = _open_audit(audit_dir)  # a link, a folder others may plant in: refused before anything is written
+    try:
+        if os.path.lexists(pub):
+            fp = _pub_fingerprint(pub)
+            err = CeremonyError(ALREADY, fp=fp)
+            with contextlib.suppress(CeremonyError):  # an audit that cannot be read says nothing either way
+                if not any(_detail(r).get("fingerprint") == fp for r in _ceremonies(audit_dir)):
+                    err.more.append((NO_CEREMONY_FOR_KEY, {}))
+            raise err
+    except BaseException:
+        os.close(dfd)
+        raise
+    audit = _audit_for(audit_dir, dfd, uid, gid, site, tz)  # takes the descriptor
+    try:
+        if (prev := audit.earlier()) is not None:
+            det = _detail(prev)
+            err = CeremonyError(AUDITED_ALREADY, at=str(prev.get("ts") or "-"), fp=str(det.get("fingerprint") or "-"))
+            err.more.append((AUDITED_NO_KEY, {"fp": str(det.get("fingerprint") or "-")}))  # no backup.pub: D-1379
+            raise err
+        return (who, wit, _check_stick(stick, sec, ke), audit)
+    except BaseException:
+        audit.close()
+        raise
+
+
+def _check_stick(stick: Path, sec: Path, ke: Any) -> _Stick:
+    """The stick's checks of :func:`check`; the folder held open (:class:`_Stick`)."""
     if not sec.is_dir():
         raise CeremonyError(NO_SECRETS, path=sec)
     try:
@@ -778,7 +825,7 @@ def check(
     except BaseException:
         os.close(fd)
         raise
-    return who, wit, _Stick(stick, fd, dev)
+    return _Stick(stick, fd, dev)
 
 
 def _pub_fingerprint(pub: Path) -> str:
@@ -1079,11 +1126,11 @@ class _Left:
     unlisted: bool = False
 
 
-#: How an append ended, the only thing the child that wrote it tells this process (:func:`_as_owner`): ``ok`` (the
-#: append returned), ``line-synced`` (the event's line is on disk, its head anchor not confirmed), ``not-written``
-#: (the chain, read whole, has no such event), ``unknown`` (the line may be in the file, not known on disk; also a
-#: child that ended without a word) and ``drop-failed`` (the child could not take the folder owner's identity, and
-#: wrote nothing).
+#: How an append ended, the only thing the audit helper that wrote it tells this process (:class:`_Helper`): ``ok``
+#: (the append returned), ``line-synced`` (the event's line is on disk, its head anchor not confirmed),
+#: ``not-written`` (the chain, read whole, has no such event), ``unknown`` (the line may be in the file, not known on
+#: disk; also a helper that is gone without a word) and ``drop-failed`` (the helper's first word only: it could not
+#: take the folder owner's identity, and wrote nothing).
 OUTCOMES = ("ok", "line-synced", "not-written", "unknown", "drop-failed")
 
 
@@ -1094,20 +1141,16 @@ def _folder_owner(fd: int) -> tuple[int, int]:
 
 
 def _drop_to(uid: int, gid: int) -> None:
-    """In the child: become ``uid``/``gid`` for good (no supplementary group, real, effective and saved ids all
-    changed), checked; then not dumpable, so the folder's owner cannot read the child's memory, a copy of the
-    ceremony's. Raises when any of it does not hold (the seam the tests inject)."""
-    import ctypes
-
+    """In the audit helper: become ``uid``/``gid`` for good (no supplementary group, real, effective and saved ids
+    all changed), checked; then not dumpable again (a change of identity resets it), so the folder's owner cannot read
+    the helper's memory or make it write a core. Raises when any of it does not hold (the seam the tests inject)."""
     os.setgroups([])
     os.setgid(gid)
     os.setuid(uid)
     if (os.getresuid() != (uid, uid, uid) or os.getresgid() != (gid, gid, gid) or set(os.getgroups()) - {gid}
             or os.geteuid() != uid):  # fmt: skip
         raise PermissionError(errno.EPERM, "the change of identity did not hold")
-    libc = ctypes.CDLL(None, use_errno=True)
-    if libc.prctl(4, 0, 0, 0, 0) != 0 or libc.prctl(3, 0, 0, 0, 0) != 0:  # PR_SET_DUMPABLE 0, PR_GET_DUMPABLE
-        raise PermissionError(errno.EPERM, "the child could not be made not dumpable")
+    _not_dumpable()
 
 
 def _open_audit(audit_dir: Path) -> tuple[int, int, int]:
@@ -1159,109 +1202,480 @@ def _append_here(where: Path, event: str, detail: Mapping[str, Any], tz: str | N
         return _audit_state(e, where, event, fp), isinstance(e, KeyboardInterrupt)
 
 
-#: How long the child that appends may take before it is killed (seconds), and how long it is given after Ctrl-C
-#: (a second Ctrl-C kills it at once). An append takes milliseconds; a killed child's append is ``unknown``.
+#: How long the audit helper may take to answer a request before it is killed (seconds), and how long it is given
+#: after Ctrl-C (a second Ctrl-C kills it at once). An append takes milliseconds; a killed helper's append is
+#: ``unknown``. ``HELPER_POLL``: how often the wait for an answer looks for Ctrl-C.
 CHILD_LIMIT = 120.0
 CHILD_GRACE = 10.0
+HELPER_POLL = 0.1
+#: The audit helper's protocol (:class:`_Helper`): one request a line from this process, ``event <json>``,
+#: ``undone <json>`` (the event's fields: names, site, fingerprint, time; never key material), ``earlier?`` (the
+#: once-only read) or ``quit``; one answer a line from the helper: a word of :data:`OUTCOMES` for an append; for
+#: ``earlier?``, ``none``, ``found <json of the time and fingerprint>``, ``unreadable <json of the file's name>`` or
+#: ``unknown``; and once, right after the fork, ``ready`` or ``drop-failed``.
+REQUESTS = {"event": EVENT, "undone": UNDONE_EVENT}
+REQUEST_MAX = 16384
+ANSWER_MAX = 4096
 
 
-def _as_owner(dfd: int, uid: int, gid: int, write: Any) -> tuple[str, bool]:
-    """Run ``write`` (it returns a word of :data:`OUTCOMES` and a flag) in a child process that first drops to
-    ``uid``/``gid`` (:func:`_drop_to`) and works in the folder held open as ``dfd`` (``fchdir``): root never writes in
-    the audit folder. The child sends one word over a pipe and always ends with ``os._exit`` (whatever happens in it:
-    an exception, Ctrl-C, a failed drop), so it never returns into this program, never runs its exit handlers, and
-    cannot outlive this call: it is waited for here, and killed when it takes longer than :data:`CHILD_LIMIT`, or
-    :data:`CHILD_GRACE` after Ctrl-C (at once on a second one). Ctrl-C is blocked across the fork; the cyclic garbage
-    collector runs here before the fork and is off in the child (an object copied from this process, such as a
-    compressor whose worker threads are not in the child, is then never freed there). Whether this process was
-    interrupted is returned beside the word; a child that ended without a word is ``unknown``."""
+def _new_key() -> Any:
+    """A new X25519 private key (the seam the tests spy on: the audit helper must already run, dropped, when it is
+    called, and nothing forks after it)."""
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+
+    return X25519PrivateKey.generate()
+
+
+def _no_core() -> None:
+    """This process writes no core file (``RLIMIT_CORE`` 0, soft and hard): a crash of root's while the key is in
+    memory leaves it on no disk."""
+    import resource
+
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+
+
+def _not_dumpable() -> None:
+    import ctypes
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(4, 0, 0, 0, 0) != 0 or libc.prctl(3, 0, 0, 0, 0) != 0:  # PR_SET_DUMPABLE 0, PR_GET_DUMPABLE
+        raise PermissionError(errno.EPERM, "the process could not be made not dumpable")
+
+
+def _send(fd: int, data: bytes) -> None:
+    """Write ``data`` whole to a pipe (the seam the tests read: nothing this process sends the helper may hold key
+    material, a line of the sheet or a path on the stick)."""
+    view = memoryview(data)
+    while view:
+        view = view[os.write(fd, view) :]
+
+
+def _keep_only(*keep: int) -> tuple[int, ...]:
+    """In the helper, right after the fork: every descriptor closed but ``keep`` (the audit folder and the two pipe
+    ends); 0, 1 and 2 are ``/dev/null`` (nothing it prints reaches a file it holds). Returns ``keep`` (moved above 2
+    first when one was below)."""
+    import fcntl
+
+    keep = tuple(k if k > 2 else fcntl.fcntl(k, fcntl.F_DUPFD, 3) for k in keep)
+    null = os.open("/dev/null", os.O_RDWR)
+    for i in (0, 1, 2):
+        if null != i:
+            os.dup2(null, i)
+    lo = 3
+    for k in sorted(set(keep)):
+        if lo < k:
+            os.closerange(lo, k)
+        lo = k + 1
+    os.closerange(lo, max(int(os.sysconf("SC_OPEN_MAX")), lo + 1))
+    return keep
+
+
+def _reply(fd: int, text: str) -> None:
+    _send(fd, (text + "\n").encode("ascii", "replace"))
+
+
+def _answer(verb: str, body: str, site: str, tz: str | None) -> str:
+    """The helper's answer to one request, in the audit folder (its working folder: every path relative)."""
+    try:
+        if verb in REQUESTS:
+            detail = json.loads(body)
+            if not isinstance(detail, dict):
+                return "unknown"
+            fp = str(detail.get("fingerprint") or "")
+            return str(_append_here(Path("."), REQUESTS[verb], detail, tz, fp)[0])
+        if verb == "earlier?":
+            try:
+                rec = earlier_ceremony(Path("."), site)
+            except CeremonyError as e:
+                return "unreadable " + json.dumps({"name": Path(str(e.fill.get("path") or "")).name})
+            if rec is None:
+                return "none"
+            return "found " + json.dumps({"ts": str(rec.get("ts") or "-"),
+                                          "fp": str(_detail(rec).get("fingerprint") or "-")})  # fmt: skip
+    except BaseException:  # whatever stops it, the helper answers and goes on
+        return "unknown"
+    return "unknown"
+
+
+def _serve(req: int, ans: int, site: str, tz: str | None) -> None:
+    """The helper's loop: one answer for each request line, until ``quit`` or the end of the request pipe (this
+    process gone)."""
+    buf = b""
+    while True:
+        while b"\n" not in buf:
+            chunk = os.read(req, 4096)
+            if not chunk or len(buf) + len(chunk) > REQUEST_MAX:
+                return
+            buf += chunk
+        line, buf = buf.split(b"\n", 1)
+        verb, _, body = line.decode("ascii", "replace").partition(" ")
+        if verb == "quit":
+            return
+        _reply(ans, _answer(verb, body, site, tz))
+
+
+def _helper_main(dfd: int, uid: int, gid: int, req: int, ans: int, site: str, tz: str | None) -> None:
+    """The helper process, from the fork on: closes every descriptor but the audit folder and its two pipe ends,
+    writes no core and is not dumpable, drops to ``uid``/``gid`` (:func:`_drop_to`), ``fchdir``s to the folder held
+    open and closes it, says ``ready`` (or ``drop-failed``), and serves (:func:`_serve`). Ctrl-C is ignored (this
+    process decides); the cyclic collector is off. Every path ends with ``os._exit``: it never returns into the
+    program or runs its exit handlers."""
     import gc
-    import select
-    import time
 
-    gc.collect()
-    r, w = os.pipe()
-    old = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
     try:
-        pid = os.fork()
-    except OSError:
-        signal.pthread_sigmask(signal.SIG_SETMASK, old)
-        os.close(r)
-        os.close(w)
-        return "not-written", False
-    if pid == 0:  # the child: always ends with os._exit, never returns
-        word = "unknown"
+        gc.disable()
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.pthread_sigmask(signal.SIG_SETMASK, set())
+        dfd, req, ans = _keep_only(dfd, req, ans)
         try:
-            gc.disable()
-            os.close(r)
-            signal.pthread_sigmask(signal.SIG_SETMASK, old)
-            try:
-                _drop_to(uid, gid)
-                os.fchdir(dfd)
-            except BaseException:
-                word = "drop-failed"
-            else:
-                word = str(write()[0])
+            _no_core()
+            _not_dumpable()
+            _drop_to(uid, gid)
+            os.fchdir(dfd)
+            os.close(dfd)
         except BaseException:
-            pass
-        finally:
+            _reply(ans, "drop-failed")
+            return
+        _reply(ans, "ready")
+        _serve(req, ans, site, tz)
+    except BaseException:
+        pass
+    finally:
+        os._exit(0)
+
+
+class _Audit:
+    """The audit's writer for one run (:func:`_audit_for`): ``earlier`` (the once-only read), ``append`` (an event:
+    how it ended, :data:`OUTCOMES`, and whether this process was interrupted), ``outcome`` (an event's word as far as
+    it is known, read again after an interruption), ``gone`` (what is said when the helper stopped answering) and
+    ``close``."""
+
+    folder: Path
+
+    def earlier(self) -> dict[str, Any] | None:
+        raise NotImplementedError
+
+    def append(self, event: str, detail: Mapping[str, Any]) -> tuple[str, bool]:
+        raise NotImplementedError
+
+    def outcome(self, event: str) -> str | None:
+        raise NotImplementedError
+
+    def gone(self) -> list[tuple[Mapping[str, str], dict[str, Any]]]:
+        return []
+
+    def close(self) -> None:
+        raise NotImplementedError
+
+
+class _InPlace(_Audit):
+    """A folder of root's (no owner to drop to): this process appends, through the folder held open (``fchdir`` to
+    it, relative paths, then back), after its mode and entries were checked through the same descriptor
+    (:func:`_plain_entries`); the folder is never opened by its path again."""
+
+    def __init__(self, folder: Path, dfd: int, site: str, tz: str | None) -> None:
+        self.folder, self.dfd, self.site, self.tz = folder, dfd, site, tz
+        self.words: dict[str, str] = {}
+        self.pending: str | None = None
+
+    def earlier(self) -> dict[str, Any] | None:
+        return earlier_ceremony(self.folder, self.site)
+
+    def append(self, event: str, detail: Mapping[str, Any]) -> tuple[str, bool]:
+        if stat.S_IMODE(os.fstat(self.dfd).st_mode) & 0o022:
+            raise CeremonyError(AUDIT_FOLDER_UNSAFE, path=self.folder)
+        _plain_entries(self.dfd, self.folder)
+        fp = str(detail.get("fingerprint") or "")
+        here = os.open(".", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            self.pending = event
+            os.fchdir(self.dfd)
             try:
-                signal.signal(signal.SIGINT, signal.SIG_IGN)
-                os.write(w, (word if word in OUTCOMES else "unknown").encode("ascii"))
+                word, interrupted = _append_here(Path("."), event, detail, self.tz, fp)
+                self.words[event], self.pending = word, None
             finally:
-                os._exit(0)
-    os.close(w)
-    interrupted, data, restored, killed = False, b"", False, False
-    deadline = time.monotonic() + CHILD_LIMIT
-    while True:
+                os.fchdir(here)
+        finally:
+            os.close(here)
+        return word, interrupted
+
+    def outcome(self, event: str) -> str | None:
+        if event in self.words:
+            return self.words[event]
+        return "unknown" if self.pending == event else None
+
+    def close(self) -> None:
+        os.close(self.dfd)
+
+
+class _Helper(_Audit):
+    """The audit helper (D-1379): one process, forked (:meth:`start`) before any key material exists in this one and
+    dropped to the audit folder's owner, alive for the whole run; it takes requests over a pipe pair
+    (:data:`REQUESTS`) and answers with one word. This process always reaps it (:meth:`close`): it is killed when an
+    answer takes longer than :data:`CHILD_LIMIT`, or :data:`CHILD_GRACE` after Ctrl-C (at once on a second one). A
+    helper that dies, hangs or answers garbage is ``gone``: every later append is ``unknown``."""
+
+    def __init__(self, folder: Path, pid: int, req: int, ans: int, owner: tuple[int, int]) -> None:
+        self.folder, self.pid, self.req, self.ans, self.owner = folder, pid, req, ans, owner
+        self.buf = b""
+        self.words: dict[str, str] = {}
+        self.pending: str | None = None
+        self.cause: str | None = None  # "signalled" or "silent" once it is gone
+        self.reaped = self.closed = False
+
+    @classmethod
+    def start(cls, folder: Path, dfd: int, uid: int, gid: int, site: str, tz: str | None) -> _Helper:
+        """Fork the helper (the cyclic collector run here first; Ctrl-C blocked across the fork) and wait for its
+        first word. ``drop-failed``: :data:`AUDIT_DROP_FAILED`; no word: :data:`AUDIT_HELPER_LOST`. Either way, and on
+        Ctrl-C, the helper is reaped before this raises."""
+        import gc
+
+        gc.collect()
+        req_r, req_w = os.pipe()
+        ans_r, ans_w = os.pipe()
+        old = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
         try:
-            if not restored:
-                restored = True
-                signal.pthread_sigmask(signal.SIG_SETMASK, old)
-            left = deadline - time.monotonic()
-            if left <= 0 and not killed:
-                killed = True
-                with contextlib.suppress(OSError):
-                    os.kill(pid, signal.SIGKILL)  # its pipe closes with it: the loop ends on EOF
-            ready, _, _ = select.select([r], [], [], max(left, 0.0) if not killed else None)
-            if not ready:
-                continue
-            chunk = os.read(r, 32)
-            if not chunk:
+            pid = os.fork()
+        except OSError:
+            signal.pthread_sigmask(signal.SIG_SETMASK, old)
+            for fd in (req_r, req_w, ans_r, ans_w):
+                os.close(fd)
+            raise CeremonyError(AUDIT_DROP_FAILED, path=folder, owner=f"{uid}:{gid}") from None
+        if pid == 0:  # the helper: never returns
+            os.close(req_w)
+            os.close(ans_r)
+            _helper_main(dfd, uid, gid, req_r, ans_w, site, tz)
+            os._exit(0)
+        os.close(req_r)
+        os.close(ans_w)
+        h = cls(folder, pid, req_w, ans_r, (uid, gid))
+        try:
+            h.pending = "start"
+            first, interrupted = h._wait()
+            signal.pthread_sigmask(signal.SIG_SETMASK, old)
+            if interrupted:
+                raise KeyboardInterrupt
+            if first == "drop-failed":
+                raise CeremonyError(AUDIT_DROP_FAILED, path=folder, owner=f"{uid}:{gid}")
+            if first != "ready":
+                raise h.lost()
+        except BaseException:
+            h.close()
+            raise
+        return h
+
+    def _wait(self) -> tuple[str | None, bool]:
+        """The answer to the pending request (one line), or None when the helper is gone (ended, killed, stopped,
+        too slow, garbage), and whether Ctrl-C came meanwhile. Ctrl-C only shortens the wait (a flag, never an
+        exception here), so an answer already received is always read; the answer is kept before this returns."""
+        import select
+        import time
+
+        hits = [0]
+        try:
+            old = signal.signal(signal.SIGINT, lambda *_: hits.__setitem__(0, hits[0] + 1))
+        except ValueError:  # not the main thread: Ctrl-C cannot reach this wait as a signal handler
+            old = None
+        seen, line = 0, None
+        deadline = time.monotonic() + CHILD_LIMIT
+        try:
+            while True:
+                if b"\n" in self.buf:
+                    raw, self.buf = self.buf.split(b"\n", 1)
+                    if self.buf:  # more than one answer: garbage
+                        self._lose("silent")
+                        break
+                    line = raw.decode("ascii", "replace")
+                    if self.pending is not None:
+                        self.words[self.pending] = line
+                    break
+                if hits[0] != seen:
+                    deadline = min(deadline, time.monotonic() + (CHILD_GRACE if seen == 0 else 0.0))
+                    seen = hits[0]
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    self._lose("silent")
+                    break
+                ready, _, _ = select.select([self.ans], [], [], min(left, HELPER_POLL))
+                if not ready:
+                    continue
+                chunk = os.read(self.ans, 4096)
+                if not chunk:
+                    self._lose("ended")
+                    break
+                self.buf += chunk
+                if len(self.buf) > ANSWER_MAX:
+                    self._lose("silent")
+                    break
+        finally:
+            self.pending = None
+            if old is not None:
+                signal.signal(signal.SIGINT, old)
+        return line, hits[0] > 0
+
+    def _lose(self, how: str) -> None:
+        """The helper is gone: say why (stopped or killed by a signal, or silent), kill it if it still runs, reap."""
+        import time
+
+        status = 0
+        if not self.reaped:
+            until = time.monotonic() + (1.0 if how == "ended" else 0.0)
+            while True:
+                try:
+                    wpid, status = os.waitpid(self.pid, os.WNOHANG | os.WUNTRACED)
+                except ChildProcessError:
+                    wpid, self.reaped = self.pid, True
+                    break
+                if wpid or time.monotonic() >= until:
+                    break
+                time.sleep(0.02)
+            by_signal = os.WIFSTOPPED(status) or os.WIFSIGNALED(status) if wpid else _stopped(self.pid)
+            if by_signal:
+                self.cause = "signalled"
+            if wpid and not os.WIFSTOPPED(status):
+                self.reaped = True
+            self._reap(kill=True)
+        if self.cause is None:
+            self.cause = "silent"
+
+    def _reap(self, kill: bool) -> None:
+        if self.reaped:
+            return
+        if kill:
+            with contextlib.suppress(OSError):
+                os.kill(self.pid, signal.SIGKILL)
+        while True:
+            try:
+                os.waitpid(self.pid, 0)
                 break
-            data += chunk
-        except KeyboardInterrupt:
-            deadline = min(deadline, time.monotonic() + (CHILD_GRACE if not interrupted else 0.0))
-            interrupted = True
-    os.close(r)
-    while True:
+            except KeyboardInterrupt:
+                continue
+            except ChildProcessError:
+                break
+        self.reaped = True
+
+    def lost(self) -> CeremonyError:
+        err = CeremonyError(AUDIT_HELPER_LOST, path=self.folder)
+        err.more.extend(self.gone())
+        return err
+
+    def gone(self) -> list[tuple[Mapping[str, str], dict[str, Any]]]:
+        owner = f"{self.owner[0]}:{self.owner[1]}"
+        if self.cause == "signalled":
+            return [(HELPER_SIGNALLED, {"owner": owner})]
+        if self.cause is not None:
+            return [(HELPER_SILENT, {"owner": owner, "limit": int(CHILD_LIMIT)})]
+        return []
+
+    def _ask(self, verb: str, payload: Mapping[str, Any] | None = None) -> tuple[str | None, bool]:
+        if self.cause is not None or self.closed:
+            return None, False
+        line = verb if payload is None else f"{verb} {json.dumps(dict(payload), ensure_ascii=True, sort_keys=True)}"
+        self.pending = verb
         try:
-            os.waitpid(pid, 0)
-            break
-        except KeyboardInterrupt:
-            interrupted = True
-        except ChildProcessError:
-            break
-    word = data.decode("ascii", "replace")
-    return (word if word in OUTCOMES and not killed else "unknown"), interrupted
+            _send(self.req, (line + "\n").encode("ascii"))
+        except OSError:  # the helper is gone (its end of the pipe closed)
+            self.pending = None
+            self._lose("ended")
+            return None, False
+        return self._wait()
+
+    def earlier(self) -> dict[str, Any] | None:
+        got, interrupted = self._ask("earlier?")
+        if interrupted:
+            raise KeyboardInterrupt
+        verb, _, body = (got or "").partition(" ")
+        try:
+            if verb == "none" and not body:
+                return None
+            if verb == "found":
+                d = json.loads(body)
+                return {"ts": str(d["ts"]), "detail": {"fingerprint": str(d["fp"])}}
+            if verb == "unreadable":
+                name = Path(str(json.loads(body)["name"])).name
+                raise CeremonyError(AUDIT_UNREADABLE, path=self.folder / name, audit=self.folder)
+            if verb == "unknown" and not body:
+                raise CeremonyError(AUDIT_UNREADABLE, path=self.folder, audit=self.folder)
+        except (ValueError, KeyError, TypeError):
+            pass
+        if self.cause is None:
+            self._lose("silent")
+        raise self.lost()
+
+    def append(self, event: str, detail: Mapping[str, Any]) -> tuple[str, bool]:
+        verb = next(v for v, e in REQUESTS.items() if e == event)
+        got, interrupted = self._ask(verb, detail)
+        if got is not None and got not in OUTCOMES[:4]:  # not an append's word ("drop-failed" comes only first)
+            self.words[verb] = "unknown"
+            self._lose("silent")
+            got = None
+        return (got or "unknown"), interrupted
+
+    def outcome(self, event: str) -> str | None:
+        """The event's word as known now: the answer already read, else, when its request was sent and its answer
+        is pending, that answer read now (or ``unknown``), else None (never sent)."""
+        verb = next(v for v, e in REQUESTS.items() if e == event)
+        if verb in self.words:
+            return self.words[verb] if self.words[verb] in OUTCOMES[:4] else "unknown"
+        if self.pending == verb and self.cause is None:
+            got, _ = self._wait()
+            return got if got in OUTCOMES[:4] else "unknown"
+        return "unknown" if self.pending == verb else None
+
+    def close(self) -> None:
+        """Ask the helper to end (``quit``), close the pipes, and reap it: killed when it has not ended within
+        :data:`CHILD_GRACE`. Ctrl-C meanwhile does not stop the reaping."""
+        import time
+
+        if self.closed:
+            return
+        self.closed = True
+        old = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+        try:
+            if not self.reaped and self.cause is None:
+                with contextlib.suppress(OSError):
+                    _send(self.req, b"quit\n")
+            with contextlib.suppress(OSError):
+                os.close(self.req)
+            until = time.monotonic() + CHILD_GRACE
+            while not self.reaped:
+                try:
+                    wpid, _ = os.waitpid(self.pid, os.WNOHANG)
+                except ChildProcessError:
+                    self.reaped = True
+                    break
+                if wpid:
+                    self.reaped = True
+                    break
+                if time.monotonic() >= until:
+                    self._reap(kill=True)
+                    break
+                time.sleep(0.02)
+            with contextlib.suppress(OSError):
+                os.close(self.ans)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, old)
 
 
-def _append(audit_dir: Path, event: str, detail: Mapping[str, Any], tz: str | None, fp: str) -> tuple[str, bool]:
-    """Append ``event`` without root writing in the audit folder: the folder held open (:func:`_open_audit`, which
-    refuses a link or a folder others may plant in); a folder of another owner is written by a child dropped to that
-    owner (:func:`_as_owner`), a folder of root's in this process once its entries were checked. How it ended
-    (:data:`OUTCOMES`) and whether this process was interrupted. :data:`AUDIT_DROP_FAILED` when the child could not
-    take the owner's identity (nothing written) and this process was not interrupted."""
-    dfd, uid, gid = _open_audit(audit_dir)
+def _stopped(pid: int) -> bool:
+    """Whether the process ``pid`` is stopped (state ``T`` or ``t`` in ``/proc/<pid>/stat``)."""
     try:
-        if uid == 0:
-            return _append_here(audit_dir, event, detail, tz, fp)
-        word, interrupted = _as_owner(dfd, uid, gid, lambda: _append_here(Path("."), event, detail, tz, fp))
+        with open(f"/proc/{pid}/stat", "rb") as fh:
+            return fh.read().rsplit(b")", 1)[1].split()[0] in (b"T", b"t")
+    except (OSError, IndexError):
+        return False
+
+
+def _audit_for(folder: Path, dfd: int, uid: int, gid: int, site: str, tz: str | None) -> _Audit:
+    """The audit's writer for this run, taking ``dfd`` (the folder held open by :func:`_open_audit`): a folder of
+    another owner, the audit helper (:class:`_Helper`, which keeps its own copy of the descriptor; this one is closed
+    here); a folder of root's, this process (:class:`_InPlace`)."""
+    if uid == 0:
+        return _InPlace(folder, dfd, site, tz)
+    try:
+        return _Helper.start(folder, dfd, uid, gid, site, tz)
     finally:
         os.close(dfd)
-    if word == "drop-failed" and not interrupted:
-        raise CeremonyError(AUDIT_DROP_FAILED, path=audit_dir, owner=f"{uid}:{gid}")
-    return word, interrupted
 
 
 def _root_left(audit_dir: Path) -> _Left:
@@ -1399,28 +1813,32 @@ def run(
     interruption too) undoes what was made and the refusal says what was removed, except once ``backup.pub`` may
     have been visible (:class:`CeremonyKept`: nothing of the key is removed then). ``progress`` is kept up to date as
     each step happens (:class:`_Progress`), for what escapes this (a second interruption)."""
-    who, wit, held = check(stick, operator, witness, pub, sec, audit_dir, site)
+    who, wit, held, audit = check(stick, operator, witness, pub, sec, audit_dir, site, tz)
     try:
         if audit_dir is None:  # check() refused already; said again for the type checker
             raise CeremonyError(NO_AUDIT)
         prog = progress if progress is not None else _Progress()
-        return _ceremony(held, who, wit, pub=pub, audit_dir=audit_dir, site=site, now=now, tz=tz, prog=prog)
+        return _ceremony(held, who, wit, pub=pub, audit_dir=audit_dir, audit=audit, site=site, now=now, tz=tz,
+                         prog=prog)  # fmt: skip
     finally:
-        os.close(held.fd)
+        try:
+            os.close(held.fd)
+        finally:
+            audit.close()  # the audit helper ends and is reaped, whatever happened
 
 
 def _ceremony(
-    held: _Stick, who: str, wit: str, *, pub: Path, audit_dir: Path, site: str, now: datetime | None, tz: str | None,
-    prog: _Progress,
+    held: _Stick, who: str, wit: str, *, pub: Path, audit_dir: Path, audit: _Audit, site: str, now: datetime | None,
+    tz: str | None, prog: _Progress,
 ) -> dict[str, Any]:  # fmt: skip
     """The writes, in this order (D-1379): the key file and the paper sheet in the stick's folder held open, the
     folder synced, both read back; the public key as a synced temporary file beside ``backup.pub``; the audit event,
-    its line synced, written as the audit folder's owner (:func:`_append`); and only then ``backup.pub`` linked to its
-    name, so a ``trialbox backup`` can find the public key only once the event that names it is on disk."""
+    its line synced, written as the audit folder's owner (by the audit helper, started before this, before any key
+    material exists: :func:`check`); and only then ``backup.pub`` linked to its name, so a ``trialbox backup`` can
+    find the public key only once the event that names it is on disk. This process writes no core from here on."""
     from zoneinfo import ZoneInfo
 
     from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
     from tools.trialbox import backup as bk
 
@@ -1436,7 +1854,8 @@ def _ceremony(
     try:
         ZoneInfo(tz or "Asia/Taipei")  # the site's zone, as `restore` writes it: a wrong one refused before the key
         at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
-        sk = X25519PrivateKey.generate()
+        _no_core()  # root's own crash from here on writes no core holding the key
+        sk = _new_key()  # the audit helper runs already, dropped; nothing forks from here on
         raw = sk.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw,
                                serialization.NoEncryption())  # fmt: skip
         pk = sk.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
@@ -1470,14 +1889,16 @@ def _ceremony(
         detail = {"at": at, "site": site, "fingerprint": fp, "operator": who, "witness": wit,
                   "forms": ["stick", "paper"], "paper_format": FORMAT}  # fmt: skip
         step = "audit"
-        word, interrupted = _append(audit_dir, EVENT, detail, tz, fp)  # root never writes in the audit folder
+        word, interrupted = audit.append(EVENT, detail)  # root never writes in the audit folder
         audit_state = prog.event = _EVENT_STATE.get(word, "absent")
         if audit_state != "recorded":
             if interrupted:
                 raise KeyboardInterrupt
+            if isinstance(audit, _Helper) and audit.gone():  # the helper stopped answering: said so, with the cause
+                raise audit.lost()
             raise OSError(errno.EIO, "the audit append did not write the event")  # said as AUDIT_FAILED
         anchor_unconfirmed = word == "line-synced"  # the line is on disk: go on, and say it (KEPT_WARNING)
-        if interrupted:  # Ctrl-C while the child wrote: the event is on disk, backup.pub not linked: undone
+        if interrupted:  # Ctrl-C while the helper wrote: the event is on disk, backup.pub not linked: undone
             raise KeyboardInterrupt
         step = "audit-check"
         left.append(_root_left(audit_dir))  # read only: the child wrote as the folder's owner
@@ -1488,10 +1909,14 @@ def _ceremony(
         undo.forget(staged.path)
         _sync_dir(pub.parent)
     except BaseException as e:  # one failure domain: nothing of a failed ceremony is kept (D-1379)
+        if step == "audit" and audit_state == "absent":  # an interruption around the append: its answer read first
+            got = audit.outcome(EVENT)
+            if got is not None:
+                audit_state = prog.event = _EVENT_STATE.get(got, "absent")
         if audit_state == "recorded":  # the event's line is on disk, whatever failed after it
-            raise _after_event(e, step, link, undo, staged, tz, left, detail, held, pub, audit_dir, prog) from None
+            raise _after_event(e, step, link, undo, staged, audit, left, detail, held, pub, audit_dir, prog) from None
         err = _cause(e, step, stick, pub, audit_dir)
-        err.more = undo.run() + _owner_said(left, audit_dir)
+        err.more = [*err.more, *undo.run(), *_owner_said(left, audit_dir)]
         if step == "audit" and audit_state == "unknown":
             err.more.append((AUDIT_MAY_HOLD, {"fp": fp}))
         raise err from None
@@ -1506,7 +1931,7 @@ def _ceremony(
 
 
 def _after_event(
-    e: BaseException, step: str, link: str, undo: _Undo, staged: _Made | None, tz: str | None, left: list[_Left],
+    e: BaseException, step: str, link: str, undo: _Undo, staged: _Made | None, audit: _Audit, left: list[_Left],
     detail: Mapping[str, Any], held: _Stick, pub: Path, audit_dir: Path, prog: _Progress,
 ) -> CeremonyError:  # fmt: skip
     """The refusal or warning for a failure once the event's line is on disk (an interruption while the child wrote
@@ -1534,11 +1959,12 @@ def _after_event(
         kept.more = _owner_said(left, audit_dir)
         return kept
     err = _cause(e, "public" if step == "link" else "after-audit", stick, pub, audit_dir)
-    undone, more = _write_undone(audit_dir, tz, detail, e)
+    undone, more = _write_undone(audit, audit_dir, detail, e)
     prog.undone = undone
     err.more = undo.run() + _owner_said([*left, more], audit_dir)
     if undone != "written":
         err.more.append((UNDONE_UNKNOWN if undone == "unknown" else AUDIT_HOLDS, {"fp": fp}))
+        err.more.extend(audit.gone())
     return err
 
 
@@ -1562,16 +1988,15 @@ def _owner_said(left: Sequence[_Left], audit_dir: Path) -> list[tuple[Mapping[st
     return said
 
 
-def _write_undone(audit_dir: Path, tz: str | None, detail: Mapping[str, Any], e: BaseException) -> tuple[str, _Left]:
-    """``backup.key_ceremony_undone`` after the ceremony's event, written as the event was (:func:`_append`):
+def _write_undone(audit: _Audit, audit_dir: Path, detail: Mapping[str, Any], e: BaseException) -> tuple[str, _Left]:
+    """``backup.key_ceremony_undone`` after the ceremony's event, written as the event was (by the same audit helper):
     ``backup.pub`` was never put in place, so no backup was made to the key and its copies can be removed; the
     once-only check counts the pair as not done. Whether it is written (``written``: its line is on disk, its head
     anchor confirmed or not, so a rerun is allowed; ``absent``: not written; ``unknown``: not known), and what the
     check after it found. Nothing here raises."""
-    fp = str(detail.get("fingerprint") or "")
     named = {k: detail[k] for k in ("at", "site", "fingerprint", "operator", "witness") if k in detail}
     try:
-        word, _ = _append(audit_dir, UNDONE_EVENT, {**named, "why": type(e).__name__}, tz, fp)
+        word, _ = audit.append(UNDONE_EVENT, {**named, "why": type(e).__name__})
         undone = {"ok": "written", "line-synced": "written", "unknown": "unknown"}.get(word, "absent")
     except CeremonyError:  # the folder refused, or the owner's identity not taken: nothing written
         undone = "absent"

@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import ast
 import base64
+import contextlib
 import dataclasses
 import errno
 import io
 import json
 import os
 import re
+import signal
 import stat
 import subprocess
 import sys
@@ -322,9 +324,9 @@ def test_a_file_made_on_another_device_is_refused(box: dict[str, Path], capsys: 
     """The stick pulled or mounted again between the check and the write: the file is not on the checked device."""
     real = bkc.check
 
-    def moved(*a: Any, **k: Any) -> tuple[str, str, Any]:
-        who, wit, held = real(*a, **k)
-        return who, wit, dataclasses.replace(held, dev=held.dev + 1)
+    def moved(*a: Any, **k: Any) -> tuple[str, str, Any, Any]:
+        who, wit, held, audit = real(*a, **k)
+        return who, wit, dataclasses.replace(held, dev=held.dev + 1), audit
 
     monkeypatch.setattr(bkc, "check", moved)
     rc, out = _main(box, capsys)
@@ -843,31 +845,29 @@ def test_the_public_key_is_visible_only_after_the_audit_line_is_on_disk(
 ) -> None:
     """H4: what a concurrent ``trialbox backup`` would find (``load_public`` of ``backup.pub``) while the ceremony
     appends its event: nothing; so a failing append, whose undo removes the private copies, leaves no backup made to
-    that key. The append runs in the child (as root, as uid 65534, which cannot walk the test's folder by path): it
-    looks through a folder and writes to a file opened before the run."""
-    seen = box["tmp"] / "seen.txt"
-    seen.write_text("", encoding="utf-8")
-    out_fd = os.open(seen, os.O_WRONLY | os.O_APPEND)
-    dep_fd = os.open(box["deploy"], os.O_RDONLY | os.O_DIRECTORY)
-    real = tb_audit.AuditLog.append
+    that key. The append runs in the audit helper, which holds no descriptor but its pipes: this process looks when it
+    sends the event's request and again when the helper's answer to it has been read (it alone links the key)."""
+    seen: list[str] = []
+    real_send, real_wait = bkc._send, bkc._Helper._wait
 
-    def append(self: tb_audit.AuditLog, event: str, **kw: Any) -> dict[str, Any]:
-        try:
-            os.stat("secrets/backup.pub", dir_fd=dep_fd, follow_symlinks=False)
-            there = True
-        except FileNotFoundError:
-            there = False
-        os.write(out_fd, f"{event} {there}\n".encode())
-        return real(self, event, **kw)
+    def send(fd: int, data: bytes) -> None:
+        if data.startswith(b"event "):
+            seen.append(f"sent {os.path.lexists(box['pub'])}")
+        real_send(fd, data)
 
-    monkeypatch.setattr(tb_audit.AuditLog, "append", append)
-    try:
-        rc, out = _main(box, capsys)
-    finally:
-        os.close(out_fd)
-        os.close(dep_fd)
-    assert seen.read_text(encoding="utf-8").splitlines() == [f"{bkc.EVENT} False"]
+    def wait(self: Any) -> Any:
+        verb = self.pending
+        got = real_wait(self)
+        if verb == "event":
+            seen.append(f"answered {got[0]} {os.path.lexists(box['pub'])}")
+        return got
+
+    monkeypatch.setattr(bkc, "_send", send)
+    monkeypatch.setattr(bkc._Helper, "_wait", wait)
+    rc, out = _main(box, capsys)
+    assert seen == ["sent False", "answered ok False"]
     assert rc == 0, out
+    assert box["pub"].exists()
 
 
 def test_a_public_key_name_taken_after_the_audit_writes_the_undoing_and_frees_a_rerun(
@@ -1020,35 +1020,64 @@ def test_a_link_planted_by_the_audit_writer_is_never_followed_with_roots_power(
 def test_a_failed_drop_refuses_before_anything_is_written_to_the_audit(
     box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Item 1: the child cannot take the folder owner's identity: it writes nothing to the audit (no lock, no day
-    file, no head anchor), the ceremony is undone and the refusal says why, naming the owner; nothing is kept."""
+    """Item 1: the audit helper cannot take the folder owner's identity: it writes nothing to the audit (no lock, no
+    day file, no head anchor); since the review of 1a7426e0 the helper drops before any key exists, so the ceremony is
+    refused before the key is made, naming the owner; nothing is made at all."""
+    made = {"n": 0}
+    real_key = bkc._new_key
+
+    def new_key() -> Any:
+        made["n"] += 1
+        return real_key()
 
     def drop(uid: int, gid: int) -> None:
         raise PermissionError(errno.EPERM, "Operation not permitted")
 
     monkeypatch.setattr(bkc, "_drop_to", drop)
+    monkeypatch.setattr(bkc, "_new_key", new_key)
     rc, out = _main(box, capsys)
     assert rc == 1, out
     owner = f"{WRITER[0]}:{WRITER[1]}"
     assert bkc.AUDIT_DROP_FAILED["en"].format(path=box["audit"], owner=owner) in out
     assert bkc.AUDIT_MAY_HOLD["en"].split("{fp}")[0] not in out
-    assert not list(box["audit"].iterdir())
-    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE)
+    assert not list(box["audit"].iterdir()) and made["n"] == 0
+    assert bkc.REMOVED_ALL["en"].split("{files}")[0] not in out
     _nothing_kept(box)
 
 
-def test_the_drop_is_real_and_checked(tmp_path: Path) -> None:
-    """Item 1, the real ``_drop_to`` in a real child (no seam): as root, the child becomes uid 65534 for good (real,
-    effective and saved), with no supplementary group, cannot become root again, and is not dumpable; as any other
-    user, dropping supplementary groups is refused, so the child says ``drop-failed`` and runs nothing."""
-    import ctypes
-
+def _writer_folder(tmp_path: Path) -> tuple[Path, int]:
+    """An audit folder of the audit writer (:data:`WRITER`) and its inode."""
     folder = tmp_path / "audit"
     folder.mkdir()
     if os.geteuid() == 0:
-        os.chown(folder, 65534, 65534)
+        os.chown(folder, *WRITER)
+    return folder, os.stat(folder).st_ino
 
-    def write() -> tuple[str, bool]:
+
+def _start(folder: Path) -> Any:
+    """The audit helper on ``folder`` (``bkc._Helper.start`` with the folder held open, as the ceremony starts it)."""
+    fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        return bkc._Helper.start(folder, fd, *WRITER, "synthetic-site", None)
+    finally:
+        os.close(fd)
+
+
+def _gone(pid: int) -> bool:
+    return not os.path.exists(f"/proc/{pid}")
+
+
+def test_the_drop_is_real_and_checked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Item 1, the real ``_drop_to`` in the real helper (no seam): as root, the helper becomes uid 65534 for good
+    (real, effective and saved), with no supplementary group, cannot become root again, is not dumpable and works in
+    the folder held open; as any other user, dropping supplementary groups is refused, so the helper says
+    ``drop-failed``, runs nothing, and the start is refused (and the helper reaped)."""
+    import ctypes
+
+    folder, ino = _writer_folder(tmp_path)
+    seen = folder / "seen"
+
+    def probe(where: Path, event: str, detail: Any, tz: Any, fp: str) -> tuple[str, bool]:
         try:
             os.setuid(0)
             return "unknown", False  # root again: the drop did not hold
@@ -1056,44 +1085,54 @@ def test_the_drop_is_real_and_checked(tmp_path: Path) -> None:
             pass
         held = os.getresuid() == (65534,) * 3 and os.getresgid() == (65534,) * 3 and not os.getgroups()
         dumpable = ctypes.CDLL(None).prctl(3, 0, 0, 0, 0)
-        here = os.stat(".").st_ino == ino  # the folder held open
-        return ("ok" if held and dumpable == 0 and here else "unknown"), False
+        here = os.stat(".").st_ino == ino and str(where) == "."
+        Path("seen").write_text(f"{held} {dumpable} {here}", encoding="utf-8")
+        return "ok", False
 
-    ino = os.stat(folder).st_ino
-    fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+    monkeypatch.setattr(bkc, "_append_here", probe)
+    if os.geteuid() != 0:
+        with pytest.raises(bkc.CeremonyError) as got:
+            _start(folder)
+        assert got.value.text is bkc.AUDIT_DROP_FAILED
+        assert not seen.exists()
+        return
+    h = _start(folder)
     try:
-        word, interrupted = bkc._as_owner(fd, 65534, 65534, write)
+        word, interrupted = h.append(bkc.EVENT, {"fingerprint": "synthetic"})
     finally:
-        os.close(fd)
-    assert not interrupted
-    assert word == ("ok" if os.geteuid() == 0 else "drop-failed")
+        h.close()
+    assert (word, interrupted) == ("ok", False)
+    assert seen.read_text(encoding="utf-8") == "True 0 True"
+    assert _gone(h.pid)
 
 
-@pytest.mark.parametrize("how", ["raises", "interrupt", "exits", "drop fails", "hangs", "never returns"])
-def test_the_child_cannot_outlive_the_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, how: str) -> None:
-    """Whatever happens in the child (an exception, Ctrl-C, ``sys.exit``, a failed drop, a hang, or code that would
-    go on running the caller's program), it ends with ``os._exit`` or is killed, and it is reaped before the call
-    returns: no process of it is left (an orphan would go on running the test session). The child notes its pid in a
-    file opened before the call."""
+@pytest.mark.parametrize(
+    "how", ["raises", "interrupt", "exits", "drop fails", "hangs", "never ends", "garbage", "two answers", "killed",
+            "stopped"],
+)  # fmt: skip
+def test_the_helper_cannot_outlive_the_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, how: str) -> None:
+    """Whatever happens in the audit helper (an exception, Ctrl-C or ``sys.exit`` in an append, a failed drop, a
+    hang, a helper that would never end, an answer that is not an outcome or two answers, a kill or a stop by the
+    writer account), every path of it ends with ``os._exit`` or it is killed, and it is reaped before ``close``
+    returns: no process of it is left (an orphan would go on running the test session). The append is ``unknown``
+    unless the helper answered; a helper killed or stopped by a signal is said as that."""
     import time
 
-    folder = tmp_path / "audit"
-    folder.mkdir()
-    pids = tmp_path / "pids"
-    pids.write_text("", encoding="utf-8")
-    pfd = os.open(pids, os.O_WRONLY | os.O_APPEND)
-    monkeypatch.setattr(bkc, "_drop_to", lambda uid, gid: None)
+    folder, _ = _writer_folder(tmp_path)
+    if os.geteuid() != 0 or how != "drop fails":
+        monkeypatch.setattr(bkc, "_drop_to", lambda uid, gid: None)
     monkeypatch.setattr(bkc, "CHILD_LIMIT", 2.0)
-    if how == "drop fails":
+    monkeypatch.setattr(bkc, "CHILD_GRACE", 1.0)
+    forks: list[int] = []
+    real_fork = os.fork
 
-        def bad_drop(uid: int, gid: int) -> None:
-            os.write(pfd, f"{os.getpid()}\n".encode())
-            raise PermissionError(errno.EPERM, "Operation not permitted")
+    def fork() -> int:
+        pid = real_fork()
+        if pid:
+            forks.append(pid)
+        return pid
 
-        monkeypatch.setattr(bkc, "_drop_to", bad_drop)
-
-    def write() -> tuple[str, bool]:
-        os.write(pfd, f"{os.getpid()}\n".encode())
+    def append(where: Path, event: str, detail: Any, tz: Any, fp: str) -> tuple[str, bool]:
         if how == "raises":
             raise RuntimeError("synthetic")
         if how == "interrupt":
@@ -1102,66 +1141,341 @@ def test_the_child_cannot_outlive_the_call(tmp_path: Path, monkeypatch: pytest.M
             sys.exit(3)
         if how == "hangs":
             time.sleep(60)
-        if how == "never returns":  # as if the child ran on: it would hold the pipe until killed
-            while True:
-                time.sleep(0.05)
         return "ok", False
 
-    fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+    def serve(req: int, ans: int, site: str, tz: Any) -> None:
+        os.read(req, 4096)
+        bkc._reply(ans, "ok")
+        while True:  # as if the helper ran on and never ended: it is killed at close
+            time.sleep(0.05)
+
+    def drop(uid: int, gid: int) -> None:
+        raise PermissionError(errno.EPERM, "Operation not permitted")
+
+    monkeypatch.setattr(os, "fork", fork)
+    monkeypatch.setattr(bkc, "_append_here", append)
+    if how == "drop fails":
+        monkeypatch.setattr(bkc, "_drop_to", drop)
+    elif how == "never ends":
+        monkeypatch.setattr(bkc, "_serve", serve)
+    elif how in ("garbage", "two answers"):
+        monkeypatch.setattr(bkc, "_answer", lambda *a: "not an outcome" if how == "garbage" else "ok\nok")
     began = time.monotonic()
+    if how == "drop fails":
+        with pytest.raises(bkc.CeremonyError) as got:
+            _start(folder)
+        assert got.value.text is bkc.AUDIT_DROP_FAILED
+        (pid,) = forks
+        assert _gone(pid), "the helper outlived the start"
+        return
+    h = _start(folder)
     try:
-        word, interrupted = bkc._as_owner(fd, os.geteuid(), os.getegid(), write)
+        if how == "killed":
+            os.kill(h.pid, signal.SIGKILL)
+        if how == "stopped":
+            os.kill(h.pid, signal.SIGSTOP)
+        word, interrupted = h.append(bkc.EVENT, {"fingerprint": "synthetic"})
     finally:
-        os.close(fd)
-        os.close(pfd)
+        h.close()
     took = time.monotonic() - began
+    assert forks == [h.pid] and h.pid != os.getpid()
     assert not interrupted
-    assert word == ("drop-failed" if how == "drop fails" else "unknown"), word
-    (child,) = [int(x) for x in pids.read_text(encoding="utf-8").split()]
-    assert child != os.getpid()
-    assert not os.path.exists(f"/proc/{child}"), "the child outlived the call"
-    assert took < (10.0 if how in ("hangs", "never returns") else 2.0), took
+    assert word == ("ok" if how == "never ends" else "unknown"), word
+    assert _gone(h.pid), "the helper outlived the run"
+    if how in ("killed", "stopped"):
+        assert h.gone() == [(bkc.HELPER_SIGNALLED, {"owner": f"{WRITER[0]}:{WRITER[1]}"})]
+    elif how in ("hangs", "garbage", "two answers"):
+        assert h.gone() and h.gone()[0][0] is bkc.HELPER_SILENT
+    else:
+        assert h.gone() == []
+    assert took < (8.0 if how in ("hangs", "never ends", "stopped") else 3.0), took
 
 
-def test_garbage_of_the_caller_is_freed_by_the_caller_never_in_the_child(
+def test_garbage_of_the_caller_is_freed_by_the_caller_never_in_the_helper(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The k-suite run of the first fix hung: the child freed a compressor copied from the test process whose worker
-    threads are not in the child, and waited for them for ever. Now cyclic garbage is collected in the caller before
-    the fork, and the collector is off in the child: a cycle left by the caller is freed in the caller (its pid
-    noted), and the child sees the collector off."""
+    """The k-suite run of the first fix hung: a child freed a compressor copied from the test process whose worker
+    threads are not in the child, and waited for them for ever. Cyclic garbage is collected in the caller before the
+    helper is forked, and the collector is off in the helper: a cycle left by the caller is freed in the caller
+    before the start returns, and the helper sees the collector off."""
     import gc
 
-    folder = tmp_path / "audit"
-    folder.mkdir()
-    freed = tmp_path / "freed"
-    freed.write_text("", encoding="utf-8")
-    ffd = os.open(freed, os.O_WRONLY | os.O_APPEND)
+    folder, _ = _writer_folder(tmp_path)
+    freed: list[int] = []
 
     class Cycle:
         def __init__(self) -> None:
             self.me = self
 
         def __del__(self) -> None:
-            os.write(ffd, f"{os.getpid()}\n".encode())
+            freed.append(os.getpid())
 
     monkeypatch.setattr(bkc, "_drop_to", lambda uid, gid: None)
+    monkeypatch.setattr(bkc, "_append_here", lambda *a: ("ok" if not gc.isenabled() else "unknown", False))
     was = gc.isenabled()
-    gc.disable()  # the cycle stays until the call collects it
+    gc.disable()  # the cycle stays until the start collects it
     try:
         Cycle()
-        fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+        h = _start(folder)
         try:
-            word, _ = bkc._as_owner(fd, os.geteuid(), os.getegid(), lambda: ("ok" if not gc.isenabled() else "unknown",
-                                                                              False))  # fmt: skip
+            assert freed == [os.getpid()]
+            word, _ = h.append(bkc.EVENT, {"fingerprint": "synthetic"})
         finally:
-            os.close(fd)
+            h.close()
     finally:
-        os.close(ffd)
         if was:
             gc.enable()
     assert word == "ok"
-    assert freed.read_text(encoding="utf-8").split() == [str(os.getpid())]
+
+
+def test_the_helper_holds_only_its_pipes_and_writes_no_core(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Item 1 of 1a7426e0: the helper holds no descriptor to the stick, the secrets folder or anything else the
+    caller had open (here: the test's own files and folders): only its two pipe ends and ``/dev/null`` (0, 1, 2);
+    the audit folder is its working folder, not a descriptor. It writes no core (``RLIMIT_CORE`` 0) and is not
+    dumpable."""
+    import ctypes
+    import resource
+
+    folder, _ = _writer_folder(tmp_path)
+    stick = tmp_path / "usb"
+    stick.mkdir()
+    held = [os.open(stick, os.O_RDONLY | os.O_DIRECTORY), os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)]
+
+    def probe(where: Path, event: str, detail: Any, tz: Any, fp: str) -> tuple[str, bool]:
+        links = []
+        for n in os.listdir("/proc/self/fd"):
+            with contextlib.suppress(OSError):
+                links.append(os.readlink(f"/proc/self/fd/{n}"))
+        others = [x for x in links if not (x.startswith("pipe:") or x == "/dev/null" or x.startswith("/proc/"))]
+        core = resource.getrlimit(resource.RLIMIT_CORE)
+        dumpable = ctypes.CDLL(None).prctl(3, 0, 0, 0, 0)
+        pipes = sum(x.startswith("pipe:") for x in links)
+        Path("seen").write_text(json.dumps([others, pipes, list(core), dumpable]), encoding="utf-8")
+        return "ok", False
+
+    if os.geteuid() != 0:
+        monkeypatch.setattr(bkc, "_drop_to", lambda uid, gid: None)
+    monkeypatch.setattr(bkc, "_append_here", probe)
+    try:
+        h = _start(folder)
+        try:
+            word, _ = h.append(bkc.EVENT, {"fingerprint": "synthetic"})
+        finally:
+            h.close()
+    finally:
+        for fd in held:
+            os.close(fd)
+    assert word == "ok"
+    assert json.loads((folder / "seen").read_text(encoding="utf-8")) == [[], 2, [0, 0], 0]
+
+
+def _fork_spy(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """``os.fork`` and ``bkc._new_key`` watched: each fork's pid (in the parent), whether the key was made, and every
+    fork after it; at the key's creation, whether the helper ran then and as whom (``/proc/<pid>/status``)."""
+    seen: dict[str, Any] = {"pids": [], "key": False, "late": 0, "at_key": None, "no_core": False}
+    real_fork, real_key, real_no_core = os.fork, bkc._new_key, bkc._no_core
+
+    def no_core() -> None:
+        real_no_core()
+        if os.getpid() == me:  # this process, not the helper
+            seen["no_core"] = True
+
+    def fork() -> int:
+        if seen["key"]:
+            seen["late"] += 1
+        pid = real_fork()
+        if pid:
+            seen["pids"].append(pid)
+        return pid
+
+    def new_key() -> Any:
+        import resource
+
+        alive = [p for p in seen["pids"] if os.path.exists(f"/proc/{p}")]
+        uids = []
+        for p in alive:
+            for ln in Path(f"/proc/{p}/status").read_text(encoding="utf-8").splitlines():
+                if ln.startswith("Uid:"):
+                    uids.append(tuple(int(x) for x in ln.split()[1:]))
+        seen["at_key"] = {"alive": alive, "uids": uids, "core": resource.getrlimit(resource.RLIMIT_CORE),
+                          "no_core": seen["no_core"]}  # fmt: skip
+        seen["key"] = True
+        return real_key()
+
+    monkeypatch.setattr(os, "fork", fork)
+    monkeypatch.setattr(bkc, "_new_key", new_key)
+    monkeypatch.setattr(bkc, "_no_core", no_core)
+    me = os.getpid()
+    return seen
+
+
+def test_the_audit_helper_runs_dropped_before_the_key_is_made(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 1 of 1a7426e0, the order: the one audit helper is forked and has dropped to the audit folder's owner
+    before the key is made (when the key is made, it is alive, and its real, effective, saved and filesystem uids are
+    the writer's; it said ``ready`` only after the drop), and this process writes no core from then on."""
+    seen = _fork_spy(monkeypatch)
+    rc, out = _main(box, capsys)
+    assert rc == 0, out
+    (pid,) = seen["pids"]
+    at = seen["at_key"]
+    assert at["alive"] == [pid] and at["uids"] == [(WRITER[0],) * 4]
+    assert _drops(box) == [WRITER] and tuple(at["core"]) == (0, 0) and at["no_core"]
+    assert _gone(pid)
+
+
+def test_nothing_forks_after_the_key_is_made(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 1 of 1a7426e0: no process is forked once the key exists, also when the ceremony writes its undoing (the
+    link refused after the event): both appends go to the helper started before the key."""
+    seen = _fork_spy(monkeypatch)
+
+    def link(src: Any, dst: Any) -> None:
+        raise FileExistsError(errno.EEXIST, "File exists", str(dst))
+
+    monkeypatch.setattr(os, "link", link)
+    rc, out = _main(box, capsys)
+    assert rc == 1, out
+    assert _ceremony_events(box) == [bkc.EVENT, bkc.UNDONE_EVENT]
+    assert seen["key"] and seen["late"] == 0 and len(seen["pids"]) == 1
+    assert _gone(seen["pids"][0])
+
+
+def test_nothing_of_the_key_crosses_the_pipe(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 1 of 1a7426e0: everything this process sends the helper is a request of the fixed list holding only
+    public things (the event's names, site, fingerprint and time); none of it holds the key in any form, a line of the
+    paper sheet, or the stick's path."""
+    sent: list[bytes] = []
+    real = bkc._send
+
+    def send(fd: int, data: bytes) -> None:
+        sent.append(bytes(data))
+        real(fd, data)
+
+    monkeypatch.setattr(bkc, "_send", send)
+    rc, out = _main(box, capsys)
+    assert rc == 0, out
+    assert [d.split(b" ", 1)[0].strip() for d in sent] == [b"earlier?", b"event", b"quit"]
+    (ev,) = _events(box)
+    assert json.loads(sent[1].split(b" ", 1)[1]) == ev["detail"]
+    sheet = (box["stick"] / bkc.PAPER_FILE).read_text(encoding="utf-8")
+    raw = bk.load_private(box["stick"] / bkc.KEY_FILE).private_bytes_raw()
+    secrets = [*_secret_forms(box["stick"]), *(_line(sheet, n) for n in range(1, 5)), str(box["stick"])]
+    blob = b"".join(sent)
+    assert raw not in blob
+    for form in secrets:
+        assert form.encode() not in blob, form
+        assert form.replace(" ", "").encode() not in blob.replace(b" ", b""), form
+
+
+def test_ctrl_c_while_the_helper_appends_reads_its_answer(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Note 3a of 1a7426e0: a real Ctrl-C (SIGINT) while the helper is appending only shortens the wait: the answer
+    already on its way is read (``ok``), so the event counts as written: the undoing is written, everything undone,
+    the refusal says interrupted (never that the audit failed), and a rerun is allowed."""
+    import threading
+    import time
+
+    real_send, real_append = bkc._send, bkc._append_here
+
+    def send(fd: int, data: bytes) -> None:
+        if data.startswith(b"event "):
+            threading.Timer(0.3, os.kill, (os.getpid(), signal.SIGINT)).start()
+        real_send(fd, data)
+
+    def slow(*a: Any) -> Any:
+        time.sleep(1.0)
+        return real_append(*a)
+
+    monkeypatch.setattr(bkc, "_send", send)
+    monkeypatch.setattr(bkc, "_append_here", slow)
+    rc, out = _main(box, capsys)
+    assert rc == 1, out
+    assert bkc.INTERRUPTED["en"] in out and bkc.AUDIT_FAILED["en"].split("{path}")[0] not in out, out
+    assert _ceremony_events(box) == [bkc.EVENT, bkc.UNDONE_EVENT]
+    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE)
+    assert bkc.earlier_ceremony(box["audit"], "synthetic-site") is None
+
+
+@pytest.mark.parametrize("when", ["before the answer is read", "after the answer is read"])
+def test_an_interruption_around_the_answer_reads_the_pending_answer_first(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, when: str
+) -> None:
+    """Note 3a of 1a7426e0: a ``KeyboardInterrupt`` right before the event's answer is read, or right after it was
+    read: the ceremony decides from that answer (read now, or the one already read), never "the event is absent": the
+    helper wrote it, so the undoing is written and a rerun is allowed."""
+    real = bkc._Helper._wait
+    once = {"n": 0}
+
+    def wait(self: Any) -> Any:
+        verb = self.pending
+        if verb == "event" and once["n"] == 0:
+            once["n"] = 1
+            if when.startswith("before"):
+                raise KeyboardInterrupt
+            real(self)
+            raise KeyboardInterrupt
+        return real(self)
+
+    monkeypatch.setattr(bkc._Helper, "_wait", wait)
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.INTERRUPTED["en"] in out, out
+    assert _ceremony_events(box) == [bkc.EVENT, bkc.UNDONE_EVENT]
+    assert not list(box["stick"].iterdir()) and not os.path.lexists(box["pub"])
+    assert bkc.earlier_ceremony(box["audit"], "synthetic-site") is None
+
+
+@pytest.mark.parametrize(("how", "lang"), [("killed", "en"), ("killed", "ja"), ("killed", "zh-TW"), ("stopped", "en")])
+def test_a_helper_stopped_or_killed_by_the_writer_is_said_as_that(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, how: str, lang: str
+) -> None:
+    """Note 3c of 1a7426e0: the writer account kills (``SIGKILL``) or stops (``SIGSTOP``) the helper, a process of its
+    own uid, before the event: the refusal says the helper stopped answering and that it was stopped or killed by a
+    signal, which the folder's owner can do (never "full, or a broken chain"), in three languages; the ceremony is
+    undone; the helper is reaped."""
+    import time
+
+    monkeypatch.setattr(bkc, "CHILD_LIMIT", 2.0)
+    seen = _fork_spy(monkeypatch)
+    real = bkc._send
+
+    def send(fd: int, data: bytes) -> None:
+        if data.startswith(b"event "):
+            (pid,) = seen["pids"]
+            os.kill(pid, signal.SIGKILL if how == "killed" else signal.SIGSTOP)
+            end = time.monotonic() + 5
+            while time.monotonic() < end and not bkc._stopped(pid):
+                try:
+                    state = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0]
+                except OSError:
+                    break
+                if state == "Z":
+                    break
+                time.sleep(0.02)
+        real(fd, data)
+
+    monkeypatch.setattr(bkc, "_send", send)
+    rc, out = _main(box, capsys, lang=lang)
+    assert rc == 1, out
+    owner = f"{WRITER[0]}:{WRITER[1]}"
+    assert bkc.AUDIT_HELPER_LOST[lang].format(path=box["audit"]) in out, out
+    assert bkc.HELPER_SIGNALLED[lang].format(owner=owner) in out, out
+    assert bkc.AUDIT_FAILED[lang].split("{path}")[1] not in out
+    assert "Traceback" not in out
+    _nothing_kept(box)
+    assert _gone(seen["pids"][0])
+
+
+def test_the_unreadable_audit_text_says_a_cut_off_line_is_repaired_by_the_writer() -> None:
+    """Note 3d of 1a7426e0: a kill of the writer can tear the last line; the rerun's refusal says the writer's next
+    append repairs it, and that the refusal stands until then, in three languages."""
+    assert "next append" in bkc.AUDIT_UNREADABLE["en"] and "until then" in bkc.AUDIT_UNREADABLE["en"]
+    assert "次の追記" in bkc.AUDIT_UNREADABLE["ja"] and "下次" in bkc.AUDIT_UNREADABLE["zh-TW"]
 
 
 def test_an_audit_folder_that_is_a_link_is_refused_before_anything_is_written(
@@ -1191,6 +1505,35 @@ def test_an_audit_folder_of_roots_is_appended_to_in_this_process(
     rc, out = _main(box, capsys)
     assert rc == 0, out
     assert _drops(box) == [] and len(_events(box)) == 1
+
+
+def test_an_audit_folder_of_roots_swapped_after_the_check_is_appended_to_through_the_folder_checked(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 2 of 1a7426e0, a folder of root's: the folder is renamed away after the checks and another folder put at
+    its path (a rename-swap by whoever may write the parent). The entries are checked and the event appended through
+    the folder held open since the check (``fchdir`` to it, relative paths), never by the path: the event lands in
+    the folder that was checked, nothing in the one now at the path; this process's working folder is as before; no
+    helper is forked (no owner to drop to)."""
+    _roots_folder(monkeypatch)
+    seen = _fork_spy(monkeypatch)
+    real = bkc.check
+    moved = box["tmp"] / "audit-checked"
+
+    def check_then_swap(*a: Any, **k: Any) -> Any:
+        got = real(*a, **k)
+        box["audit"].rename(moved)
+        box["audit"].mkdir()
+        return got
+
+    monkeypatch.setattr(bkc, "check", check_then_swap)
+    cwd = os.getcwd()
+    rc, out = _main(box, capsys)
+    assert rc == 0, out
+    assert os.getcwd() == cwd and seen["pids"] == [] and seen["key"]
+    assert not list(box["audit"].iterdir())
+    rows = [json.loads(x) for f in moved.glob("*.jsonl") for x in f.read_text().splitlines()]
+    assert [r["event"] for r in rows] == [bkc.EVENT]
 
 
 @pytest.mark.parametrize("plant", ["symlink", "second name", "fifo", "group-writable folder"])
