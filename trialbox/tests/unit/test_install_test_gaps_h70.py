@@ -4,10 +4,13 @@ H70-01 (F-5): `make images` needs Docker's buildx plugin (every Dockerfile uses 
 stops first with a plain line naming buildx, not Docker's own error. A stand-in `docker` on PATH.
 H70-02 (F-6): `deploy/hardening/apply.sh` with SSH=off, run from an SSH session, refuses and changes nothing unless
 `--ssh-off-over-ssh` says to go ahead. The SSH session is a stand-in process tree under TB_HOST_ROOT/proc, or the
-SSH_CONNECTION variable; stub nft and systemctl log what would have changed."""
+SSH_CONNECTION variable; stub nft and systemctl log what would have changed. install.sh asks the same rule
+(`apply.sh check`) before it loads or writes anything."""
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -97,8 +100,8 @@ def test_ssh_off_over_ssh_is_refused_and_nothing_changes(tmp_path: Path, chain: 
     r, calls = _apply(tmp_path, chain, **env_extra)
     assert r.returncode == 1
     assert r.stderr.strip() == (
-        f"hardening: {REFUSAL} Run it from the box's console, or add --ssh-off-over-ssh "
-        "(install.sh: TB_SSH_OFF_OVER_SSH=yes) to do it anyway"
+        f"hardening: {REFUSAL} Run it from the box's console, set SSH=it with your own address in IT_RANGES, "
+        "or add --ssh-off-over-ssh (an option of install.sh too) to do it anyway"
     )
     assert calls == ""
     assert not (tmp_path / "host" / "etc").exists()
@@ -139,3 +142,86 @@ def test_render_over_ssh_still_prints(tmp_path: Path) -> None:
     r = subprocess.run(["sh", "deploy/hardening/apply.sh", "--conf", str(conf), "render"], cwd=ROOT, env=env,
                        capture_output=True, text=True, timeout=60, check=False)  # fmt: skip
     assert r.returncode == 0 and "table inet trialbox_input {" in r.stdout
+
+
+@pytest.mark.parametrize(("on_ssh", "refused"), [(True, True), (False, False)])
+def test_check_alone_refuses_or_passes_and_changes_nothing(tmp_path: Path, on_ssh: bool, refused: bool) -> None:
+    r, calls = _apply_what(tmp_path, ["bash", "sshd" if on_ssh else "login"], "check")
+    assert (r.returncode == 1) is refused and (REFUSAL in r.stderr) is refused, r.stderr
+    assert r.stdout == "" and calls == "" and not (tmp_path / "host" / "etc").exists()
+
+
+def _apply_what(tmp: Path, chain: list[str], what: str) -> tuple[subprocess.CompletedProcess[str], str]:
+    conf = tmp / "hardening.conf"
+    conf.write_text('CLINIC_RANGES="192.0.2.0/24"\nSSH="off"\n', encoding="utf-8")
+    log = tmp / "calls.log"
+    log.touch()
+    bin_dir = _bin(tmp, {n: f'echo "{n} $*" >> {log}\n' for n in ("nft", "systemctl", "sshd")})
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp), "TB_HOST_ROOT": str(_host(tmp, chain))}
+    r = subprocess.run(["sh", "deploy/hardening/apply.sh", "--conf", str(conf), what], cwd=ROOT, env=env,
+                       capture_output=True, text=True, timeout=60, check=False)  # fmt: skip
+    return r, log.read_text(encoding="utf-8")
+
+
+# ----------------------------------------------------------------------- H70-02 at the installer's start (install.sh)
+def _tree(root: Path) -> dict[str, tuple[int, int, bytes]]:
+    out: dict[str, tuple[int, int, bytes]] = {}
+    for p in sorted(root.rglob("*")):
+        st = p.lstat()
+        out[str(p.relative_to(root))] = (st.st_mode, st.st_mtime_ns, p.read_bytes() if p.is_file() else b"")
+    return out
+
+
+def _install(tmp: Path, args: list[str], **env_extra: str) -> tuple[subprocess.CompletedProcess[str], str, bool]:
+    """install.sh on a site folder holding deploy/site/hardening.conf with the example's SSH=off, as root (a stand-in
+    ``id``), with a stand-in ``docker`` that logs and reports the engine down, so an install that goes on stops at
+    the host step. Returns the result, the docker log and whether the site folder is unchanged."""
+    site = tmp / "site"
+    (site / "deploy" / "hardening").mkdir(parents=True)
+    shutil.copy(ROOT / "deploy" / "install.sh", site / "deploy" / "install.sh")
+    for f in ("apply.sh", "lib.sh"):
+        shutil.copy(ROOT / "deploy" / "hardening" / f, site / "deploy" / "hardening" / f)
+    (site / "deploy" / "site").mkdir()
+    shutil.copy(ROOT / "deploy" / "hardening" / "hardening.example.conf", site / "deploy" / "site" / "hardening.conf")
+    bundle = tmp / "trialbox-1.0.0.tar"
+    bundle.write_bytes(b"not a bundle")
+    log = tmp / "docker.log"
+    bin_dir = _bin(tmp, {"docker": f'echo "docker $*" >> {log}\nexit 1\n',
+                         "id": 'if [ "$1" = -u ]; then echo 0; else exec /usr/bin/id "$@"; fi\n'})  # fmt: skip
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "SSH_"))}
+    env.update({"PATH": f"{bin_dir}:{PYBIN}:/usr/bin:/bin", "TB_HOST_ROOT": str(tmp / "no-host"), **env_extra})
+    before = _tree(site)
+    r = subprocess.run(["bash", str(site / "deploy" / "install.sh"), str(bundle), "--mode", "stub", *args],
+                       capture_output=True, text=True, cwd=tmp, env=env, check=False, stdin=subprocess.DEVNULL,
+                       timeout=120)  # fmt: skip
+    return r, log.read_text(encoding="utf-8") if log.exists() else "", _tree(site) == before
+
+
+SSH_ENV = {"SSH_CONNECTION": "192.0.2.7 50000 192.0.2.1 22"}
+
+
+def test_an_install_over_ssh_with_ssh_off_stops_before_anything_is_loaded_or_written(tmp_path: Path) -> None:
+    r, docker, unchanged = _install(tmp_path, [], **SSH_ENV)
+    assert r.returncode == 1
+    assert REFUSAL in r.stderr
+    assert "install: the host baseline would cut this SSH session (above): nothing was loaded or written" in r.stderr
+    assert r.stdout == "" and docker == "" and unchanged  # not even the host step's heading, no docker call
+
+
+@pytest.mark.parametrize(
+    ("args", "env_extra"),
+    [(["--ssh-off-over-ssh"], SSH_ENV), ([], {**SSH_ENV, "TB_SSH_OFF_OVER_SSH": "yes"}), ([], {})],
+    ids=["over-ssh-option", "over-ssh-environment", "not-on-ssh"],
+)
+def test_an_install_goes_on_with_the_override_or_off_ssh(tmp_path: Path, args: list[str],
+                                                         env_extra: dict[str, str]) -> None:  # fmt: skip
+    r, docker, _ = _install(tmp_path, args, **env_extra)
+    assert REFUSAL not in r.stderr
+    assert "==> host" in r.stdout and "docker info" in docker  # past the check: the host step ran
+    assert "Docker is not running" in r.stderr
+
+
+def test_the_installer_hands_the_override_on_to_the_baseline_step() -> None:
+    install = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    assert 'sh deploy/hardening/apply.sh --conf "$HB_CONF" ${HB_OVER[@]+"${HB_OVER[@]}"} all' in install
+    assert install.index('apply.sh" --conf') < install.index('say "host"')

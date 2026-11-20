@@ -122,8 +122,8 @@ health line warns 90 days before the list runs out and is red after it.
    `openssl`; the installer names the compose plugin and PyYAML when they are missing); the NVIDIA driver
    and container toolkit when there is a GPU (GB10: driver 580.142, held). See [Security §1](../SECURITY.md#1-the-host).
    Installing over SSH: with `SSH=off` in `deploy/site/hardening.conf` (the example's default) the host baseline
-   would stop sshd under you, so it refuses and changes nothing (H-70). Run the install from the box's console, set
-   `SSH=it` with `IT_RANGES` holding your address, or, knowing the session ends, `TB_SSH_OFF_OVER_SSH=yes`.
+   would stop sshd under you, so the installer refuses at its start, before it loads anything (H-70). Run it from the
+   box's console, set `SSH=it` with your address in `IT_RANGES`, or add `--ssh-off-over-ssh` (the session ends).
 2. **Images.** `tools/apply_update.sh trialbox-<version>.tar` loads images, models and approved rulesets. A
    development host can build instead: `make images` (or `make images-multiarch` for x86 and GB10).
    The build needs Docker's buildx plugin (every Dockerfile uses `RUN --mount`): `docker buildx version` must print a

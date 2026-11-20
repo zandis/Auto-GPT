@@ -1,7 +1,7 @@
 #!/bin/sh
 # The host baseline (T-634, D-408; OPS-052): the input firewall and SSH. Run as root on the box; install.sh runs it.
 #
-#   deploy/hardening/apply.sh [--conf deploy/site/hardening.conf] [--dry-run] [--ssh-off-over-ssh] [all|firewall|ssh|render]
+#   deploy/hardening/apply.sh [--conf deploy/site/hardening.conf] [--dry-run] [--ssh-off-over-ssh] [all|firewall|ssh|render|check]
 #
 # firewall: the nftables table inet trialbox_input, written to /etc/trialbox/input.nft and loaded at every boot by
 #   trialbox-input.service (before the network). Input policy drop: loopback, replies, ICMP that IP needs, DHCP
@@ -12,7 +12,8 @@
 # ssh: SSH=off stops and disables the service; SSH=it writes /etc/ssh/sshd_config.d/50-trialbox.conf (keys only, no
 #   root, no forwarding), checks it with `sshd -t` and reloads.
 #   H-70: SSH=off run from an SSH session would lock that session out. apply.sh then refuses and changes nothing,
-#   unless --ssh-off-over-ssh (or TB_SSH_OFF_OVER_SSH=yes in the environment, for install.sh) says to go ahead.
+#   unless --ssh-off-over-ssh (or TB_SSH_OFF_OVER_SSH=yes in the environment) says to go ahead. check: that refusal
+#   alone, changing nothing (install.sh asks it before it loads anything).
 # render: print the firewall ruleset and change nothing.
 # deploy/check_host.sh checks both. Nothing here touches the egress table, the disk or the keys.
 set -eu
@@ -25,8 +26,8 @@ while [ $# -gt 0 ]; do
     --conf) CONF="$2"; shift ;;
     --dry-run) DRY=1 ;;
     --ssh-off-over-ssh) OVER_SSH=yes ;;
-    all|firewall|ssh|render) WHAT="$1" ;;
-    -h|--help) sed -n 2,18p "$0"; exit 0 ;;
+    all|firewall|ssh|render|check) WHAT="$1" ;;
+    -h|--help) sed -n 2,19p "$0"; exit 0 ;;
     *) echo "apply.sh: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -49,7 +50,7 @@ on_ssh() {
   return 1
 }
 if [ "$SSH" = off ] && [ "$WHAT" != render ] && [ "${OVER_SSH:-${TB_SSH_OFF_OVER_SSH:-}}" != yes ] && on_ssh; then
-  hb_die "SSH=off would stop sshd and close port 22 under this SSH session, locking it out; nothing was changed. Run it from the box's console, or add --ssh-off-over-ssh (install.sh: TB_SSH_OFF_OVER_SSH=yes) to do it anyway"
+  hb_die "SSH=off would stop sshd and close port 22 under this SSH session, locking it out; nothing was changed. Run it from the box's console, set SSH=it with your own address in IT_RANGES, or add --ssh-off-over-ssh (an option of install.sh too) to do it anyway"
 fi
 
 # a range is digits, dots, colons, hex and one slash: anything else is refused before it reaches nft
@@ -154,6 +155,7 @@ ssh_baseline() {
 }
 
 case "$WHAT" in
+  check) ;;
   render) render ;;
   firewall) firewall ;;
   ssh) ssh_baseline ;;
