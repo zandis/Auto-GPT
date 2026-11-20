@@ -1191,6 +1191,82 @@ def test_the_helper_cannot_outlive_the_run(tmp_path: Path, monkeypatch: pytest.M
     assert took < (8.0 if how in ("hangs", "never ends", "stopped") else 3.0), took
 
 
+def test_the_signal_mask_is_restored_when_the_wait_for_ready_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Point 2 of the review of 68f46dfb: Ctrl-C is blocked across the fork only; when the wait for the helper's
+    first word raises, the start leaves the signal mask as it found it, and the helper is reaped."""
+    folder, _ = _writer_folder(tmp_path)
+    monkeypatch.setattr(bkc, "_drop_to", lambda uid, gid: None)
+    monkeypatch.setattr(bkc, "CHILD_GRACE", 1.0)
+    forks: list[int] = []
+    real_fork = os.fork
+
+    def fork() -> int:
+        pid = real_fork()
+        if pid:
+            forks.append(pid)
+        return pid
+
+    def wait(self: Any) -> Any:
+        raise RuntimeError("synthetic")
+
+    monkeypatch.setattr(os, "fork", fork)
+    monkeypatch.setattr(bkc._Helper, "_wait", wait)
+    before = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+    try:
+        with pytest.raises(RuntimeError, match="synthetic"):
+            _start(folder)
+        assert signal.pthread_sigmask(signal.SIG_BLOCK, set()) == before
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, before)
+    (pid,) = forks
+    assert _gone(pid), "the helper outlived the start"
+
+
+def test_ctrl_c_while_waiting_for_the_helpers_ready_ends_the_run_within_the_grace(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Point 2 of the review of 68f46dfb: a helper slow to say ``ready`` (here 20 s) and a real Ctrl-C (SIGINT sent
+    to this thread) half a second after the fork: the wait for ``ready`` is interrupted, the run ends within
+    :data:`CHILD_GRACE` (1 s here) as interrupted, nothing is made (no key, nothing on the stick, no public key, no
+    audit event) and the helper is reaped."""
+    import threading
+    import time
+
+    monkeypatch.setattr(bkc, "CHILD_GRACE", 1.0)
+    seen = _fork_spy(monkeypatch)
+    spied_fork = os.fork
+    main = threading.main_thread().ident
+    timers: list[threading.Timer] = []
+
+    def fork() -> int:
+        pid = spied_fork()
+        if pid:
+            t = threading.Timer(0.5, signal.pthread_kill, (main, signal.SIGINT))
+            timers.append(t)
+            t.start()
+        return pid
+
+    real_drop = bkc._drop_to
+
+    def slow_drop(uid: int, gid: int) -> None:
+        time.sleep(20)
+        real_drop(uid, gid)
+
+    monkeypatch.setattr(os, "fork", fork)
+    monkeypatch.setattr(bkc, "_drop_to", slow_drop)
+    began = time.monotonic()
+    rc, out = _main(box, capsys)
+    took = time.monotonic() - began
+    for t in timers:
+        t.cancel()
+    assert rc == 1 and bkc.INTERRUPTED["en"] in out, out
+    assert took < 5.0, took
+    assert not seen["key"] and len(seen["pids"]) == 1 and _gone(seen["pids"][0])
+    assert not list(box["stick"].iterdir()) and not os.path.lexists(box["pub"]) and _events(box) == []
+
+
 def test_garbage_of_the_caller_is_freed_by_the_caller_never_in_the_helper(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1534,6 +1610,38 @@ def test_an_audit_folder_of_roots_swapped_after_the_check_is_appended_to_through
     assert not list(box["audit"].iterdir())
     rows = [json.loads(x) for f in moved.glob("*.jsonl") for x in f.read_text().splitlines()]
     assert [r["event"] for r in rows] == [bkc.EVENT]
+
+
+def test_the_once_only_read_of_a_folder_of_roots_swapped_after_the_check_reads_the_folder_checked(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Point 1 of the review of 68f46dfb, a folder of root's: the once-only read (``earlier``) goes through the folder
+    held open since the check (``fchdir`` to it, relative paths, back), never by the path: the checked folder, which
+    holds a ceremony, is renamed away after the check and an empty folder planted at its path; ``earlier`` still
+    finds the ceremony in the folder checked, this process's working folder is as before, and an unreadable file
+    there is named under the folder's path as given."""
+    _roots_folder(monkeypatch)
+    rc, out = _main(box, capsys)
+    assert rc == 0, out
+    (ev,) = _events(box)
+    fd = os.open(box["audit"], os.O_RDONLY | os.O_DIRECTORY)
+    audit = bkc._InPlace(box["audit"], fd, "synthetic-site", None)
+    try:
+        moved = box["tmp"] / "audit-checked"
+        box["audit"].rename(moved)
+        box["audit"].mkdir()
+        cwd = os.getcwd()
+        got = audit.earlier()
+        assert got is not None and got["detail"]["fingerprint"] == ev["detail"]["fingerprint"]
+        assert os.getcwd() == cwd and not list(box["audit"].iterdir())
+        (moved / "2099-01-01.jsonl").write_text("not one JSON object\n", encoding="utf-8")
+        with pytest.raises(bkc.CeremonyError) as bad:
+            audit.earlier()
+        assert bad.value.text is bkc.AUDIT_UNREADABLE
+        assert bad.value.fill == {"path": box["audit"] / "2099-01-01.jsonl", "audit": box["audit"]}
+        assert os.getcwd() == cwd
+    finally:
+        audit.close()
 
 
 @pytest.mark.parametrize("plant", ["symlink", "second name", "fifo", "group-writable folder"])

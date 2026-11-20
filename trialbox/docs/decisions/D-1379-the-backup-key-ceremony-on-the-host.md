@@ -155,9 +155,11 @@
     (`SIGSTOP`, `SIGKILL`, `SIGSEGV`, `SIGQUIT`), and on a host with a crash handler a forced crash could write a core
     holding the key to the box's disk. Now **the order** is: the checks run (root, the two names, the audit folder
     opened and checked, `backup.pub` absent); then, still in the checks and before the stick's folder is even opened,
-    the parent runs the cyclic garbage collector, blocks Ctrl-C across one `fork`, and the child becomes **the audit
-    helper**: it closes every descriptor but the audit folder held open and its two pipe ends (0, 1 and 2 become
-    `/dev/null`; `os.closerange`, which is `close_range` on Linux), sets `RLIMIT_CORE` to 0 and `PR_SET_DUMPABLE` to
+    the parent runs the cyclic garbage collector, blocks Ctrl-C across one `fork` (only across the fork itself: since
+    the review of 68f46dfb the parent restores its signal mask first thing in the block that always reaps the helper, so
+    a Ctrl-C while it waits for `ready` ends the run within the 10 s grace, nothing made, the helper reaped), and the
+    child becomes **the audit helper**: it closes every descriptor but the audit folder held open and its two pipe ends
+    (0, 1 and 2 become `/dev/null`; `os.closerange`, which is `close_range` on Linux), sets `RLIMIT_CORE` to 0 and `PR_SET_DUMPABLE` to
     0, calls `setgroups([])`, `setgid` and `setuid` to the folder's owner, checks that the real, effective and saved
     ids are all that owner's and no supplementary group is left, makes itself not dumpable again (a change of identity
     resets it), `fchdir`s to the folder held open and closes it, ignores Ctrl-C, turns the cyclic collector off, and
@@ -196,8 +198,10 @@
     letters (`_letters` of the stick key's raw bytes, with and without spaces) and for the raw key bytes: none may be
     found; the same dump of the parent finds them, which shows the probe works.
   - **A box whose audit folder is root's** (the audit runs as root there): no helper (no owner to drop to); the
-    once-only read and the appends run in this process. Each append first checks the folder's mode and every entry,
-    listed and looked at through the folder held open since the checks without following, to be a regular file with
+    once-only read and the appends run in this process. Since the review of 68f46dfb (point 1) the once-only read too
+    `fchdir`s to the folder held open since the checks, reads with relative paths and `fchdir`s back (until then it read
+    the folder by its path, so a rename-swap could have shown it a planted folder). Each append first checks the
+    folder's mode and every entry, listed and looked at through the folder held open since the checks without following, to be a regular file with
     one name; a link, a file with a second name or a special file is refused, naming it, before anything is written
     (in the checks) and again right before each append (then undone). Since the review of 1a7426e0 (item 2) the
     append then `fchdir`s to that same descriptor, appends with relative paths, and `fchdir`s back to the working
@@ -218,9 +222,18 @@
     parent (correcting the text of 1a7426e0); the once-only read of a box whose audit folder is the writer's runs in
     the helper too; only the read for a `backup.pub` that exists (whether the audit holds a ceremony for that key)
     still runs as root, by path, before the helper starts and before any key exists; it only reads, follows a planted
-    link to read a file as JSON, and prints the file's path at most. **Not verified:** a run on a real deployed box
-    with uid 10001 (the tests drop to uid 65534 for real when run as root, and inject the drop as any other user), a
-    real stick, and the memory probe above (the order is pinned by tests instead).
+    link to read a file as JSON, and prints the file's path at most. The helper's memory holds the stick's **path** (it
+    is in the command line, which the fork copies): not secret, and never sent over the pipe or written to the audit.
+    **The memory probe was repeated** by an independent reviewer of 68f46dfb, as above but on a scratch area with the
+    audit folder owned by uid 65534 and a scratch folder accepted as the stick: the helper's memory, read through
+    `/proc/<pid>/maps` and `/proc/<pid>/mem`, held 0 hits of the key (searched for as above) at four moments: after
+    `ready`, after the key was made, after the event's append, and before `quit`; the same scan of the parent found 19
+    (the control); the pipe carried 230 bytes, public fields only. To repeat it: pause the command at each of those four
+    moments (a breakpoint, or a `time.sleep` in a scratch copy), scan both processes as above, and compare the request
+    lines with the event's public fields. **Not verified:** a run on a real deployed box with uid 10001 (the tests drop
+    to uid 65534 for real when run as root, and inject the drop as any other user), a real stick, a real Ctrl-C at a
+    terminal (the tests send SIGINT), a power loss, and the memory probe on a box whose audit folder is root's (that
+    branch has no helper and was not probed).
   - **What is guaranteed, and what is not:** a run that exits 0 has the key on the stick (both files read back, each
     the key's alone on that filesystem), the event's line in the audit with the head anchor written (by the folder's
     owner), no file of root's found in the audit folder after it, and then the public key at `backup.pub`. A run that exits 2 has the key on the stick

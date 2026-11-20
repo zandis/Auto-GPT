@@ -1379,7 +1379,20 @@ class _InPlace(_Audit):
         self.pending: str | None = None
 
     def earlier(self) -> dict[str, Any] | None:
-        return earlier_ceremony(self.folder, self.site)
+        here = os.open(".", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            os.fchdir(self.dfd)
+            try:
+                return earlier_ceremony(Path("."), self.site)
+            except CeremonyError as e:  # named under the folder's path as given, as the helper's answer is
+                if e.text is not AUDIT_UNREADABLE:
+                    raise
+                name = Path(str(e.fill.get("path") or "")).name
+                raise CeremonyError(AUDIT_UNREADABLE, path=self.folder / name, audit=self.folder) from None
+            finally:
+                os.fchdir(here)
+        finally:
+            os.close(here)
 
     def append(self, event: str, detail: Mapping[str, Any]) -> tuple[str, bool]:
         if stat.S_IMODE(os.fstat(self.dfd).st_mode) & 0o022:
@@ -1425,9 +1438,9 @@ class _Helper(_Audit):
 
     @classmethod
     def start(cls, folder: Path, dfd: int, uid: int, gid: int, site: str, tz: str | None) -> _Helper:
-        """Fork the helper (the cyclic collector run here first; Ctrl-C blocked across the fork) and wait for its
-        first word. ``drop-failed``: :data:`AUDIT_DROP_FAILED`; no word: :data:`AUDIT_HELPER_LOST`. Either way, and on
-        Ctrl-C, the helper is reaped before this raises."""
+        """Fork the helper (the cyclic collector run here first; Ctrl-C blocked across the fork only) and wait for
+        its first word (Ctrl-C shortens that wait to :data:`CHILD_GRACE`). ``drop-failed``: :data:`AUDIT_DROP_FAILED`;
+        no word: :data:`AUDIT_HELPER_LOST`. Either way, and on Ctrl-C, the helper is reaped before this raises."""
         import gc
 
         gc.collect()
@@ -1450,9 +1463,12 @@ class _Helper(_Audit):
         os.close(ans_w)
         h = cls(folder, pid, req_w, ans_r, (uid, gid))
         try:
+            # the mask as it was, first thing in the block that always reaps: Ctrl-C was blocked across the fork
+            # only, so the wait for ``ready`` is interruptible (:data:`CHILD_GRACE`), and a Ctrl-C held meanwhile
+            # lands here, where the helper is reaped
+            signal.pthread_sigmask(signal.SIG_SETMASK, old)
             h.pending = "start"
             first, interrupted = h._wait()
-            signal.pthread_sigmask(signal.SIG_SETMASK, old)
             if interrupted:
                 raise KeyboardInterrupt
             if first == "drop-failed":

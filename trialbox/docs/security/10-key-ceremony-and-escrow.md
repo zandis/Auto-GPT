@@ -145,9 +145,9 @@ key. The command writes no core once the key exists, and starts no process after
 folder is followed with the writer's own power only. The files are made by their owner, so nothing is given back;
 afterwards the folder is checked, read only, and a file of root's found there is named (exit 2). The writer account
 can stop or kill the helper (a process of its own); the run then fails and says so, and D-1379 states what that can
-and cannot do. On a box whose audit folder is root's, the append runs in the command itself, through the folder held
-open since the checks (never reopened by its path), only after every entry of the folder was seen to be a plain file
-with one name (a link, a second name or a special file is refused, naming it); D-1379 states the race that is left
+and cannot do. On a box whose audit folder is root's, the once-only read and the append run in the command itself,
+through the folder held open since the checks (never reopened by its path), only after every entry of the folder was
+seen to be a plain file with one name (a link, a second name or a special file is refused, naming it); D-1379 states the race that is left
 there (root only).
 
 It refuses, with nothing written: not root; one name or none, or one person twice (in any spelling: full-width
