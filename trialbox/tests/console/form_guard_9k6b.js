@@ -23,11 +23,14 @@ const path = require("path");
       try {
         const page = await ctx.newPage();
         const dialogs = [];
-        page.on("dialog", async (d) => { dialogs.push(d.type()); await d.accept(); });
+        page.on("dialog", async (d) => {
+          dialogs.push(d.type());
+          try { await d.accept(); } catch (e) { /* the page is already going away */ }
+        });
         await page.goto("file://" + path.join(args.dir, s.file), { waitUntil: "load" });
         await page.click("body", { position: { x: 5, y: 5 } });
         if (s.type) await page.fill(s.type, "x");
-        await page.close({ runBeforeUnload: true });
+        await page.close({ runBeforeUnload: true }).catch(() => null);
         const asked = dialogs.indexOf("beforeunload") >= 0;
         if (asked !== s.expect) throw new Error("asked=" + asked + ", expected " + s.expect);
         checked += 1;

@@ -285,5 +285,6 @@ def test_data_guard_is_armed_on_the_page_shown_again(jbox: dict[str, Any], tmp_p
         timeout=900,
         check=False,
     )
+    assert r2.stdout.strip(), (r2.returncode, r2.stderr[-2000:])
     res = json.loads(r2.stdout.strip().splitlines()[-1])
     assert r2.returncode == 0 and res["failed"] == {} and res["checked"] == len(pages), (res, r2.stderr[-2000:])
