@@ -365,6 +365,17 @@ def _proposals(text: str, toks: list[Token]) -> Iterator[tuple[int, int, list[To
         ):
             hi = j + 1  # the given name after a surname
         words = toks[lo : hi + 1]
+        head = words[0]
+        if (
+            head.name == "sei"
+            and len(head.surface) == 1
+            and lo > 0
+            and _gap(text, toks[lo - 1], head) == ""
+            and _common(toks[lo - 1])
+            and _KANJI_WORD.fullmatch(toks[lo - 1].surface) is not None
+        ):
+            i = j + 1
+            continue  # 呼吸音清: a one-kanji surname glued to a common noun is the end of that word, not a name
         alone = len(words) == 1 and (_alone_ok(words[0]) or _lone_ok(text, words[0]))
         if (len(words) > 1 or alone) and words[-1].end - words[0].start >= 2:
             yield words[0].start, words[-1].end, words, toks[j].end
@@ -373,8 +384,14 @@ def _proposals(text: str, toks: list[Token]) -> Iterator[tuple[int, int, list[To
 
 def _protected(text: str, start: int, end: int, words: list[Token], run_end: int) -> bool:
     """Steps 3 and 4: an eponym, a place or an institution; a word the guard says is no name; after Dr."""
-    if _TERM_AFTER.match(text, end) or _TERM_AFTER.match(text, run_end):
-        return True
+    whole = (
+        len(words) >= 2
+        and words[0].name == "sei"
+        and words[-1].name == "mei"
+        and all(_KANJI_WORD.fullmatch(w.surface) for w in words)
+    )
+    if not whole and (_TERM_AFTER.match(text, end) or _TERM_AFTER.match(text, run_end)):
+        return True  # 橋本病, ホーン・ヤール分度; a surname with its given name is a person (佐藤翔太検査結果)
     if any(_NOT_A_NAME.fullmatch(w.surface) for w in words):
         return True
     if _NOT_A_NAME.fullmatch(text[start:end]) or _NOT_A_NAME_VALUE.match(text, start) is None:
@@ -400,6 +417,7 @@ def _pieces(text: str) -> Iterator[tuple[int, str]]:
 _LATIN_CUES = frozenset(w for k in ("titles_before_name", "titles_after_name") for w in CUES[k] if w[:1].isascii())
 _NOT_A_NAME_WORDS = frozenset(CUES["not_a_name_value"])
 _NOT_A_NAME_ENDING = tuple(CUES["not_a_name_ending"])
+_PREFIX_BEFORE_TITLE = frozenset(CUES["prefixes_before_title"])  # 老先生, 故先生: a prefix, never a name
 # a title or an honorific after a name: the guard's own honorifics, with their ends, and the cue words
 _TITLE = re.compile(rf"(?:{phi_guard._JA_HON}|{_alt(CUES['titles_after_name'])})")
 # a title before a name (Dr. 木村, 担当OT：宮田, 主治医 は 岡田, 看護師　野口　より)
@@ -560,6 +578,8 @@ def _name_before(text: str, toks: list[Token], q: int, title: str) -> tuple[int,
         if sur is not None and not _protected_word(sur.group(1)):
             s0 = sur.start(1)  # 石井 Ishii 様: the name in kanji and in romaji
         return s0, q  # Kimura先生
+    if last in _PREFIX_BEFORE_TITLE:
+        return None  # 一位老先生, 故先生: the word before the title is a prefix of it
     run = _KANJI_BEFORE.search(text, max(0, q - 4), q) if _KANJI_WORD.match(last) else None
     if run is not None:
         s0 = run.start()

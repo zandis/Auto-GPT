@@ -302,15 +302,22 @@ def test_the_name_is_masked_never_the_title_beside_it(line: dict[str, str]) -> N
 
 @pytest.mark.req("PRIV-29")
 def test_the_language_comes_from_the_site_and_the_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A kanji-only line is read when the site declares Japanese notes, or declares nothing and the line holds no
-    character only Chinese writes; never when the site declares Chinese or English notes. Kana is Japanese at any
-    site."""
+    """A kanji-only line is read when the site declares Japanese notes, or declares nothing and every kanji in it is
+    one of everyday Japanese (JIS level 1) or it holds a sign only Japanese writes (氏名, 様, 旧姓); never when the site
+    declares Chinese or English notes. Kana is Japanese at any site. A Chinese line keeps its words: 屬, 來, 顯 and 值
+    are forms Japanese does not write."""
     kanji, chinese, kana = "森本裕子", "這位病人是森本裕子", "森本裕子さんが来院"
     monkeypatch.setattr(phi_guard, "site_notes_language", lambda: None)
     assert [phi_guard.japanese_text(t) for t in (kanji, chinese, kana)] == [True, False, True]
     assert mask_note(kanji) == "○○○○"
+    for line in ("氏名：森本裕子", "森本裕子様", "担当 渡辺医師", "既往歴 高血圧", "旧姓 渡邊"):
+        assert phi_guard.japanese_text(line), line
+    for line in ("家屬林淑芬來電詢問病情。", "胸部 X 光未見明顯浸潤。", "值班護理師交班", "病人主訴頭痛三天，無發燒"):
+        assert not phi_guard.japanese_text(line), line
+        assert phi_guard.japanese_names(line) == [], line
     monkeypatch.setattr(phi_guard, "site_notes_language", lambda: "ja")
     assert [phi_guard.japanese_text(t) for t in (kanji, chinese, kana)] == [True, True, True]
+    assert mask_note(kanji) == "○○○○"
     for lang in ("zh-TW", "en"):
         monkeypatch.setattr(phi_guard, "site_notes_language", lambda lang=lang: lang)
         assert [phi_guard.japanese_text(t) for t in (kanji, chinese, kana)] == [False, False, True]
@@ -373,6 +380,9 @@ def test_the_cue_words_are_data() -> None:
     for w in cues["titles_after_name"]:
         assert any(m.start() == 2 for m in ja_names._TITLE.finditer("宮田" + w)), w
     assert all(ja_names.not_a_name(w) for w in cues["not_a_name_value"])
+    an = ja_names.analyser("sudachi-small")
+    for w in cues["prefixes_before_title"]:  # the analyser proposes none (master's rules mask some: 故先生, 校長先生)
+        assert ja_names.name_spans("一位" + w + "先生の診察", an, japanese=True) == [], w
 
 
 @pytest.mark.req("PRIV-29")

@@ -1170,15 +1170,27 @@ _NOTE_GATES: tuple[Callable[[_Facts], bool], ...] = (
 )
 
 
-#: 10C-1b: Japanese text by its own letters: kana, or 歳 (Chinese writes 歲 or 岁), or a kanji only Japanese writes
-_JA_TEXT = re.compile("[ぁ-ゖァ-ヺｦ-ﾝ]|[歳歴薬発変検査実応価図圧済険読続転帰剤]")
-#: 10C-1b: Chinese text by its own letters: traditional and simplified forms, and words, Japanese never writes
+#: 10C-1b: Japanese by a sign Chinese never writes: kana, a kanji form only Japanese uses (neither the traditional
+#: nor the simplified one: 歴, not 歷 or 历), a kanji made in Japan (込, 働), or a word only Japanese writes (氏名)
+_JA_TEXT = re.compile(
+    "[ぁ-ゖァ-ヺｦ-ﾝ]|[歳歴薬発変検査実応価図圧済険読続転帰剤様沢浜辺斎斉広栄桜亜竜円県駅恵黒歩渋涙毎拡気楽帯対"
+    "単弾営労覚戦挙総痩脳臓処収鉄庁両歯齢摂込働畑峠枠匂]|氏名|旧姓"
+)
+#: 10C-1b: the kanji of everyday Japanese, JIS X 0208 level 1 (2,965 characters, from the standard library's EUC-JP
+#: codec: first byte 0xB0 to 0xCF). Chinese writes its traditional forms (顯, 屬, 來, 值) outside it, its simplified
+#: ones (们, 这) outside JIS altogether
+_JA_LEVEL_ONE = frozenset(
+    bytes((hi, lo)).decode("euc_jp", "ignore") for hi in range(0xB0, 0xD0) for lo in range(0xA1, 0xFF)
+) - {""}
+_HAN_CHAR = re.compile("[一-鿿]")
+#: 10C-1b: Chinese by its own words and letters, inside level 1 too (這, 們 written as 们 is outside it): 這位, 的
 _ZH_TEXT = re.compile(
     "[們這個說對從於與歷藥醫檢查實應價圖壓濟險讀續轉歸劑體齡號歲岁们这个说对时从么吗呢嗎給给過过還还裡是發會學國經區"
     "斷腦臟舊麼沒寫處雙雜續轉關點药检发会学国经区断脑脏与没写处双杂续转关价压诊确认无]"
 )
 _JA_HAN = re.compile(f"[{_JA_KANJI}]")
-_LATIN_TWO_WORDS = re.compile("[A-Za-zＡ-Ｚａ-ｚ]{2,}[ 　]{1,2}[A-Za-zＡ-Ｚａ-ｚ]{2,}")
+#: two Latin words; a match starts only at a word's start, so a long run of letters is read once (linear, not square)
+_LATIN_TWO_WORDS = re.compile("(?<![A-Za-zＡ-Ｚａ-ｚ])[A-Za-zＡ-Ｚａ-ｚ]{2,}[ 　]{1,2}[A-Za-zＡ-Ｚａ-ｚ]{2}")
 _JA_ANALYSER = threading.local()  # one tokenizer per thread: a Sudachi tokenizer is not shared between threads
 
 
@@ -1196,11 +1208,12 @@ def site_notes_language() -> str | None:
 
 
 def japanese_text(text: str) -> bool:
-    """10C-1b: the Japanese name analyser reads ``text``. A language, never a country: a text with kana, 歳 or a
-    kanji only Japanese writes is Japanese at any site; a text with Han characters and none of those is Japanese when
-    the site declares Japanese notes, never when it declares Chinese or English ones, and otherwise unless it holds a
-    character or a word only Chinese writes (森本裕子 alone is read; 病人在台北看診 has none either and is read too:
-    a Chinese name in it is masked, which is no harm; 這位病人是林小明 is not read)."""
+    """10C-1b: the Japanese name analyser reads ``text``. A language, never a country: a text with a sign only
+    Japanese writes (kana, a kanji form or a word Chinese never uses: 歳, 様, 辺, 氏名) is Japanese at any site; a text
+    with Han characters and none of those is Japanese when the site declares Japanese notes, never when it declares
+    Chinese or English ones, and otherwise when every one of its kanji is one of everyday Japanese (JIS level 1) and it
+    holds no word or letter only Chinese writes (這, 的, 在): 森本裕子 alone is read; 家屬林淑芬來電 (屬, 來), 胸部 X
+    光未見明顯浸潤 (顯) and 這位病人 are Chinese and keep their words."""
     if _JA_TEXT.search(text):
         return True
     if not _JA_HAN.search(text):
@@ -1208,7 +1221,7 @@ def japanese_text(text: str) -> bool:
     lang = site_notes_language()
     if lang is not None:
         return lang == "ja"
-    return _ZH_TEXT.search(text) is None
+    return _ZH_TEXT.search(text) is None and all(c in _JA_LEVEL_ONE for c in _HAN_CHAR.findall(text))
 
 
 def japanese_names(text: str) -> list[tuple[int, int]]:

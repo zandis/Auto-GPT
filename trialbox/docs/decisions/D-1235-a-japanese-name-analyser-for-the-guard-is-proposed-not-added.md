@@ -127,6 +127,27 @@ stays masked (ホーン・ヤール氏, マリア・サントス様). A word bet
 the analyser reads it as a common noun (前医の平野先生の記載: 平野 is tagged "plain"); 前医の先生 (no name) stays.
 Each has fixtures that fail on 8bd8a99d.
 
+**Whole tree on fe5f1d4d** (the first whole-tree run with the analyser on) found what the card's own sets did not:
+Chinese lines read as Japanese at a site that declares no note language (家屬林淑芬來電 lost 家屬, 值班護理師 became
+○○○○師, 胸部 X 光未見明顯浸潤 lost 光未見明顯; the guard's false-positive rate on its zh-TW negatives rose past 5%),
+呼吸音清 read as a surname and given name (音清), 一位老先生 masked as a name before 先生, 佐藤翔太検査結果 left
+unmasked as an eponym, and a search over two Latin words that took 3.8 s on 30,000 letters with no space. Fixed:
+- **Language**: at a site that declares nothing, a text of Han characters with no sign only Japanese writes (kana, a
+  kanji form or word Chinese never uses: 歳, 様, 辺, 氏名, 旧姓) is read only when it holds no letter or word only
+  Chinese writes (這, 們) and every one of its kanji is one of everyday Japanese (JIS X 0208 level 1, 2,965
+  characters, from the standard library's EUC-JP codec). Chinese writes 顯, 屬, 來, 值 outside it. So 森本裕子 alone is
+  still read; a kanji-only Japanese line with a kanji outside level 1 and no Japanese sign is not (a limit, stated).
+- **Prefixes before a title** are no name (老先生, 一位老先生): `prefixes_before_title` in the cue file. Master's own
+  rules still mask some of them (故先生 -> ○先生, 同先生 -> ○先生): not this card's.
+- **A one-kanji surname glued to a common noun** is the end of that word, not a name (呼吸音清); a title, a label or
+  an age beside it still marks a name.
+- **A surname with its given name**, both in kanji, is a person even directly before a clinical head word
+  (佐藤翔太検査結果); a surname alone there stays an eponym (橋本病の検査).
+- The two-Latin-word search starts only at a word's start (linear).
+- The planted-identifier harness (V-5) now masks 7 Japanese name forms it recorded as leaking (kanji, kanji with a
+  space, katakana and hiragana with a space, kanji before 様, free or after a line break), for the masker and the
+  tripwire: their 14 strict expected failures are removed.
+
 **The three named limits** remain: a bare surname with no cue (浅野 alone), a hiragana surname the analyser does not
 know by its reading (すどう alone), a romaji surname alone (Kimura alone).
 
