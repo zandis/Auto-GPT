@@ -62,6 +62,11 @@ class FakeHolder:
         self.up = True
         return held, target_free
 
+    def adjust(self, delta: int) -> tuple[int, int]:
+        self.calls.append(f"adjust {delta}")
+        self.card.used += delta
+        return 0, 49140 - self.card.used
+
     def alive(self) -> bool:
         return self.up
 
