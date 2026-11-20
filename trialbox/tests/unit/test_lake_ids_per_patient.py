@@ -773,3 +773,25 @@ def test_a_record_decided_under_this_rule_awaits_review_after_a_rebuild_of_this_
     again = {r["id"]: r for r in read_type(snapshot_dir(tmp_path / "lake", "2026-10-02"), "Condition")}
     tags = again[decided].get("meta", {}).get("tag") or []
     assert {"system": BASIS, "code": "proposed"} in tags and id_rule.REVIEW_TAG in tags
+
+
+def test_the_back_fill_counts_the_records_it_marks_for_a_stewards_review_as_the_night_does(
+    tmp_path: Path, db_url: str
+) -> None:
+    """D-1253 ruling 1 (second review): the back-fill marks a record a steward decided before the rebuild as the
+    night does, and now counts it per table in its report and its ``ingest.backfill`` event, as the night counts it."""
+    from adapter.backfill import backfill
+    from tb_common import id_rule
+
+    cfg = _cfg(tmp_path, "csv")
+    assert night(tmp_path, "csv", canonical(A), "2026-10-01").passed
+    decided = next(iter(read_type(snapshot_dir(tmp_path / "lake", "2026-10-01"), "Condition")))["id"]
+    id_rule.write_review(tmp_path / "lake" / id_rule.REVIEW, [("Condition", decided, "rejected")])
+    feed = tmp_path / "feed-backfill"
+    write_csv(CSV_SITE, feed, canonical(A))
+    rep = backfill(cfg, "csv", str(feed), snapshot="2026-10-05", validate=False, rebuild_lake=False)
+    assert rep.state == "published", rep
+    assert rep.steward_review_needed == {"diagnosis": 1}
+    events = [json.loads(line) for f in sorted((tmp_path / "audit").rglob("*.jsonl")) for line in f.open()]
+    (event,) = [e for e in events if e.get("event") == "ingest.backfill" and e["detail"].get("state") == "published"]
+    assert event["detail"]["steward_review_needed"] == {"diagnosis": 1}

@@ -389,3 +389,7 @@
     it out of the coded tables, whatever the steward decided in OMOP; OMOP itself counts it once confirmed.
     A follow-up card (lane J) builds it: a steward's confirmation takes the record off `id_rule_review.json` and the
     next night codes it, audited.
+  - Second review, finding 9: a decided SS-MIX2 order whose own id the order-key change moves is not matched by the
+    next night (its earlier id is under the reader's old key form, which the night cannot derive). It goes with the
+    follow-up `reviewed` card and the reader's key card (10B-2, #1238). A decided record whose id the key change
+    leaves (a diagnosis) is matched by its own id.

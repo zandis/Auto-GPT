@@ -125,6 +125,9 @@ class BackfillReport:
     # not hold (counted over the published snapshot)
     links_to_absent_records: dict[str, dict[str, int]] = field(default_factory=dict)
     rejected_no_patient: dict[str, int] = field(default_factory=dict)
+    # D-1253 ruling 1 (second review): records a steward decided before the id rebuild, marked for review, as the
+    # night counts them (per table; per type from a bulk export)
+    steward_review_needed: dict[str, int] = field(default_factory=dict)
     deletes_without_patient: dict[str, int] = field(default_factory=dict)
     # D-535: rows with a value the mapping could not use, per table (the codes: unmapped_codes.json)
     unmapped: dict[str, int] = field(default_factory=dict)
@@ -225,6 +228,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
     rejected: dict[str, int] = {}
     rows_by_table: dict[str, int] = {}
     tables: dict[str, dict[str, Any]] = {}  # D-535: per source table, what the night's completeness record holds
+    for_review: Counter[str] = Counter()  # D-1253 ruling 1: records marked for a steward's review
     unmapped_codes: dict[str, dict[str, dict[str, int]]] = {}
     maps_not_loaded: list[str] = []  # D-665: filled as the rows are mapped
     pm = cfg.pidmap()
@@ -248,9 +252,9 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
             from adapter.sources.fhir_bulk.source import FhirBulkSource
 
             unit_defaults = _bulk_unit_defaults(cfg.mapping_path)
-            marked: Counter[str] = Counter()  # D-1253 second review, finding 8: as the night marks them
+            # D-1253 second review, finding 8: as the night marks them (counted per type, as the night's bulk count)
             bulk = pseudonymise_bulk(FhirBulkSource(Path(source_path)).resources(), key)
-            for r in mark_for_review(bulk, id_rule.read_review(cfg.lake_dir), marked):
+            for r in mark_for_review(bulk, id_rule.read_review(cfg.lake_dir), for_review):
                 emit(r)
         else:
             mapping = Mapping.load(cfg.mapping_path)
@@ -340,6 +344,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                 if table in tables:  # only a table that was read has an entry (its rows, its presence)
                     tables[table]["unmapped"] = by_lookup
             unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
+            for_review.update(mapper.for_review)  # D-1253 ruling 1: per table, as the night counts it
         if patients:
             held = {"Patient": [r for _, r in patients]}
             apply_aliases(held, aliases)
@@ -351,7 +356,8 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
         sp.close()
         pm.close()
     return {"rejected": rejected, "rows": rows_by_table, "tables": tables, "unmapped_codes": unmapped_codes,
-            "maps_not_loaded": maps_not_loaded}  # fmt: skip
+            "maps_not_loaded": maps_not_loaded,
+            "steward_review_needed": dict(sorted(for_review.items()))}  # fmt: skip
 
 
 def _sort_bucket(spool: Path, runs: Path, bucket: str) -> dict[str, Any]:
@@ -596,6 +602,7 @@ def backfill(
             log.warning("back-fill %s: the kept spool has no table facts (an older version's); read again", snap)
         facts = read_source()
     rep.rejected = dict(facts.get("rejected") or {})
+    rep.steward_review_needed = {str(k): int(v) for k, v in (facts.get("steward_review_needed") or {}).items()}
     for t, v in sorted((facts.get("tables") or {}).items()):  # D-1253 review F
         for name, into in (("rejected_no_patient", rep.rejected_no_patient),
                            ("deletes_without_patient", rep.deletes_without_patient)):  # fmt: skip
@@ -801,6 +808,7 @@ def _audit(cfg: AdapterConfig, rep: BackfillReport) -> None:
             or None,
             "rejected_no_patient": rep.rejected_no_patient or None,
             "deletes_without_patient": rep.deletes_without_patient or None,
+            "steward_review_needed": rep.steward_review_needed or None,  # D-1253 ruling 1: as the night's detail
             "errors": rep.errors or None,
             "current": _current(cfg.lake_dir),
         },
