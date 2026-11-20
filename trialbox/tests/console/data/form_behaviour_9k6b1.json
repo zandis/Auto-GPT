@@ -1,0 +1,3145 @@
+{
+ "committee": [
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "bad kind",
+   "stored": {
+    "history": [],
+    "permission": null,
+    "record": {
+     "approved_on": "",
+     "approved_version": "",
+     "by": "",
+     "central": false,
+     "contract_on": "",
+     "current_version": "",
+     "documents": "",
+     "due_on": "",
+     "establisher": "",
+     "external": false,
+     "kind": ""
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "approval without a version",
+   "stored": {
+    "history": [],
+    "permission": null,
+    "record": {
+     "approved_on": "",
+     "approved_version": "",
+     "by": "",
+     "central": false,
+     "contract_on": "",
+     "current_version": "",
+     "documents": "",
+     "due_on": "",
+     "establisher": "",
+     "external": false,
+     "kind": ""
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "approval in the future",
+   "stored": {
+    "history": [],
+    "permission": null,
+    "record": {
+     "approved_on": "",
+     "approved_version": "",
+     "by": "",
+     "central": false,
+     "contract_on": "",
+     "current_version": "",
+     "documents": "",
+     "due_on": "",
+     "establisher": "",
+     "external": false,
+     "kind": ""
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "a long text",
+   "stored": {
+    "history": [],
+    "permission": null,
+    "record": {
+     "approved_on": "",
+     "approved_version": "",
+     "by": "",
+     "central": false,
+     "contract_on": "",
+     "current_version": "",
+     "documents": "",
+     "due_on": "",
+     "establisher": "",
+     "external": false,
+     "kind": ""
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "permission version without a date",
+   "stored": {
+    "history": [],
+    "permission": null,
+    "record": {
+     "approved_on": "",
+     "approved_version": "",
+     "by": "",
+     "central": false,
+     "contract_on": "",
+     "current_version": "",
+     "documents": "",
+     "due_on": "",
+     "establisher": "",
+     "external": false,
+     "kind": ""
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "action": "committee",
+      "after": {
+       "approved_on": "2026-10-01",
+       "approved_version": "1.0",
+       "central": "True",
+       "contract_on": "",
+       "current_version": "1.0",
+       "documents": "Sample notice",
+       "due_on": "",
+       "establisher": "Synthetic University",
+       "external": "False",
+       "kind": "shishin"
+      },
+      "before": {
+       "approved_on": "",
+       "approved_version": "",
+       "central": "False",
+       "contract_on": "",
+       "current_version": "",
+       "documents": "",
+       "due_on": "",
+       "establisher": "",
+       "external": "False",
+       "kind": ""
+      },
+      "before_permission": "",
+      "changed": "kind,establisher,current_version,approved_version,approved_on,central,documents",
+      "permission": "",
+      "reason": "",
+      "site": "SAMPLE-A"
+     },
+     "event": "console.irb",
+     "ruleset": "GZQO"
+    }
+   ],
+   "location": "/studies/GZQO/committee?done=1",
+   "status": 303,
+   "step": "saved",
+   "stored": {
+    "history": [
+     {
+      "approved_on": "2026-10-01",
+      "approved_version": "1.0",
+      "by": "crc1",
+      "central": true,
+      "contract_on": "",
+      "current_version": "1.0",
+      "documents": "Sample notice",
+      "due_on": "",
+      "establisher": "Synthetic University",
+      "external": false,
+      "kind": "shishin"
+     }
+    ],
+    "permission": null,
+    "record": {
+     "approved_on": "2026-10-01",
+     "approved_version": "1.0",
+     "by": "crc1",
+     "central": true,
+     "contract_on": "",
+     "current_version": "1.0",
+     "documents": "Sample notice",
+     "due_on": "",
+     "establisher": "Synthetic University",
+     "external": false,
+     "kind": "shishin"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "change without a reason",
+   "stored": {
+    "history": [
+     {
+      "approved_on": "2026-10-01",
+      "approved_version": "1.0",
+      "by": "crc1",
+      "central": true,
+      "contract_on": "",
+      "current_version": "1.0",
+      "documents": "Sample notice",
+      "due_on": "",
+      "establisher": "Synthetic University",
+      "external": false,
+      "kind": "shishin"
+     }
+    ],
+    "permission": null,
+    "record": {
+     "approved_on": "2026-10-01",
+     "approved_version": "1.0",
+     "by": "crc1",
+     "central": true,
+     "contract_on": "",
+     "current_version": "1.0",
+     "documents": "Sample notice",
+     "due_on": "",
+     "establisher": "Synthetic University",
+     "external": false,
+     "kind": "shishin"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "action": "committee",
+      "after": {
+       "approved_on": "2026-10-01",
+       "approved_version": "1.0",
+       "central": "False",
+       "contract_on": "",
+       "current_version": "1.0",
+       "documents": "",
+       "due_on": "",
+       "establisher": "",
+       "external": "False",
+       "kind": "chiken"
+      },
+      "before": {
+       "approved_on": "2026-10-01",
+       "approved_version": "1.0",
+       "central": "True",
+       "contract_on": "",
+       "current_version": "1.0",
+       "documents": "Sample notice",
+       "due_on": "",
+       "establisher": "Synthetic University",
+       "external": "False",
+       "kind": "shishin"
+      },
+      "before_permission": "",
+      "changed": "kind,establisher,central,documents",
+      "permission": "",
+      "reason": "the study is a clinical trial",
+      "site": "SAMPLE-A"
+     },
+     "event": "console.irb",
+     "ruleset": "GZQO"
+    }
+   ],
+   "location": "/studies/GZQO/committee?done=1",
+   "status": 303,
+   "step": "changed",
+   "stored": {
+    "history": [
+     {
+      "approved_on": "2026-10-01",
+      "approved_version": "1.0",
+      "by": "crc1",
+      "central": true,
+      "contract_on": "",
+      "current_version": "1.0",
+      "documents": "Sample notice",
+      "due_on": "",
+      "establisher": "Synthetic University",
+      "external": false,
+      "kind": "shishin"
+     },
+     {
+      "approved_on": "2026-10-01",
+      "approved_version": "1.0",
+      "by": "crc1",
+      "central": false,
+      "contract_on": "",
+      "current_version": "1.0",
+      "documents": "",
+      "due_on": "",
+      "establisher": "",
+      "external": false,
+      "kind": "chiken"
+     }
+    ],
+    "permission": null,
+    "record": {
+     "approved_on": "2026-10-01",
+     "approved_version": "1.0",
+     "by": "crc1",
+     "central": false,
+     "contract_on": "",
+     "current_version": "1.0",
+     "documents": "",
+     "due_on": "",
+     "establisher": "",
+     "external": false,
+     "kind": "chiken"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "action": "committee",
+      "after": {
+       "approved_on": "2026-10-01",
+       "approved_version": "1.0",
+       "central": "False",
+       "contract_on": "",
+       "current_version": "1.0",
+       "documents": "",
+       "due_on": "",
+       "establisher": "",
+       "external": "False",
+       "kind": "chiken"
+      },
+      "before": {
+       "approved_on": "2026-10-01",
+       "approved_version": "1.0",
+       "central": "False",
+       "contract_on": "",
+       "current_version": "1.0",
+       "documents": "",
+       "due_on": "",
+       "establisher": "",
+       "external": "False",
+       "kind": "chiken"
+      },
+      "before_permission": "",
+      "changed": "",
+      "permission": "1.0 2026-10-10",
+      "reason": "the permission arrived",
+      "site": "SAMPLE-A"
+     },
+     "event": "console.irb",
+     "ruleset": "GZQO"
+    }
+   ],
+   "location": "/studies/GZQO/committee?done=1",
+   "status": 303,
+   "step": "permission saved",
+   "stored": {
+    "history": [
+     {
+      "approved_on": "2026-10-01",
+      "approved_version": "1.0",
+      "by": "crc1",
+      "central": true,
+      "contract_on": "",
+      "current_version": "1.0",
+      "documents": "Sample notice",
+      "due_on": "",
+      "establisher": "Synthetic University",
+      "external": false,
+      "kind": "shishin"
+     },
+     {
+      "approved_on": "2026-10-01",
+      "approved_version": "1.0",
+      "by": "crc1",
+      "central": false,
+      "contract_on": "",
+      "current_version": "1.0",
+      "documents": "",
+      "due_on": "",
+      "establisher": "",
+      "external": false,
+      "kind": "chiken"
+     }
+    ],
+    "permission": {
+     "by": "crc1",
+     "permitted_on": "2026-10-10",
+     "site": "SAMPLE-A",
+     "version": "1.0"
+    },
+    "record": {
+     "approved_on": "2026-10-01",
+     "approved_version": "1.0",
+     "by": "crc1",
+     "central": false,
+     "contract_on": "",
+     "current_version": "1.0",
+     "documents": "",
+     "due_on": "",
+     "establisher": "",
+     "external": false,
+     "kind": "chiken"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "api bad kind",
+   "stored": {
+    "history": [
+     {
+      "approved_on": "2026-10-01",
+      "approved_version": "1.0",
+      "by": "crc1",
+      "central": true,
+      "contract_on": "",
+      "current_version": "1.0",
+      "documents": "Sample notice",
+      "due_on": "",
+      "establisher": "Synthetic University",
+      "external": false,
+      "kind": "shishin"
+     },
+     {
+      "approved_on": "2026-10-01",
+      "approved_version": "1.0",
+      "by": "crc1",
+      "central": false,
+      "contract_on": "",
+      "current_version": "1.0",
+      "documents": "",
+      "due_on": "",
+      "establisher": "",
+      "external": false,
+      "kind": "chiken"
+     }
+    ],
+    "permission": {
+     "by": "crc1",
+     "permitted_on": "2026-10-10",
+     "site": "SAMPLE-A",
+     "version": "1.0"
+    },
+    "record": {
+     "approved_on": "2026-10-01",
+     "approved_version": "1.0",
+     "by": "crc1",
+     "central": false,
+     "contract_on": "",
+     "current_version": "1.0",
+     "documents": "",
+     "due_on": "",
+     "establisher": "",
+     "external": false,
+     "kind": "chiken"
+    }
+   }
+  },
+  {
+   "body": {
+    "approved_on": "",
+    "approved_version": "",
+    "central": false,
+    "committee": "crb",
+    "contract_on": "",
+    "current_version": "2.0",
+    "documents": "",
+    "due_on": "",
+    "establisher": "",
+    "external": false,
+    "findings": [
+     {
+      "code": "no_approval",
+      "level": "refuse"
+     },
+     {
+      "code": "earlier_permission",
+      "level": "refuse"
+     }
+    ],
+    "holds_lists": [
+     "no_approval",
+     "earlier_permission"
+    ],
+    "kind": "tokutei",
+    "permission": {
+     "permitted_on": "2026-10-10",
+     "version": "1.0"
+    },
+    "refuses_open": [
+     "no_approval",
+     "earlier_permission"
+    ],
+    "site": "SAMPLE-A",
+    "study": "GZQO"
+   },
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "action": "committee",
+      "after": {
+       "approved_on": "",
+       "approved_version": "",
+       "central": "False",
+       "contract_on": "",
+       "current_version": "2.0",
+       "documents": "",
+       "due_on": "",
+       "establisher": "",
+       "external": "False",
+       "kind": "tokutei"
+      },
+      "before": {
+       "approved_on": "2026-10-01",
+       "approved_version": "1.0",
+       "central": "False",
+       "contract_on": "",
+       "current_version": "1.0",
+       "documents": "",
+       "due_on": "",
+       "establisher": "",
+       "external": "False",
+       "kind": "chiken"
+      },
+      "before_permission": "1.0 2026-10-10",
+      "changed": "kind,current_version,approved_version,approved_on",
+      "permission": "",
+      "reason": "the api changes the kind",
+      "site": "SAMPLE-A"
+     },
+     "event": "console.irb",
+     "ruleset": "GZQO"
+    }
+   ],
+   "location": "",
+   "status": 200,
+   "step": "api saved",
+   "stored": {
+    "history": [
+     {
+      "approved_on": "2026-10-01",
+      "approved_version": "1.0",
+      "by": "crc1",
+      "central": true,
+      "contract_on": "",
+      "current_version": "1.0",
+      "documents": "Sample notice",
+      "due_on": "",
+      "establisher": "Synthetic University",
+      "external": false,
+      "kind": "shishin"
+     },
+     {
+      "approved_on": "2026-10-01",
+      "approved_version": "1.0",
+      "by": "crc1",
+      "central": false,
+      "contract_on": "",
+      "current_version": "1.0",
+      "documents": "",
+      "due_on": "",
+      "establisher": "",
+      "external": false,
+      "kind": "chiken"
+     },
+     {
+      "approved_on": "",
+      "approved_version": "",
+      "by": "crc1",
+      "central": false,
+      "contract_on": "",
+      "current_version": "2.0",
+      "documents": "",
+      "due_on": "",
+      "establisher": "",
+      "external": false,
+      "kind": "tokutei"
+     }
+    ],
+    "permission": {
+     "by": "crc1",
+     "permitted_on": "2026-10-10",
+     "site": "SAMPLE-A",
+     "version": "1.0"
+    },
+    "record": {
+     "approved_on": "",
+     "approved_version": "",
+     "by": "crc1",
+     "central": false,
+     "contract_on": "",
+     "current_version": "2.0",
+     "documents": "",
+     "due_on": "",
+     "establisher": "",
+     "external": false,
+     "kind": "tokutei"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:stw",
+     "detail": {
+      "action": "/studies/GZQO/committee"
+     },
+     "event": "console.denied"
+    }
+   ],
+   "location": "",
+   "status": 403,
+   "step": "a steward may not",
+   "stored": {
+    "history": [
+     {
+      "approved_on": "2026-10-01",
+      "approved_version": "1.0",
+      "by": "crc1",
+      "central": true,
+      "contract_on": "",
+      "current_version": "1.0",
+      "documents": "Sample notice",
+      "due_on": "",
+      "establisher": "Synthetic University",
+      "external": false,
+      "kind": "shishin"
+     },
+     {
+      "approved_on": "2026-10-01",
+      "approved_version": "1.0",
+      "by": "crc1",
+      "central": false,
+      "contract_on": "",
+      "current_version": "1.0",
+      "documents": "",
+      "due_on": "",
+      "establisher": "",
+      "external": false,
+      "kind": "chiken"
+     },
+     {
+      "approved_on": "",
+      "approved_version": "",
+      "by": "crc1",
+      "central": false,
+      "contract_on": "",
+      "current_version": "2.0",
+      "documents": "",
+      "due_on": "",
+      "establisher": "",
+      "external": false,
+      "kind": "tokutei"
+     }
+    ],
+    "permission": {
+     "by": "crc1",
+     "permitted_on": "2026-10-10",
+     "site": "SAMPLE-A",
+     "version": "1.0"
+    },
+    "record": {
+     "approved_on": "",
+     "approved_version": "",
+     "by": "crc1",
+     "central": false,
+     "contract_on": "",
+     "current_version": "2.0",
+     "documents": "",
+     "due_on": "",
+     "establisher": "",
+     "external": false,
+     "kind": "tokutei"
+    }
+   }
+  }
+ ],
+ "contact": [
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "both empty",
+   "stored": {
+    "contacts": [],
+    "staff": []
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "no name",
+   "stored": {
+    "contacts": [],
+    "staff": []
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "no department",
+   "stored": {
+    "contacts": [],
+    "staff": []
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:stw",
+     "detail": {
+      "action": "contact"
+     },
+     "event": "console.staff"
+    }
+   ],
+   "location": "/site/staff?done=contact",
+   "status": 303,
+   "step": "saved",
+   "stored": {
+    "contacts": [
+     {
+      "contact": "ext. 2",
+      "department": "Radiology",
+      "name": "Synthetic Desk"
+     }
+    ],
+    "staff": []
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:stw",
+     "detail": {
+      "action": "contact"
+     },
+     "event": "console.staff"
+    }
+   ],
+   "location": "/site/staff?done=contact",
+   "status": 303,
+   "step": "saved again, the same department",
+   "stored": {
+    "contacts": [
+     {
+      "contact": "ext. 3",
+      "department": "Radiology",
+      "name": "Other Desk"
+     }
+    ],
+    "staff": []
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "action": "/site/staff"
+     },
+     "event": "console.denied"
+    }
+   ],
+   "location": "",
+   "status": 403,
+   "step": "a coordinator may not",
+   "stored": {
+    "contacts": [
+     {
+      "contact": "ext. 3",
+      "department": "Radiology",
+      "name": "Other Desk"
+     }
+    ],
+    "staff": []
+   }
+  }
+ ],
+ "icf": [
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "bad version",
+   "stored": {
+    "history": [],
+    "icf": [],
+    "irb": {
+     "approval_no": "",
+     "approved_on": "",
+     "by": "",
+     "expires_on": "",
+     "icf_date": "",
+     "icf_version": ""
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "empty version",
+   "stored": {
+    "history": [],
+    "icf": [],
+    "irb": {
+     "approval_no": "",
+     "approved_on": "",
+     "by": "",
+     "expires_on": "",
+     "icf_date": "",
+     "icf_version": ""
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "not a day",
+   "stored": {
+    "history": [],
+    "icf": [],
+    "irb": {
+     "approval_no": "",
+     "approved_on": "",
+     "by": "",
+     "expires_on": "",
+     "icf_date": "",
+     "icf_version": ""
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "used before approved",
+   "stored": {
+    "history": [],
+    "icf": [],
+    "irb": {
+     "approval_no": "",
+     "approved_on": "",
+     "by": "",
+     "expires_on": "",
+     "icf_date": "",
+     "icf_version": ""
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "action": "add",
+      "effective_from": "2026-10-03",
+      "irb_approved_on": "2026-10-02",
+      "reconsent": true,
+      "version": "ICF-2"
+     },
+     "event": "console.icf",
+     "ruleset": "GZQO"
+    }
+   ],
+   "location": "/studies/GZQO/irb?icf=1#icf",
+   "status": 303,
+   "step": "added",
+   "stored": {
+    "history": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-03",
+      "irb_approved_on": "2026-10-02",
+      "note": "first",
+      "reconsent": true,
+      "version": "ICF-2",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "icf": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-03",
+      "irb_approved_on": "2026-10-02",
+      "note": "first",
+      "reconsent": true,
+      "version": "ICF-2",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "irb": {
+     "approval_no": "",
+     "approved_on": "",
+     "by": "",
+     "expires_on": "",
+     "icf_date": "2026-10-01",
+     "icf_version": "ICF-2"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "action": "add",
+      "effective_from": "",
+      "irb_approved_on": "2026-10-02",
+      "reconsent": false,
+      "version": "ICF-3"
+     },
+     "event": "console.icf",
+     "ruleset": "GZQO"
+    }
+   ],
+   "location": "/studies/GZQO/irb?icf=1#icf",
+   "status": 303,
+   "step": "added without re-consent",
+   "stored": {
+    "history": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-03",
+      "irb_approved_on": "2026-10-02",
+      "note": "first",
+      "reconsent": true,
+      "version": "ICF-2",
+      "version_date": "2026-10-01"
+     },
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-02",
+      "irb_approved_on": "2026-10-02",
+      "note": "second",
+      "reconsent": false,
+      "version": "ICF-3",
+      "version_date": ""
+     }
+    ],
+    "icf": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-02",
+      "irb_approved_on": "2026-10-02",
+      "note": "second",
+      "reconsent": false,
+      "version": "ICF-3",
+      "version_date": ""
+     },
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-03",
+      "irb_approved_on": "2026-10-02",
+      "note": "first",
+      "reconsent": true,
+      "version": "ICF-2",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "irb": {
+     "approval_no": "",
+     "approved_on": "",
+     "by": "",
+     "expires_on": "",
+     "icf_date": "2026-10-01",
+     "icf_version": "ICF-2"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "withdraw one not listed",
+   "stored": {
+    "history": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-03",
+      "irb_approved_on": "2026-10-02",
+      "note": "first",
+      "reconsent": true,
+      "version": "ICF-2",
+      "version_date": "2026-10-01"
+     },
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-02",
+      "irb_approved_on": "2026-10-02",
+      "note": "second",
+      "reconsent": false,
+      "version": "ICF-3",
+      "version_date": ""
+     }
+    ],
+    "icf": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-02",
+      "irb_approved_on": "2026-10-02",
+      "note": "second",
+      "reconsent": false,
+      "version": "ICF-3",
+      "version_date": ""
+     },
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-03",
+      "irb_approved_on": "2026-10-02",
+      "note": "first",
+      "reconsent": true,
+      "version": "ICF-2",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "irb": {
+     "approval_no": "",
+     "approved_on": "",
+     "by": "",
+     "expires_on": "",
+     "icf_date": "2026-10-01",
+     "icf_version": "ICF-2"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "withdraw without a note",
+   "stored": {
+    "history": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-03",
+      "irb_approved_on": "2026-10-02",
+      "note": "first",
+      "reconsent": true,
+      "version": "ICF-2",
+      "version_date": "2026-10-01"
+     },
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-02",
+      "irb_approved_on": "2026-10-02",
+      "note": "second",
+      "reconsent": false,
+      "version": "ICF-3",
+      "version_date": ""
+     }
+    ],
+    "icf": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-02",
+      "irb_approved_on": "2026-10-02",
+      "note": "second",
+      "reconsent": false,
+      "version": "ICF-3",
+      "version_date": ""
+     },
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-03",
+      "irb_approved_on": "2026-10-02",
+      "note": "first",
+      "reconsent": true,
+      "version": "ICF-2",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "irb": {
+     "approval_no": "",
+     "approved_on": "",
+     "by": "",
+     "expires_on": "",
+     "icf_date": "2026-10-01",
+     "icf_version": "ICF-2"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "action": "withdraw",
+      "effective_from": "",
+      "irb_approved_on": "",
+      "reconsent": false,
+      "version": "ICF-3"
+     },
+     "event": "console.icf",
+     "ruleset": "GZQO"
+    }
+   ],
+   "location": "/studies/GZQO/irb?icf=1#icf",
+   "status": 303,
+   "step": "withdrawn",
+   "stored": {
+    "history": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-03",
+      "irb_approved_on": "2026-10-02",
+      "note": "first",
+      "reconsent": true,
+      "version": "ICF-2",
+      "version_date": "2026-10-01"
+     },
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-02",
+      "irb_approved_on": "2026-10-02",
+      "note": "second",
+      "reconsent": false,
+      "version": "ICF-3",
+      "version_date": ""
+     },
+     {
+      "action": "withdraw",
+      "by": "crc1",
+      "effective_from": "2026-10-02",
+      "irb_approved_on": "2026-10-02",
+      "note": "entered by mistake",
+      "reconsent": false,
+      "version": "ICF-3",
+      "version_date": ""
+     }
+    ],
+    "icf": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-03",
+      "irb_approved_on": "2026-10-02",
+      "note": "first",
+      "reconsent": true,
+      "version": "ICF-2",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "irb": {
+     "approval_no": "",
+     "approved_on": "",
+     "by": "",
+     "expires_on": "",
+     "icf_date": "2026-10-01",
+     "icf_version": "ICF-2"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "api bad version",
+   "stored": {
+    "history": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-03",
+      "irb_approved_on": "2026-10-02",
+      "note": "first",
+      "reconsent": true,
+      "version": "ICF-2",
+      "version_date": "2026-10-01"
+     },
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-02",
+      "irb_approved_on": "2026-10-02",
+      "note": "second",
+      "reconsent": false,
+      "version": "ICF-3",
+      "version_date": ""
+     },
+     {
+      "action": "withdraw",
+      "by": "crc1",
+      "effective_from": "2026-10-02",
+      "irb_approved_on": "2026-10-02",
+      "note": "entered by mistake",
+      "reconsent": false,
+      "version": "ICF-3",
+      "version_date": ""
+     }
+    ],
+    "icf": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-03",
+      "irb_approved_on": "2026-10-02",
+      "note": "first",
+      "reconsent": true,
+      "version": "ICF-2",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "irb": {
+     "approval_no": "",
+     "approved_on": "",
+     "by": "",
+     "expires_on": "",
+     "icf_date": "2026-10-01",
+     "icf_version": "ICF-2"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:stw",
+     "detail": {
+      "action": "/studies/GZQO/irb/icf"
+     },
+     "event": "console.denied"
+    }
+   ],
+   "location": "",
+   "status": 403,
+   "step": "a steward may not",
+   "stored": {
+    "history": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-03",
+      "irb_approved_on": "2026-10-02",
+      "note": "first",
+      "reconsent": true,
+      "version": "ICF-2",
+      "version_date": "2026-10-01"
+     },
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-02",
+      "irb_approved_on": "2026-10-02",
+      "note": "second",
+      "reconsent": false,
+      "version": "ICF-3",
+      "version_date": ""
+     },
+     {
+      "action": "withdraw",
+      "by": "crc1",
+      "effective_from": "2026-10-02",
+      "irb_approved_on": "2026-10-02",
+      "note": "entered by mistake",
+      "reconsent": false,
+      "version": "ICF-3",
+      "version_date": ""
+     }
+    ],
+    "icf": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-03",
+      "irb_approved_on": "2026-10-02",
+      "note": "first",
+      "reconsent": true,
+      "version": "ICF-2",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "irb": {
+     "approval_no": "",
+     "approved_on": "",
+     "by": "",
+     "expires_on": "",
+     "icf_date": "2026-10-01",
+     "icf_version": "ICF-2"
+    }
+   }
+  }
+ ],
+ "irb": [
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "number missing",
+   "stored": {
+    "history": [],
+    "icf": [],
+    "irb": {
+     "approval_no": "",
+     "approved_on": "",
+     "by": "",
+     "expires_on": "",
+     "icf_date": "",
+     "icf_version": ""
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "not a day",
+   "stored": {
+    "history": [],
+    "icf": [],
+    "irb": {
+     "approval_no": "",
+     "approved_on": "",
+     "by": "",
+     "expires_on": "",
+     "icf_date": "",
+     "icf_version": ""
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "expires early",
+   "stored": {
+    "history": [],
+    "icf": [],
+    "irb": {
+     "approval_no": "",
+     "approved_on": "",
+     "by": "",
+     "expires_on": "",
+     "icf_date": "",
+     "icf_version": ""
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "action": "save",
+      "approval_no": "I1",
+      "approved_on": "2026-10-01",
+      "before": {
+       "approval_no": "",
+       "approved_on": "",
+       "expires_on": "",
+       "icf_date": "",
+       "icf_version": ""
+      },
+      "changed": "approval_no,approved_on,expires_on,icf_version,icf_date",
+      "expires_on": "2027-10-01",
+      "icf_version": "v1.0",
+      "reason": ""
+     },
+     "event": "console.irb",
+     "ruleset": "GZQO"
+    }
+   ],
+   "location": "/studies/GZQO/irb?done=1",
+   "status": 303,
+   "step": "saved",
+   "stored": {
+    "history": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-01",
+      "irb_approved_on": "2026-10-01",
+      "note": "",
+      "reconsent": true,
+      "version": "v1.0",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "icf": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-01",
+      "irb_approved_on": "2026-10-01",
+      "note": "",
+      "reconsent": true,
+      "version": "v1.0",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "irb": {
+     "approval_no": "I1",
+     "approved_on": "2026-10-01",
+     "by": "crc1",
+     "expires_on": "2027-10-01",
+     "icf_date": "2026-10-01",
+     "icf_version": "v1.0"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "change without a reason",
+   "stored": {
+    "history": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-01",
+      "irb_approved_on": "2026-10-01",
+      "note": "",
+      "reconsent": true,
+      "version": "v1.0",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "icf": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-01",
+      "irb_approved_on": "2026-10-01",
+      "note": "",
+      "reconsent": true,
+      "version": "v1.0",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "irb": {
+     "approval_no": "I1",
+     "approved_on": "2026-10-01",
+     "by": "crc1",
+     "expires_on": "2027-10-01",
+     "icf_date": "2026-10-01",
+     "icf_version": "v1.0"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "change with a short reason",
+   "stored": {
+    "history": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-01",
+      "irb_approved_on": "2026-10-01",
+      "note": "",
+      "reconsent": true,
+      "version": "v1.0",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "icf": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-01",
+      "irb_approved_on": "2026-10-01",
+      "note": "",
+      "reconsent": true,
+      "version": "v1.0",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "irb": {
+     "approval_no": "I1",
+     "approved_on": "2026-10-01",
+     "by": "crc1",
+     "expires_on": "2027-10-01",
+     "icf_date": "2026-10-01",
+     "icf_version": "v1.0"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "action": "save",
+      "approval_no": "I2",
+      "approved_on": "2026-10-01",
+      "before": {
+       "approval_no": "I1",
+       "approved_on": "2026-10-01",
+       "expires_on": "2027-10-01",
+       "icf_date": "2026-10-01",
+       "icf_version": "v1.0"
+      },
+      "changed": "approval_no",
+      "expires_on": "2027-10-01",
+      "icf_version": "v1.0",
+      "reason": "the number was copied wrong"
+     },
+     "event": "console.irb",
+     "ruleset": "GZQO"
+    }
+   ],
+   "location": "/studies/GZQO/irb?done=1",
+   "status": 303,
+   "step": "changed",
+   "stored": {
+    "history": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-01",
+      "irb_approved_on": "2026-10-01",
+      "note": "",
+      "reconsent": true,
+      "version": "v1.0",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "icf": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-01",
+      "irb_approved_on": "2026-10-01",
+      "note": "",
+      "reconsent": true,
+      "version": "v1.0",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "irb": {
+     "approval_no": "I2",
+     "approved_on": "2026-10-01",
+     "by": "crc1",
+     "expires_on": "2027-10-01",
+     "icf_date": "2026-10-01",
+     "icf_version": "v1.0"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "api not a day",
+   "stored": {
+    "history": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-01",
+      "irb_approved_on": "2026-10-01",
+      "note": "",
+      "reconsent": true,
+      "version": "v1.0",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "icf": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-01",
+      "irb_approved_on": "2026-10-01",
+      "note": "",
+      "reconsent": true,
+      "version": "v1.0",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "irb": {
+     "approval_no": "I2",
+     "approved_on": "2026-10-01",
+     "by": "crc1",
+     "expires_on": "2027-10-01",
+     "icf_date": "2026-10-01",
+     "icf_version": "v1.0"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:stw",
+     "detail": {
+      "action": "/studies/GZQO/irb"
+     },
+     "event": "console.denied"
+    }
+   ],
+   "location": "",
+   "status": 403,
+   "step": "a steward may not",
+   "stored": {
+    "history": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-01",
+      "irb_approved_on": "2026-10-01",
+      "note": "",
+      "reconsent": true,
+      "version": "v1.0",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "icf": [
+     {
+      "action": "add",
+      "by": "crc1",
+      "effective_from": "2026-10-01",
+      "irb_approved_on": "2026-10-01",
+      "note": "",
+      "reconsent": true,
+      "version": "v1.0",
+      "version_date": "2026-10-01"
+     }
+    ],
+    "irb": {
+     "approval_no": "I2",
+     "approved_on": "2026-10-01",
+     "by": "crc1",
+     "expires_on": "2027-10-01",
+     "icf_date": "2026-10-01",
+     "icf_version": "v1.0"
+    }
+   }
+  }
+ ],
+ "optout": [
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "a prefix",
+   "stored": {
+    "current": [],
+    "events": []
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "thirty-one characters",
+   "stored": {
+    "current": [],
+    "events": []
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "neither given",
+   "stored": {
+    "current": [],
+    "events": []
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "a chart number of the wrong shape",
+   "stored": {
+    "current": [],
+    "events": []
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "a pseudonym in the chart field",
+   "stored": {
+    "current": [],
+    "events": []
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:stw",
+     "detail": {
+      "action": "opt_out",
+      "match_shown": "no",
+      "pid": "cccccccccccccccccccccccccccccccc",
+      "reason": "",
+      "removed_from": "screening, candidate lists, exports",
+      "source": "paper"
+     },
+     "event": "console.opt_out"
+    }
+   ],
+   "location": "/site/opt-outs?done=added&on=no",
+   "status": 303,
+   "step": "saved",
+   "stored": {
+    "current": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "n",
+      "pid": "cccccccccccccccccccccccccccccccc",
+      "source": "paper"
+     }
+    ],
+    "events": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "n",
+      "pid": "cccccccccccccccccccccccccccccccc",
+      "source": "paper"
+     }
+    ]
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:stw",
+     "detail": {
+      "action": "opt_out",
+      "match_shown": "no",
+      "pid": "cccccccccccccccccccccccccccccccc",
+      "reason": "",
+      "removed_from": "screening, candidate lists, exports",
+      "source": "paper"
+     },
+     "event": "console.opt_out"
+    }
+   ],
+   "location": "/site/opt-outs?done=same",
+   "status": 303,
+   "step": "saved again, the same",
+   "stored": {
+    "current": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "",
+      "pid": "cccccccccccccccccccccccccccccccc",
+      "source": "paper"
+     }
+    ],
+    "events": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "n",
+      "pid": "cccccccccccccccccccccccccccccccc",
+      "source": "paper"
+     },
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "",
+      "pid": "cccccccccccccccccccccccccccccccc",
+      "source": "paper"
+     }
+    ]
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "action": "/site/opt-outs"
+     },
+     "event": "console.denied"
+    }
+   ],
+   "location": "",
+   "status": 403,
+   "step": "a coordinator may not",
+   "stored": {
+    "current": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "",
+      "pid": "cccccccccccccccccccccccccccccccc",
+      "source": "paper"
+     }
+    ],
+    "events": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "n",
+      "pid": "cccccccccccccccccccccccccccccccc",
+      "source": "paper"
+     },
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "",
+      "pid": "cccccccccccccccccccccccccccccccc",
+      "source": "paper"
+     }
+    ]
+   }
+  }
+ ],
+ "optout-lift": [
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "a short reason",
+   "stored": {
+    "current": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "",
+      "pid": "dddddddddddddddddddddddddddddddd",
+      "source": "paper"
+     }
+    ],
+    "events": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "",
+      "pid": "dddddddddddddddddddddddddddddddd",
+      "source": "paper"
+     }
+    ]
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "no reason",
+   "stored": {
+    "current": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "",
+      "pid": "dddddddddddddddddddddddddddddddd",
+      "source": "paper"
+     }
+    ],
+    "events": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "",
+      "pid": "dddddddddddddddddddddddddddddddd",
+      "source": "paper"
+     }
+    ]
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "/site/opt-outs?done=same",
+   "status": 303,
+   "step": "one not on the register",
+   "stored": {
+    "current": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "",
+      "pid": "dddddddddddddddddddddddddddddddd",
+      "source": "paper"
+     }
+    ],
+    "events": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "",
+      "pid": "dddddddddddddddddddddddddddddddd",
+      "source": "paper"
+     }
+    ]
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "a prefix",
+   "stored": {
+    "current": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "",
+      "pid": "dddddddddddddddddddddddddddddddd",
+      "source": "paper"
+     }
+    ],
+    "events": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "",
+      "pid": "dddddddddddddddddddddddddddddddd",
+      "source": "paper"
+     }
+    ]
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:stw",
+     "detail": {
+      "action": "lift",
+      "pid": "dddddddddddddddddddddddddddddddd",
+      "reason": "the patient asked to return",
+      "removed_from": "",
+      "source": ""
+     },
+     "event": "console.opt_out"
+    }
+   ],
+   "location": "/site/opt-outs?done=lifted",
+   "status": 303,
+   "step": "lifted",
+   "stored": {
+    "current": [],
+    "events": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "",
+      "pid": "dddddddddddddddddddddddddddddddd",
+      "source": "paper"
+     },
+     {
+      "action": "lift",
+      "by": "stw",
+      "note": "the patient asked to return",
+      "pid": "dddddddddddddddddddddddddddddddd",
+      "source": ""
+     }
+    ]
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "action": "/site/opt-outs"
+     },
+     "event": "console.denied"
+    }
+   ],
+   "location": "",
+   "status": 403,
+   "step": "a coordinator may not",
+   "stored": {
+    "current": [],
+    "events": [
+     {
+      "action": "opt_out",
+      "by": "stw",
+      "note": "",
+      "pid": "dddddddddddddddddddddddddddddddd",
+      "source": "paper"
+     },
+     {
+      "action": "lift",
+      "by": "stw",
+      "note": "the patient asked to return",
+      "pid": "dddddddddddddddddddddddddddddddd",
+      "source": ""
+     }
+    ]
+   }
+  }
+ ],
+ "staff": [
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "no name",
+   "stored": {
+    "contacts": [],
+    "staff": []
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "a blank name",
+   "stored": {
+    "contacts": [],
+    "staff": []
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:stw",
+     "detail": {
+      "action": "add"
+     },
+     "event": "console.staff"
+    }
+   ],
+   "location": "/site/staff?done=add",
+   "status": 303,
+   "step": "saved",
+   "stored": {
+    "contacts": [],
+    "staff": [
+     {
+      "active": true,
+      "contact": "ext. 1",
+      "department": "Cardiology",
+      "id": 1,
+      "name": "Dr Synthetic",
+      "practitioner_id": "P1",
+      "role": "Physician",
+      "username": ""
+     }
+    ]
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "switch off one not there",
+   "stored": {
+    "contacts": [],
+    "staff": [
+     {
+      "active": true,
+      "contact": "ext. 1",
+      "department": "Cardiology",
+      "id": 1,
+      "name": "Dr Synthetic",
+      "practitioner_id": "P1",
+      "role": "Physician",
+      "username": ""
+     }
+    ]
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:stw",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:stw",
+     "detail": {
+      "action": "inactive"
+     },
+     "event": "console.staff"
+    }
+   ],
+   "location": "/site/staff?done=inactive",
+   "status": 303,
+   "step": "switched off",
+   "stored": {
+    "contacts": [],
+    "staff": [
+     {
+      "active": false,
+      "contact": "ext. 1",
+      "department": "Cardiology",
+      "id": 1,
+      "name": "Dr Synthetic",
+      "practitioner_id": "P1",
+      "role": "Physician",
+      "username": ""
+     }
+    ]
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "action": "/site/staff"
+     },
+     "event": "console.denied"
+    }
+   ],
+   "location": "",
+   "status": 403,
+   "step": "a coordinator may not",
+   "stored": {
+    "contacts": [],
+    "staff": [
+     {
+      "active": false,
+      "contact": "ext. 1",
+      "department": "Cardiology",
+      "id": 1,
+      "name": "Dr Synthetic",
+      "practitioner_id": "P1",
+      "role": "Physician",
+      "username": ""
+     }
+    ]
+   }
+  }
+ ],
+ "state": [
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "a move that is not one",
+   "stored": {
+    "history": [],
+    "state": {
+     "by": "",
+     "keep_years": null,
+     "reason": "",
+     "state": "open"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "a pause without a reason",
+   "stored": {
+    "history": [],
+    "state": {
+     "by": "",
+     "keep_years": null,
+     "reason": "",
+     "state": "open"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "years not a number",
+   "stored": {
+    "history": [],
+    "state": {
+     "by": "",
+     "keep_years": null,
+     "reason": "",
+     "state": "open"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "years too many",
+   "stored": {
+    "history": [],
+    "state": {
+     "by": "",
+     "keep_years": null,
+     "reason": "",
+     "state": "open"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "years none",
+   "stored": {
+    "history": [],
+    "state": {
+     "by": "",
+     "keep_years": null,
+     "reason": "",
+     "state": "open"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "reason": "synthetic pause",
+      "state": "paused"
+     },
+     "event": "console.study_state",
+     "ruleset": "GZQO"
+    }
+   ],
+   "location": "/studies/GZQO/state?saved=state",
+   "status": 303,
+   "step": "paused",
+   "stored": {
+    "history": [
+     {
+      "by": "console:crc1",
+      "keep_years": null,
+      "reason": "synthetic pause",
+      "state": "paused"
+     }
+    ],
+    "state": {
+     "by": "console:crc1",
+     "keep_years": null,
+     "reason": "synthetic pause",
+     "state": "paused"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "paused again",
+   "stored": {
+    "history": [
+     {
+      "by": "console:crc1",
+      "keep_years": null,
+      "reason": "synthetic pause",
+      "state": "paused"
+     }
+    ],
+    "state": {
+     "by": "console:crc1",
+     "keep_years": null,
+     "reason": "synthetic pause",
+     "state": "paused"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "reason": "",
+      "state": "open"
+     },
+     "event": "console.study_state",
+     "ruleset": "GZQO"
+    }
+   ],
+   "location": "/studies/GZQO/state?saved=state",
+   "status": 303,
+   "step": "opened",
+   "stored": {
+    "history": [
+     {
+      "by": "console:crc1",
+      "keep_years": null,
+      "reason": "synthetic pause",
+      "state": "paused"
+     },
+     {
+      "by": "console:crc1",
+      "keep_years": null,
+      "reason": "",
+      "state": "open"
+     }
+    ],
+    "state": {
+     "by": "console:crc1",
+     "keep_years": null,
+     "reason": "",
+     "state": "open"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 200,
+   "step": "a close asks first",
+   "stored": {
+    "history": [
+     {
+      "by": "console:crc1",
+      "keep_years": null,
+      "reason": "synthetic pause",
+      "state": "paused"
+     },
+     {
+      "by": "console:crc1",
+      "keep_years": null,
+      "reason": "",
+      "state": "open"
+     }
+    ],
+    "state": {
+     "by": "console:crc1",
+     "keep_years": null,
+     "reason": "",
+     "state": "open"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "keep_years": 5,
+      "reason": "last patient out",
+      "state": "closed"
+     },
+     "event": "console.study_state",
+     "ruleset": "GZQO"
+    }
+   ],
+   "location": "/studies/GZQO/state?saved=state",
+   "status": 303,
+   "step": "closed",
+   "stored": {
+    "history": [
+     {
+      "by": "console:crc1",
+      "keep_years": null,
+      "reason": "synthetic pause",
+      "state": "paused"
+     },
+     {
+      "by": "console:crc1",
+      "keep_years": null,
+      "reason": "",
+      "state": "open"
+     },
+     {
+      "by": "console:crc1",
+      "keep_years": 5,
+      "reason": "last patient out",
+      "state": "closed"
+     }
+    ],
+    "state": {
+     "by": "console:crc1",
+     "keep_years": 5,
+     "reason": "last patient out",
+     "state": "closed"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "a move from a closed study",
+   "stored": {
+    "history": [
+     {
+      "by": "console:crc1",
+      "keep_years": null,
+      "reason": "synthetic pause",
+      "state": "paused"
+     },
+     {
+      "by": "console:crc1",
+      "keep_years": null,
+      "reason": "",
+      "state": "open"
+     },
+     {
+      "by": "console:crc1",
+      "keep_years": 5,
+      "reason": "last patient out",
+      "state": "closed"
+     }
+    ],
+    "state": {
+     "by": "console:crc1",
+     "keep_years": 5,
+     "reason": "last patient out",
+     "state": "closed"
+    }
+   }
+  }
+ ],
+ "take-back": [
+  {
+   "events": [
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "role": "coordinator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:crc1",
+     "detail": {
+      "action": "/studies/GZQO/state/take-back"
+     },
+     "event": "console.denied"
+    }
+   ],
+   "location": "",
+   "status": 403,
+   "step": "a coordinator may not",
+   "stored": {
+    "history": [
+     {
+      "by": "console:test",
+      "keep_years": 1,
+      "reason": "synthetic close",
+      "state": "closed"
+     }
+    ],
+    "state": {
+     "by": "console:test",
+     "keep_years": 1,
+     "reason": "synthetic close",
+     "state": "closed"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:drsato",
+     "detail": {
+      "role": "investigator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:stw-setup",
+     "detail": {
+      "role": "steward"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:stw-setup",
+     "detail": {
+      "action": "add",
+      "id": 1,
+      "role": "pi",
+      "tasks": "screen,approach,refer,enter_data,run",
+      "username": "drsato"
+     },
+     "event": "console.delegation",
+     "ruleset": "GZQO"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "no reason",
+   "stored": {
+    "history": [
+     {
+      "by": "console:test",
+      "keep_years": 1,
+      "reason": "synthetic close",
+      "state": "closed"
+     }
+    ],
+    "state": {
+     "by": "console:test",
+     "keep_years": 1,
+     "reason": "synthetic close",
+     "state": "closed"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:drsato",
+     "detail": {
+      "role": "investigator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 400,
+   "step": "a blank reason",
+   "stored": {
+    "history": [
+     {
+      "by": "console:test",
+      "keep_years": 1,
+      "reason": "synthetic close",
+      "state": "closed"
+     }
+    ],
+    "state": {
+     "by": "console:test",
+     "keep_years": 1,
+     "reason": "synthetic close",
+     "state": "closed"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:drsato",
+     "detail": {
+      "role": "investigator"
+     },
+     "event": "console.login"
+    },
+    {
+     "actor": "console:drsato",
+     "detail": {
+      "reason": "closed by mistake",
+      "state": "open",
+      "take_back": true
+     },
+     "event": "console.study_state",
+     "ruleset": "GZQO"
+    }
+   ],
+   "location": "/studies/GZQO/state?saved=state",
+   "status": 303,
+   "step": "taken back",
+   "stored": {
+    "history": [
+     {
+      "by": "console:test",
+      "keep_years": 1,
+      "reason": "synthetic close",
+      "state": "closed"
+     },
+     {
+      "by": "console:drsato",
+      "keep_years": null,
+      "reason": "closed by mistake",
+      "state": "open"
+     }
+    ],
+    "state": {
+     "by": "console:drsato",
+     "keep_years": null,
+     "reason": "closed by mistake",
+     "state": "open"
+    }
+   }
+  },
+  {
+   "events": [
+    {
+     "actor": "console:drsato",
+     "detail": {
+      "role": "investigator"
+     },
+     "event": "console.login"
+    }
+   ],
+   "location": "",
+   "status": 409,
+   "step": "too late: it is open",
+   "stored": {
+    "history": [
+     {
+      "by": "console:test",
+      "keep_years": 1,
+      "reason": "synthetic close",
+      "state": "closed"
+     },
+     {
+      "by": "console:drsato",
+      "keep_years": null,
+      "reason": "closed by mistake",
+      "state": "open"
+     }
+    ],
+    "state": {
+     "by": "console:drsato",
+     "keep_years": null,
+     "reason": "closed by mistake",
+     "state": "open"
+    }
+   }
+  }
+ ]
+}
