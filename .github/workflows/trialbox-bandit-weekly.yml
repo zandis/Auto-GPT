@@ -1,0 +1,58 @@
+# TrialBox bandit, weekly and report only (10G-39, OT-1 of review 21; D-1338; decision 115 ruled "ok").
+# Bandit over every tracked Python file of trialbox/ (tests included) with no severity or confidence filter and with
+# --ignore-nosec, so the lines that carry a `# nosec` are seen; SARIF, bandit's JSON (no code excerpts) and a summary
+# kept as an artifact for 90 days. It gates nothing and runs on no pull request or train: the gate stays the `security`
+# job of trialbox-ci.yml (`make security-scan`, unchanged). Bandit is the uv.lock pin (bandit==1.9.4 with its sha256),
+# installed by `make venv` (uv sync --frozen); no unpinned install. Every action is pinned to a commit.
+name: TrialBox bandit weekly
+
+on:
+  schedule:
+    - cron: "41 2 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trialbox-bandit-weekly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bandit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15  # measured 61 s for the scan on a laptop (2,054 files); the venv set-up is the rest
+    defaults:
+      run:
+        working-directory: trialbox
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+
+      - name: Python environment (uv.lock, exactly; bandit pinned with its hash)
+        run: make venv
+
+      # report only: the tool exits 0 whatever bandit finds (2 only when bandit cannot run), and the step may not
+      # fail the run either
+      - name: Bandit, no filter, --ignore-nosec (report only)
+        continue-on-error: true
+        run: make bandit-weekly
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f build/bandit-weekly/summary.md ]; then cat build/bandit-weekly/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Keep the SARIF
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: bandit-weekly
+          path: trialbox/build/bandit-weekly
+          retention-days: 90
+          if-no-files-found: warn

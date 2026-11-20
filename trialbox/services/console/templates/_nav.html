@@ -7,7 +7,7 @@
    phone); the links and the rules that show them are the same; with the flag off the list is as before #}{% macro grp(pf, key, body, rs='') %}{% if not pf %}{{ body }}{% elif body|trim %}<details class="moregrp" data-testid="more-grp-{{ key }}"><summary>{{ t('nav.grp.' + key, rs=rs) }}</summary><div class="moregrp-items">{{ body }}</div></details>{% endif %}{% endmacro %}
 {# NEW-JRN-8 (D-772): a CRO account's monitor grants link the monitoring page (it was a typed address) #}
 {% macro monitor_items() %}{% for m in monitoring() %}<a href="/studies/{{ m[0] }}/monitor" class="{{ 'active' if path.startswith('/studies/' ~ m[0] ~ '/monitor') else '' }}" data-testid="nav-monitor">{{ t('roles.monitor.title') }} · {{ m[0] }}</a>{% endfor %}{% endmacro %}
-<nav aria-label="main" data-testid="nav" data-role="{{ r }}">
+{#J7#}{% if pm %}{% include "_nav_plain.html" %}{% else %}{#/J7#}<nav aria-label="main" data-testid="nav" data-role="{{ r }}">
   {% if pilot %}
     {% if r == 'investigator' %}
       {% if pl %}{{ item('/people/candidates', 'people.candidates', pnow == 'candidates' or '/patients/' in path) }}{% else %}{{ item('/week', 'nav.week', path.startswith('/week') or path.endswith('/week') or '/patients/' in path) }}{% endif %}
@@ -90,4 +90,4 @@
     {% elif r == 'cro' %}{{ monitor_items() }}{% endif %}{% if permit(user.role, 'audit.browse') %}<a href="/audit" class="{{ 'active' if path.startswith('/audit') else '' }}">{{ t('nav.audit') }}</a>{% endif %}
     {% if user.is_admin %}<a href="/ops/users" class="{{ 'active' if path.startswith('/ops/users') else '' }}">{{ t('nav.users') }}</a>{% endif %}
   {% endif %}
-</nav>
+</nav>{#J7#}{% endif %}{#/J7#}

@@ -73,7 +73,7 @@
 <td>{{ t('aff.' + u.affiliation) }}</td><td>{{ u.studies|join(', ') if u.studies else t('users.studies.all') }}</td><td>{{ u.expires or '–' }}</td>
 <td>{% if is_sso %}{{ t('users.signin.sso') }}{% else %}{{ t('users.signin.password') }}{% endif %}</td>
 <td>
-<a class="small" href="/ops/identity#u-{{ u.username }}" data-testid="users-identity-{{ u.username }}">{{ t('adm.users.identity') }}</a>
+<a class="small" href="/ops/identity#u-{{ u.username }}" data-testid="users-identity-{{ u.username }}">{{ tp('adm.users.identity') }}</a>
 {% if not is_sso %}<form method="post" action="/ops/users" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="reset"><input type="hidden" name="username" value="{{ u.username }}"><button type="submit" class="small secondary">{{ t('users.reset') }}</button></form>{% endif %}
 <details class="more"><summary class="small">{{ t('users.scope.edit') }}</summary>
 <form method="post" action="/ops/users" data-testid="users-scope-{{ u.username }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="scope"><input type="hidden" name="username" value="{{ u.username }}">

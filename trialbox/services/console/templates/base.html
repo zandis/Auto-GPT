@@ -66,7 +66,7 @@
 {% if request is defined and request.state is defined and request.state.people %}{# J-5 (D-1223) #}{% include "_people_tabs.html" %}{% endif -%}
 {% block content %}{% endblock %}
 </main>
-<footer>{{ t('footer', env=('DEMO' if request is defined and request.state.demo_on else (settings.environment_label or settings.environment)), dc=settings.data_class) }}
+<footer>{{ tp('footer', env=('DEMO' if request is defined and request.state.demo_on else (settings.environment_label or settings.environment)), dc=settings.data_class) }}
 <p class="hint" data-testid="intended-use">{{ t('footer.statement') }}</p>
 {% with demo_at = 'foot' %}{% include "_demo_banner.html" %}{% endwith %}
 {% include "_feedback.html" %}</footer>

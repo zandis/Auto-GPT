@@ -1,0 +1,19 @@
+{
+ "card": "H59",
+ "title": "the 48 GB run's preflight and a quota row that is not listed",
+ "date": "2026-11-19",
+ "source": "docs/handover/measure48-quota-row-absent-2026-11-19.md",
+ "findings": [
+  {
+   "id": "H59-01",
+   "severity": "Medium",
+   "claim": "deploy/gcp/measure48-run.sh --preflight refused every launch (exit 4, HDB_TOTAL_GB quota not readable) because gcloud's region description lists 113 quota rows and none of them is HDB_TOTAL_GB",
+   "severity_basis": "a paid run blocked: no launch possible through the driver; nothing spent or harmed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed e994de18f961b500aadce22f1a8f22881b95eefc",
+   "fix": "an absent row is said in one line and the preflight goes on; a listed short row still refuses; --hdb-free-gb N gives the free figure by hand; a failed gcloud call or unparseable output still refuses; a refused create ends the launch with exit 5 after checking no VM is left; tests in tests/unit/test_measure48_run_h53.py",
+   "from": "the integrator's preflight on master, 2026-11-19"
+  }
+ ]
+}
