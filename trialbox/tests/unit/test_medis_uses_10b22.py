@@ -141,12 +141,12 @@ def _chain(hops: int) -> mm.Master:
 
 def test_a_successor_chain_is_followed_up_to_its_bound() -> None:
     """Review B pin: more than two hops are followed; a chain as long as the bound is a damaged release."""
-    for hops in (3, mm.MAX_HOPS - 1):
+    for hops in (3, 9):
         m = _chain(hops)
         assert mm.by_code(m, "ZA11")["code"] == "E11.9"
         got = mm.resolve(m, m.by_number["98000000"])
         assert got is not None and got.number == "99000001", hops
-    m = _chain(mm.MAX_HOPS)
+    m = _chain(10)  # ten steps: the bound, a damaged release
     assert mm.resolve(m, m.by_number["98000000"]) is None
 
 
@@ -162,6 +162,14 @@ def test_rows_of_one_code_that_disagree_on_icd10_give_nothing() -> None:
     t["ZA06"]["target_code"] = ""  # #1238 empties the code's ICD-10 when its current rows disagree
     m = mm.rows({"medis": t})
     assert m is not None and mm.by_code(m, "ZA06") == {}
+
+
+def test_through_the_index_a_codes_deleted_row_does_not_cloud_its_current_rows(master: mm.Master) -> None:
+    """Review B, M2: an index term naming ZA06 reads its current rows only (J02.9), never the successor of its deleted
+    row (K52.9)."""
+    rows = [{"term": "テスト語", "code": "ZA06", "target_kind": "1", "synonym": "0", "variant": "9"}]
+    got = mm.by_name(master, "テスト語", lambda _t: rows)
+    assert got["code"] == "J02.9" and got["method"] == "licensed_index" and "of" not in got
 
 
 def test_a_codes_deleted_row_does_not_cloud_its_current_rows(master: mm.Master) -> None:
