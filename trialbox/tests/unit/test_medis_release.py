@@ -657,7 +657,7 @@ def test_an_older_release_is_refused_unless_asked_for(tmp_path: Path) -> None:
         assert next(s for s in st.status() if s["kind"] == "medis")["version"] == "9.87"
         lic.load_release(st, old, by="steward", allow_older=True)
         assert next(s for s in st.status() if s["kind"] == "medis")["version"] == "9.86"
-        lic.check_release(_zip(tmp_path, _release("9.86", "2026-01-01"), "same.zip"), st)  # the same again: allowed
+        lic.check_release(_zip(tmp_path, _release("9.86", "2026-01-01"), "same.zip"), st)  # the same: not older
     finally:
         st.close()
 
@@ -826,5 +826,54 @@ def test_the_lists_a_reader_is_given_are_one_view_of_the_store(tmp_path: Path) -
         assert given == {k: st.concepts(k) for k in lic.KINDS}
         assert lic.loaded_at_of(given) == max(s["loaded_at"] for s in st.status())
         assert st.snapshot(["medis_index"])[0]["medis_index"] == st.concepts("medis_index")
+    finally:
+        st.close()
+
+
+def test_the_release_that_is_loaded_is_not_loaded_again_unasked(tmp_path: Path) -> None:
+    """A second load of the same release was accepted silently and kept a whole inactive copy. It is refused by its
+    sha256, which ``status`` gives; asked for explicitly, it loads and the copy it replaces is not kept."""
+    lic._CACHE.clear()
+    st = lic.TermStore()
+    try:
+        first = lic.load_release(st, _zip(tmp_path, _release("9.86", "2026-01-01"), "a.zip"), by="steward")
+        source = _zip(tmp_path, _release("9.87", "2026-06-01"), "b.zip")
+        report = lic.load_release(st, source, by="steward")
+        assert next(s for s in st.status() if s["kind"] == "medis")["sha256"] == report["sha256"] != first["sha256"]
+        with pytest.raises(lic.LicensedError) as exc:
+            lic.load_release(st, source, by="steward")
+        assert exc.value.code == "LIC-RELEASE-LOADED" and "9.87" in exc.value.message
+        lic.load_release(st, source, by="steward", allow_reload=True)
+        held = [
+            (r["version"], int(st.db.fetchval("SELECT count(*) FROM concept WHERE release_id = ?", (r["id"],))))
+            for r in st.releases("medis")
+        ]
+        assert held == [("9.86", 6), ("9.87", 0), ("9.87", 6)]  # the release before is still the one kept
+    finally:
+        st.close()
+
+
+def test_an_index_term_is_stored_and_asked_for_under_one_key(tmp_path: Path) -> None:
+    """One function, ``index_key``, for the stored term and the query: NFKC, every blank removed, upper case. A term
+    with lower-case Latin letters was never found by a caller that asked in upper case. The term comes back as the
+    release writes it; two writings of one term for one code are both kept."""
+    assert lic.index_key(" ｃｏｖｉｄ－１９　肺炎 ") == lic.index_key("COVID-19肺炎") == "COVID-19肺炎"
+    assert lic.index_key("") == ""
+    files = _files()
+    files["byomei987/main/index987.txt"] = _table(
+        [*INDEX, ["ｃｏｖｉｄ試験 肺炎", "YA01", "1", "1", "1", "", "", "", ""],
+         ["Covid試験肺炎", "YA01", "1", "1", "1", "", "", "", ""], ["IgA試験症", "YA02", "1", "1", "1", "", "", "", ""]]
+    )  # fmt: skip
+    lic._CACHE.clear()
+    st = lic.TermStore()
+    try:
+        assert lic.load_release(st, _zip(tmp_path, files), by="steward")["index_rows"] == 10
+        for asked in ("covid試験肺炎", "COVID試験肺炎", "ＣＯＶＩＤ試験　肺炎", "Covid試験 肺炎"):
+            assert [(r["term"], r["code"]) for r in st.lookup_term(asked)] == [
+                ("Covid試験肺炎", "YA01"),
+                ("covid試験 肺炎", "YA01"),
+            ], asked
+        assert [(r["term"], r["code"]) for r in st.lookup_term("iga試験症")] == [("IgA試験症", "YA02")]
+        assert [r["term"] for r in st.lookup_term("試験性肺炎")] == ["試験性肺炎"]
     finally:
         st.close()

@@ -205,8 +205,16 @@ Each fix has a test that fails on `0435f495` (run in a separate worktree) unless
   the release it replaces and removes the codes of older ones (their `release` rows stay). `tables()` reads the
   lists and the load time in one statement.
 
+- **One normal form for an index term (asked by card 10B-22 after lane J's run on the real release: 22 of 44,443
+  near-synonym terms with lower-case Latin letters were never found).** `licensed.index_key(text)`: NFKC, every
+  blank removed, upper case. A row of `medis_index` is stored with `display` its key and `extra["term"]` the term
+  as the release writes it; `lookup_term(term)` asks by the key and gives the term as written. Callers compare
+  their own names with the same function.
+- **The release that is loaded is not loaded again unasked** (`LIC-RELEASE-LOADED`, by the sha256 `status` gives);
+  with `load_release(..., allow_reload=True)` it is, and the copy it replaces is not kept a second time.
+
 **Signatures** stay: `check_release(source)` and `load_release(store, source, *, by)` work as before; each gained
-one optional argument (`store`, `allow_older`).
+optional arguments (`store`; `allow_older`, `allow_reload`).
 
 **Tests the review called hollow.** The all-or-nothing test now fails its third table inside the database
 (`test_a_release_whose_third_table_fails_in_the_database_loads_nothing`); the tombstone invariant is asserted on the

@@ -493,8 +493,13 @@ def parse(
         out, more = _medis_concepts(kept, {r["code"]: lines[json.loads(r["extra"])["management_no"]] for r in kept})
         skipped += more
     elif kind == INDEX:
-        for r in out:  # the store's key is the pair; the 対応用語コード itself is kept beside it
-            r["target_code"], r["code"] = r["code"], f"{r['code']}\t{r['display']}"
+        # the store's key is the pair as written; the 対応用語コード is kept beside it. ``display`` is the term as it
+        # is compared (:func:`index_key`), and the term as written is ``extra["term"]``
+        for r in out:
+            written = r["display"]
+            r["target_code"], r["code"] = r["code"], f"{r['code']}\t{written}"
+            r["extra"] = json.dumps({**json.loads(r["extra"]), "term": written}, ensure_ascii=False)
+            r["display"] = index_key(written)
     else:
         out = [r for r in out if r["code"] not in conflicting]
     if not out:
@@ -510,6 +515,13 @@ def parse(
 
 #: what each row of a MEDIS concept keeps (the keys of ``extra["rows"]``), beside ``no`` and ``name``
 _ROW_FIELDS = ("kana", "change", "adoption", "multi_class", "field", "successor", "no_solo", "no_claim", "receipt_code")
+
+
+def index_key(text: str) -> str:
+    """An index term as it is stored and compared: NFKC, every blank removed (half- and full-width), upper case.
+    ONE function for the stored key and for a query (:meth:`TermStore.lookup_term`), and for any name a caller
+    compares with an index term: ``ｃｏｖｉｄ－１９ 肺炎`` and ``COVID-19肺炎`` are one term."""
+    return re.sub(r"\s+", "", unicodedata.normalize("NFKC", text or "")).upper()
 
 
 def icd_comparable(value: str) -> str:
@@ -688,12 +700,24 @@ class TermStore:
             for p, sha, source in parts:
                 k = ALL_KINDS[p.kind]
                 about = {**(meta or {}), "table_rows": p.rows, "current_rows": p.current}
-                before = tx.fetchval("SELECT max(id) FROM release WHERE kind = ? AND active", (p.kind,))
+                was = tx.fetchone("SELECT id, sha256, meta FROM release WHERE kind = ? AND active", (p.kind,))
                 tx.execute("UPDATE release SET active = FALSE WHERE kind = ?", (p.kind,))
-                if before is not None:  # the release this one replaces is kept; the codes of older ones go
+                same = False
+                if was is not None:  # the same release: by the sha256 of the whole release when both have one
+                    try:
+                        held = json.loads(was[2] or "{}").get("release_sha256", "")
+                    except ValueError:
+                        held = ""
+                    mine = (meta or {}).get("release_sha256", "")
+                    same = (held == mine) if (held or mine) else str(was[1]) == sha
+                if was is not None and same:
+                    # the same file loaded again: the copy it replaces holds nothing more, so that copy's codes go
+                    # and the release before it stays the one kept
+                    tx.execute("DELETE FROM concept WHERE release_id = ?", (was[0],))
+                elif was is not None:  # the release this one replaces is kept; the codes of older ones go
                     tx.execute(
                         "DELETE FROM concept WHERE release_id IN (SELECT id FROM release WHERE kind = ? AND id < ?)",
-                        (p.kind, before),
+                        (p.kind, was[0]),
                     )
                 rid = tx.fetchval(
                     "INSERT INTO release (kind, system, version, source, sha256, encoding, rows, skipped, loaded_by, "
@@ -807,16 +831,21 @@ class TermStore:
         return {r["code"]: {k: r[k] for k in ("display", "target_system", "target_code", "extra")} for r in rows}
 
     def lookup_term(self, term: str) -> list[dict[str, str]]:
-        """The rows of the loaded 索引テーブル for one 索引用語 (compared after NFKC, as it is stored): each
-        ``{term, code, target_kind, kana_kanji, synonym, variant}``. ``code`` is the 対応用語コード: the
-        病名交換用コード of a disease (``target_kind`` 1) or the 修飾語交換用コード of a modifier (2); ``0000`` names no
-        current term and is given as it is, never resolved. A term may have several rows (D-1257)."""
+        """The rows of the loaded 索引テーブル for one 索引用語, compared by :func:`index_key` (the term is stored
+        under that key at load): each ``{term, code, target_kind, kana_kanji, synonym, variant}``, ``term`` as the
+        release writes it. ``code`` is the 対応用語コード: the 病名交換用コード of a disease (``target_kind`` 1) or the
+        修飾語交換用コード of a modifier (2); ``0000`` names no current term and is given as it is, never resolved. A
+        term may have several rows (D-1257)."""
         rows = self._db.fetchdicts(
-            "SELECT c.display, c.target_code, c.extra FROM concept c JOIN release r ON r.id = c.release_id "
-            "WHERE r.kind = ? AND r.active AND c.display = ? ORDER BY c.target_code",
-            (INDEX, unicodedata.normalize("NFKC", term).strip()),
+            "SELECT c.code, c.display, c.target_code, c.extra FROM concept c JOIN release r ON r.id = c.release_id "
+            "WHERE r.kind = ? AND r.active AND c.display = ? ORDER BY c.target_code, c.code",
+            (INDEX, index_key(term)),
         )
-        return [{"term": r["display"], "code": r["target_code"], **json.loads(r["extra"] or "{}")} for r in rows]
+        out = []
+        for r in rows:
+            extra = json.loads(r["extra"] or "{}")
+            out.append({"term": extra.pop("term", r["display"]), "code": r["target_code"], **extra})
+        return out
 
 
 # ---------------------------------------------------------------------------------------------- a MEDIS release
@@ -997,6 +1026,18 @@ def _refuse_older(store: TermStore, report: dict[str, Any]) -> None:
             )
 
 
+def _refuse_same(store: TermStore, report: dict[str, Any]) -> None:
+    """The very release that is loaded (the same sha256) is not loaded again unasked."""
+    for s in store.status():
+        if s["kind"] == "medis" and s["state"] == "loaded" and s["sha256"] == report["sha256"]:
+            raise LicensedError(
+                "LIC-RELEASE-LOADED",
+                f"this release is already loaded (version {s['version']}"
+                + (f", {s['released']}" if s["released"] else "")
+                + f", loaded {s['loaded_at']} by {s['loaded_by']}); not loaded again",
+            )
+
+
 def check_release(source: Path | str, store: TermStore | None = None) -> dict[str, Any]:
     """What :func:`load_release` would load from ``source``, read by the same code, with nothing written: the same
     keys. A person is shown this before approving the load. With ``store``, a release :func:`load_release` would
@@ -1008,7 +1049,13 @@ def check_release(source: Path | str, store: TermStore | None = None) -> dict[st
 
 
 def load_release(
-    store: TermStore, source: Path | str, *, by: str, audit_dir: Path | None = None, allow_older: bool = False
+    store: TermStore,
+    source: Path | str,
+    *,
+    by: str,
+    audit_dir: Path | None = None,
+    allow_older: bool = False,
+    allow_reload: bool = False,
 ) -> dict[str, Any]:
     """Load a MEDIS ICD10対応標準病名マスター release as MEDIS ships it (D-1257). ``source`` is the release's folder or
     its zip (``readme.txt``, ``main/nmain*.txt`` 病名基本, ``main/mdfy*.txt`` 修飾語, ``main/index*.txt`` 索引,
@@ -1018,7 +1065,9 @@ def load_release(
     written in one transaction: all or nothing.
 
     A release older than the loaded one is refused (``LIC-RELEASE-OLDER``) unless ``allow_older`` is given: a
-    deliberate step back, never what a page does by default.
+    deliberate step back, never what a page does by default. The release that is already loaded (the same sha256)
+    is refused (``LIC-RELEASE-LOADED``) unless ``allow_reload`` is given: a person's explicit "load again"; the copy
+    it replaces is then not kept twice.
 
     Returns ``{"version", "released" (YYYY-MM-DD), "disease_rows", "disease_current", "modifier_rows",
     "index_rows", "skipped": [(table, line, reason)], "sha256"}``: ``sha256`` of the zip, or for a folder of its
@@ -1027,6 +1076,8 @@ def load_release(
     report, parts = _read_release(source)
     if not allow_older:
         _refuse_older(store, report)
+    if not allow_reload:
+        _refuse_same(store, report)
     store.load_parsed(
         parts,
         version=report["version"],
@@ -1150,6 +1201,7 @@ def main(argv: list[str] | None = None) -> int:
     lr.add_argument("--source", required=True, type=Path)
     lr.add_argument("--check", action="store_true", help="read it and say what would be loaded; write nothing")
     lr.add_argument("--allow-older", action="store_true", help="load a release older than the loaded one")
+    lr.add_argument("--again", action="store_true", help="load the release that is already loaded once more")
     lr.add_argument("--by", default=os.environ.get("USER", "admin"))
     sub.add_parser("status", help="which lists are loaded")
     a = ap.parse_args(argv)
@@ -1160,7 +1212,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 st = TermStore()
                 try:
-                    out = load_release(st, a.source, by=a.by, allow_older=a.allow_older)
+                    out = load_release(st, a.source, by=a.by, allow_older=a.allow_older, allow_reload=a.again)
                 finally:
                     st.close()
         except LicensedError as exc:
