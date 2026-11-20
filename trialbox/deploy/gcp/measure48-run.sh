@@ -8,10 +8,15 @@
 #
 #   export CLOUDSDK_CONFIG=<a private folder> TB_SA_KEY_FILE=<the deployer's key file> TB_BUCKET=gs://trialbox-demo-runs
 #   deploy/gcp/measure48-run.sh --estimate [--no-o]           # free, no gcloud: stages, hours, US$, stop line, cap
-#   deploy/gcp/measure48-run.sh --preflight [--commit <sha>] [--no-o] [VM] [ZONE]   # read-only gcloud calls only:
-#       the commit, its archive, the pinned weights list (fetch_weights --dry-run), the quota (one Spot RTX PRO 6000
-#       and the region's HDB_TOTAL_GB for the 100 GB disk), the VM name free, the bucket readable
-#   deploy/gcp/measure48-run.sh [--commit <sha>] [--no-o] [--dry-run] [VM] [ZONE]   # the launch (returns at once)
+#   deploy/gcp/measure48-run.sh --preflight [--commit <sha>] [--no-o] [--hdb-free-gb N] [VM] [ZONE]   # read-only
+#       gcloud calls only: the commit, its archive, the pinned weights list (fetch_weights --dry-run), the quota (one
+#       Spot RTX PRO 6000 and the region's HDB_TOTAL_GB for the 100 GB disk), the VM name free, the bucket readable.
+#       HDB_TOTAL_GB not in the region's list (H-59): said, and the preflight goes on (the create call refuses if the
+#       disk quota is short); there and short: refused (4). --hdb-free-gb N: the free GB by hand, checked like a row.
+#       A gcloud call that fails, or output that is not a quota list: refused (4).
+#   deploy/gcp/measure48-run.sh [--commit <sha>] [--no-o] [--hdb-free-gb N] [--dry-run] [VM] [ZONE]   # the launch
+#       (returns at once); a create call that is refused (the disk quota, say) ends the run with its reason (5) and
+#       nothing made: the driver checks that no VM by the name is left
 #   deploy/gcp/measure48-run.sh --collect <run id> [--keep-vm] [VM] [ZONE]   # the records so far and the summary;
 #       a run that ended on a VM that is TERMINATED: the VM is deleted (--keep-vm leaves it)
 #   deploy/gcp/measure48-run.sh --resume <run id> [VM] [ZONE]  # a pre-empted VM (STOP) started again, with the cap
@@ -34,7 +39,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PY="${PY:-$ROOT/.venv/bin/python}"
 H="$ROOT/tools/measure48_vm.py"
-ESTIMATE=0; PREFLIGHT=0; DRY=0; COLLECT=""; RESUME=""; STOPRUN=""; DELETE=""; KEEPVM=0; NO_O=0; COMMIT=""
+ESTIMATE=0; PREFLIGHT=0; DRY=0; COLLECT=""; RESUME=""; STOPRUN=""; DELETE=""; KEEPVM=0; NO_O=0; COMMIT=""; HDB_FREE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --estimate) ESTIMATE=1; shift ;;
@@ -47,12 +52,16 @@ while [ $# -gt 0 ]; do
     --keep-vm) KEEPVM=1; shift ;;
     --no-o) NO_O=1; shift ;;
     --commit) COMMIT="$2"; shift 2 ;;
+    --hdb-free-gb) HDB_FREE="${2:-}"; shift 2 ;;
     -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d'; exit 0 ;;
     -*) echo "measure48-run: unknown option $1" >&2; exit 2 ;;
     *) break ;;
   esac
 done
 VM="${1:-tb-h47-48gb}"; ZONE="${2:-asia-east1-a}"
+if [ -n "$HDB_FREE" ] && ! [[ "$HDB_FREE" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  echo "measure48-run: refused: --hdb-free-gb takes a number of GB, not: $HDB_FREE" >&2; exit 2
+fi
 cd "$ROOT"
 hp() { "$PY" "$H" "$@"; }
 LOCAL="${TB_M48_DIR:-$ROOT/.cache/measure48}"   # the run folders here (the rehearsal points it elsewhere)
@@ -161,9 +170,12 @@ st=$(status)
 Q="$OUT/quota"; mkdir -p "$Q"
 if [ "$DRY" = 1 ]; then echo "+ gcloud compute project-info describe; regions describe ${ZONE%-*} (the quota, read-only)"
 else
-  gc compute project-info describe --format=json > "$Q/project.json"
-  gc compute regions describe "${ZONE%-*}" --format=json > "$Q/region-${ZONE%-*}.json"
-  hp quota "$Q" --zone "$ZONE" --disk-gb 100 || exit 4
+  gc compute project-info describe --format=json > "$Q/project.json" \
+    || { echo "measure48-run: refused: gcloud compute project-info describe failed (above): the quota is not known" >&2; exit 4; }
+  gc compute regions describe "${ZONE%-*}" --format=json > "$Q/region-${ZONE%-*}.json" \
+    || { echo "measure48-run: refused: gcloud compute regions describe ${ZONE%-*} failed (above): the quota is not known" >&2; exit 4; }
+  HDB_ARGS=(); [ -z "$HDB_FREE" ] || HDB_ARGS=(--hdb-free-gb "$HDB_FREE")
+  hp quota "$Q" --zone "$ZONE" --disk-gb 100 ${HDB_ARGS[@]+"${HDB_ARGS[@]}"} || exit 4
 fi
 gc storage ls "$BUCKET" > /dev/null || { echo "measure48-run: refused: $BUCKET is not readable" >&2; exit 2; }
 if [ "$PREFLIGHT" = 1 ]; then
@@ -173,13 +185,23 @@ fi
 gc storage cp "$OUT/src.tgz" "$OBJ/src.tgz"
 MD="tb-run-id=$RUN_ID,tb-bucket=$BUCKET,tb-src=$OBJ/src.tgz,tb-src-sha256=$SRC_SHA,tb-commit=$COMMIT"
 MD="$MD,tb-stop-line-minutes=$LINE_MIN,tb-cap-minutes=240,tb-o=$((1 - NO_O)),block-project-ssh-keys=TRUE"
+created=0
 gc compute instances create "$VM" --zone "$ZONE" --machine-type g4-standard-48 \
   --provisioning-model SPOT --instance-termination-action STOP --max-run-duration 4h \
   --image-family ubuntu-2404-lts-amd64 --image-project ubuntu-os-cloud \
   --boot-disk-size 100GB --boot-disk-type hyperdisk-balanced \
   --shielded-vtpm --shielded-integrity-monitoring --no-shielded-secure-boot \
   --scopes storage-rw --labels trialbox=h53-48gb \
-  --metadata-from-file "startup-script=$ROOT/tools/measure48-vm.sh,tb-m48-helper=$H" --metadata "$MD"
+  --metadata-from-file "startup-script=$ROOT/tools/measure48-vm.sh,tb-m48-helper=$H" --metadata "$MD" && created=1
+if [ "$created" = 0 ]; then  # H-59: refused (the disk quota, say): gcloud's reason is above; the VM and its boot disk
+  # are made together or not at all, and the driver checks that no VM by the name is left
+  st=$(status)
+  if [ "$st" = NONE ]; then
+    echo "measure48-run: the create call was refused (its reason above): no VM or disk was made, nothing was started;" \
+         "the source stays at $OBJ/src.tgz (no cost to speak of)" >&2; exit 5
+  fi
+  echo "measure48-run: the create call failed (above) but a VM $VM is there ($st): $0 --delete $RUN_ID $VM $ZONE" >&2; exit 5
+fi
 [ "$DRY" = 0 ] || echo "(dry run: the commands above were printed, nothing was uploaded, made or started)"
 echo "run $RUN_ID started on $VM ($ZONE), SPOT, cloud cap 4 h, stop line $LINE_MIN min of the VM's clock"
 echo "later: $0 --collect $RUN_ID $VM $ZONE   (as often as wanted; the one that finds it ended deletes the VM)"

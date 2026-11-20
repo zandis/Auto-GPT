@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ t('nav.admin') }}{% endblock %}
 {% block content %}
-<div class="headrow"><h1>{{ t('nav.admin') }}</h1><a class="button" href="/ops/users" data-testid="create-account">{{ t('admin.create') }}</a></div>
+<div class="headrow"><h1>{{ t('nav.admin') }}</h1><a class="button" href="/ops/users" data-testid="create-account">{{ tp('admin.create') }}</a></div>
 {% if term_refused %}
 <section class="card attention" data-testid="term-refused">
 <h2>{{ t('term.refused.title') }}</h2>
@@ -15,7 +15,7 @@
     <p class="big">{{ users|length }}</p>
     <p class="hint">{% for k, v in by_aff|dictsort %}{{ t('aff.' + k) }} {{ v }}{{ ' · ' if not loop.last else '' }}{% endfor %}</p>
     {% if soon %}<p class="warn">{{ t('admin.expiring', n=soon|length) }}: {% for u in soon %}{{ u.username }} ({{ u.expires }}){{ ', ' if not loop.last else '' }}{% endfor %}</p>{% endif %}
-    <a href="/ops/users">{{ t('admin.manage') }}</a>
+    <a href="/ops/users">{{ tp('admin.manage') }}</a>
   </section>
   <section class="card tile" data-testid="tile-approvals">
     <h2>{{ t('admin.approvals') }}</h2>

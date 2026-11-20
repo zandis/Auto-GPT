@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ t('nav.admin') }}{% endblock %}
 {% block content %}
-<div class="headrow"><h1>{{ t('nav.admin') }}</h1><a class="button" href="/ops/users" data-testid="create-account">{{ t('admin.create') }}</a></div>
+<div class="headrow"><h1>{{ t('nav.admin') }}</h1><a class="button" href="/ops/users" data-testid="create-account">{{ tp('admin.create') }}</a></div>
 <nav class="tabs" aria-label="{{ t('nav.admin') }}" data-testid="admin-tabs">{% for tb in tabs %}<a href="/admin?tab={{ tb }}" class="{{ 'active' if tb == tab else '' }}" data-testid="tab-{{ tb }}"{% if tb == tab %} aria-current="page"{% endif %}>{{ t('admin.tab.' + tb) }}</a>{% endfor %}</nav>
 {% if notice %}<p class="ok" role="status" data-testid="admin-notice">{{ t('admin.notice.' + notice) }}</p>{% endif %}
 
@@ -52,7 +52,7 @@
       {% elif b.qualified %}<span class="hint">{{ t('models.record', record=b.record, at=b.at) }}</span>
       {% elif b.status == 'champion' %}<span class="pill warn">{{ t('models.record.none') }}</span>{% endif %}</li>{% endfor %}</ul>
     {% else %}<p class="hint">{{ t('models.builds.none') }}</p>{% endif %}{% endif %}
-    <a href="/">{{ t('admin.overview') }}</a>
+    <a href="/">{{ tp('admin.overview') }}</a>
   </section>{# 10E-17 (D-1244): what this box's tier does not include, a status and never an error; absent on the full tier and with no tier record, so that page is as before #}{% if tier_lacks %}<section class="card tile" data-testid="tile-tier"><h2>{{ t('tier.title') }}</h2><ul class="plain">{% for r in tier_lacks %}<li data-testid="tier-status-{{ r.capability }}" data-level="status">{{ t('tier.lacks.' + r.capability) }}{% if r.basis != 'measured' %} <span class="hint" data-basis="declared">{{ t('tier.declared') }}</span>{% endif %}</li>{% endfor %}</ul></section>{% endif %}
   <section class="card tile" data-testid="tile-refdata">
     <h2>{{ t('admin.refdata') }}</h2>
@@ -66,7 +66,7 @@
     <h2>{{ t('ops.title') }}</h2>
     <p class="big mono" data-testid="tile-ops-version">{{ ops.version.trialbox or ops.console_version }}</p>
     <p class="hint">{{ t('ops.version.bundle') }}: <span class="mono">{{ ops.version.bundle or t('ops.version.none') }}</span></p>
-    <a href="/admin/ops" data-testid="ops-link">{{ t('ops.open') }}</a>
+    <a href="/admin/ops" data-testid="ops-link">{#J7#}{% if pm %}{{ t('ops.title') }}{% else %}{#/J7#}{{ t('ops.open') }}{#J7#}{% endif %}{#/J7#}</a>
   </section>{% endif %}
   {# T-209c (D-406, ROLE-022): backup and update, each one click from the operations screens #}
   {% if backup %}{% set pill = {'ok': 'ok', 'warn': 'warn', 'red': 'bad'} %}<section class="card tile" data-testid="tile-backup" data-level="{{ backup.level }}">
@@ -75,14 +75,14 @@
     {% if backup.newest %}<p class="hint">{{ backup.newest|local }}</p>{% endif %}
     {% if backup.verified_level %}<p data-testid="tile-backup-verified">{{ t('adm.backup.verified') }}: <span class="pill {{ pill[backup.verified_level] or 'warn' }}">{% if backup.verified_days is not none %}{{ t('adm.backup.verified.days', days=backup.verified_days) }}{% else %}{{ t('adm.backup.verified.never') }}{% endif %}</span></p>{% endif %}
     <p class="hint">{{ t('ops.backup.last_check') }}: {% if backup.last_check %}<span class="pill {{ 'ok' if backup.last_check.ok else 'bad' }}">{{ t('ops.ok') if backup.last_check.ok else t('ops.failed') }}</span> {{ (backup.last_check.finished or '')|local }}{% else %}–{% endif %}</p>
-    <a href="/admin/ops?tab=backups" data-testid="tile-backup-link">{{ t('ops.open') }}</a>
+    <a href="/admin/ops?tab=backups" data-testid="tile-backup-link">{#J7#}{% if pm %}{{ t('ops.tab.backups') }}{% else %}{#/J7#}{{ t('ops.open') }}{#J7#}{% endif %}{#/J7#}</a>
   </section>{% endif %}
   {% if update %}<section class="card tile" data-testid="tile-update">
     <h2>{{ t('ops.tab.update') }}</h2>
     {% if update.last %}<p><span class="mono">{{ update.last.bundle }}</span> · <span class="pill {{ 'ok' if update.last.outcome == 'applied' else 'warn' }}" data-testid="tile-update-outcome">{{ t('ops.update.' ~ (update.last.outcome or 'running')) }}</span></p>{% if update.last.last %}<p class="hint">{{ update.last.last|local }}</p>{% endif %}
     {% else %}<p class="hint" data-testid="tile-update-none">{{ t('ops.update.none') }}</p>{% endif %}
     <p class="hint">{{ t('ops.update.staged', n=update.staged) }} · {{ t('ops.update.points', n=update.points) }}</p>
-    <a href="/admin/ops?tab=update" data-testid="tile-update-link">{{ t('ops.open') }}</a>
+    <a href="/admin/ops?tab=update" data-testid="tile-update-link">{#J7#}{% if pm %}{{ t('ops.tab.update') }}{% else %}{#/J7#}{{ t('ops.open') }}{#J7#}{% endif %}{#/J7#}</a>
   </section>{% endif %}
   <section class="card tile" data-testid="tile-accounts">
     <h2>{{ t('admin.accounts') }}</h2>
@@ -92,8 +92,8 @@
     {% if acc %}{% if acc.locked %}<p class="warn" data-testid="tile-accounts-locked">{{ t('adm.locked', n=acc.locked|length) }}: {{ acc.locked|join(', ') }}</p>{% endif %}
     <p class="hint" data-testid="tile-accounts-report">{{ t('adm.report.short', unused=acc.unused, ending=acc.ending, no_end=acc.no_end) }}</p>{% endif %}
     <ul class="plain" data-testid="tile-accounts-links">
-      <li><a href="/ops/users">{{ t('admin.manage') }}</a></li>
-      <li><a href="/ops/identity" data-testid="identity-link">{{ t('adm.identity') }}</a></li>
+      <li><a href="/ops/users">{{ tp('admin.manage') }}</a></li>
+      <li><a href="/ops/identity" data-testid="identity-link">{{ tp('adm.identity') }}</a></li>
       <li><a href="/admin/accounts" data-testid="accounts-report-link">{{ t('adm.report') }}</a></li>
       <li><a href="/ops/flags" data-testid="flags-link">{{ t('adm.flags') }}</a></li>
     </ul>

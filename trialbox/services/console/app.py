@@ -44,7 +44,7 @@ from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
-from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_rights
+from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
@@ -55,7 +55,18 @@ from tb_common.ulid import new_ulid
 from tb_common.verdict_word import shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
-from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page, person_state, phone
+from console import (
+    acting,
+    api_first,
+    demo_guard,
+    feedback,
+    firstrun,
+    i18n_roles,
+    next_page,
+    person_state,
+    phone,
+    plain_menu,
+)
 from console import actor as console_actor
 from console import timing as server_time
 from console.account_rules import Hooks as AccountHooks
@@ -121,12 +132,15 @@ CSP = (
 _POPULATION = re.compile(r"(hospital|departments ([\w,-]+)): patients with ≥1 encounter in the last (\d+) months")
 
 
-def population_words(lang: str, value: object) -> str:
+def population_words(lang: str, value: object, plain: bool = False) -> str:
     """DEMO-JA: the FEAS report's population (``feas_compute.population_label``, English in the report file) in the
-    page language; any other text as it is."""
+    page language; any other text as it is (J-7, D-1251: with ``layout.plain_menu`` on, the bare value "hospital" in
+    the page language too)."""
     text = str(value or "")
     m = _POPULATION.fullmatch(text)
     if m is None:
+        if plain and text == "hospital":
+            return translate(lang, "pm.pop.hospital")
         return text or "–"
     if m.group(1) == "hospital":
         return translate(lang, "feas.pop.hospital", months=m.group(3))
@@ -864,6 +878,11 @@ def create_app(
         def t(key: str, **values: object) -> str:
             return translate(lang, key, **values)
 
+        plain = bool(getattr(request.state, "plain_menu", False))  # J-7 (D-1251, flag layout.plain_menu)
+
+        def tp(key: str, **values: object) -> str:  # the plain words of a key with the flag on; t's with it off
+            return translate(lang, plain_menu.key(plain, sess.user.role if sess else None, key), **values)
+
         def t_or(key: str, fallback: str) -> str:  # a translation when the catalogue has one, else the fallback
             text = lookup(lang, key)
             return fallback if text is None else text
@@ -887,8 +906,15 @@ def create_app(
 
         base = {
             "t": t,
+            "tp": tp,
+            "pm": plain,
+            "job_type_word": plain_menu.job_type_word,
+            "next_go_key": plain_menu.next_go_key,
+            # J-7: the cascade's own answer (CascadeRuns.available: the site drop is mounted), asked by the menu
+            "cascade_available": lambda: cascades is not None and cascades.available,
+            "may_act": (lambda target: link_may_act(sess, target)) if sess else (lambda target: False),
             "t_or": t_or,
-            "population": lambda value: population_words(lang, value),
+            "population": lambda value: population_words(lang, value, plain),
             "lang": lang,
             "langs": LANGS,
             "sess": sess,
@@ -2091,10 +2117,10 @@ def create_app(
             headers={"Content-Disposition": f'attachment; filename="{filename}"', "X-Download-Options": "noopen"},
         )
 
-    def _request_page(request: Request, sess: Session, status: int = 200, **ctx: Any) -> HTMLResponse:
+    def _request_rulesets(sess: Session) -> tuple[list[Any], list[Any], list[Any]]:
         approved = [
             r
-            for r in bk.rulesets()
+            for r in _rulesets_once()
             if r.status == "approved"
             and (not settings.studies or r.id in settings.studies)
             and sess.user.sees_study(r.id)
@@ -2106,9 +2132,48 @@ def create_app(
         def runs(kinds: tuple[str, ...], command: str) -> list[Any]:
             return [r for r in approved if r.kind in kinds and (u.can_request or helpers.may_run(u, r.id, command))]
 
-        feas, screen = runs(("trial",), "FEAS"), runs(("trial", "cohort"), "SCREEN")
+        return approved, runs(("trial",), "FEAS"), runs(("trial", "cohort"), "SCREEN")
+
+    def _rulesets_once() -> list[Any]:
+        """The studies' criteria list (``bk.rulesets``), read once per page view (J-7, D-1251: a page that carries a
+        link and the rule behind it ask the same list)."""
+        return list(person_state.per_view("j7:rulesets", "", lambda: list(bk.rulesets())))
+
+    def may_act(sess: Session, target: str) -> bool:
+        """Whether the account may act on the page ``target`` (the page's own rule: its forms, or its enabled button);
+        J-7 (D-1251): a link that takes the place of a menu entry asks this, as the page does. An account that
+        prepares requests, and one whose role may never start the page's runs (``role_allowed``, the matrix's best
+        case), is answered without a read."""
+        u = sess.user
+        if target == "request":
+            if u.can_request:
+                return True
+            if not (role_allowed(u.role, "FEAS") or role_allowed(u.role, "SCREEN")):
+                return False
+            _, feas, screen = _request_rulesets(sess)
+            return bool(feas or screen)
+        if target == "consent":
+            return bool(u.can_request)
+        if target == "case":
+            if u.can_request:
+                return True
+            if not role_allowed(u.role, "CASE"):
+                return False
+            return bool(_case_rulesets(sess))  # the review of D-767: a coordinator with no trial yet
+        raise ValueError(f"no page {target!r}")
+
+    def link_may_act(sess: Session, target: str) -> bool:
+        """``may_act`` for a link on another page: when the criteria list or the delegation log cannot be read, the
+        link is not shown and the page renders (fails closed; the target page itself still asks ``may_act``)."""
+        try:
+            return may_act(sess, target)
+        except Exception:  # the backend or the delegation store is down: no link, never a broken page
+            return False
+
+    def _request_page(request: Request, sess: Session, status: int = 200, **ctx: Any) -> HTMLResponse:
+        approved, feas, screen = _request_rulesets(sess)
         return page(request, "request.html", sess, status, rulesets=approved, feas_rulesets=feas,
-                    screen_rulesets=screen, may_start=u.can_request or bool(feas or screen), **ctx)  # fmt: skip
+                    screen_rulesets=screen, may_start=may_act(sess, "request"), **ctx)  # fmt: skip
 
     @app.get("/pilot/request", response_class=HTMLResponse)
     def request_form(request: Request, ruleset: str = "") -> Response:
@@ -2291,7 +2356,7 @@ def create_app(
         """Approved trial rulesets: a single-case check is against a trial, never a cohort or NHI ruleset (M8).
         SEC-SCOPE (D-769): only this site's studies the account sees, as the request page lists them (D-120, D-104):
         a scoped account is not shown other studies' names (the CASE page and the registry's home)."""
-        return [r for r in bk.rulesets() if r.status == "approved" and r.kind in ("trial", "")
+        return [r for r in _rulesets_once() if r.status == "approved" and r.kind in ("trial", "")
                 and (not settings.studies or r.id in settings.studies) and sess.user.sees_study(r.id)]  # fmt: skip
 
     def _case_rulesets(sess: Session) -> list[Any]:
@@ -2304,8 +2369,9 @@ def create_app(
     def case_form(request: Request, ruleset: str = "") -> Response:
         sess = need(request)
         rs = _case_rulesets(sess)
-        may = sess.user.can_request or bool(rs)  # the review of D-767: a coordinator with no trial yet, as before
-        return page(request, "case.html", sess, rulesets=rs, selected=ruleset, langs=LANGS, may_case=may)
+        return page(
+            request, "case.html", sess, rulesets=rs, selected=ruleset, langs=LANGS, may_case=may_act(sess, "case")
+        )
 
     @app.post("/pilot/case")
     async def case_submit(
