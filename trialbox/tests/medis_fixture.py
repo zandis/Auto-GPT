@@ -33,25 +33,27 @@ INDEX_COLUMNS = (
 # 単独使用禁止区分): invented rows covering each case the release has: unchanged, new, changed, deleted with a
 # successor, deleted without one, an exchange code on two rows (a level 1 name and its 採択区分 3 synonym), no ICD-10,
 # a 複数分類コード, an ICD-10 the ICD-10-CM list lacks, a sub-classification letter, a hyphen inside the value, a
-# dental and a Kampo entry, an entry usually written with a modifier
+# dental and a Kampo entry, an entry usually written with a modifier, an ICD-10 whose ICD-10-CM namesake has codes
+# below it (a category, never a target: lane J, H1)
 DISEASES: tuple[tuple[str, ...], ...] = (
     ("0", "99000001", "テスト病甲", "テストビョウコウ", "ZA01", "E119", "", "", "1", "1", "00"),
     ("3", "99000002", "テスト病乙", "テストビョウオツ", "ZA02", "I10", "", "", "1", "1", "01"),
     ("5", "99000003", "ダミー性テスト炎", "ダミーセイテストエン", "ZA03", "J189", "", "", "2", "4", "00"),
     ("1", "99000004", "旧テスト症", "キュウテストショウ", "ZA04", "K529", "", "99000005", "1", "1", "00"),
     ("3", "99000005", "新テスト症", "シンテストショウ", "ZA05", "K529", "", "", "1", "1", "00"),
-    ("0", "99000006", "テスト病丙", "テストビョウヘイ", "ZA06", "M199", "", "", "1", "1", "00"),
-    ("0", "99000007", "テスト病丙型", "テストビョウヘイガタ", "ZA06", "M199", "", "", "3", "1", "00"),
+    ("0", "99000006", "テスト病丙", "テストビョウヘイ", "ZA06", "J029", "", "", "1", "1", "00"),
+    ("0", "99000007", "テスト病丙型", "テストビョウヘイガタ", "ZA06", "J029", "", "", "3", "1", "00"),
     ("0", "99000008", "ダミー症候群", "ダミーショウコウグン", "ZA08", "", "", "", "1", "1", "00"),
     ("0", "99000009", "テスト二重病", "テストニジュウビョウ", "ZA09", "E142", "N083", "", "1", "1", "00"),
     ("0", "99000010", "テスト病丁", "テストビョウテイ", "ZA10", "U049", "", "", "1", "1", "00"),
     ("1", "99000011", "廃止テスト病", "ハイシテストビョウ", "ZA11", "R688", "", "", "1", "1", "00"),
     ("0", "99000012", "テスト亜分類症", "テストアブンルイショウ", "ZA12", "E109a", "", "", "1", "1", "00"),
     ("0", "99000013", "テスト範囲症", "テストハンイショウ", "ZA13", "A15-9", "", "", "1", "1", "00"),
-    ("0", "99000014", "テスト漢方証", "テストカンポウショウ", "ZA14", "R53", "", "", "2", "2", "00"),
-    ("1", "99000015", "テスト病丙旧型", "テストビョウヘイキュウガタ", "ZA06", "M199", "", "99000005", "1", "1", "00"),
+    ("0", "99000014", "テスト漢方証", "テストカンポウショウ", "ZA14", "R12", "", "", "2", "2", "00"),
+    ("1", "99000015", "テスト病丙旧型", "テストビョウヘイキュウガタ", "ZA06", "J029", "", "99000005", "1", "1", "00"),
     ("0", "99000016", "テストB型病", "テストビーガタビョウ", "ZA16", "B181", "", "", "1", "1", "00"),
-    ("0", "99000017", "テスト複分類病", "テストフクブンルイビョウ", "ZA17", "E112", "N083", "", "1", "1", "00"),
+    ("0", "99000017", "テスト複分類病", "テストフクブンルイビョウ", "ZA17", "I209", "N083", "", "1", "1", "00"),
+    ("0", "99000018", "テスト見出し病", "テストミダシビョウ", "ZA18", "E112", "", "", "1", "1", "00"),
 )
 # (変更区分, 修飾語管理番号, 修飾語表記, カナ, 交換用コード, 接続位置区分, 修飾語区分)
 MODIFIERS: tuple[tuple[str, ...], ...] = (
@@ -149,9 +151,10 @@ def concepts() -> dict[str, dict[str, Any]]:
 
 
 def lookup_term(term: str) -> list[dict[str, str]]:
-    """``TermStore.lookup_term`` of the invented index (#1238): the rows of one 索引用語, after NFKC."""
-    import unicodedata
+    """``TermStore.lookup_term`` of the invented index (#1238): the rows of one 索引用語, compared by the loader's
+    own key (``adapter.licensed.index_key``: NFKC, every blank removed, upper case)."""
+    from adapter.licensed import index_key
 
-    t = unicodedata.normalize("NFKC", term).strip()
+    t = index_key(term)
     return [{"term": a, "code": c, "target_kind": k, "kana_kanji": kk, "synonym": syn, "variant": var}
-            for a, c, k, kk, syn, var in sorted(INDEX, key=lambda r: r[1]) if a == t]  # fmt: skip
+            for a, c, k, kk, syn, var in sorted(INDEX, key=lambda r: r[1]) if index_key(a) == t]  # fmt: skip

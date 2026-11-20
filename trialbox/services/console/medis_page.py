@@ -7,19 +7,20 @@ this page lets a person of the hospital load it, and later load a newer release 
 1. what the master is and why the box needs it, in plain words, with links to MEDIS's download page and its terms
    (opened by the person; the box never fetches them), and what skipping it means;
 2. the zip the person downloaded, chosen in the browser (the upload pattern of the other set-up pages: the file is
-   read into memory up to a hard cap and sent to the orchestrator; ``sitesetup.medis_release`` caps the members,
-   reads only the tables by base name, runs nothing and removes what it unpacked);
+   read into memory up to a hard cap and sent to the orchestrator; ``sitesetup.medis_release.vet`` caps the members
+   and their sizes, reads only the tables by base name, writes and runs nothing);
 3. the box reads the release without loading it and shows the version, the release date, the rows of each table
-   and what it would leave out and why;
+   and the first lines it would leave out and why; the orchestrator records who read which zip, and when;
 4. the person ticks the approval (their institution downloaded this release from MEDIS and may use it under MEDIS's
-   terms), with their name taken from their sign-in, and chooses the same file again: the box keeps nothing between
-   the two steps, so it checks that the file's SHA-256 is the one it read;
-5. the load (one transaction) and the result; the page then shows the loaded version and date, and a reminder when
-   the release is more than seven months old.
+   terms), with their name taken from their sign-in, and chooses the same file again: the console checks that the
+   file's SHA-256 is the one on the page, and the orchestrator loads only a zip the same person read in the last
+   30 minutes;
+5. the load (one transaction, the Load button sent once) and the result; the page then shows the loaded version and
+   date, and a reminder when the release is more than seven months old.
 
-The approval and the load are one ``terminology.load`` audit event (the event every licensed load writes),
-written by the orchestrator with the verified person. Who may open the page: the account that changes site set-up
-(the matrix row ``site.setup``), answered as ``POST /site/codes`` answers every other account. On a site whose
+The orchestrator writes the audit (``terminology.load``, the event every licensed load writes) with the verified
+person: the approval before the load starts, then the result. Who may open the page: the account that changes site
+set-up (the matrix row ``site.setup``), answered as ``POST /site/codes`` answers every other account. On a site whose
 country layer does not use the master the routes are not registered and every other page is as before.
 """
 
@@ -40,6 +41,7 @@ from console.backend import Problem, Unavailable
 from console.home import Helpers
 from console.i18n import CATALOGUES
 from console.i18n_medis import EN, JA, ZH
+from console.timefmt import local_date, site_zone
 
 for _lang, _cat in (("en", EN), ("ja", JA), ("zh-TW", ZH)):
     CATALOGUES[_lang].update(_cat)
@@ -49,7 +51,7 @@ MB = medis_release.MAX_ZIP // (1024 * 1024)
 SKIPPED_SHOWN = 50
 
 
-def state(terms: list[dict[str, Any]], last: dict[str, Any], today: date) -> dict[str, Any] | None:
+def state(terms: list[dict[str, Any]], last: dict[str, Any], today: date, zone: Any = None) -> dict[str, Any] | None:
     """The disease-name table as the terminology store says it is loaded (version, rows, when) with the release
     date and the approving person of the step's last load (``last``, when it is the same version), and whether the
     reminder is due; None when it is not loaded."""
@@ -62,9 +64,12 @@ def state(terms: list[dict[str, Any]], last: dict[str, Any], today: date) -> dic
     return {
         "version": version,
         "released": released[:10] or "–",
-        "day": str(row.get("loaded_at") or "")[:10],
+        "dated": bool(released[:10]),  # lane J, L1: a release with no date is said, never silently not reminded
+        # lane J, L2: the day of the site, not of UTC
+        "day": local_date(row.get("loaded_at"), zone) if zone is not None else str(row.get("loaded_at") or "")[:10],
         "who": str(row.get("loaded_by") or (last.get("by") if same else "") or ""),
-        "rows": int(row.get("rows") or 0),
+        "codes": int(row.get("rows") or 0),  # lane J, L3: exchange codes (concepts) and the table's rows, each named
+        "rows": int(row.get("table_rows") or row.get("rows") or 0),
         "remind": medis_release.reminder(released, today),
     }
 
@@ -87,7 +92,8 @@ def register(
             last = dict(get("/setup/terminology/medis"))
         except (Problem, Unavailable):
             pass
-        return h.page(request, "site_medis.html", sess, status, mb=MB, loaded=state(terms, last, h.today()),
+        loaded = state(terms, last, h.today(), site_zone(h.bk))
+        return h.page(request, "site_medis.html", sess, status, mb=MB, loaded=loaded,
                       download_url=medis_release.DOWNLOAD_URL, terms_url=medis_release.TERMS_URL,
                       who=h.actor(sess), shown=SKIPPED_SHOWN, **more)  # fmt: skip
 

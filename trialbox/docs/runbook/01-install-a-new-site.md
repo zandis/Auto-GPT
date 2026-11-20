@@ -190,10 +190,13 @@ signs in and opens **Site set-up → Local codes → Disease-name master (MEDIS)
 3. ticks the approval (the institution downloaded this release from MEDIS and may use it under MEDIS's terms),
    chooses the same file again and presses **Load**.
 
-The box keeps only the zip's SHA-256, the version and the counts; the approval and the load are one
-`terminology.load` audit event. The step can be skipped and done later from the same page; until then, coded
-diagnoses from SS-MIX2 that carry modifiers read as unknown. Releases come in June and December: the page reminds
-once the loaded release is more than seven months old, and a newer one is loaded the same way.
+The box keeps only the zip's SHA-256, the version and the counts. It loads only a zip the same person read in the
+last 30 minutes. The audit has the approval before the load starts, the loader's event for each table and the
+result: five `terminology.load` events for a load (D-1261). The step can be skipped and done later from the same
+page; until then, coded diagnoses from SS-MIX2 that carry modifiers read as unknown. The master's codes are WHO ICD-10
+(2013): a same-numbered ICD-10-CM code on the local codes page is a suggestion for a person to check. Releases come
+in June and December: the page reminds once the loaded release is more than seven months old, and a newer one is
+loaded the same way.
 
 **Sign-in.** Local accounts, or the hospital's single sign-on behind its reverse proxy: set `TB_CONSOLE_SSO_HEADER`
 (for example `X-Forwarded-User`), `TB_CONSOLE_SSO_TRUSTED_PROXIES` (addresses or CIDRs), optionally

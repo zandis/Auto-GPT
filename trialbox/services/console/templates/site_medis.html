@@ -10,6 +10,7 @@
 <p>{{ t('medis.what') }}</p>
 <p>{{ t('medis.why') }}</p>
 <p>{{ t('medis.how') }}</p>
+<p data-testid="medis-icd">{{ t('medis.icd') }}</p>
 <ul class="plain">
 <li><a href="{{ download_url }}" target="_blank" rel="noopener noreferrer" data-testid="medis-download">{{ t('medis.link.download') }}</a></li>
 <li><a href="{{ terms_url }}" target="_blank" rel="noopener noreferrer" data-testid="medis-terms">{{ t('medis.link.terms') }}</a></li>
@@ -19,8 +20,8 @@
 </section>
 <section class="card" data-testid="medis-state" data-state="{{ 'loaded' if loaded else 'not_loaded' }}">
 <h2>{{ t('medis.state') }}</h2>
-{% if loaded %}<p>{{ t('medis.loaded', version=loaded.version, released=loaded.released, day=loaded.day, who=loaded.who|who) }} · {{ t('medis.loaded.rows', n=loaded.rows) }}</p>
-{% if loaded.remind %}<p class="pill warn" role="status" data-testid="medis-remind">{{ t('medis.remind') }}</p>{% endif %}
+{% if loaded %}<p>{{ t('medis.loaded', version=loaded.version, released=loaded.released, day=loaded.day, who=loaded.who|who) }} · {{ t('medis.loaded.rows', rows=loaded.rows, n=loaded.codes) }}</p>
+{% if not loaded.dated %}<p class="hint" data-testid="medis-no-date">{{ t('medis.no_date') }}</p>{% endif %}{% if loaded.remind %}<p class="pill warn" role="status" data-testid="medis-remind">{{ t('medis.remind') }}</p>{% endif %}
 <p class="hint">{{ t('medis.update') }}</p>
 {% else %}<p><span class="pill warn">{{ t('medis.not_loaded') }}</span></p>{% endif %}
 </section>
@@ -44,7 +45,7 @@
 {% if not found.skipped %}<p class="ok">{{ t('medis.check.skipped.none') }}</p>{% else %}<ul class="plain" data-testid="medis-skipped">{% for s in found.skipped[:shown] %}<li>{% if s.line %}{{ t('medis.check.skipped.line', table=s.table, line=s.line, reason=s.reason) }}{% else %}{{ s.table }}: {{ s.reason }}{% endif %}</li>{% endfor %}{% if found.skipped|length > shown %}<li>{{ t('medis.check.skipped.more', n=found.skipped|length - shown) }}</li>{% endif %}</ul>{% endif %}
 {% if found.already %}<p class="pill warn" role="status" data-testid="medis-already">{{ t('medis.already', version=found.already.version, released=found.already.released or '–', day=(found.already.loaded_at or '')[:10], who=found.already.loaded_by|who) }}</p>{% endif %}
 <h3>{{ t('medis.approve.title') }}</h3>
-<form method="post" action="/site/codes/medis/load" enctype="multipart/form-data" class="markform" data-testid="medis-approve">
+<form method="post" action="/site/codes/medis/load" enctype="multipart/form-data" class="markform" data-once data-testid="medis-approve">
 <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="sha256" value="{{ found.sha256 }}">
 <p><label><input type="checkbox" name="approved" value="yes" required data-testid="medis-approved"> {{ t('medis.approve.box') }}</label></p>
 {% if found.already %}<p><label><input type="checkbox" name="again" value="yes" required data-testid="medis-again"> {{ t('medis.again') }}</label></p>{% endif %}

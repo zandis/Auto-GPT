@@ -3,7 +3,10 @@
 * At a site whose country layer uses the master: the coordinator opens ``/site/codes/medis`` from the local codes,
   reads what it is with MEDIS's two links, hands over the zip, reads what the box found without loading anything,
   ticks the approval (their own name from their sign-in), chooses the same file again and loads it; the page then
-  shows the loaded version and date. One ``terminology.load`` event (the approval and the counts, never a row).
+  shows the loaded version and date. The audit: the approval before the load starts, then the result (never a row),
+  and the loader's own event for each table where the audit folder is set (review A, L4).
+* The load takes only a zip the same person read in the last 30 minutes, by the server's own record (review A, L1);
+  a load while another runs is said, not waited for (M4); the Load button is sent once.
 * A refusal shows its code and reason; a load without the approval, or with another file than the one read, is
   refused before anything is sent; the loader's refusal is shown as the loader gave it, never a traceback.
 * Who may open it: the set-up row (coordinator, administrator), answered as ``POST /site/codes`` answers the others.
@@ -58,15 +61,23 @@ def _load(c: Any, data: bytes, sha: str, approved: bool = True) -> Any:
     return c.post(f"{PAGE}/load", data=form, files={"file": ("byomei999.zip", data)})
 
 
-def _events(tmp_path: Path) -> list[dict[str, Any]]:
+def _events(tmp_path: Path, folder: str = "orch-audit") -> list[dict[str, Any]]:
     out = []
-    for f in sorted((tmp_path / "orch-audit").glob("*")):
+    for f in sorted((tmp_path / folder).glob("*")):
         if f.is_file():
             out += [json.loads(x) for x in f.read_text(encoding="utf-8").splitlines() if x.strip()]
     return out
 
 
-def test_the_coordinator_reads_approves_and_loads_the_release(jp: dict[str, Any], tmp_path: Path) -> None:
+def _medis_events(tmp_path: Path) -> list[dict[str, Any]]:
+    return [e for e in _events(tmp_path) if e.get("event") == "terminology.load"
+            and e["detail"].get("kind") == "medis_release"]  # fmt: skip
+
+
+def test_the_coordinator_reads_approves_and_loads_the_release(
+    jp: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TB_AUDIT_DIR", str(tmp_path / "loader-audit"))  # the loader's own events (review A, L4)
     c, _ = login(jp["app"], "crc", PW)
     codes = c.get("/site/codes")
     assert 'data-testid="codes-medis"' in codes.text and f'href="{PAGE}"' in codes.text
@@ -79,6 +90,7 @@ def test_the_coordinator_reads_approves_and_loads_the_release(jp: dict[str, Any]
     r = _check(c, data)
     assert r.status_code == 200 and 'data-testid="medis-found"' in r.text, r.text[-2000:]
     assert '<td data-testid="medis-version">9.99</td>' in r.text and 'data-testid="medis-approve"' in r.text
+    assert re.search(r'<form [^>]*data-once[^>]*data-testid="medis-approve"', r.text)  # sent once (review A, M4)
     assert "crc" in r.text  # the approval names the person from the sign-in
     sha = re.search(r'name="sha256" value="([0-9a-f]{64})"', r.text)
     assert sha
@@ -87,20 +99,15 @@ def test_the_coordinator_reads_approves_and_loads_the_release(jp: dict[str, Any]
     r = _load(c, data, sha.group(1))
     assert r.status_code == 200 and 'data-testid="medis-done"' in r.text, r.text[-2000:]
     assert 'data-state="loaded"' in r.text and "9.99" in r.text and "2026-06-01" in r.text
-    ev = [
-        e
-        for e in _events(tmp_path)
-        if e.get("event") == "terminology.load" and e["detail"].get("kind") == "medis_release"
-    ]
-    assert len(ev) == 1
-    assert (
-        ev[0]["actor"].removeprefix("console:") == "crc"
-        and ev[0]["detail"]["approved"] is True
-        and ev[0]["detail"]["version"] == "9.99"
-    )
-    assert ev[0]["output_sha"] == sha.group(1)
-    text = json.dumps(ev[0], ensure_ascii=False)
-    assert not any(name in text for _c, _n, name, *_ in fx.DISEASES)  # never a row of the release
+    ev = _medis_events(tmp_path)
+    assert [e["detail"]["stage"] for e in ev] == ["approved", "loaded"]  # the approval written before the load
+    assert all(e["actor"].removeprefix("console:") == "crc" and e["output_sha"] == sha.group(1) for e in ev)
+    assert ev[0]["detail"]["approved"] is True and ev[1]["detail"]["version"] == "9.99"
+    loader = [e for e in _events(tmp_path, "loader-audit") if e.get("event") == "terminology.load"]
+    assert sorted(e["detail"]["kind"] for e in loader) == sorted(["medis", "medis_modifier", licensed.INDEX])
+    for e in (*ev, *loader):
+        text = json.dumps(e, ensure_ascii=False)
+        assert not any(name in text for _c, _n, name, *_ in fx.DISEASES)  # never a row of the release
 
 
 def test_the_page_speaks_the_three_languages(jp: dict[str, Any]) -> None:
@@ -225,10 +232,19 @@ MASTER_KEYS = {"ws", "domain", "system", "code", "display", "suggested_system", 
                "n"}  # fmt: skip  # GET /api/v1/site/codes's keys on master (local_code before version 3, and n)
 
 
-def _codes_with(jp: dict[str, Any], also: list[str] | None, others: list[dict[str, str]] | None = None) -> None:
-    sug = {"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "E11.2", "display": "テスト複分類病",
-           "method": "licensed", "confidence": "1.00", **({"also": also} if also else {}),
-           **({"candidates": others, "of": len(others) + 1} if others else {})}  # fmt: skip
+OTHER = {"code": "I10", "display": "テスト病乙", "method": "licensed_related", "who": "I10",
+         "cm_title": "Essential (primary) hypertension", "family": True}  # fmt: skip
+
+
+def _codes_with(jp: dict[str, Any], also: list[str] | None, others: list[dict[str, Any]] | None = None, *,
+                master: bool = True) -> None:  # fmt: skip
+    """ZA17 with a suggestion of the master (its detail beside it), or with one of another table (``master`` False:
+    no detail at all, as every row before this card)."""
+    sug: dict[str, Any] = {"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "I20.9", "display": "テスト複分類病",
+                           "method": "licensed_code" if master else "same", "confidence": "0.80"}  # fmt: skip
+    if master:
+        sug |= {"who": "I20.9", "cm_title": "Angina pectoris, unspecified", "family": False,
+                **({"also": also} if also else {}), **({"candidates": others, "of": len(others) + 1} if others else {})}  # fmt: skip
     jp["svc"].store.put_local("main", "condition", DX_SYSTEM, "ZA17", "テスト複分類病", sug)
 
 
@@ -241,6 +257,10 @@ def test_the_codes_page_shows_the_further_codes_in_three_languages(jp: dict[str,
         c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/site/codes"})
         page = c.get("/site/codes").text
         assert 'data-testid="also-ZA17"' in page and cat["site.codes.also"].replace("{codes}", "N08.3") in page
+        note = cat["site.codes.medis.cm_check"].replace("{code}", "I20.9").replace("{title}", "Angina pectoris, "
+                                                                                  "unspecified")  # fmt: skip
+        assert 'data-testid="medis-note-ZA17"' in page and note.replace("'", "&#39;") in page
+        assert cat["site.codes.medis.who"].replace("{who}", "I20.9") in page
     v, _ = login(jp["app"], "pi", PW)  # the page's readers see it as they see the suggested code
     assert 'data-testid="also-ZA17"' in v.get("/site/codes").text
 
@@ -249,19 +269,19 @@ def test_without_further_codes_the_page_is_as_before_the_field(
     jp: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The local codes page with this card's lines equals, byte for byte, the page rendered from the template without
-    them, for a code with no further codes and one candidate: the lines add nothing then."""
+    them, for a code whose suggestion is not the master's (every row before this card): the lines add nothing then."""
     import re as _re
 
     import jinja2
 
-    _codes_with(jp, None)
+    _codes_with(jp, None, master=False)
     c, _ = login(jp["app"], "crc", PW)
     tpl = (Path(__file__).resolve().parents[2] / "services" / "console" / "templates" / "site_codes.html").read_text(
         encoding="utf-8"
     )
-    lines = [m.group(0) for m in _re.finditer(r"\{% if c\.(?:also|others) %\}.*?\{% endif %\}|\{% for o in c\.others %\}.*?"
+    lines = [m.group(0) for m in _re.finditer(r"\{% if c\.medis %\}.*?\{% endif %\}|\{% for o in c\.others %\}.*?"
                                               r"\{% endfor %\}", tpl)]  # fmt: skip
-    assert len(lines) == 4  # the further codes; one of N; the further candidates; their buttons
+    assert len(lines) == 2  # what the master says beside a suggestion; the further candidates' buttons
     real = jinja2.FileSystemLoader.get_source
 
     def without(self: Any, env: Any, name: str) -> Any:
@@ -289,9 +309,7 @@ def test_the_api_twin_answers_as_before_with_and_without_the_field(jp: dict[str,
     token = c.post("/api/v1/session", json={"username": "crc", "password": PW, "lang": "en"}).json()["token"]
     c.headers["Authorization"] = f"Bearer {token}"
     for also in (None, ["N08.3"]):
-        _codes_with(
-            jp, also, [{"code": "I10", "display": "テスト病乙", "method": "licensed_related"}] if also else None
-        )
+        _codes_with(jp, also, [OTHER] if also else None)
         rows = c.get("/api/v1/site/codes").json()
         assert rows and all(set(r) == MASTER_KEYS for r in rows), (also, sorted(rows[0]))
         assert "N08.3" not in json.dumps(rows) and "I10" not in json.dumps(rows)
@@ -300,7 +318,7 @@ def test_the_api_twin_answers_as_before_with_and_without_the_field(jp: dict[str,
 def test_the_codes_page_offers_every_candidate_as_one_of_n(jp: dict[str, Any]) -> None:
     from console.i18n_medis import EN
 
-    _codes_with(jp, None, [{"code": "I10", "display": "テスト病乙", "method": "licensed_related"}])
+    _codes_with(jp, None, [OTHER])
     c, _ = login(jp["app"], "crc", PW)
     page = c.get("/site/codes").text
     assert 'data-testid="of-ZA17"' in page and EN["site.codes.one_of"].replace("{n}", "2") in page
@@ -317,14 +335,11 @@ def test_one_release_shows_one_fingerprint_and_a_second_load_is_asked_for(jp: di
     c, _ = login(jp["app"], "crc", PW)
     data = fx.release_zip()
     sha = hashlib.sha256(data).hexdigest()
+    _check(c, data)
     _load(c, data, sha)
     st = next(s for s in licensed.status(jp["svc"].store.db.url) if s["kind"] == "medis")
-    ev = [
-        e
-        for e in _events(tmp_path)
-        if e.get("event") == "terminology.load" and e["detail"].get("kind") == "medis_release"
-    ]
-    assert st["sha256"] == sha == ev[0]["output_sha"] == ev[0]["detail"]["sha256"]
+    ev = _medis_events(tmp_path)
+    assert st["sha256"] == sha == ev[-1]["output_sha"] == ev[-1]["detail"]["sha256"]
     again = _check(c, data)
     assert 'data-testid="medis-already"' in again.text and 'data-testid="medis-again"' in again.text
     r = _load(c, data, sha)  # without "load it again"
@@ -333,11 +348,146 @@ def test_one_release_shows_one_fingerprint_and_a_second_load_is_asked_for(jp: di
     r = c.post(f"{PAGE}/load", data={"csrf": _csrf(page.text), "sha256": sha, "approved": "yes", "again": "yes"},
                files={"file": ("byomei999.zip", data)})  # fmt: skip
     assert r.status_code == 200 and 'data-testid="medis-done"' in r.text
-    ev = [
-        e
-        for e in _events(tmp_path)
-        if e.get("event") == "terminology.load" and e["detail"].get("kind") == "medis_release"
-    ]
+    ev = [e for e in _medis_events(tmp_path) if e["detail"]["stage"] == "loaded"]
     assert len(ev) == 2 and ev[1]["detail"]["again"] is True
     other = fx.release_zip(version="V9.98")  # another release: no notice
     assert 'data-testid="medis-already"' not in _check(c, other).text
+
+
+# ------------------------------------------------------------------- review A: the server's own rules for a load
+def _b64(data: bytes) -> str:
+    import base64
+
+    return base64.b64encode(data).decode()
+
+
+def test_a_load_takes_only_a_zip_the_same_person_read_lately(
+    jp: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review A, L1: the server's record of the read (who, when, the zip's SHA-256), not the browser's form."""
+    from datetime import timedelta
+
+    data = fx.release_zip()
+    body = {"b64": _b64(data), "approved": True}
+    r = jp["oc"].post("/setup/terminology/medis/load", json=body)  # never read
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "LIC-NOT-CHECKED"
+    c, _ = login(jp["app"], "admin", ADMIN_PW)
+    _check(c, data)  # read by another person
+    r = jp["oc"].post("/setup/terminology/medis/load", json=body)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "LIC-NOT-CHECKED"
+    assert jp["oc"].post("/setup/terminology/medis/check", json={"b64": _b64(data)}).status_code == 200
+    svc = jp["svc"]
+    real = svc.now
+    monkeypatch.setattr(svc, "now", lambda: real() + timedelta(minutes=31))  # read, but too long ago
+    r = jp["oc"].post("/setup/terminology/medis/load", json=body)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "LIC-NOT-CHECKED"
+    monkeypatch.setattr(svc, "now", real)
+    assert licensed.status(svc.store.db.url)[0]["state"] == "not_loaded"
+    assert jp["oc"].post("/setup/terminology/medis/load", json=body).status_code == 200
+
+
+def test_a_load_while_another_runs_is_said_not_waited_for(
+    jp: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review A, M4: the terminology store's lock held by another session: refused at once, nothing in the audit."""
+    from sitesetup import medis_release
+
+    data = fx.release_zip()
+    assert jp["oc"].post("/setup/terminology/medis/check", json={"b64": _b64(data)}).status_code == 200
+    db = licensed.TermStore(jp["svc"].store.db.url)
+    try:
+        assert medis_release.load_running(db) is False  # asked and let go at once
+        with db.db.transaction() as tx:
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext('terminology.load'), hashtext(current_schema()))", ())
+            r = jp["oc"].post("/setup/terminology/medis/load", json={"b64": _b64(data), "approved": True})
+        assert r.status_code == 409 and r.json()["detail"]["code"] == "LIC-LOAD-RUNNING"
+    finally:
+        db.close()
+    assert not _medis_events(tmp_path)
+
+
+def test_a_failed_load_is_in_the_audit_after_its_approval(
+    jp: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sitesetup import medis_release
+
+    data = fx.release_zip()
+    assert jp["oc"].post("/setup/terminology/medis/check", json={"b64": _b64(data)}).status_code == 200
+
+    def broken(*_a: Any, **_k: Any) -> Any:
+        raise licensed.LicensedError("LIC-TEST", "refused by the loader")
+
+    monkeypatch.setattr(medis_release, "load", broken)
+    r = jp["oc"].post("/setup/terminology/medis/load", json={"b64": _b64(data), "approved": True})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "LIC-TEST"
+    ev = _medis_events(tmp_path)
+    assert [(e["detail"]["stage"], e["detail"].get("code")) for e in ev] == [("approved", None), ("failed", "LIC-TEST")]
+
+
+def test_outside_the_layer_the_orchestrator_answers_as_an_unknown_route(tw: dict[str, Any]) -> None:
+    """Review A, L3: the same 404 body as a route that does not exist, before the person or the body is read."""
+    unknown = tw["oc"].get("/setup/terminology/no-such-route")
+    for method, path in (("get", ""), ("post", "/check"), ("post", "/load")):
+        r = getattr(tw["oc"], method)(f"/setup/terminology/medis{path}", **({"json": {}} if method == "post" else {}))
+        assert (r.status_code, r.json()) == (unknown.status_code, unknown.json()) == (404, {"detail": "Not Found"})
+
+
+def test_an_approval_that_cannot_be_written_loads_nothing(jp: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review A, M3: the approval is written before the load starts; when the audit refuses it, nothing is loaded."""
+    data = fx.release_zip()
+    assert jp["oc"].post("/setup/terminology/medis/check", json={"b64": _b64(data)}).status_code == 200
+
+    def refuse(*_a: Any, **_k: Any) -> Any:
+        raise OSError("the audit folder is full")
+
+    monkeypatch.setattr(jp["svc"].audit, "append", refuse)
+    with pytest.raises(OSError):
+        jp["oc"].post("/setup/terminology/medis/load", json={"b64": _b64(data), "approved": True})
+    assert licensed.status(jp["svc"].store.db.url)[0]["state"] == "not_loaded"
+
+
+@pytest.mark.parametrize("site", ["jp", "tw"])
+def test_the_api_answers_with_masters_keys_get_and_post(site: str, request: pytest.FixtureRequest) -> None:
+    """Review A, L2: GET and POST /api/v1/site/codes give master's keys at both sites, with and without the detail."""
+    from fastapi.testclient import TestClient
+
+    b = request.getfixturevalue(site)
+    sug = {"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "I20.9", "display": "テスト複分類病",
+           "method": "licensed_code", "confidence": "0.80", "who": "I20.9", "also": ["N08.3"]}  # fmt: skip
+    b["svc"].store.put_local("main", "condition", DX_SYSTEM, "ZA17", "テスト複分類病", sug)
+    c = TestClient(b["app"])
+    token = c.post("/api/v1/session", json={"username": "crc", "password": PW, "lang": "en"}).json()["token"]
+    c.headers["Authorization"] = f"Bearer {token}"
+    rows = c.get("/api/v1/site/codes").json()
+    assert rows and all(set(r) == MASTER_KEYS for r in rows), sorted(rows[0])
+    r = c.post("/api/v1/site/codes", json={"domain": "condition", "system": DX_SYSTEM, "code": "ZA17",
+                                           "target_code": "I20.9"})  # fmt: skip
+    assert r.status_code == 200, r.text
+    assert set(r.json()) == MASTER_KEYS - {"n"}, sorted(r.json())  # local_code's columns on master
+    assert "medis_detail" not in r.text and "N08.3" not in r.text
+
+
+def test_the_page_says_the_masters_code_is_who_icd10(jp: dict[str, Any]) -> None:
+    """Lane J, L6, in the three languages."""
+    from console.i18n_medis import EN, JA, ZH
+
+    c, csrf = login(jp["app"], "crc", PW)
+    for lang, cat in (("en", EN), ("ja", JA), ("zh-TW", ZH)):
+        c.post("/lang", data={"csrf": csrf, "lang": lang, "back": PAGE})
+        page = c.get(PAGE).text
+        assert 'data-testid="medis-icd"' in page and cat["medis.icd"].replace("'", "&#39;") in page, lang
+
+
+def test_the_codes_page_says_how_many_names_give_one_code(jp: dict[str, Any]) -> None:
+    """Lane J, M8: one term, several entries with one code: "one of N names for this term"; the hints are said."""
+    from console.i18n_medis import EN
+
+    sug = {"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "I20.9", "display": "テスト複分類病",
+           "method": "licensed_index", "confidence": "0.76", "who": "I20.9", "cm_title": "t", "names": 2,
+           "hints": ["kampo", "dental"]}  # fmt: skip
+    jp["svc"].store.put_local("main", "condition", DX_SYSTEM, "ZA17", "テスト複分類病", sug)
+    c, _ = login(jp["app"], "crc", PW)
+    page = c.get("/site/codes").text
+    assert 'data-testid="names-ZA17"' in page and EN["site.codes.medis.names"].replace("{n}", "2") in page
+    assert EN["site.codes.medis.hint.kampo"] in page and EN["site.codes.medis.hint.dental"] in page
+    assert EN["site.codes.medis.hint.with_modifier"] not in page

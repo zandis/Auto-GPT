@@ -70,7 +70,7 @@ _SHAPES = {
 
 @dataclass
 class Issue:
-    severity: str  # error | warning
+    severity: str  # error | warning | information (D-1261: said, never counted)
     expression: str
     text: str
 
@@ -370,6 +370,7 @@ class JpCoreValidator:
                 for v in node:
                     yield from walk(v, path)
 
+        unchecked = False
         for path, c in walk({k: v for k, v in res.items() if k != "meta"}, rtype):
             system, code = str(c.get("system") or ""), str(c.get("code") or "")
             if system == ICD10CM:
@@ -396,6 +397,10 @@ class JpCoreValidator:
                 elif kind == "medis" and self.licensed.get(kind) and not _medis_current(self.licensed[kind][code]):
                     # D-1261: a code the loaded release marks deleted (変更区分 1) is real but no longer current
                     out.issues.append(Issue("warning", path, f"the code is deleted in the loaded {label} release"))
+                elif kind == "medis" and not self.licensed.get(kind) and not unchecked:
+                    # D-1261 (lane J, M9): said once per resource, information only
+                    unchecked = True
+                    out.issues.append(Issue("information", path, "MEDIS codes not checked: no release loaded"))
 
     # ------------------------------------------------------------------ a sample
     def validate(self, resources: list[Resource]) -> ValidationReport:

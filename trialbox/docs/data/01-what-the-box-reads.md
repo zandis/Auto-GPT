@@ -144,7 +144,9 @@ Count: of the 26 types, **0 read in full**, **10 partly** (ADT-00, 12, 22, 52, P
 Japanese lists (MEDIS 標準病名, JLAC10, YJ) are loaded by the site from its own licensed files. The MEDIS
 disease-name master is free for a medical institution and may not be passed on without MEDIS's permission, so it is
 never shipped; at a site whose country layer uses it, hospital staff load the release they downloaded from MEDIS in
-the site set-up step `/site/codes/medis` (D-1261: read without loading, approve, load); by hand:
+the site set-up step `/site/codes/medis` (D-1261: read without loading, approve, load). Its codes are WHO ICD-10
+(2013): site set-up offers a same-numbered ICD-10-CM code only for a person to check, and the OMOP store links them to
+their ICD-10-CM family only. By hand:
 (`python -m adapter.licensed load --kind medis|medis_modifier|jlac10|yj --file … --version …`, D-137, D-1252; the MEDIS master whole, as MEDIS ships it, with `load-release --source <folder or zip>`, D-1257); each release is kept with its
 version, sha256 and who loaded it, and every load is audited. A MEDIS disease or modifier table without its
 変更区分 column, or with it empty in every row, is refused at load (D-1252). The demo rows are synthetic and marked `verify`.

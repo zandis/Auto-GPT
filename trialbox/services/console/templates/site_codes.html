@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {# TB-PLAN-04 step 5b (D-131, D-130): the site's own codes, mapped once for the whole site. Until a code is mapped it
    stays in a code system TrialBox cannot read, and a criterion it could answer is "unknown", never a silent "no". #}
-{% from "_site.html" import site_nav, ws_name, domain with context %}
+{% from "_site.html" import site_nav, ws_name, domain, medis_note with context %}
 {% block title %}{{ t('site.codes.title') }}{% endblock %}
 {% block content %}
 <div class="headrow"><h1>{{ t('site.codes.title') }} · {{ ws_name(ws) }}</h1></div>
@@ -14,7 +14,7 @@
 {% if not todo %}<p class="ok" data-testid="codes-none">{{ t('site.codes.none') }}</p>{% endif %}
 <ul class="plain clist">{% for c in todo %}<li class="crow" data-testid="code-{{ c.code }}">
 <p><b>{{ domain(c.domain) }}</b> · {{ t('site.codes.kind.' + c.system.rsplit(':', 1)[-1]) }} · <span class="mono">{{ c.code }}</span>{% if c.display and c.display != c.code %} · {{ given(c.display) }}{% endif %} · <span class="hint">{{ t('site.codes.n', n=c.n) }}</span></p>
-{% if c.suggested_code %}<p class="hint">{{ t('site.codes.suggested') }} <span class="mono">{{ c.suggested_code }}</span> {{ given(c.suggested_display) }} ({{ t('site.codes.method.' + (c.method or 'name')) }}{% if c.confidence %}, <span data-testid="confidence-{{ c.code }}">{{ t('site.codes.confidence', pct=(c.confidence * 100)|round|int) }}</span>{% endif %}){% if c.also %} · <span data-testid="also-{{ c.code }}">{{ t('site.codes.also', codes=c.also|join(', ')) }}</span>{% endif %}{% if c.others %} · <span data-testid="of-{{ c.code }}">{{ t('site.codes.one_of', n=c.others|length + 1) }}</span>{% endif %}</p>{% if c.others %}<ul class="plain" data-testid="others-{{ c.code }}">{% for o in c.others %}<li class="hint">{{ t('site.codes.one_of', n=c.others|length + 1) }}: <span class="mono">{{ o.code }}</span> {{ given(o.display) }} ({{ t('site.codes.method.' + (o.method or 'name')) }})</li>{% endfor %}</ul>{% endif %}{% else %}<p class="hint">{{ t('site.codes.no_suggestion') }}</p>{% endif %}
+{% if c.suggested_code %}<p class="hint">{{ t('site.codes.suggested') }} <span class="mono">{{ c.suggested_code }}</span> {{ given(c.suggested_display) }} ({{ t('site.codes.method.' + (c.method or 'name')) }}{% if c.confidence %}, <span data-testid="confidence-{{ c.code }}">{{ t('site.codes.confidence', pct=(c.confidence * 100)|round|int) }}</span>{% endif %})</p>{% if c.medis %}{{ medis_note(c) }}{% endif %}{% else %}<p class="hint">{{ t('site.codes.no_suggestion') }}</p>{% endif %}
 {% if editable %}<form method="post" action="/site/codes" class="markform" data-testid="map-{{ c.code }}">
 <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="ws" value="{{ ws }}"><input type="hidden" name="study" value="{{ rs }}">
 <input type="hidden" name="domain" value="{{ c.domain }}"><input type="hidden" name="system" value="{{ c.system }}"><input type="hidden" name="code" value="{{ c.code }}">

@@ -27,12 +27,14 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import re
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sitesetup import help as site_help
 from sitesetup import publish, readiness
@@ -472,13 +474,18 @@ def router(
 
         return licensed.status(get().store.db.url)
 
-    def medis_zip(body: MedisBody) -> bytes:
-        """D-1261: the zip the person sent, refused as a MEDIS step that does not exist where the site's country layer
-        does not use the master (as the console's page is absent there)."""
+    def medis_present() -> None:
+        """D-1261 (review A, L3): outside a country layer that uses the master the three routes are absent: answered
+        as an unknown route is (404, the same body), before the person or the body is looked at."""
         from sitesetup import medis_release
 
         if not medis_release.here():
-            raise HTTPException(status_code=404, detail="not found")
+            raise HTTPException(status_code=404, detail="Not Found")
+
+    medis_route = [Depends(medis_present)]
+
+    def medis_zip(body: MedisBody) -> bytes:
+        """D-1261: the zip the person sent."""
         try:
             data = base64.b64decode(body.b64, validate=True)
         except ValueError as exc:
@@ -487,66 +494,96 @@ def router(
             raise HTTPException(status_code=409, detail={"code": "LIC-UPLOAD-EMPTY", "message": "no file was sent"})
         return data
 
-    @r.get("/setup/terminology/medis")
+    def refused(code: str, message: str) -> HTTPException:
+        return HTTPException(status_code=409, detail={"code": code, "message": message})
+
+    @r.get("/setup/terminology/medis", dependencies=medis_route)
     def medis_state() -> dict[str, Any]:
         """D-1261: the MEDIS release the step loaded last (version, release date, fingerprint, counts, who), or {}."""
         from sitesetup import medis_release
 
-        if not medis_release.here():
-            raise HTTPException(status_code=404, detail="not found")
         return medis_release.read_record(get().store.setting(medis_release.SETTING))
 
-    @r.post("/setup/terminology/medis/check")
+    @r.post("/setup/terminology/medis/check", dependencies=medis_route)
     def medis_check(body: MedisBody, who: Claim = AS_SITE) -> dict[str, Any]:
-        """D-1261: what loading the MEDIS release would do, writing nothing (version, rows, what would be skipped)."""
+        """D-1261: what loading the MEDIS release would do, writing nothing to the terminology store (version, rows,
+        what would be skipped; a release older than the loaded one is refused as the load would). The read is
+        recorded (who, when, the zip's SHA-256): the load takes only a zip the same person read (review A, L1)."""
         from adapter import licensed
         from sitesetup import medis_release
 
         data = medis_zip(body)
+        svc = get()
+        st = licensed.TermStore(svc.store.db.url)
         try:
-            found = medis_release.check(data)
+            found = medis_release.check(data, st)
         except licensed.LicensedError as exc:
-            raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message}) from exc
-        same = medis_release.already(licensed.status(get().store.db.url), found["sha256"])
+            raise refused(exc.code, exc.message) from exc
+        finally:
+            st.close()
+        same = medis_release.already(licensed.status(svc.store.db.url), found["sha256"])
         if same is not None:  # this very release is the one loaded: the page says so and asks before a second load
             found["already"] = {k: str(same.get(k) or "") for k in ("version", "released", "loaded_at", "loaded_by")}
+        at = svc.now().isoformat()
+        svc.store.set_setting(medis_release.check_key(found["sha256"]), json.dumps({"by": who.name, "at": at}),
+                              who.name, at)  # fmt: skip
         return found
 
-    @r.post("/setup/terminology/medis/load")
+    @r.post("/setup/terminology/medis/load", dependencies=medis_route)
     def medis_load(body: MedisBody, who: Claim = AS_SITE) -> dict[str, Any]:
         """D-1261: the person's approval (their institution downloaded this release from MEDIS and may use it under
-        MEDIS's terms) and the load, in one transaction; both in the audit as ``terminology.load``, the event every
-        licensed load writes. The zip's bytes are not kept: its SHA-256, version and counts are."""
+        MEDIS's terms) and the load (the loader's one transaction). The audit (``terminology.load``, the event every
+        licensed load writes) has the approval BEFORE the load starts (``stage: approved``): a failed append loads
+        nothing; then the result (``stage: loaded``) or ``stage: failed``. The loader adds its own events, one for each
+        table, where the audit folder is set (review A, L4). The zip's bytes are not kept: its SHA-256, version and
+        counts are."""
         from adapter import licensed
         from sitesetup import medis_release
 
         data = medis_zip(body)
         if not body.approved:
-            raise HTTPException(status_code=409, detail={
-                "code": "LIC-APPROVAL", "message": "tick the approval: your institution downloaded this release "
-                "from MEDIS and may use it under MEDIS's terms"})  # fmt: skip
-        url = get().store.db.url
+            raise refused("LIC-APPROVAL", "tick the approval: your institution downloaded this release from MEDIS "
+                          "and may use it under MEDIS's terms")  # fmt: skip
+        svc = get()
+        url = svc.store.db.url
         sha = hashlib.sha256(data).hexdigest()
+        read = medis_release.read_record(svc.store.setting(medis_release.check_key(sha)))
+        try:
+            fresh = svc.now() - datetime.fromisoformat(str(read.get("at"))) <= timedelta(
+                minutes=medis_release.CHECK_VALID_MINUTES
+            )
+        except (TypeError, ValueError):
+            fresh = False
+        if read.get("by") != who.name or not fresh:  # review A, L1: the server's own record, not the browser's
+            raise refused("LIC-NOT-CHECKED", "read this file first: the box loads only a release you read in the last "
+                          f"{medis_release.CHECK_VALID_MINUTES} minutes")  # fmt: skip
         if medis_release.already(licensed.status(url), sha) is not None and not body.again:
-            raise HTTPException(status_code=409, detail={
-                "code": "LIC-ALREADY-LOADED", "message": "this release is already loaded: tick \"load it again\" to "
-                "load it a second time"})  # fmt: skip
+            raise refused("LIC-ALREADY-LOADED", 'this release is already loaded: tick "load it again" to load it a '
+                          "second time")  # fmt: skip
         st = licensed.TermStore(url)
         try:
-            out = medis_release.load(data, st, by=who.name)
-        except licensed.LicensedError as exc:
-            raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message}) from exc
+            if medis_release.load_running(st):  # review A, M4: said, not waited for
+                raise refused("LIC-LOAD-RUNNING", "a load of the terminology store is running: try again when it ends")
+            base = {"kind": "medis_release", "approval": medis_release.APPROVAL, "again": bool(body.again),
+                    "sha256": sha}  # fmt: skip
+            svc.audit.append("terminology.load", actor=who.name, output_sha=sha,
+                             detail={**base, "stage": "approved", "approved": True})  # fmt: skip
+            try:
+                out = medis_release.load(data, st, by=who.name, again=bool(body.again))
+            except licensed.LicensedError as exc:
+                svc.audit.append("terminology.load", actor=who.name, output_sha=sha,
+                                 detail={**base, "stage": "failed", "code": exc.code})  # fmt: skip
+                raise refused(exc.code, exc.message) from exc
         finally:
             st.close()
-        get().audit.append("terminology.load", actor=who.name, output_sha=out["sha256"], detail={
-            "kind": "medis_release", "approved": True, "approval": medis_release.APPROVAL, "again": bool(body.again),
-            **{k: out[k] for k in medis_release.KEPT}, "skipped": len(out["skipped"])})  # fmt: skip
-        svc = get()
+        svc.audit.append("terminology.load", actor=who.name, output_sha=out["sha256"], detail={
+            **base, "stage": "loaded", **{k: out[k] for k in medis_release.KEPT},
+            "skipped": out.get("skipped_count", len(out["skipped"]))})  # fmt: skip
         svc.store.set_setting(
             medis_release.SETTING, medis_release.record(out, who.name), who.name, svc.now().isoformat()
         )
         log.info("MEDIS release %s loaded", out.get("version"))
-        return {**out, "status": licensed.status(get().store.db.url)}
+        return {**out, "status": licensed.status(url)}
 
     @r.get("/setup/remote")
     def get_remote() -> dict[str, Any]:
