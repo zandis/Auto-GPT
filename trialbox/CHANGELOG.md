@@ -10,6 +10,16 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- Silent set-up choices guarded (10K-21): a new PRODUCTION site must answer the chart-number question (choosing
+  "as written" is an answer; leaving it empty is not), in the settings wizard and on the box's first-run page. A box
+  names the person who opens its health page every working day (its backup alert route); the name is shown with the
+  route. With the box's own certificate authority, who in hospital IT confirmed its root is on the clinic PCs, and
+  when, is recorded once the root exists (the box's first-run page, or two lines in `deploy/.env`). **An installed
+  site is not stopped by the upgrade**: `doctor` warns, with the line to add to `deploy/.env`, for each of the three
+  it lacks (D-1365). A typed name holds letters, digits, single spaces and a few marks only, and the wizard writes no
+  `deploy/.env` value with a line break, a control character or a byte that is not UTF-8 in it, so a name can never
+  add or change a setting; O'Brien and full-width brackets are names. An unknown `--environment` stops the installer
+  before it loads or writes anything.
 - Criterion model v3 runs in screening, step 1 (10A-5, D-1263): a criterion file that declares version 3 may hang a
   window on the patient's planned start, the screening date or an event of the record, and may name a device or an
   allergy. Screening answers it with the existing window rules at that date, says "unknown" when the date is not
