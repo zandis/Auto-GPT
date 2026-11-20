@@ -209,6 +209,21 @@ def register(app: FastAPI, h: Helpers) -> None:
         ident = getattr(h, "identity", None)
         return bool(ident is not None and ident.settings.totp_required and not h.users.is_sso(username))
 
+    def my_roles(sess: Session) -> list[dict[str, Any]]:
+        """9f-1: the signed-in person's own delegation-log entries that are in force today, in the studies this
+        account sees, with the ticked tasks (a sub-investigator's) and, from two weeks before its last day, the days
+        left (9f-4 a). Their own rows only (``TeamStore.entries_for``): nobody else's entry is read."""
+        team = getattr(h, "team", None)
+        if team is None:
+            return []
+        day, seen = h.today(), set(studies_of(sess))
+        return [
+            {"rs": e.ruleset.upper(), "role": e.role, "tasks": e.tasks, "start": e.start, "end": e.end,
+             "left": e.days_left(day)}
+            for e in team.entries_for(sess.user.username)
+            if e.ruleset.upper() in seen and e.active_on(day)
+        ]  # fmt: skip
+
     @app.get("/account")
     def account(request: Request, saved: str = "") -> Response:
         sess = h.need(request)
@@ -221,6 +236,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             request,
             "account.html",
             sess,
+            my_roles=my_roles(sess),
             me=u,
             sso=h.users.is_sso(u.username),
             studies=studies_of(sess),

@@ -121,8 +121,15 @@ health line warns 90 days before the list runs out and is red after it.
    `python3-yaml`, `python3-cryptography`, `curl`, `cron` and `openssl` (Ubuntu Server has `python3`, `tar` and
    `openssl`; the installer names the compose plugin and PyYAML when they are missing); the NVIDIA driver
    and container toolkit when there is a GPU (GB10: driver 580.142, held). See [Security §1](../SECURITY.md#1-the-host).
+   Installing over SSH: with `SSH=off` in `deploy/site/hardening.conf` (the example's default) the host baseline
+   would stop sshd under you, so the installer refuses at its start, before it loads anything (H-70). Run it from the
+   box's console, set `SSH=it` with your address in `IT_RANGES`, or add `--ssh-off-over-ssh` (the session ends).
 2. **Images.** `tools/apply_update.sh trialbox-<version>.tar` loads images, models and approved rulesets. A
-   development host can build instead: `make images` (or `make images-multiarch` for x86 and GB10). The build host
+   development host can build instead: `make images` (or `make images-multiarch` for x86 and GB10).
+   The build needs Docker's buildx plugin (every Dockerfile uses `RUN --mount`): `docker buildx version` must print a
+   version. Without it `make images` stops first with "images: Docker's buildx plugin is missing" (Docker's own
+   builder: "the --mount option requires BuildKit"); install `docker-buildx-plugin` from Docker's packages
+   (`docker-buildx` from Ubuntu's), as found by an install test, 2026-11-20 (H-70). The build host
    needs Docker, Maven and the JDK `.java-version` names, network to Docker Hub, Maven Central and GitHub, and disk
    for two copies of the bundle (D-830, D-885); the JVM fetch step names what is missing before it starts.
    The build needs memory (how much is not measured): on a Windows host raise the Linux VM's memory limit or build with fewer parallel jobs, or `make images` can take the VM down.
