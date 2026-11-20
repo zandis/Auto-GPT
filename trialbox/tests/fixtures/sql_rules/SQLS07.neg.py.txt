@@ -1,0 +1,6 @@
+# synthetic: grown with constants only
+def fine(db, desc):
+    sql = "SELECT id FROM item"
+    sql += " ORDER BY id DESC" if desc else " ORDER BY id"
+    sql += " LIMIT ?"
+    return db.fetchall(sql, (10,))

@@ -1,0 +1,5 @@
+# synthetic: SQL grown with += by a value
+def grow(db, order):
+    sql = "SELECT id FROM item"
+    sql += " ORDER BY " + order  # hit
+    return db.fetchall(sql)

@@ -1,0 +1,4 @@
+# synthetic: LIMIT through int(), or bound
+def page(db, k):
+    db.fetchall(f"SELECT id FROM item ORDER BY id LIMIT {int(k)}")
+    return db.fetchall("SELECT id FROM item ORDER BY id LIMIT ?", (k,))
