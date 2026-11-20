@@ -184,7 +184,12 @@ def test_a_job_page_without_a_record_is_byte_for_byte_the_page_without_the_block
     failed = _nightly(box, 923, WEEKLY, state="failed")
     reads: list[Any] = []
     real_list = box["backend"].list_jobs
-    monkeypatch.setattr(box["backend"], "list_jobs", lambda *a, **kw: reads.append(kw) or real_list(*a, **kw))
+
+    def spy(*a: Any, **kw: Any) -> Any:
+        reads.append(kw)
+        return real_list(*a, **kw)
+
+    monkeypatch.setattr(box["backend"], "list_jobs", spy)
     c, _ = login_crc(box)
     live = re.compile(rb'data-(?:idle|abs)-left="\d+"')  # the idle warning's live seconds (D-1370)
     for jid in (old, screen, failed):

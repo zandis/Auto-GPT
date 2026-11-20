@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from orchestrator import answer_store
 from orchestrator.scenarios import microbatch
 from orchestrator.scenarios.evaluate import PatientVerdicts, row
 from tb_common import prefilter
@@ -129,11 +130,11 @@ def test_the_record_holds_counts_only() -> None:
 
 
 # ------------------------------------------------------------------------------------------- the job writes it
-def _v(cid: str, verdict: str, reason: str) -> CriterionVerdict:
+def _v(cid: str, verdict: Any, reason: str) -> CriterionVerdict:
     conf = 0.9 if reason == "note" else None
     return CriterionVerdict(
         id=cid, verdict=verdict, evidence=Evidence(resource_refs=[], reason=reason, confidence=conf)
-    )  # type: ignore[arg-type]
+    )
 
 
 class _Night(_Box):
@@ -161,7 +162,7 @@ class _Night(_Box):
         return SimpleNamespace(scoped=picked, rows=rows, judging=None, results=results)
 
     def go(self, monkeypatch: pytest.MonkeyPatch) -> Any:
-        monkeypatch.setattr(microbatch.answer_store, "record", lambda *a, **kw: 0)
+        monkeypatch.setattr(answer_store, "record", lambda *a, **kw: 0)
         return super().go(monkeypatch)
 
 
