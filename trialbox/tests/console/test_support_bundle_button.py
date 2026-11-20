@@ -595,7 +595,6 @@ def test_a_download_whose_start_cannot_be_audited_closes_the_file_and_is_refused
     ob: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Review of 31935cc4, item 5: the open file is closed when the ``.started`` event cannot be written."""
-    from console import support_bundle_page
     from tb_common.audit import AuditLog
 
     c, _csrf, rid = _make(ob)
@@ -615,7 +614,7 @@ def test_a_download_whose_start_cannot_be_audited_closes_the_file_and_is_refused
             raise OSError("the audit chain cannot be written (synthetic)")
         return real_append(self, event, *a, **kw)
 
-    monkeypatch.setattr(support_bundle_page.os, "fdopen", spy)
+    monkeypatch.setattr(os, "fdopen", spy)  # what the page opens the bundle with
     monkeypatch.setattr(AuditLog, "append", append)
     try:
         r = c.get(f"/admin/ops/support/{rid}")
