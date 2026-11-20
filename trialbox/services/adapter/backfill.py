@@ -46,7 +46,7 @@ from pathlib import Path
 from typing import IO, Any
 from zoneinfo import ZoneInfo
 
-from tb_common import feedguard
+from tb_common import feedguard, id_rule
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import pid_for_mrn
 from tb_common.id_rule import IdRuleError
@@ -174,7 +174,9 @@ def _atomic_json(path: Path, body: Any) -> None:
 
 def _fingerprint(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str) -> str:
     h = hashlib.sha256()
-    h.update(json.dumps([source_kind, str(source_path), snap, cfg.site_id], sort_keys=True).encode())
+    # The spool and every sorted run already contain mapped IDs. A pre-upgrade fingerprint
+    # (which carried no rule) must miss even when source, mapping and date all match.
+    h.update(json.dumps([source_kind, str(source_path), snap, cfg.site_id, id_rule.RULE], sort_keys=True).encode())
     if cfg.mapping_path.is_file():
         h.update(cfg.mapping_path.read_bytes())
     return h.hexdigest()
@@ -421,8 +423,6 @@ def _merged(runs: Path, buckets: list[str], rtype: str, clash: list[int] | None 
 def _write_merged(
     runs: Path, buckets: list[str], out: Path, collisions: dict[str, int] | None = None
 ) -> dict[str, int]:
-    from tb_common import id_rule
-
     types = sorted({p.stem for b in buckets for p in (runs / b).glob("*.ndjson")})
     out.mkdir(parents=True, exist_ok=True)
     id_rule.write_snapshot_record(out)  # D-1253: the back-fill maps every year under the current id rule

@@ -170,9 +170,10 @@ def cites_old_rows(d: str = "d", tables: tuple[str, ...] = TRAIL_TABLES) -> str:
     """D-1253 (review round 3): a draft with a trail whose value cites a lake row (``citation`` or
     ``final_citation``). Only such a draft freezes a study of an earlier rule: a decided value with no citation
     ("not found") cites no old row, and its study is not frozen."""
-    a = pgsql.Identifier(d)
-    cites = pgsql.SQL("({}.citation IS NOT NULL OR {}.final_citation IS NOT NULL)").format(a, a)
-    return pgsql.SQL("({} AND {})").format(cites, pgsql.SQL(has_trail(d, tables))).as_string(None)
+    # ODM imports cite an external file and XML path. Keep unknown legacy shapes frozen.
+    cited = pgsql.SQL("({c} IS NOT NULL AND ({c}::jsonb ->> 'kind') IS DISTINCT FROM 'odm')")
+    cites = pgsql.SQL(" OR ").join(cited.format(c=pgsql.Identifier(d, col)) for col in ("citation", "final_citation"))
+    return pgsql.SQL("(({}) AND {})").format(cites, pgsql.SQL(has_trail(d, tables))).as_string(None)
 
 
 #: D-1253: whether a study has a draft that freezes it (:func:`cites_old_rows`)

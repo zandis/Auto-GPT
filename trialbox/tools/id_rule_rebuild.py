@@ -98,13 +98,15 @@ COUNTS: dict[str, tuple[str, ...]] = {
     "profile": ("tb_patient_profile",),
     "orch": ("pool",),
 }
-OMOP_FEED = "source_kind = 'feed' AND resource_type <> 'Patient'"
+OMOP_FEED = "source_kind = 'feed' AND resource_type NOT IN ('Patient', 'Practitioner')"
 #: the OMOP feed records of patients' clinical data (``OMOP_FEED``), written out: what the plan counts and the rebuild
 #: clears table by table
-OMOP_FEED_COUNT = "SELECT count(*) FROM tb_record WHERE source_kind = 'feed' AND resource_type <> 'Patient'"
+OMOP_FEED_COUNT = (
+    "SELECT count(*) FROM tb_record WHERE source_kind = 'feed' AND resource_type NOT IN ('Patient', 'Practitioner')"
+)
 OMOP_FEED_TABLES = (
-    "SELECT DISTINCT cdm_table FROM tb_record WHERE source_kind = 'feed' AND resource_type <> 'Patient' AND "
-    "cdm_table IS NOT NULL"
+    "SELECT DISTINCT cdm_table FROM tb_record WHERE source_kind = 'feed' AND "
+    "resource_type NOT IN ('Patient', 'Practitioner') AND cdm_table IS NOT NULL"
 )
 #: the derived conflicts a person resolved, and every conflict they were carried from: kept
 KEPT_CONFLICTS = (
@@ -162,12 +164,21 @@ def month_ends(lake: Path, today: date) -> list[str]:
     Chosen from every place a snapshot is (:func:`snapshot_names`) and from what an earlier run, cut short, moved
     aside already: a month keeps its own month-end, never a second one, and a part already aside never makes the
     parts left behind look like a nightly snapshot to clear (review round 3)."""
+    from adapter.pipeline import PASSED, _built_not_served, _current
     from tb_common.retention import snapshots_to_keep
 
+    snaps = id_rule.snapshot_names(lake)
+    aside = id_rule.snapshot_names(lake / ASIDE)
+    good = {
+        s
+        for s in snaps
+        if (lake / "ndjson" / s / PASSED).exists()
+        or ((lake / "db" / f"{s}.duckdb").exists() and not _built_not_served(lake, s))
+    }
+    if current := _current(lake):
+        good.add(current)
     months = 12 * 100  # every completed month on the box
-    return sorted(
-        snapshots_to_keep(id_rule.snapshot_names(lake) | id_rule.snapshot_names(lake / ASIDE), today, 0, months)
-    )
+    return sorted(snapshots_to_keep(snaps | aside, today, 0, months, good | aside))
 
 
 def _parts(lake: Path, s: str) -> list[tuple[Path, Path]]:
@@ -197,6 +208,19 @@ def newer(lake: Path, url: str | None) -> list[str]:
                 found.append(f"the lake snapshot {folder}/{snap.name} is of id rule {rule}")
             elif rule == 0:
                 found.append(f"the lake snapshot {folder}/{snap.name} has an id-rule record that cannot be read")
+    from lake.store import ID_RULE_SIDECAR
+
+    for root in (lake / "db", lake / ASIDE / "db"):
+        for side in sorted(root.glob(f"*.duckdb{ID_RULE_SIDECAR}")):
+            try:
+                rule = int(side.read_text(encoding="utf-8").strip())
+            except (ValueError, OSError):
+                rule = 0
+            if rule <= 0 or rule > id_rule.RULE:
+                found.append(
+                    f"{side.relative_to(lake)}: unsupported id rule / 不支援的 ID 規則 / "
+                    f"未対応の ID 規則 ({rule or '?'})"
+                )
     if not url:
         return found
     from omop.schema import schema_for
@@ -437,15 +461,15 @@ def _clear_omop(db: Any) -> dict[str, int]:
                 raise Refused(f"the OMOP store holds feed records of table {t}, which this rebuild does not know")
             counts[t] = tx.execute(
                 _q("DELETE FROM {} WHERE {} IN (SELECT record_id FROM tb_record WHERE source_kind = 'feed' AND "
-                   "resource_type <> 'Patient' AND cdm_table = ?)", t, col),
+                   "resource_type NOT IN ('Patient', 'Practitioner') AND cdm_table = ?)", t, col),
                 (t,),
             )  # fmt: skip
         counts["tb_record_event"] = tx.execute(
             "DELETE FROM tb_record_event WHERE record_key IN (SELECT record_key FROM tb_record WHERE "
-            "source_kind = 'feed' AND resource_type <> 'Patient')"
+            "source_kind = 'feed' AND resource_type NOT IN ('Patient', 'Practitioner'))"
         )
         counts["tb_record"] = tx.execute(
-            "DELETE FROM tb_record WHERE source_kind = 'feed' AND resource_type <> 'Patient'"
+            "DELETE FROM tb_record WHERE source_kind = 'feed' AND resource_type NOT IN ('Patient', 'Practitioner')"
         )  # the rows OMOP_FEED names
         _stamp(tx)
     return counts
