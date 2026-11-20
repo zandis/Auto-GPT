@@ -807,11 +807,10 @@ class TermStore:
     def snapshot(self, kinds: Sequence[str]) -> tuple[dict[str, dict[str, dict[str, str]]], str]:
         """The active releases' codes of ``kinds`` and the newest ``loaded_at`` among them, read in ONE statement:
         one view of the store, never one list from before a load and another from after it (deep review, L7)."""
-        marks = ",".join("?" for _ in kinds)
         rows = self._db.fetchdicts(
             "SELECT r.kind, r.loaded_at, c.code, c.display, c.target_system, c.target_code, c.extra FROM release r "
-            f"LEFT JOIN concept c ON c.release_id = r.id WHERE r.active AND r.kind IN ({marks})",
-            tuple(kinds),
+            "LEFT JOIN concept c ON c.release_id = r.id WHERE r.active AND r.kind = ANY(?)",
+            (list(kinds),),
         )
         out: dict[str, dict[str, dict[str, str]]] = {k: {} for k in kinds}
         loaded = ""
