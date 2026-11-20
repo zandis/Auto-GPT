@@ -205,8 +205,8 @@ def test_no_record_and_no_delta_night_is_the_page_without_this_card(box: dict[st
         for lang in LANGS:
             c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"})
             pages[f].append(_sources(c.get("/data-ops").text))
-    assert "data-testid=\"dataops-full-night\"" not in "".join(pages["with"])
-    assert "data-light=\"green\"" in pages["with"][0]  # a section with a source in it, not an empty one
+    assert 'data-testid="dataops-full-night"' not in "".join(pages["with"])
+    assert 'data-light="green"' in pages["with"][0]  # a section with a source in it, not an empty one
     for lang, a, b in zip(LANGS, pages["with"], pages["without"], strict=True):
         assert a == b, lang
 
