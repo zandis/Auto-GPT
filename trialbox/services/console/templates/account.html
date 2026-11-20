@@ -17,6 +17,12 @@
   <dt>{{ t('account.mailbox') }}</dt><dd>{{ me.mailbox or '–' }}</dd>
 </dl>
 </section>
+<section class="card" data-testid="account-roles">
+  <h2>{{ t('team.mine.title') }}</h2>
+  <p class="hint">{{ t('team.mine.help') }}</p>
+  {% if my_roles %}<ul class="plain">{% for r in my_roles %}<li data-testid="role-{{ r.rs }}-{{ r.role }}"><strong class="mono">{{ r.rs }}</strong> · {{ t('team.role.' + r.role) }}{% if r.role == 'sub_pi' %} · {{ t('team.mine.tasks') }}: {% if r.tasks %}{% for k in r.tasks %}{{ t('team.task.' + k) }}{{ ', ' if not loop.last else '' }}{% endfor %}{% else %}{{ t('team.mine.no_tasks') }}{% endif %}{% elif r.role == 'pi' %} · {{ t('team.mine.all_tasks') }}{% endif %} · <span class="nowrap">{{ r.start }} – {{ r.end or '' }}</span>{% if r.left is not none %} <span class="pill warn" data-testid="role-ending-{{ r.rs }}-{{ r.role }}">{{ t('team.ending.today', end=r.end) if r.left == 0 else t('team.ending.days', n=r.left, end=r.end) }}</span>{% endif %}</li>{% endfor %}</ul>
+  {% else %}<p class="empty" data-testid="account-roles-none">{{ t('team.mine.none') }}</p>{% endif %}
+</section>
 <section class="card">
   <h2>{{ t('account.lang') }}</h2>
   <form method="post" action="/lang" class="row">
