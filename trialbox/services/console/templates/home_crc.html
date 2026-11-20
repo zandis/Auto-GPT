@@ -55,7 +55,7 @@
     <dt>{{ t('home.feas') }}</dt>
     <dd>{% if c.feas %}
       {% set s = c.feas %}
-      {% if s.reading %}<span class="pill rd-{{ s.reading }}">{{ t('reading.' + s.reading) }}</span>{% endif %}
+      {% if s.reading %}<span class="pill" data-tone="{{ tone('reading', s.reading) }}">{{ t('reading.' + s.reading) }}</span>{% endif %}
       {{ t('home.feas.line', mid=s.per_month[1], low=s.per_month[0], high=s.per_month[2], pool=s.pool_now, potential=s.potential) }}
       · <a href="/studies/{{ c.id }}/feasibility">{{ tp('home.open_report') }}</a>
       {% else %}{{ t('home.feas.none') }}{% endif %}</dd>

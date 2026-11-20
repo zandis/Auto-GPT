@@ -66,6 +66,7 @@ from console import (
     person_state,
     phone,
     plain_menu,
+    state_tone,  # 9k-4 (D-1380)
 )
 from console import actor as console_actor
 from console import timing as server_time
@@ -568,6 +569,7 @@ def create_app(
     # D-776: the box's own public address for a one-time sign-in link (never the request's Host); "" when not set
     templates.env.globals["public_url"] = (_env_map(env).get("TB_CONSOLE_PUBLIC_URL") or "").strip().rstrip("/")
     templates.env.globals["BEST"] = BEST_STANDING
+    templates.env.globals["tone"] = state_tone.tone  # 9k-4 (D-1380): a badge's tone from one table
     templates.env.globals["theme_color"] = phone.THEME  # 9k-1 (D-1368): no colour in a page
     bk: Backend = backend
     # 9f-3 (D-1383): an event a person writes in a study while covering its PI names both (console.cover_pages)

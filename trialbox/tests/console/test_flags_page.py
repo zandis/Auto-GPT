@@ -8,7 +8,7 @@ import json
 from typing import Any
 
 import pytest
-from console import i18n_flags
+from console import admin_flags, i18n_flags  # noqa: F401 - importing admin_flags merges the flags texts into CATALOGUES
 from console.i18n import CATALOGUES
 from tb_common import flags as fl
 
