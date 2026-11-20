@@ -78,7 +78,9 @@ def test_not_suitable_needs_a_reason_on_the_page_and_the_api_and_undo_restores(b
     for mk, extra in (("need_info", {}), ("not_suitable", {"reason": "unlikely"}), ("undo", {})):
         pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": _csrf(page), "mark": mk, **extra})
     p = pi.get(f"/studies/GZQO/patients/{B}").text
-    assert 'data-tone="warn"' in p.split('data-testid="current-mark"')[1][:200]
+    # the mark's own pill (the element, not a window of text): its words are the need_info words, its tone is warn
+    pill = re.search(r'<span class="pill" data-tone="([a-z]+)">([^<]*)</span>', p.split('data-testid="current-mark"')[1])
+    assert pill and pill.group(1) == "warn" and pill.group(2) == CATALOGUES["en"]["mark.need_info"]
 
 
 def test_contact_outcome_only_after_the_investigators_approach(box: dict[str, Any]) -> None:  # noqa: F811

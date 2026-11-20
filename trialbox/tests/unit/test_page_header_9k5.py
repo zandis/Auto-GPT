@@ -27,11 +27,19 @@ NOT_PRIMARY = {"secondary", "quiet", "danger"}
 
 
 def _source(path: Path) -> str:
-    return re.sub(r"\{#.*?#\}", "", path.read_text(encoding="utf-8"), flags=re.S)
+    return _uncommented(path.read_text(encoding="utf-8"))
+
+
+def _uncommented(text: str) -> str:
+    """The template without its Jinja comments and its HTML comments (markup in a comment is not on the page)."""
+    return re.sub(r"<!--.*?-->", "", re.sub(r"\{#.*?#\}", "", text, flags=re.S), flags=re.S)
+
+
+EXTENDS_BASE = re.compile(r"""\{%-?\s*extends\s+(["'])base\.html\1""")
 
 
 def _pages() -> dict[str, str]:
-    return {p.name: _source(p) for p in sorted(TEMPLATES.glob("*.html")) if 'extends "base.html"' in _source(p)}
+    return {p.name: _source(p) for p in sorted(TEMPLATES.glob("*.html")) if EXTENDS_BASE.search(_source(p))}
 
 
 def headings(text: str) -> int:
@@ -111,6 +119,15 @@ def test_the_header_macro_and_the_title_it_shares_with_the_page() -> None:
     assert env.from_string('{% from "_ds.html" import page_header %}{{ page_header("T") }}').render() == (
         '<header class="ph"><h1>T</h1></header>'
     )
+
+
+def test_the_counter_reads_both_quote_styles_and_skips_comments() -> None:
+    """The ratchet cannot be satisfied by quoting or commenting: single quotes still extend the base, and an h1 or a
+    button inside an HTML or Jinja comment is not counted."""
+    assert EXTENDS_BASE.search("{% extends 'base.html' %}") and EXTENDS_BASE.search('{% extends "base.html" %}')
+    assert not EXTENDS_BASE.search("{% extends 'other.html' %}")
+    text = _uncommented("<!-- <h1>old</h1><button>x</button> -->{# <h1>b</h1> #}<h1>Real</h1>")
+    assert headings(text) == 1 and primaries(text) == 0
 
 
 def test_the_baseline_names_only_real_pages() -> None:

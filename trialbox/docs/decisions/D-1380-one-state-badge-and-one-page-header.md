@@ -19,6 +19,10 @@
   - **Left as they were:** the plain tone classes `pill ok`, `pill warn`, `pill bad` that templates choose by a
     computed level (health, backup, update outcome: the admin pages), which are a tone and not a state; their padding
     differs by 1 px and the admin templates are other pull requests' files. They move to `data-tone` with those pages.
+  - **Also outside 9k-4:** the verdict *icons* `.critl .ic.vd-*` (the tick, cross and question mark beside a
+    criterion) are icons, not pills; they keep their `vd-` classes, and the no-old-class guard looks only for
+    `.pill.vd-`. The unused `.prow` rules of the sheet (no template, module or script names the class) are removed
+    with the card.
 - **Decision, 9k-5:**
   - **The page header** is the macro `page_header(title, ctx)` of `templates/_ds.html`: `<header class="ph">`, an
     optional context line (the study), one `h1`, and the page's one primary act as the body of a call block
@@ -33,11 +37,34 @@
     that keeps the rule must leave the list.
 - **The proof:** `tests/unit/test_state_tone_9k4.py` (every state of the code has a tone, the five tones, the person
   states keep their old colours, no old class in the sheet, a template or a module, the sheet paints the five) and
-  `tests/unit/test_page_header_9k5.py` (the ratchet, the header's markup, the title set once). Four console tests that
-  matched an old class now match the tone (`test_one_person_state`, `test_text_keys_pages`, `test_step4b`,
-  `test_coded_criterion_row`).
+  `tests/unit/test_page_header_9k5.py` (the ratchet, the header's markup, the title set once, and the counter's reading
+  of both quote styles and of commented-out markup).
+- **Six existing tests were changed to the new markup** (the old selector named a class that no longer exists); none
+  is weaker than before, and the two that a first edit had weakened were restored:
+  - `tests/console/test_one_person_state.py` (registry rows listed): `class="pill ps-listed"` →
+    `class="pill" data-tone="neutral" data-state="listed"` (the state and its tone, count still pinned to 5).
+  - `tests/console/test_step4b.py` (the current mark after Undo): `class="pill mk-need_info"` → the mark's own
+    `<span class="pill" data-tone="...">` element is parsed: tone `warn` and the catalogue's "Need info" words.
+  - `tests/console/test_people_lists.py` (`_registry_rows`): `class="pill ps-[a-z_]+" data-state=` →
+    `class="pill" data-tone="[a-z]+" data-state=`.
+  - `tests/console/test_coded_criterion_row.py` (no met / not met row without a value): `class="pill vd-(pass|fail)"`
+    → `class="pill" data-tone="(ok|bad)"`. Like the original loop, it passes if no row matches.
+  - `tests/console/test_text_keys_pages.py` (a visit with no date): `class="pill v-unplanned">words<` →
+    `class="pill" data-tone="neutral">words<`, count still 2.
+  - `tests/console/test_cjk_layout.py` (pills keep CJK words whole): the rule selector `.pill, .state, button, .button`
+    → `.pill, button, .button`.
+  Also changed for the removed `.state`: `tests/console/cjk_layout.js` (no longer matches `.state`) and
+  `tests/unit/test_buttons_9k3.py` (`.state` leaves the "declared once" set).
+- **Not built, open as follow-ups:** (1) 9k-5's third part, the menu label equal to the page's title where the menu has
+  one (it moves with the pages, 9k-15; the sentence above is the rule, nothing enforces it yet); (2) the every-route
+  test that renders each page and counts its `h1` and primary acts.
 - **Not in this card, not verified:** the rule is counted from template text (a button on each branch of an `{% if %}`
-  counts once per branch), not on rendered routes: a rendered count over every route belongs to 9k-15 when the pages
-  have moved. The pixel difference of the 72 first screens (D-1377) is not measured here: the admin and cascade
-  badges lose the 1 px border of the old `state` class on ok, warn and bad.
+  counts once per branch; a button drawn by a macro is not counted at all, so a page can show more primary acts than
+  the count says; the ratchet reads both quote styles of `extends` and ignores Jinja and HTML comments), not on
+  rendered routes: a rendered count over every route belongs to 9k-15 when the pages
+  have moved. The pixel difference of the 72 first screens (D-1377) is not measured here: the job pills (admin, cascade,
+  job pages) lose the 1 px `--line` border of the old `state` class on ok, warn and bad. A visible change the card does
+  not ask for. It is not restored: the person, tier, mark and reading pills never had a border, and one rule on the
+  three tones would add one to all of them; a rule for job pills alone would need a selector the table does not give.
+  info and neutral keep their border as before.
 - **Held by:** `tests/unit/test_state_tone_9k4.py`, `tests/unit/test_page_header_9k5.py`.
