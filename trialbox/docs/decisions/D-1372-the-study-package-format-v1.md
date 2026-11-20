@@ -25,12 +25,16 @@
     status is **3, "shown, not verified"**, so a script that tests for 0 cannot take a shown package for a verified
     one; `show` takes no trust file). Exit status: 0 done, 1 refused (one sentence), 2 usage or an internal error
     (one sentence, "could not be read (internal)", never a traceback; `verify`'s refusal of step `internal` is such
-    an error and exits 2 too), 3 shown, not verified. Every message the command prints passes through `printable` at
+    an error and exits 2 too), 3 shown, not verified, 4 the trust file cannot be used (unreadable, unsafe or not a
+    `tb-study-trust/1` file), for `verify` and `write`, so a script does not take an operator's setup error for a
+    refused package (review 4 of c1a78033, L8). Every message the command prints passes through `printable` at
     its one exit point, whichever subcommand raised it (review of b9937b0d, item 2: a study-folder file named with
     ESC and BEL put them raw on stderr in `write`); the root refusal alone, the command's own sentence in the
     operator's language, is printed as written. `keygen` creates both
     files in the folder's descriptor (`O_CREAT | O_EXCL | O_NOFOLLOW`): an existing name, a link among them, is
-    refused and nothing is written through it (it may run as root). It prints key ids, never key material. No new
+    refused and nothing is written through it (it may run as root); the folder must be the running account's and
+    writable by nobody else, since another account could otherwise replace the public key the sites are given
+    (review 4 of c1a78033, L6). It prints key ids, never key material. No new
     dependency and no new cryptography: Ed25519 through `tb_common.crypto`.
   - **What a package carries:** the protocol part of D-1366 and the protocol's files, nothing else. No site part:
     no `status`, `scopes`, `routing`, serving `models`, `review`, `irb_reference`, `irb_approved_on`, `equivalence`,
@@ -80,8 +84,10 @@
     `files/…json`, which `study_manifest` parses) is refused, before it is parsed, when its arrays and objects nest
     deeper than **200** (`STUDY_PACKAGE_MAX_JSON_DEPTH`; counted on the bytes, brackets inside strings not counted;
     the deepest shipped file, RA-JAK's ELM, nests 87). The writer refuses such a file in the folder the same way.
-  - **Memory:** `verify` holds the package's bytes and a copy of its members, about twice the input, so at most
-    about 400 MB at the caps; the tool reads a file only after its size is checked.
+  - **Memory:** before the signature verifies, `verify` holds the package's bytes once (`read_capped` reads the
+    file in one read of its size; the members are views into those bytes, and only the header, hash list and
+    signature, each capped, are copied); after it, a copy of the members too, about twice the input, so at most about
+    400 MB at the caps (review 4 of c1a78033, L3). The tool reads a file only after its size is checked.
   - **Verify, in this order, one sentence each** (`PackageRefused`, its `step`; nothing is written anywhere, a test
     blocks every file open during it): (1) `tar`, its sub-checks in the order the code makes them: the whole package
     at most 200,000,000 bytes (`read_file`: the file opened once, `O_NOFOLLOW | O_NONBLOCK`, a regular file on that
@@ -192,7 +198,12 @@
     refused (the chance that a real pseudonym equals one of the 22,500 is about 22,500 in 2^128). It does **not**
     prove that the content is synthetic: the key is public, so anyone can compute a synthetic pseudonym and write a
     real person's dates, codes or report under it by hand; and a real hospital that numbered its chart numbers in
-    the same range and ingested them under the public test key would pass. `write` prints this limit to the
+    the same range and ingested them under the public test key would pass. So `write` checks the box's own key
+    where it can (review 4 of c1a78033, L5): when the run can read `site_hmac.key` in `TB_SECRETS_DIR` and its
+    fingerprint is the public test key's, it refuses to pack; the audit event (`site_key`) and the success line say
+    whether the key was compared at all. **In the supported run it is not**: the criteria compiler's container is not
+    given the site key, and giving it (or the lake's fingerprint record) to that run would be a new read of a secret,
+    which is the owner's to decide; there H1 rests on the box not running with the test key. `write` prints this limit to the
     operator at pack time, in one sentence (three languages): the check cannot prove the content is synthetic, and
     the person who packs the study answers for it. The leaves below still travel **as
     typed**, unchecked against any real record (each within the type and the 200-character cap above): the 32 hex digits of each record's `id`
@@ -314,15 +325,18 @@
     and with `--force` one that is not a regular file; reads the folder (`read_folder`); **binds the approval**
     (`approved_files`, below); reads the key (below); builds and self-verifies; opens `--out`'s folder **once,
     `O_DIRECTORY | O_NOFOLLOW`**, and refuses it unless it is owned by the running account with no group or other
-    write bit; writes the package in that descriptor under a hidden name (`.<name>.<pid>.part`, `O_CREAT | O_EXCL |
+    write bit; writes the package in that descriptor under a hidden name (`.<name>.<pid>.<16 random hex>.part`, `O_CREAT | O_EXCL |
     O_NOFOLLOW`, mode 600, fsync); reads it back **from that descriptor** and takes its sha256 there; appends
     **`approve.study_package_exported`** (actor below; `ruleset`, `ruleset_version`, `output_sha` that sha256;
     `detail`: `package_id`, `key_id`, `created`, `protocol_version`, `criteria_sha256`, `approval_tag`,
     `approval_tag_sha` (the tag object), `approval_commit` (the commit it names), `approved_by` (the person its
     message names), `store` (the store's real path: no component of it is a link), `store_dev` and `store_ino` (its
-    `st_dev`, `st_ino`), `store_uid` (its owner), and `sudo_user_claimed` when set; never a byte of the content); only then links the name **from the same
+    `st_dev`, `st_ino`), `store_uid` (its owner), `site_key` (whether the box's site key was compared with the public test key, above), and
+    `sudo_user_claimed` when set; never a byte of the content); only then links the name **from the same
     descriptor** (`linkat` of `/proc/self/fd/<n>`, which never overwrites; with `--force` to a second hidden name
-    renamed over `--out`), fsyncs the folder, and checks that the file now named `--out` is that descriptor's
+    renamed over `--out`), fsyncs the folder (if that fails, the name is taken: the sentence says the package is
+    named and that its entry may not survive a crash, never that no package was left; review 4 of c1a78033, L1),
+    and checks that the file now named `--out` is that descriptor's
     (`st_dev`, `st_ino`) and hashes it again from the descriptor before it says success. An event that cannot be
     written leaves no package (fail closed). **If the event is written and the name cannot be taken** (a file
     appeared at `--out`; the hidden file was replaced, so the written one has no name left to link), or the named
@@ -343,8 +357,11 @@
     one sentence that says so, not followed. Only the tests give the library function `write` (and
     `approved_files`) another store, through its `store` parameter. The store path is reached from `/` one component
     at a time, each opened `O_DIRECTORY | O_NOFOLLOW` from its parent's descriptor, so a store that is or passes
-    through a symbolic link is refused, and its `.git` must be a folder; the study folder's parent must be that
-    folder (the same `st_dev` and `st_ino`). The tag must be **the approval exactly as the criteria compiler writes
+    through a symbolic link is refused; no folder above it may be changed by another account (owned by this account
+    or root, no group or other write bit, but root's sticky folders such as `/tmp`), and the store, its `.git`,
+    `.git/refs` and `.git/objects` must be folders owned by this account or root that nobody else may write; the
+    repository is then read through that descriptor (`/proc/self/fd/<n>`), not by its path again (review 4 of
+    c1a78033, L4); the study folder's parent must be that folder (the same `st_dev` and `st_ino`). The tag must be **the approval exactly as the criteria compiler writes
     it** (`criteria_compiler.service`: `repo.tag(tag, branch, "<ID> v<version> approved by <who>", <who>)`): an
     annotated tag naming a commit, **the tag object's own name equal to its ref's** (`<ID>/v<version>`), its message
     exactly that sentence (one line, printable),
@@ -354,15 +371,21 @@
     object's sha, the commit's sha and that person. **What "approved on this box" rests on, and no more:** that tag
     is in the box's fixed store, `/data/rulesets`, the `rulesets-data` volume, owned by the criteria compiler's
     service account (uid 10001, `tb` in the image; the success line prints the owner uid it found). A tag there can
-    be written by that account (so by any code running as it, the compiler's approval or not), by root, and by any
-    account the store's folders let write; none of them needs the person's act on the console. And whoever holds the
+    be written by that account (so by any code running as it, the compiler's approval or not) and by root (a store
+    another account may write is refused); neither needs the person's act on the console. And whoever holds the
     signing key can call the library's `build` with no store, no tag and no audit. So a package is **as strong as
     those accounts and that key**, no stronger; the success line says so in those words. `approved_files` reads the tag's blobs once and refuses: no store behind the folder (a plain folder
     is not packed at all), a folder not named as its manifest's `id`, a manifest that is not `status: approved`, no
     tag for the manifest's version, a tag that names nobody (`SEEDED_TAG`: a shipped example), an approval that
     arrived in an update (`(offline update`), a tagged manifest that is not that approved version, and a folder whose
     files (the manifest and every carriable file) differ in any byte, or by a file added or removed, from the tag's
-    (a file edited after approval). The package is built from the tag's bytes. The event stays in the `approve.`
+    (a file edited after approval). The package is built from the tag's bytes. **The whole `<ID>/` tree of the tag
+    is checked** (review 4 of c1a78033, M1: the tag's tree was filtered to the carriable files, so a file the
+    criteria hash covers or the engine reads that a package cannot carry, a value set named with a space, an ELM in
+    XML, the template, present in the tag and deleted from the folder, was silently dropped, and the package was
+    signed and audited as the approved version with another criteria hash): such a file in the tag refuses the
+    export, the approval's criteria hash is that of the whole tag, and `write` refuses a package whose header says
+    another, before the event. The event stays in the `approve.`
     family: it now records the approval tag it packed.
   - **Who (item 6).** The actor is `host:<account>` from the account database by the real uid
     (`pwd.getpwuid(os.getuid())`; `host:uid:<n>` when the uid has no name), not `LOGNAME` or `USER`, which the
@@ -377,7 +400,8 @@
     account, when, which study, version and approval tag, which package (by the sha256 of the linked file) and key;
     only a version holding this box's approval tag as the compiler writes it, in the box's fixed store (`/data/rulesets`), as
     approved (as strong as the accounts that can write a tag there and the signing key, above); never as root; the package file is mode 600; a
-    stale hidden part file a SIGKILL left between the event and the link (`.<name>.<pid>.part`, and `.final` with
+    stale hidden part file a SIGKILL left between the event and the link (`.<name>.<pid>.<16 random hex>.part`, and
+    `.final` with
     `--force`) is removed by the next run in that destination, and named on stderr: only names of this pattern, only
     regular files (`lstat`, then opened `O_NOFOLLOW` and checked to be that file) the running account owns, and only
     when that run can take `flock(LOCK_EX | LOCK_NB)` on it. Its mode and whether it is complete are not checked. Each
@@ -385,7 +409,10 @@
     sweeps and creates its part file holding the destination folder's own `flock`, so no sweep falls between another
     writer's create and lock. The pid in the name decides nothing: at b9937b0d the sweep took a writer for gone when
     `kill(pid, 0)` found no such pid in its own PID namespace, so two `docker compose run` writers into one folder
-    could remove each other's live part file and the victim failed after its event (review of b9937b0d, item 3). **The file-mode audit** (`--audit-dir`, a developer shell or the
+    could remove each other's live part file and the victim failed after its event (review of b9937b0d, item 3).
+    The 16 random hex digits keep two runs whose pids are equal (often 1, in two containers) from sharing a name, and
+    a run removes its own part name before it closes its descriptor (so while it holds its lock) and only when the
+    name is still its own file (review 4 of c1a78033, L2). **The file-mode audit** (`--audit-dir`, a developer shell or the
     tests) checks its folder with `lstat` and the writer then opens it by path, its parents unchecked: since every
     write branch refuses euid 0, it works with the running account's own power only. Not enforced,
     because a command run in the container cannot: a console role or a study-access check, and the person: whoever
@@ -421,11 +448,19 @@
     name; the file is not carried), `cohort`, `population`, `nct_id`, `terminology_release`, `prompt_pins`,
     `derived_pins`, `source_last_update`, and `models.judge_prompt` (`PROTOCOL_SUBFIELDS`); the protocol files'
     hashes and the criteria hash;
-  - **each criterion** (`ir/*.json`, without the review record but `{"status": "rejected"}`): `text.source`,
-    `text.lang`, `text.source_ref`, `label`, `logic`, the atoms and macros, `fallback`, `action`,
-    `suggested_order`, `flags` (compiler words only), `note_question` (its key and its texts), `human` (its
-    checklist questions and hints), `lexicon_keys`, `library_ref`, `computability.basis`, `flip_rule.detail`, and
-    `provenance.calls`: **the compiling box's model call ids** (D-989). 10D-28's rule-set export leaves
+  - **each criterion** (`ir/*.json`, without the review record but `{"status": "rejected"}`): every field of the
+    model the writer and the verifier check it against, strictly, `tb_contracts.CriterionIR` (schema 1.3.0; a
+    test holds this list equal to that model's fields and marks each free-text field, review 4 of c1a78033, M2,
+    which found here another schema's fields): `id`, `ruleset` (free text, the study's id as written), `text`
+    (free text: the criterion as the protocol states it), `label` (free text), `source_ref` (free text: section and
+    page of the source document; all 91 shipped criteria hold one), `kind`, `class`, `time_sensitive`, `logic` (the
+    atoms and boolean expressions: domains, value set ids, quantifiers, values, windows, durations, ages, sex,
+    derived measures), `fallback` (free text), `note_question` (free text: the question put to the model),
+    `note_question_source` (free text: the question as the model extracted it, before the compiler rewrote it),
+    `human_question` (free text: the question asked at screening; six shipped criteria hold one), `action` (free
+    text), `suggested_order` (free text), `flags` (compiler words only), `review` (only `{"status": "rejected"}`;
+    the site's record, who and when and the comment, is dropped), and `provenance` (`calls` only): **the compiling
+    box's model call ids** (D-989). 10D-28's rule-set export leaves
     `provenance` out; here the carried form cannot omit it without changing the criteria hash, which D-1366 takes
     over the IR file with its provenance, so it is left in and named for the owner (no shipped study holds one);
   - **each value set**: `id`, `url`, `version`, `name`, `title`, `status`, each include's `system` and each
@@ -454,7 +489,9 @@
   and the media path (10D-4); the header's registry id, previous package, coordinating centre and central approval
   of review 14's M14-2 (an IRB reference is the site's under D-1366; adding header fields is a format v2, or 10D-4's
   decision with 10D-26's pins); the screen-only pins (10D-26); allowed adaptations (10D-5); a draft package at several
-  sites (10D-12, the owner's decision 51: v1 packs whatever protocol the folder holds and says nothing of its status).
+  sites (10D-12, the owner's decision 51: the command packs only an approved version, at its approval tag in the box's
+  store, and the header says nothing of a status; the library's `build` packs whatever it is given, a draft
+  included, with no store, tag or audit).
   10D-28 carries a rule set in a vendor-signed update bundle for the dry run only; it is not this format.
 - **For 10D-4, which v1 does not stop:**
   - the register must give each key its studies and purpose (H5 above); the verifier now runs the writer's guards
@@ -540,7 +577,24 @@
     processes).
   - 4, the trust file read by its own code, an internal error in `verify` exiting 1, member names before the
     signature: **fixed** (`test_s4_…`; the internal error through the real `verify`, not a patched `verify_file`).
+- **Review 4 of c1a78033 (0 High, 2 Medium, 8 Low), item by item** (each a test at the real call, seen failing on
+  the tree before the fix first):
+  - M1, a hashed file of the tag that a package cannot carry was silently dropped: **fixed** (`test_t1_…`).
+  - M2, the criterion list named another schema: **fixed**, held equal to `CriterionIR` (`test_t2_…`). Added to the
+    list: `id`, `ruleset`, `text` (a string), `source_ref` (top level), `kind`, `class`, `time_sensitive`,
+    `note_question_source`, `human_question`, `review` (`status: rejected` only), `provenance`; taken out (not
+    fields of the checked model): `text.source`, `text.lang`, `text.source_ref`, `human`, `lexicon_keys`,
+    `library_ref`, `computability.basis`, `flip_rule.detail`.
+  - L1, a failed folder sync after the link said no package was left: **fixed** (`test_t3_…`).
+  - L2, part names shared across containers: **fixed** (`test_t4_…`).
+  - L3, twice the size before the signature: **fixed**, once (`test_t5_…`).
+  - L4, the store reopened by path, its modes unchecked: **fixed** (`test_t6_…`).
+  - L5, the public test site key: **fixed where the run can read the key**, and stated where it cannot (above;
+    `test_t7_…`); whether the supported run should read it is the owner's.
+  - L6, the key folder's owner and mode: **fixed** (`test_t8_…`).
+  - L7, the sentence on drafts said the command packs any protocol whatever its status: **corrected** (`test_t9_…`).
+  - L8, a bad trust file exited 1: **fixed**, exit 4 (`test_t10_…`).
 - **Held by:** `tests/unit/test_study_package.py` (the review of f1d1fe3c: `test_h1_…` to `test_h5_…`, `test_item6_…`,
   `test_item9_…`, `test_item12_…`, `test_a_…`, `test_b_…`; the review of ec90c1b4: `test_item1_…` to `test_item7_…`;
-  the review of 02b55d8a: `test_r1_…` to `test_r9_…`; the review of b9937b0d: `test_s1_…` to `test_s4_…`;
+  the review of 02b55d8a: `test_r1_…` to `test_r9_…`; the review of b9937b0d: `test_s1_…` to `test_s4_…`; review 4 of c1a78033: `test_t1_…` to `test_t10_…`;
   each the reviewer's probe at the real call, each seen failing first).

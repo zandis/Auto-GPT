@@ -580,11 +580,18 @@ def read_tar(data: bytes) -> dict[str, bytes]:
     """The members of a package archive, checked: whole blocks, intact headers, ustar regular files only, safe and
     unique names, within the caps, two zero blocks at the end and nothing after, and byte for byte the canonical
     archive of its members (so no field, padding or order may vary)."""
+    return {name: bytes(view) for name, view in _tar_views(data).items()}
+
+
+def _tar_views(data: bytes) -> dict[str, memoryview]:
+    """:func:`read_tar`'s members as views into ``data``, no copy (review 4 of c1a78033, L3: before the signature an
+    unsigned package is held once; :func:`_verify` copies the members only after step 2)."""
+    whole = memoryview(data)
     if len(data) > STUDY_PACKAGE_MAX_BYTES:
         raise _refuse(f"is {len(data):,} bytes; a study package may be at most {STUDY_PACKAGE_MAX_BYTES:,} bytes")
     if len(data) % _BLOCK or len(data) < 2 * _BLOCK:
         raise _refuse("is not a tar archive of whole 512-byte blocks")
-    members: dict[str, bytes] = {}
+    members: dict[str, memoryview] = {}
     total = 0
     at = 0
     while True:
@@ -643,7 +650,7 @@ def read_tar(data: bytes) -> dict[str, bytes]:
                 "is not in the canonical form of a v1 package (a tar field, the padding or the order of its members "
                 "differs from the one way v1 writes it)"
             )
-        members[name] = data[start:end]
+        members[name] = whole[start:end]
         at = end + (-size % _BLOCK)
     return members
 
@@ -771,13 +778,16 @@ def _hashes_refusal(hashes: Any) -> str | None:
     return None
 
 
-def _structure(data: bytes) -> tuple[dict[str, bytes], dict[str, Any], dict[str, Any]]:
+def _structure(data: bytes) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Check 1: a well-formed canonical archive within the caps, only the allowed members, a v1 header and a hash
-    list in canonical JSON."""
-    members = read_tar(data)
+    list in canonical JSON. The members are views into ``data`` but the three small signed ones (capped), which are
+    bytes."""
+    members: dict[str, Any] = dict(_tar_views(data))
     for need in (HEADER, HASHES, SIGNATURE, PROTOCOL):
         if need not in members:
             raise _refuse(f"lacks its {need}")
+    for name in _META:
+        members[name] = bytes(members[name])
     for n, name in enumerate(members, 1):
         if not _allowed(name, None):
             raise _refuse(f"holds {_member(n, name)}, which is not a member a v1 package may hold")
@@ -902,7 +912,7 @@ def verify(data: bytes, trusted_keys: Iterable[TrustedKey]) -> Package:
     (and its CQL library's files are carried), and last the writer's guards over the carried files hold
     (:func:`content_refusal`: the models, the test patients, ``tests/expected.json``). Every JSON member is refused
     before it is parsed when it nests deeper than :data:`STUDY_PACKAGE_MAX_JSON_DEPTH`. Writes nothing anywhere; it
-    holds about twice the package's bytes in memory (the input and its members).
+    holds the package's bytes once before the signature (its members are views) and about twice after it.
 
     Every failure is a :class:`PackageRefused` with one sentence (review of 02b55d8a, item 3): a check that fails says
     which; anything else that goes wrong while the package is read (a bug, or input no check foresaw) is refused at
@@ -946,6 +956,7 @@ def _verify(data: bytes, trusted_keys: Iterable[TrustedKey]) -> Package:
             f"this study package is for the study {header['study_id']}, which the key {kid} is not trusted to sign "
             "for (its trust entry names the studies it coordinates)",
         )
+    members = {name: bytes(view) for name, view in members.items()}  # copied only now, after the signature (L3)
     # (3) each member against the hash list
     for name in sorted(hashes):
         if name in members and hashlib.sha256(members[name]).hexdigest() != hashes[name]:
@@ -1076,7 +1087,8 @@ def read_capped(path: Path, cap: int, what: str, check: Callable[[os.stat_result
     """The bytes of the regular file at ``path``, at most ``cap`` (review of 02b55d8a, item 5): opened once without
     following a link and without blocking (``O_NOFOLLOW | O_NONBLOCK``), checked on that descriptor (a regular file,
     not a FIFO, a device or a folder; ``check``, when given, on its ``fstat`` (it raises ``ValueError``); its size),
-    and read from it, at most ``cap + 1`` bytes, so a file that grows is refused too. ``what`` names it in the
+    and read from it in one read of its size (so it is held once), at most ``cap + 1`` bytes, so a file that grows is
+    refused too. ``what`` names it in the
     sentence. The descriptor is closed on every path. Raises ``ValueError`` with one sentence."""
     try:
         fd = os.open(path, _FILE_FLAGS)
@@ -1090,17 +1102,21 @@ def read_capped(path: Path, cap: int, what: str, check: Callable[[os.stat_result
             check(st)
         if st.st_size > cap:
             raise ValueError(f"{what} {path} is {st.st_size:,} bytes; it may be at most {cap:,} bytes")
-        chunks: list[bytes] = []
-        left = cap + 1
-        while left > 0:
-            chunk = os.read(fd, min(left, 1 << 20))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            left -= len(chunk)
+        # one read of the size fstat gave, plus one byte (review 4 of c1a78033, L3: the file is held once, not as
+        # chunks and their join); only a file that grew, or a short read, goes on in chunks up to the cap plus one
+        data = os.read(fd, st.st_size + 1)
+        if len(data) == st.st_size + 1 or len(data) < st.st_size:
+            chunks = [data]
+            left = cap + 1 - len(data)
+            while left > 0:
+                chunk = os.read(fd, min(left, 1 << 20))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                left -= len(chunk)
+            data = b"".join(chunks)
     finally:
         os.close(fd)
-    data = b"".join(chunks)
     if len(data) > cap:
         raise ValueError(f"{what} {path} grew past {cap:,} bytes while it was read")
     return data

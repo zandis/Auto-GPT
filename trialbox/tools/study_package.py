@@ -21,27 +21,30 @@ a store path that is or passes through a link is refused; the study folder's par
 must be exactly as the criteria compiler writes an approval (the tag object named as its ref, message ``<ID>
 v<version> approved by <who>``, tagger and the tagged manifest's ``review.approved_by`` that person): another store,
 a folder whose files differ from that tag, a version with no tag, a tag that names nobody (a shipped example), an
-approval that arrived in an update or any other tag is refused. That proves the box's store holds such a tag, not
-that the person acted: the store's owner (uid 10001), root, and any account its folders let write can write one,
-and whoever holds the signing key can call the library's ``build`` without an audit, so it is as strong as those
-accounts and that key (D-1372). The audit event ``approve.study_package_exported`` (who: ``host:<account>``, the
-sudo user only as a claim; the study, version, approval tag, its tag object and commit sha and the approver its
-message names, the store's path, device, inode and owner uid, package id, the package's sha256 taken from the
-descriptor that is linked, key id, the date; never content) is written BEFORE the package takes its name (part files
-of an interrupted earlier run in the destination that no writer holds locked are removed first, and named); an event
-that cannot be written, and no package is left (D-1372, H4). The package is written in a destination folder opened
-without following a link, owned by the running account and writable by nobody else, and linked from its descriptor.
+approval that arrived in an update, a tag that holds a hashed file a package cannot carry, or any other tag is
+refused, and so is a package whose criteria hash is not the whole tag's. That proves the box's store holds such a
+tag, not that the person acted: the store's owner (uid 10001) and root can write one (a store, or a folder above it,
+that another account may change is refused), and whoever holds the signing key can call the library's ``build``
+without an audit, so it is as strong as those accounts and that key (D-1372). A box whose site key is the public test
+key is refused when the run can read the key. The audit event ``approve.study_package_exported`` (who:
+``host:<account>``, the sudo user only as a claim; the study, version, approval tag, its tag object and commit sha
+and the approver its message names, the store's path, device, inode and owner uid, whether the box's site key was
+compared with the public test key, package id, the package's sha256 taken from the descriptor that is linked, key
+id, the date; never content) is written BEFORE the package takes its name (part files of an interrupted earlier run
+in the destination that no writer holds locked are removed first, and named); an event that cannot be written, and
+no package is left (D-1372, H4). The package is written in a destination folder opened without following a link,
+owned by the running account and writable by nobody else, and linked from its descriptor.
 
 ``verify`` takes a trust file (``read_trust_file``: read as a package file is, no link, nobody else may write it;
-``load_trust``): each key
-with the studies it may sign for and its purpose; a key trusted for updates is refused, and a key signs only the
-studies its entry names (H5).
+``load_trust``): each key with the studies it may sign for and its purpose; a key trusted for updates is refused, and
+a key signs only the studies its entry names (H5).
 ``show`` prints the header with its signature NOT checked: that line first, on stdout and on stderr, then the header
 with every character outside printable ASCII escaped, and exits 3 ("shown, not verified"). No sentence of this command
 echoes text a package's sender chose before its signature is checked; what it prints after is escaped the same way.
 Every message the command prints is escaped to printable ASCII at its one exit point. Exit status: 0 done; 1
 refused (one sentence on stderr); 2 usage, or an internal error (one sentence, no traceback; ``verify``'s refusal of
-step ``internal`` too); 3 shown, not verified (``show``).
+step ``internal`` too); 3 shown, not verified (``show``); 4 the trust file cannot be used (unreadable, unsafe or not a
+``tb-study-trust/1`` file), for ``verify`` and ``write``.
 """
 
 from __future__ import annotations
@@ -54,6 +57,7 @@ import json
 import os
 import pwd
 import re
+import secrets
 import stat
 import sys
 from dataclasses import dataclass
@@ -115,6 +119,15 @@ class RootRefused(ValueError):
     """``write`` run as root (review of ec90c1b4, item 1)."""
 
 
+#: the exit status of a trust file that cannot be used (unreadable, unsafe or malformed), apart from a refused
+#: package (1): a setup error of the operator's, which a script must not take for a refusal (review 4 of c1a78033, L8)
+BAD_TRUST_FILE = 4
+
+
+class TrustFileError(ValueError):
+    """The ``--trust-file`` given cannot be used (:func:`read_trust_file`): exit status :data:`BAD_TRUST_FILE`."""
+
+
 #: a private key file is a few hundred bytes; a larger file is refused before it is read
 KEY_FILE_MAX_BYTES = 1 << 16
 
@@ -166,12 +179,21 @@ def keygen(out: Path) -> tuple[Path, Path, str]:
     """A coordinating-centre key pair: the private key (PEM, PKCS8, mode 600) and its public key (PEM, mode 644),
     and its key id. Both are created in the folder's descriptor (opened without following a link) with ``O_CREAT |
     O_EXCL | O_NOFOLLOW``, so an existing name, a link among them, is refused and nothing is written through it
-    (review of 02b55d8a, item 8: ``keygen`` may run as root). Raises ``ValueError`` with one sentence."""
+    (review of 02b55d8a, item 8: ``keygen`` may run as root); the folder must be the running account's and writable
+    by nobody else (review 4 of c1a78033, L6). Raises ``ValueError`` with one sentence."""
     out.mkdir(parents=True, exist_ok=True)
     try:
         dfd = os.open(out, _DIR_FLAGS)
     except OSError as exc:
         raise ValueError(f"the key folder {out} cannot be opened without following a link ({exc.strerror})") from None
+    st = os.fstat(dfd)
+    if st.st_uid != os.geteuid() or st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):  # review 4 of c1a78033, L6
+        os.close(dfd)
+        raise ValueError(
+            f"the key folder {out} is not this account's alone (owner uid {st.st_uid}, mode "
+            f"{stat.S_IMODE(st.st_mode):o}); another account could replace the public key the sites are given: make "
+            "the keys in a folder only this account may change"
+        )
     made: list[str] = []
     try:
         for name in (PRIVATE, PUBLIC):
@@ -227,16 +249,36 @@ def rulesets_store() -> Path:
     return RULESETS_STORE
 
 
-def _store_identity(store: Path) -> os.stat_result:
-    """The store folder's ``stat``, reached from ``/`` one component at a time, each opened ``O_DIRECTORY |
-    O_NOFOLLOW`` from its parent's descriptor, so a store path that is, or passes through, a symbolic link is refused
-    (its real path is then the path itself); it must be an absolute path and a git repository (``.git`` a folder, not
-    a link). Raises ``ValueError`` with one sentence."""
+def _writable_by_others(st: os.stat_result, *, sticky_ok: bool) -> bool:
+    """Whether an account other than this one and root may change the folder ``st`` describes: owned by another
+    account, or a group or other write bit (on a folder above the store, root's sticky folder such as ``/tmp`` is
+    excepted: there nobody may rename another's entry)."""
+    if st.st_uid not in (0, os.geteuid()):
+        return True
+    if not st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        return False
+    return not (sticky_ok and st.st_uid == 0 and st.st_mode & stat.S_ISVTX)
+
+
+def _open_store(store: Path) -> int:
+    """The store folder as a descriptor (the caller closes it), reached from ``/`` one component at a time, each
+    opened ``O_DIRECTORY | O_NOFOLLOW`` from its parent's descriptor, so a store path that is, or passes through, a
+    symbolic link is refused (its real path is then the path itself). It must be an absolute path; no folder above it
+    may be changed by another account (:func:`_writable_by_others`); the store, its ``.git``, ``.git/refs`` and
+    ``.git/objects`` are folders (not links) owned by this account or root and writable by nobody else (review 4 of
+    c1a78033, L4). Raises ``ValueError`` with one sentence."""
     if not store.is_absolute() or any(part in (".", "..") for part in store.parts):
         raise ValueError(f"the rule-set store {store} is not an absolute path without '.' or '..'")
     fd = os.open("/", _DIR_FLAGS)
     try:
+        where = Path("/")
         for part in store.parts[1:]:
+            above = os.fstat(fd)
+            if _writable_by_others(above, sticky_ok=True):
+                raise ValueError(
+                    f"the rule-set store {store} lies in {where}, which another account may change (owner uid "
+                    f"{above.st_uid}, mode {stat.S_IMODE(above.st_mode):o}); such a store is not used"
+                )
             try:
                 nxt = os.open(part, _DIR_FLAGS, dir_fd=fd)
             except OSError as exc:
@@ -246,23 +288,32 @@ def _store_identity(store: Path) -> os.stat_result:
                 ) from None
             os.close(fd)
             fd = nxt
-        st = os.fstat(fd)
-        try:
-            git = os.stat(".git", dir_fd=fd, follow_symlinks=False)
-        except OSError:
-            git = None
-    finally:
+            where = where / part
+        for rel in ("", ".git", ".git/refs", ".git/objects"):
+            try:
+                st = os.stat(rel, dir_fd=fd, follow_symlinks=False) if rel else os.fstat(fd)
+            except OSError:
+                st = None
+            if st is None or not stat.S_ISDIR(st.st_mode):
+                raise ValueError(f"the rule-set store {store} is not a git repository (its {rel} is not a folder)")
+            if _writable_by_others(st, sticky_ok=False):
+                raise ValueError(
+                    f"the rule-set store {store / rel if rel else store} may be changed by another account (owner uid "
+                    f"{st.st_uid}, mode {stat.S_IMODE(st.st_mode):o}); only a store that its owner and root alone may "
+                    "write is used"
+                )
+    except BaseException:
         os.close(fd)
-    if git is None or not stat.S_ISDIR(git.st_mode):
-        raise ValueError(f"the rule-set store {store} is not a git repository (its .git is not a folder)")
-    return st
+        raise
+    return fd
 
 
 @dataclass(frozen=True)
 class Approval:
     """The approval a package was packed from: the tag's name, the tag object's sha, the commit it names and the
-    approver its message names (what the audit event and the success line record, review of 02b55d8a, item 7), and
-    the store that holds it: its real path, ``(st_dev, st_ino)`` and owner uid (review of b9937b0d, item 1)."""
+    approver its message names (what the audit event and the success line record, review of 02b55d8a, item 7), the
+    store that holds it: its real path, ``(st_dev, st_ino)`` and owner uid (review of b9937b0d, item 1), and the
+    criteria hash of the whole tag tree (review 4 of c1a78033, M1)."""
 
     tag: str
     tag_sha: str
@@ -272,6 +323,7 @@ class Approval:
     store_dev: int
     store_ino: int
     store_uid: int
+    criteria_sha256: str
 
 
 def _approver(message: str, sid: str, version: str) -> str | None:
@@ -291,90 +343,101 @@ def approved_files(
     study: Path, files: dict[str, bytes], store: Path | None = None
 ) -> tuple[dict[str, bytes], Approval]:
     """The files of ``study`` as its approval tag holds them, and that approval (item 4 of the review of ec90c1b4;
-    item 7 of the review of 02b55d8a).
+    item 7 of the review of 02b55d8a; review 4 of c1a78033, M1 and L4).
 
     The folder must be ``<store>/<ID>`` of the box's rule-set store (``store``, which only the tests give; else
     :func:`rulesets_store`, the fixed :data:`RULESETS_STORE`): its parent is that folder (the same device and inode),
-    which is the criteria compiler's git repository, reached without following a link (:func:`_store_identity`); a
-    store found above an arbitrary path is not. The approval must be the one the compiler writes:
-    an annotated tag ``<ID>/v<version>`` naming a commit, the tag object's own name that same ``<ID>/v<version>``,
-    its message exactly ``<ID> v<version> approved by <who>``,
+    which is the criteria compiler's git repository, reached without following a link and writable by nobody but its
+    owner and root (:func:`_open_store`), and read through that descriptor; a store found above an arbitrary path is
+    not. The approval must be the one the compiler writes: an annotated tag ``<ID>/v<version>`` naming a commit, the
+    tag object's own name that same ``<ID>/v<version>``, its message exactly ``<ID> v<version> approved by <who>``,
     its tagger ``<who> <<who>>``, and the manifest at the tag ``status: approved``, that version, and
     ``review.approved_by`` that same person. The tag's blobs are read once. Refused (``ValueError``, one sentence):
     another store, a folder named otherwise than its manifest's id, no tag for the manifest's version, a bare tag or
     one that names nobody (a shipped example), an approval that arrived in an update, a message, tagger or tagged
-    manifest that is not the compiler's approval, or a folder whose files differ from the tag's (a file edited after
-    approval).
+    manifest that is not the compiler's approval, a tag that holds a file the criteria hash covers or the engine reads
+    that a package cannot carry (the whole ``<ID>/`` tree of the tag is checked, so such a file deleted from the
+    folder is not silently dropped), or a folder whose files differ from the tag's (a file edited after approval). The
+    approval's criteria hash is that of the whole tag tree, and :func:`write` refuses a package whose header says
+    another.
 
-    What it cannot prove: the store's owner (the service account, uid 10001), root, and any account the store's
-    folders let write can write such a tag without the approver's act on the console; so "approved on this box" is
-    as strong as those accounts (D-1372)."""
+    What it cannot prove: the store's owner (the service account, uid 10001) and root can write such a tag without
+    the approver's act on the console; so "approved on this box" is as strong as those accounts (D-1372)."""
     from dulwich.object_store import iter_tree_contents
     from dulwich.objects import Commit, Tag
     from dulwich.repo import Repo
 
     store = rulesets_store() if store is None else store
-    here = _store_identity(store)
+    sfd = _open_store(store)
     try:
-        there = os.stat(study.absolute().parent)
-        same = (here.st_dev, here.st_ino) == (there.st_dev, there.st_ino)
-    except OSError:
-        same = False
-    if not same:
-        raise ValueError(
-            f"the study folder is not in the box's rule-set store {store}: only a study approved on this box is packed"
-        )
-    try:
-        manifest = yaml.safe_load(files.get(sm.MANIFEST, b"").decode("utf-8")) or {}
-    except (ValueError, yaml.YAMLError):
-        manifest = {}
-    if not isinstance(manifest, dict):
-        manifest = {}
-    sid, version = manifest.get("id"), manifest.get("version")
-    if manifest.get("status") != "approved":
-        raise ValueError(
-            "the study's manifest does not say status: approved; only an approved protocol is packed (a draft is "
-            "not: decision 51 is open)"
-        )
-    if not isinstance(sid, str) or study.absolute().name != sid or not isinstance(version, str):
-        raise ValueError("the study folder is not named as its manifest's id, with a version, in the rule-set store")
-    tag = f"{sid}/v{version}"
-    repo = Repo(str(store))
-    try:
-        refs: Any = repo.refs
-        ref = f"refs/tags/{tag}".encode()
-        if ref not in refs:
-            raise ValueError(f"{tag}: no approval tag in the rule-set store; only an approved version is packed")
-        obj: Any = repo[refs[ref]]
-        message = obj.message.decode("utf-8", "replace") if isinstance(obj, Tag) else ""
-        if not message or SEEDED_TAG in message:
-            raise ValueError(f"{tag}: its approval names nobody at this box (a shipped example); not packed")
-        if "(offline update" in message:
-            raise ValueError(f"{tag} arrived in an update (approved elsewhere); only this box's own approval is packed")
-        by = _approver(message, sid, version)
-        if by is None:
+        here = os.fstat(sfd)
+        try:
+            there = os.stat(study.absolute().parent)
+            same = (here.st_dev, here.st_ino) == (there.st_dev, there.st_ino)
+        except OSError:
+            same = False
+        if not same:
             raise ValueError(
-                f"{tag}: its message is not the criteria compiler's approval (exactly \"{sid} v{version} approved by "
-                '<who>"); not packed'
+                f"the study folder is not in the box's rule-set store {store}: only a study approved on this box is "
+                "packed"
             )
-        if obj.tagger != f"{by} <{by}>".encode():
-            raise ValueError(f"{tag}: its tagger is not the approver its message names; not packed")
-        if obj.name != tag.encode():
-            raise ValueError(f"{tag}: its tag object is named otherwise than its ref; not packed")
-        tag_sha = obj.id.decode("ascii")
-        commit: Any = repo[obj.object[1]] if obj.object[0] is Commit and obj.object[1] in repo else None
-        if not isinstance(commit, Commit):
-            raise ValueError(f"{tag}: the approval tag does not name a commit")
-        tagged: dict[str, bytes] = {}
-        for entry in iter_tree_contents(repo.object_store, commit.tree):
-            path = entry.path.decode("utf-8", "replace") if entry.path else ""
-            if path.startswith(f"{sid}/") and entry.sha is not None:
-                rel = path[len(sid) + 1 :]
-                if rel == sm.MANIFEST or sp.carriable(rel):
-                    tagged[rel] = repo[entry.sha].as_raw_string()
-        commit_sha = commit.id.decode("ascii")
+        try:
+            manifest = yaml.safe_load(files.get(sm.MANIFEST, b"").decode("utf-8")) or {}
+        except (ValueError, yaml.YAMLError):
+            manifest = {}
+        if not isinstance(manifest, dict):
+            manifest = {}
+        sid, version = manifest.get("id"), manifest.get("version")
+        if manifest.get("status") != "approved":
+            raise ValueError(
+                "the study's manifest does not say status: approved; only an approved protocol is packed (a draft is "
+                "not: decision 51 is open)"
+            )
+        if not isinstance(sid, str) or study.absolute().name != sid or not isinstance(version, str):
+            raise ValueError(
+                "the study folder is not named as its manifest's id, with a version, in the rule-set store"
+            )
+        tag = f"{sid}/v{version}"
+        proc = f"/proc/self/fd/{sfd}"
+        repo = Repo(proc if os.path.isdir(proc) else str(store))  # the checked folder, not its path again
+        try:
+            refs: Any = repo.refs
+            ref = f"refs/tags/{tag}".encode()
+            if ref not in refs:
+                raise ValueError(f"{tag}: no approval tag in the rule-set store; only an approved version is packed")
+            obj: Any = repo[refs[ref]]
+            message = obj.message.decode("utf-8", "replace") if isinstance(obj, Tag) else ""
+            if not message or SEEDED_TAG in message:
+                raise ValueError(f"{tag}: its approval names nobody at this box (a shipped example); not packed")
+            if "(offline update" in message:
+                raise ValueError(
+                    f"{tag} arrived in an update (approved elsewhere); only this box's own approval is packed"
+                )
+            by = _approver(message, sid, version)
+            if by is None:
+                raise ValueError(
+                    f"{tag}: its message is not the criteria compiler's approval (exactly \"{sid} v{version} approved "
+                    'by <who>"); not packed'
+                )
+            if obj.tagger != f"{by} <{by}>".encode():
+                raise ValueError(f"{tag}: its tagger is not the approver its message names; not packed")
+            if obj.name != tag.encode():
+                raise ValueError(f"{tag}: its tag object is named otherwise than its ref; not packed")
+            tag_sha = obj.id.decode("ascii")
+            commit: Any = repo[obj.object[1]] if obj.object[0] is Commit and obj.object[1] in repo else None
+            if not isinstance(commit, Commit):
+                raise ValueError(f"{tag}: the approval tag does not name a commit")
+            whole: dict[str, bytes] = {}
+            for entry in iter_tree_contents(repo.object_store, commit.tree):
+                path = entry.path.decode("utf-8", "replace") if entry.path else ""
+                if path.startswith(f"{sid}/") and entry.sha is not None:
+                    whole[path[len(sid) + 1 :]] = repo[entry.sha].as_raw_string()
+            commit_sha = commit.id.decode("ascii")
+        finally:
+            repo.close()
     finally:
-        repo.close()
+        os.close(sfd)
+    tagged = {rel: data for rel, data in whole.items() if rel == sm.MANIFEST or sp.carriable(rel)}
     try:
         at_tag = yaml.safe_load(tagged.get(sm.MANIFEST, b"").decode("utf-8")) or {}
     except (ValueError, yaml.YAMLError):
@@ -384,12 +447,29 @@ def approved_files(
     review = at_tag.get("review")
     if not isinstance(review, dict) or review.get("approved_by") != by:
         raise ValueError(f"{tag}: the tagged manifest's review.approved_by is not the approver the tag names")
+    why = sp._folder_refusal(whole)  # the whole tag tree: a hashed file a package cannot carry is not dropped
+    if why:
+        why = why.removesuffix("; remove it from the folder")
+        raise ValueError(
+            f"{tag} cannot be packed as approved: {why} (it is in the approval tag, so a package without it would not "
+            "be the approved rule set)"
+        )
+    try:
+        approved, carried = sm.split(whole).criteria_sha256, sm.split(tagged).criteria_sha256
+    except Exception:  # the tagged manifest was read above; any other failure is a refusal
+        approved, carried = "", "-"
+    if approved != carried:
+        raise ValueError(
+            f"{tag} cannot be packed as approved: the approval tag holds a file the criteria hash covers that a "
+            "package does not carry (its template, or a file outside the package's names), so the package's criteria "
+            "hash would not be the approved one"
+        )
     if tagged != files:
         raise ValueError(
             f"the study folder differs from its approval tag {tag} (a file edited, added or removed after approval); "
             "only the approved files are packed: approve the change first"
         )
-    return tagged, Approval(tag, tag_sha, commit_sha, by, str(store), here.st_dev, here.st_ino, here.st_uid)
+    return tagged, Approval(tag, tag_sha, commit_sha, by, str(store), here.st_dev, here.st_ino, here.st_uid, approved)
 
 
 def _destination(folder: Path) -> int:
@@ -411,8 +491,9 @@ def _destination(folder: Path) -> int:
     return dfd
 
 
-#: the hidden name ``write`` gives a package before its name (``.<name>.<pid>.part``, and ``.final`` with ``--force``)
-_PART_NAME = re.compile(r"\.[A-Za-z0-9._-]{1,200}\.(?P<pid>[0-9]{1,10})\.part(?:\.final)?")
+#: the hidden name ``write`` gives a package before its name (``.<name>.<pid>.<16 random hex>.part``, and ``.final``
+#: with ``--force``): two runs in containers whose pids are equal (often 1) never share one (review 4 of c1a78033, L2)
+_PART_NAME = re.compile(r"\.[A-Za-z0-9._-]{1,200}\.(?P<pid>[0-9]{1,10})\.[0-9a-f]{16}\.part(?:\.final)?")
 
 
 def remove_stale_parts(dfd: int) -> list[str]:
@@ -503,6 +584,34 @@ def read_trust_file(path: Path) -> list[sp.TrustedKey]:
     return sp.load_trust(sp.read_capped(path, TRUST_FILE_MAX_BYTES, "the trust file", check=owned))
 
 
+#: what the audit event and the success line say of the box's site key (review 4 of c1a78033, L5)
+SITE_KEY_CHECKED = "not the public test key"
+SITE_KEY_UNREAD = "not readable by this run, so not compared with the public test key"
+
+
+def site_key_state() -> str:
+    """Whether the box's pseudonym key (``site_hmac.key`` in ``TB_SECRETS_DIR``) is the synthetic site's public test
+    key (``study_package.SYNTHETIC_SITE_KEY``), compared by fingerprint and never printed. H1 (the test patients are
+    pseudonymised as the synthetic site's) holds only when it is not: on a box that runs with the test key, its own
+    patients get the synthetic pseudonyms. Refused (``ValueError``, one sentence) when it is the test key; otherwise
+    :data:`SITE_KEY_CHECKED`, or :data:`SITE_KEY_UNREAD` when this run cannot read the key (the criteria compiler's
+    container is not given it: reading it there would be a new read of a secret, left to the owner, D-1372)."""
+    from tb_common.crypto import SITE_KEY_FILE, key_fingerprint, load_key
+
+    folder = Path(os.environ.get("TB_SECRETS_DIR") or DECLARED["TB_SECRETS_DIR"].default)
+    try:
+        key = load_key(folder / SITE_KEY_FILE)
+    except Exception:  # absent, unreadable, or wrapped without its KEK here: not compared
+        return SITE_KEY_UNREAD
+    if key_fingerprint(key) == key_fingerprint(sp.SYNTHETIC_SITE_KEY):
+        raise ValueError(
+            f"this box's site key ({folder / SITE_KEY_FILE}) is the synthetic site's public test key: its own "
+            "patients' pseudonyms are then the synthetic site's, so the check of the test patients cannot tell them "
+            "apart; no package is written from a box that runs with the test key"
+        )
+    return SITE_KEY_CHECKED
+
+
 def write(
     study: Path,
     key: Path,
@@ -523,12 +632,15 @@ def write(
     ``audit`` is the product's writer (``open_audit``). Refused (``ValueError``, one sentence, nothing left at
     ``out`` or beside it): run as root (:class:`RootRefused`; ``euid`` is ``os.geteuid`` unless a test gives one), no
     writer, an ``out`` that exists without ``force``, a destination folder not this account's alone, a study not at
-    its approval tag (:func:`approved_files`), a study the writer refuses, or an event that cannot be written. The
-    package is written under a hidden name (``O_EXCL | O_NOFOLLOW``, mode 600) in the destination's descriptor; its
-    sha256 is read back from that descriptor for the event; the name is linked from the same descriptor (never over a
-    file without ``force``), and the named file is checked to be that descriptor's and hashed again from it before
-    success is said. When the event is written and the name cannot be taken, or the name holds another file, the
-    sentence says so and the name is removed: that event then names a package that does not exist."""
+    its approval tag (:func:`approved_files`), a box that runs with the public test site key
+    (:func:`site_key_state`), a study the writer refuses, a package whose criteria hash is not the approval's, or an
+    event that cannot be written. The package is written under a hidden name (``O_EXCL | O_NOFOLLOW``, mode 600) in
+    the destination's descriptor; its sha256 is read back from that descriptor for the event; the name is linked from
+    the same descriptor (never over a file without ``force``), and the named file is checked to be that descriptor's
+    and hashed again from it before success is said. When the event is written and the name cannot be taken, or the
+    name holds another file, the sentence says so and the name is removed: that event then names a package that does
+    not exist. When the name is taken and the folder cannot be synced, the sentence says that the package is named and
+    its entry may not survive a crash."""
     if (euid or os.geteuid)() == 0:
         raise RootRefused(text("root", run=SUPPORTED_RUN))
     if audit is None:
@@ -542,10 +654,16 @@ def write(
     if there is not None and not stat.S_ISREG(there.st_mode):
         raise ValueError(f"{out} is not a regular file (a link, a folder or a device); --force replaces only a package")
     files, approval = approved_files(study, sp.read_folder(study), store)
+    site_key = site_key_state()
     data = sp.build(files, _private_key(key, trusted), created)
     header = sp.header_of(data)
+    if header["criteria_sha256"] != approval.criteria_sha256:  # review 4 of c1a78033, M1
+        raise ValueError(
+            f"the package's criteria hash {header['criteria_sha256']} is not the approved one of {approval.tag} "
+            f"({approval.criteria_sha256}); no package was written"
+        )
     who, sudo_claim = actor()
-    part = f".{out.name}.{os.getpid()}.part"
+    part = f".{out.name}.{os.getpid()}.{secrets.token_hex(8)}.part"
     dfd = _destination(out.parent)
     fd = -1
     try:
@@ -580,6 +698,7 @@ def write(
             "store_dev": approval.store_dev,
             "store_ino": approval.store_ino,
             "store_uid": approval.store_uid,
+            "site_key": site_key,
         }
         if sudo_claim:
             detail["sudo_user_claimed"] = sudo_claim
@@ -593,7 +712,6 @@ def write(
         written = f"the audit event {EVENT} was written for package {header['package_id']} (sha256 {sha}), but"
         try:
             _link_from_fd(fd, part, out.name, dfd, force=force)
-            os.fsync(dfd)
         except OSError as exc:
             why = "it exists now; give --force to replace it" if isinstance(exc, FileExistsError) else exc.strerror
             raise ValueError(
@@ -601,6 +719,14 @@ def write(
                 "names a package that does not exist; run the command again (it writes a new event)"
             ) from None
         mine = os.fstat(fd)
+        try:  # the name is taken: a failure now is said as what it is (review 4 of c1a78033, L1)
+            os.fsync(dfd)
+        except OSError as exc:
+            raise ValueError(
+                f"the audit event {EVENT} was written for package {header['package_id']} (sha256 {sha}) and the "
+                f"package is named {out}, but its folder could not be synced to disk ({exc.strerror}): after a crash "
+                "that name may be lost; check it with verify before it is sent"
+            ) from None
         try:
             named = os.stat(out.name, dir_fd=dfd, follow_symlinks=False)
         except FileNotFoundError:
@@ -614,12 +740,15 @@ def write(
                 "was removed, so that event names a package that does not exist; run the command again"
             )
     finally:
-        if fd >= 0:
+        if fd >= 0:  # the part name goes while this run still holds its lock, and only when it is still this file's
+            with contextlib.suppress(OSError):
+                held = os.stat(part, dir_fd=dfd, follow_symlinks=False)
+                own = os.fstat(fd)
+                if (held.st_dev, held.st_ino) == (own.st_dev, own.st_ino):
+                    os.unlink(part, dir_fd=dfd)
             os.close(fd)
-        with contextlib.suppress(FileNotFoundError):
-            os.unlink(part, dir_fd=dfd)
         os.close(dfd)
-    return {**header, "sha256": sha, "approval": approval, "removed_parts": removed}
+    return {**header, "sha256": sha, "approval": approval, "removed_parts": removed, "site_key": site_key}
 
 
 def _file_audit_dir(directory: Path) -> None:
@@ -688,7 +817,10 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "write":
             if os.geteuid() == 0:  # before any file or the journal is touched
                 raise RootRefused(text("root", args.lang, run=SUPPORTED_RUN))
-            trusted = read_trust_file(args.trust_file) if args.trust_file else None
+            try:
+                trusted = read_trust_file(args.trust_file) if args.trust_file else None
+            except ValueError as exc:
+                raise TrustFileError(str(exc)) from None
             h = write(
                 args.study,
                 args.key,
@@ -709,14 +841,19 @@ def main(argv: list[str] | None = None) -> int:
                     f"signed by key {h['key_id']}, audited as {EVENT}; packed from the approval tag {a.tag} (tag "
                     f"object {a.tag_sha}, commit {a.commit}) in the rule-set store {a.store} (device {a.store_dev}, "
                     f"inode {a.store_ino}, owner uid {a.store_uid}), whose message says approved by {a.by}: that "
-                    "proves such a tag is in the box's store, which its owner, root, or any account its folders "
-                    "let write can write without the person's act, and whoever holds the signing key can build a "
-                    "package with the library without an audit; so this is as strong as those accounts and that key"
+                    "proves such a tag is in the box's store, which its owner and root (no other account may write "
+                    "it) can write without the person's act, and whoever holds the signing key can build a package "
+                    "with the library without an audit; so this is as strong as those accounts and that key; the "
+                    f"box's site key: {h['site_key']}"
                 )
             )
             print(text("h1_limit", args.lang))
         elif args.cmd == "verify":
-            got = sp.verify_file(args.package, read_trust_file(args.trust_file))
+            try:
+                trusted_keys = read_trust_file(args.trust_file)
+            except ValueError as exc:
+                raise TrustFileError(str(exc)) from None
+            got = sp.verify_file(args.package, trusted_keys)
             h = got.header
             print(
                 sp.printable(
@@ -737,6 +874,8 @@ def main(argv: list[str] | None = None) -> int:
         said = str(exc) if type(exc) is RootRefused else sp.printable(str(exc))
         print(f"study package: {said}", file=sys.stderr)
         # verify's boundary refuses the unforeseen as step "internal": an internal error, exit 2 (D-1372)
+        if isinstance(exc, TrustFileError):
+            return BAD_TRUST_FILE
         return 2 if isinstance(exc, sp.PackageRefused) and exc.step == "internal" else 1
     except Exception:  # the last resort: one sentence, no traceback (review of 02b55d8a, item 3)
         what = "the package could not be read" if args.cmd in ("verify", "show") else "the command stopped"

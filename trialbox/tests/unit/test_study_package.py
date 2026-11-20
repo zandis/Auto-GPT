@@ -1327,7 +1327,8 @@ def test_h4_a_package_is_released_only_after_its_audit_event(tmp_path: Path, mon
                             "protocol_version": h["protocol_version"], "criteria_sha256": h["criteria_sha256"],
                             "approval_tag": "RA-JAK/v1.0.0", "approval_tag_sha": a.tag_sha,
                             "approval_commit": a.commit, "approved_by": a.by, "store": a.store,
-                            "store_dev": a.store_dev, "store_ino": a.store_ino, "store_uid": a.store_uid}  # fmt: skip
+                            "store_dev": a.store_dev, "store_ino": a.store_ino, "store_uid": a.store_uid,
+                            "site_key": h["site_key"]}  # fmt: skip
     assert re.fullmatch("[0-9a-f]{40}", a.tag_sha) and re.fullmatch("[0-9a-f]{40}", a.commit) and a.by
     assert PID1 not in json.dumps(_events(audit))  # no content of the package in the audit
 
@@ -1865,10 +1866,14 @@ def test_item3_the_destination_is_checked_and_the_name_is_the_audited_file(
     with pytest.raises(ValueError, match="could not take the name") as e:
         tool.write(study, key, out, DAY, audit=Swap(audit), store=study.parent, euid=_not_root)
     assert "names a package that does not exist" in str(e.value)
-    assert not out.exists() and not [p for p in outdir.iterdir() if p.name.startswith(".")]
+    # the swapped-in file under the hidden name is not this run's, so this run leaves it (review 4 of c1a78033, L2);
+    # nobody holds it, so the next run sweeps it and names it
+    (swapped,) = [p for p in outdir.iterdir() if p.name.startswith(".")]
+    assert not out.exists() and swapped.read_bytes() == b"NOT-THE-PACKAGE"
     h = tool.write(
         study, key, out, DAY, audit=log, store=study.parent, euid=_not_root
     )  # untouched: the audited bytes are the file's
+    assert h["removed_parts"] == [swapped.name]
     ev = [e for e in _events(audit) if e["event"] == tool.EVENT][-1]
     assert ev["output_sha"] == h["sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
     assert sp.verify_file(out, [TRUST])
@@ -1880,7 +1885,8 @@ def test_item3_the_destination_is_checked_and_the_name_is_the_audited_file(
         tool.write(study, key, second, DAY, audit=Swap(audit), store=study.parent, euid=_not_root)
     monkeypatch.undo()
     assert "names a package that does not exist" in str(e.value)
-    assert not second.exists() and not [p for p in outdir.iterdir() if p.name.startswith(".")]
+    left = [p for p in outdir.iterdir() if p.name.startswith(".")]
+    assert not second.exists() and [p.read_bytes() for p in left] == [b"NOT-THE-PACKAGE"]
 
 
 def test_item4_only_the_bytes_of_the_approval_tag_are_packed(tmp_path: Path) -> None:
@@ -2465,12 +2471,14 @@ def test_r9_stale_part_files_of_this_command_are_removed_and_named(tmp_path: Pat
 
     study, key, audit, outdir = _written(tmp_path)
     gone_pid = 4_194_305  # above the kernel's largest pid: no such process
-    stale = outdir / f".RA-JAK.tbstudy.{gone_pid}.part"
+    stale = outdir / f".RA-JAK.tbstudy.{gone_pid}.0123456789abcdef.part"
     stale.write_bytes(b"x")
     stale.chmod(0o600)
-    final = outdir / f".old.tbstudy.{gone_pid}.part.final"
+    final = outdir / f".old.tbstudy.{gone_pid}.0123456789abcdef.part.final"
     final.write_bytes(b"x")
-    live = outdir / f".RA-JAK.tbstudy.{os.getppid()}.part"  # a run that is still going (it holds its lock) keeps it
+    live = (
+        outdir / f".RA-JAK.tbstudy.{os.getppid()}.0123456789abcdef.part"
+    )  # a run that is still going (it holds its lock) keeps it
     live.write_bytes(b"x")
     import fcntl
 
@@ -2478,7 +2486,7 @@ def test_r9_stale_part_files_of_this_command_are_removed_and_named(tmp_path: Pat
     fcntl.flock(holding.fileno(), fcntl.LOCK_EX)
     other = outdir / ".notes.part"
     other.write_bytes(b"x")
-    linked = outdir / f".link.tbstudy.{gone_pid}.part"
+    linked = outdir / f".link.tbstudy.{gone_pid}.0123456789abcdef.part"
     linked.symlink_to(other)
     h = tool.write(
         study, key, outdir / "RA-JAK.tbstudy", DAY, audit=AuditLog(audit), store=study.parent, euid=_not_root
@@ -2634,12 +2642,14 @@ def test_s3_a_part_file_another_writer_holds_is_never_swept(tmp_path: Path) -> N
     from tools import study_package as tool
 
     study, key, audit, outdir = _written(tmp_path)
-    held = outdir / ".RA-JAK.tbstudy.4194305.part"  # its pid is no process in this namespace
+    held = outdir / ".RA-JAK.tbstudy.4194305.0123456789abcdef.part"  # its pid is no process in this namespace
     holder = subprocess.Popen([sys.executable, "-c", _HOLDER, str(held)], stdin=subprocess.PIPE,
                               stdout=subprocess.PIPE, text=True)  # fmt: skip
     try:
         assert holder.stdout is not None and holder.stdout.readline().strip() == "held"
-        unheld = outdir / f".old.tbstudy.{os.getppid()}.part"  # a live pid, but nobody holds the file: stale
+        unheld = (
+            outdir / f".old.tbstudy.{os.getppid()}.0123456789abcdef.part"
+        )  # a live pid, but nobody holds the file: stale
         unheld.write_bytes(b"x")
         unheld.chmod(0o600)
         seen: list[Any] = []
@@ -2722,3 +2732,312 @@ def test_s4_the_trust_file_internal_errors_and_member_names(
         assert f"a name of {len(planted)} bytes" in str(got) and "member " in str(got), (what, str(got))
     over = _refused(sp.tar_bytes({**members, sp.HEADER: b"{" + b" " * sp.STUDY_PACKAGE_MAX_HEADER_BYTES + b"}"}))
     assert "header.json of" in str(over)  # the format's own names are not the sender's text
+
+
+# --------------------------------------------------------------------------- review 4 of c1a78033 (M1, M2, L1 to L8)
+def _plain_store(tmp_path: Path, extra: dict[str, bytes], manifest: dict[str, Any] | None = None) -> Path:
+    """A store tagged as the compiler tags an approval whose tree also holds ``extra``; the folder then loses them
+    (deleted after approval), so the folder equals the tag's carriable files."""
+    files = _small()
+    if manifest:
+        m = yaml.safe_load(files["manifest.yaml"])
+        m.update(manifest)
+        files["manifest.yaml"] = yaml.safe_dump(m, allow_unicode=True).encode()
+    study = _store(tmp_path, {**files, **extra})
+    for rel in extra:
+        (study / rel).unlink()
+    return study
+
+
+def test_t1_m1_a_hashed_file_of_the_tag_a_package_cannot_carry_is_never_dropped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M1: ``approved_files`` kept only the tag's carriable files, so a file the criteria hash covers or the engine
+    reads (a value set named with a space, an ELM in XML, the template) that the tag holds and the folder lost was
+    dropped, and the package was signed and audited as the approved version with another criteria hash. Now the whole
+    ``<ID>/`` tree of the tag is checked, and a header whose criteria hash is not the tag's is refused."""
+    import dataclasses
+
+    from tb_common.audit import AuditLog
+
+    from tools import study_package as tool
+
+    key = _key_file(tmp_path / "cc.key")
+    audit = tmp_path / "audit"
+    audit.mkdir()
+    (tmp_path / "out").mkdir()
+    log = AuditLog(audit)
+    vs = b'{"resourceType":"ValueSet","id":"X"}'
+    for n, (extra, manifest, says) in enumerate(
+        [
+            ({"valuesets/VS EXTRA.json": vs}, None, "does not carry"),
+            ({"cql/elm/RAJAK.xml": b"<library/>\n"}, None, "does not carry"),
+            ({"protocol.docx": b"PK\x03\x04 synthetic"}, {"docx_template": "protocol.docx"}, "criteria hash"),
+        ]
+    ):
+        study = _plain_store(tmp_path / f"s{n}", extra, manifest)
+        out = tmp_path / "out" / f"{n}.tbstudy"
+        with pytest.raises(ValueError, match=says):
+            tool.write(study, key, out, DAY, audit=log, store=study.parent, euid=_not_root)
+        assert not out.exists()
+    assert not [e for e in _events(audit) if e["event"] == tool.EVENT]
+    # the approval carries the whole tag's criteria hash, and a header that is not it is refused before the event
+    study = _store(tmp_path / "ok", _small())
+    h = tool.write(study, key, tmp_path / "out" / "ok.tbstudy", DAY, audit=log, store=study.parent, euid=_not_root)
+    assert h["approval"].criteria_sha256 == h["criteria_sha256"] == sm.split(_small()).criteria_sha256
+    real = tool.approved_files
+
+    def other(*a: Any, **k: Any) -> Any:
+        files, approval = real(*a, **k)
+        return files, dataclasses.replace(approval, criteria_sha256="0" * 64)
+
+    monkeypatch.setattr(tool, "approved_files", other)
+    with pytest.raises(ValueError, match="not the approved one"):
+        tool.write(study, key, tmp_path / "out" / "x.tbstudy", DAY, audit=log, store=study.parent, euid=_not_root)
+    assert len([e for e in _events(audit) if e["event"] == tool.EVENT]) == 1
+
+
+def _criterion_bullet() -> str:
+    text = (ROOT / "docs" / "decisions" / "D-1372-the-study-package-format-v1.md").read_text(encoding="utf-8")
+    start = text.index("  - **each criterion**")
+    end = text.index("\n  - **", start + 1)
+    return text[start:end]
+
+
+def test_t2_m2_the_criterion_fields_that_travel_are_the_checked_models_every_one(small: bytes) -> None:
+    """M2: D-1372's list of what travels in ``ir/*.json`` named another schema's fields (v3) and left out free text
+    that travels (``human_question``, ``note_question_source``, ``source_ref``, ``text``). The list is now held equal
+    to the model the writer and the verifier check (``tb_contracts.CriterionIR``), each free-text field said so."""
+    from tb_contracts import CriterionIR
+
+    assert "CriterionIR" in inspect.getsource(sp._protocol_json_refusal)
+    fields = {f.alias or name: f for name, f in CriterionIR.model_fields.items()}
+    bullet = " ".join(_criterion_bullet().split())
+    named = set(re.findall(r"`([a-z_]+)`", bullet))
+    assert named - {"calls"} == set(fields), sorted(named ^ set(fields))
+    for name, f in fields.items():
+        free = f.annotation in (str, str | None) and not any(getattr(m, "pattern", None) for m in f.metadata)
+        assert (f"`{name}` (free text" in bullet) == free, name
+    # and what travels is what the model lets through: a field outside it is refused
+    members = _members(small)
+    ir = json.loads(members["files/ir/RA-JAK-INC-01.json"])
+    assert "text" in ir and isinstance(ir["text"], str)
+    bad = _resigned({**members, "files/ir/RA-JAK-INC-01.json": sm.dumps({**ir, "lexicon_keys": ["x"]})})
+    assert _refused(bad).step == "protocol"
+
+
+def test_t3_l1_a_failed_folder_sync_after_the_link_says_the_package_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L1: the link and the folder's fsync shared one handler, so an fsync error after the link said "no package was
+    left" while the audited package was named. Now that sentence says the package is named and may not survive a
+    crash."""
+    import errno
+
+    from tb_common.audit import AuditLog
+
+    from tools import study_package as tool
+
+    study, key, audit, outdir = _written(tmp_path)
+    real = os.fsync
+    dest = os.stat(outdir)
+
+    def failing(fd: int) -> None:
+        if (os.fstat(fd).st_dev, os.fstat(fd).st_ino) == (dest.st_dev, dest.st_ino):  # the destination folder only
+            raise OSError(errno.EIO, os.strerror(errno.EIO))
+        real(fd)
+
+    monkeypatch.setattr(os, "fsync", failing)
+    out = outdir / "RA-JAK.tbstudy"
+    with pytest.raises(ValueError) as e:
+        tool.write(study, key, out, DAY, audit=AuditLog(audit), store=study.parent, euid=_not_root)
+    monkeypatch.undo()
+    said = str(e.value)
+    assert "is named" in said and "no package was left" not in said and "does not exist" not in said
+    assert out.exists() and sp.verify_file(out, [TRUST])
+
+
+def test_t4_l2_part_names_are_unique_and_a_run_removes_only_its_own(tmp_path: Path, monkeypatch: Any) -> None:
+    """L2: the part name was ``.<name>.<pid>.part``; two containers whose pids are equal share it, and a run's
+    ``finally`` unlinked the name after closing (dropping its lock), even when it named the other run's file. Now the
+    name holds 16 random hex digits, and the run removes it only while it holds its lock and only if it is its own."""
+    from tb_common.audit import AuditLog
+
+    from tools import study_package as tool
+
+    study, key, audit, outdir = _written(tmp_path)
+    names: list[str] = []
+    real = tool._link_from_fd
+
+    def link_then_swap(fd: int, part: str, name: str, dfd: int, *, force: bool) -> None:
+        real(fd, part, name, dfd, force=force)
+        names.append(part)
+        os.unlink(part, dir_fd=dfd)  # another run of the same name puts its own part file there
+        other = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=dfd)
+        os.write(other, b"another run's")
+        os.close(other)
+
+    monkeypatch.setattr(tool, "_link_from_fd", link_then_swap)
+    tool.write(study, key, outdir / "a.tbstudy", DAY, audit=AuditLog(audit), store=study.parent, euid=_not_root)
+    monkeypatch.undo()
+    (theirs,) = names
+    assert (outdir / theirs).read_bytes() == b"another run's"  # not removed: it is not this run's file
+    assert re.fullmatch(rf"\.a\.tbstudy\.{os.getpid()}\.[0-9a-f]{{16}}\.part", theirs)
+    assert tool._PART_NAME.fullmatch(theirs)
+    tool.write(study, key, outdir / "b.tbstudy", DAY, audit=AuditLog(audit), store=study.parent, euid=_not_root)
+    second = [p.name for p in outdir.iterdir() if p.name.startswith(".b.")]
+    assert second == []  # a run that ends leaves nothing
+
+
+def test_t5_l3_an_unsigned_package_is_held_once_before_its_signature(tmp_path: Path, small: bytes) -> None:
+    """L3: before the signature an unsigned file cost about twice its size (``read_capped``'s chunks and their join,
+    then a copy of every member). Now it is read in one read and the members are views until step 2."""
+    import tracemalloc
+
+    members = _members(small)
+    big = b"[" + b"0," * (10 << 20) + b"0]"  # about 20 MB, under the member cap
+    data = sp.tar_bytes({**members, "files/ir/RA-JAK-INC-09.json": big})
+    path = tmp_path / "big.tbstudy"
+    path.write_bytes(data)
+    del data
+    stranger = sp.TrustedKey(OTHER_PUB, frozenset({"RA-JAK"}))
+    tracemalloc.start()
+    try:
+        with pytest.raises(sp.PackageRefused) as e:
+            sp.verify_file(path, [stranger])
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert e.value.step == "signature"
+    size = path.stat().st_size
+    assert peak < 1.25 * size, (peak, size)
+    assert sp.read_tar(sp.tar_bytes({"a.json": b"1"})) == {"a.json": b"1"}  # read_tar still gives bytes
+
+
+def test_t6_l4_a_store_another_account_may_change_is_refused_and_read_through_its_descriptor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L4: the store was found by descriptors and then reopened by path, and its modes were not checked. Now a store,
+    its ``.git``, ``.git/refs`` and ``.git/objects`` writable by group or others, or a folder above it that another
+    account may change (root's sticky folders excepted), is refused, and the repository is read through the checked
+    descriptor."""
+    import dulwich.repo
+    from tb_common.audit import AuditLog
+
+    from tools import study_package as tool
+
+    key = _key_file(tmp_path / "cc.key")
+    audit = tmp_path / "audit"
+    audit.mkdir()
+    (tmp_path / "out").mkdir()
+    log = AuditLog(audit)
+    for n, where, mode in ((1, "", 0o775), (2, ".git", 0o757), (3, ".git/refs", 0o775), (4, ".git/objects", 0o777),
+                           (5, "..", 0o777)):  # fmt: skip
+        study = _store(tmp_path / f"m{n}", _small())
+        (study.parent / where).chmod(mode)
+        with pytest.raises(ValueError, match="another account may change|may be changed by another account"):
+            tool.write(study, key, tmp_path / "out" / f"{n}.tbstudy", DAY, audit=log, store=study.parent,
+                       euid=_not_root)  # fmt: skip
+        (study.parent / where).chmod(0o755)
+    opened: list[str] = []
+    real = dulwich.repo.Repo
+
+    class Seen(real):  # type: ignore[misc,valid-type]
+        def __init__(self, root: str, *a: Any, **k: Any) -> None:
+            opened.append(str(root))
+            super().__init__(root, *a, **k)
+
+    monkeypatch.setattr(dulwich.repo, "Repo", Seen)
+    study = _store(tmp_path / "ok", _small())
+    opened.clear()
+    tool.write(study, key, tmp_path / "out" / "ok.tbstudy", DAY, audit=log, store=study.parent, euid=_not_root)
+    assert opened and all(re.fullmatch(r"/proc/self/fd/[0-9]+", p) for p in opened), opened
+
+
+def test_t7_l5_a_box_running_with_the_public_test_site_key_packs_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L5: H1 (the test patients are the synthetic site's) holds only when the box's pseudonym key is not the public
+    test key. Now ``write`` refuses when the key it can read is that key, and the event and the success line say
+    whether the key was compared at all."""
+    from tb_common.audit import AuditLog
+
+    from tools import study_package as tool
+
+    study, key, audit, outdir = _written(tmp_path)
+    log = AuditLog(audit)
+    secrets_dir = tmp_path / "secrets"
+    secrets_dir.mkdir()
+    (secrets_dir / "site_hmac.key").write_bytes(sp.SYNTHETIC_SITE_KEY)
+    monkeypatch.setenv("TB_SECRETS_DIR", str(secrets_dir))
+    with pytest.raises(ValueError, match="public test key"):
+        tool.write(study, key, outdir / "t.tbstudy", DAY, audit=log, store=study.parent, euid=_not_root)
+    assert not (outdir / "t.tbstudy").exists() and not [e for e in _events(audit) if e["event"] == tool.EVENT]
+    (secrets_dir / "site_hmac.key").write_bytes(b"a synthetic box's own key, not the test key, 0123456789")
+    h = tool.write(study, key, outdir / "own.tbstudy", DAY, audit=log, store=study.parent, euid=_not_root)
+    assert h["site_key"] == tool.SITE_KEY_CHECKED
+    monkeypatch.setenv("TB_SECRETS_DIR", str(tmp_path / "none"))
+    h = tool.write(study, key, outdir / "unread.tbstudy", DAY, audit=log, store=study.parent, euid=_not_root)
+    assert h["site_key"] == tool.SITE_KEY_UNREAD
+    said = [e["detail"]["site_key"] for e in _events(audit) if e["event"] == tool.EVENT]
+    assert said == [tool.SITE_KEY_CHECKED, tool.SITE_KEY_UNREAD]
+
+
+def test_t8_l6_keygen_refuses_a_folder_another_account_may_change(tmp_path: Path) -> None:
+    """L6: ``keygen`` (which may run as root) did not check who may change its folder, where another account could
+    later replace the public key handed to the sites. Now the folder must be the running account's alone."""
+    from tools import study_package as tool
+
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    shared.chmod(0o777)
+    with pytest.raises(ValueError, match="not this account's alone"):
+        tool.keygen(shared)
+    assert list(shared.iterdir()) == []
+    if os.geteuid() == 0:
+        other = tmp_path / "other"
+        other.mkdir()
+        os.chown(other, 65534, 65534)
+        with pytest.raises(ValueError, match="owner uid 65534"):
+            tool.keygen(other)
+    mine = tmp_path / "mine"
+    mine.mkdir()
+    mine.chmod(0o700)
+    assert tool.keygen(mine)[0].exists()
+
+
+def test_t9_l7_the_decision_says_the_command_packs_only_an_approved_version() -> None:
+    """L7: D-1372 said "v1 packs whatever protocol the folder holds and says nothing of its status", but the command
+    packs only an approved version at its approval tag; the library's ``build`` packs whatever it is given."""
+    text = (ROOT / "docs" / "decisions" / "D-1372-the-study-package-format-v1.md").read_text(encoding="utf-8")
+    flat = " ".join(text.split())
+    assert "v1 packs whatever protocol the folder holds" not in flat
+    assert "the command packs only an approved version" in flat and "`build` packs whatever it is given" in flat
+
+
+def test_t10_l8_a_trust_file_that_cannot_be_used_has_its_own_exit_status(
+    tmp_path: Path, small: bytes, capsys: Any
+) -> None:
+    """L8: a malformed or unsafe trust file exited 1, as a refused package does. Now it exits 4 (``BAD_TRUST_FILE``),
+    for ``verify`` and ``write``; a refused package still exits 1."""
+    from tools import study_package as tool
+
+    good = tmp_path / "good.tbstudy"
+    good.write_bytes(small)
+    junk = tmp_path / "junk.json"
+    junk.write_text("{}", encoding="utf-8")
+    loose = _trust_file(tmp_path / "loose.json", [(PUB, ["RA-JAK"], sp.STUDY_PURPOSE)])
+    loose.chmod(0o666)
+    for bad in (junk, loose, tmp_path):
+        assert tool.main(["verify", str(good), "--trust-file", str(bad)]) == 4
+    other = _trust_file(tmp_path / "other.json", [(OTHER_PUB, ["RA-JAK"], sp.STUDY_PURPOSE)])
+    other.chmod(0o644)
+    assert tool.main(["verify", str(good), "--trust-file", str(other)]) == 1
+    assert tool.BAD_TRUST_FILE == 4
+    r = _run("verify", str(good), "--trust-file", str(junk))
+    assert r.returncode == 4 and r.stderr.count("\n") == 1, r.stderr
+    if os.geteuid() != 0:
+        study, key, audit, outdir = _written(tmp_path / "w")
+        capsys.readouterr()
+        assert tool.main(["write", str(study), "--key", str(key), "--out", str(outdir / "x.tbstudy"),
+                          "--audit-dir", str(audit), "--trust-file", str(junk)]) == 4  # fmt: skip
