@@ -48,6 +48,7 @@ def test_default_install_passes() -> None:
         "perimeter_addresses",
         "channel_engine",
         "secure_cookie",
+        "phi_tripwire",  # 9g-11, D-1348
         "console_mfa",
         "ldap_ca",  # D-722
         "publish_gate",
