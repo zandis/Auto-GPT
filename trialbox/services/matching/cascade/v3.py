@@ -134,7 +134,7 @@ class V3Stage:
         self.run = run
         self.forms: dict[str, Form] = {}
         self.sourceless: dict[str, list[str]] = {}
-        self.left: dict[str, str] = {}  # criterion id -> why a person decides it (not evaluated in step 1)
+        self.left: dict[str, str] = {}  # criterion id -> the kind of refusal that leaves it to a person
         self._vs: ValueSets | None = None
         rs = run.rs
         for c in rs.active():
@@ -155,7 +155,7 @@ class V3Stage:
                         raise NotStep1(f"{c.id}: the event's value set stands for a code family; a person decides")
                 self._sql([form.cx])
             except (NotStep1, CompileError, ValidationError) as exc:
-                self.left[c.id] = str(exc)
+                self.left[c.id] = type(exc).__name__  # the kind of refusal, never the error's text (D-700)
                 continue
             self.forms[c.id] = form
 
