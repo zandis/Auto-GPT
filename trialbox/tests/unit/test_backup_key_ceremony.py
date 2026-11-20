@@ -22,6 +22,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import types
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,7 @@ from tools.trialbox import backup as bk
 pytestmark = pytest.mark.nodb
 ROOT = Path(__file__).resolve().parents[2]
 OP, WIT, SITE = "IT Person One", "Witness Two", "site-test-01"
+SWAPS_HEAD = "Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n"
 
 FAKE_COMPOSE = r"""
 import json, os, signal, sys, types
@@ -114,9 +116,9 @@ elif stop == "step3":
     after("record")
 elif stop == "step4-link":
     after("_link_pub")
-if cfg.get("swaps"):
-    b.SWAPS = Path(cfg["swaps"])
-    b._lock_memory = lambda: False
+# the host-safety probe's swap list, injected: the steps are driven on any host (a CI runner that is not root and has
+# swap on included); the real refusal on such a host is test_h_5's own process
+b.SWAPS = Path(cfg["swaps"] or cfg["no_swap"])
 if cfg.get("spy"):
     real_new = b.new_key
     def spied():
@@ -143,6 +145,8 @@ class Box:
         (tmp / "driver.py").write_text(DRIVER, encoding="utf-8")
         self.compose = [sys.executable, str(tmp / "fake_compose.py"), str(self.state)]
         self.out: list[str] = []
+        self.no_swap = tmp / "no-swaps"  # a swap list with no swap area in it
+        self.no_swap.write_text(SWAPS_HEAD)
 
     def stick(self, name: str = "usb") -> Path:
         s = self.tmp / name
@@ -172,7 +176,8 @@ class Box:
         """The command in a process of its own; ``stop``: SIGKILL right after that point."""
         argv = ["--stick", str(stick), "--operator", OP, "--witness", WIT]
         cfg = {"deploy": str(self.deploy), "stop": stop, "argv": argv, "spy": str(spy) if spy else None,
-               "compose": self.compose, "swaps": str(swaps) if swaps else None}  # fmt: skip
+               "compose": self.compose, "swaps": str(swaps) if swaps else None,
+               "no_swap": str(self.no_swap)}  # fmt: skip
         r = subprocess.run([sys.executable, str(self.tmp / "driver.py"), json.dumps(cfg)], cwd=ROOT, env=self.env(),
                            capture_output=True, text=True, timeout=120, check=False)  # fmt: skip
         self.out += [r.stdout, r.stderr]
@@ -869,12 +874,18 @@ def test_every_text_is_in_three_languages_with_the_same_fields() -> None:
 
 
 def test_the_command_line_refuses_before_it_writes(tmp_path: Path) -> None:
-    """As typed on the host (run without PYTHONUNBUFFERED): not root, refused first; as root, a TB_BACKUP_PUBKEY that
-    names another file is refused before anything is opened; in Japanese."""
+    """The command's main with the arguments a person types (run without PYTHONUNBUFFERED; the host probe's swap list
+    injected empty): not root, refused first; as root, a TB_BACKUP_PUBKEY that names another file is refused before
+    anything is opened; in Japanese."""
     env = {k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"}
     env.update(PYTHONPATH=os.pathsep.join(str(ROOT / p) for p in ("libs", "services", ".")),
                TB_BACKUP_PUBKEY=str(tmp_path / "other.pub"))  # fmt: skip
-    r = subprocess.run([sys.executable, "-m", "tools.backup_key_ceremony", "--stick", str(tmp_path), "--operator", OP,
+    no_swap = tmp_path / "no-swaps"  # the host probe's swap list, injected (H-5 is shown on its own)
+    no_swap.write_text(SWAPS_HEAD)
+    code = ("import sys; from pathlib import Path; from tools import backup_key_ceremony as b\n"
+            "b.SWAPS = Path(sys.argv.pop(1)); sys.argv[0] = 'tools/backup_key_ceremony.py'\n"
+            "sys.exit(b.main(sys.argv[1:]))\n")  # fmt: skip
+    r = subprocess.run([sys.executable, "-c", code, str(no_swap), "--stick", str(tmp_path / "usb"), "--operator", OP,
                         "--witness", WIT, "--lang", "ja"], cwd=ROOT, env=env, capture_output=True, text=True,
                        timeout=120, check=False)  # fmt: skip
     want = (
@@ -883,7 +894,7 @@ def test_the_command_line_refuses_before_it_writes(tmp_path: Path) -> None:
         else bkc.PUB_ELSEWHERE["ja"].format(path=tmp_path / "other.pub", pub=bkc.PUB_DIR / "backup.pub")
     )
     assert r.returncode == 1 and r.stdout == "" and r.stderr.strip() == want
-    assert list(tmp_path.iterdir()) == []
+    assert list(tmp_path.iterdir()) == [no_swap]
 
 
 # ------------------------------------------------------------------------------------------------ review of 36c97bd1
@@ -969,13 +980,39 @@ def test_h_4_a_write_cut_short_never_leaves_part_of_a_file_at_its_final_name(box
 
 
 def test_h_5_no_key_is_made_while_swap_is_on_and_memory_cannot_be_locked(box: Box) -> None:
-    """H-5: the memory lock refused and a swap area in use: refused before any key, in three languages; with the lock
-    granted (or no swap) the run goes on, and the spy sees the memory locked or no swap."""
-    swaps = box.tmp / "swaps"
-    swaps.write_text("Filename\tType\tSize\tUsed\tPriority\n/swapfile file 1048572 0 -2\n")
-    stick = box.stick()
-    r = box.drive(stick, swaps=swaps)
-    assert r.returncode == 1 and r.stderr.strip() == "\n".join(bkc.HARDEN_FAILED[lg] for lg in bkc.LANGS)
+    """H-5, the real refusal: the command in a process of its own, as a user that may not lock memory (uid 65534 when
+    the tests run as root, else the user running them) with RLIMIT_MEMLOCK 0, so the real mlockall is denied, and a
+    swap list showing a swap area: refused before any key, in three languages, nothing made. Then, with the probe's
+    swap list injected empty, the run goes on and the spy sees the memory locked or no swap in the list."""
+    fd, name = tempfile.mkstemp(prefix="k10k13-swaps-", dir=os.environ.get("TB_TEST_ROOT") or None)
+    swaps = Path(name)
+    try:
+        os.write(fd, (SWAPS_HEAD + "/swapfile\t\t\t\tfile\t\t1048572\t\t0\t\t-2\n").encode())
+        os.close(fd)
+        os.chmod(swaps, 0o644)  # readable by uid 65534
+        code = ("import sys; from pathlib import Path; from tools import backup_key_ceremony as b\n"
+                "b.SWAPS = Path(sys.argv[1])\nreal = b.new_key\n"
+                "def watched():\n    print('KEY MADE', flush=True)\n    return real()\n"
+                "b.new_key = watched\nsys.exit(b.main(sys.argv[2:]))\n")  # fmt: skip
+
+        def unprivileged() -> None:
+            import resource
+
+            resource.setrlimit(resource.RLIMIT_MEMLOCK, (0, 0))
+            if os.geteuid() == 0:  # root may always lock memory: run as nobody
+                os.setgroups([])
+                os.setgid(65534)
+                os.setuid(65534)
+
+        stick = box.stick()
+        env = {**box.env(), "HOME": "/"}
+        argv = [sys.executable, "-c", code, str(swaps), "--stick", str(stick), "--operator", OP, "--witness", WIT]
+        r = subprocess.run(argv, cwd=ROOT, env=env, capture_output=True, text=True, timeout=120, check=False,
+                           preexec_fn=unprivileged)  # fmt: skip
+    finally:
+        swaps.unlink()
+    assert r.returncode == 1 and r.stderr.strip() == "\n".join(bkc.HARDEN_FAILED[lg] for lg in bkc.LANGS), r.stderr
+    assert "KEY MADE" not in r.stdout and r.stdout == ""
     assert list(stick.iterdir()) == [] and box.pending() == [] and box.journal() == []
     spy = box.tmp / "spy.json"
     assert box.drive(stick, spy=spy).returncode == 0
