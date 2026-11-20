@@ -227,7 +227,7 @@ def test_the_card_is_refused_to_an_investigator_off_the_delegation_log_whatever_
     _accounts(box)  # signs the accounts up
     reads: list[Any] = []
 
-    def list_jobs(*a: Any, **kw: Any) -> list[Any]:
+    def list_jobs(*a: Any, **kw: Any) -> Any:
         reads.append(kw)
         return box["backend"].list_jobs(*a, **kw)
 
