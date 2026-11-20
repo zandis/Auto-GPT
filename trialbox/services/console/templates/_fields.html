@@ -1,0 +1,52 @@
+{# 9k-6a (D-1376, review 09 DS-6 and §3.2 component 8, A11Y-4): the field macro and the error summary.
+   Import with the context: {% import "_fields.html" as fm with context %}. `fe` is the console.form_errors.FormErrors
+   of a failed POST, or None; a form converted to the macro carries data-fields="<fe.form>" on its <form>, and its
+   tests are in tests/console/test_form_errors_9k6a.py (the guard: tests/unit/test_form_fields_guard.py).
+
+   fm.title(fe, text)      the page's <title> text, "Error: " before it when the POST failed (GOV.UK)
+   fm.error_summary(fe)    at the top of the page, above the h1: a heading and one link per failing field, in the
+                           form's order, each to the field's id; role=alert, and focus moves to it when the page
+                           loads (autofocus on a tabindex=-1 box: no script)
+   fm.field(fe, form, prefix, name, label, value, ...)
+                           label, hint, the field's own error (the same words as in the summary), then the control.
+                           id <prefix>-<name>; the hint <id>-hint and the error <id>-err in aria-describedby;
+                           aria-invalid on error; "required" in words beside the label (aria-required, no browser
+                           check: the server's check shows the summary). kind: text (any input type), textarea,
+                           select (options: (value, label) pairs), checkbox, password (never given a value).
+                           A typed value comes back from fe.values when fe is this form's; never a secret. #}
+
+{% macro title(fe, text) %}{% if fe %}{{ t('fe.title', title=text) }}{% else %}{{ text }}{% endif %}{% endmacro %}
+
+{% macro error_summary(fe, testid='error-summary') %}{% if fe %}
+<div class="fm-summary" role="alert" tabindex="-1" autofocus aria-labelledby="fm-summary-title" data-form="{{ fe.form }}" data-testid="{{ testid }}">
+<h2 id="fm-summary-title">{{ t('fe.summary') }}</h2>
+<ul>{% for e in fe.errors %}<li><a href="#{{ fe.field_id(e.name) }}" data-field="{{ e.name }}">{{ t(e.key) }}</a></li>{% endfor %}</ul>
+</div>{% endif %}{% endmacro %}
+
+{% macro field(fe, form, prefix, name, label, value='', kind='text', type='text', hint='', required=False, disabled=False, cls='', options=(), checked=False, attrs={}) %}
+{%- set mine = fe and fe.form == form -%}
+{%- set err = fe.error(name) if mine else None -%}
+{%- set fid = prefix ~ '-' ~ name -%}
+{%- set described = ([fid ~ '-hint'] if hint else []) + ([fid ~ '-err'] if err else []) -%}
+{%- set shown = '' if kind == 'password' else (fe.value(name, value) if mine else value) -%}
+{%- set on = (fe.value(name, '') == (value or '1')) if mine else checked -%}
+<div class="fm-field{% if err %} fm-bad{% endif %}" data-field="{{ name }}">
+{%- if kind == 'checkbox' %}
+{% if err %}<p class="fm-err" id="{{ fid }}-err"><span class="sr">{{ t('fe.error') }}</span> {{ t(err.key) }}</p>{% endif %}
+<label class="check" for="{{ fid }}"><input type="checkbox" id="{{ fid }}" name="{{ name }}" value="{{ value or '1' }}"{% if on %} checked{% endif %}{% if disabled %} disabled{% endif %}{% if described %} aria-describedby="{{ described|join(' ') }}"{% endif %}{% if err %} aria-invalid="true"{% endif %}{% if required %} aria-required="true"{% endif %}{{ attrs|xmlattr }} data-testid="{{ fid }}"> {{ label }}{% if required %} <span class="fm-req">({{ t('fe.required') }})</span>{% endif %}</label>
+{% if hint %}<p class="hint" id="{{ fid }}-hint">{{ hint }}</p>{% endif %}
+{%- else %}
+<label for="{{ fid }}">{{ label }}{% if required %} <span class="fm-req">({{ t('fe.required') }})</span>{% endif %}</label>
+{% if hint %}<p class="hint" id="{{ fid }}-hint">{{ hint }}</p>{% endif %}
+{% if err %}<p class="fm-err" id="{{ fid }}-err"><span class="sr">{{ t('fe.error') }}</span> {{ t(err.key) }}</p>{% endif %}
+{%- set common %} id="{{ fid }}" name="{{ name }}"{% if cls %} class="{{ cls }}"{% endif %}{% if disabled %} disabled{% endif %}{% if described %} aria-describedby="{{ described|join(' ') }}"{% endif %}{% if err %} aria-invalid="true"{% endif %}{% if required %} aria-required="true"{% endif %}{{ attrs|xmlattr }} data-testid="{{ fid }}"{% endset %}
+{%- if kind == 'textarea' %}
+<textarea{{ common }}>{{ shown }}</textarea>
+{%- elif kind == 'select' %}
+<select{{ common }}>{% for v, l in options %}<option value="{{ v }}"{% if v == shown %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+{%- else %}
+<input type="{{ 'password' if kind == 'password' else type }}" value="{{ shown }}"{{ common }}{% if kind == 'password' %} autocomplete="off"{% endif %}>
+{%- endif %}
+{%- endif %}
+</div>
+{%- endmacro %}
