@@ -1,7 +1,8 @@
 """Card 9g-13 (D-1349): outside DEV and TEST the old shared service token is refused, as D-447 refuses the v1 actor
-form. The token layer refuses it with 403 and one warning in the log, never the token; the orchestrator and the
-gateway refuse it themselves with an audit event (D-464, D-437). A box installed by this release holds no such token;
-one that still does is told by ``doctor`` (``legacy_token``) and refused by the update's preflight."""
+form. The token layer refuses it with 403 and one warning in the log, never the token, on every callee; the
+orchestrator's route gate answers with its own audited refusal (D-464). A box installed by this release holds no such
+token; one that still does is told by ``doctor`` (``legacy_token``) and refused by the update's preflight and the
+release's ``pre-start``. The review's findings: ``test_legacy_token_review.py``."""
 
 from __future__ import annotations
 
@@ -109,23 +110,20 @@ def test_dev_and_test_keep_todays_rule(tmp_path: Path, monkeypatch: pytest.Monke
 
 
 @pytest.mark.parametrize("env", STRICT)
-def test_every_callee_refuses_it_but_the_two_that_refuse_and_audit_it_themselves(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: str
-) -> None:
-    """The orchestrator's route gate refuses it on every route (D-464) and the gateway on every call that reaches a
-    model or swaps one (D-437), each with an audit event: there the token layer passes it on to that refusal. The
-    gateway's reads (models, serving status, registry) are refused here."""
+def test_every_callee_refuses_it_on_every_method(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: str) -> None:
+    """No callee by name but the gateway's changing calls (review of 9g-13, H9G13-01): the token layer refuses it on
+    every other callee and method; the orchestrator's route gate answers with its own audited refusal (``make_app``;
+    D-464)."""
     _registry_box(tmp_path, monkeypatch)
     want = env or "PRODUCTION"
     for callee in (*sorted(sa.CALLERS), None):
-        refusal, caller = sa.authorize("POST", SHARED, want, protect_reads=True, callee=callee)
-        assert caller == sa.LEGACY
-        if callee in ("orchestrator", "gateway"):
-            assert refusal is None, callee
-        else:
-            assert refusal == (403, f"the old shared {sa.TOKEN_HEADER} is {REFUSED}"), callee
-    assert sa.authorize("GET", SHARED, want, protect_reads=True, callee="orchestrator")[0] is None
-    assert sa.authorize("GET", SHARED, want, protect_reads=True, callee="gateway")[0] is not None
+        for method in ("POST", "GET", "PUT", "DELETE"):
+            refusal, caller = sa.authorize(method, SHARED, want, protect_reads=True, callee=callee)
+            assert caller == sa.LEGACY
+            if callee == "gateway" and method != "GET":  # passed on to the gateway's own audited refusal (D-437)
+                assert refusal is None
+            else:
+                assert refusal == (403, f"the old shared {sa.TOKEN_HEADER} is {REFUSED}"), (callee, method)
 
 
 def test_the_orchestrator_still_refuses_and_audits_it_itself(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -242,7 +240,9 @@ def test_doctor_fails_outside_dev_and_test_with_a_plain_line_and_the_fix(
     deploy = _registry_box(tmp_path, monkeypatch)
     check = doctor.check_legacy_token(doctor.DoctorInputs(env={"TB_ENV": env} if env else {}, deploy=deploy))
     assert check.name == "legacy_token" and check.status == "FAIL"
-    assert check.detail.startswith(f"{env or 'PRODUCTION'}: the box still holds the old shared service token (")
+    assert check.detail.startswith(
+        f"{env or 'PRODUCTION'}: the box still holds the old shared service token or no token per service ("
+    )
     assert "Fix: sudo python3 -m tools.trialbox secrets rotate" in check.detail
     assert SHARED not in check.detail and sa.token_hash(SHARED) not in check.detail
     assert doctor.check_legacy_token in doctor.CHECKS

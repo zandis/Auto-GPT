@@ -660,9 +660,9 @@ class Updater:
         held = svc_secrets.legacy_held(Path(deploy))
         if held:
             raise UpdateRefused(
-                f"this {env} box still holds the old shared service token ({'; '.join(held)}), which the services "
-                "refuse outside DEV and TEST (D-1349): run `sudo python3 -m tools.trialbox secrets rotate` (every "
-                "token), then this update again; nothing was changed"
+                f"this {env} box still holds the old shared service token or no token per service "
+                f"({'; '.join(held)}), which the services refuse outside DEV and TEST (D-1349): "
+                f"{svc_secrets.legacy_fix(held)}, then this update again; nothing was changed"
             )
         return []
 
@@ -1154,10 +1154,11 @@ class ComposeBox(_DockerImages):
         set or there is no file yet (D-127). Never the process environment: a ``TB_ENV=DEV`` typed in front of the
         installer is not written to the box. D-726: a rehearsal box (``install.sh --rehearsal``) is TEST from before
         the bundle loads, by its mark ``deploy/site/rehearsal.json``, until deploy/.env says; deploy/.env wins."""
-        named = _env_file(self.deploy / ".env").get("TB_ENV")
+        # D-1349 (review): compose reads TB_ENV="TEST" as TEST; the quotes are not part of the name
+        named = (_env_file(self.deploy / ".env").get("TB_ENV") or "").strip().strip("\"'").strip()
         if not named and (self.deploy / "site" / "rehearsal.json").is_file():
             return "TEST"
-        return (named or "PRODUCTION").strip().upper()
+        return (named or "PRODUCTION").upper()
 
     def rehearsal_mark(self) -> bool:
         """D-887 (the integrator's (i)): the mark only ``deploy/install.sh --rehearsal`` writes."""

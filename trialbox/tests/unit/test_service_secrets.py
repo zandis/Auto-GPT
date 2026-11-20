@@ -125,7 +125,8 @@ def test_without_a_registry_the_shared_token_rule_is_unchanged(monkeypatch: pyte
     monkeypatch.setenv("TB_SERVICE_TOKEN", "shared-0123456789")
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
     c = _app("orchestrator")
-    assert c.post("/x", headers={sa.TOKEN_HEADER: "shared-0123456789"}).status_code == 200
+    # D-1349: one token and no registry is the old shared token, refused outside DEV and TEST on every callee
+    assert c.post("/x", headers={sa.TOKEN_HEADER: "shared-0123456789"}).status_code == 403
     assert c.post("/x", headers={sa.TOKEN_HEADER: "wrong"}).status_code == 403
     monkeypatch.delenv("TB_SERVICE_TOKEN")
     assert c.post("/x").status_code == 503  # unset token: PRODUCTION fails closed

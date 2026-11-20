@@ -58,6 +58,27 @@ if TYPE_CHECKING:
 MIN_INSTALLED_SEQ = 0
 
 
+def _legacy_token(box: ComposeBox) -> str:
+    """D-1349: outside DEV and TEST every service refuses the old shared service token. A box that still holds one,
+    or runs without its per-service tokens (``svc_secrets.legacy_held``), is stopped here, before this release's
+    stack starts: the services would refuse each other. This is the new tree's own step, so it holds also when the
+    installed, older updater (whose preflight has no such check) applies this release. A refusal that makes
+    nothing: harmless to the release before. Names places, never a value."""
+    from tools.trialbox import svc_secrets
+    from tools.trialbox.update import UpdateFailed
+
+    held = svc_secrets.legacy_held(box.deploy)
+    if not held:
+        return "none: each service presents its own token"
+    env = box.environment()
+    if env in ("DEV", "TEST"):
+        return f"{env} accepts the old shared service token ({'; '.join(held)})"
+    raise UpdateFailed(
+        f"this {env} box still holds the old shared service token or no token per service ({'; '.join(held)}), "
+        f"which this release's services refuse (D-1349); nothing was started. Fix: {svc_secrets.legacy_fix(held)}"
+    )
+
+
 def _image_pins(box: ComposeBox) -> str:
     box.resolve_pins()
     return "compose is pointed at the bundle's images where the image store kept no digest"
@@ -96,8 +117,10 @@ def _ldap_ca(box: ComposeBox) -> str:
     return check.detail
 
 
-#: name, step; in the order they run. The first two are what every release before this one ran in the updater itself.
+#: name, step; in the order they run. The two after the first are what every release before this one ran in the
+#: updater itself.
 STEPS: list[tuple[str, Callable[[ComposeBox], str]]] = [
+    ("old shared service token", _legacy_token),  # D-1349: a refusal that makes nothing; first, before any making
     ("image pins", _image_pins),
     ("model key", _model_key),
     ("actor signing key", _actor_key),

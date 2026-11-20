@@ -120,6 +120,8 @@ def apply(folder: Path, hw: Hardware, deploy: Path) -> list[str]:
     p = plan(answers, hw, deploy)
     write(p, deploy, deploy / "site" / "box" / "answers.json")
     settings, env, warnings = settings_wizard.build(p.wizard_answers, [deploy / "site" / "mapping"])
+    # D-1349: each service has its own token (`trialbox secrets`); the wizard's shared one is never written to the box
+    env.pop("TB_SERVICE_TOKEN", None)
     chartno_change(deploy / ".env", env.get(CHARTNO_RULE, ""), lambda: pid_map_rows(deploy))  # before any write
     with tempfile.TemporaryDirectory() as tmp:
         settings_wizard.write(settings, env, deploy / "settings.yaml", Path(tmp) / ".env")

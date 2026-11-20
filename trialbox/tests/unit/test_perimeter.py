@@ -15,6 +15,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+from hashlib import sha256
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -116,7 +117,16 @@ def test_gateway_re_resolves_and_refuses_when_a_name_moves_off_the_box(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
-    monkeypatch.setenv("TB_SERVICE_TOKEN", "synthetic-token-" + "a" * 16)
+    # D-1349: in PRODUCTION a caller is a named service (the orchestrator's own token in the registry); the old shared
+    # token is refused at the door
+    reg = {
+        "schema": "tb-service-tokens/1",
+        "services": {"orchestrator": sha256(b"synthetic-token-" + b"a" * 16).hexdigest()},
+    }
+    (tmp_path / "tokens.json").write_text(json.dumps(reg), encoding="utf-8")
+    monkeypatch.setenv("TB_SERVICE_TOKENS", str(tmp_path / "tokens.json"))
+    monkeypatch.delenv("TB_SERVICE_TOKEN", raising=False)
+    monkeypatch.delenv("TB_SERVICE_TOKEN_FILE", raising=False)
     get_config.cache_clear()
     table = dict(DNS)
     gw = _gateway(tmp_path, {"TB_PERIMETER_RECHECK_S": "0"})
@@ -134,7 +144,7 @@ def test_gateway_re_resolves_and_refuses_when_a_name_moves_off_the_box(
     assert rec[-1]["detail"]["phase"] == "call" and rec[-1]["detail"]["caller"] == "orchestrator"
     # LLM-043: the gateway's reads need the token too
     assert client.get("/v1/models").status_code == 401
-    assert client.get("/v1/models", headers=tok).status_code == 403  # D-1349: the old shared token, PRODUCTION
+    assert client.get("/v1/models", headers=tok).status_code == 200
     get_config.cache_clear()
 
 

@@ -17,10 +17,11 @@ container. The registry is re-read when it changes, so a rotation needs only the
 its hash as ``legacy``; without a registry (tests, a box installed before step 8) the shared token is the only rule,
 and the service warns once that it should be migrated (``trialbox secrets init``). Either way it names no service.
 DEV and TEST accept it (with a warning in the log); every other ``TB_ENV`` refuses it with 403 and one warning in
-the log, never the token (D-1349, as D-447 refuses the v1 actor form). The orchestrator and the gateway, which
-refuse it themselves with an audit event (D-464, D-437), get it passed on to that refusal. ``trialbox secrets
-rotate`` of every token removes it from the box; ``doctor`` (``legacy_token``) and the update's preflight say so
-before it bites.
+the log, never the token (D-1349, as D-447 refuses the v1 actor form). The legacy mark is decided before any
+service's entry, so it never takes a service's role. A service with a route gate (the orchestrator, D-464) answers
+the refusal with its own audited one; a gate can only refuse. The gateway's changing calls are passed on to the
+gateway, which refuses the token itself and audits it (D-437). ``trialbox secrets rotate`` of every token removes it
+from the box; ``doctor`` (``legacy_token``), the update's preflight and the release's ``pre-start`` say so first.
 
 Without any token: DEV and TEST boxes (tests, ``make demo``) accept unauthenticated calls; any other ``TB_ENV``, and
 an unset one, refuses every changing call with 503 until a token is configured (fail closed).
@@ -149,16 +150,17 @@ class Registry:
 
     def identify(self, presented: str) -> str | None:
         """The service whose token this is, ``legacy`` for the old shared token, else None. Every hash is compared
-        (constant time) so the time taken does not tell which service matched."""
+        (constant time) so the time taken does not tell which service matched. The legacy mark is decided first
+        (D-1349): a hash marked legacy is the old shared token even where a service's entry holds the same one, so it
+        never takes that service's role."""
         h = token_hash(presented)
+        legacy = self.legacy is not None and hmac.compare_digest(h, self.legacy)
         found: str | None = None
         for name in sorted(self.hashes):
             for want in self.hashes[name]:
                 if hmac.compare_digest(h, want) and found is None:
                     found = name
-        if self.legacy is not None and hmac.compare_digest(h, self.legacy) and found is None:
-            found = LEGACY
-        return found
+        return LEGACY if legacy else found
 
 
 _cache: dict[str, tuple[tuple[int, int], Registry]] = {}
@@ -515,10 +517,11 @@ def authorize(
         if open_env:
             return None, LEGACY
     # D-1349: outside DEV and TEST the old shared token (the registry's ``legacy`` hash, or the one token of a box
-    # without a registry) names no service, so it is refused, as the v1 actor form is (D-447). The orchestrator (its
-    # route gate, on every route; D-464) and the gateway (on every call that reaches a model or swaps one; D-437)
-    # refuse it themselves and write an audit event, so there it is passed on to that refusal.
-    if callee == "orchestrator" or (callee == "gateway" and m not in SAFE_METHODS):
+    # without a registry) names no service, so it is refused, as the v1 actor form is (D-447). ``make_app`` lets the
+    # service's route gate answer the refusal with its own audited one (the orchestrator's, D-464). The one callee it
+    # passes on to is the gateway, on a changing method: the gateway refuses it itself and audits the refusal (D-437;
+    # its route gate, on every route).
+    if callee == "gateway" and m not in SAFE_METHODS:
         return None, LEGACY
     _warn_once(
         "legacy-refused",

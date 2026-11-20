@@ -376,13 +376,14 @@ services:
   gateway:
     # tb-gateway (spec v4 §8.2, S1-06): the only path to a model. Routes from models/routing.yaml; aliases resolve
     # through models/registry.yaml plus the site pins in ./site (tools/pin_model.py; a missing file = nothing pinned,
-    # so production routes nothing). Registry, PHI guard and trace store run in this process.
+    # so production routes nothing). Registry, PHI guard and trace store run in this process. TB_ENV comes from
+    # deploy/.env (env_file) as in every service, never from the shell that runs compose (D-1349)
     <<: *py
     mem_limit: ${TB_MEM_GATEWAY:-2g}
     command: ["uvicorn", "--factory", "gateway.app:create_app", "--host", "0.0.0.0", "--port", "8020"]
     environment: {<<: *nodb, PORT: "8020", TB_SERVICE_NAME: gateway,
                   TB_DB_URL: "postgresql://tb_gateway:${TB_DB_PW_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
-                  TB_ENV: "${TB_ENV:-PRODUCTION}", TB_TOPOLOGY: "${TB_TOPOLOGY:-A}",
+                  TB_TOPOLOGY: "${TB_TOPOLOGY:-A}",
                   TB_PROFILE: "${TB_PROFILE:-P-GB10}", TB_CLOUD_OPT_IN: "${TB_CLOUD_OPT_IN:-}", TB_AUDIT_DIR: /data/audit,
                   TB_AUDIT_WRITER: db, TB_TRACESTORE: "on",
                   TB_REGISTRY_OVERRIDE: /etc/trialbox/site/registry.site.yaml, TB_MODEL_SWAP: "${TB_MODEL_SWAP:-}",

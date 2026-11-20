@@ -191,6 +191,7 @@ class DoctorInputs:
     host_tz: str | None = None  # the host's zone; None: TB_HOST_TZ, else read from /etc (check site_tz)
     platform: bool = False  # doctor --platform: pods on a cluster, no host cron, so no host zone to compare
     deploy: Path | None = None  # the deploy folder (from --env-file): the backup record and the cron file (D-274)
+    env_file: Path | None = None  # D-1349: the settings file doctor was given (--env-file), as given
     cron_dir: Path = Path("/etc/cron.d")
     resolver: Callable[[str], list[str]] | None = None  # check perimeter_addresses; None: the system resolver
     compose_config: Mapping[str, Any] | None = None  # doctor --two-device: the device's rendered compose (D-373)
@@ -462,17 +463,14 @@ def check_console_mfa(inp: DoctorInputs) -> Check:
 
 
 def check_legacy_token(inp: DoctorInputs) -> Check:
-    """D-1349: outside DEV and TEST the services refuse the old shared service token, so a box that still holds one
-    (``TB_SERVICE_TOKEN`` in ``deploy/.env``, the ``legacy`` hash in ``tokens.json``; ``svc_secrets.legacy_held``)
-    is told before a caller that presents it is refused. Without a deploy folder only the settings given are read."""
+    """D-1349: outside DEV and TEST the services refuse the old shared service token, so a box that still holds one,
+    or runs without its per-service tokens, is told before a caller is refused (``svc_secrets.legacy_held``: the
+    settings file doctor was given, ``--env-file``, else ``deploy/.env``, with the settings it read over it; the
+    registry beside it)."""
     from tools.trialbox import svc_secrets
 
-    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
-    if inp.deploy is not None:
-        held = svc_secrets.legacy_held(inp.deploy)
-    else:
-        tok = (inp.env.get("TB_SERVICE_TOKEN") or "").strip()
-        held = ["TB_SERVICE_TOKEN in the settings"] if tok and not tok.startswith("change-me") else []
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().strip("\"'").strip().upper()
+    held = svc_secrets.legacy_held(inp.deploy, inp.env_file, inp.env)
     if not held:
         return Check("legacy_token", "PASS", "no old shared service token: each service presents its own")
     where = "; ".join(held)
@@ -481,8 +479,8 @@ def check_legacy_token(inp: DoctorInputs) -> Check:
     return Check(
         "legacy_token",
         "FAIL",
-        f"{env}: the box still holds the old shared service token ({where}), which the services refuse here. "
-        "Fix: sudo python3 -m tools.trialbox secrets rotate (every token; RUNBOOK §5)",
+        f"{env}: the box still holds the old shared service token or no token per service ({where}); the services "
+        f"refuse it here. Fix: {svc_secrets.legacy_fix(held)}",
     )
 
 
@@ -2311,6 +2309,7 @@ def inputs_from(
         routing_path=routing or ROOT / "models" / "routing.yaml",
         ingest_lake=wd,
         deploy=deploy,
+        env_file=env_file if env_file is not None and env_file.exists() else None,
         input_errors=tuple(errors),
     )
 

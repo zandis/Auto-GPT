@@ -68,7 +68,7 @@ import secrets
 import shlex
 import subprocess
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -319,18 +319,60 @@ def legacy_token(env_file: Path) -> str:
     return "" if not tok or tok.startswith("change-me") else tok
 
 
-def legacy_held(deploy: Path, env_file: Path | None = None) -> list[str]:
-    """Where this box still holds the old shared token (D-1349): ``TB_SERVICE_TOKEN`` in ``deploy/.env`` and the
-    ``legacy`` hash in ``tokens.json``. Names only, never a value; empty when it holds none. Outside DEV and TEST
-    every service but the orchestrator and the gateway refuses that token, and they refuse it too (D-464, D-437);
-    ``rotate`` of every token removes it from both files."""
-    env_file = env_file or deploy / ".env"
+SECRETS_OVERLAY = "docker-compose.secrets.yml"
+
+
+def _unquoted(value: str) -> str:
+    """A ``deploy/.env`` value as compose reads it: the quotes around it are not part of it."""
+    return value.strip().strip("\"'").strip()
+
+
+def overlay_missing(settings: Mapping[str, str]) -> bool:
+    """``COMPOSE_FILE`` names the box's compose files and the secrets overlay is not among them: no service mounts a
+    token of its own or the registry (a box installed before step 8 and not installed again). False when
+    ``COMPOSE_FILE`` is not set (nothing to tell)."""
+    files = _unquoted(settings.get("COMPOSE_FILE", ""))
+    return bool(files) and not any(Path(f).name == SECRETS_OVERLAY for f in files.split(":") if f)
+
+
+def legacy_held(deploy: Path | None, env_file: Path | None = None, env: Mapping[str, str] | None = None) -> list[str]:
+    """Where this box still holds the old shared token or runs without its per-service tokens (D-1349), read from
+    ``env_file`` (default ``deploy/.env``) with ``env`` over it, and the registry (``deploy``'s, or the file
+    ``TB_SERVICE_TOKENS`` names): ``TB_SERVICE_TOKEN``; ``TB_SERVICE_TOKEN_FILE`` where no registry reaches the
+    services (one token file for the whole box, which ``service_token`` reads first); the ``legacy`` hash in
+    ``tokens.json``; a ``COMPOSE_FILE`` without the secrets overlay. Names only, never a value; empty when it holds
+    none. Outside DEV and TEST every service refuses that token; ``rotate`` of every token removes it,
+    ``deploy/install.sh`` puts the overlay in ``COMPOSE_FILE``."""
+    if env_file is None and deploy is not None:
+        env_file = deploy / ".env"
+    where = str(env_file) if env_file is not None else "the settings"
+    settings = {k: _unquoted(v) for k, v in {**(_read_env(env_file) if env_file else {}), **(env or {})}.items()}
+    reg_file = (
+        registry_path(deploy) if deploy is not None else Path(settings.get("TB_SERVICE_TOKENS") or "/nonexistent")
+    )
+    if deploy is not None and not reg_file.is_file() and settings.get("TB_SERVICE_TOKENS"):
+        reg_file = Path(settings["TB_SERVICE_TOKENS"])
+    missing = overlay_missing(settings)
     held = []
-    if legacy_token(env_file):
-        held.append(f"TB_SERVICE_TOKEN in {env_file}")
-    if isinstance(_load_registry(deploy).get("legacy"), str):
-        held.append(f"the legacy hash in {registry_path(deploy)}")
+    tok = settings.get("TB_SERVICE_TOKEN", "")
+    if tok and not tok.startswith("change-me"):
+        held.append(f"TB_SERVICE_TOKEN in {where}")
+    if settings.get("TB_SERVICE_TOKEN_FILE") and (missing or not reg_file.is_file()):
+        held.append(f"TB_SERVICE_TOKEN_FILE in {where} with no token registry: one token file for the whole box")
+    registry = json.loads(reg_file.read_text(encoding="utf-8")) if reg_file.is_file() else {}
+    if isinstance(registry, dict) and isinstance(registry.get("legacy"), str):
+        held.append(f"the legacy hash in {reg_file}")
+    if missing:
+        held.append(f"COMPOSE_FILE in {where} without deploy/{SECRETS_OVERLAY}: no service holds a token of its own")
     return held
+
+
+def legacy_fix(held: Sequence[str]) -> str:
+    """The operator's next step for what :func:`legacy_held` found."""
+    rotate = "sudo python3 -m tools.trialbox secrets rotate (every token; RUNBOOK §5)"
+    if any(SECRETS_OVERLAY in h for h in held):
+        return f"re-run deploy/install.sh (it puts deploy/{SECRETS_OVERLAY} in COMPOSE_FILE), then {rotate}"
+    return rotate
 
 
 def _load_registry(deploy: Path) -> dict[str, object]:
@@ -437,6 +479,12 @@ def rotate(
     bad = [n for n in want if n not in IDENTITIES and n not in (DB, MODEL, ACTOR)]
     if bad:
         raise SecretsError(f"unknown service {', '.join(bad)}: one of {', '.join((*IDENTITIES, DB, MODEL, ACTOR))}")
+    if any(n in IDENTITIES for n in want) and overlay_missing(_read_env(env_file)):
+        # D-1349: without the overlay no service mounts its new token, and the shared one would be gone from .env
+        raise SecretsError(
+            f"COMPOSE_FILE in {env_file} has no deploy/{SECRETS_OVERLAY}: the services would get no token of their "
+            "own. Re-run deploy/install.sh (it adds the overlay), then rotate; nothing was changed"
+        )
     if not registry_path(deploy).is_file():
         init(deploy, env_file, uid)
     reg = _load_registry(deploy)

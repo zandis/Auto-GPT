@@ -266,7 +266,7 @@ def make_app(
             request: Request, call_next: Callable[[Request], Awaitable[Response]]
         ) -> Response:
             from tb_common.config import environment_name
-            from tb_common.service_auth import TOKEN_HEADER, authorize
+            from tb_common.service_auth import LEGACY, TOKEN_HEADER, authorize
 
             if request.url.path != "/healthz":
                 # D-138: with a token registry the callee knows which service called and accepts only its callers
@@ -278,6 +278,13 @@ def make_app(
                     callee=service,
                 )
                 if refused is not None:
+                    if caller == LEGACY and route_gate is not None:
+                        # D-1349: the old shared token is refused here; the service's gate may answer with its own
+                        # audited refusal (D-464). A gate that answers None leaves this refusal: it never admits
+                        request.state.tb_caller = caller
+                        gated = route_gate(request, caller)
+                        if gated is not None and gated.status_code >= 400:
+                            return gated
                     return JSONResponse({"detail": refused[1]}, status_code=refused[0])
                 request.state.tb_caller = caller
                 if route_gate is not None:
