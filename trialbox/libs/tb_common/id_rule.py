@@ -30,6 +30,7 @@ keeps such ids and was written under rule 1 would hold ids no rule-2 night gives
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -186,11 +187,22 @@ def unreadable_words(snapshots: Iterable[str]) -> str:
 
 
 def write_snapshot_record(directory: Path) -> None:
-    """The snapshot's id rule, written atomically (a temporary file renamed into place): a crash or a full disk never
-    leaves a cut record that would read as another rule (D-1253 deep review)."""
+    """The snapshot's id rule, written atomically (a temporary file, synced, renamed into place, the folder synced): a
+    crash, a power cut or a full disk never leaves a cut record that would read as another rule (D-1253 deep
+    review)."""
     tmp = directory / f".{SNAPSHOT_RECORD}.tmp"
     tmp.write_text(json.dumps({"rule": RULE}) + "\n", encoding="utf-8")
+    fd = os.open(tmp, os.O_RDONLY)
+    try:
+        os.fsync(fd)  # the bytes on disk before the name points at them
+    finally:
+        os.close(fd)
     tmp.replace(directory / SNAPSHOT_RECORD)
+    dfd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(dfd)  # the rename itself survives a crash
+    finally:
+        os.close(dfd)
 
 
 def snapshot_rule(directory: Path) -> int:

@@ -654,3 +654,31 @@ def test_a_night_or_back_fill_from_the_command_line_is_kept_out_by_the_run_lock(
     finally:
         held.release()
     assert ran == [] and "already running" in capsys.readouterr().err
+
+
+def test_the_id_rule_record_is_synced_before_and_after_its_rename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-1253 deep review, finding 2: the record's bytes are synced to disk before the rename points the name at
+    them, and the folder is synced after it, so a power cut leaves the whole record or none, never an empty one."""
+    import os
+
+    folder = tmp_path / "snap"
+    folder.mkdir()
+    seen: list[str] = []
+    real_fsync, real_replace = os.fsync, Path.replace
+
+    def fsync(fd: int) -> None:
+        target = os.readlink(f"/proc/self/fd/{fd}")
+        seen.append("folder" if Path(target) == folder else Path(target).name)
+        real_fsync(fd)
+
+    def replace(self: Path, target: Any) -> Any:
+        seen.append("rename")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(Path, "replace", replace)
+    id_rule.write_snapshot_record(folder)
+    assert seen == [f".{id_rule.SNAPSHOT_RECORD}.tmp", "rename", "folder"]
+    assert id_rule.snapshot_rule(folder) == id_rule.RULE
