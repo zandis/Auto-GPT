@@ -20,6 +20,7 @@ import pytest
 from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
 from lake.store import Lake, SnapshotHeld
+from tb_common import id_rule
 
 from tests.unit.test_snapshot_holds import NIGHT, TZ, _night, _orch
 
@@ -77,6 +78,7 @@ def _run_job(tmp_path: Path, name: str, publish_mid_job: bool) -> dict[str, Any]
     lake_dir = tmp_path / name / "lake"
     nd = lake_dir / "ndjson" / NIGHT
     nd.mkdir(parents=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     note = {
         "resourceType": "DocumentReference",
         "id": "d1",

@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from adapter.pipeline import AdapterConfig, prune_snapshots
+from tb_common import id_rule
 from tb_common.retention import expired, snapshots_to_keep
 from tb_contracts import JobCreate
 
@@ -41,6 +42,7 @@ def test_adapter_prunes_snapshots(tmp_path: Path) -> None:
     snaps = ("2026-07-31", "2026-08-15", "2026-08-20", "2026-08-31", "2026-09-10", "2026-09-28")
     for s in (*snaps, "2026-10-01", "2026-10-02", "2026-10-03"):
         (lake / "ndjson" / s).mkdir(parents=True)
+        id_rule.write_snapshot_record(lake / "ndjson" / s)
         (lake / "parquet" / f"snapshot={s}").mkdir(parents=True)
         (lake / "db").mkdir(parents=True, exist_ok=True)
         (lake / "db" / f"{s}.duckdb").write_bytes(b"x")

@@ -19,6 +19,7 @@ from adapter.sources.ssmix2.source import Ssmix2Source, storage_dir
 from adapter.validate.validator import ValidationResult
 from embed_service.embedder import HashEmbedder
 from lake.store import LAKE_SCHEMA_VERSION, Lake, LakeSchemaError, schema_sha
+from tb_common import id_rule
 from tb_common.crypto import pid_for_mrn
 from tb_contracts import RebuildResult
 
@@ -69,6 +70,7 @@ class _Lakes:
 
     def __call__(self, snap: str, nd: Path) -> RebuildResult:
         self.calls.append(snap)
+        id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
         st = self.lake.rebuild(snap, HashEmbedder(), nd)
         return RebuildResult(snapshot=st.snapshot, tables=st.tables, chunks=st.chunks, embedded_new=st.embedded_new,
                              seconds=st.seconds)  # fmt: skip
@@ -205,6 +207,7 @@ def _one_patient_lake(tmp_path: Path) -> Lake:
     (nd / "Patient.ndjson").write_text(json.dumps(pat) + "\n")
     (nd / "DocumentReference.ndjson").write_text("\n".join(json.dumps(d, ensure_ascii=False) for d in docs) + "\n")
     lake = Lake(tmp_path / "lake")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     lake.rebuild("2026-10-05", HashEmbedder(), nd)
     return lake
 
@@ -282,6 +285,7 @@ def test_sidecar_hashes_catch_a_changed_file(tmp_path: Path) -> None:
     # retention removes the sidecars with their snapshot (``<snap>.duckdb*``; ``.source``: the folder read, D-271)
     assert sorted(p.name for p in (tmp_path / "lake" / "db").iterdir()) == [
         "2026-10-05.duckdb",
+        "2026-10-05.duckdb.id_rule",  # D-1253: the id rule of the ids it holds, read when no NDJSON is left
         "2026-10-05.duckdb.sha256",
         "2026-10-05.duckdb.source",
         "gen",  # T-724 (D-490): the date's generations; db/2026-10-05.duckdb is a link to the newest
@@ -300,9 +304,11 @@ def test_a_rebuild_from_a_missing_or_empty_folder_is_refused_and_current_stays(t
     empty.mkdir()
     (empty / "Patient.ndjson").write_text("\n")
     with pytest.raises(RuntimeError, match="holds no patient or clinical record"):
+        id_rule.write_snapshot_record(empty)  # D-1253: a snapshot of this release
         lake.rebuild("2026-11-09", HashEmbedder(), empty)
     assert lake.current() == "2026-10-05" and lake.snapshots() == ["2026-10-05"]
     # a practice site's lake holds only the site's own inputs: allowed when asked for
+    id_rule.write_snapshot_record(empty)  # D-1253: a snapshot of this release
     lake.rebuild("2026-11-09", HashEmbedder(), empty, promote=False, allow_empty=True)
     # the snapshot's own folder is remembered: rebuilding it again (site set-up "Publish") reads the same NDJSON
     assert lake.rebuild("2026-10-05", HashEmbedder()).tables["patient"] == 1

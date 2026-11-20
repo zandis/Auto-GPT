@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
+  "head": "44973dfcde47eefc12bfda7df193143b171f122a",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
+  "reason": "D-1253: lake ids are per patient. Every id of a patient's record holds the patient, so every id column and every id-derived value moves once (proved by tools/goldens_id_proof.py: one one-to-one id map per data set makes every row, funnel, candidate list and outcome equal). The -deletes set's next night now chooses records by content, not by their place in the id-sorted snapshot (tools/golden_nights.py). New set ssmix2-jp-per-patient: numbers repeat across patients.",
   "ref_date": "2026-11-01",
   "ruleset": "RA-JAK",
   "ruleset_version": "1.0.0",
@@ -50,6 +50,50 @@
    }
   },
   "ssmix2-jp": {
+   "first_eligible": {
+    "2026-05": 4,
+    "2026-06": 4,
+    "2026-07": 5,
+    "2026-08": 2,
+    "2026-09": 4,
+    "2026-10": 3
+   },
+   "prevalent": 12,
+   "prevalent_pids_sha": "ee6473eb92dd2f084090d0cc59f0b9914d95674a1491ef4e7e4e11f1aafb392d",
+   "remaining": {
+    "RA-JAK-EXC-01": 26,
+    "RA-JAK-EXC-02": 22,
+    "RA-JAK-EXC-04": 22,
+    "RA-JAK-EXC-05": 22,
+    "RA-JAK-EXC-08": 22,
+    "RA-JAK-EXC-09": 22,
+    "RA-JAK-EXC-10": 22,
+    "RA-JAK-EXC-11": 22,
+    "RA-JAK-INC-01": 345,
+    "RA-JAK-INC-02": 76,
+    "RA-JAK-INC-03": 52,
+    "RA-JAK-INC-04": 37
+   },
+   "start": 400,
+   "unknown": {
+    "RA-JAK-EXC-01": 0,
+    "RA-JAK-EXC-02": 8,
+    "RA-JAK-EXC-04": 12,
+    "RA-JAK-EXC-05": 0,
+    "RA-JAK-EXC-08": 0,
+    "RA-JAK-EXC-09": 0,
+    "RA-JAK-EXC-10": 0,
+    "RA-JAK-EXC-11": 22,
+    "RA-JAK-INC-01": 0,
+    "RA-JAK-INC-02": 0,
+    "RA-JAK-INC-03": 0,
+    "RA-JAK-INC-04": 10
+   },
+   "variants": {
+    "unknown_as_pass": 41
+   }
+  },
+  "ssmix2-jp-per-patient": {
    "first_eligible": {
     "2026-05": 4,
     "2026-06": 4,
@@ -139,46 +183,46 @@
   },
   "synthetic-jp-a-deletes": {
    "first_eligible": {
-    "2026-05": 17,
-    "2026-06": 27,
-    "2026-07": 19,
-    "2026-08": 9,
-    "2026-09": 9,
-    "2026-10": 17
+    "2026-05": 18,
+    "2026-06": 35,
+    "2026-07": 20,
+    "2026-08": 7,
+    "2026-09": 6,
+    "2026-10": 10
    },
-   "prevalent": 41,
-   "prevalent_pids_sha": "14dc5d43895b92d876d715c8595abba31905a821191cb305b4e8f50557b5d67b",
+   "prevalent": 35,
+   "prevalent_pids_sha": "0ab6d98bc5a2d81d8bf0db749e8974d0c1fe5e61dcb026bc792179f07c8ac1aa",
    "remaining": {
     "RA-JAK-EXC-01": 141,
-    "RA-JAK-EXC-02": 118,
-    "RA-JAK-EXC-04": 110,
-    "RA-JAK-EXC-05": 109,
-    "RA-JAK-EXC-08": 106,
-    "RA-JAK-EXC-09": 102,
-    "RA-JAK-EXC-10": 98,
-    "RA-JAK-EXC-11": 98,
-    "RA-JAK-INC-01": 2166,
+    "RA-JAK-EXC-02": 111,
+    "RA-JAK-EXC-04": 106,
+    "RA-JAK-EXC-05": 105,
+    "RA-JAK-EXC-08": 100,
+    "RA-JAK-EXC-09": 97,
+    "RA-JAK-EXC-10": 96,
+    "RA-JAK-EXC-11": 96,
+    "RA-JAK-INC-01": 2165,
     "RA-JAK-INC-02": 478,
-    "RA-JAK-INC-03": 358,
-    "RA-JAK-INC-04": 208
+    "RA-JAK-INC-03": 354,
+    "RA-JAK-INC-04": 193
    },
    "start": 2493,
    "unknown": {
     "RA-JAK-EXC-01": 0,
     "RA-JAK-EXC-02": 35,
-    "RA-JAK-EXC-04": 62,
+    "RA-JAK-EXC-04": 67,
     "RA-JAK-EXC-05": 0,
     "RA-JAK-EXC-08": 0,
     "RA-JAK-EXC-09": 0,
     "RA-JAK-EXC-10": 0,
-    "RA-JAK-EXC-11": 98,
+    "RA-JAK-EXC-11": 96,
     "RA-JAK-INC-01": 8,
     "RA-JAK-INC-02": 0,
     "RA-JAK-INC-03": 0,
-    "RA-JAK-INC-04": 112
+    "RA-JAK-INC-04": 116
    },
    "variants": {
-    "unknown_as_pass": 297
+    "unknown_as_pass": 296
    }
   },
   "synthetic-tw-a": {

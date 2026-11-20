@@ -37,6 +37,7 @@ from lake.client import LakeLocal
 from lake.store import Lake
 from llm_stub.app import app as stub_app
 from matching.cascade.judge import JudgeReply
+from tb_common import id_rule
 from tb_common.llm import LlmClient, LlmError, LlmResult
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR
@@ -267,6 +268,7 @@ def note_lake(
         "".join(json.dumps(d, ensure_ascii=False) + "\n" for d in docs), encoding="utf-8"
     )
     (nd / "Condition.ndjson").write_text("".join(json.dumps(c) + "\n" for c in conditions or []), encoding="utf-8")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp / "lake", "Asia/Tokyo").rebuild(snapshot, HashEmbedder(), nd)
     return LakeLocal(tmp / "lake", HashEmbedder(), "Asia/Tokyo")
 

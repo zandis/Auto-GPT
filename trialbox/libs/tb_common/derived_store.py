@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from tb_common import derived, scores
+from tb_common import derived, id_rule, scores
 from tb_common.db import ENV, Database, Tx
 
 log = logging.getLogger("derived_store")
@@ -82,6 +82,13 @@ CREATE TABLE IF NOT EXISTS batch_run (id BIGINT GENERATED ALWAYS AS IDENTITY PRI
   mapping_version TEXT NOT NULL, defs TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, patients BIGINT,
   inserted BIGINT, failed BIGINT, failed_pids TEXT);
 CREATE INDEX IF NOT EXISTS batch_run_snapshot ON batch_run (snapshot, id)
+""",
+    id_rule.DDL,  # D-1253: the rule the anchors' and inputs' observation ids were made under
+    # D-1253 (review G4): a resolved conflict the one rebuild keeps (a person's decision), and the score row it names,
+    # marked with the earlier id rule they cite; the row is superseded, so nothing reads it as a score again
+    """
+ALTER TABLE score_row ADD COLUMN IF NOT EXISTS id_rule INTEGER;
+ALTER TABLE conflict ADD COLUMN IF NOT EXISTS id_rule INTEGER
 """,
 ]
 
@@ -296,6 +303,7 @@ class DerivedStore:
         mine = [x for x in documented if x.pid == pid and x.score in todo]
         given = {(x.score, x.did): x for x in mine}
         with self._db.transaction() as tx:
+            id_rule.ensure(tx, id_rule.DERIVED)  # D-1253: never rule-2 observation ids beside rule-1 ones
             # one recompute per patient at a time (a night batch and an on-change recompute side by side)
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"{SCHEMA}:{pid}",))
             current = {
@@ -447,6 +455,7 @@ class DerivedStore:
         """Compare documented scores with the computed rows near their date; open a conflict for each that differs
         by more than the tolerance. Returns the number of conflicts opened (an open one is never opened twice)."""
         with self._db.transaction() as tx:
+            id_rule.ensure(tx, id_rule.DERIVED)  # D-1253 review G5: a conflict cites a note's lake id (documented_id)
             return self._check(tx, list(documented), _now())
 
     def _check(self, tx: Tx, documented: list[Documented], now: str) -> int:

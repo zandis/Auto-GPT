@@ -22,7 +22,7 @@ from criteria_compiler.terminology.mapper import Concept, Terminology, ValueSets
 from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
 from lake.store import Lake
-from tb_common import labunit, labvalue
+from tb_common import id_rule, labunit, labvalue
 from tb_contracts import CriterionIR
 
 LOINC = "http://loinc.org"
@@ -155,6 +155,7 @@ def test_a_lab_in_another_unit_of_the_same_kind_is_decided_by_the_sql(tmp_path: 
     }
     for name, rs in rows.items():
         (nd / f"{name}.ndjson").write_text("".join(json.dumps(r) + "\n" for r in rs), encoding="utf-8")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp_path / "lake").rebuild("2026-10-05", HashEmbedder(), nd)
     lake = LakeLocal(tmp_path / "lake", HashEmbedder())
     got = {r["pid"]: r for r in lake.query(sql, [[IDX.isoformat()], list(CASES)]).to_pylist()}

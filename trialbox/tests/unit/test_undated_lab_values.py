@@ -14,6 +14,7 @@ from typing import Any
 
 from embed_service.embedder import HashEmbedder
 from lake.store import Lake
+from tb_common import id_rule
 from tb_common.ruleset import Ruleset
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -57,6 +58,7 @@ def _rules(tmp: Path) -> tuple[Ruleset, Lake]:
     for rtype, items in (("Patient", pts), ("Observation", obs)):
         (feed / f"{rtype}.ndjson").write_text("".join(json.dumps(r) + "\n" for r in items), "utf-8")
     lake = Lake(tmp / "lake", tz="Asia/Tokyo")
+    id_rule.write_snapshot_record(feed)  # D-1253: a snapshot of this release
     lake.rebuild("2026-11-09", HashEmbedder(), ndjson_dir=feed)
 
     def crit(cid: str, kind: str, vs: str, quant: str, op: str, num: float, unit: str) -> Any:

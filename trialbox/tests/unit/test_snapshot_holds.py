@@ -22,6 +22,7 @@ from lake.store import HOLD_TTL_SECONDS, Lake, SnapshotHeld, held_snapshots
 from orchestrator.core import Ctx, Orchestrator, Outcome, Services
 from orchestrator.db import JobDB
 from sitesetup.service import SiteSetup
+from tb_common import id_rule
 from tb_common.audit import AuditLog
 from tb_common.config import Config, ConfigError, load_env, load_settings
 from tb_common.objstore import FsStore
@@ -35,6 +36,7 @@ TZ = "Asia/Taipei"
 def _night(lake_dir: Path, snap: str, n: int) -> None:
     nd = lake_dir / "ndjson" / snap
     nd.mkdir(parents=True, exist_ok=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     pats = [{"resourceType": "Patient", "id": f"syn-{i:03d}", "gender": "female"} for i in range(n)]
     (nd / "Patient.ndjson").write_text("".join(json.dumps(p) + "\n" for p in pats), encoding="utf-8")
     Lake(lake_dir, TZ).rebuild(snap, HashEmbedder())
@@ -85,6 +87,7 @@ def test_pruning_never_removes_a_held_snapshot(tmp_path: Path) -> None:
     for s in nights:
         nd = snapshot_dir(lake_dir, s)
         nd.mkdir(parents=True)
+        id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
         (nd / PASSED).write_text("{}")
         (lake_dir / "db").mkdir(exist_ok=True)
         (lake_dir / "db" / f"{s}.duckdb").write_bytes(b"")
@@ -280,6 +283,7 @@ def test_a_rebuild_passes_the_nights_tombstones_to_the_omop_source(tmp_path: Pat
     lake_dir = tmp_path / "lake"
     nd = lake_dir / "ndjson" / NIGHT
     nd.mkdir(parents=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     (nd / "Patient.ndjson").write_text(json.dumps({"resourceType": "Patient", "id": "p"}) + "\n")
     (nd / "tombstones.json").write_text(json.dumps({"Condition": ["c1", "c2"]}))
     monkeypatch.setattr(store, "lake_rows", rows)

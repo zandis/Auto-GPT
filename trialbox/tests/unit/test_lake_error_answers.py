@@ -16,6 +16,7 @@ import pytest
 from embed_service.embedder import HashEmbedder
 from lake.sqlguard import SqlRejected, check_select
 from lake.store import Lake
+from tb_common import id_rule
 
 NIGHT = "2026-10-04"
 SECRET = "Tanaka-san"  # stands for a value of a row, or a literal in a caller's query
@@ -29,6 +30,7 @@ def api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     d = tmp_path / "lake"
     nd = d / "ndjson" / NIGHT
     nd.mkdir(parents=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     pats = [{"resourceType": "Patient", "id": f"{SECRET}-{i}", "gender": "female"} for i in range(3)]
     (nd / "Patient.ndjson").write_text("".join(json.dumps(p) + "\n" for p in pats), encoding="utf-8")
     lake = Lake(d, "Asia/Taipei")
@@ -89,6 +91,7 @@ def test_a_build_that_fails_in_the_engine_says_so_without_a_rows_value(
     d = tmp_path / "lake"
     nd = d / "ndjson" / NIGHT
     nd.mkdir(parents=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     (nd / "Patient.ndjson").write_text(json.dumps({"resourceType": "Patient", "id": "p1"}) + "\n")
     lake = Lake(d, "Asia/Taipei")
 
@@ -174,6 +177,7 @@ def test_a_failed_build_says_what_kind_of_failure_and_its_log_holds_no_value(
     d = tmp_path / "lake"
     nd = d / "ndjson" / NIGHT
     nd.mkdir(parents=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     (nd / "Patient.ndjson").write_text(json.dumps({"resourceType": "Patient", "id": "p1"}) + "\n")
     lake = Lake(d, "Asia/Taipei")
 
@@ -206,6 +210,7 @@ def test_a_sentence_the_lake_wrote_itself_about_a_build_is_passed_on(
     d = tmp_path / "lake"
     nd = d / "ndjson" / NIGHT
     nd.mkdir(parents=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     (nd / "Patient.ndjson").write_text(json.dumps({"resourceType": "Patient", "id": "p1"}) + "\n")
     lake = Lake(d, "Asia/Taipei")
     lake.rebuild(NIGHT, HashEmbedder())

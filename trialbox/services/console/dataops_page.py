@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -210,6 +211,36 @@ def _detail(text: str) -> dict[str, Any]:
     except (ValueError, AttributeError):
         return {}
     return got if isinstance(got, dict) else {}
+
+
+#: D-1253: the counts of a night's record ids, as the batch row keeps them: (kind, the detail's key); each per record
+#: type (collisions) or per source table (the others)
+ID_COUNTS = (
+    ("collisions", "id_collisions"),
+    ("shared_chart", "ambiguous_charts"),
+    ("review", "steward_review_needed"),
+    ("absent", "links_to_absent_records"),
+    ("deletes", "deletes_without_patient"),
+    ("no_patient", "rejected_no_patient"),
+)
+
+
+_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")  # a record type or a table: never a value of the feed
+
+
+def ids_of(detail: Any) -> list[tuple[str, str, int]]:
+    """D-1253: ``(kind, record type or table, count)`` of the night's id counts (:data:`ID_COUNTS`), largest first
+    in each kind. Counts only: never a number, an id or a patient. A name that is not a short word or a count that is
+    not above zero is not shown; nothing at all when every count is zero (the page is then as before)."""
+    out: list[tuple[str, str, int]] = []
+    for kind, key in ID_COUNTS:
+        kept = detail.get(key) if isinstance(detail, dict) else None
+        if not isinstance(kept, dict):
+            continue
+        rows = [(str(t), n) for t, n in kept.items()
+                if isinstance(t, str) and _NAME.fullmatch(t) and type(n) is int and n > 0]  # fmt: skip
+        out += [(kind, t, n) for t, n in sorted(rows, key=lambda r: (-r[1], r[0]))]
+    return out
 
 
 def unmapped_of(detail: Any) -> list[tuple[str, int]]:
@@ -436,6 +467,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             b=b,
             steps=read(lambda: ops.steps(bid)),
             unmapped=unmapped_of(b.detail),
+            ids=ids_of(b.detail),  # D-1253
             profile=site_profile_of(b.detail),  # 10B-6 (D-1233)
             layer=country_card() if site_profile_of(b.detail) else None,  # 10C-25 (D-1250): the country layer's lines
             may_decide=permit(sess.user.role, DECIDE),

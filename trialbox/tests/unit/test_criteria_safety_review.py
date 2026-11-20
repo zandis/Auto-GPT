@@ -23,7 +23,7 @@ from lake.client import LakeLocal
 from lake.flatten import Flattener, uncertain
 from lake.store import Lake
 from orchestrator.scenarios.evaluate import SqlEngine, structured_verdict
-from tb_common import labunit
+from tb_common import id_rule, labunit
 from tb_common.crypto import pid_for_mrn
 from tb_common.ruleset import Ruleset
 
@@ -207,6 +207,7 @@ def test_a_value_equal_to_the_bound_in_the_other_unit_is_equal(tmp_path: Path) -
     _write(nd, "Patient", [_pat(p) for p in pats])
     _write(nd, "Observation", [_obs(p, 1, CREAT, v, u) for p, (v, u) in pats.items()])
     _write(nd, "Condition", [])
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp_path / "lake").rebuild("2026-10-05", HashEmbedder(), nd)
     lk = LakeLocal(tmp_path / "lake", HashEmbedder())
 
@@ -250,6 +251,7 @@ def test_a_criterion_the_guard_cannot_render_is_unknown_alone(tmp_path: Path, mo
     _write(nd, "MedicationRequest", [_med("P1", 1, GLP1, "2026-09-20")])
     _write(nd, "Observation", [_obs("P1", 1, CREAT, 1.0, "mg/dL")])
     _write(nd, "Condition", [])
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp_path / "lake").rebuild("2026-10-05", HashEmbedder(), nd)
     lk = LakeLocal(tmp_path / "lake", HashEmbedder())
     inc = _crit("SAFE-INC-41", "inclusion", {"domain": "observation", "quantifier": "latest", "valueset": "VS_CREAT",
@@ -287,6 +289,7 @@ def test_a_disagreement_says_rules_changed_and_the_mark_in_text_does_not_switch_
     _write(nd, "Patient", [_pat("P1")])
     _write(nd, "Observation", [_obs("P1", 1, CREAT, 90, "umol/L")])
     _write(nd, "Condition", [])
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp_path / "lake").rebuild("2026-10-05", HashEmbedder(), nd)
     lk = LakeLocal(tmp_path / "lake", HashEmbedder())
     logic = {"domain": "observation", "quantifier": "latest", "valueset": "VS_CREAT",

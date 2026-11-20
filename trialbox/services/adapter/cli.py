@@ -32,11 +32,13 @@ from pathlib import Path
 from typing import Any
 
 from tb_common.config import ConfigError, load
+from tb_common.id_rule import IdRuleError
 from tb_common.logging import setup_logging
 from tb_contracts import RebuildResult, dump
 
 from adapter import site_profile
 from adapter.governance import contracts_dir
+from adapter.mapping.engine import UnsupportedIdForm
 from adapter.mapping.site import resolve as resolve_mapping
 from adapter.pipeline import AdapterConfig, FutureNight, LakeBudgetError, NoRoomForNight, SiteKeyError, run_ingest
 
@@ -260,8 +262,23 @@ def main(argv: list[str] | None = None) -> int:
         return pid_merge(ac, args.old, args.new, args.reason, args.ticket)
     kind = args.source or default_kind
     path = args.dsn or args.path or default_path
-    if args.cmd == "backfill":
-        return backfill_cmd(ac, kind, path, args)
+    from adapter.runs import RunLock, RunLockHeld
+
+    try:  # D-1253 deep review: a night or a back-fill from the command line holds the run lock as the service's does,
+        lock = RunLock(ac.lake_dir)  # so the one id-rule rebuild (and a second run) keeps it out
+    except RunLockHeld as exc:
+        print(f"refused, nothing was read or written: {exc}", file=sys.stderr)
+        return 2
+    try:
+        if args.cmd == "backfill":
+            return backfill_cmd(ac, kind, path, args)
+        return _run_cmd(ac, kind, path, args)
+    finally:
+        lock.release()
+
+
+def _run_cmd(ac: AdapterConfig, kind: str, path: str, args: argparse.Namespace) -> int:
+    """``adapter run``: one night (the caller holds the run lock)."""
     try:
         report = run_ingest(
             ac,
@@ -273,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
             rebuild_lake=not args.no_lake,
             validate=not args.no_validate,
         )
-    except (SiteKeyError, FutureNight, NoRoomForNight, LakeBudgetError) as exc:
+    except (SiteKeyError, FutureNight, NoRoomForNight, LakeBudgetError, IdRuleError, UnsupportedIdForm) as exc:
         print(f"night refused, nothing was read or written: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(dump(report), ensure_ascii=False, indent=1))
@@ -295,7 +312,7 @@ def backfill_cmd(ac: AdapterConfig, kind: str, path: str, args: argparse.Namespa
             validate=not args.no_validate,
             rebuild_lake=not args.no_lake,
         )
-    except (SiteKeyError, FutureNight) as exc:
+    except (SiteKeyError, FutureNight, IdRuleError, UnsupportedIdForm) as exc:
         print(f"back-fill refused, nothing was read or written: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(rep.as_dict(), ensure_ascii=False, indent=1))

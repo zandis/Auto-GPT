@@ -417,6 +417,64 @@ class RunResult:
         return not self.failures
 
 
+#: D-1253: each table's own number column, and the columns of other tables that name a visit by its number
+NUMBERS = {"encounter": "enc_no", "appointment": "appt_no", "diagnosis": "diag_no", "lab": "lab_no",
+           "vital": "vital_no", "medication": "rx_no", "procedure": "proc_no", "report": "rpt_no", "note": "note_no",
+           "claim": "claim_no"}  # fmt: skip
+VISIT_LINKS = ("diagnosis", "vital", "medication", "note")
+
+
+def per_patient_numbers(src: Path, out: Path) -> dict[str, int]:
+    """D-1253: the site's tables with every record number a running number **per patient** (``E0001``, ``E0002``
+    for each patient's visits, ``RX0001`` for each patient's first order, ...), so every number repeats across
+    patients, as a hospital system's numbers may (an SS-MIX2 order number is unique per patient, day and type only).
+    A visit named by another table (``enc_no``) is renamed with it. Writes the table CSVs only (the gold and truth
+    files name the generator's numbers); returns how many numbers repeat across patients, per table."""
+    out.mkdir(parents=True, exist_ok=True)
+    visits: dict[str, str] = {}
+    repeated: dict[str, int] = {}
+
+    def read(name: str) -> tuple[list[str], list[dict[str, str]]]:
+        path = src / f"{name}.csv"
+        if not path.exists():
+            return [], []
+        with path.open(encoding="utf-8", newline="") as fh:
+            rd = csv.DictReader(fh)
+            return list(rd.fieldnames or []), list(rd)
+
+    order = ["encounter", *[t for t in TABLES if t != "encounter"]]
+    for name in order:
+        cols, rows = read(name)
+        if not cols:
+            continue
+        col = NUMBERS.get(name)
+        if col:
+            n: Counter[str] = Counter()
+            new_of: dict[str, str] = {}
+            for r in rows:
+                old = r[col]
+                if old not in new_of:
+                    n[r["mrn"]] += 1
+                    prefix = re.match(r"\D*", old).group(0) if old else ""  # type: ignore[union-attr]
+                    new_of[old] = f"{prefix}{n[r['mrn']]:04d}"
+                r[col] = new_of[old]
+            if name == "encounter":
+                visits = new_of
+            owners: dict[str, set[str]] = defaultdict(set)
+            for r in rows:
+                owners[r[col]].add(r["mrn"])
+            repeated[name] = sum(1 for v in owners.values() if len(v) > 1)
+        if name in VISIT_LINKS and "enc_no" in cols:
+            for r in rows:
+                if r.get("enc_no"):
+                    r["enc_no"] = visits.get(r["enc_no"], r["enc_no"])
+        with (out / f"{name}.csv").open("w", encoding="utf-8", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=cols)
+            w.writeheader()
+            w.writerows(rows)
+    return repeated
+
+
 def run(
     out: Path,
     *,

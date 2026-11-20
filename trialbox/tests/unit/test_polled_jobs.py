@@ -21,6 +21,7 @@ import httpx
 import pytest
 from embed_service.embedder import HashEmbedder
 from lake.store import Lake
+from tb_common import id_rule
 
 NIGHT = "2026-10-04"
 TZ = "Asia/Taipei"
@@ -245,6 +246,7 @@ def test_a_publish_in_progress_survives_a_restart(tmp_path: Path) -> None:
 def _patients(lake_dir: Path, snap: str, n: int) -> None:
     nd = lake_dir / "ndjson" / snap
     nd.mkdir(parents=True, exist_ok=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     pats = [{"resourceType": "Patient", "id": f"syn-{i:03d}", "gender": "female"} for i in range(n)]
     (nd / "Patient.ndjson").write_text("".join(json.dumps(p) + "\n" for p in pats), encoding="utf-8")
 
@@ -321,6 +323,7 @@ def test_a_refusal_found_during_the_build_is_a_state(lake_dir: Path, monkeypatch
     assert api.post("/rebuild", json={"snapshot": "2026-10-09"}).status_code == 409  # no NDJSON folder
     nd = lake_dir / "ndjson" / "2026-10-06"
     nd.mkdir(parents=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     (nd / "Patient.ndjson").write_text("\n")
     assert api.post("/rebuild", json={"snapshot": "2026-10-06"}).status_code == 202
     st = _wait(lambda: api.get("/rebuild/2026-10-06").json())

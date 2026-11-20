@@ -5,6 +5,8 @@ the sponsor. Joined into ``console.i18n`` last."""
 
 from __future__ import annotations
 
+from tb_common import id_rule
+
 EN: dict[str, str] = {
     "edc.title": "EDC prefill",
     "edc.help": "TrialBox drafts eCRF values from the hospital record, each with its source. A draft is never a trial value: the coordinator checks each value against its source, confirms or changes it, and signs. Only signed values go to REDCap or into the ODM file.",
@@ -868,3 +870,7 @@ ZH: dict[str, str] = {
     "edc.err.edc.reentry_record": "此試驗尚無盲性重新輸入的結果紀錄，請先由管理者連同報告編號記錄。",
     "edc.err.edc.reentry_same_person": "重新輸入的結果是你記錄的，須由另一人記錄。",
 }
+
+EN.update(id_rule.EN)
+JA.update(id_rule.JA)
+ZH.update(id_rule.ZH)

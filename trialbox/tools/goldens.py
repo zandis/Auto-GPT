@@ -27,8 +27,9 @@ lake with a tenth of its clinical records and half of the site's inputs gone: th
 ``synthetic-jp-a-restored`` (the night after, everything back as on the first night: the OMOP store lifts the
 tombstones; lake tables only, no ruleset); ``ssmix2-jp`` (400 synthetic patients written as SS-MIX2 standardized
 and extended storage by ``tools.ssmix2_export``, HL7 v2 read through the JP Core mapping, D-137); ``public-en`` (the
-53 SIGIR notes of ``tools.public_site``: a notes-only site). The site key is fixed, so the pseudonyms are the same
-on every machine.
+53 SIGIR notes of ``tools.public_site``: a notes-only site); ``ssmix2-jp-per-patient`` (the same 400 patients with
+every record number a running number per patient, so numbers repeat across patients: D-1253). The site key is fixed,
+so the pseudonyms are the same on every machine.
 
 A golden is JSON sorted by key; its ``meta`` names the generator and its seed, the ruleset version, the lake schema
 version, the git HEAD that wrote it and the reason. ``--check`` compares everything but ``meta.head`` and
@@ -142,19 +143,11 @@ def _drop(rows: list[dict[str, Any]], every: int) -> list[dict[str, Any]]:
 
 
 def next_night(ndjson: Path, out: Path) -> None:
-    """The next night's feed: the same snapshot with a tenth of the clinical records gone (deleted at the source)
-    and every 25th remaining numeric result corrected in place (the OMOP store updates it, with its before-image).
-    Patients stay (removing a person is the opt-out path's job, never a feed delta's)."""
-    out.mkdir(parents=True, exist_ok=True)
-    for f in sorted(ndjson.glob("*.ndjson")):
-        rows = [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines() if line.strip()]
-        if f.stem != "Patient":
-            rows = _drop(rows, 10)
-        if f.stem == "Observation":
-            numeric = [r for r in rows if isinstance((r.get("valueQuantity") or {}).get("value"), int | float)]
-            for r in numeric[::25]:
-                r["valueQuantity"]["value"] = round(r["valueQuantity"]["value"] + 1, 4)
-        (out / f.name).write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    """The next night's feed (``tools.golden_nights``: which records go and which results are corrected follows their
+    content, never their ids, D-1253)."""
+    from tools.golden_nights import next_night as chosen
+
+    chosen(ndjson, out)
 
 
 def build_sets(work: Path) -> list[Built]:
@@ -224,6 +217,19 @@ def build_sets(work: Path) -> list[Built]:
     lake.rebuild(snap, HashEmbedder(), nd)
     out.append(Built("ssmix2-jp", "SS-MIX2 storage (HL7 v2)", lake.dir, snap, REF, "Asia/Tokyo",
                      store=_store_now(lake.dir)))  # fmt: skip
+    # D-1253: the same patients with every record number a running number per patient (E0001 is every patient's
+    # first visit), as a hospital system's numbers may repeat: each patient keeps every record of their own
+    from tools.synth_hospital import per_patient_numbers
+
+    per_patient_numbers(work / "synth-ss" / "jp-ss", work / "synth-ss" / "jp-ss-per-patient")
+    export(work / "synth-ss" / "jp-ss-per-patient", work / "ssmix2-per-patient")
+    nd = parity._ingest(work, "ssmix2", work / "ssmix2-per-patient", snap, "Asia/Tokyo", "jp_core/ssmix2_site.yaml",
+                        "jp-ss", name="jp-ss-per-patient")  # fmt: skip
+    lake = Lake(work / "lake-ssmix2-jp-per-patient", "Asia/Tokyo")
+    lake.rebuild(snap, HashEmbedder(), nd)
+    out.append(Built("ssmix2-jp-per-patient", "SS-MIX2 storage, numbers repeating across patients", lake.dir, snap,
+                     REF, "Asia/Tokyo", store=_store_now(lake.dir)))  # fmt: skip
+    shutil.rmtree(work / "ssmix2-per-patient", ignore_errors=True)
     shutil.rmtree(work / "synth-ss", ignore_errors=True)
     shutil.rmtree(work / "ssmix2", ignore_errors=True)
 

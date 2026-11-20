@@ -16,6 +16,7 @@ import pytest
 from embed_service.embedder import HashEmbedder
 from lake import build
 from lake.store import BuildLock, Lake, SnapshotBuilding, build_running, read_rebuild_job, write_rebuild_job
+from tb_common import id_rule
 
 NIGHT, NEXT = "2026-10-04", "2026-10-05"
 TZ = "Asia/Taipei"
@@ -24,6 +25,7 @@ TZ = "Asia/Taipei"
 def _patients(lake_dir: Path, snap: str, n: int) -> None:
     nd = lake_dir / "ndjson" / snap
     nd.mkdir(parents=True, exist_ok=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     pats = [{"resourceType": "Patient", "id": f"syn-{i:03d}", "gender": "female"} for i in range(n)]
     (nd / "Patient.ndjson").write_text("".join(json.dumps(p) + "\n" for p in pats), encoding="utf-8")
 
@@ -77,6 +79,7 @@ def test_a_build_without_promote_from_a_folder_of_its_own_is_built_and_not_serve
     other = lake_dir.parent / "feed" / NEXT
     other.mkdir(parents=True)
     (other / "Patient.ndjson").write_text(json.dumps({"resourceType": "Patient", "id": "p1"}) + "\n")
+    id_rule.write_snapshot_record(other)  # D-1253: a snapshot of this release
     argv, _ = _handed(lake_dir, NEXT, ndjson_dir=str(other), promote=False, check=True)
     assert build.main(argv) == 0
     end = read_rebuild_job(lake_dir, NEXT)
@@ -87,6 +90,7 @@ def test_a_build_without_promote_from_a_folder_of_its_own_is_built_and_not_serve
 def test_a_refusal_found_in_the_build_is_the_jobs_end_and_the_process_ends_well(lake_dir: Path) -> None:
     nd = lake_dir / "ndjson" / NEXT
     nd.mkdir(parents=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     (nd / "Patient.ndjson").write_text("\n")
     argv, _ = _handed(lake_dir, NEXT)
     assert build.main(argv) == 0  # the job's end says what happened; the process itself did its work

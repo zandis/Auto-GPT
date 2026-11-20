@@ -17,6 +17,7 @@ import pytest
 from lake.sqlguard import check_select
 from matching import proposed
 from matching.proposed import Proposed, site_basis
+from tb_common import id_rule
 
 
 class _Lake:
@@ -163,6 +164,7 @@ def test_on_a_real_lake_a_snapshot_without_the_table_and_one_with_it(tmp_path: P
     )
     store = Lake(tmp_path / "lake")
     for snap in ("2026-10-01", "2026-11-01"):
+        id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
         store.rebuild(snap, HashEmbedder(), nd)
     old = store.db_path("2026-10-01")
     con = duckdb.connect(str(old))

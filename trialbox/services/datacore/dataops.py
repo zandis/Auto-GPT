@@ -69,6 +69,14 @@ DETAIL_KEYS = (
     "orphans",
     "quarantined",
     "duplicate_keys",
+    # D-1253: per record type or table, counts only: rows of one id with other content, links to a patient's record
+    # the lake does not hold, deletes that named no patient, rows with no chart number
+    "id_collisions",
+    "ambiguous_charts",
+    "links_to_absent_records",
+    "deletes_without_patient",
+    "rejected_no_patient",
+    "steward_review_needed",  # D-1253 ruling 1: records a steward decided before the id rebuild, awaiting review
     "unmapped",
     "unmapped_kinds",  # NEW-B-39 (D-740): the same rows per table split by kind, counts only
     "site_profile",  # 10B-6 (D-1233): the profile's id, version, digest and coverage counts (type names, no code)

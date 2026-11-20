@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 from adapter import ndjson
 from adapter.sources.csv.source import CsvSource
+from tb_common import id_rule
 
 from tools.trialbox import memcaps
 
@@ -245,6 +246,7 @@ def test_a_previous_snapshot_written_by_hand_out_of_order_is_still_merged(tmp_pa
     base.mkdir()
     rows = [{"resourceType": "Condition", "id": i, "code": {"text": i}} for i in ("c3", "c1", "c2", "c1")]
     (base / "Condition.ndjson").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    id_rule.write_snapshot_record(base)  # D-1253: a snapshot of this release says its id rule
     counts = ndjson.write_snapshot(tmp_path / "out", {"Condition": [{"resourceType": "Condition", "id": "c0"}]}, base)
     got = [json.loads(x)["id"] for x in (tmp_path / "out" / "Condition.ndjson").read_text().splitlines()]
     assert got == ["c0", "c1", "c2", "c3"] and counts == {"Condition": 4}

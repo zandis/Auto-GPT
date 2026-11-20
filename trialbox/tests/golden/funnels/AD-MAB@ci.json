@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
+  "head": "44973dfcde47eefc12bfda7df193143b171f122a",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
+  "reason": "D-1253: lake ids are per patient. Every id of a patient's record holds the patient, so every id column and every id-derived value moves once (proved by tools/goldens_id_proof.py: one one-to-one id map per data set makes every row, funnel, candidate list and outcome equal). The -deletes set's next night now chooses records by content, not by their place in the id-sorted snapshot (tools/golden_nights.py). New set ssmix2-jp-per-patient: numbers repeat across patients.",
   "ref_date": "2026-11-01",
   "ruleset": "AD-MAB",
   "ruleset_version": "1.0.0",
@@ -58,6 +58,29 @@
     "unknown_as_pass": 0
    }
   },
+  "ssmix2-jp-per-patient": {
+   "first_eligible": {},
+   "prevalent": 0,
+   "prevalent_pids_sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "remaining": {
+    "AD-MAB-EXC-01": 0,
+    "AD-MAB-EXC-03": 0,
+    "AD-MAB-EXC-04": 0,
+    "AD-MAB-INC-01": 217,
+    "AD-MAB-INC-02": 0
+   },
+   "start": 400,
+   "unknown": {
+    "AD-MAB-EXC-01": 0,
+    "AD-MAB-EXC-03": 0,
+    "AD-MAB-EXC-04": 0,
+    "AD-MAB-INC-01": 0,
+    "AD-MAB-INC-02": 0
+   },
+   "variants": {
+    "unknown_as_pass": 0
+   }
+  },
   "synthetic-jp-a": {
    "first_eligible": {},
    "prevalent": 0,
@@ -89,7 +112,7 @@
     "AD-MAB-EXC-01": 0,
     "AD-MAB-EXC-03": 0,
     "AD-MAB-EXC-04": 0,
-    "AD-MAB-INC-01": 1371,
+    "AD-MAB-INC-01": 1370,
     "AD-MAB-INC-02": 0
    },
    "start": 2493,

@@ -13,6 +13,7 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
 from adapter.backfill import backfill
 from adapter.ndjson import snapshot_dir
 from adapter.pipeline import COMPLETENESS, UNMAPPED_CODES, run_ingest
@@ -133,3 +134,69 @@ def test_a_required_table_is_asked_of_the_first_load_too(tmp_path: Path, db_url:
     cfg = dataclasses.replace(_cfg(tmp_path, "lake"), required_tables=("claim",))
     rep = backfill(cfg, "csv", str(feed), snapshot=SNAP, validate=False, rebuild_lake=False)
     assert rep.state == "held" and any(e.startswith("claim: required table missing") for e in rep.errors), rep.errors
+
+
+def test_the_first_load_counts_what_the_night_counts_of_record_ids(tmp_path: Path, db_url: str) -> None:
+    """D-1253 (review F): the back-fill counts, as the night does, two rows of one patient with one number and other
+    content (``id_collisions``, the last kept), rows with no chart number (``rejected_no_patient``, by reason) and
+    deleted rows with no chart number (``deletes_without_patient``); in its report, its completeness record and its
+    audit event."""
+    feed = _feed(tmp_path)
+    fields, diags = _rows(feed / "diagnosis.csv")
+    fields = [*fields, "deleted"]
+    no_patient = {**diags[0], "mrn": ""}
+    other = {**diags[1], "icd10": "I10" if diags[1]["icd10"] != "I10" else "E11.9"}
+    gone = {**diags[2], "diag_no": "DX-GONE", "mrn": "", "deleted": "1"}
+    _write(feed / "diagnosis.csv", fields, [no_patient, *diags[1:], other, gone])
+    cfg = _cfg(tmp_path, "lake")
+    rep = backfill(cfg, "csv", str(feed), snapshot=SNAP, validate=False, rebuild_lake=False)
+    assert rep.state == "published", rep.errors
+    assert rep.id_collisions == {"Condition": 1}
+    assert rep.rejected_no_patient == {"diagnosis": 1}
+    assert rep.deletes_without_patient == {"diagnosis": 1}
+    comp = json.loads((snapshot_dir(cfg.lake_dir, SNAP) / COMPLETENESS).read_text(encoding="utf-8"))
+    assert comp["id_collisions"] == {"Condition": 1}
+    reasons = comp["tables"]["diagnosis"]["rejected"]
+    assert sum(n for k, n in reasons.items() if ": no patient (" in k) == 1
+    events = [json.loads(x) for f in sorted((tmp_path / "audit").rglob("*.jsonl")) for x in f.open()]
+    (done,) = [e for e in events if e.get("event") == "ingest.backfill"]
+    assert done["detail"]["rejected_no_patient"] == {"diagnosis": 1}
+    assert done["detail"]["deletes_without_patient"] == {"diagnosis": 1}
+    assert done["detail"]["id_collisions"] == {"Condition": 1}
+
+
+def test_the_first_load_counts_links_to_absent_records_as_the_night_does(tmp_path: Path, db_url: str) -> None:
+    """D-1253 (review round 3, item 8): a diagnosis naming a visit the feed never sent for its patient is a link to
+    a record the lake does not hold. The back-fill counts it per table and type over the published snapshot, in its
+    report, its completeness record and its audit event, as the night does."""
+    feed = _feed(tmp_path)
+    fields, diags = _rows(feed / "diagnosis.csv")
+    _write(feed / "diagnosis.csv", fields, [{**diags[0], "enc_no": "E-NEVER-SENT"}, *diags[1:]])
+    cfg = _cfg(tmp_path, "lake")
+    rep = backfill(cfg, "csv", str(feed), snapshot=SNAP, validate=False, rebuild_lake=False)
+    assert rep.state == "published", rep.errors
+    assert rep.links_to_absent_records == {"diagnosis": {"Encounter": 1}}
+    comp = json.loads((snapshot_dir(cfg.lake_dir, SNAP) / COMPLETENESS).read_text(encoding="utf-8"))
+    assert comp["links_to_absent_records"] == {"diagnosis": {"Encounter": 1}}
+    events = [json.loads(x) for f in sorted((tmp_path / "audit").rglob("*.jsonl")) for x in f.open()]
+    (done,) = [e for e in events if e.get("event") == "ingest.backfill"]
+    assert done["detail"]["links_to_absent_records"] == {"diagnosis": 1}
+
+
+def test_a_first_load_refused_for_the_id_rule_writes_one_audit_event_and_nothing_else(tmp_path: Path) -> None:
+    """D-1253 (review round 3, item 8): a back-fill over a lake of the earlier id rule is refused before anything is
+    read or written, with one ``ingest.backfill`` event that says so, as the night writes one ``ingest.failed``."""
+    from tb_common import id_rule
+
+    feed = _feed(tmp_path)
+    cfg = _cfg(tmp_path, "lake")
+    old = snapshot_dir(cfg.lake_dir, "2026-01-01")
+    old.mkdir(parents=True)
+    (old / "Condition.ndjson").write_text('{"resourceType": "Condition", "id": "c1"}\n')  # no record: rule 1
+    with pytest.raises(id_rule.IdRuleError):
+        backfill(cfg, "csv", str(feed), snapshot=SNAP, validate=False, rebuild_lake=False)
+    events = [json.loads(x) for f in sorted((tmp_path / "audit").rglob("*.jsonl")) for x in f.open()]
+    (refused,) = [e for e in events if e.get("event") == "ingest.backfill"]
+    assert refused["detail"]["state"] == "failed" and refused["detail"]["refused"] == "id_rule"
+    assert "earlier rule" in refused["detail"]["reason"]
+    assert not (cfg.lake_dir / "backfill").exists() and not snapshot_dir(cfg.lake_dir, SNAP).exists()

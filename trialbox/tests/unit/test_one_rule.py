@@ -32,6 +32,7 @@ from matching.proposed import (
 )
 from orchestrator.scenarios.evaluate import SqlEngine, structured_verdict
 from orchestrator.scenarios.feas_compute import FeasParams, compute
+from tb_common import id_rule
 from tb_common.reasons import LABELS, Reason, code_of
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR
@@ -179,6 +180,7 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     for t, rows in by.items():
         (nd / f"{t}.ndjson").write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
     lake_dir = tmp_path_factory.mktemp("rule-lake")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(lake_dir).rebuild(SNAP, HashEmbedder(), nd)
     base = Ruleset.load(ROOT / "rulesets" / "GOUT-COH").manifest
     manifest = base.model_copy(update={"id": "RULE", "library": None, "criteria": [c.id for c in CRITERIA]})

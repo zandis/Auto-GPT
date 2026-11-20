@@ -18,10 +18,11 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from tb_common import chartno, feedguard, labvalue, refdata
+from tb_common import chartno, feedguard, id_rule, labvalue, refdata
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
+from tb_common.id_rule import IdRuleError
 from tb_common.site_profile import Profile as SiteProfile
 from tb_common.site_profile import ProfileError
 from tb_common.unmapped import KINDS
@@ -30,9 +31,10 @@ from tb_contracts.landing import Severity
 
 from adapter import governance
 from adapter.instants import to_site_offset
-from adapter.mapping.engine import Mapper, Mapping, pivot_rows, resource_id
+from adapter.mapping.engine import Mapper, Mapping, UnsupportedIdForm, pivot_rows, resource_id
 from adapter.ndjson import (
     Spool,
+    absent_links,
     alias_patient,
     alias_references,
     is_deleted_flag,
@@ -171,6 +173,21 @@ def check_site_key(cfg: AdapterConfig, key: bytes) -> str:
     return fp
 
 
+def check_id_rule(cfg: AdapterConfig) -> None:
+    """D-1253: refuse the night, before anything is read or written, when the lake or a store this role reads holds
+    lake ids of an earlier rule (:mod:`tb_common.id_rule`): the lake's snapshots, the OMOP store of record and the
+    derived store. :class:`tb_common.id_rule.IdRuleError` names what holds old ids.
+
+    Review round 3: the adapter's role is meant to read the OMOP and the derived store, so a rule it cannot read
+    there ("not readable": no privilege, or the probe failed) refuses the night as an old rule does. The stores the
+    adapter's role is not meant to read (D-378: vec, the patient twin, the candidate pool, the EDC drafts) are never
+    probed here: for them "not readable" is expected, and each refuses at its own first write
+    (:func:`tb_common.id_rule.ensure`)."""
+    from omop.schema import check_lake_stores
+
+    check_lake_stores(cfg.lake_dir, cfg.db_url)
+
+
 def load_site_profile(cfg: AdapterConfig, source_kind: str) -> tuple[SiteProfile | None, dict[str, Any]]:
     """10B-6 (D-1233): the profile the night reads with and what the night says of it
     (:func:`adapter.site_profile.for_night`): only the version a person loaded (``load --by``) is applied, checked
@@ -238,12 +255,35 @@ def make_source(
 _REF_RE = re.compile(r"^([A-Z][A-Za-z]+)/(.+)$")
 
 
+def check_bulk_rule(source_kind: str) -> None:
+    if source_kind == "fhir_bulk" and chartno.site_rule() != chartno.ASIS:
+        raise UnsupportedIdForm("dataops.ids.bulk_chart_rule")
+
+
 def bulk_id(key: bytes, rtype: str, rid: str) -> str:
     """The id a ``fhir_bulk`` resource gets in the box (the same rule for the resource, its references and its
     tombstone)."""
     if rtype == "Practitioner":
         return rid
-    return pid_for_mrn(key, rid) if rtype == "Patient" else resource_id(key, rtype, rid)
+    if rtype == "Patient":
+        check_bulk_rule("fhir_bulk")
+        if chartno.normalise(chartno.ASIS, rid) != rid:
+            raise UnsupportedIdForm("dataops.ids.bulk_patient_id")
+        return pid_for_mrn(key, rid)
+    return resource_id(key, rtype, rid)
+
+
+def mark_for_review(
+    resources: Iterator[Resource], review: frozenset[tuple[str, str]], counts: Counter[str]
+) -> Iterator[Resource]:
+    """D-1253 second review, finding 8: a ``fhir_bulk`` resource whose id (the server's, kept across the rule) is on
+    the rebuild's review list is a proposed fact with the review tag, as the mapped door marks its records
+    (``Mapper.review``); counted per type in ``counts``."""
+    for r in resources:
+        if review and (str(r.get("resourceType")), str(r.get("id"))) in review:
+            id_rule.tag_for_review(r)
+            counts[str(r["resourceType"])] += 1
+        yield r
 
 
 def pseudonymise_bulk(resources: Iterator[Resource], key: bytes) -> Iterator[Resource]:
@@ -524,7 +564,7 @@ def run_ingest(
                 validator=validator,
                 cleanup=cleanup,
             )
-    except SiteKeyError:  # T-612 audits its own refusal (with the reason); one event per night
+    except SiteKeyError:  # T-612: audited where refused
         raise
     except Exception as exc:
         if cfg.audit_dir:
@@ -541,6 +581,11 @@ def run_ingest(
                     detail={
                         "source": source_kind,
                         "since": since,
+                        **(
+                            {"refused": "id_rule", "reason": str(exc)}
+                            if isinstance(exc, (IdRuleError, UnsupportedIdForm))
+                            else {}
+                        ),
                         "error": type(exc).__name__,
                         "step": at["step"],
                         "table": at["table"],
@@ -600,6 +645,8 @@ def _run_ingest(
             )
         raise
     at["batch"] = _open_night(cfg, source_kind, snap, started.isoformat())  # T-723 (D-489): the row, from the start
+    check_id_rule(cfg)
+    check_bulk_rule(source_kind)
     try:  # T-612: before anything is read or written
         key = cfg.site_key()
         check_site_key(cfg, key)
@@ -614,9 +661,6 @@ def _run_ingest(
             )
         raise
     errors: list[str] = []
-    # T-692 (D-473): every mapped resource goes to disk as it is made; the night is never held in memory. The spool
-    # is scratch on the lake volume (``lake:tmp``), removed when the night ends
-    spool = cleanup.enter_context(contextlib.closing(Spool(cfg.lake_dir / "tmp" / f"ingest-{snap}")))
     patient_ids: list[str] = []  # in the order sent: the merged chart numbers drop by id alone
 
     def to_spool(r: Resource) -> None:
@@ -633,6 +677,7 @@ def _run_ingest(
     tombstones: dict[str, set[str]] = {}  # type -> ids deleted at the source (dataflow review P0-1)
     left_out: dict[str, set[str]] = {}  # D-528: type -> ids a row of a delta night no longer gives
     tables: dict[str, dict[str, Any]] = {}  # T-611: per source table, present / rows / duplicate keys
+    bulk_review: Counter[str] = Counter()  # D-1253 second review, finding 8: a bulk night's marked records, by type
     unmapped_codes: dict[str, dict[str, dict[str, int]]] = {}  # NEW-DIN-6: table -> look-up -> code -> rows
     quarantined: dict[str, str] = {}  # T-615b: table -> why its file was quarantined
     current_before = _current(cfg.lake_dir)
@@ -665,29 +710,39 @@ def _run_ingest(
 
         over = merge_base(cfg.lake_dir, snap)
         said = sp.night_profile(snapshot_dir(cfg.lake_dir, over)) if over else None
-        if (said or {}).get("digest") != (profile.digest if profile is not None else None):
+        previous_source = _source_of(snapshot_dir(cfg.lake_dir, over)) if over else None
+        profile_changed = (said or {}).get("digest") != (profile.digest if profile is not None else None)
+        if profile_changed and previous_source in (None, source_kind):
             log.warning("site profile changed since night %s: this night reads whole, not since %s", over, since)
             since, profile_full = None, True
     at["step"] = "read"
     from adapter.read_timing import ReadTimes
 
+    if source_kind != "fhir_bulk":
+        mapping = Mapping.load(
+            cfg.mapping_path,
+            {u.split(".", 1)[1]: p for u, p in (profile_files or {}).items() if u.startswith("mapping.")} or None,
+        )
+    # T-692 (D-473): every mapped resource goes to disk as it is made; the night is never held in memory. The spool
+    # is scratch on the lake volume (``lake:tmp``), removed when the night ends
+    spool = cleanup.enter_context(contextlib.closing(Spool(cfg.lake_dir / "tmp" / f"ingest-{snap}")))
     read_times = ReadTimes()  # 10E-9 (review 13-10): the connector's own time per message, for the report
-    if source_kind == "fhir_bulk":
+    if mapping is None:
         from adapter.sources.fhir_bulk.source import FhirBulkSource
 
         bulk = FhirBulkSource(Path(source_path))
         inputs += [p for p in Path(source_path).iterdir() if p.is_file()]
         timed = read_times.timed(lambda r: str(r.get("resourceType") or "?"), bulk.resources())
-        for r in pseudonymise_bulk(timed, key):
+        for r in mark_for_review(
+            pseudonymise_bulk(timed, key), id_rule.read_review(cfg.lake_dir, include_candidates=False), bulk_review
+        ):
             to_spool(r)
+        for rtype, n in sorted(bulk_review.items()):  # D-1253 second review, finding 8: counts only
+            log.warning("%s: %d %s", rtype, n, id_rule.REVIEW_NEEDED)
         for rtype, rid in bulk.deleted():
             if rtype != "Patient":  # removing a person is the opt-out path's job, never a feed delta's
                 tombstones.setdefault(rtype, set()).add(bulk_id(key, rtype, rid))
     else:
-        mapping = Mapping.load(
-            cfg.mapping_path,
-            {u.split(".", 1)[1]: p for u, p in (profile_files or {}).items() if u.startswith("mapping.")} or None,
-        )
         if profile is not None:
             from adapter import site_profile as sp
 
@@ -706,6 +761,10 @@ def _run_ingest(
             mrn_regex=cfg.mrn_regex,  # CGRD-A4 (D-816, lane E's hunk): a masked text uses the site's pattern
         )  # fmt: skip
         fhir_profiles = mapping.fhir_profiles
+        mapper.source_kind = source_kind
+        mapper.review = id_rule.read_review(
+            cfg.lake_dir, include_candidates=False
+        )  # D-1253 ruling 1: decided records, marked for review
         if profile is not None:  # 10B-6 (D-1233): a fact from a row still to verify carries D-135's basis tag
             from adapter.site_profile import verify_rules
 
@@ -730,10 +789,14 @@ def _run_ingest(
                     "%s: read whole on this delta night: the reference data did not answer for it on %s (D-538)",
                     table, said_by,
                 )  # fmt: skip
-        for table, tspec in mapping.tables.items():
+        patient_specs = mapper.patient_specs
+        for table in sorted(mapping.tables, key=lambda name: name not in patient_specs):
+            tspec = mapping.tables[table]
             at["table"] = table
             src, src_name = source, tspec["source"]
             since_t = None if table in whole or table in mapping.read_whole() else since
+            if table in patient_specs or mapper.chart_decisions(table):
+                since_t = None
             if table == "registry" and cfg.registry is not None:
                 kind, where = cfg.registry
                 if kind == "none" or not where:
@@ -820,25 +883,27 @@ def _run_ingest(
                 dead += [mapping.normalize(table, r) for r in deleted_rows(table, src_name, delta, since_t)]
             for rtype, rid in mapper.tombstones(table, iter(dead)):
                 tombstones.setdefault(rtype, set()).add(rid)
+            mapper.prepare_table(table, rows, spool.root)
+            mapper.prepared_table = table
+            if table in patient_specs and mapper.shared_charts:
+                tables[table]["ambiguous_charts"] = len(mapper.shared_charts)
             if table == "patient":
-                patient_pairs = [(pid_for_mrn(key, str(r[tspec["key"]])), str(r[tspec["key"]])) for r in rows]
                 ident = tspec.get("identity") or {}
-                if ident:  # e.g. {name: name, national_id: id_no}: kept encrypted in the pid map only
-                    identities = [
-                        (pid, {k: str(r.get(col) or "") for k, col in ident.items()})
-                        for (pid, _), r in zip(patient_pairs, rows, strict=True)
-                    ]
+                for row in rows:
+                    mrn = str(row[tspec["key"]])
+                    pid = pid_for_mrn(key, mrn)
+                    if not mapper.shared_chart(pid):
+                        patient_pairs.append((pid, mrn))
+                        if ident:
+                            identities.append((pid, {k: str(row.get(col) or "") for k, col in ident.items()}))
             # STD-025 (T-615a): a row the mapping cannot read is rejected and counted by reason (its values left out);
             # the table goes on, and the night is held only when rejects pass REJECT_MAX_PCT % of the table's rows
             rejected: Counter[str] = Counter()
             for row in rows:
-                try:
-                    mapped = list(mapper.map_table(table, iter([row])))
-                except (ValueError, ArithmeticError) as exc:
-                    # NEW-B-6 (D-527): a number the mapper reads and cannot compute with (thirty digits:
-                    # decimal.InvalidOperation) is a row it cannot read, as a ValueError is; it ended the night before
-                    rejected[reject_key(exc)] += 1
+                mapped_or_none = map_or_reject(mapper, table, row, rejected)
+                if mapped_or_none is None:
                     continue
+                mapped = mapped_or_none
                 for res in mapped:
                     to_spool(res)
                 if since:
@@ -852,12 +917,14 @@ def _run_ingest(
                     for rtype, rid in made:  # the last row of a key decides (DATA-017): given again, it stays
                         if rtype in left_out:
                             left_out[rtype].discard(rid)
-                    for rtype, rid in mapper.tombstones(table, iter([row])):
+                    for rtype, rid in mapper.tombstones(table, iter([row]), deleted=False):
                         if (rtype, rid) not in made:
                             left_out.setdefault(rtype, set()).add(rid)
             if rejected:
                 n_bad = sum(rejected.values())
                 tables[table]["rejected"] = dict(sorted(rejected.items()))
+                if no_one := sum(n for k, n in rejected.items() if ": no patient (" in k):  # D-1253: counts only
+                    tables[table]["rejected_no_patient"] = no_one
                 why = "; ".join(f"{k} ({v})" for k, v in sorted(rejected.items()))
                 log.warning("%s: %d of %d rows rejected: %s", table, n_bad, len(rows), why)
                 if n_bad * 100 > REJECT_MAX_PCT * len(rows):
@@ -876,6 +943,12 @@ def _run_ingest(
             tables[table]["implausible_dates"] = by_element
         for table, by_map in mapper.mapped_summary().items():  # D-689: rows that gained a mapped code, by map
             tables[table]["mapped"] = by_map
+        for table, n in mapper.tombstones_without_patient().items():  # D-1253: counts only
+            tables[table]["deletes_without_patient"] = n
+            log.warning("%s: %d deleted rows name no patient: they remove nothing", table, n)
+        for table, n in sorted(mapper.for_review.items()):  # D-1253 ruling 1: counts only
+            tables[table]["steward_review_needed"] = n
+            log.warning("%s: %d %s", table, n, id_rule.REVIEW_NEEDED)
         unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
     at.update(step="snapshot", table=None)
     unit_defaults = mapping.unit_defaults if mapping is not None else _bulk_unit_defaults(cfg.mapping_path)
@@ -901,7 +974,59 @@ def _run_ingest(
     from adapter.publish import finish_served
 
     finish_served(cfg)  # T-723 second review (H2): a served night whose pid map step did not end is finished first
-    if patient_pairs:
+    # NDJSON snapshot (delta runs merge over the previous snapshot and drop what the source deleted)
+    final_dir = out_dir = snapshot_dir(cfg.lake_dir, snap)
+    # D-271: a re-run of a promoted night is written beside it and moved in only when it passes; a held re-run never
+    # touches the NDJSON that CURRENT (or a later delta) was built from
+    from adapter.publish import recover_all
+
+    recover_all(cfg)  # T-723 review: a re-run that was killed in its lake step is put back before anything is read
+    prev = [s for s in list_snapshots(cfg.lake_dir) if s < snap]
+    last_good = merge_base(cfg.lake_dir, snap)  # D-271: never a held night's NDJSON
+    base = snapshot_dir(cfg.lake_dir, last_good) if (since and last_good) else None
+    if since and last_good is None and (prev or _current(cfg.lake_dir) or cfg.first_night_all_tables):
+        # NEW-DIN-8 (D-583): on a box a delta is never the first night: it has nothing to merge over and no
+        # table of it can be judged complete
+        errors.append("delta night: no earlier snapshot passed validation to merge over; run a full load")
+    keys = source_keys(source_kind, source)
+    read_from = _source_of(base) if base is not None else None
+    held_record: dict[str, Any] = {"snapshot": snap, "errors": errors}
+    refusal = None
+    if read_from is not None and read_from != source_kind:
+        refusal = (
+            f"delta night from {source_kind} over snapshot {last_good}, which was read from {read_from}: "
+            f"{SOURCE_CHANGE}"
+        )
+    elif base is not None and keys and id_rule.snapshot_keys(base) != keys:
+        keyed = id_rule.snapshot_keys(base).get("ssmix2_order", "?")
+        refusal = (
+            f"delta night over snapshot {last_good}, whose SS-MIX2 orders are keyed {keyed}; the reader keys "
+            f"them {keys['ssmix2_order']}. {id_rule.ORDER_CHANGE}"
+        )
+
+    if refusal:
+        errors.append(refusal)
+        held_record["requires_full_ingest"] = True
+        held_record["incompatible"] = "source" if read_from != source_kind else "order_key"
+        base = None  # Only the incoming rows are retained for inspection.
+        patient_pairs, identities = [], []
+    from lake.store import BuildLock, lake_lock
+
+    # A rebuild must see one complete candidate, including its validation verdict.
+    write_lock = BuildLock(cfg.lake_dir, snap)
+    cleanup.callback(write_lock.release)
+    with lake_lock(cfg.lake_dir):
+        rerun = (final_dir / PASSED).exists() or _current(cfg.lake_dir) == snap
+        if rerun:
+            out_dir = cfg.lake_dir / RERUN_DIR / snap
+        replacing = out_dir.is_dir()
+        if rerun:
+            shutil.rmtree(out_dir, ignore_errors=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        id_rule.write_snapshot_record(out_dir)
+        _write_hold(out_dir, {**held_record, "writing": True})
+    stage_patients = bool(patient_pairs) or replacing or bool(refusal)
+    if stage_patients:
         pm = cfg.pidmap()
         try:
             # T-723 (D-489, F-12): the night's chart numbers are staged, not written: they enter the pid map when
@@ -912,28 +1037,12 @@ def _run_ingest(
             if still_held is not None:
                 served_now = _current(cfg.lake_dir)
                 pm.discard(still_held | {snap} | ({served_now} if served_now else set()))
-            pm.stage(snap, patient_pairs, identities or [])
+            pm.stage(snap, patient_pairs, identities)
+            patient_pairs.clear()
+            identities.clear()
             aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
         finally:
             pm.close()
-    # NDJSON snapshot (delta runs merge over the previous snapshot and drop what the source deleted)
-    final_dir = out_dir = snapshot_dir(cfg.lake_dir, snap)
-    # D-271: a re-run of a promoted night is written beside it and moved in only when it passes; a held re-run never
-    # touches the NDJSON that CURRENT (or a later delta) was built from
-    from adapter.publish import recover_all
-
-    recover_all(cfg)  # T-723 review: a re-run that was killed in its lake step is put back before anything is read
-    rerun = (final_dir / PASSED).exists() or _current(cfg.lake_dir) == snap
-    if rerun:
-        out_dir = cfg.lake_dir / RERUN_DIR / snap
-        shutil.rmtree(out_dir, ignore_errors=True)
-    prev = [s for s in list_snapshots(cfg.lake_dir) if s < snap]
-    last_good = merge_base(cfg.lake_dir, snap)  # D-271: never a held night's NDJSON
-    base = snapshot_dir(cfg.lake_dir, last_good) if (since and last_good) else None
-    if since and last_good is None and (prev or _current(cfg.lake_dir) or cfg.first_night_all_tables):
-        # NEW-DIN-8 (D-583): on a box a delta is never the first night: it has nothing to merge over and no
-        # table of it can be judged complete
-        errors.append("delta night: no earlier snapshot passed validation to merge over; run a full load")
     from adapter.publish import RECORD as PUBLISH_RECORD
 
     try:  # T-723: the step record of an earlier publish of this folder (kept only for the same content)
@@ -941,7 +1050,7 @@ def _run_ingest(
     except OSError:
         prior_record = None
     carried: set[str] = set()
-    if not patient_pairs:
+    if not stage_patients:
         # NEW-B-36 (D-677; review DATA-006): the merges are applied to every night, whether or not it sends a patient
         # row with a chart number (a FHIR bulk night never does), and on a delta night to what it carries over too.
         # Without them a merged chart would stand as its own patient: the night is held and says why
@@ -971,10 +1080,37 @@ def _run_ingest(
     )
     removed: dict[str, int] = {}
     carried_moved: dict[str, int] = {}
+    collisions: dict[str, int] = {}  # D-1253: two of tonight's rows, one id, other content
     full_counts = write_snapshot(
         out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed,
-        aliases=aliases if base is not None else None, moved=carried_moved,
+        aliases=aliases if base is not None else None, moved=carried_moved, collisions=collisions,
+        shared_charts=mapper.shared_charts if mapper else None,
+        unresolved=mapper.unresolved_types if mapper else None,
     )  # fmt: skip
+    if mapper and mapper.shared_charts:
+        review_base = snap if rerun else last_good
+        if not since and review_base:
+            from adapter.ndjson import retain_disputed
+
+            previous = snapshot_dir(cfg.lake_dir, review_base)
+            if _source_of(previous) == source_kind and id_rule.snapshot_keys(previous) == keys:
+                retain_disputed(previous, out_dir, mapper.shared_chart, full_counts)
+        records = {
+            (typ, str(r["id"]))
+            for typ in full_counts
+            for r in read_type(out_dir, typ)
+            if id_rule.SHARED_CHART_TAG in r.get("meta", {}).get("tag", [])
+        }
+        id_rule.add_shared_review(cfg.lake_dir, {mapper.shared_hash(pid) for pid in mapper.shared_charts}, records)
+    id_rule.record_source(out_dir, source_kind, keys)
+    # D-1253: order-free, over the merged snapshot, in bounded memory
+    absent = absent_links(out_dir, site_wide=mapping.site_wide if mapping is not None else (),
+                          tables=mapping.tables if mapping is not None else ())  # fmt: skip
+    if absent:
+        log.warning("links to a patient's record the lake does not hold (per table and type): %s", absent)
+    if collisions:
+        log.warning("records of tonight that had the id of another row of tonight, with other content (the last "
+                    "row kept): %s", dict(sorted(collisions.items())))  # fmt: skip
     if carried_moved:
         log.info(
             "records carried over from snapshot %s written under the surviving patient of a chart merge: %s",
@@ -995,6 +1131,12 @@ def _run_ingest(
     # T-611: the completeness gate. A missing or emptied table, a table that shrank past the band, or a patient who
     # left the feed while their records stayed holds the night; D-271's override for this night lets it through
     gaps, completeness = completeness_check(cfg, tables, out_dir, last_good, full=not since)
+    if mapper and mapper.shared_charts:
+        completeness["ambiguous_charts"] = len(mapper.shared_charts)
+    if collisions:  # D-1253: counts per record type only
+        completeness["id_collisions"] = dict(sorted(collisions.items()))
+    if absent:  # D-1253: links to a patient's record the snapshot does not hold, per table and type
+        completeness["links_to_absent_records"] = absent
     (out_dir / COMPLETENESS).write_text(
         json.dumps(completeness, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -1132,6 +1274,8 @@ def _run_ingest(
 
         if prior_record is not None:  # the same night run again: the steps done for the same content are kept
             (out_dir / RECORD).write_text(prior_record, encoding="utf-8")
+        (out_dir / HELD).unlink()  # the new candidate passed its own gate
+        write_lock.release()  # publish may now start the lake build
         pub = publish_night(
             cfg, snap, out_dir, last_good=last_good, load_fhir=load_fhir, rebuild_lake=rebuild_lake, on_step=on_step
         )
@@ -1170,6 +1314,7 @@ def _run_ingest(
         errors=errors,
         tombstoned=tombstoned,
         held=held,
+        ambiguous_charts=len(mapper.shared_charts) if mapper else 0,
         omop=omop_load,
         fhir_unread=night.unread.result(),  # T-616: the inbound contract, what each resource carries unread
         connector=ConnectorReport.model_validate(read_times.summary(source_kind)),  # 10E-9: per message, per table
@@ -1177,7 +1322,7 @@ def _run_ingest(
     body = json.dumps(dump(report), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     (out_dir / "ingest_report.json").write_bytes(body)
     if held:  # T-611: the folder says so itself, for the steward and for any later publish
-        (out_dir / HELD).write_text(json.dumps({"snapshot": snap, "errors": errors}) + "\n", encoding="utf-8")
+        _write_hold(out_dir, held_record)
     else:
         (out_dir / HELD).unlink(missing_ok=True)
     pruning: PruneResult | None = None
@@ -1244,6 +1389,26 @@ def _run_ingest(
                 # T-611: what the readiness page shows for a held night (tables only, never a row)
                 "incomplete": completeness["problems"] or None,
                 "duplicate_keys": {t: v["duplicate_keys"] for t, v in tables.items() if v["duplicate_keys"]} or None,
+                # D-1253: two of tonight's rows with one id and other content (the last kept), per record type; links
+                # to a patient's record the merged snapshot does not hold, per table; rows and deletes with no patient
+                "ambiguous_charts": {"patient": len(mapper.shared_charts)} if mapper and mapper.shared_charts else None,
+                "id_collisions": dict(sorted(collisions.items())) or None,
+                "links_to_absent_records": {t: sum(by.values()) for t, by in sorted(absent.items())} or None,
+                "steward_review_needed": {  # D-1253 ruling 1: proposed (never coded) until a steward reviews them
+                    t: v["steward_review_needed"] for t, v in sorted(tables.items()) if v.get("steward_review_needed")
+                }
+                or dict(sorted(bulk_review.items()))
+                or None,
+                "rejected_no_patient": {
+                    t: v["rejected_no_patient"] for t, v in sorted(tables.items()) if v.get("rejected_no_patient")
+                }
+                or None,
+                "deletes_without_patient": {
+                    t: v["deletes_without_patient"]
+                    for t, v in sorted(tables.items())
+                    if v.get("deletes_without_patient")
+                }
+                or None,
                 "orphans": completeness["orphans"] or None,
                 # NEW-DIN-6 (D-580): rows with a value the mapping could not use, per table (the codes: the file)
                 "unmapped": {t: sum(sum(c.values()) for c in by.values()) for t, by in sorted(unmapped_codes.items())}
@@ -1507,7 +1672,23 @@ def jp_core_check(cfg: AdapterConfig, picked: list[Resource], out_dir: Path) -> 
 
 
 PASSED = "passed.json"  # written in a snapshot's NDJSON folder when its night passed (D-271)
-HELD = "held.json"  # written in a snapshot's NDJSON folder when its night was held, with why (T-611)
+HELD = id_rule.HELD
+SOURCE_CHANGE = id_rule.SOURCE_CHANGE
+
+
+def source_keys(kind: str, source: Source | None = None) -> dict[str, str]:
+    """Source-specific number forms used by the mapper and recorded with its output."""
+    if kind == "ssmix2":
+        from adapter.sources.ssmix2.source import order_id_form
+
+        return {"ssmix2_order": order_id_form(getattr(source, "order_key", None))}
+    return {}
+
+
+def _write_hold(folder: Path, record: dict[str, Any]) -> None:
+    tmp = folder / f"{HELD}.tmp"
+    tmp.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    tmp.replace(folder / HELD)
 
 
 #: NEW-B-39 (D-740): the kinds of D-580's counter (the owner's yes, 2026-11-13). ``code_unknown``: a code no look-up,
@@ -1600,6 +1781,19 @@ def refuse_future_night(snap: str, today: date) -> None:
             f"night {snap} is dated after today ({today.isoformat()} at the site): it is not ingested. Check the "
             "date given to the run and the box's clock"
         )
+
+
+def map_or_reject(mapper: Mapper, table: str, row: dict[str, Any], rejected: Counter[str]) -> list[Resource] | None:
+    """One source row mapped, or None when the mapping cannot read it: then it is counted in ``rejected`` under its
+    reason (:func:`reject_key`). The night and the back-fill reject alike (D-1253 review F).
+
+    NEW-B-6 (D-527): a number the mapper reads and cannot compute with (thirty digits: decimal.InvalidOperation) is a
+    row it cannot read, as a ValueError is; it ended the night before."""
+    try:
+        return list(mapper.map_table(table, iter([row])))
+    except (ValueError, ArithmeticError) as exc:
+        rejected[reject_key(exc)] += 1
+        return None
 
 
 def reject_key(exc: BaseException) -> str:
@@ -1836,6 +2030,24 @@ def reread_whole(lake_dir: Path, base: str | None) -> tuple[set[str], str | None
     return tables, base
 
 
+#: what a snapshot that does not say its source was read from: never the night's own (D-1253 second review, 7)
+UNKNOWN_SOURCE = "a source it does not record"
+
+
+def _source_of(snapshot: Path) -> str:
+    """The source kind a snapshot was read from: its id-rule record's ``source`` (every night and back-fill of
+    this release writes it), else its ``ingest_report.json``. A snapshot that says neither (a back-fill's before
+    the record held it) is :data:`UNKNOWN_SOURCE`, so a delta over it is held as over another source."""
+    said = id_rule.snapshot_source(snapshot)
+    if said:
+        return said
+    try:
+        said = json.loads((snapshot / "ingest_report.json").read_text(encoding="utf-8")).get("source")
+    except (OSError, ValueError, AttributeError):
+        said = None
+    return str(said) if said else UNKNOWN_SOURCE
+
+
 def merge_base(lake_dir: Path, snap: str) -> str | None:
     """The snapshot a delta night ``snap`` merges over (D-271): the newest earlier one that passed (``passed.json``),
     or the lake's ``CURRENT`` (folders written before the marker existed). Never a held night's NDJSON: only the
@@ -1951,6 +2163,17 @@ def snapshot_bytes(lake_dir: Path, s: str) -> int:
     return _bytes(_snapshot_paths(lake_dir, s))
 
 
+def good_snapshots(lake_dir: Path, snaps: Iterable[str], current: str | None = None) -> set[str]:
+    """The nights retention counts. T-611: only nights that passed (a held night has no passed.json and no DuckDB;
+    a promoted folder from before the marker has its DuckDB). A built night whose publish record says promotion
+    did not end was never served (T-723). The served night always counts."""
+    snaps = set(snaps)
+    good = {s for s in snaps if (snapshot_dir(lake_dir, s) / PASSED).exists()}
+    good |= {p.stem for p in (lake_dir / "db").glob("*.duckdb") if not _built_not_served(lake_dir, p.stem)}
+    good |= {current} if current else set()
+    return good & snaps | ({current} if current else set())
+
+
 def prune_lake(cfg: AdapterConfig, today: date) -> PruneResult:
     """SPEC §10.3: keep the last N nightly snapshots and each month's last snapshot for M months (NDJSON, parquet,
     DuckDB); the current snapshot is always kept, and so is every snapshot a running job holds (T-305b, D-403: a
@@ -1966,13 +2189,7 @@ def prune_lake(cfg: AdapterConfig, today: date) -> PruneResult:
 
     current = (cfg.lake_dir / "CURRENT").read_text().strip() if (cfg.lake_dir / "CURRENT").exists() else None
     snaps = set(list_snapshots(cfg.lake_dir)) | {p.stem for p in (cfg.lake_dir / "db").glob("*.duckdb")}
-    # T-611: only nights that passed count towards the N kept (a held night has no passed.json and no DuckDB; a
-    # folder from before the marker that was promoted has its DuckDB)
-    good = {s for s in snaps if (snapshot_dir(cfg.lake_dir, s) / PASSED).exists()}
-    # T-723 second review (L3): the lake now builds a night before it serves it. A built night whose publish record
-    # says the promotion did not end was never served: it is not a good night and takes no place among the N kept
-    good |= {p.stem for p in (cfg.lake_dir / "db").glob("*.duckdb") if not _built_not_served(cfg.lake_dir, p.stem)}
-    good |= {current} if current else set()
+    good = good_snapshots(cfg.lake_dir, snaps, current)
     keep = snapshots_to_keep(snaps, today, cfg.keep_nightly, cfg.keep_month_end_months, good) | {current or ""}
     nightly = snapshots_to_keep(snaps, today, cfg.keep_nightly, 0, good) | {current or ""}
     budget = lake_budget(cfg.lake_dir)
@@ -2005,6 +2222,7 @@ def prune_lake(cfg: AdapterConfig, today: date) -> PruneResult:
         return True
 
     with lake_lock(cfg.lake_dir):  # D-462: no hold lands between reading the holds and the deletes
+        id_rule.check_lake(cfg.lake_dir)
         held = set(held_snapshots(cfg.lake_dir).values())
         keep |= held
         for s in sorted(s for s in snaps if s not in keep):

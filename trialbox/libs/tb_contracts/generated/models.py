@@ -2818,7 +2818,7 @@ class IEBlock(BaseModel):
 
 class IngestReport(BaseModel):
     """
-    adapter ingest_report.json (SPEC 4.6). Schema version 1.6.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread; 1.6.0: connector).
+    adapter ingest_report.json (SPEC 4.6). Schema version 1.7.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread; 1.6.0: connector; 1.7.0: ambiguous_charts).
     """
 
     model_config = ConfigDict(
@@ -2831,6 +2831,10 @@ class IngestReport(BaseModel):
     started_at: AwareDatetime
     finished_at: AwareDatetime | None = None
     counts: dict[str, int]
+    ambiguous_charts: int = Field(0, ge=0)
+    """
+    Count of shared chart numbers requiring steward review.
+    """
     missing_required: dict[str, int] | None = None
     validation: ValidationSummary
     profile_validation: ValidationSummary | None = None

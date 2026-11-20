@@ -24,6 +24,7 @@ from criteria_compiler.terminology.mapper import Terminology, ValueSets
 from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
 from lake.store import Lake
+from tb_common import id_rule
 from tb_contracts import BoolExpr, LlmExtractOutput
 
 RANGE = {"domain": "demographic", "age": {"min": 18, "max": 35}, "quantifier": "all"}
@@ -147,6 +148,7 @@ def _on_lake(tmp_path: Path, c: Any, people: list[tuple[str, str | None]]) -> di
             for pid, b in people]  # fmt: skip
     (nd / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p in pats) + "\n", encoding="utf-8")
     (nd / "Observation.ndjson").write_text("", encoding="utf-8")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp_path / "lake").rebuild("2026-10-05", HashEmbedder(), nd)
     sql = SqlGenerator("T", "1.0.0", ValueSets("T", {}, Terminology())).render([c])
     rows = LakeLocal(tmp_path / "lake", HashEmbedder()).query(sql, [[date(2026, 10, 5).isoformat()], None]).to_pylist()

@@ -158,8 +158,8 @@ def test_the_store_holds_all_39_cdm_tables(store: Any) -> None:
     keys = {str(r[0]) for r in store.fetchall("SELECT conname FROM pg_constraint WHERE contype = 'p'")}
     assert {"xpk_visit_detail", "xpk_specimen", "xpk_location", "xpk_metadata", "xpk_episode"} <= keys
     assert (
-        store.fetchval("SELECT max(version) FROM _schema_version") == 9
-    )  # D-441 tb_withheld; D-655 family; D-753 bigint
+        store.fetchval("SELECT max(version) FROM _schema_version") == 10
+    )  # D-441 tb_withheld; D-655 family; D-753 bigint; D-1253 tb_id_rule
 
 
 # ------------------------------------------------------------------------------------------------ domain routing
@@ -323,6 +323,9 @@ def _ndjson(d: Path, feed: dict[str, list[dict[str, Any]]]) -> Path:
     d.mkdir(parents=True)
     for rtype, items in feed.items():
         (d / f"{rtype}.ndjson").write_text("".join(json.dumps(r) + "\n" for r in items), encoding="utf-8")
+    from tb_common import id_rule
+
+    id_rule.write_snapshot_record(d)  # D-1253: a snapshot of this release says its id rule
     return d
 
 

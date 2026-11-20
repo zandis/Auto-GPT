@@ -66,6 +66,7 @@ from lake.flatten import (
     NotWesternYear,
     basis_of,
     is_atc_system,
+    needs_id_review,
     verification_of,
     void,
 )
@@ -310,6 +311,11 @@ class _Builder:
         def rec(table: str | None, pid: str | None, part: int = 0, srcid: str | None = None) -> Rec:
             return Rec(rtype, srcid or str(r["id"]), part, table, pid, basis, status, line)
 
+        from tb_common.id_rule import SHARED_CHART_TAG
+
+        if SHARED_CHART_TAG in (r.get("meta") or {}).get("tag", []):
+            # The source row stays on the steward list without an invented person or clinical fact.
+            return [rec(None, None)]
         fl = self.fl
         if rtype == "Patient":
             p = fl.patient(r)
@@ -631,9 +637,13 @@ def load_batch(
     tz = site_tz(tz)  # the site's zone; TB_TZ when not given, never a default (D-315)
     b = _Builder(tz, kind, stats)
     # T-616 (STD-014): a medicationReference to a Medication of the batch (the flattener's own index)
-    b.fl.medications = {str(m["id"]): m for m in by_type.get("Medication", []) if m.get("id")}
+    b.fl.medications = {
+        str(m["id"]): m for m in by_type.get("Medication", []) if m.get("id") and not needs_id_review(m)
+    }
     responses = {}
     for cr in by_type.get("ClaimResponse", []):  # the flattener's join: the last response to a claim wins
+        if needs_id_review(cr):
+            continue
         req = ((cr.get("request") or {}).get("reference") or "").split("/")[-1]
         responses[req] = cr
     dead = {(str(t), str(i)) for t, ids in (deleted or {}).items() for i in ids}
@@ -720,6 +730,10 @@ def _load(
         # date of another calendar is refused first, and the opt-out worker does not wait for a batch being built
         _stage(tx, b, by_type, responses, stats, chunk)
         tx.execute("SELECT pg_advisory_xact_lock(hashtext('trialbox-omop-load'))")
+        if kind == "feed":  # D-1253: a feed's lake ids are added only to a store of the same id rule
+            from tb_common import id_rule
+
+            id_rule.ensure(tx, id_rule.OMOP)
         last = tx.fetchval("SELECT max(batch) FROM tb_load WHERE source_kind = ?", (kind,))
         if last is not None and batch < str(last):
             raise OmopError(
@@ -826,6 +840,8 @@ def _stage(
     for rtype in sorted(by_type):
         for line, r in enumerate(by_type[rtype], start=1):
             prov = {k: _iso(v) for k, v in b.fl.provenance(r).items() if v is not None}
+            if needs_id_review(r):
+                prov["id_rule_review"] = True
             from_note = note_source(r)
             try:
                 built = b.build(rtype, r, line, responses)

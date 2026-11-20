@@ -82,6 +82,9 @@ def _sql(resources: list[dict[str, Any]], rs: Any, index: date, tz: str) -> list
             by_type.setdefault(r["resourceType"], []).append(json.dumps(r, ensure_ascii=False))
         for rtype, lines in by_type.items():
             (nd / f"{rtype}.ndjson").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        from tb_common import id_rule
+
+        id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release says its id rule
         lake = Lake(Path(td) / "lake", tz=tz)
         lake.rebuild("2026-10-04", HashEmbedder(), nd)
         return sql_evaluations(cast(Any, lake), rs.sql, index)  # the in-process lake answers the gate's query

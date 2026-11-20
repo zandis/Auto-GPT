@@ -640,6 +640,9 @@ COSTS: dict[str, Cost] = {
                              "resources", "-", "B2", "small"),
     "lake:ndjson": Cost(True, "Rewrite the kept nightly and month-end NDJSON extracts without the patient's lines "
                         "(or the owner reverses D-513)", "D-513, D-860", "B2", "large"),
+    "lake:id_rule_1": Cost(True, "The same rewrite as lake:ndjson, lake:db and lake:parquet, for the earlier id "
+                           "rule's month-ends the one rebuild kept aside (D-1253)", "D-513, D-860, D-1253", "B2",
+                           "small"),
     "lake:ndjson-rerun": Cost(True, "The same rewrite as lake:ndjson, for a re-run folder", "D-513, D-860", "B2",
                               "small"),
     "lake:parquet": Cost(True, "Rewrite each snapshot's Parquet copy without the patient, with lake:db",

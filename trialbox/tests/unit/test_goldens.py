@@ -124,6 +124,7 @@ def test_every_ruleset_has_its_goldens() -> None:
                 "synthetic-jp-a-deletes",
                 "synthetic-tw-a",
                 "ssmix2-jp",
+                "ssmix2-jp-per-patient",  # D-1253: numbers repeating across patients
                 "public-en",
             }
 
@@ -311,10 +312,24 @@ def test_50k_is_never_generated_locally(tmp_path: Path, capsys: pytest.CaptureFi
 
 
 def test_the_next_night_drops_records_but_never_a_patient(tmp_path: Path) -> None:
-    src = tmp_path / "a"
-    src.mkdir()
-    for t in ("Patient", "Condition"):
-        (src / f"{t}.ndjson").write_text("".join(json.dumps({"id": f"{t}{i}"}) + "\n" for i in range(20)))
-    g.next_night(src, tmp_path / "b")
-    read = {t: (tmp_path / "b" / f"{t}.ndjson").read_text().splitlines() for t in ("Patient", "Condition")}
-    assert len(read["Patient"]) == 20 and len(read["Condition"]) == 18
+    """About a tenth of the clinical records go, chosen by their content: the same records whatever their order and
+    whatever their ids (D-1253: a change of the id rule deletes no other record), and never a patient."""
+    import random
+
+    def night(name: str, salt: str, shuffle: bool) -> dict[str, list[str]]:
+        src = tmp_path / name
+        src.mkdir()
+        for t in ("Patient", "Condition"):
+            rows = [{"id": f"{salt}{i:028x}", "code": f"{t}-{i}"} for i in range(200)]
+            if shuffle:
+                random.Random(7).shuffle(rows)
+            (src / f"{t}.ndjson").write_text("".join(json.dumps(r) + "\n" for r in rows))
+        g.next_night(src, tmp_path / f"{name}-next")
+        out = {
+            t: (tmp_path / f"{name}-next" / f"{t}.ndjson").read_text().splitlines() for t in ("Patient", "Condition")
+        }
+        return {t: sorted(json.loads(x)["code"] for x in v) for t, v in out.items()}
+
+    first = night("a", "aaaa", False)
+    assert len(first["Patient"]) == 200 and 200 * 0.05 < 200 - len(first["Condition"]) < 200 * 0.15
+    assert night("b", "bbbb", True) == first  # other ids, another order: the same records go

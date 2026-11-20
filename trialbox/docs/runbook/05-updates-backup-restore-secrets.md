@@ -277,6 +277,14 @@ the server's superuser. A restore loads `hapi` as the superuser, so the same scr
 tables back to that role.
 
 
+## Lake ids per patient (D-1253)
+
+These data were made under the earlier rule for record IDs (D-1253). A full ingest from the source rebuilds them under the current rule. Use empty storage for the full ingest. Preserve the earlier data and its audit history.
+
+這些資料的紀錄 ID 是依舊規則產生的（D-1253）。從來源完整匯入即可依現行規則重建資料。
+
+このデータの記録 ID は以前の規則で作成されました（D-1253）。ソースから全件を取り込むと、現在の規則で再構築されます。
+
 ## Secrets (D-128, D-138): the one place to rotate them
 
 | Command (as root, in `/opt/trialbox`) | What it does |

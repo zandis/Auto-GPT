@@ -17,6 +17,7 @@ import json
 import os
 import re
 import shutil
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import IO, Any
@@ -125,6 +126,64 @@ def _carried_over(
         yield rid, seq, body
 
 
+_PATIENT_REFERENCE_FIELD = re.compile(r'"reference":"Patient/([^"\\]+)"')
+
+
+def _review_carried(old: Iterable[_Item], rtype: str, charts: set[str], unresolved: bool) -> Iterator[_Item]:
+    from tb_common import id_rule
+
+    for rid, seq, body in old:
+        shared = (rtype == "Patient" and rid in charts) or any(
+            match[1] in charts for match in _PATIENT_REFERENCE_FIELD.finditer(body)
+        )
+        if shared or unresolved:
+            record = json.loads(body)
+            id_rule.tag_for_review(record, shared=shared)
+            body = _canon(record)
+        yield rid, seq, body
+
+
+def retain_disputed(previous: Path, current: Path, shared: Callable[[str], bool], counts: dict[str, int]) -> None:
+    """Keep prior rows of a now-disputed chart for review on a full refresh. Current rows win by exact ID."""
+    from itertools import chain, groupby
+
+    from tb_common import id_rule
+
+    if previous == current or not previous.is_dir():
+        return
+    id_rule.open_snapshot(previous)
+    for path in sorted(previous.glob("*.ndjson")):
+        typ = path.stem
+
+        def retained(rtype: str = typ) -> Iterator[_Item]:
+            for rid, _, body in _base_lines(previous, rtype, check=True):
+                matches = (rtype == "Patient" and shared(rid)) or any(
+                    shared(m[1]) for m in _PATIENT_REFERENCE_FIELD.finditer(body)
+                )
+                if not matches and '"shared-chart"' not in body:
+                    continue
+                row = json.loads(body)
+                if matches or id_rule.SHARED_CHART_TAG in row.get("meta", {}).get("tag", []):
+                    id_rule.tag_for_review(row, shared=True)
+                    yield rid, 0, _canon(row)
+
+        old = retained()
+        first = next(old, None)
+        if first is None:
+            continue
+        new = ((rid, 1, body) for rid, _, body in _base_lines(current, typ, check=True))
+        merged = heapq.merge(chain((first,), old), new)
+        tmp = current / f".{typ}.review.tmp"
+        n = 0
+        with tmp.open("w", encoding="utf-8") as dest:
+            for _, group in groupby(merged, key=lambda item: item[0]):
+                _, _, body = max(group)  # current rows sort after retained rows of the same ID
+                dest.write(body + "\n")
+                n += 1
+        tmp.replace(current / path.name)
+        counts[typ] = n
+
+
 def _merged_patients(base: Path, aliases: Mapping[str, str], moved: dict[str, int] | None) -> list[_Item]:
     """The previous snapshot's Patients of a merged chart, each under its surviving id, sorted, placed before every
     other record of that id: the surviving patient's own record, from the previous snapshot or tonight, wins over
@@ -169,8 +228,13 @@ class Spool:
     arrival order. :func:`write_snapshot` reads it back type by type, so the adapter never holds the night."""
 
     def __init__(self, root: Path, run_bytes: int | None = None) -> None:
-        shutil.rmtree(root, ignore_errors=True)  # a killed night's leftovers
+        from tb_common import id_rule
+
+        if root.is_dir() and any(root.iterdir()):
+            id_rule.check_snapshot(root, "nightly spool")
+        shutil.rmtree(root, ignore_errors=True)  # a killed night under the current rule
         root.mkdir(parents=True)
+        id_rule.write_snapshot_record(root)
         self.root = root
         self.run_bytes = run_bytes or sort_run_bytes()
         self._files: dict[str, IO[str]] = {}
@@ -272,6 +336,9 @@ def write_snapshot(
     removed: dict[str, int] | None = None,
     aliases: Mapping[str, str] | None = None,
     moved: dict[str, int] | None = None,
+    collisions: dict[str, int] | None = None,
+    shared_charts: set[str] | None = None,
+    unresolved: set[str] | None = None,
 ) -> dict[str, int]:
     """Write all resource types; with ``base`` (previous snapshot) resources are merged by id.
 
@@ -291,8 +358,20 @@ def write_snapshot(
 
     ``aliases`` (old pid -> surviving pid, NEW-B-36, D-677): the chart merges, applied to the records carried over
     from ``base`` as ``transform`` applies them to the night's; ``moved`` counts, per type, the carried-over records
-    they changed."""
+    they changed.
+
+    ``collisions`` (D-1253): per type, how many of the night's records had an id an earlier record of the same night
+    had, with other content (two different source rows, one id). The last still wins (DATA-017); it is counted, never
+    silent. The same row sent twice is the same record, not a collision."""
+    from tb_common import id_rule
+
+    if base is not None and base.exists():
+        # D-1253: never a snapshot of rule-2 ids over one of another rule's ids (a record would be there twice)
+        id_rule.check_snapshot(base, f"the lake snapshot {base.name}")
+    if (directory / id_rule.SNAPSHOT_RECORD).exists() or any(directory.glob("*.ndjson")):
+        id_rule.check_snapshot(directory, f"the lake snapshot {directory.name}")
     directory.mkdir(parents=True, exist_ok=True)
+    id_rule.write_snapshot_record(directory)  # D-1253: the rule this snapshot's ids were made under
     counts: dict[str, int] = {}
     dead = {t: set(ids) for t, ids in (tombstones or {}).items()}
     out = {t: set(ids) for t, ids in (left_out or {}).items()}
@@ -319,17 +398,32 @@ def write_snapshot(
                     f"{json.dumps(i)}\t{n}\t{line}\n" for i, n, line in _sorted(items, budget, work / "night")
                 )
             left = [0]
+            clash = [0]
             try:
                 n, gone = _write_type(
                     directory, rtype, night, base if has_base else None, dead, True, budget, work, out.get(rtype), left,
-                    aliases, moved,
+                    aliases, moved, clash, shared_charts, unresolved,
                 )  # fmt: skip
             except _Unsorted:
-                left[0] = 0
+                left[0] = clash[0] = 0
                 if moved is not None:
                     moved.pop(rtype, None)
                 n, gone = _write_type(
-                    directory, rtype, night, base, dead, False, budget, work, out.get(rtype), left, aliases, moved
+                    directory,
+                    rtype,
+                    night,
+                    base,
+                    dead,
+                    False,
+                    budget,
+                    work,
+                    out.get(rtype),
+                    left,
+                    aliases,
+                    moved,
+                    clash,
+                    shared_charts,
+                    unresolved,
                 )
         finally:
             shutil.rmtree(work, ignore_errors=True)
@@ -338,7 +432,12 @@ def write_snapshot(
             dropped[rtype] = gone
         if removed is not None and left[0]:
             removed[rtype] = removed.get(rtype, 0) + left[0]
+        if collisions is not None and clash[0]:
+            collisions[rtype] = collisions.get(rtype, 0) + clash[0]
         counts[rtype] = n
+    for old in directory.glob("*.ndjson"):
+        if old.stem not in types:
+            old.unlink()  # a complete snapshot replaces any previous attempt at this date
     marker = directory / TOMBSTONES
     if dropped:
         marker.write_text(json.dumps(dropped, sort_keys=True, indent=1) + "\n", encoding="utf-8")
@@ -360,13 +459,17 @@ def _write_type(
     left: list[int] | None = None,
     aliases: Mapping[str, str] | None = None,
     moved: dict[str, int] | None = None,
+    clash: list[int] | None = None,
+    shared_charts: set[str] | None = None,
+    unresolved: set[str] | None = None,
 ) -> tuple[int, list[str]]:
     """One type: the previous snapshot's records and the night's, by id; per id the night's last record, else the
     previous snapshot's last one unless the source deleted it. Returns (records written, ids dropped).
 
     ``left_out`` (D-528): ids written from neither side, the night's record included (the caller takes an id out
     of the set when a later row gives the record again: the last row of a key decides). ``left[0]`` counts those
-    that were in the previous snapshot."""
+    that were in the previous snapshot. ``clash[0]`` counts the night's records whose id an earlier record of the
+    night had, with other content (D-1253)."""
     old: Iterable[_Item] = ()
     if base is not None:
         old = (
@@ -374,6 +477,9 @@ def _write_type(
             if base_sorted
             else _sorted(_base_lines(base, rtype, check=False), budget, work / "base")
         )
+        disputed_type = unresolved is not None and rtype in unresolved
+        if shared_charts or disputed_type:
+            old = _review_carried(old, rtype, shared_charts or set(), disputed_type)
         if aliases:
             old = _carried_over(old, rtype, aliases, moved)
             if rtype == "Patient":
@@ -405,6 +511,8 @@ def _write_type(
                 flush()
             if rid != cur:
                 cur, from_night, from_base = rid, False, False
+            elif seq >= 0 and from_night and body != line and clash is not None:
+                clash[0] += 1  # D-1253: two of tonight's rows, one id, other content (the last wins, counted)
             line = body
             from_night = from_night or seq >= 0
             from_base = from_base or seq < 0
@@ -412,6 +520,77 @@ def _write_type(
             flush()
     tmp.replace(directory / f"{rtype}.ndjson")
     return n, sorted(gone)
+
+
+#: D-1253: a reference in a snapshot's canonical line, and the source table of its record (``meta.source``)
+_LINK = re.compile(r'"reference":"([A-Z][A-Za-z]+)/([^"]+)"')
+_SOURCE_TABLE = re.compile(r'"source":"[^"/]*/([^"#/]+)#')
+#: the types whose records are not a patient's, never counted as a link to a record not in the lake (a mapping says
+#: which more of its types are the site's: ``Mapping.site_wide``)
+_NOT_LINKED = frozenset(
+    {"Patient", "Practitioner", "PractitionerRole", "Organization", "Location", "HealthcareService"}
+)
+
+
+def absent_links(
+    directory: Path, run_bytes: int | None = None, site_wide: Iterable[str] = (), tables: Iterable[str] = ()
+) -> dict[str, dict[str, int]]:
+    """D-1253: per source table and record type, the links in the snapshot ``directory`` to a patient's record the
+    snapshot does not hold (a visit number the feed never sent for that patient). Order-free: it reads the merged
+    snapshot, whatever order tonight's tables and rows came in. In bounded memory: one pass writes every link to a
+    run file per target type, each is sorted in runs of at most ``run_bytes`` (:func:`_sorted`, as the merge) and
+    merged with the target type's file, which is sorted by id. Counts only.
+
+    The count's label is a source table of the mapping (``tables``), read from the record's ``meta.source``, else the
+    record's type: a source's own text (a bulk FHIR resource's ``meta.source`` is the sender's) is never a label,
+    a log line or an audit detail (D-1253 second review, finding 10)."""
+    budget = run_bytes or sort_run_bytes()
+    skip = _NOT_LINKED | frozenset(site_wide)
+    known = frozenset(tables)
+    work = directory / ".links"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    out: Counter[tuple[str, str]] = Counter()
+    try:
+        files: dict[str, IO[str]] = {}
+        try:
+            for path in sorted(directory.glob("*.ndjson")):
+                with path.open(encoding="utf-8") as fh:
+                    for line in fh:
+                        found = [(t, i) for t, i in _LINK.findall(line) if t not in skip]
+                        if not found:
+                            continue
+                        m = _SOURCE_TABLE.search(line)
+                        table = m.group(1) if m and m.group(1) in known else path.stem
+                        for t, i in found:
+                            f = files.get(t)
+                            if f is None:
+                                f = files[t] = (work / f"{t}.links").open("w", encoding="utf-8")
+                            f.write(json.dumps([i, table]) + "\n")
+        finally:
+            for f in files.values():
+                f.close()
+        for target in sorted(p.stem for p in work.glob("*.links")):
+
+            def items(t: str = target) -> Iterator[_Item]:
+                with (work / f"{t}.links").open(encoding="utf-8") as fh:
+                    for n, raw in enumerate(fh):
+                        rid, table = json.loads(raw)
+                        yield rid, n, table
+
+            have = (str(r["id"]) for r in read_type(directory, target))
+            cur = next(have, None)
+            for rid, _n, table in _sorted(items(), budget, work / f"{target}.runs"):
+                while cur is not None and cur < rid:
+                    cur = next(have, None)
+                if cur != rid:
+                    out[(table, target)] += 1
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    result: dict[str, dict[str, int]] = {}
+    for (table, target), n in sorted(out.items()):
+        result.setdefault(table, {})[target] = n
+    return result
 
 
 def tombstone_count(directory: Path) -> int:

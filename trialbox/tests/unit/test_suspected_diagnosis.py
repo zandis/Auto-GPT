@@ -28,6 +28,7 @@ from lake.store import Lake
 from matching.cascade.engine import CascadeConfig, run_cascade
 from orchestrator.scenarios.evaluate import SqlEngine, structured_verdict
 from orchestrator.scenarios.screen_cascade import verdicts_of
+from tb_common import id_rule
 from tb_common.reasons import LABELS
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR
@@ -139,6 +140,7 @@ def setup(tmp_path_factory: pytest.TempPathFactory) -> tuple[LakeLocal, Ruleset]
     (nd / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p in pats) + "\n", encoding="utf-8")
     (nd / "Condition.ndjson").write_text("\n".join(json.dumps(c) for c in CONDITIONS) + "\n", encoding="utf-8")
     (nd / "Observation.ndjson").write_text("", encoding="utf-8")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp / "lake").rebuild("2026-10-05", HashEmbedder(), nd)
     crit = [_crit("SUSP-INC-01", "inclusion", "VS_GOUT"), _crit("SUSP-EXC-01", "exclusion", "VS_MALIG")]
     vs = {

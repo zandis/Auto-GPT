@@ -24,7 +24,7 @@ from lake.store import Lake
 from matching.cascade.engine import CascadeConfig, run_cascade
 from orchestrator.scenarios.evaluate import SqlEngine, structured_verdict
 from orchestrator.scenarios.screen_cascade import verdicts_of
-from tb_common import labunit
+from tb_common import id_rule, labunit
 from tb_common.reasons import LABELS, Reason, code_of
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR
@@ -278,6 +278,7 @@ def lake(tmp_path_factory: pytest.TempPathFactory) -> LakeLocal:
     _write(nd, "Observation", [r for r in res if r["resourceType"] == "Observation"])
     _write(nd, "MedicationRequest", [r for r in res if r["resourceType"] == "MedicationRequest"])
     _write(nd, "Condition", [])
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp / "lake").rebuild("2026-10-05", HashEmbedder(), nd)
     return LakeLocal(tmp / "lake", HashEmbedder())
 
@@ -686,6 +687,7 @@ def test_shipped_gzqo_as_approved_no_longer_excludes_on_unreadable_data(tmp_path
     _write(nd, "Observation", obs)
     _write(nd, "MedicationRequest", meds)
     _write(nd, "Condition", [])
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp_path / "lake").rebuild("2026-10-05", HashEmbedder(), nd)
     lk = LakeLocal(tmp_path / "lake", HashEmbedder())
     stored = {r["pid"]: r for r in lk.query(rs.sql, [[IDX.isoformat()], list(pats)]).to_pylist()}
@@ -953,6 +955,7 @@ def test_an_impossible_score_input_is_unknown_in_the_sql_engine(tmp_path: Path) 
         [_dobs(p, c, v, u) for p, (_s, _r, comps) in DOMAIN_CASES.items() for c, (v, u) in comps.items()],
     )
     _write(nd, "Condition", [])
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(tmp_path / "lake").rebuild("2026-10-05", HashEmbedder(), nd)
     lk = LakeLocal(tmp_path / "lake", HashEmbedder())
     crits = [_score_crit(s) for s in DOMAIN_CRITS]

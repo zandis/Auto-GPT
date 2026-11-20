@@ -259,8 +259,12 @@ def synthetic(n: int, per: int = 10) -> Iterator[dict[str, Any]]:
 
 
 def write_ndjson(folder: Path, n: int) -> None:
-    """:func:`synthetic` as a snapshot folder, one NDJSON file per type."""
+    """:func:`synthetic` as a snapshot folder, one NDJSON file per type, with the id rule a snapshot of this release
+    carries (D-1253: ``tb_common.id_rule``)."""
+    from tb_common import id_rule
+
     folder.mkdir(parents=True, exist_ok=True)
+    id_rule.write_snapshot_record(folder)
     files: dict[str, IO[str]] = {}
     try:
         for r in synthetic(n):

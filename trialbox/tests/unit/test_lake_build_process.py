@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 from embed_service.embedder import HashEmbedder
 from lake.store import Lake, build_running
+from tb_common import id_rule
 
 NIGHT, NEXT = "2026-10-04", "2026-10-05"
 TZ = "Asia/Taipei"
@@ -26,6 +27,7 @@ TZ = "Asia/Taipei"
 def _patients(lake_dir: Path, snap: str, n: int) -> None:
     nd = lake_dir / "ndjson" / snap
     nd.mkdir(parents=True, exist_ok=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     pats = [{"resourceType": "Patient", "id": f"syn-{i:03d}", "gender": "female"} for i in range(n)]
     (nd / "Patient.ndjson").write_text("".join(json.dumps(p) + "\n" for p in pats), encoding="utf-8")
 
@@ -110,6 +112,7 @@ def test_a_build_killed_as_it_starts_leaves_the_worker_answering_and_the_job_int
 def test_a_refusal_found_in_the_build_is_the_jobs_state_across_the_process(api: Any) -> None:
     nd = api.lake_dir / "ndjson" / NEXT
     nd.mkdir(parents=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     (nd / "Patient.ndjson").write_text("\n")
     assert api.post("/rebuild", json={"snapshot": NEXT}).status_code == 202
     st = _wait(lambda: api.get(f"/rebuild/{NEXT}").json())

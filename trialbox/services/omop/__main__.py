@@ -71,8 +71,14 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "load":
             snap = a.snapshot or (a.lake / "CURRENT").read_text().strip()
             from adapter.ndjson import readers
+            from tb_common import id_rule
 
-            feed = readers(a.lake / "ndjson" / snap)  # a chunk at a time, never held whole (D-678)
+            try:  # D-1253 round 3: never a snapshot of another id rule into a store of this one
+                nd = id_rule.open_snapshot(a.lake / "ndjson" / snap)
+            except id_rule.IdRuleError as exc:
+                print(f"refused, nothing loaded: {exc}", file=sys.stderr)
+                return 2
+            feed = readers(nd)  # a chunk at a time, never held whole (D-678)
             site = readers(a.lake / "site")
             out = [
                 load_batch(db, "feed", snap, feed, None, a.tz).as_dict(),

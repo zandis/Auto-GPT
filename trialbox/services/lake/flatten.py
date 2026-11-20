@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from tb_common import labvalue
+from tb_common import id_rule, labvalue
 
 Resource = dict[str, Any]
 Row = dict[str, Any]
@@ -198,6 +198,13 @@ NOT_RECORDED = "not-recorded"
 # D-275 (review S-5): the two values a sex criterion and a sex-dependent formula can use. ``other`` and ``unknown``
 # (FHIR administrative gender) are kept as no value: unknown, never "not female"
 SEXES = ("male", "female")
+
+
+def needs_id_review(r: Resource) -> bool:
+    return any(
+        t.get("system") == id_rule.REVIEW_TAG["system"] and t.get("code") == id_rule.REVIEW_TAG["code"]
+        for t in (r.get("meta") or {}).get("tag") or []
+    )
 
 
 def void(rtype: str, r: Resource) -> bool:
@@ -740,7 +747,13 @@ class Flattener:
         }
 
         def live(rtype: str) -> Iterator[Resource]:  # D-275 (S-4): a void record is no record
-            return (r for r in by_type.get(rtype, ()) if not void(rtype, r))
+            for r in by_type.get(rtype, ()):
+                if void(rtype, r):
+                    continue
+                # D-1253: keep the disputed records in NDJSON for the steward. No screening table reads them.
+                if needs_id_review(r):
+                    continue
+                yield r
 
         def demographic(rtype: str, r: Resource) -> bool:
             return rtype == "Observation" and any(

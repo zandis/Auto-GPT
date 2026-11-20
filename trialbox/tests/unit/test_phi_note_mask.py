@@ -131,6 +131,9 @@ def _ndjson(d: Path) -> Path:
     ]
     for name, rows in (("Patient", pts), ("DocumentReference", docs)):
         (d / f"{name}.ndjson").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    from tb_common import id_rule
+
+    id_rule.write_snapshot_record(d)  # D-1253: a snapshot of this release says its id rule
     return d
 
 

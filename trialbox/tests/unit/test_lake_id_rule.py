@@ -1,0 +1,555 @@
+"""D-1253: the rule a store's lake ids were made under is recorded with the store, and never mixed.
+
+Rule 2 (a patient's record id holds the patient) changed every id of a patient's record once. A lake snapshot, the
+OMOP store of record, the derived store, the vector store, the patient twin, the candidate pool and the EDC drafts
+keep such ids; one written under rule 1 is never added to. The night stops before it reads or writes anything when
+the lake or a store it reads is under rule 1; every store also refuses at its own write. Synthetic rows only."""
+
+from __future__ import annotations
+
+import csv
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+from adapter.ndjson import read_type, snapshot_dir, write_snapshot
+from adapter.pipeline import AdapterConfig, check_id_rule, run_ingest
+from tb_common import id_rule
+from tb_common.db import Database
+
+ROOT = Path(__file__).resolve().parents[2]
+BASE = ROOT / "services/adapter/mapping/tw_core/demo_his.yaml"
+KEY = b"synthetic site key for D-1253 tests only"
+DIAG = ["diag_no", "enc_no", "mrn", "icd10", "diag_date", "recorded_date", "status"]
+
+
+def _cfg(tmp: Path, db_url: str | None = None) -> AdapterConfig:
+    sec = tmp / "secrets"
+    sec.mkdir(parents=True, exist_ok=True)
+    (sec / "site_hmac.key").write_bytes(KEY)
+    (sec / "site_hmac.key").chmod(0o600)
+    return AdapterConfig(lake_dir=tmp / "lake", secrets_dir=sec, mapping_path=BASE, site_id="T", tz="Asia/Taipei",
+                         audit_dir=tmp / "audit", validation_max_pct=100.0, db_url=db_url)  # fmt: skip
+
+
+def _feed(path: Path, n: int) -> str:
+    path.mkdir(parents=True, exist_ok=True)
+    with (path / "diagnosis.csv").open("w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=DIAG)
+        w.writeheader()
+        for i in range(n):
+            w.writerow({"diag_no": f"D{i}", "enc_no": "E1", "mrn": "10000001", "icd10": "M10.9",
+                        "diag_date": "2026-09-01", "recorded_date": "2026-09-01", "status": "A"})  # fmt: skip
+    return str(path)
+
+
+# ------------------------------------------------------------------------------------------------ the snapshots
+def test_every_snapshot_says_the_rule_of_its_ids(tmp_path: Path) -> None:
+    write_snapshot(tmp_path / "s1", {"Condition": [{"resourceType": "Condition", "id": "a"}]})
+    assert json.loads((tmp_path / "s1" / id_rule.SNAPSHOT_RECORD).read_text()) == {"rule": id_rule.RULE}
+    assert id_rule.snapshot_rule(tmp_path / "s1") == 2
+
+
+def test_a_snapshot_is_never_merged_over_one_of_the_earlier_rule(tmp_path: Path) -> None:
+    write_snapshot(tmp_path / "s1", {"Condition": [{"resourceType": "Condition", "id": "a"}]})
+    (tmp_path / "s1" / id_rule.SNAPSHOT_RECORD).unlink()  # as a snapshot written before D-1253
+    assert id_rule.snapshot_rule(tmp_path / "s1") == 1
+    with pytest.raises(id_rule.IdRuleError, match="s1"):
+        write_snapshot(tmp_path / "s2", {"Condition": [{"resourceType": "Condition", "id": "b"}]}, tmp_path / "s1")
+    assert not (tmp_path / "s2").exists()
+
+
+@pytest.mark.parametrize("delta", [False, True])
+def test_a_night_over_a_lake_of_the_earlier_rule_stops_before_anything_is_written(tmp_path: Path, delta: bool) -> None:
+    cfg = _cfg(tmp_path)
+    run_ingest(cfg, "csv", _feed(tmp_path / "f1", 3), snapshot="2026-10-01", load_fhir=False, validate=False)
+    first = snapshot_dir(cfg.lake_dir, "2026-10-01")
+    assert len(list(read_type(first, "Condition"))) == 3
+    (first / id_rule.SNAPSHOT_RECORD).unlink()  # the box's lake as the release before D-1253 left it
+    with pytest.raises(id_rule.IdRuleError) as caught:
+        run_ingest(cfg, "csv", _feed(tmp_path / "f2", 4), snapshot="2026-10-02", since="2026-10-01" if delta else None,
+                   load_fhir=False, validate=False)  # fmt: skip
+    said = str(caught.value)
+    assert "the lake (1 snapshots, the last 2026-10-01)" in said and id_rule.COMMAND in said and id_rule.RUNBOOK in said
+    assert not snapshot_dir(cfg.lake_dir, "2026-10-02").exists()  # nothing written
+    events = [json.loads(line) for f in sorted((tmp_path / "audit").rglob("*.jsonl")) for line in f.open()]
+    failed = [e for e in events if e.get("event") == "ingest.failed"]
+    assert len(failed) == 1 and failed[0]["detail"]["refused"] == "id_rule"  # one event per refused night
+
+
+@pytest.mark.parametrize("said", [3, 2.0, "2", True, None, -2])
+def test_a_snapshot_rule_is_the_integer_2_and_a_newer_one_is_never_rebuilt(tmp_path: Path, said: object) -> None:
+    """D-1253 review G5: only the integer 2 is this rule. A higher integer is a newer release's: "update the box",
+    never "earlier" or "rebuild". Anything else is unreadable: never taken for the current rule, and said with the
+    one instruction for a record that cannot be read (D-1253 deep review: never "rebuild", never "update")."""
+    write_snapshot(tmp_path / "s1", {"Condition": [{"resourceType": "Condition", "id": "a"}]})
+    (tmp_path / "s1" / id_rule.SNAPSHOT_RECORD).write_text(json.dumps({"rule": said}))
+    assert id_rule.snapshot_rule(tmp_path / "s1") == (3 if type(said) is int and said == 3 else 0)
+    with pytest.raises(id_rule.IdRuleError) as caught:
+        write_snapshot(tmp_path / "s2", {"Condition": [{"resourceType": "Condition", "id": "b"}]}, tmp_path / "s1")
+    words = str(caught.value)
+    if said == 3:
+        assert "newer rule" in words and "Update the box" in words and "earlier" not in words
+        assert id_rule.COMMAND not in words and caught.value.newer and not caught.value.stores
+    else:
+        assert words == id_rule.unreadable_words(["the lake snapshot s1"]) and caught.value.unreadable
+        assert id_rule.COMMAND not in words and "earlier" not in words
+
+
+def test_a_night_over_a_lake_of_a_newer_rule_says_update_the_box(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    run_ingest(cfg, "csv", _feed(tmp_path / "f1", 3), snapshot="2026-10-01", load_fhir=False, validate=False)
+    (snapshot_dir(cfg.lake_dir, "2026-10-01") / id_rule.SNAPSHOT_RECORD).write_text('{"rule": 3}')
+    with pytest.raises(id_rule.IdRuleError, match="Update the box") as caught:
+        run_ingest(cfg, "csv", _feed(tmp_path / "f2", 4), snapshot="2026-10-02", load_fhir=False, validate=False)
+    assert id_rule.COMMAND not in str(caught.value)
+
+
+def test_a_store_rule_that_cannot_be_read_refuses_the_night(tmp_path: Path) -> None:
+    """D-1253 review G5: a probe that fails (the database cannot be reached) refuses the night; it is not logged
+    and passed over."""
+    cfg = _cfg(tmp_path, "postgresql://nobody@127.0.0.1:9/none")
+    with pytest.raises(id_rule.IdRuleError, match="could not be read"):
+        check_id_rule(cfg)
+
+
+@pytest.mark.parametrize("unread", ["omop", "derived"])
+def test_a_store_the_adapter_reads_whose_rule_it_cannot_read_refuses_the_night(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unread: str
+) -> None:
+    """Review round 3, item 5: the adapter's role is meant to read the OMOP and the derived store (D-378). When it
+    cannot read their rule ("not readable"), the night refuses, as for an old rule; it is never passed over. The
+    stores it is not meant to read (vec, twin, pool) are never probed by the night: they refuse at their own first
+    write (``test_a_store_stamps_itself_when_empty_and_refuses_when_it_holds_ids_of_the_earlier_rule``)."""
+    asked: list[str] = []
+
+    def probe(url: str, store: id_rule.Store, schema: str | None = None) -> str:
+        asked.append(store.name)
+        return id_rule.UNREAD if store.name == unread else id_rule.CURRENT
+
+    monkeypatch.setattr(id_rule, "probe", probe)
+    cfg = _cfg(tmp_path, "postgresql://synthetic@127.0.0.1:9/none")
+    with pytest.raises(id_rule.IdRuleError, match=f"the {unread} store \\(its id rule is not readable by this role"):
+        check_id_rule(cfg)
+    assert sorted(asked) == ["derived", "omop"]  # never vec, profile or orch
+
+
+# ------------------------------------------------------------------------------------------------ the stores
+def _store_table(url: str, store: id_rule.Store, rows: int, stamped: bool | None) -> None:
+    """The store's table with the columns its question reads, ``rows`` lake-id rows; ``stamped``: a ``tb_id_rule``
+    with the current rule (True), an empty one (False), none at all (None: a store before D-1253's migration)."""
+    with Database.connect(url, store.schema) as db:
+        db.execute(f"CREATE TABLE {store.table} (source_kind TEXT DEFAULT 'feed', resource_type TEXT DEFAULT "
+                   "'Condition', citation TEXT DEFAULT 'x', final_citation TEXT)")  # fmt: skip
+        for _ in range(rows):
+            db.execute(f"INSERT INTO {store.table} DEFAULT VALUES")
+        if stamped is not None:
+            db.execute(id_rule.DDL)
+            if stamped:
+                db.execute("INSERT INTO tb_id_rule (rule) VALUES (?)", (id_rule.RULE,))
+
+
+@pytest.mark.parametrize("store", id_rule.STORES, ids=lambda s: s.name)
+@pytest.mark.parametrize(
+    ("rows", "stamped", "state"),
+    [(0, None, id_rule.EMPTY), (1, None, id_rule.OLD), (1, False, id_rule.OLD), (1, True, id_rule.CURRENT),
+     (0, False, id_rule.EMPTY)],
+)  # fmt: skip
+def test_what_a_store_says_of_its_rule(db_url: str, store: id_rule.Store, rows: int, stamped: bool | None,
+                                       state: str) -> None:  # fmt: skip
+    _store_table(db_url, store, rows, stamped)
+    assert id_rule.probe(db_url, store) == state
+
+
+@pytest.mark.parametrize("store", id_rule.STORES, ids=lambda s: s.name)
+@pytest.mark.parametrize("rows", [0, 1])
+def test_a_store_of_a_newer_rule_is_newer_and_refuses_and_is_never_stamped_again(
+    db_url: str, store: id_rule.Store, rows: int
+) -> None:
+    _store_table(db_url, store, rows, False)
+    with Database.connect(db_url, store.schema) as db:
+        db.execute("INSERT INTO tb_id_rule (rule) VALUES (?)", (id_rule.RULE + 1,))
+    assert id_rule.probe(db_url, store) == id_rule.NEWER
+    with Database.connect(db_url, store.schema) as db:
+        with pytest.raises(id_rule.IdRuleError, match="newer rule"), db.transaction() as tx:
+            id_rule.ensure(tx, store)
+        assert db.fetchval("SELECT count(*) FROM tb_id_rule WHERE rule = ?", (id_rule.RULE,)) == 0
+
+
+def test_a_store_that_is_not_there_holds_no_lake_id(db_url: str) -> None:
+    assert id_rule.probe(db_url, id_rule.VEC) == id_rule.EMPTY
+
+
+@pytest.mark.parametrize("store", id_rule.STORES, ids=lambda s: s.name)
+def test_a_store_stamps_itself_when_empty_and_refuses_when_it_holds_ids_of_the_earlier_rule(
+    db_url: str, store: id_rule.Store
+) -> None:
+    _store_table(db_url, store, 0, False)
+    with Database.connect(db_url, store.schema) as db:
+        with db.transaction() as tx:
+            id_rule.ensure(tx, store)  # empty: stamped
+        assert db.fetchval("SELECT count(*) FROM tb_id_rule") == 1
+        db.execute("DELETE FROM tb_id_rule")
+        db.execute(f"INSERT INTO {store.table} DEFAULT VALUES")  # now it holds ids no rule says
+        with pytest.raises(id_rule.IdRuleError, match=store.name), db.transaction() as tx:
+            id_rule.ensure(tx, store)
+        assert db.fetchval("SELECT count(*) FROM tb_id_rule") == 0
+
+
+def test_the_night_names_the_stores_it_reads_that_hold_ids_of_the_earlier_rule(tmp_path: Path, db_url: str) -> None:
+    from omop.schema import schema_for
+
+    cfg = _cfg(tmp_path, db_url)
+    check_id_rule(cfg)  # nothing anywhere: the night goes on
+    _store_table(db_url, id_rule.DERIVED, 1, None)
+    with Database.connect(db_url, schema_for(cfg.lake_dir)) as db:
+        db.execute("CREATE TABLE tb_record (source_kind TEXT, resource_type TEXT)")
+        db.execute("INSERT INTO tb_record VALUES ('feed', 'Patient')")  # a patient's pseudonym is the same: no matter
+    with pytest.raises(id_rule.IdRuleError) as caught:
+        check_id_rule(cfg)
+    assert caught.value.stores == ["the derived store"]
+    with Database.connect(db_url, schema_for(cfg.lake_dir)) as db:
+        db.execute("INSERT INTO tb_record VALUES ('feed', 'Condition')")
+    with pytest.raises(id_rule.IdRuleError) as caught:
+        check_id_rule(cfg)
+    assert caught.value.stores == ["the derived store", "the omop store"]
+
+
+# ------------------------------------------------------------------------------------------------ each store's own write
+def _stopped(exc: BaseException, name: str) -> None:
+    """The stop says what the night's says: the store, the rule, the runbook step and its command."""
+    said = str(exc)
+    assert name in said and id_rule.RUNBOOK in said and id_rule.COMMAND in said and "nothing was written" in said
+
+
+def test_the_omop_store_refuses_a_feed_of_the_new_rule_over_records_of_the_earlier_one(db_url: str) -> None:
+    from omop import schema
+    from omop.load import load_batch
+
+    feed: dict[str, list[dict[str, Any]]] = {
+        "Patient": [{"resourceType": "Patient", "id": "P1", "birthDate": "1960-01-01", "gender": "female"}],
+        "Condition": [{"resourceType": "Condition", "id": "c1", "subject": {"reference": "Patient/P1"},
+                       "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "E11.9"}]},
+                       "onsetDateTime": "2024-07-01"}],
+    }  # fmt: skip
+    db = schema.connect(db_url, "omop_idrule")
+    try:
+        load_batch(db, "feed", "2026-10-01", feed, tz="Asia/Taipei")  # an empty store: stamped
+        assert db.fetchval("SELECT rule FROM tb_id_rule") == id_rule.RULE
+        db.execute("DELETE FROM tb_id_rule")  # its records now of no rule: the store before D-1253
+        before = (db.fetchval("SELECT count(*) FROM tb_record"), db.fetchval("SELECT count(*) FROM tb_load"))
+        with pytest.raises(id_rule.IdRuleError) as caught:
+            load_batch(db, "feed", "2026-10-02", feed, tz="Asia/Taipei")
+        _stopped(caught.value, "omop")
+        assert (db.fetchval("SELECT count(*) FROM tb_record"), db.fetchval("SELECT count(*) FROM tb_load")) == before
+    finally:
+        db.close()
+
+
+def test_the_derived_store_refuses_a_recompute_beside_scores_of_the_earlier_rule(db_url: str) -> None:
+    from tb_common.derived_store import DerivedStore
+
+    st = DerivedStore(db_url)
+    st.recompute("p1", {}, mapping_version="m")  # an empty store: stamped
+    with Database.connect(db_url, "derived") as db:
+        assert db.fetchval("SELECT rule FROM tb_id_rule") == id_rule.RULE
+        db.execute("DELETE FROM tb_id_rule")
+        db.execute("INSERT INTO definition VALUES ('d1', 's', 1, 'x', '{}', 't')")
+        db.execute("INSERT INTO score_row (pid, score, def_version, def_sha, mapping_version, anchor_oid, anchor_date, "
+                   "value, unit, inputs, fingerprint, computed_at) VALUES ('p1', 's', 'd1', 'x', 'm', 'o1', "
+                   "'2026-01-01', 1, 'u', '[]', 'f', 't')")  # fmt: skip
+    with pytest.raises(id_rule.IdRuleError) as caught:
+        st.recompute("p1", {}, mapping_version="m")
+    _stopped(caught.value, "derived")
+    with Database.connect(db_url, "derived") as db:
+        assert (
+            db.fetchval("SELECT count(*) FROM score_row") == 1 and db.fetchval("SELECT count(*) FROM tb_id_rule") == 0
+        )
+    # D-1253 review G5: the documented-score check writes conflicts citing a note's lake id: it refuses too
+    from datetime import date
+
+    from tb_common import scores
+    from tb_common.derived_store import Documented
+
+    score = next(iter(scores.TOLERANCE))
+    with pytest.raises(id_rule.IdRuleError) as caught:
+        st.check_documented([Documented("p1", score, 1.0, date(2026, 1, 1), "d1", "signed")])
+    _stopped(caught.value, "derived")
+    with Database.connect(db_url, "derived") as db:
+        assert db.fetchval("SELECT count(*) FROM conflict") == 0
+
+
+def test_the_patient_twin_refuses_a_document_beside_documents_of_the_earlier_rule(db_url: str) -> None:
+    from patient_profile.twin import ProfileStore
+
+    doc = {"pid": "p1", "profile": "v1", "basis": {"snapshot": "2026-10-01"},
+           "layers": {"core": {"sex": "F", "birth": "1960-01-01"}}}  # fmt: skip
+    twins = ProfileStore(db_url)
+    try:
+        twins.put(doc, "2026-10-01T00:00:00+00:00")
+        twins.db.execute("DELETE FROM tb_id_rule")
+        n = twins.db.fetchval("SELECT count(*) FROM tb_patient_profile")
+        with pytest.raises(id_rule.IdRuleError) as caught:
+            twins.put({**doc, "pid": "p2"}, "2026-10-02T00:00:00+00:00")
+        _stopped(caught.value, "profile")
+        assert twins.db.fetchval("SELECT count(*) FROM tb_patient_profile") == n
+    finally:
+        twins.close()
+
+
+def test_the_candidate_pool_refuses_verdicts_beside_verdicts_of_the_earlier_rule(db_url: str) -> None:
+    from orchestrator.db import JobDB
+
+    jobs = JobDB(db_url)
+    jobs.pool_upsert("GZQO", "1", [{"pid": "p1", "tier": "high", "verdicts": []}], "J1", "2026-10-01T00:00:00+00:00")
+    with Database.connect(db_url, "orch") as db:
+        db.execute("DELETE FROM tb_id_rule")
+    with pytest.raises(id_rule.IdRuleError) as caught:
+        jobs.pool_upsert(
+            "GZQO", "1", [{"pid": "p2", "tier": "high", "verdicts": []}], "J2", "2026-10-02T00:00:00+00:00"
+        )
+    _stopped(caught.value, "orch")
+    assert jobs.pool_count(["p1", "p2"]) == 1
+
+
+@pytest.mark.parametrize("store", id_rule.STORES, ids=lambda s: s.name)
+def test_each_stores_written_out_question_is_its_table_and_its_filter(store: id_rule.Store) -> None:
+    """D-1253 (D-1338): ``Store.holds`` is written out per store, not built from strings; it asks the store's own
+    table with the same filter the probe composes, so the two never drift apart."""
+    words = store.holds.split()
+    assert words[:4] == ["SELECT", "1", "FROM", store.table] and words[-2:] == ["LIMIT", "1"]
+    asked = " ".join(words[4:-2])
+    assert asked == ("" if store.where == "TRUE" else "WHERE " + store.where)
+
+
+class _FakeTx:
+    """A write transaction of the ``vec`` schema, as far as ``tb_common.id_rule.ensure`` asks it: the rules it holds
+    and whether ``note_chunk`` has rows. Records every statement that writes."""
+
+    def __init__(self, rules: set[int], chunks: bool) -> None:
+        self.rules, self.chunks, self.wrote = set(rules), chunks, []  # type: ignore[var-annotated]
+
+    def fetchone(self, sql: str, args: tuple[Any, ...] = ()) -> Any:
+        if sql.startswith("SELECT 1 FROM tb_id_rule WHERE rule = "):
+            return (1,) if args[0] in self.rules else None
+        if sql.startswith("SELECT 1 FROM tb_id_rule WHERE rule > "):
+            return (1,) if any(r > args[0] for r in self.rules) else None
+        assert sql == id_rule.VEC.holds, sql
+        return (1,) if self.chunks else None
+
+    def execute(self, sql: str, args: tuple[Any, ...] = ()) -> int:
+        if sql.startswith("INSERT INTO tb_id_rule"):
+            self.rules.add(int(args[0]))
+        if not sql.startswith("SELECT pg_advisory_xact_lock"):
+            self.wrote.append(sql.split(maxsplit=1)[0] + " " + sql.split()[2])
+        return 1
+
+    def executemany(self, sql: str, rows: list[Any]) -> None:
+        self.wrote.append("INSERT note_chunk")
+
+
+@pytest.mark.parametrize(
+    ("rules", "chunks", "outcome"),
+    [(set(), True, "earlier"), ({3}, False, "newer"), (set(), False, "stamped"), ({2}, True, "written")],
+)  # fmt: skip
+def test_the_vector_store_checks_its_rule_in_its_own_write_transaction(
+    rules: set[int], chunks: bool, outcome: str
+) -> None:
+    """D-1253 deep review (low): the vector store's check was covered only by an integration test that needs the
+    compose services. Here with a fake transaction: chunks of the earlier rule refuse, a later rule refuses, an
+    empty store is stamped, a store of this rule is written; a refusal writes nothing."""
+    from contextlib import contextmanager
+
+    from vec.store import ChunkRow, VecStore
+
+    tx = _FakeTx(rules, chunks)
+    store = VecStore.__new__(VecStore)
+
+    class Db:
+        @contextmanager
+        def transaction(self) -> Any:
+            yield tx
+
+    store._db = Db()  # type: ignore[assignment]
+    chunk = ChunkRow("p" * 64, "d1", 0, "2026-10-01", "progress", 0, 4, "text", "s" * 64, "1")
+    if outcome in ("earlier", "newer"):
+        with pytest.raises(id_rule.IdRuleError, match="earlier rule" if outcome == "earlier" else "newer rule"):
+            store.replace_notes([chunk], ["d1"])
+        assert tx.wrote == []
+    else:
+        assert store.replace_notes([chunk], ["d1"]) == 1
+        assert tx.wrote[-2:] == ["DELETE note_chunk", "INSERT note_chunk"]
+        assert id_rule.RULE in tx.rules
+
+
+def test_old_data_has_one_recovery_instruction_and_no_migration_command() -> None:
+    from importlib.util import find_spec
+
+    from edc.store import ID_RULE_FROZEN, ID_RULE_WAITING
+
+    assert "full ingest from the source" in ID_RULE_WAITING
+    assert ID_RULE_WAITING == ID_RULE_FROZEN
+    assert ID_RULE_WAITING in str(id_rule.IdRuleError(["omop"]))
+    assert find_spec("tools.id_rule_rebuild") is None
+    from tools.trialbox.__main__ import main
+
+    with pytest.raises(SystemExit) as unavailable:
+        main(["id-rule-rebuild"])
+    assert unavailable.value.code == 2
+
+
+def test_old_destination_is_refused_before_stamp(tmp_path: Path) -> None:
+    path = tmp_path / "snapshot"
+    path.mkdir()
+    data = path / "Condition.ndjson"
+    data.write_bytes(b"synthetic")
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        write_snapshot(path, {})
+    assert data.read_bytes() == b"synthetic"
+    assert not (path / id_rule.SNAPSHOT_RECORD).exists()
+
+
+def test_ingest_refuses_an_old_served_file_without_ndjson(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    db = cfg.lake_dir / "db" / "2026-10-01.duckdb"
+    db.parent.mkdir(parents=True)
+    db.write_bytes(b"synthetic")
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        check_id_rule(cfg)
+    assert db.read_bytes() == b"synthetic"
+
+
+def test_old_nightly_spool_is_refused_before_cleanup(tmp_path: Path) -> None:
+    from adapter.ndjson import Spool
+
+    spool = tmp_path / "spool"
+    spool.mkdir()
+    data = spool / "Condition.ndjson"
+    data.write_bytes(b"synthetic")
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        Spool(spool)
+    assert data.read_bytes() == b"synthetic"
+
+
+def test_a_held_old_snapshot_cannot_be_accepted(tmp_path: Path) -> None:
+    from adapter.publish import publish_held
+
+    cfg = _cfg(tmp_path)
+    night = "2026-10-01"
+    folder = snapshot_dir(cfg.lake_dir, night)
+    folder.mkdir(parents=True)
+    (folder / id_rule.HELD).write_text("{}")
+    (folder / "Patient.ndjson").write_text('{"resourceType":"Patient","id":"synthetic"}\n')
+    before = {p.name: p.read_bytes() for p in folder.iterdir()}
+    result = publish_held(cfg, night)
+    assert not result.ok and any(id_rule.EARLIER_RULE in s for s in result.errors)
+    assert {p.name: p.read_bytes() for p in folder.iterdir()} == before
+
+
+def test_explicit_earlier_store_rule_is_preserved_even_without_rows(db_url: str) -> None:
+    store = id_rule.OMOP
+    _store_table(db_url, store, 0, False)
+    with Database.connect(db_url, store.schema) as db:
+        db.execute("INSERT INTO tb_id_rule (rule) VALUES (1)")
+        assert id_rule.probe(db_url, store) == id_rule.OLD
+        with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"), db.transaction() as tx:
+            id_rule.ensure(tx, store)
+        assert db.fetchall("SELECT rule FROM tb_id_rule") == [(1,)]
+
+
+def test_failed_store_probe_does_not_advise_a_full_ingest(
+    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(id_rule, "probe", lambda *_: id_rule.UNREAD)
+    with pytest.raises(id_rule.IdRuleError, match="not readable") as refused:
+        check_id_rule(_cfg(tmp_path, db_url))
+    assert id_rule.EARLIER_RULE not in str(refused.value)
+
+
+def test_age_pruning_refuses_an_old_lake_before_removing_any_files(tmp_path: Path) -> None:
+    from datetime import date
+
+    from adapter.pipeline import prune_lake
+
+    cfg = _cfg(tmp_path)
+    for day in ("2020-10-01", "2026-10-01"):
+        folder = snapshot_dir(cfg.lake_dir, day)
+        write_snapshot(folder, {"Patient": [{"resourceType": "Patient", "id": "synthetic"}]})
+    (snapshot_dir(cfg.lake_dir, "2020-10-01") / id_rule.SNAPSHOT_RECORD).unlink()
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        prune_lake(cfg, date(2026, 11, 20))
+    assert (snapshot_dir(cfg.lake_dir, "2020-10-01") / "Patient.ndjson").exists()
+
+
+def test_unmarked_spool_with_a_cut_completion_marker_stays_intact(tmp_path: Path) -> None:
+    from adapter.backfill import SPOOL_DONE, backfill
+
+    cfg = _cfg(tmp_path)
+    spool = cfg.lake_dir / "backfill" / "2026-10-01" / "spool"
+    spool.mkdir(parents=True)
+    marker = spool / SPOOL_DONE
+    marker.write_bytes(b'{"fingerprint":')
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        backfill(cfg, "csv", str(tmp_path), snapshot="2026-10-01", validate=False, rebuild_lake=False)
+    assert marker.read_bytes() == b'{"fingerprint":'
+
+
+def test_publish_recovery_leaves_an_old_replaced_snapshot_intact(tmp_path: Path) -> None:
+    from adapter.publish import recover
+
+    cfg = _cfg(tmp_path)
+    day = "2026-10-01"
+    replaced = cfg.lake_dir / "ndjson-rerun" / f"{day}.replaced"
+    replaced.mkdir(parents=True)
+    data = replaced / "Condition.ndjson"
+    data.write_bytes(b"synthetic")
+    write_snapshot(snapshot_dir(cfg.lake_dir, day), {})
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        recover(cfg, day)
+    assert data.read_bytes() == b"synthetic"
+    assert id_rule.snapshot_rule(snapshot_dir(cfg.lake_dir, day)) == id_rule.RULE
+
+
+def test_ingest_and_build_refuse_isolated_old_parquet(tmp_path: Path) -> None:
+    from embed_service.embedder import HashEmbedder
+    from lake.store import Lake, RebuildError
+
+    cfg = _cfg(tmp_path)
+    stranded = cfg.lake_dir / "parquet" / "snapshot=2026-10-01"
+    stranded.mkdir(parents=True)
+    data = stranded / "condition.parquet"
+    data.write_bytes(b"PAR1")
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        check_id_rule(cfg)
+    with pytest.raises(RebuildError, match="full ingest from the source"):
+        Lake(cfg.lake_dir, cfg.tz).rebuild("2026-10-02", HashEmbedder(), allow_empty=True)
+    assert data.read_bytes() == b"PAR1"
+
+
+@pytest.mark.parametrize("name", ["publish", "replaced"])
+def test_backfill_refuses_old_publish_scratch_before_replacement(tmp_path: Path, name: str) -> None:
+    from adapter.backfill import backfill
+
+    cfg = _cfg(tmp_path)
+    work = tmp_path / "work"
+    leftover = work / name
+    leftover.mkdir(parents=True)
+    data = leftover / "Condition.ndjson"
+    data.write_bytes(b"synthetic")
+    feed = _feed(tmp_path / "feed", 1)
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        backfill(cfg, "csv", feed, snapshot="2026-10-01", work_dir=work, validate=False, rebuild_lake=False)
+    assert data.read_bytes() == b"synthetic"
+
+
+def test_an_isolated_unmarked_generation_cannot_be_served(tmp_path: Path) -> None:
+    from lake.store import Lake, LakeSchemaError
+
+    folder = tmp_path / "db" / "gen"
+    folder.mkdir(parents=True)
+    handle = "2026-10-01.g1"
+    (folder / f"{handle}.duckdb").write_bytes(b"synthetic")
+    (folder / f"{handle}.json").write_text("{}")
+    with pytest.raises(LakeSchemaError, match="full ingest from the source"):
+        Lake(tmp_path, "UTC").db_path(handle)

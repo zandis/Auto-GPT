@@ -485,6 +485,13 @@ TABLES: dict[str, Entry] = {
     "omop.tb_id_map": _keep("D-441", "pseudonym to person id: the worker and the loader must still find the person"),
     "omop.tb_withheld": _keep("D-441", "the register's copy the loader reads to keep the patient out"),
     "omop.tb_load": _none("a load: batch and counts"),
+    # D-1253: the lake-id rule each store's ids were made under (tb_common.id_rule): a number, no patient
+    **_each("omop", ["tb_id_rule"], _none("the lake-id rule the store's ids were made under (D-1253)")),
+    **_each("derived", ["tb_id_rule"], _none("the lake-id rule the store's ids were made under (D-1253)")),
+    **_each("vec", ["tb_id_rule"], _none("the lake-id rule the store's ids were made under (D-1253)")),
+    **_each("profile", ["tb_id_rule"], _none("the lake-id rule the store's ids were made under (D-1253)")),
+    **_each("orch", ["tb_id_rule"], _none("the lake-id rule the store's ids were made under (D-1253)")),
+    **_each("edc", ["tb_id_rule_study"], _none("the lake-id rule each study's citations were made under (D-1253)")),
     **_each("omop", ("care_site", "provider"), _none("sites and providers, no patient")),
     **_each(
         "omop",
@@ -523,6 +530,14 @@ _SNAPSHOTS = (
 )
 LAKE: dict[str, Entry] = {
     "lake:ndjson": _owed("the nightly NDJSON extracts (3 nightly + month-ends kept)", _SNAPSHOTS),
+    "lake:id_rule_1": _owed(
+        "D-1253: archived snapshots of the earlier lake-id rule (NDJSON, DuckDB, Parquet)",
+        "the box refuses the archive; an opted-out patient's records remain in it",
+    ),
+    "lake:id_rule_review.json": _none(
+        "D-1253: historical decision hashes and statuses, disputed record IDs and source-scoped hashes of shared "
+        "charts. The review entries have no assigned patient or raw chart number."
+    ),
     "lake:ndjson-rerun": _owed("a re-run of a promoted night until it passes the gate (D-271)", _SNAPSHOTS),
     "lake:db": _owed("the DuckDB snapshots (nightly and month-end) and their side files", _SNAPSHOTS),
     "lake:parquet": _owed("the Parquet copy of each snapshot", _SNAPSHOTS),

@@ -265,7 +265,7 @@ def read_definitions(served: dict[str, dict[str, str]] | None = None) -> tuple[l
     served = served if served is not None else served_catalogue()
     out: list[Definition] = []
     dynamic: list[Dynamic] = []
-    for path in sorted(CONSOLE.glob("*.py")):
+    for path in [*sorted(CONSOLE.glob("*.py")), ROOT / "libs/tb_common/id_rule.py"]:
         text = path.read_text(encoding="utf-8")
         if not re.search(r"\b(EN|JA|ZH)\b|\"zh-TW\"", text):
             continue
@@ -509,6 +509,8 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "dataops.layer.row.": _values("console.country_profile", "KEYS"),  # 10C-25 (D-1250)
     "job.prefilter.": _values("tb_common.prefilter", "STAGES"),  # 10E-12 (D-1259): the night funnel's stages
     "dataops.layer.source.": _values("console.country_profile", "SOURCES"),
+    # D-1253: the kinds of a night's record-id counts on the data-ops batch page
+    "dataops.ids.kind.": lambda: [k for k, _ in importlib.import_module("console.dataops_page").ID_COUNTS],
     "life.daysoff.end.": lambda: ("soon", "past"),  # Calendar.runs_out
     "registry.status.": _values("orchestrator.candidates", "STATUSES"),
     "sstate.": _values("console.sitestore", "STUDY_STATES"),

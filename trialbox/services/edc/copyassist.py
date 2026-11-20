@@ -127,6 +127,7 @@ def tick(svc: EdcService, rs: str, record: str, ids: list[int], action: str, by:
     detail: dict[str, Any] = {"record": record, "action": action, "drafts": sorted(set(ids))[:200]}
     try:
         svc.store.require_drafting(rs)
+        svc.store.require_not_frozen(rs)  # D-1253 review G2: no tick on a study of another id rule
         if not ids:
             raise EdcError("edc.tick_none", "no value to tick", 400)
         pids = {str(d["pid"]) for d in svc.store.drafts(rs, record, current=False)}

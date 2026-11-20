@@ -17,6 +17,7 @@ import pytest
 import yaml
 from adapter.mapping.engine import Mapper, Mapping
 from lake.flatten import SCHEMAS, Flattener, unread_elements
+from tb_common import id_rule
 
 ROOT = Path(__file__).resolve().parents[2]
 TZ = "Asia/Taipei"
@@ -180,8 +181,9 @@ def test_an_observation_dated_by_a_period_only_is_read_and_offsets_are_kept() ->
 # ------------------------------------------------------------------------------------------------ offsets (STD-015)
 def _mapping(tmp_path: Path) -> Mapping:
     doc = {"version": 1, "name": "t", "tz": TZ, "systems": {}, "tables": {"t": {"source": "t", "key": "id"}},
-           "resources": [{"type": "Encounter", "table": "t", "id": {"column": "id"},
-                          "elements": {"period.start": {"column": "dt", "type": "datetime"},
+           "resources": [{"type": "Encounter", "table": "t", "id": {"hid": "id"},  # D-1253: a visit is its patient's
+                          "elements": {"subject": {"ref": {"type": "Patient", "pid": "mrn"}},
+                                       "period.start": {"column": "dt", "type": "datetime"},
                                        "period.end": {"column": "dt", "type": "datetime", "add_minutes": 30}}}]}  # fmt: skip
     p = tmp_path / "m.yaml"
     p.write_text(yaml.safe_dump(doc), encoding="utf-8")
@@ -201,7 +203,7 @@ def _mapping(tmp_path: Path) -> Mapping:
 )
 def test_a_source_offset_is_kept(tmp_path: Path, raw: str, start: str, end: str) -> None:
     m = _mapping(tmp_path)
-    res = Mapper(m, b"k" * 32, "S").map_row(m.resources[0], {"id": "E1", "dt": raw})
+    res = Mapper(m, b"k" * 32, "S").map_row(m.resources[0], {"id": "E1", "mrn": "10000001", "dt": raw})
     assert res is not None and res["period"] == {"start": start, "end": end}
 
 
@@ -245,6 +247,7 @@ def test_a_snapshot_built_before_schema_4_reads_deceased_as_unknown(tmp_path: Pa
     nd.mkdir()
     (nd / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p in _patients()) + "\n", encoding="utf-8")
     lake = Lake(tmp_path / "lake")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     lake.rebuild(SNAP, HashEmbedder(), nd)
     got = {r["pid"]: r["deceased"] for r in lake.query("SELECT pid, deceased FROM patient").to_pylist()}
     assert got["flagged"] is True

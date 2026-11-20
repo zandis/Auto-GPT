@@ -19,7 +19,7 @@
 </tr>{% endfor %}</tbody>
 <tfoot><tr><th scope="row">{{ t('dataops.unmapped.total') }}</th><td class="num" data-testid="unmapped-total">{{ '{:,}'.format(unmapped|sum(attribute=1)) }}</td></tr></tfoot>
 </table></div>
-</section>{% endif %}
+</section>{% endif %}{% if ids %}{# D-1253: the night's record-id counts (counts only, never an id or a patient) #}<section class="card" data-testid="batch-ids"><h2>{{ t('dataops.ids.title') }}</h2><p class="hint">{{ t('dataops.ids.help') }}</p><div class="scroll" tabindex="0"><table><thead><tr><th scope="col">{{ t('dataops.ids.kind') }}</th><th scope="col">{{ t('dataops.ids.where') }}</th><th scope="col">{{ t('dataops.ids.n') }}</th></tr></thead><tbody>{% for kind, name, n in ids %}<tr data-testid="ids" data-kind="{{ kind }}" data-where="{{ name }}"><td>{{ t('dataops.ids.kind.' + kind) }}</td><td class="mono">{{ name }}</td><td class="num">{{ '{:,}'.format(n) }}</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
 {% if profile %}{# 10B-6 (D-1233): the site profile that read this night, and its coverage lines (counts only) #}
 <section class="card" data-testid="batch-profile">
 <h2>{{ t('dataops.profile.title') }}</h2>

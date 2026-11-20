@@ -46,6 +46,7 @@ from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
 from lake.store import Lake
 from matching import decision
+from tb_common import id_rule
 from tb_common.crypto import pid_for_mrn
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR, CriterionVerdict, JobCreate
@@ -222,6 +223,7 @@ def build_lake(nd: Path, lake_dir: Path) -> None:
     nd.mkdir(parents=True)
     for t, rows in out.items():
         (nd / f"{t}.ndjson").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), "utf-8")
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     Lake(lake_dir, TZ).rebuild(SNAP, HashEmbedder(), nd)
 
 

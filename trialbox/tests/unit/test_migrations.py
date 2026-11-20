@@ -402,6 +402,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "8e3745a426403fc8446601c4221225fa3cee581f63569387c59de741041c4523",
         "3c1516feffb316a4b8ac253e770fc5a7671553427ba6c400c57acc7426a44366",
         "eaae339681eca35b2b01ccd356bc1e4dce55a664a2b06214f3c47274f53d0daf",
+        # D-1253: tb_id_rule, the rule the store's lake ids were made under (tb_common.id_rule)
+        "3504fdf2b59e5659f3f6e54ef8a7f2584b72dc4b80a3c4b9fa4313035dbdd03e",
     ),
     # T-612: pidmap version 2, the site key's fingerprint
     # T-659b (D-370): pidmap version 3, the patient index as the append-only pid_alias table
@@ -425,7 +427,13 @@ ADDED: dict[str, tuple[str, ...]] = {
         "cd15f0cb005567fbcaa623030a4e5ea5dd4bc947add082f57bcbe23b1cb7547d",
     ),
     # D-442 (T-207): derived version 2, the derive batch of each snapshot
-    "derived": ("375852250dfeb38566f9172945e0d268f2a9f6b3d34f139e0c452eac4a59c711",),
+    "derived": (
+        "375852250dfeb38566f9172945e0d268f2a9f6b3d34f139e0c452eac4a59c711",
+        # D-1253: tb_id_rule, the rule the store's lake ids were made under (tb_common.id_rule)
+        "3504fdf2b59e5659f3f6e54ef8a7f2584b72dc4b80a3c4b9fa4313035dbdd03e",
+        # D-1253 (review G4): the id-rule mark of a resolved conflict the one rebuild keeps, and of its score row
+        "876624ba723ee50d9f7f5b28f1cc86ae996a21802b87bfe9ffdc7fa2ac83c8cc",
+    ),
     # D-386 (T-622): site version 5 (the study's state log and identifiers)
     # D-395 (T-310b): site version 6 (the IRB-text record of the cross-department candidate view)
     "site": (
@@ -453,6 +461,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "237fcba81e000e604f3cc4bac1e217bd99ed1a73bc031522efb79fb04801fdac",
         # E-PROV-1 (D-1047, D-989): edc version 8, the model calls each draft came from
         "9d2f3dc99b16a609aeefd428212cadc11d3b1c75f7014354a9e12d83323d4697",
+        # D-1253: tb_id_rule_study, the lake-id rule per study (edc.store: a study of the earlier rule is frozen)
+        "68ca731c48ec6422d420b80cec319212892f2f966b3209d167e0cb687a8c5dd0",
     ),
     # T-108c (D-401): mail version 3, the send keys as the outbox and the job type on each intake row
     "mail": ("dc540a482b5619e6226318becb615e79a639ab2be3c2d47154b43029886f8579",),
@@ -493,13 +503,23 @@ ADDED: dict[str, tuple[str, ...]] = {
         "885e09aba43f78d4d69e16a0f210ccbc9e9442c25e8e60cc6ef704856c7c34c7",
         # D-1360 (card 10A-4): orch version 7, the answer store (``answers``)
         "0f873592d582096e522578242e31e2320cc1ccda209273f28403b599fd217625",
+        # D-1253: tb_id_rule, the rule the store's lake ids were made under (tb_common.id_rule)
+        "3504fdf2b59e5659f3f6e54ef8a7f2584b72dc4b80a3c4b9fa4313035dbdd03e",
     ),
     # T-310a (D-446): the weekly PI sample of criteria not matched and the site's check, new after the baseline
     "tuned": ("e8565a9e2288df90d120272ab2956fafe4595465ecd7c58c2e2debb35ee934a1",),
     # T-203a (D-439): the vector store, new after the baseline (needs pgvector: the db image)
-    "vec": ("cd645d93e9d8d0a809c92eeaf6ff8997c201fb0e32b07a2d112288447f86b429",),
+    "vec": (
+        "cd645d93e9d8d0a809c92eeaf6ff8997c201fb0e32b07a2d112288447f86b429",
+        # D-1253: tb_id_rule, the rule the store's lake ids were made under (tb_common.id_rule)
+        "3504fdf2b59e5659f3f6e54ef8a7f2584b72dc4b80a3c4b9fa4313035dbdd03e",
+    ),
     # T-204 (D-440): the patient twin, new after the baseline
-    "profile": ("e1107c0c7de613b72141fb70237b6eb35c1f98f5a1549f9c60f8537512a751b6",),
+    "profile": (
+        "e1107c0c7de613b72141fb70237b6eb35c1f98f5a1549f9c60f8537512a751b6",
+        # D-1253: tb_id_rule, the rule the store's lake ids were made under (tb_common.id_rule)
+        "3504fdf2b59e5659f3f6e54ef8a7f2584b72dc4b80a3c4b9fa4313035dbdd03e",
+    ),
     # E-EDCB-2 (D-1044): the EDC door's state (OIDC codes, held writes, event ids), new after the baseline
     "edcdoor": ("d6190fca3834816cb6d64137dfd92f84faefb9103476d79b3ab84c0fb0f1bf73",),
 }

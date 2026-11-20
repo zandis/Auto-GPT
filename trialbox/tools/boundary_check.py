@@ -101,6 +101,9 @@ def run_sql(t: Table, rs: dict[str, Ruleset]) -> Answers:
                 by_type.setdefault(r["resourceType"], []).append(json.dumps(r, ensure_ascii=False))
             for rtype, lines in by_type.items():
                 (nd / f"{rtype}.ndjson").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            from tb_common import id_rule
+
+            id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release says its id rule
             lake = Lake(Path(td) / "lake", tz=SITE_TZ)
             lake.rebuild(SNAPSHOT, HashEmbedder(), nd)
             for index in t.index_dates(rid):

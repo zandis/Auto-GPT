@@ -15,7 +15,8 @@ from typing import Any
 
 import pytest
 import yaml
-from adapter.mapping.engine import Mapper, Mapping, MappingError, resource_id
+from adapter.mapping.engine import Mapper, Mapping, MappingError, patient_resource_id
+from tb_common.crypto import pid_for_mrn
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = ROOT / "services/adapter/mapping/tw_core/demo_his.yaml"
@@ -59,7 +60,10 @@ def test_a_diagnosis_links_to_the_one_visit_of_its_branch_patient_and_day(tmp_pa
     visits = [_visit("V1", "A", "P1", "2026-01-13 09:10:00"), _visit("V2", "A", "P1", "2026-01-20 10:00:00"),
               _visit("V3", "B", "P1", "2026-01-13 11:00:00")]  # fmt: skip
     m, got = _run(tmp_path, visits, [_diag("D1", "A", "P1", "2026-01-13")])
-    assert got["links"] == [f"Encounter/{resource_id(b'k' * 32, 'Encounter', 'V1')}"]
+    # D-1253: the visit's id is its patient's
+    assert got["links"] == [
+        f"Encounter/{patient_resource_id(b'k' * 32, 'Encounter', pid_for_mrn(b'k' * 32, 'P1'), 'V1')}"
+    ]
     assert m.encounter_links() == {"diagnosis": {"linked": 1}}
 
 
@@ -186,7 +190,7 @@ def test_a_delta_night_links_a_changed_diagnosis_to_its_unchanged_visit(tmp_path
     run_ingest(cfg, "csv", feed, snapshot="2026-10-01", load_fhir=False, validate=False)
     run_ingest(cfg, "csv", feed, since="2026-10-01", snapshot="2026-10-02", load_fhir=False, validate=False)
     folder = snapshot_dir(cfg.lake_dir, "2026-10-02")
-    want = f"Encounter/{resource_id(_key(cfg), 'Encounter', 'V1')}"
+    want = f"Encounter/{patient_resource_id(_key(cfg), 'Encounter', pid_for_mrn(_key(cfg), '10000001'), 'V1')}"
     assert {(c.get("encounter") or {}).get("reference") for c in read_type(folder, "Condition")} == {want}
     comp = json.loads((folder / "completeness.json").read_text(encoding="utf-8"))
     assert comp["tables"]["diagnosis"]["encounter_by_day"] == {"linked": 1}  # D2: the one row read tonight

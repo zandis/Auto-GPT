@@ -16,6 +16,7 @@ from lake.store import Lake, StaleSnapshotError, check_snapshot_age, snapshot_ag
 from orchestrator.core import Ctx, Orchestrator, Outcome, Services
 from orchestrator.db import JobDB
 from orchestrator.jobs import PinnedLake
+from tb_common import id_rule
 from tb_common.audit import AuditLog
 from tb_common.config import Config, ConfigError, load_env, load_settings
 from tb_common.objstore import FsStore
@@ -43,6 +44,7 @@ def _night(lake_dir: Path, snap: str, n: int) -> None:
     """One synthetic night: ``n`` patients written as the adapter writes them, built and made CURRENT."""
     nd = lake_dir / "ndjson" / snap
     nd.mkdir(parents=True, exist_ok=True)
+    id_rule.write_snapshot_record(nd)  # D-1253: a snapshot of this release
     (nd / "Patient.ndjson").write_text("".join(json.dumps(p) + "\n" for p in _patients(n)), encoding="utf-8")
     Lake(lake_dir, "Asia/Taipei").rebuild(snap, HashEmbedder())
 
@@ -109,6 +111,7 @@ def test_snapshot_age_on_a_frozen_clock() -> None:
 def test_lake_pin_refuses_a_stale_current(tmp_path: Path) -> None:
     lake = Lake(tmp_path / "lake", "Asia/Taipei")
     (tmp_path / "lake" / "db" / f"{NIGHT_1}.duckdb").write_bytes(b"")
+    (tmp_path / "lake" / "db" / f"{NIGHT_1}.duckdb.id_rule").write_text(f"{id_rule.RULE}\n")  # built by this release
     lake.promote(NIGHT_1)
     assert lake.pin(date(2026, 10, 6), 3) == NIGHT_1
     with pytest.raises(StaleSnapshotError):

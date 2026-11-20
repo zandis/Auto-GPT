@@ -11,6 +11,7 @@ Layout under ``<lake_dir>``::
     CURRENT                                  snapshot served by default
     FEED                                     the lake has held a hospital feed: an empty rebuild is refused (D-271)
     db/<snapshot>.duckdb.siteonly            the snapshot was built from the site's own inputs only (D-271)
+    db/<snapshot>.duckdb.id_rule             the id rule of the ids the file holds (D-1253): read when no NDJSON is left
     holds/<holder>.json                      a running job reads this snapshot: never rebuilt or pruned (T-305b)
     .rebuild.lock                            ``flock``: hold, release, pruning and a rebuild's start and swap (D-462)
     locks/<snapshot>.build.lock              ``flock`` held by the one rebuild of the snapshot that runs (D-462)
@@ -471,6 +472,7 @@ def held_generations(lake_dir: Path, now: float | None = None) -> dict[str, str]
 
 
 # ------------------------------------------------------------------------------------------ generations (T-724)
+ID_RULE_SIDECAR = ".id_rule"  # db/<snapshot>.duckdb.id_rule: the id rule of the ids the file holds (D-1253)
 GEN_ID = re.compile(r"^(?P<snap>[^/\\]+)\.g(?P<seq>[1-9][0-9]*)$")
 GENERATION_HEADER = "X-TB-Lake-Generation"  # over HTTP the generation's number travels beside the request's date
 
@@ -1020,6 +1022,7 @@ class Lake:
         snap = snapshot or self.current()
         if not snap:
             raise FileNotFoundError("lake has no snapshot yet (run adapter / rebuild)")
+        self.check_id_rule(split_generation(snap)[0])
         if split_generation(snap)[1] is not None:  # T-724 (D-490): a generation, never the date's newest in its place
             path = gen_dir(self.dir) / f"{snap}.duckdb"
             if not path.exists() or not path.with_suffix(".json").exists():
@@ -1030,8 +1033,39 @@ class Lake:
             raise FileNotFoundError(f"no lake snapshot {snap}")
         return path
 
+    def check_id_rule(self, snapshot: str) -> None:
+        """D-1253 review G1: no reader opens (and no build makes) a lake of a snapshot whose NDJSON is not this
+        release's id rule. Every read, pin, hold
+        and promote resolves its file here (:meth:`db_path`)."""
+        from tb_common import id_rule
+
+        what = f"the lake snapshot {snapshot}"
+        nd = self._source(snapshot)
+        database = self.dir / "db" / f"{snapshot}.duckdb"
+        try:
+            if nd.is_dir():
+                id_rule.check_snapshot(nd, what)
+            elif database.exists() or any(gen_dir(self.dir).glob(f"{snapshot}.g*.duckdb")):
+                # review round 3: served with no NDJSON left (the byte budget takes it first, NEW-B-38): the rule
+                # the build wrote beside the file; none is the earlier rule (written before D-1253)
+                rule = id_rule.served_rule(database)
+                if rule == 0:
+                    raise id_rule.IdRuleError([], unreadable=[what])
+                if rule > id_rule.RULE:
+                    raise id_rule.IdRuleError([], newer=[what])
+                if rule != id_rule.RULE:
+                    raise id_rule.IdRuleError([what])
+        except ValueError as exc:
+            raise LakeSchemaError(id_rule.unreadable_words([what])) from exc
+        except id_rule.IdRuleError as exc:  # 503: the lake cannot serve it (never "no data")
+            raise LakeSchemaError(str(exc)) from exc
+
     def promote(self, snapshot: str) -> None:
         """Make ``snapshot`` the one served by default (``CURRENT``), atomically."""
+        from tb_common import id_rule
+
+        if reason := id_rule.hold_reason(self._source(snapshot)):
+            raise LakeSaid(reason)
         self.db_path(snapshot)
         tmp = self.dir / "CURRENT.tmp"
         tmp.write_text(snapshot)
@@ -1287,10 +1321,23 @@ class Lake:
     def _source_or_refuse(self, snapshot: str, ndjson_dir: Path | None, allow_empty: bool) -> tuple[Path, bool]:
         """The NDJSON folder of the rebuild and whether an empty one is allowed; a missing folder of a fed lake is
         refused (D-271) before anything is written."""
+        from omop.schema import check_lake_stores
+        from tb_common import id_rule
+
+        try:
+            self.check_id_rule(snapshot)
+            check_lake_stores(self.dir)
+        except (LakeSchemaError, id_rule.IdRuleError) as exc:
+            raise RebuildError(str(exc)) from exc
         src = ndjson_dir or self._source(snapshot)
         allow_empty = allow_empty or not self.fed()
         if not src.is_dir() and not allow_empty:
             raise RebuildError(f"lake snapshot {snapshot}: no NDJSON folder {src}; nothing built, CURRENT unchanged")
+        if src.is_dir():
+            try:  # D-1253 round 3: no lake is built from a snapshot of another id rule
+                id_rule.open_snapshot(src, f"the lake snapshot {snapshot}")
+            except id_rule.IdRuleError as exc:
+                raise RebuildError(f"{exc}; nothing built, CURRENT unchanged") from exc
         return src, allow_empty
 
     def _rebuild(
@@ -1303,11 +1350,14 @@ class Lake:
         cause: str | None = None,
         check: bool = False,
     ) -> RebuildStats:
+        from tb_common import id_rule
+
         t0 = time.perf_counter()
         db_path = self.dir / "db" / f"{snapshot}.duckdb"
         tmp = db_path.with_suffix(".building")
         stage = self.dir / "parquet" / ".building" / f"snapshot={snapshot}"  # D-462: beside the served Parquet
         old = stage.with_name(f"snapshot={snapshot}.old")
+        src, allow_empty = self._source_or_refuse(snapshot, ndjson_dir, allow_empty)
         # leftovers of a rebuild of this snapshot that was killed (this one holds its build lock: nobody else writes)
         tmp.unlink(missing_ok=True)
         shutil.rmtree(stage, ignore_errors=True)
@@ -1331,7 +1381,6 @@ class Lake:
         if promote and cur is not None and snapshot < cur:
             log.warning("lake snapshot %s is older than CURRENT %s: built, not promoted (DATA-007)", snapshot, cur)
             promote = False
-        src, allow_empty = self._source_or_refuse(snapshot, ndjson_dir, allow_empty)
         # T-692 (D-473): the NDJSON is read as each table is written, never held; here only its lines are counted
         by_type = {f.stem: _NdjsonFile(f) for f in sorted(src.glob("*.ndjson"))}
         lines = {t: v.count() for t, v in by_type.items()}
@@ -1340,6 +1389,8 @@ class Lake:
             raise RebuildError(
                 f"lake snapshot {snapshot}: {src} holds no patient or clinical record; nothing built, CURRENT unchanged"
             )
+        if reason := id_rule.hold_reason(src):
+            raise RebuildError(reason)
         if (promote or check) and not allow_empty:  # only a snapshot that replaces CURRENT is compared with it
             self._check_drop(snapshot, have)
         # read before the build reads the inputs: a change in between leaves the record on the older hash, which
@@ -1381,6 +1432,9 @@ class Lake:
             write_sidecar(db_path, digest)  # hashed before the lock: holds and releases never wait for a hash
             self._drop_generations(snapshot, gen)
             drop_reader_links(self.dir, snapshot)
+            # D-1253 round 3: the rule of the ids it holds, read when no NDJSON is left (``check_id_rule``); pruned
+            # and moved aside with the snapshot (``<snap>.duckdb*``)
+            (self.dir / "db" / f"{snapshot}.duckdb{ID_RULE_SIDECAR}").write_text(f"{id_rule.RULE}\n", encoding="utf-8")
             rec = self.dir / "db" / f"{snapshot}.duckdb.source"  # pruned with the snapshot (``<snap>.duckdb*``)
             if src.is_dir() and src.resolve() != (self.dir / "ndjson" / snapshot).resolve():
                 rec.write_text(str(src.resolve()) + "\n", encoding="utf-8")

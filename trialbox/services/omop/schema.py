@@ -51,6 +51,7 @@ from functools import cache
 from pathlib import Path
 
 from tb_common.db import Database
+from tb_common.id_rule import DDL as ID_RULE_DDL
 
 DDL_DIR = Path(__file__).resolve().parent / "ddl"
 SCHEMA = "omop"
@@ -461,6 +462,7 @@ def migrations() -> list[str]:
         WITHHELD_DDL,
         GROUPER_FAMILY_DDL,
         row_ids_ddl(),
+        ID_RULE_DDL,  # D-1253: the rule its lake ids were made under (tb_common.id_rule)
     ]
 
 
@@ -480,6 +482,35 @@ def schema_for(lake_dir: Path | None) -> str:
     if box and Path(box).resolve() == path:
         return SCHEMA
     return f"{SCHEMA}_" + hashlib.sha1(str(path).encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
+
+
+def check_lake_stores(lake_dir: Path, db_url: str | None = None) -> None:
+    """Check the snapshot files and the stores needed to publish or build this lake before moving data."""
+    from tb_common import id_rule
+
+    old, newer, unreadable = id_rule.lake_issues(lake_dir)
+    inaccessible: list[str] = []
+    url = db_url or os.environ.get("TB_DB_URL")
+    omop_url = os.environ.get("TB_OMOP_DB_URL") or url
+    if url or omop_url:
+        checks = [(omop_url, id_rule.OMOP, schema_for(lake_dir)), (url, id_rule.DERIVED, None)]
+        for where, store, schema in checks:
+            if not where:
+                continue
+            try:
+                state = id_rule.probe(where, store, schema)
+            except Exception as exc:  # D-1253 review G5: a rule that cannot be read refuses the night
+                raise id_rule.IdRuleError(
+                    [], inaccessible=[f"the {store.name} store (its id rule could not be read: {type(exc).__name__})"]
+                ) from exc
+            if state == id_rule.UNREAD:  # a store this role reads, whose rule it cannot read: never let through
+                inaccessible.append(f"the {store.name} store (its id rule is not readable by this role)")
+            elif state == id_rule.OLD:
+                old.append(f"the {store.name} store")
+            elif state == id_rule.NEWER:
+                newer.append(f"the {store.name} store")
+    if old or newer or unreadable or inaccessible:
+        raise id_rule.IdRuleError(old, newer=newer, unreadable=unreadable, inaccessible=inaccessible)
 
 
 #: D-721: the two services that write and read one lake between them (the adapter loads, the lake builds and

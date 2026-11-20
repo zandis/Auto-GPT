@@ -83,7 +83,7 @@ R-01 and R-02 also hold the training evidence of `qms-lite.md` §3 (first sign-i
 | O-09 | Public and licensed reference data: registry, terminology, maps, vocabulary releases | public or licensed data, not about the trial | replaced by each pack or release |
 | O-10 | Aggregate cohort tables and the public trial cache | aggregate counts and a public registry cache | `outputs_days` |
 | O-11 | Embedding cache of the lake | vectors keyed by a text hash; rebuilt from R-25 | kept |
-| O-12 | Schema versions | how a database is migrated | kept |
+| O-12 | Schema versions, and the lake-id rule a store's ids were made under (`tb_id_rule`, per study in EDC `tb_id_rule_study`, D-1253) | how a database is migrated; whether a store's lake ids may be added to | kept |
 | O-13 | Vector store of note chunks (schema `vec`, D-439): each masked chunk of a note with its offsets, and one vector per chunk text and embedding model | derived from the notes of R-25 after the PHI pass, rebuilt from them; never exported | kept while the note is in R-25; the opt-out worker calls `VecStore.delete_patient` on each tick (T-727, D-465), which removes the patient's chunks and every vector no other chunk uses |
 | O-14 | EDC door state (schema `edcdoor`, D-1044): the ids of the events the owner's EDC sent, with its project and record ids and the instrument, and the writes held for a person's confirmation | bookkeeping: each event and each confirmed write is in R-01 (`edc.event`, `edc.tool_confirm`); the EDC holds the trial data | event ids kept (a repeated delivery is known as one); a held write until it is confirmed or 15 minutes pass |
 
@@ -110,6 +110,7 @@ are marked "files".
 | `services/console/saerecord.py` | `sae_case`, `sae_report`, `sae_trail` | R-07 |
 | `services/datacore/lifecycle.py` | `ae_ack`, `sae_rule` | R-07 |
 | `services/edc/store.py` | `switch`, `switch_event`, `item_map`, `map_event`, `target`, `draft`, `decision`, `signature`, `signature_void`, `sent`, `reentry_record`, `copy_tick`, `direct_source_event` | R-08 |
+| `services/edc/store.py` | `tb_id_rule_study` | O-12 |
 | `services/datacore/store.py` | `form`, `value`, `history`, `conflict`, `owner`, `source_cfg`, `src_record` | R-09 |
 | `services/datacore/lifecycle.py` | `subject`, `subject_step`, `schedule`, `schedule_version`, `contact_rule`, `deviation_call`, `consent_age_rule`, `assent_proceed` | R-10 |
 | `services/console/teamstore.py` | `referrals`, `referral_events` | R-11 |
@@ -157,6 +158,7 @@ are marked "files".
 | `services/orchestrator/db.py` | `cohort_tables`, `cohort_stored`, `cohort_read`, `cohort_tables_before`, `trial_cache` | O-10 |
 | `services/lake/store.py` | `cache` | O-11 |
 | `libs/tb_common/db.py` | `_schema_version` | O-12 |
+| `libs/tb_common/id_rule.py` | `tb_id_rule` | O-12 |
 | `services/vec/store.py` | `embedding`, `note_chunk` | O-13 |
 
 **Erasure.** What an opt-out does to each table, lake folder, object prefix and outside store (erased by a named

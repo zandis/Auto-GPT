@@ -218,6 +218,25 @@ BEGIN
   END IF;
 END
 $roles$;
+-- The lake may check the derived ID rule before a build. It cannot read a score or change the store.
+CREATE OR REPLACE FUNCTION derived.lake_id_rule() RETURNS integer
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $rule$
+DECLARE stamp integer;
+BEGIN
+  IF to_regclass('derived.tb_id_rule') IS NOT NULL THEN
+    SELECT max(rule) INTO stamp FROM derived.tb_id_rule;
+  END IF;
+  IF stamp IS NOT NULL THEN RETURN stamp; END IF;
+  IF to_regclass('derived.score_row') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM derived.score_row) THEN RETURN 1; END IF;
+  END IF;
+  RETURN 0;
+END
+$rule$;
+ALTER FUNCTION derived.lake_id_rule() OWNER TO tbs_derived;
+REVOKE ALL ON FUNCTION derived.lake_id_rule() FROM PUBLIC;
+GRANT USAGE ON SCHEMA derived TO tb_lake;
+GRANT EXECUTE ON FUNCTION derived.lake_id_rule() TO tb_lake;
 ALTER ROLE tb_lake PASSWORD :'pw_lake';
 ALTER ROLE tb_criteria_compiler PASSWORD :'pw_criteria_compiler';
 ALTER ROLE tb_adapter PASSWORD :'pw_adapter';

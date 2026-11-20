@@ -37,6 +37,8 @@ from pathlib import Path
 from typing import Any
 
 from datacore import pgfunc
+from psycopg import sql as pgsql
+from tb_common import id_rule
 from tb_common.config import environment_name
 from tb_common.crypto import key_fingerprint
 from tb_common.db import ENV, Database
@@ -132,7 +134,54 @@ CREATE TABLE IF NOT EXISTS direct_source_event (id BIGINT GENERATED ALWAYS AS ID
 SCHEMA_V8 = """
 ALTER TABLE draft ADD COLUMN IF NOT EXISTS prov TEXT
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8)
+# D-1253: the lake-id rule each study's citations were made under, per study (tb_common.id_rule). Every study that
+# has drafts when this migration runs drafted from the earlier rule's lake: it is stamped rule 1 here. A study that
+# has none yet starts at rule 2 at its first draft run. A rule-1 study with a decided, signed or sent value is frozen
+# for prefill. An earlier-rule study with open drafts only also refuses writes and keeps its drafts.
+SCHEMA_V9 = """
+CREATE TABLE IF NOT EXISTS tb_id_rule_study (study TEXT PRIMARY KEY, rule INTEGER NOT NULL CHECK (rule > 0),
+  recorded_at TIMESTAMPTZ NOT NULL DEFAULT now());
+INSERT INTO tb_id_rule_study (study, rule) SELECT DISTINCT study, 1 FROM draft ON CONFLICT (study) DO NOTHING
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9)
+#: D-1253: every table that records an act on a draft (``draft_id``): ``tests/unit/test_edc_id_rule_freeze.py`` holds
+#: it to the migrated schema, so a trail table added later is never missed
+TRAIL_TABLES = ("copy_tick", "decision", "sent", "signature_void")
+
+
+def has_trail(d: str = "d", tables: tuple[str, ...] = TRAIL_TABLES) -> str:
+    """D-1253 (review round 3): the one definition, as SQL over ``draft {d}``, of a draft with a trail: decided,
+    signed or sent, or named by any act on the draft. A draft without one is open. Composed with psycopg's own
+    quoting: the alias and the table names are identifiers."""
+    a = pgsql.Identifier(d)
+    marks = [
+        pgsql.SQL("{}.fate IN ('confirmed', 'edited')").format(a),
+        pgsql.SQL("{}.signature_id IS NOT NULL").format(a),
+        pgsql.SQL("{}.sent_at IS NOT NULL").format(a),
+    ]
+    acts = [
+        pgsql.SQL("EXISTS (SELECT 1 FROM {} x WHERE x.draft_id = {}.id)").format(pgsql.Identifier(t), a) for t in tables
+    ]
+    return pgsql.SQL("({})").format(pgsql.SQL(" OR ").join([*marks, *acts])).as_string(None)
+
+
+def cites_old_rows(d: str = "d", tables: tuple[str, ...] = TRAIL_TABLES) -> str:
+    """D-1253 (review round 3): a draft with a trail whose value cites a lake row (``citation`` or
+    ``final_citation``). Only such a draft freezes a study of an earlier rule: a decided value with no citation
+    ("not found") cites no old row, and its study is not frozen."""
+    # ODM imports cite an external file and XML path. Keep unknown legacy shapes frozen.
+    cited = pgsql.SQL("({c} IS NOT NULL AND ({c}::jsonb ->> 'kind') IS DISTINCT FROM 'odm')")
+    cites = pgsql.SQL(" OR ").join(cited.format(c=pgsql.Identifier(d, col)) for col in ("citation", "final_citation"))
+    return pgsql.SQL("(({}) AND {})").format(cites, pgsql.SQL(has_trail(d, tables))).as_string(None)
+
+
+#: D-1253: whether a study has a draft that freezes it (:func:`cites_old_rows`)
+TRAILED = (
+    pgsql.SQL("SELECT EXISTS (SELECT 1 FROM draft d WHERE d.study = ? AND {})")
+    .format(pgsql.SQL(cites_old_rows()))
+    .as_string(None)
+)
+ID_RULE_FROZEN = ID_RULE_WAITING = id_rule.EARLIER_RULE
 #: tables that only ever grow (D-281): a trigger refuses UPDATE, DELETE and TRUNCATE on each
 APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record",
                "copy_tick", "direct_source_event")  # fmt: skip
@@ -520,6 +569,47 @@ class EdcStore:
         if not self.switch(study).on:
             raise EdcError("edc.off", "prefill is off for this study (no sponsor acknowledgement on file)")
 
+    def id_rule_frozen(self, study: str) -> bool:
+        """D-1253: the study is of the earlier id rule and its decided, signed or sent values cite such lake rows:
+        no new draft, no decision, no tick, nothing sent or erased in REDCap."""
+        with self._db.transaction() as tx:
+            return self._study_state(tx, study) == "frozen"
+
+    @staticmethod
+    def _study_state(tx: Any, study: str) -> str:
+        """``new`` (no rule yet: no draft), ``current`` (this rule), ``frozen`` (an earlier rule's trail),
+        ``waiting`` (an earlier rule's open drafts only), ``newer`` (a later release's)."""
+        rule = tx.fetchval("SELECT rule FROM tb_id_rule_study WHERE study = ?", (study,))
+        if rule is None:
+            return "new"
+        if int(rule) == id_rule.RULE:
+            return "current"
+        if int(rule) > id_rule.RULE:
+            return "newer"
+        return "frozen" if tx.fetchval(TRAILED, (study,)) else "waiting"
+
+    @staticmethod
+    def _refuse(state: str) -> None:
+        if state in ("frozen", "waiting"):
+            raise EdcError("edc.id_rule_frozen", id_rule.EARLIER_RULE)
+        if state == "newer":
+            raise EdcError("edc.id_rule_newer", id_rule.NEWER_STUDY)
+
+    def _study_rule(self, tx: Any, study: str) -> None:
+        """In a draft run's (or an ODM import's) transaction: a study of the current rule goes on; a new one is
+        stamped and goes on; one of another rule is refused before anything is written."""
+        state = self._study_state(tx, study)
+        self._refuse(state)
+        if state == "new":
+            tx.execute("INSERT INTO tb_id_rule_study (study, rule) VALUES (?, ?) ON CONFLICT (study) DO NOTHING",
+                       (study, id_rule.RULE))  # fmt: skip
+
+    def require_not_frozen(self, study: str) -> None:
+        """D-1253: every write path of a study's values (a decision, a copy tick, a send, REDCap's erase) refuses a
+        study of another id rule, before anything is written."""
+        with self._db.transaction() as tx:
+            self._refuse(self._study_state(tx, study))
+
     def require_drafting(self, study: str) -> None:
         """Prefill on or copy-assist (D-434): drafts, the ODM import, review and signatures."""
         if not self.switch(study).drafting:
@@ -589,6 +679,7 @@ class EdcStore:
         A record key stays bound to the one subject it was first drafted for (D-162, review E-02)."""
         ids: list[int] = []
         with self._db.transaction() as tx:
+            self._study_rule(tx, study)  # D-1253: never a citation of rule 2 beside a study's rule-1 records
             other = tx.fetchval("SELECT pid FROM draft WHERE study = ? AND record = ? AND pid <> ? LIMIT 1",
                                 (study, record, pid))  # fmt: skip
             if other is not None:
@@ -665,6 +756,7 @@ class EdcStore:
         :meth:`add_drafts`. A record key stays bound to its one subject (D-162). Nothing is decided or signed."""
         out: dict[str, list[dict[str, Any]]] = {"drafted": [], "decided": [], "same": []}
         with self._db.transaction() as tx:
+            self._study_rule(tx, study)  # D-1253: a frozen study takes no new draft, from a file either
             for rec, pid in sorted({(str(p["record"]), str(p["pid"])) for p in proposals}):
                 other = tx.fetchval("SELECT pid FROM draft WHERE study = ? AND record = ? AND pid <> ? LIMIT 1",
                                     (study, rec, pid))  # fmt: skip
@@ -760,6 +852,7 @@ class EdcStore:
         if action not in ACTIONS:
             raise EdcError("edc.action", "confirm, edit or reject", 400)
         with self._db.transaction() as tx:
+            self._refuse(self._study_state(tx, study))  # D-1253 review G2: in the decision's own transaction
             rows = tx.fetchdicts("SELECT * FROM draft WHERE study = ? AND id = ? FOR UPDATE", (study, draft_id))
             if not rows:
                 raise EdcError("edc.no_draft", "no such draft", 404)
@@ -899,6 +992,8 @@ class EdcStore:
         if method not in METHODS:
             raise EdcError("edc.method", "unknown way of re-authenticating", 400)
         with self._db.transaction() as tx:
+            # D-1253 second review, finding 12: in the signature's own transaction, as every other write of a value
+            self._refuse(self._study_state(tx, study))
             rows = [self._row(r) for r in tx.fetchdicts(
                 "SELECT * FROM draft WHERE study = ? AND record = ? AND visit = ? AND fate IN ('confirmed', 'edited') "
                 "AND signature_id IS NULL ORDER BY id FOR UPDATE", (study, record, visit))]  # fmt: skip
@@ -1098,6 +1193,7 @@ class EdcStore:
             raise EdcError("edc.tick_none", "no value to tick", 400)
         ids: list[int] = []
         with self._db.transaction() as tx:
+            self._refuse(self._study_state(tx, study))  # D-1253 review G2: in the tick's own transaction
             for d in values:
                 ids.append(int(tx.fetchval(
                     "INSERT INTO copy_tick (study, record, visit, item, draft_id, signed_sha, action, reason, by_user, "

@@ -650,6 +650,11 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
             ndjson_keep = {cur.read_text(encoding="utf-8").strip(), *snaps[-2:]}
     for rel in _walk(root):
         parts = Path(rel).parts
+        # D-1253 (deep review): the month-ends the one id-rule rebuild moved aside (``id_rule_1/<ndjson|db|parquet>``)
+        # are taken by the same rules as the live folders; never served, each is an older snapshot
+        aside = name == "lake" and len(parts) > 1 and parts[0] == "id_rule_1"
+        if aside:
+            parts = parts[1:]
         if name == "lake" and rel == LAKE_LOCK:  # the lake's lock file (empty; the backup takes it, D-455)
             continue
         why = ""
@@ -659,13 +664,13 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
             why = "lake snapshot being built"  # D-462: the build file and the Parquet stage, swapped in when done
         elif name == "lake" and parts[:2] == ("db", ".open"):
             why = "lake reader links (the same files as db/)"  # D-462: hard links, taken once as db/<snapshot>.duckdb
-        elif name == "lake" and parts[:2] == ("db", "gen") and not rel.endswith(".json"):
+        elif name == "lake" and parts[:2] == ("db", "gen") and not parts[-1].endswith(".json"):
             # T-724 (D-490): each date's newest generation is its own file db/<snapshot>.duckdb, taken once; an older
             # generation is only a running job's. The generations' records (names, numbers and hashes; no patient
             # data) are kept: a restored date gets the name its bytes had, and a number is never given twice
             why = "lake generations (the newest is db/<snapshot>.duckdb)"
-        elif name == "lake" and ndjson_keep is not None and parts[0] == "ndjson" and len(parts) > 2 \
-                and parts[1] not in ndjson_keep and rel.endswith(".ndjson"):  # fmt: skip
+        elif name == "lake" and (ndjson_keep is not None or aside) and parts[0] == "ndjson" and len(parts) > 2 \
+                and (aside or parts[1] not in (ndjson_keep or set())) and rel.endswith(".ndjson"):  # fmt: skip
             why = "lake NDJSON of older snapshots (their Parquet and DuckDB are kept)"
         if why:
             left[why] = left.get(why, 0) + 1

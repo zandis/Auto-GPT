@@ -40,7 +40,7 @@ from omop.schema import COUNTED
 
 Row = dict[str, Any]
 ORDER = "ORDER BY (r.source_kind = 'site'), r.source_row, r.part"
-LIVE = "r.status NOT IN ('tombstoned', 'superseded')"
+LIVE = "r.status NOT IN ('tombstoned', 'superseded') AND NOT (r.extra @> '{\"id_rule_review\": true}'::jsonb)"
 _TYPES = {name: dict(cols) for name, cols in SCHEMAS.items()}
 
 
@@ -329,10 +329,14 @@ def _emit_all(tx: Any, emit: Callable[[str, Row], object]) -> None:
     # -- patient: the merged sources, an item in open conflict unknown
     for r in tx.iterdicts(
         "SELECT p.person_id, p.birth_datetime, p.gender_source_value, d.death_date, d.death_type_concept_id, "
-        "o.extra FROM person p "
+        "o.extra, EXISTS (SELECT 1 FROM tb_record x WHERE x.cdm_table = 'person' AND x.record_id = p.person_id "
+        "AND x.extra @> '{\"id_rule_review\": true}'::jsonb) AS reviewed FROM person p "
         "LEFT JOIN death d USING (person_id) JOIN LATERAL (SELECT (r.source_kind = 'site') AS s, r.source_row, "
         "r.extra FROM tb_record r WHERE r.cdm_table = 'person' AND r.record_id = p.person_id "
-        "AND r.status <> 'tombstoned' ORDER BY 1, 2 LIMIT 1) o ON true ORDER BY o.s, o.source_row"
+        # the text of LIVE written out, so that this statement stays a constant (the SQL-from-strings ratchet)
+        "AND r.status NOT IN ('tombstoned', 'superseded') "
+        "AND NOT (r.extra @> '{\"id_rule_review\": true}'::jsonb) "
+        "ORDER BY 1, 2 LIMIT 1) o ON true ORDER BY o.s, o.source_row"
     ):
         row = {
             "pid": person[r["person_id"]],
@@ -344,6 +348,13 @@ def _emit_all(tx: Any, emit: Callable[[str, Row], object]) -> None:
             "deceased": True if r["death_date"] is not None else None,
             **_prov(r["extra"]),  # the first record's (the hospital's), as the flattener's merge keeps
         }
+        if r["reviewed"]:
+            # Feed and site each have at most one Patient per PID. The other source needs review,
+            # so the clean source alone supplies demographics, including in stores already merged.
+            for item in ("birth_date", "sex", "deceased_date", "deceased"):
+                row[item] = _typed("patient", item, r["extra"].get(item))
+            emit("patient", row)
+            continue
         for item in ("birth_date", "sex", "deceased_date"):
             got = conflicts.get((r["person_id"], item))
             if got:

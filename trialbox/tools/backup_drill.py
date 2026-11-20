@@ -65,6 +65,7 @@ DEPLOY = ROOT / "deploy"
 
 
 def run(base: Path, require_extensions: bool = False) -> dict[str, Any]:
+    from tb_common import id_rule
     from tb_common import refdata as rd
     from tb_common.audit import verify
 
@@ -90,6 +91,7 @@ def run(base: Path, require_extensions: bool = False) -> dict[str, Any]:
         old = lake / "ndjson" / day
         old.mkdir(parents=True, exist_ok=True)
         (old / "Patient.ndjson").write_text('{"resourceType":"Patient","id":"drill-old"}\n', encoding="utf-8")
+        id_rule.write_snapshot_record(old)  # D-1253: a snapshot of this release says its id rule
     (lake / "tmp").mkdir(exist_ok=True)
     (lake / "tmp" / "spill.bin").write_bytes(b"\0" * 1024)
     dirs = {name: work / name for name in DATA_DIRS if (work / name).exists()}

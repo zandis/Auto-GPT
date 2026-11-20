@@ -294,6 +294,9 @@ def test_end_to_end_the_adapters_dual_write_loads_a_record_and_the_worker_erases
     night.mkdir(parents=True)
     for rtype, rows in _batch([*ALL, F]).items():
         (night / f"{rtype}.ndjson").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    from tb_common import id_rule
+
+    id_rule.write_snapshot_record(night)  # D-1253: a snapshot of this release
     monkeypatch.setenv("TB_LAKE_DIR", str(lake))  # the box's lake: the store is the schema `omop`
     monkeypatch.setenv("TB_OMOP_DUAL_WRITE", "on")
     monkeypatch.delenv("TB_OMOP_DB_URL", raising=False)

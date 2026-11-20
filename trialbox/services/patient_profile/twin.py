@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Protocol
 
+from tb_common import id_rule
 from tb_common.db import ENV, Database
 from tb_common.optout import opted_out
 
@@ -80,6 +81,7 @@ CREATE TABLE tb_patient_profile (
 );
 CREATE UNIQUE INDEX tb_patient_profile_current ON tb_patient_profile (pid) WHERE superseded_at IS NULL
 """,
+    id_rule.DDL,  # D-1253: the rule the documents' source rows (lake ids) were made under
 )
 
 
@@ -339,6 +341,7 @@ class ProfileStore:
         pid, snap = str(doc["pid"]), str(doc["basis"]["snapshot"])
         sha = content_sha(doc)
         with self.db.transaction() as tx:
+            id_rule.ensure(tx, id_rule.TWIN)  # D-1253: never rule-2 lake ids beside rule-1 ones
             cur = tx.fetchone(
                 "SELECT id, version, sha256 FROM tb_patient_profile WHERE pid = ? AND superseded_at IS NULL FOR UPDATE",
                 (pid,),
