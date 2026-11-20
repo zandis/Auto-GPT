@@ -43,6 +43,11 @@ A finding is accepted only by a written entry: which package, why, and until whe
         reason: ...                      # the report is then read without OS packages; its other packages are
         review_by: 2026-12-10            # gated as always; an entry for an image that is readable is refused
 
+Refused licences (9g-15, D-1348; review 03 B3-11): no licence entry may accept a component whose licence is one of
+``REFUSED``: FSL, SSPL, a non-profit-only licence, or cloud features on by default. An entry whose ``licence``,
+``chosen`` or ``reason`` names one is an error, so the component's flag stays open and the gate fails. The GPL, LGPL
+and AGPL flags are the licence report's (``licences.py``) and are accepted only by an entry of their class.
+
 The checker rejects an entry with no reason, a reason shorter than 20 characters, no or a bad ``review_by``, a date
 in the past or more than 180 days ahead, an unknown or duplicate key, a duplicate entry, a vulnerability entry without
 a package, a dual entry without ``chosen``, and an unknown entry without ``licence``. An entry for every id (D-622,
@@ -68,6 +73,37 @@ ALLOWLIST = ROOT / "deploy" / "supply-chain-allowlist.yaml"
 MIN_REASON = 20
 MAX_AHEAD_DAYS = 180
 LICENCE_CLASSES = ("lgpl", "gpl", "agpl", "unknown", "dual")
+
+# 9g-15 (D-1348): licences no allow-list entry accepts, matched in an entry's licence, chosen and reason text. Only
+# the identifiers review 03 B3-11 names: the kind, its pattern (case-insensitive, not inside a longer word) and why.
+_EDGE_L, _EDGE_R = r"(?<![A-Za-z])", r"(?![A-Za-z])"
+REFUSED: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    ("FSL", re.compile(_EDGE_L + r"FSL" + _EDGE_R, re.IGNORECASE), "FSL"),
+    ("SSPL", re.compile(_EDGE_L + r"SSPL" + _EDGE_R, re.IGNORECASE), "SSPL"),
+    (
+        "non-profit-only",
+        re.compile(_EDGE_L + r"non[\s-]?profit" + _EDGE_R, re.IGNORECASE),
+        "a non-profit-only licence",
+    ),
+    (
+        "cloud-on-by-default",
+        re.compile(
+            _EDGE_L + r"cloud" + r"(?=.*" + _EDGE_L + r"on[\s-]+by[\s-]+default" + _EDGE_R + r")"
+            + r"|" + _EDGE_L + r"on[\s-]+by[\s-]+default" + _EDGE_R + r"(?=.*" + _EDGE_L + r"cloud)",
+            re.IGNORECASE | re.DOTALL,
+        ),
+        "cloud features on by default",
+    ),
+)  # fmt: skip
+
+
+def refused_licence(text: str) -> tuple[str, str] | None:
+    """``(kind, what)`` of the first refused licence ``text`` names, or None."""
+    for kind, pattern, what in REFUSED:
+        if pattern.search(text):
+            return kind, what
+    return None
+
 
 _VULN_KEYS = {"id", "package", "reason", "review_by", "owner", "image", "date"}
 _LIC_KEYS = {"package", "class", "chosen", "licence", "reason", "review_by", "owner"}
@@ -358,6 +394,14 @@ def parse(data: Any, *, today: dt.date | None) -> tuple[Allowlist, list[str]]:
             errs.append(f"{where}: 'chosen' belongs to dual entries only")
         if cls == "unknown" and not licence:
             errs.append(f"{where}: an unknown entry must record the verified licence in 'licence'")
+        for field_name in ("licence", "chosen", "reason"):
+            hit = refused_licence(_text(raw, field_name) or "")
+            if hit:
+                errs.append(
+                    f"{where}: {field_name} names {hit[1]} ({hit[0]}): refused, no allow-list entry accepts it "
+                    "(9g-15, D-1348)"
+                )
+                break
         if pkg and isinstance(cls, str):
             key_l = (norm(pkg), cls)
             if key_l in seen_l:
