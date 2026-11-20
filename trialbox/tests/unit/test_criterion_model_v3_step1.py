@@ -166,6 +166,8 @@ RECORDS: dict[str, list[dict[str, Any]]] = {
     "W-TWO": [_med("m-two-a", "W-TWO", "L01XA01", "2026-10-24"), _med("m-two-b", "W-TWO", "L01CD01", "2026-11-10")],
     "W-NOSTART": [_med("m-nos", "W-NOSTART", "L01XA01", "2026-11-10")],  # nobody gave a planned start
     "W-NONE": [_med("m-non", "W-NONE", "A10BA02", "2026-11-01")],  # no chemotherapy at all
+    # a dose ten days ago, and another chemotherapy order with no date
+    "W-MIXED": [_med("m-mix-a", "W-MIXED", "L01XA01", "2026-11-10"), _med("m-mix-b", "W-MIXED", "L01CD01", None)],
     # a planned start in the future (2026-12-01)
     "F-DOSED": [_med("m-fut", "F-DOSED", "L01XA01", "2026-11-10")],  # 21 days before the start: stays inside
     "F-CLEAN": [_med("m-fcl", "F-CLEAN", "A10BA02", "2026-11-01")],  # none so far; 11 days are still to come
@@ -174,6 +176,7 @@ RECORDS: dict[str, list[dict[str, Any]]] = {
     "S-OLD": [_creatinine("o-old", "S-OLD", 1.0, "2026-11-01")],  # 19 days before: outside
     "S-HIGH": [_creatinine("o-high", "S-HIGH", 2.0, "2026-11-15")],
     "S-NOVISIT": [_creatinine("o-nov", "S-NOVISIT", 1.0, "2026-11-10")],  # nobody gave a screening date
+    "S-FUTURE": [_creatinine("o-fut", "S-FUTURE", 1.0, "2026-11-18")],  # the screening visit is on 2026-11-25
     # the infection after the last operation
     "E-INF": [_surgery("p-inf", "E-INF", "2026-09-01"), _infection("c-inf", "E-INF", "2026-09-20")],  # day 19
     "E-LATE": [_surgery("p-late", "E-LATE", "2026-09-01"), _infection("c-late", "E-LATE", "2026-10-15")],  # day 44
@@ -189,6 +192,7 @@ ANCHORS = {
     "F-DOSED": {"planned_start": date(2026, 12, 1)},
     "F-CLEAN": {"planned_start": date(2026, 12, 1)},
     **{p: {"screening": RUN} for p in RECORDS if p.startswith("S-") and p != "S-NOVISIT"},
+    "S-FUTURE": {"screening": date(2026, 11, 25)},
 }
 
 
@@ -387,6 +391,14 @@ def test_a_last_dose_with_no_date_gives_no_answer_and_no_flip_date(world: dict[s
     assert [e["record"] for e in o.evidence] == ["m-und"] and o.evidence[0]["date"] in (None, "")
 
 
+def test_a_dated_dose_beside_an_undated_one_excludes_and_has_no_flip_date(world: dict[str, Any]) -> None:
+    # the dose of 2026-11-10 is inside the 28 days: excluded. It leaves on 2026-12-09, but the order with no date
+    # may be later still: the day the washout is over cannot be told, so no date is given
+    for cid in ("M3-EXC-01", "M3-EXC-06"):
+        o = _out(world, "W-MIXED", cid)
+        assert _excluded(o) and o.flip_date is None, cid
+
+
 def test_a_planned_start_nobody_gave_gives_unknown_never_a_guess(world: dict[str, Any]) -> None:
     o = _out(world, "W-NOSTART", "M3-EXC-01")  # a dose ten days ago, and still no answer: no start, no window
     assert _open(o, Reason.ANCHOR_DATE_UNKNOWN) and o.flip_date is None and o.anchor is None
@@ -427,6 +439,11 @@ def test_a_window_before_the_screening_visit(world: dict[str, Any]) -> None:
     assert _excluded(o) and o.flip_date == "2026-11-30"
     o = _out(world, "S-NOVISIT", "M3-INC-02")
     assert _open(o, Reason.ANCHOR_DATE_UNKNOWN) and o.status == "unknown" and o.flip_date is None
+    # visit on 2026-11-25; 1.0 mg/dL on 2026-11-18 is inside its window, but "the latest result counts" and a week
+    # is still to come: not yet met, and an answer nobody gave has no flip date
+    o = _out(world, "S-FUTURE", "M3-INC-02")
+    assert _open(o, Reason.VERIFY_AT_ANCHOR) and o.status == "unknown" and o.flip_date is None
+    assert o.anchor == {"kind": "screening", "date": "2026-11-25"}
 
 
 # ----------------------------------------------------------------------------------------------- the event
@@ -471,6 +488,7 @@ def test_only_the_washouts_exclude_and_the_stage_log_counts_the_v3_criteria(worl
     assert out == {
         "W-D27": "M3-EXC-06", "W-D28": "M3-EXC-06", "W-TODAY": "M3-EXC-06", "W-TWO": "M3-EXC-06",
         "W-NOSTART": "M3-EXC-06", "F-DOSED": "M3-EXC-06", "E-INF": "M3-EXC-03", "S-HIGH": "M3-INC-02",
+        "W-MIXED": "M3-EXC-06",
     }  # fmt: skip
     # those out by the washouts alone are on the engine's watch-list (the criteria are marked time-sensitive); the
     # infection and the creatinine are not marked so, and exclude

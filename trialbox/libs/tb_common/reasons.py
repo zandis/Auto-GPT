@@ -103,9 +103,6 @@ _RULES: tuple[tuple[tuple[str, ...], Reason], ...] = (
     (("derived_missing_input",), Reason.DERIVED_MISSING_INPUT),
     (("unit_mismatch", "unit mismatch"), Reason.UNIT_MISMATCH),
     (("unknown_value", "unreadable value"), Reason.UNKNOWN_VALUE),
-    (("anchor_date_unknown",), Reason.ANCHOR_DATE_UNKNOWN),
-    (("verify_at_anchor",), Reason.VERIFY_AT_ANCHOR),
-    (("not_in_source",), Reason.NOT_IN_SOURCE),
     (("no value", "no record", "not compiled", "index_absent", "data_gap", "index condition absent"), Reason.DATA_GAP),
     (("matching record", "failing value", "index rescued"), Reason.CODED),
 )
