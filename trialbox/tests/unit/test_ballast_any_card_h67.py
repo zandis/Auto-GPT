@@ -6,6 +6,7 @@ stand-ins. The target's meaning is unchanged: ``memory.free`` on the chosen card
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -250,16 +251,20 @@ def test_the_holder_is_pinned_to_the_card_by_uuid(monkeypatch: pytest.MonkeyPatc
 
 
 def test_the_ballast_container_carries_the_run_id_when_a_run_names_it() -> None:
-    code = "from tools import ballast; print(ballast.CONTAINER)"
+    assert b.CONTAINER == "tb-ballast"  # no option: the plain name
+    assert b.container_name("tb-ballast-m48h-1") == "tb-ballast-m48h-1"
+    for bad in ("", "other; rm -rf", "tb-ballastx", "tb-ballast-" + "a" * 65):
+        with pytest.raises(argparse.ArgumentTypeError):
+            b.container_name(bad)
     env = {**os.environ, "PYTHONPATH": str(ROOT)}
-    for given, want in (
-        ("tb-ballast-m48h-1", "tb-ballast-m48h-1"),
-        ("", "tb-ballast"),
-        ("other; rm -rf", "tb-ballast"),
-    ):
-        out = subprocess.run([sys.executable, "-c", code], env={**env, "TB_BALLAST_CONTAINER": given},
-                             capture_output=True, text=True, check=True, cwd=ROOT).stdout.strip()  # fmt: skip
-        assert out == want, given
+    for cmd in (["-m", "tools.ballast", "hold"], ["-m", "tools.ballast", "release"], ["tools/ballast48.py", "plan"],
+                ["tools/ballast48.py", "measure"], ["tools/ballast48.py", "during"]):  # fmt: skip
+        out = subprocess.run([sys.executable, *cmd, "--help"], env=env, capture_output=True, text=True, cwd=ROOT)
+        assert out.returncode == 0 and "--ballast-container" in out.stdout, cmd
+        # a name that is not tb-ballast[-<run id>] stops at the parser, before nvidia-smi or docker is asked
+        out = subprocess.run([sys.executable, *cmd, "--ballast-container", "x; rm -rf /"], env=env,
+                             capture_output=True, text=True, cwd=ROOT)  # fmt: skip
+        assert out.returncode == 2 and "not tb-ballast or tb-ballast-<run id>" in out.stderr, cmd
 
 
 # ------------------------------------------------------------------------------------------------ ballast48

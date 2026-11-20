@@ -70,10 +70,20 @@ TOLERANCE_MIB = 512  # plan 10's 10E-28 "Done when": 32,607 MiB +/- 512
 EXPECT_USED_MIB = 1024  # memory in use before the ballast that is taken as the driver's own, not another process
 CAPPED_TO = "RTX 5090 (32 GB), by ballast"
 CONTAINER_BASE = "tb-ballast"
-# the holder's container: tb-ballast, or tb-ballast-<run id> when a run names it (TB_BALLAST_CONTAINER, the host form
-# of the 48 GB run: every Docker object it makes carries its run id); anything else is not taken
-_NAME = os.environ.get("TB_BALLAST_CONTAINER", "") or CONTAINER_BASE
-CONTAINER = _NAME if re.fullmatch(r"tb-ballast(-[A-Za-z0-9_.-]{1,64})?", _NAME) else CONTAINER_BASE
+# the holder's container: tb-ballast, or tb-ballast-<run id> when a run names it (--ballast-container; the host form
+# of the 48 GB run: every Docker object it makes carries its run id). An option only, no setting: nothing in the box's
+# own tree names the ballast (tests/unit/test_ballast_stand_in.py)
+CONTAINER_RE = re.compile(r"tb-ballast(-[A-Za-z0-9_.-]{1,64})?")
+CONTAINER = CONTAINER_BASE
+
+
+def container_name(text: str) -> str:
+    """``--ballast-container``: tb-ballast or tb-ballast-<run id>; anything else is refused by argparse."""
+    if not CONTAINER_RE.fullmatch(text):
+        raise argparse.ArgumentTypeError(f"not tb-ballast or tb-ballast-<run id>: {text!r}")
+    return text
+
+
 UTIL_KEYS = ("JUDGE_GPU_MEM_UTIL", "VERIFIER_GPU_MEM_UTIL")
 MARK = "# tb-ballast:"
 AIM_MIB = 64  # hold corrects until nvidia-smi's free is this close to the target (the tolerance still decides)
@@ -653,6 +663,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     for name in ("plan", "hold", "release"):
         p = sub.add_parser(name)
         p.add_argument("--env-file", type=Path, default=None, help="deploy/.env: set (hold) or put back (release)")
+        p.add_argument("--ballast-container", type=container_name, default=CONTAINER_BASE,
+                       help="the holder's container: tb-ballast (default) or tb-ballast-<run id>")  # fmt: skip
         if name == "release":
             continue
         p.add_argument(
@@ -668,6 +680,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         p.add_argument("--expect-used", type=int, default=EXPECT_USED_MIB, help="MiB in use taken as the driver's own")
         p.add_argument("--expect-process", action="append", default=[], help="a compute process name to tolerate")
     a = ap.parse_args(argv)
+    global CONTAINER
+    CONTAINER = a.ballast_container
     try:
         if a.cmd == "release":
             try:

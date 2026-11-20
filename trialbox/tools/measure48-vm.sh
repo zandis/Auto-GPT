@@ -166,8 +166,8 @@ step_engine() {
 step_ballast() {
   : > "$RUN/records/ballast.log"
   # GPU: nothing on the VM (one card, index 0); on a host --gpu-index N --gpu-uuid <as read at the preflight>
-  if [ -n "$SI" ]; then setsid "$SI" ballast hold --target-mib 49140 ${GPU[@]+"${GPU[@]}"} >> "$RUN/records/ballast.log" 2>&1 < /dev/null &
-  else (cd "$CK" && exec setsid python3 -m tools.ballast hold --target-mib 49140 ${GPU[@]+"${GPU[@]}"}) >> "$RUN/records/ballast.log" 2>&1 < /dev/null &
+  if [ -n "$SI" ]; then setsid "$SI" ballast hold --target-mib 49140 ${GPU[@]+"${GPU[@]}"} ${BALLAST[@]+"${BALLAST[@]}"} >> "$RUN/records/ballast.log" 2>&1 < /dev/null &
+  else (cd "$CK" && exec setsid python3 -m tools.ballast hold --target-mib 49140 ${GPU[@]+"${GPU[@]}"} ${BALLAST[@]+"${BALLAST[@]}"}) >> "$RUN/records/ballast.log" 2>&1 < /dev/null &
   fi
   echo $! > "$RUN/kv/ballast-pid"; touch "$RUN/kv/ballast-on"
   local i=0
@@ -176,7 +176,7 @@ step_ballast() {
   done
   grep -q '^ready' "$RUN/records/ballast.log" || { NOTE="the ballast refused: $(grep '^refused' "$RUN/records/ballast.log" | head -n 1)"; return 1; }
   # a refusal's own line (both free figures, H-66) is the note, so the run's end reason names them
-  tool ballast48 plan ${GPU[@]+"${GPU[@]}"} > "$RUN/records/plan.txt" 2>> "$STEP_LOG" \
+  tool ballast48 plan ${GPU[@]+"${GPU[@]}"} ${BALLAST[@]+"${BALLAST[@]}"} > "$RUN/records/plan.txt" 2>> "$STEP_LOG" \
     || { NOTE="ballast48 plan refused (records/plan.txt): $(grep 'refused' "$STEP_LOG" | tail -n 1)"; return 1; }
 }
 
@@ -194,7 +194,7 @@ step_ladder() {
     decide "ladder $opt" try "$why; $GATE_WHY"
     local tb0; tb0=$(grep -c '^Traceback' "$STEP_LOG" 2>/dev/null)
     STOP_TARGET="$MEASURE_RE" TB_UNMEASURED_DGPU48_MEASURING_RUN=1 \
-      watched tool ballast48 measure --option "$opt" --keep --out-dir "$(measure_dir "$opt")" ${GPU[@]+"${GPU[@]}"}
+      watched tool ballast48 measure --option "$opt" --keep --out-dir "$(measure_dir "$opt")" ${GPU[@]+"${GPU[@]}"} ${BALLAST[@]+"${BALLAST[@]}"}
     rc=$?
     [ "$STOPLINE" = 0 ] || rc=130
     # exit 1 is "did not start" only with lane J's record and no new traceback; else the tool broke (3): the
@@ -242,7 +242,7 @@ step_screen() {
   export NODE_PATH=${NODE_TOOLS:-/opt/node-tools}/node_modules TB_ENV=DEV PYTHONPATH=libs:services:.
   # SIGINT to complete_run itself (its own command line starts with the venv's python), not to `during` around it,
   # so `during` writes its record with complete_run's exit code
-  STOP_TARGET="^[^ ]*/\.venv/bin/python -m tools\.complete_run --dir $RUN/records/screen" watched tool ballast48 during --out "$RUN/records/screen-during.json" ${GPU[@]+"${GPU[@]}"} -- \
+  STOP_TARGET="^[^ ]*/\.venv/bin/python -m tools\.complete_run --dir $RUN/records/screen" watched tool ballast48 during --out "$RUN/records/screen-during.json" ${GPU[@]+"${GPU[@]}"} ${BALLAST[@]+"${BALLAST[@]}"} -- \
     "$CK/.venv/bin/python" -m tools.complete_run --dir "$RUN/records/screen" --model pair --patients 1000 --langs ja \
     --only prepare hospital-ja --llm-concurrency 16 --ocr tesseract --judge-url "http://$j:8000/v1" --verifier-url "http://$v:8000/v1"
   local rc=$?
@@ -273,7 +273,7 @@ step_down() {
 }
 step_host53() {
   STOP_TARGET="$MEASURE_RE" TB_UNMEASURED_DGPU48_MEASURING_RUN=1 \
-    watched tool ballast48 measure --option pair-32k-host53 --out-dir "$(measure_dir pair-32k-host53)" ${GPU[@]+"${GPU[@]}"}
+    watched tool ballast48 measure --option pair-32k-host53 --out-dir "$(measure_dir pair-32k-host53)" ${GPU[@]+"${GPU[@]}"} ${BALLAST[@]+"${BALLAST[@]}"}
   NOTE="pair-32k-host53 exit $?"; return 0
 }
 step_release() {
@@ -283,7 +283,7 @@ step_release() {
   local i=0
   until grep -q '^released' "$RUN/records/ballast.log" 2>/dev/null || [ "$i" -ge 6 ]; do sleep "$POLL"; i=$((i + 1)); done
   if ! grep -q '^released' "$RUN/records/ballast.log" 2>/dev/null; then
-    watched tool ballast release || { NOTE="the ballast did not say released and release failed"; return 1; }
+    watched tool ballast release ${BALLAST[@]+"${BALLAST[@]}"} || { NOTE="the ballast did not say released and release failed"; return 1; }
     NOTE="released by tools.ballast release"
   fi
   rm -f "$RUN/kv/ballast-on"

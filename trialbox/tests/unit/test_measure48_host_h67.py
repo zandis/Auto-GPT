@@ -169,7 +169,7 @@ if t == "ballast":
         print("card 3: stand-in\ntarget: 49140 MiB free, +/- 512; ballast to hold: about 133000 MiB")
         sys.exit(0)
     if a[1] == "hold":
-        name = os.environ["TB_BALLAST_CONTAINER"]
+        name = arg("--ballast-container")  # the host form names its own: a missing option fails the step
         docker(lambda s: s["containers"].__setitem__(name, {"trialbox.ballast": "1"}))
         def bye(*_):
             docker(lambda s: s["containers"].pop(name, None))

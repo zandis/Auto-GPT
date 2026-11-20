@@ -522,6 +522,8 @@ def main(argv: list[str] | None = None) -> int:
     one = argparse.ArgumentParser(add_help=False)
     one.add_argument("--gpu-index", type=int, default=0, help="nvidia-smi index of the card (the ballast's --gpu)")
     one.add_argument("--gpu-uuid", default=None, help="the card's UUID as read before: refused if it differs")
+    one.add_argument("--ballast-container", type=ballast.container_name, default=ballast.CONTAINER_BASE,
+                     help="the ballast's container, as given to tools.ballast hold")  # fmt: skip
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser(
         "plan", parents=[one], help="free: the card, the ballast and each scripted option's utilisations on this card"
@@ -546,6 +548,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--role", default="verifier")
     c.add_argument("--json", type=Path)
     a = ap.parse_args(argv)
+    ballast.CONTAINER = getattr(a, "ballast_container", ballast.CONTAINER_BASE)  # plan, measure and during check it
     os.chdir(ROOT)  # compose reads deploy/ relative to the checkout
     run = dgpu48._real_runner
     try:

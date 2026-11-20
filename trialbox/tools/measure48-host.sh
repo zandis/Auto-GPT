@@ -76,7 +76,7 @@ ETC=""   # never /etc: nothing is installed with apt here (step_tools writes apt
 OWN_ONLY=1   # the stop line's SIGINT and the release reach this run's own processes only
 W=$RUN_DIR; RUN="$W/run"; CK=$CHECKOUT   # CK is the checkout for the preflight, the run's own copy after it
 BALLAST_NAME="tb-ballast-$RUN_ID"
-export TB_BALLAST_CONTAINER=$BALLAST_NAME   # tools/ballast.py: the holder's container carries the run id
+BALLAST=(--ballast-container "$BALLAST_NAME")   # tools.ballast and ballast48: the holder's container carries the run id
 export PYTHONDONTWRITEBYTECODE=1   # the preflight runs tools from the checkout: no __pycache__ written there
 h() { python3 "$HELPER" "$@"; }
 tick() { :; }
