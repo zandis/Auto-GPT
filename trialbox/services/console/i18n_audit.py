@@ -408,6 +408,12 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "復元：バックアップ後の操作の再適用が必要",
         "還原：備份之後的操作需重新套用",
     ),
+    # 10K-13 (D-1379): the backup-key ceremony on the host, recorded before backup.pub is made
+    "backup.key_ceremony": (
+        "Backup key ceremony: key on the stick and the sheet, read back, witnessed",
+        "バックアップ鍵の手続き：USB メモリと紙の控えの鍵を読み直して確認（立会いあり）",
+        "備份金鑰儀式：隨身碟與紙本上的金鑰已讀回確認（有見證人）",
+    ),
     "update.applied": ("Update applied", "更新の適用", "套用更新"),
     "update.downgrade": ("Downgrade", "ダウングレード", "降版"),
     "update.backup_skipped": ("Update without a backup", "バックアップなしの更新", "未備份即更新"),
