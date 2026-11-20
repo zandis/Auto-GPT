@@ -710,6 +710,27 @@ _JA_OBJECT = re.compile(rf"{_WORD_START}{_NOUN_END}{{2,}}を[^のがをは、。
 _JA_SUBJECT = re.compile(rf"{_WORD_START}(?P<y>{_NOUN_END}{{2,}})[のが]$")
 _JA_SUBJECT_BARE = re.compile(rf"{_WORD_START}(?P<y>{_NOUN_END}{{2,}})$")  # "転移なし"
 _EXCEPT_OBJ = re.compile(rf"{_NOUN_END}を?$")  # "ベバシズマブを除く", "アントラサイクリン系を除き", "脳以外"
+# the second review of card 10A-1c. Finding 1: a source of evidence after "without" / "not on" ("not on CT", "without
+# histological confirmation"): the cue denies the finding. Finding 2: the giving or receiving of the head as the
+# object. Findings 3 and 5: an exception whose object is the patient ("除了患者本人之外", "other than the patient") or a
+# condition ("other than as a last resort", "最終手段として以外", "除作為最後手段外")
+_EN_EVIDENCE = re.compile(
+    r"\b(?:ct|mri|pet|x-?ray|radiograph\w*|imaging|scans?|ultraso\w*|echo\w*|angiogra\w*|biops\w*|histolog\w*|"
+    r"cytolog\w*|patholog\w*|cultures?|smears?|endoscop\w*|colonoscop\w*|examination|exam|tests?|testing|assays?|"
+    r"serolog\w*|pcr|evidence|confirmation|confirm\w*|documentation|document\w*|proof|proven|verification|diagnos\w*|"
+    r"records?|reports?|findings?)\b",
+    _FLAGS,
+)
+_JA_RECEIVING = re.compile(
+    r"(?:投与|治療|施行|実施|処置|接種|服用|診断|経験|既往|歴)を[^のがをは、。,]{0,6}$|を(?:受け|行[っわい]|施行|実施)[^のがをは、。,]{0,5}$"
+)
+_SELF = {
+    "en": re.compile(r"\b(?:patients?|subjects?|participants?|self|himself|herself|themselves|proband)\b", _FLAGS),
+    "ja": re.compile(r"本人|患者|被験者|自身"),
+    "zh": re.compile(r"本人|患者|病人|受試者|受试者|自身|自己"),
+}
+_ZH_AS = re.compile(r"\s*(?:作為|作为|做為|用於|用于|在|於|于|當|当|因)")
+_CJK_AS = re.compile(r"(?:として|の場合|とき|時|際|ため)$")
 
 
 def _en_content(side: str) -> bool:
@@ -731,13 +752,23 @@ def _scope_closed(
     """Rules R8 and R9 (card 10A-1c): whether the line shows that the cue ``m`` ends before the coded concept."""
     cue = m.group(0)
     if lang == "en":
-        if _EN_POSTMOD.match(t, m.start()):  # R8
+        if post := _EN_POSTMOD.match(t, m.start()):  # R8
             after = _clause_after(t, m.end(), cjk=False)
             touching = any(e < m.start() and not t[e : m.start()].strip() for _, e, _ in found)
+            # the second review (finding 1): what the cue denies may be the finding itself ("pulmonary embolism not
+            # on CT", "without confirmation"): a source of evidence, or the patient, is never an object of the cue's own
+            obj = _clause_after(t, post.end(), cjk=False)
+            if _EN_EVIDENCE.search(obj) or _SELF["en"].search(obj):
+                return False
             return touching and _first(own, after) is None and _en_content(after)
         if _EN_EXCEPT.fullmatch(cue):  # R9
             reach = _list_after(t, m.end(), cjk=False, ja=False)
-            return _first(own, reach) is None and _en_content(_clause_after(t, m.end(), cjk=False))
+            obj = _clause_after(t, m.end(), cjk=False)
+            # finding 5: an exception names things; "other than as a last resort", "except when …" set a condition
+            # on the concept itself, and "other than the patient" moves it to another person
+            if _EN_ADVERBIAL.match(obj) or _SELF["en"].search(obj):
+                return False
+            return _first(own, reach) is None and _en_content(obj)
         return False
     before = _clause_before(t, m.start(), True, lang == "ja")
     reach = _list_before(t, m.start(), True, lang == "ja")
@@ -746,14 +777,20 @@ def _scope_closed(
         if _first(own, reach) is not None or not any(s == head for s, _, _ in found):
             return False
         if _JA_OBJECT.search(before):
-            return True
+            # finding 2: an object that is the giving or the receiving ("投与を受けていない化学療法", "治療を行って
+            # いない肺癌"), or a verb of receiving, makes the head what was not received
+            return _JA_RECEIVING.search(before) is None
         arg = _JA_SUBJECT.search(before) or (_JA_SUBJECT_BARE.search(before) if cue.endswith("し") else None)
         return arg is not None and _first(others, arg.group("y")) is not None
     if (_JA_EXCEPT if lang == "ja" else _ZH_EXCEPT).fullmatch(cue):  # R9
         if cue in ("除", "除了"):
             close = t.find("外", m.end(), m.end() + 14)
             obj = t[m.end() : close] if close > m.end() else ""
+            if _SELF[lang].search(obj) or _ZH_AS.match(obj):  # findings 3 and 5: the patient, or a condition
+                return False
             return bool(re.search(_NOUN_END, obj)) and _first(own, obj) is None
+        if _SELF[lang].search(before[-8:]) or _CJK_AS.search(before):
+            return False
         return _EXCEPT_OBJ.search(before) is not None and _first(own, reach) is None
     return False
 
@@ -764,86 +801,193 @@ def _scope_closed(
 # names the concept holds the line; no rule lets it go. Measured, so held: a bound on how many courses of the concept
 # ("no more than two prior lines of chemotherapy", "化学療法は2レジメンを超えない", "化療不超過兩線"): zero meets it.
 _OCCUR = r"(?:develop|occur|aris|happen|appear|emerg)\w*"
+# The second review of card 10A-1c split the words in two. An UNCERTAIN word holds the line even inside the coded
+# name: a concept extracted as "possible sepsis" or 敗血症疑い is not a present fact (finding 9). Every other status
+# word inside the coded name is the name ("family history of X", "complete remission" coded as themselves).
+_UNCERTAIN = {
+    "en": re.compile(
+        r"\b(?:suspect\w*|suspicio\w*|possibl[ey]|questionabl[ey]|probabl[ey]|presum\w*|r/o|rule\s+out|query|equivocal|"
+        r"indeterminate|pending|awaiting|unconfirmed|to\s+be\s+(?:confirmed|determined|verified)|tbc|tbd|"
+        r"cannot\s+be\s+excluded|doubtful|uncertain|unclear|potential(?:ly)?|putative|presumptive|tentative)\b|\?",
+        _FLAGS,
+    ),
+    "ja": re.compile(r"疑い|疑|可能性|恐れ|おそれ|未確定|確認中|確認待ち|精査中|保留"),
+    "zh": re.compile(
+        r"疑似|懷疑|怀疑|疑|可能|待排|考慮|考虑|待確認|待确认|不排除|待查|未確定|未确定|尚待|待定|待釐清|不確定|不确定"
+    ),
+}
 _STATUS = {
     "en": re.compile(
-        r"\b(?:suspect\w*|possibl[ey]|questionabl[ey]|probabl[ey]|presum\w*|r/o|rule\s+out|query|equivocal|"
-        r"indeterminate|pending|to\s+be\s+confirmed|cannot\s+be\s+excluded|"  # uncertainty
-        # hypothetical: a condition on the concept's occurring, not any "if" (a criterion's own "if receiving X"
-        # is coded in its logic)
-        rf"(?:(?:if|whether|in\s+case|in\s+the\s+event)\b|(?<![\w\s])\s*should\b|^\s*should\b)[^.;]{{0,60}}?\b{_OCCUR}|"
-        r"would|risks?\s+(?:of|for)|prophyla\w*|prevent\w*|planned|scheduled|"
-        r"family\s+history|relatives?|mother|father|brother|sister|siblings?|parents?|sons?|daughters?|aunts?|uncles?|"
-        r"grand(?:mother|father|parent)s?|first[- ]degree|"  # another person
-        r"cured|healed|quit\w*|former(?:ly)?|ceased)\b"  # over ("no longer" is a negation, read with the cues)
-        r"|\?",
+        # hypothetical: a condition on the concept's occurring (a condition on its receipt is read by position below)
+        rf"\b(?:(?:(?:if|whether|in\s+case|in\s+the\s+event)\b|(?<![\w\s])\s*should\b|^\s*should\b)[^.;]{{0,60}}?\b{_OCCUR}|"
+        r"would|risks?\s+(?:of|for)|prophyla\w*|prevent\w*|planned|plans?|scheduled|booked|intended|upcoming|"
+        r"anticipated|expected|"
+        # another person
+        r"family\s+history|famil(?:y|ial)|relatives?|mother|father|brother|sister|siblings?|parents?|sons?|daughters?|"
+        r"aunts?|uncles?|grand(?:mother|father|parent)s?|first[- ]degree|spouse|husband|wife|partners?|"
+        r"(?:his|her|their)\s+child(?:ren)?|"
+        r"donors?|household|caregivers?|maternal|paternal|"
+        # over ("no longer" is a negation, read with the cues); the second review, finding 8
+        r"cured|healed|quit\w*|former(?:ly)?|ceased|recover(?:ed|y)|remission|remitted|stopped|discontinu\w*|"
+        r"withdrawn|eradicated)\b",
         _FLAGS,
     ),
     "ja": re.compile(
-        r"疑い|疑|可能性|恐れ|おそれ|(?:出現|発生|発症|生じ|起き|起こ)[^。]{0,6}場合|リスク|予防|予定|"
-        r"家族歴|家族|父親|母親|祖父|祖母|兄弟|姉妹|親族|血縁|[父母兄弟姉妹](?=[がはのに：:（(）)、]|$)|"
-        r"治癒|完治|治った|やめた|止めた"
+        r"(?:出現|発生|発症|生じ|起き|起こ)[^。]{0,6}場合|リスク|予防|予定|計画|"
+        r"家族歴|家族|父親|母親|祖父|祖母|兄弟|姉妹|親族|血縁|配偶者|近親|同居|ドナー|"
+        r"[父母兄弟姉妹夫妻](?=[がはのに:(）)、]|$)|"
+        r"治癒|完治|治った|やめた|止めた|中止|休薬|中断|回復|軽快|消失|(?<!再発)寛解(?!型)|離脱|禁煙|断薬"
     ),
     "zh": re.compile(
-        r"疑似|懷疑|怀疑|疑|可能|待排|考慮|考虑|待確認|待确认|不排除|"
         r"(?:若|如果|假如|一旦|倘若|萬一|万一)[^，,。；;]{0,20}?(?:出現|出现|發生|发生|產生|产生)|"
-        r"風險|风险|預防|预防|預計|预计|計劃|计划|"
-        r"家族史|家族|父親|母親|父亲|母亲|兄弟|姊妹|姐妹|親屬|亲属|一等親|[父母兄弟姐妹](?=[親亲患有之的，,、：:（(）)]|$)|"
-        r"治癒|治愈|痊癒|痊愈|已戒|戒除|戒菸|戒烟|已停|停用"
+        r"風險|风险|預防|预防|預計|预计|計劃|计划|計畫|擬|拟|將於|将于|即將|即将|"
+        r"家族史|家族|家屬|家属|家人|親人|亲人|親戚|亲戚|父親|母親|父亲|母亲|兄弟|姊妹|姐妹|親屬|亲属|一等親|配偶|"
+        r"子女|丈夫|妻子|伴侶|伴侣|同住|捐贈|捐赠|[父母兄弟姐妹](?=[親亲患有之的，,、:(）)]|$)|"
+        r"治癒|治愈|痊癒|痊愈|已戒|戒除|戒菸|戒烟|已停|停用|停藥|停药|停止|中止|康復|康复|已癒|已愈|(?<!復發)緩解(?!型)|(?<!复发)缓解(?!型)|"
+        r"好轉|好转|消退"
     ),
 }
 _N_CJK = r"[0-9一二兩两三四五六七八九十]+"
+_EN_UNIT = r"(?:lines?|regimens?|cycles?|courses?|doses?|episodes?|times|agents?)"
+_ZH_UNIT = r"(?:線|线|療程|疗程|週期|周期|次|種|种|劑|剂)"
+_JA_UNIT = r"(?:レジメン|コース|サイクル|クール|回|ライン|剤)"
 _COUNT_BOUND = {
     "en": re.compile(
         r"\b(?:(?:no|not)\s+more\s+than|at\s+most|up\s+to|maximum(?:\s+of)?|max\.?|fewer\s+than|less\s+than|"
-        r"not\s+exceeding)\s*(?:\d+|one|two|three|four|five|six)\s+(?:[a-z-]+\s+){0,2}?"
-        r"(?:lines?|regimens?|cycles?|courses?|doses?|episodes?|times|agents?)\b|"
-        r"(?:≤|<=?)\s*\d+\s+(?:[a-z-]+\s+){0,2}?(?:lines?|regimens?|cycles?|courses?|doses?|episodes?|agents?)\b",
+        rf"not\s+exceeding)\s*(?:\d+|one|two|three|four|five|six)\s+(?:[a-z-]+\s+){{0,2}}?{_EN_UNIT}\b|"
+        rf"(?:≤|<=?)\s*\d+\s+(?:[a-z-]+\s+){{0,2}}?{_EN_UNIT}\b|"
+        # the second review, finding 10: a range that starts at zero ("0-3 prior cycles", "zero to two lines")
+        rf"(?<![\d.,])(?:0|zero)\s*(?:-|–|to|~|〜)\s*(?:\d+|one|two|three|four|five|six)\s+(?:[a-z-]+\s+){{0,2}}?{_EN_UNIT}\b",
         _FLAGS,
     ),
     "ja": re.compile(
-        r"[0-9一二三四五六]+\s*(?:レジメン|コース|サイクル|クール|回|ライン|剤)(?:を超えない|を超えず|まで|以下|未満|以内)"
+        rf"[0-9一二三四五六]+\s*{_JA_UNIT}(?:を超えない|を超えず|まで|以下|未満|以内)|"
+        rf"(?<![\d.,])(?:0|ゼロ)\s*(?:-|–|~|〜|から|ないし|乃至)\s*[0-9一二三四五六]+\s*{_JA_UNIT}"
     ),
     "zh": re.compile(
-        rf"(?:不超過|不超过|最多|至多|未滿|未满|少於|少于)\s*{_N_CJK}\s*(?:個|个)?\s*(?:線|线|療程|疗程|週期|周期|次|種|种|劑|剂)|"
-        rf"(?:沒有|没有|無|无|未)[^，,。；;]{{0,8}}?{_N_CJK}\s*(?:個|个)?\s*(?:線|线|療程|疗程|週期|周期|次|種|种|劑|剂)\s*以上|"
-        rf"{_N_CJK}\s*(?:個|个)?\s*(?:線|线|療程|疗程|週期|周期|次|種|种|劑|剂)\s*(?:以下|以內|以内)"
+        rf"(?:不超過|不超过|最多|至多|未滿|未满|少於|少于)\s*{_N_CJK}\s*(?:個|个)?\s*{_ZH_UNIT}|"
+        rf"(?:沒有|没有|無|无|未)[^，,。；;]{{0,8}}?{_N_CJK}\s*(?:個|个)?\s*{_ZH_UNIT}\s*以上|"
+        rf"{_N_CJK}\s*(?:個|个)?\s*{_ZH_UNIT}\s*(?:以下|以內|以内)|"
+        rf"(?<![\d.,])(?:0|零)\s*(?:-|–|~|〜|至|到)\s*{_N_CJK}\s*(?:個|个)?\s*{_ZH_UNIT}"
     ),
 }
 _SENTENCE_END = re.compile(r"\.(?=\s|$)|[。\n]")
+# Read by position, round each mention (the second review, findings 4 and 7).
+# Eligibility for the concept is not the concept: "no contraindication to X", "candidate for X", "X の禁忌がない",
+# "X無禁忌症", "適合接受X". A condition on the concept is not the concept: "if X is given", "X を受ければ", "若接受X".
+_ELIGIBLE_BEFORE = {
+    "en": re.compile(
+        r"\b(?:contraindicat\w*|eligib\w*|candida\w*|suitab\w*|indicat\w*|appropriate|amenable|fit|able|willing|"
+        r"consent\w*|agree\w*|intend\w*|considered|referred|offered|recommended|need(?:s|ing)?|requir\w+\s+to)\s+"
+        r"(?:to|for)\s+(?:[a-z-]+\s+){0,3}$",
+        _FLAGS,
+    ),
+    "ja": re.compile(r"(?!)"),
+    "zh": re.compile(
+        r"(?:適合|适合|適於|适于|適用|适用|可|能夠|能够|願意|愿意|同意|需要|需|建議|建议)"
+        r"(?:接受|使用|進行|进行|施行)?[^，,。；;]{0,4}$"
+    ),
+}
+_ELIGIBLE_AFTER = {
+    "en": re.compile(
+        r"^\s*(?:(?:is|are|was|were)\s+)?(?:candida\w*|eligib\w*|indicated|recommended|offered|considered|"
+        r"contraindications?)\b",
+        _FLAGS,
+    ),
+    "ja": re.compile(
+        r"^(?:の|に対する|への|に|は|が)?\s*(?:禁忌|適応|適格|候補|対象|希望|同意|必要|可能|推奨)|^[^、。，,;；]{0,8}?(?:禁忌|適応)"
+    ),
+    "zh": re.compile(
+        r"^(?:之|的)?\s*(?:無|无|沒有|没有)?(?:禁忌|適應|适应|候選|候选|適合|适合|對象|对象)|^[^，,。；;]{0,6}?(?:禁忌|適應症|适应症)"
+    ),
+}
+_IF_BEFORE = {
+    "en": re.compile(
+        r"(?:\b(?:if|whether|in\s+case|in\s+the\s+event|once|when|whenever|assuming|provided)\b|"
+        r"(?:^|[.;,]\s*)should\b)[^.;,]*$",
+        _FLAGS,
+    ),
+    "ja": re.compile(r"(?:もし|仮に|万一)[^、。]*$"),
+    "zh": re.compile(
+        r"(?:若|如果|假如|一旦|倘若|萬一|万一|倘|假使|要是|只要|(?<![例諸诸比譬])如(?![同下上此前]))[^，,。；;]*$"
+    ),
+}
+_IF_AFTER = {
+    "en": re.compile(
+        r"^[^.;,]{0,40}?,?\s*\bif\s+(?:any|applicable|given|used|needed|required|indicated|present)\b", _FLAGS
+    ),
+    "ja": re.compile(
+        r"^[^、。]{0,14}?(?:(?<!なけ)(?<!であ)れば|ならば?|(?:[たっだ]|まし)たら|[たる]場合|の場合|の際|ときは|時は)"
+    ),
+    "zh": re.compile(r"^[^，,。；;]{0,10}?(?:時|时|的話|的话)(?=[，,])"),
+}
 
 
-def _status_held(u: str, t: str, found: list[Mention], lang: str) -> bool:
-    """A status word (uncertain, hypothetical, another person's, over) or a count bound in a sentence that names the
-    concept (card 10A-1c). ``u`` is the line as written, ``t`` with its descriptors blanked."""
+def _covered(starts: list[int], spans: list[tuple[int, int]], a: int, z: int) -> bool:
+    """Whether ``[a, z)`` lies inside one of ``spans`` (sorted by start; read by bisection, a few candidates)."""
+    k = bisect.bisect_right(starts, a)
+    return any(s <= a and z <= e for s, e in spans[max(0, k - 4) : k])
+
+
+def _status_held(
+    u: str, t: str, found: list[Mention], lang: str, others: list[re.Pattern[str]], conditional: bool = False
+) -> bool:
+    """A status word (uncertain, hypothetical, another person's, over), a count bound, an eligibility or a condition
+    in a sentence that names the concept (card 10A-1c); and, since the second review, a status word in a sentence
+    that names no extracted concept at all, which can only qualify the one before it ("Chemotherapy. Planned for
+    next week.", "敗血症。待確認。"). ``u`` is the line as written, ``t`` with its descriptors blanked. Every pattern
+    is read once over the line and each mention's surroundings in a bounded window: linear in the line's length.
+    ``conditional``: the criterion's own logic carries a condition on this concept (its atom is one arm of an "or"),
+    so the line's "if receiving X" is coded and is not read as a reason to hold."""
     ends = [m.start() for m in _SENTENCE_END.finditer(u)] + [len(u)]
-    seen: set[int] = set()
-    for s, _, _ in found:  # each sentence that names the concept, read once: a long line costs linear time
-        k = bisect.bisect_left(ends, s)
-        if k in seen:
-            continue
-        seen.add(k)
-        a, z = (ends[k - 1] + 1 if k else 0), ends[k]
-        mine = [(s2, e2) for s2, e2, _ in found if a <= s2 < z]
-        for pat, text in ((_STATUS[lang], t), (_STATUS["en"], t), (_COUNT_BOUND[lang], u)):
-            for m in pat.finditer(
-                text, a, z
-            ):  # a status word inside the coded name is the name ("family history of X")
-                if not any(s2 <= m.start() and m.end() <= e2 for s2, e2 in mine):
+    spans = [(s, e) for s, e, _ in found]
+    starts = [s for s, _ in spans]
+    mine = {bisect.bisect_left(ends, s) for s in starts}
+    named: dict[int, bool] = {}
+
+    def names_another(k: int) -> bool:
+        if k not in named:
+            named[k] = _first(others, u[(ends[k - 1] + 1 if k else 0) : ends[k]]) is not None
+        return named[k]
+
+    # a line of kanji alone may be Japanese or Chinese ("敗血症。確認中。"): it is read with both lists
+    both = ("ja", "zh") if lang == "zh" else (lang,)
+    readings = [(p[x], t, kind) for kind, p in (("uncertain", _UNCERTAIN), ("status", _STATUS)) for x in (*both, "en")]
+    readings += [(_COUNT_BOUND[x], u, "count") for x in both]
+    for pat, text, kind in readings:
+        for m in pat.finditer(text):
+            k = bisect.bisect_left(ends, m.start())
+            if k in mine:
+                if kind == "uncertain" or not _covered(starts, spans, m.start(), m.end()):
                     return True
+            elif kind != "count" and not names_another(k):
+                return True
+    for s, e in spans:  # eligibility for the concept, or a condition on it
+        a = bisect.bisect_left(ends, s)
+        lo, hi = max(ends[a - 1] + 1 if a else 0, s - 80), min(ends[a], e + 40)
+        before, after = u[lo:s], u[e:hi]
+        for x in {lang, "en"}:
+            if _ELIGIBLE_BEFORE[x].search(before) or _ELIGIBLE_AFTER[x].search(after):
+                return True
+            if not conditional and (_IF_BEFORE[x].search(before) or _IF_AFTER[x].search(after)):
+                return True
     return False
 
 
-def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] = ()) -> bool:
-    """Whether the line carries a negation cue that is not shown to be about something other than this concept."""
+def unexplained_cue(
+    text: str, terms: Iterable[str], other_terms: Iterable[str] = (), conditional: bool = False
+) -> bool:
+    """Whether the line carries a negation cue that is not shown to be about something other than this concept.
+    ``conditional``: see :func:`_status_held`."""
     terms = list(terms)
     own = _patterns(terms)
     others = _others(terms, other_terms)
     t, found, _ = _read(text, own)
     lang = "ja" if _KANA.search(t) else "zh" if _CJK.search(t) else "en"
     if not found:  # R0: the line never names the coded concept: a cue may be about it under another name
-        return any(p.search(t) for p in _ANY_CUE) or any(p.search(t) for p in _STATUS.values())
+        return any(p.search(t) for p in (*_ANY_CUE, *_STATUS.values(), *_UNCERTAIN.values()))
     u = unicodedata.normalize("NFKC", text)
-    if _status_held(u, t, found, lang):
+    if _status_held(u, t, found, lang, others, conditional):
         return True
     # card 10A-1c: cues are found with the descriptors blanked, as before; what a cue reaches is read with the coded
     # name as written, a descriptor inside it included ("non-melanoma skin cancer" coded), so the reach finds it
@@ -936,6 +1080,16 @@ def presence_atoms(logic: object, negated: bool = False) -> list[Atom]:
     return [logic] if (logic.quantifier == "none") == negated else []
 
 
+def under_or(logic: object, atom: Atom, inside: bool = False) -> bool:
+    """Whether ``atom`` is one arm of an "or" in ``logic`` (directly or deeper): the logic then carries the line's
+    alternative or condition itself ("urate >= 6.8, or >= 6.0 if receiving urate-lowering therapy")."""
+    if logic is atom:
+        return inside
+    if isinstance(logic, BoolExpr):
+        return any(under_or(arg, atom, inside or logic.op == "or") for arg in logic.args)
+    return False
+
+
 def atoms_of(logic: object) -> list[Atom]:
     if isinstance(logic, BoolExpr):
         return [a for arg in logic.args for a in atoms_of(arg)]
@@ -963,6 +1117,6 @@ def negated_presence(
     every += list(other_terms)
     for atom in presence_atoms(logic):
         terms = [*terms_for(atom.valueset or ""), *_slug_words(atom.valueset)]
-        if governed(text, terms, every) or unexplained_cue(text, terms, every):
+        if governed(text, terms, every) or unexplained_cue(text, terms, every, under_or(logic, atom)):
             return True
     return False
