@@ -3,6 +3,8 @@
     python -m tools.terminology_coverage <raw-traces.json> [--installed DIR] [--synonyms] [--json]
     python -m tools.terminology_coverage --concepts <concepts.csv> [--installed DIR] [--json]
     python -m tools.terminology_coverage <raw-traces.json> --write-concepts <concepts.csv>
+    python -m tools.terminology_coverage <raw-traces.json> --model-calls [--synonyms] [--set NAME] [--json]
+    python -m tools.terminology_coverage <raw-traces.json> --replay [--answers answers.json] [--set NAME] [--json]
 
 Reads every ``concept_candidates`` entry of the ``extract_criteria`` calls in a launch's ``raw-traces.json`` (launch
 P1b's ``sigir.tgz``: public ClinicalTrials.gov protocols), leaves out the ``demographic`` ones, and maps each with
@@ -15,6 +17,10 @@ H-17 (D-1128): the traces cannot be committed, so ``--write-concepts`` derives t
 form (``domain``, ``name`` as drafted, ``count``; the demographic ones left out; no model synonyms) and
 ``--concepts`` measures from it, the same figures without the archive (CI). The JSON output also counts, by domain,
 the resolved concepts whose answer is for review (``for_review``).
+
+9h-2 (D-1350): ``--model-calls`` counts the stored ``concept_map`` calls and the calls today's mapper makes, and
+``--replay`` the criteria flagged ``concept_unmapped`` when each study is compiled again from its own stored replies;
+both keyed by study, a record without a study id counted apart (``tools.terminology_replay``).
 """
 
 from __future__ import annotations
@@ -144,7 +150,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--installed", type=Path, default=None, help="a TB_TERMINOLOGY_DIR (default: an empty one)")
     ap.add_argument("--synonyms", action="store_true", help="also pass each candidate's model synonyms")
     ap.add_argument("--json", action="store_true")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--model-calls", action="store_true", help="count mapping calls, stored and today's (9h-2)")
+    mode.add_argument("--replay", action="store_true", help="count concept_unmapped criteria, compiled again (9h-2)")
+    ap.add_argument("--set", default=None, help="with a replay slice: the set to read")
+    ap.add_argument("--answers", type=Path, default=None, help="with --replay: the run's answers.json")
     args = ap.parse_args(argv)
+    if args.model_calls or args.replay:
+        return _replay_main(ap, args)
     if (args.traces is None) == (args.concepts is None):
         ap.error("give either a raw-traces.json or --concepts")
     traces = json.loads(args.traces.read_text(encoding="utf-8")) if args.traces else {}
@@ -174,6 +187,29 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{result['candidates']:,} concepts (no demographic ones) from {args.concepts.name}")
     print(table(result))
     print("methods: " + ", ".join(f"{m} {n}" for m, n in sorted(result["methods"].items())))
+    return 0
+
+
+def _replay_main(ap: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    from tools import terminology_replay as tr
+
+    if args.traces is None or args.concepts or args.write_concepts:
+        ap.error("--model-calls and --replay read a raw-traces.json alone")
+    if args.answers and not args.replay:
+        ap.error("--answers goes with --replay")
+    try:
+        traces = tr.load(args.traces, args.set)
+    except ValueError as exc:
+        ap.error(str(exc))
+    if args.model_calls:
+        term = Terminology(installed=args.installed or Path("/nonexistent/terminology-none"))
+        result = tr.model_calls(traces, term, args.synonyms)
+    else:
+        answers = json.loads(args.answers.read_text(encoding="utf-8")) if args.answers else None
+        if args.set and isinstance(answers, dict) and "sets" in answers:
+            answers = answers["sets"][args.set]["answers"]
+        result = tr.replay(traces, answers)
+    print(json.dumps(result, ensure_ascii=False, indent=1, sort_keys=True))
     return 0
 
 
