@@ -42,6 +42,12 @@ STACKS: list[tuple[tuple[str, ...], tuple[str, ...]]] = [
      ("gpu", "doctor")),
     (("docker-compose.testbench.yml",), ("dev",)),
 ]  # fmt: skip
+# the two-device form (T-214, D-373): each device's stack, as its file's header gives it (H58-03)
+TWO_DEVICE_STACKS: list[tuple[tuple[str, ...], tuple[str, ...]]] = [
+    ((BASE, "docker-compose.secrets.yml", "docker-compose.gb10.yml", "two-device/docker-compose.spark.yml"), ("gpu",)),
+    ((BASE, "docker-compose.secrets.yml", "two-device/docker-compose.workstation.yml"), ("stub",)),
+]  # fmt: skip
+LINTED_STACKS = [*STACKS, *TWO_DEVICE_STACKS]
 TEST_PROFILES = {"test", "dev"}  # developer-only services: limits and log caps, no health or watchdog rule
 IMAGE_HEALTHCHECK = {"authelia"}  # the image's own HEALTHCHECK (/app/healthcheck.sh) is the check
 LONG_RUNNING_RESTART = {"unless-stopped", "always"}
@@ -128,7 +134,7 @@ def problems(services: dict[str, dict[str, Any]], profiles: tuple[str, ...]) -> 
     return bad
 
 
-@pytest.mark.parametrize(("stack", "profiles"), STACKS, ids=lambda x: "+".join(x) if isinstance(x, tuple) else x)
+@pytest.mark.parametrize(("stack", "profiles"), LINTED_STACKS, ids=lambda x: "+".join(x) if isinstance(x, tuple) else x)
 def test_every_service_of_every_stack_has_limits_health_and_a_watchdog_rule(
     stack: tuple[str, ...], profiles: tuple[str, ...]
 ) -> None:
@@ -136,8 +142,10 @@ def test_every_service_of_every_stack_has_limits_health_and_a_watchdog_rule(
 
 
 def test_every_compose_file_is_in_a_linted_stack() -> None:
-    files = {p.name for p in DEPLOY.glob("docker-compose*.yml")} | {"platform/docker-compose.platform.yml"}
-    assert files <= {f for stack, _ in STACKS for f in stack}
+    """Every compose file under deploy/, in its subfolders too (platform/, two-device/: H58-03)."""
+    files = {str(p.relative_to(DEPLOY)) for p in DEPLOY.rglob("docker-compose*.yml")}
+    assert {"platform/docker-compose.platform.yml", "two-device/docker-compose.spark.yml"} <= files
+    assert files <= {f for stack, _ in LINTED_STACKS for f in stack}
 
 
 def test_the_lint_catches_a_service_without_limits() -> None:
@@ -161,7 +169,7 @@ def test_the_database_is_reported_not_restarted_and_vllm_is_restarted() -> None:
     assert base["db"]["labels"]["tb.watchdog"] == "report"
     assert base["llm-service"]["labels"]["tb.watchdog"] == "restart"
     assert "healthcheck" in base["llm-service"]  # the watchdog acts on Docker's health state
-    for stack, _ in STACKS:
+    for stack, _ in LINTED_STACKS:
         for svc, body in _merge(stack).items():
             if svc.startswith("llm-") and svc != "llm-stub":
                 assert _bytes(body["mem_limit"]) >= 32 * 2**30, (stack, svc)  # a sleeping judge's weights fit
@@ -234,9 +242,12 @@ def _render(project: Path, stack: tuple[str, ...], profiles: tuple[str, ...], en
 
 
 @pytest.mark.skipif(not _compose(), reason="needs the docker compose plugin")
-@pytest.mark.parametrize(("stack", "profiles"), STACKS, ids=lambda x: "+".join(x) if isinstance(x, tuple) else x)
+@pytest.mark.parametrize(("stack", "profiles"), LINTED_STACKS, ids=lambda x: "+".join(x) if isinstance(x, tuple) else x)
 def test_compose_config_renders_the_limits(tmp_path: Path, stack: tuple[str, ...], profiles: tuple[str, ...]) -> None:
-    services = _render(tmp_path, stack, profiles)["services"]
+    two_device = "TB_LINK_ADDR=192.0.2.1\nTB_LINK_PEER=192.0.2.2\n"  # documentation addresses (RFC 5737)
+    services = _render(tmp_path, stack, profiles, two_device if any("two-device/" in f for f in stack) else "")[
+        "services"
+    ]
     assert services
     for svc, body in services.items():
         assert int(body.get("mem_limit") or 0) >= 64 * 2**20, svc
