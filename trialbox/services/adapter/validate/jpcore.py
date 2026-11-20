@@ -19,7 +19,7 @@ derived at build time from the pinned JP Core 1.1.0 package by ``tools/jpcore_ru
    ICD-10-CM-only shape (``C50.911``, ``M1A.9XX0``) under the WHO URI is listed, never failed; LOINC codes must pass
    the check digit; JLAC10, YJ, HOT9, ATC and MEDIS 病名交換用コード codes must have their shape; when the site's
    licensed release is loaded (``adapter.licensed``), a code missing from it is a warning (a newer code), never an
-   error.
+   error, and so is a MEDIS code the release marks deleted (変更区分 1, D-1261).
 
 Errors fail the resource; warnings are listed. Nothing is dropped: the ingest records the result
 (``jp_core_validation.json`` in the snapshot, ``profile_validation`` in the ingest report) and lists every failure.
@@ -118,6 +118,16 @@ def _icd10cm() -> frozenset[str]:
     return frozenset(
         str(c) for c in pq.read_table(path, columns=["code"], use_threads=False).column("code").to_pylist()
     )
+
+
+def _medis_current(row: dict[str, Any]) -> bool:
+    """D-1261: is a loaded MEDIS row current (変更区分 not 1, deleted in the release)? A row without the column (a
+    release loaded before D-1252) counts as current, as it was read before."""
+    try:
+        extra = json.loads(row.get("extra") or "{}")
+    except (TypeError, ValueError):
+        return True
+    return not (isinstance(extra, dict) and str(extra.get("change") or "").strip() == "1")
 
 
 def loinc_ok(code: str) -> bool:
@@ -378,6 +388,9 @@ class JpCoreValidator:
                     out.issues.append(Issue("error", path, f"the code is not a {label} code"))
                 elif kind and self.licensed.get(kind) and code not in self.licensed[kind]:
                     out.issues.append(Issue("warning", path, f"the code is not in the loaded {label} release"))
+                elif kind == "medis" and self.licensed.get(kind) and not _medis_current(self.licensed[kind][code]):
+                    # D-1261: a code the loaded release marks deleted (変更区分 1) is real but no longer current
+                    out.issues.append(Issue("warning", path, f"the code is deleted in the loaded {label} release"))
 
     # ------------------------------------------------------------------ a sample
     def validate(self, resources: list[Resource]) -> ValidationReport:

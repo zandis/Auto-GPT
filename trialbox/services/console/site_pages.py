@@ -37,7 +37,7 @@ from sitesetup import medis_release
 from tb_common.authz import permit
 from tb_common.verdict_word import shown_of
 
-from console import actor, demo_guard, s28
+from console import actor, demo_guard, medis_page, s28  # medis_page: its words join the catalogue
 from console.api_first import before_body
 from console.auth import Session, User
 from console.backend import Problem, Unavailable
@@ -884,8 +884,6 @@ def register(app: FastAPI, h: Helpers) -> None:
             return refused(exc)
 
     if medis_release.here():  # D-1261: only where the site's country layer uses the MEDIS master
-        from console import medis_page
-
         medis_page.register(app, h, need_change=need_change, signed_post=signed_post, get=get)
 
     @app.get("/api/v1/ask", response_model=None)

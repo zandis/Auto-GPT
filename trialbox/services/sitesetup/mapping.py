@@ -225,6 +225,25 @@ def _licensed(kind: str, code: str) -> dict[str, str] | None:
         return None
 
 
+_MEDIS: dict[str, Any] = {"of": None, "master": None}
+
+
+def _medis() -> Any:
+    """The site's loaded MEDIS disease-name master (``sitesetup.medis_master``), or None (D-1261). Built once per
+    answer of ``licensed.tables(cached=True)``."""
+    from adapter import licensed
+
+    from sitesetup import medis_master
+
+    try:
+        tables = licensed.tables(cached=True)
+    except Exception:  # no trial database here: nothing is loaded
+        return None
+    if _MEDIS["of"] is not tables:
+        _MEDIS["of"], _MEDIS["master"] = tables, medis_master.rows(tables)
+    return _MEDIS["master"]
+
+
 def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str, str]:
     """A suggested standard code for one local code: ``{system, code, display, method}`` (``licensed``: the site's
     licensed MEDIS / JLAC10 / YJ release, its standard code or the name it gives; ``lookup``: the shipped table for
@@ -235,7 +254,16 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
     (0..1), or ``{}`` when TrialBox is not sure."""
     kind = system.rsplit(":", 1)[-1]
     up = code.strip().upper()
-    lic = _licensed(kind, up)
+    if domain == "condition":  # D-1261: the MEDIS master, by its code or by the local name; its answer stands
+        from sitesetup import medis_master
+
+        m = _medis()
+        if m is not None and kind == "dx-code" and up in m.by_exchange:
+            return medis_master.by_code(m, up)  # {} included: never another table's guess for the master's code
+        found = medis_master.by_name(m, display or code) if m is not None else {}
+        if found:
+            return found
+    lic = _licensed(kind, up) if kind != "dx-code" else None  # the MEDIS master is read above (D-1261)
     if lic is not None:
         target = lic.get("target_code") or ""
         if target and valid_target(domain, TARGET.get(domain, ""), target):

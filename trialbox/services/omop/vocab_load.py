@@ -51,6 +51,7 @@ from pathlib import Path
 from typing import Any
 
 from tb_common.db import Database
+from tb_common.icd10_who import dotted
 
 from omop.schema import LOCAL_MIN, OmopError
 from omop.vocab import VALID_FROM, VALID_TO, Code, Concepts
@@ -622,6 +623,8 @@ def load_licensed(
             links: dict[str, list[tuple[int, int]]] = {}
             targets = {c: (str(v.get("target_system") or ""), str(v.get("target_code") or "")) for c, v in
                        codes.items() if v.get("target_code")}  # fmt: skip
+            # D-1261: the MEDIS master writes its WHO ICD-10 without the dot (E119); the ICD-10-CM list has it (E11.9)
+            targets = {c: (s, dotted(t) if s == ICD10_URI else t) for c, (s, t) in targets.items()}
             who = [t for _, (s, t) in targets.items() if s == ICD10_URI]
             cm = _icd10cm_ids(tx, who + [who_family(t) for t in who])
             other: dict[str, dict[str, str]] = {}

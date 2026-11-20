@@ -351,6 +351,28 @@ def test_jp_masters_link_who_only_codes_to_their_icd10cm_family(omop: Any) -> No
     assert not vocab_load.load_licensed(omop, tables)[0].new  # the same release again: nothing
 
 
+def test_a_who_code_written_without_its_dot_links_as_with_it(omop: Any) -> None:
+    """D-1261: the MEDIS master writes ＩＣＤ１０‐２０１３ without the dot; E119 is ICD-10-CM's E11.9, not its family."""
+    from adapter.licensed import ICD10_WHO
+    from omop import vocab_load
+
+    vocab_load.load_terminology(omop, TERM_DIR)
+    tables = {"medis": {
+        "ZA01": {"display": "テスト病甲", "target_system": ICD10_WHO, "target_code": "M109"},  # ICD-10-CM M10.9
+        "ZA02": {"display": "テスト病乙", "target_system": ICD10_WHO, "target_code": "M1097"},  # WHO-only
+    }}  # fmt: skip
+    vocab_load.load_licensed(omop, tables, versions={"medis": "9.99-invented"})
+    links = {
+        (r["code"], r["relationship_id"]): r["target"]
+        for r in omop.fetchdicts(
+            "SELECT a.concept_code AS code, cr.relationship_id, b.concept_code AS target FROM concept_relationship cr "
+            "JOIN concept a ON a.concept_id = cr.concept_id_1 JOIN concept b ON b.concept_id = cr.concept_id_2 "
+            "WHERE a.vocabulary_id = 'MEDIS'"
+        )
+    }
+    assert links == {("ZA01", "Maps to"): "M10.9", ("ZA02", "TB in CM family"): "M10"}
+
+
 # ------------------------------------------------------------------------------------------------ NHIA edition map
 def test_nhia_map_gives_a_2016_record_the_2023_code_with_provenance(omop: Any) -> None:
     from omop import vocab_load

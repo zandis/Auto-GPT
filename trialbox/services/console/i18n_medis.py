@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 EN: dict[str, str] = {
+    "site.codes.method.licensed_successor": "from the hospital's disease-name master: the entry the code names was deleted, and its successor is suggested (check it)",
     "medis.title": "Disease-name master (MEDIS)",
     "medis.what": "MEDIS-DC publishes the standard disease-name master (ICD10対応標準病名マスター): the standard Japanese disease names, the words that modify them (left, acute, suspected …), their other spellings, and the ICD-10 code of each name.",
     "medis.why": "The box needs it to read a diagnosis from the hospital's records as a disease: a coded diagnosis from SS-MIX2, a local disease name when you match the hospital's codes, and the check of the data it writes. TrialBox does not ship it: MEDIS lets a medical institution download and use it free, and does not allow anyone else to pass it on.",
@@ -54,6 +55,7 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
+    "site.codes.method.licensed_successor": "病院の標準病名マスターから：このコードの病名は削除され、移行先の病名を提案しています（確認してください）",
     "medis.title": "標準病名マスター（MEDIS）",
     "medis.what": "MEDIS-DC が公開している ICD10対応標準病名マスターです。標準病名、病名を修飾する語（左、急性、疑い など）、その別表記、各病名の ICD-10 コードが入っています。",
     "medis.why": "病院の記録の診断を病名として読むために必要です。SS-MIX2 のコード付き診断、病院のコードを対応付けるときの施設独自の病名、書き出すデータの確認に使います。TrialBox には含まれていません。医療機関は MEDIS から無償でダウンロードして利用できますが、MEDIS の許可なく再配布することはできません。",
@@ -104,6 +106,7 @@ JA: dict[str, str] = {
 }
 
 ZH: dict[str, str] = {
+    "site.codes.method.licensed_successor": "來自醫院的標準病名主檔：此代碼的病名已刪除，建議其移轉後的病名（請確認）",
     "medis.title": "標準病名主檔（MEDIS）",
     "medis.what": "MEDIS-DC 發布的 ICD10對応標準病名マスター：日本的標準病名、修飾病名的詞（左側、急性、疑似等）、其其他寫法，以及每個病名的 ICD-10 代碼。",
     "medis.why": "本機需要它才能把醫院紀錄中的診斷讀成疾病：SS-MIX2 的編碼診斷、對應醫院代碼時的院內病名，以及檢查所寫出的資料。TrialBox 不附帶此主檔：醫療機構可向 MEDIS 免費下載使用，但未經 MEDIS 許可不得轉發。",
