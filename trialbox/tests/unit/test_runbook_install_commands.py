@@ -304,7 +304,9 @@ def run_first_ingest(tmp: Path) -> None:
 def run_check_host(tmp: Path) -> None:
     env = tmp / ".env"
     env.write_text("TB_ENV=DEV\n", encoding="utf-8")
-    out = _run(["sh", "deploy/check_host.sh", "--gb10", "--env", str(env), "--secrets", str(tmp)])
+    # TB_TEST_MEM_KIB: a 128 GB Spark's MemTotal (synthetic), so the --gb10 memory check never reads this machine's
+    out = _run(["sh", "deploy/check_host.sh", "--gb10", "--env", str(env), "--secrets", str(tmp)],
+               TB_TEST_MEM_KIB="124000000")  # fmt: skip
     lines = [ln for ln in out.stdout.splitlines() if ln[:4] in ("PASS", "WARN", "FAIL")]
     assert out.returncode in (0, 1) and lines, out.stderr  # a test machine is not a hardened box: FAIL lines are fine
     assert out.returncode == (1 if any(ln.startswith("FAIL") for ln in lines) else 0)

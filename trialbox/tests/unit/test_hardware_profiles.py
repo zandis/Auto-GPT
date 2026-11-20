@@ -130,7 +130,7 @@ def test_measured_rtxpro6000_accepts_an_uncapped_resident_record(tmp_path: Path)
     p = tmp_path / "rec.json"
     p.write_text(json.dumps(_rec(PRO, 32768)))
     assert sc.main(["measured", "rtxpro6000", str(p)]) == 0
-    assert sc.measured_for(_rec("NVIDIA GB10", 16384), "gb10") == []
+    assert sc.measured_for(_rec("NVIDIA GB10", 16384), "gb10", lambda: None) == []  # memory unknown: not read
 
 
 def test_measured_rtxpro6000_refuses_what_is_not_the_profile() -> None:
@@ -154,4 +154,4 @@ def test_measured_rtxpro6000_refuses_what_is_not_the_profile() -> None:
 def test_vendor_records_shipped_with_the_kit_are_measurements() -> None:
     for rec in sorted((ROOT / "deploy/measured").glob("serving_config.*.json")):
         profile = rec.name.split(".")[1]
-        assert sc.measured_for(json.loads(rec.read_text()), profile) == [], rec.name
+        assert sc.measured_for(json.loads(rec.read_text()), profile, lambda: None) == [], rec.name  # no live host
