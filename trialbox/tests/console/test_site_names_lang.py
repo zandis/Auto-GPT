@@ -96,3 +96,26 @@ def test_feasibility_supplies_the_approved_study_language(sb: dict[str, Any]) ->
     assert result is not None
     row = result["steps"][0]
     assert (row["label"], row.get("lang")) == ("発作の回数", "ja")
+
+
+@pytest.mark.parametrize("lang", ["en", "zh-TW"])
+def test_english_label_in_chinese_study(sb: dict[str, Any], lang: str) -> None:  # noqa: F811
+    study = sb["ruleset"]
+    study.manifest.language = "zh-TW"
+    criterion = study.criteria[0]
+    criterion.label = "Age 18-75"
+    name, data = site_help.practice_inputs()["dump"]
+    sb["svc"].add_sheet("main", "dump", name, data, {}, "crc")
+
+    client, csrf = login(sb["app"], "crc", PW)
+    client.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"}).raise_for_status()
+    page = _read(client, "GZQO")
+    assert page.get("lang") == lang
+    (cell,) = page.xpath(f'//tr[@data-testid="feas-{criterion.id}"]/td[1]')
+    assert cell.text_content().strip() == f"Age 18-75 {criterion.id}"
+    if lang == "en":
+        assert not cell.xpath("descendant-or-self::*[@lang or @data-given]")
+    else:
+        (marker,) = cell.xpath('.//span[@lang="en" and @data-authored]')
+        assert marker.text_content() == "Age 18-75"
+        assert marker.get("data-given") == translate(lang, "given.mark")
