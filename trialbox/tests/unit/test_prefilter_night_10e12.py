@@ -231,3 +231,13 @@ def test_the_re_checks_own_answers_say_whether_the_model_read_the_notes_tonight(
     assert microbatch.prefilter_stage(GZQO, pv, frozenset()) == "model_not_listed"  # a full screen: its own answers
     assert microbatch.prefilter_stage(GZQO, pv, frozenset({"P1"})) == "opted_out"  # a refusal or contact denial
     assert microbatch.prefilter_stage(GZQO, None, frozenset()) == "opted_out"  # removed inside the screen
+
+
+def test_a_record_that_does_not_add_up_is_a_fault_left_out_of_the_sums() -> None:
+    good = _rec(not_due=4, listed=1)
+    bad = good.model_copy(update={"in_scope": 9})
+    assert prefilter.adds_up(good) and not prefilter.adds_up(bad)
+    f = prefilter.night_funnel([_job(good), _job(bad)], "GZQO", WED)
+    assert f is not None and f.faults == 1 and f.jobs == 1 and f.in_scope == 5
+    only_bad = prefilter.night_funnel([_job(bad)], "GZQO", WED)
+    assert only_bad is not None and only_bad.faults == 1 and only_bad.jobs == 0  # a fault is never "no night"

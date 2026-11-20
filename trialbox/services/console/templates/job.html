@@ -65,6 +65,8 @@
 {% endif %}{% if night %}<section class="card" data-testid="night-funnel">
 <h2>{{ t('job.prefilter.title') }}</h2>
 <p class="hint" data-testid="night-funnel-what">{{ t('job.prefilter.what', study=night.study, date=night.date, jobs=night.jobs) }}</p>
+{% if night.jobs > 1 %}<p class="hint" data-testid="night-funnel-sums">{{ t('job.prefilter.sums') }}</p>
+{% endif %}
 <table data-testid="night-funnel-table"><thead><tr><th scope="col">{{ t('job.prefilter.stage') }}</th><th scope="col">{{ t('job.prefilter.removed') }}</th><th scope="col">{{ t('job.prefilter.left') }}</th></tr></thead>
 <tbody><tr data-stage="in_scope"><th scope="row">{{ t('job.prefilter.in_scope') }}</th><td></td><td>{{ night.in_scope }}</td></tr>
 {% for r in night.rows %}<tr data-stage="{{ r.key }}"><th scope="row">{{ t('job.prefilter.' ~ r.key) }}</th><td>{{ r.removed }}</td><td>{{ r.left }}</td></tr>

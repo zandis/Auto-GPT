@@ -2,21 +2,25 @@
 
 The nightly screening (MICROBATCH) filters patients in stages before the model judges any. Each job, when it
 finishes, writes one **pre-filter record** into its own metrics (``JobMetrics.prefilter``, beside
-``patients_scoped``): how many distinct patients the job had in scope and at which stage each left. Counts only;
-the patient ids used to count them live in the job's memory and are never stored.
+``patients_scoped``): how many patients the job had in scope and at which stage each left, each patient once.
+Counts only; the patient ids used to count them live in the job's memory and are never stored. A job with no record
+(one from before the record, any other job) has no funnel: the job page shows nothing for it.
 
 The counting (lane H's ruling on PR #639, 2026-11-19):
 
-* **Unit:** distinct patients per study per night (the jobs that share a ``run_date``), each counted once at their
-  **last** evaluation that night. Inside one job this is exact (a pool row re-checked and then screened again in
-  the same job counts once, at the screen). Across the jobs of one night the records are **summed**: a record holds
-  no ids, so a patient two jobs of one study evaluated on the same night is counted by both (D-1259 says so).
+* **Unit:** within one job, each patient once, at their **last** evaluation in the job (a pool row re-checked and
+  then screened again in the same job counts once, at the screen). The night (the jobs of a study that share a
+  ``run_date``) is the **sum** of its jobs' records: a record holds no ids, so a patient two jobs of one study looked
+  at on the same night is counted by each. The night's figures are sums of per-job counts, not distinct patients
+  (the page says so when the night has more than one job; D-1259).
 * **Stages that add up** (each patient in exactly one): ``opted_out`` (on the opt-out register, a refusal of
   research use or of contact, or not at the index date: not in the snapshot, deceased or not yet born);
   ``not_due`` (in scope, not looked at by this run's cadence); ``carried`` (due, left by the night budget);
   ``coded_excluded``; ``no_model`` (past the coded filter, not listed, no note read by the model);
   ``model_not_listed`` (the model read their notes, not listed); ``listed``. ``in_scope`` is their sum.
 * The re-check rows are in the funnel (as ``screen.stage_funnel`` counts them).
+* **The invariant:** ``in_scope`` is the sum of the stages (:func:`adds_up`). The job refuses to write a record that
+  does not add up; a stored one that does not is a fault: not summed, not shown (:attr:`NightFunnel.faults`).
 * Exact counts on internal console pages (D-99); anything mailed or exported goes through :func:`publishable`
   (``funnel_drops_publishable``: complementary suppression). This card mails and exports nothing.
 """
@@ -93,19 +97,30 @@ class Tally:
 
     def record(self, trigger: str) -> PrefilterRecord:
         c = self.counts()
-        return PrefilterRecord(trigger=trigger, in_scope=sum(c.values()), **c)  # type: ignore[arg-type]
+        rec = PrefilterRecord(trigger=trigger, in_scope=sum(c.values()), **c)  # type: ignore[arg-type]
+        if not adds_up(rec):  # by construction it does; a record that does not is never written
+            raise ValueError("the pre-filter record does not add up")
+        return rec
+
+
+def adds_up(rec: Any) -> bool:
+    """The invariant of every record: ``in_scope`` is the sum of the stages (``listed`` the last of them)."""
+    return int(rec.in_scope) == sum(int(getattr(rec, s)) for s in STAGES)
 
 
 @dataclass(frozen=True)
 class NightFunnel:
-    """One study's night: the stage counts summed over the night's records, the funnel's remaining counts
-    (``remaining[0]`` is in scope, ``remaining[-1]`` listed) and how many jobs it sums."""
+    """One study's night: the stage counts summed over the night's records (sums of per-job counts, not distinct
+    patients), the funnel's remaining counts (``remaining[0]`` is in scope, ``remaining[-1]`` listed), how many jobs
+    it sums, and how many of the night's records did not add up (``faults``: left out of the sums; a reader shows no
+    funnel while there is one)."""
 
     ruleset: str
     run_date: date
     jobs: int
     drops: dict[str, int]
     remaining: list[int]
+    faults: int = 0
 
     @property
     def in_scope(self) -> int:
@@ -128,11 +143,12 @@ def remaining_of(drops: Mapping[str, int]) -> list[int]:
 
 def night_funnel(jobs: Iterable[Any], ruleset: str, run_date: date) -> NightFunnel | None:
     """The per-study per-night report: the pre-filter records of the finished MICROBATCH jobs of ``ruleset`` whose
-    ``run_date`` is ``run_date``, summed. None when the night has no such record (no job, or only jobs that wrote
-    none): no funnel, never a funnel of zeros."""
+    ``run_date`` is ``run_date``, summed (a sum of per-job counts). None when the night has no such record (no job,
+    or only jobs that wrote none): no funnel, never a funnel of zeros. A record that does not add up is a fault,
+    counted in ``faults`` and left out of the sums."""
     rid = (ruleset or "").strip().upper()
     drops = dict.fromkeys(STAGES, 0)
-    n = 0
+    n = faults = 0
     for j in jobs:
         if getattr(j, "type", None) != "MICROBATCH" or getattr(j, "state", None) != "done":
             continue
@@ -141,12 +157,15 @@ def night_funnel(jobs: Iterable[Any], ruleset: str, run_date: date) -> NightFunn
         rec = getattr(getattr(j, "metrics", None), "prefilter", None)
         if rec is None:
             continue
+        if not adds_up(rec):
+            faults += 1
+            continue
         n += 1
         for s in STAGES:
             drops[s] += int(getattr(rec, s))
-    if not n:
+    if not n and not faults:
         return None
-    return NightFunnel(rid, run_date, n, drops, remaining_of(drops))
+    return NightFunnel(rid, run_date, n, drops, remaining_of(drops), faults)
 
 
 def publishable(f: NightFunnel, threshold: int = 5) -> list[bool]:

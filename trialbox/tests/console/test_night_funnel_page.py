@@ -76,6 +76,7 @@ def test_the_nights_funnel_sums_the_nights_jobs_in_the_readers_language(box: dic
     cat = CATALOGUES[lang]
     assert str(escape(cat["job.prefilter.title"])) in block
     assert str(escape(cat["job.prefilter.what"].format(study="GZQO", date="2026-10-05", jobs=2))) in block
+    assert str(escape(cat["job.prefilter.sums"])) in block  # two runs: the figures are sums, said in one line
     for s in ("in_scope", *prefilter.STAGES):
         assert str(escape(cat[f"job.prefilter.{s}"])) in block, (lang, s)
     assert check_page(block) == [], lang
@@ -199,3 +200,53 @@ def test_a_job_page_without_a_record_is_byte_for_byte_the_page_without_the_block
         strip["on"] = True
         assert live.sub(b"", after) == live.sub(b"", before), jid
     assert not [kw for kw in reads if kw.get("type_") == "MICROBATCH"]
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_a_night_of_one_run_does_not_say_the_figures_are_sums(box: dict[str, Any], lang: str) -> None:
+    jid = _nightly(box, 931, WEEKLY)
+    c, csrf = login_crc(box)
+    c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"})
+    block = _block(c.get(f"/pilot/jobs/{jid}").text)
+    assert block is not None and 'data-testid="night-funnel-sums"' not in block
+    assert str(escape(CATALOGUES[lang]["job.prefilter.what"].format(study="GZQO", date="2026-10-05", jobs=1))) in block
+
+
+def test_the_card_is_refused_to_an_investigator_off_the_delegation_log_whatever_the_page_answers(
+    box: dict[str, Any],
+) -> None:
+    """Asked directly, not through the page's status (card 10C-3c closes the page itself to that account): the card's
+    own rule answers None for the investigator off GZQO's log, and reads no other job for them; the coordinator on
+    the log gets the figures."""
+    from console.night_funnel import night_card
+
+    jid = _nightly(box, 932, WEEKLY)
+    _nightly(box, 933, INGEST)
+    job = box["backend"].jobs[jid]
+    h = box["app"].state.helpers
+    _accounts(box)  # signs the accounts up
+    reads: list[Any] = []
+
+    def list_jobs(*a: Any, **kw: Any) -> list[Any]:
+        reads.append(kw)
+        return box["backend"].list_jobs(*a, **kw)
+
+    off = box["users"].get("pi-off")
+    assert off is not None
+    assert night_card(job, off, h.admits_candidates, list_jobs) is None and reads == []
+    assert night_card(job, off, None, list_jobs) is None and reads == []  # no check wired: nobody
+    card = night_card(job, box["users"].get("crc"), h.admits_candidates, list_jobs)
+    assert card is not None and card["jobs"] == 2 and card["in_scope"] == WEEKLY.in_scope + INGEST.in_scope
+
+
+def test_a_record_that_does_not_add_up_is_a_fault_and_nothing_is_shown(
+    box: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    jid = _nightly(box, 934, WEEKLY)
+    broken = WEEKLY.model_copy(update={"in_scope": WEEKLY.in_scope + 1})  # stored by something else, or damaged
+    _nightly(box, 935, broken)
+    c, _ = login_crc(box)
+    with caplog.at_level("ERROR", logger="console.night_funnel"):
+        page = c.get(f"/pilot/jobs/{jid}").text
+    assert _block(page) is None
+    assert any("1 pre-filter record(s) do not add up" in r.getMessage() for r in caplog.records)

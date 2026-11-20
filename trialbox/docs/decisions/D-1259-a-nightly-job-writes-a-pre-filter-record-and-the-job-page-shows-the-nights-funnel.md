@@ -24,6 +24,7 @@ how many patients were in scope and how many each stage removed.
    job's metrics are stored in the jobs table's JSON `data` column: no SQL migration. The audit schema and
    `ROLE_EVENTS` are not touched. Counts only (a trigger and nine integers); the pseudonyms used to count live in the
    job's memory and are never stored. Other jobs carry no record (absent, as `step_seconds` is on all but APPROVE).
+   A nightly job from before this card has none either, and its page then shows nothing.
 2. **The stages** (`tb_common.prefilter.STAGES`), each patient in exactly one, in the funnel's order:
    - `opted_out`: on the opt-out register, a refusal of research use or of contact (D-477), or not at the index date
      (every answer "unknown" for `not_in_snapshot` or `check_dates`: not in the snapshot, deceased or not yet born);
@@ -35,7 +36,11 @@ how many patients were in scope and how many each stage removed.
    - `model_not_listed`: evaluated, past the coded filter, the model read their notes, not listed;
    - `listed`: evaluated and listed (high or review).
 
-   `in_scope` is their sum. **One stage added to lane H's list:** `model_not_listed`. Without it a patient the model
+   `in_scope` is their sum: **the invariant of every record.** The job refuses to write one that does not add up
+   (`Tally.record`), and every record the micro-batch tests write is checked against it. A stored record that does
+   not add up is a fault: it is left out of the sums and counted (`NightFunnel.faults`), and the job page shows no
+   funnel for that night and logs the count (`console.night_funnel`). **One stage added to lane H's list (the
+   lane J lead's yes of 2026-11-19):** `model_not_listed`. Without it a patient the model
    read and did not list fits no stage, and the stages do not add up to "in scope". The model "read the notes" when a
    note answer of this evaluation has a reason other than not evaluated, the model down, no notes, the gateway's
    refusal or a person's criterion. For a pool row the re-check's own answers decide, not the stored ones.
@@ -43,12 +48,12 @@ how many patients were in scope and how many each stage removed.
    before, and a stage reached without an evaluation replaces only another such stage. So a pool row re-checked,
    excluded by the codes and screened again the same job counts once, at the screen. A pool row re-checked and then
    carried by the excluded patients' budget counts at the re-check.
-4. **The night.** `tb_common.prefilter.night_funnel` sums the records of the study's finished MICROBATCH jobs that
-   share the `run_date`. A night with no such record has no report (None, never a funnel of zeros). **Not exact across
-   jobs:** a record holds no ids, so a patient two jobs of one study looked at on one night (a weekly run and an
-   after-ingest run, or a weekly run started twice by hand) is counted by each. The page says so. Making it exact
-   needs per-patient state across jobs (for example a phi stage map in the existing `new_screened_` document); that is
-   not built and is the coordinator's to rule.
+4. **The night is a sum, not distinct patients** (the lane J lead's ruling of 2026-11-19: no per-patient map).
+   `tb_common.prefilter.night_funnel` sums the records of the study's finished MICROBATCH jobs that share the
+   `run_date`. A night with no such record has no report (None, never a funnel of zeros). A record holds no ids, so a
+   patient two jobs of one study looked at on one night (a weekly run and an after-ingest run, or a weekly run started
+   twice by hand) is counted by each. When the night has more than one job of the study the page says so in one line:
+   the figures are the runs' counts added together.
 5. **Where it is shown.** On the existing job page (`/pilot/jobs/{id}`) of a finished nightly job with a record, one
    more card beside the first-load card. Shown to exactly the accounts the first-load card is shown to: the study's
    candidate list's own check (`Helpers.admits_candidates`: the study is seen and the account has its `screen` task;
@@ -56,7 +61,9 @@ how many patients were in scope and how many each stage removed.
    log sees it; an investigator off the log, a viewer and the privacy officer do not, and nothing is read for them.
    No new route, page, export, role or right. The console reads the night's jobs through the orchestrator's existing
    `GET /jobs` with its existing `ruleset` and `type` filters (the console's backend gained the two keyword
-   arguments). It reads at most 500. When all 500 belong to this night or a later one, an earlier job of the night may
+   arguments). The rule is `console.night_funnel.night_card`, apart from the page, so it is tested directly: it
+   answers None to the investigator off the log whatever the page itself answers that account (card 10C-3c closes
+   the page to them). It reads at most 500. When all 500 belong to this night or a later one, an earlier job of the night may
    be missing, and the card is not shown (never a short count).
 6. **Exact counts** on this internal page (D-99). Anything mailed or exported goes through
    `tb_common.prefilter.publishable` (`funnel_drops_publishable`, complementary suppression). This card mails and
@@ -71,6 +78,7 @@ how many patients were in scope and how many each stage removed.
   carries since the reasons became codes (`not_evaluated`). Its "notes read" count therefore includes note answers
   nobody gave. This card does not change it (another page's figure); it is reported as a finding.
 - Tests: `tests/unit/test_prefilter_night_10e12.py` (the tally, the stage order, the night's sum, a night with no
-  job, the suppression for mail, counts only, and a weekly and an after-ingest job end to end) and
-  `tests/console/test_night_funnel_page.py` (three languages, the role walk, a night that cannot be read whole, and
-  the render comparison).
+  job, a record that does not add up, the suppression for mail, counts only, and a weekly and an after-ingest job end
+  to end), the invariant on every record `tests/unit/test_microbatch_cadence.py`'s box writes, and
+  `tests/console/test_night_funnel_page.py` (three languages, the sums line, the role walk, the card's rule asked
+  directly for the investigator off the log, a fault, a night that cannot be read whole, and the render comparison).

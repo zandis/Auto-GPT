@@ -6,9 +6,10 @@ from __future__ import annotations
 
 EN: dict[str, str] = {
     "job.prefilter.title": "The night's screening, stage by stage",
-    "job.prefilter.what": "{study}, the night of {date}: each patient counted once, at their last evaluation that "
-    "night, summed over the study's {jobs} finished nightly runs. A patient two runs of the night both looked at is "
-    "counted by each.",
+    "job.prefilter.what": "{study}, the night of {date}, from the study's {jobs} finished nightly runs. Within a run "
+    "each patient is counted once, at their last evaluation.",
+    "job.prefilter.sums": "The figures are the runs' counts added together: a patient two runs of the night both "
+    "looked at is counted twice.",
     "job.prefilter.stage": "Stage",
     "job.prefilter.removed": "Removed",
     "job.prefilter.left": "Left",
@@ -24,8 +25,10 @@ EN: dict[str, str] = {
 
 JA: dict[str, str] = {
     "job.prefilter.title": "その夜のスクリーニング（段階ごと）",
-    "job.prefilter.what": "{study}、{date} の夜：各患者はその夜の最後の評価で 1 回だけ数え、この研究の終了した夜間実行 "
-    "{jobs} 件を合計しています。その夜の 2 つの実行がどちらも見た患者は、それぞれで数えられます。",
+    "job.prefilter.what": "{study}、{date} の夜。この研究の終了した夜間実行 {jobs} 件から。1 回の実行の中では、"
+    "各患者を最後の評価で 1 回だけ数えます。",
+    "job.prefilter.sums": "数値は各実行の数を足し合わせたものです。"
+    "その夜の 2 つの実行がどちらも見た患者は 2 回数えられます。",
     "job.prefilter.stage": "段階",
     "job.prefilter.removed": "除かれた数",
     "job.prefilter.left": "残った数",
@@ -41,8 +44,9 @@ JA: dict[str, str] = {
 
 ZH: dict[str, str] = {
     "job.prefilter.title": "當晚的篩選（逐階段）",
-    "job.prefilter.what": "{study}，{date} 當晚：每位病人只在當晚最後一次評估時計算一次，並加總本研究已完成的 "
-    "{jobs} 次夜間執行。當晚兩次執行都看過的病人，兩次都會計入。",
+    "job.prefilter.what": "{study}，{date} 當晚，取自本研究已完成的 {jobs} 次夜間執行。在同一次執行中，"
+    "每位病人只在最後一次評估時計算一次。",
+    "job.prefilter.sums": "數字是各次執行的數目相加：當晚兩次執行都看過的病人會被計算兩次。",
     "job.prefilter.stage": "階段",
     "job.prefilter.removed": "移除",
     "job.prefilter.left": "剩下",
