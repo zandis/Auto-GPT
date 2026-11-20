@@ -215,6 +215,13 @@ state Z1. The synthetic modifier tables (`tests/ssmix2_probes.py`,
   profile carry types, not reasons. Showing the Z1 count is the console's (card 10B-21/22).
 - **The lake's ids** are made of the key column alone on master; SS-MIX2 numbers are unique only with the patient
   (#1095 B :1565 and the same for `diag_no` and `rx_no`). That is D-1253's card (#1192), not the reader.
+- **Remains, goes to 10B-2: an order id that never renames.** Here the データ種別 and the day enter an order's id only
+  from the night a second type or a second day is filed for its number; that night the earlier id is tombstoned and
+  the order sent again under the new one (safe, and proven delta equals full, but the id changes). An id that never
+  renames carries the type and the day from the start, which changes every published medication id once. Lane J
+  ruled (2026-11-20): not in this card; it goes into card 10B-2, where the default key changes anyway, so that
+  published ids change once and the lake-id card's rebuild tool migrates them in the same step. The placer number
+  stays as it is: the id is the オーダNo of the file name, and `<filed>:<placer>` only when ORC-2 differs from it.
 - **Other licensed lists.** A new YJ or JLAC10 release changes the ATC and look-up columns of order and lab rows
   whose files did not change; M1 covers diagnoses only. After loading one, a site runs a full night.
 - **Rows that share an id:** two administrations of one order that cannot be tied to a line
