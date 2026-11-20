@@ -15,6 +15,13 @@
 | 1st of the month 05:30 | CALIBRATION | `calibration.json` |
 | quarterly 04:00 | COHORT tables | mail |
 
+**The last full night (D-1254).** A delta night (one run with `--since`) cannot see a record re-filed to another
+patient, a merged chart filed again, or an SS-MIX2 file back-filed with an old time; only a full night corrects them.
+The data-operations page (`/data-ops`, the *Sources* card) says when the last full night completed and how many
+nightly updates ran since (`<lake>/full_nights.json`, written only when a night ends published). It turns to a warning
+when that is more than 7 days ago with nightly updates since, or not known with nightly updates since (a lake from
+before this record): run the night once without `--since`. A failed, refused or held night does not move it.
+
 **The console reads the same folders (D-638).** The installer mounts each folder of `TB_AUDIT_ANCHOR_TARGETS` into the
 console, read-only (`deploy/site/compose.anchors.yml`), so the audit page's Verify checks the chain against the
 signed heads. The folder must be there before the install (mount the hospital's share first) and readable by the

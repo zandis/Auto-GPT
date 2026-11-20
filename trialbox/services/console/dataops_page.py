@@ -31,7 +31,7 @@ import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -257,6 +257,42 @@ def site_profile_of(detail: Any) -> dict[str, Any] | None:
             "pending": pending[:12] if pending else None}  # fmt: skip
 
 
+#: 10B-23 (D-1254): a full night older than this, with nightly (delta) updates since, is shown as a warning. A week:
+#: the night's weekly work (the Monday micro-batch and NAV, D-492) then always has a full night within its own week;
+#: the reason in full is in D-1254. A constant, not a setting
+FULL_NIGHT_STALE_DAYS = 7
+
+
+def full_night_of(rows: Any, today: date) -> dict[str, Any] | None:
+    """10B-23 (D-1254): the lake's record of its last full night, as the newest night row (by id) that carries it
+    (``adapter.full_nights.said``, kept in the night's event): ``last_full`` (a date or None: not known), ``days``
+    since it, ``deltas`` (nightly updates since) and ``warn``. None when no row carries a record of that shape, or
+    when it says nothing (not known and no delta night): the page then shows no line."""
+    best: tuple[int, dict[str, Any]] | None = None
+    for b in rows:
+        fn = b.detail.get("full_night") if isinstance(b.detail, dict) else None
+        if not isinstance(fn, dict) or (best is not None and b.id <= best[0]):
+            continue
+        last, deltas = fn.get("last_full"), fn.get("deltas")
+        if type(deltas) is not int or deltas < 0:
+            continue
+        if last is not None:
+            try:
+                day = date.fromisoformat(last) if isinstance(last, str) and len(last) == 10 else None
+            except ValueError:
+                day = None
+            if day is None:
+                continue
+        best = (b.id, {"last_full": last, "deltas": deltas})
+    if best is None:
+        return None
+    got = best[1]
+    if got["last_full"] is None:
+        return None if got["deltas"] == 0 else {**got, "days": None, "warn": True}
+    days = max(0, (today - date.fromisoformat(got["last_full"])).days)  # a clock behind the night: today
+    return {**got, "days": days, "warn": got["deltas"] > 0 and days > FULL_NIGHT_STALE_DAYS}
+
+
 def unmapped_kinds_of(detail: Any) -> dict[str, dict[str, int]]:
     """NEW-B-39 (D-740): the same rows per source table split by kind (``tb_common.unmapped.KINDS``: a code no look-up
     knows, a unit not read, the reference data not reached); counts only. A table whose split is not counts of the
@@ -371,6 +407,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             waiting=waiting,
             rows=rows,
             counts=read(ops.counts),
+            full_night=full_night_of([*sources, *rows], h.today()),  # 10B-23 (D-1254): the site's date
             state=state,
             source=source,
             next_before=nxt,
