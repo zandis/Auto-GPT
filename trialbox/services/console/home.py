@@ -503,8 +503,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                 tasks.append({"kind": "cover_irb", "rs": rs, "short": c.name, "href": f"/studies/{rs}/team#cover",
                               "due": date.fromisoformat(local_date(c.at, site_zone(h.bk))), "detail": c.pi_name,
                               "ref": str(c.id), "cover": c.id})  # fmt: skip
-        if h.task_owners is None:
-            return
+        if h.task_owners is None or not any("ref" in tk for tk in tasks):
+            return  # no task to name an owner of: no read of the log
         owners, people = h.task_owners(rs)
         may = bool(h.keeps_tasks is not None and h.keeps_tasks(sess.user, rs))
         for tk in tasks:
