@@ -21,6 +21,7 @@ from urllib.parse import urlencode
 
 from tb_common import patient_files
 from tb_common.audit import AuditLog, mask_ids
+from tb_common.authz import SUPPORT_MAIL_PREFIX
 from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
 from tb_common.http import ServiceClient, ServiceError, trace_of
@@ -69,6 +70,26 @@ def http_outputs_current(base_url: str) -> OutputsCurrent:
         if not isinstance(current, bool):
             raise RuntimeError("the orchestrator gave no yes or no")
         return current
+
+    return ask
+
+
+#: 10K-15 (D-1364, H5): ``() -> on`` whether a support session is running, asked before every send
+SupportSessionOn = Callable[[], bool]
+SUPPORT_HELD = "held: a support session is running; sent once after it ends (D-1364)"
+SUPPORT_WAIT_S = 300  # a mail held for a support session is asked about again after 5 minutes; the try is not counted
+
+
+def http_support_session(base_url: str) -> SupportSessionOn:
+    """D-1364 (H5): the orchestrator's answer (``GET /support-session``), which reads the console's switch."""
+    client = _orchestrator(base_url)
+
+    def ask() -> bool:
+        got = client._request("GET", "/support-session").json()
+        on = got.get("on") if isinstance(got, dict) else None
+        if not isinstance(on, bool):
+            raise RuntimeError("the orchestrator gave no yes or no")
+        return on
 
     return ask
 
@@ -160,6 +181,8 @@ class Gateway:
     per_recipient_per_day: int = PER_RECIPIENT_PER_DAY  # T-108c: mails to one address in 24 hours; 0 = no limit
     #: D-863: asked before a job's patient-level files are sent; None (not wired) holds every such mail (fail closed)
     outputs_current: OutputsCurrent | None = None
+    #: D-1364 (H5): asked before every send; None (not wired: a bare test gateway) holds nothing
+    support_session: SupportSessionOn | None = None
 
     @property
     def sender(self) -> str:
@@ -215,7 +238,22 @@ class Gateway:
         except Exception as exc:
             return f"{NO_ANSWER}: {type(exc).__name__}"
 
+    def _support_held(self, key: str) -> str:
+        """10K-15 (D-1364, the review of aeb978e6 H5): while a support session runs every mail is held (queued, the
+        try not counted, ``mail.deferred`` with this reason) and sent once after the end, but a mail whose key the
+        orchestrator marked ``SUPPORT_MAIL_PREFIX`` (the serious adverse event copy, the health mail, the account
+        notice). A state that cannot be read holds too (closed on doubt); nothing is dropped."""
+        if self.support_session is None or key.startswith(SUPPORT_MAIL_PREFIX):
+            return ""
+        try:
+            return SUPPORT_HELD if self.support_session() else ""
+        except Exception as exc:
+            return f"{SUPPORT_HELD}; the state could not be read ({type(exc).__name__})"
+
     def _attempt(self, req: SendRequest, key: str, message_id: str | None, attempts: int, from_outbox: bool) -> Outcome:
+        held = self._support_held(key)
+        if held:
+            return self._hold(req, key, message_id or "", False, [], "queued", attempts, held, wait_s=SUPPORT_WAIT_S)
         why = self._still_current(req)
         if why in (OPTED_OUT, NO_JOB):  # a person decides (drop, or resend: asked again); never sent as it is
             return self._hold(req, key, message_id or "", False, [], "failed", attempts, why)

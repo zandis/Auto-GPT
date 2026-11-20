@@ -362,7 +362,10 @@ SHOWN_EMPTY = {("GET", "/pilot/registry/{ruleset}")}
 # is added here after a review that it shows no patient row. Several are open to the administrator only because they
 # ask ``is_admin`` and no matrix row (``/metrics``, ``/data/instruments``, ``/ops/notices``, ``/admin``, ``/admin/redcap``,
 # ``/admin/accounts``); D-1364 names them. Regenerated from this walk, 2026-11-19: 113 routes
-# (86 answer Y, 27 answer 404 or 503 in the walk's box).
+# (86 answer Y, 27 answer 404 or 503 in the walk's box); 2026-11-20 (the review of aeb978e6): 109, since a job's
+# files and views outside DOWNLOADS_OPEN_DURING_A_SESSION, a cascade run's files and the cancel (command.CANCEL,
+# item 11) are closed (85 Y, 24 n or U). test_no_open_route_shows_a_seeded_patient_token_during_a_session walks
+# them all again with patient data present.
 OPEN_DURING_A_SESSION: dict[tuple[str, str], str] = {
     ("GET", "/"): "admin crc pi lpi smo cra viewer steward privacy",
     ("GET", "/about"): "admin crc pi lpi smo cra viewer steward privacy",
@@ -426,7 +429,6 @@ OPEN_DURING_A_SESSION: dict[tuple[str, str], str] = {
     ("GET", "/studies/{rs}/team"): "admin crc pi lpi smo steward privacy",
     ("GET", "/week"): "admin crc pi lpi smo steward privacy",
     ("POST", "/account/password"): "admin crc pi lpi smo cra viewer steward privacy",
-    ("POST", "/admin/jobs/{job_id}/cancel"): "admin",
     ("POST", "/admin/jobs/{job_id}/retry"): "admin",
     ("POST", "/admin/models/canary"): "admin",
     ("POST", "/admin/redcap"): "admin",
@@ -466,9 +468,6 @@ OPEN_DURING_A_SESSION: dict[tuple[str, str], str] = {
     ("GET", "/data-ops/batches/{bid}"): "admin steward",  # 404 for an unknown batch; a batch's steps (dataops.view, open; D-1364's known limits)
     ("GET", "/demo/ack"): "admin crc pi lpi smo cra viewer steward privacy",  # 404 off the demo box; the demo notice's acknowledgement
     ("GET", "/pilot/cascade/{run_id}"): "admin crc pi lpi steward privacy",  # 404 for an unknown run; a cascade run's released counts (aggregate), as /pilot/cascade
-    ("GET", "/pilot/cascade/{run_id}/files/{name}"): "admin crc pi lpi steward privacy",  # 404 for an unknown run; the run's D1 count files (aggregate)
-    ("GET", "/pilot/jobs/{job_id}/files/{filename}"): "admin crc pi lpi smo steward privacy",  # 404 for an unknown file; counts only open, a patient-level file not given, a CASE job refused
-    ("GET", "/pilot/jobs/{job_id}/view/{filename}"): "admin crc pi lpi smo steward privacy",  # 404 for an unknown file; a CASE job's sheet is refused by the middleware (ONE_PATIENT_JOBS)
     ("GET", "/site/templates/{name}.xlsx"): "admin",  # 404 for an unknown template; a blank setup sheet (site.setup, open)
     ("POST", "/admin/ops/{action}"): "admin crc pi lpi smo cra viewer steward privacy",  # 404 for an unknown action, before the role; a known action asks its ops.* row (the administrator's)
     ("POST", "/api/edc/events/v1"): "admin crc pi lpi smo cra viewer steward privacy",  # 404, no event secret in the walk's box; the EDC's signed event feed, no console session (D-1364)
@@ -678,13 +677,20 @@ def test_a_file_of_counts_only_stays_open_and_a_patient_level_file_does_not(box:
     from tests.console.test_console_app import _done_feas
 
     job = _done_feas(box["backend"])
+    # the review of aeb978e6 item 12: the patient-level file names the coordinator as its recipient, so that it is
+    # downloadable outside a session (D-369's guarded download) and the refusal below is the session's, not D-369's
+    raw = next(o for o in job.outputs or [] if o.filename.endswith(".raw.json"))
+    raw.recipients = ["crc@hospa.test"]
     crc, _ = login_crc(box)
     stem = f"/pilot/jobs/{job.job_id}/files/feasibility_GZQO_v1.0.0_2026-10-04"
     assert crc.get(f"{stem}.pdf").status_code == 200
+    assert crc.get(f"{stem}.raw.json").status_code == 200  # the named recipient, outside a session
     _start(box)
     assert crc.get(f"{stem}.pdf").status_code == 200  # counts only
-    assert crc.get(f"/pilot/jobs/{job.job_id}/sponsor-pack.zip").status_code == 403  # asks a closed row
-    assert crc.get(f"{stem}.raw.json").status_code in (403, 404)  # the patient-level file: not given
+    assert crc.get(f"{stem}.json").status_code == 200  # counts only
+    assert crc.get(f"/pilot/jobs/{job.job_id}/sponsor-pack.zip").status_code == 403  # closed by default
+    r = crc.get(f"{stem}.raw.json")
+    assert r.status_code == 403 and ON_EN in r.text  # the patient-level file: refused by the session
 
 
 # ---------------------------------------------------------------------------------------------- the EDC door
@@ -816,3 +822,393 @@ def test_a_sign_in_code_issued_before_the_start_is_not_redeemed_during_a_session
     assert _end(admin).status_code == 303
     r = edc.post("/api/edc/oidc/token", data=form)
     assert r.status_code == 200 and r.json()["id_token"]
+
+
+# ------------------------------------------------------------------------------- the walk with patient data present
+# The review of aeb978e6 (H1 to H3): closing by ``permit`` rows is not enough, since pages that mix staff content with
+# patient-linked content (the study home, a job's pages, a download tagged aggregate) are open rows. This walk seeds
+# synthetic patients of every kind the box shows (a SCREEN list with a quote, a PI's note, a CASE sheet, a SUBMIT
+# job's pid, a NAV job's draft named by a pseudonym, an ingest report whose validation message names a patient, a
+# feedback entry given on a patient page), starts a session, asks every route of the router table as every column of
+# the role-route walk (and every page and file of every seeded job), and asserts that no answer of any route holds a
+# seeded patient-linked token. A new open route that leaks fails here. Synthetic pseudonyms only.
+P_SCREEN_1, P_SCREEN_2 = "d1e2f3a4" * 4, "e5f6a7b8" * 4
+P_CASE, P_SUBMIT, P_NAV, P_INGEST, P_FEEDBACK = (
+    "c3c4c5c6" * 4,
+    "f0f1f2f3" * 4,
+    "a9b8c7d6" * 4,
+    "b1b2b3b4" * 4,
+    "9d8e7f6a" * 4,
+)
+QUOTE, NOTE, SHEET = "SYNTHQUOTE tophus left toe", "SYNTHNOTE ask uric acid", "SYNTHCASE flare of March"
+CHART = "70000054"
+WALK_PID = "0" * 32  # what the walk puts in a route's {pid}: no seeded token, so an echoed URL is not a leak
+
+
+def _tokens() -> list[str]:
+    pids = (P_SCREEN_1, P_SCREEN_2, P_CASE, P_SUBMIT, P_NAV, P_INGEST, P_FEEDBACK)
+    return [*pids, *(p[:8] for p in pids), *(p[:12] for p in pids), QUOTE, NOTE, SHEET, CHART]
+
+
+def _job(
+    b: dict[str, Any],
+    n: int,
+    kind: str,
+    options: dict[str, str],
+    files: list[tuple[str, bytes, str]],
+    state: str = "done",
+) -> Any:
+    from datetime import UTC, datetime
+
+    from tb_common.crypto import sha256_bytes
+    from tb_contracts import Job, JobOutput
+
+    jid = _ulid(n)
+    now = datetime(2026, 10, 25, 9, 0, tzinfo=UTC)
+    outs = []
+    for name, data, tag in files:
+        key = f"outputs/{jid}/{name}"
+        b["backend"].objects[key] = data
+        outs.append(JobOutput(filename=name, sha256=sha256_bytes(data), minio_key=key,
+                              recipients=["crc@hospa.test", "lpi@hospa.test"], tag=tag))  # type: ignore[arg-type]  # fmt: skip
+    return b["backend"].add_job(Job(job_id=jid, type=kind, ruleset="GZQO", ruleset_version="1.0.0",
+                                    requested_by="crc@hospa.test", received_at=now, updated_at=now, state=state,
+                                    options=options, inputs=[], outputs=outs))  # fmt: skip
+
+
+def _rewrite(b: dict[str, Any], job: Any, pairs: dict[str, str]) -> None:
+    for o in job.outputs or []:
+        data = b["backend"].objects[o.minio_key].decode("utf-8")
+        for old, new in pairs.items():
+            data = data.replace(old, new)
+        b["backend"].objects[o.minio_key] = data.encode("utf-8")
+
+
+def _seed(b: dict[str, Any]) -> list[Any]:
+    """The synthetic patient-linked data of the walk; returns the seeded jobs."""
+    from tests.console.test_console_app import _done_case
+
+    screen = _done_screen(b["backend"], _ulid(991))
+    _rewrite(b, screen, {"a" * 32: P_SCREEN_1, "b" * 32: P_SCREEN_2, "two flares this spring": QUOTE})
+    case = _done_case(b["backend"], {"lang": "en", "pid": P_CASE})
+    _rewrite(b, case, {"ab" * 16: P_CASE, "2026-03-12 acute gout flare": SHEET})
+    submit = _job(
+        b,
+        992,
+        "SUBMIT",
+        {"pid": P_SUBMIT, "lang": "en"},
+        [(f"submit_GZQO_{P_SUBMIT[:12]}.json", json.dumps({"pid": P_SUBMIT}).encode(), "phi")],
+    )
+    nav = _job(
+        b,
+        993,
+        "NAV",
+        {"pid": P_NAV, "lang": "en"},
+        [(f"draft_ONC-OSI_{P_NAV[:12]}.docx", f"PK draft for {P_NAV}".encode(), "phi")],
+    )
+    report = {"passed": False, "errors": [f"Patient/{P_INGEST}: birthDate missing"], "snapshot": "2026-10-04"}
+    ingest = _job(b, 994, "INGEST", {}, [("ingest_report_2026-10-04.json", json.dumps(report).encode(), "aggregate")])
+    return [screen, case, submit, nav, ingest]
+
+
+def _seed_marks(b: dict[str, Any], clients: dict[str, Any]) -> None:
+    pi, pi_csrf, _ = clients["lpi"]
+    r = pi.post(f"/studies/GZQO/patients/{P_SCREEN_1}/mark",
+                data={"csrf": pi_csrf, "mark": "need_info", "note": NOTE}, follow_redirects=False)  # fmt: skip
+    assert r.status_code in (200, 303), r.status_code
+    crc, crc_csrf, _ = clients["crc"]
+    r = crc.post("/feedback", data={"csrf": crc_csrf, "path": f"/studies/GZQO/patients/{P_FEEDBACK}",
+                                    "comment": f"chart {CHART} looks wrong"}, follow_redirects=False)  # fmt: skip
+    assert r.status_code in (200, 303), r.status_code
+
+
+def _job_urls(jobs: list[Any]) -> list[str]:
+    out = []
+    for j in jobs:
+        base = f"/pilot/jobs/{j.job_id}"
+        out += [base, base + "/", base + "/approval", base + "/sponsor-pack.zip"]
+        for o in j.outputs or []:
+            out += [f"{base}/files/{o.filename}", f"{base}/view/{o.filename}"]
+    return out
+
+
+def _leaks(b: dict[str, Any], jobs: list[Any], clients: dict[str, Any]) -> tuple[int, list[str]]:
+    """Every route of the router table as every column (GET, then the changing methods with a valid CSRF token),
+    plus every page and file of every seeded job: (answers read, the seeded tokens found in an answer)."""
+    from tests.console.test_role_route_matrix import CHANGING, _for, _routes
+
+    tokens = _tokens()
+    routes = _routes(b["app"])
+    found: list[str] = []
+    n = 0
+
+    def fill(path: str) -> str:
+        names = {"rs": "GZQO", "ruleset": "GZQO", "pid": WALK_PID, "job_id": jobs[0].job_id, "fmt": "xlsx"}
+        return re.sub(r"\{(\w+)(?::\w+)?\}", lambda m: names.get(m.group(1), "1"), path)
+
+    def check(col: str, label: str, r: Any) -> None:
+        nonlocal n
+        n += 1
+        body = r.content.decode("utf-8", "replace") + " " + " ".join(f"{k}: {v}" for k, v in r.headers.items())
+        found.extend(f"{label} [{col}] holds {t}" for t in tokens if t in body)
+
+    for changing in (False, True):
+        for col, (page, csrf, api) in clients.items():
+            for method, path in routes:
+                if (method in CHANGING) != changing:
+                    continue
+                _for(b, path)
+                url = fill(path)
+                if path.startswith("/api/v1/"):
+                    r = api.request(method, url, json={} if changing else None, follow_redirects=False)
+                else:
+                    r = page.request(method, url, data={"csrf": csrf} if changing else None, follow_redirects=False)
+                check(col, f"{method} {path}", r)
+    _for(b, "")
+    for col, (page, *_rest) in clients.items():
+        for url in _job_urls(jobs):
+            check(col, f"GET {url}", page.get(url, follow_redirects=False))
+    return n, sorted(set(found))
+
+
+def test_no_open_route_shows_a_seeded_patient_token_during_a_session(box: dict[str, Any]) -> None:  # noqa: F811
+    from tests.console.test_role_route_matrix import _clients, _orchestrator_routes
+
+    _orchestrator_routes(box)
+    jobs = _seed(box)
+    clients = _clients(box)
+    _seed_marks(box, clients)
+    # the data is there: outside a session the coordinator's study pages show it (else the walk proves nothing)
+    crc = clients["crc"][0]
+    assert P_SCREEN_1[:8] in crc.get("/studies/GZQO/week?list=all").text
+    admin = clients["admin"][0]
+    assert NOTE in admin.get("/home?view=studies").text or NOTE in crc.get("/home?view=studies").text
+    _start(box)
+    n, found = _leaks(box, jobs, clients)
+    assert n > 2000
+    assert found == [], "\n".join(found)
+
+
+# ------------------------------------------------------------------------------ the review of aeb978e6, one by one
+def test_h1_the_study_home_shows_no_patient_task_or_note_during_a_session(box: dict[str, Any]) -> None:  # noqa: F811
+    """H1: the study home (``/home?view=studies``, ``layout.home_today`` off) rendered the PI's ``need_info`` note
+    and the candidate's pseudonym in a task link during a session. Now its patient parts are read from nothing
+    (``home.load`` answers None for a patient-linked file) and the page says they are closed, in three languages."""
+    from tests.console.test_role_route_matrix import _clients
+
+    _seed(box)
+    clients = _clients(box)
+    _seed_marks(box, clients)
+    crc = clients["crc"][0]
+    before = crc.get("/home?view=studies").text
+    assert NOTE in before and P_SCREEN_1[:8] in before  # the coordinator's task: the PI's note and the pseudonym
+    _start(box)
+    for lang, line in (("en", "Closed during the support session"), ("ja", "サポートセッション中は閉じています"),
+                       ("zh-TW", "支援作業時段中關閉")):  # fmt: skip
+        _lang(crc, lang)
+        r = crc.get("/home?view=studies")
+        assert r.status_code == 200 and line in r.text and 'data-testid="support-closed"' in r.text
+        assert NOTE not in r.text and P_SCREEN_1[:8] not in r.text and P_SCREEN_2[:8] not in r.text
+    r = clients["admin"][0].get("/home?view=studies")
+    assert r.status_code == 200 and NOTE not in r.text and P_SCREEN_1[:8] not in r.text
+
+
+def test_h2_a_submit_or_nav_job_page_is_closed_during_a_session(box: dict[str, Any]) -> None:  # noqa: F811
+    """H2: only CASE job pages were closed; a SUBMIT job's page showed its pid, a NAV job's its draft named by a
+    pseudonym. Now every job type outside ``JOBS_OPEN_DURING_A_SESSION`` is closed, page and files, audited."""
+    _seed(box)
+    admin, _ = login(box["app"])
+    submit, nav = _ulid(992), _ulid(993)
+    assert P_SUBMIT[:12] in admin.get(f"/pilot/jobs/{submit}").text
+    assert P_NAV[:12] in admin.get(f"/pilot/jobs/{nav}").text
+    _start(box)
+    for jid in (submit, nav):
+        for url in (f"/pilot/jobs/{jid}", f"/pilot/jobs/{jid}/approval"):
+            r = admin.get(url)
+            assert r.status_code == 403 and ON_EN in r.text, url
+            assert P_SUBMIT[:8] not in r.text and P_NAV[:8] not in r.text and jid not in r.text
+    assert [e for e in _denied(box, f"/pilot/jobs/{submit}") if e["detail"].get("why") == "support session"]
+    assert admin.get(f"/pilot/jobs/{_ulid(991)}").status_code == 200  # a SCREEN job's page of counts stays open
+
+
+def test_h3_a_file_tagged_aggregate_is_not_trusted_during_a_session(box: dict[str, Any]) -> None:  # noqa: F811
+    """H3: the download route served an ingest report tagged ``aggregate`` whose validation message names a
+    patient. During a session only the files of ``DOWNLOADS_OPEN_DURING_A_SESSION`` are served, whatever the tag."""
+    from console.support_session import DOWNLOADS_OPEN_DURING_A_SESSION, download_open
+
+    from tests.console.test_console_app import _done_feas
+
+    _seed(box)
+    feas = _done_feas(box["backend"])
+    admin, _ = login(box["app"])
+    url = f"/pilot/jobs/{_ulid(994)}/files/ingest_report_2026-10-04.json"
+    r = admin.get(url)
+    assert r.status_code == 200 and P_INGEST in r.text  # tagged aggregate, and it names a patient
+    _start(box)
+    for u in (url, url.replace("/files/", "/view/")):
+        r = admin.get(u)
+        assert r.status_code == 403 and ON_EN in r.text and P_INGEST not in r.text, u
+    assert admin.get(f"/pilot/jobs/{feas.job_id}/files/feasibility_GZQO_v1.0.0_2026-10-04.json").status_code == 200
+    assert all(reason for _k, _rx, reason in DOWNLOADS_OPEN_DURING_A_SESSION)  # each open kind says why
+    assert not download_open("FEAS", "feasibility_GZQO_v1.0.0_2026-10-04.raw.json")
+    assert not download_open("INGEST", "ingest_report_2026-10-04.json")
+
+
+def test_h4_an_answer_begun_before_the_start_is_refused_when_it_ends_after_it(
+    box: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H4: the switch was read only at a request's entry, so a coordinator's patient page waiting on the backend when
+    the session started was still sent after the administrator saw "on". Now the start's confirmation waits until
+    the answers begun before it (in this process) were sent or refused, and an answer begun before the start that
+    ends after it is refused (read again at its end) before a byte of it leaves."""
+    import threading
+
+    _seed(box)
+    crc, _ = login_crc(box)
+    assert P_SCREEN_1[:8] in crc.get("/studies/GZQO/week?list=all").text
+    admin, _ = login(box["app"])
+    csrf = _csrf(admin.get(PAGE).text)
+    bk = box["backend"]
+    inner = bk.list_jobs
+    entered, release = threading.Event(), threading.Event()
+    armed = {"on": True}
+
+    def slow(*a: Any, **k: Any) -> Any:
+        if armed.pop("on", False):  # the coordinator's page, once: it waits on "the backend"
+            entered.set()
+            release.wait(10)
+        return inner(*a, **k)
+
+    monkeypatch.setattr(bk, "list_jobs", slow)
+    got: dict[str, Any] = {}
+    page = threading.Thread(target=lambda: got.update(page=crc.get("/studies/GZQO/week?list=all")))
+    page.start()
+    assert entered.wait(10)
+    start = threading.Thread(target=lambda: got.update(start=admin.post(
+        PAGE, data={"csrf": csrf, "ticket": "", "confirm": "yes"}, follow_redirects=False)))  # fmt: skip
+    start.start()
+    start.join(0.5)
+    assert start.is_alive(), "the confirmation waits for the answer begun before the start"
+    release.set()
+    page.join(10)
+    start.join(20)
+    r = got["page"]
+    assert r.status_code == 403 and ON_EN in r.text and P_SCREEN_1[:8] not in r.text
+    assert got["start"].headers["location"] == f"{PAGE}?done=start"
+    shown = admin.get(f"{PAGE}?done=start").text
+    assert 'data-testid="support-done"' in shown and 'data-testid="support-done-fine"' in shown
+
+
+def test_h4_a_start_that_cannot_wait_says_so(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    from console import support_session
+
+    monkeypatch.setattr(support_session, "DRAIN_S", 0.0)
+    guard = box["app"].state.support_guard
+    n = guard._enter()  # an answer begun before the start, still being sent
+    try:
+        admin, _ = login(box["app"])
+        r = admin.post(PAGE, data={"csrf": _csrf(admin.get(PAGE).text), "confirm": "yes"}, follow_redirects=False)
+        assert r.headers["location"] == f"{PAGE}?done=start&wait=1"
+        assert 'data-testid="support-done-wait"' in admin.get(r.headers["location"]).text
+    finally:
+        guard._leave(n)
+
+
+def test_item6_a_steward_s_batch_reason_is_withheld_during_a_session(
+    box: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Item 6: ``dataops.view`` stays open, and a batch step's reason is a steward's free text ("Duplicate chart
+    70000054"). During a session every reason is withheld on the page and in the API; states, who and when stay."""
+    from console import dataops_page
+
+    step = {"seq": 1, "old": "landed", "new": "rejected", "who": "stw", "at": "2026-10-04T09:00:00+00:00",
+            "reason": f"Duplicate chart {CHART}", "audit_event": "dataops.rejected"}  # fmt: skip
+    assert dataops_page.steps_shown([step])[0]["reason"] == f"Duplicate chart {CHART}"
+    token = authz.support_session_begin(True)
+    try:
+        shown = dataops_page.steps_shown([step])
+    finally:
+        authz.support_session_end(token)
+    assert shown[0]["reason"] is None and shown[0]["reason_closed"] and shown[0]["new"] == "rejected"
+    assert CHART not in json.dumps(shown)
+
+
+def test_item7_a_start_whose_end_underflows_is_closed_and_can_be_ended(box: dict[str, Any]) -> None:  # noqa: F811
+    """Item 7: ``0001-01-01T00:00:00+14:00`` parses, but its UTC time underflows: the automatic check failed and the
+    end by hand rolled back. Now such a start is a damaged one: closed until ended by hand, and the end works."""
+    st = SupportSessionStore()
+    st.db.execute("INSERT INTO support_sessions (started_by, started_at, ticket) VALUES (?, ?, ?)",
+                  ("admin", "0001-01-01T00:00:00+14:00", ""))  # fmt: skip
+    st.close()
+    crc, _ = login_crc(box)
+    r = crc.get("/studies/GZQO/candidates")
+    assert r.status_code == 403
+    admin, _ = login(box["app"])
+    assert _end(admin).headers["location"] == f"{PAGE}?done=end"
+    assert ON_EN not in crc.get("/studies/GZQO/candidates").text
+
+
+def test_item8_a_signed_out_request_for_a_closed_job_is_sent_to_sign_in(box: dict[str, Any]) -> None:  # noqa: F811
+    """Item 8: the job guard ran before sign-in, so a signed-out request learnt a job's type. Now a signed-out
+    request gets the route's own sign-in answer for every job, and a refusal is audited."""
+    from fastapi.testclient import TestClient
+
+    from tests.console.test_console_app import _done_case
+
+    case = _done_case(box["backend"])
+    _start(box)
+    anon = TestClient(box["app"])
+    for jid in (case.job_id, _done_screen(box["backend"], _ulid(991)).job_id):
+        r = anon.get(f"/pilot/jobs/{jid}", follow_redirects=False)
+        assert r.status_code in (303, 401) and r.status_code != 403, (jid, r.status_code)
+    assert not _denied(box, f"/pilot/jobs/{case.job_id}")
+    crc, _ = login_crc(box)
+    assert crc.get(f"/pilot/jobs/{case.job_id}").status_code == 403
+    assert _denied(box, f"/pilot/jobs/{case.job_id}")
+
+
+def test_item9_the_confirmation_follows_the_state_not_the_url(box: dict[str, Any]) -> None:  # noqa: F811
+    admin = _start(box)
+    assert 'data-testid="support-done"' in admin.get(f"{PAGE}?done=start").text
+    _shift(box, authz.SUPPORT_SESSION_MINUTES + 1)
+    page = admin.get(f"{PAGE}?done=start").text  # the old success URL, after the 2 hours
+    assert 'data-testid="support-done"' not in page and 'data-testid="support-live"' not in page
+    assert 'data-testid="support-done"' in admin.get(f"{PAGE}?done=end").text  # none is open: "ended" is true
+
+
+def test_item10_a_one_time_password_unread_for_ten_minutes_is_gone(
+    box: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import time as _time
+
+    """Item 10: a one-time password held back by a session was shown after its 10 minutes, since its age was
+    checked only when another secret was kept. Now its age is checked when it is read too."""
+    admin, csrf = login(box["app"])
+    add = {"csrf": csrf, "action": "add", "role": "viewer", "affiliation": "hospital", "studies": ""}
+    assert admin.post("/ops/users", data={**add, "username": "vw9"}, follow_redirects=False).status_code == 303
+    _on(admin)
+    assert 'data-testid="users-pw-field"' not in admin.get("/ops/users").text  # held back while support watches
+    assert _end(admin).status_code == 303
+    later = _time.monotonic() + 1200  # 20 minutes later, nothing else kept since
+    monkeypatch.setattr(_time, "monotonic", lambda: later)
+    page = admin.get("/ops/users").text
+    assert 'data-testid="users-pw-field"' not in page and "vw9" in page
+
+
+def test_item11_cancel_is_closed_during_a_session_like_the_prepare_it_signs(box: dict[str, Any]) -> None:  # noqa: F811
+    """Item 11: the cancellation's confirmation opened during a session, and its submit was refused (it signs
+    ``request.prepare``, closed), leaving the job running. Now the cancel is refused before its confirmation, audited,
+    and the mail command's row ``command.CANCEL`` is closed too."""
+    assert "command.CANCEL" not in SUPPORT_SESSION_OPEN and "request.prepare" not in SUPPORT_SESSION_OPEN
+    job = _job(box, 995, "FEAS", {}, [], state="running")
+    admin, csrf = login(box["app"])
+    url = f"/admin/jobs/{job.job_id}/cancel"
+    assert admin.post(url, data={"csrf": csrf}).status_code == 200  # outside a session: the confirmation
+    _on(admin)
+    for data in ({"csrf": csrf}, {"csrf": csrf, "confirm": "yes"}):
+        r = admin.post(url, data=data)
+        assert r.status_code == 403 and ON_EN in r.text and job.job_id not in r.text
+    assert len([e for e in _denied(box, url) if e["detail"].get("why") == "support session"]) == 2

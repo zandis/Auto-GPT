@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
-from tb_common.authz import permit, role_allowed
+from tb_common.authz import permit, role_allowed, session_on
 from tb_common.erased import is_erased
 from tb_contracts import Job, JobCreate
 
@@ -500,6 +500,11 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.post("/admin/jobs/{job_id}/cancel")
     def job_cancel(request: Request, job_id: str, csrf: str = Form(""), confirm: str = Form("")) -> Response:
         sess, job = job_for_admin(request, job_id, csrf)
+        if session_on():  # 10K-15 (D-1364, the review of aeb978e6 item 11): the cancel signs request.prepare, closed
+            # during a session, so it is refused before its confirmation (no confirmation that cannot be carried out)
+            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80],
+                                                                     "why": "support session"})  # fmt: skip
+            raise h.problem(403, "forbidden")
         if job.state in TERMINAL:
             raise h.problem(409, "admin.jobs.not_cancellable")
         if confirm != "yes":

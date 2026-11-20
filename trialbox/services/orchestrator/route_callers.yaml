@@ -22,6 +22,8 @@ groups:
     - GET /jobs/{job_id}
   job_outputs_current:   # NEW-MAIL-1 (D-863): the mail gateway asks before it sends a job's outputs; a yes or no
     - GET /jobs/{job_id}/outputs-current
+  support_session_state:   # 10K-15 (D-1364, H5): the mail gateway asks before every send whether a support session runs; a yes or no
+    - GET /support-session
   jobs_list:
     - GET /jobs
     - GET /jobs/waiting-studies   # NEW-JRN-1b (D-545): study ids only, no job
@@ -183,7 +185,7 @@ services:
              patients, registry, registry_export, study, datacore, lifecycle, sponsor, setup, assist, edc, dataops,
              omop_conflicts]
   mail-gateway:   # parses hostile mail: starts the mail commands and reads the jobs that came in by mail, nothing else
-    groups: [jobs_start, job_read, job_outputs_current]  # D-863: and asks whether a job's outputs are still current
+    groups: [jobs_start, job_read, job_outputs_current, support_session_state]  # D-863: and asks whether a job's outputs are still current; D-1364: whether a support session runs
     job_types: [FEAS, SCREEN, COHORT, NAV, APPROVE, STATUS, CANCEL, SUBMIT, FEEDBACK, CONSENT, RELEASE, CASE]
     own_jobs: mail   # GET /jobs/{job_id}: only a job with a message_id (it came in by mail)
   operator:   # the administrator's host token (scripts, curl; runbook §2): job and model reads. tools/trialbox

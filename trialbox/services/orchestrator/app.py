@@ -403,6 +403,28 @@ def waiting_studies() -> list[str]:
     return orch().db.waiting_rulesets()
 
 
+@app.get("/support-session")
+def support_session_state() -> dict[str, bool]:
+    """10K-15 (D-1364, the review of aeb978e6 H5): whether the console's support-session switch is on, asked by the
+    mail gateway before every send (it holds every mail but the safety, health and account notices while it is). Read
+    only, from the console's own store (``breakglass.support_sessions``, SELECT as for the grants): a session not ended
+    and inside its 2 hours, or whose start cannot be read, is on. A store that does not answer is a 503: the gateway
+    holds the mail (closed on doubt)."""
+    from datetime import UTC, datetime
+
+    from console.breakglass_store import SupportSessionStore
+
+    try:
+        store = SupportSessionStore()
+        try:
+            on = store.on_now(datetime.now(UTC))
+        finally:
+            store.close()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="the support-session state could not be read") from exc
+    return {"on": on}
+
+
 @app.get("/jobs/{job_id}/outputs-current")
 def job_outputs_current(job_id: str, key: Annotated[list[str] | None, Query()] = None) -> dict[str, bool]:
     """NEW-MAIL-1 (D-863, the integrator's ruling): whether the files of a job a mail carries (``key``, by object
@@ -617,6 +639,7 @@ NOTICE_KINDS: dict[str, frozenset[str]] = {
     "service:console-accounts": frozenset({"ACCOUNT"}),  # D-719: someone else set a factor of the account
     "service:console-breakglass": frozenset({"BG"}),  # D-280: a break-glass grant
 }
+SEND_DURING_SUPPORT = frozenset({"HEALTH", "ACCOUNT"})  # D-1364 (H5): notice kinds that hold no patient
 AS_NOTICE = route_actor.require_actor(("phi.view", "sae.view", "account.reset", "breakglass.open"), service=True)
 
 
@@ -641,7 +664,11 @@ def notice(req: NoticeRequest, request: Request, who: Claim = AS_NOTICE) -> dict
     # account notice is one event, sent once by the person's own request (no timer retries it): each is its own mail,
     # or a second reset of the same account the same day would be dropped as a duplicate (D-879, the review)
     when = o._now().isoformat() if req.kind == "ACCOUNT" else day
-    key = send_key(f"notice:{when}", req.kind, list(req.to), req.subject, [])
+    # 10K-15 (D-1364, H5): during a support session the gateway holds every mail until the end, but these: the serious
+    # adverse event copy to the office (safety mail is never delayed), the health mail and the account notice (no
+    # patient in either). N1 and N2 (pseudonyms, visits) and every job's mail wait, and go once after the end
+    always = req.kind in SEND_DURING_SUPPORT or who.sub == "service:console-sae-sync"
+    key = send_key(f"notice:{when}", req.kind, list(req.to), req.subject, [], always=always)
     res = o.services.mail.send(
         SendRequest(
             job_id=None, to=req.to, subject=req.subject, body_md=req.body_md, tag="aggregate", idempotency_key=key

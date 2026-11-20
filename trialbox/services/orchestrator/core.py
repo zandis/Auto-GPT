@@ -66,13 +66,17 @@ SYSTEM_SENDERS = ("scheduler", "system")
 FAST_LANE = ("STATUS", "CANCEL")
 
 
-def send_key(job_id: str, kind: str, to: list[str], subject: str, filenames: list[str]) -> str:
+def send_key(job_id: str, kind: str, to: list[str], subject: str, filenames: list[str], always: bool = False) -> str:
     """The idempotency key of one mail (D-127, review F-02): the same job, kind, recipients, subject and attachment
-    names give the same key, so a step re-run after a restart never mails the PI or the password twice."""
+    names give the same key, so a step re-run after a restart never mails the PI or the password twice. ``always``
+    (10K-15, D-1364 H5): a mail the gateway sends during a support session too (``SUPPORT_MAIL_PREFIX``)."""
     import hashlib
 
+    from tb_common.authz import SUPPORT_MAIL_PREFIX
+
     parts = [job_id, kind, ",".join(sorted(to)), subject, ",".join(sorted(filenames))]
-    return "tbmail-" + hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+    digest = hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+    return (SUPPORT_MAIL_PREFIX if always else "tbmail-") + digest
 
 
 class Cancelled(RuntimeError):

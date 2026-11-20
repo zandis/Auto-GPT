@@ -6,7 +6,8 @@
 {% block content %}
 <h1>{{ t('support.title') }}</h1>
 <p>{{ t('support.help', minutes=minutes) }}</p>
-{% if done %}<p class="notice" role="status" data-testid="support-done">{{ t('support.done.start') if done == 'start' else t('support.done.end') }}</p>{% endif %}
+{% if done == 'start' %}<div class="notice" role="status" data-testid="support-done"><p>{{ t('support.done.start') }}</p>{% if waited %}<p class="warn" data-testid="support-done-wait">{{ t('support.done.wait', s=drain_s) }}</p>{% endif %}<p class="hint" data-testid="support-done-fine">{{ t('support.done.fine') }}</p></div>
+{% elif done %}<p class="notice" role="status" data-testid="support-done">{{ t('support.done.end') }}</p>{% endif %}
 {% if err %}<p class="error" role="alert" data-testid="support-err">{{ t(err) }}</p>{% endif %}
 {% if open_rows %}
 {% for live in open_rows %}

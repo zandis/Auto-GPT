@@ -287,12 +287,17 @@ class SupportSession:
 
     @property
     def start(self) -> datetime | None:
-        """The stored start as a time, None when it cannot be read (a damaged row)."""
+        """The stored start as a time, None when it cannot be read (a damaged row), or when its latest end cannot be
+        computed (the review of aeb978e6 item 7: ``0001-01-01T00:00:00+14:00`` parses, but its UTC time or its end
+        underflows): such a row is damaged too, on until ended by hand."""
         try:
             t = datetime.fromisoformat(self.started_at)
-        except (TypeError, ValueError):
+            t = t if t.tzinfo is not None else t.replace(tzinfo=UTC)
+            (t + timedelta(minutes=SUPPORT_SESSION_MINUTES)).astimezone(UTC)
+            t.astimezone(UTC)
+        except (TypeError, ValueError, OverflowError):
             return None
-        return t if t.tzinfo is not None else t.replace(tzinfo=UTC)
+        return t
 
     @property
     def ends_at(self) -> str:
@@ -366,6 +371,12 @@ class SupportSessionStore:
                 if got is not None and not got.end_audited:
                     unaudited.append(got)
         return live, unaudited
+
+    def on_now(self, now: datetime) -> bool:
+        """Read only (the orchestrator asks it for the mail gateway, D-1364 H5; it writes no end): is a session not
+        ended and inside its 2 hours, or with a start that cannot be read (on, closed on doubt)?"""
+        rows = self.db.fetchall(f"SELECT {_SCOLS} FROM support_sessions WHERE ended_at IS NULL")
+        return any(_session(r).active(now) for r in rows)
 
     def audit_end(self, sid: int, write: Callable[[SupportSession], None]) -> bool:
         """Write the end event of ended session ``sid`` once: ``write`` runs inside the transaction that marks the

@@ -1309,7 +1309,9 @@ def create_app(
             raise _Problem(403, "forbidden")
         # 10K-15 (D-1364): a one-time password or enrolment code kept before a support session started is not shown
         # while one runs (a support person may be watching the screen); it stays kept, for its 10 minutes
-        made, pw, _ = ("", "", 0.0) if in_support_session() else one_time.pop(sess.token_sha, ("", "", 0.0))
+        made, pw, kept = ("", "", 0.0) if in_support_session() else one_time.pop(sess.token_sha, ("", "", 0.0))
+        if made and time.monotonic() - kept > 600:  # the review of aeb978e6 item 10: unread for 10 minutes is gone,
+            made, pw = "", ""  # also when no other secret was kept since (held back by a session, then read later)
         code = pw[5:] if pw.startswith("code:") else ""  # D-719: a protected account's enrolment code, no password
         pw = "" if code else pw
         rows = [(u, us.is_sso(u.username)) for u in us.users()]

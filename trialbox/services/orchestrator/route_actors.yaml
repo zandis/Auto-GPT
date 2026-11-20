@@ -71,6 +71,7 @@ reads_without_patient:
   GET /docs/oauth2-redirect: "FastAPI's own schema page"
   GET /redoc: "FastAPI's own schema page"
   GET /models: "the model registry's state and the box's status lines; counts, no patient"
+  GET /support-session: "10K-15 (D-1364, H5): whether the console's support-session switch is on; a yes or no, no patient"
   GET /jobs/{job_id}/outputs-current: "D-863: whether a job's outputs are still current against the opt-out register; a yes or no, no patient, no count"
   GET /metrics: "counters of the service"
   GET /rulesets/{ruleset}: "a study's criteria, approved versions and drafts"

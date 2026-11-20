@@ -166,10 +166,14 @@ def _holds(cond: str, action: str, s: Standing) -> bool:
 # route that asks no row (``is_admin`` only) is not closed here: every route open during a session is pinned, with
 # the roles it is open to, in ``OPEN_DURING_A_SESSION`` (tests/console/test_10k15_support_session.py).
 SUPPORT_SESSION_MINUTES = 120  # it ends by itself 2 hours after it started (checked at every request)
+# H5 of the review of aeb978e6 (D-1364): while a session runs the mail gateway holds every mail (sent once after the
+# end) but those whose idempotency key the orchestrator gave this prefix: the serious adverse event copy to the
+# office (safety mail is never delayed), the box's health mail and the account notice (no patient in either)
+SUPPORT_MAIL_PREFIX = "tbmail-always-"
 SUPPORT_SESSION_OPEN: frozenset[str] = frozenset({
     "support.session",
     "ops.view", "ops.backup", "ops.backup_check", "ops.update_check", "ops.update_apply", "ops.logs", "ops.network",
-    "job.retry_scheduled", "command.STATUS", "command.CANCEL",
+    "job.retry_scheduled", "command.STATUS",
     "account.reset", "account.disable", "account.enable", "account.confirm", "account.create.patient-data",
     "account.create.steward", "account.create.privacy", "account.create.admin", "account.create.aggregate",
     "site.setup", "redcap.connection", "restore.release", "dataops.view", "edc.switch_off",
@@ -194,6 +198,15 @@ def support_session_end(token: Token[bool]) -> None:
 
 def in_support_session() -> bool:
     """Is the request now running under a support session (every action outside ``SUPPORT_SESSION_OPEN`` refused)?"""
+    return _SUPPORT_SESSION.get()
+
+
+def session_on() -> bool:
+    """The one question the console's data helpers ask before they hand a page patient-linked content (the review of
+    aeb978e6, D-1364): a page that mixes staff content with patient-linked content is an open row, so the helpers
+    that read patient task lists, notes, candidate lists, job pages, downloads and free-text reasons answer nothing
+    while it is true, and the page shows its staff parts with a "closed during the support session" line. True for a
+    console request under a support session, or one whose state could not be read (closed on doubt)."""
     return _SUPPORT_SESSION.get()
 
 

@@ -19,13 +19,13 @@
     asks `permit` (T-102c, D-425), and the console signs no patient read it would refuse (`console.actor.assert_for`
     asks `permit` before it mints), so a new patient route, and a new matrix row, is closed by construction.
   - **What stays open** (`SUPPORT_SESSION_OPEN`): the switch; the operations rows (`ops.*`, `job.retry_scheduled`,
-    `command.STATUS`, `command.CANCEL`); the account rows; `site.setup`, `redcap.connection`, `restore.release`,
+    `command.STATUS`); the account rows; `site.setup`, `redcap.connection`, `restore.release`,
     `dataops.view`; `edc.switch_off` (a stop narrows); and the two rows that are restrictions, not rights
     (`report.aggregate_only`, `report.sponsor_form`), which keep their answer because refusing a restriction would
     widen what a viewer or CRO account sees. Who holds each open row (the matrix; an open row keeps its answer
     exactly, so nothing is widened): the administrator alone holds `support.session`, `ops.*`,
     `job.retry_scheduled`, `account.reset`, `account.disable`, `account.enable`, every `account.create.*` and
-    `redcap.connection`; the administrator and the coordinator `site.setup` and `command.CANCEL`; the administrator,
+    `redcap.connection`; the administrator and the coordinator `site.setup`; the administrator,
     the coordinator and the investigator `command.STATUS`; the administrator and the steward `account.confirm`,
     `dataops.view` and `restore.release`; the administrator and the study's PI (`investigator: [pi]`)
     `edc.switch_off`; the viewer and the CRO account `report.aggregate_only`; the CRO account `report.sponsor_form`.
@@ -33,7 +33,7 @@
   - **Open without a matrix row:** routes that ask `is_admin` (or nothing but a session) and no `permit` row are not
     closed by the switch. The walk with a session on finds them; the reviewed list of the routes of the router table
     that the switch does not refuse in the walk's box, and to which columns of the walk, is `OPEN_DURING_A_SESSION` in
-    `tests/console/test_10k15_support_session.py` (113 routes on 2026-11-19). "Not refused" is any answer but the
+    `tests/console/test_10k15_support_session.py` (113 routes on 2026-11-19; 109 since the review of aeb978e6, below). "Not refused" is any answer but the
     switch's refusal (every 403 during a session is that refusal) or a sign-in answer: 86 routes answer there (Y), 27
     answer 404 or 503 in the walk's box (a feature off, an unknown id, no setup service or study store), each pinned
     with a one-line reason. A route that the switch stops refusing, or that answers one more column, fails
@@ -86,9 +86,63 @@
     sponsor form) stay open to the roles that have them: they ask no closed row, and the two rows they do ask are the
     restrictions above, which keep their answer so that a viewer or a CRO account is not shown more. A SCREEN or FEAS
     job page stays open with its counts; its patient rows are behind `phi.view`, closed.
-  - **A page about one patient is a patient page.** The pages of a CASE job (one patient's sheet, its counts by
-    criterion, the chart number masked) are refused during a session to every role, by the switch's middleware
-    (`ONE_PATIENT_JOBS`); a job that cannot be read is refused (closed on doubt). This narrows only.
+  - **A job's pages and files are closed by default** (the review of aeb978e6, H2 and H3; it replaces the CASE-only
+    close). During a session the switch's middleware refuses every page and file of a job whose type is not in
+    `JOBS_OPEN_DURING_A_SESSION` (FEAS: counts per criterion and step; SCREEN: the run's counts, its rows ask
+    `phi.view` and its candidate list is not read), so a CASE sheet, a SUBMIT job's pid and a NAV draft named by a
+    pseudonym are refused, and so is any new job type until it is added after a review. Of an open job, only the
+    files of `DOWNLOADS_OPEN_DURING_A_SESSION` are served, each named with why it holds no patient-linked text (a FEAS
+    job's `feasibility_*.pdf|json`, not `.raw.json`; its `feasprofile_*.json`); every other file is refused whatever
+    its tag: the `aggregate` tag is not trusted for the switch, since an ingest report tagged `aggregate` carries
+    validation messages that can name a patient (`Patient/<pseudonym>: birthDate`). The sponsor pack, a job's reveal
+    and release, and a cascade run's files are refused too. The check runs only for a signed-in request (a
+    signed-out one gets the route's sign-in answer, so no job type is told to a stranger, the review's item 8), a job
+    that cannot be read is refused (closed on doubt), and every refusal is a `console.denied` event (`why`:
+    `support session`).
+  - **Content, not only rows (the review of aeb978e6, H1):** a page that mixes staff content with patient-linked
+    content is an open row, so the closing is also at the helpers that hand a page patient-linked content. They ask
+    one function, `tb_common.authz.session_on()` (true under a session, or when its state could not be read), and
+    answer nothing while it is true; the page shows its staff parts and the line "Closed during the support
+    session" (en, ja, zh-TW). `console.home`'s `load` (every job file a home, week or study card reads) answers None
+    for every file but the counts-only ones (`COUNTS_ONLY`: `feasibility_`, `feasprofile_`), so the study home
+    (`/home?view=studies`, with `layout.home_today` off) shows no task link, pseudonym or PI note; its tasks, clinic
+    visits and SAE banners are empty and the closed line is shown. `console.dataops_page.steps_shown` withholds every
+    batch step's reason (a steward's free text, "Duplicate chart 70000054", the review's item 6) on the page and in
+    `GET /api/v1/data/batches/{bid}` (`reason: null`, `reason_closed: true`); states, who and when stay.
+  - **Every place that can emit a patient-linked field, and how it is closed** (a pseudonym, a screening or chart
+    number, a name, a birth date, a clinical note or quote, free text about a patient; the templates were searched
+    for these fields and the handlers for their helpers): (1) the 67 templates that name such a field render, during
+    a session, only behind a closed row (the patient, candidate, week, registry, SAE, SDV, data-entry, audit, EDC
+    review, team-candidate and site-patient pages, the screening log and the break-glass list: `permit`), with these
+    exceptions, each closed as said: `home_crc.html` (the study home: `load` and the closed line), `job.html` and
+    `approval.html` (the job allow-list), `dataops_batch.html` (the reasons withheld), `registry_ruleset.html`
+    (rendered with no row: its rows ask a closed row), `base.html` and `_feedback.html` (a refusal is rendered as if
+    at `/`, so no refused URL is repeated), `home_admin.html` and `admin.html` (a job's id, type, requester and time,
+    no patient field); (2) files: a job's files and views (the download allow-list), the sponsor pack, a job's reveal
+    and release, a cascade run's files, `/feedback/export.csv` (refused), every registry, screening-log, SAE and audit
+    export (closed rows); `/site/templates/{name}.xlsx` (blank setup sheets) and `/about/NOTICE.txt` stay open, with
+    no patient; (3) JSON: the `/api/v1` twins of the pages above, closed by the same rows and helpers; (4) mail (below).
+    The guard is `test_no_open_route_shows_a_seeded_patient_token_during_a_session`: synthetic patients of every kind
+    (a SCREEN list with a quote, a PI's note, a CASE sheet, a SUBMIT job's pid, a NAV draft named by a pseudonym, an
+    ingest report naming a patient, a feedback entry given on a patient page with a chart number) are seeded, a session
+    is started, and every route of the router table is asked as every column of the role-route walk (GET, then each
+    changing method with a valid CSRF token) plus every page and file of every seeded job (2,000 and more answers);
+    no answer may hold any of the 25 seeded tokens. On aeb978e6 it found 143 leaks (the study home, the SUBMIT and NAV
+    job pages and files, the ingest report); now none. A new open route that leaks fails it.
+  - **An answer begun before the start (the review of aeb978e6, H4).** The switch was read only at a request's
+    entry, so a patient page waiting on the backend when the session started could still be sent after the
+    administrator saw "on". Now (a) an answer begun outside a session is read against the switch again when it is
+    ready: if a session started meanwhile (in any process: the state is the database's) it is replaced by the
+    refusal before a byte of it leaves; (b) the console counts, per process, the answers begun outside a session whose
+    body is not yet sent; a start waits until they are sent or refused, at most 15 s (`DRAIN_S`), before its
+    confirmation is shown, and a body still being sent stops at its next part when a session started in this
+    process. The confirmation says it ("every page asked before the start was finished or refused before this line
+    was shown"), and if the wait ran out it says so and asks for a minute before sharing. The console runs as one
+    process (`deploy/docker-compose.yml`, no `--workers`), so the count is the console's. **Residual windows**, in the
+    confirmation's fine print and here: what is already on a screen or in another window (closed by the person;
+    reload and back are `no-store`); a body already handed to the client; a long download of another console process
+    (none in the shipped compose) that passed its end check before the start; mail already sent. The confirmation is
+    shown only while a session is open (the review's item 9): the old `?done=start` URL after the end shows nothing.
   - **What the person sees:** a 403 during a session is the console's problem page saying, in en, ja and zh-TW, that a
     support session is running and when it ends at the latest; `/api/v1` answers `{"error": "support.session_on"}`
     with the end time; the EDC's sign-in and a tool confirmation posted from the form of `/admin/edc` are opened by
@@ -122,10 +176,23 @@
   - **Fail direction:** closed. When the state cannot be read (the trial database does not answer), the request runs
     as under a session and the page says the console cannot tell whether one is running. Before and after a session,
     and in every process that does not set the mark (the orchestrator, the tools), `permit` answers as before.
-- **Not in this card, said plainly:** the switch marks console requests only. Code outside a request is not marked
-  and not stopped: the morning-mail timer and its notices, the nightly REDCap read (`rc_read`), the orchestrator's
-  own jobs and its mail (a mailed CASE). The orchestrator does not read the switch; it refuses a patient read the
-  console did not sign, and the console signs none during a session. A terminal on the box (runbook 21 rule 3) is
+- **Mail during a session (the review of aeb978e6, H5).** The card closes patient pages; mail goes to the
+  recipients' mailboxes, not to the screen the support person watches, but a mailbox can be open on the shared
+  hospital PC, so mail with patient details waits. The mail gateway, the one door of every mail, asks the
+  orchestrator before every send (`GET /support-session`, a yes or no read from the console's own store, SELECT as
+  for the grants); while a session runs every mail is held: queued, the try not counted, the audit event
+  `mail.deferred` with the reason "held: a support session is running", asked again every 5 minutes, and sent once
+  after the end (the send key keeps it once). Three kinds are not held, by the key the orchestrator gives them
+  (`SUPPORT_MAIL_PREFIX`): the serious adverse event copy to the office (`service:console-sae-sync`; safety mail is
+  never delayed, and it carries a pseudonym), the box's health mail and the account notice (no patient in either).
+  Held: N1 and N2 (pseudonyms and visit times, the SAE counts and overdue SAE reports among them: at most 2 hours
+  late, and the serious AE itself has gone out at once), a break-glass notice (none can be opened during a session),
+  and every job's mail (a CASE sheet, a list, a receipt). A state that cannot be read holds too; nothing is dropped.
+  On the first day a mail of the three kinds may go twice (its key changed with this card), never zero times.
+- **Not in this card, said plainly:** the switch marks console requests only. Code outside a request is not marked:
+  the morning-mail timer still builds its notices (they wait at the gateway, above), the nightly REDCap read
+  (`rc_read`) and the orchestrator's own jobs still run. The orchestrator refuses a patient read the console did not
+  sign, and the console signs none during a session. A terminal on the box (runbook 21 rule 3) is
   outside the switch: what it shows is the hospital person's care. The support bundle's Docker drill (runbook 21) is
   not part of the new drill. `python -m console.cli` (on the box's terminal) can still issue an enrolment code.
 - **Known limits:**
@@ -134,10 +201,15 @@
     trail is where it shows.
   - A clock moved forward ends a session early (the pages open while support may still watch); one moved back is
     re-anchored and audited (above). Both are the clock's, not the switch's.
-  - `/jobs` and the administrator's home list a CASE job's row (its id, type, ruleset, requester and time) during a
+  - `/jobs` and the administrator's home list every job's row (its id, type, ruleset, requester and time) during a
     session. It is not patient-level: the id is a random job id the box makes, and it holds no pseudonym, chart
-    number or clinical fact; every route of that job is refused during a session with no job id in the body.
-  - A data-ops batch step shows a steward's free-text reason, which could name a patient if a steward wrote one.
+    number or clinical fact; every page and file of a closed job is refused during a session with no job id in the
+    body. A signed-in account that knows a job's id learns from the refusal that it is not of a counts-only type.
+  - Cancelling a job waits for the end of a session (the review's item 11): the cancel signs `request.prepare`,
+    closed, so it is refused before its confirmation, audited; the mail command's row `command.CANCEL` is closed too.
+  - A damaged start whose time parses but whose UTC time or end underflows (`0001-01-01T00:00:00+14:00`, the
+    review's item 7) is a start that cannot be read: on until ended by hand, and the end works.
+  - A one-time password held back by a session and read later is gone after its 10 minutes (the review's item 10).
   - The person's own sign-in steps (`/enrol`, the TOTP step's new authenticator) stay open: closing them would lock
     a person out; the hospital's person signs in with the screen share paused.
   - Windows rendered before the start stay on screen; reload and back are covered by `Cache-Control: no-store`.
@@ -151,5 +223,11 @@
   a session in three languages, the refusal audited, a held write confirmed after the end; a sign-in code issued
   before the start not redeemed during it and redeemed after the end; the list of routes the switch
   does not refuse pinned; a PI lists no grant of its study (`breakglass.study`); a moved start is
-  one audit event; a FEAS job's file of counts stays open); `tests/console/test_role_route_matrix.py` (the three new routes, the
+  one audit event; a FEAS job's file of counts stays open and its patient-level file, downloadable by its named
+  recipient outside a session, is refused during one; the review of aeb978e6: the walk with seeded patient data,
+  the study home (three languages), a SUBMIT and a NAV job, an ingest report tagged aggregate, an answer begun before
+  the start and a start that cannot wait, the batch reasons, a start that underflows, a signed-out request for a
+  closed job, the confirmation after the end, an old one-time password, the cancel);
+  `tests/unit/test_10k15_mail_during_a_support_session.py` (mail held during a session and sent once after it, the
+  safety, health and account notices not held, a state that cannot be read holds, the orchestrator's answer); `tests/console/test_role_route_matrix.py` (the three new routes, the
   administrator's only); `tests/unit/test_migrations.py` (breakglass version 3).

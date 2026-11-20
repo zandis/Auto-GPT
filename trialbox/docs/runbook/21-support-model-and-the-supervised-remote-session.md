@@ -112,3 +112,12 @@ an Aimedics person travels for a hardware fault.
 
 A failed part under warranty is returned by the hospital to the supplier with Aimedics' help, **after** the disk is
 removed or purged (§20, T-628). A disk never leaves the hospital. The replacement path is §22, "Replacing hardware".
+
+## The support-session switch, what else it closes (D-1364)
+
+While the switch is on, a page that mixes staff and patient content (the study home, a job's page) shows its staff
+parts and the line "Closed during the support session"; a job's page or file is refused unless it is a counts-only
+one (a feasibility report); a page asked just before the start is finished or refused before the start is
+confirmed. Mail with patient details (the morning lists, a job's mail) waits and goes once after the end; the serious
+adverse event copy to the office, the health mail and the account notice still go out. Not recalled: what is already
+on a screen or in another window, and mail already sent: close them before the share starts.

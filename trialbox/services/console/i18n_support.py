@@ -9,7 +9,7 @@ EN: dict[str, str] = {
     "nav.support_session": "Support session",
     "support.title": "Support session",
     "support.help": "Turn this on before a supervised support session (runbook 21: the hospital's own screen share, the hospital's person at the keyboard). While it runs, every patient page is closed to every account, yours included; operations, jobs, logs and accounts stay open. It ends when you end it, or by itself after {minutes} minutes. The start and the end are in the audit trail.",
-    "support.done.start": "The support session is on. Patient pages are closed to everyone until it ends.",
+    "support.done.start": "The support session is on. Patient pages are closed to everyone until it ends; every page asked before the start was finished or refused before this line was shown.",
     "support.done.end": "The support session has ended. Patient pages are open again to the accounts that may read them.",
     "support.live": "A support session is running",
     "support.live.line": "Started by {who} at {at}; ends at the latest at {until}",
@@ -40,13 +40,17 @@ EN: dict[str, str] = {
     "support.err.confirm": "Tick the box first: the hospital starts the screen share and its person stays at the keyboard.",
     "support.err.on": "A support session is already running.",
     "support.err.none": "This support session is not running any more.",
+    "support.done.fine": "Not recalled: what is already on a screen or in another window (close them before sharing), and mail already sent. Mail with patient details waits until the session ends; serious adverse event notices still go out.",
+    "support.done.wait": "Some answers asked before the start were still being sent after {s} seconds; each stops at its next part. Wait a minute before sharing the screen.",
+    "support.closed": "Closed during the support session: patient tasks, notes and lists are not shown until it ends.",
+    "support.closed.short": "closed during the support session",
 }
 
 JA: dict[str, str] = {
     "nav.support_session": "サポートセッション",
     "support.title": "サポートセッション",
     "support.help": "立会いのもとでのサポート（ランブック21：病院自身の画面共有、病院の担当者が操作）を始める前にオンにします。実行中は、あなたを含むすべてのアカウントに対してすべての患者ページが閉じます。運用、処理、ログ、アカウントは開いたままです。あなたが終了するか、{minutes}分経つと自動で終了します。開始と終了は監査証跡に記録されます。",
-    "support.done.start": "サポートセッションを開始しました。終了するまで、患者ページは全員に対して閉じています。",
+    "support.done.start": "サポートセッションを開始しました。終了するまで、患者ページは全員に対して閉じています。開始前に求められたページは、この表示の前にすべて完了したか拒否されました。",
     "support.done.end": "サポートセッションを終了しました。患者ページは、閲覧権限のあるアカウントに再び開いています。",
     "support.live": "サポートセッション実行中",
     "support.live.line": "{who} が {at} に開始。遅くとも {until} に終了",
@@ -77,13 +81,17 @@ JA: dict[str, str] = {
     "support.err.confirm": "先にチェックを入れてください：画面共有は病院が開始し、病院の担当者が操作します。",
     "support.err.on": "サポートセッションはすでに実行中です。",
     "support.err.none": "このサポートセッションはもう実行されていません。",
+    "support.done.fine": "取り消されないもの：すでに画面や別のウィンドウに表示されている内容（共有の前に閉じてください）と、送信済みのメール。患者の情報を含むメールはセッションの終了まで待ちます。重篤な有害事象の通知は送られます。",
+    "support.done.wait": "開始前に求められた応答の一部が {s} 秒後もまだ送信中でした。それぞれ次の区切りで止まります。画面を共有する前に1分お待ちください。",
+    "support.closed": "サポートセッション中は閉じています：患者のタスク、メモ、一覧は終了まで表示されません。",
+    "support.closed.short": "サポートセッション中は閉じています",
 }
 
 ZH: dict[str, str] = {
     "nav.support_session": "支援作業時段",
     "support.title": "支援作業時段",
     "support.help": "在院方監督的遠端協助（操作手冊第 21 節：醫院自己的螢幕分享，由院方人員操作鍵盤）開始前開啟。進行期間，所有病人頁面對每個帳號都關閉，包括您自己；維運、作業、日誌與帳號仍可使用。您結束它，或 {minutes} 分鐘後自動結束。開始與結束都記錄在稽核軌跡中。",
-    "support.done.start": "支援作業時段已開啟。結束前，病人頁面對所有人關閉。",
+    "support.done.start": "支援作業時段已開啟。結束前，病人頁面對所有人關閉；開始前所要求的頁面，在顯示這一行之前都已完成或被拒絕。",
     "support.done.end": "支援作業時段已結束。病人頁面重新對有權閱讀的帳號開放。",
     "support.live": "支援作業時段進行中",
     "support.live.line": "由 {who} 於 {at} 開始；最晚於 {until} 結束",
@@ -114,4 +122,8 @@ ZH: dict[str, str] = {
     "support.err.confirm": "請先勾選：螢幕分享由醫院開始，並由院方人員操作鍵盤。",
     "support.err.on": "已有支援作業時段進行中。",
     "support.err.none": "此支援作業時段已不在進行中。",
+    "support.done.fine": "不會收回的：已在畫面上或其他視窗中的內容（分享前請關閉），以及已寄出的郵件。含病人資料的郵件會等到時段結束；嚴重不良事件通知仍會寄出。",
+    "support.done.wait": "開始前所要求的部分回應在 {s} 秒後仍在傳送；各自會在下一段停止。分享畫面前請等一分鐘。",
+    "support.closed": "支援作業時段中關閉：結束前不顯示病人的工作、備註與名單。",
+    "support.closed.short": "支援作業時段中關閉",
 }

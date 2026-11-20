@@ -54,7 +54,10 @@ def local_time(value: object, tz: ZoneInfo, n: int = 16) -> str:
         return text[:n].replace("T", " ")
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(tz).isoformat(sep=" ")[:n]
+    try:
+        return dt.astimezone(tz).isoformat(sep=" ")[:n]
+    except OverflowError:  # a damaged stored time at the calendar's edge (10K-15 review item 7): shown as stored
+        return text[:n].replace("T", " ")
 
 
 def local_date(value: object, tz: ZoneInfo) -> str:

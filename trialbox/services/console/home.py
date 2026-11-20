@@ -28,7 +28,7 @@ from datacore.lifecycle import CONTACT_ATTEMPTS, CONTACT_DEFAULT, contact_check
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from tb_common.authz import NO_STANDING, Decision, conditional, study_bound
+from tb_common.authz import NO_STANDING, Decision, conditional, session_on, study_bound
 from tb_common.authz import permit as permit_row
 from tb_common.erased import Gone, GoneOn
 from tb_common.retention import STUDY_YEARS_AFTER_CLOSE
@@ -75,6 +75,10 @@ HOME_STARTS: tuple[tuple[str, str], ...] = (
 )
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 SCREEN_TYPES = ("MICROBATCH", "SCREEN")
+# 10K-15 (D-1364, the review of aeb978e6 H1): the job files a page may still read during a support session, each
+# counts only: the feasibility report and the site profile it used. Every other file (a candidate list, a SCREEN
+# run's rows, the excluded list) is patient-linked and ``load`` answers None for it while a session is on.
+COUNTS_ONLY = frozenset({"feasibility_", "feasprofile_"})
 
 
 STALE_DAYS = 2  # FIT-U01: a list whose data is older than this many days is shown amber
@@ -369,6 +373,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         return {r["id"]: st.criterion_meta(r, lang, mine.get(r["id"], "")) for r in rows}
 
     def load(job: Job | None, prefix: str, suffix: str = ".json", tag: str | None = None) -> dict[str, Any] | None:
+        if session_on() and prefix not in COUNTS_ONLY:  # 10K-15 (D-1364, H1): no patient-linked file during a session
+            return None
         out = st.output(job, prefix, suffix, tag)
         if out is None:
             return None
@@ -610,9 +616,11 @@ def register(app: FastAPI, h: Helpers) -> None:
         tasks = sorted((tk for c in cards for tk in c["tasks"]), key=lambda tk: (tk["due"], tk["rs"]))
         clinic = sorted((v for c in cards for v in c["clinic"]), key=lambda v: v["visit_text"])
         phi = sess.user.can_view_phi  # D-280 (CR-023): the administrator's study view carries no patient row
+        closed = session_on()  # 10K-15 (D-1364, H1): the staff parts, and a line that the patient parts are closed
         return h.page(
-            request, "home_crc.html", sess, cards=cards, tasks=tasks, clinic=clinic if phi else [], steps=st.STEPS,
-            pipeline_keys=st.PIPELINE, models=bk.models(), life=h.life_home(sess) if h.life_home and phi else None,
+            request, "home_crc.html", sess, cards=cards, tasks=[] if closed else tasks,
+            clinic=clinic if phi and not closed else [], steps=st.STEPS, pipeline_keys=st.PIPELINE, models=bk.models(),
+            life=h.life_home(sess) if h.life_home and phi and not closed else None, support_closed=closed,
         )  # fmt: skip
 
     def today_home(request: Request, sess: Session, every: bool) -> Response:
