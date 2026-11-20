@@ -22,7 +22,10 @@ part before it is signed, as the receiving box will. Such a bundle is for the dr
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
+import tarfile
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +37,12 @@ MAX_VALID_DAYS = 90
 
 def build(key: Path, bundle_id: str, parts: list[Path], out: Path, *, release_seq: int, min_installed: int = 0,
           valid_days: int = VALID_DAYS) -> dict[str, Any]:  # fmt: skip
-    """Check each part (``tb_common.ruleset_part.open_part``) and sign the bundle; refuses a file that is no part."""
+    """Check each part (``tb_common.ruleset_part.open_part``) and sign the bundle; refuses a file that is no part.
+
+    The bytes signed are the bytes checked (the review's N1): each part is read once, checked, and handed to
+    ``sign_bundle.build`` as a copy in a private folder of this run; after the build, each packed member is read back
+    from the bundle and its sha256, and the one the signed manifest records, must equal the checked bytes' sha256,
+    else the bundle is removed and refused (``sign_bundle.py`` is unchanged)."""
     from tb_common.ruleset_part import PartRefused, open_part
 
     from tools import sign_bundle
@@ -47,23 +55,53 @@ def build(key: Path, bundle_id: str, parts: list[Path], out: Path, *, release_se
         )
     names: list[str] = []
     origins: list[dict[str, Any]] = []
+    checked: dict[str, bytes] = {}
+    if len({p.name for p in parts}) != len(parts):
+        raise SystemExit("ruleset_bundle: two parts have the same file name")
     for p in parts:
+        data = p.read_bytes()  # read once: these bytes are checked, copied, signed and compared after the build
         try:
-            rid, _files, manifest, origin = open_part(p.read_bytes())
+            rid, _files, manifest, origin = open_part(data)
         except PartRefused as exc:
             raise SystemExit(f"ruleset_bundle: {p}: {exc}") from exc
         names.append(f"{rid} v{manifest.get('version')} (part sha256 {str(origin['part_sha256'])[:12]})")
         origins.append(origin)
-    if len({p.name for p in parts}) != len(parts):
-        raise SystemExit("ruleset_bundle: two parts have the same file name")
+        checked[p.name] = data
     compat, floor = pinned_compat(bundle_id, origins)
-    return sign_bundle.build(
-        key, bundle_id, [("ruleset", p, p.name) for p in parts], out,
-        description="Rule set(s) compiled and approved on another box, interim for the dry run (D-1369): "
-        + "; ".join(names),
-        release_seq=release_seq, min_installed_version=max(min_installed, floor), valid_days=valid_days,
-        compat=compat,
-    )  # fmt: skip
+    with tempfile.TemporaryDirectory(prefix="ruleset-bundle-") as tmp:  # mode 0700: this run's own copies
+        items = []
+        for name, data in checked.items():
+            copy = Path(tmp) / name
+            copy.write_bytes(data)
+            items.append(("ruleset", copy, name))
+        m = sign_bundle.build(
+            key, bundle_id, items, out,
+            description="Rule set(s) compiled and approved on another box, interim for the dry run (D-1369): "
+            + "; ".join(names),
+            release_seq=release_seq, min_installed_version=max(min_installed, floor), valid_days=valid_days,
+            compat=compat,
+        )  # fmt: skip
+    _signed_is_checked(out, m, checked)
+    return m
+
+
+def _signed_is_checked(out: Path, manifest: dict[str, Any], checked: dict[str, bytes]) -> None:
+    """Each part as packed in the bundle, and as its signed manifest records it, is the part that was checked; else
+    the bundle is removed and the build refused."""
+    recorded = {f["path"]: f["sha256"] for f in manifest["files"]}
+    with tarfile.open(out) as tf:
+        packed = {}
+        for name in checked:
+            fh = tf.extractfile(f"files/{name}")
+            packed[name] = hashlib.sha256(fh.read() if fh else b"").hexdigest()
+    for name, data in checked.items():
+        want = hashlib.sha256(data).hexdigest()
+        if recorded.get(name) != want or packed[name] != want:
+            out.unlink(missing_ok=True)
+            raise SystemExit(
+                f"ruleset_bundle: {name} changed between its check and the signature (checked sha256 {want[:12]}, "
+                f"signed {str(recorded.get(name))[:12]}, packed {packed[name][:12]}); no bundle was written"
+            )
 
 
 def pinned_compat(bundle_id: str, origins: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:

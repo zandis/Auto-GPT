@@ -301,16 +301,26 @@ administrator's token for scripts is `deploy/secrets/services/operator.token` (h
 Until the coordinating centre's study package exists, a study compiled and approved on the head box reaches a
 screen-only site box in a vendor bundle:
 
-1. On the head box: `python -m criteria_compiler.export_part <ID> --out <ID>-<version>.part.zip --installed
-   installed.json` (in the criteria compiler's container; audited `approve.part_exported`). The part carries criteria
-   and codes only: no routing, scope, approver, reviewer, IRB record, site code table, file off the list or comment.
+1. On the head box, in `deploy/`: `docker compose exec criteria-compiler python -m criteria_compiler.export_part <ID>
+   --out /data/objects/<ID>-<version>.part.zip --release "<bundle id> (release_seq N)"` (the bundle id and
+   release_seq of `tools/apply_update.sh status`; audited `approve.part_exported`), then `docker compose cp
+   criteria-compiler:/data/objects/<ID>-<version>.part.zip .`. The container does not mount `deploy/updates` and
+   its root is read-only, so `--installed` and a relative `--out` do not work there: `/data/objects` is the volume
+   it mounts read-write (`objects-data`). The command prints the part's `part_sha256`: send it with the part. The
+   part carries criteria and codes only: no routing, scope, approver, reviewer, IRB record, site code table, file off
+   the list or comment.
 2. The vendor: `python -m tools.ruleset_bundle --key <vendor key> --id <id> --release-seq <N> --out <bundle>.tar
    <part>`. **A rule-set bundle uses one number of the vendor's `release_seq`**, like a release: the next release
    takes the number after it. It is valid 30 days (`--valid-days`, at most 90).
-3. On the site box, once, before the bundle: the site's own routing and screening scope for the study,
-   `python -m criteria_compiler.import_ruleset --site-profile <ID> <file>` (a YAML file with `routing` and `scopes`
-   only; the example profile shipped with the box does not count; audited `approve.site_profile_set`). Without them
-   the bundle is refused and rolled back.
+3. On the site box, before each bundle, for the version it carries: the site's own routing and screening scope
+   for the study, and the one version it accepts, in `deploy/`: `docker compose exec -T criteria-compiler python -m
+   criteria_compiler.import_ruleset --site-profile <ID> - --version <version> --part-sha256 <part_sha256> <
+   <profile.yaml>` (a YAML file with `routing` and `scopes` only; the example profile shipped with the box does not
+   count; the hash from the vendor's release note, which may be left out; audited `approve.site_profile_set`, who,
+   the rule set, the version and the hash). Without it, or for another version or hash of the id, the bundle is
+   refused and rolled back, and the refusal (en, ja, zh-TW) prints this command for the version it carries: a new
+   version never screens until a person at the site runs it. A profile written before the profile named a version
+   accepts no version.
 4. `sudo tools/apply_update.sh <bundle>.tar` as for any update. The box keeps the release it runs (`apply_update.sh
    status` shows it as `release (code)`); the console lists the study as "arrived in a vendor bundle (interim)".
 

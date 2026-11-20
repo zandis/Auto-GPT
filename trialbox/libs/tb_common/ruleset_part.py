@@ -43,7 +43,8 @@ A part is a zip of the ``import_ruleset`` form (one folder ``<ID>/``) with one m
   release is the same part, byte for byte (the export's time is the audit event's). Every field is checked against a
   strict form, and the pins against the manifest's (:func:`check_origin`).
 * **Not a local approval.** The receiving box takes its own ``routing`` and ``scopes`` for the study, set with
-  ``import_ruleset --site-profile`` (audited; the import refuses without them), records the approval tag with
+  ``import_ruleset --site-profile`` for the one version it accepts (audited; the import refuses without them, and
+  any other version or hash), records the approval tag with
   :data:`ARRIVED_MARK`, and lists it as "arrived in a vendor bundle (interim)".
 * **Bounded.** A JSON or YAML file nested deeper than :data:`MAX_DEPTH` is refused before it is parsed.
 

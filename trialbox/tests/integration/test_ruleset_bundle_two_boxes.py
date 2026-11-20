@@ -127,7 +127,8 @@ def test_a_rule_set_from_the_head_box_screens_the_same_on_the_site_box(
     site_repo = RulesetRepo(tmp_path / "site" / "repo")
     shipped = yaml.safe_load(site_repo.read("main", "profiles/GZQO.yaml") or b"")
     own = {"routing": shipped["routing"], "scopes": shipped["scopes"]}  # the operator's own file, the same people
-    put_site_profile(site_repo, "GZQO", yaml.safe_dump(own).encode(), "operator", audit=AuditLog(tmp_path / "s-audit"))
+    put_site_profile(site_repo, "GZQO", yaml.safe_dump(own).encode(), "operator", version="1.0.1",
+                     part_sha256=origin["part_sha256"], audit=AuditLog(tmp_path / "s-audit"))  # fmt: skip
     box = ScreenOnlyBox(tmp_path / "site" / "repo", AuditLog(tmp_path / "update-audit"))
     assert apply_bundle(tmp_path / "rs.tar", pub, box, updates, tmp_path / "stage")["ok"]
     assert arrived_in_bundle(tmp_path / "site" / "repo", "GZQO", "1.0.1")

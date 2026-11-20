@@ -486,6 +486,21 @@ def rulesets_tag(bundle_id: str) -> str:
     return f"refs/tags/trialbox-update/{safe}-before"
 
 
+def ruleset_line(file: str, out: str | dict[str, Any] | None) -> str:
+    """D-1369 (10D-28, the review's N2): one rule-set zip's result as the step and ``update.applied`` name it: the id
+    and version, and whether it was imported or already present (a repeat: nothing changed), from the import's last
+    output line (``criteria_compiler.import_ruleset``) or its result."""
+    try:
+        res = out if isinstance(out, dict) else _last_json(out if isinstance(out, str) else "")
+    except ValueError:  # not JSON (a stand-in run in a test, an older import): the file name alone
+        res = {}
+    rid, version = res.get("ruleset"), res.get("version")
+    if not rid or not version or "imported" not in res:
+        return f"{file}: imported (no result line read)"
+    what = "imported" if res["imported"] else "already present, nothing changed"
+    return f"{rid} v{version}: {what} ({file})"
+
+
 def _last_json(out: str) -> dict[str, Any]:
     lines = [ln for ln in out.splitlines() if ln.strip()]
     if not lines:
@@ -801,8 +816,10 @@ class Updater:
             enter("rulesets")
             rulesets = getattr(self.box, "rulesets", None)
             done = rulesets(plan) if rulesets is not None else self.box.post_apply(plan)
-            step("rulesets", True, f"{len(done)} imported")
-            imported = list(done)  # D-1369: named in update.applied
+            present = sum("already present" in d for d in done)  # D-1369 (N2): a repeat is said as such
+            step("rulesets", True, f"{len(done) - present} imported, {present} already present"
+                 + (f": {'; '.join(done)}" if done else ""))  # fmt: skip
+            imported = list(done)  # D-1369: named in update.applied, each with its id, version and result
             enter("check")
             step("check", True, self.box.check(plan))
         except (Exception, KeyboardInterrupt) as exc:  # Ctrl-C rolls back too; kill -9 leaves the marker
@@ -1683,14 +1700,14 @@ class ComposeBox(_DockerImages):
             # is removed (review D3)
             self._rm_run(RULESET_RUN)
             try:
-                self.run(self._c("run", "--rm", "--no-deps", "-T", "--name", RULESET_RUN,
-                                 "-v", f"{z.resolve()}:/in/ruleset.zip:ro",
-                                 "criteria-compiler", "python", "-m", "criteria_compiler.import_ruleset",
-                                 "/in/ruleset.zip", "--by", f"update:{plan.bundle_id}"))  # fmt: skip
+                out = self.run(self._c("run", "--rm", "--no-deps", "-T", "--name", RULESET_RUN,
+                                       "-v", f"{z.resolve()}:/in/ruleset.zip:ro",
+                                       "criteria-compiler", "python", "-m", "criteria_compiler.import_ruleset",
+                                       "/in/ruleset.zip", "--by", f"update:{plan.bundle_id}"))  # fmt: skip
             except (UpdateFailed, subprocess.TimeoutExpired):
                 self._rm_run(RULESET_RUN)
                 raise
-            done.append(z.name)
+            done.append(ruleset_line(z.name, out))  # D-1369 (N2): id, version, imported or already present
         return done
 
     def refdata(self, plan: Plan) -> list[str]:

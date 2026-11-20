@@ -108,6 +108,9 @@
    tag, an approval that names nobody here (a seeded example, also on a DEV box where it loads), and **any version
    that arrived in an update**. It is audited on the head box, before the part is handed out, as
    **`approve.part_exported`** (who, when, the rule set and version, `part_sha256`, the file count, the release).
+   **Whose approval** (the fourth review): the export takes any approval the compiler recorded on this box at the
+   tag; it does not check that the approver was the PI or the study's steward. The product's approval model has no
+   such check at the tag (the compiler's approval is the approval), and this card adds none.
    **The approval family** carries both events of this card: the criteria compiler, which runs the export and the
    site-profile command, writes `ai`, `approve`, `compile`, `ctgov` and `llm` (`audit_writer.ROLE_EVENTS`, unchanged);
    a `ruleset` family would be written by a role that may not write it, and the journal would mark each event
@@ -118,6 +121,10 @@
    vendor key; no new key type, no new payload kind, no schema change). It is valid 30 days by default, at most 90 (a
    release bundle: a year). A rule-set bundle takes one number of the vendor's `release_seq` (runbook §5). Beside a
    release, a part rides in `tools/make_bundle.sh --rulesets DIR` as any rule set zip; that script is unchanged.
+   **The bytes signed are the bytes checked** (the fourth review, N1): each part is read once, checked, and handed
+   to `sign_bundle.build` as a copy in a private folder of the run; after the build each packed member is read back
+   from the bundle, and it and the sha256 the signed manifest records must equal the checked bytes, else the bundle
+   is removed and refused. `tools/sign_bundle.py` is unchanged.
 3. **Verify and apply.** `tools/apply_update.sh` unchanged: the signature, release_seq and every payload's sha256
    first; then the update path. Before writing anything, `import_ruleset` checks a part
    (`tb_common.ruleset_part.open_part`): every zip member is in `<ID>/` or is `ORIGIN.json`; every record field has
@@ -132,21 +139,38 @@
    again is a no-op only when its tag holds the same `part_sha256`, else refused (a local approval or a shipped
    example of that version included: the dry run uses a new id or version). Any refusal rolls the update back
    (`update.rolled_back`); nothing is tagged.
-4. **The receiving site's own routing and scope.** The part has none, and a rule set from another box must never
-   screen and send on another site's people or scope. The import takes `routing` and `scopes` only from a profile the
-   receiving site set itself: `python -m criteria_compiler.import_ruleset --site-profile <ID> FILE` writes
-   `profiles/<ID>.yaml` (routing and scopes only: any other key is refused; checked against the manifest schema) and
-   beside it `profiles/<ID>.site-set.json`, which records that file's sha256. The example `profiles/<ID>.yaml` a box
-   ships with has no such record, and a profile changed by hand since no longer matches it: both are refused, as is a
-   missing `routing.list_to` or `scopes.screen`, naming the command. The command writes **`approve.site_profile_set`**
-   (who, when, the rule set, the profile's sha256) **before** the profile: when the audit write fails, nothing is
-   written. The command is a host command (run on the box's host, not through the console); its actor is `host:<user>` from
+4. **The receiving site's own routing and scope, and the one version it accepts.** The part has none, and a rule
+   set from another box must never screen and send on another site's people or scope. The import takes `routing` and
+   `scopes` only from a profile the receiving site set itself: `python -m criteria_compiler.import_ruleset
+   --site-profile <ID> FILE --version <version> [--part-sha256 <hash>]` (FILE `-`: standard input, as the compiler's
+   container does not mount the host's files) writes `profiles/<ID>.yaml` (routing and scopes only: any other key is
+   refused; checked against the manifest schema) and beside it `profiles/<ID>.site-set.json`, which records that
+   file's sha256, **the version the site accepts and, when the operator gave it, the part's sha256** (as the export
+   prints it and the vendor's release note carries it); `--version` is required. The import installs a part only
+   when its version is that version, and its hash that hash when one was given (the fourth review, S2): a later
+   version of the same id, or another part of the version, is refused, the update rolls back, nothing is tagged, and
+   the refusal (en, ja and zh-TW in one text, as the operator's terminal and `update.rolled_back` hold one) gives the
+   exact host command that accepts that part: `docker compose exec -T criteria-compiler python -m
+   criteria_compiler.import_ruleset --site-profile <ID> - --version <version> --part-sha256 <its hash> <
+   <profile.yaml>`, after comparing the hash with the vendor's release note. So **every version that can screen
+   patients here had one act by a person at the site.** The example `profiles/<ID>.yaml` a box ships with has no
+   such record, and a profile changed by hand since no longer matches it: both are refused, as is a missing
+   `routing.list_to` or `scopes.screen`, naming the command. **A profile of the first form** (a mark without a
+   version, `trialbox-site-profile/1`, written by this card's earlier form) accepts no version: refused, saying so,
+   with the command. This is an interim path for the dry run, and no site has such a profile, so nothing is migrated.
+   The command writes **`approve.site_profile_set`** (who, when, the rule set, the version, the part's sha256 when
+   given, the profile's sha256) **before** the profile: when the audit write fails, nothing is written. `update.rolled_back`
+   keeps the first 500 characters of the failure (unchanged): on a container box that is the start of the command
+   line and of the import's last output, not the whole text in three languages. The command is a host command (run on the box's host, not through the console); its actor is `host:<user>` from
    `getpass.getuser()` (the user variable, else the passwd entry), or `--by`; with neither a user variable nor a
    passwd entry it does not crash and writes `host:unknown`. The installed manifest is the part's with the site's routing and scopes.
 5. **The tag and the audit.** The tag of an installed part reads `<ID>/v<version> (offline update, update:<bundle>);
    arrived in a vendor bundle (interim): update:<bundle>; compiled and approved on another box, release <bundle id>
-   (release_seq N, commit C), its tag <ID>/v<version>; part sha256 <hash>`, built from checked fields only.
-   `update.applied` names the rule sets imported (field `rulesets`), beside the files it already listed.
+   (release_seq N, commit C), its tag <ID>/v<version>; part sha256 <hash>`, built from checked fields only. That tag
+   counts as an approval (D-640), which is why the import asks for the site's act on the version first (item 4).
+   The step `rulesets` and `update.applied` (field `rulesets`, beside the files it already listed) name each zip's
+   rule set, version and result, imported or already present (the same part again: nothing changed), as
+   `GZQO v1.0.1: imported (GZQO-1.0.1.part.zip)`, from the import's own output line (the fourth review, N2).
 6. **The box's release stays.** A bundle of rule-set parts only writes `installed.json` with its own bundle id and
    release_seq, and keeps the commit, `dirty`, `rehearsal` and `vuln_mode` of the release it rides on, and that
    release's bundle id as `release_bundle_id` (the code identity, H-19, reads the commit); `apply_update.sh status`
@@ -177,6 +201,15 @@
    compiler already writes; signing is the vendor's;
    applying is the existing `apply_update.sh` act of the operator. The part holds criteria and codes only; it reads
    no patient data.
+
+## What an arrived rule set can do before anyone at the site acts
+
+Nothing. A part installs only when its version (and its hash, when the site named one) is the one the site accepted
+with `--site-profile` (item 4); until then the update is refused and rolled back, no tag is written, and no screen,
+after-ingest run or mail uses it. Once a person at the site has accepted that version and the operator has applied
+the bundle, its tag counts as an approval (D-640): the next MICROBATCH and after-ingest runs screen with it and the
+mail goes to the routing the site set. A later version of the same id needs the site's act again. A version already
+installed stays installed and screening when the site accepts another (a part never goes back, item 3).
 
 ## What travels (for the owner to rule on)
 
@@ -252,6 +285,13 @@ directly can be valid longer. This predates the card and is not changed by it.
   written before the profile and a failed audit writes nothing; a re-export is the same part and installs as a
   repeat; the record's pins must be the manifest's; deep JSON and YAML are refused; `--release` takes no free words;
   `population.notes` stays and `source_last_update` is a date.
+  The fourth review: a second version of the id without a new act at the site is refused (en, ja, zh-TW, with the
+  command), the update rolls back and the first stays; once accepted the same bundle installs it, and
+  `approve.site_profile_set` names who, the id, the version and the hash; a hash the site did not accept is refused
+  and the accepted one installs; a profile of the first form accepts no version; `--site-profile` needs `--version`
+  and reads standard input; a repeat is said and recorded as "already present" with id and version, from the line the
+  import prints; a part swapped on disk after its check is not what the bundle holds, and a file changed between the
+  check and the signature refuses the build and leaves no bundle.
   Also: the bundle's compatibility table carries the part's terminology release and the compiling release as its
   floor, and the verifier refuses a box on another vocabulary release or an older release; the import refuses a part
   whose terminology release is not the box's.

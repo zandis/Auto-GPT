@@ -28,7 +28,13 @@ from typing import Any
 import pytest
 import yaml
 from criteria_compiler.export_part import ExportRefused, compiled_on, export
-from criteria_compiler.import_ruleset import ImportRefused, box_pins_problem, install, put_site_profile
+from criteria_compiler.import_ruleset import (
+    ImportRefused,
+    box_pins_problem,
+    install,
+    install_outcome,
+    put_site_profile,
+)
 from criteria_compiler.repo import RulesetRepo
 from tb_common.audit import AuditLog
 from tb_common.ruleset import arrived_in_bundle, load_approved
@@ -36,7 +42,7 @@ from tb_common.ruleset_part import ARRIVED_MARK, ORIGIN, PartRefused, build_part
 
 from tests.rulesets_guard import approve_at_site, copy_rulesets
 from tools import ruleset_bundle, sign_bundle
-from tools.trialbox.update import Plan, UpdateFailed, Updater
+from tools.trialbox.update import Plan, UpdateFailed, Updater, ruleset_line
 from tools.verify_update import Rejected, summary, verify
 
 HEAD_RELEASE = {"format": "trialbox-installed/1", "release_seq": 3, "bundle_id": "2026.11-1",
@@ -81,10 +87,10 @@ class ScreenOnlyBox:
         done = []
         rs = plan.kind("ruleset")
         for z in sorted(rs.rglob("*.zip")) if rs.is_dir() else []:
-            install(
+            res = install_outcome(
                 RulesetRepo(self.repo_dir), z.read_bytes(), f"update:{plan.bundle_id}", pins_problem=box_pins_problem
             )
-            done.append(z.name)
+            done.append(ruleset_line(z.name, res))  # as ComposeBox.rulesets reads the import's output line
         return done
 
     def post_apply(self, plan: Plan) -> list[str]:
@@ -102,7 +108,7 @@ class ScreenOnlyBox:
 
 def apply_bundle(bundle: Path, pub: Path, box: ScreenOnlyBox, updates: Path, stage: Path) -> dict[str, Any]:
     """What ``tools/apply_update.sh`` does with the bundle: verify and stage, then the update path."""
-    m = verify(bundle, pub, stage, installed_file=updates / "installed.json")
+    m = verify(bundle, pub, stage, trust_file=updates / "trust.json", installed_file=updates / "installed.json")
     return Updater(box, updates, say=lambda _s: None).run(Plan.load(stage, summary(m)))
 
 
@@ -157,14 +163,23 @@ def make_part(head: RulesetRepo, out: Path) -> Path:
     return out
 
 
-def site_box(tmp_path: Path, profile: bool = True, keep: tuple[str, ...] = ()) -> tuple[ScreenOnlyBox, Path]:
-    """A site box without GZQO (unless ``keep`` names it), with its own routing and scope for it when ``profile``."""
+def accept(repo_dir: Path, version: str, part_sha256: str | None = None, by: str = "operator") -> str:
+    """The site's act (``--site-profile``): its own routing and scope for GZQO, accepting ``version`` (and the part's
+    hash when given)."""
+    return put_site_profile(RulesetRepo(repo_dir), "GZQO", yaml.safe_dump(SITE_PROFILE).encode(), by,
+                            version=version, part_sha256=part_sha256,
+                            audit=AuditLog(repo_dir.parent / "site-audit"))  # fmt: skip
+
+
+def site_box(tmp_path: Path, profile: bool = True, keep: tuple[str, ...] = (),
+             version: str = "1.0.0") -> tuple[ScreenOnlyBox, Path]:  # fmt: skip
+    """A site box without GZQO (unless ``keep`` names it), with its own routing and scope for it, accepting
+    ``version``, when ``profile``."""
     seed = copy_rulesets(tmp_path / "site-seed", *(() if "GZQO" in keep else ("GZQO",)), "GZQO.yaml")
-    repo = RulesetRepo(tmp_path / "site", seed)
+    RulesetRepo(tmp_path / "site", seed)
     approve_at_site(tmp_path / "site", by="pi@site.test")
     if profile:
-        put_site_profile(repo, "GZQO", yaml.safe_dump(SITE_PROFILE).encode(), "operator",
-                         audit=AuditLog(tmp_path / "site-audit"))  # fmt: skip
+        accept(tmp_path / "site", version)
     updates = tmp_path / "updates"
     updates.mkdir()
     (updates / "installed.json").write_text(json.dumps({**HEAD_RELEASE, "commit": "b" * 40}))
@@ -323,7 +338,7 @@ def test_the_site_box_installs_it_as_approved_elsewhere(
         assert words in msg, words
     assert PLANTED[0] not in msg
     applied = [e for e in audit_events(tmp_path / "audit") if e["event"] == "update.applied"]
-    assert len(applied) == 1 and applied[0]["detail"]["rulesets"] == ["GZQO.part.zip"]
+    assert len(applied) == 1 and applied[0]["detail"]["rulesets"] == ["GZQO v1.0.0: imported (GZQO.part.zip)"]
     assert applied[0]["detail"]["files"][0]["kind"] == "ruleset"
     inst = json.loads((updates / "installed.json").read_text())
     assert inst["release_seq"] == 4 and inst["bundle_id"] == "2026.11-1-rs1"
@@ -344,7 +359,7 @@ def test_without_the_sites_own_routing_and_scope_it_is_refused(
     box, updates = site_box(tmp_path, profile=False)
     part = make_part(head, tmp_path / "GZQO.part.zip")
     ruleset_bundle.build(priv, "2026.11-1-rs1", [part], tmp_path / "rs.tar", release_seq=4)
-    with pytest.raises(UpdateFailed, match="no routing .* of its own for GZQO.*--site-profile GZQO"):
+    with pytest.raises(UpdateFailed, match="no routing .* of its own for GZQO.*--site-profile GZQO - --version 1.0.0"):
         apply_bundle(tmp_path / "rs.tar", pub, box, updates, tmp_path / "stage")
     assert "GZQO/v1.0.0" not in RulesetRepo(tmp_path / "site").tags()
 
@@ -417,7 +432,7 @@ def test_the_import_refuses_a_part_whose_pins_do_not_stand_on_the_box(
     """Review 2, item 2: a box that records no vocabulary release still refuses at import, before anything is written."""
     from criteria_compiler.terminology import resolver
 
-    box, _updates = site_box(tmp_path)
+    box, _updates = site_box(tmp_path, version="1.0.1")
     part = _versioned(head, "1.0.1", tmp_path / "p.zip", terminology="TR-0123456789ab").read_bytes()
     monkeypatch.setattr(resolver, "current_release", lambda: "TR-ba9876543210")
     with pytest.raises(ImportRefused, match="compiled against terminology release TR-0123456789ab; this box resolves "
@@ -430,7 +445,7 @@ def test_the_import_refuses_a_part_whose_pins_do_not_stand_on_the_box(
 
 def test_a_part_never_goes_back_or_replaces_other_content(head: RulesetRepo, tmp_path: Path) -> None:
     """S3, and the reviewer's note: a box holding the shipped GZQO v1.0.0 refuses a part of v1.0.0."""
-    box, _updates = site_box(tmp_path)
+    box, _updates = site_box(tmp_path, version="1.1.0")
     repo = RulesetRepo(box.repo_dir)
     assert install(repo, _versioned(head, "1.1.0", tmp_path / "p11.zip").read_bytes(), "update:a") == "GZQO/v1.1.0"
     with pytest.raises(ImportRefused, match="older than the approved GZQO v1.1.0"):
@@ -766,7 +781,7 @@ def test_s3_the_shipped_example_profile_is_no_site_profile(head: RulesetRepo, tm
     part = make_part(head, tmp_path / "p.zip").read_bytes()
     with pytest.raises(ImportRefused, match="an example profile shipped with the box does not count"):
         install(repo, part, "update:e")
-    put_site_profile(repo, "GZQO", yaml.safe_dump(SITE_PROFILE).encode(), "operator", audit=AuditLog(tmp_path / "a"))
+    accept(tmp_path / "s", "1.0.0")
     edited = {p[len("profiles/") :]: b for p, b in repo.files("main", "profiles/").items()}
     edited["GZQO.yaml"] = edited["GZQO.yaml"].replace(b"pi@site.test", b"someone@else.test")
     repo.write_dir("main", "main", "profiles/", edited, "hand edit")
@@ -787,18 +802,19 @@ def test_s4_the_site_profile_is_audited_first(tmp_path: Path, site_env: None) ->
             raise OSError("the audit cannot be written")
 
     with pytest.raises(OSError, match="cannot be written"):
-        put_site_profile(repo, "GZQO", body, "operator", audit=Broken())
+        put_site_profile(repo, "GZQO", body, "operator", version="1.0.0", audit=Broken())
     assert repo.read("main", "profiles/GZQO.yaml") is None and repo.read("main", "profiles/GZQO.site-set.json") is None
     audit = AuditLog(tmp_path / "audit")
-    sha = put_site_profile(repo, "GZQO", body, "operator", audit=audit)
+    sha = put_site_profile(repo, "GZQO", body, "operator", version="1.0.0", audit=audit)
     (ev,) = [e for e in audit_events(tmp_path / "audit") if e["event"] == "approve.site_profile_set"]
     assert (ev["actor"], ev["ruleset"], ev["input_sha"]) == ("operator", "GZQO", sha) and ev["ts"]
+    assert ev["detail"]["version"] == "1.0.0" and ev["detail"]["part_sha256"] is None
     import hashlib
 
     assert hashlib.sha256(repo.read("main", "profiles/GZQO.yaml") or b"").hexdigest() == sha
     with pytest.raises(ImportRefused, match="holds thresholds, title: it sets routing and scopes only"):
         put_site_profile(repo, "GZQO", yaml.safe_dump({**SITE_PROFILE, "thresholds": {}, "title": "x"}).encode(),
-                         "operator", audit=audit)  # fmt: skip
+                         "operator", version="1.0.0", audit=audit)  # fmt: skip
 
 
 def test_the_seeded_tag_is_refused_even_where_a_seeded_approval_loads(
@@ -955,10 +971,12 @@ def test_recheck_the_site_profile_names_the_person_who_ran_it(
     monkeypatch.setattr(getpass, "getuser", lambda: "opsuser")
     prof = tmp_path / "profile.yaml"
     prof.write_text(yaml.safe_dump(SITE_PROFILE), encoding="utf-8")
-    assert import_ruleset.main(["--site-profile", "GZQO", str(prof)]) == 0
+    assert import_ruleset.main(["--site-profile", "GZQO", str(prof), "--version", "1.0.0"]) == 0
     (ev,) = [e for e in audit_events(tmp_path / "audit") if e["event"] == "approve.site_profile_set"]
     assert ev["actor"] == "host:opsuser"
-    assert import_ruleset.main(["--site-profile", "GZQO", str(prof), "--by", "named.operator"]) == 0
+    assert (
+        import_ruleset.main(["--site-profile", "GZQO", str(prof), "--version", "1.0.0", "--by", "named.operator"]) == 0
+    )
     assert [e["actor"] for e in audit_events(tmp_path / "audit") if e["event"] == "approve.site_profile_set"] == [
         "host:opsuser", "named.operator"]  # fmt: skip
 
@@ -966,7 +984,7 @@ def test_recheck_the_site_profile_names_the_person_who_ran_it(
         raise KeyError("getpwuid(): uid not found: 4242")
 
     monkeypatch.setattr(getpass, "getuser", _no_user)  # no user variable, no passwd entry: no crash
-    assert import_ruleset.main(["--site-profile", "GZQO", str(prof)]) == 0
+    assert import_ruleset.main(["--site-profile", "GZQO", str(prof), "--version", "1.0.0"]) == 0
     assert [e["actor"] for e in audit_events(tmp_path / "audit") if e["event"] == "approve.site_profile_set"][-1] == (
         "host:unknown"
     )
@@ -986,3 +1004,209 @@ def test_recheck_a_repeat_is_the_tags_own_hash_field_only(head: RulesetRepo, tmp
     repo.tag("GZQO/v1.0.0", "main", f"GZQO/v1.0.0 (offline update, part sha256 {h} by someone); approved here")
     with pytest.raises(ImportRefused, match="already exists on this box with other content"):
         install(repo, part, "update:x")
+
+
+# ------------------------------------------------------------------------------------------------ the fourth review
+def _bundle(priv: Path, part: Path, out: Path, seq: int) -> Path:
+    ruleset_bundle.build(priv, out.stem, [part], out, release_seq=seq)
+    return out
+
+
+def test_s2_a_second_version_without_a_new_site_act_is_refused_and_rolled_back(
+    head: RulesetRepo, keys: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """S2: the site accepted v1.0.0; v1.0.1 of the same id, in a later bundle, is refused (en, ja, zh-TW, with the
+    command that accepts it), the update rolls back and v1.0.0 stays what screens; once the site accepts v1.0.1 the
+    same bundle installs it."""
+    priv, pub = keys
+    box, updates = site_box(tmp_path)
+    first = _bundle(priv, make_part(head, tmp_path / "p1" / "GZQO.part.zip"), tmp_path / "rs1.tar", 4)
+    assert apply_bundle(first, pub, box, updates, tmp_path / "stage1")["ok"]
+    part = _versioned(head, "1.0.1", tmp_path / "p2" / "GZQO.part.zip")
+    h = open_part(part.read_bytes())[3]["part_sha256"]
+    second = _bundle(priv, part, tmp_path / "rs2.tar", 5)
+    with pytest.raises(UpdateFailed) as exc:
+        apply_bundle(second, pub, box, updates, tmp_path / "stage2")
+    text = str(exc.value)
+    assert "GZQO v1.0.1 is not the version this site accepted (its site profile accepts v1.0.0)" in text
+    cmd = (f"docker compose exec -T criteria-compiler python -m criteria_compiler.import_ruleset --site-profile GZQO - "
+           f"--version 1.0.1 --part-sha256 {h} < <profile.yaml>")  # fmt: skip
+    assert cmd in text and "rolled back" in text
+    assert (
+        "ja: GZQO v1.0.1 は、この施設が受け入れた版ではありません" in text
+        and "zh-TW: GZQO v1.0.1 不是本院接受的版本" in text
+    )
+    site = RulesetRepo(tmp_path / "site")
+    assert "GZQO/v1.0.1" not in site.tags() and load_approved(tmp_path / "site", "GZQO").version == "1.0.0"
+    (rolled,) = [e for e in audit_events(tmp_path / "audit") if e["event"] == "update.rolled_back"]
+    assert "GZQO v1.0.1 is not the version this site accepted" in rolled["detail"]["error"]
+    assert json.loads((updates / "installed.json").read_text())["release_seq"] == 4
+
+    accept(tmp_path / "site", "1.0.1", h)  # the site's act for this version
+    assert apply_bundle(second, pub, box, updates, tmp_path / "stage3")["ok"]
+    assert load_approved(tmp_path / "site", "GZQO").version == "1.0.1"
+    sets = [e for e in audit_events(tmp_path / "site-audit") if e["event"] == "approve.site_profile_set"]
+    assert [(e["actor"], e["ruleset"], e["detail"]["version"], e["detail"]["part_sha256"]) for e in sets] == [
+        ("operator", "GZQO", "1.0.0", None), ("operator", "GZQO", "1.0.1", h)]  # fmt: skip
+
+
+def test_s2_a_hash_the_site_did_not_accept_is_refused(head: RulesetRepo, tmp_path: Path) -> None:
+    """S2: the site named the part's sha256 with the version: another part of that version is refused; the one it
+    named installs."""
+    part = make_part(head, tmp_path / "p.zip").read_bytes()
+    h = open_part(part)[3]["part_sha256"]
+    box, _updates = site_box(tmp_path, profile=False)
+    accept(box.repo_dir, "1.0.0", "0" * 64)
+    with pytest.raises(ImportRefused, match=f"GZQO v1.0.0 has part sha256 {h}, not the one this site accepted "
+                                            f"\\({'0' * 64}\\); nothing was installed"):  # fmt: skip
+        install(RulesetRepo(box.repo_dir), part, "update:x")
+    assert "GZQO/v1.0.0" not in RulesetRepo(box.repo_dir).tags()
+    accept(box.repo_dir, "1.0.0", h)
+    assert install(RulesetRepo(box.repo_dir), part, "update:x") == "GZQO/v1.0.0"
+
+
+def test_s2_a_profile_of_the_first_form_accepts_no_version(head: RulesetRepo, tmp_path: Path) -> None:
+    """S2: a profile written by the first form of ``--site-profile`` (a mark without a version) accepts nothing: the
+    part is refused, saying so and how to accept it."""
+    box, _updates = site_box(tmp_path, profile=False)
+    repo = RulesetRepo(box.repo_dir)
+    body = yaml.safe_dump(SITE_PROFILE, allow_unicode=True, sort_keys=False).encode()
+    import hashlib
+
+    current = {p[len("profiles/") :]: b for p, b in repo.files("main", "profiles/").items()}
+    current["GZQO.yaml"] = body
+    current["GZQO.site-set.json"] = json.dumps({"format": "trialbox-site-profile/1", "ruleset": "GZQO",
+                                                "sha256": hashlib.sha256(body).hexdigest()}).encode()  # fmt: skip
+    repo.write_dir("main", "main", "profiles/", current, "site profile GZQO (first form)")
+    part = make_part(head, tmp_path / "p.zip").read_bytes()
+    with pytest.raises(ImportRefused, match="the site profile for GZQO was written before a site profile named the "
+                                            "version it accepts, so it accepts no version of GZQO; nothing was "
+                                            "installed. To accept it.*--site-profile GZQO - --version 1.0.0"):  # fmt: skip
+        install(repo, part, "update:x")
+    assert "GZQO/v1.0.0" not in repo.tags()
+
+
+def test_s2_the_command_line_needs_the_version_and_reads_standard_input(
+    tmp_path: Path, site_env: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from types import SimpleNamespace
+
+    import tb_common.audit_writer
+    import tb_common.config
+    from criteria_compiler import import_ruleset
+
+    seed = copy_rulesets(tmp_path / "seed", "GZQO", "GZQO.yaml")
+    repo = RulesetRepo(tmp_path / "s", seed)
+    cfg = SimpleNamespace(env=SimpleNamespace(rulesets_path=tmp_path / "s", audit_path=tmp_path / "audit", tz="UTC"))
+    monkeypatch.setattr(tb_common.config, "load", lambda: cfg)
+    monkeypatch.setattr(tb_common.audit_writer, "open_audit", lambda path, _tz: AuditLog(path))
+    with pytest.raises(SystemExit) as exc:
+        import_ruleset.main(["--site-profile", "GZQO", "-"])
+    assert exc.value.code == 2 and "--site-profile needs --version" in capsys.readouterr().err
+    prof = tmp_path / "profile.yaml"
+    prof.write_text(yaml.safe_dump(SITE_PROFILE), encoding="utf-8")
+    assert import_ruleset.main(["--site-profile", "GZQO", str(prof), "--version", "1.0", "--by", "op"]) == 1
+    assert "is not a rule set version" in capsys.readouterr().err
+    assert import_ruleset.main(["--site-profile", "GZQO", str(prof), "--version", "1.0.1", "--part-sha256", "ABC",
+                                "--by", "op"]) == 1  # fmt: skip
+    assert "64 lowercase hexadecimal" in capsys.readouterr().err
+    assert repo.read("main", "profiles/GZQO.site-set.json") is None and not audit_events(tmp_path / "audit")
+    stdin = SimpleNamespace(buffer=io.BytesIO(yaml.safe_dump(SITE_PROFILE).encode()))
+    monkeypatch.setattr("sys.stdin", stdin)
+    assert import_ruleset.main(["--site-profile", "GZQO", "-", "--version", "1.0.1", "--by", "op"]) == 0
+    assert json.loads(capsys.readouterr().out)["version"] == "1.0.1"
+    mark = json.loads(repo.read("main", "profiles/GZQO.site-set.json") or b"")
+    assert (mark["format"], mark["version"], mark["part_sha256"]) == ("trialbox-site-profile/2", "1.0.1", None)
+
+
+def test_n2_a_repeat_is_said_and_recorded_as_already_present(
+    head: RulesetRepo, keys: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """N2: the same part in a later bundle changes nothing; the step and ``update.applied`` say "already present",
+    with the id and version, not "imported"."""
+    priv, pub = keys
+    box, updates = site_box(tmp_path)
+    part = make_part(head, tmp_path / "p" / "GZQO.part.zip")
+    assert apply_bundle(_bundle(priv, part, tmp_path / "rs1.tar", 4), pub, box, updates, tmp_path / "s1")["ok"]
+    said: list[str] = []
+    m = verify(_bundle(priv, part, tmp_path / "rs2.tar", 5), pub, tmp_path / "s2", trust_file=updates / "trust.json",
+               installed_file=updates / "installed.json")  # fmt: skip
+    assert Updater(box, updates, say=said.append).run(Plan.load(tmp_path / "s2", summary(m)))["ok"]
+    assert any("0 imported, 1 already present: GZQO v1.0.0: already present, nothing changed (GZQO.part.zip)" in s
+               for s in said), said  # fmt: skip
+    applied = [e["detail"]["rulesets"] for e in audit_events(tmp_path / "audit") if e["event"] == "update.applied"]
+    assert applied == [["GZQO v1.0.0: imported (GZQO.part.zip)"],
+                       ["GZQO v1.0.0: already present, nothing changed (GZQO.part.zip)"]]  # fmt: skip
+
+
+def test_n2_the_container_box_reads_the_imports_result_line(
+    head: RulesetRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """N2: ``ComposeBox.rulesets`` reads the import's last output line: the line ``main`` prints for a part imported
+    and for the same part again."""
+    from types import SimpleNamespace
+
+    import tb_common.config
+    from criteria_compiler import import_ruleset
+
+    box, _updates = site_box(tmp_path)
+    part = make_part(head, tmp_path / "GZQO.part.zip")
+    cfg = SimpleNamespace(env=SimpleNamespace(rulesets_path=box.repo_dir), settings=SimpleNamespace(thresholds=None))
+    monkeypatch.setattr(tb_common.config, "load", lambda: cfg)
+    monkeypatch.setattr(import_ruleset, "box_pins_problem", lambda _m: None)
+    assert import_ruleset.main([str(part), "--by", "update:x"]) == 0
+    assert ruleset_line("GZQO.part.zip", capsys.readouterr().out) == "GZQO v1.0.0: imported (GZQO.part.zip)"
+    assert import_ruleset.main([str(part), "--by", "update:y"]) == 0
+    out = capsys.readouterr().out
+    assert json.loads(out)["already_present"] is True
+    assert ruleset_line("GZQO.part.zip", out) == "GZQO v1.0.0: already present, nothing changed (GZQO.part.zip)"
+    assert ruleset_line("x.zip", "") == "x.zip: imported (no result line read)"
+
+
+def test_n1_the_bundle_holds_the_bytes_that_were_checked(
+    head: RulesetRepo, keys: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """N1: the part file swapped on disk right after its check: the bundle holds (and its manifest records) the bytes
+    that were checked, not the swapped file."""
+    import hashlib
+
+    import tb_common.ruleset_part as rp
+
+    priv, pub = keys
+    part = make_part(head, tmp_path / "GZQO.part.zip")
+    checked = part.read_bytes()
+    real = rp.open_part
+
+    def open_then_swap(data: bytes) -> Any:
+        out = real(data)
+        part.write_bytes(b"PK swapped after the check")
+        return out
+
+    monkeypatch.setattr(rp, "open_part", open_then_swap)
+    m = ruleset_bundle.build(priv, "rs1", [part], tmp_path / "rs.tar", release_seq=4)
+    assert m["files"][0]["sha256"] == hashlib.sha256(checked).hexdigest()
+    with tarfile.open(tmp_path / "rs.tar") as tf:
+        fh = tf.extractfile("files/GZQO.part.zip")
+        assert fh is not None and fh.read() == checked
+    assert verify(tmp_path / "rs.tar", pub, installed_file=head_installed(tmp_path))["bundle_id"] == "rs1"
+
+
+def test_n1_a_part_changed_between_its_check_and_the_signature_is_refused(
+    head: RulesetRepo, keys: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """N1: whatever reaches ``sign_bundle.build`` is compared after the build with the checked bytes: a file changed
+    in between refuses the build and leaves no bundle."""
+    priv, _pub = keys
+    part = make_part(head, tmp_path / "GZQO.part.zip")
+    real = sign_bundle.build
+
+    def build_a_changed_file(key: Path, bundle_id: str, items: list[tuple[str, Path, str]], out: Path,
+                             **kw: Any) -> dict[str, Any]:  # fmt: skip
+        for _kind, src, _dest in items:
+            src.write_bytes(src.read_bytes() + b"\0")
+        return real(key, bundle_id, items, out, **kw)
+
+    monkeypatch.setattr(sign_bundle, "build", build_a_changed_file)
+    with pytest.raises(SystemExit, match="GZQO.part.zip changed between its check and the signature"):
+        ruleset_bundle.build(priv, "rs1", [part], tmp_path / "rs.tar", release_seq=4)
+    assert not (tmp_path / "rs.tar").exists()

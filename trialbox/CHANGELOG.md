@@ -69,8 +69,9 @@ new heading with the version and date, in the same pull request that sets the ve
   compiled it. The vendor signs it with
   the vendor key, alone (`python -m tools.ruleset_bundle`, valid 30 days, one number of the vendor's release
   sequence) or beside a release; `tools/apply_update.sh` installs it on a screen-only site box as any update, once the
-  site has set its own routing and scope for the study (`python -m criteria_compiler.import_ruleset --site-profile`,
-  audited; the example profile a box ships with does not count).
+  site has set its own routing and scope for the study and accepted the version it carries
+  (`python -m criteria_compiler.import_ruleset --site-profile ID FILE --version V [--part-sha256 H]`, audited; the
+  example profile a box ships with does not count; another version or hash is refused, with the command).
   The site box refuses a part whose record or content does not match its hash, an older version, or a version it
   holds with other content; names the rule set in `update.applied`; keeps the release it runs. Every rule set that
   arrived in an update is now listed as "arrived in a vendor bundle (interim): approved elsewhere, not on this box"
