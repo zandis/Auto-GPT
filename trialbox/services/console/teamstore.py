@@ -1147,8 +1147,13 @@ class TeamStore:
                              str(r[6])) for r in rows]  # fmt: skip
 
     # ------------------------------------------------------------------ 9f-3: the PI's cover (D-1383)
-    _COVER = ("id, ruleset, pi, pi_name, username, name, start_day, end_day, ended_on, ended_by, irb_told_on, "
-              "irb_told_by, start_logged_at, end_logged_at, by, at, entered_on, lapse_reason")  # fmt: skip
+    # literal statements, no SQL put together from strings (the S608 ratchet, tools/sql_from_strings.json)
+    _COVERS_SQL = ("SELECT id, ruleset, pi, pi_name, username, name, start_day, end_day, ended_on, ended_by, "
+                   "irb_told_on, irb_told_by, start_logged_at, end_logged_at, by, at, entered_on, lapse_reason "
+                   "FROM pi_cover WHERE ruleset = ? ORDER BY id")  # fmt: skip
+    _COVER_SQL = ("SELECT id, ruleset, pi, pi_name, username, name, start_day, end_day, ended_on, ended_by, "
+                  "irb_told_on, irb_told_by, start_logged_at, end_logged_at, by, at, entered_on, lapse_reason "
+                  "FROM pi_cover WHERE ruleset = ? AND id = ?")  # fmt: skip
 
     @staticmethod
     def _cover(r: tuple[Any, ...]) -> Cover:
@@ -1158,11 +1163,11 @@ class TeamStore:
 
     def covers(self, ruleset: str) -> list[Cover]:
         """The study's covers, oldest first (ended ones included: the record)."""
-        rows = self.db.fetchall(f"SELECT {self._COVER} FROM pi_cover WHERE ruleset = ? ORDER BY id", (ruleset,))
+        rows = self.db.fetchall(self._COVERS_SQL, (ruleset,))
         return [self._cover(r) for r in rows]
 
     def cover(self, ruleset: str, cid: int) -> Cover | None:
-        row = self.db.fetchone(f"SELECT {self._COVER} FROM pi_cover WHERE ruleset = ? AND id = ?", (ruleset, cid))
+        row = self.db.fetchone(self._COVER_SQL, (ruleset, cid))
         return self._cover(row) if row else None
 
     def rights(self, ruleset: str, username: str | None, day: date) -> LogRights:
@@ -1195,8 +1200,10 @@ class TeamStore:
             # one study's covers are checked and written under one lock (the SAE register's form, saerecord): two
             # requests at once never both find the days free
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"pi_cover:{ruleset}",))
-            entries = [_entry(r) for r in tx.fetchall(f"SELECT {_ENTRY} FROM delegation WHERE ruleset = ? ORDER BY id",
-                                                      (ruleset,))]  # fmt: skip
+            entries = [_entry(r) for r in tx.fetchall(
+                "SELECT id, ruleset, username, name, role, tasks, start_day, end_day, training_day, training_ref, "
+                "signed_by, signed_at, updated_by, updated_at FROM delegation WHERE ruleset = ? ORDER BY id",
+                (ruleset,))]  # fmt: skip
             pi = _pi_on(entries, today)
             if pi is None or not pi.username or pi.username != by:
                 raise TeamError("only the PI the study's log names enters a cover")
@@ -1206,7 +1213,7 @@ class TeamStore:
                 raise TeamError(
                     "the person who covers is a sub-investigator on this study's log for every day of the cover"
                 )
-            rows = tx.fetchall(f"SELECT {self._COVER} FROM pi_cover WHERE ruleset = ? ORDER BY id", (ruleset,))
+            rows = tx.fetchall(self._COVERS_SQL, (ruleset,))
             for c in (self._cover(r) for r in rows):
                 last = c.last_day()
                 if last and c.start <= e and s <= last:
@@ -1273,10 +1280,14 @@ class TeamStore:
         """Record once that a cover's ``start`` or ``end`` was written to the audit trail; ``before_commit`` (the
         audit event) runs inside the same transaction, so the mark is never kept without its event. True when this
         call made the mark."""
-        col = {"start": "start_logged_at", "end": "end_logged_at"}[edge]
+        sql = {
+            "start": "UPDATE pi_cover SET start_logged_at = ? WHERE ruleset = ? AND id = ? AND start_logged_at IS NULL "
+                     "RETURNING id",
+            "end": "UPDATE pi_cover SET end_logged_at = ? WHERE ruleset = ? AND id = ? AND end_logged_at IS NULL "
+                   "RETURNING id",
+        }[edge]  # fmt: skip
         with self.db.transaction() as tx:
-            row = tx.fetchone(f"UPDATE pi_cover SET {col} = ? WHERE ruleset = ? AND id = ? AND {col} IS NULL "
-                              "RETURNING id", (at, ruleset, cid))  # fmt: skip
+            row = tx.fetchone(sql, (at, ruleset, cid))
             if row is None:
                 return False
             if before_commit is not None:

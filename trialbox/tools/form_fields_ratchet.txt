@@ -3,6 +3,7 @@
 # against the tree (`tests/unit/test_form_fields_guard.py`): a new raw POST form fails until it is converted or its
 # template's line says why; a converted form lowers its line in the same pull request (9k-6b), and a line at 0 goes.
 # `python -m tools.form_fields --write` rewrites the counts from the tree and keeps each reason.
+_cover_card.html 3 9f-3 (D-1383): written before 9k-6a reached master (the cover, its early end, the IRB task); converted in 9k-6b
 _dataops_decide.html 1 before 9k-6a: converted journey by journey in 9k-6b
 _feedback.html 1 before 9k-6a: converted journey by journey in 9k-6b
 _icf_list.html 1 before 9k-6a: converted journey by journey in 9k-6b
@@ -38,6 +39,7 @@ enrol.html 1 before 9k-6a: converted journey by journey in 9k-6b
 excluded.html 1 before 9k-6a: converted journey by journey in 9k-6b
 feasibility.html 2 before 9k-6a: converted journey by journey in 9k-6b
 firstrun.html 3 before 9k-6a: converted journey by journey in 9k-6b
+home_crc.html 2 9f-3, 9f-5 (D-1383): written before 9k-6a reached master (a task's owner, the IRB task done); converted in 9k-6b
 identity_admin.html 3 before 9k-6a: converted journey by journey in 9k-6b
 instruments.html 1 before 9k-6a: converted journey by journey in 9k-6b
 job.html 2 before 9k-6a: converted journey by journey in 9k-6b
