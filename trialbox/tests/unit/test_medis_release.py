@@ -734,11 +734,12 @@ def test_user_defined_shift_jis_bytes_refuse_the_release(tmp_path: Path) -> None
 
 def test_a_table_of_too_many_rows_is_refused_within_bounded_memory(tmp_path: Path) -> None:
     """M6: a table of 16 MB of short rows (some tens of KB as a zip) was read into about forty times its size.
-    A member is at most 16 MB, a table at most 400,000 rows, read row by row; the rows not read are listed up to a
-    bound. The peak memory of the refusal is measured."""
+    A member is at most 16 MB, a table at most its own bound of rows (counted before a row is built), read row by
+    row; the rows not read are listed up to a bound. The peak memory of the refusal is measured."""
     import tracemalloc
 
-    assert (lic.RELEASE_MAX_FILE, lic.MAX_ROWS) == (16 * 1024 * 1024, 400_000)
+    assert lic.RELEASE_MAX_FILE == 16 * 1024 * 1024
+    assert lic.RELEASE_MAX_ROWS == {"medis": 60_000, "medis_modifier": 10_000, "medis_index": 250_000}
     line = b'"x"\r\n'
     hostile = line * (lic.RELEASE_MAX_FILE // len(line))
     source = _zip_with(tmp_path, "byomei987/main/nmain987.txt", hostile)
@@ -756,6 +757,63 @@ def test_a_table_of_too_many_rows_is_refused_within_bounded_memory(tmp_path: Pat
     with pytest.raises(lic.LicensedError) as exc:
         lic.check_release(over)
     assert exc.value.code == "LIC-RELEASE-SIZE"
+
+
+def _many_diseases(n: int) -> list[list[str]]:
+    return [_disease("0", f"8{i:07d}", f"試験性疾患{i}", "1", f"Y{i:04X}"[-4:].rjust(4, "A"), "J189") for i in range(n)]
+
+
+def test_a_valid_disease_table_at_its_bound_of_rows_stays_under_a_stated_peak(tmp_path: Path) -> None:
+    """M6, the valid table: 320,000 valid disease rows (14.5 MB, under every byte cap) peaked at about 665 MB in the
+    check. A disease table holds at most 60,000 rows (the real one 27,877): at the bound the check stays under
+    200 MB, and one row more is refused before a row is built."""
+    import tracemalloc
+
+    most = lic.RELEASE_MAX_ROWS["medis"]
+    rows = _many_diseases(most + 1)
+    at = _zip(tmp_path, _files(rows[:most]), "at.zip")
+    tracemalloc.start()
+    try:
+        report = lic.check_release(at)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert report["disease_rows"] == most
+    assert peak < 200 * 1024 * 1024, peak
+    over = _zip(tmp_path, _files(rows), "over.zip")
+    tracemalloc.start()
+    try:
+        with pytest.raises(lic.LicensedError) as exc:
+            lic.check_release(over)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert exc.value.code == "LIC-ROWS" and "nmain987.txt" in exc.value.message
+    assert peak < 40 * 1024 * 1024, peak  # the zip and the tables' bytes: no text, no row
+
+
+@pytest.mark.parametrize(("table", "name"), [("medis_modifier", "mdfy987.txt"), ("medis_index", "index987.txt")])
+def test_each_table_of_a_release_has_its_own_bound_of_rows(tmp_path: Path, table: str, name: str) -> None:
+    files = _files()
+    line = files[f"byomei987/main/{name}"].split(b"\r\n")[0] + b"\r\n"
+    files[f"byomei987/main/{name}"] = line * (lic.RELEASE_MAX_ROWS[table] + 1)
+    with pytest.raises(lic.LicensedError) as exc:
+        lic.check_release(_zip(tmp_path, files))
+    assert exc.value.code == "LIC-ROWS" and name in exc.value.message
+
+
+def test_a_single_file_loaded_under_a_free_form_version_never_makes_a_release_older(tmp_path: Path) -> None:
+    """A single file loaded with ``--version 2026-06`` is no release of this loader: its version is not a version
+    to compare with. V9.87 was refused as older than it (2026 > 9)."""
+    lic._CACHE.clear()
+    st = lic.TermStore()
+    try:
+        st.load("medis", _table(DISEASES), version="2026-06", source="nmain.txt", by="admin", columns=TTL_MAIN)
+        assert lic.check_release(_zip(tmp_path), st)["version"] == "9.87"
+        lic.load_release(st, _zip(tmp_path), by="steward")
+        assert next(s for s in st.status() if s["kind"] == "medis")["version"] == "9.87"
+    finally:
+        st.close()
 
 
 def test_rows_not_read_are_listed_up_to_a_bound(tmp_path: Path) -> None:

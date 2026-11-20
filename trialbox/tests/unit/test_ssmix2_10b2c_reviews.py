@@ -134,6 +134,27 @@ def test_a_newer_version_named_in_another_width_is_the_same_record_under_its_fir
     assert delta == full
 
 
+def test_the_first_delta_night_after_the_upgrade_keeps_an_order_whose_orc2_is_its_number_in_another_width(
+    tmp_path: Path,
+) -> None:
+    """The lake was built by the reader before D-1257, which compared ORC-2 as written and published
+    ``RX01:ＲＸ０１`` for the file RX01 whose ORC-2 is ``ＲＸ０１``. This reader's id is ``RX01``, and the old id is a
+    tombstone on every night: the order itself must be sent on every night too, for its file may never change
+    again. Night 1 is written under the old reader's ids; one delta night leaves what a full night leaves."""
+    st = _storage(tmp_path)
+    nights.rx(st, "RX01", D1, f"{D1}090000000", [("NW", "1", DRUG_A)], placer=WIDE)
+    lake: nights.Lake = {}
+    nights.apply(
+        lake, "medication", [{"mrn": P, "rx_no": f"RX01:{WIDE}", "status": "active"}], []
+    )  # as master wrote it
+    nights.rx(st, "RX55", nights.D2, f"{nights.D2}090000000", [("NW", "1", DRUG_A)], ordered=f"{nights.D2}0900")
+    full: nights.Lake = {}
+    nights.apply(full, "medication", *nights.night(nights.reader(st.root), "medication", None))
+    nights.apply(lake, "medication", *nights.night(nights.reader(st.root), "medication", nights.SINCE))
+    assert set(nights.shown(full, "medication")) == {f"{P}/RX01", f"{P}/RX55"}
+    assert set(nights.shown(lake, "medication")) == set(nights.shown(full, "medication"))
+
+
 def test_the_ids_two_widths_gave_an_earlier_reader_are_tombstoned(tmp_path: Path) -> None:
     """A reader before D-1252 read ``ＲＸ０１`` and ``RX01`` as two orders and published both ids. They are one record
     (P8); the form that is not the record's id is a tombstone on every night, never the id in force."""

@@ -2347,7 +2347,9 @@ class Ssmix2Source:
             self._wide.setdefault(record, [sf, *self._older.get(sf.path, [])])
         # a record written in several widths: its rows are sent on every night, since its other forms are tombstoned
         # on every night (a version back-filed in another width may be the oldest, and the id its form)
-        rekeyed = self._key(sf.patient, sf.type, sf.order, sf.day) in self._mixed
+        # (so is a record whose ORC-2 is its own number in another width: the reader before D-1257 published
+        # ``<filed>:<placer>`` for it, which is tombstoned every night, and its file may never change again)
+        rekeyed = self._key(sf.patient, sf.type, sf.order, sf.day) in {**self._mixed, **self._wide}
         placer = key_part(orc.comp(2, 1))
         filed = "" if no_order(sf.order) else key_part(sf.order)
         number = key_part(rx_no)  # the order as an administration names it (compared, never written)

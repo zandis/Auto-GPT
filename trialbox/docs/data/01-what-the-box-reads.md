@@ -104,6 +104,8 @@ pins any of it as right:
   the tables; a reader given tables whose load time is not known sends such rows on every night. A new YJ or JLAC10
   release changes the ATC and look-up columns of order and lab rows the same way, and that is **not** carried into
   their change time: after loading one of those, a site runs a full night.
+- **After an upgrade of the reader (D-1257):** one full night before the delta nights. Readings that change with
+  the reader and not with a hospital file are not sent again by a delta night.
 - **When the terminology store cannot be reached (D-1257):** the SS-MIX2 storage is not read that night (the night
   is held, `LIC-STORE-DOWN`). Read without the master, the diagnoses would be stored as a site without one has
   them, and no later night would send them again. A site with no store configured is read as before.

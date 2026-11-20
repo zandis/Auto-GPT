@@ -328,7 +328,10 @@ def _decode(data: bytes, declared: str | None) -> tuple[str, str]:
 
 
 #: bounds on what one table may hold (deep review of #1238, M6, L4). The real tables: 27,877, 2,509 and 112,967 rows
-MAX_ROWS = 400_000
+#: a table's rows are refused beyond its bound BEFORE any row is built (its lines are counted first): a valid table
+#: costs memory by its rows, about two KB a disease row and one KB an index row
+RELEASE_MAX_ROWS = {"medis": 60_000, "medis_modifier": 10_000, "medis_index": 250_000}
+MAX_ROWS = max(RELEASE_MAX_ROWS.values())
 MAX_SKIPPED = 1_000  # rows listed as not read; the rest are counted in one last entry
 MAX_CELL = 1_000  # characters of a code or a display name (the store indexes them)
 
@@ -984,8 +987,12 @@ def _read_release(source: Path | str) -> tuple[dict[str, Any], list[tuple[Parsed
     parts: list[tuple[Parsed, str, str]] = []
     skipped: list[tuple[str, int, str]] = []
     for table in RELEASE_TABLES:
+        most = RELEASE_MAX_ROWS[table]
+        data = files[table]
+        if data.count(b"\n") + (0 if data.endswith(b"\n") or not data else 1) > most:  # 0x0A is no part of a character
+            raise LicensedError("LIC-ROWS", f"{names[table]}: more than {most} rows: larger than this table can be")
         try:
-            parsed = parse(table, files[table], _titles(files[f"ttl:{table}"]), RELEASE_ENCODING, MAX_ROWS)
+            parsed = parse(table, data, _titles(files[f"ttl:{table}"]), RELEASE_ENCODING, most)
         except LicensedError as exc:
             raise LicensedError(exc.code, f"{names[table]}: {exc.message}") from exc
         parts.append((parsed, hashlib.sha256(files[table]).hexdigest(), names[table]))
@@ -1010,9 +1017,10 @@ def _version_key(version: str) -> tuple[int, ...]:
 
 def _refuse_older(store: TermStore, report: dict[str, Any]) -> None:
     """A release older than the one loaded is refused (deep review of #1238, L5): it would silently take codes
-    away. Older by its version, or by its date when both say one."""
+    away. Older by its version, or by its date when both say one. Only a release this loader loaded is compared
+    (it stored the release's own date): a single file loaded with a free-form ``--version`` says nothing of order."""
     for s in store.status():
-        if s["kind"] != "medis" or s["state"] != "loaded":
+        if s["kind"] != "medis" or s["state"] != "loaded" or not s["released"]:
             continue
         older = _version_key(report["version"]) < _version_key(str(s["version"]))
         if s["released"] and report["released"] < str(s["released"]):

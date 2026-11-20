@@ -189,9 +189,12 @@ Each fix has a test that fails on `0435f495` (run in a separate worktree) unless
 - **M5.** One load at a time (an advisory lock for the load's transaction) and one active release of a list held by
   the database (terminology schema version 3: a unique partial index on `release (kind) WHERE active`; a store
   that already holds two keeps the newest).
-- **M6.** A member of the archive is at most 16 MB (the largest real table is 6.4 MB), the archive 32 MB, a table
-  400,000 rows; a table is read line by line (never a list of its rows, nor a second copy of its text); rows not
-  read are listed up to 1,000 and counted beyond.
+- **M6.** A member of the archive is at most 16 MB (the largest real table is 6.4 MB), the archive 32 MB; a table is
+  read line by line (never a list of its rows, nor a second copy of its text); rows not read are listed up to 1,000
+  and counted beyond. A valid table costs memory by its rows (320,000 valid disease rows peaked at about 665 MB),
+  so each table has its own bound, refused before a row is built (its lines are counted first, `LIC-ROWS`): 60,000
+  disease rows, 10,000 modifier rows, 250,000 index rows (the real tables: 27,877 / 2,509 / 112,967). A disease
+  table at its bound is checked under 200 MB (tested).
 - **L4.** What the database would refuse is refused where the table is read, by `check_release` and `load_release`
   alike: a NUL (`LIC-CHARACTER`), a code or name over 1,000 characters (`LIC-LONG`), a line that is no row
   (`LIC-FORMAT`), a corrupt archive member (`LIC-RELEASE-ARCHIVE`); a failure inside the database is `LIC-STORE`
@@ -212,6 +215,20 @@ Each fix has a test that fails on `0435f495` (run in a separate worktree) unless
   their own names with the same function.
 - **The release that is loaded is not loaded again unasked** (`LIC-RELEASE-LOADED`, by the sha256 `status` gives);
   with `load_release(..., allow_reload=True)` it is, and the copy it replaces is not kept a second time.
+
+- **What `load_release` refuses by default, and its parameters.** The release that is already loaded
+  (`LIC-RELEASE-LOADED`; loaded again only with `allow_reload=True`) and a release older than the loaded one
+  (`LIC-RELEASE-OLDER`; loaded only with `allow_older=True`). A page that loads a release offers "load again"
+  explicitly and passes the parameter; no page passes `allow_older`. "Older" is asked only of a release this loader
+  loaded (it stored the release's own date): a single file loaded with a free-form `--version` is not compared.
+- **An order whose ORC-2 is its own number in another width (lane J's re-read, N1).** The reader before this
+  decision published `<filed>:<ORC-2>` for it; that id is a tombstone on every night, so the order under its id
+  now is sent on every night too, whether or not its file changed
+  (`test_the_first_delta_night_after_the_upgrade_keeps_an_order_whose_orc2_is_its_number_in_another_width`).
+
+**After deploying this reader a site runs ONE FULL NIGHT before its delta nights.** A document now set aside or
+read under the name rule (M1), and a diagnosis that moves from confirmed to unknown under M2 / M3, belong to files
+that did not change: a delta night does not send them again.
 
 **Signatures** stay: `check_release(source)` and `load_release(store, source, *, by)` work as before; each gained
 optional arguments (`store`; `allow_older`, `allow_reload`).
