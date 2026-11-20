@@ -1,0 +1,22 @@
+{
+  "card": "H9H2",
+  "title": "mapping calls and unmapped criteria counted offline, each record kept to its study",
+  "date": "2026-11-20",
+  "source": "docs/plan/measurements/mapping-calls-9h2-2026-11-20.md",
+  "findings": [
+    {
+      "id": "H9H2-01",
+      "severity": "Medium",
+      "claim": "tools.public_accuracy.rerun's default ReplayModel answers concept_map calls from every study's stored replies (Stored.concept and concept_loose are not keyed by job), and its loose match takes an empty answer for any candidate list; the H-26 compile report's re-compile used it, so a study's re-compiled concept_unmapped count can rest on another study's answer (not re-measured here)",
+      "lane": "H",
+      "basis": "shown"
+    },
+    {
+      "id": "H9H2-02",
+      "severity": "Low",
+      "claim": "The card's proof on P2b sigir (676 concept_map calls, 416 criteria flagged concept_unmapped) cannot be run from the tree: the archives are on the unmerged branch integrator/p2b-artefacts; the in-tree public slice holds 23 concept_map calls of launch P1b",
+      "lane": "H",
+      "basis": "shown"
+    }
+  ]
+}

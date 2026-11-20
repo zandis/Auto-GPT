@@ -23,10 +23,11 @@ TARGET = b48.TARGET_MIB
 
 
 class Card:
-    """A stand-in for nvidia-smi and docker on the RTX PRO 6000 with the ballast holding all but 49,140 MiB."""
+    """A stand-in for nvidia-smi and docker on the RTX PRO 6000 with the ballast holding all but 49,140 MiB. Memory
+    the driver reserves (``reserved``, H-66) is neither used nor free: free = total - used - reserved."""
 
-    def __init__(self, used: int = PRO6000 - TARGET, ballast_up: bool = True) -> None:
-        self.used, self.ballast_up = used, ballast_up
+    def __init__(self, used: int = PRO6000 - TARGET, ballast_up: bool = True, reserved: int = 0) -> None:
+        self.used, self.ballast_up, self.reserved = used, ballast_up, reserved
         self.calls: list[tuple[list[str], dict[str, str] | None]] = []
 
     def __call__(self, cmd: list[str], timeout: int, env: dict[str, str] | None = None,
@@ -35,9 +36,13 @@ class Card:
         if cmd[0] == "nvidia-smi":
             fields = cmd[1].split("=", 1)[1].split(",")
             val = {
+                "index": "0",
+                "uuid": "GPU-0000",
                 "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
                 "memory.total": str(PRO6000),
                 "memory.used": str(self.used),
+                "memory.free": str(PRO6000 - self.used - self.reserved),
+                "memory.reserved": str(self.reserved),
                 "driver_version": "580.95.05",
                 "display_active": "Disabled",
             }
