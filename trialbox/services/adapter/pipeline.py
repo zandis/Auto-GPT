@@ -1061,7 +1061,8 @@ def _run_ingest(
 
         id_rule.record_keys(out_dir, {"ssmix2_order": order_id_form(getattr(source, "order_key", None))})
     # D-1253: order-free, over the merged snapshot, in bounded memory
-    absent = absent_links(out_dir, site_wide=mapping.site_wide if mapping is not None else ())
+    absent = absent_links(out_dir, site_wide=mapping.site_wide if mapping is not None else (),
+                          tables=mapping.tables if mapping is not None else ())  # fmt: skip
     if absent:
         log.warning("links to a patient's record the lake does not hold (per table and type): %s", absent)
     if collisions:

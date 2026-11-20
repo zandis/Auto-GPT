@@ -523,7 +523,9 @@ def backfill(
         raise
     from adapter.mapping.engine import Mapping
 
-    site_wide = frozenset() if source_kind == "fhir_bulk" else Mapping.load(cfg.mapping_path).site_wide
+    loaded = None if source_kind == "fhir_bulk" else Mapping.load(cfg.mapping_path)
+    site_wide = frozenset() if loaded is None else loaded.site_wide
+    tables = frozenset() if loaded is None else frozenset(loaded.tables)  # D-1253 second review, finding 10
     work = work_dir or cfg.lake_dir / "backfill" / snap
     work.mkdir(parents=True, exist_ok=True)
     spool, runs = work / "spool", work / "runs"
@@ -632,6 +634,7 @@ def backfill(
                     rebuild_lake,
                     final=False,
                     site_wide=site_wide,
+                    tables=tables,
                 )
                 if rep.state == "held":
                     break
@@ -644,7 +647,17 @@ def backfill(
         rep.state = "held"
     elif rep.state != "held":
         _publish(
-            cfg, rep, work, runs, list(rep.done), validate, validator, rebuild_lake, final=True, site_wide=site_wide
+            cfg,
+            rep,
+            work,
+            runs,
+            list(rep.done),
+            validate,
+            validator,
+            rebuild_lake,
+            final=True,
+            site_wide=site_wide,
+            tables=tables,
         )
     rep.seconds = round(time.perf_counter() - t0, 2)
     _progress(work, rep, rep.state)
@@ -673,6 +686,7 @@ def _publish(
     *,
     final: bool,
     site_wide: frozenset[str] = frozenset(),
+    tables: frozenset[str] = frozenset(),
 ) -> None:
     """Phase 3: the done years as the snapshot's NDJSON, checked, loaded and rebuilt (see the module docstring).
     ``site_wide``: the mapping's types of no patient (``Mapping.site_wide``), never counted as an absent link."""
@@ -683,7 +697,9 @@ def _publish(
     clashes: dict[str, int] = {}
     counts = _write_merged(runs, buckets, stage, clashes)
     rep.id_collisions = clashes  # D-1253 review F: over the years of this publish
-    rep.links_to_absent_records = absent_links(stage, site_wide=site_wide)  # D-1253 round 3: as the night counts
+    rep.links_to_absent_records = absent_links(
+        stage, site_wide=site_wide, tables=tables
+    )  # D-1253 round 3: as the night counts
     years = [b for b in buckets if b != BASE]
     _atomic_json(stage / REPORT, {"snapshot": snap, "years": years, "complete": final})
     # D-535: the snapshot's completeness record and its unknown codes, as a night's snapshot has them. The table

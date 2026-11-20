@@ -659,3 +659,26 @@ def test_a_delta_night_from_another_source_than_its_base_is_held(tmp_path: Path,
     full = (night(tmp_path, "csv", canonical(A), "2026-10-03") if first == "fhir_bulk"
             else _bulk_night(tmp_path, "2026-10-03"))  # fmt: skip
     assert not any(SOURCE_WORDS in e for e in full.errors), full.errors
+
+
+def test_an_absent_link_is_counted_under_a_table_of_the_mapping_never_under_a_records_source_text(
+    tmp_path: Path,
+) -> None:
+    """D-1253 second review, finding 10: the count label came from ``meta.source``. A bulk FHIR resource's source is
+    the sender's text (here it holds a synthetic chart number): it is never a label. A label is a table of the
+    mapping, else the record's type."""
+    from adapter.ndjson import absent_links
+
+    snap = tmp_path / "snap"
+    snap.mkdir()
+    cond = {"resourceType": "Condition", "id": "c1", "subject": {"reference": "Patient/p1"},
+            "encounter": {"reference": "Encounter/e-missing"},
+            "meta": {"source": "urn:hospital:chart/MRN12345#visit"}}  # fmt: skip
+    mapped = {"resourceType": "Condition", "id": "c2", "subject": {"reference": "Patient/p1"},
+              "encounter": {"reference": "Encounter/e-gone"}, "meta": {"source": "T/diagnosis#ab12"}}  # fmt: skip
+    (snap / "Condition.ndjson").write_text(
+        "".join(json.dumps(r, separators=(",", ":")) + "\n" for r in (cond, mapped)), encoding="utf-8"
+    )
+    got = absent_links(snap, tables=["diagnosis"])
+    assert got == {"Condition": {"Encounter": 1}, "diagnosis": {"Encounter": 1}}
+    assert "MRN12345" not in json.dumps(got)

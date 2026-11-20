@@ -456,15 +456,20 @@ _NOT_LINKED = frozenset(
 
 
 def absent_links(
-    directory: Path, run_bytes: int | None = None, site_wide: Iterable[str] = ()
+    directory: Path, run_bytes: int | None = None, site_wide: Iterable[str] = (), tables: Iterable[str] = ()
 ) -> dict[str, dict[str, int]]:
     """D-1253: per source table and record type, the links in the snapshot ``directory`` to a patient's record the
     snapshot does not hold (a visit number the feed never sent for that patient). Order-free: it reads the merged
     snapshot, whatever order tonight's tables and rows came in. In bounded memory: one pass writes every link to a
     run file per target type, each is sorted in runs of at most ``run_bytes`` (:func:`_sorted`, as the merge) and
-    merged with the target type's file, which is sorted by id. Counts only."""
+    merged with the target type's file, which is sorted by id. Counts only.
+
+    The count's label is a source table of the mapping (``tables``), read from the record's ``meta.source``, else the
+    record's type: a source's own text (a bulk FHIR resource's ``meta.source`` is the sender's) is never a label,
+    a log line or an audit detail (D-1253 second review, finding 10)."""
     budget = run_bytes or sort_run_bytes()
     skip = _NOT_LINKED | frozenset(site_wide)
+    known = frozenset(tables)
     work = directory / ".links"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
@@ -479,7 +484,7 @@ def absent_links(
                         if not found:
                             continue
                         m = _SOURCE_TABLE.search(line)
-                        table = m.group(1) if m else path.stem
+                        table = m.group(1) if m and m.group(1) in known else path.stem
                         for t, i in found:
                             f = files.get(t)
                             if f is None:
