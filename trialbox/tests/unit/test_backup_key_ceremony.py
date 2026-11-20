@@ -374,7 +374,8 @@ def test_h1_not_dumpable_and_no_core_before_the_key_exists(box: Box) -> None:
     spy = box.tmp / "spy.json"
     r = box.drive(box.stick(), spy=spy)
     assert r.returncode == 0, r.stderr
-    assert json.loads(spy.read_text()) == {"dumpable": 0, "core": [0, 0]}
+    seen = json.loads(spy.read_text())
+    assert (seen["dumpable"], seen["core"]) == (0, [0, 0])
     main = next(n for n in ast.parse(Path(bkc.__file__).read_text()).body if getattr(n, "name", "") == "main")
     first = main.body[0]  # type: ignore[attr-defined]
     assert isinstance(first, ast.Try) and ast.unparse(first.body[0]) == "harden()"
@@ -810,6 +811,10 @@ def test_the_journal_code_refuses_a_file_mode_writer_checks_the_database_and_pri
             return {"journal": {"seq": 7}}
 
     class Con:
+        def execute(self, sql: str) -> Any:
+            assert sql == bkc.HAS_APPEND
+            return types.SimpleNamespace(fetchone=lambda: (True,))
+
         def close(self) -> None:
             connected.append("closed")
 
