@@ -265,7 +265,7 @@ def read_definitions(served: dict[str, dict[str, str]] | None = None) -> tuple[l
     served = served if served is not None else served_catalogue()
     out: list[Definition] = []
     dynamic: list[Dynamic] = []
-    for path in sorted(CONSOLE.glob("*.py")):
+    for path in [*sorted(CONSOLE.glob("*.py")), ROOT / "libs/tb_common/id_rule.py"]:
         text = path.read_text(encoding="utf-8")
         if not re.search(r"\b(EN|JA|ZH)\b|\"zh-TW\"", text):
             continue

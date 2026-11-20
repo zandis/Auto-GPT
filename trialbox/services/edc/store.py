@@ -137,7 +137,7 @@ ALTER TABLE draft ADD COLUMN IF NOT EXISTS prov TEXT
 # D-1253: the lake-id rule each study's citations were made under, per study (tb_common.id_rule). Every study that
 # has drafts when this migration runs drafted from the earlier rule's lake: it is stamped rule 1 here. A study that
 # has none yet starts at rule 2 at its first draft run. A rule-1 study with a decided, signed or sent value is frozen
-# for prefill; one with open drafts only waits for the one rebuild, which clears those drafts and stamps it rule 2
+# for prefill. An earlier-rule study with open drafts only also refuses writes and keeps its drafts.
 SCHEMA_V9 = """
 CREATE TABLE IF NOT EXISTS tb_id_rule_study (study TEXT PRIMARY KEY, rule INTEGER NOT NULL CHECK (rule > 0),
   recorded_at TIMESTAMPTZ NOT NULL DEFAULT now());
@@ -151,8 +151,7 @@ TRAIL_TABLES = ("copy_tick", "decision", "sent", "signature_void")
 
 def has_trail(d: str = "d", tables: tuple[str, ...] = TRAIL_TABLES) -> str:
     """D-1253 (review round 3): the one definition, as SQL over ``draft {d}``, of a draft with a trail: decided,
-    signed or sent, or named by any act (``tables``: the rebuild passes those the store has). A draft without one is
-    open. The EDC store and the one rebuild (``tools/id_rule_rebuild.py``) both use it. Composed with psycopg's own
+    signed or sent, or named by any act on the draft. A draft without one is open. Composed with psycopg's own
     quoting: the alias and the table names are identifiers."""
     a = pgsql.Identifier(d)
     marks = [
@@ -182,16 +181,7 @@ TRAILED = (
     .format(pgsql.SQL(cites_old_rows()))
     .as_string(None)
 )
-ID_RULE_FROZEN = (
-    "prefill is stopped for this study: its decided, signed or sent values cite lake records of the earlier id "
-    "rule (D-1253), which the rebuilt lake does not hold. They stay as the study's kept record, readable and "
-    "exportable; close the study in EDC or start it again under a new study key"
-)
-ID_RULE_WAITING = (
-    "prefill waits for the one rebuild of this box (D-1253): this study's open drafts cite lake records of the "
-    f"earlier id rule. The rebuild clears those drafts (nothing decided, signed or sent) and the study goes on: "
-    f"{id_rule.COMMAND}"
-)
+ID_RULE_FROZEN = ID_RULE_WAITING = id_rule.EARLIER_RULE
 #: tables that only ever grow (D-281): a trigger refuses UPDATE, DELETE and TRUNCATE on each
 APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record",
                "copy_tick", "direct_source_event")  # fmt: skip
@@ -588,7 +578,7 @@ class EdcStore:
     @staticmethod
     def _study_state(tx: Any, study: str) -> str:
         """``new`` (no rule yet: no draft), ``current`` (this rule), ``frozen`` (an earlier rule's trail),
-        ``waiting`` (an earlier rule's open drafts only: the rebuild clears them), ``newer`` (a later release's)."""
+        ``waiting`` (an earlier rule's open drafts only), ``newer`` (a later release's)."""
         rule = tx.fetchval("SELECT rule FROM tb_id_rule_study WHERE study = ?", (study,))
         if rule is None:
             return "new"
@@ -600,12 +590,10 @@ class EdcStore:
 
     @staticmethod
     def _refuse(state: str) -> None:
-        if state == "frozen":
-            raise EdcError("edc.id_rule_frozen", ID_RULE_FROZEN)
-        if state == "waiting":
-            raise EdcError("edc.id_rule_frozen", ID_RULE_WAITING)
+        if state in ("frozen", "waiting"):
+            raise EdcError("edc.id_rule_frozen", id_rule.EARLIER_RULE)
         if state == "newer":
-            raise EdcError("edc.id_rule_frozen", "this study's drafts are of a newer id rule: update the box")
+            raise EdcError("edc.id_rule_newer", id_rule.NEWER_STUDY)
 
     def _study_rule(self, tx: Any, study: str) -> None:
         """In a draft run's (or an ODM import's) transaction: a study of the current rule goes on; a new one is

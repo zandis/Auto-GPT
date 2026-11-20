@@ -5,6 +5,8 @@ the sponsor. Joined into ``console.i18n`` last."""
 
 from __future__ import annotations
 
+from tb_common import id_rule
+
 EN: dict[str, str] = {
     "edc.title": "EDC prefill",
     "edc.help": "TrialBox drafts eCRF values from the hospital record, each with its source. A draft is never a trial value: the coordinator checks each value against its source, confirms or changes it, and signs. Only signed values go to REDCap or into the ODM file.",
@@ -171,12 +173,6 @@ EN: dict[str, str] = {
     "edc.err.other": "TrialBox refused this.",
     "edc.err.form_too_large": "The map is larger than this study's dictionary allows; nothing was saved. Read the dictionary again, then save the map.",
     "edc.err.edc.off": "Prefill is off for this study.",
-    # D-1253: a study whose decided, signed or sent values cite lake records of the earlier id rule
-    "edc.err.edc.id_rule_frozen": "Prefill is stopped for this study: its kept values cite records the rebuilt lake "
-    "does not hold (D-1253).",
-    "edc.id_rule_frozen": "Prefill is stopped for this study: its decided, signed or sent values cite lake records "
-    "made before the record ids changed (D-1253), and the rebuilt lake does not hold them. They stay as the study's "
-    "record, readable and exportable. Close the study in EDC, or start it again under a new study key.",
     "edc.err.edc.ack_kind": "Say how the sponsor acknowledged.",
     "edc.err.edc.ack_reference": "Give the letter number or file name.",
     "edc.err.edc.dataflow_ref": "Give the protocol or data-management plan section that describes TrialBox's data flow to the EDC.",
@@ -465,11 +461,6 @@ JA: dict[str, str] = {
     "edc.err.other": "TrialBox がこの操作を受け付けませんでした。",
     "edc.err.form_too_large": "マップがこの試験のデータ辞書より大きいため、保存されませんでした。データ辞書を読み直してから保存してください。",
     "edc.err.edc.off": "この試験の事前入力はオフです。",
-    "edc.err.edc.id_rule_frozen": "この試験の事前入力は停止しています。保存された値は、再構築したレイクにない記録を引用しています"
-    "（D-1253）。",
-    "edc.id_rule_frozen": "この試験の事前入力は停止しています。確定・署名・送信済みの値は、記録IDが変わる前のレイクの記録を引用して"
-    "おり、再構築したレイクにはその記録がありません（D-1253）。値は試験の記録として残り、閲覧と書き出しができます。EDCで試験を終了するか、"
-    "新しい試験キーで始め直してください。",
     "edc.err.edc.ack_kind": "治験依頼者の了承の形を選んでください。",
     "edc.err.edc.ack_reference": "文書番号またはファイル名を入力してください。",
     "edc.err.edc.dataflow_ref": "TrialBox から EDC へのデータの流れを記載した実施計画書またはデータマネジメント計画書の項を入力してください。",
@@ -758,9 +749,6 @@ ZH: dict[str, str] = {
     "edc.err.other": "TrialBox 拒絕了此操作。",
     "edc.err.form_too_large": "對照表超過本試驗資料字典所允許的大小，未儲存。請重新讀取資料字典後再儲存。",
     "edc.err.edc.off": "本試驗的預填已關閉。",
-    "edc.err.edc.id_rule_frozen": "本試驗的預填已停止：保存的值引用了重建後的資料湖中沒有的紀錄（D-1253）。",
-    "edc.id_rule_frozen": "本試驗的預填已停止：已確認、簽署或送出的值引用了紀錄編號變更前的資料湖紀錄，重建後的資料湖中沒有這些紀錄"
-    "（D-1253）。這些值仍是本試驗的紀錄，可以閱讀與匯出。請在 EDC 中結束本試驗，或以新的試驗代碼重新開始。",
     "edc.err.edc.ack_kind": "請選擇試驗委託者同意的方式。",
     "edc.err.edc.ack_reference": "請輸入函號或檔名。",
     "edc.err.edc.dataflow_ref": "請輸入說明 TrialBox 傳輸資料至 EDC 流程的計畫書或資料管理計畫章節。",
@@ -882,3 +870,7 @@ ZH: dict[str, str] = {
     "edc.err.edc.reentry_record": "此試驗尚無盲性重新輸入的結果紀錄，請先由管理者連同報告編號記錄。",
     "edc.err.edc.reentry_same_person": "重新輸入的結果是你記錄的，須由另一人記錄。",
 }
+
+EN.update(id_rule.EN)
+JA.update(id_rule.JA)
+ZH.update(id_rule.ZH)

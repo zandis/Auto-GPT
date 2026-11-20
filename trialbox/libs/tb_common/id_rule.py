@@ -22,9 +22,7 @@ keeps such ids and was written under rule 1 would hold ids no rule-2 night gives
 * **Readers.** No lake reader opens a snapshot whose NDJSON is not this rule (``lake.store.Lake.db_path``).
 * **EDC keeps the rule per study** (``edc.store``): a rule-1 study whose decided, signed or sent values cite lake rows
   is frozen on every write path; its records stay. The one place old ids stay on a box, by design.
-* **The one way out** is the rebuild of ``python3 -m tools.trialbox id-rule-rebuild`` (runbook §5, "Lake ids per
-  patient"): it keeps what a person decided and what retention keeps, clears the rest and stamps each store; the
-  first night after it is a full one.
+* Old data stays in place. A full ingest from the source into empty storage uses the current rule.
 """
 
 from __future__ import annotations
@@ -40,7 +38,49 @@ from typing import Any
 RULE = 2
 SNAPSHOT_RECORD = "id_rule.json"
 RUNBOOK = "docs/runbook/05-updates-backup-restore-secrets.md, Lake ids per patient (D-1253)"
-COMMAND = "python3 -m tools.trialbox id-rule-rebuild"
+# Shared with the console catalogue. The CLI has no active user locale.
+EN = {
+    "dataops.ids.kind.review": "Records awaiting steward review",
+    "dataops.ids.order_change": "SS-MIX2 order keys differ or were not recorded. Run a full ingest from the source",
+    "edc.err.edc.id_rule_newer": (
+        "This study uses a newer ID rule. Update the box to the release that wrote these drafts."
+    ),
+    "edc.err.edc.id_rule_frozen": (
+        "These data were made under the earlier rule for record IDs (D-1253). "
+        "A full ingest from the source rebuilds them under the current rule."
+    ),
+}
+ZH = {
+    "dataops.ids.kind.review": "待資料管理員審查的紀錄",
+    "dataops.ids.order_change": "SS-MIX2 訂單鍵不符或未記錄。請從來源完整匯入",
+    "edc.err.edc.id_rule_newer": "本試驗使用較新的 ID 規則。請將系統更新至建立這些草稿的版本。",
+    "edc.err.edc.id_rule_frozen": (
+        "這些資料的紀錄 ID 是依舊規則產生的（D-1253）。從來源完整匯入即可依現行規則重建資料。"
+    ),
+}
+JA = {
+    "dataops.ids.kind.review": "担当者による確認が必要な記録",
+    "dataops.ids.order_change": "SS-MIX2 オーダーキーが異なるか未記録です。ソースから全件取り込みを実行してください",
+    "edc.err.edc.id_rule_newer": (
+        "この試験は新しい ID 規則を使用しています。下書きを作成したバージョンに更新してください。"
+    ),
+    "edc.err.edc.id_rule_frozen": (
+        "このデータの記録 ID は以前の規則で作成されました（D-1253）。"
+        "ソースから全件を取り込むと、現在の規則で再構築されます。"
+    ),
+}
+REFUSAL_KEY = "edc.err.edc.id_rule_frozen"
+COMMAND = EN[REFUSAL_KEY]  # the recovery instruction exposed to existing callers
+
+
+def _all_languages(key: str) -> str:
+    return " / ".join(cat[key] for cat in (EN, ZH, JA))
+
+
+EARLIER_RULE = _all_languages(REFUSAL_KEY)
+NEWER_STUDY = _all_languages("edc.err.edc.id_rule_newer")
+REVIEW_NEEDED = _all_languages("dataops.ids.kind.review")
+
 #: the table each store keeps its rule in (one row per rule the store was stamped with)
 DDL = (
     "CREATE TABLE IF NOT EXISTS tb_id_rule (rule INTEGER PRIMARY KEY CHECK (rule > 0), "
@@ -69,27 +109,28 @@ VEC = Store("vec", "vec", "note_chunk", "TRUE", "SELECT 1 FROM note_chunk LIMIT 
 TWIN = Store("profile", "profile", "tb_patient_profile", "TRUE", "SELECT 1 FROM tb_patient_profile LIMIT 1")
 POOL = Store("orch", "orch", "pool", "TRUE", "SELECT 1 FROM pool LIMIT 1")
 STORES = (OMOP, DERIVED, VEC, TWIN, POOL)
-#: the EDC drafts keep the rule per study (``edc.store``'s ``tb_id_rule_study``): a study whose decided, signed or sent
-#: values cite rows of the earlier rule is frozen for prefill, the others go on; nothing of the trail is ever cleared
+#: the EDC drafts keep the rule per study (``edc.store``'s ``tb_id_rule_study``): every earlier-rule study refuses new
+#: writes and retains its drafts and audit history
 
 
 class IdRuleError(RuntimeError):
-    """D-1253: a store (or the lake) holds lake ids made under an earlier rule (nothing is added to it: rebuild
-    once), or under a newer rule than this release's (nothing is added either: update the box; never rebuilt)."""
+    """The rule of existing data is incompatible or cannot be verified."""
 
-    def __init__(self, stores: Iterable[str], newer: Iterable[str] = (), unreadable: Iterable[str] = ()) -> None:
+    def __init__(
+        self,
+        stores: Iterable[str],
+        newer: Iterable[str] = (),
+        unreadable: Iterable[str] = (),
+        inaccessible: Iterable[str] = (),
+    ) -> None:
         self.stores = sorted(set(stores))
         self.newer = sorted(set(newer))
         self.unreadable = sorted(set(unreadable))
-        words: list[str] = []
+        words = sorted(set(inaccessible))
         if self.unreadable:
             words.append(unreadable_words(self.unreadable))
         if self.stores:
-            words.append(
-                f"lake ids of rule {RULE} (D-1253: a patient's record id holds the patient) cannot be added to "
-                f"{', '.join(self.stores)}, which hold{'s' if len(self.stores) == 1 else ''} ids of an earlier "
-                f"rule: nothing was written. Rebuild once ({COMMAND}; {RUNBOOK})"
-            )
+            words.append(f"{', '.join(self.stores)}: {EARLIER_RULE} (nothing was written; {RUNBOOK})")
         if self.newer:
             words.append(
                 f"{', '.join(self.newer)} hold{'s' if len(self.newer) == 1 else ''} lake ids of a newer rule than "
@@ -124,7 +165,7 @@ def ensure(tx: Any, store: Store) -> None:
         raise IdRuleError([], newer=[store.name])
     if stamped(tx):
         return
-    if tx.fetchone(store.holds) is not None:
+    if tx.fetchone(store.holds) is not None or tx.fetchone("SELECT 1 FROM tb_id_rule WHERE rule = ?", (1,)) is not None:
         raise IdRuleError([store.name])
     tx.execute("INSERT INTO tb_id_rule (rule) VALUES (?) ON CONFLICT (rule) DO NOTHING", (RULE,))
 
@@ -168,6 +209,8 @@ def probe(url: str, store: Store, schema: str | None = None) -> str:
             return UNREAD
         if any(r > RULE for r in rules):
             return NEWER
+        if 1 in rules and RULE not in rules:
+            return OLD
         if holds is None:
             return EMPTY
         return CURRENT if RULE in rules else OLD
@@ -241,20 +284,60 @@ def _amend(directory: Path, change: Callable[[dict[str, Any]], None]) -> None:
     tmp.replace(path)
 
 
-#: D-1253 ruling 1: the earlier rule's ids of the OMOP records a person decided (a steward's rejection, a
-#: confirmation), which the rebuild kept: ``lake:id_rule_review.json`` in the erasure registry. Record-number
-#: pseudonyms only, no patient
+#: Source hashes that require steward review, with the historical decision or disputed-chart status.
 REVIEW = "id_rule_review.json"
 #: the meta.tag a record carries while a steward has still to review it (with D-135's basis ``proposed``)
 REVIEW_TAG = {"system": "urn:trialbox:review", "code": "id-rule-steward-review"}
 
 
+SHARED_CHART_TAG = {"system": REVIEW_TAG["system"], "code": "shared-chart"}
+BASIS = "urn:trialbox:basis"
+
+
+def tag_for_review(resource: dict[str, Any], *, shared: bool = False) -> None:
+    meta = resource.setdefault("meta", {})
+    tags = [t for t in meta.get("tag", []) if t.get("system") != BASIS and t != REVIEW_TAG]
+    if shared and SHARED_CHART_TAG not in tags:
+        tags.append(dict(SHARED_CHART_TAG))
+    meta["tag"] = [*tags, {"system": BASIS, "code": "proposed"}, dict(REVIEW_TAG)]
+
+
 def write_review(path: Path, records: list[tuple[str, str, str]]) -> None:
-    """The decided records the rebuild kept, as ``(resource type, earlier id, status)``, written to ``path`` (the
+    """The historical decisions, as ``(resource type, earlier id, status)``, written to ``path`` (the
     lake's :data:`REVIEW`) atomically, synced. Every record of the next nights whose earlier-rule id is one of them is
     marked for a steward's review: when the old id was shared by two patients, both records are (never carried over
     by guess)."""
     body = {"rule": RULE, "records": [{"type": t, "earlier_id": i, "status": s} for t, i, s in sorted(set(records))]}
+    _save_review(path, body)
+
+
+def add_shared_review(lake_dir: Path, charts: set[str], records: set[tuple[str, str]]) -> None:
+    """Append chart hashes and the individual records awaiting review, preserving every prior decision."""
+    import fcntl
+
+    if not charts and not records:
+        return
+    path = lake_dir / REVIEW
+    fd = os.open(lake_dir, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        body: dict[str, Any] = (
+            json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"rule": RULE, "records": []}
+        )
+        existing = {(r["type"], r["earlier_id"]) for r in body["records"]}
+        missing = (records | {("SharedChart", h) for h in charts}) - existing
+        if missing:
+            for typ, rid in sorted(missing):
+                entry = {"type": typ, "earlier_id": rid, "status": "steward_review_needed"}
+                if typ != "SharedChart":
+                    entry["reason"] = "shared_chart"
+                body["records"].append(entry)
+            _save_review(path, body)
+    finally:
+        os.close(fd)
+
+
+def _save_review(path: Path, body: dict[str, Any]) -> None:
     tmp = path.with_name(f".{path.name}.tmp")
     tmp.write_text(json.dumps(body, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     fd = os.open(tmp, os.O_RDONLY)
@@ -270,15 +353,20 @@ def write_review(path: Path, records: list[tuple[str, str, str]]) -> None:
         os.close(dfd)
 
 
-def read_review(lake_dir: Path) -> frozenset[tuple[str, str]]:
-    """``(resource type, earlier id)`` of each record the rebuild kept for review; none when the rebuild kept none.
+def read_review(lake_dir: Path, *, include_candidates: bool = True) -> frozenset[tuple[str, str]]:
+    """Historical decision hashes and source-scoped disputed chart hashes on the steward review list.
     A list that cannot be read stops the night: no record a steward decided is ever coded unreviewed."""
     path = lake_dir / REVIEW
     if not path.exists():
         return frozenset()
     try:
         body = json.loads(path.read_text(encoding="utf-8"))
-        return frozenset((str(r["type"]), str(r["earlier_id"])) for r in body["records"])
+        # A queued candidate is neither a historical decision nor a chart to withhold on another night.
+        return frozenset(
+            (str(r["type"]), str(r["earlier_id"]))
+            for r in body["records"]
+            if include_candidates or r.get("reason") != "shared_chart"
+        )
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise RuntimeError(
             f"{REVIEW} in the lake cannot be read (D-1253): it lists the records a steward decided before the id "
@@ -292,11 +380,7 @@ SOURCE_CHANGE = (
     "更換來源時必須完整匯入，請勿指定 since / "
     "ソースを変更するには since を指定せずに全件取り込みを実行してください"
 )
-ORDER_CHANGE = (
-    f"SS-MIX2 order keys differ or were not recorded. Check the ID rebuild ({COMMAND}), then run a full night / "
-    "SS-MIX2 訂單鍵不符或未記錄。請檢查 ID 重建後完整匯入 / "
-    "SS-MIX2 オーダーキーが異なるか未記録です。ID 再構築を確認して全件取り込みを実行してください"
-)
+ORDER_CHANGE = _all_languages("dataops.ids.order_change")
 HELD_NIGHT = "Night held / 此次匯入已暫停 / 取り込みは保留中です"
 
 
@@ -370,13 +454,15 @@ def open_snapshot(directory: Path, what: str | None = None) -> Path:
     return directory
 
 
-def old_snapshots(ndjson_root: Path) -> list[str]:
-    """The snapshots under ``ndjson_root`` (``<lake>/ndjson``) whose ids are not :data:`RULE`'s."""
-    if not ndjson_root.is_dir():
-        return []
-    return sorted(
-        p.name for p in ndjson_root.iterdir() if p.is_dir() and not p.name.startswith(".") and snapshot_rule(p) != RULE
-    )
+def served_rule(database: Path) -> int:
+    """The build's rule when its NDJSON was pruned. An absent sidecar predates rule 2."""
+    try:
+        rule = int(database.with_suffix(".duckdb.id_rule").read_text(encoding="utf-8").strip())
+    except FileNotFoundError:
+        return 1
+    except (OSError, ValueError):
+        return 0
+    return max(rule, 0)
 
 
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -393,3 +479,39 @@ def snapshot_names(root: Path) -> set[str]:
     found |= {p.name.split(".g", 1)[0] for p in (root / "db" / "gen").glob("*.g*")}  # <s>.g<n>.duckdb, .json
     found |= {p.name.split("=", 1)[1] for p in (root / "parquet").glob("snapshot=*") if p.is_dir()}
     return {s for s in found if _DATE.fullmatch(s)}
+
+
+def lake_issues(lake_dir: Path) -> tuple[list[str], list[str], list[str]]:
+    """Inspect active and retained snapshots before writes or retention can replace them."""
+    old: list[str] = []
+    newer: list[str] = []
+    ndjson = lake_dir / "ndjson"
+    rules = {
+        path.name: snapshot_rule(path) for path in ndjson.glob("*") if path.is_dir() and not path.name.startswith(".")
+    }
+    for database in (lake_dir / "db").glob("*.duckdb"):
+        if database.stem not in rules:
+            rules[database.stem] = served_rule(database)
+    for snapshot in snapshot_names(lake_dir) - rules.keys():
+        # A stranded Parquet copy or generation may still have the dated build's rule sidecar.
+        rules[snapshot] = served_rule(lake_dir / "db" / f"{snapshot}.duckdb")
+    for folder in (lake_dir / "ndjson-rerun").glob("*"):
+        if folder.is_dir():
+            rules[f"ndjson-rerun/{folder.name}"] = snapshot_rule(folder)
+    snaps = sorted(rules)
+    ahead = [s for s in snaps if rules[s] > RULE]
+    unreadable = [f"the lake snapshot {s}" for s in snaps if rules[s] == 0]  # one instruction (D-1253 deep review)
+    behind = [s for s in snaps if 0 < rules[s] < RULE]
+    if behind:
+        old.append(f"the lake ({len(behind)} snapshots, the last {behind[-1]})")
+    if ahead:
+        newer.append(f"the lake ({len(ahead)} snapshots, the last {ahead[-1]})")
+    if snapshot_names(lake_dir / "id_rule_1"):
+        old.append("the archived lake")
+    return old, newer, unreadable
+
+
+def check_lake(lake_dir: Path) -> None:
+    old, newer, unreadable = lake_issues(lake_dir)
+    if old or newer or unreadable:
+        raise IdRuleError(old, newer=newer, unreadable=unreadable)

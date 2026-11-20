@@ -531,17 +531,12 @@ _SNAPSHOTS = (
 LAKE: dict[str, Entry] = {
     "lake:ndjson": _owed("the nightly NDJSON extracts (3 nightly + month-ends kept)", _SNAPSHOTS),
     "lake:id_rule_1": _owed(
-        "D-1253: month-end snapshots of the earlier lake-id rule, kept aside by the one rebuild under retention and "
-        "never read (NDJSON, DuckDB, Parquet)",
-        "no job reads it, so nothing withholds it; an opted-out patient's records stay in it until retention "
-        "prunes the month-end (adapter.pipeline._prune_aside)",
-    ),
-    "lake:id_rule_rebuild.json": _none(
-        "D-1253: the one id-rule rebuild's record: counts, snapshot dates and EDC study keys; no patient"
+        "D-1253: archived snapshots of the earlier lake-id rule (NDJSON, DuckDB, Parquet)",
+        "the box refuses the archive; an opted-out patient's records remain in it",
     ),
     "lake:id_rule_review.json": _none(
-        "D-1253 ruling 1: the earlier rule's ids (record-number pseudonyms, no patient) of the OMOP records a person "
-        "decided before the one id rebuild, with their status; the night marks the records made from them for review"
+        "D-1253: historical decision hashes and statuses, disputed record IDs and source-scoped hashes of shared "
+        "charts. The review entries have no assigned patient or raw chart number."
     ),
     "lake:ndjson-rerun": _owed("a re-run of a promoted night until it passes the gate (D-271)", _SNAPSHOTS),
     "lake:db": _owed("the DuckDB snapshots (nightly and month-end) and their side files", _SNAPSHOTS),

@@ -381,3 +381,175 @@ def test_the_vector_store_checks_its_rule_in_its_own_write_transaction(
         assert store.replace_notes([chunk], ["d1"]) == 1
         assert tx.wrote[-2:] == ["DELETE note_chunk", "INSERT note_chunk"]
         assert id_rule.RULE in tx.rules
+
+
+def test_old_data_has_one_recovery_instruction_and_no_migration_command() -> None:
+    from importlib.util import find_spec
+
+    from edc.store import ID_RULE_FROZEN, ID_RULE_WAITING
+
+    assert "full ingest from the source" in ID_RULE_WAITING
+    assert ID_RULE_WAITING == ID_RULE_FROZEN
+    assert ID_RULE_WAITING in str(id_rule.IdRuleError(["omop"]))
+    assert find_spec("tools.id_rule_rebuild") is None
+    from tools.trialbox.__main__ import main
+
+    with pytest.raises(SystemExit) as unavailable:
+        main(["id-rule-rebuild"])
+    assert unavailable.value.code == 2
+
+
+def test_old_destination_is_refused_before_stamp(tmp_path: Path) -> None:
+    path = tmp_path / "snapshot"
+    path.mkdir()
+    data = path / "Condition.ndjson"
+    data.write_bytes(b"synthetic")
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        write_snapshot(path, {})
+    assert data.read_bytes() == b"synthetic"
+    assert not (path / id_rule.SNAPSHOT_RECORD).exists()
+
+
+def test_ingest_refuses_an_old_served_file_without_ndjson(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    db = cfg.lake_dir / "db" / "2026-10-01.duckdb"
+    db.parent.mkdir(parents=True)
+    db.write_bytes(b"synthetic")
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        check_id_rule(cfg)
+    assert db.read_bytes() == b"synthetic"
+
+
+def test_old_nightly_spool_is_refused_before_cleanup(tmp_path: Path) -> None:
+    from adapter.ndjson import Spool
+
+    spool = tmp_path / "spool"
+    spool.mkdir()
+    data = spool / "Condition.ndjson"
+    data.write_bytes(b"synthetic")
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        Spool(spool)
+    assert data.read_bytes() == b"synthetic"
+
+
+def test_a_held_old_snapshot_cannot_be_accepted(tmp_path: Path) -> None:
+    from adapter.publish import publish_held
+
+    cfg = _cfg(tmp_path)
+    night = "2026-10-01"
+    folder = snapshot_dir(cfg.lake_dir, night)
+    folder.mkdir(parents=True)
+    (folder / id_rule.HELD).write_text("{}")
+    (folder / "Patient.ndjson").write_text('{"resourceType":"Patient","id":"synthetic"}\n')
+    before = {p.name: p.read_bytes() for p in folder.iterdir()}
+    result = publish_held(cfg, night)
+    assert not result.ok and any(id_rule.EARLIER_RULE in s for s in result.errors)
+    assert {p.name: p.read_bytes() for p in folder.iterdir()} == before
+
+
+def test_explicit_earlier_store_rule_is_preserved_even_without_rows(db_url: str) -> None:
+    store = id_rule.OMOP
+    _store_table(db_url, store, 0, False)
+    with Database.connect(db_url, store.schema) as db:
+        db.execute("INSERT INTO tb_id_rule (rule) VALUES (1)")
+        assert id_rule.probe(db_url, store) == id_rule.OLD
+        with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"), db.transaction() as tx:
+            id_rule.ensure(tx, store)
+        assert db.fetchall("SELECT rule FROM tb_id_rule") == [(1,)]
+
+
+def test_failed_store_probe_does_not_advise_a_full_ingest(
+    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(id_rule, "probe", lambda *_: id_rule.UNREAD)
+    with pytest.raises(id_rule.IdRuleError, match="not readable") as refused:
+        check_id_rule(_cfg(tmp_path, db_url))
+    assert id_rule.EARLIER_RULE not in str(refused.value)
+
+
+def test_age_pruning_refuses_an_old_lake_before_removing_any_files(tmp_path: Path) -> None:
+    from datetime import date
+
+    from adapter.pipeline import prune_lake
+
+    cfg = _cfg(tmp_path)
+    for day in ("2020-10-01", "2026-10-01"):
+        folder = snapshot_dir(cfg.lake_dir, day)
+        write_snapshot(folder, {"Patient": [{"resourceType": "Patient", "id": "synthetic"}]})
+    (snapshot_dir(cfg.lake_dir, "2020-10-01") / id_rule.SNAPSHOT_RECORD).unlink()
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        prune_lake(cfg, date(2026, 11, 20))
+    assert (snapshot_dir(cfg.lake_dir, "2020-10-01") / "Patient.ndjson").exists()
+
+
+def test_unmarked_spool_with_a_cut_completion_marker_stays_intact(tmp_path: Path) -> None:
+    from adapter.backfill import SPOOL_DONE, backfill
+
+    cfg = _cfg(tmp_path)
+    spool = cfg.lake_dir / "backfill" / "2026-10-01" / "spool"
+    spool.mkdir(parents=True)
+    marker = spool / SPOOL_DONE
+    marker.write_bytes(b'{"fingerprint":')
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        backfill(cfg, "csv", str(tmp_path), snapshot="2026-10-01", validate=False, rebuild_lake=False)
+    assert marker.read_bytes() == b'{"fingerprint":'
+
+
+def test_publish_recovery_leaves_an_old_replaced_snapshot_intact(tmp_path: Path) -> None:
+    from adapter.publish import recover
+
+    cfg = _cfg(tmp_path)
+    day = "2026-10-01"
+    replaced = cfg.lake_dir / "ndjson-rerun" / f"{day}.replaced"
+    replaced.mkdir(parents=True)
+    data = replaced / "Condition.ndjson"
+    data.write_bytes(b"synthetic")
+    write_snapshot(snapshot_dir(cfg.lake_dir, day), {})
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        recover(cfg, day)
+    assert data.read_bytes() == b"synthetic"
+    assert id_rule.snapshot_rule(snapshot_dir(cfg.lake_dir, day)) == id_rule.RULE
+
+
+def test_ingest_and_build_refuse_isolated_old_parquet(tmp_path: Path) -> None:
+    from embed_service.embedder import HashEmbedder
+    from lake.store import Lake, RebuildError
+
+    cfg = _cfg(tmp_path)
+    stranded = cfg.lake_dir / "parquet" / "snapshot=2026-10-01"
+    stranded.mkdir(parents=True)
+    data = stranded / "condition.parquet"
+    data.write_bytes(b"PAR1")
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        check_id_rule(cfg)
+    with pytest.raises(RebuildError, match="full ingest from the source"):
+        Lake(cfg.lake_dir, cfg.tz).rebuild("2026-10-02", HashEmbedder(), allow_empty=True)
+    assert data.read_bytes() == b"PAR1"
+
+
+@pytest.mark.parametrize("name", ["publish", "replaced"])
+def test_backfill_refuses_old_publish_scratch_before_replacement(tmp_path: Path, name: str) -> None:
+    from adapter.backfill import backfill
+
+    cfg = _cfg(tmp_path)
+    work = tmp_path / "work"
+    leftover = work / name
+    leftover.mkdir(parents=True)
+    data = leftover / "Condition.ndjson"
+    data.write_bytes(b"synthetic")
+    feed = _feed(tmp_path / "feed", 1)
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        backfill(cfg, "csv", feed, snapshot="2026-10-01", work_dir=work, validate=False, rebuild_lake=False)
+    assert data.read_bytes() == b"synthetic"
+
+
+def test_an_isolated_unmarked_generation_cannot_be_served(tmp_path: Path) -> None:
+    from lake.store import Lake, LakeSchemaError
+
+    folder = tmp_path / "db" / "gen"
+    folder.mkdir(parents=True)
+    handle = "2026-10-01.g1"
+    (folder / f"{handle}.duckdb").write_bytes(b"synthetic")
+    (folder / f"{handle}.json").write_text("{}")
+    with pytest.raises(LakeSchemaError, match="full ingest from the source"):
+        Lake(tmp_path, "UTC").db_path(handle)

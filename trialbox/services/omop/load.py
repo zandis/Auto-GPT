@@ -311,6 +311,11 @@ class _Builder:
         def rec(table: str | None, pid: str | None, part: int = 0, srcid: str | None = None) -> Rec:
             return Rec(rtype, srcid or str(r["id"]), part, table, pid, basis, status, line)
 
+        from tb_common.id_rule import SHARED_CHART_TAG
+
+        if SHARED_CHART_TAG in (r.get("meta") or {}).get("tag", []):
+            # The source row stays on the steward list without an invented person or clinical fact.
+            return [rec(None, None)]
         fl = self.fl
         if rtype == "Patient":
             p = fl.patient(r)

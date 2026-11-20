@@ -37,6 +37,7 @@ import heapq
 import json
 import logging
 import shutil
+import tempfile
 import time
 from collections import Counter
 from collections.abc import Callable, Iterator
@@ -51,7 +52,8 @@ from tb_common.audit_writer import open_audit
 from tb_common.crypto import pid_for_mrn
 from tb_common.id_rule import IdRuleError
 
-from adapter.ndjson import absent_links, is_deleted_flag, snapshot_dir
+from adapter.mapping.engine import Mapper
+from adapter.ndjson import absent_links, is_deleted_flag, read_type, snapshot_dir
 from adapter.pipeline import (
     COMPLETENESS,
     PASSED,
@@ -59,6 +61,7 @@ from adapter.pipeline import (
     UNMAPPED_CODES,
     AdapterConfig,
     _current,
+    _TableRows,
     _type_counts,
     _undated_order,
     apply_aliases,
@@ -128,6 +131,7 @@ class BackfillReport:
     rejected_no_patient: dict[str, int] = field(default_factory=dict)
     # D-1253 ruling 1 (second review): records a steward decided before the id rebuild, marked for review, as the
     # night counts them (per table; per type from a bulk export)
+    ambiguous_charts: int = 0
     steward_review_needed: dict[str, int] = field(default_factory=dict)
     deletes_without_patient: dict[str, int] = field(default_factory=dict)
     # D-535: rows with a value the mapping could not use, per table (the codes: unmapped_codes.json)
@@ -188,6 +192,29 @@ def _fingerprint(cfg: AdapterConfig, source_kind: str, source_path: str, snap: s
     return h.hexdigest()
 
 
+def _checked_spool_marker(spool: Path, runs: Path, fingerprint: str) -> dict[str, Any] | None:
+    """Only a rule stamp or a completed spool's matching rule-2 fingerprint authorizes reuse or replacement."""
+    stamped = (spool / id_rule.SNAPSHOT_RECORD).exists()
+    if stamped:
+        id_rule.check_snapshot(spool, "backfill spool")
+    try:
+        data = json.loads((spool / SPOOL_DONE).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        data = None
+    except ValueError as exc:
+        if stamped:
+            raise
+        raise IdRuleError(["backfill spool"]) from exc
+    facts = data if isinstance(data, dict) else None
+    if (
+        not stamped
+        and ((spool.is_dir() and any(spool.iterdir())) or runs.exists())
+        and (facts is None or facts.get("fingerprint") != fingerprint)
+    ):
+        raise IdRuleError(["backfill spool"])
+    return facts
+
+
 class _Spool:
     """Append-only per-bucket, per-type spool files: ``<seq>\\t<canonical json>`` lines."""
 
@@ -219,14 +246,35 @@ class _Spool:
         self.files.clear()
 
 
+def _review_digest(review: frozenset[tuple[str, str]]) -> str:
+    """The review entries actually applied to this spool, so a retry cannot reuse obsolete decisions."""
+    return hashlib.sha256(json.dumps(sorted(review)).encode()).hexdigest()
+
+
+def _reviewed_rows(
+    mapper: Mapper, table: str, rows: Iterator[dict[str, Any]], deleted: str, root: Path
+) -> Iterator[dict[str, Any]]:
+    if table not in mapper.patient_specs and not mapper.chart_decisions(table):
+        yield from rows
+        return
+    # As in the nightly ingest, scan the source once, keeping its normalized rows on disk for the mapping pass.
+    with tempfile.TemporaryDirectory(dir=root) as scratch:
+        saved = _TableRows.write(Path(scratch) / "rows", rows)
+        live = saved.where(live=deleted)
+        mapper.prepare_table(table, live, Path(scratch))
+        mapper.prepared_table = table
+        yield from saved
+
+
 def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, root: Path, key: bytes) -> dict[str, Any]:
     """Phase 1: the source read once, mapped exactly as ``run_ingest`` maps it, spooled by year. Returns the facts
     the report needs (rejects per table, rows per table)."""
-    from adapter.mapping.engine import Mapper, Mapping
+    from adapter.mapping.engine import Mapping
     from adapter.pipeline import _bulk_unit_defaults
 
     shutil.rmtree(root, ignore_errors=True)
     root.mkdir(parents=True)
+    id_rule.write_snapshot_record(root)
     sp = _Spool(root, snap[:4])
     rejected: dict[str, int] = {}
     rows_by_table: dict[str, int] = {}
@@ -237,10 +285,15 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
     maps_not_loaded: list[str] = []  # D-665: filled as the rows are mapped
     pm = cfg.pidmap()
     try:
+        review = id_rule.read_review(cfg.lake_dir, include_candidates=False)
         aliases = pm.aliases()
         patients: list[tuple[int, dict[str, Any]]] = []
 
+        disputed: set[tuple[str, str]] = set()
+
         def emit(r: dict[str, Any]) -> None:
+            if id_rule.SHARED_CHART_TAG in r.get("meta", {}).get("tag", []):
+                disputed.add((r["resourceType"], str(r["id"])))
             if r["resourceType"] == "Patient":  # held until the end: a merged chart number may drop one (D-370)
                 sp.seq += 1
                 patients.append((sp.seq, r))
@@ -258,7 +311,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
             unit_defaults = _bulk_unit_defaults(cfg.mapping_path)
             # D-1253 second review, finding 8: as the night marks them (counted per type, as the night's bulk count)
             bulk = pseudonymise_bulk(FhirBulkSource(Path(source_path)).resources(), key)
-            for r in mark_for_review(bulk, id_rule.read_review(cfg.lake_dir), for_review):
+            for r in mark_for_review(bulk, review, for_review):
                 emit(r)
         else:
             mapping = Mapping.load(cfg.mapping_path)
@@ -272,12 +325,14 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                 concept_map=asks,
                 mrn_regex=cfg.mrn_regex,  # CGRD-A4 (D-816, lane E's hunk): a masked text uses the site's pattern
             )  # fmt: skip
-            mapper.review = id_rule.read_review(cfg.lake_dir)  # D-1253 ruling 1, as the night
+            mapper.source_kind = source_kind
+            mapper.review = review  # D-1253 ruling 1, as the night
             source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
             keys = source_keys(source_kind, source)
             for res in mapper.static_resources():
                 emit(res)
-            for table, tspec in mapping.tables.items():
+            for table in sorted(mapping.tables, key=lambda name: name not in mapper.patient_specs):
+                tspec = mapping.tables[table]
                 src, src_name = source, tspec["source"]
                 if table == "registry" and cfg.registry is not None:
                     kind, where = cfg.registry
@@ -295,8 +350,8 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                 n_rows = 0
                 n_read = 0
                 bad: Counter[str] = Counter()
-                for raw in src.rows(table, src_name, None, None):
-                    row = mapping.normalize(table, raw)
+                normalized = (mapping.normalize(table, raw) for raw in src.rows(table, src_name, None, None))
+                for row in _reviewed_rows(mapper, table, normalized, dcol, root):
                     n_read += 1
                     if dcol in row and is_deleted_flag(row[dcol]):
                         # a deleted row is a tombstone on a delta night; in a first load it is no record. One with no
@@ -305,7 +360,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                             pass
                         continue
                     n_rows += 1
-                    if table == "patient":
+                    if table == "patient" and not mapper.shared_chart(pid_for_mrn(key, str(row[tspec["key"]]))):
                         mrn = str(row[tspec["key"]])
                         pid = pid_for_mrn(key, mrn)
                         pairs.append((pid, mrn))
@@ -337,6 +392,8 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                     "duplicate_keys": 0,
                     "duplicates_counted": False,
                 }
+                if table in mapper.patient_specs and mapper.shared_charts:
+                    tables[table]["ambiguous_charts"] = len(mapper.shared_charts)
                 if bad:
                     tables[table]["rejected"] = dict(sorted(bad.items()))
                     no_one = sum(n for k, n in bad.items() if ": no patient (" in k)  # D-1253, as the night
@@ -349,6 +406,10 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                 if table in tables:  # only a table that was read has an entry (its rows, its presence)
                     tables[table]["unmapped"] = by_lookup
             unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
+            if mapper.shared_charts:
+                hashes = {mapper.shared_hash(pid) for pid in mapper.shared_charts}
+                id_rule.add_shared_review(cfg.lake_dir, hashes, disputed)
+                review = review.union(("SharedChart", h) for h in hashes)
             for_review.update(mapper.for_review)  # D-1253 ruling 1: per table, as the night counts it
         if patients:
             held = {"Patient": [r for _, r in patients]}
@@ -360,7 +421,9 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
     finally:
         sp.close()
         pm.close()
-    return {"keys": keys, "rejected": rejected, "rows": rows_by_table, "tables": tables,
+    return {"keys": keys, "review_digest": _review_digest(review),
+            "ambiguous_charts": len(mapper.shared_charts) if source_kind != "fhir_bulk" else 0,
+            "rejected": rejected, "rows": rows_by_table, "tables": tables,
             "unmapped_codes": unmapped_codes, "maps_not_loaded": maps_not_loaded,
             "steward_review_needed": dict(sorted(for_review.items()))}  # fmt: skip
 
@@ -522,10 +585,15 @@ def backfill(
     zone = ZoneInfo(cfg.tz)
     snap = snapshot or datetime.now(zone).date().isoformat()
     refuse_future_night(snap, datetime.now(zone).date())  # D-529
-    key = cfg.site_key()
-    check_site_key(cfg, key)
+    work = work_dir or cfg.lake_dir / "backfill" / snap
+    spool, runs = work / "spool", work / "runs"
+    fp = _fingerprint(cfg, source_kind, source_path, snap)
     try:  # D-1253: as the night, refused before anything is read or written, with one audit event saying why
         check_id_rule(cfg)
+        for folder in (work / "publish", work / "replaced"):
+            if folder.is_dir() and any(folder.iterdir()):
+                id_rule.check_snapshot(folder, "backfill snapshot")
+        done_spool = _checked_spool_marker(spool, runs, fp)
     except IdRuleError as exc:
         log.error("back-fill refused: %s", exc)
         if cfg.audit_dir:
@@ -536,16 +604,14 @@ def backfill(
         raise
     from adapter.mapping.engine import Mapping
 
+    key = cfg.site_key()
+    check_site_key(cfg, key)
     loaded = None if source_kind == "fhir_bulk" else Mapping.load(cfg.mapping_path)
     site_wide = frozenset() if loaded is None else loaded.site_wide
     mapping_tables = frozenset() if loaded is None else frozenset(loaded.tables)  # D-1253 second review, 10
-    work = work_dir or cfg.lake_dir / "backfill" / snap
     work.mkdir(parents=True, exist_ok=True)
-    spool, runs = work / "spool", work / "runs"
     rep = BackfillReport(snapshot=snap)
-    fp = _fingerprint(cfg, source_kind, source_path, snap)
     marker = spool / SPOOL_DONE
-    done_spool = json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else None
 
     def read_source() -> dict[str, Any]:
         _progress(work, rep, "spool")
@@ -588,7 +654,13 @@ def backfill(
 
     # a spool is reused when it is of the same source, mapping and snapshot AND holds the table facts (a spool
     # written before D-535 has none: the source is read again, or the gate and the baseline would be skipped)
-    if done_spool and done_spool.get("fingerprint") == fp and "tables" in done_spool:
+    if (
+        done_spool
+        and done_spool.get("fingerprint") == fp
+        and "tables" in done_spool
+        and done_spool.get("review_digest")
+        == _review_digest(id_rule.read_review(cfg.lake_dir, include_candidates=False))
+    ):
         rep.spool_reused = True
         facts = done_spool
         if gate(facts):
@@ -606,6 +678,7 @@ def backfill(
         if done_spool and done_spool.get("fingerprint") == fp:
             log.warning("back-fill %s: the kept spool has no table facts (an older version's); read again", snap)
         facts = read_source()
+    rep.ambiguous_charts = facts.get("ambiguous_charts", 0)
     rep.rejected = dict(facts.get("rejected") or {})
     rep.steward_review_needed = {str(k): int(v) for k, v in (facts.get("steward_review_needed") or {}).items()}
     for t, v in sorted((facts.get("tables") or {}).items()):  # D-1253 review F
@@ -716,6 +789,31 @@ def _publish(
     facts = _spool_facts(work)
     if source_kind:  # D-1253 second review, finding 7: the source it was read from, as the night records it
         id_rule.record_source(stage, source_kind, facts.get("keys"))
+    last_good = merge_base(cfg.lake_dir, snap)
+    same_day = snapshot_dir(cfg.lake_dir, snap)
+    review_base = snap if (same_day / PASSED).exists() or _current(cfg.lake_dir) == snap else last_good
+    if rep.ambiguous_charts and review_base:
+        from adapter.mapping.engine import resource_id
+        from adapter.ndjson import retain_disputed
+        from adapter.pipeline import _source_of
+
+        previous = snapshot_dir(cfg.lake_dir, review_base)
+        if _source_of(previous) == source_kind and id_rule.snapshot_keys(previous) == (facts.get("keys") or {}):
+            review = id_rule.read_review(cfg.lake_dir, include_candidates=False)
+            key = cfg.site_key()
+
+            def shared(pid: str) -> bool:
+                digest = resource_id(key, "SharedChart", f"{cfg.site_id}|{source_kind}|{pid}")
+                return ("SharedChart", digest) in review
+
+            retain_disputed(previous, stage, shared, counts)
+            records = {
+                (typ, r["id"])
+                for typ in counts
+                for r in read_type(stage, typ)
+                if id_rule.SHARED_CHART_TAG in r.get("meta", {}).get("tag", [])
+            }
+            id_rule.add_shared_review(cfg.lake_dir, set(), records)
     rep.id_collisions = clashes  # D-1253 review F: over the years of this publish
     rep.links_to_absent_records = absent_links(
         stage, site_wide=site_wide, tables=mapping_tables
@@ -755,7 +853,6 @@ def _publish(
 
             failure.log_failure(log, "validation failed to run", exc)
             errors.append(f"validation failed to run: {failure.words(exc)}")  # D-668
-    last_good = merge_base(cfg.lake_dir, snap)
     if last_good is not None and last_good != snap:  # D-271: never (nearly) empty a kind of record
         try:
             pct = feedguard.max_drop_pct()
@@ -808,6 +905,7 @@ def _audit(cfg: AdapterConfig, rep: BackfillReport) -> None:
             "published": rep.published,
             "counts": rep.counts,
             "rejected": rep.rejected or None,
+            "ambiguous_charts": {"patient": rep.ambiguous_charts} if rep.ambiguous_charts else None,
             "id_collisions": rep.id_collisions or None,  # D-1253 review F: as the night's detail
             "links_to_absent_records": {t: sum(by.values()) for t, by in sorted(rep.links_to_absent_records.items())}
             or None,

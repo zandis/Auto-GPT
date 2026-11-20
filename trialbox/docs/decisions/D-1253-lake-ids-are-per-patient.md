@@ -196,7 +196,7 @@
   - **EDC keeps the rule per study** (`edc.tb_id_rule_study`). EDC is the one place old ids stay on a box, by design.
     - The migration stamps rule 1 on every study that has drafts when it runs. A study with none starts at rule 2
       at its first draft run.
-    - **What freezes a study** has one definition, used by EDC and by the rebuild alike (`edc.store.cites_old_rows`,
+    - **What freezes a study** has one definition, used by EDC (`edc.store.cites_old_rows`,
       review round 3): a draft that cites a lake row (`citation` or `final_citation`) and is decided, signed, sent
       or named by any act on a draft (`edc.store.TRAIL_TABLES`, held to the schema by a test). A value decided
       "not found" cites no lake row, so it freezes nothing.
@@ -214,109 +214,16 @@
       - its signatures still verify;
       - nothing marks a value `source_changed` because of the change of rule;
       - its EDC page says why prefill is stopped, in one line in en, ja and zh-TW, shown only for a frozen study.
-    - A person closes a frozen study in EDC or starts it again under a new study key.
-    - Any other rule-1 study waits for the rebuild. The rebuild clears its open drafts (no trail), keeps a decided
-      value that cites no lake row as it is, and stamps the study rule 2. No study is left waiting for good.
-  - **The rebuild is one explicit operator step** after the update: `python3 -m tools.trialbox id-rule-rebuild`
-    shows the plan, and `--yes` does it. It is `tools/id_rule_rebuild.py`, run in a one-off adapter container as the
-    box's admin, and written up in RUNBOOK §5, "Lake ids per patient".
-    - **A later release's box.** It refuses, changing nothing, when anything says a rule above 2: a snapshot
-      record, or one that cannot be read (a rule-1 snapshot has none), a store, or an EDC study. It says "update
-      the box" (review round 3), and never moves such a snapshot aside as rule 1.
-    - **Writers stopped.** It refuses, changing nothing, unless the writers are stopped. It checks this itself:
-      - it takes the adapter's run lock;
-      - no lake build runs;
-      - no service role is connected to the trial database or the OMOP database.
-
-      It holds the lake lock.
-    - **Kept, never deleted:** what cannot be made again or what a person decided.
-      - Retention's month-end snapshots are moved aside to `<lake>/id_rule_1/`. They are kept, never read, pruned by
-        retention as before, and registered for erasure (`lake:id_rule_1`).
-        - They are chosen from every place a snapshot is: its NDJSON, its DuckDB file and generations, its Parquet
-          folder. A month-end served without its NDJSON is a month-end too. What an earlier run cut short moved
-          already counts as well (round 3).
-        - Every part moves, one file or folder at a time: the NDJSON, the Parquet, the DuckDB file with its
-          sidecars, and its generations' files and records (`db/gen/<s>.g<n>.*`).
-      - A resolved derived conflict and its score row stay, marked `id_rule = 1`; the row is superseded, so it is
-        never read as a score.
-      - EDC's trail stays.
-      - So do the site key, the pid map, the site facts, the embedding cache and the FHIR ledger.
-    - **In order:**
-      1. it moves the month-ends aside;
-      2. it clears what is served (`CURRENT`, the DuckDB and Parquet copies, the holds);
-      3. it clears the rest of the lake;
-      4. it clears the stores, each stamped rule 2 in the same transaction:
-         - the OMOP store the night probes (`TB_OMOP_DB_URL` when set): its feed records of patients' clinical
-           data. The persons and the practitioners stay (#1258), and so does every record a person decided
-           (ruling 1, below).
-         - the derived scores, inputs, open conflicts and batch runs;
-         - the note chunks, the twin's documents and the pool;
-         - the data-ops `built` and `built_kept` rows;
-         - the rule-1 EDC studies' open drafts.
-
-      A crash after any step, or between any two moves aside, loses nothing kept and serves nothing of the old
-      rule, and a second run finishes the work.
-    - The plan names every kind of thing kept, moved and cleared, with counts.
-    - The rebuild writes one audit event of a kind the box already has, `lake.rebuild.source` (`source: id_rule`),
-      and the same to `<lake>/id_rule_rebuild.json`: counts, snapshot dates and the EDC study keys it froze or
-      stamped; no patient (`lake:id_rule_rebuild.json` in the erasure registry). There is no audit schema or role
-      change; the rebuild runs as the admin.
-    - **Deep review (4a059fca), folded in:**
-      - **Nothing to do.** When no snapshot, store, back-fill spool or EDC study holds ids of the earlier rule, the
-        plan and the rebuild say "nothing to do" and change nothing (exit 0).
-      - **Retention's month-ends.** The month-end a month keeps is retention's own: its last night that passed
-        (`adapter.pipeline.good_snapshots`, one definition with the nightly prune), by the site's date (`TB_TZ`),
-        never the container's UTC date.
-      - **A record that cannot be read.** `id_rule.json` is written to a temporary file and renamed into place. A
-        record that cannot be read (a write cut short, a damaged disk) is its own state, with one instruction from
-        the night, the readers and the rebuild alike: move that unfinished snapshot out of the lake and run the
-        night again.
-      - **The back-fill's spool.** A spool kept from before the update is never reused: its fingerprint holds the
-        id rule (#1258), so a spool of the earlier rule misses and is read again from the source.
-      - **Backups.** The backup takes `id_rule_1/<ndjson|db|parquet>` by the rules of the live folders: a month-end
-        aside is an older snapshot (its NDJSON and older generations left out; its DuckDB, generation records and
-        Parquet kept), as before the move.
-      - **Kept out.** `adapter run` and `adapter backfill` from the command line hold the run lock, so the rebuild
-        keeps them out as it keeps out the service's nights. The night's FHIR step checks the snapshot's rule before
-        its ledger is read or written. An EDC store not yet migrated refuses the rebuild (start the services once
-        first), as the derived store does. A link by day must name the record's patient among its keys.
-    - **The integrator's review (#1258) and the owner's rulings (2026-11-20).** Twelve findings: eight fixed by
-      the integrator's builder with failing-first tests (`tests/unit/test_id_rule_review.py`), four ruled.
-      - **Fixed (#1258).** A practitioner survives the rebuild. A back-fill spool of the earlier rule is never
-        resumed. A mapping cannot give a patient's record an id of its own choosing (`elements` or `$merge` setting
-        `id`, `id.pid` on a record that is not a Patient, `column` on a record that names its patient). A link by
-        day names the record's patient among its keys. A chart number keys a record however it is spelt
-        (`chartno.normalise`). The month-end kept is the last night that passed. The rebuild's later-release check
-        reads the DuckDB files' rule records too. A confirmed value an ODM import cited survives the rebuild.
-      - **Ruling 1: a steward's decision on an id two patients shared.** Which chart the decision meant cannot be
-        told, so it is never carried over by guess and never deleted. The rebuild keeps every OMOP feed record a
-        person decided (a status change), with its whole history, as `source_kind = 'feed:id_rule_1'` (out of the
-        feed's reach, no OMOP row, one more event saying why). It lists their earlier ids in
-        `<lake>/id_rule_review.json` (`lake:id_rule_review.json`: record-number pseudonyms, no patient). Every
-        record a night or a back-fill makes from such a number, for each patient, is a proposed fact (D-135's
-        basis tag, never coded in the lake, status `proposed` in OMOP) and carries the tag
-        `urn:trialbox:review|id-rule-steward-review`. The night counts them (`steward_review_needed`, kept on the
-        data-ops batch row). A steward reviews each in OMOP (`proposed` to `confirmed` or `rejected`); an unchanged
-        night keeps that status.
-      - **Ruling 7: one record from a mapped feed and from a FHIR bulk export.** A site changes source only with a
-        full night: a delta night over a snapshot read from another source is held, both ways, with that message.
-      - **Ruling 9: the DuckDB file's own rule record.** For 1.0 the rebuild and the readers keep today's evidence
-        (the snapshot's `id_rule.json`, and `db/<s>.duckdb.id_rule` for a file served without its NDJSON).
-        `test_id_rule_review.py::test_duckdb_owns_its_rule` stays a strict expected failure.
-      - **Ruling 11: SS-MIX2 order ids.** The key is the reader's, owned by #1238 (it keys `<number>@<type>`). Each
-        SS-MIX2 snapshot records the key form its order ids were made from (`id_rule.json` `keys.ssmix2_order`). A
-        snapshot of another form is one the rebuild clears (a delta night over it is held), and the next full
-        night reads every order under the reader's key.
-  - **A box with real data** follows the same steps.
-    - Nothing a person decided and nothing retention keeps is deleted.
-    - What is cleared is made again from the sources: the first night after the rebuild reads every table whole,
-      and the jobs fill the stores again.
-    - If the hospital's export no longer holds the history the lake held, the history comes back by the back-fill
-      (D-403), not by this rebuild.
-    - Published job outputs cite the old ids and cannot be traced into the rebuilt lake. The audit chain is not
-      touched.
-  - **Backups.** A backup made after the update is restored on this release or a later one: update first, then
-    restore. A backup made before the update is of rule 1, is refused like any old store, and needs the rebuild.
+    - Rule-1 studies refuse writes and preserve all drafts and audit history.
+  - Two distinct patient rows sharing a chart number in one source require steward review. Preserve their
+    source records separately, mark their clinical records proposed, and withhold both from screening.
+    The nightly report counts distinct disputed charts. The review list keeps a source-scoped chart hash and the IDs of the disputed records.
+  - A historical decision can be matched by its exact hash. If a chart spelling is unknown and a hash remains
+    unmatched, the chart-keyed records of that type require review. Keep the original decision and its history.
+  - A change of source or SS-MIX2 order-key form requires a full ingest. A steward cannot accept a delta
+    that used incompatible keys.
+  - Earlier-rule data is refused in place. A full ingest from the source into fresh storage uses the current rule.
+  - For 1.0, a DuckDB file with NDJSON uses the snapshot's rule. A file served alone uses its sidecar (ruling 9).
   - **Not touched:**
     - published job outputs;
     - the audit chain;
@@ -357,20 +264,8 @@
     - the night's one refusal, a newer rule, a probe that fails, a store the adapter reads but cannot read;
     - each store's stamp and refusal, through the OMOP load, the derived recompute and documented check, the twin's
       put and the pool's upsert.
-  - `tests/unit/test_id_rule_rebuild.py`:
-    - the plan, the rebuild and the writer checks;
-    - month-ends aside and their pruning;
-    - a month-end served without its NDJSON, with its sidecars;
-    - a crash after each step, and between each two moves aside;
-    - a lake, a store or an EDC study of a later release, refused;
-    - resolved conflicts kept, the data-ops reset;
-    - `TB_OMOP_DB_URL`, the audit event;
-    - the frozen EDC study, the host command.
-    - ruling 1 (two charts sharing a number, a steward's rejection), ruling 11 (SS-MIX2 orders under the reader's
-      key);
   - `tests/unit/test_edc_id_rule_freeze.py`: the migration's stamp, every write path of a frozen study, no
-    `source_changed`, open drafts waiting, a study whose decided value cites no lake row (not frozen, freed by the
-    rebuild), the trail tables held to the schema.
+    `source_changed`, open drafts waiting, a study whose decided value cites no lake row (preserved on refusal), the trail tables held to the schema.
   - `tests/unit/test_backfill_completeness.py`: the back-fill's counts (`id_collisions`, `rejected_no_patient`,
     `deletes_without_patient`, `links_to_absent_records`) and its one event when refused for the id rule.
   - `tests/unit/test_lake_snapshot_opened_once.py`: every entry point above refuses a snapshot of the earlier rule
@@ -384,6 +279,7 @@
   - `tests/unit/test_id_rule_review.py` (#1258: one test per finding; `test_duckdb_owns_its_rule` a strict expected
     failure, ruling 9).
 - **Remains.**
+  - Migration of an old-rule lake is a card of its own, not scheduled.
   - Ruling 9: a DuckDB file does not carry its own rule. Today's evidence stands for 1.0 (above); no code.
   - Ruling 1: no tool yet takes a reviewed record off the review list. While its earlier id is listed, the lake keeps
     it out of the coded tables, whatever the steward decided in OMOP; OMOP itself counts it once confirmed.

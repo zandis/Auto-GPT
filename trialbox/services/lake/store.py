@@ -1035,20 +1035,22 @@ class Lake:
 
     def check_id_rule(self, snapshot: str) -> None:
         """D-1253 review G1: no reader opens (and no build makes) a lake of a snapshot whose NDJSON is not this
-        release's id rule (an earlier rule's: rebuild once; a newer one's: update the box). Every read, pin, hold
+        release's id rule. Every read, pin, hold
         and promote resolves its file here (:meth:`db_path`)."""
         from tb_common import id_rule
 
         what = f"the lake snapshot {snapshot}"
         nd = self._source(snapshot)
-        side = self.dir / "db" / f"{snapshot}.duckdb{ID_RULE_SIDECAR}"
+        database = self.dir / "db" / f"{snapshot}.duckdb"
         try:
             if nd.is_dir():
                 id_rule.check_snapshot(nd, what)
-            elif (self.dir / "db" / f"{snapshot}.duckdb").exists():
+            elif database.exists() or any(gen_dir(self.dir).glob(f"{snapshot}.g*.duckdb")):
                 # review round 3: served with no NDJSON left (the byte budget takes it first, NEW-B-38): the rule
                 # the build wrote beside the file; none is the earlier rule (written before D-1253)
-                rule = int(side.read_text(encoding="utf-8").strip()) if side.exists() else 1
+                rule = id_rule.served_rule(database)
+                if rule == 0:
+                    raise id_rule.IdRuleError([], unreadable=[what])
                 if rule > id_rule.RULE:
                     raise id_rule.IdRuleError([], newer=[what])
                 if rule != id_rule.RULE:
@@ -1321,6 +1323,11 @@ class Lake:
         refused (D-271) before anything is written."""
         from tb_common import id_rule
 
+        try:
+            self.check_id_rule(snapshot)
+            id_rule.check_lake(self.dir)
+        except (LakeSchemaError, id_rule.IdRuleError) as exc:
+            raise RebuildError(str(exc)) from exc
         src = ndjson_dir or self._source(snapshot)
         allow_empty = allow_empty or not self.fed()
         if not src.is_dir() and not allow_empty:
@@ -1349,6 +1356,7 @@ class Lake:
         tmp = db_path.with_suffix(".building")
         stage = self.dir / "parquet" / ".building" / f"snapshot={snapshot}"  # D-462: beside the served Parquet
         old = stage.with_name(f"snapshot={snapshot}.old")
+        src, allow_empty = self._source_or_refuse(snapshot, ndjson_dir, allow_empty)
         # leftovers of a rebuild of this snapshot that was killed (this one holds its build lock: nobody else writes)
         tmp.unlink(missing_ok=True)
         shutil.rmtree(stage, ignore_errors=True)
@@ -1372,7 +1380,6 @@ class Lake:
         if promote and cur is not None and snapshot < cur:
             log.warning("lake snapshot %s is older than CURRENT %s: built, not promoted (DATA-007)", snapshot, cur)
             promote = False
-        src, allow_empty = self._source_or_refuse(snapshot, ndjson_dir, allow_empty)
         # T-692 (D-473): the NDJSON is read as each table is written, never held; here only its lines are counted
         by_type = {f.stem: _NdjsonFile(f) for f in sorted(src.glob("*.ndjson"))}
         lines = {t: v.count() for t, v in by_type.items()}

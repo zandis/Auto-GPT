@@ -217,6 +217,8 @@ def _detail(text: str) -> dict[str, Any]:
 #: type (collisions) or per source table (the others)
 ID_COUNTS = (
     ("collisions", "id_collisions"),
+    ("shared_chart", "ambiguous_charts"),
+    ("review", "steward_review_needed"),
     ("absent", "links_to_absent_records"),
     ("deletes", "deletes_without_patient"),
     ("no_patient", "rejected_no_patient"),

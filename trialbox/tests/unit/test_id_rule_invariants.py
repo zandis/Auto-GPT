@@ -43,17 +43,43 @@ WIDE = "１００００００１"
 Records = dict[str, list[dict[str, Any]]]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="Which trusted patient identifier distinguishes two people with one site chart number?",
-)
 def test_identical_chart_numbers() -> None:
     _, mapper = ids._mapper()
     patients = ids.both()["patient"]
     patients[1]["mrn"] = patients[0]["mrn"]
     records = list(mapper.map_table("patient", iter(patients)))
     assert len({r["id"] for r in records if r["resourceType"] == "Patient"}) == 2
+    assert all(id_rule.REVIEW_TAG in r["meta"]["tag"] for r in records)
+
+
+@pytest.mark.parametrize("mode", ["night", "backfill"])
+def test_shared_chart_stays_out_of_screening(tmp_path: Path, mode: str, db_url: str) -> None:
+    tables = ids.both()
+    for rows in tables.values():
+        for row in rows:
+            if row.get("mrn") == ids.B:
+                row["mrn"] = ids.A
+    cfg = ids._cfg(tmp_path, "csv")
+    if mode == "backfill":
+        feed = tmp_path / "feed"
+        ids.write_csv(ids.CSV_SITE, feed, tables)
+        assert backfill(cfg, "csv", str(feed), snapshot=FIRST, validate=False, rebuild_lake=False).state == "published"
+    else:
+        assert ids.night(tmp_path, "csv", tables, FIRST).passed
+    folder = snapshot_dir(cfg.lake_dir, FIRST)
+    if mode == "night":
+        assert json.loads((folder / "ingest_report.json").read_text())["ambiguous_charts"] == 1
+    report = json.loads((folder / "completeness.json").read_text())
+    assert report["tables"]["patient"]["ambiguous_charts"] == 1
+    feed_rows = ids.lake(tmp_path, FIRST)
+    review_list = id_rule.read_review(cfg.lake_dir)
+    for typ in ("Patient", "Condition", "Coverage", "Observation", "Consent"):
+        assert len(feed_rows[typ]) >= 2
+        assert {(typ, r["id"]) for r in feed_rows[typ]} <= review_list
+        assert all(id_rule.REVIEW_TAG in r["meta"]["tag"] for r in feed_rows[typ])
+    for source in SOURCES:
+        projection = _tables(tmp_path, FIRST, source)
+        assert all(not records for table, records in projection.items() if table != "practitioner")
 
 
 @pytest.mark.parametrize("form", ["pid", "column", "template", "ref_column", "by_day"])
@@ -298,17 +324,74 @@ def test_site_device_owner(tmp_path: Path, expr: dict[str, str]) -> None:
         Mapping.load(ids._site(tmp_path, [spec]))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="Which trusted source can recover an unseen chart spelling from a historical decision hash?",
-)
 def test_historical_chart_spelling() -> None:
     # Only a one-way hash remains. No rule-2 night has ever seen the old chart spelling.
     _, mapper = ids._mapper()
     mapper.review = frozenset({("Consent", resource_id(ids.KEY, "Consent", " " + WIDE))})
     (consent,) = mapper.map_table("registry", iter(ids.canonical(ids.A)["registry"]))
     assert id_rule.REVIEW_TAG in consent.get("meta", {}).get("tag", [])
+
+
+@pytest.mark.parametrize("mode", ["night", "backfill"])
+def test_unresolved_chart_decision_preserves_history_and_withholds_candidates(
+    tmp_path: Path, db_url: str, mode: str
+) -> None:
+    from omop import schema
+    from omop.load import load_batch, set_status
+
+    cfg = ids._cfg(tmp_path, "csv")
+    cfg.lake_dir.mkdir()
+    earlier = resource_id(ids.KEY, "Consent", " " + WIDE)
+    prefs = cfg.lake_dir / id_rule.REVIEW
+    id_rule.write_review(prefs, [("Consent", earlier, "rejected")])
+    prior_list = prefs.read_bytes()
+    with schema.connect(db_url, schema.schema_for(cfg.lake_dir)) as db:
+        key = ("feed", "Consent", earlier, 0)
+        load_batch(
+            db,
+            "feed",
+            FIRST,
+            {
+                "Consent": [
+                    {
+                        "resourceType": "Consent",
+                        "id": earlier,
+                        "status": "active",
+                        "patient": {"reference": "Patient/prior"},
+                    }
+                ]
+            },
+            tz="Asia/Taipei",
+        )
+        set_status(db, key, "rejected", by="steward", reason="synthetic review")
+        # A kept decision under its historical source kind, in the very store that the night loads.
+        db.execute(
+            "UPDATE tb_record SET source_kind = 'feed:id_rule_1', cdm_table = NULL, record_id = NULL "
+            "WHERE source_record_id = ?",
+            (earlier,),
+        )
+        audit = (
+            "SELECT e.* FROM tb_record_event e JOIN tb_record r USING(record_key) "
+            "WHERE r.source_kind = 'feed:id_rule_1' ORDER BY event_id"
+        )
+        trail = db.fetchall(audit)
+        assert trail
+        rows = ids.both()
+        if mode == "night":
+            assert ids.night(tmp_path, "csv", rows, FIRST).passed
+        else:
+            feed = tmp_path / "feed"
+            ids.write_csv(ids.CSV_SITE, feed, rows)
+            assert (
+                backfill(cfg, "csv", str(feed), snapshot=FIRST, validate=False, rebuild_lake=False).state == "published"
+            )
+        for source in SOURCES:
+            assert not _tables(tmp_path, FIRST, source)["consent"]
+        assert db.fetchall(audit) == trail
+        assert db.fetchone("SELECT status FROM tb_record WHERE source_record_id = ?", (earlier,)) == ("rejected",)
+    assert prefs.read_bytes() == prior_list
+    candidates = ids.lake(tmp_path, FIRST)["Consent"]
+    assert len(candidates) == 2 and all(id_rule.REVIEW_TAG in r["meta"]["tag"] for r in candidates)
 
 
 @pytest.mark.parametrize("first", ["full", "backfill"])
@@ -405,3 +488,82 @@ def test_retry_while_lake_reads(tmp_path: Path) -> None:
     with building(cfg.lake_dir, FIRST), pytest.raises(SnapshotBuilding):
         ids.night(tmp_path, "csv", {"patient": ids.both()["patient"]}, FIRST)
     assert old.exists() and not (folder / "passed.json").exists()
+
+
+def test_two_identical_clinical_rows_of_a_shared_chart_both_reach_review() -> None:
+    _, mapper = ids._mapper()
+    patients = ids.both()["patient"]
+    patients[1]["mrn"] = patients[0]["mrn"]
+    list(mapper.map_table("patient", iter(patients)))
+    row = ids.canonical(ids.A)["diagnosis"][0]
+    records = list(mapper.map_table("diagnosis", iter([row, row])))
+    assert len({record["id"] for record in records}) == 2
+    assert all(id_rule.REVIEW_TAG in record["meta"]["tag"] for record in records)
+
+
+def test_shared_chart_on_delta_withholds_already_screened_records(tmp_path: Path, db_url: str) -> None:
+    rows = ids.canonical(ids.A)
+    assert ids.night(tmp_path, "csv", rows, FIRST).passed
+    for source in SOURCES:
+        assert _tables(tmp_path, FIRST, source)["condition"]
+    # Only the patient catalogue changes. Last night's diagnosis is still in the merged snapshot.
+    rows["patient"].append({**ids.canonical(ids.B)["patient"][0], "mrn": ids.A})
+    assert ids.night(tmp_path, "csv", rows, SECOND, since=FIRST).passed
+    carried = ids.lake(tmp_path, SECOND)["Condition"]
+    assert carried and all(id_rule.REVIEW_TAG in r["meta"]["tag"] for r in carried)
+    assert {("Condition", r["id"]) for r in carried} <= id_rule.read_review(tmp_path / "lake")
+    for source in SOURCES:
+        assert all(not rr for t, rr in _tables(tmp_path, SECOND, source).items() if t != "practitioner")
+    third = "2026-10-03"
+    # The disputed chart remains listed on a fresh feed. Its candidate IDs never become decisions about B.
+    assert ids.night(tmp_path, "csv", ids.both(), third).passed
+    for source in SOURCES:
+        clear = _tables(tmp_path, third, source)
+        assert len(clear["patient"]) == len(clear["consent"]) == 1
+        assert clear["patient"][0]["pid"] == pid_for_mrn(ids.KEY, ids.B)
+
+
+def test_a_chart_reference_in_free_text_does_not_withhold_another_patient(tmp_path: Path) -> None:
+    from adapter.ndjson import read_type, write_snapshot
+
+    baseline = tmp_path / "first"
+    clear = {
+        "resourceType": "Condition",
+        "id": "clear",
+        "subject": {"reference": "Patient/other"},
+        "code": {"text": "Patient/disputed"},
+    }
+    write_snapshot(baseline, {"Condition": [clear]})
+    write_snapshot(tmp_path / "next", {}, baseline, shared_charts={"disputed"})
+    assert list(read_type(tmp_path / "next", "Condition")) == [clear]
+
+
+@pytest.mark.parametrize("mode", ["night", "backfill"])
+@pytest.mark.parametrize("refresh", [FIRST, SECOND], ids=["same-night", "next-night"])
+def test_full_night_replaces_a_screened_chart_with_review_records(
+    tmp_path: Path, db_url: str, mode: str, refresh: str
+) -> None:
+    assert ids.night(tmp_path, "csv", ids.canonical(ids.A), FIRST).passed
+    for source in SOURCES:
+        assert _tables(tmp_path, FIRST, source)["condition"]
+    rows = ids.both()
+    rows["patient"].append({**rows["patient"][1], "mrn": ids.A})
+    cfg = ids._cfg(tmp_path, "csv")
+    feed = tmp_path / "refresh-feed"
+    ids.write_csv(ids.CSV_SITE, feed, rows)
+    if mode == "night":
+        lake = Lake(cfg.lake_dir, cfg.tz)
+
+        def rebuild(snap: str, folder: Path) -> RebuildResult:
+            return RebuildResult.model_validate(lake.rebuild(snap, HashEmbedder(), folder), from_attributes=True)
+
+        cfg.rebuild = rebuild
+        report = run_ingest(cfg, "csv", str(feed), snapshot=refresh, validate=False, load_fhir=False)
+        assert report.passed, report.errors
+    else:
+        result = backfill(cfg, "csv", str(feed), snapshot=refresh, validate=False, rebuild_lake=False)
+        assert result.state == "published", result.errors
+    for source in SOURCES:
+        projected = _tables(tmp_path, refresh, source)
+        assert {r["pid"] for r in projected["patient"]} == {pid_for_mrn(ids.KEY, ids.B)}
+        assert {r["pid"] for r in projected["condition"]} == {pid_for_mrn(ids.KEY, ids.B)}

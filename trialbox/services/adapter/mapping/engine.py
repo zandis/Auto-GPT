@@ -49,8 +49,9 @@ import hmac
 import json
 import math
 import re
+import tempfile
 from collections import Counter
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -1232,6 +1233,15 @@ class Mapper:
         # D-1253 ruling 1: (type, earlier-rule id) of the records a person decided before the id rebuild
         # (``tb_common.id_rule.read_review``); each record made from such a number is marked for a steward's review
         self.review: frozenset[tuple[str, str]] = frozenset()
+        self.patient_specs: dict[str, list[ResourceSpec]] = {}
+        for resource in mapping.resources:
+            if resource.type == "Patient":
+                self.patient_specs.setdefault(resource.table, []).append(resource)
+        self.prepared_table: str | None = None
+        self._review_copies: Counter[str] = Counter()
+        self.unresolved_types: set[str] = set()
+        self.shared_charts: set[str] = set()
+        self.source_kind = ""
         self.for_review: Counter[str] = Counter()  # the records so marked, by table (counts only)
 
     # ------------------------------------------------------------------ scalar conversion
@@ -1913,24 +1923,82 @@ class Mapper:
             return self.number_id(rs.type, rs, row, str(value), str(rs.id.get("suffix", "")), chart=col == rs.patient)
         return str(value)
 
-    def _for_review(self, rs: ResourceSpec, row: Row) -> bool:
-        """Whether a steward decided the record ``rs`` makes of ``row`` before the rebuild: by its earlier-rule id
-        (the type and the number with its suffix, whoever the patient), or by its own id (a rebuild of this rule's
-        lake, when the SS-MIX2 order key changed, keeps this rule's decisions: D-1253 second review, finding 9)."""
+    def shared_hash(self, pid: str) -> str:
+        return resource_id(self.key, "SharedChart", f"{self.site_id}|{self.source_kind}|{pid}")
+
+    def shared_chart(self, pid: str) -> bool:
+        if self.review and ("SharedChart", self.shared_hash(pid)) in self.review:
+            self.shared_charts.add(pid)
+        return pid in self.shared_charts
+
+    def _chart_signatures(self, table: str, rows: Iterable[Row]) -> Iterator[tuple[str, int, str]]:
+        for row in rows:
+            for spec in self.patient_specs[table]:
+                col = spec.id.get("pid") or spec.id.get("column") or spec.id["hid"]
+                if not str(row.get(col) or "").strip():
+                    continue
+                try:
+                    if spec.where and not self.cond(spec.where, row):
+                        continue
+                    pid = self.row_id(spec, row)
+                except (ValueError, KeyError, TypeError, ArithmeticError):
+                    continue  # the mapping pass handles a malformed row
+                yield pid, 0, self.row_hash({**row, col: pid})
+
+    def prepare_table(self, table: str, rows: Iterable[Row], scratch: Path) -> None:
+        """Inspect a replayable table before mapping any of its rows, including the first disputed patient."""
+        from adapter.ndjson import _sorted, sort_run_bytes
+
+        if table in self.patient_specs:
+            # Group keyed row fingerprints on the spool volume within the same sort budget as the nightly merge.
+            previous = signature = None
+            with tempfile.TemporaryDirectory(dir=scratch) as work:
+                for pid, _, current in _sorted(self._chart_signatures(table, rows), sort_run_bytes(), Path(work)):
+                    if pid == previous and current != signature:
+                        self.shared_charts.add(pid)
+                    self.shared_chart(pid)
+                    previous, signature = pid, current
+        self.prepare_review(table, rows)
+
+    def chart_decisions(self, table: str) -> list[ResourceSpec]:
+        if not self.review:
+            return []
+        types = {typ for typ, _ in self.review}
+        return [
+            r
+            for r in self.m.resources
+            if r.table == table
+            and r.type in types
+            and r.patient is not None
+            and r.id.get("hid") == r.patient
+            and r.patient_reference is None
+        ]
+
+    def prepare_review(self, table: str, rows: Iterable[Row]) -> None:
+        """Resolve only known hashes. One unaccounted decision can belong to any chart-keyed row of its type."""
+        specs = self.chart_decisions(table)
+        if not specs:
+            return
+        types = {rs.type for rs in specs}
+        remaining = {(typ, rid) for typ, rid in self.review if typ in types}
+        for row in rows:
+            for rs in specs:
+                remaining.difference_update(self._review_keys(rs, row))
+        self.unresolved_types.update(typ for typ, _ in remaining)
+
+    def _review_keys(self, rs: ResourceSpec, row: Row) -> Iterator[tuple[str, str]]:
         col = rs.id.get("hid")
         if col is None or row.get(col) is None:
-            return False
-        earlier = resource_id(self.key, rs.type, f"{row[col]}{rs.id.get('suffix', '')}")
-        if (rs.type, earlier) in self.review:
-            return True
+            return
+        suffix = rs.id.get("suffix", "")
+        yield rs.type, resource_id(self.key, rs.type, f"{row[col]}{suffix}")
         if col == rs.patient and rs.patient_reference is None:
             canonical = chartno.normalise(None, str(row[col]))
-            if (rs.type, resource_id(self.key, rs.type, canonical + rs.id.get("suffix", ""))) in self.review:
-                return True
+            yield rs.type, resource_id(self.key, rs.type, canonical + suffix)
         try:
-            return (rs.type, self.row_id(rs, row)) in self.review
+            yield rs.type, self.row_id(rs, row)
         except (MappingError, KeyError, TypeError, ValueError):
-            return False
+            return
 
     def tombstones(self, table: str, rows: Iterator[Row], deleted: bool = True) -> Iterator[tuple[str, str]]:
         """``(resource type, id)`` of every resource a deleted source row would have made (dataflow review P0-1).
@@ -1947,6 +2015,8 @@ class Mapper:
                 self.dead_without_patient[table] += 1
             for rs in specs:
                 try:
+                    if rs.patient and self.shared_chart(self.patient_of(rs, row)):
+                        continue  # a disputed chart cannot authorize deletion of either person's record
                     yield rs.type, self.row_id(rs, row)
                 except (KeyError, TypeError, ValueError):
                     continue
@@ -1999,12 +2069,26 @@ class Mapper:
             meta = res.setdefault("meta", {})
             meta["tag"] = [*(meta.get("tag") or []), {"system": BASIS, "code": VERIFY_BASIS}]
             self.from_verify[rs.table] += 1
-        if self.review and self._for_review(rs, row):
+        ambiguous = False
+        if self.shared_charts or self.review:
+            if rs.type == "Patient":
+                ambiguous = self.shared_chart(res["id"])
+            elif rs.patient:
+                ambiguous = self.shared_chart(self.patient_of(rs, row))
+        if ambiguous:
+            # This identifies only the disputed source row. No clinical reference is assigned to either person.
+            review_id = resource_id(self.key, rs.type, f"review|{res['id']}|{self.row_hash(row)}")
+            self._review_copies[review_id] += 1
+            copy = self._review_copies[review_id]
+            res["id"] = review_id if copy == 1 else resource_id(self.key, rs.type, f"{review_id}|{copy}")
+        if (
+            ambiguous
+            or rs.type in self.unresolved_types
+            or (self.review and not self.review.isdisjoint(self._review_keys(rs, row)))
+        ):
             # D-1253 ruling 1: a record whose earlier-rule id a steward decided. Two patients may have shared that
             # id: neither record takes the decision by guess. Each is a proposed fact (never coded) until reviewed
-            meta = res.setdefault("meta", {})
-            tags = [t for t in meta.get("tag") or [] if t.get("system") != BASIS]
-            meta["tag"] = [*tags, {"system": BASIS, "code": "proposed"}, dict(id_rule.REVIEW_TAG)]
+            id_rule.tag_for_review(res, shared=ambiguous)
             self.for_review[rs.table] += 1
         if self.ingest_time:
             meta = res.setdefault("meta", {})
@@ -2103,6 +2187,18 @@ class Mapper:
         return rid
 
     def map_table(self, table: str, rows: Iterator[Row]) -> Iterator[Resource]:
+        if table != self.prepared_table and (table in self.patient_specs or self.chart_decisions(table)):
+            from adapter.pipeline import _TableRows
+
+            with tempfile.TemporaryDirectory() as temp:
+                work = Path(temp)
+                batch = _TableRows.write(work / "rows", rows)
+                self.prepare_table(table, batch, work)
+                yield from self._mapped_rows(table, iter(batch))
+            return
+        yield from self._mapped_rows(table, rows)
+
+    def _mapped_rows(self, table: str, rows: Iterator[Row]) -> Iterator[Resource]:
         specs = [r for r in self.m.resources if r.table == table]
         try:
             for row in rows:

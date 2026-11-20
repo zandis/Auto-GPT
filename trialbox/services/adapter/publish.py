@@ -180,7 +180,10 @@ def recover(cfg: AdapterConfig, snap: str) -> str:
     # second review, M3: the adapter was killed, the lake service may still be building from the folder the re-run
     # was moved into. The folder is not taken from under the build: ``SnapshotBuilding`` (the caller says "lake
     # busy" and comes again); the build's lock is held while the folders are moved
+    from tb_common import id_rule
+
     with building(cfg.lake_dir, snap):
+        id_rule.check_lake(cfg.lake_dir)
         return _recover(cfg, snap, aside)
 
 
@@ -308,6 +311,11 @@ def publish_night(
 
     final_dir = snapshot_dir(cfg.lake_dir, snap)
     out = Published(snap, night_dir)
+    try:
+        id_rule.check_lake(cfg.lake_dir)
+        id_rule.check_snapshot(night_dir, f"the lake snapshot {snap}")
+    except id_rule.IdRuleError as exc:
+        return Published(snap, night_dir, held=True, errors=[str(exc)])
     if reason := id_rule.hold_reason(night_dir):
         return Published(snap, night_dir, held=True, errors=[reason])
     try:  # D-529 (review HIGH): every way to the served lake goes through here, a steward's accept included
@@ -582,6 +590,11 @@ def publish_held(
     from adapter.pipeline import _write_hold, merge_base
 
     folder = held_folder(cfg, snap)
+    try:
+        id_rule.check_lake(cfg.lake_dir)
+        id_rule.check_snapshot(folder, f"the lake snapshot {snap}")
+    except id_rule.IdRuleError as exc:
+        return Published(snap, folder, held=True, errors=[str(exc)])
     if reason := id_rule.hold_reason(folder, accepting=True):
         return Published(snap, folder, held=True, errors=[reason])
     try:  # 10B-23 (D-1254): whether the held night read whole, from its own report, before the publish moves it

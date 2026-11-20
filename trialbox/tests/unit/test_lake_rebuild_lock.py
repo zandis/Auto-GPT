@@ -334,6 +334,7 @@ def test_pruning_leaves_a_snapshot_that_is_building_and_never_deletes_a_build_lo
     for s_ in nights:
         nd = snapshot_dir(lake_dir, s_)
         nd.mkdir(parents=True)
+        id_rule.write_snapshot_record(nd)
         (nd / PASSED).write_text("{}")
         (lake_dir / "db").mkdir(exist_ok=True)
         (lake_dir / "db" / f"{s_}.duckdb").write_bytes(b"")

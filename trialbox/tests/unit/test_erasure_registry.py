@@ -73,9 +73,9 @@ def migrated_tables(stores: dict[str, list[str]] | None = None) -> set[str]:
 
 
 #: the code that writes under the lake directory: the lake itself and the adapter (tools and tests are not the box)
-LAKE_CODE = ("services/lake", "services/adapter", "tools/id_rule_rebuild.py")  # D-1253: the one rebuild writes too
+LAKE_CODE = ("services/lake", "services/adapter", "libs/tb_common/id_rule.py")
 _LAKE_PATH = re.compile(r"(?:self\.dir|lake_dir)\s*/\s*\"([^\"/]+)\"")
-_LAKE_CONST = re.compile(r"^RERUN_DIR\s*=\s*\"([^\"]+)\"", re.M)
+_LAKE_CONST = re.compile(r"^(?:RERUN_DIR|REVIEW)\s*=\s*\"([^\"]+)\"", re.M)
 
 
 def lake_entries(root: Path = ROOT) -> set[str]:
@@ -151,8 +151,8 @@ def test_a_new_lake_folder_is_found(tmp_path: Path) -> None:
     (tmp_path / "services" / "adapter").mkdir(parents=True)
     (tmp_path / "services" / "lake" / "store.py").write_text('p = self.dir / "quarantine" / snap\n', encoding="utf-8")
     (tmp_path / "services" / "adapter" / "x.py").write_text('RERUN_DIR = "again"\nq = lake_dir / "ndjson"\n')
-    (tmp_path / "tools").mkdir()
-    (tmp_path / "tools" / "id_rule_rebuild.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "libs/tb_common").mkdir(parents=True)
+    (tmp_path / "libs/tb_common/id_rule.py").touch()
     assert lake_entries(tmp_path) == {"lake:quarantine", "lake:again", "lake:ndjson"}
 
 

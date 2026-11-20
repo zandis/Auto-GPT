@@ -126,6 +126,64 @@ def _carried_over(
         yield rid, seq, body
 
 
+_PATIENT_REFERENCE_FIELD = re.compile(r'"reference":"Patient/([^"\\]+)"')
+
+
+def _review_carried(old: Iterable[_Item], rtype: str, charts: set[str], unresolved: bool) -> Iterator[_Item]:
+    from tb_common import id_rule
+
+    for rid, seq, body in old:
+        shared = (rtype == "Patient" and rid in charts) or any(
+            match[1] in charts for match in _PATIENT_REFERENCE_FIELD.finditer(body)
+        )
+        if shared or unresolved:
+            record = json.loads(body)
+            id_rule.tag_for_review(record, shared=shared)
+            body = _canon(record)
+        yield rid, seq, body
+
+
+def retain_disputed(previous: Path, current: Path, shared: Callable[[str], bool], counts: dict[str, int]) -> None:
+    """Keep prior rows of a now-disputed chart for review on a full refresh. Current rows win by exact ID."""
+    from itertools import chain, groupby
+
+    from tb_common import id_rule
+
+    if previous == current or not previous.is_dir():
+        return
+    id_rule.open_snapshot(previous)
+    for path in sorted(previous.glob("*.ndjson")):
+        typ = path.stem
+
+        def retained(rtype: str = typ) -> Iterator[_Item]:
+            for rid, _, body in _base_lines(previous, rtype, check=True):
+                matches = (rtype == "Patient" and shared(rid)) or any(
+                    shared(m[1]) for m in _PATIENT_REFERENCE_FIELD.finditer(body)
+                )
+                if not matches and '"shared-chart"' not in body:
+                    continue
+                row = json.loads(body)
+                if matches or id_rule.SHARED_CHART_TAG in row.get("meta", {}).get("tag", []):
+                    id_rule.tag_for_review(row, shared=True)
+                    yield rid, 0, _canon(row)
+
+        old = retained()
+        first = next(old, None)
+        if first is None:
+            continue
+        new = ((rid, 1, body) for rid, _, body in _base_lines(current, typ, check=True))
+        merged = heapq.merge(chain((first,), old), new)
+        tmp = current / f".{typ}.review.tmp"
+        n = 0
+        with tmp.open("w", encoding="utf-8") as dest:
+            for _, group in groupby(merged, key=lambda item: item[0]):
+                _, _, body = max(group)  # current rows sort after retained rows of the same ID
+                dest.write(body + "\n")
+                n += 1
+        tmp.replace(current / path.name)
+        counts[typ] = n
+
+
 def _merged_patients(base: Path, aliases: Mapping[str, str], moved: dict[str, int] | None) -> list[_Item]:
     """The previous snapshot's Patients of a merged chart, each under its surviving id, sorted, placed before every
     other record of that id: the surviving patient's own record, from the previous snapshot or tonight, wins over
@@ -170,8 +228,13 @@ class Spool:
     arrival order. :func:`write_snapshot` reads it back type by type, so the adapter never holds the night."""
 
     def __init__(self, root: Path, run_bytes: int | None = None) -> None:
-        shutil.rmtree(root, ignore_errors=True)  # a killed night's leftovers
+        from tb_common import id_rule
+
+        if root.is_dir() and any(root.iterdir()):
+            id_rule.check_snapshot(root, "nightly spool")
+        shutil.rmtree(root, ignore_errors=True)  # a killed night under the current rule
         root.mkdir(parents=True)
+        id_rule.write_snapshot_record(root)
         self.root = root
         self.run_bytes = run_bytes or sort_run_bytes()
         self._files: dict[str, IO[str]] = {}
@@ -274,6 +337,8 @@ def write_snapshot(
     aliases: Mapping[str, str] | None = None,
     moved: dict[str, int] | None = None,
     collisions: dict[str, int] | None = None,
+    shared_charts: set[str] | None = None,
+    unresolved: set[str] | None = None,
 ) -> dict[str, int]:
     """Write all resource types; with ``base`` (previous snapshot) resources are merged by id.
 
@@ -303,6 +368,8 @@ def write_snapshot(
     if base is not None and base.exists():
         # D-1253: never a snapshot of rule-2 ids over one of another rule's ids (a record would be there twice)
         id_rule.check_snapshot(base, f"the lake snapshot {base.name}")
+    if (directory / id_rule.SNAPSHOT_RECORD).exists() or any(directory.glob("*.ndjson")):
+        id_rule.check_snapshot(directory, f"the lake snapshot {directory.name}")
     directory.mkdir(parents=True, exist_ok=True)
     id_rule.write_snapshot_record(directory)  # D-1253: the rule this snapshot's ids were made under
     counts: dict[str, int] = {}
@@ -335,7 +402,7 @@ def write_snapshot(
             try:
                 n, gone = _write_type(
                     directory, rtype, night, base if has_base else None, dead, True, budget, work, out.get(rtype), left,
-                    aliases, moved, clash,
+                    aliases, moved, clash, shared_charts, unresolved,
                 )  # fmt: skip
             except _Unsorted:
                 left[0] = clash[0] = 0
@@ -355,6 +422,8 @@ def write_snapshot(
                     aliases,
                     moved,
                     clash,
+                    shared_charts,
+                    unresolved,
                 )
         finally:
             shutil.rmtree(work, ignore_errors=True)
@@ -391,6 +460,8 @@ def _write_type(
     aliases: Mapping[str, str] | None = None,
     moved: dict[str, int] | None = None,
     clash: list[int] | None = None,
+    shared_charts: set[str] | None = None,
+    unresolved: set[str] | None = None,
 ) -> tuple[int, list[str]]:
     """One type: the previous snapshot's records and the night's, by id; per id the night's last record, else the
     previous snapshot's last one unless the source deleted it. Returns (records written, ids dropped).
@@ -406,6 +477,9 @@ def _write_type(
             if base_sorted
             else _sorted(_base_lines(base, rtype, check=False), budget, work / "base")
         )
+        disputed_type = unresolved is not None and rtype in unresolved
+        if shared_charts or disputed_type:
+            old = _review_carried(old, rtype, shared_charts or set(), disputed_type)
         if aliases:
             old = _carried_over(old, rtype, aliases, moved)
             if rtype == "Patient":

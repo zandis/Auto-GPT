@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -11,17 +10,15 @@ from adapter import backfill as bf
 from adapter.mapping import engine
 from adapter.mapping.engine import Mapping, MappingError
 from adapter.ndjson import read_type, snapshot_dir
-from adapter.pipeline import HELD, PASSED
+from adapter.pipeline import HELD, PASSED, check_id_rule
 from lake.store import Lake, LakeSchemaError
 from omop import schema
 from omop.load import load_batch
 from tb_common import id_rule
 
 from tests.unit import test_lake_ids_per_patient as ids
-from tools import id_rule_rebuild as rb
 
 SNAP = "2026-10-01"
-TODAY = date(2026, 11, 19)
 
 
 def test_practitioner_survives_rebuild(tmp_path: Path, db_url: str) -> None:
@@ -30,7 +27,8 @@ def test_practitioner_survives_rebuild(tmp_path: Path, db_url: str) -> None:
         db.execute("DELETE FROM tb_id_rule")
         before = db.fetchall("SELECT record_id, record_key FROM tb_record")
         assert len(before) == 1
-        rb.rebuild(tmp_path, db_url, TODAY)
+        with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+            load_batch(db, "feed", SNAP, {"Practitioner": [{"resourceType": "Practitioner", "id": "S2"}]}, tz="UTC")
         assert db.fetchall("SELECT record_id, record_key FROM tb_record") == before
         assert db.fetchall("SELECT provider_id FROM provider") == [(before[0][0],)]
 
@@ -58,7 +56,15 @@ def test_resume_legacy_spool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     fp.update(cfg.mapping_path.read_bytes())
     old["fingerprint"] = fp.hexdigest()
     marker.write_text(json.dumps(old))
-    rep = bf.backfill(cfg, "csv", str(feed), snapshot=SNAP, rebuild_lake=False, validate=False)
+    (marker.parent / id_rule.SNAPSHOT_RECORD).unlink(missing_ok=True)
+    before = {p: p.read_bytes() for p in marker.parent.rglob("*") if p.is_file()}
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        bf.backfill(cfg, "csv", str(feed), snapshot=SNAP, rebuild_lake=False, validate=False)
+    assert {p: p.read_bytes() for p in marker.parent.rglob("*") if p.is_file()} == before
+    # A full ingest into fresh working storage reads the source with the current rule.
+    rep = bf.backfill(
+        cfg, "csv", str(feed), snapshot=SNAP, work_dir=tmp_path / "fresh", rebuild_lake=False, validate=False
+    )
     assert rep.state == "published", rep.errors
     rows = list(read_type(snapshot_dir(cfg.lake_dir, SNAP), "MedicationRequest"))
     assert len({r["id"] for r in rows}) == len({r["subject"]["reference"] for r in rows}) == 2
@@ -110,9 +116,12 @@ def test_last_passed_month_end(tmp_path: Path) -> None:
         folder = snapshot_dir(tmp_path, day)
         folder.mkdir(parents=True)
         (folder / marker).write_text("{}")
-    done = rb.rebuild(tmp_path, None, TODAY)
-    assert done["moved_aside"] == ["2026-10-30"]
-    assert (snapshot_dir(tmp_path / rb.ASIDE, "2026-10-30") / PASSED).exists()
+    cfg = ids._cfg(tmp_path, "csv")
+    cfg.lake_dir = tmp_path
+    with pytest.raises(id_rule.IdRuleError, match="full ingest from the source"):
+        check_id_rule(cfg)
+    assert (snapshot_dir(tmp_path, "2026-10-30") / PASSED).exists()
+    assert (snapshot_dir(tmp_path, "2026-10-31") / HELD).exists()
 
 
 @pytest.mark.xfail(
@@ -135,8 +144,8 @@ def test_downgrade_checks_duckdb(tmp_path: Path, rule: str) -> None:
     db.parent.mkdir()
     db.touch()
     db.with_suffix(".duckdb.id_rule").write_text(rule)
-    with pytest.raises(rb.Refused, match="Update the box"):
-        rb.rebuild(tmp_path, None, TODAY)
+    with pytest.raises(LakeSchemaError, match="Update the box" if rule == "3" else "cannot be read"):
+        Lake(tmp_path, "UTC").db_path("2026-11-18")
     assert db.exists()
 
 
@@ -153,8 +162,10 @@ def test_confirmed_odm_survives_rebuild(tmp_path: Path, db_url: str) -> None:
     svc.decide(k.STUDY, draft["id"], "confirm", by="crc")
     _as_before_d1253(svc)
     assert not svc.status(k.STUDY)["id_rule_frozen"]
-    done = rb.rebuild(tmp_path / "lake", db_url, TODAY)
-    assert done["edc"]["studies_now_rule_2"] == [k.STUDY]
+    from edc.store import EdcError
+
+    with pytest.raises(EdcError, match="full ingest from the source"):
+        svc.import_odm(k.STUDY, odm._odm(odm._row('<ItemData ItemOID="weight" Value="80"/>')), "crc")
     kept = svc.store.draft(k.STUDY, draft["id"])
     assert kept is not None
     assert kept["fate"] == "confirmed" and kept["final_citation"] == draft["citation"]
