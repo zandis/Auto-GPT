@@ -311,7 +311,9 @@ step_ballast() {
     sleep "$POLL"; i=$((i + 1)); [ "$i" -lt 90 ] || { NOTE="the ballast said neither ready nor refused in 15 minutes"; return 1; }
   done
   grep -q '^ready' "$RUN/records/ballast.log" || { NOTE="the ballast refused: $(grep '^refused' "$RUN/records/ballast.log" | head -n 1)"; return 1; }
-  tool ballast48 plan > "$RUN/records/plan.txt" 2>> "$STEP_LOG" || { NOTE="ballast48 plan refused (records/plan.txt)"; return 1; }
+  # a refusal's own line (both free figures, H-66) is the note, so the run's end reason names them
+  tool ballast48 plan > "$RUN/records/plan.txt" 2>> "$STEP_LOG" \
+    || { NOTE="ballast48 plan refused (records/plan.txt): $(grep 'refused' "$STEP_LOG" | tail -n 1)"; return 1; }
 }
 
 # ------------------------------------------------------------------ s08: the ladder

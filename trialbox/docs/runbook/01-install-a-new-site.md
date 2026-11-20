@@ -181,3 +181,6 @@ health line warns 90 days before the list runs out and is red after it.
 (for example `X-Forwarded-User`), `TB_CONSOLE_SSO_TRUSTED_PROXIES` (addresses or CIDRs), optionally
 `TB_CONSOLE_SSO_ROLE_HEADER` and `TB_CONSOLE_SSO_ROLE_MAP=ad-group:admin,crc-group:coordinator`. Behind TLS set
 `TB_CONSOLE_SECURE_COOKIE=1`; the doctor check fails without it in PRODUCTION (D-121).
+
+**Choices a PRODUCTION site answers** (D-1365). The wizard refuses an empty `chartno_rule` on a PRODUCTION site
+(`asis` is an answer); `doctor` (`named_choices`) warns a site installed before, with the line to add.
