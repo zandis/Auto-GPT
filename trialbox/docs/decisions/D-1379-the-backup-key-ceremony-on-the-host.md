@@ -56,8 +56,8 @@
   - **The order of the writes (after review of a1ed9c36, H4):** (1) the key file on the stick, (2) the paper sheet on
     the stick, (3) the stick's folder synced, (4) both read back, (5) the public key as a synced temporary file beside
     `deploy/secrets/backup.pub` (`TB_BACKUP_PUBKEY`, `--public`; its folder made if missing), not yet at its name, and
-    the name checked to be free, (6) the audit event, its line synced, and what the run wrote in the audit folder given
-    back to its owner (below), (7) only then a hard link of the temporary file to `backup.pub` (refused when the name
+    the name checked to be free, (6) the audit event, its line synced, written as the audit folder's owner and never
+    as root (below), and the folder then checked, read only, to hold no file of root's, (7) only then a hard link of the temporary file to `backup.pub` (refused when the name
     exists: never an overwrite), the temporary name removed and the folder synced. `trialbox backup` reads the public
     key from `backup.pub` (`load_public`, with no lock this command could share), so it can find the key only once
     the event that names it is on disk; a failing append, whose undo removes the private copies, leaves no backup
@@ -68,20 +68,26 @@
     site, the two names, `why`: the error's kind), and then undoes the stick files and the temporary file. The product
     had no compensating-event convention to follow; this is the smallest one. The once-only check counts a ceremony
     with a later `backup.key_ceremony_undone` of this command and this fingerprint as not done, so the ceremony can be
-    run again, witnessed and audited. If that second event cannot be written, the undo still runs (no backup can use
-    the key) and the refusal says the audit holds this run's event and its undoing could not be written: a new run is
-    refused, and the new pair is made as RUNBOOK §25 says. **Whether `backup.pub` was visible is decided by looking
+    run again, witnessed and audited. The undoing is written as the event is (by the folder's owner, below) and judged
+    the same way: once its line is synced it counts as written, even when its head anchor then fails or Ctrl-C lands
+    there (after review of f68e5988), and the refusal says nothing against a rerun, which the once-only check allows.
+    If it is not written, the undo still runs (no backup can use the key) and the refusal says the audit holds this
+    run's event and its undoing is not written: a new run is refused, and the new pair is made as RUNBOOK §25 says;
+    if it is not known to be on disk, the refusal says that if a rerun is refused, the new pair is made so. **Whether `backup.pub` was visible is decided by looking
     at it (after review of c2fcb044), never by where the code stopped:** after any failure once the event's line is on
     disk, `backup.pub` is `lstat`ed and its device and inode compared with the staged file's. Ours: it was visible,
     so everything of the key is kept, only the temporary name is removed, and a translated warning says the public key
     is in place but the run stopped before it finished (run `python tools/audit_verify.py`, do not run the ceremony
-    again, unmount the stick); exit 2. Not visible: the link was never tried (an interruption or an error in the
-    give-back after the append), the link itself refused (`OSError`), or the link was being tried and nothing is at
+    again, unmount the stick); exit 2. Not visible: the link was never tried (Ctrl-C while the event was being
+    written, or an interruption or an error in the check after it), the link itself refused (`OSError`), or the link was being tried and nothing is at
     the name while the staged file still has only its temporary name (Ctrl-C before `os.link` ran): then
     `backup.key_ceremony_undone` is written and everything is undone, as above, and the ceremony can be run again.
     Anything else (another file at the name, a name that cannot be looked at, the name gone after the link returned):
-    it may have been visible, so nothing of the key is removed and the warning says to check that `backup.pub` is
-    there with this fingerprint; exit 2.
+    it may have been visible, so nothing of the key is removed; exit 2. The warning says what to do (after review of
+    f68e5988): run `python tools/audit_verify.py`, then run this command again with the same options, which is
+    refused before it writes anything and names the key at `backup.pub` by its fingerprint (`ALREADY`, or, with no
+    `backup.pub`, the audit's refusal that says there is none); if that is not the audited fingerprint, the key at
+    `backup.pub` is not the ceremony's key: keep the stick and the sheet sealed and follow RUNBOOK §25.
   - **One failure domain until the link, and what an undo says (after review of a1ed9c36, H5):** every file and
     folder is registered for removal the moment it exists, with the device and inode `fstat` gave it when it was made.
     A failure at any step after the first file is made and before the link, of any kind (a write, a sync, a
@@ -104,7 +110,11 @@
     disk: the exception was raised inside a call that `tb_common.audit`'s `AuditLog._write` makes only after its
     `os.fsync` of the day file returned (`write_head`, the head anchor, or the listing after it), in the `_write` of
     this ceremony's own event (read from the traceback: this event, this fingerprint), and the audit folder, which
-    holds the day file's name, then syncs. The library is not changed; a test holds its order. Then the ceremony goes
+    holds the day file's name, then syncs. The library is not changed; a test holds its order. Since the review of
+    f68e5988 the append runs in a child (below), so this judgement is made in the child, on its own traceback, and
+    only its result crosses to the parent, as one word of a fixed list (`ok`, `line-synced`, `not-written`,
+    `unknown`, `drop-failed`; a child that ends without a word is `unknown`); the parent decides from that word exactly
+    as it decided from the exception before. Then the ceremony goes
     on to the link, and does not print its closing text: it prints a translated warning (the key is in place, the
     audit line is written, its head anchor is not confirmed: run `python tools/audit_verify.py <audit folder>` now, do
     not run the ceremony again, unmount the stick) and exits 2. Every other append failure undoes the ceremony, also
@@ -118,42 +128,55 @@
     command derives `backup.pub` from a private key; adding one is a new power, left to the owner); keep that stick
     and sheet sealed (a backup made while its `backup.pub` was there opens only with it); make the new pair as RUNBOOK
     §25 says (`python -m tools.trialbox backup-keygen`) and enter its fingerprint in the ceremony record. **The event
-    counts as on disk from the moment the append returned** (after review of c2fcb044): the state is set right after
-    `append` and is not changed by what the give-back after it does; an interruption or an unexpected error in that
-    give-back is handled as "event present, `backup.pub` not visible" (the undoing first, then the undo), said as
-    interrupted or unexpected, never as the audit failing; a listing of the audit folder that fails there (`OSError`)
-    is not an error at all: the key is put in place and a translated warning says the folder was not listed, so its
-    files were neither given back nor checked (exit 2). A failure listing the folder before the append is said as an
-    unexpected error, not as the audit failing.
-  - **The audit folder stays the writer's (after review of a1ed9c36, H3):** the command runs as root, and an append
-    can make the writer's lock file, a new day file, a torn line's evidence, and replaces the head anchor; root's
-    files with root's mode would leave the deployed writer (another user, uid 10001 in the image) unable to append
-    next. As `trialbox backup` and `restore` do it (D-724, `backup._own_writes`), after each append (the ceremony's,
-    the undoing, and a failed one) every file in the audit folder that is root's now and was not root's before is
-    given back. **How (after review of c2fcb044, a Blocker):** the audit writer owns the folder, so it can swap any
-    name in it for a symlink, and it sets its own day file's mode; c2fcb044 called `chown` (not following) and then
-    `chmod` (following) by path, with the mode copied from that day file, so a writer could have root give a root
-    binary mode 06777. Now the folder is opened once; the owner given is the folder's own (`fstat` of that open
-    folder), never one read from a file in it; each name is opened through the open folder with
-    `O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK` (no path is resolved again), and `fstat` of what was opened must show
-    a regular file of root's with one name (`st_nlink` 1) and the device and inode the listing through the same open
-    folder just saw; only then is it given, through that open file (`fchown`, `fchmod`). A name now a link, a file
-    with a second name, another file, or a file that cannot be opened is refused, nothing is changed through it, and
-    it is named in a translated warning (exit 2). The mode: a file replaced (the head anchor) its earlier mode, a new
-    file (the lock, a new day file, a torn line's evidence) the newest day file's (or its own when there was none),
-    each masked to 0666 (never a setuid, setgid, sticky or exec bit) and capped at 0660, with the bits for others
-    only when every ordinary file of the folder's owner (no special or exec bit) has them. Files root had before are
-    left. It is then checked: a file still root's (the owner change failed) is named in a translated warning with the
-    folder's owner and `chown`; on a run that otherwise finished, after the closing text, with exit 2. Nothing is
-    changed when the folder is root's. Only the folder's own files are given (the audit library makes no subfolder).
-    Residual: a regular file of root's with one name that the writer moved into the folder from elsewhere on the same
-    filesystem between the listing and the open would be given to the writer with at most 0660; the writer can only
-    rename a file out of a folder it may write, so no file of root's outside such a folder can be reached.
+    counts as on disk from the moment the child says its line is synced** (`ok` or `line-synced`): the state is set
+    then and is not changed by what comes after; Ctrl-C while the child wrote (noted by the parent, which still waits
+    for the child's word) and an interruption or an unexpected error in the check after it are handled as "event
+    present, `backup.pub` not visible" (the undoing first, then the undo), said as interrupted or unexpected, never as
+    the audit failing; a listing of the audit folder that fails in that check (`OSError`) is not an error at all: the
+    key is put in place and a translated warning says the folder was not checked (exit 2).
+  - **Root never writes in the audit folder (after review of f68e5988, a Blocker; H3 of a1ed9c36):** the command
+    runs as root, and the audit folder is the audit writer's (another user, uid 10001 in the image), so that user can
+    plant any name in it beforehand, `.HEAD.json.tmp`, `.lock` or a day file among them, as a symlink to a file of
+    root's; an append as root (`tb_common.audit` opens those names by path and follows links) would then truncate or
+    append to that file, and `os.replace` would make `HEAD.json` the link. No race is needed. The library has the same
+    hole on master for `trialbox backup` and `restore` (reported to the integrator; `libs/tb_common/audit.py` is not
+    this card's file and is not changed); this command must not add another root command that reaches it. So the
+    give-back of c2fcb044 and bdfbb858 (root appends, then hands the files to the folder's owner) is gone, and with it
+    its residuals and the mode it copied from a file of the writer's. Now: the audit folder is opened with
+    `O_RDONLY|O_DIRECTORY|O_NOFOLLOW` (a folder named by a link is refused before anything is written, as is a folder
+    of root's that its group or others may write) and its owner is that open folder's `fstat`. Each append (the
+    event, and the undoing) runs in a child process (`fork`, with Ctrl-C blocked across the fork so the child never
+    runs on into the program): the child calls `setgroups([])`, `setgid` and `setuid` to the folder's owner, checks
+    that the real, effective and saved ids are all that owner's and no supplementary group is left, makes itself not
+    dumpable (`prctl(PR_SET_DUMPABLE, 0)`, checked: the folder's owner cannot read its memory, a copy of the
+    ceremony's), `fchdir`s to the folder held open, and appends there with `tb_common.audit` as it is. A link the
+    writer planted is then followed with the writer's own power only. The child writes one word of a fixed list to a
+    pipe (above) and exits; no key material crosses (the event's detail holds none, and nothing is sent back but the
+    word). A child that cannot take the identity writes nothing to the audit, and the ceremony is refused and undone
+    (`AUDIT_DROP_FAILED`, naming the owner). Every file in the folder is thus made by its owner, and nothing needs
+    giving back; after each append the folder is listed through a descriptor, read only, and a file of root's found
+    there is named in a translated warning with the folder's owner and `chown` (exit 2); a folder that cannot be
+    listed there is said as not checked (exit 2). **A box whose audit folder is root's** (the audit runs as root
+    there): the append runs in this process, as before, but only after every entry of the folder, listed and looked
+    at through the folder held open without following, was seen to be a regular file with one name; a link, a file
+    with a second name or a special file is refused, naming it, before anything is written (in the checks) and again
+    right before the append (then undone). **Residual, stated:** on such a box a name planted between that listing
+    and the append is followed as root; only a process that may write a folder of root's that its group and others
+    may not, that is root itself, can plant it. The once-only read of the audit (and the "may hold" read after a
+    failed append) still runs as root in the parent; it only reads, follows a planted link to read a file as JSON,
+    and prints the file's path at most, never its content. **Not verified:** the drop on a real deployed box with
+    uid 10001 (the tests drop to uid 65534 for real when run as root, and inject the drop as any other user).
   - **What is guaranteed, and what is not:** a run that exits 0 has the key on the stick (both files read back, each
-    the key's alone on that filesystem), the event's line in the audit with the head anchor written, the audit
-    folder's files the writer's, and then the public key at `backup.pub`. A run that exits 2 has the key on the stick
-    and its event's line synced, and says what is not confirmed (the head anchor, an audit file left root's, a name in the
-    audit folder refused or the folder not listed, or a public key whose placing did not finish). A run that exits 1 after the first file was made has removed every file
+    the key's alone on that filesystem), the event's line in the audit with the head anchor written (by the folder's
+    owner), no file of root's found in the audit folder after it, and then the public key at `backup.pub`. A run that exits 2 has the key on the stick
+    and its event's line synced, and says what is not confirmed (the head anchor, a file of root's found in the
+    audit folder or the folder not listed, or a public key whose placing did not finish). **A second Ctrl-C (after
+    review of f68e5988):** while a failure is being handled (in the handling after the event, the look at `backup.pub`,
+    the undo) or after the run returned, the interruption reaches the outermost handler, which says only what the run
+    is known to have done, kept as each step happens: whether the event is written (or may be), whether its undoing is
+    written (and so whether a rerun is allowed), and which files may remain, with their paths, to look at and remove
+    by hand (or, once `backup.pub` may be the key just made, to remove neither it nor the stick's files); exit 2.
+    "Nothing had been written" is said only when no file was made (a file being made counts) and no event written. A run that exits 1 after the first file was made has removed every file
     it says it removed, says which removals are not confirmed on disk, and `backup.pub` was never at its name. Not
     covered: a power loss or a kill after the event's line is on disk and before `backup.pub` is linked leaves the
     event without the public key (no process is left to write the undoing; the next run is refused by the audit and
@@ -190,6 +213,12 @@
   ceremony event's hash-chain position would not close it (the writer reads the chain and can name that position
   too), so it is not done: the audit writer is already trusted with the whole trail, and a `backup.pub` that exists
   refuses a second run whatever the audit holds.
+- **Smaller points (after review of f68e5988):** the audit folder is opened with `O_NOFOLLOW` wherever it is opened
+  (the checks, each append, the check after it); no mode is copied from any file in the audit folder any more (the
+  give-back that copied one, possibly from a leftover file of root's, is gone); after an undoing whose line is synced
+  and then interrupted, the refusal no longer says the undoing could not be written or that a rerun is refused; the
+  warning for a `backup.pub` that may not be the ceremony's names the command that prints its fingerprint and what to
+  do when it differs (above).
 - **Not in this card (open for the owner):** reading the paper sheet back into a restore (`restore --key` takes the
   stick's file; `read_paper` exists and the ceremony uses it for its read-back, but no restore command reads a typed
   sheet); a supported step that puts `backup.pub` back from the stick's key after an event without a public key
@@ -217,17 +246,25 @@
   unexpected error, a removal that fails; and from the review of a1ed9c36: the stick unmounted right after the media
   check (H1: the key goes to the folder checked, nothing to the folder now at the path), a stick whose files show
   0644 or another owner (H2: refused before a byte of the key, at the probe and at the key file), an audit folder
-  owned by uid 10001, empty or with an earlier day (H3: every file the writer's again, modes kept) and an owner change
-  that fails (named, exit 2), what a concurrent backup would find while the event is appended (H4: no `backup.pub`),
+  of the writer, empty or with an earlier day (H3, since f68e5988: every file made by the writer, none root's), a file
+  of root's found there after the event (named, exit 2), what a concurrent backup would find while the event is appended (H4: no `backup.pub`),
   the link refused after the audit (H4: `backup.key_ceremony_undone`, undone, a rerun allowed), Ctrl-C right after
   the link (kept, exit 2, with and without another file at the name), and the stick's folder sync failing after the
   undo's unlinks (H5: named, never "nothing of the key is kept"); a torn, damaged or empty audit line refused; a
   `backup.pub` with no ceremony in the audit; a damaged, missing or swapped paper line and a wrong fingerprint; the
-  words in three languages; the command line); and from the review of c2fcb044, each first failing on c2fcb044, as
-  root and as uid 65534: real files and a real symlink swapped in for `.lock` or `HEAD.json` before and after the
-  first call on it while the day file is 06777 (the file outside the folder untouched, no special bit given, the
-  name refused and named), a special mode never given, a file with a second name refused, Ctrl-C in the give-back
-  after the event (the undoing written, a rerun allowed, never "the audit event could not be written"), the audit
-  folder's listing failing there (kept, exit 2), Ctrl-C before `os.link` ran (the undoing, everything removed), the
-  public key linked and its folder's sync failing (kept, "in place"), a probe shown readable whose removal fails, the
-  private-mode text, and two runs on one stick.
+  words in three languages; the command line); from the review of c2fcb044, as root and as uid 65534: Ctrl-C in
+  the check after the event (the undoing written, a rerun allowed, never "the audit event could not be written"),
+  the audit folder's listing failing there (kept, exit 2), Ctrl-C before `os.link` ran (the undoing, everything
+  removed), the public key linked and its folder's sync failing (kept, "in place"), a probe shown readable whose
+  removal fails, the private-mode text, and two runs on one stick (the give-back's own tests went with it); and from
+  the review of f68e5988, as root (the child really drops to uid 65534) and as uid 65534 (the drop injected): the
+  child asked to drop to the folder's owner, once per append; a `.HEAD.json.tmp` or `.lock` planted as a symlink to
+  a file outside that the writer may not write (as root: root's 0600 file) is never followed with root's power (the
+  file unchanged; `.lock`: undone, nothing kept; `.HEAD.json.tmp`: the line synced, kept with the head-anchor
+  warning, `HEAD.json` never the link); a failed drop refused before anything is written to the audit; the real drop
+  in a real child (as root: uid 65534 for good, no group, not root again, not dumpable; as another user: refused); an
+  audit folder named by a link refused; a folder of root's appended to in-process, and refused for a link, a second
+  name, a special file or a group-writable mode, and for a link planted after the first check (undone); a second
+  Ctrl-C in `_after_event`, in `_pub_state` and in the undo (only what is known, exit 2, never "nothing had been
+  written"); an undoing synced and then interrupted (no "rerun refused"; the rerun succeeds); and the kept warning's
+  next step in three languages. A mutation that skips the real drop fails five of them as root.
