@@ -9,7 +9,7 @@
 * Who may open it: the set-up row (coordinator, administrator), answered as ``POST /site/codes`` answers the others.
 * At a site whose layer does not use it: no route, no link, the orchestrator's routes answer 404.
 
-The release is invented (``tests/medis_fixture.py``); the loader is the stand-in of #1238 until it lands."""
+The release is invented (``tests/medis_fixture.py``); the loader is #1238's (card 10B-2c)."""
 
 from __future__ import annotations
 
@@ -29,19 +29,14 @@ PAGE = "/site/codes/medis"
 
 
 @pytest.fixture
-def standin(monkeypatch: pytest.MonkeyPatch) -> None:
-    fx.install_standin(monkeypatch)  # #1238's loader until it is on master; the real one once it is
-
-
-@pytest.fixture
-def jp(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, standin: None) -> dict[str, Any]:
+def jp(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """The set-up box made at a site whose country layer uses the master (the routes are added with the app)."""
     monkeypatch.setenv("TB_TZ", "Asia/Tokyo")
     return dict(request.getfixturevalue("sb"))
 
 
 @pytest.fixture
-def tw(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, standin: None) -> dict[str, Any]:
+def tw(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setenv("TB_TZ", "Asia/Taipei")
     return dict(request.getfixturevalue("sb"))
 

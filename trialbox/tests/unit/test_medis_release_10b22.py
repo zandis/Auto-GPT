@@ -26,12 +26,6 @@ from tb_common import country_layer
 from tests import medis_fixture as fx
 
 
-@pytest.fixture
-def standin(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The loader of #1238 (card 10B-2c) until it is on master (the same signatures); the real one once it is."""
-    fx.install_standin(monkeypatch)
-
-
 def _zip(files: dict[str, bytes]) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -107,7 +101,7 @@ def test_an_encrypted_member_is_refused(tmp_path: Path) -> None:
     assert exc.value.code == "LIC-UPLOAD-ENCRYPTED"
 
 
-def test_nothing_is_left_behind(standin: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_nothing_is_left_behind(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     made: list[Path] = []
     real = tempfile.mkdtemp
 
@@ -125,7 +119,7 @@ def test_nothing_is_left_behind(standin: None, monkeypatch: pytest.MonkeyPatch, 
     assert set(got) == {*mr.KEPT, "skipped"}  # what is kept: counts, version, date, the fingerprint, skipped lines
 
 
-def test_the_check_reports_skipped_lines_by_table_line_and_reason(standin: None) -> None:
+def test_the_check_reports_skipped_lines_by_table_line_and_reason() -> None:
     bad = fx.tables()["nmain999.txt"] + '"0","99000099","テスト悪","テストワル","1","bad!","E119"\r\n'.encode("cp932")
     got = mr.check(fx.release_zip(drop=("nmain999.txt",), extra={"byomei999/main/nmain999.txt": bad}))
     assert any(s["table"] == "medis" and s["line"] == len(fx.DISEASES) + 1 and "not a" in s["reason"]

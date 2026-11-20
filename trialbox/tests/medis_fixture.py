@@ -1,5 +1,5 @@
-"""An INVENTED release in the shape of MEDIS-DC's ICD10対応標準病名マスター (card 10B-22, D-1261), and a stand-in for
-``adapter.licensed.load_release`` / ``check_release`` (card 10B-2c, pull request #1238) until that lands on master.
+"""An INVENTED release in the shape of MEDIS-DC's ICD10対応標準病名マスター (card 10B-22, D-1261), read by the real
+loader (``adapter.licensed.check_release`` / ``load_release``, card 10B-2c), and the concepts it stores.
 
 Nothing here is MEDIS data: every management number, exchange code, name and modifier is made up (the names are
 built from the syllables テスト and ダミー; the codes start with Z or 99). Only the SHAPE is the release's: a zip
@@ -12,9 +12,7 @@ specification as ``dcmnts/spc<nnn>.pdf`` and ``.doc``; Shift_JIS, every field do
 from __future__ import annotations
 
 import io
-import re
 import zipfile
-from pathlib import Path
 from typing import Any
 
 DISEASE_COLUMNS = (
@@ -156,68 +154,3 @@ def lookup_term(term: str) -> list[dict[str, str]]:
     t = unicodedata.normalize("NFKC", term).strip()
     return [{"term": a, "code": c, "target_kind": k, "kana_kanji": kk, "synonym": syn, "variant": var}
             for a, c, k, kk, syn, var in sorted(INDEX, key=lambda r: r[1]) if a == t]  # fmt: skip
-
-
-def install_standin(monkeypatch: Any) -> None:
-    """#1238's check_release / load_release, while they are not on master; the real ones once they are."""
-    from adapter import licensed
-
-    if not hasattr(licensed, "load_release"):
-        monkeypatch.setattr(licensed, "check_release", check_release, raising=False)
-        monkeypatch.setattr(licensed, "load_release", load_release, raising=False)
-
-
-# ---------------------------------------------------------------------------- the stand-in loader (until #1238)
-def _readme(folder: Path) -> tuple[str, str]:
-    from adapter.licensed import LicensedError
-
-    if not (folder / "readme.txt").is_file():
-        raise LicensedError("LIC-RELEASE-MISSING", "the release lacks readme.txt")
-    text = (folder / "readme.txt").read_bytes().decode("cp932").splitlines()[0]
-    m = re.search(r"V(\d+\.\d+)\s+(\d{4})年(\d{1,2})月(\d{1,2})日", text.replace("　", " "))
-    if m is None:
-        from adapter.licensed import LicensedError
-
-        raise LicensedError("LIC-RELEASE-README", "readme.txt's first line does not give the version and date")
-    return m.group(1), f"{int(m.group(2)):04d}-{int(m.group(3)):02d}-{int(m.group(4)):02d}"
-
-
-def _find(folder: Path, prefix: str) -> Path:
-    from adapter.licensed import LicensedError
-
-    got = sorted(p for p in folder.iterdir() if p.name.lower().startswith(prefix))
-    if not got:
-        raise LicensedError("LIC-RELEASE-MISSING", f"the release lacks {prefix}*.txt")
-    return got[0]
-
-
-def check_release(source: Path) -> dict[str, Any]:
-    """Stand-in of ``licensed.check_release`` (#1238): what a load would do, writing nothing."""
-    from adapter import licensed
-
-    folder = Path(source)
-    version, released = _readme(folder)
-    skipped: list[tuple[str, int, str]] = []
-    d = licensed.parse("medis", _find(folder, "nmain").read_bytes(), list(DISEASE_COLUMNS))
-    m = licensed.parse("medis_modifier", _find(folder, "mdfy").read_bytes(), list(MODIFIER_COLUMNS))
-    skipped += [("medis", n, w) for n, w in d.skipped] + [("medis_modifier", n, w) for n, w in m.skipped]
-    idx = _find(folder, "index").read_bytes().decode("cp932").splitlines()
-    import hashlib
-
-    digest = hashlib.sha256(b"".join(p.read_bytes() for p in sorted(folder.iterdir()))).hexdigest()
-    return {"version": version, "released": released, "disease_rows": len(d.concepts),
-            "disease_current": sum(1 for c in d.concepts if '"change": "1"' not in c["extra"]),
-            "modifier_rows": len(m.concepts), "index_rows": len([x for x in idx if x.strip()]),
-            "skipped": skipped, "sha256": digest}  # fmt: skip
-
-
-def load_release(store: Any, source: Path, *, by: str, audit_dir: Any = None) -> dict[str, Any]:
-    """Stand-in of ``licensed.load_release(store, source, *, by)`` (#1238): the same answer as the check, after
-    loading the disease and modifier tables with the loader of master."""
-    out = check_release(source)
-    folder = Path(source)
-    store.load("medis", _find(folder, "nmain").read_bytes(), version=out["version"], source="nmain", by=by,
-               columns=list(DISEASE_COLUMNS))  # fmt: skip
-    store.load("medis_modifier", _find(folder, "mdfy").read_bytes(), version=out["version"], source="mdfy", by=by,
-               columns=list(MODIFIER_COLUMNS))  # fmt: skip
-    return out
