@@ -55,30 +55,51 @@ such stage.
 2. **Every S1 rule applies, by the same function** (`_Run._s1_outcome`): an undated record, a unit that cannot be
    read, a proposed fact, a code system no row carries, a patient with no record of the kind.
 3. **Anchors.** `index`: the run's index date. `planned_start`, `screening`: given by the caller per patient
-   (`CascadeConfig.anchors`), never derived. `event`: the first or the last dated event of the event atom up to the
-   index date.
+   (`CascadeConfig.anchors`), never derived; a given anchor is a `date` and nothing else (a `datetime`, a string
+   or an unknown name stops the run before it reads a patient). `event`: the first or the last dated event of the
+   event atom up to the index date; a proposed or suspected event (D-135) is no anchor and leaves it unknown.
+   **One date per criterion.** In v1 an atom with no window means "up to the index date" and an age or a score is
+   taken at the index date. A criterion that holds such an atom beside a window on a planned start, a screening
+   date or an event names two dates; step 1 runs one, so a person decides it (the deep review's H1: it would have
+   read an age at an operation years ago, and cut "on record" off at the anchor).
 4. **An unknown anchor date gives unknown** (`anchor_date_unknown`), never a guess: no date given for the patient,
    no event on record, or a matching event with no date (which one was first or last cannot be told).
 5. **A window that reaches past the day of the run** (a planned start next week, an event ten days ago with a
-   30-day window) is answered from the records only where a later record cannot change the answer: a record that
-   already meets it and stays inside. Anything else is unknown (`verify_at_anchor`), never "met" and never "not
-   met". This is spec v4 §6.2.4's table (DM-07).
+   30-day window, a window on the index date that ends after it) is answered from the records only where a later
+   record cannot change the answer: a record that already meets it and stays inside. Anything else is unknown
+   (`verify_at_anchor`), never "met" and never "not met". A record dated after the day of the run is an entry
+   error or a plan, not a fact yet, and answers nothing. This is spec v4 §6.2.4's table (DM-07). A v3 window on
+   the index date that ends after it is never handed to v1, which would answer it from the past days alone (H3).
+   "The day of the run" is `CascadeConfig.run_date` in every index mode.
+5a. **A washout is answered from the order's date** (the generator's record rule for a medication, unchanged
+   here). Where a matching order carries a therapy period that reaches the window (an end after its order date: a
+   bounds period, a validity period, a supply duration, a statement's effective period; or a start of its own with
+   no end), the order date does not say when the last dose was: the criterion answers unknown with the existing
+   code `order_dates_missing`, and no date is computed (H2). An order with a date and no period, and one whose
+   period ended before the window, stay decided.
 6. **Device and allergy.** No lake table holds either kind, for either lake source (`lake.flatten.SCHEMAS`; the
    OMOP `device_exposure` table exists and nothing loads it; `AllergyIntolerance` is only validated by the adapter).
    A criterion with such an atom answers unknown with `not_in_source` for every patient. No reader was added.
 7. **The flip date.** For a criterion a patient passes or fails by the records: the first day after the anchor's
    date on which, with the records as they are, the answer is the opposite one, or is open only because nothing is
-   in the window any more (a result too old). With the closed 28-day window `[A-28, A]`, a last dose on day `d`
+   in the window any more (a result too old). **One meaning is stored:** only a change to the opposite decided
+   answer of a criterion on the index date (`answer_changes`: from that run day the answer is the other one) is a
+   day to re-check on, and only it goes to `Outcome.flip_date` and the answer store. What else the search finds
+   stays in the trace with its kind (`Outcome.flip`): `window_empties`, `earliest_anchor` (the earliest planned
+   start or screening date for which the answer is the opposite one), `anchor_window_empties`, `search_stopped`.
+   With the closed 28-day window `[A-28, A]`, a last dose on day `d`
    gives the flip date `d + 29`. It is found by running the same SQL on the days a dated record enters
    (`d - to_days`) or leaves (`d - from_days + 1`) a window; no date arithmetic decides an answer. It is never
    computed from an undated record: such a record makes the answer on the way unknown and no date is given. Nor
    beside a record dated after the day of the run (an entry error or a plan, not a fact yet). A change that would
    fall on or before the day of the run (an anchor in the past) is not stored as a change to come. The lake rows
-   the engine reads carry a date or none; no masked or shifted date exists in them. Cost: at most 64 days are
-   tried per patient and criterion, soonest first, in one query per distinct day over the patients who need it.
+   the engine reads carry a date or none; no masked or shifted date exists in them. Cost: one lake query per
+   distinct day per batch of patients; at most 64 days are tried per patient and criterion and at most 366
+   distinct days per run, soonest first. A search cut short says so: `search_stopped` on the outcome and the count
+   `flip_bound_hit` in S1's stage detail.
    Computed for windows on the index date, the planned start and the screening date, for criteria whose atoms are
    records or values in a window. For a planned start it reads "the earliest start for which the washout is over".
-8. **Stored where results already are:** `Outcome.flip_date` and `Outcome.anchor` in the trace (left out of the
+8. **Stored where results already are:** `Outcome.flip_date`, `Outcome.flip` and `Outcome.anchor` in the trace (left out of the
    trace file when none, so a v1 trace is the bytes it was), and the `flip_date` column of `orch.answers` (D-1360),
    carried on `PatientVerdicts.flips`. **Shown nowhere:** no page, list, export or mail reads it. The watch-list
    card, 10A-11 (review 15 B16-7, owner decision 58), shows it.
@@ -95,7 +116,7 @@ stored criterion carries), so no stored criterion reaches any new code.
 
 - `tests/unit/test_criterion_model_v3_step1.py::test_every_stored_ruleset_is_read_exactly_as_before`: all ten
   stored rule sets (eight shipped, two open-data) load with no v3 criterion, the same criteria and the same hashes.
-- Head against master d28f6c03, one script on two worktrees: the five rule sets with a stored patient set
+- Head against master (d28f6c03 and each later merge), one script on two worktrees: the five rule sets with a stored patient set
   (GOUT-COH, GZQO, ONC-OSI, RA-BIO, RA-COH; 200 patients each), through the cascade's files (traces, queue, final
   list, stage log, manifest) in both index modes, the verdict rows, the answer-store rows (10,800) and the v1
   evaluator: 65 sha256 lines, identical.
@@ -103,10 +124,25 @@ stored criterion carries), so no stored criterion reaches any new code.
 
 ## 4. Limits of step 1
 
-- Model v3 is evaluated by the cascade only (SCREEN's default pipeline). MICROBATCH's v1 re-check and
-  `TB_SCREEN_PIPELINE=v1` show a criterion v1 cannot write as a person's; a re-check's answer stores no flip date,
-  as it stores no rung.
-- Sent to a person, not evaluated: windows on two anchors in one criterion; `randomization`; `event_pick: each`;
+- Model v3 is evaluated by the cascade only (SCREEN's default pipeline). `TB_SCREEN_PIPELINE=v1` shows a criterion
+  v1 cannot write as a person's. MICROBATCH's weekly re-check (D-642) never re-checks such a criterion, flagged
+  time-sensitive or not: the cascade's stored answer stands until the next SCREEN. A re-check's answer on a
+  criterion v1 can write stores no flip date, as it stores no rung.
+- **A medication window reads the order's date, not the therapy period.** Where a period reaches the window the
+  answer is unknown (section 2 item 5a). Not seen: a statement that gives only a start (its start is taken as its
+  date), and a therapy known only from notes. The period-aware medication atom is step 2, card 10A-6 (dose per
+  period and attainment).
+- A v3 exclusion nobody could answer (no anchor, no source, a period, a window still to come) keeps the patient,
+  as every unknown exclusion does (D-18); the candidate is then never "strong", its queue item names the
+  criterion and the criterion's question for a person is among the actions.
+- A soft filter (`filter_class: soft`) and a criterion with `depends_on` are a person's: v1 has neither notion
+  and would run them as unconditional hard filters. The annotations `library_ref`, `canonical_hash`, `flip_rule`,
+  `lexicon_keys`, `computability`, `safety_critical`, `index` and `filter_class: hard` change no answer in step 1
+  and are not read by the engine (the index-condition rescue is not run for a v3 criterion).
+- The compiler writes v1 files only: it refuses to recompile or compare a ruleset that has v3 files (one message),
+  so no v3 criterion is written back as its v1 stand-in. A v3 ruleset is edited by hand until the emission card.
+- Sent to a person, not evaluated: windows on two anchors in one criterion; an atom with no window, an age or a
+  score beside a window on a planned start, a screening date or an event; `randomization`; `event_pick: each`;
   macros; v3-only atoms other than the above (line of therapy, change, aggregate, dose: step 2, 10A-6); a v3
   criterion of class `note`, `mixed` or `human` that v1 cannot write.
 - No flip date: a criterion that holds an age, a derived score or a medication duration (they change with the day
@@ -117,6 +153,10 @@ stored criterion carries), so no stored criterion reaches any new code.
   and later changes answers and belongs behind the equivalence gate (10A-6 onward).
 - Nothing supplies a planned start or a screening date yet, so on a box these criteria answer
   `anchor_date_unknown` until a card does.
+
+- **Not verified:** the new tests build their lake from the legacy source only (the goldens run both sources,
+  on v1 rule sets); records held for a steward's review, if a source marks any beside proposed and suspected
+  facts, when the event's date is picked.
 
 ## 5. Follow-ups, named
 

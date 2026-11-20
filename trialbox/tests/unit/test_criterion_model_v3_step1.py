@@ -438,7 +438,7 @@ def test_a_dated_dose_beside_an_undated_one_excludes_and_has_no_flip_date(world:
     # may be later still: the day the washout is over cannot be told, so no date is given
     for cid in ("M3-EXC-01", "M3-EXC-06"):
         o = _out(world, "W-MIXED", cid)
-        assert _excluded(o) and o.flip_date is None, cid
+        assert _excluded(o) and o.flip_date is None and o.flip is None, cid
 
 
 def test_a_record_dated_after_the_day_of_the_run_gives_no_flip_date(world: dict[str, Any]) -> None:
@@ -455,7 +455,8 @@ def test_a_change_that_is_already_past_is_not_stored_as_one_to_come(world: dict[
     # planned start 2026-11-01, dose 2026-10-10 (22 days before): excluded for that start. The washout was over for
     # a start from 2026-11-08, which is before today: not a day to wait for, so no flip date
     o = _out(world, "W-PAST", "M3-EXC-01")
-    assert _excluded(o) and o.flip_date is None and o.anchor == {"kind": "planned_start", "date": "2026-11-01"}
+    assert _excluded(o) and o.flip_date is None and o.flip is None
+    assert o.anchor == {"kind": "planned_start", "date": "2026-11-01"}
     assert _met(_out(world, "W-PAST", "M3-EXC-06"))  # 41 days ago by today's washout
 
 
@@ -534,7 +535,7 @@ def test_a_window_before_the_screening_visit(world: dict[str, Any]) -> None:
     # visit on 2026-11-25; 1.0 mg/dL on 2026-11-18 is inside its window, but "the latest result counts" and a week
     # is still to come: not yet met, and an answer nobody gave has no flip date
     o = _out(world, "S-FUTURE", "M3-INC-02")
-    assert _open(o, Reason.VERIFY_AT_ANCHOR) and o.status == "unknown" and o.flip_date is None
+    assert _open(o, Reason.VERIFY_AT_ANCHOR) and o.status == "unknown" and o.flip_date is None and o.flip is None
     assert o.anchor == {"kind": "screening", "date": "2026-11-25"}
 
 
