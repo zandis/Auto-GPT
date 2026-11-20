@@ -26,6 +26,7 @@ nothing and writes nothing (the ask-the-box assistant never changes data; ``test
 from __future__ import annotations
 
 import base64
+import hashlib
 import logging
 import re
 from collections.abc import Callable
@@ -159,8 +160,9 @@ class MedisBody(BaseModel):
     """D-1261: the MEDIS release's zip as the person sent it, and their approval (for the load)."""
 
     model_config = ConfigDict(extra="forbid")  # the person is the verified one, never a field (T-715g, D-803)
-    b64: str = Field(max_length=(48 * 1024 * 1024 * 4) // 3 + 8)  # sitesetup.medis_release.MAX_ZIP, in base64
+    b64: str = Field(max_length=(32 * 1024 * 1024 * 4) // 3 + 8)  # sitesetup.medis_release.MAX_ZIP, in base64
     approved: bool = False
+    again: bool = False  # D-1261: the person asked to load a release that is already loaded a second time
 
 
 class RemoteBody(BaseModel):
@@ -497,14 +499,18 @@ def router(
     @r.post("/setup/terminology/medis/check")
     def medis_check(body: MedisBody, who: Claim = AS_SITE) -> dict[str, Any]:
         """D-1261: what loading the MEDIS release would do, writing nothing (version, rows, what would be skipped)."""
-        from adapter.licensed import LicensedError
+        from adapter import licensed
         from sitesetup import medis_release
 
         data = medis_zip(body)
         try:
-            return medis_release.check(data)
-        except LicensedError as exc:
+            found = medis_release.check(data)
+        except licensed.LicensedError as exc:
             raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message}) from exc
+        same = medis_release.already(licensed.status(get().store.db.url), found["sha256"])
+        if same is not None:  # this very release is the one loaded: the page says so and asks before a second load
+            found["already"] = {k: str(same.get(k) or "") for k in ("version", "released", "loaded_at", "loaded_by")}
+        return found
 
     @r.post("/setup/terminology/medis/load")
     def medis_load(body: MedisBody, who: Claim = AS_SITE) -> dict[str, Any]:
@@ -519,7 +525,13 @@ def router(
             raise HTTPException(status_code=409, detail={
                 "code": "LIC-APPROVAL", "message": "tick the approval: your institution downloaded this release "
                 "from MEDIS and may use it under MEDIS's terms"})  # fmt: skip
-        st = licensed.TermStore(get().store.db.url)
+        url = get().store.db.url
+        sha = hashlib.sha256(data).hexdigest()
+        if medis_release.already(licensed.status(url), sha) is not None and not body.again:
+            raise HTTPException(status_code=409, detail={
+                "code": "LIC-ALREADY-LOADED", "message": "this release is already loaded: tick \"load it again\" to "
+                "load it a second time"})  # fmt: skip
+        st = licensed.TermStore(url)
         try:
             out = medis_release.load(data, st, by=who.name)
         except licensed.LicensedError as exc:
@@ -527,8 +539,8 @@ def router(
         finally:
             st.close()
         get().audit.append("terminology.load", actor=who.name, output_sha=out["sha256"], detail={
-            "kind": "medis_release", "approved": True, "approval": medis_release.APPROVAL,
-            **{k: out[k] for k in medis_release.KEPT if k != "sha256"}, "skipped": len(out["skipped"])})  # fmt: skip
+            "kind": "medis_release", "approved": True, "approval": medis_release.APPROVAL, "again": bool(body.again),
+            **{k: out[k] for k in medis_release.KEPT}, "skipped": len(out["skipped"])})  # fmt: skip
         svc = get()
         svc.store.set_setting(
             medis_release.SETTING, medis_release.record(out, who.name), who.name, svc.now().isoformat()

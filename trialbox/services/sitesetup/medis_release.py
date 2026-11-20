@@ -13,8 +13,9 @@ This module is the box's side of that hand-over, under the site set-up row of th
   module made. Nothing in the zip is run; the specification's PDF and Word files are never unpacked.
 * :func:`check` reads the release without loading it (the loader's own dry run): version, release date, rows of
   each table, what would be skipped and why. :func:`load` loads it (``adapter.licensed.load_release``, card 10B-2c)
-  in one transaction. Both remove the temporary folder before they return; the zip's bytes are never kept, only
-  its SHA-256, the version and the counts.
+  in one transaction. Both hand the loader the zip itself, so the store's fingerprint is the zip's SHA-256, the one
+  the page and the audit show; :func:`already` tells that this very release is the one loaded. Both remove the
+  temporary folder before they return; the zip's bytes are never kept, only its SHA-256, the version and the counts.
 * :func:`applies`: the step exists only for a site whose country layer says it uses this master (``P7``
   ``medis_master``, D-1250); every other site's pages are as before.
 * :func:`reminder`: a loaded release older than :data:`REMIND_MONTHS` months is shown with a reminder (MEDIS
@@ -42,9 +43,9 @@ from typing import Any
 DOWNLOAD_URL = "https://www2.medis.or.jp/stdcd/byomei/download2019.html"
 TERMS_URL = "https://www.medis.or.jp/4_hyojyun/medis-master/riyou/index.html"
 #: the hard caps of the hand-over: the zip as sent, its members, and each member the loader reads, once unpacked
-MAX_ZIP = 48 * 1024 * 1024
+MAX_ZIP = 32 * 1024 * 1024  # the loader's own bound (adapter.licensed RELEASE_MAX_ZIP, card 10B-2c)
 MAX_MEMBERS = 64
-MAX_MEMBER = 64 * 1024 * 1024
+MAX_MEMBER = 16 * 1024 * 1024  # the loader's bound for one file of the release
 #: the members the loader reads, by base name (any folder in the zip; the name decides, the folder never does)
 WANTED = re.compile(
     r"^(?:readme\.txt|nmain\d{3}\.txt|mdfy\d{3}\.txt|index\d{3}\.txt|ttl_(?:main|mdfy|idx)\.txt)$", re.I
@@ -144,11 +145,22 @@ def _kept(out: Mapping[str, Any], sha: str) -> dict[str, Any]:
 
 
 def _with_release(data: bytes, use: Any) -> dict[str, Any]:
+    """The zip checked within this module's caps (:func:`unpack`, into a temporary folder), then given to the loader
+    AS THE ZIP, so the fingerprint the store keeps is the zip's: the one the page and the audit show (D-1261)."""
     tmp = Path(tempfile.mkdtemp(prefix="tb-medis-"))
     try:
-        return _kept(use(unpack(data, tmp)), hashlib.sha256(data).hexdigest())
+        unpack(data, tmp)
+        archive = tmp / "release.zip"
+        archive.write_bytes(data)
+        return _kept(use(archive), hashlib.sha256(data).hexdigest())
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def already(status: list[dict[str, Any]], sha256: str) -> dict[str, Any] | None:
+    """The loaded disease table's row when it came from this very release (the same zip's SHA-256), else None."""
+    row = loaded(status)
+    return row if row is not None and sha256 and str(row.get("sha256") or "") == sha256 else None
 
 
 def check(data: bytes) -> dict[str, Any]:

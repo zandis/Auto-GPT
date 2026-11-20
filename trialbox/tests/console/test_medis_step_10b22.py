@@ -225,9 +225,10 @@ MASTER_KEYS = {"ws", "domain", "system", "code", "display", "suggested_system", 
                "n"}  # fmt: skip  # GET /api/v1/site/codes's keys on master (local_code before version 3, and n)
 
 
-def _codes_with(jp: dict[str, Any], also: list[str] | None) -> None:
+def _codes_with(jp: dict[str, Any], also: list[str] | None, others: list[dict[str, str]] | None = None) -> None:
     sug = {"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "E11.2", "display": "テスト複分類病",
-           "method": "licensed", "confidence": "1.00", **({"also": also} if also else {})}  # fmt: skip
+           "method": "licensed", "confidence": "1.00", **({"also": also} if also else {}),
+           **({"candidates": others, "of": len(others) + 1} if others else {})}  # fmt: skip
     jp["svc"].store.put_local("main", "condition", DX_SYSTEM, "ZA17", "テスト複分類病", sug)
 
 
@@ -247,23 +248,28 @@ def test_the_codes_page_shows_the_further_codes_in_three_languages(jp: dict[str,
 def test_without_further_codes_the_page_is_as_before_the_field(
     jp: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The local codes page with this card's line equals, byte for byte, the page rendered from the template without
-    the line, for a code with no further codes: the line adds nothing then."""
+    """The local codes page with this card's lines equals, byte for byte, the page rendered from the template without
+    them, for a code with no further codes and one candidate: the lines add nothing then."""
     import re as _re
 
     import jinja2
 
     _codes_with(jp, None)
     c, _ = login(jp["app"], "crc", PW)
-    line = ("{% if c.also %} · <span data-testid=\"also-{{ c.code }}\">{{ t('site.codes.also', "
-            "codes=c.also|join(', ')) }}</span>{% endif %}")  # fmt: skip
+    tpl = (Path(__file__).resolve().parents[2] / "services" / "console" / "templates" / "site_codes.html").read_text(
+        encoding="utf-8"
+    )
+    lines = [m.group(0) for m in _re.finditer(r"\{% if c\.(?:also|others) %\}.*?\{% endif %\}|\{% for o in c\.others %\}.*?"
+                                              r"\{% endfor %\}", tpl)]  # fmt: skip
+    assert len(lines) == 4  # the further codes; one of N; the further candidates; their buttons
     real = jinja2.FileSystemLoader.get_source
 
     def without(self: Any, env: Any, name: str) -> Any:
         src, fn, _up = real(self, env, name)
         if name == "site_codes.html":
-            assert src.count(line) == 1
-            src = src.replace(line, "")
+            for line in lines:
+                assert src.count(line) == 1
+                src = src.replace(line, "")
         return src, fn, lambda: False  # read again next time
 
     def page() -> str:
@@ -283,7 +289,55 @@ def test_the_api_twin_answers_as_before_with_and_without_the_field(jp: dict[str,
     token = c.post("/api/v1/session", json={"username": "crc", "password": PW, "lang": "en"}).json()["token"]
     c.headers["Authorization"] = f"Bearer {token}"
     for also in (None, ["N08.3"]):
-        _codes_with(jp, also)
+        _codes_with(
+            jp, also, [{"code": "I10", "display": "テスト病乙", "method": "licensed_related"}] if also else None
+        )
         rows = c.get("/api/v1/site/codes").json()
         assert rows and all(set(r) == MASTER_KEYS for r in rows), (also, sorted(rows[0]))
-        assert "N08.3" not in json.dumps(rows)
+        assert "N08.3" not in json.dumps(rows) and "I10" not in json.dumps(rows)
+
+
+def test_the_codes_page_offers_every_candidate_as_one_of_n(jp: dict[str, Any]) -> None:
+    from console.i18n_medis import EN
+
+    _codes_with(jp, None, [{"code": "I10", "display": "テスト病乙", "method": "licensed_related"}])
+    c, _ = login(jp["app"], "crc", PW)
+    page = c.get("/site/codes").text
+    assert 'data-testid="of-ZA17"' in page and EN["site.codes.one_of"].replace("{n}", "2") in page
+    assert 'data-testid="use-ZA17"' in page and 'data-testid="use-ZA17-I10"' in page  # each one a person can take
+    related = EN["site.codes.method.licensed_related"].split(": ", 1)[1]  # the words after the apostrophe's escape
+    assert 'data-testid="others-ZA17"' in page and related in page
+
+
+def test_one_release_shows_one_fingerprint_and_a_second_load_is_asked_for(jp: dict[str, Any], tmp_path: Path) -> None:
+    """The page, the audit and the store's status give the zip's SHA-256; loading the release in use again needs
+    the person's "load it again"; the audit's detail names the fingerprint beside the version and the counts."""
+    import hashlib
+
+    c, _ = login(jp["app"], "crc", PW)
+    data = fx.release_zip()
+    sha = hashlib.sha256(data).hexdigest()
+    _load(c, data, sha)
+    st = next(s for s in licensed.status(jp["svc"].store.db.url) if s["kind"] == "medis")
+    ev = [
+        e
+        for e in _events(tmp_path)
+        if e.get("event") == "terminology.load" and e["detail"].get("kind") == "medis_release"
+    ]
+    assert st["sha256"] == sha == ev[0]["output_sha"] == ev[0]["detail"]["sha256"]
+    again = _check(c, data)
+    assert 'data-testid="medis-already"' in again.text and 'data-testid="medis-again"' in again.text
+    r = _load(c, data, sha)  # without "load it again"
+    assert r.status_code == 422 and 'data-code="LIC-ALREADY-LOADED"' in r.text
+    page = c.get(PAGE)
+    r = c.post(f"{PAGE}/load", data={"csrf": _csrf(page.text), "sha256": sha, "approved": "yes", "again": "yes"},
+               files={"file": ("byomei999.zip", data)})  # fmt: skip
+    assert r.status_code == 200 and 'data-testid="medis-done"' in r.text
+    ev = [
+        e
+        for e in _events(tmp_path)
+        if e.get("event") == "terminology.load" and e["detail"].get("kind") == "medis_release"
+    ]
+    assert len(ev) == 2 and ev[1]["detail"]["again"] is True
+    other = fx.release_zip(version="V9.98")  # another release: no notice
+    assert 'data-testid="medis-already"' not in _check(c, other).text

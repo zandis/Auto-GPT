@@ -41,11 +41,13 @@
 <tr><th>{{ t('medis.check.sha') }}</th><td class="mono">{{ found.sha256 }}</td></tr>
 </tbody></table>
 <h3>{{ t('medis.check.skipped', n=found.skipped|length) }}</h3>
-{% if not found.skipped %}<p class="ok">{{ t('medis.check.skipped.none') }}</p>{% else %}<ul class="plain" data-testid="medis-skipped">{% for s in found.skipped[:shown] %}<li>{{ t('medis.check.skipped.line', table=s.table, line=s.line, reason=s.reason) }}</li>{% endfor %}{% if found.skipped|length > shown %}<li>{{ t('medis.check.skipped.more', n=found.skipped|length - shown) }}</li>{% endif %}</ul>{% endif %}
+{% if not found.skipped %}<p class="ok">{{ t('medis.check.skipped.none') }}</p>{% else %}<ul class="plain" data-testid="medis-skipped">{% for s in found.skipped[:shown] %}<li>{% if s.line %}{{ t('medis.check.skipped.line', table=s.table, line=s.line, reason=s.reason) }}{% else %}{{ s.table }}: {{ s.reason }}{% endif %}</li>{% endfor %}{% if found.skipped|length > shown %}<li>{{ t('medis.check.skipped.more', n=found.skipped|length - shown) }}</li>{% endif %}</ul>{% endif %}
+{% if found.already %}<p class="pill warn" role="status" data-testid="medis-already">{{ t('medis.already', version=found.already.version, released=found.already.released or '–', day=(found.already.loaded_at or '')[:10], who=found.already.loaded_by|who) }}</p>{% endif %}
 <h3>{{ t('medis.approve.title') }}</h3>
 <form method="post" action="/site/codes/medis/load" enctype="multipart/form-data" class="markform" data-testid="medis-approve">
 <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="sha256" value="{{ found.sha256 }}">
 <p><label><input type="checkbox" name="approved" value="yes" required data-testid="medis-approved"> {{ t('medis.approve.box') }}</label></p>
+{% if found.already %}<p><label><input type="checkbox" name="again" value="yes" required data-testid="medis-again"> {{ t('medis.again') }}</label></p>{% endif %}
 <p class="hint">{{ t('medis.approve.who', who=who|who) }}</p>
 <label for="medis-file-again">{{ t('medis.approve.again') }}</label><input id="medis-file-again" name="file" type="file" accept=".zip" required>
 <button type="submit" data-testid="medis-load">{{ t('medis.load.go') }}</button>

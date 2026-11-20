@@ -23,7 +23,7 @@ from typing import Any
 
 from tb_common.db import ENV, Database
 
-from sitesetup.medis_master import also_of
+from sitesetup.medis_master import also_of, candidates_of
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS input (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, ws TEXT NOT NULL,
@@ -59,6 +59,10 @@ SCHEMA_V2 = "ALTER TABLE local_code ADD COLUMN IF NOT EXISTS confidence DOUBLE P
 # 複数分類コード), a JSON list shown on the local codes page as "also classified as"; NULL (none) for a row
 # written before it and for every suggestion without one. Never the suggested code, never sent anywhere else
 SCHEMA_V3 = "ALTER TABLE local_code ADD COLUMN IF NOT EXISTS also_classified TEXT"
+# version 4 (10B-22, D-1261): when one local code or name points at several diseases of the MEDIS master, the
+# further candidates beside the first (code, display, method), a JSON list; the page offers each as one of N. NULL
+# (none) for a row written before it and for every suggestion with one candidate. Never sent anywhere else
+SCHEMA_V4 = "ALTER TABLE local_code ADD COLUMN IF NOT EXISTS candidates TEXT"
 STATUSES = ("coded", "proposed", "confirmed", "rejected")
 _INSERT_FACT = (
     "INSERT INTO fact (ws, input_id, pid, domain, term, code, system, local_code, local_system, value, unit, day, "
@@ -78,7 +82,7 @@ class SetupError(ValueError):
 class SetupStore:
     def __init__(self, url: str | None = None) -> None:
         self._db = Database.connect(url or os.environ.get(ENV), "sitesetup")
-        self._db.migrate([SCHEMA, SCHEMA_V2, SCHEMA_V3])
+        self._db.migrate([SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4])
 
     @property
     def db(self) -> Database:
@@ -299,11 +303,12 @@ class SetupStore:
     def put_local(self, ws: str, domain: str, system: str, code: str, display: str, suggestion: dict[str, str]) -> None:
         self._db.execute(
             "INSERT INTO local_code (ws, domain, system, code, display, suggested_system, suggested_code, "
-            "suggested_display, method, confidence, also_classified) VALUES (?,?,?,?,?,?,?,?,?,?,?) "
+            "suggested_display, method, confidence, also_classified, candidates) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT (ws, domain, system, code) DO UPDATE SET display = excluded.display, "
             "suggested_system = excluded.suggested_system, "
             "suggested_code = excluded.suggested_code, suggested_display = excluded.suggested_display, "
-            "method = excluded.method, confidence = excluded.confidence, also_classified = excluded.also_classified",
+            "method = excluded.method, confidence = excluded.confidence, also_classified = excluded.also_classified, "
+            "candidates = excluded.candidates",
             (
                 ws,
                 domain,
@@ -316,6 +321,7 @@ class SetupStore:
                 suggestion.get("method", ""),
                 float(suggestion.get("confidence") or 0),
                 also_of(suggestion),
+                candidates_of(suggestion),
             ),
         )
 

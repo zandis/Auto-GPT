@@ -133,13 +133,67 @@ def test_a_modifiers_spelling_never_names_a_disease(master: mm.Master) -> None:
     assert mm.by_name(master, "テスト修飾語", lambda t: rows)["code"] == "E11.9"  # the same row as a disease's: read
 
 
-def test_a_name_of_two_diseases_gives_nothing() -> None:
+def test_a_name_of_two_diseases_offers_both_ranked_never_one_in_silence() -> None:
+    """D-1261 (lane J): one name or term that points at several diseases offers all of them, ranked; the first is the
+    suggestion, the others ride beside it as one of N."""
     t = fx.concepts()
     extra = json.loads(t["ZA02"]["extra"])
     extra["rows"][0]["name"] = "テスト病甲"  # the same name, another ICD-10
     t["ZA02"]["extra"] = json.dumps(extra)
     m = mm.rows({"medis": t})
-    assert m is not None and mm.by_name(m, "テスト病甲") == {}
+    assert m is not None
+    got = mm.by_name(m, "テスト病甲")
+    assert got["code"] == "E11.9" and got["of"] == 2  # the entry with the lower management number first
+    assert got["candidates"] == [{"code": "I10", "display": "テスト病甲", "method": "licensed_with_modifier"}]
+
+
+def test_index_groups_are_all_offered_in_their_order(master: mm.Master) -> None:
+    got = mm.by_name(master, "テスト二群語", fx.lookup_term)  # group 0 (ZA01) and group 2 (ZA02, related)
+    assert got["code"] == "E11.9" and got["method"] == "licensed" and got["of"] == 2
+    assert got["candidates"] == [{"code": "I10", "display": "テスト病乙", "method": "licensed_related"}]
+
+
+def test_an_earlier_group_that_gives_nothing_does_not_hide_a_later_one(master: mm.Master) -> None:
+    rows = [{"term": "テスト語", "code": "ZA10", "target_kind": "1", "synonym": "0", "variant": "9"},  # U04.9: not CM
+            {"term": "テスト語", "code": "ZA01", "target_kind": "1", "synonym": "1", "variant": "9"}]  # fmt: skip
+    got = mm.by_name(master, "テスト語", lambda t: rows)
+    assert got["code"] == "E11.9" and "of" not in got
+
+
+def test_a_wholly_deleted_code_offers_its_successors_by_code_as_by_name() -> None:
+    t = fx.concepts()
+    extra = json.loads(t["ZA11"]["extra"])
+    extra["rows"][0]["successor"] = "99000001"  # every row of ZA11 deleted, its successor E11.9
+    t["ZA11"]["extra"] = json.dumps(extra)
+    m = mm.rows({"medis": t})
+    assert m is not None
+    got = mm.by_code(m, "ZA11")
+    assert got["code"] == "E11.9" and got["method"] == "licensed_successor" and got["replaced"] == "99000011"
+    assert mm.by_name(m, "廃止テスト病")["method"] == "licensed_successor"
+
+
+def test_two_successors_of_one_deleted_code_are_both_offered() -> None:
+    t = fx.concepts()
+    extra = json.loads(t["ZA04"]["extra"])
+    extra["rows"].append({"no": "99000018", "name": "旧テスト症別型", "icd": "K529", "change": "1",
+                          "successor": "99000002"})  # fmt: skip
+    t["ZA04"]["extra"] = json.dumps(extra)
+    m = mm.rows({"medis": t})
+    assert m is not None
+    got = mm.by_code(m, "ZA04")
+    assert got["of"] == 2 and {got["code"], got["candidates"][0]["code"]} == {"K52.9", "I10"}
+    assert got["method"] == got["candidates"][0]["method"] == "licensed_successor"
+
+
+def test_the_store_keeps_the_further_candidates_and_old_rows_read_as_none() -> None:
+    from sitesetup.medis_master import candidates_of, candidates_read
+
+    one = {"code": "I10", "display": "テスト病乙", "method": "licensed_related", "confidence": "0.80"}
+    raw = candidates_of({"code": "E11.9", "candidates": [one]})
+    assert raw is not None and candidates_read(raw) == [{k: one[k] for k in ("code", "display", "method")}]
+    assert candidates_of({"code": "E11.9"}) is None and candidates_of({"candidates": [{"code": ""}]}) is None
+    for bad in (None, "", "not json", '{"code": "I10"}', '["I10"]', '[{"display": "x"}]'):
+        assert candidates_read(bad) == [], bad
 
 
 def test_suggest_reads_the_master_first_and_never_guesses_past_it(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -204,3 +258,16 @@ def test_the_store_keeps_the_further_codes_as_a_list_and_old_rows_read_as_none()
     assert also_read(None) == [] and also_read("") == [] and also_read("not json") == []
     assert also_read('{"N08.3": 1}') == [] and also_read('"N08.3"') == []  # not a list: none
     assert also_read('["N08.3"]') == ["N08.3"]
+
+
+def test_an_index_term_in_lower_case_is_found_as_the_hospital_writes_it(master: mm.Master) -> None:
+    """The index compares NFKC only; a term the release writes in lower case is asked as written, and an upper-case
+    term is asked in upper case: both are found (22 near-synonyms of the real release were missed before)."""
+    index = {"テストa病": "ZA01", "テストB型名": "ZA16"}  # invented terms as stored: one lower case, one upper case
+
+    def lookup(term: str) -> list[dict[str, str]]:
+        code = index.get(term)
+        return [{"term": term, "code": code, "target_kind": "1", "synonym": "0", "variant": "9"}] if code else []
+
+    assert mm.by_name(master, "テストａ病", lookup)["code"] == "E11.9"  # full-width lower case, as stored
+    assert mm.by_name(master, "テストｂ型名", lookup)["code"] == "B18.1"  # lower case typed, stored upper

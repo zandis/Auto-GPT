@@ -34,7 +34,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sitesetup import medis_release
-from sitesetup.medis_master import also_read
+from sitesetup.medis_master import also_read, candidates_read
 from tb_common.authz import permit
 from tb_common.verdict_word import shown_of
 
@@ -517,8 +517,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         terms: list[dict[str, Any]] = []
         with contextlib.suppress(Problem, Unavailable):
             terms = list(get("/setup/terminology"))  # D-137: the licensed Japanese code lists
-        for c in codes:  # D-1261: the further ICD-10 codes of a suggestion, shown beside it on this page only
+        for c in codes:  # D-1261: the further ICD-10 codes and candidates of a suggestion, on this page only
             c["also"] = also_read(c.pop("also_classified", None))
+            c["others"] = candidates_read(c.pop("candidates", None))
         todo = [c for c in codes if c["mapped_code"] is None]
         return h.page(
             request,
@@ -855,7 +856,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = api_session(request)
         need_view(sess, request.url.path)
         try:  # D-1261: the further ICD-10 codes are the page's only; this answer is as before (owner to decide)
-            return [{k: v for k, v in c.items() if k != "also_classified"} for c in get(f"/setup/{ws_of(ws)}/codes")]
+            page_only = ("also_classified", "candidates")
+            return [{k: v for k, v in c.items() if k not in page_only} for c in get(f"/setup/{ws_of(ws)}/codes")]
         except (Problem, Unavailable) as exc:
             return refused(exc)
 

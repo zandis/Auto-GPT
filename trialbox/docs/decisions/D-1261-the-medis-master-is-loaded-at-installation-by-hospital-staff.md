@@ -47,7 +47,7 @@ built from テスト and ダミー.
    The step can be done later from the same page.
 3. **The hand-over** uses the upload pattern of the other set-up pages: the browser uploads the file, the console reads
    it into memory up to a cap and sends it to the orchestrator. `sitesetup.medis_release.unpack`:
-   - **caps:** the zip at 48 MB, at most 64 members, and each table at 64 MB once unpacked (a header that understates the size
+   - **caps:** the zip at 32 MB, at most 64 members, and each table at 16 MB once unpacked (the loader's own bounds) (a header that understates the size
      fails the zip's check and is refused as a damaged zip);
    - **refuses:** an encrypted member, one table twice, and a file that is not a zip;
    - **unpacks by base name only:** `readme.txt`, `nmain*.txt`, `mdfy*.txt`, `index*.txt`, `ttl_*.txt`. A member's
@@ -87,6 +87,29 @@ built from テスト and ダミー.
     - Every other account gets the same answer as for `POST /site/codes`; the role walk proves it, cell by cell.
     - The route-table rows are the Japan table's, copying `POST /site/codes`.
     - The orchestrator's routes take the same row (`AS_SITE`) and answer 404 where the layer does not use the master.
+
+### A2. From the run on the real release (lane J, 2026-11-20)
+
+- **One fingerprint.** The loader is given the zip itself, not an unpacked folder, so the store's `sha256`, the
+  page and the audit event show the same value: the zip's SHA-256. The audit event's detail names it (`sha256`)
+  beside the version and the counts, as well as in `output_sha`.
+- **The same release again.** At the read step the page says "this release is already loaded (version, date, by
+  whom)" when the zip's SHA-256 is the loaded release's, and the load then needs a second tick, "load it again"
+  (refused otherwise: `LIC-ALREADY-LOADED`). The loader keeps the release it replaced and deletes the codes of older
+  ones (card 10B-2c), so a second load leaves no third copy.
+- **One term, several diseases.** When a local code or name points at several diseases (two entries of one name
+  with different ICD-10 codes, an index term naming several, the successors of a deleted code), every one of them is
+  offered, ranked: the order of the index groups (0, 1, a variant form, 2), then current before deleted, then
+  採択区分, then the management number. The first is the suggestion; the others are kept beside it (`candidates`,
+  set-up store version 4) and the local codes page shows each, with its own "Use" button, as "one of N for this
+  term". None is ever picked in silence and none is ever dropped in silence. A group that gives no ICD-10-CM code
+  no longer hides a later group. The API twin and the XLSX sheet do not carry the further candidates (owner to
+  decide, as for the 複数分類コード).
+- **A deleted code by its code.** A code whose every row is deleted offers its rows' successors by its code as by
+  a name, labelled `licensed_successor`.
+- **The case of an index term.** The index is asked for the term as written (NFKC) and in upper case, so a term the
+  release writes in lower case is found. One function for the stored key and the query is being agreed with card
+  10B-2c (`licensed.index_key`).
 
 ### B. Every use of the master
 

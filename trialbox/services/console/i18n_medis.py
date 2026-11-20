@@ -4,6 +4,10 @@
 from __future__ import annotations
 
 EN: dict[str, str] = {
+    "site.codes.one_of": "one of {n} for this term",
+    "medis.already": "This release is already loaded: version {version}, released {released}, loaded on {day} by {who}.",
+    "medis.again": "Load it again (the box keeps one copy in use; this replaces it with the same release).",
+    "medis.err.LIC-ALREADY-LOADED": 'This release is already loaded. Tick "load it again" to load it a second time.',
     "site.codes.also": "also classified as {codes}",
     "site.codes.method.licensed_related": "from the hospital's disease-name master: a related term, not the same disease name (check it)",
     "site.codes.method.licensed_synonym": "from the hospital's disease-name master: the hospital's name is a synonym of this name",
@@ -61,6 +65,10 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
+    "site.codes.one_of": "この語の候補 {n} 件のうちの一つ",
+    "medis.already": "この版はすでに読み込まれています：版 {version}、公開 {released}、{day} に {who} が読み込み。",
+    "medis.again": "もう一度読み込む（使用中の版を同じ版で置き換えます）",
+    "medis.err.LIC-ALREADY-LOADED": "この版はすでに読み込まれています。もう一度読み込むときは「もう一度読み込む」にチェックを入れてください。",
     "site.codes.also": "ほかの分類：{codes}",
     "site.codes.method.licensed_related": "病院の標準病名マスターから：関連する語で、同じ病名ではありません（確認してください）",
     "site.codes.method.licensed_synonym": "病院の標準病名マスターから：病院の名称はこの病名の同義語です",
@@ -118,6 +126,10 @@ JA: dict[str, str] = {
 }
 
 ZH: dict[str, str] = {
+    "site.codes.one_of": "此詞的 {n} 個候選之一",
+    "medis.already": "此版本已載入：版本 {version}，發布於 {released}，{day} 由 {who} 載入。",
+    "medis.again": "再次載入（以相同版本取代使用中的版本）",
+    "medis.err.LIC-ALREADY-LOADED": "此版本已載入。若要再次載入，請勾選「再次載入」。",
     "site.codes.also": "亦歸類為 {codes}",
     "site.codes.method.licensed_related": "來自醫院的標準病名主檔：相關的詞，不是同一個病名（請確認）",
     "site.codes.method.licensed_synonym": "來自醫院的標準病名主檔：醫院的名稱是此病名的同義詞",

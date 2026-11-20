@@ -147,7 +147,8 @@ def register(
         if hashlib.sha256(data).hexdigest() != str(form.get("sha256") or ""):
             return refused(request, sess, "LIC-UPLOAD-CHANGED")
         try:
-            done = send(sess, "/setup/terminology/medis/load", data, approved=True)
+            again = str(form.get("again") or "") == "yes"  # D-1261: a second load of the release in use, asked for
+            done = send(sess, "/setup/terminology/medis/load", data, approved=True, again=again)
         except Problem as exc:
             return refused(request, sess, exc.code, exc.message)
         except Unavailable:

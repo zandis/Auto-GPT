@@ -44,6 +44,7 @@ from tb_common.icd10_who import comparable
 DELETED = "1"
 MAX_HOPS = 10  # successors followed at most (a longer chain is a damaged release: no suggestion)
 NO_TERM = "0000"  # the index's 対応用語コード of no current term
+RELATED = 3  # the rank of a related term (同義語区分 2): a candidate labelled "related, check it"
 
 
 @dataclass(frozen=True)
@@ -153,22 +154,12 @@ def _preferred(m: Master, e: Entry) -> Entry:
     return owners[0] if owners else e
 
 
-def suggestion(m: Master, entries: list[Entry], related: bool = False) -> dict[str, Any]:
-    """``{system, code, display, method, confidence[, replaced][, also]}`` for the entries one group of a local code or
-    name points at, or ``{}`` (no current entry, several diseases, no ICD-10, or one the ICD-10-CM list lacks)."""
-    got = [(r, e) for e in entries if (r := resolve(m, e)) is not None]
-    if not got:
-        return {}
-    codes = {icd10cm(m, r) for r, _e in got}
-    if len(codes) != 1 or not next(iter(codes)):
-        return {}
-    got.sort(key=lambda p: (not p[1].current, p[1].adoption or "9", p[0].number))
-    r, came = got[0]
+def _candidate(m: Master, r: Entry, came: Entry, related: bool, code: str) -> dict[str, Any]:
+    """One suggested code: ``{system, code, display, method, confidence[, replaced][, also]}``."""
     owner = _preferred(m, r)
-    out: dict[str, Any] = {"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": next(iter(codes)),
-                           "display": owner.name, "method": "licensed",
-                           "confidence": "0.80" if related else "1.00"}  # fmt: skip
-    also = [c for c in (comparable(x) for x in re.split(r"[^0-9A-Za-z-]+", r.multi_class)) if c and c != out["code"]]
+    out: dict[str, Any] = {"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": code, "display": owner.name,
+                           "method": "licensed", "confidence": "0.80" if related else "1.00"}  # fmt: skip
+    also = [c for c in (comparable(x) for x in re.split(r"[^0-9A-Za-z-]+", r.multi_class)) if c and c != code]
     if also:  # shown as "also classified as"; never the suggested code (D-1261)
         out["also"] = also
     if came is not r:
@@ -184,10 +175,43 @@ def suggestion(m: Master, entries: list[Entry], related: bool = False) -> dict[s
     return out
 
 
+#: the keys of a further candidate as the set-up store keeps it (beside the first, D-1261)
+CANDIDATE_KEYS = ("code", "display", "method")
+
+
+def suggestion(m: Master, items: list[tuple[int, Entry]]) -> dict[str, Any]:
+    """The suggestion for the entries a local code or name points at, each with its rank (lower first: the index
+    group, ``RELATED`` for a related term). Every entry is resolved (a deleted one to its successor) and taken when
+    its ICD-10 is an ICD-10-CM code; one code is one candidate (its best-ranked entry). One candidate: it alone. Several
+    (D-1261, lane J): all of them, ranked, never one picked in silence: the first as the suggestion, ``of`` their
+    number and ``candidates`` the others (code, display, method), each shown on the page as one of N for this term.
+    None: ``{}`` (no current entry, no ICD-10, or none the ICD-10-CM list holds)."""
+    best: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {}
+    for rank, e in items:
+        r = resolve(m, e)
+        if r is None:
+            continue
+        code = icd10cm(m, r)
+        if not code:
+            continue
+        order = (rank, not e.current, e.adoption if e.adoption.isdigit() else "9", r.number)
+        if code not in best or order < best[code][0]:
+            best[code] = (order, _candidate(m, r, e, rank == RELATED, code))
+    ranked = [c for _o, c in sorted(best.values(), key=lambda p: p[0])]
+    if not ranked:
+        return {}
+    out = dict(ranked[0])
+    if len(ranked) > 1:
+        out["of"] = len(ranked)
+        out["candidates"] = [{k: c[k] for k in CANDIDATE_KEYS} for c in ranked[1:]]
+    return out
+
+
 def by_code(m: Master, exchange: str) -> dict[str, Any]:
-    """A 病名交換用コード: its current rows; a code whose every row is deleted, their successors."""
+    """A 病名交換用コード: its current rows; a code whose every row is deleted, their successors (labelled
+    ``licensed_successor``, as by name)."""
     entries = m.by_exchange.get(exchange.strip().upper(), [])
-    return suggestion(m, [e for e in entries if e.current] or entries)
+    return suggestion(m, [(0, e) for e in ([e for e in entries if e.current] or entries)])
 
 
 def _index_rank(row: Mapping[str, Any]) -> int | None:
@@ -199,28 +223,29 @@ def _index_rank(row: Mapping[str, Any]) -> int | None:
         return None
     if variant in ("1", "2"):
         return 2
-    return {"0": 0, "1": 1, "2": 3}.get(synonym)
+    return {"0": 0, "1": 1, "2": RELATED}.get(synonym)
 
 
 def by_name(m: Master, name: str, lookup: Callable[[str], list[dict[str, Any]]] | None = None) -> dict[str, Any]:
-    """A local disease name: the 病名表記 first, then the index (``lookup(term)``: ``TermStore.lookup_term``)."""
+    """A local disease name: the 病名表記 first; when it gives no candidate, the index (``lookup(term)``,
+    ``TermStore.lookup_term``), every usable row ranked by its group: the candidates of all groups, in that order."""
     k = key(name)
     if not k:
         return {}
-    own = m.by_name.get(k, [])
-    if own:
-        return suggestion(m, own)
-    if lookup is None:
-        return {}
-    groups: dict[int, list[Entry]] = {}
-    for row in lookup(unicodedata.normalize("NFKC", name).strip().upper()):
+    own = suggestion(m, [(0, e) for e in m.by_name.get(k, [])])
+    if own or lookup is None:
+        return own
+    items: list[tuple[int, Entry]] = []
+    as_written = unicodedata.normalize("NFKC", name).strip()
+    rows: dict[tuple[str, str], dict[str, Any]] = {}
+    for term in dict.fromkeys((as_written, as_written.upper())):  # the index holds both (D-1261: a lower-case term)
+        for row in lookup(term):
+            rows.setdefault((str(row.get("term") or ""), str(row.get("code") or "")), row)
+    for row in rows.values():
         rank = _index_rank(row)
         if rank is not None:
-            groups.setdefault(rank, []).extend(m.by_exchange.get(str(row["code"]).upper(), []))
-    for rank in sorted(groups):
-        if groups[rank]:
-            return suggestion(m, groups[rank], related=rank == 3)
-    return {}
+            items += [(rank, e) for e in m.by_exchange.get(str(row["code"]).upper(), [])]
+    return suggestion(m, items)
 
 
 def also_of(suggestion: Mapping[str, Any]) -> str | None:
@@ -236,3 +261,21 @@ def also_read(raw: Any) -> list[str]:
     except (TypeError, ValueError):
         return []
     return [str(c) for c in got] if isinstance(got, list) else []
+
+
+def candidates_of(suggestion: Mapping[str, Any]) -> str | None:
+    """D-1261: a suggestion's further candidates as the column keeps them: a JSON list, or None (one candidate)."""
+    got = [{k: str(c.get(k) or "") for k in CANDIDATE_KEYS} for c in (suggestion.get("candidates") or ())]
+    got = [c for c in got if c["code"]]
+    return json.dumps(got, ensure_ascii=False) if got else None
+
+
+def candidates_read(raw: Any) -> list[dict[str, str]]:
+    """The column back as a list of candidates; [] for NULL (a row from before version 4) or anything else."""
+    try:
+        got = json.loads(raw) if raw else []
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(got, list):
+        return []
+    return [{k: str(c.get(k) or "") for k in CANDIDATE_KEYS} for c in got if isinstance(c, dict) and c.get("code")]
