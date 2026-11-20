@@ -98,7 +98,7 @@ def read_table(directory: Path, name: str) -> list[dict[str, Any]] | None:
     data = path.read_bytes()  # TERM-2 review: the bytes hashed are the bytes parsed (no swap between the two reads)
     if line.get("sha256") != hashlib.sha256(data).hexdigest():
         raise TerminologyRefused(f"{path}: its sha256 differs from {MANIFEST}; load it again")
-    rows: list[dict[str, Any]] = pq.read_table(pa.BufferReader(data), use_threads=False).to_pylist()
+    rows: list[dict[str, Any]] = pq.ParquetFile(pa.BufferReader(data)).read(use_threads=False).to_pylist()
     return rows
 
 

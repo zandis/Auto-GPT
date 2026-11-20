@@ -1,0 +1,7 @@
+# synthetic: %s as a driver placeholder, the value bound; %-formatting of a constant
+TABLE = "item"
+
+
+def fine(cur, name):
+    cur.execute("SELECT id FROM item WHERE name = %s", (name,))
+    cur.execute("SELECT count(*) FROM %s" % TABLE)

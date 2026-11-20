@@ -1,0 +1,7 @@
+# synthetic: str.format into execute
+def by_name(cur, name):
+    cur.execute("SELECT id FROM item WHERE name = '{}'".format(name))  # hit
+
+
+def by_kw(cur, table):
+    cur.execute("DELETE FROM {t} WHERE id = ?".format(t=table), (1,))  # hit

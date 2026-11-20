@@ -151,7 +151,7 @@ def resolve(
             rec = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             raise Refused(f"{path} is not a readable serving record ({exc}). {how_to_measure(tier, gpu)}") from exc
-        why = serving_config.measured_for(rec, gpu)
+        why = serving_config.measured_for(rec, gpu, lambda: mem_kib)  # the memory read or given above
         if why:
             raise Refused(
                 f"tier {tier}: {path} is not a measurement of the {gpu} profile on its own card: {'; '.join(why)}. "
