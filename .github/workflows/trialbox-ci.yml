@@ -736,6 +736,8 @@ jobs:
     if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 15
     # D-206: gating since 2026-11-10; the first findings were triaged as inline ignores with a reason in each Dockerfile
+    # D-1343 (10G-41): the other five Dockerfiles under trialbox/ (the Makefile's HADOLINT_REPORT) are linted
+    # report-only in the step after, until their findings are closed (tests/unit/test_image_config_scans.py)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: hadolint
@@ -746,6 +748,21 @@ jobs:
             docker run --rm -i hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e hadolint --failure-threshold warning - < "$f" || rc=1
           done
           exit "$rc"
+      # D-1343: report-only, never fails the job: the findings go to the job summary and the artifact
+      - name: hadolint, report-only (D-1343)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          make hadolint-report
+          { echo '## hadolint, report-only (D-1343)'; echo '```'; cat build/hadolint-report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the hadolint report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: hadolint-report
+          path: trialbox/build/hadolint-report.txt
+          if-no-files-found: warn
+          retention-days: 90
 
   # T-501 (OPS-001, ROLE-002, ROLE-003, UX-001): the demo image from a fresh checkout (no .cache, no make jvm-deps),
   # started with no -e flag: /login answers and every seeded account signs in (over plain http here: the Secure cookie
