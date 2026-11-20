@@ -21,6 +21,8 @@ closed). Checks:
 * ``secure_cookie``: the console session cookie is marked Secure (``TB_CONSOLE_SECURE_COOKIE=1``, or unset or empty in
   PRODUCTION, the console's default since D-192). FAIL in
   PRODUCTION and VALIDATION, WARN elsewhere (a DEV/TEST box may serve plain http on localhost; D-121);
+* ``phi_tripwire`` (9g-11, D-1348): the gateway's PHI tripwire (``TB_GATEWAY_PHI_TRIPWIRE``, D-506) is on. FAIL when it
+  is off in PRODUCTION, WARN when it is off elsewhere; the line says how to turn it on;
 * ``console_mfa`` (D-447, CR-033 rest; D-192 "Open"): every way into the console asks for a second factor:
   ``TB_CONSOLE_MFA`` resolves to ``totp`` (the console's default outside DEV and TEST), OIDC, when on, keeps
   ``TB_OIDC_REQUIRE_MFA``, and no trusted identity header (``TB_CONSOLE_SSO_HEADER``, D-93) signs people in. FAIL in
@@ -433,6 +435,28 @@ def check_secure_cookie(inp: DoctorInputs) -> Check:
     status: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
     why = f"TB_CONSOLE_SECURE_COOKIE is off in {env}: the session cookie can travel on http"
     return Check("secure_cookie", status, why)
+
+
+def check_phi_tripwire(inp: DoctorInputs) -> Check:
+    """9g-11 (D-1348; review 01 B1-P2): the gateway's PHI tripwire (D-506, D-792), read by the gateway's own rule
+    (``gateway.core.GatewayConfig.from_env``: off, 0, false or no turns it off; unset or anything else keeps it on) in
+    the gateway's environment (``TB_ENV``, PRODUCTION when unset). Off is a FAIL in PRODUCTION and a WARN elsewhere (a
+    VALIDATION or DEV run on public data may set it off, as the P2b launch did)."""
+    from gateway.core import GatewayConfig
+    from tb_common.config import environment_name
+
+    env = environment_name(inp.env)
+    raw = inp.env.get("TB_GATEWAY_PHI_TRIPWIRE")
+    if GatewayConfig.from_env({} if raw is None else {"TB_GATEWAY_PHI_TRIPWIRE": raw}).phi_tripwire:
+        return Check("phi_tripwire", "PASS", "the PHI tripwire is on for calls that leave the box")
+    status: Status = "FAIL" if env == "PRODUCTION" else "WARN"
+    value = (raw or "").strip()
+    why = (
+        f"the PHI tripwire is off in {env} (TB_GATEWAY_PHI_TRIPWIRE={value}): calls that leave the box are not "
+        "checked for patient identifiers; to turn it on, set TB_GATEWAY_PHI_TRIPWIRE=on in deploy/.env (or remove the "
+        "line) and restart the gateway"
+    )
+    return Check("phi_tripwire", status, why)
 
 
 def check_console_mfa(inp: DoctorInputs) -> Check:
@@ -2073,6 +2097,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_perimeter_addresses,
     check_channel_engine,
     check_secure_cookie,
+    check_phi_tripwire,
     check_sae_mailbox,
     check_named_choices,
     check_mail_auth,
