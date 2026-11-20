@@ -1348,8 +1348,9 @@ def test_r5_the_site_profile_is_capped_and_strict(
     monkeypatch.setattr("sys.stdin", SimpleNamespace(buffer=stdin))
     assert cli.main(["--site-profile", "GZQO", "-", "--version", "1.0.1", "--by", "A. Named"]) == 1
     assert "larger than 64 KiB" in capsys.readouterr().err and stdin.tell() == 64 * 1024 + 1
-    for prof in ({**SITE_PROFILE, "scopes": {"screen": {**SITE_PROFILE["scopes"]["screen"], "zzz": 1}}},
-                 {**SITE_PROFILE, "routing": {**SITE_PROFILE["routing"], "bcc": ["x@y.test"]}}):  # fmt: skip
+    screen = {"practitioners": ["S-001"], "appointment_window_days": 90, "zzz": 1}
+    routing = {"list_to": ["pi@site.test"], "bcc": ["x@y.test"]}
+    for prof in ({**SITE_PROFILE, "scopes": {"screen": screen}}, {**SITE_PROFILE, "routing": routing}):
         with pytest.raises(ImportRefused, match="does not hold the routing and scopes a rule set takes"):
             put_site_profile(repo, "GZQO", yaml.safe_dump(prof).encode(), "op", version="1.0.1",
                              audit=AuditLog(tmp_path / "audit"))  # fmt: skip
