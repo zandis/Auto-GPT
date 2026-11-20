@@ -20,6 +20,10 @@ new heading with the version and date, in the same pull request that sets the ve
   `deploy/.env` value with a line break, a control character or a byte that is not UTF-8 in it, so a name can never
   add or change a setting; O'Brien and full-width brackets are names. An unknown `--environment` stops the installer
   before it loads or writes anything.
+- A form that is sent with a wrong value says so at the top of the page (9k-6a, D-1376): a box headed "There is a
+  problem" lists each field to fix as a link to it, each field shows its own message, and what was typed stays. First
+  on the study's identifiers and its IRB record; the console's other forms follow. Nothing changes on the box: no
+  setting, no new file installed.
 - Criterion model v3 runs in screening, step 1 (10A-5, D-1263): a criterion file that declares version 3 may hang a
   window on the patient's planned start, the screening date or an event of the record, and may name a device or an
   allergy. Screening answers it with the existing window rules at that date, says "unknown" when the date is not

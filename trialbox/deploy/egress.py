@@ -12,6 +12,9 @@ Allowed (only when the variable is set):
 * criteria-compiler -> clinicaltrials.gov:443 when TB_CTGOV_MODE=live (COHORT, D-76; offline, the default since D-140,
                        reads the reference data pack and needs no outbound access)
 * orchestrator      -> host of NHI_TWPAS_BASE_URL (SUBMIT)
+* orchestrator      -> the REDCap server: exactly the host and port of TB_REDCAP_API_URL (REDCAP_API_URL when that is
+                       empty; 9g-14, D-1348). A URL that is not https://host[:port]/..., or that names a model host,
+                       is refused; inproc:// (the demo's in-process simulator) opens nothing
 * EGRESS_EXTRA      -> "service=host:port[,service=host:port]" for site-specific additions (documented in RUNBOOK);
                        an entry that would give any service other than the gateway a model host is refused, and so is
                        an entry for the gateway that is not one of the routing table's open model endpoints above
@@ -105,6 +108,8 @@ _KEYS = (
     "IMAP_PORT",
     "CLOUD_LLM_BASE_URL",
     "NHI_TWPAS_BASE_URL",
+    "TB_REDCAP_API_URL",
+    "REDCAP_API_URL",
     "TB_CTGOV_MODE",
     "EGRESS_EXTRA",
     "TB_ENV",
@@ -147,6 +152,34 @@ def _routing_endpoints(
     return out
 
 
+REDCAP_INPROC = "inproc://"  # services/rc_bridge/client.py INPROC_PREFIX: in process, no network
+
+
+def redcap_host(env: dict[str, str]) -> tuple[str, int] | None:
+    """The REDCap server's ``(host, port)`` from ``TB_REDCAP_API_URL`` (``REDCAP_API_URL`` when that is empty: the
+    connector's own rule, ``services/edc_backend/config.py``); ``None`` when neither is set or it is the in-process
+    simulator. A URL the connector would not call over the network (not ``https``, no host, a user or password, a
+    port that is not a number) is refused with a line naming the setting: the rule is never silently skipped."""
+    name = "TB_REDCAP_API_URL" if (env.get("TB_REDCAP_API_URL") or "").strip() else "REDCAP_API_URL"
+    url = (env.get(name) or "").strip()
+    if not url or url.startswith(REDCAP_INPROC):
+        return None
+    # the URL itself is not echoed: it may carry a password
+    bad = f"{name} is not a REDCap address egress can open (want https://host[:port]/...)"
+    u = urlparse(url)
+    try:
+        port = u.port
+    except ValueError:
+        raise SystemExit(f"{bad}: the port is not a number") from None
+    if u.scheme.lower() != "https":
+        raise SystemExit(f"{bad}: only https; the token travels in every request body")
+    if not u.hostname:
+        raise SystemExit(f"{bad}: no host")
+    if u.username or u.password:
+        raise SystemExit(f"{bad}: a user or password in the URL")
+    return u.hostname.lower().rstrip("."), port or 443
+
+
 def model_endpoints(env: dict[str, str], routing: Path | None = ROUTING) -> list[tuple[str, str, int, str]]:
     """Non-perimeter endpoints (zone external / dev_public): the only model hosts that need an egress rule.
     Perimeter endpoints are reached inside the box networks. An endpoint restricted to other environments than
@@ -177,6 +210,11 @@ def allowlist(env: dict[str, str], routing: Path | None = ROUTING) -> list[Allow
     nhi = _url(env.get("NHI_TWPAS_BASE_URL", ""))
     if nhi:
         out.append(Allow("orchestrator", nhi[0], nhi[1], "NHI TWPAS (SUBMIT only)"))
+    redcap = redcap_host(env)
+    if redcap:
+        if redcap[0] in model_hosts(env, routing):
+            raise SystemExit(f"the REDCap host {redcap[0]} is a model host; only {GATEWAY} may reach a model host")
+        out.append(Allow("orchestrator", redcap[0], redcap[1], "REDCap server (TB_REDCAP_API_URL)"))
     for item in filter(None, (x.strip() for x in env.get("EGRESS_EXTRA", "").split(","))):
         svc, _, hp = item.partition("=")
         host, _, port = hp.rpartition(":")

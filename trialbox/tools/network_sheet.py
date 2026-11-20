@@ -418,6 +418,7 @@ OUTBOUND = (
         "TB_CTGOV_MODE=live (chosen at install; the default is offline)",
     ),
     ("orchestrator", "NHI_TWPAS_BASE_URL", "NHI TWPAS (SUBMIT only)", "NHI_TWPAS_BASE_URL"),
+    ("orchestrator", "host:port of TB_REDCAP_API_URL", "REDCap server (https only)", "TB_REDCAP_API_URL"),
     ("any", "EGRESS_EXTRA", "site additions", "EGRESS_EXTRA"),
 )
 
