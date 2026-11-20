@@ -87,7 +87,10 @@
      options and messages; not read by the engine) and the library's `localId`. The receiving box holds each ELM file
      against the same lists as it stands and refuses any key off them, an annotation included, naming its path: it
      never drops one. Its `library.identifier` may hold `id` and `version` only (else refused); written again as
-     compact JSON. ELM is not regenerated: the translator's jars are not on every box;
+     compact JSON. ELM is not regenerated: the translator's jars are not on every box. The lists hold keys, not values:
+     any string value under an allowed key travels as written; it is not checked against the CQL (see "What
+     travels"). A refusal names the path of allowed keys and indices and only the offending key's length, never its
+     text (on the receiving box that text is the part's);
    - **labels.yaml**: its keys only (`ruleset`, `criteria.<criterion id>.{source, todo_source, en|ja|zh-TW.{label,
      text, todo}}`), text values only, written again as YAML (its comments go);
    - **CQL and SQL** travel as their bytes and are **never stripped** (removing text from code could change what it
@@ -137,7 +140,9 @@
    ships with has no such record, and a profile changed by hand since no longer matches it: both are refused, as is a
    missing `routing.list_to` or `scopes.screen`, naming the command. The command writes **`approve.site_profile_set`**
    (who, when, the rule set, the profile's sha256) **before** the profile: when the audit write fails, nothing is
-   written. The installed manifest is the part's with the site's routing and scopes.
+   written. The command is a host command (run on the box's host, not through the console); its actor is `host:<user>` from
+   `getpass.getuser()` (the user variable, else the passwd entry), or `--by`; with neither a user variable nor a
+   passwd entry it does not crash and writes `host:unknown`. The installed manifest is the part's with the site's routing and scopes.
 5. **The tag and the audit.** The tag of an installed part reads `<ID>/v<version> (offline update, update:<bundle>);
    arrived in a vendor bundle (interim): update:<bundle>; compiled and approved on another box, release <bundle id>
    (release_seq N, commit C), its tag <ID>/v<version>; part sha256 <hash>`, built from checked fields only.
@@ -193,8 +198,12 @@ compiler's by purpose, any of it typed or edited by a person on the head box:
   are free text typed by the approver and travel as written**: besides the codes, units and code system URLs the
   compiler writes, a CQL or SQL string literal (`define "X": 'any words'`, `SELECT 'any words'`) is not checked
   (comments are; no literal grammar is held against the compiler's), so whatever a person typed into one on the head
-  box leaves it, as does the same text in the ELM's literal values; ELM: define and value set names and those
-  literals, without annotations, by its key allow-lists.
+  box leaves it; ELM: without annotations, by its key allow-lists (81 keys), **but its values are not checked: the
+  ELM is not checked against the CQL and a value is not type-checked, so any string value under an allowed key
+  travels as written; it is not checked against the CQL** (26 of the keys hold strings in the shipped files:
+  `accessLevel alias asType codeComparator codeProperty context dataType direction id identifier libraryName localId
+  localIdentifier locator name path precision resultTypeName scope templateId type unit uri value valueType
+  version`), so define and value set names and literals travel with whatever a person put there.
 - `ORIGIN.json`: the bundle id, release_seq and commit of the compiling release (no free words: `--release` takes a
   bundle id), the pins, the file names (criterion ids, value set and library names).
 

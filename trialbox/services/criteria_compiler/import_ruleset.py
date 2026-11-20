@@ -264,6 +264,14 @@ def put_site_profile(repo: RulesetRepo, rid: str, data: bytes, by: str, *, audit
     return sha
 
 
+def _host_user() -> str:
+    """The user the command runs as; ``unknown`` when there is no user variable and no passwd entry (getpass raises)."""
+    try:
+        return getpass.getuser()
+    except (KeyError, OSError):
+        return "unknown"
+
+
 def main(argv: list[str] | None = None) -> int:
     from tb_common.config import load
 
@@ -288,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
 
         rid, path = args.site_profile
         with open(path, "rb") as fh:
-            by = args.by or f"host:{getpass.getuser()}"  # a person, as export_part names one (the re-check of #1174)
+            by = args.by or f"host:{_host_user()}"  # a person, as export_part names one (the re-check of #1174)
             sha = put_site_profile(repo, rid, fh.read(), by, audit=open_audit(cfg.env.audit_path, cfg.env.tz))
         print(json.dumps({"site_profile": rid, "sha256": sha}))
         return 0

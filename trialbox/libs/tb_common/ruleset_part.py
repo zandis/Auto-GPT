@@ -34,8 +34,9 @@ A part is a zip of the ``import_ruleset`` form (one folder ``<ID>/``) with one m
   - **CQL and SQL**: carried as their bytes, every comment held against the compiler's own
     (``criteria_compiler.part_text``): another comment refuses the export with the file and the line (a comment is
     never stripped from code). **String literals are not checked**: they are free text the approver may have typed
-    and travel as written (in the CQL and SQL, and as ELM literal values), like the criterion text (D-1369, "What
-    travels").
+    and travel as written (in the CQL and SQL), like the criterion text (D-1369, "What travels"). The ELM is not
+    checked against the CQL either, and its values are not type-checked: any string value under an allowed key
+    travels as written; it is not checked against the CQL.
 
 * **The part's hash** (:func:`part_sha256`) covers every carried file (path and bytes) and every field of
   ``ORIGIN.json`` but the hash itself. No time is in it: the same approved version exported again from the same
@@ -313,12 +314,13 @@ def check_valueset(data: bytes, path: str) -> None:
 
 
 def _elm_key(key: Any) -> str:
-    return repr(str(key)[:40])
+    """The offending key as its length only: on the receiving box the key is the part's text, so it is never printed."""
+    return f"<a key of length {len(str(key))}>"
 
 
 def _elm_node(node: Any, path: str, where: str, strip: bool) -> Any:
     """``node`` with every key in :data:`ELM_NODE_KEYS`, at every depth; ``annotation`` removed when ``strip`` (the
-    export), refused when not (the receiving box); any other key refused, naming its path."""
+    export), refused when not (the receiving box); any other key refused, naming its path (the allowed keys and indices) and the offending key's length, not its text."""
     if isinstance(node, dict):
         out = {}
         for k, v in node.items():

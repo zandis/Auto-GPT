@@ -880,10 +880,10 @@ def _plant_elm(change: Any) -> Any:
 
 @pytest.mark.parametrize(
     "change, where",
-    [(lambda e: e["library"].update(x_patients=["CNRY-ELMLIB synthetic person"]), "library.'x_patients'"),
+    [(lambda e: e["library"].update(x_patients=["CNRY-ELMLIB synthetic person"]), "library.<a key of length 10>"),
      (lambda e: e["library"]["statements"]["def"][0].update(x_note="CNRY-ELMDEF"),
-      r"library.statements.def\[0\].'x_note'"),
-     (lambda e: e.update(x_top="CNRY-ELMTOP"), "'x_top': ELM holds the key library only at its top")],
+      r"library.statements.def\[0\].<a key of length 6>"),
+     (lambda e: e.update(x_top="CNRY-ELMTOP"), "<a key of length 5>: ELM holds the key library only at its top")],
 )  # fmt: skip
 def test_recheck_an_elm_key_off_the_allow_list_refuses_the_export(
     tmp_path: Path, site_env: None, change: Any, where: str
@@ -897,13 +897,13 @@ def test_recheck_an_elm_key_off_the_allow_list_refuses_the_export(
 
 @pytest.mark.parametrize(
     "change, where",
-    [(lambda e: e["library"].update(x_patients=["CNRY-IMP"]), "library.'x_patients'"),
+    [(lambda e: e["library"].update(x_patients=["CNRY-IMP"]), "library.<a key of length 10>"),
      (lambda e: e["library"]["statements"]["def"][0].update(x_note="CNRY-IMP"),
-      r"library.statements.def\[0\].'x_note'"),
-     (lambda e: e.update(x="CNRY-IMP"), "'x': ELM holds the key library only at its top"),
-     (lambda e: e["library"].update(annotation=[{"s": "CNRY-IMP"}]), "library.'annotation'"),
+      r"library.statements.def\[0\].<a key of length 6>"),
+     (lambda e: e.update(x="CNRY-IMP"), "<a key of length 1>: ELM holds the key library only at its top"),
+     (lambda e: e["library"].update(annotation=[{"s": "CNRY-IMP"}]), "library.<a key of length 10>"),
      (lambda e: e["library"]["statements"]["def"][0].update(annotation=[{"s": "CNRY-IMP"}]),
-      r"library.statements.def\[0\].'annotation'")],
+      r"library.statements.def\[0\].<a key of length 10>")],
 )  # fmt: skip
 def test_recheck_a_resealed_part_with_an_elm_key_off_the_list_is_refused(
     head: RulesetRepo, tmp_path: Path, change: Any, where: str
@@ -961,6 +961,14 @@ def test_recheck_the_site_profile_names_the_person_who_ran_it(
     assert import_ruleset.main(["--site-profile", "GZQO", str(prof), "--by", "named.operator"]) == 0
     assert [e["actor"] for e in audit_events(tmp_path / "audit") if e["event"] == "approve.site_profile_set"] == [
         "host:opsuser", "named.operator"]  # fmt: skip
+
+    def _no_user() -> str:
+        raise KeyError("getpwuid(): uid not found: 4242")
+
+    monkeypatch.setattr(getpass, "getuser", _no_user)  # no user variable, no passwd entry: no crash
+    assert import_ruleset.main(["--site-profile", "GZQO", str(prof)]) == 0
+    assert [e["actor"] for e in audit_events(tmp_path / "audit") if e["event"] == "approve.site_profile_set"][-1] == (
+        "host:unknown")
 
 
 def test_recheck_a_repeat_is_the_tags_own_hash_field_only(head: RulesetRepo, tmp_path: Path) -> None:
