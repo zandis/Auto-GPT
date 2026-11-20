@@ -25,7 +25,7 @@
     <select id="acc-lang" name="lang">{% for l in langs %}<option value="{{ l }}" lang="{{ l }}" {{ 'selected' if l == lang else '' }}>{{ t('lang.name.' + l) }}</option>{% endfor %}</select>
     <button type="submit" data-testid="account-lang">{{ t('lang.apply') }}</button>
   </form>
-  <p class="hint"><a href="/settings/notices">{{ t('account.notice_settings') }}</a>{% if user.role in ('investigator', 'coordinator', 'admin') %} · <a href="/notices/received">{{ t('received.title') }}</a>{% endif %}</p>
+  <p class="hint"><a href="/settings/notices">{{ tp('account.notice_settings') }}</a>{% if user.role in ('investigator', 'coordinator', 'admin') %} · <a href="/notices/received">{{ t('received.title') }}</a>{% endif %}</p>
 </section>
 <section class="card">
   <h2>{{ t('account.password') }}</h2>

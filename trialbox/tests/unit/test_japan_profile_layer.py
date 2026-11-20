@@ -638,6 +638,8 @@ ALLOWED: dict[tuple[str, str], tuple[int, str]] = {
         ('libs/tb_common/refdata_jp.py', 'country="JP", decision="D-174", fetch=False, parse=parse_jlac10_loinc,', 1),
         ('libs/tb_common/refdata_jp.py', 'country="JP", decision="D-317", fetch=False, parse=parse_jrct,', 1),
         ('libs/tb_common/retention.py', '"jp": {**_COMMON, "mail_log_days": 5 * 365},', 1),
+        ('services/adapter/site_questionnaire.py', '"jp_core",', 1),
+        ('services/adapter/site_questionnaire.py', '"jp_core": _SEMVER,', 1),
         ('services/console/i18n_demoja.py', '"jp_yj_atc": "YJ code (7-character stem) -> ATC (TrialBox, stems from the MHLW 薬価基準収載品目リスト)",', 1),
         ('services/console/i18n_demoja.py', '"jp_yj_atc": "YJ コード（先頭7桁）→ ATC（TrialBox、厚生労働省 薬価基準収載品目リストから作成）",', 1),
         ('services/console/i18n_demoja.py', '"jp_yj_atc": "YJ 代碼（前7碼）→ ATC（TrialBox，取自日本厚生勞動省 薬価基準収載品目リスト）",', 1),

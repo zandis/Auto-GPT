@@ -148,6 +148,12 @@ jobs:
       - name: findings register (every row well formed; plan 8 criterion 11; D-1180)
         if: ${{ !cancelled() }}
         run: .venv/bin/python -m tools.findings_register --check
+      - name: inline security suppressions (every nosec and noqa S line in the reviewed ledger; 10G-39, D-1338)
+        if: ${{ !cancelled() }}
+        run: .venv/bin/python -m tools.inline_suppressions --check
+      - name: waivers (every vulnerability waiver has an owner, a date and a reason; no calendar rule; D-1339)
+        if: ${{ !cancelled() }}
+        run: .venv/bin/python -m tools.vex check
       - name: licence register (every shipped data file has a row; no SNOMED CT; model licence rows; T-617b, D-342)
         if: ${{ !cancelled() }}
         run: PYTHONPATH=libs:services:. .venv/bin/python -m tools.licence_register --check
@@ -388,6 +394,10 @@ jobs:
           path: ${{ runner.temp }}/shards
       - name: Every collected test ran in exactly one shard
         run: .venv/bin/python -m tools.test_shard check "$RUNNER_TEMP"/shards/unit-shard-*/shard.json
+      # H-63: a shard without its coverage data would read as a fall at the ratchet; this names the shard instead,
+      # and prints the lines per shard so that two runs compare shard by shard
+      - name: Every shard's coverage data is present
+        run: .venv/bin/python -m tools.coverage_shards check "$RUNNER_TEMP/shards"
       - name: Combined coverage of all shards
         run: |
           .venv/bin/python -m coverage combine --data-file="$RUNNER_TEMP/coverage.db" "$RUNNER_TEMP"/shards/unit-shard-*/coverage.db
@@ -703,6 +713,20 @@ jobs:
         run: .venv/bin/python -m tools.security_scan secrets
       - name: Static security scan (bandit)
         run: .venv/bin/python -m tools.security_scan sast
+      # 10G-42 (b), D-1344 (2026-11-19): the SQL-from-strings rules, report-only: the tool exits 0 without --check, and
+      # continue-on-error keeps a crash from failing the job (plan 10's ruling for 10G-42: the page test warns; D-928's
+      # ruff ratchet already fails a new f-string into execute)
+      - name: SQL-from-strings rules (report-only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: PYTHONPATH=libs:services:. .venv/bin/python -m tools.sql_rules --json "$RUNNER_TEMP/sql-rules.json"
+      - name: Keep the SQL rules result
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: sql-rules
+          path: ${{ runner.temp }}/sql-rules.json
+          if-no-files-found: ignore
 
   # NEW-WIN-1 (D-600): the Windows installer's PowerShell is parsed, held to Windows PowerShell 5.1 syntax and
   # unit-tested with Pester on the Linux runner's PowerShell 7 (no Windows runner). Every Windows command is behind
@@ -730,6 +754,8 @@ jobs:
     if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 15
     # D-206: gating since 2026-11-10; the first findings were triaged as inline ignores with a reason in each Dockerfile
+    # D-1343 (10G-41): the other five Dockerfiles under trialbox/ (the Makefile's HADOLINT_REPORT) are linted
+    # report-only in the step after, until their findings are closed (tests/unit/test_image_config_scans.py)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: hadolint
@@ -740,6 +766,21 @@ jobs:
             docker run --rm -i hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e hadolint --failure-threshold warning - < "$f" || rc=1
           done
           exit "$rc"
+      # D-1343: report-only, never fails the job: the findings go to the job summary and the artifact
+      - name: hadolint, report-only (D-1343)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          make hadolint-report
+          { echo '## hadolint, report-only (D-1343)'; echo '```'; cat build/hadolint-report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the hadolint report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: hadolint-report
+          path: trialbox/build/hadolint-report.txt
+          if-no-files-found: warn
+          retention-days: 90
 
   # T-501 (OPS-001, ROLE-002, ROLE-003, UX-001): the demo image from a fresh checkout (no .cache, no make jvm-deps),
   # started with no -e flag: /login answers and every seeded account signs in (over plain http here: the Secure cookie
