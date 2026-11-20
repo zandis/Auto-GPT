@@ -15,6 +15,9 @@ closed). Checks:
 * ``routing_perimeter``: ``models/routing.yaml`` has no row, and no lookup, that sends D3/D4 outside the perimeter;
 * ``gateway_only_model_reach``: the egress allowlist (``deploy/egress.py``) gives a model host to the gateway only;
 * ``channel_engine``: ``channels.engine`` is valid (native is the only engine, D-121);
+* ``named_choices`` (10K-21, D-1365): on a PRODUCTION box the chart-number rule was chosen, the health page as the
+  backup alert route names who opens it, and Caddy's own CA has IT's confirmation that its root is on the clinic PCs;
+  WARN with the next action for each one missing (a site installed before keeps starting), PASS elsewhere;
 * ``secure_cookie``: the console session cookie is marked Secure (``TB_CONSOLE_SECURE_COOKIE=1``, or unset or empty in
   PRODUCTION, the console's default since D-192). FAIL in
   PRODUCTION and VALIDATION, WARN elsewhere (a DEV/TEST box may serve plain http on localhost; D-121);
@@ -358,6 +361,49 @@ def check_sae_mailbox(inp: DoctorInputs) -> Check:
         ": nobody is mailed when a serious adverse event is entered; set it in deploy/.env (D-736, RUNBOOK §1)"
     )
     return Check("sae_mailbox", "WARN", why)
+
+
+def check_named_choices(inp: DoctorInputs) -> Check:
+    """10K-21 (D-1365): three choices a PRODUCTION site may not leave silent. The chart-number rule was chosen
+    (``TB_CHARTNO_RULE_ANSWERED=yes``, or a rule other than ``asis``, which only an answer gives); the health page as
+    the backup alert route names who opens it every working day (``TB_BACKUP_ALERT_WATCHER``); Caddy's own CA has
+    hospital IT's confirmation that its root is on the clinic PCs (``TB_TLS_ROOT_CONFIRMED_BY`` and ``_ON``). A WARN
+    with the next action, never a FAIL: a site installed before 10K-21 keeps starting. PASS outside PRODUCTION."""
+    from tb_common.config import environment_name
+
+    def val(k: str) -> str:
+        return (inp.env.get(k) or "").strip().strip('"').strip("'").strip()
+
+    gaps: list[str] = []
+    said: list[str] = []
+    rule = val("TB_CHARTNO_RULE").lower() or "asis"
+    if rule == "asis" and val("TB_CHARTNO_RULE_ANSWERED").lower() != "yes":
+        gaps.append("the chart-number rule asis was never chosen (the question was left empty): ask the hospital how "
+                    "it writes chart numbers; if they are taken exactly as written, add TB_CHARTNO_RULE_ANSWERED=yes "
+                    "to deploy/.env; another rule only on a box that has loaded no patient (RUNBOOK §1)")  # fmt: skip
+    else:
+        said.append(f"chart-number rule {rule} chosen")
+    if val("TB_BACKUP_ALERT_ROUTE").lower() == "health-page":
+        who = val("TB_BACKUP_ALERT_WATCHER")
+        if who:
+            said.append(f"{who} opens the health page every working day")
+        else:
+            gaps.append("the backup alert route is the health page and nobody is named to open it every working day: "
+                        "set TB_BACKUP_ALERT_WATCHER in deploy/.env to that person's name (RUNBOOK §5)")  # fmt: skip
+    if val("TB_TLS_HOSTNAME") and (val("TB_TLS_MODE").lower() or "internal") != "hospital":
+        by, on = val("TB_TLS_ROOT_CONFIRMED_BY"), val("TB_TLS_ROOT_CONFIRMED_ON")
+        if by and on:
+            said.append(f"the box's root certificate is on the clinic PCs (confirmed by {by} on {on})")
+        else:
+            gaps.append("no confirmation from hospital IT that the box's root certificate (Caddy's own CA) is on "
+                        "every clinic PC: once IT has pushed it, set TB_TLS_ROOT_CONFIRMED_BY (who) and "
+                        "TB_TLS_ROOT_CONFIRMED_ON (YYYY-MM-DD) in deploy/.env (RUNBOOK §12)")  # fmt: skip
+    env = environment_name(inp.env)
+    if gaps and env == "PRODUCTION":
+        return Check("named_choices", "WARN", "; ".join(gaps))
+    if gaps:
+        return Check("named_choices", "PASS", f"{env}: not required ({'; '.join(gaps)})")
+    return Check("named_choices", "PASS", "; ".join(said))
 
 
 def check_mail_auth(inp: DoctorInputs) -> Check:
@@ -965,7 +1011,7 @@ def check_backup(inp: DoctorInputs) -> Check:
     warns = []
     if cfg.page_only(bs.has_mta()):
         warns.append("the only backup alert route is the health page: nobody is mailed, someone must open /admin "
-                     "every working day (TB_BACKUP_ALERT_ROUTE, D-735; RUNBOOK §5)")  # fmt: skip
+                     "every working day (TB_BACKUP_ALERT_ROUTE, D-735; RUNBOOK §5); " + cfg.page_watch())  # fmt: skip
     if not cfg.archive_on:
         warns.append("WAL archiving is off: a crash loses up to a day (TB_PG_ARCHIVE_MODE, RUNBOOK §5)")
     off = sum(t["offbox"] for t in st["targets"])
@@ -2053,6 +2099,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_secure_cookie,
     check_phi_tripwire,
     check_sae_mailbox,
+    check_named_choices,
     check_mail_auth,
     check_console_mfa,
     check_ldap_ca,
