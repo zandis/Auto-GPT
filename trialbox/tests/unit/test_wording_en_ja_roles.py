@@ -595,6 +595,10 @@ PARTS_EN = [
     ("a result said of one patient", "The patient is positive for hepatitis C.", True),
     ("a directive after its condition", "If the potassium is high, stop the ACE inhibitor.", True),
     ("a workflow after its condition", "If the disk is full, stop the export.", False),
+    ("a study's candidates", "Determines which candidates meet the diabetes criterion.", False),
+    ("a therapy chosen by someone", "Checks each criterion of the chosen therapy.", False),
+    ("a disease named by its adjective", "This patient is hypertensive.", True),
+    ("an aim", "The registry aims to reduce readmissions.", False),
 ]
 PARTS_JA = [
     ("the product as subject", "本システムが寛解率を高めます。", True),
@@ -651,6 +655,9 @@ PARTS_JA = [
     ("a coordinator excludes", "コーディネーターが候補者を除外しました。", False),
     ("a topic's agent past a comma", "診断は、担当の医師が行います。", False),
     ("personal data is no patient", "警告：個人情報が含まれます。", False),
+    ("a patient and a disease, no finding", "この患者に糖尿病の資料を渡します。", False),
+    ("a word is not its own object", "回復までの日数を表示します。", False),
+    ("a published standard grades", "CTCAEにより貧血の重症度を評価します。", False),
     ("a document quoted", "計画書より引用：「妊娠中の患者は除外する」", False),
     ("the product quoted", "本システムは「この患者は除外」と判定します。", True),
     ("a document named after its quotation", "「HBs抗原陽性は除外」と計画書に記載されています。", False),
