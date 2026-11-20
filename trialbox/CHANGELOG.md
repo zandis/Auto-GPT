@@ -20,6 +20,10 @@ new heading with the version and date, in the same pull request that sets the ve
   `deploy/.env` value with a line break, a control character or a byte that is not UTF-8 in it, so a name can never
   add or change a setting; O'Brien and full-width brackets are names. An unknown `--environment` stops the installer
   before it loads or writes anything.
+- A form that is sent with a wrong value says so at the top of the page (9k-6a, D-1376): a box headed "There is a
+  problem" lists each field to fix as a link to it, each field shows its own message, and what was typed stays. First
+  on the study's identifiers and its IRB record; the console's other forms follow. Nothing changes on the box: no
+  setting, no new file installed.
 - The one page for hospital IT (10K-18, D-1378) is made from the box's own preflight list, one page per delivered
   form, in en, ja and zh-TW: for a box its supplier prepared it asks IT for six things (name and certificate, clock,
   mail relay, backup share, audit share, data feed) with the words the box shows on a red line, and names the three

@@ -6,7 +6,8 @@ python -m omop dqd [--json out.json] [--tz Asia/Tokyo]                          
 python -m omop vocab terminology [--rulesets DIR]        # the compiler's Parquet into the vocabulary (D-301)
 python -m omop vocab code-list --system URI --version FY2027 --file F [--rulesets DIR]   # e.g. ICD-10-CM FY2027
 python -m omop vocab licensed | refdata | local --ws main                     # JP masters, refdata terms, local maps
-python -m omop vocab athena --file DIR                    # an Athena bundle (allow-listed vocabularies only)
+python -m omop vocab athena --file DIR [--strict]         # an Athena bundle: the register's vocabularies load, the
+                                                          # rest are skipped and listed (--strict: refused whole)
 python -m omop vocab status                               # releases, release id, code-map release, recompile list
 """
 
@@ -60,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     vo.add_argument("--file", type=Path)
     vo.add_argument("--ws", default="main")
     vo.add_argument("--by", default="operator")
+    vo.add_argument("--strict", action="store_true", help="athena: refuse a bundle holding any vocabulary off the list")
     a = ap.parse_args(argv)
     db = schema.connect()
     try:
@@ -129,7 +131,7 @@ def _vocab(db: Any, a: argparse.Namespace) -> Any:
     if a.what == "athena":
         if not a.file:
             raise SystemExit("athena needs --file (the unpacked bundle's directory)")
-        return vl.load_athena(db, a.file, by=a.by).as_dict()
+        return vl.load_athena(db, a.file, by=a.by, strict=a.strict).as_dict()
     if a.what == "local":
         return {"mapped": vl.load_local_codes(db, vl.local_code_rows(None, a.ws), by=a.by)}
     from omop import vocab
