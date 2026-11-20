@@ -1,0 +1,41 @@
+{
+ "card": "H67",
+ "title": "the 48 GB run on an existing host: one card of several, any card size",
+ "date": "2026-11-20",
+ "source": "docs/handover/measure-on-an-existing-host-2026-11-20.md",
+ "findings": [
+  {
+   "id": "H67-01",
+   "severity": "Medium",
+   "claim": "on a machine with several cards the 48 GB run would measure a card other than the ballast's: deploy/docker-compose.dgpu48.yml asks Docker for count: 1 (whichever card it lists first), the ballast's holder took --gpus device=<index>, and tools/ballast.py and tools/ballast48.py read every card's line without -i",
+   "severity_basis": "a run on the existing host of eight cards could hold one card and start the servers on another, so its records would say 'by ballast' of a card that was not held; not reached: no run there has happened",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 642dc34ecfc151290661eaf88e38318d52928d33",
+   "fix": "one card by --gpu-index: every nvidia-smi question with -i, the UUID checked at every read (card-changed refused), the holder pinned by UUID, the two servers pinned by gpu-pin.yml (device_ids, !override) and proven before the start (compose's resolved configuration) and after it (each container's device request); stand-ins in tests/unit/test_ballast_any_card_h67.py",
+   "from": "the integrator's card H-67, 2026-11-20"
+  },
+  {
+   "id": "H67-02",
+   "severity": "Low",
+   "claim": "tools/ballast.py's memory-already-held refusal named every other compute process by pid and process name; on a shared machine that is another user's information, and records/ballast.log is in the packed records",
+   "severity_basis": "information about another user's work in a record that is sent back; no run on a shared machine has happened",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 642dc34ecfc151290661eaf88e38318d52928d33",
+   "fix": "the refusal names how many processes and how much memory, never a pid or a name; the host form's preflight does the same",
+   "from": "the integrator's card H-67, 2026-11-20"
+  },
+  {
+   "id": "H67-03",
+   "severity": "Low",
+   "claim": "tools/measure48-vm.sh's steps assume a machine made for the run: s05 prunes Docker's whole build cache and every dangling image, s14 runs pkill -f 'tools.ballast hold', and the stop line's SIGINT went to any process on the machine matching a pattern; on a shared host these reach other users' objects and processes (and under pytest -n auto the VM's stop-line rehearsal interrupted another case's stand-in once)",
+   "severity_basis": "right on the VM made and deleted for the run; would touch other users' objects if the steps ran unchanged on a shared host",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 41f729b4a28e5a9f90a409b8447cc6a16d1e72ce",
+   "fix": "the step functions are shared, with the machine's own parts named: tools/measure48-host.sh frees only the stub's volumes, never prunes, and releases only its own ballast (OWN_ONLY); the stop line's SIGINT now reaches the step's own processes only, on the VM too; the host form's Docker objects are listed and removed at the end",
+   "from": "the integrator's card H-67, 2026-11-20"
+  }
+ ]
+}
