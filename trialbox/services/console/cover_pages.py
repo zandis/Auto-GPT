@@ -36,6 +36,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from tb_common.authz import permit
 
+from console import form_errors
 from console.api_first import before_body
 from console.auth import Session, User
 from console.home import Helpers
@@ -44,6 +45,16 @@ from console.teamstore import COVER_MAX_DAYS, COVER_ROLE, OWNER_ROLES, Cover, Te
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 EDGE_ACTOR = "system:cover"  # the actor of a cover's start and end events (no person starts or ends a day)
+
+
+class InputRefused(Exception):
+    """A refusal that is a value the person typed (9k-6a, D-1376): the page shows its form again with the message at
+    each field in ``fields`` (``TeamError.fields``); the API and a role without such a page get the refusal as before."""
+
+    def __init__(self, exc: Exception) -> None:
+        super().__init__(str(exc))
+        self.exc = exc
+        self.fields: tuple[tuple[str, str], ...] = tuple(getattr(exc, "fields", ()))
 
 
 class ApiCover(BaseModel):
@@ -165,7 +176,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
         return h.problem(403, "forbidden")
 
-    def refused(exc: Exception) -> Exception:
+    def refused(exc: Exception, soft: bool = False) -> Exception:
+        if soft and getattr(exc, "fields", ()):  # the page shows the form again (9k-6a); same 400, same text
+            return InputRefused(exc)
         return h.problem(400, "request.refused", reason=str(exc))
 
     def study(sess: Session, rs: str) -> str:
@@ -206,19 +219,20 @@ def register(app: FastAPI, h: Helpers) -> None:
         return c
 
     # ------------------------------------------------------------------ the actions (page and /api/v1)
-    def add_cover(sess: Session, path: str, rs: str, body: ApiCover) -> Cover:
+    def add_cover(sess: Session, path: str, rs: str, body: ApiCover, soft: bool = False) -> Cover:
         rid = study(sess, rs)
         if not pi_by_entry(sess.user, rid):
             raise deny(sess, path)
         who = body.username.strip().lower()
         acct = h.users.get(who) if who else None
         if who and (acct is None or acct.role != "investigator" or not acct.sees_study(rid)):
-            raise refused(TeamError("the person who covers signs in with an investigator account of this study"))
+            raise refused(TeamError("the person who covers signs in with an investigator account of this study",
+                                    fields=(("username", "fe.cover.username.sub"),)), soft)  # fmt: skip
         try:
             c = team.add_cover(rid, username=who, start=body.start, end=body.end, today=today(), by=sess.user.username,
                                at=now())  # fmt: skip
         except TeamError as exc:
-            raise refused(exc) from exc
+            raise refused(exc, soft) from exc
         au.append("console.cover", ruleset=rid, actor=h.actor(sess),
                   detail={"action": "add", "max_days": COVER_MAX_DAYS, **cover_detail(c)})  # fmt: skip
         record_edges(team, au, today(), now(), [rid])  # a cover from today starts now
@@ -255,7 +269,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                   detail={"action": "irb_told", "on": out.irb_told_on, **cover_detail(out)})  # fmt: skip
         return out
 
-    def set_owner(sess: Session, path: str, rs: str, body: ApiTaskOwner) -> dict[str, Any]:
+    def set_owner(sess: Session, path: str, rs: str, body: ApiTaskOwner, soft: bool = False) -> dict[str, Any]:
         rid = study(sess, rs)
         if not keeps_tasks(sess.user, rid):
             raise deny(sess, path)
@@ -264,7 +278,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             before, after = team.set_task_owner(rid, kind=body.kind, ref=body.ref, owner=body.owner, day=today(),
                                                 by=sess.user.username, at=now(), current=current)  # fmt: skip
         except TeamError as exc:
-            raise refused(exc) from exc
+            raise refused(exc, soft) from exc
         au.append("console.task_owner", ruleset=rid, actor=h.actor(sess),
                   detail={"action": "set" if after.owner else "clear", "kind": after.kind, **task_key(after),
                           "owner": after.owner, "owner_name": after.owner_name,
@@ -285,7 +299,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         form = await form_of(request, sess)
         body = ApiCover(username=str(form.get("username") or "")[:120], start=str(form.get("start") or "")[:10],
                         end=str(form.get("end") or "")[:10])  # fmt: skip
-        c = add_cover(sess, request.url.path, rs, body)
+        try:
+            c = add_cover(sess, request.url.path, rs, body, soft=True)
+        except InputRefused as bad:
+            fe = form_errors.failed("cover", "cover", bad.fields, form.multi_items())
+            again = h.team_log_again(request, sess, rs.strip().upper(), fe) if h.team_log_again is not None else None
+            if again is None:
+                raise refused(bad.exc) from bad.exc
+            return again
         return RedirectResponse(f"/studies/{c.ruleset}/team?done=cover#cover", status_code=303)
 
     @app.post("/studies/{rs}/cover/{cid}/end")
@@ -310,7 +331,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         form = await form_of(request, sess)
         body = ApiTaskOwner(kind=str(form.get("kind") or "")[:20], ref=str(form.get("ref") or "")[:64],
                             owner=str(form.get("owner") or "")[:120])  # fmt: skip
-        set_owner(sess, request.url.path, rs, body)
+        try:
+            set_owner(sess, request.url.path, rs, body, soft=True)
+        except InputRefused as bad:
+            prefix = f"own-{body.kind}-{rs.strip().upper()}-{body.ref.strip()}"  # the task's form (home_crc.html)
+            fe = form_errors.failed("task-owner", prefix, bad.fields, form.multi_items())
+            again = h.home_again(request, sess, fe) if h.home_again is not None else None
+            if again is None:
+                raise refused(bad.exc) from bad.exc
+            return again
         return RedirectResponse("/home#tasks", status_code=303)
 
     # ------------------------------------------------------------------ /api/v1 (D-125: the same rules)

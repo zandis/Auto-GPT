@@ -42,6 +42,18 @@ EN: dict[str, str] = {
     "sae.tk.hours": "hours waited",
     "sae.tk.to": "told",
     "sae.tk.sent": "mails sent",
+    # 9k-6a (D-1376): what a failed POST of the cover form and of a task's owner says at the field (and in the summary)
+    "fe.cover.username.none": "Choose the sub-investigator who covers.",
+    "fe.cover.username.pi": "Choose another person than the PI: a cover names someone else.",
+    "fe.cover.username.sub": "Choose a sub-investigator who is on this study's delegation log for every day of the cover and signs in with an investigator account of this study.",
+    "fe.cover.start.none": "Write the first day of the cover as a date, year-month-day (2026-10-01).",
+    "fe.cover.start.date": "Write the first day as a real date, year-month-day (2026-10-01).",
+    "fe.cover.start.past": "Write a first day of today or later: a cover does not begin in the past.",
+    "fe.cover.end.none": "Write the last day of the cover as a date, year-month-day (2026-10-07).",
+    "fe.cover.end.date": "Write the last day as a real date, year-month-day (2026-10-07).",
+    "fe.cover.end.before": "Write a last day that is not before the first day.",
+    "fe.cover.end.long": "Write an earlier last day: the cover is longer than the limit in the text above.",
+    "fe.owner.owner": "Choose a person who is on this study's delegation log today, or no owner.",
 }
 
 JA: dict[str, str] = {
@@ -80,6 +92,17 @@ JA: dict[str, str] = {
     "sae.tk.hours": "待った時間",
     "sae.tk.to": "通知先",
     "sae.tk.sent": "送信したメール",
+    "fe.cover.username.none": "代行する治験分担医師を選んでください。",
+    "fe.cover.username.pi": "治験責任医師以外の人を選んでください：代行は別の人を指名します。",
+    "fe.cover.username.sub": "代行の全期間にわたりこの試験の治験分担医師・治験協力者リストに載っている治験分担医師で、この試験の治験医師アカウントでサインインできる人を選んでください。",
+    "fe.cover.start.none": "代行の開始日を年-月-日（2026-10-01）で入力してください。",
+    "fe.cover.start.date": "開始日は実在する日付を年-月-日（2026-10-01）で入力してください。",
+    "fe.cover.start.past": "開始日は今日以降にしてください：代行は過去にさかのぼって始められません。",
+    "fe.cover.end.none": "代行の最終日を年-月-日（2026-10-07）で入力してください。",
+    "fe.cover.end.date": "最終日は実在する日付を年-月-日（2026-10-07）で入力してください。",
+    "fe.cover.end.before": "最終日は開始日より前にならないようにしてください。",
+    "fe.cover.end.long": "最終日をもっと早くしてください：代行が上の説明にある上限より長くなっています。",
+    "fe.owner.owner": "今日、この試験の治験分担医師・治験協力者リストに載っている人を選ぶか、担当者なしにしてください。",
 }
 
 ZH: dict[str, str] = {
@@ -118,4 +141,15 @@ ZH: dict[str, str] = {
     "sae.tk.hours": "已等候小時數",
     "sae.tk.to": "通知對象",
     "sae.tk.sent": "已寄出郵件",
+    "fe.cover.username.none": "請選擇代理的協同主持人。",
+    "fe.cover.username.pi": "請選擇試驗主持人以外的人：代理須指定另一個人。",
+    "fe.cover.username.sub": "請選擇在代理的每一天都列於本試驗授權紀錄表、且以本試驗的主持人帳號登入的協同主持人。",
+    "fe.cover.start.none": "請以日期、年-月-日（2026-10-01）填寫代理的第一天。",
+    "fe.cover.start.date": "請以真實存在的日期、年-月-日（2026-10-01）填寫第一天。",
+    "fe.cover.start.past": "第一天請填今天或之後：代理不能從過去開始。",
+    "fe.cover.end.none": "請以日期、年-月-日（2026-10-07）填寫代理的最後一天。",
+    "fe.cover.end.date": "請以真實存在的日期、年-月-日（2026-10-07）填寫最後一天。",
+    "fe.cover.end.before": "最後一天不可早於第一天。",
+    "fe.cover.end.long": "請填較早的最後一天：代理超過上方說明中的上限。",
+    "fe.owner.owner": "請選擇今日列於本試驗授權紀錄表的人，或選擇無負責人。",
 }

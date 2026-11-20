@@ -24,6 +24,7 @@ import json
 import re
 import shutil
 import subprocess
+from datetime import timedelta
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -73,9 +74,50 @@ def _events(b: dict[str, Any], name: str) -> list[dict[str, Any]]:
     return out
 
 
+def _log_people(b: dict[str, Any]) -> Any:
+    """9f-3, 9f-5: the study's log with its PI (``drsato``, named through the steward), a sub-investigator ``cov`` and a
+    coordinator ``crc1`` on it; returns the console's team store."""
+    team = b["app"].state.helpers.team
+    for name, role in (("drsato", "investigator"), ("cov", "investigator"), ("crc1", "coordinator")):
+        if b["users"].get(name) is None:
+            _user(b, name, role)
+    if team.pi_of("GZQO", b["app"].state.helpers.today()) is None:
+        name_pi(b, "drsato")
+    for name, role, tasks in (("cov", "sub_pi", ("refer",)), ("crc1", "crc", ())):
+        team.add_entry("GZQO", username=name, name=f"Dr {name}", role=role, tasks=tasks, start="2026-01-01", end=None,
+                       training_day="2025-06-01", training_ref=None, by="stw-setup", at="2026-01-01T00:00:00+00:00")  # fmt: skip
+    return team
+
+
+def _prepare_cover(b: dict[str, Any]) -> None:
+    _log_people(b)
+
+
+def _prepare_owner(b: dict[str, Any]) -> None:
+    """The coordinator's opening page carries the IRB task of a cover the PI entered (its form is the case's)."""
+    team = _log_people(b)
+    h = b["app"].state.helpers
+    today = h.today()
+    team.add_cover("GZQO", username="cov", start=today.isoformat(), end=(today + timedelta(days=3)).isoformat(),
+                   today=today, by="drsato", at=h.clock().isoformat())  # fmt: skip
+
+
+PREPARE = {"cover": _prepare_cover, "owner": _prepare_owner}
+
+
+def _fill(b: dict[str, Any], data: dict[str, str], turn: int = 0) -> dict[str, str]:
+    """``{+N}`` in a case's values: the day N days after today, ``turn`` x 10 days later (see ``Case``)."""
+    today = b["app"].state.helpers.today()
+    return {k: re.sub(r"\{\+(\d+)\}", lambda m: (today + timedelta(days=int(m.group(1)) + 10 * turn)).isoformat(), v)
+            for k, v in data.items()}  # fmt: skip
+
+
 def _client(b: dict[str, Any], case: Case, lang: str) -> Any:
     """The case's user signed in, the page language ``lang`` (the PI named once, through the steward's log)."""
     user, role = ("drsato", "investigator") if case.role == "pi" else ("crc1", "coordinator")
+    if case.prepare and not b.get("prepared_" + case.prepare):
+        PREPARE[case.prepare](b)
+        b["prepared_" + case.prepare] = True
     if b["users"].get(user) is None:
         c = _user(b, user, role)
         if case.role == "pi":
@@ -120,7 +162,7 @@ def _failed(b: dict[str, Any], name: str, lang: str) -> tuple[Any, Any, str]:
     page = c.get(case.page)
     assert page.status_code == 200 and _summary(page.text) is None
     assert not _title(page.text).startswith(_error_word(lang))
-    r = c.post(case.action, data={"csrf": _csrf(page.text), **case.bad, **SECRETS}, follow_redirects=False)
+    r = c.post(case.action, data={"csrf": _csrf(page.text), **_fill(b, case.bad), **SECRETS}, follow_redirects=False)
     return c, r, _csrf(page.text)
 
 
@@ -131,7 +173,7 @@ def test_a_failed_post_shows_the_summary_tied_to_each_field(box: dict[str, Any],
     _c, r, _ = _failed(box, name, lang)
     assert r.status_code == 400, r.text[-500:]
     assert f'data-testid="{case.testid}"' in r.text  # the testid the form's earlier tests read
-    assert _title(r.text).startswith(cat["fe.title"].format(title=cat["sstate.title"]))
+    assert _title(r.text).startswith(cat["fe.title"].format(title=cat[case.title_key]))
     got = _summary(r.text)
     assert got is not None
     head, links = got
@@ -167,7 +209,7 @@ def test_typed_values_come_back_and_secrets_never_do(box: dict[str, Any], name: 
     _c, r, _ = _failed(box, name, lang)
     els = _parse(r.text)
     for f in case.kept:
-        assert els.ids[f"{case.prefix}-{f}"][1].get("value") == case.bad[f], f
+        assert els.ids[f"{case.prefix}-{f}"][1].get("value") == _fill(box, case.bad)[f], f
     if "covers" in case.bad:
         assert "checked" in els.ids[f"{case.prefix}-covers"][1]
     for secret in SECRETS.values():
@@ -178,20 +220,21 @@ def test_typed_values_come_back_and_secrets_never_do(box: dict[str, Any], name: 
 def test_csrf_is_still_enforced_and_a_right_post_saves_as_before(box: dict[str, Any], name: str) -> None:  # noqa: F811
     case = CASES[name]
     want = {"identity": "/studies/GZQO/state?saved=identity",
-            "irb-text": "/studies/GZQO/state?saved=irb_text#irb-text"}[name]  # fmt: skip
-    for lang in LANGS:
+            "irb-text": "/studies/GZQO/state?saved=irb_text#irb-text",
+            "cover": "/studies/GZQO/team?done=cover#cover", "task-owner": "/home#tasks"}[name]  # fmt: skip
+    for turn, lang in enumerate(LANGS):
         c = _client(box, case, lang)
         page = c.get(case.page).text
         before = len(_events(box, case.saved_event))
         for token in ("", "x" * 32):
-            r = c.post(case.action, data={"csrf": token, **case.bad}, follow_redirects=False)
+            r = c.post(case.action, data={"csrf": token, **_fill(box, case.bad, turn)}, follow_redirects=False)
             assert r.status_code in (400, 403) and _summary(r.text) is None, (lang, r.status_code)
-            r = c.post(case.action, data={"csrf": token, **case.good}, follow_redirects=False)
+            r = c.post(case.action, data={"csrf": token, **_fill(box, case.good, turn)}, follow_redirects=False)
             assert r.status_code in (400, 403), (lang, r.status_code)
         assert len(_events(box, case.saved_event)) == before  # refused: nothing saved
-        r = c.post(case.action, data={"csrf": _csrf(page), **case.good}, follow_redirects=False)
+        r = c.post(case.action, data={"csrf": _csrf(page), **_fill(box, case.good, turn)}, follow_redirects=False)
         assert r.status_code == 303 and r.headers["location"] == want
-        assert len(_events(box, case.saved_event)) == before + 1
+        assert len(_events(box, case.saved_event)) == before + case.saved_n
         after = c.get(case.page).text
         assert _summary(after) is None and not _title(after).startswith(_error_word(lang))
 

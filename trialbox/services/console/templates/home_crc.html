@@ -2,8 +2,9 @@
 {% from "_steps.html" import steps_bar with context %}
 {% from "_person.html" import person_pill with context %}
 {% from "_life.html" import sae_banner, sae_failed, report_banner, visit_row with context %}{#J6#}{% from "_today.html" import today_block, next_line with context %}{#/J6#}
-{% block title %}{{ tp('home.studies') }}{% endblock %}
-{% block content %}
+{% import "_fields.html" as fm with context %}{# 9k-6a (D-1376): a task's owner form #}
+{% block title %}{{ fm.title(fe, tp('home.studies')) }}{% endblock %}
+{% block content %}{{ fm.error_summary(fe, testid='task-owner-error') }}{% set page_fe = fe %}
 <div class="headrow">
   <h1>{{ tp('wb.crc.title') }}</h1>
   {% if user.can_request %}<a class="button" href="/pilot/protocol" data-testid="send-protocol">{{ tp('home.send_protocol') }}</a>{% endif %}
@@ -30,7 +31,7 @@
       <a href="{{ tk.href }}">{{ t('wb.task.' + tk.kind, p=tk.short, rs=tk.rs) }}</a>
       <span class="due{{ ' late' if tk.late else '' }}">{{ t('wb.overdue') if tk.late else tk.due.isoformat() }}</span>
       {% if tk.detail %}<span class="hint" data-authored>{{ tk.detail }}</span>{% endif %}
-      {#9f5#}{% if tk.owner %}<span class="hint" data-testid="task-owner">{{ t('task.owner', who=tk.owner) }}</span>{% if tk.owner_lapsed %} <span class="pill warn" data-testid="task-owner-lapsed">{{ t('task.owner.lapsed') }}</span>{% endif %}{% endif %}{% if tk.may_own and tk.owners %}<details class="inline" data-testid="task-own-{{ tk.kind }}"><summary>{{ t('task.owner.set') }}</summary><form method="post" action="/studies/{{ tk.rs }}/tasks/owner" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="{{ tk.kind }}"><input type="hidden" name="ref" value="{{ tk.ref }}"><label class="sr" for="own-{{ tk.kind }}-{{ tk.rs }}-{{ tk.ref }}">{{ t('task.owner.who') }}</label><select id="own-{{ tk.kind }}-{{ tk.rs }}-{{ tk.ref }}" name="owner"><option value="">{{ t('task.owner.none') }}</option>{% for u, n in tk.owners %}<option value="{{ u }}"{% if u == tk.owner_id %} selected{% endif %}>{{ n }}</option>{% endfor %}</select> <button type="submit" class="small secondary">{{ t('task.owner.save') }}</button></form>{% if tk.kind == 'cover_irb' %}<form method="post" action="/studies/{{ tk.rs }}/cover/{{ tk.cover }}/irb" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small" data-testid="cover-irb-done">{{ t('cover.irb.done') }}</button></form>{% endif %}</details>{% endif %}{#/9f5#}
+      {#9f5#}{% if tk.owner %}<span class="hint" data-testid="task-owner">{{ t('task.owner', who=tk.owner) }}</span>{% if tk.owner_lapsed %} <span class="pill warn" data-testid="task-owner-lapsed">{{ t('task.owner.lapsed') }}</span>{% endif %}{% endif %}{% if tk.may_own and tk.owners %}<details class="inline" data-testid="task-own-{{ tk.kind }}"><summary>{{ t('task.owner.set') }}</summary>{% set pfx = 'own-' ~ tk.kind ~ '-' ~ tk.rs ~ '-' ~ tk.ref %}{% set fe = page_fe if (page_fe and page_fe.prefix == pfx) else none %}<form method="post" action="/studies/{{ tk.rs }}/tasks/owner" class="inline" data-fields="task-owner"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="{{ tk.kind }}"><input type="hidden" name="ref" value="{{ tk.ref }}">{{ fm.field(fe, 'task-owner', pfx, 'owner', t('task.owner.who'), tk.owner_id, kind='select', options=[('', t('task.owner.none'))] + tk.owners|list) }} <button type="submit" class="small secondary">{{ t('task.owner.save') }}</button></form>{% if tk.kind == 'cover_irb' %}<form method="post" action="/studies/{{ tk.rs }}/cover/{{ tk.cover }}/irb" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small" data-testid="cover-irb-done">{{ t('cover.irb.done') }}</button></form>{% endif %}</details>{% endif %}{#/9f5#}
     </li>{% endfor %}</ul>
   </section>
   <section data-testid="clinic">

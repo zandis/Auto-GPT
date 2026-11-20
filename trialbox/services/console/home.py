@@ -207,6 +207,9 @@ class Helpers:
     keeps_tasks: Callable[[Any, str], bool] | None = None
     task_keys: Callable[[Any, str], set[tuple[str, str]]] | None = None  # 9f-5: a study's tasks today, (kind, ref)
     sae_escalate: Callable[[], list[str]] | None = None
+    # 9k-6a (D-1376): the page again for a failed POST of a form on it (the owner's), None where the role has no such page
+    home_again: Callable[..., Response | None] | None = None
+    team_log_again: Callable[..., Response | None] | None = None  # set by console.team: the delegation log, again
 
     def gone(self) -> set[str]:
         """D-273 (PV-4): the pseudonyms on the opt-out register now. Every patient-level reader (lists, the excluded
@@ -642,7 +645,9 @@ def register(app: FastAPI, h: Helpers) -> None:
     def home(request: Request, view: str = "", today: str = "") -> Response:
         sess = h.need(request)
         if getattr(request.state, "home_today", False) and sess.user.role in home_today.ROLES:  # J-6 (D-1225)
-            return today_home(request, sess, every=today == "all")
+            page = today_home(request, sess, every=today == "all")
+            assert page is not None  # only a failed POST (home_again) has no page to show
+            return page
         # T-102c (D-425): each role starts on the page of its first right in this order (the matrix's rows)
         for action, start in HOME_STARTS:
             if permit_row(sess.user.role, action):
@@ -650,6 +655,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         if sess.user.is_admin and view != "studies":
             admin_page = getattr(h, "admin_page", None)  # step 4: S13 with its tabs (console.step4)
             return admin_page(request, sess, "health") if admin_page else admin_home(request, sess)
+        return crc_home(request, sess)
+
+    def crc_home(request: Request, sess: Session, **extra: Any) -> Response:
         jobs = recent_jobs()
         cards = [study_card(sess, r, jobs) for r in trials(sess)]
         tasks = sorted((tk for c in cards for tk in c["tasks"]), key=lambda tk: (tk["due"], tk["rs"]))
@@ -658,9 +666,21 @@ def register(app: FastAPI, h: Helpers) -> None:
         return h.page(
             request, "home_crc.html", sess, cards=cards, tasks=tasks, clinic=clinic if phi else [], steps=st.STEPS,
             pipeline_keys=st.PIPELINE, models=bk.models(), life=h.life_home(sess) if h.life_home and phi else None,
+            **{"fe": None, **extra},
         )  # fmt: skip
 
-    def today_home(request: Request, sess: Session, every: bool) -> Response:
+    def home_again(request: Request, sess: Session, fe: Any) -> Response | None:
+        """9k-6a (D-1376): the opening page again, 400, for a task's owner the person typed wrong (the form is on the
+        coordinator's page only: None for a role whose opening page is another, which gets the refusal)."""
+        if getattr(request.state, "home_today", False) and sess.user.role in home_today.ROLES:
+            return today_home(request, sess, every=False, fe=fe)
+        if any(permit_row(sess.user.role, action) for action, _start in HOME_STARTS) or sess.user.is_admin:
+            return None
+        return crc_home(request, sess, status=400, fe=fe)
+
+    h.home_again = home_again
+
+    def today_home(request: Request, sess: Session, every: bool, fe: Any = None) -> Response | None:
         """J-6 (D-1225): "Needs you today" and one "Next" line per study (``console.home_today``). A study's
         patient-level sources (its people, visits and serious AEs) are read only where the participant pages would let
         this account read them (``lifecycle_pages.reads_participants``, the rule of their ``study_or_404``); within
@@ -751,11 +771,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         weeks = [r.id for r in studies if h.reads(user, r.id)]
         week_href = f"/studies/{weeks[0]}/week" if len(weeks) == 1 else "/week" if weeks else ""
         template = "home_crc.html" if coordinator_card else "home_today.html"
+        if fe is not None and not coordinator_card:
+            return None  # the owner's form is on the coordinator's page only (home_again)
         return h.page(
             request, template, sess, today=True, every=every, lines=shown, more=len(lines) - len(shown),
             total=len(lines), nexts=nexts, today_failed=failed, cards=cards, tasks=[], clinic=[], steps=st.STEPS,
             pipeline_keys=st.PIPELINE, models=bk.models() if coordinator_card else None, life=None,
-            week_href=week_href,
+            week_href=week_href, fe=fe, **({"status": 400} if fe is not None else {}),
         )  # fmt: skip
 
     def admin_home(request: Request, sess: Session) -> Response:

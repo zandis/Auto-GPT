@@ -60,6 +60,7 @@ from tb_common.config import environment_name
 from tb_common.optout import SOURCES, OptOutError, OptOutRegister
 
 from console import actor as acting
+from console import form_errors
 from console import s28
 from console import studies as st
 from console.api_first import before_body, page_twin
@@ -725,21 +726,30 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             out.add("monitor")
         return tuple(r for r in LOG_ROLES if r in out)
 
+    def log_page(request: Request, sess: Session, rid: str, status: int = 200, fe: Any = None) -> Response:
+        s = stand(sess.user, rid)
+        entries = team.entries(rid)
+        writable = log_roles_for(sess, s)
+        return h.page(request, "team_log.html", sess, status=status, rs=rid, entries=entries, standing=s, tasks=TASKS,
+                      log_roles=writable, accounts=accounts(rid), checks=team.checks(rid)[:12],
+                      due=check_due(team, rid, today(), site_zone(bk)), history=team.history(rid)[-30:], today=today(),
+                      can_edit=bool(writable), can_tick=permit(sess.user.role, "delegation.keep", s.grant()).allowed,
+                      can_check=permit(sess.user.role, "delegation.check", s.grant()).allowed,
+                      results=CHECK_RESULTS, has_pi=names_pi(rid), fe=fe)  # fmt: skip
+
+    def log_again(request: Request, sess: Session, rid: str, fe: Any) -> Response | None:
+        """9k-6a (D-1376): the log page again, 400, for a cover the person typed wrong (``console.cover_pages``)."""
+        return None if sess.user.aggregate_only else log_page(request, sess, rid, status=form_errors.FAILED, fe=fe)
+
+    h.team_log_again = log_again
+
     @app.get("/studies/{rs}/team")
     def team_page(request: Request, rs: str) -> Response:
         sess = h.need(request)
         rid = log_or_404(sess, rs)
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
-        s = stand(sess.user, rid)
-        entries = team.entries(rid)
-        writable = log_roles_for(sess, s)
-        return h.page(request, "team_log.html", sess, rs=rid, entries=entries, standing=s, tasks=TASKS,
-                      log_roles=writable, accounts=accounts(rid), checks=team.checks(rid)[:12],
-                      due=check_due(team, rid, today(), site_zone(bk)), history=team.history(rid)[-30:], today=today(),
-                      can_edit=bool(writable), can_tick=permit(sess.user.role, "delegation.keep", s.grant()).allowed,
-                      can_check=permit(sess.user.role, "delegation.check", s.grant()).allowed,
-                      results=CHECK_RESULTS, has_pi=names_pi(rid))  # fmt: skip
+        return log_page(request, sess, rid)
 
     @app.post("/studies/{rs}/team")
     async def team_add(request: Request, rs: str) -> Response:

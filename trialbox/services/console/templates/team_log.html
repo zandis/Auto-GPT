@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {# D-147: the study's delegation log (ICH E6 style). The trial office's signed log stays the record; this copy grants
    the rights in TrialBox, with training dates, and is compared with the signed log every month. #}
-{% block title %}{{ t('team.log.title') }} · {{ rs }}{% endblock %}
-{% block content %}
+{% import "_fields.html" as fm with context %}{# 9k-6a (D-1376): the cover form #}
+{% block title %}{{ fm.title(fe, t('team.log.title') ~ ' · ' ~ rs) }}{% endblock %}
+{% block content %}{{ fm.error_summary(fe, testid='cover-error') }}
 <div class="headrow"><h1>{{ rs }} · {{ t('team.log.title') }}</h1></div>
 {% include "_team_nav.html" %}
 <p class="hint">{{ t('team.log.help') }}</p>
@@ -29,7 +30,27 @@
 <button type="submit" class="small secondary" data-testid="save-{{ e.id }}">{{ t('team.log.save') }}</button></form></td></tr>{% endif %}
 {% endfor %}</tbody></table></div>{% endif %}
 </section>
-{#9f3#}{% include "_cover_card.html" %}{#/9f3#}
+{#9f3#}{# 9f-3 (D-1383): the PI's cover: the covers (in effect, to come, over), the PI's form to name a sub-investigator of this log
+   for at most max_days days, an early end, and the IRB task. Was _cover_card.html: here since 9k-6a, because the cover form
+   uses the field macro and its summary and title belong to the page. #}
+{% set cv = cover_card(rs) if cover_card is defined else None %}{% if cv %}
+<section class="card" id="cover" data-testid="cover-card"><h2>{{ t('cover.title') }}</h2>
+<p class="hint">{{ t('cover.help', n=cv.max_days) }}</p>
+{% set cdone = request.query_params.get('done', '') %}{% if cdone == 'cover' %}<p class="ok" role="status" data-testid="cover-done">{{ t('cover.done.cover') }}</p>{% elif cdone == 'cover_end' %}<p class="ok" role="status" data-testid="cover-done">{{ t('cover.done.cover_end') }}</p>{% elif cdone == 'cover_irb' %}<p class="ok" role="status" data-testid="cover-done">{{ t('cover.done.cover_irb') }}</p>{% endif %}
+{% if cv.covers %}<ul class="plain" data-testid="cover-list">{% for c in cv.covers %}{% set last = c.last_day() %}<li data-testid="cover-{{ c.id }}">
+{{ t('cover.row', name=c.name, pi=c.pi_name, start=c.start, end=c.end) }}
+{% if c.in_effect_on(cv.today) %}<span class="pill" data-testid="cover-on-{{ c.id }}">{{ t('cover.state.on') }}</span>{% elif not last or last < cv.today.isoformat() %}<span class="pill">{{ t('cover.state.over') }}</span>{% if c.ended_on %} <span class="hint">{{ t('cover.ended', day=c.ended_on, by=c.ended_by) }}</span>{% endif %}{% else %}<span class="pill">{{ t('cover.state.coming') }}</span>{% endif %}
+{% if c.irb_told_on %} <span class="hint">{{ t('cover.irb.told', day=c.irb_told_on, by=c.irb_told_by) }}</span>{% elif last and cv.may_irb %}<form method="post" action="/studies/{{ rs }}/cover/{{ c.id }}/irb" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small secondary" data-testid="cover-irb-{{ c.id }}">{{ t('cover.irb.done') }}</button></form>{% endif %}
+{% if last and last >= cv.today.isoformat() and (cv.may_add or c.username == cv.me) %}<form method="post" action="/studies/{{ rs }}/cover/{{ c.id }}/end" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small secondary" data-testid="cover-end-{{ c.id }}">{{ t('cover.end') }}</button></form>{% endif %}
+</li>{% endfor %}</ul>{% else %}<p class="empty hint">{{ t('cover.none') }}</p>{% endif %}
+{% if cv.may_add %}{% if cv.subs %}{% set subs = [] %}{% for u, n in cv.subs %}{% set _ = subs.append((u, n ~ ' · ' ~ u)) %}{% endfor %}<form method="post" action="/studies/{{ rs }}/cover" class="markform" data-testid="cover-form" data-fields="cover">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+{{ fm.field(fe, 'cover', 'cover', 'username', t('cover.who'), '', kind='select', options=subs) }}
+{{ fm.field(fe, 'cover', 'cover', 'start', t('team.log.start'), cv.today.isoformat(), type='date', hint=t('date.fmt'), required=True, attrs={'lang': lang}) }}
+{{ fm.field(fe, 'cover', 'cover', 'end', t('team.log.end'), '', type='date', hint=t('date.fmt'), required=True, attrs={'lang': lang}) }}
+<button type="submit" data-testid="cover-save">{{ t('cover.save') }}</button>
+</form>{% else %}<p class="hint" data-testid="cover-no-sub">{{ t('cover.no_sub') }}</p>{% endif %}{% endif %}
+</section>{% endif %}{#/9f3#}
 {% if can_edit %}<section class="card" data-testid="add-card"><h2>{{ t('team.log.add') }}</h2>
 <p class="hint">{{ t('team.log.add.help') }}</p>
 <form method="post" action="/studies/{{ rs }}/team" class="markform" data-testid="add-form">

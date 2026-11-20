@@ -295,7 +295,13 @@ _TASK_REF = re.compile(r"^[A-Za-z0-9_-]{0,64}$")
 
 
 class TeamError(ValueError):
-    pass
+    """A refusal of the team store. ``fields`` (9f-3, 9f-5, 9k-6a, D-1376): when the refusal is a value the person
+    typed, the (input name, message key) of each field to blame, in the form's order, so the page can show it at the
+    field; the text, the conditions and the order of the checks are the same with and without it."""
+
+    def __init__(self, *args: object, fields: tuple[tuple[str, str], ...] = ()) -> None:
+        super().__init__(*args)
+        self.fields = fields
 
 
 def _day(value: str | None, what: str) -> str | None:
@@ -1184,18 +1190,27 @@ class TeamStore:
             raise TeamError("only the PI the study's log names enters a cover")
         who = (username or "").strip().lower()
         if not who:
-            raise TeamError("choose the sub-investigator who covers")
+            raise TeamError("choose the sub-investigator who covers", fields=(("username", "fe.cover.username.none"),))
         if who == by:
-            raise TeamError("a cover names another person than the PI")
-        s, e = _day(start, "the start date"), _day(end, "the end date")
+            raise TeamError("a cover names another person than the PI", fields=(("username", "fe.cover.username.pi"),))
+        try:
+            s = _day(start, "the start date")
+        except TeamError as exc:
+            raise TeamError(str(exc), fields=(("start", "fe.cover.start.date"),)) from exc
+        try:
+            e = _day(end, "the end date")
+        except TeamError as exc:
+            raise TeamError(str(exc), fields=(("end", "fe.cover.end.date"),)) from exc
         if s is None or e is None:
-            raise TeamError("a cover needs its first and its last day")
+            raise TeamError("a cover needs its first and its last day",
+                            fields=(("start", "fe.cover.start.none"),) * (s is None)
+                            + (("end", "fe.cover.end.none"),) * (e is None))  # fmt: skip
         if s < today.isoformat():
-            raise TeamError("a cover starts today or later")
+            raise TeamError("a cover starts today or later", fields=(("start", "fe.cover.start.past"),))
         if e < s:
-            raise TeamError("the end date is before the start date")
+            raise TeamError("the end date is before the start date", fields=(("end", "fe.cover.end.before"),))
         if (date.fromisoformat(e) - date.fromisoformat(s)).days + 1 > COVER_MAX_DAYS:
-            raise TeamError(f"a cover is at most {COVER_MAX_DAYS} days")
+            raise TeamError(f"a cover is at most {COVER_MAX_DAYS} days", fields=(("end", "fe.cover.end.long"),))
         with self.db.transaction() as tx:
             # one study's covers are checked and written under one lock (the SAE register's form, saerecord): two
             # requests at once never both find the days free
@@ -1211,7 +1226,8 @@ class TeamStore:
                         and x.start <= s and (x.end is None or x.end >= e)), None)  # fmt: skip
             if sub is None:
                 raise TeamError(
-                    "the person who covers is a sub-investigator on this study's log for every day of the cover"
+                    "the person who covers is a sub-investigator on this study's log for every day of the cover",
+                    fields=(("username", "fe.cover.username.sub"),),
                 )
             rows = tx.fetchall(self._COVERS_SQL, (ruleset,))
             for c in (self._cover(r) for r in rows):
@@ -1326,7 +1342,8 @@ class TeamStore:
             e = next((x for x in reversed(self.entries(ruleset)) if x.username == who and x.role in OWNER_ROLES
                       and x.active_on(day)), None)  # fmt: skip
             if e is None:
-                raise TeamError("a task's owner is a person on this study's delegation log")
+                raise TeamError("a task's owner is a person on this study's delegation log",
+                                fields=(("owner", "fe.owner.owner"),))
             name = e.name
         before = self.task_owners(ruleset).get((kind, ref))
         self.db.execute("INSERT INTO task_owner (ruleset, kind, ref, owner, owner_name, by, at) VALUES (?,?,?,?,?,?,?)",
