@@ -58,7 +58,11 @@ such stage.
    in the window any more (a result too old). With the closed 28-day window `[A-28, A]`, a last dose on day `d`
    gives the flip date `d + 29`. It is found by running the same SQL on the days a dated record enters
    (`d - to_days`) or leaves (`d - from_days + 1`) a window; no date arithmetic decides an answer. It is never
-   computed from an undated record: such a record makes the answer on the way unknown and no date is given.
+   computed from an undated record: such a record makes the answer on the way unknown and no date is given. Nor
+   beside a record dated after the day of the run (an entry error or a plan, not a fact yet). A change that would
+   fall on or before the day of the run (an anchor in the past) is not stored as a change to come. The lake rows
+   the engine reads carry a date or none; no masked or shifted date exists in them. Cost: at most 64 days are
+   tried per patient and criterion, soonest first, in one query per distinct day over the patients who need it.
    Computed for windows on the index date, the planned start and the screening date, for criteria whose atoms are
    records or values in a window. For a planned start it reads "the earliest start for which the washout is over".
 8. **Stored where results already are:** `Outcome.flip_date` and `Outcome.anchor` in the trace (left out of the
@@ -66,7 +70,10 @@ such stage.
    carried on `PatientVerdicts.flips`. **Shown nowhere:** no page, list, export or mail reads it. The watch-list
    card, 10A-11 (review 15 B16-7, owner decision 58), shows it.
 9. **Three reason codes** (`tb_common.reasons`, with en, ja and zh-TW labels): `anchor_date_unknown`,
-   `verify_at_anchor`, `not_in_source`. They can appear only on a v3 criterion's row.
+   `verify_at_anchor`, `not_in_source`. **What a user can newly see:** these three values, in the reason column the
+   candidate list already has, on a v3 criterion's row only, for the roles that already read that column. No new
+   column, page, export or reader. No rule of `code_of` leads to them and only the v3 stage names them, so no v1
+   answer can carry one (ruled by the coordinator on 2026-11-20; the integrator's reviewer rules on it too).
 
 ## 3. Byte-identity for v1 and v2 rule sets
 
@@ -100,14 +107,22 @@ stored criterion carries), so no stored criterion reaches any new code.
 
 ## 5. Follow-ups, named
 
+0. Ruled by the coordinator on 2026-11-20: items 1 to 3 are follow-ups, not this card.
 1. **The compiler emits v3** (washout and window lines with these anchors, device and allergy lines), behind the
    version the ruleset declares: not in this pull request. It needs the extraction prompt, its output schema and
    the post-processing, while pull request #1180 rewrites part of the latter. Card 10A-15 (the library wired into
    the compiler) is the nearest row; the coordinator places it.
-2. **Where a patient's planned start and screening date come from** (spec v4 §6.2.4 suggests the next appointment
-   in the study clinic): a decision and a card; it is a new use of appointment data.
-3. **Device and allergy data in the lake**: a data-core card (flatten `AllergyIntolerance` and
-   `Device`/`DeviceUseStatement`, load OMOP `device_exposure`), for each source.
+2. **Where a patient's planned start and screening date come from: no card in plan 10** (tracks A and D were
+   read). The caller's shape is fixed here: `CascadeConfig.anchors = {pid: {"planned_start": date, "screening":
+   date}}`, absent means unknown. Spec v4 §6.2.4's "next appointment in the study clinic" is not built: it is a new
+   use of appointment data and a guess. The coordinator raises the card.
+3. **Device and allergy data in the lake: no card owns it.** Needed: `lake.flatten` reads `AllergyIntolerance`
+   and `Device` / `DeviceUseStatement` into two lake tables (patient, code, system, date, status), for the legacy
+   source; the OMOP source loads `device_exposure` and an allergy observation and `omop.export` writes the same two
+   tables; the erasure registry and the goldens take them; then `PRESENCE` in the SQL generator gets the two
+   domains and this stage's `not_in_source` rule goes. Sources: plan card 10B-7 (SS-MIX2 ADT-61 allergies into
+   `AllergyIntolerance`) supplies the allergy resources for an SS-MIX2 site; no card supplies devices for any
+   source, nor allergies for a CSV or FHIR feed. The coordinator raises it with the integrator.
 4. **Showing the flip date**: 10A-11.
 5. **The v1 path** (MICROBATCH's re-check) evaluating v3: with 10A-6, when v1 is retired behind the equivalence
    test (commitment C-1).
@@ -118,4 +133,7 @@ stored criterion carries), so no stored criterion reaches any new code.
 with no date, a dose on the anchor day, two drugs, no planned start, a planned start in the future), the same
 washout on the index date, a creatinine window before the screening visit, an infection window after the last
 operation, a device and an allergy criterion, the answer-store row, the trace file, the v1 evaluator, the stored
-rule sets. Each expected answer is written from the protocol sentence quoted in the test.
+rule sets; a record dated after the day of the run, a change already past, the bound of the flip-date search (100
+dated doses), the v1 stand-in that no v1 reader can decide, and the three reason codes. Each expected answer is
+written from the protocol sentence quoted in the test. Each rule was removed in turn on a separate worktree and at
+least one test failed each time.

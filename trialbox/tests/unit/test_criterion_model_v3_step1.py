@@ -9,24 +9,26 @@ of the record, as every v1 window does (D-17). All patients and records are synt
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 from criteria_compiler.compile_sql.generator import SqlGenerator
+from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, class_split, compiled, kind
 from criteria_compiler.terminology.mapper import FAMILY_EXT, Terminology, ValueSets
 from embed_service.embedder import HashEmbedder
 from jsonschema import Draft202012Validator
 from lake.client import LakeLocal
+from matching import decision
 from matching.cascade.engine import CascadeConfig, criterion_hashes, run_cascade, write_outputs
 from matching.cascade.model import Outcome, PatientTrace
 from orchestrator import answer_store
-from orchestrator.scenarios.evaluate import SqlEngine, evaluate_patients
+from orchestrator.scenarios.evaluate import SqlEngine, evaluate_patients, human_verdict
 from orchestrator.scenarios.screen_cascade import verdict_of, verdicts_of
 from pydantic import ValidationError
-from tb_common.reasons import LABELS, Reason, code_of
+from tb_common.reasons import CODES, LABELS, Reason, code_of, label
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR, validate
 from tb_contracts.criterion_ir import (
@@ -168,6 +170,14 @@ RECORDS: dict[str, list[dict[str, Any]]] = {
     "W-NONE": [_med("m-non", "W-NONE", "A10BA02", "2026-11-01")],  # no chemotherapy at all
     # a dose ten days ago, and another chemotherapy order with no date
     "W-MIXED": [_med("m-mix-a", "W-MIXED", "L01XA01", "2026-11-10"), _med("m-mix-b", "W-MIXED", "L01CD01", None)],
+    # a dose ten days ago and an order dated after the day of the run (an entry error, or a plan)
+    "W-AHEAD": [_med("m-ahd-a", "W-AHEAD", "L01XA01", "2026-11-10"), _med("m-ahd-b", "W-AHEAD", "L01CD01", "2026-12-05")],
+    "W-AHEADONLY": [_med("m-aho", "W-AHEADONLY", "L01XA01", "2026-12-05")],
+    # the planned start was 2026-11-01; a dose on 2026-10-10, 22 days before it
+    "W-PAST": [_med("m-pst", "W-PAST", "L01XA01", "2026-10-10")],
+    # 100 doses, every third day from 330 to 33 days before the run
+    "W-MANY": [_med(f"m-many-{n}", "W-MANY", "L01XA01", (RUN - timedelta(days=33 + 3 * n)).isoformat())
+               for n in range(100)],
     # a planned start in the future (2026-12-01)
     "F-DOSED": [_med("m-fut", "F-DOSED", "L01XA01", "2026-11-10")],  # 21 days before the start: stays inside
     "F-CLEAN": [_med("m-fcl", "F-CLEAN", "A10BA02", "2026-11-01")],  # none so far; 11 days are still to come
@@ -189,6 +199,7 @@ RECORDS: dict[str, list[dict[str, Any]]] = {
 }  # fmt: skip
 ANCHORS = {
     **{p: {"planned_start": RUN} for p in RECORDS if p.startswith("W-") and p != "W-NOSTART"},
+    "W-PAST": {"planned_start": date(2026, 11, 1)},
     "F-DOSED": {"planned_start": date(2026, 12, 1)},
     "F-CLEAN": {"planned_start": date(2026, 12, 1)},
     **{p: {"screening": RUN} for p in RECORDS if p.startswith("S-") and p != "S-NOVISIT"},
@@ -399,6 +410,51 @@ def test_a_dated_dose_beside_an_undated_one_excludes_and_has_no_flip_date(world:
         assert _excluded(o) and o.flip_date is None, cid
 
 
+def test_a_record_dated_after_the_day_of_the_run_gives_no_flip_date(world: dict[str, Any]) -> None:
+    # the dose of 2026-11-10 excludes today. An order dated 2026-12-05 is not a dose yet: no day is computed with it
+    for cid in ("M3-EXC-01", "M3-EXC-06"):
+        o = _out(world, "W-AHEAD", cid)
+        assert _excluded(o) and o.flip_date is None, cid
+        # only the order dated ahead: nothing in the 28 days before today, and never "excluded from 2026-12-05"
+        o = _out(world, "W-AHEADONLY", cid)
+        assert _met(o) and o.flip_date is None, cid
+
+
+def test_a_change_that_is_already_past_is_not_stored_as_one_to_come(world: dict[str, Any]) -> None:
+    # planned start 2026-11-01, dose 2026-10-10 (22 days before): excluded for that start. The washout was over for
+    # a start from 2026-11-08, which is before today: not a day to wait for, so no flip date
+    o = _out(world, "W-PAST", "M3-EXC-01")
+    assert _excluded(o) and o.flip_date is None and o.anchor == {"kind": "planned_start", "date": "2026-11-01"}
+    assert _met(_out(world, "W-PAST", "M3-EXC-06"))  # 41 days ago by today's washout
+
+
+def test_the_flip_date_search_is_bounded(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    """ "Any chemotherapy in the last 365 days": 100 dated doses give 100 days on which a dose leaves the window.
+    At most MAX_DAYS of them are tried, soonest first, in one query per distinct day; here the answer does not
+    change within those (later doses are still inside), so no date is given rather than a wrong one."""
+    from matching.cascade import v3
+
+    wide = json.loads(json.dumps(WASHOUT_TODAY))
+    wide["atoms"][0]["window"]["from_days"] = -365
+    asked: list[int] = []
+    rows = v3.V3Stage._rows
+
+    def counted(self: Any, crit: Any, need: Any) -> Any:
+        asked.append(len(need))
+        return rows(self, crit, need)
+
+    monkeypatch.setattr(v3.V3Stage, "_rows", counted)
+    cfg = CascadeConfig(study_id="M3", run_date=RUN, index_mode="single", population=["W-MANY", "W-D27"],
+                        snapshot=None)  # fmt: skip
+    res = run_cascade(world["lake"], _ruleset([wide, ADULT_V1]), cfg)
+    many, d27 = res.traces["W-MANY"].outcomes["M3-EXC-06"], res.traces["W-D27"].outcomes["M3-EXC-06"]
+    assert _excluded(many) and many.flip_date is None
+    assert _excluded(d27) and d27.flip_date == "2027-10-25"  # one dose, 2026-10-24: 366 days later it is outside
+    # the queries of the run: no event; none of its own answers (the ruleset's SQL gave them); the records' dates
+    # on the day of the run; then the day of the run and at most MAX_DAYS days more for W-MANY, one more for W-D27
+    assert asked[-2:] == [1, 1 + v3.MAX_DAYS + 1] and v3.MAX_DAYS == 64
+
+
 def test_a_planned_start_nobody_gave_gives_unknown_never_a_guess(world: dict[str, Any]) -> None:
     o = _out(world, "W-NOSTART", "M3-EXC-01")  # a dose ten days ago, and still no answer: no start, no window
     assert _open(o, Reason.ANCHOR_DATE_UNKNOWN) and o.flip_date is None and o.anchor is None
@@ -488,7 +544,7 @@ def test_only_the_washouts_exclude_and_the_stage_log_counts_the_v3_criteria(worl
     assert out == {
         "W-D27": "M3-EXC-06", "W-D28": "M3-EXC-06", "W-TODAY": "M3-EXC-06", "W-TWO": "M3-EXC-06",
         "W-NOSTART": "M3-EXC-06", "F-DOSED": "M3-EXC-06", "E-INF": "M3-EXC-03", "S-HIGH": "M3-INC-02",
-        "W-MIXED": "M3-EXC-06",
+        "W-MIXED": "M3-EXC-06", "W-AHEAD": "M3-EXC-06", "W-PAST": "M3-EXC-01",
     }  # fmt: skip
     # those out by the washouts alone are on the engine's watch-list (the criteria are marked time-sensitive); the
     # infection and the creatinine are not marked so, and exclude
@@ -552,6 +608,59 @@ def test_the_v1_evaluator_never_answers_a_v3_only_criterion(world: dict[str, Any
     d27 = {v.id: v.verdict for v in got["W-D27"].verdicts}
     assert d27["M3-EXC-06"] == "fail" and got["W-D27"].tier == "excluded"  # the dose 27 days ago, by the v1 SQL
     assert {v.id: v.verdict for v in got["W-D29"].verdicts}["M3-EXC-06"] == "pass"
+
+
+def test_the_v1_stand_in_of_a_v3_only_criterion_can_never_be_decided_by_a_v1_reader(world: dict[str, Any]) -> None:
+    """What every reader of ``Ruleset.criteria`` sees for a criterion v1 cannot write: no coded logic to compile,
+    no SQL column, a question for a person; so no v1 reader counts it met or failed, and it is never silent."""
+    rs = world["rs"]
+    only = [cid for cid, ir in rs.v3.items() if rs.by_id()[cid].class_ == "human"]
+    assert sorted(only) == ["M3-EXC-01", "M3-EXC-03", "M3-EXC-04", "M3-EXC-05", "M3-INC-02"]
+    gen = SqlGenerator("M3", rs.version, ValueSets("M3", rs.valuesets, Terminology()))
+    for cid in only:
+        face = rs.by_id()[cid]
+        assert face.class_ not in FILTERED + JUDGED and face.note_question is None  # no SQL/CQL, no model
+        assert compiled([face]) == [] and f"C_{cid}" not in gen.render([face]) and f"C_{cid}" not in rs.sql
+        with pytest.raises(CompileError):  # even read as coded, its logic compiles to nothing
+            kind(face.logic)
+        assert class_split([face]) == {"structured": 0, "mixed": 0, "note": 0, "human": 1}
+        v = human_verdict(face)  # what the v1 evaluator gives it
+        assert v.verdict == "pending_human" and decision.basis_of(face, v, pair=True) == "person"
+        st = decision.status_of(rs.by_id(), [v], decision.Policy(0.75, True))
+        assert st.tier == "high" and st.excluded_by == [] and st.actions == [face.human_question]  # open, never silent
+    # the cascade without its v3 stage (a reader that knows nothing of model v3): a person's, for every patient
+    blind = Ruleset(manifest=rs.manifest, criteria=rs.criteria, valuesets=rs.valuesets, sql=rs.sql)
+    cfg = CascadeConfig(study_id="M3", run_date=RUN, index_mode="single", population=sorted(RECORDS), snapshot=None)
+    res = run_cascade(world["lake"], blind, cfg)
+    assert set(only) <= set(res.human_criteria) and not set(only) & set(res.applied)
+    for t in res.traces.values():
+        for cid in only:
+            assert t.outcomes[cid].status == "pending_human" and t.exit_criterion != cid, (t.pid, cid)
+            assert t.outcomes[cid].flip_date is None
+
+
+def test_the_new_reason_codes_are_worded_in_three_languages_and_no_v1_answer_can_carry_one() -> None:
+    new = ("anchor_date_unknown", "verify_at_anchor", "not_in_source")
+    for code in new:
+        assert code in CODES and set(LABELS[code]) == {"en", "ja", "zh-TW"}
+        for lang in ("en", "ja", "zh-TW"):
+            text = label(code, lang)
+            assert text and text == LABELS[code][lang] and code not in text and "_" not in text
+        assert LABELS[code]["ja"] != LABELS[code]["en"] != LABELS[code]["zh-TW"]
+    # no rule of ``code_of`` leads to one: only the code itself does, and only the v3 stage names them
+    from tb_common import reasons
+
+    assert not [r for keys, r in reasons._RULES if r.value in new]
+    for text in [k for keys, _ in reasons._RULES for k in keys] + ["", "anything else", "matching record"]:
+        for verdict in ("pass", "fail", "unknown", "pending_human", None):
+            assert code_of(text, verdict) not in new
+    users = sorted(
+        p.relative_to(ROOT).as_posix()
+        for base in ("services", "libs", "tools")
+        for p in (ROOT / base).rglob("*.py")
+        if any(f"Reason.{c.upper()}" in p.read_text("utf-8") for c in new)
+    )
+    assert users == ["services/matching/cascade/v3.py"]
 
 
 # ----------------------------------------------------------------------------------------------- v1 unchanged

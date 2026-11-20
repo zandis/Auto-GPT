@@ -28,8 +28,10 @@ first day a result is too old). It is found by running the same SQL at the days 
 window, never by a second calculation, and only for windows on the index date, the planned start or the screening
 date whose atoms are records or values in a window. The answer that day is the opposite one, or open because
 nothing is in the window any more (a result too old). No flip date: when the answer that day is open for a record
-that cannot be placed or read (an undated record, a unit), when the criterion holds an age, a score or a duration,
-and for a v1 criterion.
+that cannot be placed or read (an undated record, a unit), beside a record dated after the day of the run, when the
+change would fall on or before the day of the run (an anchor in the past), when the criterion holds an age, a score
+or a duration, and for a v1 criterion. At most ``MAX_DAYS`` days are tried per patient and criterion, in two queries
+per distinct day over all patients.
 """
 
 from __future__ import annotations
@@ -345,15 +347,18 @@ class V3Stage:
         for f, t, day, _now in open_:
             row = records.get((t.pid, t.index_date)) or {}
             cand: set[date] = set()
+            ahead = False  # a record dated after the day of the run: an entry error or a plan, not a fact yet
             for g, a, p in seen:
                 if g is not f:
                     continue
                 w = window(a)
                 for d in _dates(row.get(f"E_{p.id}")):
+                    ahead = ahead or d > t.index_date
                     cand.add(d - timedelta(days=w.to_days))
                     if w.from_days is not None:
                         cand.add(d - timedelta(days=w.from_days) + timedelta(days=1))
-            days[(f.id, t.pid)] = sorted(c for c in cand if c > day)[:MAX_DAYS]
+            # no date is computed beside a record dated ahead; at most MAX_DAYS days are tried, soonest first
+            days[(f.id, t.pid)] = [] if ahead else sorted(c for c in cand if c > day)[:MAX_DAYS]
             for c in (day, *days[(f.id, t.pid)]):
                 need.setdefault(c, set()).add(t.pid)
         rows = self._rows([f.cx for f in forms], need)
@@ -373,7 +378,8 @@ class V3Stage:
                 # the first change. A date is given when the answer that day is the opposite one, or open only
                 # because nothing is in the window any more (a result too old); never when it is open for a record
                 # that cannot be placed or read (an undated one, a unit, a proposed fact)
-                then = run._s1_outcome(f.cx, nxt) if nxt else None
+                # A change on or before the day of the run (an anchor in the past) is not a change to come: none
+                then = run._s1_outcome(f.cx, nxt) if nxt and c > t.index_date else None
                 if then is not None and (_definite(then) is (not now) or _emptied(then)):
                     t.outcomes[f.id].flip_date = c.isoformat()
                 break
