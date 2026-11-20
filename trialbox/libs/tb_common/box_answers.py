@@ -17,7 +17,9 @@ is a message key the console translates (``firstrun.err.<code>``).
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import asdict, dataclass
+from datetime import date
 from enum import StrEnum
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -110,6 +112,12 @@ class OwnerAnswers:
     # is (YEAR_BASES); empty: follows the site's country (Japan: both and 年度; others: western and calendar)
     printed_dates: str = ""
     year_basis: str = ""
+    # 10K-21 (D-1365): the person who opens the health page every working day (a box's backup alert route is the
+    # health page, D-735); and who in hospital IT confirmed that the box's root certificate (Caddy's own CA) is on
+    # the team's computers, and on which day. Empty: not answered (an answers file from before)
+    health_page_person: str = ""
+    tls_root_confirmed_by: str = ""
+    tls_root_confirmed_on: str = ""
 
     @property
     def hostname(self) -> str:
@@ -120,8 +128,18 @@ class OwnerAnswers:
         d["backup"]["kind"] = self.backup.kind.value
         d["source"] = self.source.value
         d["retention_days"] = dict(self.retention_days)
-        # 10K-1: its keys only when answered, so a box that was not asked writes the file it wrote before
-        for k in ("country", "ssmix2_root", "ssmix2_order_numbers", "retention_days", "printed_dates", "year_basis"):
+        # 10K-1 (and 10K-21's people): its keys only when answered, so a box that was not asked writes the file it
+        # wrote before
+        named = ("health_page_person", "tls_root_confirmed_by", "tls_root_confirmed_on")
+        for k in (
+            "country",
+            "ssmix2_root",
+            "ssmix2_order_numbers",
+            "retention_days",
+            "printed_dates",
+            "year_basis",
+            *named,
+        ):
             if not d[k]:
                 del d[k]
         return d
@@ -134,6 +152,56 @@ _HOST = re.compile(r"(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9
 
 def _s(raw: Any, limit: int = 200) -> str:
     return str(raw if raw is not None else "").strip()[:limit]
+
+
+# 10K-21 (D-1365): a staff member's name, written as one plain value in deploy/.env, which compose (it substitutes
+# $ and reads a leading quote), the Python readers (they split lines and strip) and the installer's shell all read.
+# An allow-list, not a deny-list: letters, combining marks and digits of any script (山田 太郎, 陳 大文, José Ñúñez),
+# single spaces between words (the ASCII or the ideographic space) and the few marks a name, or a role beside it,
+# holds. Everything else is refused: control characters (CR, LF, NUL, tab), the Unicode line and paragraph
+# separators, double quotes, an apostrophe first or last, $, backquote, backslash, #, =, ;, &, |, <, >, braces and
+# the like
+PERSON_MAX = 100
+# dot, comma, hyphen, brackets (and the full-width ones a Japanese IME types), slash, ’ and ' (O’Brien, O'Brien),
+# the two middle dots, the wave dashes 〜 and ～. The ASCII apostrophe only inside a name, never first or last:
+# tb_common.config's reader strips a quote pair around a value, so 'Ann' would read back as Ann
+_PERSON_MARKS = frozenset(".,-()（）/’'・·〜～")
+_PERSON_SPACES = frozenset(" 　")  # the ASCII space and the ideographic space
+
+
+def person_name(raw: Any) -> str | None:
+    """10K-21: a named person (operational contact data, never patient data). Empty: not answered. None: refused
+    (a character outside the allow-list above, two spaces in a row, an ASCII apostrophe first or last,
+    or longer than ``PERSON_MAX``)."""
+    text = str(raw if raw is not None else "").strip(" 　")
+    if not text:
+        return ""
+    if len(text) > PERSON_MAX or text[0] == "'" or text[-1] == "'":
+        return None
+    prev_space = False
+    for ch in text:
+        if ch in _PERSON_SPACES:
+            if prev_space:
+                return None
+            prev_space = True
+        elif ch in _PERSON_MARKS or unicodedata.category(ch)[0] in "LMN":
+            prev_space = False
+        else:
+            return None
+    return text
+
+
+def confirmed_on(raw: Any, today: date | None = None) -> str | None:
+    """10K-21: the day a confirmation was given (``YYYY-MM-DD``); empty: today. None: not a date, or a day to come."""
+    now = today or date.today()
+    text = str(raw if raw is not None else "").strip()
+    if not text:
+        return now.isoformat()
+    try:
+        day = date.fromisoformat(text)
+    except ValueError:
+        return None
+    return day.isoformat() if len(text) == 10 and day <= now else None
 
 
 def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAnswers | None, list[Problem]]:
@@ -228,6 +296,18 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
     year_basis = _s(raw.get("year_basis"), 16) or (cd.year_basis if country else "")
     if year_basis not in ("", *YEAR_BASES):
         problems.append(Problem("year_basis", "year_basis"))
+    # 10K-21 (D-1365): named people; whether they are required is production_gaps' question, not the parser's
+    person = person_name(raw.get("health_page_person"))
+    if person is None:
+        problems.append(Problem("health_page_person", "person_name"))
+    it_by = person_name(raw.get("tls_root_confirmed_by"))
+    it_on = ""
+    if it_by is None:
+        problems.append(Problem("tls_root_confirmed_by", "person_name"))
+    elif it_by:
+        it_on = confirmed_on(raw.get("tls_root_confirmed_on")) or ""
+        if not it_on:
+            problems.append(Problem("tls_root_confirmed_on", "confirmed_on"))
     if problems or kind is None or rule is None:
         return None, problems
     backup = Backup(kind, disk if kind is BackupKind.SECOND_DISK else "", share if kind is BackupKind.SHARE else "")
@@ -249,9 +329,27 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
             tuple(days),
             printed_dates,
             year_basis,
+            person or "",
+            it_by or "",
+            it_on,
         ),
         [],
     )
+
+
+def production_gaps(a: OwnerAnswers, *, chartno_asked: bool = True) -> list[Problem]:
+    """10K-21 (D-1365): what a PRODUCTION box's first run may not leave silent. The chart-number rule: an explicit
+    answer (``asis`` is one; no answer is not), unless the page could not ask it (the box already holds patients, or
+    that could not be read: ``chartno_asked`` False). The person who opens the health page every working day: a box's
+    backup alert route is the health page (``tools.box.plan``, D-735), and a route nobody is named for is no route.
+    The caller decides whether the box is PRODUCTION; IT's confirmation of the root certificate is never a gap here
+    (the box makes its root at its first start: ``doctor`` reports it until it is recorded)."""
+    gaps: list[Problem] = []
+    if chartno_asked and not a.chartno_rule:
+        gaps.append(Problem("chartno_rule", "chartno_required"))
+    if not a.health_page_person:
+        gaps.append(Problem("health_page_person", "health_page_person_required"))
+    return gaps
 
 
 # a rule exactly as tb_common.chartno writes one: ASCII digits, one width, no part twice
