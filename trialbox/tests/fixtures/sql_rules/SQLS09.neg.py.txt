@@ -1,0 +1,6 @@
+# synthetic: sql.SQL with a literal, the name through sql.Identifier
+from psycopg import sql
+
+
+def drop(cur, table):
+    cur.execute(sql.SQL("DROP TABLE {}").format(sql.Identifier(table)))

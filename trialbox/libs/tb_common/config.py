@@ -410,6 +410,7 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_BACKUP_MAILTO": Declared("str", "", "address told when the backup is too old"),
     "TB_BACKUP_ALERT_ROUTE": Declared("str", "", "health-page: the /admin health tab is the backup alert route"),
+    "TB_BACKUP_ALERT_WATCHER": Declared("str", "", "who opens the health tab every working day (health-page, D-1365)"),
     "TB_BACKUP_MAX_AGE_HOURS": Declared("float", "", "age after which backup-status alerts"),
     "TB_BACKUP_MIN_MBPS": Declared(
         "float", "5", "slowest MB/s a backup step may run before it counts as hung: a tenth of a box disk (D-455)"
@@ -449,6 +450,7 @@ DECLARED: dict[str, Declared] = {
     "TB_DOCTOR_PIDMAP_ROW": Declared("str", "", "doctor: the pid map row the host check read (fingerprint|rule)"),
     "TB_DOCTOR_RUNNING_INSPECT": Declared("str", "", "doctor: `stdin` when the host check pipes docker inspect in"),
     "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number rule (tb_common.chartno), written at installation"),
+    "TB_CHARTNO_RULE_ANSWERED": Declared("str", "", "yes: a person chose TB_CHARTNO_RULE, asis included (D-1365)"),
     "TB_SSMIX2_ORDER_NUMBERS": Declared(
         "str", "per_day", "SS-MIX2 record key (D-594, D-1000): per_day (the specification's), or unique"
     ),
@@ -508,6 +510,9 @@ DECLARED: dict[str, Declared] = {
     "TB_CONSOLE_URL": Declared("str", "", "mail gateway: console URL in replies"),
     "TB_CONSOLE_WEBMAIL_URL": Declared("str", "", "console: link to the site's webmail"),
     "TB_CONSOLE_WORKSPACE": Declared("str", "", "console: workspace folder (demo)"),
+    "TB_COVERAGE_RUN_DIR": Declared(
+        "path", "", "tests: the folder of the pytest run measuring coverage; set by the run itself (H-63)"
+    ),
     "TB_CQL_LOCAL_LIB": Declared("str", "", "CQL tool: local library folder"),
     "TB_CQL_TRANSLATOR_LIB": Declared("str", "", "compiler: CQL translator library"),
     "TB_CTGOV_BASE_URL": Declared("str", "", "compiler: ClinicalTrials.gov API base"),
@@ -1088,6 +1093,8 @@ DECLARED: dict[str, Declared] = {
     "TB_TLS_OLD_CLIENTS": Declared(
         "str", "off", "off or cbc: cbc also serves TLS 1.2 ECDHE AES-CBC-SHA on 443 for an old client (H-48, D-1328)"
     ),
+    "TB_TLS_ROOT_CONFIRMED_BY": Declared("str", "", "internal CA: who in IT confirmed its root is on the PCs (D-1365)"),
+    "TB_TLS_ROOT_CONFIRMED_ON": Declared("str", "", "internal CA: the day IT confirmed it, YYYY-MM-DD (D-1365)"),
     "TB_TODAY": Declared("str", "", "pins the clock (test stack)"),
     "TB_TOPOLOGY": Declared("str", "A", "deployment topology (A or B)"),
     "TB_TO_PID_MAX_PER_HOUR": Declared(

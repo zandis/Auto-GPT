@@ -296,6 +296,12 @@ box installed before step 8 keeps its shared `TB_SERVICE_TOKEN` (with a warning)
 outside DEV and TEST the gateway (D-437) and the orchestrator (D-464) refuse it, so run `secrets init` first. The
 administrator's token for scripts is `deploy/secrets/services/operator.token` (header `X-TB-Service-Token`).
 
+**The health page's watcher** (D-1365). With `TB_BACKUP_ALERT_ROUTE=health-page`, name the person who opens it every
+working day in `TB_BACKUP_ALERT_WATCHER`; the install note and `doctor` show the name, or warn while nobody is named.
+A name holds letters and digits of any script, single spaces and `. , - ( ) （ ） / ’ ' ・ · 〜 ～` only (`'` not
+first or last), at most 100 characters; anything else (a line break, a double quote, `$`, a backslash) is refused,
+so a name can never add or change a setting.
+
 ## Updates from a stick inserted at the box (10K-7, D-1363)
 
 The host mounts the update stick read-only at `/media/trialbox-update` (`TB_UPDATE_STICK` in `deploy/.env` names
@@ -309,11 +315,13 @@ moves no byte for 2 minutes, runs over 2 hours or reads slower than 1 MB/s after
 and a refused bundle is not kept. The check is bound to the file's sha256: the page says "verified" (with the first
 digits of the sha256), shows the Japanese release note (`RELEASE-NOTE.ja.md`) and the change-impact sheet
 (`CHANGE-IMPACT.json`: the change classes CC1 to CC6 of `docs/validation/change-control.md`, the minutes down,
-migration, rulesets to approve again) and offers "Apply" and "Apply in the quiet hour" only for that very file; the confirmation carries the sha256 and
+migration, rulesets to approve again) and offers "Apply" and "Apply in the quiet hour" only for that very file; the
+confirmation carries the sha256 and
 release shown and is refused when the verified record is another file, another release or gone. The runner applies
 a private copy made from one open of the file (`deploy/updates/.ops-held`, root's, removed after): the bytes whose
 sha256 was confirmed are the bytes `apply_update.sh` verifies and installs. A quiet-hour apply that waits can be
-cancelled on the page until the moment it starts, also while a backup runs before it; once started it is not. The tab names the previous release and whether its bundle is on the box; returning to it is still
+cancelled on the page until the moment it starts, also while a backup runs before it; once started it is not. The tab
+names the previous release and whether its bundle is on the box; returning to it is still
 the "Older releases" path above, at the box. A bundle without the note and sheet is verified with a warning, never
 refused; `tools/make_bundle.sh` refuses to build one without them (`docs/releases/next-release.ja.yaml`,
 `python -m tools.release_note check`). The drill: `python -m tools.update_drill stick` (insert, verify, apply in the
