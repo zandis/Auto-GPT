@@ -1,0 +1,41 @@
+{
+ "card": "H10E24",
+ "title": "a licence row for every candidate model; unread terms and decision 93's licences never ship (plan 10 row 10E-24)",
+ "date": "2026-11-20",
+ "source": "docs/handover/candidate-licences-2026-11-20.md",
+ "note": "basis 'shown' means shown by reading the code and the register and by the card's unit tests; no licence page was opened (no network reading).",
+ "findings": [
+  {
+   "id": "H10E24-01",
+   "severity": "Medium",
+   "claim": "no candidate beyond today's pair can ship yet: 12 of the 13 new register rows say 'terms not read' because the repository holds neither the licence text nor its sha256 for those builds, and none holds a pinned revision except the full-precision judge control; a candidate becomes shippable only by a change that reads its licence text at a pinned revision, records the sha256 and sets the row cleared (review 17 section 7.3 rule 5), which needs the network",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10E24-02",
+   "severity": "Low",
+   "claim": "the candidate list of tools/licence_register.py is review 17's (section 7.2 and 4.3); the older unverified candidate builds of models/registry.yaml (the 31B QAT challenger, the second verifier candidate, the earlier candidates and the hosted bake-off builds) have no register row and the check does not ask for one, since none is verified or past candidate",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10E24-03",
+   "severity": "Low",
+   "claim": "decision 93's rule matches words in a model row's licence and SPDX columns ('communit', 'health developer' with or without 'AI'); a community or health-developer licence written under another name would pass the rule, and only the status rule (unread terms are never cleared) stands behind it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10E24-04",
+   "severity": "Low",
+   "claim": "the revision pins of a verified build are held by tools.licence_register --check in CI, not by qualify's licence step (kept as on master so the release gate does not change); a site's qualification run does not compare the installed revision with the register row",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

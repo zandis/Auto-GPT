@@ -1,0 +1,19 @@
+{
+ "card": "H62",
+ "title": "the exit abort after H-52: Arrow's IO pool and a Python buffer",
+ "date": "2026-11-19",
+ "source": "docs/handover/exit-abort-third-sighting-2026-11-19.md",
+ "findings": [
+  {
+   "id": "H62-01",
+   "severity": "Medium",
+   "claim": "after H-52 a one-shot process that reads a Parquet table from Python bytes with pq.read_table(..., use_threads=False) can still abort at exit (status 134): the dataset scanner runs on Arrow's IO pool, whose worker can release the Python buffer after the interpreter began to finalize; the box rehearsal, the doctor and the H-52 loop test can fail after the read succeeded",
+   "severity_basis": "a person misled (a false FAIL of the doctor, the host check or CI that a rerun clears); the box can be installed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 915934525f8e580fae79af4590dc3157f6deb9af",
+   "fix": "the four in-memory reads use pq.ParquetFile(src).read(use_threads=False), which starts no thread; guarded by tests/unit/test_parquet_single_thread_guard_h52.py and tests/unit/test_parquet_read_exit_abort_h52.py::test_rehearsal_read_starts_no_thread",
+   "from": "lane J's report on PR #1220 (log not found); on master under load 1 of 4200 runs died, with the IO pool worker's backtrace; 0 of 4200 with the fix"
+  }
+ ]
+}
