@@ -185,8 +185,15 @@
   for the grants); while a session runs every mail is held: queued, the try not counted, the audit event
   `mail.deferred` with the reason "held: a support session is running", asked again every 5 minutes, and sent once
   after the end (the send key keeps it once). Three kinds are not held, by the key the orchestrator gives them
-  (`SUPPORT_MAIL_PREFIX`): the serious adverse event copy to the office (`service:console-sae-sync`; safety mail is
-  never delayed, and it carries a pseudonym), the box's health mail and the account notice (no patient in either).
+  (`SUPPORT_MAIL_PREFIX`): the serious adverse event notice (`service:console-sae-sync`; safety mail is never
+  delayed), the box's health mail and the account notice (no patient in either). **What the SAE notice carries, and
+  to whom** (the review of 7ce188c6, M-3): it goes at once to the trial office's mailbox (`TB_SAE_OFFICE_MAILBOX`)
+  **and to the study's PI** on the delegation log (`sae_pages.told_at_once`); its subject is `[TrialBox] SAE <study>
+  <screening number> <event>` and its body adds the onset date, the date the site learned of it, and whether it is
+  fatal or life-threatening (`saerecord`). It is sent from the notice timer, so a serious AE read during a session is
+  mailed during it. **A question for the owner:** the owner's yes of 2026-11-19 names the switch, the feedback export
+  and the one-time codes, not this mail; whether the PI's copy should also wait during a session is the owner's call.
+  The confirmation's fine print says what it carries and to whom.
   Held: N1 and N2 (pseudonyms and visit times, the SAE counts and overdue SAE reports among them: at most 2 hours
   late, and the serious AE itself has gone out at once), a break-glass notice (none can be opened during a session),
   and every job's mail (a CASE sheet, a list, a receipt). A state that cannot be read holds too; nothing is dropped.
@@ -215,6 +222,25 @@
   - A damaged start whose time parses but whose UTC time or end underflows (`0001-01-01T00:00:00+14:00`, the
     review's item 7) is a start that cannot be read: on until ended by hand, and the end works.
   - A one-time password held back by a session and read later is gone after its 10 minutes (the review's item 10).
+- **The review of 7ce188c6** (each with its test in `tests/console/test_10k15_support_session.py`):
+  - The switch's page follows master's 9k-5 rules (D-1380): one primary button (the End button is `danger`) and one
+    name, through `page_header(page_title)`; after a failed POST the page's name starts with "Error: " (9k-6a).
+  - The account notice's stewards are named by the matrix whatever the session's mark (`authz.role_holds`, for
+    naming who is told only; it opens nothing): `/enrol` during a session mails the steward
+    (`test_m1_the_steward_is_told_of_an_opened_account_during_a_session`).
+  - Every refusal during a session is exactly one refusal event: the middleware writes `console.denied` (`why`:
+    `support session`) for a 403 whose handler wrote none (`console.denied` or a `*_refused` event), counted per
+    request (`test_m2_every_refusal_during_a_session_is_audited_once`, the whole GET route table as three columns).
+  - An open job page (FEAS, SCREEN) shows state, type and counts only during a session: no request line, error
+    text, mail thread or audit rows, and only the files the session serves (`test_l1_…`); these four fields join the
+    list of places that can emit patient-linked text.
+  - Routes added with `add_route` (`/manifest.webmanifest`, `/favicon.ico`, `/link`, `/people/candidates`,
+    `/people/participants`) are pinned in `PLAIN_ROUTES` with their reasons and walked with the seeded data
+    (`test_l2_every_plain_route_is_pinned`).
+  - When the start's wait ran out, the confirmation's first line says that a page begun before the start is refused
+    at its end, not that every one was finished (L-3).
+  - Runbook 21: a log holds pseudonyms, so during a session no log is shown on the shared screen unless filtered
+    (L-4, in this card's section). The clock (L-5) is as the known limits say.
   - The person's own sign-in steps (`/enrol`, the TOTP step's new authenticator) stay open: closing them would lock
     a person out; the hospital's person signs in with the screen share paused.
   - Windows rendered before the start stay on screen; reload and back are covered by `Cache-Control: no-store`.

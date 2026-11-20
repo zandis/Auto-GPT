@@ -119,5 +119,10 @@ While the switch is on, a page that mixes staff and patient content (the study h
 parts and the line "Closed during the support session"; a job's page or file is refused unless it is a counts-only
 one (a feasibility report); a page asked just before the start is finished or refused before the start is
 confirmed. Mail with patient details (the morning lists, a job's mail) waits and goes once after the end; the serious
-adverse event copy to the office, the health mail and the account notice still go out. Not recalled: what is already
+adverse event notice still goes at once to the trial office's mailbox and the study's PI (the screening number, the
+event, its onset date, the date the site learned of it and whether it was fatal or life-threatening), and so do the
+health mail and the account notice. Not recalled: what is already
 on a screen or in another window, and mail already sent: close them before the share starts.
+
+Rule 3's logs: a log holds pseudonyms, so during a support session no log is shown on the shared screen unless it is
+first filtered to lines without one (the switch closes the console's pages, not a terminal).

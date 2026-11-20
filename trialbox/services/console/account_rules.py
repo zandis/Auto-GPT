@@ -34,7 +34,7 @@ from typing import Any
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse, Response
-from tb_common.authz import in_support_session, permit
+from tb_common.authz import in_support_session, permit, role_holds
 
 from console.auth import AuthError, PasswordRejected, User, UserStore, check_password_policy, random_password
 
@@ -222,7 +222,7 @@ def register(app: FastAPI, rules: Rules, h: Hooks) -> None:
     # ------------------------------------------------------------------ the holder's first sign-in
     def _enrol_page(request: Request, status: int = 200, **ctx: Any) -> Response:
         token = secrets.token_urlsafe(24)
-        stewards = ", ".join(u.username for u in us.users() if permit(u.role, "breakglass.review").allowed)
+        stewards = ", ".join(u.username for u in us.users() if role_holds(u.role, "breakglass.review"))
         resp = h.page(request, "enrol.html", None, status, login_csrf=token, stewards=stewards, **ctx)
         resp.set_cookie(h.login_cookie, token, httponly=True, samesite="strict", secure=h.secure, max_age=900)
         return resp

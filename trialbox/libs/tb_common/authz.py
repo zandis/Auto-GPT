@@ -263,6 +263,17 @@ COMMANDS: tuple[str, ...] = tuple(a.removeprefix("command.") for a in MATRIX if 
 INVESTIGATOR_RUNS: dict[str, frozenset[str]] = {"pi": _granted("pi"), "run": _granted("task:run")}
 
 
+def role_holds(role: str, action: str) -> bool:
+    """Whether ``role`` holds ``action`` in the matrix, whatever the request's support-session mark: only to name who
+    is TOLD of an event (the stewards an account notice goes to, 10K-15 review M-1), never to open a page or read a
+    row. During a session ``permit`` refuses ``breakglass.review`` to everyone, which would leave the steward untold."""
+    token = _SUPPORT_SESSION.set(False)
+    try:
+        return permit(role, action).allowed
+    finally:
+        _SUPPORT_SESSION.reset(token)
+
+
 def role_allowed(role: str, command: str) -> bool:
     """True when a console account with ``role`` may start ``command`` in some study (the orchestrator's job table:
     the best case, as the study's PI with every task; viewer and CRO accounts start nothing)."""

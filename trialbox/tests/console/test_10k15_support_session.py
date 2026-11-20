@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -983,7 +984,29 @@ def _leaks(b: dict[str, Any], jobs: list[Any], clients: dict[str, Any]) -> tuple
     for col, (page, *_rest) in clients.items():
         for url in _job_urls(jobs):
             check(col, f"GET {url}", page.get(url, follow_redirects=False))
+        for path in PLAIN_ROUTES:  # the review of 7ce188c6 L-2: routes added with add_route, outside the APIRoutes
+            check(col, f"GET {path}", page.get(path, follow_redirects=False))
+        check(col, "GET /link", page.get(f"/link?to=/studies/GZQO/patients/{P_SCREEN_1}", follow_redirects=False))
     return n, sorted(set(found))
+
+
+# The routes the app adds with ``add_route`` (Starlette Routes, not APIRoutes, so outside the role-route walk), each
+# with why it shows no patient row during a session (the review of 7ce188c6 L-2). A new one fails
+# ``test_l2_every_plain_route_is_pinned`` until it is added here after a review; the seeded walk asks each.
+PLAIN_ROUTES: dict[str, str] = {
+    "/manifest.webmanifest": "the web app manifest: names and icons",
+    "/favicon.ico": "the icon",
+    "/link": "a redirect to a console path (a refused page is then refused); no read",
+    "/people/candidates": "the study picker (layout.people_lists); a study's list asks a closed row",
+    "/people/participants": "the study picker (layout.people_lists); a study's list asks a closed row",
+}
+
+
+def _plain_routes(app: Any) -> set[str]:
+    from fastapi.routing import APIRoute
+    from starlette.routing import Route
+
+    return {r.path for r in app.routes if isinstance(r, Route) and not isinstance(r, APIRoute)}
 
 
 def _home_today(b: dict[str, Any], value: str) -> None:
@@ -1025,11 +1048,9 @@ def test_no_open_route_shows_a_seeded_patient_token_during_a_session(box: dict[s
         _start(box)
         n, found = _leaks(box, jobs, clients)
     finally:
+        _home_today(box, "off")  # the flag lives in the trial database: the next test of this worker finds it off
         fl.clear_cache()
         phone.clear_cache()
-    assert n > 2000
-    assert found == [], "\n".join(found)
-    n, found = _leaks(box, jobs, clients)
     assert n > 2000
     assert found == [], "\n".join(found)
 
@@ -1155,7 +1176,10 @@ def test_h4_a_start_that_cannot_wait_says_so(box: dict[str, Any], monkeypatch: p
         admin, _ = login(box["app"])
         r = admin.post(PAGE, data={"csrf": _csrf(admin.get(PAGE).text), "confirm": "yes"}, follow_redirects=False)
         assert r.headers["location"] == f"{PAGE}?done=start&wait=1"
-        assert 'data-testid="support-done-wait"' in admin.get(r.headers["location"]).text
+        shown = admin.get(r.headers["location"]).text
+        assert 'data-testid="support-done-wait"' in shown
+        # L-3 of the review of 7ce188c6: not also "every page asked before the start was finished or refused"
+        assert "finished or refused before this line" not in shown and "refused at its end" in shown
     finally:
         guard._leave(n)
 
@@ -1257,3 +1281,109 @@ def test_item11_cancel_is_closed_during_a_session_like_the_prepare_it_signs(box:
         r = admin.post(url, data=data)
         assert r.status_code == 403 and ON_EN in r.text and job.job_id not in r.text
     assert len([e for e in _denied(box, url) if e["detail"].get("why") == "support session"]) == 2
+
+
+# ------------------------------------------------------------------------------ the review of 7ce188c6
+@pytest.mark.parametrize("session", [False, True])
+def test_m1_the_steward_is_told_of_an_opened_account_during_a_session(tmp_path: Any, session: bool) -> None:
+    """M-1: ``/enrol`` stays open during a session, and its account notice is one of the mails that still go; but its
+    recipients were picked with ``permit(.., "breakglass.review")``, which the session refuses, so the steward was
+    not told (``sent: 0``). The recipients are now named by the matrix whatever the mark (``authz.role_holds``)."""
+    from tests.console.test_console_app import ADMIN_PW
+    from tests.console.test_no_one_holds_both_factors import (
+        CRC_PW,
+        STEWARD_PW,
+        _add,
+        _box,
+        _redeem,
+        _request_ids,
+        _requests,
+        _signin,
+    )
+
+    app, _users, audit_dir, clock = _box(tmp_path, steward=True)
+    stew, scsrf = _signin(app, "stew", STEWARD_PW)
+    admin, csrf = _signin(app, "admin", ADMIN_PW)
+    assert _add(admin, csrf, "shadow", "coordinator").status_code == 200
+    (rid,) = _request_ids(_requests(stew))
+    r = stew.post("/ops/accounts/requests", data={"csrf": scsrf, "request": rid, "decision": "confirm"})
+    m = (re.search(r'data-testid="request-secret"[^>]*value="([^"]+)"', r.text)
+         or re.search(r'data-testid="enrol-code-value"[^>]*value="([a-z0-9-]+)"', r.text)
+         or re.search(r'value="([a-z0-9-]+)" data-testid="[a-z-]*code[a-z-]*"', r.text))  # fmt: skip
+    assert m
+    if session:
+        r = admin.post(PAGE, data={"csrf": _csrf(admin.get(PAGE).text), "ticket": "SUP-1", "confirm": "yes"},
+                       follow_redirects=False)  # fmt: skip
+        assert "done=start" in r.headers["location"]
+    before = len(app.state.test_backend.notices)
+    clock.tick(minutes=5)
+    assert _redeem(app, "shadow", m.group(1), CRC_PW).status_code == 303
+    told = sorted({a for _k, to, _s, _b in app.state.test_backend.notices[before:] for a in to})
+    assert told == ["stew@hospa.test"]
+    events = [json.loads(line) for f in sorted(Path(audit_dir).glob("*")) for line in f.read_text().splitlines()
+              if line and json.loads(line).get("event") == "console.account_notice"]  # fmt: skip
+    assert events[-1]["detail"]["sent"] == 1
+
+
+def test_l2_every_plain_route_is_pinned(box: dict[str, Any]) -> None:  # noqa: F811
+    """L-2: routes added with ``add_route`` were outside the pin test and the walk; now they are pinned and walked."""
+    assert _plain_routes(box["app"]) == set(PLAIN_ROUTES)
+    assert all(PLAIN_ROUTES.values())
+
+
+def _refusal_events(b: dict[str, Any]) -> int:
+    n = 0
+    for f in sorted((b["dir"] / "audit").glob("*")):
+        for line in f.read_text().splitlines():
+            ev = json.loads(line).get("event", "") if line else ""
+            n += ev == "console.denied" or ev.endswith("_refused")
+    return n
+
+
+def test_m2_every_refusal_during_a_session_is_audited_once(box: dict[str, Any]) -> None:  # noqa: F811
+    """M-2: 5 of 86 refusals during a session wrote no ``console.denied`` (the patient page and the study week among
+    them). Now the middleware writes it when the handler wrote none: over the whole route table (GET, pages and
+    API), as the coordinator, the PI and the administrator, every refusal is exactly one refusal event."""
+    from tests.console.test_role_route_matrix import _clients, _routes
+
+    _seed(box)
+    clients = _clients(box)
+    _start(box)
+    refused = 0
+    wrong: list[str] = []
+    for col in ("crc", "lpi", "admin"):
+        page, _c, api = clients[col]
+        for method, path in _routes(box["app"]):
+            if method != "GET":
+                continue
+            url = re.sub(r"\{(\w+)(?::\w+)?\}", lambda m: {"rs": "GZQO", "ruleset": "GZQO", "pid": P_SCREEN_1,
+                         "job_id": _ulid(992), "fmt": "xlsx"}.get(m.group(1), "1"), path)  # fmt: skip
+            before = _refusal_events(box)
+            r = (api if path.startswith("/api/v1/") else page).get(url, follow_redirects=False)
+            if r.status_code == 403:
+                refused += 1
+                if _refusal_events(box) - before != 1:
+                    wrong.append(f"{col} {path}: {_refusal_events(box) - before}")
+    assert refused > 150 and wrong == []
+
+
+def test_l1_an_open_job_page_shows_counts_only_during_a_session(box: dict[str, Any]) -> None:  # noqa: F811
+    """L-1: an open SCREEN job's page showed its error text and request line (free text that can name a patient),
+    its mail thread and audit rows during a session. Now it shows state, type and counts only, and says so."""
+    from tb_contracts import JobError
+
+    screen = _done_screen(box["backend"], _ulid(996))
+    failed = screen.model_copy(update={"job_id": _ulid(997), "state": "failed", "options": {"note": "ZZOPTMARK"},
+                                       "error": JobError(step="match", message=f"Patient/{P_INGEST} birthDate")})  # fmt: skip
+    box["backend"].add_job(failed)
+    crc, _ = login_crc(box)
+    url = f"/pilot/jobs/{failed.job_id}"
+    before = crc.get(url).text
+    assert P_INGEST in before and "ZZOPTMARK" in before
+    _start(box)
+    for lang, line in (("en", "Closed during the support session"), ("ja", "サポートセッション中は閉じています"),
+                       ("zh-TW", "支援作業時段中關閉")):  # fmt: skip
+        _lang(crc, lang)
+        r = crc.get(url)
+        assert r.status_code == 200 and line in r.text, lang
+        assert P_INGEST not in r.text and "ZZOPTMARK" not in r.text and 'data-testid="thread"' not in r.text

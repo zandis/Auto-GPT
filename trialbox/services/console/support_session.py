@@ -36,6 +36,7 @@ import re
 import threading
 import time
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from typing import Any
 
 from fastapi import FastAPI, Form, Request
@@ -81,6 +82,14 @@ _CASCADE_FILE = re.compile(r"^/pilot/cascade/[^/]+/files/")  # a cascade run's f
 # H4: a start waits at most this long for the answers begun before it (in this process) to be sent or refused
 DRAIN_S = 15.0
 _STALE_S = 600.0  # an answer whose body was never read (the client went away) stops counting after this
+# M-2 of the review of 7ce188c6: every refusal during a session is audited exactly once. The refusals a handler
+# audits itself (``console.denied`` or a ``*_refused`` event) are counted per request here; the middleware writes the
+# ``console.denied`` of a 403 whose handler wrote none
+_AUDITED: ContextVar[list[int] | None] = ContextVar("tb_support_refusal_audited", default=None)
+
+
+def _is_refusal_event(event: str) -> bool:
+    return event == "console.denied" or event.endswith("_refused")
 
 
 def download_open(job_type: str, filename: str) -> bool:
@@ -262,11 +271,14 @@ class SupportGuard:
         marked = live is not None or unknown
         n = 0 if marked else self._enter()
         token = authz.support_session_begin(marked)
+        counted = _AUDITED.set([0])
         try:
             if marked and await run_in_threadpool(self.closed_route, request):
                 return self.refusal(request, live)
             resp = await call_next(request)
             if marked and resp.status_code == 403:
+                if not (_AUDITED.get() or [0])[0]:  # M-2: the handler wrote no refusal event: written here, once
+                    await run_in_threadpool(self.audit_refusal, request)
                 resp = self.refusal(request, live)  # rendered under the mark: its menu offers no patient page
             elif not marked and request.url.path not in SWITCH_ROUTES:
                 # H4: begun before a session, done after it started: refused before a byte of it leaves
@@ -283,13 +295,42 @@ class SupportGuard:
         finally:
             if n:
                 self._leave(n)
+            _AUDITED.reset(counted)
             authz.support_session_end(token)
         return resp
+
+    def audit_refusal(self, request: Request) -> None:
+        sess = self.session(request)
+        actor = self.h.actor(sess) if sess is not None else "console:anonymous"
+        try:
+            self.h.au.append("console.denied", actor=actor,
+                             detail={"action": request.url.path[:80], "why": "support session"})  # fmt: skip
+        except Exception as e:  # the refusal stands; the trail's failure is logged (as the other denials)
+            log.warning("support session: a refusal's audit event was not written (%s)", type(e).__name__)
+
+
+def _count_refusals(h: Helpers) -> None:
+    """Count, per request, the refusal events the handlers write (M-2): the audit trail's ``append`` is wrapped once."""
+    au = h.au
+    if getattr(au, "_support_counted", False):
+        return
+    inner = au.append
+
+    def append(event: str, *args: Any, **kwargs: Any) -> Any:
+        got = inner(event, *args, **kwargs)
+        box = _AUDITED.get()
+        if box is not None and _is_refusal_event(event):
+            box[0] += 1
+        return got
+
+    au.append = append
+    au._support_counted = True
 
 
 def register(app: FastAPI, h: Helpers, store: SupportSessionStore | None = None) -> SupportSessionStore:
     st = store if store is not None else SupportSessionStore()
     guard = SupportGuard(h, st)
+    _count_refusals(h)
     app.state.support_guard = guard
     # appended (innermost, as console.demo_guard): the console's security headers wrap its answers too
     app.user_middleware.append(Middleware(BaseHTTPMiddleware, dispatch=guard.dispatch))

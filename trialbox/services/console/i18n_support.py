@@ -40,10 +40,12 @@ EN: dict[str, str] = {
     "support.err.confirm": "Tick the box first: the hospital starts the screen share and its person stays at the keyboard.",
     "support.err.on": "A support session is already running.",
     "support.err.none": "This support session is not running any more.",
-    "support.done.fine": "Not recalled: what is already on a screen or in another window (close them before sharing), and mail already sent. Mail with patient details waits until the session ends; serious adverse event notices still go out.",
+    "support.done.fine": "Not recalled: what is already on a screen or in another window (close them before sharing), and mail already sent. Mail with patient details waits until the session ends, except the serious adverse event notice: it still goes at once to the trial office's mailbox and to the study's PI, with the screening number, the event, its onset date, the date the site learned of it and whether it was fatal or life-threatening.",
     "support.done.wait": "Some answers asked before the start were still being sent after {s} seconds; each stops at its next part. Wait a minute before sharing the screen.",
     "support.closed": "Closed during the support session: patient tasks, notes and lists are not shown until it ends.",
     "support.closed.short": "closed during the support session",
+    "support.done.start_waited": "The support session is on. Patient pages are closed to everyone until it ends; a page asked before the start that ends after it is refused at its end.",
+    "support.closed.job": "Closed during the support session: this job's request line, error text, mail thread, audit rows and patient-level files are not shown until it ends; its counts are.",
 }
 
 JA: dict[str, str] = {
@@ -81,10 +83,12 @@ JA: dict[str, str] = {
     "support.err.confirm": "先にチェックを入れてください：画面共有は病院が開始し、病院の担当者が操作します。",
     "support.err.on": "サポートセッションはすでに実行中です。",
     "support.err.none": "このサポートセッションはもう実行されていません。",
-    "support.done.fine": "取り消されないもの：すでに画面や別のウィンドウに表示されている内容（共有の前に閉じてください）と、送信済みのメール。患者の情報を含むメールはセッションの終了まで待ちます。重篤な有害事象の通知は送られます。",
+    "support.done.fine": "取り消されないもの：すでに画面や別のウィンドウに表示されている内容（共有の前に閉じてください）と、送信済みのメール。患者の情報を含むメールはセッションの終了まで待ちます。ただし重篤な有害事象の通知は、試験事務局のメールボックスと試験の責任医師にすぐに送られ、スクリーニング番号、事象、発現日、施設が知った日、死亡または生命を脅かすものかどうかを含みます。",
     "support.done.wait": "開始前に求められた応答の一部が {s} 秒後もまだ送信中でした。それぞれ次の区切りで止まります。画面を共有する前に1分お待ちください。",
     "support.closed": "サポートセッション中は閉じています：患者のタスク、メモ、一覧は終了まで表示されません。",
     "support.closed.short": "サポートセッション中は閉じています",
+    "support.done.start_waited": "サポートセッションを開始しました。終了するまで、患者ページは全員に対して閉じています。開始前に求められ開始後に終わるページは、その終わりで拒否されます。",
+    "support.closed.job": "サポートセッション中は閉じています：この処理の依頼行、エラー文、メールのやり取り、監査行、患者単位のファイルは終了まで表示されません。件数は表示されます。",
 }
 
 ZH: dict[str, str] = {
@@ -122,8 +126,10 @@ ZH: dict[str, str] = {
     "support.err.confirm": "請先勾選：螢幕分享由醫院開始，並由院方人員操作鍵盤。",
     "support.err.on": "已有支援作業時段進行中。",
     "support.err.none": "此支援作業時段已不在進行中。",
-    "support.done.fine": "不會收回的：已在畫面上或其他視窗中的內容（分享前請關閉），以及已寄出的郵件。含病人資料的郵件會等到時段結束；嚴重不良事件通知仍會寄出。",
+    "support.done.fine": "不會收回的：已在畫面上或其他視窗中的內容（分享前請關閉），以及已寄出的郵件。含病人資料的郵件會等到時段結束；但嚴重不良事件通知仍會立即寄給試驗辦公室信箱與試驗主持人，內含篩選編號、事件、發生日、院方得知日，以及是否致死或危及生命。",
     "support.done.wait": "開始前所要求的部分回應在 {s} 秒後仍在傳送；各自會在下一段停止。分享畫面前請等一分鐘。",
     "support.closed": "支援作業時段中關閉：結束前不顯示病人的任務、備註與名單。",
     "support.closed.short": "支援作業時段中關閉",
+    "support.done.start_waited": "支援作業時段已開啟。結束前，病人頁面對所有人關閉；開始前所要求、開始後才完成的頁面，會在完成時被拒絕。",
+    "support.closed.job": "支援作業時段中關閉：結束前不顯示此作業的請求行、錯誤訊息、郵件往來、稽核紀錄與病人層級檔案；只顯示計數。",
 }
