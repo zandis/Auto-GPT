@@ -22,3 +22,7 @@ hospital IT must push the new root to the PCs again (§12, TLS step 3).
 4. `docker compose up -d --force-recreate caddy`. Open the console from a clinic PC: no warning; the browser shows
    the new end date.
 5. Delete the old key file. If the old key may have been copied, ask hospital IT to revoke the old certificate.
+
+**Recording IT's confirmation** (D-1365). Once IT has pushed Caddy's root to the PCs, put `TB_TLS_ROOT_CONFIRMED_BY`
+(who) and `TB_TLS_ROOT_CONFIRMED_ON` (YYYY-MM-DD) in `deploy/.env`; the box's first-run page also asks it. `doctor`
+(`named_choices`) warns on a PRODUCTION box until both are there.
