@@ -118,10 +118,13 @@ def test_the_layout_flags_are_read_together_in_one_read(box: dict[str, Any], mon
 #: hospital's, or the practice one), read as data like the study code
 CONTEXT_KEYS = ("site.ws.main", "site.ws.practice")
 #: menu entries that answer 403 with the flag on, as with it off: the investigator in no delegation log reads no
-#: patient-level list (master's menu links them the same; the page says why). Listed, never skipped silently
+#: patient-level list (master's menu links them the same; the page says why), and, since D-1258, none of the study's
+#: forms, IRB, set-up, sources or team pages. Listed, never skipped silently
 REFUSED_MENU_ENTRIES = frozenset(
     {("pi", "/week"), ("pi", f"/studies/{RS}/candidates"), ("pi", f"/studies/{RS}/conflicts"),
-     ("pi", f"/studies/{RS}/entry"), ("pi", f"/studies/{RS}/referrals")}
+     ("pi", f"/studies/{RS}/entry"), ("pi", f"/studies/{RS}/referrals"),
+     ("pi", f"/studies/{RS}/forms"), ("pi", f"/studies/{RS}/irb"), ("pi", f"/studies/{RS}/setup"),
+     ("pi", f"/studies/{RS}/sources"), ("pi", f"/studies/{RS}/team")}
 )  # fmt: skip
 
 
@@ -308,9 +311,9 @@ WANT: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]] = {
         (*_CLIN_HOSPITAL, "/site/staff", "/jobs", "/settings/notices", "/reports/research-office"),
         (*_CLIN_HOSPITAL, *STUDY, "/site/staff", "/jobs", "/settings/notices", "/reports/research-office"),
     ),
-    "pi": (
+    "pi": (  # D-1258: off GZQO's log, no GZQO page in "More" (each refuses this reader)
         ("/week", "/pilot/registry", "/reports"),
-        (*_CLIN_HOSPITAL, *STUDY, "/site/staff", "/breakglass", "/jobs", "/settings/notices"),
+        (*_CLIN_HOSPITAL, "/site/staff", "/breakglass", "/jobs", "/settings/notices"),
         (),
     ),
     "lpi": (
