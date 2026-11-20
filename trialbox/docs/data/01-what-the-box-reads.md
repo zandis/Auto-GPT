@@ -104,6 +104,15 @@ pins any of it as right:
   the tables; a reader given tables whose load time is not known sends such rows on every night. A new YJ or JLAC10
   release changes the ATC and look-up columns of order and lab rows the same way, and that is **not** carried into
   their change time: after loading one of those, a site runs a full night.
+- **When the terminology store cannot be reached (D-1257):** the SS-MIX2 storage is not read that night (the night
+  is held, `LIC-STORE-DOWN`). Read without the master, the diagnoses would be stored as a site without one has
+  them, and no later night would send them again. A site with no store configured is read as before.
+- **Loading a MEDIS release (D-1257):** one load at a time; a release older than the loaded one is refused unless
+  asked for (`load-release --allow-older`); the release before the loaded one is kept, older ones' codes are
+  removed.
+- **Two patients with one number (until D-1253's ids per patient land):** the lake's id is made of the number
+  alone, so two patients' orders, results or diagnoses with one number are one lake row. The reader does not make
+  it worse and cannot cure it; D-1257 "What remains" says what a site sees.
 - **Ids that two records would share (D-1257):** a record is its patient and its key column (the lake's ids are
   made per patient by D-1253's card, not by the reader). A result with no
   id of its own (`<order>@<day>-<OBX-1>`) and an administration with no order (`<order>`) are one row per patient,

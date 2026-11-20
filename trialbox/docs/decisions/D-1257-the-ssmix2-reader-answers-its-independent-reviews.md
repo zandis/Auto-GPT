@@ -49,7 +49,8 @@ test helper) and two reviews of #1095 (seven findings run, ten read). Each findi
 - **T2 (lab versions).** One file is one order's results (D-1252 R7): a result an older version named and the
   version in force does not is a tombstone; a deleted file tombstones what every older version named.
 - **I1 (ids are written as published; amends P8).** The order number is compared after `key_part` and never
-  rewritten: an id is built from the number as the record's oldest file wrote it. A record whose versions write it
+  rewritten: an id is built from the number as the record's oldest file wrote it (ORC-2 too is compared after
+  `key_part`: see the deep review, H2). A record whose versions write it
   in several widths has the ids each version's own name would give tombstoned, and its rows sent, on every night.
 - **I2 (one number, two types; extends P6; ruled by lane J).** The record is patient, day, データ種別 and オーダNo (R1).
   A prescription and an injection of one patient with one number are keyed `<number>@<データ種別>` (then `@<day>`
@@ -142,6 +143,76 @@ Tests: `tests/unit/test_medis_release.py` (each fails on master unless it says i
 this card's `check_release` on V5.18: 27,877 disease rows (27,684 current), 2,509 modifier rows, 112,967 index
 rows, nothing skipped.
 
+## The deep review of #1238 (2026-11-20)
+
+Lane J's independent review of head `0435f495`: three high, seven medium, seven low, and tests it called hollow.
+Each fix has a test that fails on `0435f495` (run in a separate worktree) unless it is named a guard.
+
+**The reader**
+
+- **H1 (an administration's change time).** Whether an administration fills a line, is a row of its own, and under
+  which id is decided by the order files of its number (either kind, any day, any flag). Their newest 発生日時 is
+  part of its change time; when the number is filed on several days, another kind's order has the id, or the order
+  is named by ORC-2 alone, the row is sent on every night. Test: `KEY_CHANGES` "an administration that filled a
+  line, then its number on a second day" and the next one.
+- **H2 (I1 restated).** ORC-2 says "another order" only as the key compares it (`key_part`): an ORC-2 that is the
+  file's number in another width is the same number and the id stays the first-written form, whatever width a later
+  version writes. The `<number>:<ORC-2>` a reader that compared as written published is a tombstone. And a rule
+  that closes the whole class: **a row whose id a tombstone names tonight is sent tonight** (its tombstone is not
+  sent, so only the row can replace what an earlier night stored under the id). Tests: `KEY_CHANGES` "half-width,
+  a version in full width", "an injection's administration takes the plain id two days' prescriptions leave";
+  `test_a_newer_version_named_in_another_width_is_the_same_record_under_its_first_id`.
+- **H3 (T1 by the key alone).** The adapter's lake id is made of the key column (`mapping/engine.py` `row_id`), so
+  one patient's tombstone of `RX01` is the id of another patient's order `RX01`. A tombstone is not sent while any
+  patient's row in force carries its key. The two-night harness (`tests/ssmix2_nights.py`) now builds its ids with
+  `Mapper.row_id` and `Mapper.tombstones` of the JP site mapping, so it follows whatever the adapter does. Test:
+  `test_one_patients_nightly_tombstone_never_removes_another_patients_order_of_the_same_number`.
+- **L1.** The id an administration had as a row of its own (`<order>~<drug>`), or the plain one it had with no
+  order, is a tombstone on the night its files or its order's change. **L3.** Two lab orders that share a result
+  id: covered by H2's rule (`test_a_lab_result_two_orders_name_keeps_the_value_of_the_order_that_still_holds_it`).
+- **M1 (X1 narrowed).** A name is a standardised name only with its 診療日 and its 発生日時 in their places; seven
+  parts between underscores are any file. `test_a_document_whose_name_merely_has_seven_parts_is_the_folders_own_document`.
+- **M2, M3, L6 (the master's ICD-10).** The master's answer is taken only from a row it holds as current, of a code
+  whose current rows agree, in a form the reader reads. A deleted number, a code every row of which is deleted, a
+  conflicting code, or an ICD-10 in a form not read (`A99-9`): no ICD-10 and the diagnosis unknown; the site's own
+  file is not asked in the master's place. The successor of a deleted row (移行先病名管理番号) is **not** followed:
+  that a successor is the same disease for a record written under the old number is not shown by anything here.
+  Codes are compared as codes: `E109` and `E109a` are one, in the master's rows and in a hospital's PRB-10.
+- **M7.** An untied administration is looked up by patient and kind, not searched for among every order line
+  (`test_an_untied_administration_is_looked_up_not_searched_for`, a ratio).
+
+**The terminology store** (`adapter.licensed`)
+
+- **M4.** `tables()` gave empty lists when the store was down. It still does, and `unavailable(tables)` says so of
+  them; the SS-MIX2 reader then refuses to read (`LIC-STORE-DOWN`): the night is held. No store configured at all
+  (`TB_DB_URL` not set) is a site that loaded nothing, and is read as before. `pipeline.py` is not changed.
+- **M5.** One load at a time (an advisory lock for the load's transaction) and one active release of a list held by
+  the database (terminology schema version 3: a unique partial index on `release (kind) WHERE active`; a store
+  that already holds two keeps the newest).
+- **M6.** A member of the archive is at most 16 MB (the largest real table is 6.4 MB), the archive 32 MB, a table
+  400,000 rows; a table is read line by line (never a list of its rows, nor a second copy of its text); rows not
+  read are listed up to 1,000 and counted beyond.
+- **L4.** What the database would refuse is refused where the table is read, by `check_release` and `load_release`
+  alike: a NUL (`LIC-CHARACTER`), a code or name over 1,000 characters (`LIC-LONG`), a line that is no row
+  (`LIC-FORMAT`), a corrupt archive member (`LIC-RELEASE-ARCHIVE`); a failure inside the database is `LIC-STORE`
+  with nothing loaded.
+- **L5.** The version and date are read only from a first line that is the release's own title
+  (`ICD10対応標準病名マスター V5.18 2026年6月1日改訂`, nothing before it and nothing after but 改訂); the digits in the
+  tables' names must be that version's (`LIC-RELEASE-VERSION`); a release older than the loaded one is refused
+  (`LIC-RELEASE-OLDER`) unless `load_release(..., allow_older=True)`. `check_release(source, store)` refuses it
+  too when it is given the store.
+- **L7.** User-defined Shift_JIS bytes (read by Python as private-use characters) refuse the release. A load keeps
+  the release it replaces and removes the codes of older ones (their `release` rows stay). `tables()` reads the
+  lists and the load time in one statement.
+
+**Signatures** stay: `check_release(source)` and `load_release(store, source, *, by)` work as before; each gained
+one optional argument (`store`, `allow_older`).
+
+**Tests the review called hollow.** The all-or-nothing test now fails its third table inside the database
+(`test_a_release_whose_third_table_fails_in_the_database_loads_nothing`); the tombstone invariant is asserted on the
+lake after two nights with the adapter's ids (`test_no_tombstone_ever_removes_a_record_in_force_from_the_lake`, a
+guard: it also passes on `0435f495`); the master-change two-night test runs with the load time unknown and known.
+
 ## Findings
 
 Reproduced on master `d28f6c03` by the named test of `tests/unit/test_ssmix2_10b2c_reviews.py` unless another file
@@ -179,8 +250,10 @@ Found while reproducing :1348, same family: a prescription and an injection with
 
 - **Shipped samples** (the exporter's 400-patient hospital, the same with `--hard-cases`, and the specification
   kit; each without licensed tables and with the four licensed samples of `tests/fixtures/licensed`): 10,760,
-  10,772 and 23 rows. No row, id, reading, tombstone or statistic differs between master and this head. The
-  exporter's 1,193 diagnoses read confirmed and active on both.
+  10,772 and 23 rows. No row, id, reading or statistic differs between master and this head. The exporter's 1,193
+  diagnoses read confirmed and active on both. After the deep review a whole read also names 1,213 tombstones
+  master does not: the `<order>~<drug>` id each administration tied to its line would have had as a row of its
+  own (L1), none of which is in a lake. A delta night with no new file sends 0 rows and 0 of these tombstones.
 - **A site without the master** (rule Z1): of the shipped sample's 1,193 diagnoses, 0 move (0 %; the exporter
   writes no ZPR-5). In the probe sets, 13 of the 200 diagnoses read without the master move (6.5 %), below.
 - **A licensed site, per night** (rule M1): on the shipped sample with the four licensed samples, 398 of 1,193
@@ -215,6 +288,19 @@ state Z1. The synthetic modifier tables (`tests/ssmix2_probes.py`,
   profile carry types, not reasons. Showing the Z1 count is the console's (card 10B-21/22).
 - **The lake's ids** are made of the key column alone on master; SS-MIX2 numbers are unique only with the patient
   (#1095 B :1565 and the same for `diag_no` and `rx_no`). That is D-1253's card (#1192), not the reader.
+  **The consequence until #1192 lands (deep review, H3):** two patients' records with one number are ONE lake row
+  (the one written last), on a full night and on a delta night alike, and a delta night and a full night may keep
+  different ones of the two. The reader no longer makes it worse (no tombstone of one patient removes the other's
+  row), and it cannot cure it: a tombstone that is due for one patient is held back while another patient's record
+  carries the number, so that patient's stale row stays under the shared id until the other's row is written over
+  it. With an id per patient the guard is only stricter than it need be, and can then compare the patient again.
+- **An id that depends on a file still being there (deep review, L2).** An order id is built from the オーダNo as the
+  record's oldest file wrote it. If a hospital purges that old file (flag 2) and it was written in another width
+  than the files that remain, the id changes with no tombstone for the old one. Not fixed: the reader keeps no
+  memory of what it published, and a purge is not something the guideline describes. A full night after a purge
+  rebuilds the lake.
+- **The readme's first line** is matched strictly (deep review, L5). If MEDIS words a later release's first line
+  otherwise, the release is refused with `LIC-RELEASE-README` and the pattern is widened then, with that line.
 - **Remains, goes to 10B-2: an order id that never renames.** Here the データ種別 and the day enter an order's id only
   from the night a second type or a second day is filed for its number; that night the earlier id is tombstoned and
   the order sent again under the new one (safe, and proven delta equals full, but the id changes). An id that never
