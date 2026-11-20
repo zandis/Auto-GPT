@@ -9,7 +9,7 @@ import json
 from typing import Any
 
 import pytest
-from console import i18n_instruments
+from console import i18n_instruments, instruments_page  # noqa: F401 - importing the page merges its texts into CATALOGUES
 from console.i18n import CATALOGUES
 from tb_common import instruments
 
