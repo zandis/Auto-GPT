@@ -2,18 +2,20 @@
 closure into one reader (``console.own_roles``) changes nothing the account page shows; the home shows a person only
 what the home already showed them.
 
-The invariant (D-1391), named: ``test_the_home_shows_no_study_link_count_or_value_that_master_s_home_did_not``. For every
+The invariant (D-1391), named: ``test_the_home_is_master_s_home_plus_a_card_of_the_account_s_own_roles``. For every
 column of the role walk (the seven roles of the matrix, the log's PI, sub-investigator and monitor, the scoped SMO and CRO
 accounts), with the flag ``layout.home_today`` off and on, in en, ja and zh-TW, the studies, the links (hrefs), the
-counts and the patient-linked values on the home are a subset of what that column's home showed on origin/master.
-What master showed is data: ``home_roles_9f1_master.json``, captured by this file (``HOME_ROLES_CAPTURE_TO``) from a
+counts and the patient-linked values on the home are a subset of what that column's home showed on origin/master, the
+home outside the card is master's own, and every line of the card is a line of the same account's roles section on its
+account page. What master showed is data: ``home_roles_9f1_master.json``, captured by this file (``HOME_ROLES_CAPTURE_TO``) from a
 clean ``git archive`` copy of origin/master. The same capture on this branch gives the account page's roles section,
 which is compared with master's byte for byte (``test_my_roles_gives_every_column_what_it_gave_on_master``).
 
 Regenerating the data, when another card changes the home page and this test says so:
 ``git archive origin/master | tar -x -C <dir>``, copy this file into ``<dir>/trialbox/tests/console/``, and from
 ``<dir>/trialbox`` run it with ``HOME_ROLES_CAPTURE_TO=<path of home_roles_9f1_master.json>`` and a TB_TEST_ROOT of its
-own: ``pytest tests/console/test_home_roles_9f1.py -k capture``.
+own: ``pytest tests/console/test_home_roles_9f1.py -k capture`` (start from no file). Any later card that changes the
+home page makes the invariant fail until this is done again from the master that has it.
 
 Synthetic data only."""
 
@@ -101,6 +103,8 @@ def seeded(box: dict[str, Any], tmp_path: Path) -> Iterator[tuple[dict[str, Any]
     _log(team, "GZQO", "wsteward", "other", "2026-01-01", None, ("enter_data",))
     _log(team, "GZQO", "wprivacy", "other", "2026-01-01", None, ("enter_data",))
     _log(team, "GZQO", "wcroin", "monitor", "2026-01-01", None)
+    _log(team, "GZQO", "wother", "pi", "2026-01-01", None)  # other people's entries: on no card but their own
+    _log(team, "GZQO", "wghost", "sub_pi", "2026-01-01", None, ("screen", "run"))
     _log(team, "RA-BIO", "wpi", "sub_pi", "2026-01-01", None, ("screen",))
     _log(team, "RA-BIO", "wcrc", "crc", "2026-01-01", None, ("enter_data",))
     _log(team, rw.OTHER, "wpi", "pi", "2026-01-01", None)
@@ -135,7 +139,15 @@ def _features(page: str) -> dict[str, Any]:
                      | set(re.findall(r"/studies/([A-Za-z0-9-]+)", " ".join(hrefs))))  # fmt: skip
     numbers = sorted(set(re.findall(r"\d+", plain)))
     values = sorted(set(re.findall(r"\b(?:[0-9a-f]{8,}|[A-Z][A-Za-z0-9]*-\d{2,}|[A-Z]{2,}\d{3,})\b", plain)))
-    return {"studies": studies, "hrefs": hrefs, "numbers": numbers, "values": values}
+    return {"studies": studies, "hrefs": hrefs, "numbers": numbers, "values": values, "rest": _rest(main)}
+
+
+def _rest(main: str) -> str:
+    """The page's content without the roles card, as written (the CSRF token and the session clock left out, runs of
+    white space as one: the empty line where no card stands is not content)."""
+    main = re.sub(r'<section class="card" data-testid="home-roles">.*?</section>', "", main, flags=re.S)
+    main = re.sub(r'name="csrf" value="[^"]+"|data-(?:idle|abs)-left="\d+"', "", main)
+    return re.sub(r"\s+", " ", main).strip()
 
 
 def _roles_section(page: str) -> str:
@@ -217,15 +229,18 @@ def now(request: pytest.FixtureRequest) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("scene", SCENES)
-def test_the_home_shows_no_study_link_count_or_value_that_master_s_home_did_not(
+def test_the_home_is_master_s_home_plus_a_card_of_the_account_s_own_roles(
     request: pytest.FixtureRequest, scene: str, master: dict[str, Any]
 ) -> None:
-    """The invariant of D-1391. A home that answers on master answers here with the same status and place (a redirect
-    goes where it went), and each of its four sets is within master's; a role whose home on master was not a page has
-    none now. The roles card's own words are only study ids, role words and task words: it carries no link, no number
-    and no value."""
+    """The invariant of D-1391. For every column, flag and language: a home that answers on master answers here with the
+    same status and place (a redirect goes where it went); (a) outside the card the home is master's, so nothing
+    disappears; its studies, links, counts and patient-linked values are within master's (the four sets); (b) every
+    line of the card is a line of this same account's roles section on its account page (up to the dates and the
+    warning, which the card leaves out), and no other person's username appears in it."""
     now, master = _now(request, scene), master[scene]
     assert set(now) == set(master)
+    others = {c.name for c in rw.COLUMNS}
+    names = {f"w{n.replace('_', '')}" for n in others} | {"wother", "wghost", "admin", "viewer"}
     shown = 0
     for key, was in master.items():
         if key.endswith("/account"):
@@ -234,9 +249,15 @@ def test_the_home_shows_no_study_link_count_or_value_that_master_s_home_did_not(
         assert (got["status"], got["location"]) == (was["status"], was["location"]), key
         if got["status"] != 200:
             continue
+        assert got["rest"] == was["rest"], key
         for what in ("studies", "hrefs", "numbers", "values"):
             assert set(got[what]) <= set(was[what]), (key, what, sorted(set(got[what]) - set(was[what])))
-        shown += bool(got["roles_card"])
+        card = got["roles_card"]
+        shown += bool(card)
+        account = now[key.rsplit("|", 1)[0] + "|/account"]["roles"]
+        for li in re.findall(r"<li .*?</li>", card, flags=re.S):
+            assert li.removesuffix("</li>") in account, (key, li)
+        assert not any(re.search(rf"(?<![A-Za-z0-9]){n}(?![A-Za-z0-9])", card) for n in names), key
     assert shown, "no role was shown on any home: the test proves nothing"
     if scene == "lb":  # the home that carries a participant's links and screening numbers on master
         assert any(w.get("values") and w["status"] == 200 for k, w in master.items() if not k.endswith("/account"))
@@ -282,16 +303,68 @@ def test_every_role_sees_its_own_roles_on_the_home_and_only_where_the_home_names
             assert card("crc", flag, lang).count('data-testid="role-GZQO-crc"') == 1
 
 
+def _no_id(card: str) -> str:
+    """The card's text without the study ids it names (an id may hold digits, as AB12): what is left shows no count."""
+    return re.sub(r"<[^>]+>", " ", re.sub(r'<strong class="mono">.*?</strong>', " ", card))
+
+
 @pytest.mark.parametrize("scene", SCENES)
-def test_the_home_card_carries_no_link_no_number_no_date_and_no_warning(
+def test_the_home_card_carries_no_link_no_count_no_date_and_no_warning(
     request: pytest.FixtureRequest, scene: str
 ) -> None:
     for key, got in _now(request, scene).items():
         card = got.get("roles_card", "")
         if not card:
             continue
-        assert "href=" not in card and not re.search(r"\d", re.sub(r"<[^>]+>", " ", card)), key
+        assert "href=" not in card and not re.search(r"\d", _no_id(card)), key
         assert "pill" not in card and "role-ending" not in card, key
+
+
+def _card_of(roles: list[dict[str, Any]]) -> str:
+    from jinja2 import Environment, FileSystemLoader
+
+    env = Environment(
+        loader=FileSystemLoader(Path(__file__).parents[2] / "services/console/templates"), autoescape=True
+    )
+    env.globals["t"] = lambda key, **kw: key
+    return str(
+        env.from_string('{% from "_roles.html" import home_roles_card %}{{ home_roles_card(x) }}').render(x=roles)
+    )
+
+
+def test_a_study_id_with_digits_is_named_and_no_count_is_shown_and_the_order_is_the_pages() -> None:
+    """Study ids may hold digits (AB12): the card names the id and shows no count; its lines follow the order the page
+    lists its studies in (not the id's alphabetical order), the log's order within one study."""
+    from datetime import date
+    from types import SimpleNamespace
+
+    from console.own_roles import own_roles
+
+    def entry(rs: str, role: str, tasks: tuple[str, ...] = ()) -> Any:
+        return SimpleNamespace(ruleset=rs.lower(), role=role, tasks=tasks, start="2026-01-01", end="2026-11-12", days_left=lambda d: 2,
+                  active_on=lambda d: True)  # fmt: skip
+
+    team = SimpleNamespace(entries_for=lambda user: [entry("AB12", "pi"), entry("MM3", "sub_pi", ("screen",)), entry("ZZ1", "crc", ("run",)),
+                                         entry("AB12", "sub_pi", ("refer",)), entry("OFF9", "pi")])  # fmt: skip
+    seen = {"AB12", "MM3", "ZZ1"}
+    plain = own_roles(team, "u", date(2026, 11, 10), seen)
+    ordered = own_roles(team, "u", date(2026, 11, 10), seen, ["ZZ1", "AB12", "MM3"])
+    assert [ln["rs"] for ln in plain] == ["AB12", "MM3", "ZZ1", "AB12"]  # the account page's order: the log's
+    assert [(ln["rs"], ln["role"]) for ln in ordered] == [
+        ("ZZ1", "crc"),
+        ("AB12", "pi"),
+        ("AB12", "sub_pi"),
+        ("MM3", "sub_pi"),
+    ]
+    card = _card_of(ordered)
+    assert (
+        card.index("role-ZZ1-crc")
+        < card.index("role-AB12-pi")
+        < card.index("role-AB12-sub_pi")
+        < card.index("role-MM3-sub_pi")
+    )
+    assert "OFF9" not in card and ">AB12<" in card and "href=" not in card and "pill" not in card
+    assert not re.search(r"\d", _no_id(card)) and "2026" not in card and "role-ending" not in card
 
 
 def test_my_roles_gives_every_column_what_it_gave_on_master(
