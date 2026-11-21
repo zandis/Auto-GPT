@@ -1,11 +1,14 @@
 {# 9k-14 (D-1386): the person card, one macro for the lists that showed a person as a table row. The card holds the
    fields the row held, in the same words, and no others: name (a link, with what sits under it), the figure at the
-   right of it, the date line, "why" (what is met or still needed), and the state (badges, and the row's one act).
-   Each part is built by the page that owns the field, so the card reads nothing of a patient by itself. #}
-{% macro person_card(testid, name, met='', meta='', meta_label='', why='', why_label='', state='', status='', sel=false, pid='', pf=false) %}<article class="pcard{{ ' sel' if sel else '' }}"{% if status %} data-status="{{ status }}"{% endif %}{% if pid %} id="p-{{ pid }}"{% endif %} data-testid="{{ testid }}">
-  <h3 class="pcard-name">{{ name }}</h3>
-  {% if met %}<p class="pcard-met">{{ met }}</p>{% endif %}
-  {% if meta %}<p class="pcard-meta" data-col="{{ meta_label }}"{% if pf %} data-label="{{ meta_label }}"{% endif %}>{{ meta }}</p>{% endif %}
-  {% if why %}<div class="pcard-why" data-col="{{ why_label }}"{% if pf %} data-label="{{ why_label }}"{% endif %}>{{ why }}</div>{% endif %}
-  {% if state %}<div class="pcard-state">{{ state }}</div>{% endif %}
+   right of it, the date line, the state (badges, and the row's one act) and "why" (what is met or still needed).
+   Each part is built by the page that owns the field, so the card reads nothing of a patient by itself. Every part
+   starts with its column's name (a text, visible for the date and "why", read out for the figure and the state), so a
+   screen reader hears "Criteria met 2/2" and "Status ..." apart from "Still needed ...". The parts are written in
+   the order they show on a phone: name, figure, date, state, why. #}
+{% macro person_card(testid, name, met='', meta='', why='', state='', status='', sel=false, pid='', level=3, meta_label='', why_label='', plain_why=false) %}<article class="pcard{{ ' sel' if sel else '' }}"{% if status %} data-status="{{ status }}"{% endif %}{% if pid %} id="p-{{ pid }}"{% endif %} data-testid="{{ testid }}">
+  <h{{ level }} class="pcard-name">{{ name }}</h{{ level }}>
+  {% if met %}<p class="pcard-met"><span class="pcard-lab">{{ t('wb.c.met') }} </span>{{ met }}</p>{% endif %}
+  {% if meta %}<p class="pcard-meta"><span class="pcard-lab">{{ meta_label }} </span>{{ meta }}</p>{% endif %}
+  {% if state %}<div class="pcard-state"><span class="pcard-lab">{{ t('wb.c.status') }} </span>{{ state }}</div>{% endif %}
+  {% if why %}<div class="pcard-why{{ ' plain' if plain_why else '' }}"><span class="pcard-lab">{{ why_label }} </span>{{ why }}</div>{% endif %}
 </article>{% endmacro %}

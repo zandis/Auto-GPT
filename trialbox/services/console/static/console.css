@@ -617,7 +617,8 @@ nav.ptabs .ptabs-rs { color: var(--muted); }
 
 /* 9k-14 (D-1386): the person card, templates/_pcard.html. One <article class="pcard"> per person on the weekly list and
    the cohort list, in place of the table row and its phone-first cards: the name and the figure on the first line,
-   the date and the state, then what is still needed, each part with its column's name. One layout at every width,
+   the date and the state, then what is still needed, each part starting with its column's name (a text; hidden for
+   the figure and the state, which a screen reader reads out). One layout at every width,
    so no column is off-screen at 390 px; from 641 px the state sits beside the name and the date. */
 .pcards { font-size: var(--t-meta); }
 .pcard { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name met" "meta meta" "state state" "why why";
@@ -628,7 +629,9 @@ nav.ptabs .ptabs-rs { color: var(--muted); }
 .pcard-meta { grid-area: meta; font-variant-numeric: tabular-nums; white-space: normal; word-break: keep-all; }
 .pcard-why { grid-area: why; color: var(--warn); }
 .pcard-state { grid-area: state; }
-.pcard [data-col]::before { content: attr(data-col) " "; color: var(--muted); font-weight: 600; }
+.pcard-lab { color: var(--muted); font-weight: 600; }
+.pcard-met .pcard-lab, .pcard-state .pcard-lab { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.pcard-why.plain { color: inherit; }
 .pcard .bad { color: var(--bad); font-weight: 600; }
 .pcard .meter { width: 40px; }
 .pcard.sel { background: var(--warn-bg); }

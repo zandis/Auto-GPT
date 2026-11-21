@@ -115,9 +115,10 @@ DECLARED: dict[str, Declared] = {
         default="off",
         seed_env=None,  # what a phone shows first changes only by a person's ruling, with a reason (D-1222)
         help="The console's phone-first layout (J-3, D-1222): on a phone the week list comes first under the title "
-        "and the study's links fold into one 'Study' fold below it, the list's rows are cards, the menu's 'More' folds "
-        "in two levels, and the patient sheet shows the evidence before the mark's note and reason. Off: the pages "
-        "as before. A page uses the value last read: the console reads the layout flags at its start and then in "
+        "and the study's links fold into one 'Study' fold below it, the menu's 'More' folds "
+        "in two levels, and the patient sheet shows the evidence before the mark's note and reason. Off: those pages "
+        "as before. The weekly and cohort lists are person cards (D-1386) with the flag on or off. "
+        "A page uses the value last read: the console reads the layout flags at its start and then in "
         "the background at most every 5 seconds, so a change shows within about 5 seconds; no restart.",
     ),
     "layout.home_today": Declared(

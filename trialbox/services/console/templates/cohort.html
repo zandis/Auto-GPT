@@ -11,7 +11,7 @@
 <section class="card">
 {% if not rows %}<p class="empty" data-testid="cohort-empty">{{ t('cohort.empty') }}</p>{% else %}
 <div class="pcards" data-testid="cohort">
-{% for r in rows %}{% set f_name %}<b>{{ t('week.patient', p=r.short) }}</b> <span class="pill" data-tone="{{ tone('status', 'new') }}">{{ t('cohort.new') }}</span>{% endset %}{{ person_card('member-' ~ r.short, f_name, r.met ~ '/' ~ r.total, r.visit or t('week.no_visit'), t('patient.visit'), r.department or '–', t('cohort.c.dept')) }}{% endfor %}
+{% for r in rows %}{% set f_name %}<b>{{ t('week.patient', p=r.short) }}</b> <span class="pill" data-tone="{{ tone('status', 'new') }}">{{ t('cohort.new') }}</span>{% endset %}{{ person_card('member-' ~ r.short, f_name, r.met ~ '/' ~ r.total, r.visit or t('week.no_visit'), r.department or '–', '', '', '', '', 2, t('patient.visit'), t('cohort.c.dept'), true) }}{% endfor %}
 </div>{% endif %}
 <p class="hint">{{ t('cohort.no_contact') }}</p>
 <p class="hint" data-testid="cohort-run">{{ tp('week.meta', job=job.type, date=(job.run_date.isoformat() if job.run_date else job.updated_at|local(10)), snapshot=(job.snapshot_date.isoformat() if job.snapshot_date else '–')) }}</p>
