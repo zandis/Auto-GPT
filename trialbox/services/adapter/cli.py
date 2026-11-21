@@ -179,6 +179,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
     fc = cfg.settings.feed_completeness  # T-611
     ac = AdapterConfig(
         lake_dir=lake_dir,
+        screening_site=cfg,
         secrets_dir=Path(cfg.env.secrets_dir),
         mapping_path=mapping,
         site_id=cfg.settings.site.id,
@@ -339,6 +340,10 @@ def keys_init(secrets: Path | None = None) -> int:
         except KeyMissingError as exc:  # an empty file is never overwritten: it may be a restore gone wrong
             print(f"{name}: {exc}; put the site's key back from the backup", file=sys.stderr)
             return 1
+        if made and name == SITE_KEY_FILE:
+            from adapter.screening_evidence import first_install
+
+            first_install(secrets)
         print(f"{name}: {'made' if made else 'kept'} (fingerprint {fp})")
     return 0
 

@@ -27,7 +27,13 @@ def site(
     ingested: dict[str, Any], site_key_dir: Path, tmp_path_factory: pytest.TempPathFactory
 ) -> tuple[Box, Path, Path]:
     work = tmp_path_factory.mktemp("admission")
-    box = make_box(work, ingested["lake_dir"], site_key_dir, extra_env={"TB_DATA_DIR": str(work)})
+    box = make_box(
+        work,
+        ingested["lake_dir"],
+        site_key_dir,
+        settings_update={"rate_limits_per_day": {"SCREEN": 40}},
+        extra_env={"TB_DATA_DIR": str(work)},
+    )
     record, clearance = accept_fixture(box, "GZQO")
     return box, record, clearance
 
@@ -171,3 +177,140 @@ def test_restored_database_release_needs_a_fresh_external_clearance(site: tuple[
         assert pointers(box) == before
     finally:
         accept_fixture(box, "GZQO")
+
+
+def attest(record: Path, clearance: Path, data: dict[str, Any]) -> None:
+    record.write_text(json.dumps(data))
+    grant = json.loads(clearance.read_bytes())
+    grant["accepted_records"].append(hashlib.sha256(record.read_bytes()).hexdigest())
+    clearance.write_text(json.dumps(grant))
+
+
+def test_inventory_omitted_from_both_lists(evidence: tuple[Box, Path, Path]) -> None:
+    box, path, clearance = evidence
+    data = json.loads(path.read_bytes())
+    data["inventory"] = {"lake": [], "derived": [], "omop": []}
+    data["rows"] = []
+    attest(path, clearance, data)
+    job = run(box)
+    assert job.error and job.error.detail == REFUSAL and not job.outputs
+
+
+def test_missing_lifecycle_table(evidence: tuple[Box, Path, Path]) -> None:
+    from console.sitestore import SiteStore
+
+    box, _, _ = evidence
+    site_store = SiteStore(box.orch.db.url)
+    site_store.db.execute("ALTER TABLE study_state RENAME TO saved_lifecycle")
+    try:
+        job = run(box)
+        assert job.error and job.error.detail == REFUSAL and not job.outputs
+    finally:
+        site_store.db.execute("ALTER TABLE saved_lifecycle RENAME TO study_state")
+        site_store.close()
+
+
+def test_stored_score_setting_unavailable(evidence: tuple[Box, Path, Path], monkeypatch: pytest.MonkeyPatch) -> None:
+    box, path, clearance = evidence
+    data = json.loads(path.read_bytes())
+    data["use"]["stored_read"] = "on"
+    attest(path, clearance, data)
+    flags = Flags(url=box.orch.db.url, audit=box.orch.audit)
+    flags.set("derived.stored_read", "on", "fixture-steward", "verify stored scores")
+    read = Flags.row
+
+    def row(flags: Flags, name: str) -> str | None:
+        if name == "derived.stored_read":
+            raise DatabaseError("unavailable")
+        return read(flags, name)
+
+    monkeypatch.setattr(Flags, "row", row)
+    try:
+        job = run(box)
+        assert job.error and job.error.detail == REFUSAL and not job.outputs
+    finally:
+        flags.set("derived.stored_read", "off", "fixture-steward", "restore test setting")
+
+
+def test_replay_requires_original_accepted_bytes(evidence: tuple[Box, Path, Path]) -> None:
+    from orchestrator.rerun import rerun
+
+    box, path, clearance = evidence
+    job = run(box)
+    assert job.state == "done", job.error
+    data = json.loads(path.read_bytes())
+    from orchestrator.studystore import StudyStore
+
+    study = StudyStore(path.parent, box.orch.db.url)
+    try:
+        study.save_screen_scope("GZQO", "hospital", [], "coordinator", "2026-10-05")
+        data["use"]["scope"]["practitioners"] = None
+        attest(path, clearance, data)
+        replay = rerun(box.orch, job.job_id)
+        assert replay.error and t("en", REFUSAL) in replay.error
+    finally:
+        study._db.execute("DELETE FROM screen_scope WHERE ruleset = ?", ("GZQO",))
+        study.close()
+
+
+def test_cohort_routes_to_requester(evidence: tuple[Box, Path, Path]) -> None:
+    box, _, _ = evidence
+    path, clearance = accept_fixture(box, "RA-COH")
+    data = json.loads(path.read_bytes())
+    data["use"]["scope"]["practitioners"] = None
+    data["use"]["list_to"] = ["pi@hospa.test"]
+    data["use"]["aggregate_to"] = sorted({*data["use"]["aggregate_to"], "pi@hospa.test"})
+    attest(path, clearance, data)
+    job = box.orch.create(
+        JobCreate(type="SCREEN", requested_by="pi@hospa.test", ruleset="RA-COH", options={"scope": "hospital"})
+    )
+    box.orch.drain()
+    saved = box.orch.db.get(job.job_id)
+    assert saved and saved.state == "done", saved.error if saved else None
+    output = next(o for o in saved.outputs or [] if o.filename.startswith("candidate_list_"))
+    assert output.recipients == ["pi@hospa.test"]
+
+
+def test_restore_of_secrets_cannot_reinstate_a_revoked_grant(evidence: tuple[Box, Path, Path]) -> None:
+    box, _, grant = evidence
+    # Restore the release in the DB (identical to the current row) and every backed-up secret.
+    secrets = Path(box.orch.cfg.env.secrets_dir)
+    backup = {p: p.read_bytes() for p in secrets.rglob("*") if p.is_file()}
+    grant.unlink()
+    for path, body in backup.items():
+        path.write_bytes(body)
+    job = run(box)
+    assert job.error and job.error.detail == REFUSAL and not job.outputs
+
+
+@pytest.mark.parametrize("matching", [True, False], ids=["verified", "wrong-hash"])
+def test_first_screen_of_restored_date_needs_matching_generation_hash(
+    evidence: tuple[Box, Path, Path], matching: bool
+) -> None:
+    from lake.store import gen_dir
+
+    box, _, _ = evidence
+    client = box.orch.services.lake
+    assert isinstance(client, LakeLocal)
+    gen = client.generation()
+    assert gen is not None
+    folder = gen_dir(client.lake.dir)
+    physical = folder / f"{gen}.duckdb"
+    metadata = physical.with_suffix(".json")
+    saved = physical.with_suffix(".saved")
+    before = metadata.read_bytes()
+    physical.rename(saved)
+    try:
+        if not matching:
+            metadata.write_text(json.dumps({**json.loads(before), "sha256": "0" * 64}))
+        assert client.generation() is None
+        job = run(box)
+        if matching:
+            assert job.state == "done" and job.options and job.options["lake_generation"] == gen, job.error
+        else:
+            assert job.error and job.error.detail == REFUSAL and not job.outputs
+            assert client.generation() is None
+    finally:
+        physical.unlink(missing_ok=True)
+        saved.replace(physical)
+        metadata.write_bytes(before)

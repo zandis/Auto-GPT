@@ -147,3 +147,26 @@ def test_base_is_configurable_and_defaults_to_origin_master(monkeypatch: pytest.
     assert guard.base_revision() == "origin/master^{commit}"
     monkeypatch.setenv(guard.BASE_ENV, "review-base")
     assert guard.base_revision() == "review-base^{commit}"
+
+
+def test_raw_lake_scope_query_is_a_bypass() -> None:
+    file = "services/orchestrator/scenarios/screen.py"
+    source = (guard.ROOT / file).read_text()
+    changed = source.replace("ctx.services.lake.query(", "ctx.services.lake.lake.query(")
+    assert (file, "scope_patients") in guard.scan_source(file, changed)
+
+
+def test_shipped_ingest_and_restore_in_inventory() -> None:
+    entries = guard.inventory((guard.ROOT / guard.RATCHET).read_bytes())
+    assert {
+        ("tools/ingest_local.py", "run_local.rebuild"),
+        ("tools/trialbox/backup.py", "restore"),
+        ("services/lake/store.py", "Lake.generation"),
+    } <= entries
+
+
+def test_failed_restore_hold_writer_is_listed() -> None:
+    file = "tools/trialbox/backup.py"
+    findings = guard.scan_source(file, (guard.ROOT / file).read_text())
+    for writer in ("hold_screening", "release_own_hold"):
+        assert findings[(file, writer)]["restore"]

@@ -1,9 +1,27 @@
 [
   {
     "file": "libs/tb_common/derived_store.py",
+    "function": "mapping_version_of",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "libs/tb_common/derived_store.py",
+    "function": "rows_from_lake",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "libs/tb_common/derived_store.py",
     "function": "run_batch",
     "area": "builders",
     "why": "The builder still accepts its source rows before it receives the complete owner-reviewed inventory."
+  },
+  {
+    "file": "libs/tb_common/lakeprobe.py",
+    "function": "no_table",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
   },
   {
     "file": "libs/tb_common/lakeprobe.py",
@@ -330,6 +348,12 @@
     "why": "The rule repository still installs or exposes versions through its existing approval and tag workflow."
   },
   {
+    "file": "services/criteria_compiler/equivalence/gate.py",
+    "function": "sql_evaluations",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
     "file": "services/criteria_compiler/import_ruleset.py",
     "function": "install",
     "area": "importer",
@@ -438,6 +462,12 @@
     "why": "This reader or pin still resolves a lake generation through the existing snapshot contract."
   },
   {
+    "file": "services/edc/prefill.py",
+    "function": "LakeFacts._q",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
     "file": "services/gateway/core.py",
     "function": "Gateway.contexts",
     "area": "generation",
@@ -504,6 +534,12 @@
     "why": "The rebuild request or worker still accepts a snapshot and build settings without a generation admission record."
   },
   {
+    "file": "services/lake/app.py",
+    "function": "vec_s2b",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
     "file": "services/lake/build.py",
     "function": "main",
     "area": "rebuild",
@@ -565,6 +601,18 @@
   },
   {
     "file": "services/lake/client.py",
+    "function": "LakeHttp.vec_s2b",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/lake/client.py",
+    "function": "LakeLocal.chunks_search",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/lake/client.py",
     "function": "LakeLocal.generation",
     "area": "generation",
     "why": "This reader or pin still resolves a lake generation through the existing snapshot contract."
@@ -583,6 +631,12 @@
   },
   {
     "file": "services/lake/client.py",
+    "function": "LakeLocal.query",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/lake/client.py",
     "function": "LakeLocal.rebuild",
     "area": "rebuild",
     "why": "The rebuild request or worker still accepts a snapshot and build settings without a generation admission record."
@@ -598,6 +652,12 @@
     "function": "LakeLocal.start_rebuild",
     "area": "rebuild",
     "why": "The rebuild request or worker still accepts a snapshot and build settings without a generation admission record."
+  },
+  {
+    "file": "services/lake/client.py",
+    "function": "LakeLocal.vec_s2b",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
   },
   {
     "file": "services/lake/flatten.py",
@@ -745,6 +805,12 @@
   },
   {
     "file": "services/lake/store.py",
+    "function": "Lake.vec_s2b",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/lake/store.py",
     "function": "_holds",
     "area": "generation",
     "why": "This reader or pin still resolves a lake generation through the existing snapshot contract."
@@ -754,6 +820,48 @@
     "function": "building",
     "area": "rebuild",
     "why": "The rebuild request or worker still accepts a snapshot and build settings without a generation admission record."
+  },
+  {
+    "file": "services/matching/batches.py",
+    "function": "query_by_patients",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/matching/carried.py",
+    "function": "Carried.load",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/matching/cascade/engine.py",
+    "function": "_Run._s1_rows",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/matching/cascade/engine.py",
+    "function": "_Run.s0",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/matching/coded_values.py",
+    "function": "attach",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/matching/coverage.py",
+    "function": "Coverage.load",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/matching/recorded.py",
+    "function": "Recorded.load",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
   },
   {
     "file": "services/omop/__main__.py",
@@ -985,6 +1093,12 @@
   },
   {
     "file": "services/orchestrator/rerun.py",
+    "function": "PinnedLake.chunks_search",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/orchestrator/rerun.py",
     "function": "PinnedLake.hold",
     "area": "generation",
     "why": "This reader or pin still resolves a lake generation through the existing snapshot contract."
@@ -1050,10 +1164,40 @@
     "why": "This job path still selects a snapshot or rule version through its existing job contract."
   },
   {
+    "file": "services/orchestrator/scenarios/evaluate.py",
+    "function": "NoteJudge.window",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/orchestrator/scenarios/facts.py",
+    "function": "_das28",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/orchestrator/scenarios/facts.py",
+    "function": "collect",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
     "file": "services/orchestrator/scenarios/feas.py",
     "function": "run",
     "area": "jobs",
     "why": "This job path still selects a snapshot or rule version through its existing job contract."
+  },
+  {
+    "file": "services/orchestrator/scenarios/feas_profile.py",
+    "function": "build",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/orchestrator/scenarios/feas_profile.py",
+    "function": "data_facts",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
   },
   {
     "file": "services/orchestrator/scenarios/microbatch.py",
@@ -1072,6 +1216,12 @@
     "function": "answer_rows_swept",
     "area": "generation",
     "why": "This reader or pin still resolves a lake generation through the existing snapshot contract."
+  },
+  {
+    "file": "services/orchestrator/scenarios/screen.py",
+    "function": "deceased_now",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
   },
   {
     "file": "services/orchestrator/scenarios/submit.py",
@@ -1096,6 +1246,18 @@
     "function": "after_ingest",
     "area": "builders",
     "why": "The builder still accepts its source rows before it receives the complete owner-reviewed inventory."
+  },
+  {
+    "file": "services/patient_profile/twin.py",
+    "function": "lake_schema",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/patient_profile/twin.py",
+    "function": "read_lake",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
   },
   {
     "file": "services/sitesetup/readiness.py",
@@ -1174,5 +1336,545 @@
     "function": "index_snapshot",
     "area": "builders",
     "why": "The builder still accepts its source rows before it receives the complete owner-reviewed inventory."
+  },
+  {
+    "file": "services/vec/index.py",
+    "function": "snapshot_notes",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "services/vec/s2b.py",
+    "function": "LakeVecSource._ask",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "tools/acceptance.py",
+    "function": "_night_jobs",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/acceptance.py",
+    "function": "main",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/backup_drill.py",
+    "function": "_extensions_roundtrip",
+    "area": "restore",
+    "why": "Restore can replace the data or release the restored database hold before fresh site clearance."
+  },
+  {
+    "file": "tools/backup_drill.py",
+    "function": "_omop",
+    "area": "builders",
+    "why": "The tool calls a builder on its own source rows."
+  },
+  {
+    "file": "tools/backup_drill.py",
+    "function": "_vec",
+    "area": "builders",
+    "why": "The tool calls a builder on its own source rows."
+  },
+  {
+    "file": "tools/backup_drill.py",
+    "function": "roles_after_restore",
+    "area": "restore",
+    "why": "Restore can replace the data or release the restored database hold before fresh site clearance."
+  },
+  {
+    "file": "tools/bench.py",
+    "function": "_box",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/bench.py",
+    "function": "amplify",
+    "area": "pointer",
+    "why": "The tool can read or replace a serving pointer without SCREEN admission."
+  },
+  {
+    "file": "tools/bench.py",
+    "function": "bench_feas",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/bench.py",
+    "function": "bench_ingest",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/bench.py",
+    "function": "bench_ingest.rebuild",
+    "area": "rebuild",
+    "why": "The tool launches a rebuild through the existing lake entry point."
+  },
+  {
+    "file": "tools/bench.py",
+    "function": "bench_screen",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "tools/boundary_check.py",
+    "function": "run_sql",
+    "area": "rebuild",
+    "why": "The tool launches a rebuild through the existing lake entry point."
+  },
+  {
+    "file": "tools/build_rulesets.py",
+    "function": "_patients_ndjson",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/build_rulesets.py",
+    "function": "main",
+    "area": "importer",
+    "why": "This tool selects or installs a rule through the existing repository."
+  },
+  {
+    "file": "tools/build_scenario_ruleset.py",
+    "function": "build",
+    "area": "importer",
+    "why": "This tool selects or installs a rule through the existing repository."
+  },
+  {
+    "file": "tools/build_scenario_ruleset.py",
+    "function": "prepare",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/cascade_e2e.py",
+    "function": "run_end_to_end",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/cql_path_check.py",
+    "function": "_sql",
+    "area": "rebuild",
+    "why": "The tool launches a rebuild through the existing lake entry point."
+  },
+  {
+    "file": "tools/e2e_simple.py",
+    "function": "_edc_expected",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "tools/e2e_simple.py",
+    "function": "_stage12",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/e2e_simple.py",
+    "function": "_stage13",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/e2e_simple.py",
+    "function": "_stage13.rebuild",
+    "area": "rebuild",
+    "why": "The tool launches a rebuild through the existing lake entry point."
+  },
+  {
+    "file": "tools/e2e_simple.py",
+    "function": "_stage16",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/e2e_simple.py",
+    "function": "_stage17",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/e2e_simple.py",
+    "function": "_stage17._Adapter.run",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/e2e_simple.py",
+    "function": "run",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/e2e_simple.py",
+    "function": "run.q",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/feas_demo.py",
+    "function": "build_site",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/goldens.py",
+    "function": "build_sets",
+    "area": "rebuild",
+    "why": "The tool launches a rebuild through the existing lake entry point."
+  },
+  {
+    "file": "tools/goldens.py",
+    "function": "compute",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "tools/goldens.py",
+    "function": "source_in_force",
+    "area": "builders",
+    "why": "The tool calls a builder on its own source rows."
+  },
+  {
+    "file": "tools/imperfect_feed.py",
+    "function": "_feas",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/imperfect_feed.py",
+    "function": "run_one",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/ingest_local.py",
+    "function": "run_local",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/ingest_local.py",
+    "function": "run_local.rebuild",
+    "area": "rebuild",
+    "why": "The tool launches a rebuild through the existing lake entry point."
+  },
+  {
+    "file": "tools/ja_call_sizes.py",
+    "function": "run",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/nav_retro.py",
+    "function": "_coded_exclusions",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "tools/nav_retro.py",
+    "function": "main",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/nav_retro.py",
+    "function": "retro",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "tools/omop_parity.py",
+    "function": "_ingest",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/omop_parity.py",
+    "function": "build_lakes",
+    "area": "rebuild",
+    "why": "The tool launches a rebuild through the existing lake entry point."
+  },
+  {
+    "file": "tools/omop_parity.py",
+    "function": "mimic",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/open_data_e2e.py",
+    "function": "ingest",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/open_data_e2e.py",
+    "function": "ingest.rebuild",
+    "area": "rebuild",
+    "why": "The tool launches a rebuild through the existing lake entry point."
+  },
+  {
+    "file": "tools/open_data_e2e.py",
+    "function": "per_criterion",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "tools/open_data_e2e.py",
+    "function": "run",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/pin_model.py",
+    "function": "main",
+    "area": "pointer",
+    "why": "The tool can read or replace a serving pointer without SCREEN admission."
+  },
+  {
+    "file": "tools/pin_model.py",
+    "function": "promote_shipped",
+    "area": "pointer",
+    "why": "The tool can read or replace a serving pointer without SCREEN admission."
+  },
+  {
+    "file": "tools/planted_faults.py",
+    "function": "_plant_feed.night",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/planted_faults.py",
+    "function": "_plant_feed.rebuild",
+    "area": "pointer",
+    "why": "The tool can read or replace a serving pointer without SCREEN admission."
+  },
+  {
+    "file": "tools/public_accuracy/approve_profile.py",
+    "function": "profile",
+    "area": "importer",
+    "why": "This tool selects or installs a rule through the existing repository."
+  },
+  {
+    "file": "tools/public_accuracy/box.py",
+    "function": "run",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/public_accuracy/rerun.py",
+    "function": "AgeTable.__init__",
+    "area": "rebuild",
+    "why": "The tool launches a rebuild through the existing lake entry point."
+  },
+  {
+    "file": "tools/public_accuracy/rerun.py",
+    "function": "AgeTable.table",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "tools/public_e2e.py",
+    "function": "build",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/public_e2e.py",
+    "function": "run",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/public_e2e.py",
+    "function": "run.q",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/role_demo.py",
+    "function": "build",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/role_paths.py",
+    "function": "omop_export",
+    "area": "builders",
+    "why": "The tool calls a builder on its own source rows."
+  },
+  {
+    "file": "tools/role_paths.py",
+    "function": "omop_load",
+    "area": "builders",
+    "why": "The tool calls a builder on its own source rows."
+  },
+  {
+    "file": "tools/role_paths.py",
+    "function": "second_lake",
+    "area": "builders",
+    "why": "The tool calls a builder on its own source rows."
+  },
+  {
+    "file": "tools/role_paths.py",
+    "function": "site_space",
+    "area": "builders",
+    "why": "The tool calls a builder on its own source rows."
+  },
+  {
+    "file": "tools/scale_gate.py",
+    "function": "_CountingLake.rebuild",
+    "area": "rebuild",
+    "why": "The tool launches a rebuild through the existing lake entry point."
+  },
+  {
+    "file": "tools/scale_gate.py",
+    "function": "_CountingLake.start_rebuild",
+    "area": "rebuild",
+    "why": "The tool launches a rebuild through the existing lake entry point."
+  },
+  {
+    "file": "tools/scenarios.py",
+    "function": "_ingest",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/scenarios.py",
+    "function": "_ingest.rebuild",
+    "area": "rebuild",
+    "why": "The tool launches a rebuild through the existing lake entry point."
+  },
+  {
+    "file": "tools/scenarios.py",
+    "function": "_sc_excel",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "tools/scenarios.py",
+    "function": "csv_lake",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/scenarios.py",
+    "function": "lake_count",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "tools/scenarios.py",
+    "function": "sc_fhir",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "tools/scenarios.py",
+    "function": "sc_ssmix2",
+    "area": "generation",
+    "why": "This reader resolves its own snapshot or reads through a raw lake client."
+  },
+  {
+    "file": "tools/testbench/app.py",
+    "function": "create_app.run_e2e",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/testbench/app.py",
+    "function": "create_app.run_e2e.work",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/testbench/drivers.py",
+    "function": "run_ingest_gate",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/testbench/e2e_adapter.py",
+    "function": "_one_synthetic_run",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/trialbox/backup.py",
+    "function": "hold_screening",
+    "area": "restore",
+    "why": "The existing restore can replace data or release its database hold without fresh external clearance."
+  },
+  {
+    "file": "tools/trialbox/backup.py",
+    "function": "release_own_hold",
+    "area": "restore",
+    "why": "The existing restore can replace data or release its database hold without fresh external clearance."
+  },
+  {
+    "file": "tools/trialbox/backup.py",
+    "function": "restore",
+    "area": "restore",
+    "why": "Restore can replace the data or release the restored database hold before fresh site clearance."
+  },
+  {
+    "file": "tools/trialbox/backup.py",
+    "function": "select_files",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/trialbox/doctor.py",
+    "function": "check_publish_gate",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/trialbox/eval.py",
+    "function": "run_ingest_fhir_demo",
+    "area": "ingest",
+    "why": "The tool runs the existing adapter import or submits an ingest job."
+  },
+  {
+    "file": "tools/trialbox/memcaps.py",
+    "function": "patients",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/trialbox/restore_drill.py",
+    "function": "drill",
+    "area": "restore",
+    "why": "Restore can replace the data or release the restored database hold before fresh site clearance."
+  },
+  {
+    "file": "tools/trialbox/update.py",
+    "function": "InProcessBox.rollback",
+    "area": "restore",
+    "why": "Restore can replace the data or release the restored database hold before fresh site clearance."
+  },
+  {
+    "file": "tools/vec_parity.py",
+    "function": "run",
+    "area": "rebuild",
+    "why": "The tool launches a rebuild through the existing lake entry point."
+  },
+  {
+    "file": "tools/vllm_standin.py",
+    "function": "Standin.complete",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
+  },
+  {
+    "file": "tools/vllm_standin.py",
+    "function": "make_handler.Handler.do_GET",
+    "area": "generation",
+    "why": "This reader can choose a generation or read lake data outside the SCREEN pin."
   }
 ]

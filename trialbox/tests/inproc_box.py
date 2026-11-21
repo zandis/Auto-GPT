@@ -252,7 +252,15 @@ def make_box(
     return Box(gw, orch, store, audit_dir, sent, box_today)
 
 
-def ingest_site(src: Path, lake_dir: Path, secrets_dir: Path, snapshot: str, site_id: str = "DEMO-A") -> c.IngestReport:
+def ingest_site(
+    src: Path,
+    lake_dir: Path,
+    secrets_dir: Path,
+    snapshot: str,
+    site_id: str = "DEMO-A",
+    *,
+    screening_site: Config | None = None,
+) -> c.IngestReport:
     """CSV source -> NDJSON -> lake snapshot (hash embedder), as the nightly adapter run does (no fhir-store)."""
     from adapter.pipeline import AdapterConfig, run_ingest
     from lake.store import Lake
@@ -275,7 +283,22 @@ def ingest_site(src: Path, lake_dir: Path, secrets_dir: Path, snapshot: str, sit
         # the pid map's trial database: TB_DB_URL, or the run's schemas in a local throwaway one (as make_box)
         db_url=pglocal.for_work(lake_dir.parent),
     )
-    report = run_ingest(cfg, "csv", str(src), snapshot=snapshot, load_fhir=False, validate=False)
+    if screening_site is None:
+        report = run_ingest(cfg, "csv", str(src), snapshot=snapshot, load_fhir=False, validate=False)
+    else:
+        from tb_common.crypto import load_key
+
+        from tools.ingest_local import run_local
+
+        night = run_local(
+            src,
+            lake_dir.parent,
+            snapshot=snapshot,
+            site_id=site_id,
+            site_key=load_key(secrets_dir / "site_hmac.key"),
+            screening_site=screening_site,
+        )
+        report = night.report
     if report.passed:  # D-442: the derive batch of the new snapshot, as the INGEST job runs it after a passed ingest
         from lake.client import LakeLocal
         from orchestrator import derive

@@ -1,4 +1,4 @@
-"""Find screening-input boundaries in libs/ and services/, including local and HTTP entry points.
+"""Find screening-input boundaries in libs/, services/ and tools/, including local and HTTP entry points.
 
 Search vocabulary was built by tracing CURRENT, generation holds, lake_generation, the NDJSON
 and OMOP builders, build/rebuild/ingest/backfill, publish/decide, and ruleset tag/materialize
@@ -28,6 +28,9 @@ type Location = tuple[str, str]
 # Distinctive entry points also match a bound callback with the same name. Common names
 # (build, decide, current, install, etc.) are matched by receiver/module below.
 CALLS = {
+    "hold_screening": "restore",
+    "release_own_hold": "restore",
+    "restore_db": "restore",
     "start_rebuild": "rebuild",
     "rebuild": "rebuild",
     "_rebuild": "rebuild",
@@ -37,6 +40,8 @@ CALLS = {
     "RebuildRequest": "rebuild",
     "rebuild_lake": "rebuild",
     "run_ingest": "ingest",
+    "run_local": "ingest",
+    "ingest_site": "ingest",
     "_run_ingest": "ingest",
     "_run_in_process": "ingest",
     "IngestRequest": "ingest",
@@ -132,6 +137,9 @@ HTTP = {
     "/ops/ingest": "ingest",
     "/backfill": "backfill",
     "/holds": "generation",
+    "/query": "generation",
+    "/chunks/search": "generation",
+    "/vec/s2b": "generation",
 }
 POINTER = re.compile(r"(?:^|[/\.])CURRENT(?:$|\.)")
 
@@ -144,13 +152,16 @@ class Scanner(ast.NodeVisitor):
     def __init__(self, file: str) -> None:
         self.file = file
         self.module = _qualified(file)
-        self.names: dict[str, str] = {"GENERATION_OPTION": "lake_generation"}
+        self.names: dict[str, str] = {}
         self.scope: list[str] = []
         self.hits: dict[Location, Counter[str]] = {}
         self.tokens: set[str] = set()
-        self.generation: str | None = None
+        self.permitted_name: str | None = None
         self.probes: Counter[str] = Counter()
         self.started = False
+
+    def probe(self, area: str) -> None:
+        self.probes[area] += 1
 
     def hit(self, area: str, count: int = 1) -> None:
         self.hits.setdefault((self.file, ".".join(self.scope) or "<module>"), Counter())[area] += count
@@ -225,8 +236,8 @@ class Scanner(ast.NodeVisitor):
     def bind(self, target: ast.AST, value: ast.AST) -> None:
         if isinstance(target, ast.Name):
             self.tokens.discard(target.id)
-            if target.id == self.generation:
-                self.generation = None
+            if target.id == self.permitted_name:
+                self.permitted_name = None
             symbol = self.symbol(value)
             if symbol != "*":
                 self.names[target.id] = symbol
@@ -264,7 +275,7 @@ class Scanner(ast.NodeVisitor):
                         # The candidate generation and approved rule are inputs to this pin.
                         self.probes.clear()
                     first = target.elts[0]
-                    self.generation = first.id if called != START and isinstance(first, ast.Name) else None
+                    self.permitted_name = first.id if called != START and isinstance(first, ast.Name) else None
 
     def visit_AnnAssign(self, n: ast.AnnAssign) -> None:
         if n.value is not None:
@@ -283,14 +294,14 @@ class Scanner(ast.NodeVisitor):
     def visit_FunctionDef(self, n: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         self.names[n.name] = ".".join((self.module, *self.scope, n.name))
         outer_names = self.names.copy()
-        outer_state = self.tokens, self.probes, self.started, self.generation
+        outer_state = self.tokens, self.probes, self.started, self.permitted_name
         for param in n.args.args:
             typ = self.symbol(param.annotation)
             self.names[param.arg] = typ if typ not in {"*", "Any", "typing.Any"} else param.arg
         if self.scope and n.args.args and n.args.args[0].arg == "self":
             self.names["self"] = ".".join((self.module, *self.scope))
         self.scope.append(n.name)
-        self.tokens, self.probes, self.started, self.generation = set(), Counter(), False, None
+        self.tokens, self.probes, self.started, self.permitted_name = set(), Counter(), False, None
         self.declarations(n.body)
         for dec in n.decorator_list:
             if isinstance(dec, ast.Call) and self.symbol(dec.func).endswith(".post"):
@@ -301,7 +312,7 @@ class Scanner(ast.NodeVisitor):
             self.hit(area, count)
         self.scope.pop()
         self.names = outer_names
-        self.tokens, self.probes, self.started, self.generation = outer_state
+        self.tokens, self.probes, self.started, self.permitted_name = outer_state
 
     def visit_AsyncFunctionDef(self, n: ast.AsyncFunctionDef) -> None:
         self.visit_FunctionDef(n)
@@ -312,7 +323,7 @@ class Scanner(ast.NodeVisitor):
 
     def visit_BoolOp(self, n: ast.BoolOp) -> None:
         if isinstance(n.op, ast.Or) and any(self.symbol(v).endswith(".pinned") for v in n.values):
-            self.probes["generation"] += 1
+            self.probe("generation")
         self.generic_visit(n)
 
     def visit_JoinedStr(self, n: ast.JoinedStr) -> None:
@@ -348,10 +359,30 @@ class Scanner(ast.NodeVisitor):
                 if method in {"dict", "update", "model_copy", "PinnedLake", "RebuildResult"} and not self.uses_permit(
                     kw.value
                 ):
-                    self.key(kw.arg)
+                    forwards_build = (
+                        name == "tb_contracts.RebuildResult"
+                        and kw.arg == "generation"
+                        and self.symbol(kw.value) == "lake.store.Lake.rebuild.generation"
+                        and any(
+                            k.arg == "snapshot" and self.symbol(k.value) == "lake.store.Lake.rebuild.snapshot"
+                            for k in n.keywords
+                        )
+                    )
+                    if not forwards_build:
+                        self.key(kw.arg)
                 self.job(kw.arg, self.symbol(kw.value))
+        if (
+            self.module == "tb_common.screening_inputs"
+            and self.scope == ["admit_screening_inputs"]
+            and name.endswith(".options.get")
+            and args == ["lake_generation"]
+        ):
+            self.generic_visit(n)
+            return
         if method in {"get", "setdefault", "pop", "__setitem__", "setattr", "__getitem__"} and args:
             self.key(args[1] if method == "setattr" and len(args) > 1 else args[0])
+        if method == "set" and args[:1] == ["screening.after_restore"]:
+            self.hit("restore")
         if name == "operator.setitem" and len(args) == 3:
             self.key(args[1])
         if method in {"dict", "update"} and n.args and isinstance(n.args[0], ast.List | ast.Tuple):
@@ -360,6 +391,26 @@ class Scanner(ast.NodeVisitor):
                     self.key(self.symbol(pair.elts[0]))
         if name == "heapq.merge" and self.module in {"adapter.ndjson", "adapter.backfill"}:
             self.hit("backfill" if self.module == "adapter.backfill" else "builders")
+        if (
+            method == "isinstance"
+            and args[1:] == ["orchestrator.jobs.PinnedLake"]
+            and (self.module == "orchestrator.scenarios.screen" and self.scope == ["start_screen"])
+        ):
+            self.probe("jobs")
+        if method in {"query", "chunks_search", "vec_s2b", "search"} and "lake" in name.lower():
+            receiver = name.rsplit(".", 1)[0]
+            metadata = (
+                self.module == "tb_common.screening_inputs"
+                and self.scope == ["admit_screening_inputs"]
+                and args == ["SELECT lake_inventory, omop_inventory FROM lake_meta"]
+                and method == "query"
+                and receiver.endswith(".orch.services.lake")
+                and len(n.keywords) == 1
+                and n.keywords[0].arg == "snapshot"
+                and self.symbol(n.keywords[0].value) == "orchestrator.scenarios.screen.screening_use.generation"
+            )
+            if receiver != "orchestrator.core.Ctx.services.lake" and not metadata:
+                self.hit("generation")
         if name in QUALIFIED:
             self.hit(QUALIFIED[name])
         if method == "require_approved":
@@ -369,9 +420,20 @@ class Scanner(ast.NodeVisitor):
         if method == "promote" and "registry" not in name.lower():
             self.hit("importer" if "repo" in name else "pointer")
         if method == "PinnedLake" and not self.tokens:
-            self.probes["generation"] += 1
-        if method == "generation":
-            self.probes["generation"] += 1
+            self.probe("generation")
+        if method == "generation" and not (
+            self.module == "tb_common.screening_inputs"
+            and self.scope == ["admit_screening_inputs"]
+            and name
+            in {
+                "orchestrator.core.screening_worker.orch.services.lake.generation",
+                "orchestrator.core.screening_worker.orch.services.lake.lake.generation",
+            }
+            and any(
+                k.arg == "recover" and isinstance(k.value, ast.Constant) and k.value.value is True for k in n.keywords
+            )
+        ):
+            self.probe("generation")
         if (
             method == "hold"
             and ("lake" in name.lower() or any(k.arg == "pin" for k in n.keywords))
@@ -383,7 +445,7 @@ class Scanner(ast.NodeVisitor):
             and ("lake" in name.lower() or self.file.startswith("services/lake/"))
             and not self.started
         ):
-            self.probes["generation"] += 1
+            self.probe("generation")
         if method in {"flatten", "stream"} and "Flattener" in name:
             self.hit("builders")
         if method in {"materialize", "retag"} or (method == "write_dir" and args[:1] == ["main"]):
@@ -417,7 +479,7 @@ class Scanner(ast.NodeVisitor):
         if method == "begin" and args[:1] in (["fhir"], ["derived"], ["vec"], ["twin"]):
             self.hit("builders")
         if method in {"read_text", "read_bytes"} and POINTER.search(name):
-            self.probes["generation"] += 1
+            self.probe("generation")
         if method in {"post", "post_json", "post_raw", "_call", "_ask", "request"}:
             self.endpoint(args)
         if method in {
@@ -455,7 +517,9 @@ class Scanner(ast.NodeVisitor):
                 and any(k.arg == "admitted_scope" and self.uses_permit(k.value) for k in n.keywords)
             )
         generation = next((k.value for k in n.keywords if k.arg == "generation"), n.args[0] if n.args else None)
-        return isinstance(generation, ast.Name) and generation.id == self.generation and generation.id in self.tokens
+        return (
+            isinstance(generation, ast.Name) and generation.id == self.permitted_name and generation.id in self.tokens
+        )
 
     def callback(self, name: str, method: str) -> None:
         if method == "begin" and ("Built" in name or "book." in name or "ledger." in name):
@@ -487,14 +551,14 @@ class Scanner(ast.NodeVisitor):
 
     def branch(self, statements: list[ast.stmt]) -> None:
         # A gate inside one branch cannot authorize a sibling or the code after the branch.
-        tokens, probes, started, generation = self.tokens.copy(), self.probes.copy(), self.started, self.generation
+        tokens, probes, started, generation = self.tokens.copy(), self.probes.copy(), self.started, self.permitted_name
         self.probes = Counter()
         for stmt in statements:
             self.visit(stmt)
         for area, count in self.probes.items():
             self.hit(area, count)
         self.tokens, self.probes, self.started = tokens & self.tokens, probes, started
-        self.generation = generation if generation in self.tokens else None
+        self.permitted_name = generation if generation in self.tokens else None
 
     def visit_If(self, n: ast.If) -> None:
         self.visit(n.test)
@@ -554,7 +618,7 @@ def scan(files: Iterable[tuple[str, str]]) -> dict[Location, Counter[str]]:
 def working_tree() -> dict[Location, Counter[str]]:
     return scan(
         (p.relative_to(ROOT).as_posix(), p.read_text(encoding="utf-8"))
-        for folder in ("libs", "services")
+        for folder in ("libs", "services", "tools")
         for p in sorted((ROOT / folder).rglob("*.py"))
     )
 
@@ -583,7 +647,7 @@ def base_revision() -> str:
 
 def base_files(base: str) -> Iterator[tuple[str, str]]:
     # git archive runs under trialbox/ and gives the committed files relative to it.
-    archive = git("archive", "--format=tar", base, "libs", "services")
+    archive = git("archive", "--format=tar", base, "libs", "services", "tools")
     with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
         for member in tree:
             if member.isfile() and member.name.endswith(".py"):
@@ -611,3 +675,7 @@ def check_ratchet() -> None:
     new = {loc for loc, added in growth.items() if added} | (listed - allowed)
     if new:
         raise AssertionError(f"new screening-input bypasses since {base}: {sorted(new)}")
+
+
+if __name__ == "__main__":
+    check_ratchet()

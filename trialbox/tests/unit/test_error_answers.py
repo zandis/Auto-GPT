@@ -49,6 +49,8 @@ OWN_TEXT: dict[str, frozenset[str]] = {
             "len(problems)",
             "rep.filename",
             "=RESTORE_HELD",
+            "=REFUSAL",  # the fixed SCREEN admission key
+            "=t(job_language(ctx), REFUSAL)",  # the site's translation, with no interpolated request values
             "=_optout.NO_REGISTRY_TABLE",  # D-654: a fixed sentence, no snapshot, date or chart in it
             "=_ingest_ended(st)",
             "=_ingest_errors(report)",

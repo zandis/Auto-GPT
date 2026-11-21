@@ -80,7 +80,7 @@ from tb_common.llm import (
     LlmResult,
     load_prompt,
 )
-from tb_common.screening_inputs import ScreeningRefused, ScreeningUse, admit_screening_inputs
+from tb_common.screening_inputs import ScreeningRefused, admit_screening_inputs
 from tb_llm.outage import ENV as OUTAGE_ENV
 from tb_llm.outage import OutageBudget, OutageExhausted, wait_and_retry
 
@@ -221,19 +221,12 @@ class PinnedLake:
             if got != recorded and self._on_generation is not None:
                 self._on_generation(got)
 
-    def admit_screen(
-        self,
-        record: bytes,
-        use: ScreeningUse,
-        digest: str,
-        clearance: bytes,
-        audit: Callable[[str], Mapping[str, object]],
-    ) -> tuple[str, str]:
+    def admit_screen(self) -> tuple[str, str]:
         """Bind every SCREEN read to the admitted generation, with no fallback to the date alias."""
         from lake.store import check_snapshot_age
         from tb_common.generation import Generation
 
-        generation, version = admit_screening_inputs(record, use, digest, clearance, audit)
+        generation, version = admit_screening_inputs()
         snap = Generation.parse(generation).snapshot
         with self._lock:
             if self.pinned is None:

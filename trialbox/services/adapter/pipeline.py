@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 from tb_common import chartno, feedguard, labvalue, refdata
 from tb_common.audit_writer import open_audit
+from tb_common.config import Config
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
 from tb_common.site_profile import Profile as SiteProfile
@@ -102,6 +103,7 @@ class AdapterConfig:
     site_profile: Path | None = None
     # 10B-6: settings.profiles (tw_core, twpas_version): a profile's standard versions must agree with them
     profile_standards: dict[str, str] = field(default_factory=dict)
+    screening_site: Config | None = None
 
     def __post_init__(self) -> None:
         from tb_common.config import site_tz
@@ -672,6 +674,7 @@ def _run_ingest(
     from adapter.read_timing import ReadTimes
 
     read_times = ReadTimes()  # 10E-9 (review 13-10): the connector's own time per message, for the report
+    static_inputs: list[Resource] = []
     if source_kind == "fhir_bulk":
         from adapter.sources.fhir_bulk.source import FhirBulkSource
 
@@ -711,7 +714,8 @@ def _run_ingest(
 
             mapper.verify_rules = verify_rules(profile)
         source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding, profile_files)
-        for res in mapper.static_resources():
+        static_inputs = mapper.static_resources()
+        for res in static_inputs:
             to_spool(res)
         whole: set[str] = set()
         if since:
@@ -1276,6 +1280,30 @@ def _run_ingest(
                 ),
             },
         )
+    if cfg.screening_site is not None and cfg.audit_dir:
+        from tb_common.screening_inputs import REFUSAL
+
+        from adapter.screening_evidence import published_inputs
+
+        try:
+            published_inputs(
+                cfg.screening_site,
+                report,
+                out_dir,
+                gate,
+                (lineage_doc.get("mapping") or {}).get("sha256"),
+                static_inputs,
+                cfg.db_url,
+            )
+        except Exception as exc:
+            # A passed night remains available for other jobs. SCREEN needs its own positive evidence.
+            open_audit(cfg.audit_dir, cfg.tz).append(
+                "screen.inputs_refused",
+                snapshot=snap,
+                actor="adapter",
+                detail={"reason": REFUSAL, "error": type(exc).__name__},
+            )
+            log.warning("SCREEN evidence unavailable for %s (%s)", snap, type(exc).__name__)
     log.info("ingest finished", extra={"snapshot": snap, "passed": passed, "resources": sum(counts.values())})
     return report
 

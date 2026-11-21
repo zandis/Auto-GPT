@@ -12,7 +12,6 @@ from tb_common.screening_inputs import (
     REFUSAL,
     ScreeningRefused,
     ScreeningUse,
-    admit_screening_inputs,
     rule_digest,
 )
 
@@ -23,6 +22,7 @@ DIGEST = "a" * 64
 def inputs() -> dict[str, Any]:
     use = {
         "clearance_id": "release-2",
+        "stored_read": "off",
         "site": "synthetic",
         "generation": GENERATION,
         "ruleset": "STUDY",
@@ -66,7 +66,67 @@ def clearance(record: bytes) -> dict[str, Any]:
     }
 
 
-def test_permit_and_audit_the_exact_generation_and_version() -> None:
+@pytest.fixture
+def admit_screening_inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Install the supplied test bytes in a site and exercise the worker's gate with an actual file audit."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from orchestrator import core, derive, scheduler
+    from tb_common import screening_inputs as gate
+    from tb_common.audit import AuditLog
+    from tb_common.db import Database
+    from tb_common.flags import Flags
+
+    ctx = MagicMock()
+    ctx.cfg.env.data_dir = ctx.cfg.env.secrets_dir = str(tmp_path)
+    ctx.cfg.settings.site.id = "synthetic"
+    ctx.job.job_id = "unit-job"
+    ctx.job.type = "SCREEN"
+    ctx.job.ruleset = "STUDY"
+    ctx.job.snapshot_date = None
+    ctx.job.ruleset_version = None
+    ctx.job.options = {}
+    ctx.orch.services.lake.generation.return_value = GENERATION
+    ctx.orch.db.get.return_value = ctx.job
+    meta = gate.inventory_hash(["row-a"])
+    ctx.orch.services.lake.query.return_value.to_pylist.return_value = [
+        {"lake_inventory": meta, "omop_inventory": meta}
+    ]
+    monkeypatch.setattr(core, "screening_worker", lambda: ctx)
+    monkeypatch.setattr(scheduler, "require_open", lambda *a, **kw: None)
+    monkeypatch.setattr(gate, "release_id", lambda flags: "release-2")
+    monkeypatch.setattr(Flags, "row", lambda *a: "off")
+    state = MagicMock()
+    state.return_value.__enter__.return_value.fetchval.return_value = "open"
+    monkeypatch.setattr(Database, "connect", state)
+    monkeypatch.setattr(derive, "bind_screen_reader", lambda *a: ["row-a"])
+    rule = SimpleNamespace(id="STUDY", version="1.0.0", manifest=SimpleNamespace(status="approved"))
+    monkeypatch.setattr(gate, "load_approved", lambda *a, **kw: rule)
+    audit = AuditLog(tmp_path / "audit")
+
+    def exercise(raw: bytes, use: ScreeningUse, digest: str, grant: bytes, write: Any) -> tuple[str, str]:
+        path = gate.record_path(tmp_path, use.generation, use.ruleset, use.rule_version)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+        gate.clearance_path(tmp_path).write_bytes(grant)
+        monkeypatch.setattr(gate, "rule_digest", lambda rule: digest)
+
+        def append(event: str, **fields: Any) -> dict[str, Any]:
+            if write(fields["input_sha"]).get("input_sha") != fields["input_sha"]:
+                return {}
+            return audit.append(event, **fields)
+
+        ctx.orch.audit.append = append
+        from orchestrator.scenarios import screen
+
+        monkeypatch.setattr(screen, "screening_use", lambda *args: use)
+        return gate.admit_screening_inputs()
+
+    return exercise
+
+
+def test_permit_and_audit_the_exact_generation_and_version(admit_screening_inputs: Any) -> None:
     data = inputs()
     record = encode(data)
     use = ScreeningUse.model_validate_json(encode(data["use"]))
@@ -118,7 +178,7 @@ def test_permit_and_audit_the_exact_generation_and_version() -> None:
         "bad_json",
     ],
 )
-def test_refusals_have_one_key_and_do_not_audit_admission(fault: str) -> None:
+def test_refusals_have_one_key_and_do_not_audit_admission(fault: str, admit_screening_inputs: Any) -> None:
     data = inputs()
     actual = deepcopy(data["use"])
     row = data["rows"][0]
@@ -175,7 +235,7 @@ def test_refusals_have_one_key_and_do_not_audit_admission(fault: str) -> None:
         admit_screening_inputs(record, use, DIGEST, encode(grant), lambda _: pytest.fail("audited an admission"))
 
 
-def test_audit_failure_refuses() -> None:
+def test_audit_failure_refuses(admit_screening_inputs: Any) -> None:
     data = inputs()
     record = encode(data)
     use = ScreeningUse.model_validate_json(encode(data["use"]))
@@ -194,3 +254,16 @@ def test_rule_digest_covers_loaded_content_even_when_version_is_unchanged() -> N
     before = rule_digest(rule)
     rule.sql += " "
     assert before != rule_digest(rule)
+
+
+def test_caller_cannot_supply_admission_authority() -> None:
+    from tb_common import screening_inputs
+
+    data = inputs()
+    record = encode(data)
+    use = ScreeningUse.model_validate(data["use"])
+    with pytest.raises((ScreeningRefused, TypeError)):
+        invoke: Any = screening_inputs.admit_screening_inputs
+        invoke(record, use, DIGEST, encode(clearance(record)), lambda d: {"input_sha": d})
+    with pytest.raises(ScreeningRefused, match=REFUSAL):
+        invoke()

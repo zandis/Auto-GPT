@@ -12,7 +12,7 @@ from lake.client import LakeLocal
 from orchestrator.scheduler import RESTORE_FLAG
 from tb_common.flags import Flags
 from tb_common.ruleset import Ruleset
-from tb_common.screening_inputs import rule_digest
+from tb_common.screening_inputs import clearance_path, rule_digest
 
 from tests.inproc_box import Box
 
@@ -28,10 +28,15 @@ def accept_fixture(box: Box, study: str, practitioners: list[str] | None = None)
     scope = rule.manifest.scopes.screen
     routing = rule.manifest.routing
     assert scope is not None and routing is not None
-    grant = Path(env.secrets_dir) / "screening-clearance.json"
+    grant = clearance_path(Path(env.data_dir))
     record = Path(env.data_dir) / "screening-inputs" / generation / study / f"{rule.version}.json"
     record.parent.mkdir(parents=True, exist_ok=True)
     flags = Flags(url=orch.db.url, audit=orch.audit)
+    from console.sitestore import SiteStore
+
+    SiteStore(orch.db.url).close()
+    if flags.row("derived.stored_read") is None:
+        flags.set("derived.stored_read", "off", "fixture-steward", "synthetic fixture configuration")
     if flags.row(RESTORE_FLAG) is None:
         flags.set(RESTORE_FLAG, "released", "fixture-steward", "synthetic fixture ready")
 
@@ -64,6 +69,7 @@ def accept_fixture(box: Box, study: str, practitioners: list[str] | None = None)
     digest = rule_digest(rule)
     data = {
         "use": {
+            "stored_read": flags.row("derived.stored_read"),
             "clearance_id": clearance_id,
             "site": orch.cfg.settings.site.id,
             "ruleset": rule.id,

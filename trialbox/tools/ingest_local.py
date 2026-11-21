@@ -18,7 +18,10 @@ import json
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from tb_common.config import Config
 
 ROOT = Path(__file__).resolve().parents[1]
 DEMO_MAPPING = ROOT / "services" / "adapter" / "mapping" / "tw_core" / "demo_his.yaml"
@@ -85,6 +88,7 @@ def run_local(
     mimic_window: tuple[date, date] | None = None,
     contracts: bool = True,
     validate: bool = True,
+    screening_site: Config | None = None,
 ) -> LocalNight:
     """Run one night of ``source_dir`` through ``adapter.pipeline.run_ingest`` into ``work/lake``."""
     from adapter import governance
@@ -100,16 +104,32 @@ def run_local(
 
     work.mkdir(parents=True, exist_ok=True)
     tz = tz or ("Asia/Taipei" if kind == "csv" else MIMIC_TZ)
+    if screening_site is not None:
+        if site_id and site_id != screening_site.settings.site.id:
+            raise ValueError("local night site differs from the installed site")
+        site_id = screening_site.settings.site.id
     site_id = site_id or ("DEMO-A" if kind == "csv" else "MIMIC-DEMO")
-    secrets = work / "secrets"
+    secrets = Path(screening_site.env.secrets_dir) if screening_site else work / "secrets"
     secrets.mkdir(parents=True, exist_ok=True)
-    (secrets / "site_hmac.key").write_bytes(site_key)
+    key_path = secrets / "site_hmac.key"
+    if screening_site:
+        from tb_common.crypto import load_key
+
+        if load_key(key_path) != site_key:
+            raise ValueError("local night site key differs from the installed key")
+    else:
+        key_path.write_bytes(site_key)
     lake_dir = work / "lake"
 
     def rebuild(snap: str, nd: Path) -> RebuildResult:
         st = Lake(lake_dir, tz).rebuild(snap, HashEmbedder(), nd)
         return RebuildResult(
-            snapshot=st.snapshot, tables=st.tables, chunks=st.chunks, embedded_new=st.embedded_new, seconds=st.seconds
+            snapshot=st.snapshot,
+            tables=st.tables,
+            chunks=st.chunks,
+            embedded_new=st.embedded_new,
+            seconds=st.seconds,
+            generation=st.generation,
         )
 
     if kind == "csv":
@@ -124,6 +144,7 @@ def run_local(
         source_kind = "fhir_bulk"
     cfg = AdapterConfig(
         lake_dir=lake_dir,
+        screening_site=screening_site,
         secrets_dir=secrets,
         mapping_path=DEMO_MAPPING if kind == "csv" else work / "unused-mapping.yaml",
         site_id=site_id,

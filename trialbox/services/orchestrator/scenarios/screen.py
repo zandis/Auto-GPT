@@ -12,7 +12,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from matching import coded_values
@@ -21,17 +21,16 @@ from tb_common import lakeprobe
 from tb_common import provenance as ai_provenance
 from tb_common.authz import norm
 from tb_common.dates import site_dates
-from tb_common.flags import Flags
 from tb_common.generation import Generation
 from tb_common.llm import LlmError, LlmPromptUnqualified, load_prompt
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_common.screening_inputs import (
+    RECORD_OPTION,
     REFUSAL,
     ScreeningRefused,
     ScreeningScope,
     ScreeningUse,
-    rule_digest,
 )
 from tb_common.subject import job_subject
 from tb_common.timeutil import add_months
@@ -67,9 +66,9 @@ from orchestrator.scenarios.evaluate import (
     served,
     sort_key,
 )
-from orchestrator.scenarios.review import recipients, require_approved
+from orchestrator.scenarios.review import recipients
 from orchestrator.scenarios.screen_cascade import max_pairs_of, pipeline, screen_with_cascade
-from orchestrator.scheduler import RESTORE_FLAG, require_open
+from orchestrator.scheduler import require_open
 
 SCOPE_SQL = """
 WITH a AS (
@@ -869,11 +868,10 @@ def deliver_lists(
 ) -> tuple[list[Delivery], dict[str, Any]]:
     """Candidate workbook + JSON to list_to; one referral workbook per routed department (phi)."""
     routing: Routing | None = rs.manifest.routing
-    list_to = sorted(set(routing.list_to or [])) if routing else []
-    if not list_to and rs.manifest.kind == "cohort":
+    list_to = list_recipients(rs, ctx.job.requested_by)
+    if list_to and rs.manifest.kind == "cohort" and not (routing and routing.list_to):
         # D-108: a cohort (registry) ruleset has no clinic list address; its member list goes to the coordinator who
         # asked (already allowed to request this study), never to the aggregate recipients
-        list_to = [norm(ctx.job.requested_by)]
         routing = routing.model_copy(update={"list_to": list_to}) if routing else Routing(list_to=list_to)
     if not list_to:
         raise StepFailed("routing", f"Ruleset {rs.id} has no routing.list_to; patient lists cannot be sent.")
@@ -950,81 +948,53 @@ def record_model_uses(ctx: Ctx, rs: Ruleset, srun: ScreenRun) -> int:
     return ai_provenance.verdicts_used(ctx.orch.audit, rs.id, rs.version, ctx.job.job_id, srun.rows)
 
 
+def list_recipients(rule: Ruleset, requester: str) -> list[str]:
+    routing = rule.manifest.routing
+    addresses = sorted(set(routing.list_to or [])) if routing else []
+    return [norm(requester)] if not addresses and rule.manifest.kind == "cohort" else addresses
+
+
+def screening_use(ctx: Ctx, rule: Ruleset, generation: str, release: str, mode: Literal["on", "off"]) -> ScreeningUse:
+    practitioners, departments, window, recent = _scope_terms(ctx, rule, True)
+    scope = ScreeningScope(
+        practitioners=practitioners, departments=departments, window_days=window, recent_months=recent
+    )
+    routing = rule.manifest.routing
+    if routing is None:
+        raise ScreeningRefused()
+    return ScreeningUse(
+        clearance_id=release,
+        site=ctx.cfg.settings.site.id,
+        generation=generation,
+        ruleset=rule.id,
+        rule_version=rule.version,
+        list_to=list_recipients(rule, ctx.job.requested_by),
+        referral_to=routing.referral_to or {},
+        aggregate_to=recipients(routing, ctx.job.requested_by),
+        scope=scope,
+        stored_read=mode,
+    )
+
+
 def start_screen(ctx: Ctx) -> tuple[Ruleset, ScreeningScope]:
-    """Read site-owned evidence, bind this job to the admitted pair and keep the exact scope for the query."""
+    """Hold the admitted generation before the job can read patients."""
     job = ctx.job
     try:
-        rs = require_approved(
-            ctx, (job.ruleset or "").upper(), job.ruleset_version or (job.options or {}).get("version")
-        )
-        if rs.id != (job.ruleset or "").upper() or rs.manifest.status != "approved":
-            raise ScreeningRefused()
         lake = ctx.services.lake
         if not isinstance(lake, PinnedLake):
             raise ScreeningRefused()
-        # A job interrupted before this gate existed may have recorded only the date.
-        # The alias for that date can already point at different data.
-        if lake.pinned and not (lake.generation and job.ruleset_version):
+        permitted, version = lake.admit_screen()
+        if ctx.screen_admission is None:
             raise ScreeningRefused()
-        generation = lake.generation if lake.pinned else lake.lake.generation()
-        if not isinstance(generation, str):
-            raise ScreeningRefused()
-        gen = Generation.parse(generation)
-        if not gen.seq or str(gen) != generation:
-            raise ScreeningRefused()
-        env = ctx.cfg.env
-        directory = Path(env.data_dir) / "screening-inputs" / str(gen) / rs.id
-        # Never accept a record, a path to it, or restore clearance from a job's options.
-        record = (directory / f"{rs.version}.json").read_bytes()
-        clearance = (Path(env.secrets_dir) / "screening-clearance.json").read_bytes()
-        flags = Flags(url=ctx.orch.db.url)
-        releases = flags.events(RESTORE_FLAG, limit=1)
-        if flags.row(RESTORE_FLAG) != "released" or not releases or releases[0]["new_value"] != "released":
-            raise ScreeningRefused()
-        practitioners, departments, window, recent = _scope_terms(ctx, rs, True)
-        scope = ScreeningScope(
-            practitioners=practitioners,
-            departments=departments,
-            window_days=window,
-            recent_months=recent,
-        )
-        routing = rs.manifest.routing
-        if routing is None:
-            raise ScreeningRefused()
-        release = releases[0]
-        use = ScreeningUse(
-            clearance_id=f"{release['id']}:{release['at']}",
-            site=ctx.cfg.settings.site.id,
-            generation=generation,
-            ruleset=rs.id,
-            rule_version=rs.version,
-            list_to=sorted(set(routing.list_to or [])),
-            referral_to=dict(routing.referral_to or {}),
-            aggregate_to=recipients(routing, job.requested_by),
-            scope=scope,
-        )
-        digest = rule_digest(rs)
-
-        def audit(record_digest: str) -> dict[str, Any]:
-            return ctx.orch.audit.append(
-                "screen.inputs_admitted",
-                job_id=job.job_id,
-                ruleset=rs.id,
-                ruleset_version=rs.version,
-                input_sha=record_digest,
-                snapshot=generation,
-                detail={"rule_sha256": digest},
-            )
-
-        permitted, version = lake.admit_screen(record, use, digest, clearance, audit)
+        rs, use, record_sha = ctx.screen_admission
         ctx.update(
             snapshot_date=date.fromisoformat(Generation.parse(permitted).snapshot),
             ruleset_version=version,
-            options={**(job.options or {}), GENERATION_OPTION: permitted},
+            options={**(job.options or {}), GENERATION_OPTION: permitted, RECORD_OPTION: record_sha},
         )
     except Exception as exc:
         raise StepFailed("running", t(job_language(ctx), REFUSAL), REFUSAL) from exc
-    return rs, scope
+    return rs, use.scope
 
 
 def run(ctx: Ctx) -> Outcome:
