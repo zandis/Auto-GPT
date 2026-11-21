@@ -28,6 +28,8 @@ class Case:
     saved_at: str = ""  # where a saving POST sends the browser (303)
     #: posted before a saving POST is counted, so that the save changes something (a form that audits only a change)
     reset: dict[str, str] = field(default_factory=dict)
+    #: files sent with the saving POST (an upload form, 10D-16a): field -> (name, content, type)
+    files: dict[str, tuple[str, bytes, str]] = field(default_factory=dict)
 
 
 CASES: dict[str, Case] = {
@@ -93,5 +95,24 @@ CASES: dict[str, Case] = {
         title_key="account.title",
         saved_at="/account?saved=prefs",
         reset={"density": "comfortable", "text_size": "100", "mode": "system", "lang": "auto"},
+    ),
+    # 10D-16a (D-1373): a study's jRCT record from the person's own CSV file; a field that is not a file fails (a file
+    # is never shown again), and the same synthetic file read again is kept once and audited as read
+    "rrec": Case(
+        template="registry_record.html",
+        role="coordinator",
+        page="/studies/GZQO/registry-record",
+        action="/studies/GZQO/registry-record",
+        prefix="rrec",
+        bad={"record": "not a file"},
+        failing=("record",),
+        good={},
+        testid="rrec-error",
+        saved_event="console.registry_record",
+        title_key="rrec.title",
+        saved_at="/studies/GZQO/registry-record?saved=1",
+        files={
+            "record": ("record.csv", "jRCT番号,研究の名称\njRCT2031260906,A synthetic study\n".encode(), "text/csv")
+        },
     ),
 }

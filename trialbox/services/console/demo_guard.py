@@ -74,6 +74,7 @@ GUARDED: tuple[re.Pattern[str], ...] = tuple(
         r"^(?:/api/v1)?/site/charts$",  # the chart paste box and chart upload of the site set-up, and its API
         r"^(?:/api/v1)?/studies/[^/]+/forms/dictionary$",  # a data dictionary file, and its API (CSV text)
         r"^/api/v1/studies/[^/]+/edc/import/odm$",  # an ODM file's JSON twin (T-302c; the page is multipart)
+        r"^/api/v1/studies/[^/]+/registry-record$",  # a jRCT record's CSV file (10D-16a, D-1373; the page is multipart)
     )
 )
 

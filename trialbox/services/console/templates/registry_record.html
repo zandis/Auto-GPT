@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{# 10D-16a (D-1373): one study's jRCT record read from a CSV file the person downloaded; the box never connects to
+   jRCT. The page header (D-1380) and the form on the field macro (9k-6a, D-1376). Every value from the file is
+   escaped text (autoescape); where to download is plain text, never a link the box follows. #}
+{% import "_fields.html" as fm with context %}
+{% from "_ds.html" import page_header %}
+{% set page_title = fm.title(fe, t('rrec.title')) %}
+{% block content %}
+{{ fm.error_summary(fe, testid='rrec-error') }}
+{% set page_title = t('rrec.title') %}{{ page_header(page_title, ctx=rs) }}
+{% if saved %}<p class="ok" role="status" data-testid="rrec-saved">{{ t('rrec.saved') }}</p>{% endif %}
+{% if nofile %}<p class="hint" role="status" data-testid="rrec-nofile">{{ t('rrec.nofile') }}</p>{% endif %}
+<p class="hint">{{ t('rrec.help') }}</p>
+<section class="card" data-testid="rrec-current">
+<h2>{{ t('rrec.current') }}</h2>
+{% if current %}
+<dl class="facts">
+{% for k in fields %}<dt>{{ t('rrec.f.' + k) }}</dt><dd{% if k == 'id' %} class="mono"{% endif %} data-testid="rrec-{{ k }}">{{ current.record[k] or '–' }}</dd>
+{% endfor %}</dl>
+<p class="hint" data-testid="rrec-read-by">{{ t('rrec.read_by', by=current.by, at=current.at|local, sha=current.sha) }}</p>
+{% else %}<p class="empty" data-testid="rrec-none">{{ t('rrec.none') }}</p>{% endif %}
+</section>
+{% if can_take %}
+<section class="card" data-testid="rrec-take">
+<p class="hint" data-testid="rrec-where">{{ t('rrec.where') }}</p>
+<p class="hint" data-testid="rrec-kept">{{ t('rrec.kept') }}</p>
+<p class="hint" data-testid="rrec-want">{% if want %}{{ t('rrec.want', id=want) }}{% else %}{{ t('rrec.want_none') }}{% endif %}</p>
+<form method="post" action="/studies/{{ rs }}/registry-record" enctype="multipart/form-data" data-testid="rrec-form" data-fields="rrec" data-guard>
+<input type="hidden" name="csrf" value="{{ csrf }}">
+{{ fm.field(fe, 'rrec', 'rrec', 'record', t('rrec.file'), type='file', hint=t('rrec.file.hint'), required=True, attrs={'accept': '.csv,text/csv'}) }}
+<button type="submit" data-testid="rrec-submit">{{ t('rrec.submit') }}</button>
+</form>
+</section>
+{% else %}<p class="hint" data-testid="rrec-who">{{ t('rrec.who') }}</p>{% endif %}
+{% if earlier %}
+<section class="card" data-testid="rrec-earlier">
+<h2>{{ t('rrec.earlier') }}</h2>
+<ul class="plain">{% for r in earlier %}<li><span class="mono">{{ r.record.id }}</span> · {{ r.at|local }} · {{ r.by }} · <span class="mono">{{ r.sha[:12] }}</span></li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% endblock %}

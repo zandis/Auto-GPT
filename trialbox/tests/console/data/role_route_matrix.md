@@ -158,6 +158,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/studies/{rs}/reconsent` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/referrals` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/referrals/{ref_id}/print` | - | n | - | n | n | - | - | - | - |
+| GET | `/studies/{rs}/registry-record` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | GET | `/studies/{rs}/rescreen` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/sae/{record}/{event}` | - | n | - | n | n | - | - | - | - |
 | GET | `/studies/{rs}/schedule` | - | Y | - | Y | Y | - | - | - | - |
@@ -216,6 +217,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/api/v1/studies/{rs}/patients/{pid}/outcome` | Y | Y | - | - | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/patients/{pid}/reveal` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/referrals/{ref_id}/answer` | - | Y | - | Y | Y | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/registry-record` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/sources/{name}/sync` | - | n | - | - | n | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/setup/consent-ages` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/state/take-back` | - | - | - | Y | - | - | - | - | - |
@@ -296,6 +298,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/redcap-read` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/referrals/{ref_id}/answer` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/studies/{rs}/referrals/{ref_id}/print` | - | n | - | Y | Y | - | - | - | - |
+| POST | `/studies/{rs}/registry-record` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/studies/{rs}/sae/sync` | - | U | - | - | U | - | - | - | - |
 | POST | `/studies/{rs}/sae/{record}/{event}/ack` | - | n | - | n | n | - | - | - | - |
 | POST | `/studies/{rs}/sae/{record}/{event}/{what}` | n | n | n | n | n | - | - | n | n |
