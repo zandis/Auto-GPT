@@ -25,6 +25,8 @@ from psycopg import sql
 from tb_common.db import split_url
 
 SHEET = re.compile(r'data-testid="(?:admin-)?confirm"')
+SESSION = "db:auth.sessions"  # the content is left out of a comparison (its last use); SESSION_ROWS is compared
+SESSION_ROWS = "rows:auth.sessions"
 
 
 def _db() -> dict[str, str]:
@@ -40,7 +42,12 @@ def _db() -> dict[str, str]:
                 sql.Identifier(schema), sql.Identifier(table)
             )
             row = con.execute(q).fetchone()
-            out[f"db:{schema[len(prefix) :]}.{table}"] = str(row[0] if row else "")
+            key = f"db:{schema[len(prefix) :]}.{table}"
+            out[key] = str(row[0] if row else "")
+            if key == SESSION:  # the session's last use changes on every request; how many sessions there are, not
+                count = sql.SQL("SELECT count(*) FROM {}.{}").format(sql.Identifier(schema), sql.Identifier(table))
+                n = con.execute(count).fetchone()
+                out[SESSION_ROWS] = str(n[0] if n else 0)
     return out
 
 
@@ -60,16 +67,15 @@ def snapshot(root: Path) -> dict[str, str]:
     return {**_db(), **_files(root)}
 
 
-# not an act: the signed-in session's own row (its last use), touched by every request of a signed-in person
-SESSION = "db:auth.sessions"
-
-
-def changed(before: dict[str, str], after: dict[str, str]) -> list[str]:
-    """What changed, leaving out the session's own row and the tables a store made on its first opening (its schema
-    and seed rows: a migration, not an act)."""
+def changed(before: dict[str, str], after: dict[str, str], strict: bool = True) -> list[str]:
+    """What changed. Always left out: the content of the sessions table (a signed-in person's session records its
+    last use on every request; the number of sessions is compared). With ``strict`` off (the walk of every page),
+    also a table a store made on its first opening, with its seed rows (a migration, not an act)."""
     out = []
     for k in sorted(before.keys() | after.keys()):
-        if before.get(k) == after.get(k) or k == SESSION or (k.startswith("db:") and k not in before):
+        if before.get(k) == after.get(k) or k == SESSION:
+            continue
+        if not strict and k.startswith("db:") and k not in before:
             continue
         out.append(k)
     return out

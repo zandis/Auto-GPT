@@ -1346,6 +1346,9 @@ def register(app: FastAPI, h: Helpers) -> None:
                 mark, stored_note = "withdraw", None
             else:
                 mark, stored_reason, stored_note = before.mark, before.reason, before.note
+            # 9k-7 (D-1388): every check the act it puts back runs (an Approach waits while the death records cannot
+            # be read, FIT-U04), as if that act were marked now
+            contact_or_refuse(sess, rid, wk, pid, mark)
         elif mark == "not_suitable":
             stored_reason = reason
         elif mark == "not_now":
@@ -1415,7 +1418,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         return rid, value, detail
 
     def undo_window_end(m: Mark) -> datetime:
-        return datetime.fromisoformat(m.at) + timedelta(minutes=UNDO_MINUTES)
+        """The end of the Undo's time: UNDO_MINUTES after the mark, cut to the whole minute, so the HH:MM the toast
+        states is the end itself (the Undo is refused from that minute on, never later than it says)."""
+        return (datetime.fromisoformat(m.at) + timedelta(minutes=UNDO_MINUTES)).replace(second=0, microsecond=0)
 
     def undo_until_text(m: Mark) -> str:
         """The end of the Undo's time as the site's clock shows it (HH:MM)."""
@@ -1430,7 +1435,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         last = hist[-1] if hist else None
         if last is None or last.by != sess.user.username or last.undoes is not None or last.id is None:
             return None
-        if h.clock() > undo_window_end(last) or outcome_since(rid, pid, last):
+        if h.clock() >= undo_window_end(last) or outcome_since(rid, pid, last):
             return None
         return {"pid": pid, "id": last.id, "until": undo_until_text(last)}
 
@@ -1456,7 +1461,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if target is not hist[-1]:
             last = hist[-1]
             raise h.problem(409, "mark.undo_changed_by", by=last.by, at=local_time_text(last.at))
-        if h.clock() > undo_window_end(target):
+        if h.clock() >= undo_window_end(target):
             raise h.problem(409, "mark.undo_expired", until=undo_until_text(target))
         if outcome_since(rid, pid, target):
             raise h.problem(409, "mark.undo_outcome")

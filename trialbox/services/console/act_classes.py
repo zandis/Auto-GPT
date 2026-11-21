@@ -1,26 +1,37 @@
-"""The console's POST acts in three lists (card 9k-7, D-1388; review 09 §3.5, DS-7).
+"""The console's POST acts in exactly one class each (card 9k-7, D-1388; review 09 §3.5, DS-7).
 
 Every POST route a console page posts to (every POST route outside the machine APIs under ``/api/``, and every route
-a template's form names) is in exactly one list. ``tests/console/test_acts_9k7.py`` reads the app's routes and the
-templates' forms and fails on a route or a form in no list or in two, and on a list entry no route has.
+a template's form names) is in exactly one class. A route whose class depends on the value it is sent (the PI's
+mark: ``mark=approach`` and ``mark=need_info`` are different acts) is classed value by value, each value of its
+vocabulary in exactly one class. ``tests/console/test_acts_9k7.py`` reads the app's route table and the templates'
+forms and fails on a route, a form or a value in no class or in two, and on an entry no route has.
 
 * **CONFIRM_FIRST**: consent entries, SAEs and anything audited as a clinical act, and every other act that records
-  something and is not on the other two lists. Nothing is recorded until the person confirms: the act is the POST of
-  a page that states what will be recorded, and where a step is final or names a consequence, a confirmation page
-  (``confirm.html``, ``admin_confirm.html``) comes first and the act is recorded only by its Yes. 9k-7 changes none of
-  their timings. An act on this list gets no act-at-once Undo; a correction it had before 9k-7 (the life step's "Undo
-  the last step" with its note, a contact outcome's Undo, a site fact's Undo, Enable after Disable, Undo after a
-  REDCap Detach; D-178) stays as it was, a deliberate act of its own with its own audit event.
+  something of a patient, a participant, a study's conduct or the site and is not in another class. Nothing is
+  recorded until the person's confirming POST. For 14 routes (``SHEETS``) a confirmation page (``confirm.html``,
+  ``admin_confirm.html``) comes first and the act is recorded only by its Yes; for the other 75 the act is its one
+  POST, from the page that holds the form: there is no separate confirmation, on master as here (consent entry and
+  the SAE acts among them). 9k-7 changes none of their timings. An act in this class gets no act-at-once Undo; a
+  correction it had before 9k-7 (the life step's "Undo the last step" with its note, a contact outcome's Undo, a site
+  fact's Undo, Enable after Disable, Undo after a REDCap Detach; D-178) stays as it was, an act of its own with its own
+  audit event.
 * **UNDO**: act at once, with Undo: only marks and settings that are not clinical acts. The Undo is offered only to
-  the person who acted, for a stated time, restores exactly the state before, is a POST with the CSRF token, runs the
-  act's own role check, is refused with what is true when the thing changed since, is done once (a second click
-  writes nothing), and leaves the pair of audit events (done, undone): the "done" event is never removed.
-* **PLAIN**: neither: signing in and out, the language, the acting role, a search, a check or a connection test, a
-  run or a request started, feedback. Nothing of a patient, a participant or a study's conduct is recorded by them.
+  the person who acted, for a stated time, restores exactly the state before, is a POST with the CSRF token, runs
+  every check of the act it puts back, is refused with what is true when the thing changed since, is done once (a
+  second click writes nothing), and leaves the pair of audit events (done, undone): the "done" event is never removed.
+* **AWAITING**: inherited from D-133, awaiting the owner's ruling on 9k-7: the PI's Approach and "Not suitable now".
+  They record at once and keep D-133's toast Undo, exactly as on master; 9k-7 adds and removes nothing for them.
+  An Approach gives a screening number, a screening-log row and the "approached" count, which its Undo does not take
+  back; "Not suitable now" records a medical reason.
+* **SYSTEM**: a sync or a run a person starts: it records what a source holds or what a run computes (an SAE synced
+  from REDCap into the register, a source's rows, a run's list), never a person's decision about a patient.
+* **PLAIN**: signing in and out, the language, the acting role, a search, a check or a connection test, one's own
+  password, feedback. Nothing of a patient, a participant or a study's conduct is recorded by them.
 
 ``UNSURE`` names the acts put on CONFIRM_FIRST because it was not certain whether they are clinical acts (the owner's
 ruling of 2026-11-20: when unsure, confirm first). ``SHEETS`` names the CONFIRM_FIRST routes whose first POST shows a
-confirmation page; ``tests/console/test_acts_9k7.py`` proves for each that nothing is written before its Yes.
+confirmation page; ``tests/console/test_acts_9k7.py`` pins that set against the handlers and proves for each that
+nothing is written before its Yes.
 """
 
 from __future__ import annotations
@@ -125,10 +136,38 @@ CONFIRM_FIRST: dict[str, str] = {
     "/login/first-run/answers": "the box's first set-up: its answers recorded",
 }
 
+MARK = "/studies/{rs}/patients/{pid}/mark"
+# routes classed value by value: route -> the form field that names the act
+BY_VALUE: dict[str, str] = {MARK: "mark"}
+
 UNDO: dict[str, str] = {
-    # the PI's marks on the weekly list (D-108): Approach, Need info, Not suitable now, Not now, Withdraw, and the
-    # toast's Undo (``mark=undo``, the row it takes back in ``undo``), for UNDO_MINUTES (console.home)
-    "/studies/{rs}/patients/{pid}/mark": "the PI's mark on a candidate, and its Undo",
+    # the PI's marks on the weekly list (D-108) that decide nothing about the patient yet, and the toast's Undo
+    # (``mark=undo``, the row it takes back in ``undo``), for UNDO_MINUTES (console.home)
+    f"{MARK} mark=need_info": "the PI asks for more information",
+    f"{MARK} mark=not_now": "the PI defers the patient to a re-check date",
+    f"{MARK} mark=withdraw": "the PI takes the current mark back",
+    f"{MARK} mark=undo": "the toast's Undo of a mark; an Undo that takes back or puts back an Approach or a Not "
+    "suitable now is D-133's inherited Undo of the AWAITING class, unchanged",
+}
+
+AWAITING: dict[str, str] = {
+    f"{MARK} mark=approach": "the PI's Approach: a screening number, a screening-log row, the approached count",
+    f"{MARK} mark=not_suitable": "the PI's Not suitable now, with a medical reason",
+}
+
+SYSTEM: dict[str, str] = {
+    "/studies/{rs}/feasibility/refresh": "the feasibility counts read again",
+    "/studies/{rs}/redcap-read": "a REDCap read run now: the participants' rows it holds",
+    "/studies/{rs}/sources/{name}/sync": "a source synchronised now: the rows it holds",
+    "/studies/{rs}/sae/sync": "the SAE register brought up to date now: the SAEs REDCap holds",
+    "/admin/models/canary": "the model check run now",
+    "/ops/ingest": "an ingest run started: the site's data copied",
+    "/pilot/request": "a run requested",
+    "/pilot/propose/{pid}/confirm": "the proposed run started",
+    "/pilot/case": "a case run started",
+    "/pilot/cascade": "a cascade run started",
+    "/pilot/protocol": "a protocol sent in for reading",
+    "/pilot/mailbox": "the mailbox read now",
 }
 
 PLAIN: dict[str, str] = {
@@ -147,19 +186,7 @@ PLAIN: dict[str, str] = {
     "/audit/verify": "a check of the audit chain",
     "/admin/redcap/{ref}/test": "a connection test",
     "/studies/{rs}/setup/redcap/test": "a connection test",
-    "/studies/{rs}/feasibility/refresh": "the feasibility counts read again",
-    "/studies/{rs}/redcap-read": "a REDCap read run now",
-    "/studies/{rs}/sources/{name}/sync": "a source synchronised now",
-    "/studies/{rs}/sae/sync": "the SAE register brought up to date now",
-    "/admin/models/canary": "the model check run now",
-    "/ops/ingest": "an ingest run started",
-    "/pilot/request": "a run requested",
     "/pilot/propose": "a request read into a proposed run",
-    "/pilot/propose/{pid}/confirm": "the proposed run started",
-    "/pilot/case": "a case run started",
-    "/pilot/cascade": "a cascade run started",
-    "/pilot/protocol": "a protocol sent in for reading",
-    "/pilot/mailbox": "the mailbox read now",
 }
 
 # acts on CONFIRM_FIRST because it was not certain whether they are clinical acts (D-1388: for the owner)
@@ -192,9 +219,33 @@ SHEETS: dict[str, str] = {
     "/studies/{rs}/sources/redcap/detach": "always",
 }
 
-LISTS: dict[str, dict[str, str]] = {"confirm-first": CONFIRM_FIRST, "undo": UNDO, "plain": PLAIN}
+LISTS: dict[str, dict[str, str]] = {
+    "confirm-first": CONFIRM_FIRST,
+    "undo": UNDO,
+    "awaiting": AWAITING,
+    "system": SYSTEM,
+    "plain": PLAIN,
+}
+
+
+def route_of_entry(entry: str) -> str:
+    """The route an entry names (an entry of a route classed by value is ``"<route> <field>=<value>"``)."""
+    return entry.split(" ", 1)[0]
 
 
 def class_of(route: str) -> list[str]:
-    """The lists that name ``route`` (exactly one when the lists are right)."""
+    """The classes that name ``route`` itself (exactly one for a route not classed by value; none for one that is)."""
     return [name for name, acts in LISTS.items() if route in acts]
+
+
+def value_classes(route: str) -> dict[str, list[str]]:
+    """For a route classed by value: each value named, with the classes that name it (exactly one when right)."""
+    field = BY_VALUE[route]
+    out: dict[str, list[str]] = {}
+    for name, acts in LISTS.items():
+        for entry in acts:
+            if route_of_entry(entry) == route and " " in entry:
+                key, _, value = entry.split(" ", 1)[1].partition("=")
+                if key == field:
+                    out.setdefault(value, []).append(name)
+    return out

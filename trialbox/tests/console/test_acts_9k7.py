@@ -28,9 +28,9 @@ from typing import Any
 import pytest
 from console import act_classes as ac
 from console.home import UNDO_MINUTES
-from console.sitestore import SiteStore
-from fastapi.routing import APIRoute
+from console.sitestore import MARKS, SiteStore
 from fastapi.testclient import TestClient
+from starlette.routing import Route
 
 from tests.console.acts_9k7 import changed, run_guarded, snapshot
 from tests.console.test_console_app import (  # noqa: F401 - the fixture is used by name
@@ -62,9 +62,10 @@ CONDITIONAL: dict[str, tuple[str, str]] = {
 }
 
 
-# ---------------------------------------------------------------------------------------------- the three lists
+# ---------------------------------------------------------------------------------------------- the classes
 def _post_routes(app: Any) -> set[str]:
-    return {r.path for r in app.routes if isinstance(r, APIRoute) and "POST" in (r.methods or ())}
+    """Every POST route of the app's full route table: decorated routes and those added with ``add_route``."""
+    return {r.path for r in app.routes if isinstance(r, Route) and "POST" in (r.methods or ())}
 
 
 def _segments_match(route: str, action: str) -> bool:
@@ -74,16 +75,21 @@ def _segments_match(route: str, action: str) -> bool:
     return all(r == f or (r.startswith("{") and r.endswith("}")) or "{{" in f for r, f in zip(rs, fs, strict=True))
 
 
-def test_every_post_form_and_route_is_in_exactly_one_list(box: dict[str, Any]) -> None:  # noqa: F811
-    """The owner's ruling of 2026-11-20 (D-1388): every POST form of the console is in exactly one of the three
-    lists. Read from the app's routes and the templates' forms, so a new route or form is caught without a hand-kept
-    list of either."""
+def _vocabulary(route: str) -> set[str]:
+    """The values a route classed by value takes, from the code that refuses any other."""
+    assert route == ac.MARK, f"no vocabulary known for {route}: name where its handler's values come from"
+    return {*MARKS, "withdraw", "undo"}  # console.home.apply_mark refuses any other value
+
+
+def list_problems(app: Any) -> list[str]:
+    """Every way the app's routes, the templates' forms and ``console.act_classes`` disagree."""
     console = Path(__file__).resolve().parents[2] / "services" / "console"
-    for route, (module, text) in CONDITIONAL.items():
-        assert text in (console / module).read_text(encoding="utf-8"), f"{route} is no longer registered by {module}"
-    every = _post_routes(box["app"]) | set(CONDITIONAL)
-    pages = {r for r in every if not r.startswith("/api/")}
     problems: list[str] = []
+    for route, (module, text) in CONDITIONAL.items():
+        if text not in (console / module).read_text(encoding="utf-8"):
+            problems.append(f"{route} is no longer registered by {module}")
+    every = _post_routes(app) | set(CONDITIONAL)
+    pages = {r for r in every if not r.startswith("/api/")}
     forms = 0
     reached: set[str] = set()
     for template, found in scan().items():
@@ -98,21 +104,80 @@ def test_every_post_form_and_route_is_in_exactly_one_list(box: dict[str, Any]) -
                 problems.append(f"{template}: a POST form to {action!r} reaches no POST route")
                 continue
             reached |= routes
-            classes = {c for r in routes for c in ac.class_of(r)}
-            if len(classes) != 1:
+            for r in routes & set(ac.BY_VALUE):  # a value the form sends must be classed
+                sent = re.findall(r'name="' + ac.BY_VALUE[r] + r'" value="(\w+)"', f.body)
+                problems += [f"{template}: the form to {action!r} sends {ac.BY_VALUE[r]}={v}, which no class names"
+                             for v in sent if v not in ac.value_classes(r)]  # fmt: skip
+            classes = {c for r in routes - set(ac.BY_VALUE) for c in ac.class_of(r)}
+            if len(classes) > 1 or (not classes and not routes & set(ac.BY_VALUE)):
                 problems.append(f"{template}: the POST form to {action!r} ({sorted(routes)}) is in "
-                                f"{len(classes)} lists: {sorted(classes)}")  # fmt: skip
+                                f"{len(classes)} classes: {sorted(classes)}")  # fmt: skip
     walked = pages | {r for r in reached if r.startswith("/api/")}
     for r in sorted(walked):
+        if r in ac.BY_VALUE:
+            if ac.class_of(r):
+                problems.append(f"POST {r} is classed by value and also as a whole: {ac.class_of(r)}")
+            got = ac.value_classes(r)
+            for v in sorted(_vocabulary(r) | set(got)):
+                if len(got.get(v, [])) != 1:
+                    problems.append(f"POST {r} {ac.BY_VALUE[r]}={v} is in {len(got.get(v, []))} classes: "
+                                    f"{got.get(v) or 'none'}")  # fmt: skip
+            continue
         lists = ac.class_of(r)
         if len(lists) != 1:
-            problems.append(f"POST {r} is in {len(lists)} lists of console/act_classes.py: {lists or 'none'}")
-    named = {r for acts in ac.LISTS.values() for r in acts}
+            problems.append(f"POST {r} is in {len(lists)} classes of console/act_classes.py: {lists or 'none'}")
+    named = {ac.route_of_entry(e) for acts in ac.LISTS.values() for e in acts}
     problems += [f"console/act_classes.py names {r}, which is no POST route of the console" for r in named - walked]
     problems += [f"UNSURE names {r}, which is not confirm-first" for r in set(ac.UNSURE) - set(ac.CONFIRM_FIRST)]
     problems += [f"SHEETS names {r}, which is not confirm-first" for r in set(ac.SHEETS) - set(ac.CONFIRM_FIRST)]
+    if forms < 100 or len(walked) != len(named):
+        problems.append(f"the walk read {forms} forms and {len(walked)} routes against {len(named)} named")
+    return problems
+
+
+def test_every_post_form_and_route_is_in_exactly_one_list(box: dict[str, Any]) -> None:  # noqa: F811
+    """The owner's ruling of 2026-11-20 (D-1388): every POST form of the console is in exactly one class (a route
+    whose act depends on the value it is sent: each value in exactly one). Read from the app's full route table and
+    the templates' forms, so a new route or form is caught without a hand-kept list of either."""
+    problems = list_problems(box["app"])
     assert not problems, "\n".join(problems)
-    assert forms > 100 and len(walked) == len(named)  # the walk read the templates and the routes
+
+
+def test_the_list_test_catches_a_post_route_in_no_class(box: dict[str, Any]) -> None:  # noqa: F811
+    """A POST route added with ``add_route`` (not a decorated route) is in the route table the list test reads."""
+    from starlette.responses import PlainTextResponse
+
+    async def raw(request: Any) -> Any:
+        return PlainTextResponse("")
+
+    box["app"].add_route("/x9k7/raw-act", raw, methods=["POST"])
+    assert "POST /x9k7/raw-act is in 0 classes of console/act_classes.py: none" in list_problems(box["app"])
+
+
+# the code that brings a confirmation page, as a handler's body writes it
+SHEET_CALL = re.compile(r"h\.confirm\(|confirm_step\(|\"admin_confirm\.html\"")
+DECORATOR = re.compile(r'^\s*@app\.post\(\s*f?"([^"]+)"', re.M)
+
+
+def test_which_confirm_first_routes_have_a_confirmation_page() -> None:
+    """D-1388 says it plainly: of the confirm-first routes, exactly the 14 of ``SHEETS`` have a confirmation page (their
+    handler brings ``confirm.html`` or ``admin_confirm.html``); for the other 75 the act is its one POST (consent entry
+    and the SAE acts among them, on master as here). Read from each handler's text."""
+    console = Path(__file__).resolve().parents[2] / "services" / "console"
+    found: set[str] = set()
+    for f in sorted(console.glob("*.py")):
+        text = f.read_text(encoding="utf-8")
+        marks = list(DECORATOR.finditer(text))
+        for i, m in enumerate(marks):
+            body = text[m.end() : marks[i + 1].start() if i + 1 < len(marks) else len(text)]
+            body = body.split("\n    @app.", 1)[0]
+            if SHEET_CALL.search(body):
+                found.add(m.group(1))
+    assert found == set(ac.SHEETS), (sorted(found - set(ac.SHEETS)), sorted(set(ac.SHEETS) - found))
+    one_post = set(ac.CONFIRM_FIRST) - set(ac.SHEETS)
+    assert (len(ac.SHEETS), len(one_post)) == (14, 75)
+    assert {"/studies/{rs}/subjects/{record}/aes/{event}/ack", "/studies/{rs}/sae/{record}/{event}/ack",
+            "/studies/{rs}/sae/{record}/{event}/{what}"} <= one_post  # fmt: skip
 
 
 # ---------------------------------------------------------------------------------------------- nothing before Yes
@@ -191,7 +256,7 @@ def test_opening_a_page_records_no_act(box: dict[str, Any]) -> None:  # noqa: F8
     for name, role in (("crc", "coordinator"), ("drsato", "investigator"), ("stw", "steward")):
         box["users"].create(name, role, PW, f"{name}@hospa.test")
     name_pi(box, "drsato")
-    gets = sorted({r.path for r in box["app"].routes if isinstance(r, APIRoute) and "GET" in (r.methods or ())
+    gets = sorted({r.path for r in box["app"].routes if isinstance(r, Route) and "GET" in (r.methods or ())
                    and not r.path.startswith("/api/") and not SKIP_PAGES.match(r.path)})  # fmt: skip
 
     def fill(path: str) -> str:
@@ -204,7 +269,7 @@ def test_opening_a_page_records_no_act(box: dict[str, Any]) -> None:  # noqa: F8
         for path in gets:
             before, n = snapshot(box["dir"]), len(_audit_events(box))
             c.get(fill(path), follow_redirects=False)
-            diff = [k for k in changed(before, snapshot(box["dir"])) if not READ_RECORDS.match(k)]
+            diff = [k for k in changed(before, snapshot(box["dir"]), strict=False) if not READ_RECORDS.match(k)]
             acts = [e.get("event") for e in _audit_events(box)[n:] if not READ_EVENTS.match(str(e.get("event")))]
             if diff or acts:
                 problems.append(f"{user} GET {path}: {diff} {acts}")
@@ -271,7 +336,7 @@ def _mark(c: TestClient, pid: str, mark: str, **extra: str) -> Any:
 
 
 def _undo(c: TestClient, pid: str, row: str | None) -> Any:
-    page = c.get(f"/studies/GZQO/patients/{pid}").text
+    page = c.get("/").text  # the session's CSRF token
     data = {"csrf": _csrf(page), "mark": "undo", "back": "patient", **({"undo": row} if row else {})}
     return c.post(f"/studies/GZQO/patients/{pid}/mark", data=data, follow_redirects=True)
 
@@ -333,3 +398,70 @@ def test_the_undo_ends_at_the_time_it_states(mb: dict[str, Any]) -> None:
     r = _undo(sato, A, row)
     assert r.status_code == 409 and f"The time to undo this mark ended at {until.group(1)}." in r.text
     assert len(_pi_marks(mb)) == n and SiteStore().mark_history("GZQO", A)[-1].mark == "need_info"
+
+
+def test_an_undo_under_a_clock_stepped_back_takes_the_mark_back(mb: dict[str, Any]) -> None:
+    """Review M1: the server's clock steps back two seconds between a mark and its Undo. The marks are read in the
+    order they were written, so the Undo row is the latest: the mark before comes back, the page and the trail say so,
+    and the state and the undone event agree."""
+    sato = mb["sato"]
+    h = mb["app"].state.helpers
+    real = h.clock
+    _mark(sato, B, "not_now")
+    row = _offer(_mark(sato, B, "need_info").text)
+    assert row
+    h.clock = lambda: real() - timedelta(seconds=2)  # a step back of the server's clock
+    try:
+        r = _undo(sato, B, row)
+    finally:
+        h.clock = real
+    assert r.status_code == 200 and "Undone" in r.text
+    store = SiteStore()
+    assert store.latest_marks("GZQO")[B].mark == "not_now" and store.mark_history("GZQO", B)[-1].undoes == int(row)
+    events = _pi_marks(mb)
+    assert (events[-1]["action"], events[-1]["undo"], events[-1]["undoes"]) == ("not_now", "need_info", int(row))
+
+
+def test_an_undo_that_puts_back_an_approach_runs_the_approach_checks(mb: dict[str, Any]) -> None:
+    """Review M2: an Undo that would put back an Approach runs every check an Approach runs: while the death records
+    cannot be read (FIT-U04), no Approach is recorded, so the Undo is refused the same way and writes nothing."""
+    from console.backend import Unavailable
+
+    sato = mb["sato"]
+    _mark(sato, B, "approach")
+    row = _offer(_mark(sato, B, "need_info").text)
+    assert row
+
+    def down(pids: list[str]) -> set[str]:
+        raise Unavailable("lake down")
+
+    mb["backend"].deceased = down
+    n, rows = len(_pi_marks(mb)), len(SiteStore().mark_history("GZQO", B))
+    r = _undo(sato, B, row)
+    assert r.status_code == 503
+    assert len(_pi_marks(mb)) == n and len(SiteStore().mark_history("GZQO", B)) == rows
+    assert SiteStore().latest_marks("GZQO")[B].mark == "need_info"
+
+
+def test_the_stated_end_of_the_undo_is_its_end(mb: dict[str, Any]) -> None:
+    """Review L3: the toast's "until HH:MM" is the end itself: at that minute the Undo is refused, a second before it
+    is accepted."""
+    from datetime import datetime
+
+    sato = mb["sato"]
+    h = mb["app"].state.helpers
+    real = h.clock
+    r = _mark(sato, A, "need_info")
+    row = _offer(r.text)
+    assert row
+    at = datetime.fromisoformat(SiteStore().mark_history("GZQO", A)[-1].at)
+    end = (at + timedelta(minutes=UNDO_MINUTES)).replace(second=0, microsecond=0)
+    h.clock = lambda: end
+    try:
+        refused = _undo(sato, A, row)
+        h.clock = lambda: end - timedelta(seconds=1)
+        accepted = _undo(sato, A, row)
+    finally:
+        h.clock = real
+    assert refused.status_code == 409 and "The time to undo this mark ended at" in refused.text
+    assert accepted.status_code == 200 and "Undone" in accepted.text

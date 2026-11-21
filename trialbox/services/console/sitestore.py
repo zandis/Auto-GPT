@@ -547,7 +547,7 @@ class SiteStore:
     def mark_history(self, ruleset: str, pid: str) -> list[Mark]:
         rows = self.db.fetchall(
             "SELECT pid, mark, reason, note, by, at, job_id, version, id, undoes FROM pi_marks WHERE ruleset = ? "
-            "AND pid = ? ORDER BY at, id",
+            "AND pid = ? ORDER BY id",
             (ruleset, pid),
         )
         return [Mark(*r) for r in rows]
@@ -570,9 +570,7 @@ class SiteStore:
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"pi_marks:{ruleset}:{m.pid}",))
             if tx.fetchone("SELECT 1 FROM pi_marks WHERE undoes = ?", (done_id,)) is not None:
                 return "already"
-            rows = tx.fetchall(
-                "SELECT id FROM pi_marks WHERE ruleset = ? AND pid = ? ORDER BY at, id", (ruleset, m.pid)
-            )
+            rows = tx.fetchall("SELECT id FROM pi_marks WHERE ruleset = ? AND pid = ? ORDER BY id", (ruleset, m.pid))
             if not rows or int(rows[-1][0]) != done_id:  # a later row: the mark changed since
                 return "changed"
             tx.execute(
@@ -609,7 +607,9 @@ class SiteStore:
 
     def all_marks(self, ruleset: str) -> list[Mark]:
         rows = self.db.fetchall(
-            "SELECT pid, mark, reason, note, by, at, job_id, version FROM pi_marks WHERE ruleset = ? ORDER BY at, id",
+            # 9k-7 (D-1388): in the order the rows were written (the identity column), never by the clock's ``at``: a
+            # clock stepped back must not put a later row before an earlier one
+            "SELECT pid, mark, reason, note, by, at, job_id, version FROM pi_marks WHERE ruleset = ? ORDER BY id",
             (ruleset,),
         )
         return [Mark(*r) for r in rows]
