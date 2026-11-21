@@ -23,6 +23,8 @@ from typing import Any
 
 from tb_common.db import ENV, Database
 
+from sitesetup.medis_master import detail_of
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS input (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, ws TEXT NOT NULL,
   kind TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, path TEXT NOT NULL, media TEXT NOT NULL,
@@ -53,6 +55,12 @@ CREATE TABLE IF NOT EXISTS published (ws TEXT PRIMARY KEY, at TEXT NOT NULL, sna
 """
 # version 2 (scenario run MAP-01): how sure a suggested code is (0..1), shown beside it
 SCHEMA_V2 = "ALTER TABLE local_code ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION NOT NULL DEFAULT 0"
+# version 3 (10B-22, D-1261): what the MEDIS master says beside a suggestion, a JSON object shown on the local codes
+# page only: the WHO ICD-10 code and the same-numbered ICD-10-CM title to check, the further ICD-10 codes ("also
+# classified as"), the replaced entry of a successor, the hints, and the further candidates when one code or name
+# points at several diseases ("one of N"). NULL (none) for a row written before it and for a suggestion that is not
+# the master's. Never the suggested code; never sent anywhere else
+SCHEMA_V3 = "ALTER TABLE local_code ADD COLUMN IF NOT EXISTS medis_detail TEXT"
 STATUSES = ("coded", "proposed", "confirmed", "rejected")
 _INSERT_FACT = (
     "INSERT INTO fact (ws, input_id, pid, domain, term, code, system, local_code, local_system, value, unit, day, "
@@ -72,7 +80,7 @@ class SetupError(ValueError):
 class SetupStore:
     def __init__(self, url: str | None = None) -> None:
         self._db = Database.connect(url or os.environ.get(ENV), "sitesetup")
-        self._db.migrate([SCHEMA, SCHEMA_V2])
+        self._db.migrate([SCHEMA, SCHEMA_V2, SCHEMA_V3])
 
     @property
     def db(self) -> Database:
@@ -293,11 +301,11 @@ class SetupStore:
     def put_local(self, ws: str, domain: str, system: str, code: str, display: str, suggestion: dict[str, str]) -> None:
         self._db.execute(
             "INSERT INTO local_code (ws, domain, system, code, display, suggested_system, suggested_code, "
-            "suggested_display, method, confidence) VALUES (?,?,?,?,?,?,?,?,?,?) "
+            "suggested_display, method, confidence, medis_detail) VALUES (?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT (ws, domain, system, code) DO UPDATE SET display = excluded.display, "
             "suggested_system = excluded.suggested_system, "
             "suggested_code = excluded.suggested_code, suggested_display = excluded.suggested_display, "
-            "method = excluded.method, confidence = excluded.confidence",
+            "method = excluded.method, confidence = excluded.confidence, medis_detail = excluded.medis_detail",
             (
                 ws,
                 domain,
@@ -309,6 +317,7 @@ class SetupStore:
                 suggestion.get("display", "")[:200],
                 suggestion.get("method", ""),
                 float(suggestion.get("confidence") or 0),
+                detail_of(suggestion),
             ),
         )
 

@@ -6,7 +6,8 @@ committee page and its API twin. The walks of a box outside Japan (``test_matrix
   ``route_actions.yaml`` and ``route_actions_japan.yaml``: every route has its row, and the committee routes answer
   every column as their rows (copied from the study's IRB routes) say, with no unclear cell.
 * The Japan table (``data/role_route_matrix_japan.md``, regenerated with ``TB_WRITE_ROLE_MATRIX=1``) is who may use
-  the four routes, walked as ``test_role_route_matrix`` walks; it equals the IRB routes' rows of the main table.
+  every route the Japan profile adds, walked as ``test_role_route_matrix`` walks; the four committee routes equal the
+  IRB routes' rows of the main table (the MEDIS master step's three, 10B-22, are checked in test_medis_walk_10b22).
 
 Synthetic data only."""
 
@@ -50,11 +51,16 @@ def test_the_role_walk_at_a_japanese_site(japan_box: dict[str, Any], tmp_path: P
 
 
 def test_who_may_use_the_committee_routes_at_a_japanese_site(japan_box: dict[str, Any]) -> None:
-    walked = [(m, p, c) for m, p, c in rm.walk(japan_box) if p.endswith(COMMITTEE)]
+    # every route the Japan profile adds (its rows in route_actions_japan.yaml): the committee routes and, since
+    # 10B-22 (D-1261), the MEDIS master step
+    added = set(rw.load_declared(JAPAN_ROWS))
+    walked = [(m, p, c) for m, p, c in rm.walk(japan_box) if (m, p) in added]
     got = rm.render(walked).replace("Role x route matrix", "Role x route matrix at a Japanese site (10C-4)")
     if os.environ.get("TB_WRITE_ROLE_MATRIX") == "1":
         JAPAN_TABLE.write_text(got, encoding="utf-8")
     assert rm.parse(got) == rm.parse(JAPAN_TABLE.read_text(encoding="utf-8"))
+    assert len(rm.parse(got)) == len(added)  # every added route walked
     main = rm.parse(rm.TABLE.read_text(encoding="utf-8"))
     for (method, path), cells in rm.parse(got).items():  # the same answers as the IRB route it mirrors
-        assert cells == main[(method, path.replace(COMMITTEE, "/irb"))], (method, path)
+        if path.endswith(COMMITTEE):
+            assert cells == main[(method, path.replace(COMMITTEE, "/irb"))], (method, path)

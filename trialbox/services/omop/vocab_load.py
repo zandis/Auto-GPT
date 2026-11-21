@@ -14,9 +14,10 @@ What goes in, and where:
   CSV): new codes are added, names updated, codes the release no longer has are marked ``invalid_reason = 'D'``.
 * **The refdata pack's terms** (:func:`load_refdata_terms`, rows of schema ``refdata``'s ``term`` table, D-140).
 * **The JP masters** (:func:`load_licensed`: the releases the site loaded with ``adapter.licensed``, D-137): MEDIS
-  病名, JLAC10 and YJ codes, each with its link to the standard code the file gives. A MEDIS ICD-10 code that is also
-  an ICD-10-CM code links to it (D-137); a WHO-only code links to its ICD-10-CM category (``TB in CM family``,
-  baseline correction 3); a code whose category is not in ICD-10-CM links to nothing and stays unknown (D-130).
+  病名, JLAC10 and YJ codes, each with its link to the standard code the file gives. A MEDIS ICD-10 code is WHO
+  ICD-10 and links only to its ICD-10-CM category (``TB in CM family``, baseline correction 3), never to a
+  same-numbered ICD-10-CM code, which can name another disease (D-1261); a code whose category is not in
+  ICD-10-CM links to nothing and stays unknown (D-130).
 * **The site's local codes** (:func:`load_local_codes`, ``sitesetup.local_code`` once a person mapped them, D-135):
   a local concept in the site block, minted by the OMOP loader's own :class:`omop.vocab.Concepts` (so the source
   concept of a record and of its map are one), and a ``source_to_concept_map`` row to the mapped code.
@@ -602,6 +603,7 @@ def load_licensed(
     """The JP masters a site loaded (``adapter.licensed.tables()``: ``kind -> code -> {display, target_system,
     target_code}``): each kind one release; its codes reference concepts with their link to the standard code."""
     from adapter.licensed import KINDS
+    from tb_common.icd10_who import comparable
 
     out = []
     for kind, codes in sorted(tables.items()):
@@ -627,14 +629,19 @@ def load_licensed(
             links: dict[str, list[tuple[int, int]]] = {}
             targets = {c: (str(v.get("target_system") or ""), str(v.get("target_code") or "")) for c, v in
                        codes.items() if v.get("target_code")}  # fmt: skip
+            # D-1261: the MEDIS master writes its WHO ICD-10 without the dot (E119); the ICD-10-CM list has it (E11.9).
+            # A value that gives no comparable code (A99-9, empty) links to nothing: unknown (D-130)
+            targets = {c: (s, comparable(t) if s == ICD10_URI else t) for c, (s, t) in targets.items()}
+            targets = {c: (s, t) for c, (s, t) in targets.items() if t}
             who = [t for _, (s, t) in targets.items() if s == ICD10_URI]
             cm = _icd10cm_ids(tx, who + [who_family(t) for t in who])
             other: dict[str, dict[str, str]] = {}
             for c, (s, t) in targets.items():
                 if s == ICD10_URI:
-                    if t in cm:  # also an ICD-10-CM code (D-137)
-                        links.setdefault("Maps to", []).append((ids[c], cm[t]))
-                    elif who_family(t) in cm:  # WHO-only: its ICD-10-CM category (baseline correction 3)
+                    # D-1261 (lane J ruling H1 b): the master's code is WHO ICD-10, never taken for a same-numbered
+                    # ICD-10-CM code (the two can name different diseases), and the box's vocabulary has no WHO ICD-10
+                    # with mappings of its own: only the family link, for every WHO code
+                    if who_family(t) in cm:  # its ICD-10-CM category (baseline correction 3)
                         links.setdefault("TB in CM family", []).append((ids[c], cm[who_family(t)]))
                     # else: no ICD-10-CM category: unknown (D-130)
                 elif s:

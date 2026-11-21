@@ -18,6 +18,13 @@
       if (window.history.length > 1) { e.preventDefault(); window.history.back(); }
     });
   });
+  // 2a. D-1261 (10B-22): a form marked data-once is sent once: its submit buttons are disabled when it is sent (the
+  // server refuses a second load while one runs as well; without a script that refusal is all there is).
+  document.querySelectorAll("form[data-once]").forEach(function (f) {
+    f.addEventListener("submit", function () {
+      f.querySelectorAll("button[type=submit]").forEach(function (b) { b.disabled = true; });
+    });
+  });
   // 3. A form marked data-guard warns before the page is left with edits not yet saved.
   var dirty = false;
   document.querySelectorAll("form[data-guard]").forEach(function (f) {

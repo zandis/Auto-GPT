@@ -185,6 +185,27 @@ health line warns 90 days before the list runs out and is red after it.
 9. **Backup key.** With hospital IT, once (§5).
 10. **Acceptance** before go-live (§6).
 
+**Disease-name master (MEDIS), at a site whose country layer uses it** (D-1261). TrialBox does not ship MEDIS-DC's
+ICD10対応標準病名マスター: MEDIS lets a medical institution download it free and forbids passing it on without its
+permission. Before the first ingest, a person of the hospital who does site set-up (coordinator or administrator)
+signs in and opens **Site set-up → Local codes → Disease-name master (MEDIS)** (`/site/codes/medis`), then:
+
+1. opens MEDIS's download page from the step's link
+   (https://www2.medis.or.jp/stdcd/byomei/download2019.html; terms:
+   https://www.medis.or.jp/4_hyojyun/medis-master/riyou/index.html) and downloads the latest release zip;
+2. chooses the zip and presses **Read it**: the box reads it without loading and shows the version, the release date,
+   the rows of each table and the lines it would leave out;
+3. ticks the approval (the institution downloaded this release from MEDIS and may use it under MEDIS's terms),
+   chooses the same file again and presses **Load**.
+
+The box keeps only the zip's SHA-256, the version and the counts. It loads only a zip the same person read in the
+last 30 minutes. The audit has the approval before the load starts, the loader's event for each table and the
+result: five `terminology.load` events for a load (D-1261). The step can be skipped and done later from the same
+page; until then, coded diagnoses from SS-MIX2 that carry modifiers read as unknown. The master's codes are WHO ICD-10
+(2013): a same-numbered ICD-10-CM code on the local codes page is a suggestion for a person to check. Releases come
+in June and December: the page reminds once the loaded release is more than seven months old, and a newer one is
+loaded the same way.
+
 **Sign-in.** Local accounts, or the hospital's single sign-on behind its reverse proxy: set `TB_CONSOLE_SSO_HEADER`
 (for example `X-Forwarded-User`), `TB_CONSOLE_SSO_TRUSTED_PROXIES` (addresses or CIDRs), optionally
 `TB_CONSOLE_SSO_ROLE_HEADER` and `TB_CONSOLE_SSO_ROLE_MAP=ad-group:admin,crc-group:coordinator`. Behind TLS set

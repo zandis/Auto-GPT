@@ -69,6 +69,7 @@ READ: dict[tuple[str, str], tuple[type, re.Pattern[str] | None]] = {
     ("P3", "committees"): (dict, None),
     ("P5", "report_language"): (str, re.compile(r"^[a-z]{2}(-[A-Z]{2})?$")),
     ("P7", "ingredient_stems"): (bool, None),
+    ("P7", "medis_master"): (bool, None),  # D-1261: the site set-up step that loads the MEDIS master
     # the code tables the site set-up maps a site's own codes against (sitesetup.mapping, D-1255): files of the
     # adapter's mapping folder, each of a format the set-up reads, each once
     ("P7", "code_tables"): (
