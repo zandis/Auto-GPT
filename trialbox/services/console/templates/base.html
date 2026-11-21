@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{ lang }}">
+<html lang="{{ lang }}"{% if ui_attrs is defined %}{{ ui_attrs()|xmlattr }}{% endif %}>{# 10F-1 (D-1387): the look the person chose #}
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
