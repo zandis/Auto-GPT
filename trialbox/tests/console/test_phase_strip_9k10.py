@@ -107,7 +107,7 @@ def test_screenshots_every_label_is_whole_at_390_800_and_1280_px_in_three_langua
                 assert attrs in shown, (user, path, "the page has no <html> to set the look on")
                 name = f"{user}-{lang}-390-{look}.html"
                 (out / name).write_text(shown, encoding="utf-8")
-                pages.append({"file": name, "lang": lang, "width": 390, "height": 844, "forced": False})
+                pages.append({"file": name, "lang": lang, "width": 390, "height": 844, "forced": False, "large": "150" in attrs})
     (out / "console.css").write_text(css, encoding="utf-8")
     r = subprocess.run(
         [shutil.which("node") or "node", str(SCRIPT), json.dumps({"dir": str(out), "pages": pages})],
