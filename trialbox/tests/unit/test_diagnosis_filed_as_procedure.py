@@ -10,11 +10,13 @@ is. Synthetic extraction output.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 from criteria_compiler.ir_extract.postprocess import PresenceSource, is_diagnosis_name, postprocess
 from criteria_compiler.terminology.mapper import Terminology
+from tb_common.audit import AuditLog
 from tb_contracts import LlmExtractOutput
 
 
@@ -24,7 +26,7 @@ def _crit(concept: str, domain: str) -> dict[str, Any]:
             "concept_candidates": [{"domain": domain, "name": concept}]}  # fmt: skip
 
 
-def test_a_diagnosis_filed_as_a_procedure_is_refiled_and_flagged() -> None:
+def test_a_diagnosis_filed_as_a_procedure_is_refiled_and_flagged(tmp_path: Path) -> None:
     post = postprocess(
         "TCGA",
         LlmExtractOutput.model_validate(
@@ -38,6 +40,7 @@ def test_a_diagnosis_filed_as_a_procedure_is_refiled_and_flagged() -> None:
             }
         ),
         Terminology(),
+        audit=AuditLog(tmp_path),
         sources=[
             PresenceSource("invasive breast carcinoma", "inclusion", "en"),
             PresenceSource("mastectomy", "inclusion", "en"),

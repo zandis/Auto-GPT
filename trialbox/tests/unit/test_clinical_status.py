@@ -30,6 +30,7 @@ from lake.client import LakeLocal
 from lake.store import Lake
 from orchestrator.scenarios.evaluate import SqlEngine, structured_verdict
 from pydantic import ValidationError
+from tb_common.audit import AuditLog
 from tb_common.reasons import LABELS, Reason
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR, LlmExtractOutput
@@ -219,9 +220,14 @@ def _extracted(text: str, kind: str = "exclusion") -> LlmExtractOutput:
         ("現在までに悪性腫瘍と診断された", False),
     ],
 )
-def test_the_compiler_reads_active_from_the_line(text: str, active: bool) -> None:
+def test_the_compiler_reads_active_from_the_line(text: str, active: bool, tmp_path: Path) -> None:
     post = pp.postprocess(
-        "T", _extracted(text), Terminology(), "1.0.0", sources=[pp.PresenceSource(text, "exclusion", language([text]))]
+        "T",
+        _extracted(text),
+        Terminology(),
+        "1.0.0",
+        audit=AuditLog(tmp_path),
+        sources=[pp.PresenceSource(text, "exclusion", language([text]))],
     )
     (c,) = post.criteria
     status = c.logic.clinical_status  # type: ignore[union-attr]

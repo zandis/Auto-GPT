@@ -240,3 +240,153 @@ def test_governing_parent_survives_numbered_section_headings(heading: str) -> No
     ((_, _, passage),) = _presence_passages(doc)["inclusion"]
     qualifier = "Diagnoses in the donor" if heading == "Study Population" else "5 Family history"
     assert not passage.standalone and passage.text == f"{qualifier}\n{text}"
+
+
+@pytest.mark.parametrize("subject", ["donor", "patient"])
+def test_bullets_and_governing_instruction_on_retry(
+    env: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+    subject: str,
+) -> None:
+    from tb_common.llm import LlmResult
+    from tb_contracts import dump_json
+
+    donor = subject == "donor"
+    first = "The following diagnoses refer to the donor." if donor else "The patient has gout."
+    second = "The patient has a diagnosis of rheumatoid arthritis."
+    rows = [f"1. {first}", f"2. {second}"] if donor else [f"- {first}", f"- {second}"]
+    doc = parse(("\n".join(["Inclusion Criteria", *rows])).encode(), "section.txt", backend="lite")
+    calls = []
+
+    def chat(prompt: str, variables: dict[str, Any], **kwargs: Any) -> LlmResult:
+        lines = [ln["text"] for ln in variables["criteria"]]
+        calls.append(lines)
+        answers = [proposal(line) for line in (lines[:1] if len(calls) == 1 else lines)]
+        if len(calls) == 2:
+            answers[0]["logic"]["concept"] = answers[0]["concept_candidates"][0]["name"] = "rheumatoid arthritis"
+        return LlmResult({"criteria": answers}, prompt, 4, "test", "local", "i", "o", 1, 1, 1)
+
+    monkeypatch.setattr(env["deps"].llm, "chat_json", chat)
+    env["deps"].translator = None
+    key = "attachments/J/section.json"
+    env["store"].put(key, dump_json(doc).encode())
+    result = _compile(env, key=key)
+    assert calls == [[first, second], [second]]
+    assert [c.class_ for c in result.criteria] == (["human", "human"] if donor else ["structured", "structured"])
+    if donor:
+        assert result.criteria[-1].text == first + "\n" + second
+
+
+def test_admission_receipt_uses_replacement_id(env: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    from tb_common.llm import LlmResult
+    from tb_contracts import dump_json
+
+    base = Ruleset.load(SEED_RULESETS / "GZQO")
+    base.criteria = [base.by_id()[f"GZQO-EXC-0{i}"] for i in (1, 2)]
+    base.manifest.criteria = [c.id for c in base.criteria]
+    monkeypatch.setattr(env["comp"], "_approved", lambda _: base)
+    line = "The patient has gout."
+    parsed = parse(
+        f"Exclusion Criteria\n1. {base.criteria[0].text}\n2. {line}".encode(), "amendment.txt", backend="lite"
+    )
+    key = "attachments/J/amendment.json"
+    env["store"].put(key, dump_json(parsed).encode())
+    answer = {**proposal(line), "kind": "exclusion"}
+    monkeypatch.setattr(
+        env["deps"].llm,
+        "chat_json",
+        lambda *a, **kw: LlmResult({"criteria": [answer]}, "p", 4, "test", "local", "i", "o", 1, 1, 1),
+    )
+    result = _compile(env, key=key)
+    receipt_ids = [
+        e["detail"]["criterion"]
+        for path in (env["tmp"] / "audit").glob("*.jsonl")
+        for row in path.read_text().splitlines()
+        if (e := json.loads(row))["event"] == "compile.presence_admitted"
+    ]
+    assert receipt_ids == [result.criteria[-1].id] == ["GZQO-EXC-02"]
+
+
+def test_present_tense_does_not_match_a_resolved_diagnosis(term: Terminology, tmp_path: Path) -> None:
+    from lake.store import Lake
+
+    from tests.unit.test_clinical_status import _cond
+
+    text = "The patient has gout."
+    answer = proposal(text)
+    post = postprocess(
+        "T",
+        LlmExtractOutput.model_validate({"criteria": [answer]}),
+        term,
+        sources=[PresenceSource(text, "inclusion", "en")],
+        audit=AuditLog(tmp_path),
+    )
+    assert post.criteria[0].class_ == "structured"
+    sql = SqlGenerator("T", "1.0.0", post.vs_index("T", term)).render(post.criteria)
+    nd = tmp_path / "ndjson"
+    nd.mkdir()
+    patients = ["P-RESOLVED", "P-ACTIVE"]
+    (nd / "Patient.ndjson").write_text("\n".join(json.dumps({"resourceType": "Patient", "id": p}) for p in patients))
+    (nd / "Condition.ndjson").write_text("\n".join(json.dumps(_cond(p, p, "M10.00", p[2:].lower())) for p in patients))
+    (nd / "Observation.ndjson").write_text("")
+    Lake(tmp_path / "lake").rebuild("2026-10-05", HashEmbedder(), nd)
+    lake = LakeLocal(tmp_path / "lake", HashEmbedder())
+    rows = lake.query(sql, [["2026-10-05"], ["P-RESOLVED", "P-ACTIVE"]]).to_pylist()
+    assert {row["pid"]: row["C_T-INC-01"] for row in rows} == {"P-RESOLVED": None, "P-ACTIVE": True}
+
+
+@pytest.mark.parametrize(
+    ("language", "title", "lead", "child"),
+    [
+        ("en", "Inclusion Criteria", "The criteria below apply to the partner.", "History of stroke"),
+        ("zh-TW", "納入條件", "下列診斷指捐贈者。", "患者患有痛風。"),
+        ("ja", "選択基準", "以下の項目はドナーに関する。", "患者は痛風と診断された。"),
+    ],
+)
+def test_numbered_instructions_govern_the_next_item_in_each_language(
+    language: str, title: str, lead: str, child: str
+) -> None:
+    doc = parse(f"{title}\n1. {lead}\n2. {child}".encode(), "section.txt", backend="lite")
+    _, _, source = _presence_passages(doc)["inclusion"][1]
+    assert source == PresenceSource(lead + "\n" + child, "inclusion", language, standalone=False)
+
+
+@pytest.mark.parametrize(
+    ("ruleset", "released"),
+    [("GZQO", {"GZQO-EXC-01", "GZQO-EXC-02"}), ("AD-MAB", set()), ("NEUR-COH", set()), ("RA-JAK", set())],
+)
+def test_single_concept_admissions_across_shipped_protocols(
+    ruleset: str, released: set[str], term: Terminology, tmp_path: Path
+) -> None:
+    from criteria_compiler.semantics import Kind, atoms, kind
+
+    root = Path(__file__).resolve().parents[2]
+    suffix = "pdf" if ruleset == "GZQO" else "docx"
+    (document,) = (root / "tests/fixtures/protocols").glob(f"{ruleset}*.{suffix}")
+    parsed = parse(document.read_bytes(), document.name, backend="lite")
+    sources = [s for section in _presence_passages(parsed).values() for _, _, s in section]
+    extracted = LlmExtractOutput.model_validate_json(
+        (root / "services/llm_stub/cassettes/ir_extract" / f"{ruleset}.json").read_bytes()
+    )
+    post = postprocess(ruleset, extracted, term, sources=sources, audit=AuditLog(tmp_path))
+    before = {
+        c.id
+        for c in compiled(Ruleset.load(SEED_RULESETS / ruleset).criteria)
+        if any(kind(a) is Kind.PRESENCE for a in atoms(c.logic))
+    }
+    assert {c.id for c in compiled(post.criteria) if c.id in before} == released
+    assert {
+        c.id
+        for c in post.criteria
+        if c.id in before and c.class_ == "human" and "presence_requires_review" in (c.flags or [])
+    } == before - released
+
+
+@pytest.mark.parametrize(
+    "heading", ["The diagnoses in this list concern the donor.", "Active diagnoses.", "Donor medical history."]
+)
+def test_a_numbered_scope_label_survives_its_terminal_period(heading: str) -> None:
+    child = "History of stroke"
+    parsed = parse(f"Inclusion Criteria\n1. {heading}\n2. {child}".encode(), "section.txt", backend="lite")
+    _, _, source = _presence_passages(parsed)["inclusion"][1]
+    assert not source.standalone and source.text == heading + "\n" + child

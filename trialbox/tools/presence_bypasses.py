@@ -19,6 +19,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = "tools/presence_bypasses.json"
+AREAS = ("libs", "services")
+OFFLINE_BUILDER = "tools/build_rulesets.py"
 GATE_FILE = "services/criteria_compiler/ir_extract/postprocess.py"
 GATE = "criteria_compiler.ir_extract.postprocess.admit_presence"
 IR = {"CriterionIR", "CriterionIRv3"}
@@ -249,14 +251,34 @@ class Scan(ast.NodeVisitor):
             if item.asname:
                 self.bindings[item.asname] = ast.Name(id=item.name)
 
+    def assigned_value(self, value: ast.expr) -> ast.expr:
+        resolved = self.resolve(value)
+        if isinstance(resolved, ast.Attribute | ast.Subscript) or (
+            isinstance(resolved, ast.Call) and self.path(resolved)
+        ):
+            return ast.Name(id=self.path(resolved))
+        return resolved
+
     def assignment(self, node: ast.AST, target: ast.expr, value: ast.expr) -> None:
+        if isinstance(target, ast.Tuple | ast.List):
+            rhs = self.resolve(value)
+            if (
+                isinstance(rhs, ast.Tuple | ast.List)
+                and len(rhs.elts) == len(target.elts)
+                and not any(isinstance(e, ast.Starred) for e in (*target.elts, *rhs.elts))
+            ):
+                values = [self.assigned_value(item) for item in rhs.elts]
+            else:
+                values = [ast.Name(id="<unpacked>")] * len(target.elts)
+            for dest, item in zip(target.elts, values, strict=True):
+                self.assignment(node, dest, item)
+            return
+        if isinstance(target, ast.Starred):
+            self.assignment(node, target.value, value)
+            return
         if isinstance(target, ast.Name):
             self.stripped.discard(target.id)
-            resolved = self.resolve(value)
-            if isinstance(resolved, ast.Attribute | ast.Subscript) or (
-                isinstance(resolved, ast.Call) and self.path(resolved)
-            ):
-                resolved = ast.Name(id=self.path(resolved))
+            resolved = self.assigned_value(value)
             if isinstance(resolved, ast.Name | ast.Constant | ast.Dict | ast.Call | ast.Tuple):
                 self.bindings[target.id] = resolved
             else:
@@ -355,6 +377,15 @@ class Scan(ast.NodeVisitor):
         ):
             self.report(node, "copy executable logic")
 
+    def visit_DictComp(self, node: ast.DictComp) -> None:
+        if (
+            any(self.path(g.iter).endswith(".criteria") for g in node.generators)
+            and any(isinstance(n, ast.Attribute) and n.attr == "text" for n in ast.walk(node.key))
+            and isinstance(node.value, ast.Name)
+        ):
+            self.report(node, "index criteria for reuse by text")
+        self.generic_visit(node)
+
     def visit_Dict(self, node: ast.Dict) -> None:
         self.construction(node, self.fields(node))
         self.generic_visit(node)
@@ -422,6 +453,12 @@ class Scan(ast.NodeVisitor):
             method == "clear" or (method in {"pop", "__delitem__"} and self.literal(arg) == "status")
         ):
             self.report(node, "delete criterion restriction")
+        if method == "update" and arg and self.path(arg).endswith(".valuesets"):
+            self.report(node, "merge remapped ValueSets")
+        if method == "build_artifacts" and self.file == OFFLINE_BUILDER:
+            self.report(node, "compile stored IR with remapped codes")
+        if method == "_map" and self.file.endswith("/terminology/mapper.py"):
+            self.report(node, "resolve concept code set")
         if method == "_presence":
             self.report(node, "emit presence predicate")
         if method in {"tag", "retag", "promote"} and (
@@ -457,8 +494,7 @@ def inventory(data: bytes | str) -> Counter[Site]:
 def working_sites() -> Counter[Site]:
     return Counter(
         site
-        for area in ("libs", "services")
-        for file in (ROOT / area).rglob("*.py")
+        for file in [*(f for area in AREAS for f in (ROOT / area).rglob("*.py")), ROOT / OFFLINE_BUILDER]
         for site in scan(file.relative_to(ROOT).as_posix(), file.read_bytes())
     )
 
@@ -468,7 +504,8 @@ def git(*args: str) -> bytes:
 
 
 def base_sources(revision: str, prefix: str) -> Iterator[tuple[str, bytes]]:
-    paths = [f":(top,glob){prefix}{area}/**/*.py" for area in ("libs", "services")]
+    paths = [f":(top,glob){prefix}{area}/**/*.py" for area in AREAS]
+    paths.append(":(top)" + prefix + OFFLINE_BUILDER)
     with tarfile.open(fileobj=io.BytesIO(git("archive", revision, *paths))) as archive:
         for member in archive:
             if member.isfile():
@@ -481,7 +518,11 @@ def base_ceiling() -> Counter[Site]:
     base = os.environ.get("GATE_BASE_REF", "origin/master")
     revision = git("rev-parse", "--verify", "--end-of-options", base + "^{commit}").decode().strip()
     prefix = git("rev-parse", "--show-prefix").decode().strip()
-    if git("ls-tree", "--name-only", revision, "--", INVENTORY).strip():
+    scanner = Path(__file__).relative_to(ROOT).as_posix()
+    if git("ls-tree", "--name-only", revision, "--", INVENTORY).strip() and (
+        git("show", f"{revision}:{prefix}{scanner}") == (ROOT / scanner).read_bytes()
+    ):
         return inventory(git("show", f"{revision}:{prefix}{INVENTORY}"))
-    # Bootstrap from the base code, never from the working inventory.
+    # A new detector can reveal old sites. Its ceiling comes from running that same
+    # detector on base source, including the offline builder, never from proposed rows.
     return Counter(site for path, data in base_sources(revision, prefix) for site in scan(path, data))

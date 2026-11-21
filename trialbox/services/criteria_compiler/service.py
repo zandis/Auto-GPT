@@ -96,6 +96,27 @@ def align(lines: list[dict[str, Any]], answers: list[Any]) -> tuple[list[Any], s
     return matched, {k for k, n in seen.items() if n > 1}
 
 
+# Instructions can govern later peers even when numbered and closed with a period.
+_GOVERNING = re.compile(
+    r"\b(?:the following|as follows|listed below|(?:in|on) this (?:list|section)|"
+    r"refers? to|pertains? to|appl(?:y|ies) to|"
+    r"any of these|one of these|all of these|(?:criteria|entries|items|diagnoses|conditions) "
+    r"(?:below|are for|concern|describe|belong to|relate to))\b|"
+    r"(?<![0-9歳歲才日月年点週分])以下(?:の(?:基準|疾患|項目)|條件|各項)?|下列|下記|次の(?:基準|疾患|項目)|符合任一",
+    re.I,
+)
+_SCOPE_HEADING = re.compile(
+    r"(?:(?:family|donor|parent(?:al)?|partner|sibling)(?: medical)? (?:history|diagnoses|conditions)|"
+    r"(?:active|current|ongoing|planned|suspected|possible) (?:diagnoses|diseases|conditions|procedures|medications)|"
+    r"(?:目前|活動性|疑似|予定|計劃)(?:の)?(?:疾病|疾患|診斷|診断|手術)|"
+    r"(?:history|diagnoses|conditions) (?:in|of|for) (?:the )?(?:family|donor|parent|partner)|"
+    r"(?:(?:for|in|of) (?:the )?)?(?:donor|parents?|partner|mother|father)|family history|"
+    r"(?:捐贈者|父母|伴侶)(?:病史|診斷)?|家族史|"
+    r"(?:ドナー|両親|配偶者)(?:の(?:病歴|診断))?|家族歴)[.。]?",
+    re.I,
+)
+
+
 def _presence_passages(doc: ParsedDoc) -> dict[str, list[tuple[str, int, PresenceSource]]]:
     """Resolve positional references against the parser's sections, before alignment, retries or reuse."""
     passages: dict[str, list[tuple[str, int, PresenceSource]]] = {}
@@ -117,6 +138,8 @@ def _presence_passages(doc: ParsedDoc) -> dict[str, list[tuple[str, int, Presenc
             }
             context = section.text.strip() if population else section.title
             ancestors.append((section.level, context))
+        elif _GOVERNING.search(section.text) or _SCOPE_HEADING.fullmatch(section.text.strip()):
+            ancestors.append((section.level, section.text.strip()))
         kind = next((k for k, pattern in HEADINGS.items() if pattern.search(section.title)), None)
         if kind is None:
             continue
@@ -124,25 +147,23 @@ def _presence_passages(doc: ParsedDoc) -> dict[str, list[tuple[str, int, Presenc
         neutral = all(HEADINGS[kind].fullmatch(part) for part in re.split(r"(?<=[a-zA-Z])\s+(?=[一-鿿])", title))
         items = items_with_parents(section.text)
         parents = {parent for _, parent in items}
-        # A PDF may wrap a numbered item or put its number on a separate line. Compare
-        # the entire parsed item between markers, including every continuation line.
-        blocks = re.split(r"(?m)^[ \t]*([0-9]{1,3})[.)、．](?![0-9])[ \t]*", section.text)
-        numbered = {
-            (int(number), peers[0][0])
-            for number, body in zip(blocks[1::2], blocks[2::2], strict=True)
-            if len(peers := items_with_parents(body)) == 1
-        }
+        # The parser starts peers at list markers and joins every physical continuation,
+        # including PDF items whose number is alone on a line.
         heading = None
         for i, (text, parent) in enumerate(items):
             lead = items[parent][0] if parent is not None else heading
             passage = "\n".join(p for p in (*enclosing, "" if neutral else section.title, lead, text) if p)
-            peer = (i + 1, text) in numbered
-            standalone = neutral and not enclosing and lead is None and i not in parents and (len(items) == 1 or peer)
+            standalone = neutral and not enclosing and lead is None and i not in parents
             passages.setdefault(kind, []).append(
                 (section.title, i + 1, PresenceSource(passage, kind, doc.language, standalone))
             )
             introduction = i == 0 and len(items) > 1 and section.text.lstrip().startswith(text)
-            if text.rstrip(".。 ").endswith((":", "：")) or introduction or (peer and not text.endswith((".", "。"))):
+            if (
+                text.rstrip(".。 ").endswith((":", "："))
+                or introduction
+                or _GOVERNING.search(text)
+                or _SCOPE_HEADING.fullmatch(text)
+            ):
                 heading = text  # a possible lead-in without parser parent references
     return passages
 
@@ -955,10 +976,16 @@ class Compiler:
             reuse = {(c.kind, _norm(c.text)): c for c in approved.criteria}
         fresh_indices = [i for i, ln in enumerate(lines) if (ln["kind"], _norm(str(ln["text"]))) not in reuse]
         todo = [lines[i] for i in fresh_indices]
+        # changed criteria keep the id of the approved criterion they replace (positional pairing per kind)
+        used = {hit.id for ln in lines if (hit := reuse.get((ln["kind"], _norm(str(ln["text"])))))}
+        freed: dict[str, list[str]] = {}
         offsets: dict[str, int] = {}
-        for c in reuse.values():
-            code = KIND_CODE[c.kind]
-            offsets[code] = max(offsets.get(code, 0), int(c.id.rsplit("-", 1)[1]))
+        if approved:
+            for c in approved.ordered():
+                code = KIND_CODE[c.kind]
+                offsets[code] = max(offsets.get(code, 0), int(c.id.rsplit("-", 1)[1]))
+                if c.id not in used:
+                    freed.setdefault(c.kind, []).append(c.id)
         guard_hit = False
         criteria_new: list[CriterionIR] = []
         valuesets: dict[str, dict[str, Any]] = dict(approved.valuesets) if approved else {}
@@ -967,31 +994,28 @@ class Compiler:
         if todo:
             extracted, guard, unread, calls = self._extract(req.job_id, ruleset, parsed.language, todo)
             guard_hit = guard.hit
+            fresh_ids = []
+            for item in extracted.criteria:
+                if freed.get(item.kind):
+                    fresh_ids.append(freed[item.kind].pop(0))
+                else:
+                    code = KIND_CODE[item.kind]
+                    offsets[code] = offsets.get(code, 0) + 1
+                    fresh_ids.append(f"{ruleset}-{code}-{offsets[code]:02d}")
             post = postprocess(
                 ruleset,
                 extracted,
                 self.d.term,
                 version,
                 self._concept_map(req.job_id),
-                dict(offsets),
-                self.d.egfr(),
+                egfr=self.d.egfr(),
+                criterion_ids=fresh_ids,
                 sources=[sources[i] for i in fresh_indices],
                 audit=self.d.audit,
             )
             criteria_new = with_calls(flag_unread(post.criteria, unread, warnings), calls)
             valuesets.update(post.valuesets)
             warnings.extend(post.warnings)
-        # changed criteria keep the id of the approved criterion they replace (positional pairing per kind)
-        used = {
-            c.id
-            for c in reuse.values()
-            if (c.kind, _norm(c.text)) in {(ln["kind"], _norm(str(ln["text"]))) for ln in lines}
-        }
-        freed: dict[str, list[str]] = {}
-        if approved:
-            for c in approved.ordered():
-                if c.id not in used:
-                    freed.setdefault(c.kind, []).append(c.id)
         new_iter = iter(criteria_new)
         criteria: list[CriterionIR] = []
         reused: set[int] = set()
@@ -1005,14 +1029,7 @@ class Compiler:
                 reused.add(len(criteria))
                 criteria.append(hit.model_copy(update={"review": CriterionReview(status="draft")}))
                 continue
-            fresh = next(new_iter)
-            code = KIND_CODE[fresh.kind]
-            if freed.get(fresh.kind):
-                new_id = freed[fresh.kind].pop(0)
-            else:
-                offsets[code] = offsets.get(code, 0) + 1
-                new_id = f"{ruleset}-{code}-{offsets[code]:02d}"
-            criteria.append(fresh.model_copy(update={"id": new_id}))
+            criteria.append(next(new_iter))
         profile = self._profile(ruleset)
         lookback = int(options.get("lookback") or profile.get("scopes", {}).get("feas", {}).get("lookback_months", 36))
         # NEW-LIFE-2: a heading, a group's alternatives, a glued heading, another phase or a second section is not one
@@ -1239,6 +1256,7 @@ class Compiler:
                 req.version,
                 self._concept_map(job_id),
                 egfr=self.d.egfr(),
+                criterion_ids=[c.id for c, _ in to_extract],
                 sources=[PresenceSource(text, c.kind, rs.manifest.language or "und") for c, text in to_extract],
                 audit=self.d.audit,
             )

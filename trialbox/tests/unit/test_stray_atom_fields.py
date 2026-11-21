@@ -11,11 +11,13 @@ them. The lines below are the run's own.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 from criteria_compiler.ir_extract import postprocess as pp
 from criteria_compiler.terminology.mapper import Terminology
+from tb_common.audit import AuditLog
 from tb_contracts import Atom, LlmExtractOutput
 
 
@@ -125,7 +127,7 @@ def test_an_age_at_onset_on_a_condition_goes_to_a_person_not_widened(text: str, 
     assert c.class_ == "human" and "age_on_non_demographic" in (c.flags or []), text
 
 
-def test_a_held_mixed_line_keeps_its_note_question() -> None:
+def test_a_held_mixed_line_keeps_its_note_question(tmp_path: Path) -> None:
     text = "Children aged 1 to 12 years with CAP"
     crit = {"kind": "inclusion", "class": "mixed", "text": text,
             "note_question": "Does the child have community-acquired pneumonia?", "concept_candidates": [
@@ -136,6 +138,7 @@ def test_a_held_mixed_line_keeps_its_note_question() -> None:
         LlmExtractOutput.model_validate({"criteria": [crit]}),
         Terminology(),
         "1.0.0",
+        audit=AuditLog(tmp_path),
         sources=[pp.PresenceSource(text, "inclusion", "en")],
     ).criteria
     assert c.class_ == "note" and c.note_question and "age_on_non_demographic" in (c.flags or [])

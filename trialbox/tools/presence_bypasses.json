@@ -93,6 +93,13 @@
   {
     "file": "services/criteria_compiler/service.py",
     "function": "Compiler._approve",
+    "operation": "merge remapped ValueSets",
+    "statement": "valuesets.update(post.valuesets)",
+    "why": "Merging a fresh extraction into shared ValueSets can replace the codes of an untouched criterion."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._approve",
     "operation": "publish ruleset promote",
     "statement": "self.d.repo.promote(req.ruleset, tag, f'release {tag}', req.by)",
     "why": "Approval promotes stored artifacts to the executable ruleset. It needs proof covering every published predicate."
@@ -156,9 +163,30 @@
   {
     "file": "services/criteria_compiler/service.py",
     "function": "Compiler.compile",
+    "operation": "index criteria for reuse by text",
+    "statement": "reuse = {(c.kind, _norm(c.text)): c for c in approved.criteria}",
+    "why": "Indexing by item text omits the governing passage and its subject."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler.compile",
+    "operation": "merge remapped ValueSets",
+    "statement": "valuesets.update(post.valuesets)",
+    "why": "Merging a fresh extraction into shared ValueSets can replace the codes of an untouched criterion."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler.compile",
     "operation": "replace criterion review",
     "statement": "criteria.append(hit.model_copy(update={'review': CriterionReview(status='draft')}))",
     "why": "Incremental compilation restores an approved criterion to draft and keeps its executable class. Reuse bypasses extraction."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler.diff",
+    "operation": "index criteria for reuse by text",
+    "statement": "old: dict[tuple[str, str], CriterionIR] = {(c.kind, _norm(c.text)): c for c in approved.criteria}",
+    "why": "Indexing by item text omits the governing passage and its subject."
   },
   {
     "file": "services/criteria_compiler/structure.py",
@@ -168,10 +196,31 @@
     "why": "Group folding constructs a new structured criterion from several lines. It needs evidence for the combined passage."
   },
   {
+    "file": "services/criteria_compiler/terminology/mapper.py",
+    "function": "Terminology.map",
+    "operation": "resolve concept code set",
+    "statement": "res = self._map(domain, name, synonyms, llm)",
+    "why": "The terminology mapper supplies the codes used for admission without an independent check for missing or unrelated codes."
+  },
+  {
+    "file": "services/edc/service.py",
+    "function": "EdcService.send_redcap",
+    "operation": "mutate criterion logic",
+    "statement": "out[why].append(_brief(d))",
+    "why": "The conservative scan also finds this EDC result bucket named logic, which records a display-logic failure."
+  },
+  {
     "file": "services/orchestrator/scenarios/feas_compute.py",
     "function": "build_variants",
     "operation": "construct CriterionIR",
     "statement": "ir = CriterionIR.model_validate({**st.criterion.model_dump(mode='json', by_alias=True, exclude_none=True), 'id': f'V{n}-{st.id}', 'logic': logic})",
     "why": "Feasibility variants rebuild executable mixed boolean expressions after editing numeric thresholds. They can carry a presence atom."
+  },
+  {
+    "file": "tools/build_rulesets.py",
+    "function": "offline",
+    "operation": "compile stored IR with remapped codes",
+    "statement": "art = comp.build_artifacts(rid, rs.version, rs.ordered(), vs, lookback)",
+    "why": "Offline recompile combines stored approved IR with newly mapped codes under its existing approval."
   }
 ]

@@ -104,3 +104,13 @@ def test_stale_row_and_paired_code_and_inventory_growth_both_fail() -> None:
     with pytest.raises(AssertionError):
         assert_ratchet(changed, changed, initial)
     assert_ratchet(initial, initial, changed)
+
+
+def test_unpacking_into_a_criterion_counts_each_write() -> None:
+    found = sites("def change(c, atom):\n    c.logic, c.class_ = atom, 'structured'")
+    assert sorted(s.operation for s in found.elements()) == ["mutate criterion logic", "write executable class"]
+
+
+def test_unpacking_reads_old_rhs_values_before_binding_names() -> None:
+    found = sites("def release(c):\n    state = 'structured'\n    state, c.class_ = 'human', state")
+    assert [s.operation for s in found.elements()] == ["write executable class"]

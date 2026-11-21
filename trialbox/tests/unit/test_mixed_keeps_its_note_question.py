@@ -13,15 +13,25 @@ Lines from the run's public SIGIR protocols; no patient rows.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 from criteria_compiler.ir_extract import postprocess as pp
 from criteria_compiler.terminology.mapper import Terminology
+from tb_common.audit import AuditLog
 from tb_contracts import LlmExtractOutput
 
 
-def _one(cls: str, kind: str, note_question: str | None, logic: dict[str, Any], text: str = "line") -> Any:
+def _one(
+    cls: str,
+    kind: str,
+    note_question: str | None,
+    logic: dict[str, Any],
+    text: str = "line",
+    *,
+    audit: AuditLog | None = None,
+) -> Any:
     crit: dict[str, Any] = {"kind": kind, "class": cls, "text": text, "logic": logic,
                             "concept_candidates": [{"name": "Pneumonia", "domain": "condition"}]}  # fmt: skip
     if note_question:
@@ -31,6 +41,7 @@ def _one(cls: str, kind: str, note_question: str | None, logic: dict[str, Any], 
         LlmExtractOutput.model_validate({"criteria": [crit]}),
         Terminology(),
         "1.0.0",
+        audit=audit,
         sources=[pp.PresenceSource(text, kind, "en")],
     ).criteria
     return c
@@ -85,6 +96,12 @@ def test_without_a_note_question_or_as_structured_it_still_goes_to_a_person() ->
     assert _one("structured", "inclusion", None, BAD).class_ == "human"
 
 
-def test_a_mixed_criterion_that_runs_is_unchanged() -> None:
-    c = _one("mixed", "inclusion", "Does the patient have pneumonia?", {"domain": "condition", "concept": "Pneumonia"})
+def test_a_mixed_criterion_that_runs_is_unchanged(tmp_path: Path) -> None:
+    c = _one(
+        "mixed",
+        "inclusion",
+        "Does the patient have pneumonia?",
+        {"domain": "condition", "concept": "Pneumonia"},
+        audit=AuditLog(tmp_path),
+    )
     assert c.class_ == "mixed" and "coded_part_dropped" not in (c.flags or [])

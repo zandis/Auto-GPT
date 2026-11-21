@@ -26,6 +26,7 @@ from matching.carried import NOT_CARRIED, Carried
 from matching.cascade.engine import CascadeConfig, run_cascade
 from matching.coverage import UNKNOWN_CODE_SYSTEM
 from orchestrator.scenarios.evaluate import SqlEngine
+from tb_common.audit import AuditLog
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR, LlmExtractOutput
 
@@ -42,7 +43,7 @@ def _crit(kind: str, logic: dict[str, Any], text: str) -> dict[str, Any]:
 DM = {"domain": "condition", "concept": "diabetes mellitus"}
 
 
-def test_a_negated_exclusion_is_rewritten_positive_and_flagged() -> None:
+def test_a_negated_exclusion_is_rewritten_positive_and_flagged(tmp_path: Path) -> None:
     post = postprocess(
         "MJMED-DM",
         LlmExtractOutput.model_validate(
@@ -63,6 +64,7 @@ def test_a_negated_exclusion_is_rewritten_positive_and_flagged() -> None:
             }
         ),
         Terminology(),
+        audit=AuditLog(tmp_path),
         sources=[
             PresenceSource("History of diabetes", "exclusion", "en"),
             PresenceSource("History of diabetes", "exclusion", "en"),

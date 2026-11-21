@@ -223,3 +223,119 @@ def test_codes_listed_in_the_passage_constrain_even_a_matching_site_mapping(
     monkeypatch.setattr(term, "map", lambda *args: wrong)
     held = admit_presence(candidate, source, {"VS_MCI": wrong}, term, audit=audit)
     assert held.class_ == "human"
+
+
+@pytest.mark.parametrize(
+    ("language", "line", "name", "domain", "days", "release"),
+    [
+        ("en", "  12)  History   of stroke", "stroke", "condition", None, True),
+        ("en", "History of acute or chronic pancreatitis", "acute or chronic pancreatitis", "condition", None, True),
+        ("en", "- Patients with acute appendicitis.", "acute appendicitis", "condition", None, True),
+        (
+            "en",
+            "The patient received methotrexate within 7 days before screening.",
+            "methotrexate",
+            "medication",
+            7,
+            True,
+        ),
+        ("zh-TW", "（三）曾使用 methotrexate。", "methotrexate", "medication", None, True),
+        ("ja", "・スクリーニング前7日以内に脳卒中の既往がある者。", "stroke", "condition", 7, True),
+        (
+            "en",
+            "Rheumatoid arthritis diagnosed at least 6 months before screening.",
+            "rheumatoid arthritis",
+            "condition",
+            -180,
+            False,
+        ),
+        ("en", "Malignancy within the past 5 years.", "malignancy", "condition", 1825, False),
+        ("en", "Acute appendicitis (except in childhood).", "acute appendicitis", "condition", None, False),
+        ("ja", "現在活動性の痛風。", "gout", "condition", None, False),
+        ("zh-TW", "目前有痛風", "gout", "condition", None, False),
+        ("en", "Myocardial infarction or stroke", "stroke", "condition", None, False),
+    ],
+)
+def test_plain_passage_in_each_language(
+    language: str,
+    line: str,
+    name: str,
+    domain: str,
+    days: int | None,
+    release: bool,
+    criterion: CriterionIR,
+    term: Terminology,
+    audit: AuditLog,
+) -> None:
+    from tb_contracts import Window
+
+    window = None if days is None else Window(from_days=-days, to_days=0) if days > 0 else Window(to_days=days)
+    atom = Atom.model_validate({"domain": domain, "valueset": "V", "window": window})
+    candidate = criterion.model_copy(update={"text": line, "logic": atom})
+    got = admit_presence(
+        candidate, PresenceSource(line, "inclusion", language), {"V": term.map(domain, name)}, term, audit=audit
+    )
+    assert (got.class_ == "structured") == release
+
+
+@pytest.mark.parametrize(
+    ("language", "line"),
+    [
+        ("en", "The patient underwent laparoscopic gastric bypass."),
+        ("zh-TW", "患者曾接受腹腔鏡胃繞道手術。"),
+        ("ja", "患者はlaparoscopic gastric bypassを受けた。"),
+    ],
+)
+def test_named_procedure_uses_the_same_gate(
+    language: str, line: str, criterion: CriterionIR, term: Terminology, audit: AuditLog
+) -> None:
+    name = "腹腔鏡胃繞道手術" if language == "zh-TW" else "laparoscopic gastric bypass"
+    atom = Atom(domain="procedure", valueset="P")
+    candidate = criterion.model_copy(update={"text": line, "logic": atom})
+    assert (
+        admit_presence(
+            candidate,
+            PresenceSource(line, "inclusion", language),
+            {"P": term.map("procedure", name)},
+            term,
+            audit=audit,
+        )
+        == candidate
+    )
+
+
+@pytest.mark.parametrize(
+    ("language", "text", "name"),
+    [
+        ("en", "The patient has had stroke in the past 2 weeks.", "stroke"),
+        ("zh-TW", "過去2週內有痛風病史。", "gout"),
+        ("ja", "過去2週間以内に脳卒中の既往がある。", "stroke"),
+    ],
+)
+def test_lookback_means_the_same_number_of_days(
+    language: str, text: str, name: str, criterion: CriterionIR, term: Terminology, audit: AuditLog
+) -> None:
+    from tb_contracts import Window
+
+    source = PresenceSource(text, criterion.kind, language)
+    maps = {"V": term.map("condition", name)}
+    for days in (13, 14, 15):
+        atom = Atom(domain="condition", valueset="V", window=Window(from_days=-days))
+        got = admit_presence(
+            criterion.model_copy(update={"text": text, "logic": atom}), source, maps, term, audit=audit
+        )
+        assert (got.class_ == "structured") == (days == 14)
+
+
+@pytest.mark.parametrize(("ending", "released"), [(";", True), ("！", True), ("?", False), (":", False)])
+def test_list_punctuation_preserves_questions_and_lead_ins(
+    ending: str,
+    released: bool,
+    criterion: CriterionIR,
+    term: Terminology,
+    maps: dict[str, MappingResult],
+    audit: AuditLog,
+) -> None:
+    source = PresenceSource("History of gout" + ending, criterion.kind, "en")
+    got = admit_presence(criterion.model_copy(update={"text": source.text}), source, maps, term, audit=audit)
+    assert (got.class_ == "structured") == released

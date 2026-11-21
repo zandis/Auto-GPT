@@ -1,58 +1,91 @@
 # Gate 1 held expectations
 
-Of the 26 original reader failures, two now pass. The rejection test retains the supported 90-day myocardial infarction or stroke criterion in SQL. The incremental-diff test recognizes unchanged items under numbered eligibility headings. The gate still holds all 18 held examples and releases all 12 supported protocol passages.
+Across the four shipped synthetic protocols, **2 of 25 previously executable presence criteria released (8%) and 23 held (92%)** on first extraction with successful audit receipts. The releases were GZQO’s type 1 diabetes and pancreatitis history. The holds include alternatives, conditional thresholds, clinical standards, clinic settings, exceptions, note questions and calendar intervals that a fixed number of days cannot represent.
 
-## Tests awaiting a ruling
+| Protocol | Released | Held |
+| --- | ---: | ---: |
+| GZQO | 2 | 9 |
+| AD-MAB | 0 | 3 |
+| NEUR-COH | 0 | 2 |
+| RA-JAK | 0 | 9 |
 
-All 17 B tests still fail and await an integrator ruling on their assertions. The 15 direct postprocessor cases now supply their original criterion lines as source passages. Those fixtures omit the audit writer required for release, and a separate run with a writer reproduced all 15 failures. The two group tests call the compiler and replace the eligibility list while retaining the original document sections. The seven C tests await the owner’s ruling. Test IDs are relative to `trialbox/`.
+## Existing tests still failing
 
-| Test ID | Criterion text | A/B/C | Why it still fails |
-| --- | --- | :---: | --- |
-| `tests/unit/test_any_of_groups.py::test_a_set_of_structured_alternatives_compiles_as_one_or_criterion` | `Hyperuricaemic gout:`<br>`Serum urate ≥6.8 mg/dL at screening, or ≥6.0 mg/dL if receiving urate-lowering therapy.` | B | The lower urate threshold depends on therapy, so the compiler keeps this alternative group for review. |
-| `tests/unit/test_any_of_groups.py::test_a_structured_lead_ins_own_requirement_stays_in_its_group` | `Hyperuricaemic gout:`<br>`Serum urate ≥6.8 mg/dL at screening, or ≥6.0 mg/dL if receiving urate-lowering therapy.` | B | The therapy-dependent urate threshold keeps the group under review along with its lead-in. |
-| `tests/unit/test_clinical_status.py::test_the_compiler_reads_active_from_the_line[Active malignancy-True]` | `Active malignancy` | B | The gate holds the active-status predicate because the compiler flagged the status it read from the passage for review. |
-| `tests/unit/test_clinical_status.py::test_the_compiler_reads_active_from_the_line[Current or ongoing cancer-True]` | `Current or ongoing cancer` | B | The gate holds the current-cancer predicate because the compiler flagged the status it read from the passage for review. |
-| `tests/unit/test_clinical_status.py::test_the_compiler_reads_active_from_the_line[\u4e00\u5e74\u5167\u6709\u6d3b\u52d5\u6027\u7d50\u6838\u75c5\u3002-True]` | `一年內有活動性結核病。` | B | The passage describes active tuberculosis within a year, while the fixture proposes malignancy codes. |
-| `tests/unit/test_clinical_status.py::test_the_compiler_reads_active_from_the_line[\u6d3b\u52d5\u6027\u306e\u60aa\u6027\u816b\u760d-True]` | `活動性の悪性腫瘍` | B | The gate holds the active-malignancy predicate because the compiler flagged the status it read from the Japanese passage for review. |
-| `tests/unit/test_clinical_status.py::test_the_compiler_reads_active_from_the_line[\u76ee\u524d\u6709\u60e1\u6027\u816b\u760d-True]` | `目前有惡性腫瘍` | B | The gate holds the current-malignancy predicate because the compiler flagged the status it read from the Chinese passage for review. |
-| `tests/unit/test_compiler_answers_every_failure.py::test_a_criterion_that_cannot_run_is_a_persons_check_and_the_rest_compiles` | `History of stroke` | B | The gate has no rule that admits the standalone phrase “History of stroke” as a coded stroke history. |
-| `tests/unit/test_compiler_answers_every_failure.py::test_the_comparison_refused_by_the_fhir_server_is_a_422` | `History of stroke` | B | The gate holds “History of stroke”, so the test never reaches the FHIR comparison it expects to fail. |
-| `tests/unit/test_compiler_service.py::test_compile_produces_draft_and_review` | [Seven GZQO passages](#gzqo-passages) | C | Seven patient predicates need review, which reduces the expected structured count from 18 to 11. |
-| `tests/unit/test_compiler_service.py::test_one_uncompilable_criterion_goes_to_review_instead_of_failing_the_protocol` | [Seven GZQO passages](#gzqo-passages) | C | The deliberately broken criterion still goes to review, and the seven additional holds reduce the expected structured count from 17 to 10. |
-| `tests/unit/test_diagnosis_filed_as_procedure.py::test_a_diagnosis_filed_as_a_procedure_is_refiled_and_flagged` | `invasive breast carcinoma`<br>`mastectomy`<br>`乳癌`<br>`gout` | B | The compiler flags the breast cancer diagnoses for review when it moves them from procedures to conditions. |
-| `tests/unit/test_encounter_atoms_need_a_code.py::test_a_diagnosis_filed_as_an_encounter_is_read_as_a_condition[Other acute abdominal diseases-acute abdominal disease]` | `Other acute abdominal diseases` | B | The open-ended abdominal disease category has no mapped code. |
-| `tests/unit/test_encounter_atoms_need_a_code.py::test_a_diagnosis_filed_as_an_encounter_is_read_as_a_condition[Patients with acute appendicitis-acute appendicitis]` | `Patients with acute appendicitis` | B | The passage names acute appendicitis, but the compiler flags the diagnosis for review when it moves it from encounters to conditions. |
-| `tests/unit/test_encounter_atoms_need_a_code.py::test_a_diagnosis_filed_as_an_encounter_is_read_as_a_condition[The diagnosis of MDD consistent with DSM-IV (M.I.N.I)-major depressive disorder]` | `The diagnosis of MDD consistent with DSM-IV (M.I.N.I)` | B | The depression code cannot establish that the diagnosis met DSM-IV criteria on the specified interview. |
-| `tests/unit/test_mixed_and_polarity.py::test_postprocess_flags_and_rewrites_negated_exclusions_and_accepts_mixed` | `x` | B | The placeholder “x” supplies no evidence for tuberculosis or for the rewritten dialysis question. |
-| `tests/unit/test_mixed_keeps_its_note_question.py::test_a_mixed_criterion_that_runs_is_unchanged` | `line` | B | The placeholder “line” supplies no evidence for pneumonia. |
-| `tests/unit/test_negated_exclusion_and_empty_lists.py::test_a_negated_exclusion_is_rewritten_positive_and_flagged` | `History of diabetes`<br>`Diabetes, and no other`<br>`No history of diabetes` | B | The gate holds the diabetes predicate because the compiler flagged its reversal from absence to presence for review. |
-| `tests/unit/test_negated_inclusion_never_compiles_as_presence.py::test_the_counts_the_pull_request_reports` | [85 affected fixture lines](#negation-scorecard-passages) | C | The scorer passes each batch as extraction output alone, so additional presence rows move into the held totals. |
-| `tests/unit/test_parser_terminology_review.py::test_concepts_never_share_a_valueset` | `痛風 病史`<br>`慢性腎臟病 病史`<br>`Type 2 diabetes 病史`<br>`type-2 diabetes 病史` | C | All four proposals lack a source and therefore refer to NONE in the emitted criteria, reducing the distinct reference count from four to one. |
-| `tests/unit/test_stray_atom_fields.py::test_a_held_mixed_line_keeps_its_note_question` | `Children aged 1 to 12 years with CAP` | B | The pneumonia question omits the passage’s restriction to children aged 1 to 12. |
-| `tests/unit/test_synth_ad.py::test_committed_ruleset_is_the_current_compilers_output[AD-MAB-AD-MAB_\u6cbb\u9a13\u5b9f\u65bd\u8a08\u753b\u66f8_v1.docx-trial]` | `アルツハイマー病による軽度認知障害（MCI）または軽度のアルツハイマー型認知症と診断されている者（ICD-10-CM G31.84 または G30）。` | C | The snapshot expects G31.84 or G30 alone to establish the required Alzheimer etiology and mild stage. |
-| `tests/unit/test_synth_ad.py::test_committed_ruleset_is_the_current_compilers_output[NEUR-COH-NEUR-COH_\u767b\u9332\u8a08\u753b\u66f8_v1.docx-cohort]` | `過去12か月以内にもの忘れ外来（脳神経内科または精神科）を1回以上受診した者。` | C | The snapshot counts any neurology or psychiatry encounter as a visit to the specified memory clinic. |
-| `tests/unit/test_synth_rajak.py::test_committed_ruleset_is_the_current_compilers_output` | [Four RA-JAK passages](#ra-jak-passages) | C | The snapshot expects four qualified exclusions to execute even though their coded predicates leave the qualifications unresolved. |
+Fourteen failures expect compound or qualified protocol predicates to run. Five expect active-status logic, five expect a mapping or qualifier the gate cannot confirm, and four lack source text that supports the proposed logic.
+
+| Test ID relative to `trialbox/` | Passage | Why the assertion fails |
+| --- | --- | --- |
+| `tests/unit/test_admit_presence.py::test_a_timed_alternative_needs_both_diagnoses_and_the_same_window_per_branch` | `Myocardial infarction or stroke within 90 days before screening.` | The assertion expects one executable predicate covering two distinct diagnoses. |
+| `tests/unit/test_admit_presence.py::test_qualifying_text_and_the_mixed_fallback_must_agree` | `History of venous thromboembolism (deep vein thrombosis or pulmonary embolism).` | The assertion expects the gate to approve both an enumerated clinical definition and a separate notes question. |
+| `tests/unit/test_any_of_groups.py::test_a_set_of_structured_alternatives_compiles_as_one_or_criterion` | `Hyperuricaemic gout:`<br>`Serum urate ≥6.8 mg/dL at screening, or ≥6.0 mg/dL if receiving urate-lowering therapy.` | The group includes a therapy-dependent threshold and the fixture’s replacement list disagrees with the source sections. |
+| `tests/unit/test_any_of_groups.py::test_a_structured_lead_ins_own_requirement_stays_in_its_group` | `Hyperuricaemic gout:`<br>`Serum urate ≥6.8 mg/dL at screening, or ≥6.0 mg/dL if receiving urate-lowering therapy.` | The group includes a therapy-dependent threshold and the fixture’s replacement list disagrees with the source sections. |
+| `tests/unit/test_clinical_status.py::test_the_compiler_reads_active_from_the_line[Active malignancy-True]` | `Active malignancy` | The active-status predicate also counts records with no clinical status. |
+| `tests/unit/test_clinical_status.py::test_the_compiler_reads_active_from_the_line[Current or ongoing cancer-True]` | `Current or ongoing cancer` | The active-status predicate also counts records with no clinical status. |
+| `tests/unit/test_clinical_status.py::test_the_compiler_reads_active_from_the_line[\u4e00\u5e74\u5167\u6709\u6d3b\u52d5\u6027\u7d50\u6838\u75c5\u3002-True]` | `一年內有活動性結核病。` | The predicate counts missing status and proposes malignancy for a passage about active tuberculosis. |
+| `tests/unit/test_clinical_status.py::test_the_compiler_reads_active_from_the_line[\u6d3b\u52d5\u6027\u306e\u60aa\u6027\u816b\u760d-True]` | `活動性の悪性腫瘍` | The active-status predicate also counts records with no clinical status. |
+| `tests/unit/test_clinical_status.py::test_the_compiler_reads_active_from_the_line[\u76ee\u524d\u6709\u60e1\u6027\u816b\u760d-True]` | `目前有惡性腫瘍` | The active-status predicate also counts records with no clinical status. |
+| `tests/unit/test_compiler_service.py::test_compile_produces_draft_and_review` | [GZQO passages](#gzqo-passages) | The expected structured total includes nine qualified or compound GZQO passages. |
+| `tests/unit/test_compiler_service.py::test_one_uncompilable_criterion_goes_to_review_instead_of_failing_the_protocol` | [GZQO passages](#gzqo-passages) | The expected structured total includes nine qualified or compound GZQO passages. |
+| `tests/unit/test_compiler_service.py::test_reject_removes_criterion_from_compiled_artifacts` | `Myocardial infarction or stroke within 90 days before screening.` | The assertion expects the myocardial infarction or stroke column to remain in SQL after rejecting another criterion. |
+| `tests/unit/test_diagnosis_filed_as_procedure.py::test_a_diagnosis_filed_as_a_procedure_is_refiled_and_flagged` | `invasive breast carcinoma`<br>`mastectomy`<br>`乳癌`<br>`gout` | The fixture expects mastectomy to run even though the terminology lookup returns no procedure code. |
+| `tests/unit/test_encounter_atoms_need_a_code.py::test_a_diagnosis_filed_as_an_encounter_is_read_as_a_condition[Other acute abdominal diseases-acute abdominal disease]` | `Other acute abdominal diseases` | The open-ended abdominal disease category has no mapped code. |
+| `tests/unit/test_encounter_atoms_need_a_code.py::test_a_diagnosis_filed_as_an_encounter_is_read_as_a_condition[The diagnosis of MDD consistent with DSM-IV (M.I.N.I)-major depressive disorder]` | `The diagnosis of MDD consistent with DSM-IV (M.I.N.I)` | The depression code cannot establish that the diagnosis met DSM-IV criteria on the specified interview. |
+| `tests/unit/test_mixed_and_polarity.py::test_postprocess_flags_and_rewrites_negated_exclusions_and_accepts_mixed` | `x` | The placeholder “x” supplies no evidence for tuberculosis or for the rewritten dialysis question. |
+| `tests/unit/test_mixed_keeps_its_note_question.py::test_a_mixed_criterion_that_runs_is_unchanged` | `line` | The placeholder “line” supplies no evidence for pneumonia. |
+| `tests/unit/test_negated_exclusion_and_empty_lists.py::test_a_negated_exclusion_is_rewritten_positive_and_flagged` | `History of diabetes`<br>`Diabetes, and no other`<br>`No history of diabetes` | The gate holds the diabetes predicate because the compiler flagged its reversal from absence to presence for review. |
+| `tests/unit/test_negated_inclusion_never_compiles_as_presence.py::test_the_counts_the_pull_request_reports` | [85 affected fixture lines](#negation-scorecard-passages) | The scorer passes each batch as extraction output alone, so additional presence rows move into the held totals. |
+| `tests/unit/test_parser_terminology_review.py::test_concepts_never_share_a_valueset` | `痛風 病史`<br>`慢性腎臟病 病史`<br>`Type 2 diabetes 病史`<br>`type-2 diabetes 病史` | All four proposals lack a source and therefore refer to NONE in the emitted criteria, reducing the distinct reference count from four to one. |
+| `tests/unit/test_presence_gate_invariants.py::test_numbered_protocol_items_released_from_the_original_passage[AD-MAB-released1]` | [AD-MAB passages](#ad-mab-passages) | The old release list includes specified drug types and a calendar-month stroke or TIA history. |
+| `tests/unit/test_presence_gate_invariants.py::test_numbered_protocol_items_released_from_the_original_passage[GZQO-released0]` | [GZQO passages](#gzqo-passages) | The old release list includes separate cardiovascular and drug alternatives. |
+| `tests/unit/test_presence_gate_invariants.py::test_numbered_protocol_items_released_from_the_original_passage[NEUR-COH-released2]` | [NEUR-COH passages](#neur-coh-passages) | The expected release combines multiple diagnoses, subtypes and code families. |
+| `tests/unit/test_presence_gate_invariants.py::test_numbered_protocol_items_released_from_the_original_passage[RA-JAK-released3]` | [RA-JAK passages](#ra-jak-passages) | The old release list includes calendar intervals, alternative medications and a qualified mixed predicate. |
+| `tests/unit/test_stray_atom_fields.py::test_a_held_mixed_line_keeps_its_note_question` | `Children aged 1 to 12 years with CAP` | The pneumonia question omits the passage’s restriction to children aged 1 to 12. |
+| `tests/unit/test_synth_ad.py::test_committed_ruleset_is_the_current_compilers_output[AD-MAB-AD-MAB_\u6cbb\u9a13\u5b9f\u65bd\u8a08\u753b\u66f8_v1.docx-trial]` | [AD-MAB passages](#ad-mab-passages) | The committed snapshot executes qualified or compound criteria that the whole-passage gate sends to review. |
+| `tests/unit/test_synth_ad.py::test_committed_ruleset_is_the_current_compilers_output[NEUR-COH-NEUR-COH_\u767b\u9332\u8a08\u753b\u66f8_v1.docx-cohort]` | [NEUR-COH passages](#neur-coh-passages) | The committed snapshot executes qualified or compound criteria that the whole-passage gate sends to review. |
+| `tests/unit/test_synth_rajak.py::test_committed_ruleset_is_the_current_compilers_output` | [RA-JAK passages](#ra-jak-passages) | The committed snapshot executes qualified or compound criteria that the whole-passage gate sends to review. |
+
+## AD-MAB passages
+
+| Criterion | Original passage | Qualification |
+| --- | --- | --- |
+| AD-MAB-INC-02 | アルツハイマー病による軽度認知障害（MCI）または軽度のアルツハイマー型認知症と診断されている者（ICD-10-CM G31.84 または G30）。 | The diagnosis requires Alzheimer etiology and a mild stage. |
+| AD-MAB-EXC-01 | スクリーニング前90日以内に抗凝固薬（ワルファリン、直接経口抗凝固薬）を使用した者。 | The passage specifies which anticoagulants count. |
+| AD-MAB-EXC-03 | スクリーニング前12か月以内に脳卒中または一過性脳虚血発作（TIA）の既往がある者。 | The passage lists two diagnoses and the predicate treats 12 calendar months as 365 days. |
 
 ## GZQO passages
 
-| Criterion | Original text | Why the coded predicate is held |
+| Criterion | Original passage | Qualification |
 | --- | --- | --- |
-| GZQO-INC-02 | Diagnosis of gout according to the 2015 ACR/EULAR gout classification criteria. | A gout diagnosis code alone cannot establish classification under the 2015 ACR/EULAR criteria. |
-| GZQO-INC-04 | Serum urate ≥6.8 mg/dL at screening, or ≥6.0 mg/dL if receiving urate-lowering therapy. | The lower threshold depends on receiving therapy, so therapy is a conditional branch of the criterion. |
-| GZQO-INC-09 | Followed at the rheumatology or metabolism clinic with at least one visit in the past 12 months. | A single specialty visit in the past year leaves ongoing follow-up at that clinic unresolved. |
-| GZQO-EXC-03 | Personal history of medullary thyroid carcinoma or multiple endocrine neoplasia type 2. | The thyroid branch uses C73, which includes thyroid cancers of other histologies. |
-| GZQO-EXC-05 | Prior or planned bariatric surgery. | The passage includes planned surgery, which a completed procedure code cannot establish. |
-| GZQO-EXC-07 | Malignancy within the past 5 years, except non-melanoma skin cancer. | The mapped list includes Merkel cell carcinoma (C4A), a non-melanoma skin cancer the passage excepts. |
-| GZQO-EXC-08 | Pregnant or breastfeeding, or positive pregnancy test. | The pregnancy and laboratory branches omit breastfeeding. |
+| GZQO-INC-02 | Diagnosis of gout according to the 2015 ACR/EULAR gout classification criteria. | A diagnosis code cannot establish the 2015 classification standard. |
+| GZQO-INC-04 | Serum urate ≥6.8 mg/dL at screening, or ≥6.0 mg/dL if receiving urate-lowering therapy. | The urate threshold changes with treatment. |
+| GZQO-INC-09 | Followed at the rheumatology or metabolism clinic with at least one visit in the past 12 months. | The patient must receive follow-up at the specified clinic. |
+| GZQO-EXC-03 | Personal history of medullary thyroid carcinoma or multiple endocrine neoplasia type 2. | The exclusion names two diagnoses. |
+| GZQO-EXC-04 | Use of a GLP-1 receptor agonist or GIP/GLP-1 receptor agonist within 90 days before screening. | The passage names two drug classes. |
+| GZQO-EXC-05 | Prior or planned bariatric surgery. | Planned surgery also qualifies. |
+| GZQO-EXC-07 | Malignancy within the past 5 years, except non-melanoma skin cancer. | The criterion excepts a cancer subtype. |
+| GZQO-EXC-08 | Pregnant or breastfeeding, or positive pregnancy test. | The alternatives include breastfeeding and a test result. |
+| GZQO-EXC-10 | Myocardial infarction or stroke within 90 days before screening. | Either of two distinct diagnoses qualifies. |
+
+## NEUR-COH passages
+
+| Criterion | Original passage | Qualification |
+| --- | --- | --- |
+| NEUR-COH-INC-01 | 軽度認知障害（MCI）または認知症（アルツハイマー型、血管性、その他）と診断されている者（ICD-10-CM G31.84、G30、F01〜F03）。 | The passage lists alternative diagnoses, subtypes and code families. |
+| NEUR-COH-INC-02 | 過去12か月以内にもの忘れ外来（脳神経内科または精神科）を1回以上受診した者。 | A specialty visit alone cannot establish that the patient attended the specified memory clinic. |
 
 ## RA-JAK passages
 
-| Criterion | Original text | Why the coded predicate is held |
+| Criterion | Original passage | Qualification |
 | --- | --- | --- |
-| RA-JAK-EXC-04 | Positive interferon-gamma release assay (IGRA) within 1 year without tuberculosis preventive therapy. | The positive test qualifies only in the absence of preventive therapy. |
-| RA-JAK-EXC-05 | Serious infection (sepsis or pneumonia) within 30 days before screening. | A pneumonia code alone leaves the required seriousness of the infection unresolved. |
-| RA-JAK-EXC-09 | Heart failure (NYHA class III or IV). | A heart failure code alone leaves the required NYHA class unresolved. |
-| RA-JAK-EXC-10 | Pregnancy (a pregnancy diagnosis within 280 days). | The proposed pregnancy list includes puerperal complications such as O85, which can be recorded after pregnancy. |
+| RA-JAK-INC-02 | Rheumatoid arthritis diagnosed at least 6 months before screening. | The predicate uses 180 days for six calendar months. |
+| RA-JAK-EXC-01 | Any prior biologic DMARD or JAK inhibitor. | The exclusion names two medication classes. |
+| RA-JAK-EXC-04 | Positive interferon-gamma release assay (IGRA) within 1 year without tuberculosis preventive therapy. | The test result qualifies only without preventive therapy. |
+| RA-JAK-EXC-05 | Serious infection (sepsis or pneumonia) within 30 days before screening. | The infection must be serious. |
+| RA-JAK-EXC-06 | Herpes zoster within 12 months before screening. | The predicate uses 365 days for 12 calendar months. |
+| RA-JAK-EXC-07 | History of venous thromboembolism (deep vein thrombosis or pulmonary embolism). | The passage specifies two forms of thromboembolism and supplies a separate notes question. |
+| RA-JAK-EXC-08 | Malignancy within the past 5 years. | The predicate uses 1,825 days for five calendar years. |
+| RA-JAK-EXC-09 | Heart failure (NYHA class III or IV). | Heart failure must meet a specified NYHA class. |
+| RA-JAK-EXC-10 | Pregnancy (a pregnancy diagnosis within 280 days). | The pregnancy predicate also reaches diagnoses recorded after pregnancy. |
 
 ## Negation scorecard passages
 

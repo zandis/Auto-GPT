@@ -24,6 +24,7 @@ from orchestrator.scenarios.evaluate import (
     tier,
 )
 from orchestrator.scenarios.review import check_split
+from tb_common.audit import AuditLog
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionVerdict, Evidence, LlmExtractOutput, PatientEvaluation
 
@@ -78,7 +79,7 @@ def _crit(kind: str, class_: str, question: str | None, text: str = "x") -> dict
     return c
 
 
-def test_postprocess_flags_and_rewrites_negated_exclusions_and_accepts_mixed() -> None:
+def test_postprocess_flags_and_rewrites_negated_exclusions_and_accepts_mixed(tmp_path: Path) -> None:
     post = postprocess(
         "TB",
         _extracted(
@@ -90,6 +91,7 @@ def test_postprocess_flags_and_rewrites_negated_exclusions_and_accepts_mixed() -
             _crit("exclusion", "note", "Does the patient have a history of tuberculosis?"),
         ),
         Terminology(),
+        audit=AuditLog(tmp_path),
         sources=[
             PresenceSource("x", kind, "en")
             for kind in ("exclusion", "exclusion", "exclusion", "inclusion", "inclusion", "exclusion")

@@ -18,9 +18,11 @@
 
 from __future__ import annotations
 
+import csv
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import cache
 from typing import Any
 
 from pydantic import ValidationError
@@ -28,7 +30,7 @@ from tb_common.audit import AuditLog
 from tb_common.crypto import sha256_text
 from tb_common.derived import CODES, COMPONENTS
 from tb_common.ruleset import Ruleset
-from tb_contracts import Atom, BoolExpr, CriterionIR, CriterionReview, LlmExtractOutput, Window, dump
+from tb_contracts import Atom, BoolExpr, CriterionIR, CriterionReview, LlmExtractOutput, dump
 from tb_contracts.criterion_ir import ACTIVE_STATUSES
 
 from criteria_compiler import unit_check
@@ -36,12 +38,12 @@ from criteria_compiler.ir_extract.negation_scope import negated_presence
 from criteria_compiler.ir_extract.polarity import is_negated, positive
 from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, Kind, atoms, check_bool, demographic_alone, kind
 from criteria_compiler.terminology.mapper import (
-    SYSTEMS,
     Concept,
     ConceptMapLLM,
     MappingResult,
     Terminology,
     ValueSets,
+    norm,
     valueset,
     vs_name_for,
 )
@@ -537,140 +539,155 @@ _PRESENCE_MESSAGES = {
     "zh-TW": "請審閱完整原文，判斷此編碼條件是否適用於這位病人。",
     "ja": "原文全体を確認し、このコード化された基準が患者本人に該当するか判断してください。",
 }
-# A closed vocabulary keeps model-supplied concept names and synonyms out of the grammar.
-# Resolve the canonical name again without model suggestions before accepting its code set.
-_DIAGNOSES = {
-    "en": {
-        "gout": "gout",
-        "rheumatoid arthritis": "rheumatoid arthritis",
-        "type 2 diabetes": "type 2 diabetes mellitus",
-    },
-    "zh-TW": {"痛風": "gout", "類風濕性關節炎": "rheumatoid arthritis", "第二型糖尿病": "type 2 diabetes mellitus"},
-    "ja": {"痛風": "gout", "関節リウマチ": "rheumatoid arthritis", "2型糖尿病": "type 2 diabetes mellitus"},
+# The grammar consumes the whole item. The remaining noun must itself be a terminology
+# name; words supplied by the extractor never extend the grammar or the vocabulary.
+# Each frame specifies the domain of its noun, and whether it asserts a present diagnosis.
+_FRAMES = {
+    "en": [
+        ("", False, r"(?:(?:the )?patient (?:has|had) )?(?:(?:a|any|personal) )?history of (.+)"),
+        ("condition", False, r"(?:(?:the )?patient (?:was|has been) diagnosed with|diagnosis of) (.+)"),
+        ("procedure", False, r"(?:(?:the )?patient )?(?:underwent|had undergone|has undergone) (.+)"),
+        ("medication", False, r"(?:(?:the )?patient )?(?:took|used|use of|prior use of) (.+)"),
+        ("exposure", False, r"(?:(?:the )?patient )?(?:has received|received) (.+)"),
+        ("", False, r"(?:(?:the )?patient )?(?:has had|had|prior) (.+)"),
+        ("condition", True, r"(?:(?:the )?patient has|patients? with) (?:a diagnosis of )?(.+)"),
+    ],
+    "zh-TW": [
+        ("condition", False, r"(?:患者|病人)?(?:曾患有?|曾罹患|曾診斷為|確診)(.+)"),
+        ("", False, r"(?:患者|病人)?(?:有)?(.+?)\s*(?:病史|既往史)(?:之患者)?"),
+        ("condition", True, r"(?:患者|病人)?(?:患有|罹患|有)(.+)"),
+        ("medication", False, r"(?:患者|病人)?(?:曾)?(?:使用|服用)(.+?)(?:之患者)?"),
+        ("exposure", False, r"(?:患者|病人)?(?:曾)?接受(.+?)(?:之患者)?"),
+        ("condition", True, r"(.+?)(?:之)?患者"),
+    ],
+    "ja": [
+        ("condition", False, r"(?:患者は)?(.+?)(?:の既往(?:歴)?(?:がある)?|と診断された)(?:患者|者)?"),
+        ("condition", True, r"(?:患者は)?(.+?)(?:を有する|と診断されている)(?:患者|者)?"),
+        ("condition", True, r"(.+?)の患者"),
+        ("medication", False, r"(?:患者は)?(.+?)を(?:使用|服用)した(?:患者|者)?"),
+        ("procedure", False, r"(?:患者は)?(.+?)を受けた(?:患者|者)?"),
+    ],
 }
-_PATIENT_DIAGNOSIS = {
-    "en": re.compile(r"(?:the )?patient has (?:a diagnosis of )?([a-z0-9 ]+)\.?", re.I | re.ASCII),
-    "zh-TW": re.compile(r"(?:患者|病人)患有([^。]+)。?"),
-    "ja": re.compile(r"患者は([^。]+)と診断された。?"),
+_LOOKBACK = {
+    "en": r"(?P<body>.+?) (?:within (?:the (?:past|last) )?|in the (?:past|last) )"
+    r"(?P<n>[0-9]{1,6}) (?P<unit>days?|weeks?)(?: before screening)?",
+    "zh-TW": r"(?:篩(?:選|檢)前|過去)(?P<n>[0-9]{1,6})(?P<unit>天|日|週)內(?P<body>.+)",
+    "ja": r"(?:スクリーニング前|過去)(?P<n>[0-9]{1,6})(?P<unit>日|週間?)以内に(?P<body>.+)",
 }
+_MARKER = re.compile(r"^(?:[(][0-9一二三四五六七八九十]+[)]|[0-9一二三四五六七八九十]+[.)、](?!\d)|[•‧・*-])\s*")
+_QUALIFIED_NAME = re.compile(
+    r"\b(?:other|unspecified other|except|unless|if|no|not|without|family|donor|parent|partner|"
+    r"possible|suspected|planned|active|current|ongoing|according|consistent|followed|and)\b|"
+    r"家族|家屬|家属|捐贈|ドナー|配偶|父親|母親|伴侶|パートナー|疑い|疑似|除外|以外|其他|その他|活動性|目前|現在|計劃|予定"
+)
 
 
-@dataclass(frozen=True)
-class _PresenceReading:
-    """The coded meaning of a complete, standalone eligibility item (multiple names mean OR)."""
-
-    names: tuple[str, ...]
-    domain: str = "condition"
-    window: Window | None = None
-    note: str | None = None
-    icd10cm: tuple[str, ...] = ()
+def _item_text(text: str) -> str:
+    return _MARKER.sub("", norm(text)).rstrip(".。;!").strip()
 
 
-# Complete phrases, independent of the model and of the protocol, criterion ID and ValueSet IDs.
-# Time bounds apply to every alternative. A mixed reading also binds the question used on missing data.
-_PROTOCOL_READINGS = {
-    "Type 1 diabetes mellitus.": _PresenceReading(("type 1 diabetes mellitus",)),
-    "History of acute or chronic pancreatitis.": _PresenceReading(("acute or chronic pancreatitis",)),
-    "Use of a GLP-1 receptor agonist or GIP/GLP-1 receptor agonist within 90 days before screening.": _PresenceReading(
-        ("glp-1 receptor agonist",), "medication", Window(from_days=-90, to_days=0)
-    ),
-    "Myocardial infarction or stroke within 90 days before screening.": _PresenceReading(
-        ("myocardial infarction", "stroke"), window=Window(from_days=-90, to_days=0)
-    ),
-    "スクリーニング前90日以内に抗凝固薬（ワルファリン、直接経口抗凝固薬）を使用した者。": _PresenceReading(
-        ("anticoagulant",), "medication", Window(from_days=-90, to_days=0)
-    ),
-    "スクリーニング前12か月以内に脳卒中または一過性脳虚血発作（TIA）の既往がある者。": _PresenceReading(
-        ("stroke", "transient ischemic attack"), window=Window(from_days=-365, to_days=0)
-    ),
-    "軽度認知障害（MCI）または認知症（アルツハイマー型、血管性、その他）と診断されている者"
-    "（ICD-10-CM G31.84、G30、F01〜F03）。": _PresenceReading(
-        ("cognitive impairment or dementia",), icd10cm=("G31.84", "G30", "F01", "F02", "F03")
-    ),
-    "Rheumatoid arthritis diagnosed at least 6 months before screening.": _PresenceReading(
-        ("rheumatoid arthritis",), window=Window(to_days=-180)
-    ),
-    "Any prior biologic DMARD or JAK inhibitor.": _PresenceReading(("biologic dmard or jak inhibitor",), "medication"),
-    "Herpes zoster within 12 months before screening.": _PresenceReading(
-        ("herpes zoster",),
-        window=Window(from_days=-365, to_days=0),
-        note="Do the notes document an episode of herpes zoster (shingles) within the 12 months before the index date?",
-    ),
-    "History of venous thromboembolism (deep vein thrombosis or pulmonary embolism).": _PresenceReading(
-        ("venous thromboembolism",),
-        note="Do the notes document a deep vein thrombosis or a pulmonary embolism at any time?",
-    ),
-    "Malignancy within the past 5 years.": _PresenceReading(("malignancy",), window=Window(from_days=-1825, to_days=0)),
-}
+@cache
+def _translations(language: str) -> dict[tuple[str, str], str]:
+    from tb_common import refdata_jp, refdata_tw
+    from tb_common.catalogue import CATALOGUE_DIR
+    from tb_common.refdata import curated_synonyms
+
+    path = {"ja": refdata_jp.REPO_SYNONYMS, "zh-TW": refdata_tw.REPO_SYNONYMS}.get(language)
+    if path is None:
+        return {}
+    names: dict[tuple[str, str], set[str]] = {}
+    for row in curated_synonyms(path, language, "clinical synonyms"):
+        if row["curated"]:
+            names.setdefault((row["domain"], norm(row["term"])), set()).add(norm(row["canonical"]))
+    dictionary_terms = set(names)
+    column = "name_ja" if language == "ja" else "name_zh_tw"
+    with (CATALOGUE_DIR / "phenotypes.csv").open(encoding="utf-8", newline="") as f:
+        for row in csv.DictReader(f):
+            key = ("condition", norm(row[column]))
+            if row[column] and row["name_en"] and key not in dictionary_terms:
+                names.setdefault(key, set()).add(norm(row["name_en"]))
+    return {key: next(iter(labels)) for key, labels in names.items() if len(labels) == 1}
 
 
-def _codes_agree(name: str, reading: _PresenceReading, mapped: MappingResult | None, term: Terminology) -> bool:
-    if not (mapped and mapped.domain == reading.domain and mapped.concepts and not mapped.needs_review):
+def _same_concept(name: str, language: str, mapped: MappingResult, term: Terminology) -> bool:
+    # No punctuation, subclauses or alternative concepts inside the noun. A coordinated
+    # pair of course modifiers can be part of one terminology name.
+    if not re.fullmatch(r"[^\W_]+(?:[ -][^\W_]+)*", name) or _QUALIFIED_NAME.search(name):
         return False
-    if reading.icd10cm:
-        # The protocol itself specifies both individual codes and three-character categories.
-        categories = {
-            (c.system, c.code if c.code in reading.icd10cm else c.code.partition(".")[0]) for c in mapped.concepts
-        }
-        if categories != {(SYSTEMS["icd10cm"], code) for code in reading.icd10cm}:
-            return False
+    if re.search(r"\bor\b|または|又は|或", re.sub(r"\b(?:acute or chronic|chronic or acute) ", "", name)):
+        return False
+    if mapped.needs_review or not mapped.concepts:
+        return False
+    domain = mapped.domain
     try:
-        reference = term.map(reading.domain, name)
-    except (OSError, RuntimeError, ValueError):
+        target = norm(mapped.name)
+        if name != target:
+            labels = _translations(language)
+            if labels.get((domain, name), name) != labels.get((domain, target), target):
+                return False
+        reference = term.map(domain, target)
+    except (KeyError, OSError, RuntimeError, ValueError, csv.Error):
+        return False
+    if reference.method == "icd10cm":
+        # That lookup can drop words in parentheses or ignore non-Latin letters.
+        if not target.isascii() or not reference.notes or not reference.notes[0].startswith("ICD-10-CM description:"):
+            return False
+    elif reference.notes:
         return False
     return (
         not reference.needs_review
-        and not reference.notes
-        and not mapped.notes
+        and reference.notes == mapped.notes
         and reference.concepts == mapped.concepts
         and reference.families == mapped.families
     )
 
 
-def _passage_supports(
+def _passage_predicate(
     criterion: CriterionIR, source: PresenceSource, mappings: Mapping[str, MappingResult], term: Terminology
-) -> bool:
-    if criterion.flags:
-        return False
-    text = source.text.strip()
-    reading = _PROTOCOL_READINGS.get(text) if source.kind in {"inclusion", "exclusion"} else None
-    if reading is None:
-        match = _PATIENT_DIAGNOSIS[source.language].fullmatch(text)
-        diagnosis = _DIAGNOSES[source.language].get(match[1].lower()) if match else None
-        if diagnosis is None:
-            return False
-        reading = _PresenceReading((diagnosis,))
-
-    if criterion.class_ == "mixed":
-        if not reading.note or criterion.note_question != reading.note or criterion.note_question_source:
-            return False
-    elif criterion.class_ != "structured" or criterion.note_question:
-        return False
-    if criterion.time_sensitive and reading.window is None:
-        return False
-
-    logic = criterion.logic
-    if isinstance(logic, Atom):
-        parts = [logic]
-    elif logic.op == "or" and len(reading.names) > 1:
-        parts = [part for part in logic.args if isinstance(part, Atom)]
-        if len(parts) != len(logic.args):
-            return False
-    else:
-        return False
-    if len(parts) != len(reading.names):
-        return False
-    remaining = list(reading.names)
-    for part in parts:
-        if part.domain != reading.domain or part != Atom(
-            domain=part.domain, valueset=part.valueset, window=reading.window
-        ):
-            return False
-        name = next((n for n in remaining if _codes_agree(n, reading, mappings.get(part.valueset), term)), None)
-        if name is None:
-            return False
-        remaining.remove(name)
-    return True
+) -> Atom | None:
+    atom = criterion.logic
+    if (
+        criterion.class_ != "structured"
+        or criterion.note_question
+        or criterion.note_question_source
+        or not isinstance(atom, Atom)
+        or atom.domain not in {"condition", "procedure", "medication"}
+        or set(criterion.flags or []) - {"needs_review", "domain_refiled"}
+        or (criterion.flags and "domain_refiled" not in criterion.flags)
+    ):
+        return None
+    body = _item_text(source.text)
+    lookback = re.fullmatch(_LOOKBACK[source.language], body)
+    from_days = None
+    if lookback:
+        body = lookback["body"].strip()
+        from_days = -int(lookback["n"]) * (7 if lookback["unit"] in {"week", "weeks", "週", "週間"} else 1)
+    if criterion.time_sensitive and from_days is None:
+        return None
+    present = False
+    for domain, present_tense, frame in _FRAMES[source.language]:
+        match = re.fullmatch(frame, body)
+        if match:
+            if domain == "exposure" and atom.domain == "condition":
+                return None
+            if domain not in ("", "exposure", atom.domain):
+                return None
+            present = present_tense
+            body = match[1].strip()
+            break
+    mapped = mappings.get(atom.valueset)
+    if not mapped or mapped.domain != atom.domain or not _same_concept(body, source.language, mapped, term):
+        return None
+    actual = atom.window
+    if actual and (actual.anchor != "index" or actual.to_days not in (None, 0)):
+        return None
+    if (actual.from_days if actual else None) != from_days:
+        return None
+    expected = Atom(domain=atom.domain, valueset=atom.valueset, window=actual)
+    # Present-tense diagnosis excludes records explicitly marked resolved. An explicit
+    # active-status requirement is stronger: the engines also count unstated status.
+    restricted = expected.model_copy(update={"clinical_status": list(ACTIVE_STATUSES)}) if present else expected
+    return restricted if atom in (expected, restricted) else None
 
 
 def _presence_logic(logic: Atom | BoolExpr) -> bool:
@@ -742,17 +759,22 @@ def admit_presence(
         and source
         and source.complete
         and source.language in _PRESENCE_MESSAGES
-        and source.text == criterion.text
+        and (
+            source.text == criterion.text
+            or (approved is None and source.standalone and _item_text(source.text) == _item_text(criterion.text))
+        )
         and source.kind == criterion.kind
         and audit is not None
         and not term.terminology_refused
         and not (criterion.review and criterion.review.status == "rejected")
     ):
-        allowed = (
-            _recorded_presence(criterion, approved, mappings)
-            if approved is not None
-            else source.standalone and _passage_supports(criterion, source, mappings, term)
-        )
+        if approved is not None:
+            allowed = _recorded_presence(criterion, approved, mappings)
+        else:
+            predicate = _passage_predicate(criterion, source, mappings, term) if source.standalone else None
+            allowed = predicate is not None
+            if predicate is not None:
+                criterion = criterion.model_copy(update={"logic": predicate, "text": source.text})
         if allowed:
             try:
                 receipt = audit.append(
@@ -795,11 +817,14 @@ def postprocess(
     id_offset: dict[str, int] | None = None,
     egfr: str = "egfr",
     *,
+    criterion_ids: Sequence[str] | None = None,
     sources: Sequence[PresenceSource] = (),
     audit: AuditLog | None = None,
 ) -> PostResult:
     """``egfr``: what a criterion that says only "eGFR" becomes at this site (D-149): ``egfr`` (CKD-EPI 2021, the
     meaning it always had) or ``egfr_jsn`` at a Japanese site; a protocol that names its equation keeps it."""
+    if criterion_ids is not None and len(criterion_ids) != len(extracted.criteria):
+        raise ValueError("expected one criterion ID per extracted item")
     counters = dict(id_offset or {})
     concept_vs: dict[str, str] = {}
     vs_terms: dict[str, list[str]] = {}  # a ValueSet's concept names and synonyms (card 10A-1)
@@ -847,7 +872,7 @@ def postprocess(
     for ec in extracted.criteria:
         code = KIND_CODE[ec.kind]
         counters[code] = counters.get(code, 0) + 1
-        cid = f"{ruleset}-{code}-{counters[code]:02d}"
+        cid = criterion_ids[len(criteria)] if criterion_ids is not None else f"{ruleset}-{code}-{counters[code]:02d}"
         flags: list[str] = []
         raw = dump(ec)
         logic_raw, stray = strip_stray(

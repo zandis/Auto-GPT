@@ -17,6 +17,7 @@ Synthetic protocols, no model, no FHIR server.
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -25,6 +26,7 @@ from criteria_compiler.ir_extract import postprocess as pp
 from criteria_compiler.semantics import CompileError
 from criteria_compiler.terminology.mapper import Terminology, ValueSets
 from pydantic import ValidationError
+from tb_common.audit import AuditLog
 from tb_contracts import CriterionIR, LlmExtractOutput
 
 STROKE = {"domain": "condition", "concept": "stroke", "quantifier": "any"}
@@ -55,8 +57,8 @@ PROTOCOL_SOURCES = (
 )
 
 
-def test_a_criterion_that_cannot_run_is_a_persons_check_and_the_rest_compiles() -> None:
-    post = pp.postprocess("T", PROTOCOL, Terminology(), "1.0.0", sources=PROTOCOL_SOURCES)
+def test_a_criterion_that_cannot_run_is_a_persons_check_and_the_rest_compiles(tmp_path: Path) -> None:
+    post = pp.postprocess("T", PROTOCOL, Terminology(), "1.0.0", sources=PROTOCOL_SOURCES, audit=AuditLog(tmp_path))
     first, *bad = post.criteria
     assert first.class_ == "structured" and not first.flags
     for c in bad:
@@ -155,7 +157,7 @@ def test_a_bug_is_a_500_with_an_id_and_its_trace_in_the_audit(monkeypatch: pytes
     assert "test_compiler_answers_every_failure" in d["trace"] and "never be shown" not in d["trace"]
 
 
-def test_the_comparison_refused_by_the_fhir_server_is_a_422(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_comparison_refused_by_the_fhir_server_is_a_422(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from criteria_compiler import service
     from tb_common.fhir import FhirEvalError
 
@@ -169,7 +171,9 @@ def test_the_comparison_refused_by_the_fhir_server_is_a_422(monkeypatch: pytest.
         {"TB_Common": "", "L": ""}, {"FHIRHelpers": "{}", "TB_Common": "{}", "L": "{}"}, "", "L", "1", []
     )
     monkeypatch.setattr(service, "fhirhelpers_source", lambda: "")
-    crit = pp.postprocess("T", PROTOCOL, Terminology(), "1.0.0", sources=PROTOCOL_SOURCES).criteria[:1]
+    crit = pp.postprocess(
+        "T", PROTOCOL, Terminology(), "1.0.0", sources=PROTOCOL_SOURCES, audit=AuditLog(tmp_path)
+    ).criteria[:1]
     with pytest.raises(service.CompileFailed) as got:
         comp._equivalence(crit, art, {}, date(2026, 10, 5), "seed")
     assert got.value.step == "equivalence" and "FhirEvalError" in str(got.value)
