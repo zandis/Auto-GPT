@@ -85,8 +85,9 @@ def test_postprocess_flags_and_rewrites_negated_exclusions_and_accepts_mixed() -
             _crit("exclusion", "note", "Does the patient have no history of tuberculosis?"),
             _crit("exclusion", "mixed", "Is the patient not on dialysis for renal failure now?"),
             _crit("exclusion", "note", "Does the patient have active TB not treated?"),
-            _crit("inclusion", "mixed", "Do the notes describe a prior gout flare?"),
-            _crit("inclusion", "mixed", None),
+            # card 10A-1d (D-1248): an inclusion runs only when its line plainly names its concept ("x" is held)
+            _crit("inclusion", "mixed", "Do the notes describe a prior gout flare?", "History of tuberculosis"),
+            _crit("inclusion", "mixed", None, "History of tuberculosis"),
             _crit("exclusion", "note", "Does the patient have a history of tuberculosis?"),
         ),
         Terminology(),

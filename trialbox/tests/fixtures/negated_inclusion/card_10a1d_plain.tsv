@@ -1,0 +1,361 @@
+text	concept	expect	lang	synonyms	others	domain	hold_class
+Diagnosis of rheumatoid arthritis	rheumatoid arthritis	runs	en	RA		condition	plain
+Patients with stage III colon cancer	colon cancer	runs	en	colon carcinoma		condition	plain
+Adults with chronic plaque psoriasis	plaque psoriasis	runs	en	psoriasis vulgaris		condition	plain
+Known atrial fibrillation	atrial fibrillation	runs	en	AF;AFib		condition	plain
+Documented essential hypertension	essential hypertension	runs	en	primary hypertension		condition	plain
+Has primary open-angle glaucoma	primary open-angle glaucoma	runs	en	POAG		condition	plain
+Confirmed diagnosis of multiple sclerosis	multiple sclerosis	runs	en	MS		condition	plain
+Subjects with moderate to severe atopic dermatitis	atopic dermatitis	runs	en	atopic eczema		condition	plain
+Children with acute otitis media	acute otitis media	runs	en	AOM		condition	plain
+Women with endometriosis	endometriosis	runs	en			condition	plain
+Diagnosed with Parkinson's disease	Parkinson's disease	runs	en	Parkinson disease;PD		condition	plain
+History of ischemic stroke	ischemic stroke	runs	en	ischaemic stroke;cerebral infarction		condition	plain
+Participant has chronic hepatitis B	chronic hepatitis B	runs	en	CHB;chronic HBV infection		condition	plain
+Clinical diagnosis of gout	gout	runs	en	gouty arthritis		condition	plain
+Men with benign prostatic hyperplasia	benign prostatic hyperplasia	runs	en	BPH		condition	plain
+Presence of diabetic macular edema	diabetic macular edema	runs	en	DME;diabetic macular oedema		condition	plain
+Patient has ulcerative colitis	ulcerative colitis	runs	en	UC		condition	plain
+Established diagnosis of systemic lupus erythematosus	systemic lupus erythematosus	runs	en	SLE		condition	plain
+Individuals living with HIV-1 infection	HIV-1 infection	runs	en			condition	plain
+Newly diagnosed multiple myeloma	multiple myeloma	runs	en	MM;plasma cell myeloma		condition	plain
+Symptomatic knee osteoarthritis	knee osteoarthritis	runs	en	osteoarthritis of the knee;knee OA		condition	plain
+Current major depressive disorder	major depressive disorder	runs	en	MDD		condition	plain
+Suffering from chronic migraine	chronic migraine	runs	en			condition	plain
+Infants hospitalised with bronchiolitis	bronchiolitis	runs	en			condition	plain
+Have a diagnosis of polycystic ovary syndrome	polycystic ovary syndrome	runs	en	PCOS		condition	plain
+Biopsy-proven IgA nephropathy	IgA nephropathy	runs	en	IgAN;Berger disease	biopsy	condition	plain
+Diagnosis of asthma for at least 12 months prior to screening	asthma	runs	en	bronchial asthma		condition	plain
+Histologically confirmed hepatocellular carcinoma, Barcelona Clinic Liver Cancer stage B or C	hepatocellular carcinoma	runs	en	HCC		condition	plain
+Type 1 diabetes mellitus diagnosed at least 1 year before enrolment	type 1 diabetes mellitus	runs	en	T1DM;type 1 diabetes		condition	plain
+Chronic kidney disease stage 3 or 4, present for more than 3 months	chronic kidney disease	runs	en	CKD		condition	plain
+Moderate to severe Crohn's disease of at least 3 months' duration	Crohn's disease	runs	en	Crohn disease;CD		condition	plain
+Relapsed or refractory diffuse large B-cell lymphoma after two or more prior lines of systemic therapy	diffuse large B-cell lymphoma	runs	en	DLBCL	systemic therapy	condition	plain
+Patients with pulmonary arterial hypertension, WHO functional class II or III	pulmonary arterial hypertension	runs	en	PAH		condition	plain
+Schizophrenia diagnosed at least 2 years before the screening visit	schizophrenia	runs	en			condition	plain
+History of myocardial infarction within the past 1 to 5 years	myocardial infarction	runs	en	MI		condition	plain
+Postmenopausal women with osteoporosis confirmed by dual-energy X-ray absorptiometry	osteoporosis	runs	en		dual-energy X-ray absorptiometry	condition	plain
+Active ankylosing spondylitis for 3 months or longer while on NSAID therapy	ankylosing spondylitis	runs	en	AS	NSAID	condition	plain
+Neovascular age-related macular degeneration in the study eye, diagnosed within the last 6 months	neovascular age-related macular degeneration	runs	en	nAMD;wet AMD;wet age-related macular degeneration		condition	plain
+Children aged 6 to 17 years with attention-deficit/hyperactivity disorder	attention-deficit/hyperactivity disorder	runs	en	ADHD		condition	plain
+Culture-confirmed pulmonary tuberculosis diagnosed within 4 weeks	pulmonary tuberculosis	runs	en	pulmonary TB	culture	condition	plain
+Focal epilepsy with at least 4 seizures per month during the baseline period	focal epilepsy	runs	en	partial epilepsy	seizures	condition	plain
+Overactive bladder symptoms for 6 months or more	overactive bladder	runs	en	OAB		condition	plain
+Locally advanced squamous cell carcinoma of the head and neck arising in the oral cavity, oropharynx, hypopharynx or larynx	squamous cell carcinoma of the head and neck	runs	en	SCCHN;head and neck squamous cell carcinoma;HNSCC		condition	plain
+Chronic obstructive pulmonary disease with at least one moderate exacerbation in the previous year	chronic obstructive pulmonary disease	runs	en	COPD		condition	plain
+Newly diagnosed acute myeloid leukaemia, confirmed by bone marrow examination	acute myeloid leukaemia	runs	en	AML;acute myeloid leukemia	bone marrow examination	condition	plain
+Primary biliary cholangitis diagnosed for at least 1 year	primary biliary cholangitis	runs	en	PBC;primary biliary cirrhosis		condition	plain
+Uterine fibroids with heavy menstrual bleeding, confirmed by ultrasound	uterine fibroids	runs	en	uterine leiomyoma;uterine leiomyomata	heavy menstrual bleeding;ultrasound	condition	plain
+Generalised myasthenia gravis, MGFA class II to IV	myasthenia gravis	runs	en	MG		condition	plain
+Obstructive sleep apnoea confirmed by polysomnography with apnoea-hypopnoea index of 15 or more	obstructive sleep apnoea	runs	en	OSA;obstructive sleep apnea	polysomnography;apnoea-hypopnoea index	condition	plain
+Peripheral artery disease with intermittent claudication for more than 6 months	peripheral artery disease	runs	en	PAD;peripheral arterial disease	intermittent claudication	condition	plain
+Adolescents with idiopathic scoliosis and a Cobb angle between 25 and 40 degrees	idiopathic scoliosis	runs	en		Cobb angle	condition	plain
+Stage IV pancreatic ductal adenocarcinoma with measurable disease	pancreatic ductal adenocarcinoma	runs	en	PDAC		condition	plain
+Subjects meeting DSM-5 criteria for bipolar I disorder, currently experiencing a manic episode with a Young Mania Rating Scale total score of 20 or higher	bipolar I disorder	runs	en	bipolar disorder type I	manic episode;Young Mania Rating Scale	condition	plain
+Heart failure with preserved ejection fraction, NYHA class II-III, LVEF of at least 50% and NT-proBNP above 300 pg/mL at screening	heart failure with preserved ejection fraction	runs	en	HFpEF	LVEF;NT-proBNP	condition	plain
+Histologically confirmed gastric adenocarcinoma, unresectable or metastatic, with at least one measurable lesion per RECIST v1.1 and ECOG performance status 0-1	gastric adenocarcinoma	runs	en	adenocarcinoma of the stomach	ECOG performance status	condition	plain
+Psoriatic arthritis fulfilling the CASPAR classification criteria, with 3 or more swollen joints and 3 or more tender joints at baseline	psoriatic arthritis	runs	en	PsA	swollen joint count;tender joint count	condition	plain
+Nonalcoholic steatohepatitis confirmed by liver biopsy within 6 months, with NAFLD activity score of 4 or greater and fibrosis stage F2 or F3	nonalcoholic steatohepatitis	runs	en	NASH;non-alcoholic steatohepatitis	liver biopsy;NAFLD activity score;fibrosis stage	condition	plain
+Diabetic kidney disease with eGFR 25 to 75 mL/min/1.73 m2 and urine albumin-to-creatinine ratio of 200 mg/g or higher	diabetic kidney disease	runs	en	DKD;diabetic nephropathy	eGFR;urine albumin-to-creatinine ratio	condition	plain
+Metastatic castration-resistant prostate cancer with documented PSA progression according to PCWG3 criteria while serum testosterone is below 50 ng/dL	castration-resistant prostate cancer	runs	en	CRPC	PSA;testosterone	condition	plain
+Alzheimer's disease dementia of mild severity according to NIA-AA criteria, with a Mini-Mental State Examination score between 20 and 26	Alzheimer's disease	runs	en	Alzheimer disease;AD	Mini-Mental State Examination	condition	plain
+Chronic lymphocytic leukaemia requiring treatment according to iwCLL 2018 criteria, with ECOG performance status of 2 or less	chronic lymphocytic leukaemia	runs	en	CLL;chronic lymphocytic leukemia	ECOG performance status	condition	plain
+Primary Sjögren's syndrome meeting 2016 ACR/EULAR classification criteria, with ESSDAI score of 5 or more	Sjögren's syndrome	runs	en	Sjogren's syndrome;Sjögren syndrome	ESSDAI	condition	plain
+Severe aortic stenosis defined as aortic valve area below 1.0 cm2 and mean gradient of 40 mmHg or greater on transthoracic echocardiography	aortic stenosis	runs	en	aortic valve stenosis	aortic valve area;transthoracic echocardiography	condition	plain
+Moderate to severe hidradenitis suppurativa, Hurley stage II or III, with a total abscess and inflammatory nodule count of at least 5	hidradenitis suppurativa	runs	en	HS;acne inversa	abscess and inflammatory nodule count	condition	plain
+Chronic hepatitis C virus infection, genotype 1, with plasma HCV RNA of 10,000 IU/mL or greater at screening	hepatitis C virus infection	runs	en	HCV infection;chronic hepatitis C	HCV RNA	condition	plain
+Generalized anxiety disorder as defined by DSM-5 and confirmed with the MINI, with Hamilton Anxiety Rating Scale total of 20 or above	generalized anxiety disorder	runs	en	GAD;generalised anxiety disorder	Hamilton Anxiety Rating Scale	condition	plain
+Unresectable stage III or IV cutaneous melanoma with BRAF V600 mutation status determined before randomisation	cutaneous melanoma	runs	en	malignant melanoma of skin	BRAF V600 mutation	condition	plain
+Eosinophilic oesophagitis with 15 or more eosinophils per high-power field on oesophageal biopsy and dysphagia on at least 4 days over 2 weeks	eosinophilic oesophagitis	runs	en	EoE;eosinophilic esophagitis	oesophageal biopsy;dysphagia	condition	plain
+Idiopathic pulmonary fibrosis diagnosed per ATS/ERS/JRS/ALAT guidelines, with forced vital capacity at least 45% of predicted and DLCO 30% to 79% of predicted	idiopathic pulmonary fibrosis	runs	en	IPF	forced vital capacity;DLCO	condition	plain
+Neuromyelitis optica spectrum disorder according to the 2015 IPND criteria, with at least one attack in the previous 12 months and EDSS score of 6.5 or lower	neuromyelitis optica spectrum disorder	runs	en	NMOSD	EDSS	condition	plain
+Sickle cell disease (HbSS genotype) in patients aged 12 years or above who had 2 to 10 vaso-occlusive crises in the preceding year	sickle cell disease	runs	en	SCD	vaso-occlusive crisis	condition	plain
+Primary immune thrombocytopenia lasting more than 12 months, with mean platelet count below 30 x 10^9/L on two measurements	immune thrombocytopenia	runs	en	ITP;immune thrombocytopenic purpura	platelet count	condition	plain
+Heterozygous familial hypercholesterolaemia diagnosed by Dutch Lipid Clinic Network criteria, with LDL-C of 2.6 mmol/L or higher on maximally tolerated statin	familial hypercholesterolaemia	runs	en	FH;familial hypercholesterolemia	LDL-C;statin	condition	plain
+Moderate to severe chronic rhinosinusitis with nasal polyps, bilateral nasal polyp score of at least 5 and persistent nasal congestion for more than 8 weeks	chronic rhinosinusitis with nasal polyps	runs	en	CRSwNP	nasal polyp score;nasal congestion	condition	plain
+Acute uncomplicated Plasmodium falciparum malaria with parasitaemia of 1,000 to 100,000 asexual parasites per microlitre and fever in the past 24 hours	Plasmodium falciparum malaria	runs	en	falciparum malaria	parasitaemia;fever	condition	plain
+Muscle-invasive urothelial carcinoma of the bladder (cT2-T4a, N0, M0) confirmed on a transurethral resection specimen	urothelial carcinoma of the bladder	runs	en	bladder urothelial carcinoma	transurethral resection	condition	plain
+Preterm infants born before 32 weeks of gestation with respiratory distress syndrome requiring oxygen at a fraction of 0.30 or more within the first 6 hours of life	respiratory distress syndrome	runs	en	RDS;neonatal respiratory distress syndrome	oxygen	condition	plain
+Insomnia disorder per DSM-5 with self-reported sleep onset latency of 30 minutes or longer on at least 3 nights each week for 3 months	insomnia disorder	runs	en	chronic insomnia	sleep onset latency	condition	plain
+Currently taking metformin	metformin	runs	en			medication	plain
+On stable warfarin therapy	warfarin	runs	en			medication	plain
+Receiving methotrexate at a stable dose of 7.5 to 25 mg weekly for at least 8 weeks	methotrexate	runs	en	MTX		medication	plain
+Patients treated with levothyroxine for 3 months or longer	levothyroxine	runs	en	L-thyroxine		medication	plain
+Prior treatment with a platinum-based chemotherapy regimen	platinum-based chemotherapy	runs	en	platinum-containing chemotherapy		medication	plain
+Has received at least one dose of rituximab in the past	rituximab	runs	en			medication	plain
+Ongoing insulin glargine therapy, with the daily dose stable (within 20%) for 12 weeks before screening	insulin glargine	runs	en			medication	plain
+Stable background therapy with an ACE inhibitor at the maximum tolerated dose for at least 4 weeks	ACE inhibitor	runs	en	angiotensin-converting enzyme inhibitor;ACEI		medication	plain
+Using inhaled corticosteroids daily for the previous 3 months	inhaled corticosteroids	runs	en	ICS;inhaled corticosteroid		medication	plain
+Currently on tenofovir disoproxil fumarate-containing antiretroviral therapy with HIV-1 RNA below 50 copies/mL for 6 months	tenofovir disoproxil fumarate	runs	en	TDF	antiretroviral therapy;HIV-1 RNA	medication	plain
+Maintained on tacrolimus-based immunosuppression since transplantation	tacrolimus	runs	en	FK506	transplantation	medication	plain
+Previously treated with trastuzumab and a taxane in the metastatic setting	trastuzumab	runs	en		taxane	medication	plain
+Taking atorvastatin 40 mg or 80 mg once daily for 6 weeks or more	atorvastatin	runs	en			medication	plain
+Patients on maintenance haemodialysis receiving epoetin alfa for anaemia	epoetin alfa	runs	en		haemodialysis;anaemia	medication	plain
+Current use of combined oral contraceptives for at least 3 cycles	combined oral contraceptives	runs	en	COC;combined oral contraceptive		medication	plain
+Daily low-dose aspirin (75 to 100 mg) for secondary cardiovascular prevention	aspirin	runs	en	acetylsalicylic acid;ASA		medication	plain
+Receiving a stable dose of sertraline for the current depressive episode for a minimum of 6 weeks	sertraline	runs	en		depressive episode	medication	plain
+Has been treated with imatinib continuously for 3 years or longer	imatinib	runs	en	imatinib mesylate		medication	plain
+Has undergone total knee arthroplasty	total knee arthroplasty	runs	en	TKA;total knee replacement		procedure	plain
+Underwent percutaneous coronary intervention with drug-eluting stent implantation within the past 12 months	percutaneous coronary intervention	runs	en	PCI	drug-eluting stent	procedure	plain
+Kidney transplant recipients at least 6 months post-transplant	kidney transplant	runs	en	renal transplant;kidney transplantation		procedure	plain
+History of coronary artery bypass grafting	coronary artery bypass grafting	runs	en	CABG;coronary artery bypass graft surgery		procedure	plain
+Patients who have had a sleeve gastrectomy	sleeve gastrectomy	runs	en			procedure	plain
+Prior radical prostatectomy with rising PSA on two consecutive measurements	radical prostatectomy	runs	en		PSA	procedure	plain
+Completed curative-intent surgical resection of the primary tumour (R0) within 12 weeks before randomisation	surgical resection	runs	en			procedure	plain
+Status post allogeneic haematopoietic stem cell transplantation, performed at least 100 days earlier	allogeneic haematopoietic stem cell transplantation	runs	en	allo-HSCT;allogeneic hematopoietic stem cell transplantation		procedure	plain
+Underwent unilateral cochlear implantation at least 1 year ago	cochlear implantation	runs	en			procedure	plain
+Women who had a caesarean section in a previous pregnancy	caesarean section	runs	en	cesarean section;C-section		procedure	plain
+Implantable cardioverter-defibrillator placed more than 3 months before enrolment	implantable cardioverter-defibrillator	runs	en	ICD		procedure	plain
+Previous cataract surgery with intraocular lens implantation in the study eye	cataract surgery	runs	en		intraocular lens implantation	procedure	plain
+Liver transplantation performed between 1 and 10 years before screening	liver transplantation	runs	en	liver transplant		procedure	plain
+Patients undergoing maintenance hemodialysis three times weekly for at least 3 months	hemodialysis	runs	en	haemodialysis;HD		procedure	plain
+HER2-positive by IHC 3+	HER2-positive	runs	en	HER2 positive	IHC	observation	plain
+HLA-B27 positive on local laboratory testing	HLA-B27 positive	runs	en			observation	plain
+Documented EGFR exon 19 deletion in tumour tissue	EGFR exon 19 deletion	runs	en			observation	plain
+Presence of the Philadelphia chromosome confirmed by cytogenetics	Philadelphia chromosome	runs	en	Ph chromosome	cytogenetics	observation	plain
+Seropositive for anti-CCP antibodies at screening	anti-CCP antibodies	runs	en	anti-cyclic citrullinated peptide antibodies;ACPA		observation	plain
+PD-L1 expression with tumour proportion score of 50% or greater by the 22C3 assay	PD-L1 expression	runs	en		tumour proportion score	observation	plain
+Persistent microalbuminuria on two of three consecutive urine samples	microalbuminuria	runs	en			observation	plain
+Left ventricular hypertrophy demonstrated on echocardiography	left ventricular hypertrophy	runs	en	LVH	echocardiography	observation	plain
+Helicobacter pylori positive by urea breath test	Helicobacter pylori positive	runs	en	H. pylori positive	urea breath test	observation	plain
+Evidence of amyloid positivity on an amyloid PET scan read centrally	amyloid positivity	runs	en		amyloid PET	observation	plain
+関節リウマチと診断された患者	関節リウマチ	runs	ja	RA		condition	plain
+2型糖尿病患者	2型糖尿病	runs	ja	T2DM		condition	plain
+本態性高血圧症を有する者	本態性高血圧症	runs	ja	本態性高血圧		condition	plain
+気管支喘息の診断を受けている	気管支喘息	runs	ja			condition	plain
+潰瘍性大腸炎の患者	潰瘍性大腸炎	runs	ja	UC		condition	plain
+心房細動を合併している患者	心房細動	runs	ja	AF		condition	plain
+アトピー性皮膚炎を有する小児	アトピー性皮膚炎	runs	ja			condition	plain
+慢性心不全と診断されている	慢性心不全	runs	ja			condition	plain
+脳梗塞の既往がある患者	脳梗塞	runs	ja			condition	plain
+パーキンソン病の確定診断を受けた患者	パーキンソン病	runs	ja			condition	plain
+統合失調症の患者	統合失調症	runs	ja			condition	plain
+原発開放隅角緑内障と診断された者	原発開放隅角緑内障	runs	ja	POAG		condition	plain
+子宮内膜症を有する女性	子宮内膜症	runs	ja			condition	plain
+前立腺肥大症の男性患者	前立腺肥大症	runs	ja	BPH		condition	plain
+大うつ病性障害と診断された患者	大うつ病性障害	runs	ja	うつ病;MDD		condition	plain
+C型慢性肝炎患者	C型慢性肝炎	runs	ja	慢性C型肝炎		condition	plain
+骨粗鬆症を有する閉経後女性	骨粗鬆症	runs	ja			condition	plain
+慢性腎臓病の患者	慢性腎臓病	runs	ja	CKD		condition	plain
+尋常性乾癬と診断されている患者	尋常性乾癬	runs	ja			condition	plain
+てんかんを有する患者	てんかん	runs	ja			condition	plain
+胃癌の確定診断がある者	胃癌	runs	ja	胃がん		condition	plain
+多発性骨髄腫患者	多発性骨髄腫	runs	ja	MM		condition	plain
+過活動膀胱の症状を有する患者	過活動膀胱	runs	ja	OAB		condition	plain
+川崎病と診断された小児	川崎病	runs	ja			condition	plain
+全身性エリテマトーデスの診断が確定している	全身性エリテマトーデス	runs	ja	SLE		condition	plain
+片頭痛を有する成人	片頭痛	runs	ja			condition	plain
+組織学的に確認された非小細胞肺癌で、臨床病期IIIB期又はIV期の患者	非小細胞肺癌	runs	ja	NSCLC;非小細胞肺がん		condition	plain
+発症後6か月以上経過したクローン病患者	クローン病	runs	ja			condition	plain
+1型糖尿病と診断されてから1年以上経過している	1型糖尿病	runs	ja	T1DM		condition	plain
+病理組織学的に乳癌と診断された20歳以上の女性	乳癌	runs	ja	乳がん		condition	plain
+肝細胞癌であることが画像診断又は組織診断により確認されている	肝細胞癌	runs	ja	HCC;肝細胞がん	画像診断;組織診断	condition	plain
+中等症から重症の慢性閉塞性肺疾患(GOLD分類II~III)	慢性閉塞性肺疾患	runs	ja	COPD		condition	plain
+同意取得時に発症後3か月以上の陳旧性心筋梗塞を有する患者	陳旧性心筋梗塞	runs	ja			condition	plain
+再発又は難治性のびまん性大細胞型B細胞リンパ腫	びまん性大細胞型B細胞リンパ腫	runs	ja	DLBCL		condition	plain
+強直性脊椎炎の診断後3か月以上が経過した患者	強直性脊椎炎	runs	ja	AS		condition	plain
+滲出型加齢黄斑変性と診断された50歳以上の患者	滲出型加齢黄斑変性	runs	ja	新生血管型加齢黄斑変性;nAMD		condition	plain
+腎生検によりIgA腎症と確定診断された患者	IgA腎症	runs	ja		腎生検	condition	plain
+喀痰培養で確認された肺結核患者	肺結核	runs	ja		喀痰培養	condition	plain
+6歳以上18歳未満の注意欠如・多動症患者	注意欠如・多動症	runs	ja	ADHD;注意欠陥多動性障害		condition	plain
+睡眠ポリグラフ検査で診断された閉塞性睡眠時無呼吸症候群	閉塞性睡眠時無呼吸症候群	runs	ja	OSAS	睡眠ポリグラフ検査	condition	plain
+発症から48時間以内のインフルエンザウイルス感染症患者	インフルエンザウイルス感染症	runs	ja	インフルエンザ		condition	plain
+肺動脈性肺高血圧症(WHO機能分類II又はIII度)の患者	肺動脈性肺高血圧症	runs	ja	PAH		condition	plain
+切除不能な進行・再発の膵癌	膵癌	runs	ja	膵がん;膵臓癌		condition	plain
+血中HBV DNAが検出されるB型慢性肝炎患者	B型慢性肝炎	runs	ja	慢性B型肝炎	HBV DNA	condition	plain
+原発性胆汁性胆管炎と診断され1年以上経過した患者	原発性胆汁性胆管炎	runs	ja	PBC		condition	plain
+過多月経を伴う子宮筋腫を有する閉経前女性	子宮筋腫	runs	ja		過多月経	condition	plain
+糖尿病黄斑浮腫による視力低下を有する患者	糖尿病黄斑浮腫	runs	ja	DME	視力低下	condition	plain
+初発の急性骨髄性白血病と診断された65歳以上の患者	急性骨髄性白血病	runs	ja	AML		condition	plain
+重症筋無力症(全身型、MGFA分類II~IV)の患者	重症筋無力症	runs	ja	MG		condition	plain
+変形性膝関節症(Kellgren-Lawrence分類グレード2又は3)	変形性膝関節症	runs	ja	膝OA		condition	plain
+経尿道的膀胱腫瘍切除術の検体で筋層浸潤性膀胱癌と確認された患者	筋層浸潤性膀胱癌	runs	ja	MIBC	経尿道的膀胱腫瘍切除術	condition	plain
+双極I型障害の診断を受けて2年以上の患者	双極I型障害	runs	ja	双極性障害I型		condition	plain
+DSM-5の診断基準により全般不安症と診断され、ハミルトン不安評価尺度の合計スコアが20点以上の患者	全般不安症	runs	ja	全般性不安障害;GAD	ハミルトン不安評価尺度	condition	plain
+CASPAR分類基準を満たす乾癬性関節炎患者で、腫脹関節数及び圧痛関節数がいずれも3以上のもの	乾癬性関節炎	runs	ja	関節症性乾癬;PsA	腫脹関節数;圧痛関節数	condition	plain
+NYHA心機能分類II~III度の左室駆出率が保たれた心不全で、スクリーニング時のLVEFが50%以上かつNT-proBNPが300 pg/mL以上の患者	左室駆出率が保たれた心不全	runs	ja	HFpEF	LVEF;NT-proBNP	condition	plain
+糖尿病性腎症を有し、eGFRが30以上90 mL/min/1.73m2未満かつ尿中アルブミン/クレアチニン比が300 mg/gCr以上である患者	糖尿病性腎症	runs	ja	糖尿病性腎臓病	eGFR;尿中アルブミン/クレアチニン比	condition	plain
+特発性肺線維症と診断され、努力肺活量が予測値の50%以上、DLcoが予測値の30%以上である40歳以上の患者	特発性肺線維症	runs	ja	IPF	努力肺活量;DLco	condition	plain
+治癒切除不能な進行・再発の結腸・直腸癌で、RECIST ver.1.1に基づく測定可能病変を有し、ECOG PSが0又は1の患者	結腸・直腸癌	runs	ja	大腸癌;大腸がん	ECOG PS	condition	plain
+NIA-AA基準によるアルツハイマー病による軽度認知障害で、MMSEスコアが22点以上30点以下の患者	アルツハイマー病による軽度認知障害	runs	ja	MCI due to AD	MMSE	condition	plain
+去勢抵抗性前立腺癌で遠隔転移を有し、血清テストステロン値が50 ng/dL未満にもかかわらずPSAの上昇が確認されている患者	去勢抵抗性前立腺癌	runs	ja	CRPC	テストステロン;PSA	condition	plain
+非アルコール性脂肪肝炎と肝生検で診断され、NAFLD活動性スコアが4点以上、線維化ステージがF2又はF3である患者	非アルコール性脂肪肝炎	runs	ja	NASH	肝生検;NAFLD活動性スコア	condition	plain
+視神経脊髄炎スペクトラム障害(2015年国際診断基準)で、過去1年間に1回以上の再発があり、EDSSが6.5以下の患者	視神経脊髄炎スペクトラム障害	runs	ja	NMOSD	EDSS	condition	plain
+再発寛解型多発性硬化症(改訂McDonald診断基準2017)と診断され、EDSSスコアが0~5.5の18歳以上55歳以下の患者	再発寛解型多発性硬化症	runs	ja	RRMS	EDSS	condition	plain
+化膿性汗腺炎(Hurley病期II又はIII)で、膿瘍及び炎症性結節の合計数が5個以上である患者	化膿性汗腺炎	runs	ja	HS	膿瘍;炎症性結節	condition	plain
+家族性高コレステロール血症ヘテロ接合体と診断され、最大耐用量のスタチン投与下でLDL-Cが100 mg/dL以上の患者	家族性高コレステロール血症	runs	ja	FH	スタチン;LDL-C	condition	plain
+重症大動脈弁狭窄症(大動脈弁口面積1.0 cm2未満かつ平均圧較差40 mmHg以上)を有し、心エコー検査で確認されている患者	大動脈弁狭窄症	runs	ja	AS	大動脈弁口面積;心エコー検査	condition	plain
+鼻茸を伴う慢性副鼻腔炎で、両側の鼻茸スコアが5点以上かつ鼻閉が8週間以上持続している患者	鼻茸を伴う慢性副鼻腔炎	runs	ja	CRSwNP	鼻茸スコア;鼻閉	condition	plain
+慢性特発性血小板減少性紫斑病と診断されてから12か月以上経過し、血小板数が30,000/μL未満の患者	特発性血小板減少性紫斑病	runs	ja	ITP;免疫性血小板減少症	血小板数	condition	plain
+根治切除不能な悪性黒色腫(UICC第8版によるIII期又はIV期)で、BRAF V600遺伝子変異の有無が判明している患者	悪性黒色腫	runs	ja	メラノーマ	BRAF V600遺伝子変異	condition	plain
+原発性シェーグレン症候群(2016年ACR/EULAR分類基準)で、ESSDAIスコアが5点以上の患者	シェーグレン症候群	runs	ja		ESSDAI	condition	plain
+好酸球性食道炎で、食道生検において高倍率視野あたり15個以上の好酸球浸潤が認められ、嚥下困難が週2日以上ある患者	好酸球性食道炎	runs	ja	EoE	食道生検;嚥下困難	condition	plain
+慢性リンパ性白血病でiwCLLガイドラインに基づく治療開始基準を満たし、ECOG PSが2以下の患者	慢性リンパ性白血病	runs	ja	CLL	ECOG PS	condition	plain
+在胎32週未満で出生し、新生児呼吸窮迫症候群により出生後6時間以内に吸入酸素濃度30%以上を要する早産児	新生児呼吸窮迫症候群	runs	ja	RDS;呼吸窮迫症候群	吸入酸素濃度	condition	plain
+DSM-5の不眠障害の診断基準に該当し、入眠潜時30分以上の夜が週3回以上、3か月以上持続している患者	不眠障害	runs	ja	不眠症	入眠潜時	condition	plain
+掌蹠膿疱症と診断されて6か月以上経過し、PPPASIスコアが12以上で、外用療法を継続している患者	掌蹠膿疱症	runs	ja	PPP	PPPASI;外用療法	condition	plain
+腰部脊柱管狭窄症とMRIで診断され、間欠性跛行が3か月以上持続しており、下肢痛のNRSが4以上の患者	腰部脊柱管狭窄症	runs	ja	LSS	MRI;間欠性跛行;NRS	condition	plain
+慢性血栓塞栓性肺高血圧症で、右心カテーテル検査により平均肺動脈圧25 mmHg以上かつ肺血管抵抗300 dyn・sec・cm-5以上が確認された患者	慢性血栓塞栓性肺高血圧症	runs	ja	CTEPH	右心カテーテル検査;平均肺動脈圧;肺血管抵抗	condition	plain
+Sepsis-3の定義による敗血症性ショックで、十分な輸液負荷後も平均動脈圧65 mmHg以上の維持に血管収縮薬を必要とし、血中乳酸値が2 mmol/Lを超える患者	敗血症性ショック	runs	ja		血管収縮薬;平均動脈圧;乳酸値	condition	plain
+現在メトホルミンを服用中の患者	メトホルミン	runs	ja			medication	plain
+ワルファリン投与中の患者	ワルファリン	runs	ja	ワーファリン		medication	plain
+メトトレキサートを8週間以上一定用量(6~16 mg/週)で投与されている患者	メトトレキサート	runs	ja	MTX		medication	plain
+レボチロキシンナトリウムを3か月以上服用している	レボチロキシンナトリウム	runs	ja	レボチロキシン		medication	plain
+プラチナ製剤を含む化学療法による前治療歴を有する患者	プラチナ製剤を含む化学療法	runs	ja	プラチナ製剤併用化学療法;プラチナ系化学療法		medication	plain
+過去にリツキシマブの投与を受けたことがある患者	リツキシマブ	runs	ja			medication	plain
+基礎インスリン製剤を12週間以上、安定した用量で使用している患者	基礎インスリン製剤	runs	ja	基礎インスリン;持効型インスリン		medication	plain
+吸入ステロイド薬を3か月以上継続使用中の患者	吸入ステロイド薬	runs	ja	ICS;吸入ステロイド		medication	plain
+タクロリムスを含む免疫抑制療法を移植後から継続している患者	タクロリムス	runs	ja		免疫抑制療法	medication	plain
+スタチン系薬剤を4週間以上一定用量で内服中	スタチン系薬剤	runs	ja	スタチン;HMG-CoA還元酵素阻害薬		medication	plain
+低用量アスピリン(81~100 mg/日)を長期服用している患者	アスピリン	runs	ja	アセチルサリチル酸		medication	plain
+トラスツズマブ及びタキサン系抗悪性腫瘍剤による治療歴がある	トラスツズマブ	runs	ja		タキサン系抗悪性腫瘍剤	medication	plain
+ドネペジル塩酸塩を12週間以上服用しており、直近4週間は用量が一定である患者	ドネペジル塩酸塩	runs	ja	ドネペジル		medication	plain
+アダリムマブによる治療を受けている患者	アダリムマブ	runs	ja			medication	plain
+直接経口抗凝固薬を内服している非弁膜症性心房細動患者	直接経口抗凝固薬	runs	ja	DOAC	非弁膜症性心房細動	medication	plain
+エンテカビルによる治療を1年以上継続しているB型慢性肝炎患者	エンテカビル	runs	ja	ETV	B型慢性肝炎	medication	plain
+選択的セロトニン再取り込み阻害薬を6週間以上、承認用量の範囲内で投与されている	選択的セロトニン再取り込み阻害薬	runs	ja	SSRI		medication	plain
+SGLT2阻害薬を8週間以上服用中の2型糖尿病患者	SGLT2阻害薬	runs	ja	SGLT2阻害剤	2型糖尿病	medication	plain
+人工膝関節全置換術を施行された患者	人工膝関節全置換術	runs	ja	TKA		procedure	plain
+経皮的冠動脈インターベンション施行後12か月以内で、薬剤溶出性ステントが留置されている患者	経皮的冠動脈インターベンション	runs	ja	PCI	薬剤溶出性ステント	procedure	plain
+腎移植後6か月以上経過したレシピエント	腎移植	runs	ja	腎臓移植		procedure	plain
+冠動脈バイパス術の既往を有する患者	冠動脈バイパス術	runs	ja	CABG		procedure	plain
+幽門側胃切除術を受けた患者	幽門側胃切除術	runs	ja			procedure	plain
+根治的前立腺全摘除術後にPSA再発を認めた患者	前立腺全摘除術	runs	ja	前立腺全摘術	PSA再発	procedure	plain
+同種造血幹細胞移植後100日以上経過している	同種造血幹細胞移植	runs	ja	allo-HSCT		procedure	plain
+帝王切開術の既往がある妊婦	帝王切開術	runs	ja	帝王切開		procedure	plain
+白内障手術(眼内レンズ挿入術)を試験眼に受けている患者	白内障手術	runs	ja		眼内レンズ挿入術	procedure	plain
+維持血液透析を週3回、3か月以上受けている患者	血液透析	runs	ja	HD		procedure	plain
+生体肝移植を受け、移植後1年以上経過した患者	生体肝移植	runs	ja	生体部分肝移植		procedure	plain
+ペースメーカー植込み術後の患者	ペースメーカー植込み術	runs	ja	ペースメーカー移植術		procedure	plain
+R0切除が得られた肺葉切除術後8週以内の患者	肺葉切除術	runs	ja			procedure	plain
+カテーテルアブレーションを過去に1回以上施行されている心房細動患者	カテーテルアブレーション	runs	ja		心房細動	procedure	plain
+HER2陽性(IHC法3+)であることが確認されている	HER2陽性	runs	ja		IHC法	observation	plain
+EGFR遺伝子変異陽性が腫瘍組織で確認された患者	EGFR遺伝子変異陽性	runs	ja			observation	plain
+抗CCP抗体陽性の患者	抗CCP抗体陽性	runs	ja	抗シトルリン化ペプチド抗体陽性		observation	plain
+ヘリコバクター・ピロリ陽性と尿素呼気試験で判定された者	ヘリコバクター・ピロリ陽性	runs	ja	H. pylori陽性;ピロリ菌陽性	尿素呼気試験	observation	plain
+HBs抗原陽性が6か月以上持続している	HBs抗原陽性	runs	ja	HBsAg陽性		observation	plain
+PD-L1発現が腫瘍細胞の50%以上で認められる(22C3抗体を用いたIHC法)	PD-L1発現	runs	ja		IHC法	observation	plain
+微量アルブミン尿が3回中2回以上の随時尿で確認されている患者	微量アルブミン尿	runs	ja			observation	plain
+フィラデルフィア染色体陽性が染色体分析で確認されている	フィラデルフィア染色体陽性	runs	ja	Ph陽性	染色体分析	observation	plain
+アミロイドPET検査でアミロイド陽性と判定された患者	アミロイド陽性	runs	ja		アミロイドPET検査	observation	plain
+心電図で左室肥大の所見を認める患者	左室肥大	runs	ja	LVH;左心室肥大	心電図	observation	plain
+確診為第2型糖尿病	第2型糖尿病	runs	zh	第二型糖尿病;2型糖尿病;T2DM		condition	plain
+罹患類風濕性關節炎之患者	類風濕性關節炎	runs	zh	RA		condition	plain
+患有原發性高血壓	原發性高血壓	runs	zh	本態性高血壓		condition	plain
+經診斷為氣喘的病人	氣喘	runs	zh	哮喘		condition	plain
+潰瘍性結腸炎患者	潰瘍性結腸炎	runs	zh	UC		condition	plain
+患有心房顫動者	心房顫動	runs	zh	心房纖維顫動;AF		condition	plain
+異位性皮膚炎之兒童患者	異位性皮膚炎	runs	zh			condition	plain
+診斷為巴金森氏症	巴金森氏症	runs	zh	帕金森氏症		condition	plain
+曾發生缺血性腦中風	缺血性腦中風	runs	zh	腦梗塞		condition	plain
+思覺失調症患者	思覺失調症	runs	zh			condition	plain
+罹患乾癬之成人	乾癬	runs	zh			condition	plain
+確定診斷為全身性紅斑狼瘡	全身性紅斑狼瘡	runs	zh	SLE;紅斑性狼瘡		condition	plain
+子宮內膜異位症女性	子宮內膜異位症	runs	zh			condition	plain
+攝護腺肥大之男性患者	攝護腺肥大	runs	zh	良性攝護腺肥大;BPH		condition	plain
+患有重鬱症	重鬱症	runs	zh	重度憂鬱症;MDD		condition	plain
+罹患慢性B型肝炎多年之成人	慢性B型肝炎	runs	zh	CHB		condition	plain
+有痛風病史者	痛風	runs	zh			condition	plain
+多發性骨髓瘤病人	多發性骨髓瘤	runs	zh	MM		condition	plain
+罹患偏頭痛	偏頭痛	runs	zh			condition	plain
+診斷為川崎症之孩童	川崎症	runs	zh	川崎氏症		condition	plain
+确诊为原发性肝癌	原发性肝癌	runs	zh			condition	plain
+患有慢性阻塞性肺疾病的患者	慢性阻塞性肺疾病	runs	zh	慢阻肺;COPD		condition	plain
+冠心病患者	冠心病	runs	zh	冠状动脉粥样硬化性心脏病		condition	plain
+诊断为银屑病	银屑病	runs	zh			condition	plain
+既往有脑梗死病史	脑梗死	runs	zh			condition	plain
+患有强直性脊柱炎	强直性脊柱炎	runs	zh	AS		condition	plain
+經組織學證實之非小細胞肺癌，分期為IIIB或IV期	非小細胞肺癌	runs	zh	NSCLC		condition	plain
+診斷為克隆氏症至少3個月	克隆氏症	runs	zh	克隆氏病		condition	plain
+第1型糖尿病確診滿1年以上	第1型糖尿病	runs	zh	第一型糖尿病;T1DM		condition	plain
+經病理切片證實為乳癌之20歲以上女性	乳癌	runs	zh		病理切片	condition	plain
+肝細胞癌，巴塞隆納臨床肝癌分期B或C期	肝細胞癌	runs	zh	HCC		condition	plain
+慢性腎臟病第3至4期，持續3個月以上	慢性腎臟病	runs	zh	CKD		condition	plain
+過去1至5年內曾發生心肌梗塞	心肌梗塞	runs	zh	MI		condition	plain
+停經後婦女，經雙能量X光吸收儀檢查確認有骨質疏鬆症	骨質疏鬆症	runs	zh		雙能量X光吸收儀	condition	plain
+復發或難治型瀰漫性大B細胞淋巴瘤，已接受過至少兩線全身性治療	瀰漫性大B細胞淋巴瘤	runs	zh	DLBCL	全身性治療	condition	plain
+試驗眼診斷為新生血管型老年性黃斑部病變	新生血管型老年性黃斑部病變	runs	zh	濕性老年性黃斑部病變;nAMD		condition	plain
+6至17歲之注意力不足過動症兒童及青少年	注意力不足過動症	runs	zh	ADHD		condition	plain
+痰液培養證實之肺結核	肺結核	runs	zh		痰液培養	condition	plain
+肺動脈高壓，世界衛生組織功能分級第II或III級	肺動脈高壓	runs	zh	PAH		condition	plain
+經多項睡眠生理檢查確診之阻塞性睡眠呼吸中止症	阻塞性睡眠呼吸中止症	runs	zh	OSA	多項睡眠生理檢查	condition	plain
+膝部退化性關節炎，Kellgren-Lawrence分級第2或3級	退化性關節炎	runs	zh	骨關節炎		condition	plain
+原發性膽汁性膽管炎診斷超過1年	原發性膽汁性膽管炎	runs	zh	PBC		condition	plain
+局部晚期頭頸部鱗狀細胞癌，原發部位為口腔、口咽、下咽或喉部	頭頸部鱗狀細胞癌	runs	zh	HNSCC		condition	plain
+登革熱，發燒48小時內且經NS1抗原快篩確認	登革熱	runs	zh		NS1抗原;發燒	condition	plain
+子宮肌瘤合併經血過多，經超音波檢查確認	子宮肌瘤	runs	zh		經血過多;超音波檢查	condition	plain
+经病理确诊的鼻咽癌，临床分期为III至IVa期	鼻咽癌	runs	zh	NPC		condition	plain
+慢性乙型肝炎病史超过6个月，HBsAg持续阳性	慢性乙型肝炎	runs	zh	慢性乙肝;CHB	HBsAg	condition	plain
+确诊癫痫1年以上，基线期每月发作不少于4次	癫痫	runs	zh			condition	plain
+急性髓系白血病初诊患者，经骨髓检查证实	急性髓系白血病	runs	zh	AML	骨髓检查	condition	plain
+食管鳞状细胞癌，经胃镜活检病理证实	食管鳞状细胞癌	runs	zh	食管鳞癌;ESCC	胃镜活检	condition	plain
+糖尿病肾病，病程3年以上	糖尿病肾病	runs	zh	DKD		condition	plain
+稳定型心绞痛患者，近3个月症状稳定	稳定型心绞痛	runs	zh	稳定性心绞痛		condition	plain
+符合DSM-5診斷準則之雙相情緒障礙症第一型，目前處於躁症發作，楊氏躁症量表總分達20分以上	雙相情緒障礙症第一型	runs	zh	第一型雙相情緒障礙症	躁症發作;楊氏躁症量表	condition	plain
+左心室射出分率保留型心臟衰竭，NYHA功能分級第II至III級，篩選時左心室射出分率≥50%且NT-proBNP>300 pg/mL	左心室射出分率保留型心臟衰竭	runs	zh	HFpEF	左心室射出分率;NT-proBNP	condition	plain
+經組織學證實之胃腺癌，無法手術切除或已轉移，依RECIST 1.1版具有至少一處可測量病灶，ECOG體能狀態0至1分	胃腺癌	runs	zh		ECOG體能狀態	condition	plain
+符合CASPAR分類標準之乾癬性關節炎，基期腫脹關節數及壓痛關節數皆≥3	乾癬性關節炎	runs	zh	PsA	腫脹關節數;壓痛關節數	condition	plain
+經肝臟切片確診之非酒精性脂肪性肝炎，NAFLD活動度評分≥4分且纖維化分期為F2或F3	非酒精性脂肪性肝炎	runs	zh	NASH	肝臟切片;NAFLD活動度評分	condition	plain
+轉移性去勢抗性攝護腺癌，血清睪固酮低於50 ng/dL之情況下仍依PCWG3標準出現PSA惡化	去勢抗性攝護腺癌	runs	zh	CRPC	睪固酮;PSA	condition	plain
+依NIA-AA標準診斷為輕度阿茲海默症，簡易智能量表(MMSE)分數介於20至26分	阿茲海默症	runs	zh	阿茲海默氏症	簡易智能量表;MMSE	condition	plain
+慢性淋巴球性白血病，依iwCLL 2018準則符合治療條件，ECOG體能狀態≤2	慢性淋巴球性白血病	runs	zh	CLL	ECOG體能狀態	condition	plain
+符合2016年ACR/EULAR分類標準之原發性修格蘭氏症候群，ESSDAI分數≥5分	修格蘭氏症候群	runs	zh	乾燥症	ESSDAI	condition	plain
+重度主動脈瓣狹窄，經胸前心臟超音波顯示瓣膜口面積<1.0 cm2且平均壓力差≥40 mmHg	主動脈瓣狹窄	runs	zh		心臟超音波;瓣膜口面積	condition	plain
+中重度化膿性汗腺炎(Hurley第II或III期)，膿瘍與發炎性結節總數至少5個	化膿性汗腺炎	runs	zh	HS	膿瘍;發炎性結節	condition	plain
+慢性C型肝炎病毒感染，基因型第1型，篩選時血漿HCV RNA≥10,000 IU/mL	C型肝炎病毒感染	runs	zh	慢性C型肝炎;HCV感染	HCV RNA	condition	plain
+符合DSM-5之廣泛性焦慮症，並經MINI確認，漢氏焦慮量表總分≥20分	廣泛性焦慮症	runs	zh	GAD	漢氏焦慮量表	condition	plain
+特發性肺纖維化，依ATS/ERS/JRS/ALAT指引診斷，用力肺活量≥預測值45%且DLCO為預測值30%至79%	特發性肺纖維化	runs	zh	IPF	用力肺活量;DLCO	condition	plain
+泛視神經脊髓炎(符合2015年IPND診斷標準)，過去12個月內至少發作1次，EDSS分數≤6.5	泛視神經脊髓炎	runs	zh	NMOSD;視神經脊髓炎譜系疾病	EDSS	condition	plain
+原發性免疫性血小板低下症病程超過12個月，兩次檢測之平均血小板數低於30 x 10^9/L	免疫性血小板低下症	runs	zh	ITP	血小板數	condition	plain
+慢性鼻竇炎合併鼻息肉，雙側鼻息肉評分至少5分，鼻塞持續超過8週	慢性鼻竇炎合併鼻息肉	runs	zh	CRSwNP	鼻息肉評分;鼻塞	condition	plain
+肌肉侵犯型膀胱泌尿上皮癌(cT2-T4a N0 M0)，經尿道膀胱腫瘤刮除術檢體證實	膀胱泌尿上皮癌	runs	zh	膀胱尿路上皮癌	經尿道膀胱腫瘤刮除術	condition	plain
+妊娠未滿32週出生之早產兒，因新生兒呼吸窘迫症候群於出生後6小時內需使用濃度≥30%之氧氣	新生兒呼吸窘迫症候群	runs	zh	RDS	氧氣	condition	plain
+符合2010年ACR/EULAR分类标准的类风湿关节炎，DAS28-ESR评分>5.1，肿胀关节数和压痛关节数均不少于6个	类风湿关节炎	runs	zh	RA	DAS28-ESR;肿胀关节数;压痛关节数	condition	plain
+不可切除的III期或IV期皮肤黑色素瘤(AJCC第8版)，随机前已明确BRAF V600突变状态	黑色素瘤	runs	zh	恶性黑色素瘤	BRAF V600突变	condition	plain
+嗜酸性粒细胞性食管炎，食管活检每高倍视野嗜酸性粒细胞≥15个，且近2周内至少4天出现吞咽困难	嗜酸性粒细胞性食管炎	runs	zh	EoE	食管活检;吞咽困难	condition	plain
+杂合子型家族性高胆固醇血症，按荷兰脂质临床网络标准诊断，在最大耐受剂量他汀治疗下LDL-C≥2.6 mmol/L	家族性高胆固醇血症	runs	zh	FH	他汀;LDL-C	condition	plain
+符合DSM-5失眠障碍诊断标准，自述入睡潜伏期≥30分钟且每周至少3晚，持续3个月以上	失眠障碍	runs	zh	失眠症	入睡潜伏期	condition	plain
+广泛期小细胞肺癌，经组织学或细胞学确诊，按RECIST 1.1标准至少有一个可测量病灶，ECOG评分0-1分	小细胞肺癌	runs	zh	SCLC	ECOG评分	condition	plain
+原发性肾病综合征，肾活检证实为膜性肾病，24小时尿蛋白定量>3.5 g且血清白蛋白<30 g/L	膜性肾病	runs	zh	膜性肾小球肾炎	肾病综合征;肾活检;24小时尿蛋白定量;血清白蛋白	condition	plain
+目前正在服用metformin治療	metformin	runs	zh	二甲雙胍		medication	plain
+正在接受warfarin抗凝血治療	warfarin	runs	zh	華法林;可邁丁		medication	plain
+接受methotrexate治療至少8週且劑量穩定(每週7.5至25毫克)	methotrexate	runs	zh	MTX;滅殺除癌錠		medication	plain
+服用levothyroxine達3個月以上	levothyroxine	runs	zh	左旋甲狀腺素		medication	plain
+先前曾接受含鉑化學治療	含鉑化學治療	runs	zh	含鉑化療;鉑類化學治療		medication	plain
+過去曾使用rituximab治療	rituximab	runs	zh	莫須瘤		medication	plain
+使用基礎胰島素至少12週，且劑量穩定	基礎胰島素	runs	zh			medication	plain
+過去3個月每日使用吸入性類固醇	吸入性類固醇	runs	zh	ICS;吸入型類固醇		medication	plain
+移植後持續使用tacrolimus作為免疫抑制治療	tacrolimus	runs	zh	普樂可復	免疫抑制治療	medication	plain
+接受statin類藥物穩定劑量治療至少4週	statin類藥物	runs	zh	statin;史他汀類藥物		medication	plain
+長期服用低劑量阿斯匹靈(每日75至100毫克)	阿斯匹靈	runs	zh	aspirin;乙醯水楊酸		medication	plain
+曾於轉移性疾病階段接受trastuzumab及紫杉醇類藥物治療	trastuzumab	runs	zh	賀癌平	紫杉醇類藥物	medication	plain
+目前使用新型口服抗凝血劑之非瓣膜性心房顫動患者	新型口服抗凝血劑	runs	zh	NOAC;DOAC	非瓣膜性心房顫動	medication	plain
+接受SGLT2抑制劑治療滿8週之第2型糖尿病患者	SGLT2抑制劑	runs	zh		第2型糖尿病	medication	plain
+目前正在服用二甲双胍，剂量≥1500 mg/天且稳定8周以上	二甲双胍	runs	zh			medication	plain
+正在接受恩替卡韦抗病毒治疗1年以上	恩替卡韦	runs	zh	ETV		medication	plain
+既往接受过含铂双药化疗	含铂双药化疗	runs	zh	含铂双药化学治疗		medication	plain
+规律使用胰岛素治疗3个月以上	胰岛素	runs	zh			medication	plain
+曾接受全膝關節置換術	全膝關節置換術	runs	zh	TKA;人工全膝關節置換術		procedure	plain
+過去12個月內接受過經皮冠狀動脈介入治療並置放塗藥支架	經皮冠狀動脈介入治療	runs	zh	PCI	塗藥支架	procedure	plain
+腎臟移植後滿6個月之受贈者	腎臟移植	runs	zh	腎移植		procedure	plain
+有冠狀動脈繞道手術病史	冠狀動脈繞道手術	runs	zh	CABG		procedure	plain
+接受過袖狀胃切除手術者	袖狀胃切除手術	runs	zh	胃袖狀切除術		procedure	plain
+曾接受根除性攝護腺切除術，術後PSA連續兩次上升	根除性攝護腺切除術	runs	zh		PSA	procedure	plain
+異體造血幹細胞移植後至少100天	異體造血幹細胞移植	runs	zh	allo-HSCT		procedure	plain
+前次懷孕曾接受剖腹產之孕婦	剖腹產	runs	zh	剖腹生產		procedure	plain
+試驗眼已接受白內障手術並植入人工水晶體	白內障手術	runs	zh		人工水晶體	procedure	plain
+每週三次規則血液透析達3個月以上	血液透析	runs	zh	洗腎;HD		procedure	plain
+已行肝移植术，术后1至10年	肝移植术	runs	zh	肝移植		procedure	plain
+接受过冠状动脉支架植入术的患者	冠状动脉支架植入术	runs	zh	冠脉支架植入术		procedure	plain
+胃癌根治术后8周内，切缘阴性(R0)	胃癌根治术	runs	zh	根治性胃切除术		procedure	plain
+已植入心脏起搏器3个月以上	心脏起搏器	runs	zh			procedure	plain
+HER2陽性(免疫組織化學染色3+)	HER2陽性	runs	zh		免疫組織化學染色	observation	plain
+腫瘤組織檢測證實帶有EGFR外顯子19缺失	EGFR外顯子19缺失	runs	zh			observation	plain
+篩選時抗CCP抗體陽性	抗CCP抗體陽性	runs	zh	抗環瓜氨酸抗體陽性		observation	plain
+碳13尿素呼氣試驗顯示幽門螺旋桿菌陽性	幽門螺旋桿菌陽性	runs	zh	幽門桿菌陽性	碳13尿素呼氣試驗	observation	plain
+B型肝炎表面抗原陽性持續6個月以上	B型肝炎表面抗原陽性	runs	zh	HBsAg陽性		observation	plain
+PD-L1表現之腫瘤比例分數≥50%(22C3檢測)	PD-L1表現	runs	zh		腫瘤比例分數	observation	plain
+連續三次尿液檢體中有兩次呈現微量白蛋白尿	微量白蛋白尿	runs	zh			observation	plain
+心臟超音波顯示左心室肥大	左心室肥大	runs	zh	LVH	心臟超音波	observation	plain
+费城染色体阳性，经细胞遗传学检查证实	费城染色体阳性	runs	zh	Ph阳性	细胞遗传学检查	observation	plain
+血清类风湿因子阳性的患者	类风湿因子阳性	runs	zh	RF阳性		observation	plain
