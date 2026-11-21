@@ -5,7 +5,6 @@
   "oidc_done.html"
  ],
  "one_primary": [
-  "account.html",
   "admin.html",
   "approval.html",
   "audit.html",
