@@ -22,6 +22,7 @@ from tb_common.crypto import pid_for_mrn
 from tb_common.ruleset import Ruleset
 
 from tests.inproc_box import ingest_site, make_box, unzip_phi
+from tests.screening_site import accept_fixture
 from tools.synth import rajak
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -143,7 +144,15 @@ def _recount(
 
 
 def test_screen_lists_the_recount_and_the_planted_states(tw: dict[str, Any]) -> None:
-    box = make_box(tw["tmp"] / "box", tw["tmp"] / "lake", tw["sec"], RUN, settings_update=SITE_TW)
+    box = make_box(
+        tw["tmp"] / "box",
+        tw["tmp"] / "lake",
+        tw["sec"],
+        RUN,
+        settings_update=SITE_TW,
+        extra_env={"TB_DATA_DIR": str(tw["tmp"])},
+    )
+    accept_fixture(box, RID)
     assert box.mail(f"SCREEN {RID} version=1.0.0") == "Processed"
     box.orch.drain()
     job = box.orch.db.find(type_="SCREEN")[0]

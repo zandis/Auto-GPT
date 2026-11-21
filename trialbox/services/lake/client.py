@@ -227,7 +227,7 @@ class LakeHttp:
         (T-724, D-490) it pins a generation, which is returned: see :meth:`lake.store.Lake.hold`."""
         resp = self.client.post(f"{self.base}/holds", json={"snapshot": snapshot, "holder": holder, "pin": pin})
         resp.raise_for_status()
-        got = _key(resp, "generation", (str,), none=True)  # D-673: null is "held, not pinned"; missing is not
+        got = _key(resp, "generation", (str,), none=not pin)  # A date-only hold cannot confirm a generation pin.
         return str(got) if got else snapshot
 
     def generation(self, snapshot: str | None = None) -> str | None:

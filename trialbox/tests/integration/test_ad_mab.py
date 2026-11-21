@@ -21,6 +21,7 @@ from tb_common.crypto import pid_for_mrn
 from tb_common.ruleset import Ruleset
 
 from tests.inproc_box import ingest_site, make_box, unzip_phi
+from tests.screening_site import accept_fixture
 from tools.synth import ad
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -105,7 +106,15 @@ def _recount(site: Path, states: dict[str, dict[str, str]]) -> set[str]:
 
 
 def test_screen_lists_the_recount_and_unknown_amyloid_needs_information(jp: dict[str, Any]) -> None:
-    box = make_box(jp["tmp"] / "box", jp["tmp"] / "lake", jp["sec"], RUN, settings_update=SITE_JP)
+    box = make_box(
+        jp["tmp"] / "box",
+        jp["tmp"] / "lake",
+        jp["sec"],
+        RUN,
+        settings_update=SITE_JP,
+        extra_env={"TB_DATA_DIR": str(jp["tmp"])},
+    )
+    accept_fixture(box, "AD-MAB")
     assert box.mail("SCREEN AD-MAB version=1.0.0") == "Processed"
     box.orch.drain()
     job = box.orch.db.find(type_="SCREEN")[0]

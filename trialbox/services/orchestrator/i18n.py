@@ -53,6 +53,7 @@ def detect_lang(text: str) -> str:
 
 T: dict[str, dict[str, str]] = {
     "en": {
+        "screen.inputs_refused": "Screening stopped because the site could not verify and record permission to use these inputs. No patient list was produced.",
         "mail.received": "Your request **{title}** was received at {at} and queued as job `{job}`.\n\nResults follow by "
         "email. Reply `STATUS {job}` for progress or `CANCEL {job}` to cancel.",
         "mail.failed": "Job `{job}` (**{title}**) failed.\n\n- Step: **{step}**\n- Reason: {reason}\n\nNothing was sent to "
@@ -188,6 +189,7 @@ T: dict[str, dict[str, str]] = {
         "pdf.screen.footer.cells": " Cells 1–{hi} are shown as '<{t}'.",
     },
     "ja": {
+        "screen.inputs_refused": "施設でこのデータの使用許可を確認して記録できなかったため、スクリーニングを停止しました。患者リストは作成されていません。",
         "mail.received": "リクエスト **{title}** を {at} に受け付け、ジョブ `{job}` として待ち行列に入れました。\n\n結果はメールで届きます。"
         "進行状況は `STATUS {job}`、取り消しは `CANCEL {job}` と返信してください。",
         "mail.failed": "ジョブ `{job}`（**{title}**）は失敗しました。\n\n- 工程: **{step}**\n- 理由: {reason}\n\n他の宛先には何も送られて"
@@ -316,6 +318,7 @@ T: dict[str, dict[str, str]] = {
         "pdf.screen.footer.cells": " 1–{hi} のセルは「<{t}」と表示します。",
     },
     "zh-TW": {
+        "screen.inputs_refused": "篩選已停止，因為院方無法確認並記錄這批資料的使用許可。未產生病人名單。",
         "mail.received": "您的請求 **{title}** 已於 {at} 收到，排入工作 `{job}`。\n\n結果將以郵件送達。回覆 `STATUS {job}` 查看進度，"
         "或回覆 `CANCEL {job}` 取消。",
         "mail.failed": "工作 `{job}`（**{title}**）失敗。\n\n- 步驟：**{step}**\n- 原因：{reason}\n\n未寄送任何內容給其他收件人。"

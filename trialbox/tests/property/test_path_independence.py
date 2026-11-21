@@ -52,6 +52,7 @@ from tb_contracts import CriterionIR, CriterionVerdict, JobCreate
 
 from tests.inproc_box import Box, make_box
 from tests.judge_kit import Decisive, QuotingOracle, ScriptedModel, quoting_pair
+from tests.screening_site import accept_fixture
 
 ROOT = Path(__file__).resolve().parents[2]
 KEY = b"trialbox-test-site-key-0123456789abcdef"
@@ -407,7 +408,7 @@ def build_world(tmp: Path, pg_cluster_url: str) -> World:
         sec.mkdir()
         (sec / "site_hmac.key").write_bytes(KEY)
         build_lake(tmp / "nd", tmp / "lake")
-        box = make_box(tmp / "box", tmp / "lake", sec, RUN)
+        box = make_box(tmp / "box", tmp / "lake", sec, RUN, extra_env={"TB_DATA_DIR": str(tmp)})
         approved = tmp / "approved"
         box.orch.rulesets_dir = approved  # the approved rulesets of this test (the box's repo holds the seed)
         rs = {
@@ -419,6 +420,9 @@ def build_world(tmp: Path, pg_cluster_url: str) -> World:
             "PIXN": write_ruleset(approved, "PIXN", "RA-BIO"),  # NAV needs an NHI ruleset: same criteria
             "PISN": write_ruleset(approved, "PISN", "RA-BIO"),
         }
+        for study in ("PIX", "PIV", "PIS", "PIA"):
+            accept_fixture(box, study, [PRACT])
+        accept_fixture(box, "PIM", [PRACT2])
         oracle = QuotingOracle(ORACLE)
         svc = box.orch.services
         svc.llm, svc.verifier = quoting_pair(oracle)  # type: ignore[assignment]  # a scripted LlmClient
@@ -510,6 +514,7 @@ def build_world(tmp: Path, pg_cluster_url: str) -> World:
         jobs["screen.before_amendment"] = run_job(box, f"SCREEN PIA {screen}")
         pooled = {WHO[p["pid"]] for p in box.orch.db.pool("PIA")}
         rs["PIA"] = write_ruleset(approved, "PIA", "GZQO", "1.1.0", [AMENDMENT], scopes={"screen": SCR})
+        accept_fixture(box, "PIA", [PRACT])
         jobs["microbatch.amended"] = run_job(box, "MICROBATCH PIA incident=0")
         seen["microbatch.amended"] = pool_seen(box, "PIA", pooled)
         jobs["screen.amended"] = run_job(box, f"SCREEN PIA {screen}")
