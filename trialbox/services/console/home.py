@@ -173,6 +173,9 @@ class Helpers:
     # set by console.committee_pages (10C-4, D-1227): the Japan profile's committee findings of a study at this site
     # and what they do (refuse a move into open, hold the lists, wait); None outside the Japan profile
     committee_status: Callable[[str], dict[str, Any] | None] | None = None
+    #: set by console.study_setup (10D-16a, D-1373): the study state page's own reader check, (session, study code)
+    #: -> the study id or the page's refusal; the jRCT record page asks it, so the two pages have the same readers
+    state_reader: Callable[[Any, str], str] | None = None
     committee_opened: Callable[[str, str], None] | None = None  # a move into open passed (Japan profile)
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
     ops_status: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages: the host runner's status

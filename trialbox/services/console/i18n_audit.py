@@ -57,6 +57,9 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.enrol_code": ("Enrolment code issued", "登録コードの発行", "核發註冊碼"),
     "console.user": ("Account changed", "アカウントの変更", "帳號變更"),
     "console.pref_set": ("Own preference set", "自分の表示設定の変更", "變更自己的顯示設定"),  # 10F-1 (D-1387)
+    # 10D-16a (D-1373): a study's jRCT record read from a file (taken, the same file again, or refused)
+    "console.registry_record": ("jRCT record read from a file", "ファイルからのjRCT記録の読込", "從檔案讀入 jRCT 紀錄"),
+    "console.registry_record_refused": ("jRCT record file refused", "jRCT記録ファイルの拒否", "jRCT 紀錄檔案遭拒"),
     # D-719: nobody holds both factors of a protected account
     "console.account_request": ("Account request made", "アカウントの依頼", "提出帳號申請"),
     "console.account_confirmed": ("Account request confirmed", "アカウント依頼の確認", "確認帳號申請"),
