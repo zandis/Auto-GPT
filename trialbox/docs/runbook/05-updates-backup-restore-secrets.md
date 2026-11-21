@@ -302,14 +302,21 @@ A name holds letters and digits of any script, single spaces and `. , - ( ) （ 
 first or last), at most 100 characters; anything else (a line break, a double quote, `$`, a backslash) is refused,
 so a name can never add or change a setting.
 
-**A PRODUCTION install needs its backups off the box and its audit anchor folder mounted** (10K-4, D-1390). Before
-it starts the stack, `deploy/install.sh` stops a PRODUCTION install when no target of `TB_BACKUP_TARGETS` is off the
-box (a network share, a USB disk, or a folder `TB_BACKUP_OFFBOX` declares on another disk or marked with
-`.trialbox-offbox`: the rule the nightly backup counts a good backup by; a folder that is not mounted is the box's own
-disk) or when `TB_AUDIT_ANCHOR_TARGETS` names no folder, or a folder that is not there. A box's first-run page asks
-the folder where the second disk or the share is mounted, the audit record share's folder and the log folder
-(`TB_LOG_DIR`, optional); `deploy/box-install.sh` applies the answers, then runs the same check before it restarts
-the box, and mounts the chosen anchor folder into the console. Refused: mount the disk or the share at the folder
-named (or correct the folder in `deploy/.env`), then run the install again; on a box run
-`sudo deploy/box-install.sh --firstrun`. At any time `python3 -m tools.trialbox finish-check --deploy deploy` says
-the same and changes nothing; outside PRODUCTION it refuses nothing.
+**A PRODUCTION install needs a backup target off the box and an audit anchor folder of its own** (10K-4, D-1390).
+`python3 -m tools.trialbox finish-check --deploy deploy` judges each folder `deploy/.env` names by what it is: a
+folder that is there, with no link in its path, not a system folder (`/etc`, `/home`, `/opt`, `/usr`, `/var/lib`,
+`/boot`, `/tmp`, `/var/tmp`, `/proc`, `/sys`, `/dev`, `/run` ...) nor around one, not the install folder, its
+`deploy/secrets`, the feed folder or the audit data, and on a disk or a share (ext4, xfs, btrfs, exfat, vfat,
+ntfs3, nfs, nfs4, cifs, smb3; WSL2's 9p and drvfs as the backup counts them), never a memory file system. In
+PRODUCTION one target of `TB_BACKUP_TARGETS` must be on a share or on a disk that is not the system disk (another
+partition of it is not enough), and `TB_AUDIT_ANCHOR_TARGETS` must name a folder of its own; the anchor, backup and
+log folders do not overlap. In every environment the anchor folder is the one folder of the host the console is
+given, read-only, and it is refused when it breaks this rule. `deploy/install.sh` runs the check before the bundle
+step on a box already installed (nothing is loaded or changed when it refuses) and before it starts the stack on a
+first install; `deploy/box-install.sh` runs it after the first-run answers are applied, before the restart, then asks
+the console's image whether it can read the anchor folder and mounts it. Each refusal names the setting to change in
+`deploy/.env`. On a box the first-run page does not open again: mount the disk or the share at the folder named, or
+correct the line (for a second disk `TB_BACKUP_TARGETS` and `TB_BACKUP_OFFBOX` name the same folder), then
+`sudo deploy/box-install.sh --firstrun`. **An installed PRODUCTION site that runs `deploy/install.sh` again** (02,
+the anchor folders; 05, after a restore and for the EDC tables; 12, the TLS check per release) stops there until
+both are set; `trialbox update` and `trialbox restore` do not run it. Outside PRODUCTION only the anchor rule refuses.

@@ -33,7 +33,8 @@
 # (the install command), TB_BOX_PY (a python command instead of the image), TB_BOX_COMPOSE (the compose command),
 # TB_BOX_HOST_CHECK (the host check command), TB_ISSUE_DIR, TB_FIRSTRUN_HOST_DIR, TB_BOX_POLL_S, TB_BOX_NO_ROOT=1,
 # TB_SYSTEMD=0 (as install.sh), TB_BOX_PREFLIGHT (the python command that runs the first-run page's preflight, even
-# with TB_BOX_PY; 10K-3) and TB_BOX_PREFLIGHT_S (its time limit, 90 s).
+# with TB_BOX_PY; 10K-3), TB_BOX_PREFLIGHT_S (its time limit, 90 s) and TB_BOX_DOCKER (the docker command that asks
+# the console's image whether it can read the audit anchor folder; 10K-4).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -252,13 +253,26 @@ if [ -n "$OWNER" ]; then  # D-898: the host's zone from the answers file, then t
   fi
   date -u +%FT%TZ > "$BOX/applied"
 fi
-# FINISH-GATE (10K-4, D-1390): the owner's answers are applied; a PRODUCTION box does not finish (no restart on them,
-# no "ready") with every backup target on its own disks or an audit anchor folder that cannot be mounted. Then the
-# anchor folder the owner chose is mounted into the console as install.sh mounts it (D-638). Unattended (--answers),
-# install.sh ran the same check before it started the stack. Once the share or the disk is mounted: --firstrun again
+# FINISH-GATE (10K-4, D-1390): the owner's answers are applied. tools/trialbox/finish_check.py judges each folder they
+# name by what it is (the mount table and /sys): a PRODUCTION box does not finish (no restart on them, no "ready")
+# without a backup target off the box and an audit anchor folder of its own on a disk or a share, and no box gives the
+# console an anchor folder the rule refuses. Then that one folder is mounted into the console, read-only, as
+# install.sh mounts it (D-638), once the console's own image has shown it can read it (as install.sh asks it).
+# Unattended (--answers), install.sh ran the same check before it started the stack.
 if [ -z "$OWNER" ]; then
-  python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" --mount-anchors \
-    || die "the set-up is not finished: a PRODUCTION box needs a backup place off the box and its audit anchor folder mounted (above; RUNBOOK §5). Then: sudo deploy/box-install.sh --firstrun"
+  ANCHORS="$(python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" --print-anchors)" \
+    || die "the set-up is not finished (above). Mount the disk or the share at the folder the owner named; or, when a folder was typed wrongly or is mounted elsewhere, change the setting each line names in $ROOT/deploy/.env (the first-run page does not open again: the answers are applied). Then: sudo deploy/box-install.sh --firstrun"
+  if [ -z "${TB_BOX_PY:-}" ] || [ -n "${TB_BOX_DOCKER:-}" ]; then  # the tests' stand-in for the image: TB_BOX_DOCKER
+    while IFS= read -r anchor; do
+      [ -n "$anchor" ] || continue
+      # shellcheck disable=SC2086 # a command line on purpose (tests)
+      ${TB_BOX_DOCKER:-docker} run --rm --network none -v "$anchor:/anchor:ro" "$IMAGE_PY" sh -c \
+        'test -r /anchor && test -x /anchor && for d in heads keys; do [ ! -e "/anchor/$d" ] || { test -r "/anchor/$d" && test -x "/anchor/$d"; } || exit 1; done' </dev/null \
+        || die "the console's user cannot read $anchor (or its heads/ or keys/): the audit page would find no signed head. Make the folder readable (chmod a+rx), then: sudo deploy/box-install.sh --firstrun"
+    done <<< "$ANCHORS"
+  fi
+  python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" --mount-anchors >/dev/null \
+    || die "the audit anchor folder is not mounted into the console (above); then: sudo deploy/box-install.sh --firstrun"
 fi
 HOST="$(json_get "$BOX/answers.json" tls_hostname)"  # the box's name the owner chose
 # OPS-005: the name the box prints resolves on the clinic's network: the host takes the owner's name and the mDNS

@@ -24,7 +24,7 @@ from enum import StrEnum
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from tb_common import chartno, site_country
+from tb_common import chartno, host_folders, site_country
 from tb_common.dates import PRINTED_STYLES, YEAR_BASES
 from tb_common.retention import MAX_DAYS, OVERRIDABLE
 
@@ -201,18 +201,10 @@ def person_name(raw: Any) -> str | None:
 
 
 def host_dir(raw: Any) -> str | None:
-    """10K-4 (D-1390): a host folder as the owner writes it (a backup, anchor or log folder). Empty: not answered.
-    None: refused: not a full path of letters, digits, ``.``, ``_``, ``-`` and ``/`` (``_ROOT_DIR``: no space, no
-    quote, nothing ``deploy/.env``, compose or a shell would read differently), the root folder, or a ``.`` or ``..``
-    part, or an empty one (``//``). A trailing ``/`` is dropped, so one folder is written one way."""
-    text = _s(raw, 256)  # one more than allowed: a longer folder is refused, never cut to another one
-    if not text:
-        return ""
-    folder = text.rstrip("/")
-    parts = folder.split("/")[1:]
-    if len(text) > 255 or not _ROOT_DIR.fullmatch(text) or not folder or any(p in ("", ".", "..") for p in parts):
-        return None
-    return folder
+    """10K-4 (D-1390): a host folder as the owner writes it (a backup, anchor or log folder), by the allow rule of
+    ``tb_common.host_folders``: one plain full path that is not ``/`` and does not overlap a system folder. Empty: not
+    answered. None: refused. A trailing ``/`` is dropped, so one folder is written one way."""
+    return host_folders.allowed(raw)
 
 
 def confirmed_on(raw: Any, today: date | None = None) -> str | None:
@@ -341,6 +333,9 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
         folders[k] = got or ""
     if kind is BackupKind.LATER:
         folders["backup_dir"] = ""
+    pair = host_folders.overlapping_pair(folders)  # three separate folders, none inside another
+    if pair:
+        problems.append(Problem(pair[1], "host_dir_overlap"))
     if problems or kind is None or rule is None:
         return None, problems
     backup = Backup(kind, disk if kind is BackupKind.SECOND_DISK else "", share if kind is BackupKind.SHARE else "")

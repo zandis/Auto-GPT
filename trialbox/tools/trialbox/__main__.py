@@ -15,8 +15,8 @@ logs, audit archive and digest updates (T-633, D-416, ``platform_day2.py``); ``e
 ``services/mail_gateway/admin.py``).
 ``support-bundle`` writes one PHI-free file for a support ticket (T-209b, D-405, ``tools/support_bundle.py``).
 ``decommission-plan`` prints the close-out and purge checklist of the box (dry run; T-628, D-413, ``decommission.py``).
-``finish-check`` refuses a PRODUCTION install whose backups are only on the box or whose audit anchor folder cannot
-be mounted (10K-4, D-1390, ``finish_check.py``).
+``finish-check`` refuses a PRODUCTION install with no backup target off the box or no audit anchor folder of its own,
+and any anchor folder the console may not be given (10K-4, D-1390, ``finish_check.py``).
 ``selftest`` runs the pair canary in the box with the compose files of ``deploy/.env`` (OPS-033, ``selftest.py``).
 ``secrets``, ``logs``, ``update``, ``ops``, ``watchdog``, ``selftest`` and ``decommission-plan`` need only the standard
 library, so they run with the host's ``python3`` from the install folder:
@@ -193,10 +193,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     ac.add_argument("--deploy", type=Path, default=deploy)
     fc = sub.add_parser(
-        "finish-check", help="refuse a PRODUCTION install with backups only on the box or no mountable anchor (10K-4)"
+        "finish-check", help="refuse a PRODUCTION install with no backup off the box or no anchor of its own (10K-4)"
     )
     fc.add_argument("--deploy", type=Path, default=deploy)
     fc.add_argument("--mount-anchors", action="store_true", help="then mount the anchor folders into the console")
+    fc.add_argument("--print-anchors", action="store_true", help="print the anchor folders, one per line, once passed")
+    fc.add_argument("--environment", choices=("DEV", "TEST", "VALIDATION", "PRODUCTION"), default="",
+                    help="the environment when deploy/.env does not say it yet (install.sh's own reading)")  # fmt: skip
     om = sub.add_parser("omop-store", help="make a second lake's OMOP store for the OMOP group (D-721)")
     om.add_argument("--lake", type=Path, required=True, help="the lake's folder, as the services name it")
     lg = sub.add_parser("logs", help="log retention: collect, prune, archive-audit, daily (all three)")
@@ -301,7 +304,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "finish-check":
         from tools.trialbox import finish_check
 
-        return finish_check.main_action(a.deploy, a.mount_anchors)
+        return finish_check.main_action(a.deploy, a.mount_anchors, a.print_anchors, a.environment)
     if a.cmd == "omop-store":
         from tools.trialbox import omop_store
 

@@ -305,6 +305,20 @@ elif [ -f deploy/site/rehearsal.json ] || { [ -f deploy/.env ] && grep -q '^TB_R
 fi
 # ---- end of REHEARSAL (D-726): before anything loads
 
+# FINISH-EARLY (10K-4, D-1390): a re-run on an installed box (deploy/.env is there) is checked before the bundle
+# step, which on a running box applies the update and restarts the stack: refused here, nothing was loaded or changed.
+# The same check as FINISH-GATE, with the environment as ENV-EARLY read it. Not for a box's own install before its
+# set-up (TB_BOX=1) nor a rehearsal (--rehearsal: a VALIDATION box)
+if [ "${TB_BOX:-0}" != 1 ] && [ "$REHEARSAL" != 1 ] && [ -f "$ROOT/deploy/.env" ]; then
+  if command -v python3 >/dev/null; then
+    python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" ${EARLY_ENV:+--environment "$EARLY_ENV"} \
+      || die "nothing was loaded or changed (above: the setting to change in deploy/.env; RUNBOOK §5); then re-run"
+  elif [ "${EARLY_ENV:-PRODUCTION}" = PRODUCTION ]; then
+    die "no python3 on this host: a PRODUCTION install cannot check its backup target and audit anchor folder; nothing was loaded or changed (RUNBOOK §5)"
+  fi
+fi
+# ---- end of FINISH-EARLY
+
 # ------------------------------------------------------------------------------------------------ 2. bundle
 # D-888: a re-run on a box installed before deploy/.env named its settings: the update's guard (and compose) see them
 [ -f deploy/settings.yaml ] && export TB_SETTINGS_FILE="./settings.yaml"
@@ -724,15 +738,19 @@ sed -i "/^COMPOSE_FILE=/d" deploy/.env && echo "COMPOSE_FILE=$FILES" >> deploy/.
 grep -q '^TB_LOG_DIR=' deploy/.env || echo "TB_LOG_DIR=$ROOT/deploy/logs" >> deploy/.env
 grep -q '^TB_AUDIT_ARCHIVE_DIR=' deploy/.env || echo "TB_AUDIT_ARCHIVE_DIR=$ROOT/deploy/logs/audit-archive" >> deploy/.env
 grep -q '^TB_BACKUP_TARGETS=' deploy/.env || echo "TB_BACKUP_TARGETS=$ROOT/deploy/backups" >> deploy/.env
-# FINISH-GATE (10K-4, D-1390): a PRODUCTION install does not finish, and its stack is not started, with every backup
-# target on the box's own disks or an audit anchor folder that cannot be mounted (none named, or not there):
-# tools/trialbox/finish_check.py, which reads deploy/.env and the mount table and writes nothing. A box's own install
-# before its first-run set-up (TB_BOX=1) is not checked here: the owner chooses the folders in the set-up, and
-# deploy/box-install.sh runs the same check after applying them
-if [ "$TB_ENV_SITE" = PRODUCTION ] && [ "${TB_BOX:-0}" != 1 ]; then
-  command -v python3 >/dev/null || die "no python3 on this host: a PRODUCTION install cannot check where its backups and audit anchor folder are (RUNBOOK §5)"
-  python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" \
-    || die "not started: a PRODUCTION install needs a backup target off the box and an audit anchor folder that is mounted (above; RUNBOOK §5), then re-run"
+# FINISH-GATE (10K-4, D-1390): tools/trialbox/finish_check.py reads deploy/.env, the mount table and /sys and writes
+# nothing. It refuses, in PRODUCTION (read as it reads TB_ENV), a backup that is not off the box and a missing audit
+# anchor folder, and in every environment an anchor folder the console may not be given. Here, on a first install,
+# deploy/.env is the one this run just wrote: the stack is not started, and the bundle and settings written so far
+# stay for the re-run (a re-run of an installed box was checked before the bundle step, FINISH-EARLY). A box's own
+# install before its first-run set-up (TB_BOX=1) is not checked: deploy/box-install.sh checks after the set-up
+if [ "${TB_BOX:-0}" != 1 ]; then
+  if command -v python3 >/dev/null; then
+    python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" \
+      || die "the stack was not started (above: the setting to change in deploy/.env; RUNBOOK §5); then re-run this command, which goes on from what this run wrote"
+  elif [ "$(printf '%s' "$TB_ENV_SITE" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')" = PRODUCTION ]; then
+    die "no python3 on this host: a PRODUCTION install cannot check its backup target and audit anchor folder (RUNBOOK §5)"
+  fi
 fi
 # ---- end of FINISH-GATE
 UP_EXTRA=(); [ "$MODE:$GPU" = gpu:rtx4090 ] && UP_EXTRA=(--scale llm-verifier=0)

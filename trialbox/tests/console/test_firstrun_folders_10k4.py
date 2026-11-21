@@ -28,11 +28,12 @@ from tb_common.audit import AuditLog
 from tests.console.test_box_install_rehearsal import _tree, _wait
 from tests.console.test_console_app import PILOT_ENV, FakeBackend
 from tests.console.test_firstrun import _answers, _box, _with_code
+from tests.unit.test_install_refuses_unsafe_folders_10k4 import GOOD, fake_host, knobs
 
 NEW_KEYS = (
     "firstrun.backup.dir", "firstrun.backup.dir.help", "firstrun.folders", "firstrun.folders.help",
     "firstrun.folders.production", "firstrun.anchor_dir", "firstrun.anchor_dir.help", "firstrun.log_dir",
-    "firstrun.log_dir.help", "firstrun.err.host_dir",
+    "firstrun.log_dir.help", "firstrun.err.host_dir", "firstrun.err.host_dir_overlap",
 )  # fmt: skip
 
 
@@ -60,7 +61,7 @@ def test_a_production_box_says_it_does_not_finish_without_them(tmp_path: Path) -
     b = _box(tmp_path, TB_ENV="PRODUCTION")
     shown = _with_code(b).get("/login/first-run/answers").text
     assert 'data-testid="firstrun-folders-help"' in shown
-    assert "its set-up does not finish until a backup place off the box is mounted" in shown
+    assert "a backup folder is on a share or on a disk that is not the system disk" in shown
     assert EN["firstrun.folders.help"] not in shown
 
 
@@ -80,7 +81,9 @@ def test_folders_not_chosen_leave_the_answers_file_as_before(tmp_path: Path) -> 
 
 
 @pytest.mark.parametrize("field", ["backup_dir", "anchor_dir", "log_dir"])
-@pytest.mark.parametrize("bad", ["relative/folder", "/srv/../etc", "/", "/a b", "/a$(id)", "/a TB_ENV=DEV"])
+@pytest.mark.parametrize("bad", ["relative/folder", "/srv/../etc", "/", "/a b", "/a$(id)", "/a\u2028TB_ENV=DEV", "/etc",
+                                 "/root", "/proc/1/root", "/proc/self/root", "/var/lib/docker/volumes", "/opt/trialbox",
+                                 "/home/owner", "/tmp", "/dev/shm", "/var"])  # fmt: skip
 def test_a_folder_that_is_not_one_plain_full_path_is_refused_and_shown_again(tmp_path: Path, field: str,
                                                                              bad: str) -> None:  # fmt: skip
     b = _box(tmp_path)
@@ -89,6 +92,27 @@ def test_a_folder_that_is_not_one_plain_full_path_is_refused_and_shown_again(tmp
     assert EN["firstrun.err.host_dir"] in r.text.replace("&#39;", "'")
     assert b["users"].count() == 0 and not (b["folder"] / firstrun.ANSWERS).exists()
     assert f'id="{field}"' in r.text  # the field is there to be corrected
+
+
+def test_the_three_folders_must_be_separate(tmp_path: Path) -> None:
+    b = _box(tmp_path)
+    r, _ = _answers(_with_code(b), backup_dir="/mnt/disk2", anchor_dir="/mnt/disk2/audit")
+    assert r.status_code == 422 and 'data-testid="err-anchor_dir"' in r.text
+    assert EN["firstrun.err.host_dir_overlap"] in r.text and b["users"].count() == 0
+
+
+@pytest.mark.nodb
+def test_the_texts_say_what_is_checked() -> None:
+    """Review of #1303, M2: the page says what the box checks (a share, or a disk that is not the system disk; a
+    folder of its own), and that the console reads the anchor folder only, read-only."""
+    assert (
+        "system disk" in EN["firstrun.folders.production"] and "システムディスク" in JA["firstrun.folders.production"]
+    )
+    assert "系統磁碟" in ZH["firstrun.folders.production"]
+    for cat, words in ((EN, "read-only"), (JA, "読み取り専用"), (ZH, "唯讀")):
+        assert words in cat["firstrun.anchor_dir.help"]
+    for cat in (EN, JA, ZH):
+        assert "deploy/logs/audit-archive" in cat["firstrun.log_dir.help"]  # L8: the archive does not move
 
 
 @pytest.mark.nodb
@@ -114,32 +138,39 @@ def _owner_answers(t: dict[str, Any], tmp_path: Path, proc: subprocess.Popen[str
     assert r.status_code == 200 and 'data-testid="firstrun-done"' in r.text, r.text[-500:]
 
 
-def test_a_production_box_does_not_finish_its_set_up_until_its_folders_are_mounted(tmp_path: Path) -> None:
-    """The owner chose a second disk at a folder that is not mounted and an audit record folder that is not there: the
-    answers are applied, then the box stops before "ready" (nothing restarted on them). Once IT has mounted both
-    (here: the folder is there, and the disk's folder carries the off-box mark), --firstrun finishes."""
+def test_a_production_box_does_not_finish_its_set_up_until_its_folders_are_right(tmp_path: Path) -> None:
+    """The owner chose a backup folder on another partition of the system disk and an audit record folder that is not
+    there: the answers are applied, then the box stops before "ready" (nothing restarted on them) and says what to
+    change. Corrected in deploy/.env and the share mounted, --firstrun finishes. The host is the test's own
+    (tests/unit/test_install_refuses_unsafe_folders_10k4.fake_host); the console image's read probe a stand-in."""
     t: dict[str, Any] = _tree(tmp_path)
-    disk, share = tmp_path / "disk2", tmp_path / "audit-share"
+    h = fake_host(tmp_path / "host")
+    probe = tmp_path / "stubs" / "probe"
+    probe.write_text(f'#!/bin/sh\necho "probe $*" >> {t["calls"]}\n', encoding="utf-8")
+    probe.chmod(0o755)
+    env = {**t["env"], **knobs(h), "TB_BOX_DOCKER": str(probe)}
     proc = subprocess.Popen(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--yes"], cwd=tmp_path,
-                            env=t["env"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)  # fmt: skip
+                            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)  # fmt: skip
     try:
-        _owner_answers(t, tmp_path, proc, backup_dir=str(disk), anchor_dir=str(share))
+        _owner_answers(t, tmp_path, proc, backup_dir="/mnt/syspart/b", anchor_dir="/mnt/nas/later")
         out, _ = proc.communicate(timeout=120)
     finally:
         if proc.poll() is None:
             proc.kill()
     assert proc.returncode == 1, out[-3000:]
     assert "TrialBox is ready" not in out and "the set-up is not finished" in out
-    assert "every backup target is on the box's own disks" in out and f"{share} is not there" in out
-    env = dict(ln.split("=", 1) for ln in (t["deploy"] / ".env").read_text(encoding="utf-8").splitlines() if "=" in ln)
-    assert env["TB_ENV"] == "PRODUCTION" and env["TB_BACKUP_TARGETS"] == str(disk)  # the owner's answers applied
-    assert env["TB_AUDIT_ANCHOR_TARGETS"] == str(share)
+    assert "is on the system disk (vda)" in out and "/mnt/nas/later is not there" in out
+    assert "TB_BACKUP_OFFBOX to the same folder" in out and "first-run page does not open again" in out
+    dotenv = t["deploy"] / ".env"
+    got = dict(ln.split("=", 1) for ln in dotenv.read_text(encoding="utf-8").splitlines() if "=" in ln)
+    assert got["TB_ENV"] == "PRODUCTION" and got["TB_BACKUP_TARGETS"] == "/mnt/syspart/b"  # the answers applied
     assert "compose up" not in t["calls"].read_text(encoding="utf-8")  # not restarted on the refused settings
-    disk.mkdir()
-    (disk / ".trialbox-offbox").write_text("", encoding="utf-8")
-    share.mkdir()
-    again = subprocess.run(["bash", str(t["deploy"] / "box-install.sh"), "--firstrun"], cwd=tmp_path, env=t["env"],
+    text = dotenv.read_text(encoding="utf-8").replace("/mnt/syspart/b", GOOD["backup"])  # IT corrects the line
+    dotenv.write_text(text, encoding="utf-8")
+    (h["root"] / "mnt/nas/later").mkdir()  # and mounts the share
+    again = subprocess.run(["bash", str(t["deploy"] / "box-install.sh"), "--firstrun"], cwd=tmp_path, env=env,
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60, check=False)  # fmt: skip
     assert again.returncode == 0, again.stdout[-2000:]
     assert "TrialBox is ready: https://trialbox.local" in again.stdout and "One-time code:" not in again.stdout
     assert (t["deploy"] / "site" / "compose.anchors.yml").is_file()  # the console reads the signed heads there
+    assert "probe run --rm --network none -v /mnt/nas/later:/anchor:ro" in t["calls"].read_text(encoding="utf-8")

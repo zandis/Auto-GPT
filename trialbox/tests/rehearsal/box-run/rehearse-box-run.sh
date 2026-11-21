@@ -227,16 +227,30 @@ start_setup() {  # start (G-2): the bundle in the bucket, the wizard's answers, 
   python3 - "$S" "$([ -f "$S/knobs/weak-password" ] && echo short || echo ok)" <<'PY'
 import json, os, sys
 s, pw = sys.argv[1], ("short" if sys.argv[2] == "short" else "owner-password-0001")
-# 10K-4 (D-1390): a PRODUCTION box finishes only with a backup off the box and its audit anchor folder there: the
-# second disk's folder (declared off the box, with the mark) and the audit share's folder, as IT would mount them
-os.makedirs(f"{s}/vm/backup-disk", exist_ok=True)
-open(f"{s}/vm/backup-disk/.trialbox-offbox", "w").close()
-os.makedirs(f"{s}/vm/audit-share", exist_ok=True)
+# 10K-4 (D-1390): a PRODUCTION box finishes only with a backup off the box and an audit anchor folder of its own. The
+# finish check reads the "VM"'s own host: a mount table and a sysfs where the second disk (sdb) is mounted at
+# /mnt/backup-disk and the hospital's share at /mnt/audit-share, both folders under the folder that stands for /
+# (TB_FINISH_MOUNTINFO, TB_FINISH_SYS, TB_FINISH_TEST_ROOT, exported below)
+for d in ("sda/sda1", "sdb/sdb1"):
+    os.makedirs(f"{s}/finish-sys/devices/{d}", exist_ok=True)
+    open(f"{s}/finish-sys/devices/{d}/partition", "w").write("1\n")
+os.makedirs(f"{s}/finish-sys/class/block", exist_ok=True)
+os.makedirs(f"{s}/finish-sys/dev/block", exist_ok=True)
+for name, dev, mm in (("sda", "sda", "8:0"), ("sda1", "sda/sda1", "8:1"), ("sdb", "sdb", "8:16"),
+                      ("sdb1", "sdb/sdb1", "8:17")):
+    for link in (f"{s}/finish-sys/class/block/{name}", f"{s}/finish-sys/dev/block/{mm}"):
+        if not os.path.lexists(link):
+            os.symlink(f"{s}/finish-sys/devices/{dev}", link)
+open(f"{s}/finish-mountinfo", "w").write("20 1 8:1 / / rw - ext4 /dev/sda1 rw\n"
+                                          "21 20 8:17 / /mnt/backup-disk rw - ext4 /dev/sdb1 rw\n"
+                                          "22 20 0:50 / /mnt/audit-share rw - nfs4 nas.hospa.test:/audit rw\n")
+os.makedirs(f"{s}/finish-root/mnt/backup-disk", exist_ok=True)
+os.makedirs(f"{s}/finish-root/mnt/audit-share", exist_ok=True)
 # a synthetic site: no real name, address or passphrase
 json.dump({"site_name": "Synthetic Hospital (rehearsal)", "tz": "Asia/Tokyo", "language": "en",
            "owner_full_name": "Rehearsal Owner", "owner_username": "owner", "owner_email": "owner@hospa.test",
            "password": pw, "box_name": "trialbox", "backup_kind": "second_disk", "backup_disk": "/dev/sdb",
-           "backup_dir": f"{s}/vm/backup-disk", "anchor_dir": f"{s}/vm/audit-share",
+           "backup_dir": "/mnt/backup-disk", "anchor_dir": "/mnt/audit-share",
            "source": "spreadsheet"}, open(f"{s}/secrets/answers/1", "w"))
 json.dump({"arch": "x86_64", "cpu_count": 48, "ram_gib": 188, "disk_free_gib": 400, "tpm": True,
            "disks": [{"path": "/dev/sdb", "size_gib": 500.0, "transport": "scsi", "mounted": ""}],
@@ -244,6 +258,7 @@ json.dump({"arch": "x86_64", "cpu_count": 48, "ram_gib": 188, "disk_free_gib": 4
            "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Server Edition", "gpu_mem_gib": 96.0},
           open(f"{s}/hardware.json", "w"))
 PY
+  export TB_FINISH_MOUNTINFO="$S/finish-mountinfo" TB_FINISH_SYS="$S/finish-sys" TB_FINISH_TEST_ROOT="$S/finish-root"
   # the console of the box, over TLS for the box's provisional name (box1.local), on its own free port
   cport=$(free_port)
   openssl req -x509 -newkey rsa:2048 -nodes -keyout "$S/driver/console.key" -out "$S/driver/console.crt" -days 2 \
