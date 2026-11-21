@@ -50,11 +50,14 @@ GOOD = {"backup": "/mnt/disk2/backup", "anchor": "/mnt/nas/audit", "log": "/mnt/
 def fake_host(tmp: Path, extra_folders: tuple[str, ...] = ()) -> dict[str, Path]:
     """A host of the test's own: the mount table file, the /sys tree and the folder that stands for /."""
     sysr = tmp / "sys"
-    disks = {"vda": ("252:0", ("vda1", "252:1"), ("vda2", "252:2")), "vdb": ("252:16", ("vdb1", "252:17"))}
-    for disk, (majmin, *parts) in disks.items():
+    disks: dict[str, list[tuple[str, str]]] = {
+        "vda": [("vda", "252:0"), ("vda1", "252:1"), ("vda2", "252:2")],
+        "vdb": [("vdb", "252:16"), ("vdb1", "252:17")],
+    }
+    for disk, devices in disks.items():
         d = sysr / "devices" / "pci" / disk
         d.mkdir(parents=True)
-        for name, mm in [(disk, majmin), *parts]:
+        for name, mm in devices:
             dev = d if name == disk else d / name
             dev.mkdir(exist_ok=True)
             if name != disk:

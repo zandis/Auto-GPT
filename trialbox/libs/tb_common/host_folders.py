@@ -23,13 +23,12 @@ import re
 
 MAX = 255
 _PLAIN = re.compile(r"^/[A-Za-z0-9._/-]*$")
-#: the system folders a typed folder may not equal, be inside, or contain
-SYSTEM = (
-    "/bin", "/boot", "/dev", "/etc", "/home", "/opt", "/proc", "/root", "/run", "/sbin", "/snap", "/sys",
-    "/tmp",  # noqa: S108 - a folder refused, never used
-    "/usr", "/var/lib", "/var/run",
-    "/var/tmp",  # noqa: S108 - a folder refused, never used
+#: the system folders a typed folder may not equal, be inside, or contain (named below "/")
+_SYSTEM_NAMES = (
+    "bin", "boot", "dev", "etc", "home", "opt", "proc", "root", "run", "sbin", "snap", "sys", "tmp", "usr",
+    "var/lib", "var/run", "var/tmp",
 )  # fmt: skip
+SYSTEM = tuple(f"/{name}" for name in _SYSTEM_NAMES)
 
 
 def plain(raw: object) -> str | None:
