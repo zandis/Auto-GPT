@@ -363,6 +363,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "llm.call": ("Language model called", "言語モデルの呼出", "呼叫語言模型"),
     "llm.outage": ("Job waited for the language model", "言語モデルの応答待ち", "作業等待語言模型回應"),
     "llm.prompt_fallback": ("Prompt fallback used", "プロンプトの代替使用", "使用備用提示詞"),
+    "llm.output_refused": ("Model input withheld", "モデルへの入力を保留", "已暫停傳送模型輸入"),
     "llm.schema_violation": ("Model answer outside its schema", "モデル回答の形式違反", "模型回答不符格式"),
     "llm.pair.same_model": ("Judge and checker on one model", "判断役と確認役が同一モデル", "評審與檢核使用同一模型"),
     "llm.gateway.refuse": ("Model gateway refused a call", "モデルゲートウェイの呼出拒否", "模型閘道拒絕呼叫"),

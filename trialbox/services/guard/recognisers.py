@@ -132,7 +132,8 @@ NAME_JA_CTX = re.compile(rf"{_LABEL}(?P<v>(?:{_SURNAMES_JP})[\s　]?[{_CJK}{_KAN
 NAME_JA_HON = re.compile(rf"(?P<v>(?:{_SURNAMES_JP})[\s　]?[{_CJK}{_KANA}]{{1,3}}?)\s?{phi_guard.HONORIFIC}")
 NAME_ZH_SEX = re.compile(rf"(?P<v>(?:{_SURNAMES_ROC})[{_CJK}]{{1,2}})[，,、\s]*[（(]?(?:男|女)[)）]?")
 NAME_EN_CTX = re.compile(
-    r"(?:\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+|\b(?:Patient(?: name)?|Name|Pt)\s*[:：]\s*)"
+    r"(?:\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+|\b(?:Patient name|Name)\s*[:：]\s*"
+    rf"|\b(?:Patient|Pt)\s*[:：]\s*(?!{phi_guard.CLINICAL_NEGATION}))"
     r"(?P<v>[A-Z][a-z]+(?:\s+[A-Z]\.)?(?:\s+[A-Z][a-z]+)?)"
 )
 
@@ -172,7 +173,10 @@ def _v1_names(text: str) -> Iterator[Finding]:
         while (i := text.find(name, start)) >= 0:
             yield Finding("NAME", i, i + len(name))
             start = i + 1
-    yield from _spans(phi_guard.EN_NAME, text, "NAME")
+    for match in phi_guard.EN_NAME.finditer(text):
+        # Keep the title or field label outside the name's span.
+        labelled = NAME_EN_CTX.match(text, match.start())
+        yield Finding("NAME", labelled.start("v") if labelled else match.start(), match.end())
 
 
 def _mrn(text: str, mrn_regex: str | None) -> Iterator[Finding]:

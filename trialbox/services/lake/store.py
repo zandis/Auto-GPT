@@ -52,6 +52,7 @@ import pyarrow.parquet as pq
 from embed_service.embedder import Embedder
 from tb_common import feedguard
 from tb_common.crypto import sha256_text
+from tb_common.output_gate import prepare_output
 from tb_common.phi_guard import NOTE_MASK_VERSION, mask_note
 
 from lake.flatten import SCHEMAS
@@ -1563,7 +1564,10 @@ class Lake:
             batch = missing[i : i + 64]
             if i and i % step == 0:
                 log.info("embedding chunks: %d of %d", i, len(missing))
-            vecs = embedder.embed([text_by_sha[s] for s in batch])
+            batch_text = prepare_output(
+                "embedding", "model", {"texts": [text_by_sha[s] for s in batch]}, mrn_regex=self.mrn_regex
+            )
+            vecs = embedder.embed(batch_text["texts"])
             pending["sha"].extend(batch)
             pending["vec"].extend(np.asarray(v, dtype=np.float32).tolist() for v in vecs)
             if len(pending["sha"]) >= INSERT_BATCH:
@@ -1707,7 +1711,9 @@ class Lake:
                 f"WHERE score IS NOT NULL ORDER BY score DESC, chunk_key LIMIT {int(depth)}",
                 [token_string(query), *args],
             ).fetchall()
-            qvec = embedder.embed([query])[0]
+            qvec = embedder.embed(
+                prepare_output("embedding", "model", {"texts": [query]}, mrn_regex=self.mrn_regex)["texts"]
+            )[0]
             if check_schema(con, snapshot or self.current() or "") < 2:  # a snapshot that still carries its vectors
                 dense = con.execute(
                     f"SELECT c.chunk_key, array_cosine_similarity(c.embedding, ?::FLOAT[{DIM}]) AS score "

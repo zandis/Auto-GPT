@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import json
 import logging
 import os
@@ -64,7 +65,7 @@ from typing import Any
 
 import anyio
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from registry.app import create_app as registry_app
 from registry.registry import Registry
 from starlette.concurrency import run_in_threadpool
@@ -72,6 +73,7 @@ from tb_common.audit_writer import open_audit
 from tb_common.config import site_tz
 from tb_common.http import make_app
 from tb_common.logging import setup_logging
+from tb_common.output_gate import PROXY_PURPOSES, REFUSAL_PATH, REFUSAL_REASONS
 from tracestore.store import TraceStore
 
 from gateway.core import BUSY_MESSAGE, RETRY_AFTER, Gateway, GatewayConfig
@@ -358,6 +360,29 @@ def create_app(
 
     # review LLM-043: reads need the token too
     app = make_app("gateway", checks=checks, lifespan=lifespan, protect_reads=True)
+
+    # The isolated model proxy has only its model credential. Acknowledge a fixed
+    # refusal only after the gateway's regular audit writer has accepted it.
+    @app.middleware("http")
+    async def model_refusal_receipt(request: Request, call_next: Callable[[Request], Any]) -> Response:
+        path = request.url.path
+        if not path.startswith(REFUSAL_PATH + "/"):
+            response: Response = await call_next(request)
+            return response
+        key = endpoint_key("TB_LLM_API_KEY", gw.env)
+        token = request.headers.get("Authorization", "")
+        if not key or not hmac.compare_digest(token.encode(), f"Bearer {key}".encode()):
+            return Response(status_code=401)
+        purpose, _, reason = path[len(REFUSAL_PATH) + 1 :].partition("/")
+        if request.method != "POST" or purpose not in PROXY_PURPOSES or reason not in REFUSAL_REASONS:
+            return Response(status_code=404)
+        try:
+            await run_in_threadpool(
+                gw.audit.append, "llm.output_refused", detail={"purpose": purpose, "reason": reason}
+            )
+        except Exception:
+            return Response(status_code=503)
+        return Response(status_code=204)
 
     @app.get("/readyz")
     async def readyz() -> dict[str, Any]:

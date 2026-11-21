@@ -361,3 +361,31 @@ def test_templates_and_practice_site(svc: SiteSetup) -> None:
     assert not svc.store.inputs("practice")
     with pytest.raises(SetupError):
         svc.reset("main", "admin")  # the hospital's own data is never reset from here
+
+
+def test_uploaded_chart_withholds_the_known_number_and_audits_unavailable_analysis(
+    svc: SiteSetup, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tb_common import phi_guard
+    from tb_common.output_gate import OutputRefused
+
+    seen: list[dict[str, Any]] = []
+
+    def answer(prompt_id: str, variables: dict[str, Any], **kw: Any) -> dict[str, Any]:
+        seen.append(variables)
+        return {"facts": []}
+
+    monkeypatch.setattr(svc.llm, "chat_json", answer)
+    monkeypatch.setattr(svc, "mrn_regex", None)
+    key = "10000081"
+    note = f"{key}\nPatient name: Robin Example. Acute gout flare.".encode()
+    svc.add_chart(WS, key, "pasted.txt", note, "crc", "en", pasted=True)
+    assert len(seen) == 1 and "Acute gout flare" in seen[0]["text"]
+    assert key not in seen[0]["text"] and "Robin" not in seen[0]["text"]
+    monkeypatch.setenv("TB_AUDIT_DIR", str(tmp_path / "refusals"))
+    monkeypatch.setattr(phi_guard, "note_spans", None)
+    with pytest.raises(OutputRefused, match="analysis_unavailable"):
+        svc.add_chart(WS, key, "pasted.txt", note, "crc", "en", pasted=True)
+    assert len(seen) == 1
+    audit = next((tmp_path / "refusals").glob("*.jsonl")).read_text()
+    assert "analysis_unavailable" in audit and key not in audit and "Robin" not in audit

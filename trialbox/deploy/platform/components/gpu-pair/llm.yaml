@@ -39,6 +39,12 @@ spec:
           command: ["python", "-m", "model_guard"]
           env:
             - {name: PORT, value: "8000"}
+            - {name: TB_SERVICE_NAME, value: model-guard}
+            - {name: TB_SETTINGS, value: /etc/trialbox/settings.yaml}
+            - {name: TB_TZ, valueFrom: {configMapKeyRef: {name: trialbox-env, key: TB_TZ}}}
+            - {name: TB_GATEWAY_URL, value: "http://gateway:8020/v1"}
+            - {name: JUDGE_MODEL, valueFrom: {configMapKeyRef: {name: trialbox-serving, key: JUDGE_MODEL}}}
+            - {name: VERIFIER_MODEL, valueFrom: {configMapKeyRef: {name: trialbox-serving, key: VERIFIER_MODEL}}}
             - {name: TB_GUARD_ROUTES, value: "llm-service=llm-service-vllm:8000,llm-verifier=llm-verifier-vllm:8000"}
             - {name: TB_GUARD_ADMIN, value: "0"}  # both resident: no sleep swap, no admin route
             - {name: TB_LLM_API_KEY, valueFrom: {secretKeyRef: {name: trialbox-model-key, key: TB_LLM_API_KEY}}}
@@ -47,8 +53,10 @@ spec:
           resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 512Mi}}
           securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
           volumeMounts:
+            - {name: settings, mountPath: /etc/trialbox/settings.yaml, subPath: settings.yaml, readOnly: true}
             - {name: tmp, mountPath: /tmp}
       volumes:
+        - {name: settings, configMap: {name: trialbox-settings}}
         - {name: tmp, emptyDir: {}}
 ---
 apiVersion: v1

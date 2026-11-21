@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import numpy as np
+from tb_common.output_gate import prepare_output
 
 from matching.registry_match.config import settings
 from matching.registry_match.tokenize import word_tokenize
@@ -110,8 +111,10 @@ def encode_articles(docs: Sequence[dict[str, Any]], batch: int = 16) -> np.ndarr
     out = []
     for i in range(0, len(docs), batch):
         chunk = docs[i : i + batch]
+        pairs = [[str(d.get("title") or ""), str(d.get("text") or "")] for d in chunk]
+        approved = prepare_output("embedding_pairs", "model", {"pairs": pairs})
         enc = tok(
-            [[str(d.get("title") or ""), str(d.get("text") or "")] for d in chunk],
+            approved["pairs"],
             truncation=True,
             padding=True,
             return_tensors="pt",
@@ -125,7 +128,10 @@ def encode_articles(docs: Sequence[dict[str, Any]], batch: int = 16) -> np.ndarr
 def encode_queries(texts: Sequence[str]) -> np.ndarray:
     torch: Any = importlib.import_module("torch")
     tok, model = _Encoders.get(QUERY_MODEL)
-    enc = tok(list(texts), truncation=True, padding=True, return_tensors="pt", max_length=256).to(settings().device)
+    approved = prepare_output("embedding", "model", {"texts": list(texts)})
+    enc = tok(approved["texts"], truncation=True, padding=True, return_tensors="pt", max_length=256).to(
+        settings().device
+    )
     with torch.no_grad():
         return np.asarray(model(**enc).last_hidden_state[:, 0, :].cpu().numpy())
 

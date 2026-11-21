@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 import numpy as np
+from tb_common.output_gate import prepare_output
 
 #: public-prior similarity threshold (placeholder for the LTT fit) and the site safety margin (CAS-14)
 PUBLIC_PRIOR_THRESHOLD = 0.12
@@ -57,7 +58,7 @@ class BatchEmbedder:
     def embed(self, texts: list[str]) -> list[list[float]]:
         self.batches += 1
         self.texts += len(texts)
-        return self.inner.embed(texts)
+        return self.inner.embed(prepare_output("embedding", "model", {"texts": texts})["texts"])
 
 
 @dataclass(frozen=True)
@@ -141,8 +142,9 @@ def screen(embedder: Embedder, query: str, sentences: list[str], threshold: Thre
     its best window."""
     if not sentences:
         return S2bResult(False, 0.0, threshold, [])
-    pieces: list[tuple[int, str]] = [(i, w) for i, s in enumerate(sentences) for w in windows(s)]
-    vecs = embedder.embed([query, *(w for _, w in pieces)])
+    safe = prepare_output("embedding", "model", {"texts": [query, *sentences]})["texts"]
+    pieces = [(i, w) for i, s in enumerate(safe[1:]) for w in windows(s)]
+    vecs = embedder.embed([safe[0], *(w for _, w in pieces)])
     score: dict[int, float] = {}
     for (i, _), c in zip(pieces, cosines(vecs[0], vecs[1:]), strict=True):
         score[i] = max(score.get(i, c), c)

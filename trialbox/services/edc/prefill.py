@@ -29,6 +29,7 @@ from datetime import date, timedelta
 from typing import Any, Protocol
 
 from datacore.forms import Field, problem
+from tb_common.output_gate import prepare_output
 from tb_common.quotes import quote_in
 
 from edc.mapping import ItemMap, systems_of, unit_key
@@ -471,10 +472,20 @@ def gateway_drafter(llm: Any, job_id: str | None = None) -> NoteDrafter:
 
     def draft(m: ItemMap, f: Field, notes: list[dict[str, Any]]) -> tuple[dict[str, Any], str, str]:
         choices = [{"code": c, "label": lbl} for c, lbl in f.options.items()]
-        res = llm.chat_json("crf_prefill", {"item": {"name": f.name, "label": f.label, "kind": f.kind,
-                                                     "choices": choices, "question": m.question},
-                                            "notes": notes}, job_id=job_id)  # fmt: skip
-        data = res.data if hasattr(res, "data") else res
+        # A short reference lets the model cite a note without learning a source row identifier.
+        references = {f"n{i}": n["id"] for i, n in enumerate(notes, 1)}
+        body = prepare_output(
+            "crf_prefill",
+            "model",
+            {
+                "item": {"name": f.name, "label": f.label, "kind": f.kind, "choices": choices, "question": m.question},
+                "notes": notes,
+            },
+        )
+        res = llm.chat_json("crf_prefill", body, job_id=job_id)
+        data = dict((res.data if hasattr(res, "data") else res) or {})
+        if "note" in data:
+            data["note"] = references.get(str(data["note"]))
         version = f"crf_prefill_v{getattr(res, 'prompt_version', '') or '1'}"
         return dict(data or {}), version, str(getattr(res, "call_id", "") or "")  # D-989
 

@@ -47,7 +47,7 @@ spec:
 # 4. only tb-gateway reaches the models, and only through model-guard (spec v4 NFR-B9; the appliance's model-net and
 #    model-backend-net, D-177, D-409): the model servers take calls from model-guard alone; model-guard takes them
 #    from the gateway (and from the install-check job, which holds no key: it checks that a call without the key is
-#    refused) and reaches only the model servers
+#    refused). Its outbound connections reach the model servers and the gateway for audit receipts
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata: {name: trialbox-model-isolation}
@@ -73,8 +73,22 @@ spec:
       ports: [{protocol: TCP, port: 8000}]
   egress:
     - to:
+        - podSelector: {matchLabels: {app.kubernetes.io/component: gateway}}
+      ports: [{protocol: TCP, port: 8020}]
+    - to:
         - podSelector: {matchLabels: {trialbox.io/tier: model}}
       ports: [{protocol: TCP, port: 8000}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: trialbox-model-refusal-receipts}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: gateway}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/component: model-guard}}
+      ports: [{protocol: TCP, port: 8020}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

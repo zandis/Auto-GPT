@@ -29,6 +29,7 @@ from functools import lru_cache
 from typing import Any
 
 import httpx
+from tb_common.output_gate import OutputRefused, prepare_output
 
 from tb_llm.budget import estimate_messages, retry_max_tokens
 from tb_llm.timeouts import caller_timeout, once_more
@@ -248,6 +249,11 @@ class GatewayClient:
         headers = {**auth_headers(), **labels.headers(self.caller)}  # D-127 (F-11): the gateway checks the token
         if self.model and not body.get("model"):
             body = {**body, "model": self.model}
+        try:
+            names = {self.model} if self.model else set()
+            body = prepare_output("gateway_chat", "model", body, model_names=names)
+        except OutputRefused as exc:
+            raise GatewayRefused(exc.reason, 422, exc.message()) from exc
         url = f"{self.base_url}/chat/completions"
         try:
             # T-608 (D-445): a dropped connection is sent once more (same body: same role, same build), a timeout not

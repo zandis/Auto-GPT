@@ -26,6 +26,7 @@ from typing import Any, Protocol
 
 from embed_service.embedder import Embedder
 from matching.cascade.s2b_semantic import SourceFallback, SourceNote, SourceRanking
+from tb_common.output_gate import IDENTIFIER_REFUSAL, OutputRefused, prepare_output
 from tb_common.phi_guard import NOTE_MASK_VERSION
 
 from vec.index import Note, note_chunks
@@ -75,13 +76,19 @@ def rank_chunks(
     want: set[tuple[str, int]] = set()
     for note in notes:
         have = sorted(stored.get(note.did, []))
-        expect = [(c.chunk_no, c.start, c.end, c.sha, NOTE_MASK_VERSION) for c in note_chunks(note, mrn_regex)]
+        try:
+            rows = note_chunks(note, mrn_regex)
+        except OutputRefused as exc:
+            if exc.reason != IDENTIFIER_REFUSAL:
+                raise
+            return fallback(STALE)
+        expect = [(c.chunk_no, c.start, c.end, c.sha, NOTE_MASK_VERSION) for c in rows]
         if have != expect:
             return fallback(STALE if have else NOT_INDEXED)
         want |= {(note.did, c[0]) for c in expect}
     if not want:
         return {"state": "vec", "model": model, "hits": []}
-    qvec = embedder.embed([query])[0]
+    qvec = embedder.embed(prepare_output("embedding", "model", {"texts": [query]})["texts"])[0]
     total = sum(len(v) for v in stored.values())
     hits = [h for h in store.search(qvec, model, k=total, pids=[pid]) if (str(h["did"]), int(h["chunk_no"])) in want]
     if {(str(h["did"]), int(h["chunk_no"])) for h in hits} != want:
