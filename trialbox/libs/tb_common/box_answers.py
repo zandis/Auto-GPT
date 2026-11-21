@@ -118,6 +118,13 @@ class OwnerAnswers:
     health_page_person: str = ""
     tls_root_confirmed_by: str = ""
     tls_root_confirmed_on: str = ""
+    # 10K-4 (D-1390): the host folders the owner chose. ``backup_dir``: where the second disk or the share is mounted
+    # (empty: the plan's fixed mount point); ``anchor_dir``: the folder of the audit chain's signed heads (the
+    # hospital's write-once share, mounted); ``log_dir``: where the collected logs go (empty: deploy/logs). Whether
+    # the box may finish with them is the host's question (``tools.trialbox.finish_check``), not the parser's
+    backup_dir: str = ""
+    anchor_dir: str = ""
+    log_dir: str = ""
 
     @property
     def hostname(self) -> str:
@@ -131,6 +138,7 @@ class OwnerAnswers:
         # 10K-1 (and 10K-21's people): its keys only when answered, so a box that was not asked writes the file it
         # wrote before
         named = ("health_page_person", "tls_root_confirmed_by", "tls_root_confirmed_on")
+        folders = ("backup_dir", "anchor_dir", "log_dir")  # 10K-4: only when chosen
         for k in (
             "country",
             "ssmix2_root",
@@ -139,6 +147,7 @@ class OwnerAnswers:
             "printed_dates",
             "year_basis",
             *named,
+            *folders,
         ):
             if not d[k]:
                 del d[k]
@@ -189,6 +198,21 @@ def person_name(raw: Any) -> str | None:
         else:
             return None
     return text
+
+
+def host_dir(raw: Any) -> str | None:
+    """10K-4 (D-1390): a host folder as the owner writes it (a backup, anchor or log folder). Empty: not answered.
+    None: refused: not a full path of letters, digits, ``.``, ``_``, ``-`` and ``/`` (``_ROOT_DIR``: no space, no
+    quote, nothing ``deploy/.env``, compose or a shell would read differently), the root folder, or a ``.`` or ``..``
+    part, or an empty one (``//``). A trailing ``/`` is dropped, so one folder is written one way."""
+    text = _s(raw, 256)  # one more than allowed: a longer folder is refused, never cut to another one
+    if not text:
+        return ""
+    folder = text.rstrip("/")
+    parts = folder.split("/")[1:]
+    if len(text) > 255 or not _ROOT_DIR.fullmatch(text) or not folder or any(p in ("", ".", "..") for p in parts):
+        return None
+    return folder
 
 
 def confirmed_on(raw: Any, today: date | None = None) -> str | None:
@@ -308,6 +332,15 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
         it_on = confirmed_on(raw.get("tls_root_confirmed_on")) or ""
         if not it_on:
             problems.append(Problem("tls_root_confirmed_on", "confirmed_on"))
+    # 10K-4 (D-1390): the folders. A backup folder belongs to a backup place: with "later" there is none to name
+    folders: dict[str, str] = {}
+    for k in ("backup_dir", "anchor_dir", "log_dir"):
+        got = host_dir(raw.get(k))
+        if got is None:
+            problems.append(Problem(k, "host_dir"))
+        folders[k] = got or ""
+    if kind is BackupKind.LATER:
+        folders["backup_dir"] = ""
     if problems or kind is None or rule is None:
         return None, problems
     backup = Backup(kind, disk if kind is BackupKind.SECOND_DISK else "", share if kind is BackupKind.SHARE else "")
@@ -332,6 +365,9 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
             person or "",
             it_by or "",
             it_on,
+            folders["backup_dir"],
+            folders["anchor_dir"],
+            folders["log_dir"],
         ),
         [],
     )

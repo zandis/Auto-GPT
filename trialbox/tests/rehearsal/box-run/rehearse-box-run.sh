@@ -225,12 +225,18 @@ start_setup() {  # start (G-2): the bundle in the bucket, the wizard's answers, 
   m tb-doctor-expected backup; m tb-g10-vllm-image "standin/model-server:new"; m tb-study GZQO
   m tb-g6-patients 500; m tb-screen-requester crc1@hospa.test; m tb-outage-seconds 1
   python3 - "$S" "$([ -f "$S/knobs/weak-password" ] && echo short || echo ok)" <<'PY'
-import json, sys
+import json, os, sys
 s, pw = sys.argv[1], ("short" if sys.argv[2] == "short" else "owner-password-0001")
+# 10K-4 (D-1390): a PRODUCTION box finishes only with a backup off the box and its audit anchor folder there: the
+# second disk's folder (declared off the box, with the mark) and the audit share's folder, as IT would mount them
+os.makedirs(f"{s}/vm/backup-disk", exist_ok=True)
+open(f"{s}/vm/backup-disk/.trialbox-offbox", "w").close()
+os.makedirs(f"{s}/vm/audit-share", exist_ok=True)
 # a synthetic site: no real name, address or passphrase
 json.dump({"site_name": "Synthetic Hospital (rehearsal)", "tz": "Asia/Tokyo", "language": "en",
            "owner_full_name": "Rehearsal Owner", "owner_username": "owner", "owner_email": "owner@hospa.test",
            "password": pw, "box_name": "trialbox", "backup_kind": "second_disk", "backup_disk": "/dev/sdb",
+           "backup_dir": f"{s}/vm/backup-disk", "anchor_dir": f"{s}/vm/audit-share",
            "source": "spreadsheet"}, open(f"{s}/secrets/answers/1", "w"))
 json.dump({"arch": "x86_64", "cpu_count": 48, "ram_gib": 188, "disk_free_gib": 400, "tpm": True,
            "disks": [{"path": "/dev/sdb", "size_gib": 500.0, "transport": "scsi", "mounted": ""}],

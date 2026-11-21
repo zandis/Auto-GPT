@@ -10,6 +10,12 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- A PRODUCTION install finishes only with its backups off the box and its audit anchor folder mounted (10K-4,
+  D-1390). The box's first-run page asks the folder where the backup disk or share is mounted, the audit record
+  share's folder and the log folder. `deploy/install.sh` stops a PRODUCTION install before the stack starts, and a
+  box stops before "ready" after its set-up, while every backup target is on the box's own disks or the anchor folder
+  is not named or not there; `python3 -m tools.trialbox finish-check --deploy deploy` says why. **An installed
+  PRODUCTION site run through `deploy/install.sh` again needs both**; updates are not affected.
 - Silent set-up choices guarded (10K-21): a new PRODUCTION site must answer the chart-number question (choosing
   "as written" is an answer; leaving it empty is not), in the settings wizard and on the box's first-run page. A box
   names the person who opens its health page every working day (its backup alert route); the name is shown with the

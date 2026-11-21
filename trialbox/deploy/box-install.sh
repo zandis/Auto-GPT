@@ -252,6 +252,14 @@ if [ -n "$OWNER" ]; then  # D-898: the host's zone from the answers file, then t
   fi
   date -u +%FT%TZ > "$BOX/applied"
 fi
+# FINISH-GATE (10K-4, D-1390): the owner's answers are applied; a PRODUCTION box does not finish (no restart on them,
+# no "ready") with every backup target on its own disks or an audit anchor folder that cannot be mounted. Then the
+# anchor folder the owner chose is mounted into the console as install.sh mounts it (D-638). Unattended (--answers),
+# install.sh ran the same check before it started the stack. Once the share or the disk is mounted: --firstrun again
+if [ -z "$OWNER" ]; then
+  python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" --mount-anchors \
+    || die "the set-up is not finished: a PRODUCTION box needs a backup place off the box and its audit anchor folder mounted (above; RUNBOOK §5). Then: sudo deploy/box-install.sh --firstrun"
+fi
 HOST="$(json_get "$BOX/answers.json" tls_hostname)"  # the box's name the owner chose
 # OPS-005: the name the box prints resolves on the clinic's network: the host takes the owner's name and the mDNS
 # responder answers it (the firewall lets UDP 5353 in from the box's network when hardening.conf says MDNS=on)

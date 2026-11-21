@@ -724,6 +724,17 @@ sed -i "/^COMPOSE_FILE=/d" deploy/.env && echo "COMPOSE_FILE=$FILES" >> deploy/.
 grep -q '^TB_LOG_DIR=' deploy/.env || echo "TB_LOG_DIR=$ROOT/deploy/logs" >> deploy/.env
 grep -q '^TB_AUDIT_ARCHIVE_DIR=' deploy/.env || echo "TB_AUDIT_ARCHIVE_DIR=$ROOT/deploy/logs/audit-archive" >> deploy/.env
 grep -q '^TB_BACKUP_TARGETS=' deploy/.env || echo "TB_BACKUP_TARGETS=$ROOT/deploy/backups" >> deploy/.env
+# FINISH-GATE (10K-4, D-1390): a PRODUCTION install does not finish, and its stack is not started, with every backup
+# target on the box's own disks or an audit anchor folder that cannot be mounted (none named, or not there):
+# tools/trialbox/finish_check.py, which reads deploy/.env and the mount table and writes nothing. A box's own install
+# before its first-run set-up (TB_BOX=1) is not checked here: the owner chooses the folders in the set-up, and
+# deploy/box-install.sh runs the same check after applying them
+if [ "$TB_ENV_SITE" = PRODUCTION ] && [ "${TB_BOX:-0}" != 1 ]; then
+  command -v python3 >/dev/null || die "no python3 on this host: a PRODUCTION install cannot check where its backups and audit anchor folder are (RUNBOOK §5)"
+  python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" \
+    || die "not started: a PRODUCTION install needs a backup target off the box and an audit anchor folder that is mounted (above; RUNBOOK §5), then re-run"
+fi
+# ---- end of FINISH-GATE
 UP_EXTRA=(); [ "$MODE:$GPU" = gpu:rtx4090 ] && UP_EXTRA=(--scale llm-verifier=0)
 if [ "$YES" != 1 ] && [ -t 0 ]; then
   printf 'Start the stack now with profile %s? [Y/n] ' "$MODE"; read -r ans; case "$ans" in n|N) die "stopped before start; re-run with --yes to skip the question" ;; esac

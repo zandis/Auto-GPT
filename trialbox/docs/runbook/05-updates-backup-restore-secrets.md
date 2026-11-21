@@ -301,3 +301,15 @@ working day in `TB_BACKUP_ALERT_WATCHER`; the install note and `doctor` show the
 A name holds letters and digits of any script, single spaces and `. , - ( ) （ ） / ’ ' ・ · 〜 ～` only (`'` not
 first or last), at most 100 characters; anything else (a line break, a double quote, `$`, a backslash) is refused,
 so a name can never add or change a setting.
+
+**A PRODUCTION install needs its backups off the box and its audit anchor folder mounted** (10K-4, D-1390). Before
+it starts the stack, `deploy/install.sh` stops a PRODUCTION install when no target of `TB_BACKUP_TARGETS` is off the
+box (a network share, a USB disk, or a folder `TB_BACKUP_OFFBOX` declares on another disk or marked with
+`.trialbox-offbox`: the rule the nightly backup counts a good backup by; a folder that is not mounted is the box's own
+disk) or when `TB_AUDIT_ANCHOR_TARGETS` names no folder, or a folder that is not there. A box's first-run page asks
+the folder where the second disk or the share is mounted, the audit record share's folder and the log folder
+(`TB_LOG_DIR`, optional); `deploy/box-install.sh` applies the answers, then runs the same check before it restarts
+the box, and mounts the chosen anchor folder into the console. Refused: mount the disk or the share at the folder
+named (or correct the folder in `deploy/.env`), then run the install again; on a box run
+`sudo deploy/box-install.sh --firstrun`. At any time `python3 -m tools.trialbox finish-check --deploy deploy` says
+the same and changes nothing; outside PRODUCTION it refuses nothing.
