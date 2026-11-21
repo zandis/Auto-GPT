@@ -88,7 +88,7 @@ def _run_install(tmp: Path, box: Path, tb_box: str | None = None) -> subprocess.
     script = (
         "set -euo pipefail\n"
         "die() { printf 'install: %s\\n' \"$*\" >&2; exit 1; }\n"
-        f"ROOT={str(box)!r}\ncd \"$ROOT\"\n"
+        f'ROOT={str(box)!r}\ncd "$ROOT"\n'
         "TB_ENV_SITE=\"$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)\"\n"
         + _gate_block()
         + "\necho '  TrialBox is running.'\n"
