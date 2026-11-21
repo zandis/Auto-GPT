@@ -43,7 +43,7 @@
 {% elif feas.feas %}<p class="hint">{{ t('site.feas.help', n=feas.feas.start) }}</p>
 <div class="scroll" tabindex="0"><table class="candidates" data-testid="feas-basis">
 <thead><tr><th>{{ t('site.feas.step') }}</th><th class="num">{{ t('site.feas.counted') }}</th><th class="num">{{ t('site.feas.coded') }}</th><th class="num">{{ t('site.feas.confirmed') }}</th><th class="num">{{ t('site.feas.proposed') }}</th></tr></thead>
-<tbody>{% for s in feas.feas.steps %}<tr data-testid="feas-{{ s.id }}"><td>{{ given(s.label) }} <span class="hint mono">{{ s.id }}</span></td><td class="num">{{ s.remaining }}</td><td class="num">{{ s.coded }}</td><td class="num">{{ s.confirmed }}</td><td class="num">{{ s.proposed }}</td></tr>{% endfor %}</tbody>
+<tbody>{% for s in feas.feas.steps %}<tr data-testid="feas-{{ s.id }}"><td>{{ given(s.label, source_lang=s.get('lang')) }} <span class="hint mono">{{ s.id }}</span></td><td class="num">{{ s.remaining }}</td><td class="num">{{ s.coded }}</td><td class="num">{{ s.confirmed }}</td><td class="num">{{ s.proposed }}</td></tr>{% endfor %}</tbody>
 </table></div>
 <p class="hint">{{ t('site.feas.rule') }}</p>
 {% endif %}

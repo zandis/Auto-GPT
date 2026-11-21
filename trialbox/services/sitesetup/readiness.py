@@ -396,5 +396,10 @@ def feasibility(svc: SiteSetup, ws: str, rs: Any, today: date) -> dict[str, Any]
     for cid, n in raw.remaining.items():
         b = raw.basis.get(cid, {"coded": n, "confirmed": 0, "proposed": 0})
         c = by.get(cid)
-        steps.append({"id": cid, "label": (c.label or c.text[:60]) if c else cid, "remaining": n, **b})
+        label = (c.label or c.text[:60]) if c else cid
+        step = {"id": cid, "label": label, "remaining": n, **b}
+        # Leave ASCII labels to given(): a study can use English names in any manifest language.
+        if c and rs.manifest.language and not label.isascii():
+            step["lang"] = rs.manifest.language
+        steps.append(step)
     return {"start": raw.start_n, "steps": steps, "snapshot": snap}

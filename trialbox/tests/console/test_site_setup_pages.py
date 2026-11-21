@@ -114,7 +114,7 @@ def sb(box: dict[str, Any], tmp_path: Path) -> Iterator[dict[str, Any]]:  # noqa
     box["backend"].study_api = study_api
     for name, role in (("crc", "coordinator"), ("pi", "investigator")):
         box["users"].create(name, role, PW, f"{name}@hospa.test")
-    yield {**box, "svc": svc, "state": state, "calls": calls, "oc": oc}
+    yield {**box, "svc": svc, "ruleset": rs, "state": state, "calls": calls, "oc": oc}
     svc.store.close()
 
 
