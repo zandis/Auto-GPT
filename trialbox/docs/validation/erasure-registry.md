@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-239 entries: 89 erase, 29 keep, 121 no patient data. 27 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+240 entries: 89 erase, 29 keep, 122 no patient data. 27 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -167,6 +167,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `orch.id_limits` | the identifier caps' use rows: staff and kind only |
 | `orch.mails` | a mail sent: message id, job, kind, subject |
 | `orch.trial_cache` | the public registry cache |
+| `outside:console_registry_records` | a study's jRCT record read from the person's own file (10D-16a, D-1373): files under the console's folder (registry_records/<study>/<sha256>.json) holding the record's number, title, health conditions, recruitment status, phase and last update, the file's SHA-256 and the staff account that read it; public registry data, no patient and no investigator's name or contact |
 | `pidmap.site_key` | the site key's fingerprint |
 | `recall.recall_cell` | recall cells and sequences: counts by criterion, no patient |
 | `recall.recall_registration` | recall cells and sequences: counts by criterion, no patient |

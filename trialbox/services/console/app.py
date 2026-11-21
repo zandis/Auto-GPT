@@ -1547,6 +1547,10 @@ def create_app(
     raw_env = _env_map(env)
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
     committee_pages.register(app, helpers)  # 10C-4 (D-1227): the Japan profile's committees, after team (its store)
+    from console import registry_record_page
+
+    # 10D-16a (D-1373): a study's jRCT record from the person's own file, never fetched; after team (the standing)
+    registry_record_page.register(app, helpers, settings.data_dir / registry_record_page.FOLDER)
     if helpers.chart_to_pid is not None:  # NEW-JRN-6 (D-771): the audit browser's chart number door
         audit_hooks.doors["chart_to_pid"] = helpers.chart_to_pid
     account_team["h"] = helpers  # D-719: the account notices find each study's PI here

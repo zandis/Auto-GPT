@@ -611,7 +611,9 @@ def _param(given: dict[str, Any], m: re.Match[str]) -> str:
 
 
 #: ``prepare(method, path, column) ->{"params": {...}, "form": {...}, "json": {...}}`` or None: a valid body (and
-#: fresh state) for a changing route, so an allowed column gets past validation
+#: fresh state) for a changing route, so an allowed column gets past validation; an upload route may give ``files``
+#: (the page's file parts) and an ``/api/v1`` route that takes a file as its body ``content`` and ``content_type``
+#: (10D-16a, D-1373)
 Prepare = Callable[[str, str, str], dict[str, Any] | None]
 
 
@@ -648,13 +650,18 @@ def console_walk(app: Any, clients: dict[str, tuple[Any, str, Any]], tap: AuditT
                 recorder: Any = tracer.recording() if tracer else nullcontext([])
                 with recorder as calls:
                     if r["path"].startswith("/api/v1/"):
-                        body = prep.get("json", {}) if changing else None
-                        resp = api.request(r["method"], url, json=body, headers=headers, follow_redirects=False)
+                        if changing and "content" in prep:  # a file as the body (10D-16a)
+                            resp = api.request(r["method"], url, content=prep["content"], follow_redirects=False,
+                                               headers={**headers, "content-type": prep["content_type"]})  # fmt: skip
+                        else:
+                            body = prep.get("json", {}) if changing else None
+                            resp = api.request(r["method"], url, json=body, headers=headers, follow_redirects=False)
                     else:
                         data = None
                         if changing and csrf:
                             data = {"csrf": csrf, **FORM_FIELDS.get(r["path"], {}), **prep.get("form", {})}
-                        resp = page.request(r["method"], url, data=data, headers=headers, follow_redirects=False)
+                        resp = page.request(r["method"], url, data=data, files=prep.get("files") if changing else None,
+                                            headers=headers, follow_redirects=False)  # fmt: skip
                 loc = resp.headers.get("location", "")
                 raw[(r["method"], r["path"])]["cells"][col.name] = {
                     "status": resp.status_code, "location": loc,

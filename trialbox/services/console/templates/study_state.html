@@ -72,6 +72,7 @@
 {% for r in registries %}{{ fm.field(fe, 'identity', 'id', 'registry_' + r, t('sid.registry.' + r), ident.registry_ids.get(r, ''), hint=t('sid.hint.' + r), cls='mono', disabled=not editable, attrs=noauto) }}{% endfor %}
 {% if editable %}<button type="submit">{{ t('sid.save') }}</button>{% endif %}
 </form>
+<p class="hint"><a href="/studies/{{ rs }}/registry-record" data-testid="identity-registry-record">{{ t('rrec.link') }}</a></p>
 </section>
 
 {# D-395 (T-310b, RSK-42): the IRB text's coverage of the cross-department identified view; the PI records it #}
