@@ -2,6 +2,7 @@
 {% from "_steps.html" import steps_bar with context %}
 {% from "_person.html" import person_pill with context %}
 {% from "_life.html" import sae_banner, sae_failed, report_banner, visit_row with context %}{#J6#}{% from "_today.html" import today_block, next_line with context %}{#/J6#}
+{% from "_roles.html" import home_roles_card with context %}
 {% block title %}{{ tp('home.studies') }}{% endblock %}
 {% block content %}
 <div class="headrow">
@@ -10,6 +11,7 @@
 </div>
 {% if user.affiliation == 'smo' %}<p class="warn" data-testid="smo-banner">{{ t('home.smo_banner', studies=(user.studies|join(', ') or t('users.studies.all')), until=(user.expires or '–')) }}</p>{% endif %}
 {#J6#}{#- J-6 (D-1225, flag layout.home_today): "Needs you today" in place of the SAE cards, the visits, the tasks and the clinic visits; each study's Next line in place of its old one. Every J-6 part sits between these markers and writes nothing with the flag off (tests/console/test_home_today.py renders the page with and without them) -#}{% if today is defined and today %}{{ today_block(lines, more, total, every, today_failed) }}{% endif %}{#/J6#}{% if life %}{{ sae_failed(life.sae_failed) }}{{ sae_banner(life.sae) }}{{ report_banner(life.reports) }}{% endif %}
+{{ home_roles_card(home_roles) }}
 {% if not cards %}<section class="card"><p>{{ t('home.no_studies') }}</p></section>{% endif %}
 {% if life and life.studies %}
 <section class="card" data-testid="home-visits">
