@@ -453,6 +453,11 @@ def verdicts_of(
     # as before, does not count: the status is the one function's over the outcomes the cascade has
     st = decision.status_of(rs.by_id(), judged_rows, policy or DEFAULT_POLICY)
     tier, actions, unknown = st.tier, list(st.actions), st.n_unknown
+    by_id = rs.by_id()
+    for v in judged_rows:  # D-1263: a v3 criterion nobody could answer keeps its question for a person
+        asked = getattr(by_id.get(v.id), "human_question", None)
+        if v.id in rs.v3 and v.verdict == "unknown" and asked and not by_id[v.id].action:
+            actions.append(asked)
     if tier == "high" and not any(o.status in ("pass", "fail") for o in t.outcomes.values()):
         tier = "review"  # D-909: nothing the records or the models decided says this patient may meet the criteria
     if tier == "excluded" and TIER.get(t.tier, "review") != "excluded":
@@ -468,7 +473,8 @@ def verdicts_of(
     seen: set[str] = set()
     acts = [a for a in actions if not (a in seen or seen.add(a))]  # type: ignore[func-returns-value]
     rungs = {v.id: str(t.outcomes[v.id].stage) for v in judged_rows if t.outcomes[v.id].stage}  # D-1360
-    return PatientVerdicts(t.pid, vs, tier, acts, unknown, rungs)
+    flips = {v.id: str(t.outcomes[v.id].flip_date) for v in judged_rows if t.outcomes[v.id].flip_date}  # D-1263
+    return PatientVerdicts(t.pid, vs, tier, acts, unknown, rungs, flips)
 
 
 def judged(t: PatientTrace) -> bool:

@@ -568,6 +568,9 @@ class PatientVerdicts:
     #: D-1360 (card 10A-4): the cascade's stage that gave each criterion's answer (``S0`` to ``S5``), for the answer
     #: store; empty on the v1 path, which has no stages
     rungs: dict[str, str] = field(default_factory=dict)
+    #: D-1263 (card 10A-5): the flip date of each criterion that has one (criterion model v3, the cascade's S1), for
+    #: the answer store; empty for a v1 ruleset and on the v1 path
+    flips: dict[str, str] = field(default_factory=dict)
 
 
 def structured_verdict(c: CriterionIR, ev: PatientEvaluation | None) -> CriterionVerdict:

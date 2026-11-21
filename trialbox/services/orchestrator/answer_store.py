@@ -2,8 +2,9 @@
 
 Every screening run (SCREEN, and MICROBATCH's re-checks and screens) writes the answer it gave each patient on each
 criterion: the status, the reason code, the rung (the cascade's stage, ``S0`` to ``S5``; none on the v1 path), the
-basis (records, a pair, a single model, a person), the verified quote and its date, the flip date (none until
-criterion model v3 computes it, card 10A-5), and the index date, snapshot and job that gave it. The services read it
+basis (records, a pair, a single model, a person), the verified quote and its date, the flip date (D-1263: the
+cascade computes it for a criterion written in criterion model v3; none for a v1 criterion and on the v1 path), and
+the index date, snapshot and job that gave it. The services read it
 (CASE shows the last screening's answer beside its own; MICROBATCH tells what changed for a patient listed again)
 and none of them re-implements matching.
 
@@ -64,6 +65,7 @@ def rows_of(
     out: list[tuple[Any, ...]] = []
     for pid, pv in results.items():
         rungs = getattr(pv, "rungs", None) or {}
+        flips = getattr(pv, "flips", None) or {}  # D-1263: criterion model v3 computes it; none for a v1 criterion
         for v in pv.verdicts:
             ev = v.evidence
             out.append(
@@ -75,7 +77,7 @@ def rows_of(
                     v.final,
                     ev.quote if ev is not None else None,
                     ev.quote_date if ev is not None else None,
-                    None,  # the flip date: criterion model v3 (card 10A-5)
+                    flips.get(v.id),
                     index_date.isoformat(), snapshot, job_id, at,
                 )
             )  # fmt: skip
