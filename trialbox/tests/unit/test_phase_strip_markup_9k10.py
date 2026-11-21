@@ -111,4 +111,4 @@ def test_the_style_marks_the_current_and_the_done_item_differently_and_never_cut
     assert re.search(r'li\[data-state="current"\] \{[^}]*inset 0 -3px 0 var\(--accent\)', css)
     assert "forced-colors: active" in css and "Highlight" in css
     assert "overflow-wrap: anywhere" in css and "text-overflow" not in css
-    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in css  # two columns on a phone
+    assert "repeat(auto-fit, minmax(min(100%, 10em), 1fr))" in css  # two columns on a phone, one at large text

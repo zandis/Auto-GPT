@@ -26,8 +26,8 @@
     empty alternative), current an underline of the accent colour, off muted with a dashed line; in forced colours the
     current item has a border line and the off item a dashed border. A label is never cut: it wraps, and where a
     Japanese or Chinese label does not fit its cell it breaks between characters (`overflow-wrap: anywhere` over
-    `keep-all`), with no ellipsis and no clipping. **Below 760 px the strip has two columns** (six phases are three
-    rows, the wizard's five too), not three: with three columns the review found Japanese labels cut off ("週次の医師リス",
+    `keep-all`), with no ellipsis and no clipping. **Below 760 px the strip has two columns, and one when the person has chosen a larger text size** (a column is at least
+    10em; at 100 % six phases are three rows, the wizard's five too), not three: with three columns the review found Japanese labels cut off ("週次の医師リス",
     "連絡とスクリー") at 390 px, which the first version of this card claimed fitted. The old `.steps` rules and their
     phone rule are deleted (the old strip also cut "実施可能性レポート" at 390 px; it no longer does). No new colour, no
     button. `.ps` is the phase strip of review 09; the `ps-` classes of a person's state (deleted by D-1380) are
@@ -36,7 +36,8 @@
   the test and not read from the catalogue; one `aria-current`; the six-step call; the states the templates use are the
   table's; the wizard's own label; no `.steps` markup or rule left; the style's tick, underline, forced-colours and
   no-cut rules) and `tests/console/test_phase_strip_9k10.py` (the coordinator's home, the weekly list and the set-up
-  wizard in en, ja and zh-TW; Chromium at 390, 800 and 1280 px: for every item the label's box lies inside its cell
+  wizard in en, ja and zh-TW; Chromium at 390, 800 and 1280 px, and at 390 px in the dark and the contrast mode and
+  at 150 % text (10F-1): for every item the label's box lies inside its cell
   and the cell does not scroll, rows within the limit (at most two on a desktop, half the items on a phone), no
   sideways scroll, no one-character line, one current item, the tick only on done and the underline only on current by
   computed style, and in forced colours a line under the current item).

@@ -695,7 +695,7 @@ table.worklist tr[data-status="new"] td:first-child { box-shadow: inset 3px 0 0 
    screen reader (.sr) and in marks and colour for the eye: done (tick, green fill from the tone table), current (underline),
    todo (plain), off (muted, with a dashed line). The cells are drawn by a one-pixel gap on the line colour. A label is
    never cut: it wraps (a CJK label breaks between characters only when it does not fit the cell, balanced so no line has one character), and on a phone
-   the strip has two columns, so a long Japanese label fits whole. */
+   the strip has two columns, one when the text is enlarged (a column is at least 10em), so a long label fits whole. */
 .ps { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1px; margin: 0 0 12px; padding: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--line); }
 .ps li { display: grid; gap: 2px; align-content: start; padding: 8px 10px; min-width: 0; overflow-wrap: anywhere; background: var(--card); }
 .ps b { font-size: var(--t-meta); word-break: keep-all; word-break: auto-phrase; overflow-wrap: anywhere; text-wrap: balance; }
@@ -705,4 +705,4 @@ table.worklist tr[data-status="new"] td:first-child { box-shadow: inset 3px 0 0 
 .ps li[data-state="current"] { box-shadow: inset 0 -3px 0 var(--accent); }
 .ps li[data-state="off"] { color: var(--muted); background-image: repeating-linear-gradient(90deg, var(--muted) 0 4px, transparent 4px 8px); background-size: 100% 2px; background-position: left bottom; background-repeat: no-repeat; }
 @media (forced-colors: active) { .ps li[data-state="current"] { box-shadow: none; border-bottom: 3px solid Highlight; } .ps li[data-state="off"] { background-image: none; border-bottom: 2px dashed GrayText; } }
-@media (max-width: 760px) { .ps { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ps li { padding: 6px 8px; } .ps .who { display: none; } }
+@media (max-width: 760px) { .ps { grid-template-columns: repeat(auto-fit, minmax(min(100%, 10em), 1fr)); } .ps li { padding: 6px 8px; } .ps .who { display: none; } }
