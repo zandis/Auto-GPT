@@ -80,7 +80,12 @@ STATE_TONES: dict[str, dict[str, str]] = {
         "compiling": "info",
         "reporting": "info",
     },
+    # an item of the phase strip (9k-10, D-1385): done is green, the current one is the one that draws the eye
+    "phase": {"done": "ok", "current": "info", "todo": "neutral", "off": "neutral"},
 }
+
+# the four states of a phase strip item, in one place: the macro, the keys ``ps.<state>`` and the style read it
+PHASE_STATES = tuple(STATE_TONES["phase"])
 
 
 def tone(family: str, state: object) -> str:

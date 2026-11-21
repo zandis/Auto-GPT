@@ -900,6 +900,10 @@ ZH: dict[str, str] = {
 EN.update(
     {
         "steps.label": "Study procedure",
+        "ps.done": "done",
+        "ps.current": "current step",
+        "ps.todo": "not done yet",
+        "ps.off": "not used in this study",
         "steps.protocol": "Protocol in",
         "steps.protocol.who": "coordinator uploads",
         "steps.criteria": "Criteria approved",
@@ -971,6 +975,10 @@ EN.update(
 JA.update(
     {
         "steps.label": "試験の手順",
+        "ps.done": "完了",
+        "ps.current": "現在の手順",
+        "ps.todo": "未完了",
+        "ps.off": "この試験では使いません",
         "steps.protocol": "プロトコル受領",
         "steps.protocol.who": "CRCがアップロード",
         "steps.criteria": "基準の承認",
@@ -1042,6 +1050,10 @@ JA.update(
 ZH.update(
     {
         "steps.label": "試驗流程",
+        "ps.done": "已完成",
+        "ps.current": "目前步驟",
+        "ps.todo": "尚未完成",
+        "ps.off": "本試驗不使用",
         "steps.protocol": "收到計畫書",
         "steps.protocol.who": "研究護理師上傳",
         "steps.criteria": "條件核准",
