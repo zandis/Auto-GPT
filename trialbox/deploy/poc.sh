@@ -244,10 +244,7 @@ if ! grep -q '^TB_SERVICE_TOKEN=' deploy/.env || grep -q '^TB_SERVICE_TOKEN=chan
   sed -i.bak '/^TB_SERVICE_TOKEN=/d' deploy/.env && rm -f deploy/.env.bak
   printf 'TB_SERVICE_TOKEN=%s\n' "$(rand 32)" >> deploy/.env
 fi
-if [ ! -s .cache/test-secrets/site_hmac.key ]; then  # pseudonymisation key of the synthetic site (test overlay mount)
-  install -d -m 0777 .cache/test-secrets
-  rand 48 > .cache/test-secrets/site_hmac.key && chmod 0644 .cache/test-secrets/site_hmac.key
-fi
+[ -d .cache/test-secrets ] || install -d -m 1777 .cache/test-secrets
 if [ "$MODE" = openrouter ]; then
   if [ -z "${OPENROUTER_API_KEY:-}" ] && [ -s "$POC/secrets/openrouter_api_key" ]; then
     OPENROUTER_API_KEY="$(tr -d '\r\n' < "$POC/secrets/openrouter_api_key")"
@@ -347,6 +344,7 @@ fi
 # ------------------------------------------------------------------------------------------------ up
 say "starting the stack ($MODE model); first start pulls images and takes a few minutes"
 "${COMPOSE[@]}" config -q
+"${COMPOSE[@]}" run --rm --no-deps -T adapter python -m adapter.cli keys-init
 "${COMPOSE[@]}" rm -sf gateway >/dev/null 2>&1 || true   # the gateway reads model pins at start
 alive_start "starting the stack (the model servers load their weights)"
 "${COMPOSE[@]}" up -d --wait --wait-timeout "${TB_POC_UP_TIMEOUT:-900}" \

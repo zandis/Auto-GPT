@@ -409,7 +409,12 @@ class Scanner(ast.NodeVisitor):
                 and n.keywords[0].arg == "snapshot"
                 and self.symbol(n.keywords[0].value) == "orchestrator.scenarios.screen.screening_use.generation"
             )
-            if receiver != "orchestrator.core.Ctx.services.lake" and not metadata:
+            worker_start = self.module == "orchestrator.scenarios.screen" and self.scope[:1] in (
+                ["run"],
+                ["start_screen"],
+            )
+            pinned = receiver == "orchestrator.core.Ctx.services.lake" and (not worker_start or self.started)
+            if not pinned and not metadata:
                 self.hit("generation")
         if name in QUALIFIED:
             self.hit(QUALIFIED[name])

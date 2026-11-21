@@ -90,6 +90,7 @@ class DecisionContext:
 
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
+        self._screen_url: str | None = None
         self._at_receipt: frozenset[str] | None = None
         self._consent: dict[tuple[str | None, str], RegistryState | None] = {}
         self._note_block: dict[tuple[int, int], NoteBlock] = {}
@@ -117,6 +118,11 @@ class DecisionContext:
         return site_today(self._ctx.cfg.env.tz)
 
     # ------------------------------------------------------------------------------------ the opt-out register
+    def bind_screen_register(self, url: str) -> None:
+        """Admission must read the installed register. Use that same database again before delivery."""
+        self._at_receipt = _optout.opted_out(url, as_of=self._ctx.job.received_at.isoformat(), required=True)
+        self._screen_url = url
+
     def register(self) -> frozenset[str]:
         """Who was opted out when the job was received (D-147; a re-run of an old job stays byte-identical, D-82)."""
         if self._at_receipt is None:
@@ -128,6 +134,17 @@ class DecisionContext:
 
     def register_now(self) -> frozenset[str]:
         """Who is opted out now (D-441): read again before a run publishes or stores anything."""
+        if self._screen_url is not None:
+            from tb_common.screening_inputs import REFUSAL
+
+            from orchestrator.core import job_language
+            from orchestrator.i18n import t
+
+            try:
+                return _optout.opted_out(self._screen_url, required=True)
+            except Exception as exc:
+                ctx = self._ctx
+                raise StepFailed("running", t(job_language(ctx), REFUSAL), REFUSAL) from exc
         return register_now()
 
     def drop(self, pids: Iterable[str], event: str, **detail: Any) -> frozenset[str]:

@@ -160,6 +160,9 @@ def make_box(
     from tools import pglocal
 
     pglocal.for_work(tmp_path)  # D-126: the box's trial database (TB_DB_URL, or a local throwaway one)
+    from tb_common.optout import OptOutRegister
+
+    OptOutRegister().close()  # the console migrates the installed register at startup
     upd = settings_update or {}
     domain = str((upd.get("internal_domains") or ["hospa.test"])[0])
     env = load_env(

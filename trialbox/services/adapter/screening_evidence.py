@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from criteria_compiler.repo import RulesetRepo
-from lake.flatten import basis_of
-from tb_common.authz import norm
+from lake.flatten import BASIS
+from tb_common.authz import allowed, known_senders, norm
 from tb_common.flags import Flags
+from tb_common.generation import Generation
 from tb_common.ruleset import Ruleset, RulesetNotApproved, list_rulesets, load_approved
 from tb_common.screening_inputs import (
     RESTORE_FLAG,
@@ -23,6 +24,8 @@ from tb_common.screening_inputs import (
     ScreeningScope,
     ScreeningUse,
     clearance_path,
+    cleared_record,
+    lake_resource_key,
     record_path,
     release_id,
     rule_digest,
@@ -56,34 +59,48 @@ def first_install(secrets: Path) -> None:
         ticket.write("pending\n")
 
 
-def _reviews(
-    folder: Path, generation: str, gate: PublishGateRecord, mapping: str, static_inputs: list[dict[str, Any]]
-) -> list[RowReview]:
-    rows = []
-    for path in sorted(folder.glob("*.ndjson")):
-        for obj in read_type(folder, path.stem):
-            stamps = [
-                tag["code"] for tag in (obj.get("meta") or {}).get("tag", []) if tag.get("system") == MAPPING_VERSION
-            ]
-            # The static site Organization is made by the adapter using the same published mapping.
-            stamp = stamps[0] if len(stamps) == 1 else mapping if not stamps and obj in static_inputs else None
-            if not stamp or not obj.get("id") or obj.get("resourceType") != path.stem or basis_of(obj) == "proposed":
-                raise ScreeningRefused()
-            review = obj.get("review_tag", "released")
-            if review != "released":
-                raise ScreeningRefused()
-            rows.append(
-                RowReview(
-                    source="lake",
-                    key=f"{path.stem}/{obj['id']}",
-                    generation=generation,
-                    owner_rule_stamp=f"{mapping}/{stamp}/{gate.gate_id}",
-                    review_tag="released",
-                )
-            )
-    if len({r.key for r in rows}) != len(rows):
+class MappedReviews:
+    """Observe every mapped resource before the snapshot merge discards duplicate IDs."""
+
+    def __init__(self, version: str, static: list[dict[str, Any]]) -> None:
+        self.version = version
+        self.static = static
+        self.held = False
+        self.issued: set[str] = set()
+
+    def observe(self, obj: dict[str, Any]) -> None:
+        tags = (obj.get("meta") or {}).get("tag") or []
+        stamps = [tag.get("code") for tag in tags if tag.get("system") == MAPPING_VERSION]
+        if (
+            not obj.get("id")
+            or obj.get("review_tag", "released") != "released"
+            or any(tag.get("system") == BASIS and tag.get("code") != "confirmed" for tag in tags)
+            or (stamps != [self.version] and not (not stamps and obj in self.static))
+        ):
+            self.held = True
+
+    def emitted(self, obj: dict[str, Any]) -> None:
+        if not self.held:
+            self.issued.add(lake_resource_key(obj["resourceType"], obj))
+
+
+def _previous_rows(
+    root: Path, base: Path | None, grant: RestoreClearance, study: str, version: str, digest: str
+) -> dict[str, str]:
+    """Only an individually cleared record of the actual merge base can supply carried row reviews."""
+    if base is None:
         raise ScreeningRefused()
-    return rows
+    previous = IngestReport.model_validate_json((base / "ingest_report.json").read_bytes())
+    built = previous.lake
+    if not previous.passed or previous.held or previous.source == "fhir_bulk" or not built or not built.generation:
+        raise ScreeningRefused()
+    if built.snapshot != base.name:
+        raise ScreeningRefused()
+    raw = record_path(root, built.generation, study, version).read_bytes()
+    record = cleared_record(raw, digest, grant.model_dump_json().encode())
+    if (record.use.generation, record.use.ruleset, record.use.rule_version) != (built.generation, study, version):
+        raise ScreeningRefused()
+    return {row.key: row.owner_rule_stamp for row in record.rows if row.source == "lake"}
 
 
 def published_inputs(
@@ -92,22 +109,28 @@ def published_inputs(
     folder: Path,
     gate: PublishGateRecord,
     mapping_sha: str | None,
-    static_inputs: list[dict[str, Any]],
+    mapped: MappedReviews | None,
+    base: Path | None,
+    promoted_generation: str | None,
     db_url: str | None = None,
 ) -> None:
     """A new passed night, using only the rules already approved by the site and their default screening use."""
-    built = report.lake
+    generation = report.lake.generation if report.lake else promoted_generation
+    snapshot = report.snapshot.isoformat()
     if (
         not report.passed
         or report.held
-        or not built
-        or not built.generation
+        or not generation
         or gate.outcome == "HOLD"
         or gate.blocking_reasons
-        or gate.current_after != built.snapshot
-        or gate.cycle_id != built.snapshot
+        or gate.current_after != snapshot
+        or gate.cycle_id != snapshot
     ):
         return
+    if (report.lake and report.lake.snapshot != snapshot) or Generation.parse(generation).snapshot != snapshot:
+        raise ScreeningRefused()
+    if promoted_generation and promoted_generation != generation:
+        raise ScreeningRefused()
     flags = Flags(url=db_url)
     release = release_id(flags)
     mode = flags.row("derived.stored_read")
@@ -121,10 +144,16 @@ def published_inputs(
     if not (repo_dir / ".git").is_dir():
         return
     repo = RulesetRepo(repo_dir)
-    if not mapping_sha:
+    if not mapping_sha or mapped is None or mapped.held:
         # An external bulk feed cannot issue the adapter's own mapping stamps.
         raise ScreeningRefused()
-    rows = _reviews(folder, built.generation, gate, mapping_sha, static_inputs)
+    keys = [
+        lake_resource_key(path.stem, row)
+        for path in sorted(folder.glob("*.ndjson"))
+        for row in read_type(folder, path.stem)
+    ]
+    carried = set(keys) - mapped.issued
+    stamp = f"{mapping_sha}/{mapped.version}/{gate.gate_id}"
     site = cfg.settings.site
     secrets = Path(cfg.env.secrets_dir)
     path = clearance_path(root)
@@ -151,7 +180,7 @@ def published_inputs(
                 rule = load_approved(repo_dir, study)
             except RulesetNotApproved:
                 continue
-            target = record_path(root, built.generation, study, rule.version)
+            target = record_path(root, generation, study, rule.version)
             if target.exists():
                 continue  # A retry cannot reinstate an individually revoked record.
             prefix = study + "/"
@@ -163,35 +192,52 @@ def published_inputs(
             sc, routing = rule.manifest.scopes.screen, rule.manifest.routing
             if not sc or not routing or (not sc.practitioners and rule.manifest.kind != "cohort"):
                 continue
-            contact = site.contact
-            if not contact:
+            senders = sorted(who for who in known_senders(cfg.settings) if allowed(cfg.settings, "SCREEN", who))
+            uses = []
+            for who in senders:
+                list_to = sorted(set(routing.list_to or []))
+                if not list_to and rule.manifest.kind == "cohort":
+                    list_to = [who]
+                if list_to:
+                    uses.append(
+                        ScreeningUse(
+                            site=site.id,
+                            clearance_id=release,
+                            ruleset=study,
+                            rule_version=rule.version,
+                            generation=generation,
+                            list_to=list_to,
+                            referral_to=routing.referral_to or {},
+                            aggregate_to=sorted({who, *(norm(a) for a in routing.aggregate_to or [])}),
+                            stored_read="off",
+                            scope=ScreeningScope(
+                                practitioners=sc.practitioners or None,
+                                departments=[],
+                                window_days=sc.appointment_window_days or 180,
+                                recent_months=sc.recent_encounter_months or 12,
+                            ),
+                        )
+                    )
+            if not uses:
                 continue
-            list_to = sorted(set(routing.list_to or []))
-            if not list_to and rule.manifest.kind == "cohort":
-                list_to = [norm(contact)]
-            if not list_to:
-                continue
-            use = ScreeningUse(
-                site=site.id,
-                clearance_id=release,
-                ruleset=study,
-                rule_version=rule.version,
-                generation=built.generation,
-                list_to=list_to,
-                referral_to=routing.referral_to or {},
-                aggregate_to=sorted({norm(contact), *(norm(a) for a in routing.aggregate_to or [])}),
-                stored_read="off",
-                scope=ScreeningScope(
-                    practitioners=sc.practitioners or None,
-                    departments=[],
-                    window_days=sc.appointment_window_days or 180,
-                    recent_months=sc.recent_encounter_months or 12,
-                ),
-            )
+            prior = _previous_rows(root, base, grant, study, rule.version, digest) if carried else {}
+            if not carried.issubset(prior):
+                raise ScreeningRefused()
+            rows = [
+                RowReview(
+                    source="lake",
+                    key=key,
+                    generation=generation,
+                    owner_rule_stamp=prior[key] if key in carried else stamp,
+                    review_tag="released",
+                )
+                for key in keys
+            ]
             record = ScreeningInputs(
-                use=use,
+                use=uses[0],
+                additional_uses=uses[1:],
                 rows=rows,
-                inventory={"lake": [r.key for r in rows], "omop": [], "derived": []},
+                inventory={"lake": keys, "omop": [], "derived": []},
                 accepted_digest=digest,
                 trusted_digest=digest,
                 holds_released=True,

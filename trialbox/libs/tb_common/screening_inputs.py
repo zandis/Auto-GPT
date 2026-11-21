@@ -8,10 +8,11 @@ reviews until admission: merging duplicate keys first could discard the held cop
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -70,6 +71,7 @@ class ScreeningUse(_Record):
 
 class ScreeningInputs(_Record):
     use: ScreeningUse
+    additional_uses: list[ScreeningUse] = Field(default_factory=list)
     inventory: dict[Source, list[Text]]
     rows: list[RowReview]
     holds_released: bool
@@ -99,22 +101,23 @@ def rule_digest(rule: Ruleset) -> str:
     return hashlib.sha256(dumps(content)).hexdigest()
 
 
-def _validate_record(
+def cleared_record(
     record_bytes: bytes,
-    use: ScreeningUse,
     digest: str,
     clearance_bytes: bytes,
+    use: ScreeningUse | None = None,
 ) -> ScreeningInputs:
     """Match each reviewed row and the complete use to the separately cleared bytes."""
     try:
         record = ScreeningInputs.model_validate(load_json(record_bytes))
         clearance = RestoreClearance.model_validate(load_json(clearance_bytes))
         record_digest = hashlib.sha256(record_bytes).hexdigest()
+        use = use or record.use
         generation = Generation.parse(use.generation)
         if (
             not generation.seq
             or str(generation) != use.generation
-            or record.use != use
+            or (record.use != use and use not in record.additional_uses)
             or use.scope.practitioners == []
             or digest != record.trusted_digest
             or digest != record.accepted_digest
@@ -143,9 +146,15 @@ def _validate_record(
     return record
 
 
+def lake_resource_key(kind: str, row: dict[str, Any]) -> str:
+    """Bind a review to the complete resource consumed by the builder, including its row identity."""
+    content = json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return f"{kind}/{row['id']}#{hashlib.sha256(content.encode()).hexdigest()}"
+
+
 def inventory_hash(keys: Iterable[str]) -> str:
     """Length-prefixed keys in source order, including every copy before a patient merge."""
-    digest = hashlib.sha256()
+    digest = hashlib.sha256(b"screening-inventory-v2\0")
     for key in keys:
         encoded = key.encode()
         digest.update(len(encoded).to_bytes(8))
@@ -221,6 +230,7 @@ def admit_screening_inputs() -> tuple[str, str]:
             )
             if state not in (None, "open"):
                 raise ScreeningRefused()
+        ctx.decision.bind_screen_register(ctx.orch.db.url)
         flags = Flags(url=ctx.orch.db.url)
         mode = flags.row(DERIVED_FLAG)
         if mode not in ("on", "off"):
@@ -239,7 +249,7 @@ def admit_screening_inputs() -> tuple[str, str]:
         path = record_path(Path(ctx.cfg.env.data_dir), use.generation, use.ruleset, use.rule_version)
         raw = path.read_bytes()
         clearance = clearance_path(Path(ctx.cfg.env.data_dir)).read_bytes()
-        record = _validate_record(raw, use, digest, clearance)
+        record = cleared_record(raw, digest, clearance, use)
         record_sha = hashlib.sha256(raw).hexdigest()
         previous = (job.options or {}).get(RECORD_OPTION)
         if job.snapshot_date is not None and previous != record_sha:

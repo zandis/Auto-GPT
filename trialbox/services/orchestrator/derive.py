@@ -125,7 +125,7 @@ def bind_screen_reader(ctx: Any, generation: str, mode: str) -> list[str]:
     reader = GenerationReader(st, url, ctx)
     ok, ref = reader._readable(day, generation)
     batch = st.batch_by_id(int(ref)) if ok and ref.isdigit() else None
-    if batch is None or batch.snapshot != day:
+    if batch is None or batch.snapshot != day or batch.failed_pids:
         raise ScreeningRefused()
     with Database.connect(url, "derived") as db:
         rows = db.fetchall(

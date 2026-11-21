@@ -314,3 +314,49 @@ def test_first_screen_of_restored_date_needs_matching_generation_hash(
         physical.unlink(missing_ok=True)
         saved.replace(physical)
         metadata.write_bytes(before)
+
+
+def test_unavailable_optout_register_refuses_screen(evidence: tuple[Box, Path, Path]) -> None:
+    from tb_common.optout import OptOutRegister
+
+    box, _, _ = evidence
+    good = run(box)
+    candidate = next(o for o in good.outputs or [] if o.filename.startswith("candidate_list_"))
+    pid = json.loads(box.store.get(candidate.minio_key))["rows"][0]["pid"]
+    register = OptOutRegister(box.orch.db.url)
+    register.add(pid, "patient", "declined", "coordinator", "2026-10-01T12:00:00Z")
+    register.db.execute("ALTER TABLE optout_events RENAME TO saved_optout")
+    try:
+        job = run(box)
+        assert job.error and job.error.detail == REFUSAL and not job.outputs
+    finally:
+        register.db.execute("ALTER TABLE saved_optout RENAME TO optout_events")
+        register.close()
+
+
+def test_finished_stored_batch_with_failed_patient_refuses(evidence: tuple[Box, Path, Path]) -> None:
+    from datacore.generations import guarded
+    from tb_common.derived_store import DerivedStore, Report
+
+    box, path, external = evidence
+    data = json.loads(path.read_bytes())
+    data["use"]["stored_read"] = "on"
+    attest(path, external, data)
+    url = box.orch.db.url
+    flags = Flags(url=url, audit=box.orch.audit)
+    flags.set("derived.stored_read", "on", "coordinator", "read stored scores")
+    st = DerivedStore(url)
+    generation = data["use"]["generation"]
+
+    def partial_batch() -> int:
+        batch = st.begin_batch(generation.split(".")[0], "mapping-v1")
+        st.finish_batch(batch, Report(failed=1, failed_pids=["patient-7"]), patients=1)
+        return batch
+
+    try:
+        guarded("derived", generation, partial_batch, url, ref=str)
+        job = run(box)
+        assert job.error and job.error.detail == REFUSAL and not job.outputs
+    finally:
+        st.close()
+        flags.set("derived.stored_read", "off", "coordinator", "restore setting")

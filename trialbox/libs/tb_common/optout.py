@@ -303,16 +303,16 @@ def sync_registry(reg: OptOutRegister, state: RegistryState, at: str) -> tuple[i
     return added, lifted
 
 
-def opted_out(url: str | None = None, as_of: str | None = None) -> frozenset[str]:
+def opted_out(url: str | None = None, as_of: str | None = None, *, required: bool = False) -> frozenset[str]:
     """Read-only: the pseudonyms opted out at ``as_of`` (now when None). No trial database configured -> empty (there
     is no register without one). A database that does not answer raises: skipping the register would list patients
     who said no (D-127 fails closed in the same way for the feed's consent table)."""
     url = url if url is not None else os.environ.get(ENV)
-    if not url:
+    if not url and not required:
         return frozenset()
     db = Database.connect(url, SCHEMA)
     try:
-        if db.fetchval("SELECT to_regclass(?)", (f'"{db.schema}".optout_events',)) is None:
+        if not required and db.fetchval("SELECT to_regclass(?)", (f'"{db.schema}".optout_events',)) is None:
             return frozenset()
         if as_of is None:
             rows = db.fetchall("SELECT pid, action FROM optout_events ORDER BY at, id")

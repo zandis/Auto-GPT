@@ -170,3 +170,11 @@ def test_failed_restore_hold_writer_is_listed() -> None:
     findings = guard.scan_source(file, (guard.ROOT / file).read_text())
     for writer in ("hold_screening", "release_own_hold"):
         assert findings[(file, writer)]["restore"]
+
+
+def test_query_before_screen_start_is_enumerated() -> None:
+    file = "services/orchestrator/scenarios/screen.py"
+    source = (guard.ROOT / file).read_text()
+    head = "def run(ctx: Ctx) -> Outcome:\n"
+    changed = source.replace(head, head + '    ctx.services.lake.query("SELECT count(*) FROM patient")\n')
+    assert guard.scan_source(file, changed)[(file, "run")]["generation"] == 1

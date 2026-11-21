@@ -12,7 +12,7 @@ from lake.client import LakeLocal
 from orchestrator.scheduler import RESTORE_FLAG
 from tb_common.flags import Flags
 from tb_common.ruleset import Ruleset
-from tb_common.screening_inputs import clearance_path, rule_digest
+from tb_common.screening_inputs import clearance_path, lake_resource_key, rule_digest
 
 from tests.inproc_box import Box
 
@@ -48,7 +48,7 @@ def accept_fixture(box: Box, study: str, practitioners: list[str] | None = None)
     assert snapshot is not None
     directory = lake.lake._source(snapshot)
     lake_keys = [
-        f"{path.stem}/{row['id']}"
+        lake_resource_key(path.stem, row)
         for path in sorted(directory.glob("*.ndjson"))
         for row in read_type(directory, path.stem)
     ]

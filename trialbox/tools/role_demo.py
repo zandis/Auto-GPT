@@ -378,6 +378,10 @@ def build(work: Path) -> tuple[Any, Any, Path]:
         work / "lake",
         sec,
         RUN,
+        settings_update={
+            "data_source": {"type": "csv", "path": str(synth / "site-a"), "mapping": "mapping/tw_core/demo_his.yaml"},
+            "registry_source": {"type": "csv", "path": str(synth / "site-a/registry.csv")},
+        },
         extra_env={
             "TB_DATA_DIR": str(work),
             "TB_RULESETS_DIR": str(work / "box" / "repo"),

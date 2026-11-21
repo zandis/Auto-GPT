@@ -139,10 +139,10 @@ def lake_rows(
         source, origin = rebuild_source()  # read once, when the rebuild starts (D-207)
         record_source(lake_dir, snapshot, source, origin)
     if inventory is not None:
-        from tb_common.screening_inputs import inventory_hash
+        from tb_common.screening_inputs import inventory_hash, lake_resource_key
 
         inventory["lake"] = inventory_hash(
-            f"{kind}/{row.get('id', '')}" for inputs in (feed, site) for kind in sorted(inputs) for row in inputs[kind]
+            lake_resource_key(kind, row) for inputs in (feed, site) for kind in sorted(inputs) for row in inputs[kind]
         )
         if source == "legacy":
             inventory["omop"] = inventory_hash(())
