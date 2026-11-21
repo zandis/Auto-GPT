@@ -6,12 +6,11 @@ import copy
 import logging
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from functools import lru_cache
 from typing import Any, NoReturn
 
 from tb_common import phi_guard
-from tb_common.audit_writer import open_audit
 
 _PURPOSES = frozenset(
     {
@@ -19,8 +18,11 @@ _PURPOSES = frozenset(
         "chart_facts",
         "crf_prefill",
         "chat",
+        "gateway_chat",
         "embedding",
+        "embedding_pairs",
         "chart_text",
+        "chart_excerpts",
         "ie_locate",
         "draft_doc",
         "tokenize",
@@ -31,6 +33,20 @@ _PURPOSES = frozenset(
 _LANGUAGE = {"en": "English", "ja": "Japanese", "zh-TW": "Traditional Chinese"}
 
 
+IDENTIFIER_REFUSAL = "output_identifier_refused"
+IDENTIFIER_MESSAGE = {
+    "en": "Model input was withheld. Use an approved identifier that can be sent unchanged.",
+    "zh-TW": "已停止傳送模型輸入。請使用經核准且可原樣傳送的識別碼。",
+    "ja": "モデルへの入力を保留しました。そのまま送信できる承認済みの識別子を使用してください。",
+}
+
+
+def identifier_message(language: str | None) -> str:
+    from tb_common.wording import lang_of
+
+    return IDENTIFIER_MESSAGE[lang_of(language)]
+
+
 class OutputRefused(ValueError):
     """A stable, text-free reason, suitable for a caller's failure record."""
 
@@ -38,14 +54,23 @@ class OutputRefused(ValueError):
         super().__init__(reason)
         self.reason = reason
 
+    def message(self, language: str | None = None) -> str:
+        return identifier_message(language) if self.reason == IDENTIFIER_REFUSAL else self.reason
+
 
 def _refuse(purpose: str, reason: str) -> NoReturn:
     detail = {"purpose": purpose if purpose in _PURPOSES else "unknown", "reason": reason}
     try:
+        from tb_common.audit_writer import open_audit
+
         open_audit().append("llm.output_refused", detail=detail)
     except Exception:
         logging.getLogger(__name__).error("llm.output_refused", extra=detail)
     raise OutputRefused(reason)
+
+
+class _UnsafeIdentifier(ValueError):
+    pass
 
 
 class _Invalid(ValueError):
@@ -70,18 +95,46 @@ def _text(value: object, mrn: str | None) -> str:
     masked = phi_guard.mask_note(value, mrn)
     if not isinstance(masked, str) or len(masked) != len(value):
         raise RuntimeError
-    return masked
+    # Analyse the original text. Masking one recogniser's hit first can hide another's context.
+    from guard import Guard
+
+    spans = Guard(mrn).detect(value)
+    if not isinstance(spans, list):
+        raise RuntimeError
+    if not spans:
+        return masked
+    chars = list(masked)
+    for span in spans:
+        if not 0 <= span.start < span.end <= len(chars):
+            raise RuntimeError
+        for i in range(span.start, span.end):
+            if not value[i].isspace():
+                chars[i] = phi_guard.MASK_CHAR
+    return "".join(chars)
+
+
+def _unchanged(value: object, mrn: str | None) -> str:
+    safe = _text(value, mrn)
+    if safe != value:
+        raise _UnsafeIdentifier
+    return safe
 
 
 def _fields(row: dict[str, Any], keys: tuple[str, ...], mrn: str | None) -> dict[str, Any]:
     return {key: _text(row[key], mrn) for key in keys if key in row}
 
 
-def _judge(data: Mapping[str, object], mrn: str | None) -> dict[str, Any]:
+def _judge(data: Mapping[str, object], mrn: str | None, *, uploaded: bool) -> dict[str, Any]:
     out = _fields(dict(data), ("criterion_text", "note_question", "index_date"), mrn)
     excerpts = []
     for value in _list(data.get("excerpts")):
         row = _object(value)
+        if uploaded or "section_heading" in row:
+            # Uploaded charts keep a filename-derived type for local records. Only a document heading may travel.
+            heading = row.get("section_heading", "")
+            if not isinstance(heading, str):
+                raise _Invalid
+            row = {**row, "note_type": "chart" if heading == "" else heading}
         excerpt = _fields(
             {k: v for k, v in row.items() if v is not None},
             ("date", "note_type", "text", "same_text_first_written"),
@@ -97,8 +150,18 @@ def _judge(data: Mapping[str, object], mrn: str | None) -> dict[str, Any]:
 
 def _prefill(data: Mapping[str, object], mrn: str | None) -> dict[str, Any]:
     row = _object(data.get("item"))
-    item = _fields(row, ("name", "label", "kind", "question"), mrn)
-    item["choices"] = [_fields(_object(c), ("code", "label"), mrn) for c in _list(row.get("choices", []))]
+    item: dict[str, Any] = _fields(row, ("label", "question"), mrn)
+    for key in ("name", "kind"):
+        if key in row:
+            item[key] = _unchanged(row[key], mrn)
+    choices = []
+    for choice in _list(row.get("choices", [])):
+        option = _object(choice)
+        shown = _fields(option, ("label",), mrn)
+        if "code" in option:
+            shown["code"] = _unchanged(option["code"], mrn)
+        choices.append(shown)
+    item["choices"] = choices
     notes = [
         {"id": f"n{i}", **_fields(_object(n), ("date", "type", "text"), mrn)}
         for i, n in enumerate(_list(data.get("notes")), 1)
@@ -135,14 +198,14 @@ def _public_schema(schema: dict[str, Any]) -> bool:
     return schema == {"type": "object", "properties": fields, "required": required, "additionalProperties": False}
 
 
-def _identifier(value: object) -> str:
+def _identifier(value: object, mrn: str | None) -> str:
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_./:+-]{0,180}", value):
         raise _Invalid
-    return value
+    return _unchanged(value, mrn)
 
 
-def _format(value: object) -> dict[str, Any]:
-    from tb_llm.prompt_registry import schema_sha
+def _format(value: object, mrn: str | None) -> dict[str, Any]:
+    from tb_llm.prompt_registry import default_registry, schema_sha
 
     fmt = _object(value)
     if fmt.get("type") not in ("json_object", "json_schema", "text"):
@@ -155,7 +218,11 @@ def _format(value: object) -> dict[str, Any]:
             raise _Invalid
         permitted: dict[str, Any] = {"schema": schema}
         if "name" in spec:
-            permitted["name"] = _identifier(spec["name"])
+            # Registry prompt IDs and the fixed short aliases used by the evaluation and intake clients.
+            name = _unchanged(spec["name"], mrn)
+            if name not in {"ir", "j", "x"} and not default_registry().versions(name):
+                raise _UnsafeIdentifier
+            permitted["name"] = name
         if "strict" in spec:
             if type(spec["strict"]) is not bool:
                 raise _Invalid
@@ -189,7 +256,13 @@ def _message(value: object, mrn: str | None) -> dict[str, Any]:
     return {"role": row["role"], "content": _text(content, mrn)}
 
 
-def _chat(data: Mapping[str, object], mrn: str | None, purpose: str) -> dict[str, Any]:
+def _chat(
+    data: Mapping[str, object],
+    mrn: str | None,
+    purpose: str,
+    model_names: Collection[str],
+    provider_route: Mapping[str, object] | None,
+) -> dict[str, Any]:
     out: dict[str, Any] = {}
     if purpose != "completion" and "messages" in data:
         out["messages"] = [_message(m, mrn) for m in _list(data["messages"])]
@@ -202,17 +275,28 @@ def _chat(data: Mapping[str, object], mrn: str | None, purpose: str) -> dict[str
         out["add_generation_prompt"] = data["add_generation_prompt"]
     if purpose == "dispatch" and "provider" in data:
         pin = _object(data["provider"])
+        if provider_route is None or pin != provider_route:
+            raise _UnsafeIdentifier
         provider: dict[str, Any] = {
             "allow_fallbacks": False,
             "require_parameters": True,
             "data_collection": "deny",
-            "order": [_identifier(v) for v in _list(pin.get("order"))],
+            "order": [_identifier(v, mrn) for v in _list(pin.get("order"))],
         }
         if "quantizations" in pin:
-            provider["quantizations"] = [_identifier(v) for v in _list(pin["quantizations"])]
+            provider["quantizations"] = [_identifier(v, mrn) for v in _list(pin["quantizations"])]
         out["provider"] = provider
     if "model" in data:
-        out["model"] = _identifier(data["model"])
+        model = _identifier(data["model"], mrn)
+        if model not in model_names:
+            if purpose != "gateway_chat":
+                raise _UnsafeIdentifier
+            # An SDK caller can also select an alias published by the site's registry.
+            from registry.registry import Registry
+
+            if model not in Registry.from_env().aliases:
+                raise _UnsafeIdentifier
+        out["model"] = model
     for key in ("max_tokens", "max_completion_tokens", "seed"):
         if key in data:
             if type(data[key]) is not int:
@@ -225,7 +309,7 @@ def _chat(data: Mapping[str, object], mrn: str | None, purpose: str) -> dict[str
                 raise _Invalid
             out[key] = n
     if "response_format" in data:
-        out["response_format"] = _format(data["response_format"])
+        out["response_format"] = _format(data["response_format"], mrn)
     for key in ("reasoning", "reasoning_effort"):
         if key in data:
             effort = _object(data[key]).get("effort") if key == "reasoning" else data[key]
@@ -236,9 +320,15 @@ def _chat(data: Mapping[str, object], mrn: str | None, purpose: str) -> dict[str
 
 
 def prepare_output(
-    purpose: str, destination: str, data: Mapping[str, object], *, mrn_regex: str | None = None
+    purpose: str,
+    destination: str,
+    data: Mapping[str, object],
+    *,
+    mrn_regex: str | None = None,
+    model_names: Collection[str] = (),
+    provider_route: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
-    """Project a fresh payload. Every released free-text leaf must complete the installed note/name analysis."""
+    """Project a fresh payload. Routing names and the provider pin come from configuration outside the request."""
     if destination != "model" or purpose not in _PURPOSES:
         _refuse(purpose, "output_not_permitted")
     try:
@@ -262,8 +352,8 @@ def prepare_output(
             return {"facts": _fields(_object(data.get("facts")), keys, mrn)}
         if purpose == "chart_text":
             return {"text": _text(data.get("text"), mrn)}
-        if purpose == "judge":
-            return _judge(data, mrn)
+        if purpose in ("judge", "chart_excerpts"):
+            return _judge(data, mrn, uploaded=purpose == "chart_excerpts")
         if purpose == "chart_facts":
             lang = data.get("language")
             if not isinstance(lang, str) or lang not in _LANGUAGE:
@@ -271,9 +361,18 @@ def prepare_output(
             return {"language": lang, "language_name": _LANGUAGE[lang], "text": _text(data.get("text"), mrn)}
         if purpose == "crf_prefill":
             return _prefill(data, mrn)
+        if purpose == "embedding_pairs":
+            pairs = []
+            for pair in _list(data.get("pairs")):
+                if len(_list(pair)) != 2:
+                    raise _Invalid
+                pairs.append([_text(v, mrn) for v in pair])
+            return {"pairs": pairs}
         if purpose == "embedding":
             return {"texts": [_text(v, mrn) for v in _list(data.get("texts"))]}
-        return _chat(data, mrn, purpose)
+        return _chat(data, mrn, purpose, model_names, provider_route)
+    except _UnsafeIdentifier:
+        reason = IDENTIFIER_REFUSAL
     except _Invalid:
         reason = "output_invalid"
     except Exception:

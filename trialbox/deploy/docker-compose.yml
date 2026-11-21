@@ -524,6 +524,9 @@ services:
     environment:
       PORT: "8000"
       TB_LLM_API_KEY: "${TB_LLM_API_KEY:-}"
+      LLM_MODEL: "${LLM_MODEL:-qwen3.5-35b-a3b-q4}"
+      JUDGE_MODEL: "${JUDGE_MODEL:-local/gemma-4-26b-a4b-nvfp4}"
+      VERIFIER_MODEL: "${VERIFIER_MODEL:-local/qwen3.5-9b-awq}"
       TB_GUARD_ROUTES: "llm-service=llm-service-vllm:8000,llm-verifier=llm-verifier-vllm:8000"
       TB_GUARD_ADMIN: "${TB_GUARD_ADMIN:-0}"
     networks:

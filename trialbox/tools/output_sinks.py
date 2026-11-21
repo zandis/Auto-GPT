@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
+import os
 import re
+import subprocess
 from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -111,6 +114,22 @@ class Scan(ast.NodeVisitor):
             )
         if isinstance(node, ast.Call):
             name = self.name(node.func)
+            if name in {"tok", "tokenizer"}:
+                return (
+                    len(node.args) == 1
+                    and self.gated(node.args[0])
+                    and all(
+                        k.arg in {"truncation", "padding", "return_tensors", "max_length"} and _fixed(k.value)
+                        for k in node.keywords
+                    )
+                )
+            if isinstance(node.func, ast.Attribute) and node.func.attr == "to":
+                return (
+                    self.gated(node.func.value)
+                    and len(node.args) == 1
+                    and _name(node.args[0]) == "settings().device"
+                    and not node.keywords
+                )
             if name in {"json.dumps", "io.BytesIO", "bytes"} and node.args:
                 return self.gated(node.args[0])
             if isinstance(node.func, ast.Attribute) and node.func.attr == "encode":
@@ -122,6 +141,13 @@ class Scan(ast.NodeVisitor):
             if name.rsplit(".", 1)[-1] == "render" and len(node.args) == 2:
                 return self.gated(node.args[1])
         return False
+
+    def token_batch(self, node: ast.expr) -> bool:
+        """A tokenizer's output unpacked into a callable, including after a device transfer."""
+        operand = self.defs.get(node.id) if isinstance(node, ast.Name) else node
+        if isinstance(operand, ast.Call) and isinstance(operand.func, ast.Attribute) and operand.func.attr == "to":
+            operand = operand.func.value
+        return isinstance(operand, ast.Call) and self.name(operand.func).rsplit(".", 1)[-1] in {"tok", "tokenizer"}
 
     def add(self, area: str, sink: str, node: ast.AST) -> None:
         # Stable across line moves and formatting, distinct for different operands in the same function.
@@ -303,6 +329,11 @@ class Scan(ast.NodeVisitor):
             )
             if raw_judge_text or not self.gated(payload or _kw(node, "messages")):
                 self.add("model", method, node)
+        elif method == "model" or any(
+            k.arg is None and (method in ("encoder", "llm") or self.token_batch(k.value)) for k in node.keywords
+        ):
+            if not values or not all(self.gated(v) for v in values):
+                self.add("model", method, node)
         elif method in ("ie_locator", "generate_content_async") or (
             method in ("generate", "predict", "invoke", "encode")
             and owner.rsplit(".", 1)[-1] in ("model", "llm", "embedder")
@@ -393,3 +424,31 @@ def inventory(root: Path = ROOT) -> Counter[Site]:
     paths = [p for folder in ("libs", "services") for p in (root / folder).rglob("*.py")]
     paths.append(root / "tools/support_bundle.py")
     return Counter(s for p in sorted(paths) for s in inspect_source(p.relative_to(root).as_posix(), p.read_text()))
+
+
+def inventory_ceiling() -> Counter[Site]:
+    """The destination revision's inventory, including multiplicities. Missing history fails the check."""
+    path = "trialbox/tools/output_sinks.json"
+
+    def git(*args: str) -> bytes:
+        return subprocess.check_output(["git", *args], cwd=ROOT.parent)
+
+    def at(revision: str) -> Counter[Site]:
+        rows = json.loads(git("show", f"{revision}:{path}"))
+        return Counter(Site(**{k: v for k, v in row.items() if k != "why"}) for row in rows)
+
+    base = os.environ.get("TB_OUTPUT_SINK_BASE")
+    if base:
+        if git("ls-tree", "--full-tree", base, "--", path):
+            return at(base)
+        # The first PR has no table on its target. Verify its original table independently of subsequent edits.
+        initial = git("log", "--diff-filter=A", "-1", "--format=%H", "HEAD", "--", path).decode().strip()
+        content = git("show", f"{initial}:{path}")
+        if hashlib.sha256(content).hexdigest() != "b6d8e3a4cddea3ba9296d1be000f796e0d514e8785ec22e722666b974a3ba084":
+            raise ValueError("unrecognised initial output sink inventory")
+        return at(initial)
+
+    # In a working tree, catch both an uncommitted addition and an addition in the last committed table change.
+    ceiling = at("HEAD")
+    revisions = git("log", "-2", "--format=%H", "--first-parent", "--", path).decode().splitlines()
+    return ceiling & at(revisions[1]) if len(revisions) == 2 else ceiling

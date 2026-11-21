@@ -112,3 +112,102 @@ def test_prefill_builds_references_and_drops_hidden_note_content() -> None:
     notes = [{"id": "unlabelled-source-id", "text": "Gout", "subject": {"name": "hidden"}}]
     result = prepare_output("crf_prefill", "model", {"item": {"name": "observation"}, "notes": notes})
     assert result["notes"] == [{"id": "n1", "text": "Gout"}]
+
+
+def test_tokenize_on_a_read_only_proxy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+    import sys
+
+    monkeypatch.setenv("TB_AUDIT_DIR", str(tmp_path))
+    # A fresh interpreter exercises the first import made by an authenticated request.
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+from unittest.mock import patch
+from tests.unit.test_model_guard import KEY, _call, _start, _Upstream
+from model_guard import Guard, make_handler
+with patch("tempfile.gettempdir", side_effect=FileNotFoundError):
+    upstream = _start(_Upstream)
+    proxy = _start(make_handler(Guard(KEY, {"llm-service": upstream.server_address})))
+    assert _call(proxy.server_port, "GET", "/healthz", key=None) == 200
+    assert _call(proxy.server_port, "POST", "/tokenize", body=b'{"prompt":"hello"}') == 200
+    assert _Upstream.seen[-1][1] == "/tokenize"
+    assert _call(proxy.server_port, "POST", "/tokenize", body=b'{"prompt":42}') == 422
+    assert len(_Upstream.seen) == 1
+""",
+        ],
+        check=True,
+    )
+    record = json.loads(next(tmp_path.glob("*.jsonl")).read_text())
+    assert record["detail"] == {"purpose": "tokenize", "reason": "output_invalid"}
+
+
+def test_guard_only_spans_keep_their_offsets() -> None:
+    from guard import Guard
+
+    note = "Pt: Robin Example. Gout."
+    spans = Guard().detect(note)
+    assert spans and note[spans[0].start : spans[0].end] == "Robin Example"
+    shown = prepare_output("chart_text", "model", {"text": note})["text"]
+    assert "Robin" not in shown and "Example" not in shown
+    assert len(note) == len(shown) and shown.index("Gout") == note.index("Gout")
+
+
+def test_unregistered_schema_name_is_refused() -> None:
+    from tb_contracts import inline_schema
+
+    fmt = {"type": "json_schema", "json_schema": {"name": "Robin-Example", "schema": inline_schema("llm_judge_output")}}
+    with pytest.raises(OutputRefused, match="output_identifier_refused"):
+        prepare_output("chat", "model", {"messages": [{"role": "user", "content": "hello"}], "response_format": fmt})
+
+
+@pytest.mark.parametrize("field", ["name", "code"])
+def test_identifying_form_keys_refuse_the_form(field: str) -> None:
+    item = {"name": "Pt: Robin Example"} if field == "name" else {"choices": [{"code": "Pt: Robin Example"}]}
+    with pytest.raises(OutputRefused, match="output_identifier_refused"):
+        prepare_output("crf_prefill", "model", {"item": item, "notes": []})
+
+
+def test_chart_section_provenance_takes_precedence_over_local_note_type() -> None:
+    rows = [
+        {"note_type": "Robin-Example", "section_heading": "", "text": "Referral."},
+        {"note_type": "chart", "section_heading": "Family history", "text": "Breast cancer."},
+    ]
+    shown = prepare_output("judge", "model", {"excerpts": rows})["excerpts"]
+    assert [e["note_type"] for e in shown] == ["chart", "Family history"]
+    assert "Robin" not in str(shown)
+
+
+def test_guard_failure_withholds_a_clean_note(monkeypatch: pytest.MonkeyPatch) -> None:
+    from guard import Guard
+
+    def unavailable(self: Guard, text: str) -> None:
+        raise RuntimeError(text)
+
+    monkeypatch.setattr(Guard, "detect", unavailable)
+    with pytest.raises(OutputRefused, match="analysis_unavailable"):
+        prepare_output("embedding", "model", {"texts": ["Gout."]})
+
+
+def test_form_refusal_message_is_available_in_each_console_language() -> None:
+    from console import i18n_edc
+    from tb_common.output_gate import IDENTIFIER_MESSAGE
+
+    key = "edc.err.output_identifier_refused"
+    assert {"en": i18n_edc.EN[key], "zh-TW": i18n_edc.ZH[key], "ja": i18n_edc.JA[key]} == IDENTIFIER_MESSAGE
+    assert len(set(IDENTIFIER_MESSAGE.values())) == 3
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"model": "Robin-Example"},
+        {"provider": {"order": ["Robin-Example"]}},
+        {"provider": {"order": [], "quantizations": ["Robin-Example"]}},
+    ],
+)
+def test_caller_cannot_make_a_routing_identifier_public(data: dict[str, Any]) -> None:
+    with pytest.raises(OutputRefused, match="output_identifier_refused"):
+        prepare_output("dispatch", "model", data)

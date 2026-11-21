@@ -236,3 +236,36 @@ def test_gateway_dispatch_masks_and_audits_an_unavailable_analyser(
     assert failure.status == 422 and len(c.seen) == 1
     record = next((tmp_path / "refusal").glob("*.jsonl")).read_text()
     assert "analysis_unavailable" in record and name not in record
+
+
+def test_chart_judge_keeps_family_history_with_its_excerpt() -> None:
+    capture = Capture("Breast cancer.")
+    judge = NoteJudge(None, cast(Any, ScriptedModel("first", capture.answer)))
+    rows = chart_excerpts("Referral.\n\n# Family history\n\nBreast cancer.", "Robin-Example.txt", DAY)
+    ChartJudge(judge, rows).decide(INC, DAY)
+    excerpts = capture.seen[0]["excerpts"]
+    assert {e["text"]: e["note_type"] for e in excerpts} == {"Referral.": "chart", "Breast cancer.": "Family history"}
+    assert "Robin" not in str(capture.seen)
+
+
+def test_dense_fallback_gates_text_before_tokenization(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+
+    import numpy as np
+    from matching.registry_match import pipeline, retrieval
+    from matching.registry_match.llm import LLMClient
+
+    note = "Patient name: Robin Example. Gout."
+
+    class Tokenized(Exception):
+        pass
+
+    def tokenizer(texts: list[str], **kw: Any) -> None:
+        assert len(texts) == 1 and "Robin" not in texts[0] and "Example" not in texts[0] and "Gout" in texts[0]
+        raise Tokenized
+
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace())
+    monkeypatch.setattr(retrieval._Encoders, "get", lambda name: (tokenizer, None))
+    index = retrieval.HybridIndex(["synthetic"], retrieval.BM25Okapi([["gout"]]), np.ones((1, 1)), {})
+    with pytest.raises(Tokenized):
+        pipeline.run_patient(note, client=LLMClient(), index=index, keywords={"conditions": []})

@@ -148,7 +148,7 @@ def make_handler(g: Guard) -> type[BaseHTTPRequestHandler]:
                 return
             outgoing = b""
             if path in KEYED and self.command == "POST":
-                from tb_common.output_gate import OutputRefused, prepare_output
+                from tb_common.output_gate import IDENTIFIER_REFUSAL, OutputRefused, prepare_output
 
                 purposes = {CHAT_COMPLETIONS: "chat", COMPLETIONS: "completion", "/tokenize": "tokenize"}
                 try:
@@ -156,10 +156,14 @@ def make_handler(g: Guard) -> type[BaseHTTPRequestHandler]:
                 except ValueError:
                     incoming = None
                 try:
-                    approved = prepare_output(purposes[path], "model", incoming)
+                    names = {os.environ[k] for k in ("LLM_MODEL", "JUDGE_MODEL", "VERIFIER_MODEL") if os.environ.get(k)}
+                    approved = prepare_output(purposes[path], "model", incoming, model_names=names)
                     outgoing = json.dumps(approved, ensure_ascii=False, allow_nan=False).encode()
                 except OutputRefused as exc:
-                    self._reply(422, {"error": exc.reason})
+                    error = {"error": exc.reason}
+                    if exc.reason == IDENTIFIER_REFUSAL:
+                        error["message"] = exc.message(self.headers.get("Accept-Language"))
+                    self._reply(422, error)
                     return
             headers = {"Content-Type": "application/json"}
             if rule == "keyed":

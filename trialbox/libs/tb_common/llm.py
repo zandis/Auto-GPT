@@ -375,7 +375,7 @@ class LlmClient:
             try:
                 variables = prepare_output(prompt_id, "model", variables)
             except OutputRefused as exc:
-                raise LlmError(exc.reason) from exc
+                raise LlmError(exc.message()) from exc
         messages = render(prompt, variables)
         input_text = "\n".join(m["content"] for m in messages)
         input_sha = sha256_text(input_text)
@@ -425,9 +425,9 @@ class LlmClient:
                 call_id = str((payload.get("tb") or {}).get("call_id") or "")
             else:
                 try:
-                    body = prepare_output("chat", "model", body)
+                    body = prepare_output("chat", "model", body, model_names=(model,))
                 except OutputRefused as exc:
-                    raise LlmError(exc.reason) from exc
+                    raise LlmError(exc.message()) from exc
                 try:  # a dropped connection once more, a timeout never (T-608, D-445)
                     resp = once_more(partial(self.http.post, f"{base}/chat/completions", json=body, headers=headers))
                 except httpx.TimeoutException as exc:  # never a model fault: the server may still be working on it
@@ -545,7 +545,7 @@ class LlmClient:
         try:
             req = prepare_output("chat", "model", {k: v for k, v in body.items() if k != "model"})
         except OutputRefused as exc:
-            raise LlmError(exc.reason) from exc
+            raise LlmError(exc.message()) from exc
         try:
             payload: dict[str, Any] = self.gateway.complete(req, labels)
         except GatewayRefused as exc:

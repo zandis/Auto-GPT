@@ -250,9 +250,10 @@ class GatewayClient:
         if self.model and not body.get("model"):
             body = {**body, "model": self.model}
         try:
-            body = prepare_output("chat", "model", body)
+            names = {self.model} if self.model else set()
+            body = prepare_output("gateway_chat", "model", body, model_names=names)
         except OutputRefused as exc:
-            raise GatewayRefused(exc.reason, 422, exc.reason) from exc
+            raise GatewayRefused(exc.reason, 422, exc.message()) from exc
         url = f"{self.base_url}/chat/completions"
         try:
             # T-608 (D-445): a dropped connection is sent once more (same body: same role, same build), a timeout not

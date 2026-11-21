@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from pathlib import Path
 
 import pytest
 from model_guard import CHAT_COMPLETIONS
 
-from tools.output_sinks import TABLE, Site, inspect_source, inventory
+from tools.output_sinks import TABLE, Site, inspect_source, inventory, inventory_ceiling
 
 pytestmark = [pytest.mark.guard, pytest.mark.nodb]
 
@@ -19,6 +20,8 @@ def test_remaining_output_sinks_match_the_inventory() -> None:
     want = Counter(Site(**{k: v for k, v in row.items() if k != "why"}) for row in entries)
     got = inventory()
     assert got == want, {"new": list((got - want).elements()), "stale": list((want - got).elements())}
+    growth = want - inventory_ceiling()
+    assert not growth, {"growth": list(growth.elements())}
 
 
 @pytest.mark.parametrize(
@@ -153,3 +156,27 @@ def bundle(path, row):
 """,
     )
     assert len(result) == 1 and result[0].area == "package"
+
+
+@pytest.mark.parametrize("call", ["model(**enc)", "model(enc)", "self.model(inputs=enc)", "network(**enc)"])
+def test_direct_tensor_model_call_is_inventoried(call: str) -> None:
+    sites = inspect_source("services/example.py", f"def encode(tok, model, raw):\n    enc = tok(raw)\n    {call}")
+    assert [site.area for site in sites] == ["model"]
+
+
+def test_matching_inventory_edit_cannot_authorize_a_new_sink(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from dataclasses import asdict
+
+    source = 'def send(log, note):\n    log.info("note %s", note)'
+    (tmp_path / "services").mkdir()
+    (tmp_path / "services/new.py").write_text(source)
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools/support_bundle.py").touch()
+    entries = [{**asdict(site), "why": "review example"} for site in inspect_source("services/new.py", source)]
+    table = tmp_path / "tools/output_sinks.json"
+    table.write_text(json.dumps(entries))
+    scan = inventory
+    monkeypatch.setattr(__name__ + ".TABLE", table)
+    monkeypatch.setattr(__name__ + ".inventory", lambda: scan(tmp_path))
+    with pytest.raises(AssertionError, match="growth"):
+        test_remaining_output_sinks_match_the_inventory()

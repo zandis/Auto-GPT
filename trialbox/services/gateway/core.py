@@ -77,7 +77,7 @@ from registry.registry import Registry, RegistryError, Resolved, check_served, p
 from tb_common.audit import AuditLog, canonical
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_text
-from tb_common.output_gate import OutputRefused, prepare_output
+from tb_common.output_gate import OutputRefused, identifier_message, prepare_output
 from tb_common.policy.classes import Environment, Topology
 from tb_common.ulid import new_ulid
 from tb_contracts.dataclass import ClassLabel, DataClass
@@ -425,9 +425,20 @@ class Gateway:
             }
             if r.reason in RETRY_AFTER:
                 headers["Retry-After"] = RETRY_AFTER[r.reason]
+            message = str(r)
+            if isinstance(r.__cause__, OutputRefused):
+                message = r.__cause__.message(h.get("accept-language"))
             return GatewayResponse(
                 r.status,
-                {"error": {"type": "tb_refusal", "code": r.reason, "message": str(r), "call_id": call.call_id, **said}},
+                {
+                    "error": {
+                        "type": "tb_refusal",
+                        "code": r.reason,
+                        "message": message,
+                        "call_id": call.call_id,
+                        **said,
+                    }
+                },
                 headers,
             )
 
@@ -524,11 +535,6 @@ class Gateway:
             if rf.get("type") != "json_schema" or not isinstance(rf.get("json_schema"), dict):
                 raise Refusal("schema_required", "a json_schema response_format is required for this role (LLM-22)")
         self._resolve_prompt(call, h, label, messages, response_format, free_form)
-        try:
-            body = prepare_output("chat", "model", body)
-        except OutputRefused as exc:
-            raise Refusal(exc.reason, exc.reason, status=422) from exc
-
         # Routing still examines the original text so a masking hit cannot clear the on-box tripwire.
         # 3 route
         flags = frozenset(x.strip() for x in h.get("x-tb-flags", "").split(",") if x.strip())
@@ -545,7 +551,12 @@ class Gateway:
         if wanted:
             candidates = [c for c in candidates if c.alias == wanted]
             if not candidates:
-                raise Refusal("class_route_mismatch", f"model {wanted!r} is not on route {route.id} for {label.tag}")
+                raise Refusal("class_route_mismatch", identifier_message(h.get("accept-language")))
+        try:
+            body = prepare_output("chat", "model", body, model_names=self.registry.aliases)
+        except OutputRefused as exc:
+            raise Refusal(exc.reason, exc.reason, status=422) from exc
+
         if self.policy.no_fallback(route, call.role, call.context_of_use):
             # D-276 (review LLM-002): a judge whose server failed was answered by the next build of the route, the
             # verifier, which then confirmed its own answer. For these roles a failed build is the call's error.
@@ -785,7 +796,7 @@ class Gateway:
                 errors.append(Upstream(f"{ep.name}{_BUSY}", "busy"))  # every slot taken: model_busy (T-608)
                 return None
         try:
-            resp = self._send(call, ep.name, url, upstream, headers, interactive, lane, errors)
+            resp = self._send(call, ep.name, url, upstream, headers, interactive, lane, errors, res)
         finally:
             if lane is not None and ticket is not None:
                 lane.release(ticket)
@@ -863,13 +874,18 @@ class Gateway:
         interactive: bool,
         lane: Any,
         errors: list[str],
+        resolved: Resolved,
     ) -> httpx.Response | None:
         """POST the call, with T-601's one retry on the same build, inside the call's budget (T-608). Each outcome
         tells the endpoint's breaker: an answer below 500 closes it; a connection error, a batch read timeout or a
         5xx after the retry counts toward opening it; an interactive read timeout counts for nothing (busy, not
         dead)."""
+        pin = resolved.build.provider_pin
+        provider_route = provider_routing(pin) if pin is not None else None
         try:
-            upstream = prepare_output("dispatch", "model", upstream)
+            upstream = prepare_output(
+                "dispatch", "model", upstream, model_names=(resolved.served_name,), provider_route=provider_route
+            )
         except OutputRefused as exc:
             raise Refusal(exc.reason, exc.reason, status=422) from exc
         breaker = lane.breaker if lane is not None else None

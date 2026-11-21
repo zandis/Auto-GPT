@@ -47,7 +47,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from tb_common.audit import AuditLog, _day_files, lines_backward
@@ -57,8 +57,6 @@ log = logging.getLogger("tb.audit_writer")
 
 #: ``TB_AUDIT_WRITER``: ``db`` sends events to the journal; empty or ``file`` writes the chain in-process.
 MODE_ENV = "TB_AUDIT_WRITER"
-#: The drain's heartbeat (the compose health check reads its age).
-ALIVE = Path(os.environ.get("TB_AUDIT_WRITER_ALIVE") or Path(tempfile.gettempdir()) / "tb-audit-writer.alive")
 NOTIFY = "tb_audit"
 
 # BEGIN JOURNAL SQL (D-394)
@@ -526,9 +524,14 @@ class Drain:
         for _ in self.con.notifies(timeout=timeout, stop_after=1):
             break
 
-    def run(self, *, once: bool = False, poll: float = 1.0, alive: Path | None = ALIVE) -> int:
+    def run(self, *, once: bool = False, poll: float = 1.0, alive: Path | Literal["default"] | None = "default") -> int:
         """Drain until stopped (``once``: until the journal is empty). A chain that cannot take a write (disk full, a
         broken anchor) stops ``once`` with the error, and the loop retries it each minute. Returns the count."""
+        if alive == "default":
+            # Only the drain needs a heartbeat. Audit clients may have a read-only filesystem.
+            alive = Path(
+                os.environ.get("TB_AUDIT_WRITER_ALIVE") or Path(tempfile.gettempdir()) / "tb-audit-writer.alive"
+            )
         total = 0
         while True:
             try:

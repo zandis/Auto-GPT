@@ -6,6 +6,7 @@ the sponsor. Joined into ``console.i18n`` last."""
 from __future__ import annotations
 
 EN: dict[str, str] = {
+    "edc.err.output_identifier_refused": "Model input was withheld. Use an approved identifier that can be sent unchanged.",
     "edc.title": "EDC prefill",
     "edc.help": "TrialBox drafts eCRF values from the hospital record, each with its source. A draft is never a trial value: the coordinator checks each value against its source, confirms or changes it, and signs. Only signed values go to REDCap or into the ODM file.",
     "edc.switch.title": "Prefill for this study",
@@ -294,6 +295,7 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
+    "edc.err.output_identifier_refused": "モデルへの入力を保留しました。そのまま送信できる承認済みの識別子を使用してください。",
     "edc.title": "EDC 事前入力",
     "edc.help": "TrialBox は病院の記録から症例報告書（eCRF）の値を下書きし、値ごとに原資料を示します。下書きは治験データではありません。CRC が値を原資料と照らして確定または修正し、電子署名します。署名した値だけが REDCap または ODM ファイルに渡ります。",
     "edc.switch.title": "この試験の事前入力",
@@ -582,6 +584,7 @@ JA: dict[str, str] = {
 }
 
 ZH: dict[str, str] = {
+    "edc.err.output_identifier_refused": "已停止傳送模型輸入。請使用經核准且可原樣傳送的識別碼。",
     "edc.title": "EDC 預填",
     "edc.help": "TrialBox 從醫院紀錄預填個案報告表（eCRF）的值，每個值都附上原始資料。預填值不是試驗資料：研究護理師須逐一對照原始資料，確認或修改後電子簽章。只有已簽章的值才會送到 REDCap 或寫入 ODM 檔。",
     "edc.switch.title": "本試驗的預填",
