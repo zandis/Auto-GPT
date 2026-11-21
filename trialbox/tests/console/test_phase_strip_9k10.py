@@ -101,6 +101,13 @@ def test_screenshots_every_label_is_whole_at_390_800_and_1280_px_in_three_langua
                 name = f"{user}-{lang}-{width}.html"
                 (out / name).write_text(text, encoding="utf-8")
                 pages.append({"file": name, "lang": lang, "width": width, "height": height, "forced": width == 390})
+            # 10F-1 (D-1387): the colour modes and the 150 % text size, on a phone
+            for look, attrs in (("dark150", 'data-mode="dark" data-text-size="150"'), ("contrast", 'data-mode="contrast"')):
+                shown = text.replace(f'<html lang="{lang}"', f'<html lang="{lang}" {attrs}', 1)
+                assert attrs in shown, (user, path, "the page has no <html> to set the look on")
+                name = f"{user}-{lang}-390-{look}.html"
+                (out / name).write_text(shown, encoding="utf-8")
+                pages.append({"file": name, "lang": lang, "width": 390, "height": 844, "forced": False})
     (out / "console.css").write_text(css, encoding="utf-8")
     r = subprocess.run(
         [shutil.which("node") or "node", str(SCRIPT), json.dumps({"dir": str(out), "pages": pages})],
