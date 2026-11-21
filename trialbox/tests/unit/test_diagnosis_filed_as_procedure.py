@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from criteria_compiler.ir_extract.postprocess import is_diagnosis_name, postprocess
+from criteria_compiler.ir_extract.postprocess import PresenceSource, is_diagnosis_name, postprocess
 from criteria_compiler.terminology.mapper import Terminology
 from tb_contracts import LlmExtractOutput
 
@@ -38,6 +38,12 @@ def test_a_diagnosis_filed_as_a_procedure_is_refiled_and_flagged() -> None:
             }
         ),
         Terminology(),
+        sources=[
+            PresenceSource("invasive breast carcinoma", "inclusion", "en"),
+            PresenceSource("mastectomy", "inclusion", "en"),
+            PresenceSource("乳癌", "inclusion", "zh-TW"),
+            PresenceSource("gout", "inclusion", "en"),
+        ],
     )
     c1, c2, c3, c4 = post.criteria
     assert getattr(c1.logic, "domain", None) == "condition" and getattr(c3.logic, "domain", None) == "condition"

@@ -26,7 +26,13 @@ def _one(cls: str, kind: str, note_question: str | None, logic: dict[str, Any], 
                             "concept_candidates": [{"name": "Pneumonia", "domain": "condition"}]}  # fmt: skip
     if note_question:
         crit["note_question"] = note_question
-    (c,) = pp.postprocess("T", LlmExtractOutput.model_validate({"criteria": [crit]}), Terminology(), "1.0.0").criteria
+    (c,) = pp.postprocess(
+        "T",
+        LlmExtractOutput.model_validate({"criteria": [crit]}),
+        Terminology(),
+        "1.0.0",
+        sources=[pp.PresenceSource(text, kind, "en")],
+    ).criteria
     return c
 
 

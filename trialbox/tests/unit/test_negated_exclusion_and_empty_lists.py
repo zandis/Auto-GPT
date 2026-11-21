@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 from criteria_compiler.compile_sql.generator import SqlGenerator
-from criteria_compiler.ir_extract.postprocess import postprocess
+from criteria_compiler.ir_extract.postprocess import PresenceSource, postprocess
 from criteria_compiler.review import rows
 from criteria_compiler.terminology.mapper import Terminology, ValueSets, valueset
 from embed_service.embedder import HashEmbedder
@@ -63,6 +63,13 @@ def test_a_negated_exclusion_is_rewritten_positive_and_flagged() -> None:
             }
         ),
         Terminology(),
+        sources=[
+            PresenceSource("History of diabetes", "exclusion", "en"),
+            PresenceSource("History of diabetes", "exclusion", "en"),
+            PresenceSource("Diabetes, and no other", "exclusion", "en"),
+            PresenceSource("No history of diabetes", "inclusion", "en"),
+            PresenceSource("History of diabetes", "exclusion", "en"),
+        ],
     )
     c1, c2, c3, c4, c5 = post.criteria
     assert c1.logic is not None and getattr(c1.logic, "quantifier", None) == "any"

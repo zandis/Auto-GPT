@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 from criteria_compiler.ir_extract.polarity import is_negated, positive
-from criteria_compiler.ir_extract.postprocess import postprocess
+from criteria_compiler.ir_extract.postprocess import PresenceSource, postprocess
 from criteria_compiler.review import parse_review_xlsx, review_xlsx, rows
 from criteria_compiler.terminology.mapper import Terminology
 from openpyxl import load_workbook
@@ -90,6 +90,10 @@ def test_postprocess_flags_and_rewrites_negated_exclusions_and_accepts_mixed() -
             _crit("exclusion", "note", "Does the patient have a history of tuberculosis?"),
         ),
         Terminology(),
+        sources=[
+            PresenceSource("x", kind, "en")
+            for kind in ("exclusion", "exclusion", "exclusion", "inclusion", "inclusion", "exclusion")
+        ],
     )
     c1, c2, c3, c4, c5, c6 = post.criteria
     assert c1.note_question == "Does the patient have a history of tuberculosis?"

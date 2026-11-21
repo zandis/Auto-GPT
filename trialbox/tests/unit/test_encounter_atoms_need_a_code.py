@@ -25,7 +25,13 @@ def _one(text: str, concept: str, kind: str = "inclusion") -> Any:
     crit = {"kind": kind, "class": "structured", "text": text,
             "logic": {"domain": "encounter", "concept": concept, "quantifier": "any"},
             "concept_candidates": [{"name": concept, "domain": "encounter"}]}  # fmt: skip
-    (c,) = pp.postprocess("T", LlmExtractOutput.model_validate({"criteria": [crit]}), Terminology(), "1.0.0").criteria
+    (c,) = pp.postprocess(
+        "T",
+        LlmExtractOutput.model_validate({"criteria": [crit]}),
+        Terminology(),
+        "1.0.0",
+        sources=[pp.PresenceSource(text, kind, "en")],
+    ).criteria
     return c
 
 

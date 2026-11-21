@@ -47,8 +47,16 @@ PROTOCOL = LlmExtractOutput.model_validate(
 )
 
 
+PROTOCOL_SOURCES = (
+    pp.PresenceSource("History of stroke", "exclusion", "en"),
+    pp.PresenceSource("Adults only", "inclusion", "en"),
+    pp.PresenceSource("Neither stroke nor stroke", "exclusion", "en"),
+    pp.PresenceSource("Two strokes", "exclusion", "en"),
+)
+
+
 def test_a_criterion_that_cannot_run_is_a_persons_check_and_the_rest_compiles() -> None:
-    post = pp.postprocess("T", PROTOCOL, Terminology(), "1.0.0")
+    post = pp.postprocess("T", PROTOCOL, Terminology(), "1.0.0", sources=PROTOCOL_SOURCES)
     first, *bad = post.criteria
     assert first.class_ == "structured" and not first.flags
     for c in bad:
@@ -161,7 +169,7 @@ def test_the_comparison_refused_by_the_fhir_server_is_a_422(monkeypatch: pytest.
         {"TB_Common": "", "L": ""}, {"FHIRHelpers": "{}", "TB_Common": "{}", "L": "{}"}, "", "L", "1", []
     )
     monkeypatch.setattr(service, "fhirhelpers_source", lambda: "")
-    crit = pp.postprocess("T", PROTOCOL, Terminology(), "1.0.0").criteria[:1]
+    crit = pp.postprocess("T", PROTOCOL, Terminology(), "1.0.0", sources=PROTOCOL_SOURCES).criteria[:1]
     with pytest.raises(service.CompileFailed) as got:
         comp._equivalence(crit, art, {}, date(2026, 10, 5), "seed")
     assert got.value.step == "equivalence" and "FhirEvalError" in str(got.value)
