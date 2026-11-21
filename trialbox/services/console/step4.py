@@ -22,6 +22,7 @@ from console.backend import Refused, Unavailable
 from console.home import Helpers
 from console.local_path import local_path
 from console.models_view import build_rows
+from console.own_roles import own_roles
 
 # the orchestrator's in-process principals (orchestrator.core.SYSTEM_SENDERS; D-464): a retry names a person instead
 INTERNAL_PRINCIPALS = ("scheduler", "system")
@@ -213,16 +214,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         """9f-1: the signed-in person's own delegation-log entries that are in force today, in the studies this
         account sees, with the ticked tasks (a sub-investigator's) and, from two weeks before its last day, the days
         left (9f-4 a). Their own rows only (``TeamStore.entries_for``): nobody else's entry is read."""
-        team = getattr(h, "team", None)
-        if team is None:
-            return []
-        day, seen = h.today(), set(studies_of(sess))
-        return [
-            {"rs": e.ruleset.upper(), "role": e.role, "tasks": e.tasks, "start": e.start, "end": e.end,
-             "left": e.days_left(day)}
-            for e in team.entries_for(sess.user.username)
-            if e.ruleset.upper() in seen and e.active_on(day)
-        ]  # fmt: skip
+        return own_roles(getattr(h, "team", None), sess.user.username, h.today(), set(studies_of(sess)))
 
     @app.get("/account")
     def account(request: Request, saved: str = "") -> Response:

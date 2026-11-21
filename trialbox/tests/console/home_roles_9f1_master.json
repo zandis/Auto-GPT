@@ -1,0 +1,2039 @@
+{
+ "lb": {
+  "crc|off|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · CRC · Tasks: Ask a treating doctor, Enter data · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "crc|off|en|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/entry?record=GZQO-0001&form=tb_visit&event=v1&back=visits",
+    "/studies/GZQO/entry?record=GZQO-0001&form=tb_visit&event=v1&prefill=done&win=1&back=visits",
+    "/studies/GZQO/entry?record=GZQO-0001&form=tb_visit&event=v2&back=visits",
+    "/studies/GZQO/entry?record=GZQO-0001&form=tb_visit&event=v2&prefill=done&win=0&back=visits",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/subjects/GZQO-0001",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "0001",
+    "08",
+    "1",
+    "14",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": [
+    "GZQO-0001"
+   ]
+  },
+  "crc|off|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · CRC · 委任された業務: 主治医に依頼する, データ入力 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "crc|off|ja|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/entry?record=GZQO-0001&form=tb_visit&event=v1&back=visits",
+    "/studies/GZQO/entry?record=GZQO-0001&form=tb_visit&event=v1&prefill=done&win=1&back=visits",
+    "/studies/GZQO/entry?record=GZQO-0001&form=tb_visit&event=v2&back=visits",
+    "/studies/GZQO/entry?record=GZQO-0001&form=tb_visit&event=v2&prefill=done&win=0&back=visits",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/subjects/GZQO-0001",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "0001",
+    "08",
+    "1",
+    "14",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": [
+    "GZQO-0001"
+   ]
+  },
+  "crc|off|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · 研究護理師 · 授權的職責: 詢問主治醫師, 輸入資料 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "crc|off|zh-TW|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/entry?record=GZQO-0001&form=tb_visit&event=v1&back=visits",
+    "/studies/GZQO/entry?record=GZQO-0001&form=tb_visit&event=v1&prefill=done&win=1&back=visits",
+    "/studies/GZQO/entry?record=GZQO-0001&form=tb_visit&event=v2&back=visits",
+    "/studies/GZQO/entry?record=GZQO-0001&form=tb_visit&event=v2&prefill=done&win=0&back=visits",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/subjects/GZQO-0001",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "0001",
+    "08",
+    "1",
+    "14",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": [
+    "GZQO-0001"
+   ]
+  },
+  "crc|on|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · CRC · Tasks: Ask a treating doctor, Enter data · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "crc|on|en|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/sae/GZQO-0001/ae1",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "0001",
+    "08",
+    "1",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": [
+    "GZQO-0001"
+   ]
+  },
+  "crc|on|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · CRC · 委任された業務: 主治医に依頼する, データ入力 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "crc|on|ja|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/sae/GZQO-0001/ae1",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "0001",
+    "08",
+    "1",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": [
+    "GZQO-0001"
+   ]
+  },
+  "crc|on|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · 研究護理師 · 授權的職責: 詢問主治醫師, 輸入資料 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "crc|on|zh-TW|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/sae/GZQO-0001/ae1",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "0001",
+    "08",
+    "1",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": [
+    "GZQO-0001"
+   ]
+  },
+  "pi|off|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-pi\"><strong class=\"mono\">GZQO</strong> · PI · all study tasks · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "pi|off|en|/home": {
+   "location": "/week",
+   "status": 303
+  },
+  "pi|off|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-pi\"><strong class=\"mono\">GZQO</strong> · 責任医師 · 試験のすべての業務 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "pi|off|ja|/home": {
+   "location": "/week",
+   "status": 303
+  },
+  "pi|off|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-pi\"><strong class=\"mono\">GZQO</strong> · 試驗主持人 · 試驗的所有職責 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "pi|off|zh-TW|/home": {
+   "location": "/week",
+   "status": 303
+  },
+  "pi|on|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-pi\"><strong class=\"mono\">GZQO</strong> · PI · all study tasks · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "pi|on|en|/home": {
+   "hrefs": [
+    "/studies/GZQO/sae/GZQO-0001/ae1",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week"
+   ],
+   "location": "",
+   "numbers": [
+    "0001",
+    "1"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": [
+    "GZQO-0001"
+   ]
+  },
+  "pi|on|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-pi\"><strong class=\"mono\">GZQO</strong> · 責任医師 · 試験のすべての業務 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "pi|on|ja|/home": {
+   "hrefs": [
+    "/studies/GZQO/sae/GZQO-0001/ae1",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week"
+   ],
+   "location": "",
+   "numbers": [
+    "0001",
+    "1",
+    "5"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": [
+    "GZQO-0001"
+   ]
+  },
+  "pi|on|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-pi\"><strong class=\"mono\">GZQO</strong> · 試驗主持人 · 試驗的所有職責 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "pi|on|zh-TW|/home": {
+   "hrefs": [
+    "/studies/GZQO/sae/GZQO-0001/ae1",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week"
+   ],
+   "location": "",
+   "numbers": [
+    "0001",
+    "1"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": [
+    "GZQO-0001"
+   ]
+  }
+ },
+ "walk": {
+  "admin|off|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · Other · Tasks: Enter data · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "admin|off|en|/home": {
+   "hrefs": [
+    "/",
+    "/admin/accounts",
+    "/admin/notice",
+    "/admin/ops",
+    "/admin/ops?tab=backups",
+    "/admin/ops?tab=update",
+    "/admin?tab=health",
+    "/admin?tab=jobs",
+    "/admin?tab=sources",
+    "/ops/flags",
+    "/ops/identity",
+    "/ops/users",
+    "/settings/notices"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "1",
+    "12",
+    "13",
+    "2",
+    "24",
+    "3",
+    "8"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO",
+    "RA-BIO"
+   ],
+   "values": []
+  },
+  "admin|off|en|/home?view=studies": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "14",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "admin|off|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · その他 · 委任された業務: データ入力 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "admin|off|ja|/home": {
+   "hrefs": [
+    "/",
+    "/admin/accounts",
+    "/admin/notice",
+    "/admin/ops",
+    "/admin/ops?tab=backups",
+    "/admin/ops?tab=update",
+    "/admin?tab=health",
+    "/admin?tab=jobs",
+    "/admin?tab=sources",
+    "/ops/flags",
+    "/ops/identity",
+    "/ops/users",
+    "/settings/notices"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "1",
+    "12",
+    "13",
+    "2",
+    "24",
+    "3",
+    "4",
+    "8"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO",
+    "RA-BIO"
+   ],
+   "values": []
+  },
+  "admin|off|ja|/home?view=studies": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "14",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "admin|off|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · 其他 · 授權的職責: 輸入資料 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "admin|off|zh-TW|/home": {
+   "hrefs": [
+    "/",
+    "/admin/accounts",
+    "/admin/notice",
+    "/admin/ops",
+    "/admin/ops?tab=backups",
+    "/admin/ops?tab=update",
+    "/admin?tab=health",
+    "/admin?tab=jobs",
+    "/admin?tab=sources",
+    "/ops/flags",
+    "/ops/identity",
+    "/ops/users",
+    "/settings/notices"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "1",
+    "12",
+    "13",
+    "2",
+    "24",
+    "3",
+    "5",
+    "8"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO",
+    "RA-BIO"
+   ],
+   "values": []
+  },
+  "admin|off|zh-TW|/home?view=studies": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "14",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "admin|on|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · Other · Tasks: Enter data · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "admin|on|en|/home": {
+   "hrefs": [
+    "/",
+    "/admin/accounts",
+    "/admin/notice",
+    "/admin/ops",
+    "/admin/ops?tab=backups",
+    "/admin/ops?tab=update",
+    "/admin?tab=health",
+    "/admin?tab=jobs",
+    "/admin?tab=sources",
+    "/ops/flags",
+    "/ops/identity",
+    "/ops/users",
+    "/settings/notices"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "1",
+    "12",
+    "13",
+    "2",
+    "24",
+    "3",
+    "6",
+    "8"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO",
+    "RA-BIO"
+   ],
+   "values": []
+  },
+  "admin|on|en|/home?view=studies": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "14",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "admin|on|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · その他 · 委任された業務: データ入力 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "admin|on|ja|/home": {
+   "hrefs": [
+    "/",
+    "/admin/accounts",
+    "/admin/notice",
+    "/admin/ops",
+    "/admin/ops?tab=backups",
+    "/admin/ops?tab=update",
+    "/admin?tab=health",
+    "/admin?tab=jobs",
+    "/admin?tab=sources",
+    "/ops/flags",
+    "/ops/identity",
+    "/ops/users",
+    "/settings/notices"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "1",
+    "12",
+    "13",
+    "2",
+    "24",
+    "3",
+    "6",
+    "8"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO",
+    "RA-BIO"
+   ],
+   "values": []
+  },
+  "admin|on|ja|/home?view=studies": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "14",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "admin|on|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · 其他 · 授權的職責: 輸入資料 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "admin|on|zh-TW|/home": {
+   "hrefs": [
+    "/",
+    "/admin/accounts",
+    "/admin/notice",
+    "/admin/ops",
+    "/admin/ops?tab=backups",
+    "/admin/ops?tab=update",
+    "/admin?tab=health",
+    "/admin?tab=jobs",
+    "/admin?tab=sources",
+    "/ops/flags",
+    "/ops/identity",
+    "/ops/users",
+    "/settings/notices"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "1",
+    "12",
+    "13",
+    "2",
+    "24",
+    "3",
+    "6",
+    "8"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO",
+    "RA-BIO"
+   ],
+   "values": []
+  },
+  "admin|on|zh-TW|/home?view=studies": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "14",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "crc|off|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · CRC · Tasks: Ask a treating doctor, Enter data · <span class=\"nowrap\">2026-01-01 – </span></li><li data-testid=\"role-RA-BIO-crc\"><strong class=\"mono\">RA-BIO</strong> · CRC · Tasks: Enter data · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "crc|off|en|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "14",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "crc|off|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · CRC · 委任された業務: 主治医に依頼する, データ入力 · <span class=\"nowrap\">2026-01-01 – </span></li><li data-testid=\"role-RA-BIO-crc\"><strong class=\"mono\">RA-BIO</strong> · CRC · 委任された業務: データ入力 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "crc|off|ja|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "14",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "crc|off|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · 研究護理師 · 授權的職責: 詢問主治醫師, 輸入資料 · <span class=\"nowrap\">2026-01-01 – </span></li><li data-testid=\"role-RA-BIO-crc\"><strong class=\"mono\">RA-BIO</strong> · 研究護理師 · 授權的職責: 輸入資料 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "crc|off|zh-TW|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "14",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "crc|on|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · CRC · Tasks: Ask a treating doctor, Enter data · <span class=\"nowrap\">2026-01-01 – </span></li><li data-testid=\"role-RA-BIO-crc\"><strong class=\"mono\">RA-BIO</strong> · CRC · Tasks: Enter data · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "crc|on|en|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "crc|on|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · CRC · 委任された業務: 主治医に依頼する, データ入力 · <span class=\"nowrap\">2026-01-01 – </span></li><li data-testid=\"role-RA-BIO-crc\"><strong class=\"mono\">RA-BIO</strong> · CRC · 委任された業務: データ入力 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "crc|on|ja|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "crc|on|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · 研究護理師 · 授權的職責: 詢問主治醫師, 輸入資料 · <span class=\"nowrap\">2026-01-01 – </span></li><li data-testid=\"role-RA-BIO-crc\"><strong class=\"mono\">RA-BIO</strong> · 研究護理師 · 授權的職責: 輸入資料 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "crc|on|zh-TW|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "cro_in|off|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-monitor\"><strong class=\"mono\">GZQO</strong> · monitor (CRO, for a visit) · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "cro_in|off|en|/home": {
+   "location": "/reports",
+   "status": 303
+  },
+  "cro_in|off|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-monitor\"><strong class=\"mono\">GZQO</strong> · モニター（CRO、訪問ごと） · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "cro_in|off|ja|/home": {
+   "location": "/reports",
+   "status": 303
+  },
+  "cro_in|off|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-monitor\"><strong class=\"mono\">GZQO</strong> · 監測員（CRO，依訪視） · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "cro_in|off|zh-TW|/home": {
+   "location": "/reports",
+   "status": 303
+  },
+  "cro_in|on|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-monitor\"><strong class=\"mono\">GZQO</strong> · monitor (CRO, for a visit) · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "cro_in|on|en|/home": {
+   "hrefs": [
+    "/reports",
+    "/studies/GZQO/monitor"
+   ],
+   "location": "",
+   "numbers": [
+    "1"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "cro_in|on|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-monitor\"><strong class=\"mono\">GZQO</strong> · モニター（CRO、訪問ごと） · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "cro_in|on|ja|/home": {
+   "hrefs": [
+    "/reports",
+    "/studies/GZQO/monitor"
+   ],
+   "location": "",
+   "numbers": [
+    "1",
+    "5"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "cro_in|on|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-monitor\"><strong class=\"mono\">GZQO</strong> · 監測員（CRO，依訪視） · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "cro_in|on|zh-TW|/home": {
+   "hrefs": [
+    "/reports",
+    "/studies/GZQO/monitor"
+   ],
+   "location": "",
+   "numbers": [
+    "1"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "cro_mon|off|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-monitor\"><strong class=\"mono\">GZQO</strong> · monitor (CRO, for a visit) · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "cro_mon|off|en|/home": {
+   "location": "/reports",
+   "status": 303
+  },
+  "cro_mon|off|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-monitor\"><strong class=\"mono\">GZQO</strong> · モニター（CRO、訪問ごと） · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "cro_mon|off|ja|/home": {
+   "location": "/reports",
+   "status": 303
+  },
+  "cro_mon|off|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-monitor\"><strong class=\"mono\">GZQO</strong> · 監測員（CRO，依訪視） · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "cro_mon|off|zh-TW|/home": {
+   "location": "/reports",
+   "status": 303
+  },
+  "cro_mon|on|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-monitor\"><strong class=\"mono\">GZQO</strong> · monitor (CRO, for a visit) · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "cro_mon|on|en|/home": {
+   "hrefs": [
+    "/reports",
+    "/studies/GZQO/monitor"
+   ],
+   "location": "",
+   "numbers": [
+    "1"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "cro_mon|on|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-monitor\"><strong class=\"mono\">GZQO</strong> · モニター（CRO、訪問ごと） · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "cro_mon|on|ja|/home": {
+   "hrefs": [
+    "/reports",
+    "/studies/GZQO/monitor"
+   ],
+   "location": "",
+   "numbers": [
+    "1",
+    "5"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "cro_mon|on|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-monitor\"><strong class=\"mono\">GZQO</strong> · 監測員（CRO，依訪視） · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "cro_mon|on|zh-TW|/home": {
+   "hrefs": [
+    "/reports",
+    "/studies/GZQO/monitor"
+   ],
+   "location": "",
+   "numbers": [
+    "1"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "cro_out|off|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <p class=\"empty\" data-testid=\"account-roles-none\">No delegation log names you today.</p>\n",
+   "status": 200
+  },
+  "cro_out|off|en|/home": {
+   "location": "/reports",
+   "status": 303
+  },
+  "cro_out|off|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <p class=\"empty\" data-testid=\"account-roles-none\">今日時点で、あなたが載っている治験分担医師・治験協力者リストはありません。</p>\n",
+   "status": 200
+  },
+  "cro_out|off|ja|/home": {
+   "location": "/reports",
+   "status": 303
+  },
+  "cro_out|off|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <p class=\"empty\" data-testid=\"account-roles-none\">目前沒有任何授權紀錄表列有您。</p>\n",
+   "status": 200
+  },
+  "cro_out|off|zh-TW|/home": {
+   "location": "/reports",
+   "status": 303
+  },
+  "cro_out|on|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <p class=\"empty\" data-testid=\"account-roles-none\">No delegation log names you today.</p>\n",
+   "status": 200
+  },
+  "cro_out|on|en|/home": {
+   "hrefs": [
+    "/reports"
+   ],
+   "location": "",
+   "numbers": [],
+   "roles_card": "",
+   "status": 200,
+   "studies": [],
+   "values": []
+  },
+  "cro_out|on|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <p class=\"empty\" data-testid=\"account-roles-none\">今日時点で、あなたが載っている治験分担医師・治験協力者リストはありません。</p>\n",
+   "status": 200
+  },
+  "cro_out|on|ja|/home": {
+   "hrefs": [
+    "/reports"
+   ],
+   "location": "",
+   "numbers": [
+    "5"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [],
+   "values": []
+  },
+  "cro_out|on|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <p class=\"empty\" data-testid=\"account-roles-none\">目前沒有任何授權紀錄表列有您。</p>\n",
+   "status": 200
+  },
+  "cro_out|on|zh-TW|/home": {
+   "hrefs": [
+    "/reports"
+   ],
+   "location": "",
+   "numbers": [],
+   "roles_card": "",
+   "status": 200,
+   "studies": [],
+   "values": []
+  },
+  "inv|off|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · Other · Tasks: See candidates · <span class=\"nowrap\">2026-01-01 – 2026-11-20</span> <span class=\"pill warn\" data-testid=\"role-ending-GZQO-other\">ends in 10 days (last day 2026-11-20)</span></li></ul>\n  \n",
+   "status": 200
+  },
+  "inv|off|en|/home": {
+   "location": "/week",
+   "status": 303
+  },
+  "inv|off|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · その他 · 委任された業務: 候補者を見る · <span class=\"nowrap\">2026-01-01 – 2026-11-20</span> <span class=\"pill warn\" data-testid=\"role-ending-GZQO-other\">あと 10 日で終了（最終日 2026-11-20）</span></li></ul>\n  \n",
+   "status": 200
+  },
+  "inv|off|ja|/home": {
+   "location": "/week",
+   "status": 303
+  },
+  "inv|off|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · 其他 · 授權的職責: 檢視候選者 · <span class=\"nowrap\">2026-01-01 – 2026-11-20</span> <span class=\"pill warn\" data-testid=\"role-ending-GZQO-other\">還有 10 天結束（最後一天 2026-11-20）</span></li></ul>\n  \n",
+   "status": 200
+  },
+  "inv|off|zh-TW|/home": {
+   "location": "/week",
+   "status": 303
+  },
+  "inv|on|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · Other · Tasks: See candidates · <span class=\"nowrap\">2026-01-01 – 2026-11-20</span> <span class=\"pill warn\" data-testid=\"role-ending-GZQO-other\">ends in 10 days (last day 2026-11-20)</span></li></ul>\n  \n",
+   "status": 200
+  },
+  "inv|on|en|/home": {
+   "hrefs": [
+    "/studies/GZQO/feasibility"
+   ],
+   "location": "",
+   "numbers": [],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "inv|on|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · その他 · 委任された業務: 候補者を見る · <span class=\"nowrap\">2026-01-01 – 2026-11-20</span> <span class=\"pill warn\" data-testid=\"role-ending-GZQO-other\">あと 10 日で終了（最終日 2026-11-20）</span></li></ul>\n  \n",
+   "status": 200
+  },
+  "inv|on|ja|/home": {
+   "hrefs": [
+    "/studies/GZQO/feasibility"
+   ],
+   "location": "",
+   "numbers": [
+    "5"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "inv|on|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · 其他 · 授權的職責: 檢視候選者 · <span class=\"nowrap\">2026-01-01 – 2026-11-20</span> <span class=\"pill warn\" data-testid=\"role-ending-GZQO-other\">還有 10 天結束（最後一天 2026-11-20）</span></li></ul>\n  \n",
+   "status": 200
+  },
+  "inv|on|zh-TW|/home": {
+   "hrefs": [
+    "/studies/GZQO/feasibility"
+   ],
+   "location": "",
+   "numbers": [],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "pi|off|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-pi\"><strong class=\"mono\">GZQO</strong> · PI · all study tasks · <span class=\"nowrap\">2026-01-01 – </span></li><li data-testid=\"role-RA-BIO-sub_pi\"><strong class=\"mono\">RA-BIO</strong> · Sub-investigator · Tasks: See candidates · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "pi|off|en|/home": {
+   "location": "/week",
+   "status": 303
+  },
+  "pi|off|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-pi\"><strong class=\"mono\">GZQO</strong> · 責任医師 · 試験のすべての業務 · <span class=\"nowrap\">2026-01-01 – </span></li><li data-testid=\"role-RA-BIO-sub_pi\"><strong class=\"mono\">RA-BIO</strong> · 分担医師 · 委任された業務: 候補者を見る · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "pi|off|ja|/home": {
+   "location": "/week",
+   "status": 303
+  },
+  "pi|off|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-pi\"><strong class=\"mono\">GZQO</strong> · 試驗主持人 · 試驗的所有職責 · <span class=\"nowrap\">2026-01-01 – </span></li><li data-testid=\"role-RA-BIO-sub_pi\"><strong class=\"mono\">RA-BIO</strong> · 協同主持人 · 授權的職責: 檢視候選者 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "pi|off|zh-TW|/home": {
+   "location": "/week",
+   "status": 303
+  },
+  "pi|on|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-pi\"><strong class=\"mono\">GZQO</strong> · PI · all study tasks · <span class=\"nowrap\">2026-01-01 – </span></li><li data-testid=\"role-RA-BIO-sub_pi\"><strong class=\"mono\">RA-BIO</strong> · Sub-investigator · Tasks: See candidates · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "pi|on|en|/home": {
+   "hrefs": [
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=review"
+   ],
+   "location": "",
+   "numbers": [],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "pi|on|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-pi\"><strong class=\"mono\">GZQO</strong> · 責任医師 · 試験のすべての業務 · <span class=\"nowrap\">2026-01-01 – </span></li><li data-testid=\"role-RA-BIO-sub_pi\"><strong class=\"mono\">RA-BIO</strong> · 分担医師 · 委任された業務: 候補者を見る · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "pi|on|ja|/home": {
+   "hrefs": [
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=review"
+   ],
+   "location": "",
+   "numbers": [
+    "5"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "pi|on|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-pi\"><strong class=\"mono\">GZQO</strong> · 試驗主持人 · 試驗的所有職責 · <span class=\"nowrap\">2026-01-01 – </span></li><li data-testid=\"role-RA-BIO-sub_pi\"><strong class=\"mono\">RA-BIO</strong> · 協同主持人 · 授權的職責: 檢視候選者 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "pi|on|zh-TW|/home": {
+   "hrefs": [
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=review"
+   ],
+   "location": "",
+   "numbers": [],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "privacy|off|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · Other · Tasks: Enter data · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "privacy|off|en|/home": {
+   "location": "/site/opt-outs",
+   "status": 303
+  },
+  "privacy|off|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · その他 · 委任された業務: データ入力 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "privacy|off|ja|/home": {
+   "location": "/site/opt-outs",
+   "status": 303
+  },
+  "privacy|off|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · 其他 · 授權的職責: 輸入資料 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "privacy|off|zh-TW|/home": {
+   "location": "/site/opt-outs",
+   "status": 303
+  },
+  "privacy|on|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · Other · Tasks: Enter data · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "privacy|on|en|/home": {
+   "location": "/site/opt-outs",
+   "status": 303
+  },
+  "privacy|on|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · その他 · 委任された業務: データ入力 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "privacy|on|ja|/home": {
+   "location": "/site/opt-outs",
+   "status": 303
+  },
+  "privacy|on|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · 其他 · 授權的職責: 輸入資料 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "privacy|on|zh-TW|/home": {
+   "location": "/site/opt-outs",
+   "status": 303
+  },
+  "smo_in|off|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · CRC · Tasks: Enter data · <span class=\"nowrap\">2026-01-01 – 2026-12-31</span></li></ul>\n  \n",
+   "status": 200
+  },
+  "smo_in|off|en|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "14",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "smo_in|off|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · CRC · 委任された業務: データ入力 · <span class=\"nowrap\">2026-01-01 – 2026-12-31</span></li></ul>\n  \n",
+   "status": 200
+  },
+  "smo_in|off|ja|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "14",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "smo_in|off|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · 研究護理師 · 授權的職責: 輸入資料 · <span class=\"nowrap\">2026-01-01 – 2026-12-31</span></li></ul>\n  \n",
+   "status": 200
+  },
+  "smo_in|off|zh-TW|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "14",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "smo_in|on|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · CRC · Tasks: Enter data · <span class=\"nowrap\">2026-01-01 – 2026-12-31</span></li></ul>\n  \n",
+   "status": 200
+  },
+  "smo_in|on|en|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "smo_in|on|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · CRC · 委任された業務: データ入力 · <span class=\"nowrap\">2026-01-01 – 2026-12-31</span></li></ul>\n  \n",
+   "status": 200
+  },
+  "smo_in|on|ja|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "smo_in|on|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-crc\"><strong class=\"mono\">GZQO</strong> · 研究護理師 · 授權的職責: 輸入資料 · <span class=\"nowrap\">2026-01-01 – 2026-12-31</span></li></ul>\n  \n",
+   "status": 200
+  },
+  "smo_in|on|zh-TW|/home": {
+   "hrefs": [
+    "/pilot/protocol",
+    "/pilot/registry/GZQO",
+    "/studies/GZQO/enrolment",
+    "/studies/GZQO/feasibility",
+    "/studies/GZQO/feasibility#site",
+    "/studies/GZQO/not-matched",
+    "/studies/GZQO/setup",
+    "/studies/GZQO/subjects",
+    "/studies/GZQO/team#check",
+    "/studies/GZQO/visits",
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=all"
+   ],
+   "location": "",
+   "numbers": [
+    "0",
+    "08",
+    "1",
+    "17",
+    "2",
+    "3",
+    "33",
+    "4",
+    "5",
+    "6"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "smo_out|off|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <p class=\"empty\" data-testid=\"account-roles-none\">No delegation log names you today.</p>\n",
+   "status": 200
+  },
+  "smo_out|off|en|/home": {
+   "hrefs": [
+    "/pilot/protocol"
+   ],
+   "location": "",
+   "numbers": [],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "ZZQX"
+   ],
+   "values": []
+  },
+  "smo_out|off|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <p class=\"empty\" data-testid=\"account-roles-none\">今日時点で、あなたが載っている治験分担医師・治験協力者リストはありません。</p>\n",
+   "status": 200
+  },
+  "smo_out|off|ja|/home": {
+   "hrefs": [
+    "/pilot/protocol"
+   ],
+   "location": "",
+   "numbers": [],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "ZZQX"
+   ],
+   "values": []
+  },
+  "smo_out|off|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <p class=\"empty\" data-testid=\"account-roles-none\">目前沒有任何授權紀錄表列有您。</p>\n",
+   "status": 200
+  },
+  "smo_out|off|zh-TW|/home": {
+   "hrefs": [
+    "/pilot/protocol"
+   ],
+   "location": "",
+   "numbers": [],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "ZZQX"
+   ],
+   "values": []
+  },
+  "smo_out|on|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <p class=\"empty\" data-testid=\"account-roles-none\">No delegation log names you today.</p>\n",
+   "status": 200
+  },
+  "smo_out|on|en|/home": {
+   "hrefs": [
+    "/pilot/protocol"
+   ],
+   "location": "",
+   "numbers": [],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "ZZQX"
+   ],
+   "values": []
+  },
+  "smo_out|on|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <p class=\"empty\" data-testid=\"account-roles-none\">今日時点で、あなたが載っている治験分担医師・治験協力者リストはありません。</p>\n",
+   "status": 200
+  },
+  "smo_out|on|ja|/home": {
+   "hrefs": [
+    "/pilot/protocol"
+   ],
+   "location": "",
+   "numbers": [
+    "5"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "ZZQX"
+   ],
+   "values": []
+  },
+  "smo_out|on|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <p class=\"empty\" data-testid=\"account-roles-none\">目前沒有任何授權紀錄表列有您。</p>\n",
+   "status": 200
+  },
+  "smo_out|on|zh-TW|/home": {
+   "hrefs": [
+    "/pilot/protocol"
+   ],
+   "location": "",
+   "numbers": [],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "ZZQX"
+   ],
+   "values": []
+  },
+  "steward|off|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · Other · Tasks: Enter data · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "steward|off|en|/home": {
+   "location": "/breakglass",
+   "status": 303
+  },
+  "steward|off|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · その他 · 委任された業務: データ入力 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "steward|off|ja|/home": {
+   "location": "/breakglass",
+   "status": 303
+  },
+  "steward|off|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · 其他 · 授權的職責: 輸入資料 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "steward|off|zh-TW|/home": {
+   "location": "/breakglass",
+   "status": 303
+  },
+  "steward|on|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · Other · Tasks: Enter data · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "steward|on|en|/home": {
+   "location": "/breakglass",
+   "status": 303
+  },
+  "steward|on|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · その他 · 委任された業務: データ入力 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "steward|on|ja|/home": {
+   "location": "/breakglass",
+   "status": 303
+  },
+  "steward|on|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · 其他 · 授權的職責: 輸入資料 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "steward|on|zh-TW|/home": {
+   "location": "/breakglass",
+   "status": 303
+  },
+  "sub|off|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-sub_pi\"><strong class=\"mono\">GZQO</strong> · Sub-investigator · Tasks: See candidates, Ask a treating doctor · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "sub|off|en|/home": {
+   "location": "/week",
+   "status": 303
+  },
+  "sub|off|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-sub_pi\"><strong class=\"mono\">GZQO</strong> · 分担医師 · 委任された業務: 候補者を見る, 主治医に依頼する · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "sub|off|ja|/home": {
+   "location": "/week",
+   "status": 303
+  },
+  "sub|off|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-sub_pi\"><strong class=\"mono\">GZQO</strong> · 協同主持人 · 授權的職責: 檢視候選者, 詢問主治醫師 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "sub|off|zh-TW|/home": {
+   "location": "/week",
+   "status": 303
+  },
+  "sub|on|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-sub_pi\"><strong class=\"mono\">GZQO</strong> · Sub-investigator · Tasks: See candidates, Ask a treating doctor · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "sub|on|en|/home": {
+   "hrefs": [
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=review"
+   ],
+   "location": "",
+   "numbers": [],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "sub|on|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-sub_pi\"><strong class=\"mono\">GZQO</strong> · 分担医師 · 委任された業務: 候補者を見る, 主治医に依頼する · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "sub|on|ja|/home": {
+   "hrefs": [
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=review"
+   ],
+   "location": "",
+   "numbers": [
+    "5"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "sub|on|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-sub_pi\"><strong class=\"mono\">GZQO</strong> · 協同主持人 · 授權的職責: 檢視候選者, 詢問主治醫師 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "sub|on|zh-TW|/home": {
+   "hrefs": [
+    "/studies/GZQO/week",
+    "/studies/GZQO/week?list=review"
+   ],
+   "location": "",
+   "numbers": [],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "viewer|off|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · Other · Tasks: Enter data · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "viewer|off|en|/home": {
+   "location": "/reports",
+   "status": 303
+  },
+  "viewer|off|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · その他 · 委任された業務: データ入力 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "viewer|off|ja|/home": {
+   "location": "/reports",
+   "status": 303
+  },
+  "viewer|off|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · 其他 · 授權的職責: 輸入資料 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "viewer|off|zh-TW|/home": {
+   "location": "/reports",
+   "status": 303
+  },
+  "viewer|on|en|/account": {
+   "roles": ">\n  <h2>Your role in each study</h2>\n  <p class=\"hint\">Read from each study&#39;s delegation log as it stands today. Only your own entries are shown here.</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · Other · Tasks: Enter data · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "viewer|on|en|/home": {
+   "hrefs": [
+    "/reports",
+    "/studies/GZQO/feasibility"
+   ],
+   "location": "",
+   "numbers": [],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "viewer|on|ja|/account": {
+   "roles": ">\n  <h2>試験ごとのあなたの役割</h2>\n  <p class=\"hint\">各試験の治験分担医師・治験協力者リストの現在の記載から表示します。ここに出るのはあなた自身の記載だけです。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · その他 · 委任された業務: データ入力 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "viewer|on|ja|/home": {
+   "hrefs": [
+    "/reports",
+    "/studies/GZQO/feasibility"
+   ],
+   "location": "",
+   "numbers": [
+    "5"
+   ],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  },
+  "viewer|on|zh-TW|/account": {
+   "roles": ">\n  <h2>您在每項試驗中的角色</h2>\n  <p class=\"hint\">依各試驗授權紀錄表目前的內容顯示。此處只顯示您本人的紀錄。</p>\n  <ul class=\"plain\"><li data-testid=\"role-GZQO-other\"><strong class=\"mono\">GZQO</strong> · 其他 · 授權的職責: 輸入資料 · <span class=\"nowrap\">2026-01-01 – </span></li></ul>\n  \n",
+   "status": 200
+  },
+  "viewer|on|zh-TW|/home": {
+   "hrefs": [
+    "/reports",
+    "/studies/GZQO/feasibility"
+   ],
+   "location": "",
+   "numbers": [],
+   "roles_card": "",
+   "status": 200,
+   "studies": [
+    "GZQO"
+   ],
+   "values": []
+  }
+ }
+}
