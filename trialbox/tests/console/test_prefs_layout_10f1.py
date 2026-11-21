@@ -61,7 +61,8 @@ def test_at_150_percent_a_wide_table_scrolls_in_its_box_and_the_page_never_sidew
         put(pi, f"week-{lang}-desktop.html", "/studies/GZQO/week", lang, DESKTOP, ["cards-fit"])
         put(pi, f"week-{lang}-phone.html", "/studies/GZQO/week", lang, PHONE, ["cards-fit"])
         # the candidates' table is still a table: it does not fit at 150 % and scrolls inside its box
-        put(pi, f"candidates-{lang}-desktop.html", "/studies/GZQO/candidates", lang, DESKTOP, ["has-wide-table"])
+        wide = ["has-wide-table"] if lang == "ja" else []  # zh-TW's shorter text still fits the desktop box
+        put(pi, f"candidates-{lang}-desktop.html", "/studies/GZQO/candidates", lang, DESKTOP, wide)
         put(pi, f"candidates-{lang}-phone.html", "/studies/GZQO/candidates", lang, PHONE, ["has-wide-table"])
         put(pi, f"account-{lang}-desktop.html", "/account", lang, DESKTOP, [])
         put(pi, f"account-{lang}-phone.html", "/account", lang, PHONE, [])

@@ -3,7 +3,8 @@
 (``article.pcard``) and not as a table row. The invariant (D-1386): no page shows a patient field it did not show
 before, and none of its links, forms or buttons is lost.
 
-The proof is made per person. ``data/person_card_9k14_before_*.json.gz`` hold what the two pages carried on
+The proof is made per person. ``tests/fixtures/console_9k14/person_card_9k14_before_*.json.gz`` (a data file type may
+live only under tests/fixtures) hold what the two pages carried on
 origin/master before the card, from the seeded synthetic study of the test boxes, for each role of the role matrix,
 three languages, the phone-first flag off and on, a selected row, and a study with an Approach mark (the quick
 outcomes). For each person (the container of ``row-<id>`` or ``member-<id>``) and for the rest of the page it holds
@@ -43,7 +44,7 @@ from tests.console.test_role_route_matrix import _clients
 
 RS = "GZQO"
 LANGS = ("en", "ja", "zh-TW")
-DATA = Path(__file__).parent / "data"
+DATA = Path(__file__).parents[1] / "fixtures" / "console_9k14"
 CAPTURE = os.environ.get("TB_CAPTURE_9K14")
 ROOT = Path(__file__).parents[2]
 CSS = (ROOT / "services" / "console" / "static" / "console.css").read_text(encoding="utf-8")

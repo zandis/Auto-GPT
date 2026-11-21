@@ -47,7 +47,7 @@
   master (the ja week list 561 px against its 552 px box), passes with the cards; the check is unchanged.
 - **Invariant: no page shows a patient field it did not show before, and none of its links, forms or buttons is lost.**
   The card is a new layout of the same values. Held by `tests/console/test_person_card_9k14.py`, per person card:
-  `data/person_card_9k14_before_matrix.json.gz` and `..._marked.json.gz` are what the two pages carried on
+  `tests/fixtures/console_9k14/person_card_9k14_before_matrix.json.gz` and `..._marked.json.gz` are what the two pages carried on
   origin/master (every visible text, link, form, button, hidden input and attribute value, `id` and `data-label`
   included, per person and for the rest of the page) for each role of the role matrix, in en, ja and zh-TW, with the
   phone-first flag off and on, a selected row, and a study with an Approach mark (the quick outcomes). They were
