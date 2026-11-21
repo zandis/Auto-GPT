@@ -1,6 +1,12 @@
-{# D-105: the six-step study procedure; done steps ticked, the current one underlined #}
-{% macro steps_bar(steps, step) -%}
-<ol class="steps" aria-label="{{ t('steps.label') }}" data-testid="steps">
-{% for s in steps %}<li class="{{ 'done' if loop.index0 < step else ('now' if loop.index0 == step else '') }}"{% if loop.index0 == step %} aria-current="step"{% endif %}><b>{{ loop.index }} · {{ t('steps.' + s) }}</b><span>{{ t('steps.' + s + '.who') }}</span></li>{% endfor %}
+{# D-105, 9k-10 (D-1385): the phase strip. One ordered list; each item has a state (done, current, todo, off) that
+   is said in words for a screen reader (the .sr text) and drawn by CSS; the current one carries aria-current="step".
+   items: [{name, who, state}]; state is one of console.state_tone.PHASE_STATES, its tone comes from the table (9k-4). steps_bar keeps the old call of the six-step study procedure. #}
+{% macro phase_strip(items, label, testid) -%}
+<ol class="ps" aria-label="{{ label }}" data-testid="{{ testid }}">
+{% for it in items %}<li data-state="{{ it.state }}" data-tone="{{ tone('phase', it.state) }}"{% if it.state == 'current' %} aria-current="step"{% endif %}><b>{{ loop.index }}&nbsp;· {{ it.name }}<span class="sr"> ({{ t('ps.' + it.state) }})</span></b>{% if it.who %}<span class="who">{{ it.who }}</span>{% endif %}</li>{% endfor %}
 </ol>
+{%- endmacro %}
+{% macro steps_bar(steps, step) -%}
+{% set ns = namespace(l=[]) %}{% for s in steps %}{% set ns.l = ns.l + [{'name': t('steps.' + s), 'who': t('steps.' + s + '.who'), 'state': 'done' if loop.index0 < step else ('current' if loop.index0 == step else 'todo')}] %}{% endfor %}
+{{ phase_strip(ns.l, t('steps.label'), 'steps') }}
 {%- endmacro %}
