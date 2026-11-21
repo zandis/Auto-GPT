@@ -505,7 +505,6 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "life.anchor.": _values("datacore.lifecycle", "ANCHORS"),
     # 10C-14: how a visit window counts, and why a day is off at the site (the schedule page)
     "life.unit.": lambda: ("days", "working"),
-    "ps.": _values("console.state_tone", "PHASE_STATES"),  # 9k-10 (D-1385): the phase strip's four states
     "life.daysoff.why.": _values("tb_common.workdays", "DAY_OFF_KINDS"),
     "dataops.layer.row.": _values("console.country_profile", "KEYS"),  # 10C-25 (D-1250)
     "job.prefilter.": _values("tb_common.prefilter", "STAGES"),  # 10E-12 (D-1259): the night funnel's stages

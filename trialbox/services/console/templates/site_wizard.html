@@ -1,14 +1,12 @@
 {% extends "base.html" %}
 {# TB-PLAN-04 step 5b (D-132): the set-up wizard. One question per screen, with examples, what each answer means and
    progress to "ready". The shortest path: a protocol, then charts pasted one by one; feeds and sheets can come later. #}
-{% from "_steps.html" import phase_strip with context %}
 {% from "_site.html" import site_nav, state_pill, ws_name with context %}
 {% block title %}{{ t('site.start.title') }}{% endblock %}
 {% block content %}
 <div class="headrow"><h1>{{ t('site.start.title') }} · {{ ws_name(ws) }}</h1></div>
 {{ site_nav(ws, rs, qs) }}
-{% set ns = namespace(l=[]) %}{% for s in steps %}{% set ns.l = ns.l + [{'name': t('site.wiz.' + s + '.short'), 'who': '', 'state': 'done' if loop.index < step else ('current' if loop.index == step else 'todo')}] %}{% endfor %}
-{{ phase_strip(ns.l, t('site.start.title'), 'wizard-steps') }}
+<ol class="steps" data-testid="wizard-steps">{% for s in steps %}<li class="{{ 'now' if loop.index == step else ('done' if loop.index < step else '') }}"><b>{{ loop.index }}. {{ t('site.wiz.' + s + '.short') }}</b></li>{% endfor %}</ol>
 <section class="card" data-testid="wizard-{{ key }}">
 <h2>{{ t('site.wiz.' + key + '.q') }}</h2>
 <p>{{ t('site.wiz.' + key + '.why') }}</p>
