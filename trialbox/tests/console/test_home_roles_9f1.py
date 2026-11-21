@@ -197,7 +197,8 @@ def test_capture(request: pytest.FixtureRequest, scene: str) -> None:
 
 @pytest.fixture(scope="module")
 def master() -> dict[str, Any]:
-    return json.loads(SNAP.read_text("utf-8"))
+    data: dict[str, Any] = json.loads(SNAP.read_text("utf-8"))
+    return data
 
 
 _NOW: dict[str, dict[str, Any]] = {}
@@ -249,7 +250,7 @@ def test_every_role_sees_its_own_roles_on_the_home_and_only_where_the_home_names
     nothing of another person's entry and nothing of an RA-BIO or ZZQX entry (not a trial the home shows)."""
 
     def card(col: str, flag: str, lang: str = "en", path: str = "/home") -> str:
-        return now[f"{col}|{flag}|{lang}|{path}"].get("roles_card", "")
+        return str(now[f"{col}|{flag}|{lang}|{path}"].get("roles_card", ""))
 
     for flag in FLAGS:
         crc = card("crc", flag)
