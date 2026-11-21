@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal
 
 from tb_common import chartno
@@ -47,6 +49,39 @@ class HeldOwner(RuntimeError):
     """Abort publication, including records already staged in this batch."""
 
 
+RECORD_RULE = "1"
+SCOPE_FILE = "record_identity.json"
+BULK_SCOPE = json.dumps(["fhir_bulk", "1"])
+SNAPSHOT_REFUSAL = (
+    "record_identity.snapshot_scope: Delta refused. Decide how to migrate the snapshot's record IDs. / "
+    "已拒絕差異匯入。請決定快照紀錄識別碼的遷移方式。 / "
+    "差分取込を拒否しました。スナップショットの記録IDの移行方法を決定してください。"
+)
+_DIGEST_KEY = re.compile(rf"[0-9a-f]{{{PID_HEX_LEN}}}")
+
+
+def check_unscoped_key(key: str) -> None:
+    """Plain-ID merges can only prove disjointness outside the gate's key space.
+
+    A digest's spelling cannot establish its provenance. Require a receipt for every
+    such delta, including callers passing serialized tombstones directly to the writer.
+    """
+    if _DIGEST_KEY.fullmatch(key):
+        raise HeldOwner(SNAPSHOT_REFUSAL)
+
+
+def check_snapshot_scope(base: Path, scope: str | None) -> None:
+    """Only merge key spaces with matching publication receipts."""
+    try:
+        previous = (base / SCOPE_FILE).read_bytes()
+    except FileNotFoundError:
+        previous = None
+    except OSError as exc:
+        raise HeldOwner(SNAPSHOT_REFUSAL) from exc
+    if previous != (scope.encode("utf-8") if scope is not None else None):
+        raise HeldOwner(SNAPSHOT_REFUSAL)
+
+
 def _digest(key: bytes, parts: list[object]) -> str:
     body = json.dumps(parts, ensure_ascii=False, separators=(",", ":")).encode()
     # Chart pseudonyms historically MAC unframed input. A subkey separates the new domains
@@ -63,7 +98,7 @@ def resolve_record(
     record_ids: tuple[Identifier, ...],
     *,
     occurrence: str = "",
-    rule_version: str = "1",
+    rule_version: str = RECORD_RULE,
     table: str = "",
     previous: ResolvedRecord | None = None,
     state: IdentityState,

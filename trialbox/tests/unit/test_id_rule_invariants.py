@@ -11,6 +11,7 @@ from adapter.mapping.engine import Mapper, Mapping, ResourceSpec, pivot_rows
 from adapter.ndjson import snapshot_dir
 from adapter.pipeline import run_ingest
 from lake.flatten import Flattener
+from tb_common.crypto import pid_for_mrn
 from tb_common.identity import HeldOwner
 
 from tests.unit.test_dataflow_lake_p0 import _cfg
@@ -219,3 +220,114 @@ def test_practitioner_emitted_by_visit_row_keeps_its_independent_key(tmp_path: P
     resources = list(mapper.map_table("visits", rows))
     assert [r["id"] for r in resources if r["resourceType"] == "Practitioner"] == ["staff-1", "staff-1"]
     assert len({r["id"] for r in resources if r["resourceType"] == "Encounter"}) == 2
+
+
+def test_review_legacy_snapshot_cannot_accept_a_mapped_delta(tmp_path: Path) -> None:
+    from adapter.mapping.engine import resource_id
+    from adapter.ndjson import read_type, write_snapshot
+    from adapter.pipeline import PASSED
+
+    cfg = _cfg(tmp_path)
+    base = snapshot_dir(cfg.lake_dir, "2026-01-02")
+    legacy = resource_id(cfg.site_key(), "Observation", "L1")
+    observation = {
+        "resourceType": "Observation",
+        "id": legacy,
+        "subject": {"reference": "Patient/" + pid_for_mrn(cfg.site_key(), "A")},
+    }
+    write_snapshot(base, {"Observation": [observation]})
+    (base / PASSED).write_text("{}")
+    feed = tmp_path / "delta"
+    feed.mkdir()
+    (feed / "lab.csv").write_text("mrn,lab_no,deleted,updated_at\nA,L1,1,2026-01-03\n")
+    with pytest.raises(HeldOwner, match="record_identity.snapshot_scope"):
+        run_ingest(
+            cfg,
+            "csv",
+            str(feed),
+            since="2026-01-02",
+            snapshot="2026-01-03",
+            validate=False,
+            load_fhir=False,
+            rebuild_lake=False,
+        )
+    assert list(read_type(base, "Observation")) == [observation]
+    assert not snapshot_dir(cfg.lake_dir, "2026-01-03").exists()
+
+
+def test_review_pivot_must_preserve_all_owner_columns(tmp_path: Path) -> None:
+    spec = mapping(tmp_path / "site.yaml")
+    pv = {"keys": ["panel"], "item": "item", "value": "result", "columns": {"Na": "sodium", "K": "potassium"}}
+    spec.tables["diagnoses"]["pivot"] = pv
+    spec.resources[1] = ResourceSpec(
+        "Observation",
+        "diagnoses",
+        {"hid": "number"},
+        {"subject.reference": REF, "valueQuantity.value": {"column": "potassium"}},
+    )
+    rows = iter(
+        [
+            {"chart": "A", "panel": "P1", "item": "Na", "result": "141"},
+            {"chart": "B", "panel": "P1", "item": "K", "result": "7.2"},
+        ]
+    )
+    with pytest.raises(HeldOwner, match="record_identity.pivot_owner"):
+        list(Mapper(spec, KEY, "site").map_table("diagnoses", pivot_rows(rows, pv, "number", tmp_path, {})))
+
+
+def test_review_appointment_column_actor_cannot_override_owner(tmp_path: Path) -> None:
+    spec = mapping(tmp_path / "site.yaml")
+    spec.resources[0] = ResourceSpec(
+        "Appointment",
+        "visits",
+        {"hid": "number"},
+        {"participant[0].actor.reference": REF, "participant[1].actor.reference": {"column": "other"}},
+    )
+
+    b = pid_for_mrn(KEY, "B")
+    with pytest.raises(HeldOwner, match="record_identity.actor_owner"):
+        one(Mapper(spec, KEY, "site"), "visits", chart="A", number="V1", other="Patient/" + b)
+
+
+def test_review_static_patient_owned_resource_is_refused(tmp_path: Path) -> None:
+    spec = mapping(tmp_path / "site.yaml")
+    spec.static.append({"resourceType": "Observation", "id": "L1", "subject": {"reference": "Patient/B"}})
+    with pytest.raises(HeldOwner, match="record_identity.static_type"):
+        Mapper(spec, KEY, "site").static_resources()
+
+
+def test_review_unscoped_writer_cannot_replay_mapped_tombstone(tmp_path: Path) -> None:
+    from adapter.mapping.engine import resource_id
+    from adapter.ndjson import write_snapshot
+
+    cfg = _cfg(tmp_path)
+    mapper = Mapper(Mapping.load(cfg.mapping_path), KEY, "site")
+    legacy = resource_id(KEY, "Observation", "L1")
+    base = tmp_path / "legacy"
+    write_snapshot(
+        base,
+        {
+            "Observation": [
+                {
+                    "resourceType": "Observation",
+                    "id": legacy,
+                    "subject": {"reference": "Patient/" + pid_for_mrn(KEY, "A")},
+                }
+            ]
+        },
+    )
+    ((kind, rid),) = mapper.tombstones("lab", iter([{"mrn": "A", "lab_no": "L1"}]))
+    with pytest.raises(HeldOwner, match="record_identity.snapshot_scope"):
+        write_snapshot(tmp_path / "next", {}, base, {kind: [rid]})
+
+
+def test_unreadable_scope_uses_the_same_migration_refusal(tmp_path: Path) -> None:
+    from adapter.ndjson import write_snapshot
+    from tb_common.identity import SCOPE_FILE
+
+    base = tmp_path / "base"
+    base.mkdir()
+    (base / SCOPE_FILE).write_bytes(b"\xff")
+    mapper = Mapper(mapping(tmp_path / "site.yaml"), KEY, "site")
+    with pytest.raises(HeldOwner, match="record_identity.snapshot_scope"):
+        write_snapshot(tmp_path / "next", {}, base, identity_scope=mapper.snapshot_scope)

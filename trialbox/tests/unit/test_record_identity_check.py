@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.record_identity_check import expected_inventory, scan
+from tools.record_identity_check import expected_inventory, historical_growth, ratchet_growth, scan
 
 pytestmark = [pytest.mark.guard, pytest.mark.nodb]
 
@@ -92,3 +92,58 @@ def alias(row, key):
 """)
     (src / "load.sql").write_text("-- first binding\nINSERT INTO link (record_id, pid) VALUES (?, ?);")
     assert {fn for _, fn in scan(tmp_path)} == {"build", "alias", "<sql>"}
+
+
+def test_review_dict_constructor_cannot_mint_a_fhir_id(tmp_path: Path) -> None:
+    src = tmp_path / "libs" / "feed"
+    src.mkdir(parents=True)
+    (src / "map.py").write_text(
+        'def obs(row):\n    return dict(resourceType="Observation", id="lab-" + row["number"])\n'
+    )
+    assert scan(tmp_path) == {("libs/feed/map.py", "obs"): {"build FHIR id": 1}}
+
+
+def test_review_matching_new_code_and_ratchet_entry_are_refused(tmp_path: Path) -> None:
+    src = tmp_path / "services" / "feed"
+    src.mkdir(parents=True)
+    expression = "bulk_id(key, 'Observation', row['id'])"
+    (src / "map.py").write_text(f"def emit(key, row):\n    return {expression}\n")
+    ratchet = tmp_path / "record_identity_ratchet.json"
+    ratchet.write_text(
+        json.dumps(
+            [
+                {
+                    "file": "services/feed/map.py",
+                    "function": "emit",
+                    "operation": "call bulk_id",
+                    "expression": expression,
+                    "area": "adapter",
+                    "why": "test",
+                }
+            ]
+        )
+    )
+    assert scan(tmp_path, detailed=True) == expected_inventory(ratchet, detailed=True)
+    assert ratchet_growth(ratchet.read_text(), "[]")
+    assert not ratchet_growth("[]", ratchet.read_text())
+    doubled = json.dumps(json.loads(ratchet.read_text()) * 2)
+    assert ratchet_growth(doubled, ratchet.read_text())
+
+
+def test_review_ratchet_only_shrinks_across_revisions() -> None:
+    assert not historical_growth(ROOT)
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "dict({'resourceType': 'Observation'}, id='lab-' + row['number'])",
+        "dict(resourceType='Observation', **{'id': 'lab-' + row['number']})",
+        "dict([('resourceType', 'Observation'), ('id', 'lab-' + row['number'])])",
+    ],
+)
+def test_dict_constructor_combines_static_fields_before_inspection(tmp_path: Path, expression: str) -> None:
+    src = tmp_path / "libs" / "feed"
+    src.mkdir(parents=True)
+    (src / "map.py").write_text(f"def obs(row):\n    return {expression}\n")
+    assert scan(tmp_path) == {("libs/feed/map.py", "obs"): {"build FHIR id": 1}}

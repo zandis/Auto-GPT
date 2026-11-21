@@ -60,7 +60,9 @@ import yaml
 from tb_common import dates as tb_dates
 from tb_common import labvalue
 from tb_common.codekey import HALF_WIDTH, fold_key
+from tb_common.feedguard import STATIC_TYPES
 from tb_common.identity import (
+    RECORD_RULE,
     HeldOwner,
     Identifier,
     IdentityState,
@@ -954,6 +956,27 @@ PATIENT_RESOURCES = frozenset(
 )
 
 
+# An expression at any of these paths can write the patient reference a screening row reads.
+_ACTOR_SLOT = re.compile(r"participant(?:\[\d+\](?:\.actor(?:\.reference)?)?)?")
+
+
+def _check_actor_expression(path: str, expr: Any) -> None:
+    if path.endswith(".actor.reference"):
+        if isinstance(expr, dict):
+            if set(expr) <= {"ref", "when"} and (expr.get("ref") or {}).get("type"):
+                return
+            if set(expr) <= {"const", "when"}:
+                expr = expr.get("const")
+            elif set(expr) <= {"template", "when"}:
+                expr = expr.get("template")
+        if isinstance(expr, str) and re.match(r"^[A-Z][A-Za-z]+/", expr):
+            return
+    raise HeldOwner(
+        "record_identity.actor_owner: Declare the appointment actor's reference type. / "
+        "請宣告預約參與者的參照類型。 / 予約参加者の参照型を指定してください。"
+    )
+
+
 class Mapper:
     """Applies a :class:`Mapping` to source rows."""
 
@@ -976,6 +999,7 @@ class Mapper:
         self.key = site_key
         self.site_id = site_id
         self._namespace = json.dumps([site_id, mapping.name], ensure_ascii=False, separators=(",", ":"))
+        self.snapshot_scope = json.dumps(["resolve_record", RECORD_RULE, self._namespace])
         self._identity = IdentityState()
         # All resources from one row share the owner evidence declared by its mapping.
         self._owner_fields: dict[str, list[dict[str, Any]]] = {}
@@ -997,6 +1021,8 @@ class Mapper:
                     "patient.reference",
                 )
                 patient_actor = rs.type == "Appointment" and path.endswith(".actor.reference")
+                if rs.type == "Appointment" and _ACTOR_SLOT.fullmatch(path):
+                    _check_actor_expression(path, expr)
                 if not (owner_path or patient_actor):
                     continue
                 template = expr.get("template", "") if isinstance(expr, dict) else ""
@@ -1020,6 +1046,24 @@ class Mapper:
                     else:
                         fields.append({"reference_expr": expr, "when": when})
                     self._owner_paths.setdefault(id(rs), set()).add(path)
+        for table, fields in self._owner_fields.items():
+            table_spec = mapping.tables[table]
+            if pivot := table_spec.get("pivot"):
+                # Every owner claim must be constant within a group and survive widening verbatim.
+                untouched = set(pivot["keys"]) - {
+                    table_spec["key"],
+                    pivot["item"],
+                    pivot["value"],
+                    *pivot["columns"].values(),
+                }
+                for field_spec in fields:
+                    column = field_spec.get("pid") or field_spec.get("column") or field_spec.get("hid")
+                    if column not in untouched or field_spec.get("when"):
+                        raise HeldOwner(
+                            "record_identity.pivot_owner: Include every patient column unchanged in the pivot keys. / "
+                            "樞紐鍵須完整保留每個病人識別欄位。 / "
+                            "ピボットキーに全ての患者識別列をそのまま含めてください。"
+                        )
         self.ingest_time = ingest_time  # a FHIR instant: set, every resource carries its row provenance (DATA-010)
         self.builders: dict[str, Callable[[ResourceSpec, Row, dict[str, Any]], Any]] = {
             "lab_value": self._b_lab_value,
@@ -1993,5 +2037,11 @@ class Mapper:
                 ),
                 text,
             )
-            out.append(yaml.safe_load(text))
+            resource = yaml.safe_load(text)
+            if resource["resourceType"] not in STATIC_TYPES:
+                raise HeldOwner(
+                    "record_identity.static_type: Static resources must have an independent reference-data type. / "
+                    "靜態資源須使用獨立的參照資料類型。 / 静的リソースには独立した参照データ型を指定してください。"
+                )
+            out.append(resource)
         return out

@@ -9,9 +9,12 @@ paths. Extend the idioms when introducing a new representation of source identit
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import re
+import subprocess
 from collections import Counter, defaultdict
+from collections.abc import Iterator
 from pathlib import Path
 
 GATE = "libs/tb_common/identity.py"
@@ -253,7 +256,7 @@ class Scan(ast.NodeVisitor):
         for n in ast.walk(tree):
             if isinstance(n, ast.Assign) and isinstance(n.value, (ast.Name, ast.Attribute)):
                 origin = self.aliases.get(_name(n.value), _name(n.value))
-                if origin in CONSTRUCTORS:
+                if origin in CONSTRUCTORS or origin == "dict":
                     for target in n.targets:
                         if isinstance(target, ast.Name):
                             self.aliases[target.id] = origin
@@ -298,6 +301,8 @@ class Scan(ast.NodeVisitor):
             and any(_name(n) == "record" for n in ast.walk(node))
         ):
             self.hit(node, "EDC subject binding")
+        if name == "dict":
+            self.mapping_fields(list(self.literal_fields(node)))
         if name in CONSTRUCTORS:
             self.hit(node, "call " + name)
         self.generic_visit(node)
@@ -353,16 +358,39 @@ class Scan(ast.NodeVisitor):
             self.sink(_name(node.target), node.value)
         self.generic_visit(node)
 
+    def literal_fields(self, node: ast.expr) -> Iterator[tuple[str, ast.expr]]:
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values, strict=True):
+                if key is None:
+                    yield from self.literal_fields(value)
+                elif isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    yield key.value, value
+        elif isinstance(node, ast.Call) and self.aliases.get(_name(node.func), _name(node.func)) == "dict":
+            for arg in node.args:
+                yield from self.literal_fields(arg)
+            for kw in node.keywords:
+                if kw.arg is None:
+                    yield from self.literal_fields(kw.value)
+                else:
+                    yield kw.arg, kw.value
+        elif isinstance(node, (ast.Tuple, ast.List)):
+            for pair in node.elts:
+                if isinstance(pair, (ast.Tuple, ast.List)) and len(pair.elts) == 2:
+                    key, value = pair.elts
+                    if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                        yield key.value, value
+
     def visit_Dict(self, node: ast.Dict) -> None:
+        self.mapping_fields(list(self.literal_fields(node)))
+        self.generic_visit(node)
+
+    def mapping_fields(self, fields: list[tuple[str, ast.expr]]) -> None:
         fhir = any(
-            _name(k) == "resourceType" and (_name(v) in CLINICAL_TYPES or not isinstance(v, ast.Constant))
-            for k, v in zip(node.keys, node.values, strict=True)
+            name == "resourceType" and (_name(value) in CLINICAL_TYPES or not isinstance(value, ast.Constant))
+            for name, value in fields
         )
-        for key, value in zip(node.keys, node.values, strict=True):
-            if not isinstance(key, ast.Constant):
-                continue  # e.g. {pid: chart_number} indexes an existing owner
-            name = _name(key)
-            if name == "record" and any(_name(k) == "pid" for k in node.keys) and _constructed(value):
+        for name, value in fields:
+            if name == "record" and any(key == "pid" for key, _ in fields) and _constructed(value):
                 self.hit(value, "EDC subject binding")
             if name == "mrn" and isinstance(value, ast.Attribute) and value.attr == "patient":
                 self.hit(value, "source owner")
@@ -379,7 +407,6 @@ class Scan(ast.NodeVisitor):
             ):
                 self.hit(value, "build FHIR id")
             self.sink(name, value)
-        self.generic_visit(node)
 
     def visit_Return(self, node: ast.Return) -> None:
         if node.value and isinstance(node.value, (ast.JoinedStr, ast.BinOp, ast.Tuple, ast.Call)):
@@ -485,8 +512,12 @@ def scan(root: Path, *, detailed: bool = False) -> Inventory:
 
 def expected_inventory(path: Path, *, detailed: bool = False) -> Inventory:
     """Each reviewed expression occurs once per entry, including repeated identical writes."""
+    return _inventory(path.read_text(), detailed)
+
+
+def _inventory(document: str, detailed: bool) -> Inventory:
     result: Inventory = defaultdict(Counter)
-    for entry in json.loads(path.read_text()):
+    for entry in json.loads(document):
         location = (entry["file"], entry["function"])
         if not all(entry.get(k) for k in ("why", "area", "operation", "expression")):
             raise ValueError(f"Invalid entry / 清單項目無效 / 無効な項目 {location}")
@@ -495,3 +526,40 @@ def expected_inventory(path: Path, *, detailed: bool = False) -> Inventory:
             operation += "\n" + entry["expression"]
         result[location][operation] += 1
     return dict(result)
+
+
+def ratchet_growth(proposed: str, previous: str) -> Inventory:
+    """Count new expressions, including extra copies at an already reviewed location."""
+    before = _inventory(previous, detailed=True)
+    return {
+        location: added
+        for location, entries in _inventory(proposed, detailed=True).items()
+        if (added := entries - before.get(location, Counter()))
+    }
+
+
+def historical_growth(root: Path) -> Inventory:
+    """Follow the first-parent ratchet, including the working copy. Squash merges are ordinary transitions."""
+    path = "tools/record_identity_ratchet.json"
+
+    def git(*args: str) -> str:
+        return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True).stdout
+
+    revisions = git("log", "--first-parent", "--format=%H", "--", path).splitlines()
+    current = (root / path).read_text()
+    for revision in revisions:
+        previous = git("show", f"{revision}:./{path}")
+        if added := ratchet_growth(current, previous):
+            return added
+        current = previous
+    # Authenticate the starting list too: a shallow checkout or a squashed first introduction
+    # cannot silently establish a larger baseline.
+    if (
+        hashlib.sha256(current.encode()).hexdigest()
+        != "a864d589201c6f26dc4a7b37baeb5e0f799b2da70586550b92f899850a022377"
+    ):
+        raise ValueError(
+            "Unverified initial ratchet. Use full history. / 無法驗證初始清單，請使用完整歷程。 / "
+            "初期リストを検証できません。完全な履歴を使用してください。"
+        )
+    return {}

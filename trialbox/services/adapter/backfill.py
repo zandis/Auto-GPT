@@ -49,6 +49,7 @@ from zoneinfo import ZoneInfo
 from tb_common import feedguard
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import pid_for_mrn
+from tb_common.identity import BULK_SCOPE, RECORD_RULE, SCOPE_FILE
 
 from adapter.ndjson import is_deleted_flag, snapshot_dir
 from adapter.pipeline import (
@@ -164,6 +165,7 @@ def _atomic_json(path: Path, body: Any) -> None:
 def _fingerprint(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str) -> str:
     h = hashlib.sha256()
     h.update(json.dumps([source_kind, str(source_path), snap, cfg.site_id], sort_keys=True).encode())
+    h.update((BULK_SCOPE if source_kind == "fhir_bulk" else RECORD_RULE).encode())
     if cfg.mapping_path.is_file():
         h.update(cfg.mapping_path.read_bytes())
     return h.hexdigest()
@@ -214,6 +216,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
     tables: dict[str, dict[str, Any]] = {}  # D-535: per source table, what the night's completeness record holds
     unmapped_codes: dict[str, dict[str, dict[str, int]]] = {}
     maps_not_loaded: list[str] = []  # D-665: filled as the rows are mapped
+    scope = BULK_SCOPE
     pm = cfg.pidmap()
     try:
         aliases = pm.aliases()
@@ -249,6 +252,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                 concept_map=asks,
                 mrn_regex=cfg.mrn_regex,  # CGRD-A4 (D-816, lane E's hunk): a masked text uses the site's pattern
             )  # fmt: skip
+            scope = mapper.snapshot_scope
             source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
             for res in mapper.static_resources():
                 emit(res)
@@ -327,7 +331,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
         sp.close()
         pm.close()
     return {"rejected": rejected, "rows": rows_by_table, "tables": tables, "unmapped_codes": unmapped_codes,
-            "maps_not_loaded": maps_not_loaded}  # fmt: skip
+            "maps_not_loaded": maps_not_loaded, "identity_scope": scope}  # fmt: skip
 
 
 def _sort_bucket(spool: Path, runs: Path, bucket: str) -> dict[str, Any]:
@@ -623,6 +627,8 @@ def _publish(
     # facts are the spool's (kept beside it: a run started again writes the same); the orphan counts are read from
     # the records of this publish
     facts = _spool_facts(work)
+    if scope := facts.get("identity_scope"):
+        (stage / SCOPE_FILE).write_text(scope, encoding="utf-8")
     tables = {str(t): dict(v) for t, v in (facts.get("tables") or {}).items()}
     if "tables" in facts:  # always, since the load reads its source again for a spool without them
         _, completeness = completeness_check(cfg, tables, stage, None, full=True)
