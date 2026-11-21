@@ -87,7 +87,6 @@ R-01 and R-02 also hold the training evidence of `qms-lite.md` §3 (first sign-i
 | O-13 | Vector store of note chunks (schema `vec`, D-439): each masked chunk of a note with its offsets, and one vector per chunk text and embedding model | derived from the notes of R-25 after the PHI pass, rebuilt from them; never exported | kept while the note is in R-25; the opt-out worker calls `VecStore.delete_patient` on each tick (T-727, D-465), which removes the patient's chunks and every vector no other chunk uses |
 | O-14 | EDC door state (schema `edcdoor`, D-1044): the ids of the events the owner's EDC sent, with its project and record ids and the instrument, and the writes held for a person's confirmation | bookkeeping: each event and each confirmed write is in R-01 (`edc.event`, `edc.tool_confirm`); the EDC holds the trial data | event ids kept (a repeated delivery is known as one); a held write until it is confirmed or 15 minutes pass |
 | O-15 | A person's own preferences (schema `auth`, table `user_pref`, D-1387): density, text size, colour mode and language, each a closed set | how one person's pages look; no patient, no trial data; each change is in R-01 (`console.pref_set`) | until the person changes it or the account is disabled |
-| O-16 | A study's jRCT record read from the person's own file (files `registry_records/<study>/<sha256>.json` in the console's folder, D-1373): the record's number, title, health conditions, recruitment status, phase and last update, the file's SHA-256, who read it and when | public registry data about the study, no patient and no investigator's name or contact; each file read or refused is in R-01 (`console.registry_record`, `console.registry_record_refused`) | kept with the console's folder; a newer file is shown first, the earlier ones stay |
 
 ## 4. Store map
 
@@ -149,7 +148,6 @@ are marked "files".
 | `services/console/feedback.py` | `entry` | O-02 |
 | `services/edc_backend/store.py` | `proposal`, `event` | O-14 |
 | `services/console/auth.py` | `user_pref` | O-15 |
-| `services/console/registry_record_page.py` | files: one JSON file per jRCT record file read | O-16 |
 | `services/tracestore/store.py` | `traces`, `access_log` | O-03 |
 | `services/orchestrator/db.py` | `pool`, `feedback` | O-05 |
 | `services/console/sitestore.py` | `weekly_seen` | O-06 |

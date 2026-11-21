@@ -582,12 +582,6 @@ OUTSIDE: dict[str, Entry] = {
         "(tb_common.provenance_index.erase; a rebuild leaves an opted-out patient out); the call rows name no patient",
         "the opt-out worker's clear of the use rows (D-989), once the role script grants its role DELETE (lane D)",
     ),
-    "outside:console_registry_records": _none(
-        "a study's jRCT record read from the person's own file (10D-16a, D-1373): files under the console's folder "
-        "(registry_records/<study>/<sha256>.json) holding the record's number, title, health conditions, recruitment "
-        "status, phase and last update, the file's SHA-256 and the staff account that read it; public registry "
-        "data, no patient and no investigator's name or contact"
-    ),
     "outside:audit": _keep(
         "D-394",
         "the audit chain and its journal: append-only, hash-chained; the opt-out's own "

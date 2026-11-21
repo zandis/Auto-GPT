@@ -554,13 +554,6 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "people.view.": _view_keys,
     "people.side.": _values("console.people_lists", "LISTS"),
     "tier.lacks.": _values("console.tier_words", "WORDED"),  # 10E-17 (D-1244): the tier's worded absences
-    # 10D-16a (D-1373): a jRCT record from a file: its kept fields, and every rule a file can break (the parser's
-    # codes and the console's own three)
-    "rrec.f.": _values("tb_common.registry_file", "KEPT"),
-    "rrec.err.": _union(
-        _values("tb_common.registry_file", "CODES"),
-        lambda: ["no_file", "other_study", "api_type", "bad_form", "store"],
-    ),
 }
 
 _RUN = "a value of stored data or of a service's answer (a state, a kind, a source): no one list in the code holds it"

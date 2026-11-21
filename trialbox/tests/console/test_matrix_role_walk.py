@@ -233,11 +233,6 @@ def preparer(b: dict[str, Any], job_id: str) -> rw.Prepare:
             ("POST", "/ops/users"): lambda: {"form": {"action": "disable", "username": throwaway()}},
             ("POST", "/api/v1/studies/{rs}/patients/{pid}/reveal"): lambda: {"json": reveal},
             ("POST", "/api/v1/studies/{rs}/patients/{pid}/mark"): lambda: {"json": {"mark": "need_info"}},
-            # 10D-16a (D-1373): one synthetic jRCT record as a file (the same file again is kept once)
-            ("POST", "/studies/{rs}/registry-record"): lambda: {"files": {"record": ("r.csv", REGISTRY_CSV,
-                                                                                  "text/csv")}},
-            ("POST", "/api/v1/studies/{rs}/registry-record"): lambda: {"content": REGISTRY_CSV,
-                                                                      "content_type": "text/csv"},
         }  # fmt: skip
         make = table.get((method, path))
         if make is None:
@@ -268,10 +263,7 @@ PREPARED = (  # a valid body to the columns its row allows; the refused columns 
     "POST /studies/{rs}/patients/{pid}/reveal", "POST /studies/{rs}/candidates/{pid}/reveal",
     "POST /pilot/jobs/{job_id}/reveal", "POST /studies/{rs}/patients/{pid}/mark", "POST /ops/users",
     "POST /api/v1/studies/{rs}/patients/{pid}/reveal", "POST /api/v1/studies/{rs}/patients/{pid}/mark",
-    "POST /studies/{rs}/registry-record", "POST /api/v1/studies/{rs}/registry-record",
 )  # fmt: skip
-#: 10D-16a (D-1373): a synthetic jRCT record, the file the two registry-record routes are given
-REGISTRY_CSV = "jRCT番号,研究の名称\njRCT2031260907,A synthetic study for the walk\n".encode()
 
 
 def run_walk(b: dict[str, Any], tmp_path: Path, tracer: rw.Tracer | None = None) -> list[dict[str, Any]]:
