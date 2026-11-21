@@ -9,7 +9,7 @@ from __future__ import annotations
 EN: dict[str, str] = {
     "rrec.title": "The study's jRCT record",
     "rrec.help": "One study's record from jRCT (the Japan Registry of Clinical Trials), read from a CSV file you downloaded yourself. TrialBox never connects to jRCT: it reads only the file you give here, one record at a time.",
-    "rrec.where": "Where to get the file: on jRCT's own website (jrct.mhlw.go.jp), search for this study's jRCT number, accept the terms of use and use the search page's CSV download, with only this study in the result. Then choose that file below.",
+    "rrec.where": "Where to get the file: on jRCT's own website (run by the Ministry of Health, Labour and Welfare), search for this study's jRCT number, accept the terms of use and use the search page's CSV download, with only this study in the result. Then choose that file below.",
     "rrec.kept": "Kept from the file: the jRCT number, the title, the health conditions, the recruitment status, the phase and the date of the last update. Nothing else in the file is kept: no person's name, e-mail address or telephone number, and not the eligibility text or the summaries.",
     "rrec.file": "CSV file with one jRCT record",
     "rrec.file.hint": "UTF-8 or Shift_JIS text, at most 256 KB, the header row and one record.",
@@ -55,7 +55,7 @@ EN: dict[str, str] = {
 JA: dict[str, str] = {
     "rrec.title": "試験のjRCT記録",
     "rrec.help": "jRCT（臨床研究等提出・公開システム）の試験1件分の記録を、ご自身でダウンロードしたCSVファイルから読み込みます。TrialBoxはjRCTに接続しません。ここで渡されたファイルだけを、1回に1件読みます。",
-    "rrec.where": "ファイルの入手先：jRCTのウェブサイト（jrct.mhlw.go.jp）でこの試験のjRCT番号を検索し、利用規約に同意して、検索結果がこの試験だけの状態で検索ページのCSVダウンロードを使ってください。そのファイルを下で選びます。",
+    "rrec.where": "ファイルの入手先：厚生労働省のjRCTのウェブサイトでこの試験のjRCT番号を検索し、利用規約に同意して、検索結果がこの試験だけの状態で検索ページのCSVダウンロードを使ってください。そのファイルを下で選びます。",
     "rrec.kept": "ファイルから保存するのは、jRCT番号、名称、対象疾患、募集状況、フェーズ、最終更新日だけです。それ以外は何も保存しません。人の氏名、メールアドレス、電話番号、選択・除外基準の本文、概要も保存しません。",
     "rrec.file": "jRCT記録1件のCSVファイル",
     "rrec.file.hint": "UTF-8またはShift_JISのテキスト、256 KB以下、見出し行と記録1件。",
@@ -101,7 +101,7 @@ JA: dict[str, str] = {
 ZH: dict[str, str] = {
     "rrec.title": "試驗的 jRCT 紀錄",
     "rrec.help": "從您自己下載的 CSV 檔案，讀入一個試驗在 jRCT（日本臨床試驗登錄系統）的紀錄。TrialBox 從不連線到 jRCT：只讀取您在這裡提供的檔案，一次一筆。",
-    "rrec.where": "檔案從哪裡取得：在 jRCT 的網站（jrct.mhlw.go.jp）搜尋這個試驗的 jRCT 編號，同意使用條款，並在搜尋結果只有這個試驗時，使用搜尋頁的 CSV 下載。然後在下方選擇該檔案。",
+    "rrec.where": "檔案從哪裡取得：在 jRCT 的網站（日本厚生勞動省營運）搜尋這個試驗的 jRCT 編號，同意使用條款，並在搜尋結果只有這個試驗時，使用搜尋頁的 CSV 下載。然後在下方選擇該檔案。",
     "rrec.kept": "從檔案保存的只有：jRCT 編號、名稱、健康狀況、招募狀態、期別和最後更新日期。檔案中其他內容一律不保存：不保存任何人的姓名、電子郵件地址或電話號碼，也不保存納入排除條件的內文或摘要。",
     "rrec.file": "含一筆 jRCT 紀錄的 CSV 檔案",
     "rrec.file.hint": "UTF-8 或 Shift_JIS 文字，最多 256 KB，標題列和一筆紀錄。",

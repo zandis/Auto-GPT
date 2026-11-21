@@ -144,7 +144,8 @@ def test_a_good_file_is_kept_audited_and_shown(box: dict[str, Any]) -> None:  # 
     text = c.get(r.headers["location"]).text
     assert 'data-testid="rrec-saved"' in text and "A synthetic study of drug X" in text
     assert 'data-testid="rrec-id">jRCT2031260901<' in text and rf.sha256(GOOD) in text
-    assert "jrct.mhlw.go.jp" in text and 'href="https://jrct' not in text and 'href="http://jrct' not in text
+    assert 'data-testid="rrec-where"' in text and "Ministry of Health, Labour and Welfare" in text
+    assert 'href="https://jrct' not in text and 'href="http://jrct' not in text  # plain text, never a link
 
 
 def test_the_same_file_twice_is_kept_once(box: dict[str, Any]) -> None:  # noqa: F811
