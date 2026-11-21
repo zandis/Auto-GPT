@@ -125,12 +125,10 @@ you may push to the hospital's git server.
 3. **Age alert.** `python3 -m tools.trialbox backup-status` shows the newest good off-box backup (the one
    `backup-last.json` records, with the same name, size and sha256 on the share) and its age. It turns red (exit 1)
    when that backup is older than `TB_BACKUP_MAX_AGE_HOURS` (36) or dated in the future, when the last nightly run
-   or its pgBackRest step failed, or when WAL archiving fails, is off on the server, or has archived nothing for 26
-   hours. Red is audited (`backup.alert`, again every 24 h, `backup.alert_cleared` when it ends), mailed by cron to
-   `MAILTO`, and piped to `TB_BACKUP_ALERT_CMD` when set (a command that reads the message on stdin, e.g. the
-   hospital's mail tool). The message holds no patient data. Fix the cause, then run `backup-nightly` by hand.
-   From the install folder, run `PYTHONPATH=libs python3 -m tools.trialbox backup-nightly`.
-   修正原因後，請在安裝目錄執行上述指令。原因を解消したら、インストール先のディレクトリでこのコマンドを実行します。
+   or its pgBackRest step failed, or when WAL archiving fails, is off on the server, or has archived nothing for 26 hours.
+   Red is audited (`backup.alert`, again every 24 h, `backup.alert_cleared` when it ends), mailed by cron to `MAILTO`, and piped to
+   `TB_BACKUP_ALERT_CMD` when set (a command that reads the message on stdin, e.g. the hospital's mail tool). The message holds no patient data.
+   Fix the cause, then run `PYTHONPATH=libs python3 -m tools.trialbox backup-nightly` from the install folder. 修正原因後，請在安裝目錄執行上述指令。原因を解消したら、インストール先のディレクトリでこのコマンドを実行します。
 4. **Check a backup** with hospital IT: `trialbox backup-verify <file> --key <private key>` (reads it all, checks
    every hash and the sidecar). A backup made before D-187 (layout 1, gzip or zstd) still verifies and restores.
 

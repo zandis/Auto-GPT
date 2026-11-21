@@ -771,6 +771,7 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_LAKE_SOURCE": Declared("str", "legacy", "lake source (legacy or omop)"),
     "TB_LAKE_TEMP_DIR": Declared("path", "", "lake: temporary folder"),
+    "TB_LAKE_THREADS": Declared("int", "2", "lake: thread cap per DuckDB and native library pool in Compose"),
     "TB_LINK_ADDR": Declared("str", "", "two-device link: this device's address on the hospital network"),
     "TB_LINK_CERTS": Declared("path", "/run/secrets/tb_link", "two-device link: certificate folder"),
     "TB_LINK_PEER": Declared("str", "", "two-device link: the other device's address"),
