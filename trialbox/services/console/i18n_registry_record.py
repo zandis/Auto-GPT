@@ -1,6 +1,7 @@
 # ruff: noqa: E501 - one string per line, as in the other catalogues
 """Words of a study's jRCT record read from a file (10D-16a, D-1373): the page, its form and the message of each rule a
-file can break (``tb_common.registry_file.CODES``, and ``no_file``, ``other_study``, ``api_type`` of the console).
+file can break (``tb_common.registry_file.CODES``, and ``no_file``, ``other_study``, ``api_type``, ``bad_form`` and ``store`` of the
+console).
 Joined into ``console.i18n`` by ``console.registry_record_page`` when it is imported. The limits written here are the
 module's own (``MAX_BYTES``, ``MAX_COLUMNS``, ``CELL_MAX``, ``FIELD_MAX``); a test holds the two equal."""
 
@@ -14,7 +15,8 @@ EN: dict[str, str] = {
     "rrec.file": "CSV file with one jRCT record",
     "rrec.file.hint": "UTF-8 or Shift_JIS text, at most 256 KB, the header row and one record.",
     "rrec.submit": "Read the file",
-    "rrec.saved": "The file was read and its record is kept below. A file given again is kept once.",
+    "rrec.saved": "The file was read: its record is the current record, shown below. A file given again is kept once.",
+    "rrec.same": "This file was read before, at {at}, so nothing changed. The current record stays the one read last, shown below.",
     "rrec.nofile": "No file was given, so nothing was read.",
     "rrec.none": "No record has been read for this study yet.",
     "rrec.current": "The record read last",
@@ -42,7 +44,11 @@ EN: dict[str, str] = {
     "rrec.err.too_wide": "A row of the file has more than 300 columns.",
     "rrec.err.cell_long": "A cell of the file is longer than 32,000 characters.",
     "rrec.err.no_header": "The first row is not a jRCT header: it must name the column of the jRCT number and the column of the title.",
-    "rrec.err.header_twice": "Two columns of the header have the same name for one kept field, so which one is meant is not known.",
+    "rrec.err.header_twice": "The header has more than one column for one kept field (for example a title column under two names, or two number columns), so which one is meant is not known.",
+    "rrec.err.invisible": "A kept field holds an invisible or direction-changing character (a format, private-use or control character).",
+    "rrec.err.formula": "A kept field starts with =, +, - or @, which a spreadsheet would read as a formula.",
+    "rrec.err.bad_form": "The form held more than one file or too many fields. Send one CSV file.",
+    "rrec.err.store": "The box's folder for this study holds a file the box did not write, so nothing was kept. Tell the administrator.",
     "rrec.err.row_wide": "The record has more cells than the header.",
     "rrec.err.no_record": "The file has the header row but no record.",
     "rrec.err.many_records": "The file holds more than one record. Give one study's record at a time.",
@@ -60,7 +66,8 @@ JA: dict[str, str] = {
     "rrec.file": "jRCT記録1件のCSVファイル",
     "rrec.file.hint": "UTF-8またはShift_JISのテキスト、256 KB以下、見出し行と記録1件。",
     "rrec.submit": "ファイルを読み込む",
-    "rrec.saved": "ファイルを読み込み、その記録を下に保存しました。同じファイルをもう一度渡しても、保存は1回分です。",
+    "rrec.saved": "ファイルを読み込みました。その記録が現在の記録で、下に表示しています。同じファイルをもう一度渡しても、保存は1回分です。",
+    "rrec.same": "このファイルは{at}に読み込み済みのため、何も変わっていません。現在の記録は最後に読み込んだもので、下に表示しています。",
     "rrec.nofile": "ファイルが渡されなかったため、何も読み込んでいません。",
     "rrec.none": "この試験の記録はまだ読み込まれていません。",
     "rrec.current": "最後に読み込んだ記録",
@@ -88,7 +95,11 @@ JA: dict[str, str] = {
     "rrec.err.too_wide": "ファイルの行に300を超える列があります。",
     "rrec.err.cell_long": "ファイルのセルが32,000文字を超えています。",
     "rrec.err.no_header": "1行目がjRCTの見出し行ではありません。jRCT番号の列と名称の列が必要です。",
-    "rrec.err.header_twice": "見出し行に、保存する1つの項目と同じ名前の列が2つあり、どちらを使うか分かりません。",
+    "rrec.err.header_twice": "見出し行に、保存する1つの項目の列が2つ以上あります（名称の列が2つの名前で、または番号の列が2つなど）。どちらを使うか分かりません。",
+    "rrec.err.invisible": "保存する項目に、見えない文字または文字の向きを変える文字（書式文字、私用文字、制御文字）があります。",
+    "rrec.err.formula": "保存する項目が =、+、-、@ のいずれかで始まっています。表計算ソフトが数式として読む形です。",
+    "rrec.err.bad_form": "フォームに2つ以上のファイルか、多すぎる項目がありました。CSVファイルを1つ送ってください。",
+    "rrec.err.store": "この試験のフォルダーに、このシステムが書いていないファイルがあるため、何も保存していません。管理者に知らせてください。",
     "rrec.err.row_wide": "記録のセルが見出し行より多くあります。",
     "rrec.err.no_record": "ファイルに見出し行はありますが、記録がありません。",
     "rrec.err.many_records": "ファイルに2件以上の記録があります。1回に試験1件の記録を渡してください。",
@@ -106,7 +117,8 @@ ZH: dict[str, str] = {
     "rrec.file": "含一筆 jRCT 紀錄的 CSV 檔案",
     "rrec.file.hint": "UTF-8 或 Shift_JIS 文字，最多 256 KB，標題列和一筆紀錄。",
     "rrec.submit": "讀入檔案",
-    "rrec.saved": "已讀入檔案，其紀錄保存在下方。同一個檔案再提供一次，只保存一次。",
+    "rrec.saved": "已讀入檔案：其紀錄是目前的紀錄，顯示在下方。同一個檔案再提供一次，只保存一次。",
+    "rrec.same": "這個檔案已於 {at} 讀入過，因此沒有任何變更。目前的紀錄仍是最後讀入的那一筆，顯示在下方。",
     "rrec.nofile": "沒有提供檔案，因此沒有讀入任何內容。",
     "rrec.none": "這個試驗尚未讀入任何紀錄。",
     "rrec.current": "最後讀入的紀錄",
@@ -134,7 +146,11 @@ ZH: dict[str, str] = {
     "rrec.err.too_wide": "檔案有一列超過 300 欄。",
     "rrec.err.cell_long": "檔案有一個儲存格超過 32,000 個字元。",
     "rrec.err.no_header": "第一列不是 jRCT 的標題列：必須有 jRCT 編號欄和名稱欄。",
-    "rrec.err.header_twice": "標題列中有兩欄與同一個保存項目同名，無法得知要用哪一欄。",
+    "rrec.err.header_twice": "標題列中同一個保存項目有一欄以上（例如名稱欄以兩個名稱出現，或兩個編號欄），無法得知要用哪一欄。",
+    "rrec.err.invisible": "保存的項目含有看不見或改變文字方向的字元（格式字元、私人使用字元或控制字元）。",
+    "rrec.err.formula": "保存的項目以 =、+、- 或 @ 開頭，試算表會將其當作公式讀取。",
+    "rrec.err.bad_form": "表單含有一個以上的檔案或過多欄位。請送出一個 CSV 檔案。",
+    "rrec.err.store": "這個試驗的資料夾中有一個不是本系統寫入的檔案，因此沒有保存任何內容。請通知管理員。",
     "rrec.err.row_wide": "紀錄的儲存格比標題列多。",
     "rrec.err.no_record": "檔案有標題列，但沒有紀錄。",
     "rrec.err.many_records": "檔案含有一筆以上的紀錄。請一次提供一個試驗的紀錄。",

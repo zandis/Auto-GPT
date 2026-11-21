@@ -9,7 +9,7 @@ import stat
 from pathlib import Path
 
 import pytest
-from console.registry_record_page import Store
+from console.registry_record_page import NotOurs, Store
 from tb_common import registry_file as rf
 
 from tests.unit.test_registry_file_10d16a import GOOD, WITH_NAMES
@@ -59,3 +59,45 @@ def test_a_planted_link_or_a_bad_name_is_refused(tmp_path: Path) -> None:
         with pytest.raises(ValueError):
             store.keep(rid, sha, rec, "crc1", "2026-11-21T00:00:00+00:00")
     assert store.records("NONE") == []
+
+
+def test_a_study_code_with_a_line_end_is_refused(tmp_path: Path) -> None:
+    """L8: the code is matched whole (no "A" + line end)."""
+    store = Store(tmp_path / "registry_records")
+    with pytest.raises(ValueError):
+        store.keep("GZQO\n", rf.sha256(GOOD), rf.read_record(GOOD), "crc1", "2026-11-21T00:00:00+00:00")
+    assert not (tmp_path / "registry_records").exists() or list((tmp_path / "registry_records").iterdir()) == []
+
+
+def _plant(folder: Path, name: str, **d: object) -> None:
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    base = {"study": "GZQO", "registry": "jRCT", "file_sha256": name, "by": "planted",
+            "at": "2026-11-21T00:00:00+00:00", "record": dict.fromkeys(rf.KEPT, "planted")}  # fmt: skip
+    (folder / f"{name}.json").write_text(__import__("json").dumps({**base, **d}), encoding="utf-8")
+
+
+def test_the_store_trusts_nothing_it_did_not_write(tmp_path: Path) -> None:
+    """L9: a file whose study or SHA-256 is not its folder and name is never shown, and a write over it, or over a
+    dangling link, is refused instead of being reported as kept."""
+    root = tmp_path / "registry_records"
+    folder = root / "GZQO"
+    sha, rec = rf.sha256(GOOD), rf.read_record(GOOD)
+    _plant(folder, sha, file_sha256="0" * 64)  # the content's SHA-256 is not its name
+    _plant(folder, "1" * 64, study="OTHER")  # another study's record in this folder
+    store = Store(root)
+    assert store.records("GZQO") == []
+    with pytest.raises(NotOurs):
+        store.keep("GZQO", sha, rec, "crc1", "2026-11-21T00:00:00+00:00")
+    other = rf.sha256(WITH_NAMES)
+    (folder / f"{other}.json").symlink_to(tmp_path / "nowhere")  # a dangling link
+    with pytest.raises(NotOurs):
+        store.keep("GZQO", other, rf.read_record(WITH_NAMES), "crc1", "2026-11-21T00:00:00+00:00")
+    assert not (tmp_path / "nowhere").exists()
+
+
+def test_the_current_record_is_chosen_by_time_not_by_text(tmp_path: Path) -> None:
+    """L10: times written with different offsets are compared as times."""
+    store = Store(tmp_path / "registry_records")
+    store.keep("GZQO", rf.sha256(GOOD), rf.read_record(GOOD), "crc1", "2026-11-21T09:00:00+09:00")  # 00:00 UTC
+    store.keep("GZQO", rf.sha256(WITH_NAMES), rf.read_record(WITH_NAMES), "crc1", "2026-11-21T01:00:00+00:00")
+    assert [r["record"]["id"] for r in store.records("GZQO")] == ["jRCT2031260902", "jRCT2031260901"]

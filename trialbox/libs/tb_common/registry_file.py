@@ -14,7 +14,12 @@ returns values. The file is hostile input:
 * **a strict CSV:** Python's ``csv`` reader with ``strict=True`` (a stray quote is an error), at most
   :data:`MAX_COLUMNS` columns and :data:`CELL_MAX` characters in any cell, the header in the first row (two header
   cells that are the same column name for a kept field are refused: which one is meant is not known), a data row with
-  more cells than the header refused, and **exactly one record**: a second data row is refused (Decision 52);
+  more cells than the header refused, and **exactly one record**: a second data row is refused (Decision 52); a
+  kept field's column present under more than one of its names (``Title`` and ``Public Title``, ``jRCT番号`` and
+  ``Trial ID``) is refused, as which one is meant is not known;
+* **kept fields:** no format character (direction marks and overrides, zero-width characters), private-use or control
+  character, and no value starting with ``=``, ``+``, ``-`` or ``@`` (refused, not rewritten: a later export can never
+  turn it into a formula; a dash alone is kept);
 * **the record's number** must be one jRCT number standing alone in its cell, as ``tb_common.ctgov_record.registry_of``
   recognises it (``jRCT`` + 10 digits, or ``jRCTs`` + 9 digits).
 
@@ -69,8 +74,15 @@ _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 #: the codes of :class:`Refused`, each with its message key ``rrec.err.<code>`` in the console's catalogue
 CODES: tuple[str, ...] = (
     "empty", "too_large", "archive", "binary", "markup", "json", "not_text", "bad_csv", "too_wide", "cell_long",
-    "no_header", "header_twice", "row_wide", "no_record", "many_records", "bad_id", "field_long",
+    "no_header", "header_twice", "row_wide", "no_record", "many_records", "bad_id", "field_long", "invisible",
+    "formula",
 )  # fmt: skip
+#: the first characters a spreadsheet reads as a formula: a kept field starting with one is refused (a later export
+#: can then never turn it into one); a field that is a dash alone ("none") is kept
+FORMULA_START = ("=", "+", "-", "@")
+#: Unicode categories refused in a kept field: format characters (direction marks and overrides, zero-width
+#: characters), private use, and control characters (refused in the whole file already)
+INVISIBLE = ("Cf", "Co", "Cc")
 
 
 class Refused(ValueError):
@@ -146,6 +158,8 @@ def _rows(text: str) -> list[list[str]]:
             if len(out) > 2:
                 raise Refused("many_records")
     except csv.Error as exc:
+        if "field larger than field limit" in str(exc):  # Python csv's own cell limit, above CELL_MAX
+            raise Refused("cell_long") from exc
         raise Refused("bad_csv") from exc
     return out
 
@@ -154,13 +168,12 @@ def _columns(header: list[str]) -> dict[str, int]:
     keys = [_key(c) for c in header]
     idx: dict[str, int] = {}
     for name in ("id", *KEPT[1:]):
-        for alias in JRCT_COLS[name]:
-            k = _key(alias)
-            if k in keys:
-                if keys.count(k) > 1:
-                    raise Refused("header_twice")
-                idx[name] = keys.index(k)
-                break
+        names = {_key(a) for a in JRCT_COLS[name]}
+        at = [i for i, k in enumerate(keys) if k in names]
+        if len(at) > 1:  # two columns for one kept field (one name twice, or two of its names): which is meant?
+            raise Refused("header_twice")
+        if at:
+            idx[name] = at[0]
     if "id" not in idx or "title" not in idx:
         raise Refused("no_header")
     return idx
@@ -191,6 +204,11 @@ def read_record(data: bytes) -> Record:
     conditions = [c.strip() for c in re.split(r"[、;；\n]", row[at] if at < len(row) else "")]
     got["condition"] = "; ".join(_one_line(c) for c in conditions if c.strip())
     for k in KEPT:
-        if len(got.get(k, "")) > FIELD_MAX[k]:
+        v = got.get(k, "")
+        if any(unicodedata.category(ch) in INVISIBLE for ch in v):
+            raise Refused("invisible", k)
+        if v.startswith(FORMULA_START) and v not in ("-",):
+            raise Refused("formula", k)
+        if len(v) > FIELD_MAX[k]:
             raise Refused("field_long", k)
     return Record(**{k: got.get(k, "") for k in KEPT})

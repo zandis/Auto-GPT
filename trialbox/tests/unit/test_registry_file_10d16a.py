@@ -100,6 +100,18 @@ HOSTILE: tuple[tuple[str, bytes, str], ...] = (
     ("another registry's number", _csv(HEAD, ROW.replace("jRCT2031260901", "UMIN000012345")), "bad_id"),
     ("a number with text around it", _csv(HEAD, ROW.replace("jRCT2031260901", "see jRCT2031260901")), "bad_id"),
     ("a path as the number", _csv(HEAD, ROW.replace("jRCT2031260901", "../../etc/passwd")), "bad_id"),
+    ("a title column under two names", _csv(HEAD + ",Public Title", ROW + ",Investigator Synthetic-One"),
+     "header_twice"),
+    ("two number columns", _csv(HEAD + ",Trial ID", ROW + ",jRCT2031260905"), "header_twice"),
+    ("two number columns, the same number", _csv(HEAD + ",jRCT No.", ROW + ",jRCT2031260901"), "header_twice"),
+    ("a cell over python's csv limit", _csv(HEAD + ",Other", ROW + "," + "x" * 150_000), "cell_long"),
+    ("a direction override in the title", _csv(HEAD, ROW.replace("drug X", "drug \u202eX")), "invisible"),
+    ("a zero-width space in the status", _csv(HEAD, ROW.replace("募集中", "募集\u200b中")), "invisible"),
+    ("an isolate in the phase", _csv(HEAD, ROW.replace("Phase 2", "\u2066Phase 2\u2069")), "invisible"),
+    ("a formula as the title", _csv(HEAD, ROW.replace("A synthetic study of drug X", "=HYPERLINK(1)")), "formula"),
+    ("a plus as the status", _csv(HEAD, ROW.replace("募集中", "+1")), "formula"),
+    ("an at sign as the phase", _csv(HEAD, ROW.replace("Phase 2", "@SUM(1)")), "formula"),
+    ("a minus as the conditions", _csv(HEAD, ROW.replace("Condition A、Condition B", "-2+3")), "formula"),
     ("a title too long", _csv(HEAD, ROW.replace("A synthetic study of drug X", "T" * 1001)), "field_long"),
     ("a status too long", _csv(HEAD, ROW.replace("募集中", "S" * 201)), "field_long"),
 )  # fmt: skip
@@ -121,7 +133,7 @@ def test_markup_inside_a_field_is_kept_as_text_never_parsed() -> None:
 
 
 def test_every_code_has_its_message_in_three_languages() -> None:
-    for code in (*rf.CODES, "no_file", "other_study", "api_type"):
+    for code in (*rf.CODES, "no_file", "other_study", "api_type", "bad_form", "store"):
         for cat in (words.EN, words.JA, words.ZH):
             assert cat[f"rrec.err.{code}"], code
     assert set(words.EN) == set(words.JA) == set(words.ZH)
@@ -157,3 +169,9 @@ def test_the_parser_opens_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     for _case, data, _code in HOSTILE:
         with pytest.raises(rf.Refused):
             rf.read_record(data)
+
+
+def test_a_dash_alone_is_kept_and_markup_is_not_a_formula() -> None:
+    """A dash alone means "none" and is kept as written; only a value a spreadsheet would read as a formula fails."""
+    rec = rf.read_record(_csv(HEAD, ROW.replace("Phase 2", "-")))
+    assert rec.phase == "-"

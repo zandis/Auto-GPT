@@ -71,9 +71,10 @@ def _error(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------------------------- who
-#: (column, role, scope, on the study's log as, may read the page, may read a file in)
+#: (column, role, scope, on the study's log as, may read the page, may read a file in); the readers are the study
+#: state page's readers on master (admin, steward and privacy read neither)
 COLUMNS: tuple[tuple[str, str, dict[str, str], str, bool, bool], ...] = (
-    ("admin", "admin", {}, "", True, False),
+    ("admin", "admin", {}, "", False, False),
     ("crc", "coordinator", {}, "", True, True),
     ("smo_in", "coordinator", {"affiliation": "smo", "studies": "GZQO", "expires": "2099-12-31"}, "", True, True),
     ("smo_out", "coordinator", {"affiliation": "smo", "studies": "RA-BIO", "expires": "2099-12-31"}, "", False, False),
@@ -82,9 +83,34 @@ COLUMNS: tuple[tuple[str, str, dict[str, str], str, bool, bool], ...] = (
     ("sub", "investigator", {}, "sub_pi", True, False),
     ("viewer", "viewer", {}, "", False, False),
     ("cro_in", "cro", {"affiliation": "cro", "studies": "GZQO"}, "", False, False),
-    ("steward", "steward", {}, "", True, False),
-    ("privacy", "privacy", {}, "", True, False),
+    ("cro_mon", "cro", {"affiliation": "cro", "studies": "GZQO"}, "monitor", False, False),
+    ("steward", "steward", {}, "", False, False),
+    ("privacy", "privacy", {}, "", False, False),
 )  # fmt: skip
+
+
+def test_the_page_and_its_api_have_exactly_the_readers_of_the_study_state_page(box: dict[str, Any]) -> None:  # noqa: F811
+    """M1 of the review: every column of the role matrix gets on the record page, and on its API read, the answer it
+    gets on /studies/{rs}/state; who read a file in is shown only where who changed the study's state is."""
+    from tests.console.test_role_route_matrix import COLUMNS as MATRIX
+
+    assert _post(_crc(box, "rrseed"), GOOD).status_code == 303  # a record whose reader is named on the page
+    h = box["app"].state.helpers
+    for col, (user, role, aff, studies) in MATRIX.items():
+        name = f"m{user}"
+        c = _user(box, name, role, **({"affiliation": aff, "studies": studies} if studies else {}))
+        if col == "lpi":
+            name_pi(box, name)
+        token, _ = box["users"].new_session(box["users"].get(name), via="api")
+        api = TestClient(box["app"], headers={"Authorization": f"Bearer {token}"})
+        state, mine, read = c.get("/studies/GZQO/state"), c.get(URL), api.get(API)
+        assert mine.status_code == state.status_code == read.status_code, (col, state.status_code, mine.status_code,
+                                                                         read.status_code)  # fmt: skip
+        if state.status_code == 200:
+            assert "rrseed" in mine.text and read.json()["current"]["by"] == "rrseed"
+        else:
+            assert "rrseed" not in mine.text and "rrseed" not in read.text
+    assert h.state_reader is not None
 
 
 def test_every_role_walked_on_the_page_and_its_api_twin(box: dict[str, Any]) -> None:  # noqa: F811
@@ -94,6 +120,9 @@ def test_every_role_walked_on_the_page_and_its_api_twin(box: dict[str, Any]) -> 
         c = _user(box, name, role, **scope)
         if log == "pi":
             name_pi(box, name)
+        elif log == "monitor":
+            h.team.add_entry("GZQO", username=name, name=name, role=log, tasks=(), start="2026-01-01", end=None,
+                             training_day=None, training_ref="MV-1", by="admin", at="2026-01-01T00:00:00+00:00")  # fmt: skip
         elif log:
             h.team.add_entry("GZQO", username=name, name=name, role=log, tasks=("screen",), start="2026-01-01",
                              end=None, training_day="2026-01-01", training_ref=None, by="admin",
@@ -136,13 +165,14 @@ def test_csrf_is_enforced_and_nothing_is_kept(box: dict[str, Any]) -> None:  # n
 def test_a_good_file_is_kept_audited_and_shown(box: dict[str, Any]) -> None:  # noqa: F811
     c = _crc(box)
     r = _post(c, GOOD)
-    assert r.status_code == 303 and r.headers["location"] == f"{URL}?saved=1"
+    assert r.status_code == 303 and r.headers["location"] == f"{URL}?saved={rf.sha256(GOOD)[:12]}"
     (ev,) = _events(box)  # audited by the time the page says so
     assert ev["actor"] == "console:crc1" and ev["ruleset"] == "GZQO"
     assert ev["detail"]["action"] == "taken" and ev["detail"]["file_sha256"] == rf.sha256(GOOD)
     assert ev["detail"]["jrct"] == "jRCT2031260901" and ev["detail"]["kept"] == ",".join(rf.KEPT)
     text = c.get(r.headers["location"]).text
     assert 'data-testid="rrec-saved"' in text and "A synthetic study of drug X" in text
+    assert 'class="wrap" data-testid="rrec-title"' in text  # a long word wraps inside its cell
     assert 'data-testid="rrec-id">jRCT2031260901<' in text and rf.sha256(GOOD) in text
     assert 'data-testid="rrec-where"' in text and "Ministry of Health, Labour and Welfare" in text
     assert 'href="https://jrct' not in text and 'href="http://jrct' not in text  # plain text, never a link
@@ -154,7 +184,7 @@ def test_the_same_file_twice_is_kept_once(box: dict[str, Any]) -> None:  # noqa:
     files = sorted(_folder(box).rglob("*"))
     stamps = {p: p.stat().st_mtime_ns for p in files}
     r = _post(c, GOOD, name="another-name.csv")
-    assert r.status_code == 303 and r.headers["location"] == f"{URL}?saved=1"
+    assert r.status_code == 303 and r.headers["location"] == f"{URL}?saved={rf.sha256(GOOD)[:12]}"
     assert sorted(_folder(box).rglob("*")) == files and {p: p.stat().st_mtime_ns for p in files} == stamps
     assert [e["detail"]["action"] for e in _events(box)] == ["taken", "same"]
     assert [p.name for p in _folder(box).rglob("*.json")] == [f"{rf.sha256(GOOD)}.json"]
@@ -213,7 +243,8 @@ def test_a_body_larger_than_the_cap_is_refused_unread(box: dict[str, Any]) -> No
     r = _post(c, big)
     assert r.status_code == 400 and _error(r.text) == CATALOGUES["en"]["rrec.err.too_large"]
     (ev,) = _events(box, page.REFUSED_EVENT)
-    assert ev["detail"] == {"action": "refused", "code": "too_large", "file_sha256": "", "bytes": page.BODY_MAX}
+    # the size seen, honestly: more than the cap (the rest was never read)
+    assert ev["detail"] == {"action": "refused", "code": "too_large", "file_sha256": "", "more_than": page.BODY_MAX}
 
 
 def test_a_file_of_another_studys_number_is_refused(box: dict[str, Any]) -> None:  # noqa: F811
@@ -233,6 +264,11 @@ def test_the_api_refuses_a_body_that_is_not_text_csv(box: dict[str, Any]) -> Non
     token, _ = box["users"].new_session(box["users"].get("crc1"), via="api")
     api = TestClient(box["app"], headers={"Authorization": f"Bearer {token}"})
     assert api.post(API, content=GOOD, headers={"content-type": "application/json"}).status_code == 415
+    # the type is checked before the body is read: the event names no file and no size
+    big = api.post(API, content=b"a" * (page.BODY_MAX - 1), headers={"content-type": "application/octet-stream"})
+    assert big.status_code == 415
+    assert [e["detail"] for e in _events(box, page.REFUSED_EVENT)][-2:] == [{"action": "refused", "file_sha256": "",
+                                                                              "code": "api_type"}] * 2  # fmt: skip
     assert api.post(API, content=b"a" * (page.BODY_MAX + 1), headers={"content-type": "text/csv"}).status_code == 413
     r = api.post(API, content=ENTITIES, headers={"content-type": "text/csv"})
     assert r.status_code == 400
@@ -326,3 +362,48 @@ def test_an_intake_never_opens_a_network_connection_and_never_writes_outside_its
             assert page._SHA.match(p.stem) and p.suffix == ".json" and stat.S_IMODE(st.st_mode) == 0o600, p
     assert {p.stem for p in kept if p.is_file()} == {rf.sha256(GOOD), rf.sha256(WITH_NAMES),
                                                     rf.sha256(HOSTILE_FILES[-1])}  # fmt: skip
+
+
+def test_reading_an_older_file_again_says_which_record_stays_current(box: dict[str, Any]) -> None:  # noqa: F811
+    """L5: the current record is the file first read most recently; an older file read again changes nothing, and the
+    page says so (not "saved")."""
+    c = _crc(box)
+    other = f"{HEAD}\n{ROW.replace('A synthetic study of drug X', 'A second synthetic study')}\n".encode()
+    assert _post(c, GOOD).status_code == 303
+    assert _post(c, other).status_code == 303
+    r = _post(c, GOOD)
+    assert r.headers["location"] == f"{URL}?saved={rf.sha256(GOOD)[:12]}"
+    text = c.get(r.headers["location"]).text
+    assert 'data-testid="rrec-same"' in text and 'data-testid="rrec-saved"' not in text
+    assert 'data-testid="rrec-title">A second synthetic study<' in text
+    assert [e["detail"]["action"] for e in _events(box)] == ["taken", "taken", "same"]
+
+
+def test_two_files_or_too_many_fields_are_refused_and_audited(box: dict[str, Any]) -> None:  # noqa: F811
+    """L3: a form the parser refuses is a refusal of its own, audited; a wrong CSRF token is refused unaudited, as on
+    every console form of master."""
+    c = _crc(box)
+    token = _csrf(c.get(URL).text)
+    two = [("record", ("a.csv", GOOD, "text/csv")), ("record", ("b.csv", WITH_NAMES, "text/csv"))]
+    r = c.post(URL, data={"csrf": token}, files=two, follow_redirects=False)
+    assert r.status_code == 400 and _error(r.text) == CATALOGUES["en"]["rrec.err.bad_form"]
+    many = {"csrf": token, **{f"f{i}": "x" for i in range(20)}}
+    r = c.post(URL, data=many, files={"record": ("a.csv", GOOD, "text/csv")}, follow_redirects=False)
+    assert r.status_code == 400 and _error(r.text) == CATALOGUES["en"]["rrec.err.bad_form"]
+    assert [e["detail"]["code"] for e in _events(box, page.REFUSED_EVENT)] == ["bad_form", "bad_form"]
+    assert not list(_folder(box).rglob("*.json")) if _folder(box).exists() else True
+
+
+def test_a_planted_file_in_the_folder_is_never_shown_and_refuses_a_write(box: dict[str, Any]) -> None:  # noqa: F811
+    """L9 through the page: a file the box did not write, under the name a record would take, is not shown, and the
+    upload is refused (audited ``store``), not reported as kept."""
+    c = _crc(box)
+    folder = _folder(box) / "GZQO"
+    folder.mkdir(parents=True, mode=0o700)
+    (folder / f"{rf.sha256(GOOD)}.json").write_text(json.dumps({"study": "GZQO", "registry": "jRCT",
+        "file_sha256": "0" * 64, "by": "planted", "at": "2026-01-01T00:00:00+00:00",
+        "record": dict.fromkeys(rf.KEPT, "planted")}), encoding="utf-8")  # fmt: skip
+    assert "planted" not in c.get(URL).text
+    r = _post(c, GOOD)
+    assert r.status_code == 400 and _error(r.text) == CATALOGUES["en"]["rrec.err.store"]
+    assert [e["detail"]["code"] for e in _events(box, page.REFUSED_EVENT)] == ["store"] and not _events(box)

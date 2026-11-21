@@ -557,7 +557,10 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     # 10D-16a (D-1373): a jRCT record from a file: its kept fields, and every rule a file can break (the parser's
     # codes and the console's own three)
     "rrec.f.": _values("tb_common.registry_file", "KEPT"),
-    "rrec.err.": _union(_values("tb_common.registry_file", "CODES"), lambda: ["no_file", "other_study", "api_type"]),
+    "rrec.err.": _union(
+        _values("tb_common.registry_file", "CODES"),
+        lambda: ["no_file", "other_study", "api_type", "bad_form", "store"],
+    ),
 }
 
 _RUN = "a value of stored data or of a service's answer (a state, a kind, a source): no one list in the code holds it"

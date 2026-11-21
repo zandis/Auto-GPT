@@ -9,6 +9,10 @@ wrong values and the fields that must fail, in the form's order, and a POST that
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from hashlib import sha256
+
+#: 10D-16a (D-1373): the synthetic jRCT record the "rrec" case reads in
+_RREC = "jRCT番号,研究の名称\njRCT2031260906,A synthetic study\n".encode()
 
 
 @dataclass(frozen=True)
@@ -110,9 +114,7 @@ CASES: dict[str, Case] = {
         testid="rrec-error",
         saved_event="console.registry_record",
         title_key="rrec.title",
-        saved_at="/studies/GZQO/registry-record?saved=1",
-        files={
-            "record": ("record.csv", "jRCT番号,研究の名称\njRCT2031260906,A synthetic study\n".encode(), "text/csv")
-        },
+        saved_at=f"/studies/GZQO/registry-record?saved={sha256(_RREC).hexdigest()[:12]}",
+        files={"record": ("record.csv", _RREC, "text/csv")},
     ),
 }

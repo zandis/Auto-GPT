@@ -8,14 +8,14 @@
 {% block content %}
 {{ fm.error_summary(fe, testid='rrec-error') }}
 {% set page_title = t('rrec.title') %}{{ page_header(page_title, ctx=rs) }}
-{% if saved %}<p class="ok" role="status" data-testid="rrec-saved">{{ t('rrec.saved') }}</p>{% endif %}
+{% if read and read_current %}<p class="ok" role="status" data-testid="rrec-saved">{{ t('rrec.saved') }}</p>{% elif read %}<p class="warn" role="status" data-testid="rrec-same">{{ t('rrec.same', at=read.at|local) }}</p>{% endif %}
 {% if nofile %}<p class="hint" role="status" data-testid="rrec-nofile">{{ t('rrec.nofile') }}</p>{% endif %}
 <p class="hint">{{ t('rrec.help') }}</p>
 <section class="card" data-testid="rrec-current">
 <h2>{{ t('rrec.current') }}</h2>
 {% if current %}
 <dl class="facts">
-{% for k in fields %}<dt>{{ t('rrec.f.' + k) }}</dt><dd{% if k == 'id' %} class="mono"{% endif %} data-testid="rrec-{{ k }}">{{ current.record[k] or '–' }}</dd>
+{% for k in fields %}<dt>{{ t('rrec.f.' + k) }}</dt><dd class="wrap{% if k == 'id' %} mono{% endif %}" data-testid="rrec-{{ k }}">{{ current.record[k] or '–' }}</dd>
 {% endfor %}</dl>
 <p class="hint" data-testid="rrec-read-by">{{ t('rrec.read_by', by=current.by, at=current.at|local, sha=current.sha) }}</p>
 {% else %}<p class="empty" data-testid="rrec-none">{{ t('rrec.none') }}</p>{% endif %}
@@ -35,7 +35,7 @@
 {% if earlier %}
 <section class="card" data-testid="rrec-earlier">
 <h2>{{ t('rrec.earlier') }}</h2>
-<ul class="plain">{% for r in earlier %}<li><span class="mono">{{ r.record.id }}</span> · {{ r.at|local }} · {{ r.by }} · <span class="mono">{{ r.sha[:12] }}</span></li>{% endfor %}</ul>
+<ul class="plain">{% for r in earlier %}<li class="wrap"><span class="mono">{{ r.record.id }}</span> · {{ r.at|local }} · {{ r.by }} · <span class="mono">{{ r.sha[:12] }}</span></li>{% endfor %}</ul>
 </section>
 {% endif %}
 {% endblock %}

@@ -58,6 +58,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/api/v1/studies/{rs}/records` | - | U | - | U | U | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/records/{record}` | - | U | - | U | U | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/referrals` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/registry-record` | - | Y | Y | Y | Y | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/schedule` | - | U | - | U | U | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/screening-log` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/sources` | U | U | U | U | U | - | - | U | U |
@@ -158,7 +159,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/studies/{rs}/reconsent` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/referrals` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/referrals/{ref_id}/print` | - | n | - | n | n | - | - | - | - |
-| GET | `/studies/{rs}/registry-record` | Y | Y | Y | Y | Y | - | - | Y | Y |
+| GET | `/studies/{rs}/registry-record` | - | Y | Y | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/rescreen` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/sae/{record}/{event}` | - | n | - | n | n | - | - | - | - |
 | GET | `/studies/{rs}/schedule` | - | Y | - | Y | Y | - | - | - | - |
