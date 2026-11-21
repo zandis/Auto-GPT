@@ -26,6 +26,13 @@ class IdentityState:
     held: set[str] = field(default_factory=set)
     evidence: dict[tuple[str, str], str] = field(default_factory=dict, repr=False)
 
+    def check_detail(self, key: bytes, owner: str, label: str, value: str) -> None:
+        if value:
+            digest = _digest(key, [label, owner, value])
+            if self.evidence.setdefault((owner, label), digest) != digest:
+                self.held.add(owner)
+                raise HeldOwner("Conflicting patient details / 病人資料不一致 / 患者情報が一致しません")
+
 
 @dataclass(frozen=True)
 class ResolvedRecord:
@@ -139,12 +146,8 @@ def resolve_record(
         raise MissingIdentity("Expected one patient ID / 需要一個病人識別碼 / 患者IDは一つ必要です")
     owner = owners.pop()
     if resource_type == "Patient":
-        for label, value in (("birth", birth_date), ("national", national_id)):
-            if value:
-                digest = _digest(site_key, [label, owner, value])
-                if state.evidence.setdefault((owner, label), digest) != digest:
-                    state.held.add(owner)
-                    raise HeldOwner("Conflicting patient details / 病人資料不一致 / 患者情報が一致しません")
+        state.check_detail(site_key, owner, "birth", birth_date)
+        state.check_detail(site_key, owner, "national", national_id)
         key = owner
     else:
         parts = [chartno.normalise(None, i.value) if i.kind == "chart" else i.value for i in record_ids]

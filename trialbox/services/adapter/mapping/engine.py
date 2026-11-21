@@ -57,8 +57,8 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import yaml
+from tb_common import chartno, labvalue
 from tb_common import dates as tb_dates
-from tb_common import labvalue
 from tb_common.codekey import HALF_WIDTH, fold_key
 from tb_common.feedguard import STATIC_TYPES
 from tb_common.identity import (
@@ -999,7 +999,6 @@ class Mapper:
         self.key = site_key
         self.site_id = site_id
         self._namespace = json.dumps([site_id, mapping.name], ensure_ascii=False, separators=(",", ":"))
-        self.snapshot_scope = json.dumps(["resolve_record", RECORD_RULE, self._namespace])
         self._identity = IdentityState()
         # All resources from one row share the owner evidence declared by its mapping.
         self._owner_fields: dict[str, list[dict[str, Any]]] = {}
@@ -1007,7 +1006,19 @@ class Mapper:
         self._owner_paths: dict[int, set[str]] = {}
         for rs in mapping.resources:
             self._targets.setdefault(rs.type, []).append(rs)
-            fields = self._owner_fields.setdefault(rs.table, [])
+            fields: list[dict[str, Any]] = []
+            # Ingest and backfill register this table's key in the site's chart domain.
+            registry = mapping.tables.get("patient") or {}
+            if (
+                rs.type == "Patient"
+                and registry.get("key")
+                and ("pid" not in rs.id or (rs.table == "patient" and rs.id["pid"] != registry["key"]))
+            ):
+                raise HeldOwner(
+                    "record_identity.chart_owner: Reconcile Patient IDs with registered charts and opt-outs. / "
+                    "請核對病人識別碼、已登錄病歷及退出紀錄。 / "
+                    "患者IDと登録済み診察券番号・同意撤回を照合してください。"
+                )
             if rs.type == "Patient" or "pid" in rs.id:
                 fields.append(rs.id)
             for path, expr in rs.elements.items():
@@ -1046,6 +1057,7 @@ class Mapper:
                     else:
                         fields.append({"reference_expr": expr, "when": when})
                     self._owner_paths.setdefault(id(rs), set()).add(path)
+            self._owner_fields.setdefault(rs.table, []).extend({**f, "where": rs.where} for f in fields)
         for table, fields in self._owner_fields.items():
             table_spec = mapping.tables[table]
             if pivot := table_spec.get("pivot"):
@@ -1055,6 +1067,7 @@ class Mapper:
                     pivot["item"],
                     pivot["value"],
                     *pivot["columns"].values(),
+                    *(table_spec.get("join") or {}),
                 }
                 for field_spec in fields:
                     column = field_spec.get("pid") or field_spec.get("column") or field_spec.get("hid")
@@ -1064,6 +1077,26 @@ class Mapper:
                             "樞紐鍵須完整保留每個病人識別欄位。 / "
                             "ピボットキーに全ての患者識別列をそのまま含めてください。"
                         )
+        # Include the effective table transformations, source-key and conditional owner declarations.
+        # Keep join/rename order, which matters when a transformation reads another one's output.
+        declarations = [
+            str(chartno.site_rule()),
+            str(mapping.tz),
+            mapping.tables,
+            mapping.params,
+            mapping.fhir_profiles,
+            {table: sorted(cols) for table, cols in mapping.date_columns.items()},
+            {
+                name: (mapping.lookups[name].key, mapping.lookups[name].rows)
+                for name in sorted(set(self._owner_lookups(self._owner_fields)))
+            },
+            sorted(mapping.empty_dates),
+            mapping.systems,
+            self._owner_fields,
+            [(r.table, r.type, r.id, r.where) for r in mapping.resources],
+        ]
+        fingerprint = hashlib.sha256(yaml.safe_dump(declarations, sort_keys=False).encode()).hexdigest()
+        self.snapshot_scope = json.dumps(["resolve_record", RECORD_RULE, self._namespace, fingerprint])
         self.ingest_time = ingest_time  # a FHIR instant: set, every resource carries its row provenance (DATA-010)
         self.builders: dict[str, Callable[[ResourceSpec, Row, dict[str, Any]], Any]] = {
             "lab_value": self._b_lab_value,
@@ -1216,11 +1249,36 @@ class Mapper:
             rs.type in PATIENT_RESOURCES or "pid" in rs.id or id(rs) in self._owner_paths
         )
 
+    @staticmethod
+    def _owner_lookups(declaration: Any) -> Iterator[str]:
+        if isinstance(declaration, dict):
+            if isinstance(lookup := declaration.get("lookup"), dict) and isinstance(lookup.get("name"), str):
+                yield lookup["name"]
+            for value in declaration.values():
+                yield from Mapper._owner_lookups(value)
+        elif isinstance(declaration, list):
+            for value in declaration:
+                yield from Mapper._owner_lookups(value)
+
+    def _active_fields(self, rs: ResourceSpec, row: Row) -> Iterator[dict[str, Any]]:
+        for field_spec in self._owner_fields[rs.table]:
+            # A bare tombstone or by-day index entry uses its own resource's declarations
+            # even when it lacks the columns that controlled publication of the live row.
+            where = field_spec["where"]
+            if (where is rs.where or self.cond(where, row)) and (
+                not field_spec.get("when") or self.cond(field_spec["when"], row)
+            ):
+                yield field_spec
+
+    def _key_parts(self, table: str, col: str) -> list[str]:
+        spec = self.m.tables[table]
+        if (pivot := spec.get("pivot")) and col == spec["key"]:
+            return list(pivot["keys"])
+        return list((spec.get("join") or {}).get(col, [col]))
+
     def _owners(self, rs: ResourceSpec, row: Row) -> tuple[Identifier, ...]:
         owners = []
-        for ref in self._owner_fields[rs.table]:
-            if ref.get("when") and not self.cond(ref["when"], row):
-                continue
+        for ref in self._active_fields(rs, row):
             if "reference_expr" in ref:
                 reference = self.value(ref["reference_expr"], row, rs)
                 value = str((reference.get("reference") if isinstance(reference, dict) else reference) or "")
@@ -1233,16 +1291,14 @@ class Mapper:
         return tuple(owners)
 
     def _resolve(
-        self, rs: ResourceSpec, row: Row, rtype: str, col: str, table: str, suffix: str = "", birth_date: str = ""
+        self, rs: ResourceSpec, row: Row, rtype: str, col: str, table: str, suffix: str = ""
     ) -> ResolvedRecord:
         owners = self._owners(rs, row)
         # A mapping can join columns into its source key. Give the gate the original parts
         # so a separator inside an opaque identifier cannot change the component boundaries.
         table_spec = self.m.tables[rs.table]
-        parts = (table_spec.get("join") or {}).get(col, [col])
-        if (pivot := table_spec.get("pivot")) and col == table_spec["key"]:
-            parts = pivot["keys"]
-        charts = {ref["pid"] for ref in self._owner_fields[rs.table] if "pid" in ref}
+        parts = self._key_parts(rs.table, col)
+        charts = {ref["pid"] for ref in self._active_fields(rs, row) if "pid" in ref}
         ids = tuple(
             Identifier("" if row.get(c) is None else str(row[c]), "chart" if c in charts else "opaque") for c in parts
         )
@@ -1256,7 +1312,6 @@ class Mapper:
                 table=table,
                 occurrence=suffix,
                 state=self._identity,
-                birth_date=birth_date,
                 national_id=str(row.get((table_spec.get("identity") or {}).get("national_id", "")) or "")
                 if rtype == "Patient"
                 else "",
@@ -1268,7 +1323,9 @@ class Mapper:
         except MissingIdentity as exc:
             raise MappingError(str(exc)) from exc
 
-    def _reference_id(self, rtype: str, row: Row, col: str, rs: ResourceSpec, *, hashed: bool) -> str:
+    def _reference_id(
+        self, rtype: str, row: Row, col: str, rs: ResourceSpec, *, hashed: bool, verified: set[str] | None = None
+    ) -> str:
         targets = self._targets.get(rtype, [])
         target: ResourceSpec | None
         if rtype == rs.type:
@@ -1281,13 +1338,41 @@ class Mapper:
                 raise MappingError("Ambiguous reference / 參照不明確 / 参照先を特定できません")
             target = matches[0] if matches else None
         if target and self._patient_owned(target):
-            return self._resolve(rs, row, rtype, col, target.table, str(target.id.get("suffix", ""))).record_key
-        if not target and self._owner_fields[rs.table] and rtype in PATIENT_RESOURCES:
+            target_col = target.id.get("pid") or target.id.get("hid") or target.id["column"]
+            source_parts = self._key_parts(rs.table, col)
+            target_parts = self._key_parts(target.table, target_col)
+            source_charts = {f["pid"] for f in self._active_fields(rs, row) if "pid" in f}
+            # For another row we only know predicates implied by the target's own declaration.
+            # If the chart domain of a component can vary on that row, its key cannot be inferred.
+            if rs is target and col == target_col:
+                target_charts = possible_charts = source_charts
+            else:
+                chart_fields = [f for f in self._owner_fields[target.table] if "pid" in f]
+                possible_charts = {f["pid"] for f in chart_fields}
+                target_charts = {
+                    f["pid"]
+                    for f in chart_fields
+                    if not f.get("when") and (not f["where"] or f["where"] == target.where)
+                }
+            if (possible_charts - target_charts).intersection(target_parts) or (
+                [c in source_charts for c in source_parts] != [c in target_charts for c in target_parts]
+            ):
+                raise HeldOwner(
+                    "record_identity.reference_parts: Declare the target key components and their chart domains. / "
+                    "請宣告目標鍵的組成欄位及其中的病歷號欄位。 / "
+                    "対象キーの構成列と、そのうち診察券番号を表す列を指定してください。"
+                )
+            record = self._resolve(rs, row, rtype, col, target.table, str(target.id.get("suffix", "")))
+        elif not target and self._owner_fields[rs.table] and rtype in PATIENT_RESOURCES:
             # Partial mappings may omit the target table. Use its type as the external namespace.
-            return self._resolve(rs, row, rtype, col, rtype).record_key
-        if rtype in PATIENT_RESOURCES:
+            record = self._resolve(rs, row, rtype, col, rtype)
+        elif rtype in PATIENT_RESOURCES:
             raise HeldOwner("Missing reference owner / 缺少參照對象的病人識別 / 参照先の患者が不明です")
-        return resource_id(self.key, rtype, str(row[col])) if hashed else str(row[col])
+        else:
+            return resource_id(self.key, rtype, str(row[col])) if hashed else str(row[col])
+        if verified is not None:
+            verified.add(f"{rtype}/{record.record_key}")
+        return record.record_key
 
     def hid(self, rtype: str, row: Row, col: str) -> str:
         targets = self._targets.get(rtype, [])
@@ -1303,7 +1388,7 @@ class Mapper:
             return spec.get("default")
         return hit.get(spec["field"]) or spec.get("default")
 
-    def template(self, text: str, row: Row, spec: ResourceSpec) -> str:
+    def template(self, text: str, row: Row, spec: ResourceSpec, verified: set[str] | None = None) -> str:
         def sub(mt: re.Match[str]) -> str:
             tok = mt.group(1)
             if tok.startswith("sys."):
@@ -1314,7 +1399,7 @@ class Mapper:
                 return self.pid(row, tok[4:])
             if tok.startswith("hid:"):
                 rtype, _, col = tok[4:].partition(":")
-                return self._reference_id(rtype, row, col, spec, hashed=True)
+                return self._reference_id(rtype, row, col, spec, hashed=True, verified=verified)
             val = row.get(tok)
             if val is None:
                 raise MappingError(f"template column {tok!r} missing in table {spec.table}")
@@ -1336,7 +1421,7 @@ class Mapper:
             owner = resolve_record(self.key, self._namespace, owners, "Patient", owners[:1], state=self._identity).owner
         except MissingIdentity:
             return ("",)
-        charts = {ref["pid"] for ref in self._owner_fields[rs.table] if "pid" in ref}
+        charts = {ref["pid"] for ref in self._active_fields(rs, row) if "pid" in ref}
         return (
             owner,
             *(owner if k in charts else str(row.get(k) or "") for k in keys),
@@ -1395,10 +1480,13 @@ class Mapper:
             out.setdefault(table, {})[element] = n
         return out
 
-    def ref(self, spec: dict[str, Any], row: Row, rs: ResourceSpec) -> str | None:
+    def ref(self, spec: dict[str, Any], row: Row, rs: ResourceSpec, verified: set[str] | None = None) -> str | None:
         rtype = spec["type"]
         if "by_day" in spec:
-            return self._by_day(spec["by_day"], rtype, row, rs)
+            reference = self._by_day(spec["by_day"], rtype, row, rs)
+            if reference and verified is not None:
+                verified.add(reference)
+            return reference
         if "pid" in spec:
             return f"{rtype}/{self.pid(row, spec['pid'])}"
         col = spec.get("hid") or spec.get("column")
@@ -1410,10 +1498,10 @@ class Mapper:
             patient = Identifier(str(raw))
             rid = resolve_record(self.key, self._namespace, (patient,), rtype, (patient,), state=self._identity).owner
         else:
-            rid = self._reference_id(rtype, row, col, rs, hashed="hid" in spec)
+            rid = self._reference_id(rtype, row, col, rs, hashed="hid" in spec, verified=verified)
         return f"{rtype}/{rid}"
 
-    def value(self, expr: Any, row: Row, rs: ResourceSpec) -> Any:
+    def value(self, expr: Any, row: Row, rs: ResourceSpec, verified: set[str] | None = None) -> Any:
         if not isinstance(expr, dict):
             return expr
         if "when" in expr and not self.cond(expr["when"], row):
@@ -1463,13 +1551,13 @@ class Mapper:
                 val = float(Decimal(str(val)) * Decimal(str(expr["factor"])))
             return val
         if "template" in expr:
-            return self.template(expr["template"], row, rs)
+            return self.template(expr["template"], row, rs, verified)
         if "pid" in expr:
             return self.pid(row, expr["pid"])
         if "hid" in expr:
             return self._reference_id(rs.type, row, expr["hid"], rs, hashed=True)
         if "ref" in expr:
-            return self.ref(expr["ref"], row, rs)
+            return self.ref(expr["ref"], row, rs, verified)
         if "lookup" in expr:
             return self.lookup(expr["lookup"], row)
         if "base64" in expr:
@@ -1792,12 +1880,12 @@ class Mapper:
             return [v for v in items if v not in (None, {}, [], "")]
         return obj
 
-    def _row_identity(self, rs: ResourceSpec, row: Row, birth_date: str = "") -> ResolvedRecord | str | None:
+    def _row_identity(self, rs: ResourceSpec, row: Row) -> ResolvedRecord | str | None:
         col = rs.id.get("pid") or rs.id.get("hid") or rs.id.get("column")
         if col is None:
             raise MappingError(f"{rs.type}: id needs pid/hid/column")
         if self._patient_owned(rs):
-            return self._resolve(rs, row, rs.type, col, rs.table, str(rs.id.get("suffix", "")), birth_date)
+            return self._resolve(rs, row, rs.type, col, rs.table, str(rs.id.get("suffix", "")))
         value = row[col]
         if value is None or str(value).strip() == "":
             raise MappingError(f"{rs.type} from {rs.table}: no key ({col} is empty)")
@@ -1861,11 +1949,10 @@ class Mapper:
         if rs.where and not self.cond(rs.where, row):
             self._count_unmapped(rs, row)
             return None
-        birth_date = None
-        if rs.type == "Patient" and "birthDate" in rs.elements:
-            self._element = "birthDate"
-            birth_date = self.value(rs.elements["birthDate"], row, rs)
-        identity = self._row_identity(rs, row, str(birth_date or ""))
+        identity = self._row_identity(rs, row)
+        verified: set[str] = set()
+        if isinstance(identity, ResolvedRecord):
+            verified.add("Patient/" + identity.owner)
         res: Resource = {
             "resourceType": rs.type,
             "id": identity.record_key if isinstance(identity, ResolvedRecord) else identity,
@@ -1877,9 +1964,6 @@ class Mapper:
                 res["meta"] = {"profile": [prof]}
         for path, expr in rs.elements.items():
             self._element = path  # F9 (D-811): what a count names
-            if rs.type == "Patient" and path == "birthDate":
-                self.set_path(res, path, birth_date)
-                continue
             if path == "id":
                 continue  # row_id already resolved the resource's logical ID
             if isinstance(identity, ResolvedRecord) and path in self._owner_paths.get(id(rs), ()):
@@ -1893,7 +1977,7 @@ class Mapper:
                     details = original if isinstance(original, dict) else {}
                     self.set_path(res, path, {**details, "reference": reference})
             else:
-                value = self.value(expr, row, rs)
+                value = self.value(expr, row, rs, verified)
                 if path == "$merge" and isinstance(value, dict):
                     if isinstance(identity, ResolvedRecord) and value.keys() & {
                         "subject",
@@ -1905,6 +1989,14 @@ class Mapper:
                         raise HeldOwner("Undeclared patient reference / 未宣告病人參照 / 未指定の患者参照です")
                     value = {k: v for k, v in value.items() if k not in {"id", "resourceType"}}
                 self.set_path(res, path, value)
+        if res.get("resourceType") != rs.type:
+            raise HeldOwner(
+                "record_identity.resource_type: The emitted resource must keep its declared type. / "
+                "輸出資源須保留宣告的類型。 / 出力リソースは宣言した型を保持してください。"
+            )
+        if rs.type == "Patient" and isinstance(identity, ResolvedRecord) and res.get("birthDate"):
+            self._identity.check_detail(self.key, identity.owner, "birth", str(res["birthDate"]))
+        self._check_references(res, verified, rs.type)
         self._settle_atc(rs, res)
         if any(lk.hit_unverified for lk in self.m.lookups.values()) or self._rests_on_verify(rs.table, row):
             meta = res.setdefault("meta", {})
@@ -1917,6 +2009,31 @@ class Mapper:
             meta["tag"] = [*(meta.get("tag") or []), {"system": MAPPING_VERSION, "code": self.m.version}]
         pruned: Resource = self.prune(res)
         return pruned
+
+    @staticmethod
+    def _check_references(node: Any, verified: set[str], rtype: str, path: str = "") -> None:
+        """Inspect the assembled object so parent writes, lists and $merge obey the same rule."""
+        if isinstance(node, list):
+            for item in node:
+                Mapper._check_references(item, verified, rtype, path)
+        elif isinstance(node, dict):
+            for key, value in node.items():
+                if key != "reference":
+                    Mapper._check_references(value, verified, rtype, f"{path}.{key}")
+                elif value:
+                    target = str(value).partition("/")[0]
+                    expected = None
+                    if path in {".patient", ".beneficiary", ".subject"}:
+                        expected = "Patient"
+                    elif path.endswith(".encounter"):
+                        expected = "Encounter"
+                    elif (rtype, path) == ("ClaimResponse", ".request"):
+                        expected = "Claim"
+                    if (expected and expected != target) or (target not in STATIC_TYPES and str(value) not in verified):
+                        raise HeldOwner(
+                            "record_identity.reference_owner: Resolve the clinical reference under the row's owner. / "
+                            "請依該列的病人解析臨床參照。 / 行の患者に基づいて診療記録の参照先を特定してください。"
+                        )
 
     def _rests_on_verify(self, table: str, row: Row) -> bool:
         """An SS-MIX2 row whose code the reader looked up in a profile table (the reader's own exact match) and whose
@@ -2038,10 +2155,19 @@ class Mapper:
                 text,
             )
             resource = yaml.safe_load(text)
-            if resource["resourceType"] not in STATIC_TYPES:
+            if not self._static_tree(resource):
                 raise HeldOwner(
                     "record_identity.static_type: Static resources must have an independent reference-data type. / "
                     "靜態資源須使用獨立的參照資料類型。 / 静的リソースには独立した参照データ型を指定してください。"
                 )
             out.append(resource)
         return out
+
+    @staticmethod
+    def _static_tree(resource: Any) -> bool:
+        return (
+            isinstance(resource, dict)
+            and resource.get("resourceType") in STATIC_TYPES
+            and isinstance(resource.get("contained", []), list)
+            and all(Mapper._static_tree(child) for child in resource.get("contained", []))
+        )

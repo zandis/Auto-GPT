@@ -235,6 +235,23 @@ def _constructed(expr: ast.expr) -> bool:
     )
 
 
+def _reads_id(value: ast.expr) -> bool:
+    if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id == "str" and value.args:
+        return _reads_id(value.args[0])
+    if isinstance(value, ast.Subscript):
+        key = value.slice
+    elif (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Attribute)
+        and value.func.attr == "get"
+        and value.args
+    ):
+        key = value.args[0]
+    else:
+        return False
+    return isinstance(key, ast.Constant) and key.value == "id"
+
+
 def _sql_binding(sql: str) -> bool:
     query = " ".join(sql.upper().split())
     insert = re.match(r"INSERT INTO [\w.]+\s*\(([^)]+)\)", query)
@@ -325,18 +342,21 @@ class Scan(ast.NodeVisitor):
         if raw_owner or (name in ID_FIELDS and (_constructed(value) or parsed_ref)):
             self.hit(value, "build " + name)
 
+    def track_source(self, target: ast.expr, value: ast.expr) -> None:
+        if isinstance(target, ast.Name) and (
+            _constructed(value) or _reads_id(value) or _name(value) in self.constructed_names
+        ):
+            self.constructed_names.add(target.id)
+
     def visit_Assign(self, node: ast.Assign) -> None:
         for target in node.targets:
-            if isinstance(target, ast.Name) and (
-                _constructed(node.value) or _name(node.value) in self.constructed_names
-            ):
-                self.constructed_names.add(target.id)
+            self.track_source(target, node.value)
             if (
                 isinstance(target, ast.Subscript)
                 and isinstance(target.slice, ast.Constant)
                 and target.slice.value == "id"
                 and _name(target.value) != "mark"
-                and _constructed(node.value)
+                and (_constructed(node.value) or _reads_id(node.value))
             ):
                 self.hit(node.value, "assign constructed id")
             if (
@@ -355,6 +375,7 @@ class Scan(ast.NodeVisitor):
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if node.value:
+            self.track_source(node.target, node.value)
             self.sink(_name(node.target), node.value)
         self.generic_visit(node)
 
@@ -399,6 +420,7 @@ class Scan(ast.NodeVisitor):
                 and fhir
                 and (
                     _constructed(value)
+                    or _reads_id(value)
                     or isinstance(value, ast.Constant)
                     or (isinstance(value, ast.Name) and value.id in self.constructed_names)
                     or _name(value) in RAW_FIELDS | {"raw_id", "srcid", "_rid"}
