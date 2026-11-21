@@ -198,6 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     fc.add_argument("--deploy", type=Path, default=deploy)
     fc.add_argument("--mount-anchors", action="store_true", help="then mount the anchor folders into the console")
     fc.add_argument("--print-anchors", action="store_true", help="print the anchor folders, one per line, once passed")
+    fc.add_argument("--anchor-only", action="store_true", help="only whether the console may be given the anchor")
     fc.add_argument("--environment", choices=("DEV", "TEST", "VALIDATION", "PRODUCTION"), default="",
                     help="the environment when deploy/.env does not say it yet (install.sh's own reading)")  # fmt: skip
     om = sub.add_parser("omop-store", help="make a second lake's OMOP store for the OMOP group (D-721)")
@@ -304,7 +305,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "finish-check":
         from tools.trialbox import finish_check
 
-        return finish_check.main_action(a.deploy, a.mount_anchors, a.print_anchors, a.environment)
+        return finish_check.main_action(a.deploy, a.mount_anchors, a.print_anchors, a.environment, a.anchor_only)
     if a.cmd == "omop-store":
         from tools.trialbox import omop_store
 

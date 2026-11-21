@@ -305,14 +305,25 @@ elif [ -f deploy/site/rehearsal.json ] || { [ -f deploy/.env ] && grep -q '^TB_R
 fi
 # ---- end of REHEARSAL (D-726): before anything loads
 
-# FINISH-EARLY (10K-4, D-1390): a re-run on an installed box (deploy/.env is there) is checked before the bundle
-# step, which on a running box applies the update and restarts the stack: refused here, nothing was loaded or changed.
-# The same check as FINISH-GATE, with the environment as ENV-EARLY read it. Not for a box's own install before its
-# set-up (TB_BOX=1) nor a rehearsal (--rehearsal: a VALIDATION box)
-if [ "${TB_BOX:-0}" != 1 ] && [ "$REHEARSAL" != 1 ] && [ -f "$ROOT/deploy/.env" ]; then
+# FINISH-EARLY (10K-4, D-1390): tools/trialbox/finish_check.py reads deploy/.env, the mount table and /sys and writes
+# nothing: exit 1 is a refusal (each line names the setting to change), any other code means it did not run. Here a
+# re-run on an installed box (deploy/.env is there) is checked before the bundle step, which on a running box applies
+# the update and restarts the stack: refused here, nothing was loaded or changed. Not for a box's own install before
+# its set-up (TB_BOX=1), a rehearsal (--rehearsal: a VALIDATION box), nor the run from the signed tree after a load
+# (TB_INSTALL_SIGNED): the release that load brought is applied already, so FINISH-GATE says so when it refuses
+finish_check() {  # $1: what is true when it refuses; the rest: finish-check's own options (fixed words)
+  local said="$1" rc=0
+  shift
+  python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" "$@" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) die "$said (above: the setting to change in deploy/.env; RUNBOOK §5)" ;;
+    *) die "the finish check did not run (exit $rc, above), so nothing about the folders was decided: $said" ;;
+  esac
+}
+if [ "${TB_BOX:-0}" != 1 ] && [ "$REHEARSAL" != 1 ] && [ -z "${TB_INSTALL_SIGNED:-}" ] && [ -f "$ROOT/deploy/.env" ]; then
   if command -v python3 >/dev/null; then
-    python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" ${EARLY_ENV:+--environment "$EARLY_ENV"} \
-      || die "nothing was loaded or changed (above: the setting to change in deploy/.env; RUNBOOK §5); then re-run"
+    finish_check "nothing was loaded or changed; then re-run" ${EARLY_ENV:+--environment "$EARLY_ENV"}
   elif [ "${EARLY_ENV:-PRODUCTION}" = PRODUCTION ]; then
     die "no python3 on this host: a PRODUCTION install cannot check its backup target and audit anchor folder; nothing was loaded or changed (RUNBOOK §5)"
   fi
@@ -693,6 +704,12 @@ if [ "${TB_BOX:-0}" = 1 ]; then  # T-729: the console's first-run folder (box-in
   COMPOSE+=(-f deploy/docker-compose.box.yml); FILES="$FILES:$ROOT/deploy/docker-compose.box.yml"
 fi
 LOCK_FILES="$FILES"
+# ANCHOR-GATE (10K-4, D-1390): the anchor folder is judged before anything mounts it (the read probe below, the
+# console), whatever TB_BOX says: the rule for a folder the console may be given (finish-check --anchor-only)
+if command -v python3 >/dev/null; then
+  finish_check "the audit anchor folder is not given to the console: nothing was mounted, the stack was not started" --anchor-only
+fi
+# ---- end of ANCHOR-GATE
 # ANCHOR-MOUNT (D-638): the audit page checks the chain against the signed heads of the anchor folders, which are
 # host paths: a compose file of the installer's own mounts each into the console, read-only, and gives the console
 # the name (the shipped compose file clears it). No folder set: no file, and an earlier one is taken away. The
@@ -738,16 +755,13 @@ sed -i "/^COMPOSE_FILE=/d" deploy/.env && echo "COMPOSE_FILE=$FILES" >> deploy/.
 grep -q '^TB_LOG_DIR=' deploy/.env || echo "TB_LOG_DIR=$ROOT/deploy/logs" >> deploy/.env
 grep -q '^TB_AUDIT_ARCHIVE_DIR=' deploy/.env || echo "TB_AUDIT_ARCHIVE_DIR=$ROOT/deploy/logs/audit-archive" >> deploy/.env
 grep -q '^TB_BACKUP_TARGETS=' deploy/.env || echo "TB_BACKUP_TARGETS=$ROOT/deploy/backups" >> deploy/.env
-# FINISH-GATE (10K-4, D-1390): tools/trialbox/finish_check.py reads deploy/.env, the mount table and /sys and writes
-# nothing. It refuses, in PRODUCTION (read as it reads TB_ENV), a backup that is not off the box and a missing audit
-# anchor folder, and in every environment an anchor folder the console may not be given. Here, on a first install,
-# deploy/.env is the one this run just wrote: the stack is not started, and the bundle and settings written so far
-# stay for the re-run (a re-run of an installed box was checked before the bundle step, FINISH-EARLY). A box's own
-# install before its first-run set-up (TB_BOX=1) is not checked: deploy/box-install.sh checks after the set-up
+# FINISH-GATE (10K-4, D-1390): before the stack starts, unless TB_BOX=1 (deploy/box-install.sh checks after the
+# set-up): in PRODUCTION (read as the tool reads TB_ENV) a backup target shown to be off the box and the hospital's
+# audit share as the anchor folder. By here this run has loaded the bundle (on a box that was running, apply_update.sh
+# has applied the release and restarted the stack, as trialbox update does) and written its settings; a refusal says so
 if [ "${TB_BOX:-0}" != 1 ]; then
   if command -v python3 >/dev/null; then
-    python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" \
-      || die "the stack was not started (above: the setting to change in deploy/.env; RUNBOOK §5); then re-run this command, which goes on from what this run wrote"
+    finish_check "not finished: the bundle this run loaded stays (on a box that was already running, its release is applied and running, as after trialbox update) and the settings it wrote stay; the install's own start, units, cron and checks were not run. Change what the lines above name in deploy/.env, then re-run this command: it goes on from here"
   elif [ "$(printf '%s' "$TB_ENV_SITE" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')" = PRODUCTION ]; then
     die "no python3 on this host: a PRODUCTION install cannot check its backup target and audit anchor folder (RUNBOOK §5)"
   fi

@@ -302,21 +302,24 @@ A name holds letters and digits of any script, single spaces and `. , - ( ) （ 
 first or last), at most 100 characters; anything else (a line break, a double quote, `$`, a backslash) is refused,
 so a name can never add or change a setting.
 
-**A PRODUCTION install needs a backup target off the box and an audit anchor folder of its own** (10K-4, D-1390).
-`python3 -m tools.trialbox finish-check --deploy deploy` judges each folder `deploy/.env` names by what it is: a
-folder that is there, with no link in its path, not a system folder (`/etc`, `/home`, `/opt`, `/usr`, `/var/lib`,
-`/boot`, `/tmp`, `/var/tmp`, `/proc`, `/sys`, `/dev`, `/run` ...) nor around one, not the install folder, its
-`deploy/secrets`, the feed folder or the audit data, and on a disk or a share (ext4, xfs, btrfs, exfat, vfat,
-ntfs3, nfs, nfs4, cifs, smb3; WSL2's 9p and drvfs as the backup counts them), never a memory file system. In
-PRODUCTION one target of `TB_BACKUP_TARGETS` must be on a share or on a disk that is not the system disk (another
-partition of it is not enough), and `TB_AUDIT_ANCHOR_TARGETS` must name a folder of its own; the anchor, backup and
-log folders do not overlap. In every environment the anchor folder is the one folder of the host the console is
-given, read-only, and it is refused when it breaks this rule. `deploy/install.sh` runs the check before the bundle
-step on a box already installed (nothing is loaded or changed when it refuses) and before it starts the stack on a
-first install; `deploy/box-install.sh` runs it after the first-run answers are applied, before the restart, then asks
-the console's image whether it can read the anchor folder and mounts it. Each refusal names the setting to change in
-`deploy/.env`. On a box the first-run page does not open again: mount the disk or the share at the folder named, or
-correct the line (for a second disk `TB_BACKUP_TARGETS` and `TB_BACKUP_OFFBOX` name the same folder), then
-`sudo deploy/box-install.sh --firstrun`. **An installed PRODUCTION site that runs `deploy/install.sh` again** (02,
-the anchor folders; 05, after a restore and for the EDC tables; 12, the TLS check per release) stops there until
-both are set; `trialbox update` and `trialbox restore` do not run it. Outside PRODUCTION only the anchor rule refuses.
+**A PRODUCTION install needs a backup target off the box and the hospital's audit share as its anchor folder**
+(10K-4, D-1390). `python3 -m tools.trialbox finish-check --deploy deploy` accepts only what it can show and refuses
+what it cannot tell. Each folder `deploy/.env` names must be there, with no link in its path and no bind of another
+folder behind it, not a system folder (`/etc`, `/home`, `/opt`, `/usr`, `/var/lib`, `/var/log`, `/boot`, `/tmp`,
+`/media`, `/proc`, `/sys`, `/dev`, `/run` ...) nor around one, not the install folder, its `deploy/secrets`, the feed
+folder or the audit data, on a disk or a share (ext4, xfs, btrfs, exfat, vfat, ntfs3, nfs, nfs4, cifs, smb3), never a
+memory file system. In PRODUCTION one target of `TB_BACKUP_TARGETS` must be a share the box does not serve, or a
+physical disk (not a loop device, zram or a virtual disk) holding none of the box's own data: not the system disk
+(another partition of it is not enough), not Docker's data root, not the audit folders; for a disk
+`TB_BACKUP_OFFBOX` names the same folder, so the nightly backup counts it too. `TB_AUDIT_ANCHOR_TARGETS` must be the
+mount point of the hospital's audit share (nfs, nfs4, cifs, smb3; mount it `nosuid,nodev`), under folders only root
+may write; the anchor, backup and log folders do not overlap. Of the folders the first-run page asks, the console
+reads the anchor folder only, read-only; it is checked before it is mounted and again at every start of the stack
+(`deploy/settings_guard.sh`), which does not start when the rule no longer holds. `deploy/install.sh` checks a re-run
+before the bundle step (nothing is loaded or changed when it refuses) and every install before the stack starts; when
+an older install.sh loaded this release, the release that run brought is applied (as after `trialbox update`) and the
+refusal says so: correct `deploy/.env` and run the install again. `deploy/box-install.sh` checks after the first-run
+answers are applied, before the restart; the first-run page does not open again: mount the share or disk at the
+folder named, or correct the line, then `sudo deploy/box-install.sh --firstrun`. **An installed PRODUCTION site that
+runs `deploy/install.sh` again** (02, the anchor folders; 05, after a restore and for the EDC tables; 12, the TLS
+check per release) stops there until both are set; `trialbox update` and `trialbox restore` do not run it.

@@ -255,13 +255,14 @@ if [ -n "$OWNER" ]; then  # D-898: the host's zone from the answers file, then t
 fi
 # FINISH-GATE (10K-4, D-1390): the owner's answers are applied. tools/trialbox/finish_check.py judges each folder they
 # name by what it is (the mount table and /sys): a PRODUCTION box does not finish (no restart on them, no "ready")
-# without a backup target off the box and an audit anchor folder of its own on a disk or a share, and no box gives the
-# console an anchor folder the rule refuses. Then that one folder is mounted into the console, read-only, as
+# without a backup target shown to be off the box and the hospital's audit share as its anchor folder, and no box gives
+# the console an anchor folder the rule refuses. Then that one folder is mounted into the console, read-only, as
 # install.sh mounts it (D-638), once the console's own image has shown it can read it (as install.sh asks it).
 # Unattended (--answers), install.sh ran the same check before it started the stack.
 if [ -z "$OWNER" ]; then
-  ANCHORS="$(python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" --print-anchors)" \
-    || die "the set-up is not finished (above). Mount the disk or the share at the folder the owner named; or, when a folder was typed wrongly or is mounted elsewhere, change the setting each line names in $ROOT/deploy/.env (the first-run page does not open again: the answers are applied). Then: sudo deploy/box-install.sh --firstrun"
+  rc=0; ANCHORS="$(python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" --print-anchors)" || rc=$?
+  [ "$rc" = 0 ] || [ "$rc" = 1 ] || die "the finish check did not run (exit $rc, above): the set-up is not finished; nothing was restarted"
+  [ "$rc" = 0 ] || die "the set-up is not finished (above). Mount the disk or the share at the folder the owner named; or, when a folder was typed wrongly or is mounted elsewhere, change the setting each line names in $ROOT/deploy/.env (the first-run page does not open again: the answers are applied). Then: sudo deploy/box-install.sh --firstrun"
   if [ -z "${TB_BOX_PY:-}" ] || [ -n "${TB_BOX_DOCKER:-}" ]; then  # the tests' stand-in for the image: TB_BOX_DOCKER
     while IFS= read -r anchor; do
       [ -n "$anchor" ] || continue

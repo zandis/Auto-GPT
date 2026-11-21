@@ -61,7 +61,7 @@ def test_a_production_box_says_it_does_not_finish_without_them(tmp_path: Path) -
     b = _box(tmp_path, TB_ENV="PRODUCTION")
     shown = _with_code(b).get("/login/first-run/answers").text
     assert 'data-testid="firstrun-folders-help"' in shown
-    assert "a backup folder is on a share or on a disk that is not the system disk" in shown
+    assert "a backup folder is on a share the box does not serve, or on a physical disk" in shown
     assert EN["firstrun.folders.help"] not in shown
 
 
@@ -104,11 +104,10 @@ def test_the_three_folders_must_be_separate(tmp_path: Path) -> None:
 @pytest.mark.nodb
 def test_the_texts_say_what_is_checked() -> None:
     """Review of #1303, M2: the page says what the box checks (a share, or a disk that is not the system disk; a
-    folder of its own), and that the console reads the anchor folder only, read-only."""
-    assert (
-        "system disk" in EN["firstrun.folders.production"] and "システムディスク" in JA["firstrun.folders.production"]
-    )
-    assert "系統磁碟" in ZH["firstrun.folders.production"]
+    folder of its own), and that, of the folders this page asks, the console reads the anchor folder only."""
+    for cat, disk, mount_point in ((EN, "physical disk", "mount point"), (JA, "物理ディスク", "マウント先"),
+                                   (ZH, "實體磁碟", "掛載點")):  # fmt: skip
+        assert disk in cat["firstrun.folders.production"] and mount_point in cat["firstrun.folders.production"]
     for cat, words in ((EN, "read-only"), (JA, "読み取り専用"), (ZH, "唯讀")):
         assert words in cat["firstrun.anchor_dir.help"]
     for cat in (EN, JA, ZH):
@@ -121,7 +120,7 @@ def test_the_new_texts_are_in_the_three_languages() -> None:
         missing = [k for k in NEW_KEYS if not cat.get(k, "").strip()]
         assert not missing, missing
     # the preflight's words (tb_common.preflight, audit_share)
-    assert "監査記録の保管先" in JA["firstrun.anchor_dir"] and "稽核紀錄" in ZH["firstrun.anchor_dir"]
+    assert "監査記録" in JA["firstrun.anchor_dir"] and "稽核紀錄" in ZH["firstrun.anchor_dir"]
 
 
 # ------------------------------------------------------------------------------------------------ the whole path
@@ -152,14 +151,14 @@ def test_a_production_box_does_not_finish_its_set_up_until_its_folders_are_right
     proc = subprocess.Popen(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--yes"], cwd=tmp_path,
                             env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)  # fmt: skip
     try:
-        _owner_answers(t, tmp_path, proc, backup_dir="/mnt/syspart/b", anchor_dir="/mnt/nas/later")
+        _owner_answers(t, tmp_path, proc, backup_dir="/mnt/syspart/b", anchor_dir="/mnt/audit2")
         out, _ = proc.communicate(timeout=120)
     finally:
         if proc.poll() is None:
             proc.kill()
     assert proc.returncode == 1, out[-3000:]
     assert "TrialBox is ready" not in out and "the set-up is not finished" in out
-    assert "is on the system disk (vda)" in out and "/mnt/nas/later is not there" in out
+    assert "is on a disk of the box itself (vda" in out and "/mnt/audit2 is not there" in out
     assert "TB_BACKUP_OFFBOX to the same folder" in out and "first-run page does not open again" in out
     dotenv = t["deploy"] / ".env"
     got = dict(ln.split("=", 1) for ln in dotenv.read_text(encoding="utf-8").splitlines() if "=" in ln)
@@ -167,10 +166,10 @@ def test_a_production_box_does_not_finish_its_set_up_until_its_folders_are_right
     assert "compose up" not in t["calls"].read_text(encoding="utf-8")  # not restarted on the refused settings
     text = dotenv.read_text(encoding="utf-8").replace("/mnt/syspart/b", GOOD["backup"])  # IT corrects the line
     dotenv.write_text(text, encoding="utf-8")
-    (h["root"] / "mnt/nas/later").mkdir()  # and mounts the share
+    (h["root"] / "mnt/audit2").mkdir()  # and mounts the share
     again = subprocess.run(["bash", str(t["deploy"] / "box-install.sh"), "--firstrun"], cwd=tmp_path, env=env,
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60, check=False)  # fmt: skip
     assert again.returncode == 0, again.stdout[-2000:]
     assert "TrialBox is ready: https://trialbox.local" in again.stdout and "One-time code:" not in again.stdout
     assert (t["deploy"] / "site" / "compose.anchors.yml").is_file()  # the console reads the signed heads there
-    assert "probe run --rm --network none -v /mnt/nas/later:/anchor:ro" in t["calls"].read_text(encoding="utf-8")
+    assert "probe run --rm --network none -v /mnt/audit2:/anchor:ro" in t["calls"].read_text(encoding="utf-8")

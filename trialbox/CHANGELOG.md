@@ -10,15 +10,15 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
-- A PRODUCTION install finishes only with a backup target off the box and an audit anchor folder of its own
-  (10K-4, D-1390). The box's first-run page asks the folder where the backup disk or share is mounted, the audit
-  record share's folder and the log folder; a system folder or two overlapping folders are refused there. The
-  installers judge each folder by what it is (its real path, its file system, its disk): `deploy/install.sh` stops a
-  PRODUCTION install before the bundle step on a re-run and before the stack starts on a first install, and a box
-  stops before "ready" after its set-up, while no backup target is on a share or on a disk other than the system disk
-  or no anchor folder is named; an anchor folder the console may not read is refused everywhere. The console is
-  given that one folder, read-only. `python3 -m tools.trialbox finish-check --deploy deploy` says why. **An installed
-  PRODUCTION site run through `deploy/install.sh` again needs both** (runbooks 02, 05, 12); updates are not affected.
+- A PRODUCTION install finishes only with a backup target shown to be off the box and the hospital's audit share as
+  its anchor folder (10K-4, D-1390). The box's first-run page asks the folder where the backup disk or share is
+  mounted, the audit share's mount point and the log folder; a system folder or two overlapping folders are refused
+  there. The installers accept only what they can show: a backup on a share the box does not serve, or on a physical
+  disk holding none of the box's own data (not a loop device, zram, another partition of the system disk or the
+  database's disk), counted by the nightly backup too. Of the folders the page asks, the console reads the anchor
+  folder only, read-only, checked before it is mounted and at every start. `python3 -m tools.trialbox finish-check
+  --deploy deploy` says why. **An installed PRODUCTION site run through `deploy/install.sh` again needs both**
+  (runbooks 02, 05, 12); updates are not affected.
 - Silent set-up choices guarded (10K-21): a new PRODUCTION site must answer the chart-number question (choosing
   "as written" is an answer; leaving it empty is not), in the settings wizard and on the box's first-run page. A box
   names the person who opens its health page every working day (its backup alert route); the name is shown with the

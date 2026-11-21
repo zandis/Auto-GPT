@@ -6,8 +6,10 @@ An allow rule, not a deny list. A folder is accepted only when all of this holds
   or empty part; at most 255 characters; a trailing ``/`` dropped (``plain``);
 * it is not ``/`` and does not overlap a system folder: it is not one of :data:`SYSTEM`, not inside one, and does
   not contain one (``/var`` contains ``/var/lib``, so it is refused). The memory and kernel folders (``/proc``,
-  ``/sys``, ``/dev``, ``/run``) and the folders every account may write (``/tmp``, ``/var/tmp``) are on the list;
-  ``/mnt``, ``/media``, ``/srv`` and a folder of its own such as ``/data`` are not;
+  ``/sys``, ``/dev``, ``/run``), the folders every account may write (``/tmp``, ``/var/tmp``), the system's own
+  logs, caches, spools and mail (``/var/log``, ``/var/cache``, ``/var/spool``, ``/var/mail``, ``/var/backups``) and
+  removable media (``/media``) are on the list; ``/mnt``, ``/srv`` and a folder of its own such as ``/data`` are
+  not;
 * the three folders the page asks are three separate folders: none equal to, inside or containing another
   (:func:`overlapping_pair`): the console reads the anchor folder, so it may hold neither backups nor logs, and the
   backup and log folders are pruned by different tools.
@@ -25,8 +27,8 @@ MAX = 255
 _PLAIN = re.compile(r"^/[A-Za-z0-9._/-]*$")
 #: the system folders a typed folder may not equal, be inside, or contain (named below "/")
 _SYSTEM_NAMES = (
-    "bin", "boot", "dev", "etc", "home", "opt", "proc", "root", "run", "sbin", "snap", "sys", "tmp", "usr",
-    "var/lib", "var/run", "var/tmp",
+    "bin", "boot", "dev", "efi", "etc", "home", "media", "opt", "proc", "root", "run", "sbin", "snap", "sys", "tmp",
+    "usr", "var/backups", "var/cache", "var/lib", "var/log", "var/mail", "var/run", "var/spool", "var/tmp",
 )  # fmt: skip
 SYSTEM = tuple(f"/{name}" for name in _SYSTEM_NAMES)
 
