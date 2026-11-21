@@ -406,8 +406,9 @@ def test_a_candidate_is_not_a_zh_tw_patient_word() -> None:
 
 def test_one_rule_two_tables() -> None:
     """One rule (D-1228), one table per language (D-1247): the caller names the language. Text named zh-TW is read by
-    the zh-TW table too; text with no language, or named ja or en, by the Japanese table only, as before D-1247."""
-    assert [t.lang for t in CLAIM_TABLES] == ["ja", "zh-TW"]
+    the zh-TW table too; text with no language by the Japanese table only, as before D-1247. D-1256 adds the English
+    table, read only for text named en, so the list of tables has three entries now; zh-TW's reading is unchanged."""
+    assert [t.lang for t in CLAIM_TABLES] == ["ja", "zh-TW", "en"]
     assert check_claims("AIが疾患を発見します。") == check_claims_ja("AIが疾患を発見します。") != []
     assert zh_claims("AI 預測病人的風險。") != [] and check_claims("AI 預測病人的風險。") == []
     assert deny_masked("本軟體不預測風險。", "zh-TW") != "本軟體不預測風險。"
@@ -769,13 +770,16 @@ def test_an_honest_line_of_the_third_review_passes(text: str) -> None:
 
 
 def test_the_new_classes_are_zh_tw_only_and_the_japanese_table_lacks_them() -> None:
-    """D-1247: treat / prevent (act), a patient's state, deciding a treatment and 提醒 are classes of the zh-TW table
-    only. The Japanese table (D-1228) has none of them, and English has no claim table at all; widening those is
-    outside card 10C-5b, so the gap is recorded here and in D-1247."""
-    ja, zh_table = CLAIM_TABLES
-    assert (ja.act, ja.state, ja.decide, ja.remind, ja.warn) == ((), (), (), (), ())
+    """D-1247: treat / prevent (act), a patient's state, deciding a treatment and 提醒 were classes of the zh-TW table
+    only, and this test recorded the gap. D-1256 (card 10C-5c) gives them to the Japanese and English tables; they
+    read only text named ja or en, so text with no language (and zh-TW text, read by D-1228's Japanese table as
+    before) still has none of them. tests/unit/test_wording_en_ja_classes.py holds the new classes."""
+    ja, zh_table, en = CLAIM_TABLES
     assert zh_table.act and zh_table.state and zh_table.decide and zh_table.remind
-    assert check_claims_ja("本システムは糖尿病を治療します。") == []  # recorded: a Japanese treat claim is not seen
+    assert ja.act and ja.state and ja.decide and ja.remind and ja.warn
+    assert en.act and en.state and en.decide and en.remind and en.warn
+    assert check_claims_ja("本システムは糖尿病を治療します。") != []  # named ja: the treat claim is seen (D-1256)
+    assert check_claims("本システムは糖尿病を治療します。") == []  # no language: D-1228's table, as before
 
 
 def test_a_person_clears_a_judgement_only_as_the_nearest_subject() -> None:
