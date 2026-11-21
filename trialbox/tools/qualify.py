@@ -121,7 +121,7 @@ EVIDENCE_STEPS = {
     "goldens": ["-m", "tools.goldens", "--help"],
 }
 # hardware profile -> the suffix of its builds in models/registry.yaml (``ci``: the stub pair)
-PROFILES = {"ci": "", "rtxpro6000": "rtxpro6000", "gb10": "spark", "rtx5090": "rtx5090", "shared-quota": "shared-quota"}
+PROFILES = {"ci": "", "rtxpro6000": "rtxpro6000", "gb10": "spark", "rtx5090": "rtx5090", "shared-quota": "sharedquota"}
 JUDGE_ALIAS, VERIFIER_ALIAS = "j-workhorse", "v-verifier"
 STUB_BUILD = "trialbox-stub-1"
 # the verifier of the ci pair: the stub under its second served name, so the pair is two models (D-276)
@@ -321,17 +321,10 @@ def profile_builds(profile: str, doc: dict[str, Any] | None = None) -> dict[str,
             want_id = STUB_VERIFIER_BUILD if role == "verifier" else STUB_BUILD
             hit = [b for b in rows if b.get("build_id") == want_id]
         else:
-            suffix = PROFILES[profile]
-            alt_suffix = suffix.replace("-", "")
             hit = [
                 b
                 for b in rows
-                if b.get("alias") == alias
-                and (
-                    str(b.get("build_id", "")).endswith("-" + suffix)
-                    or str(b.get("build_id", "")).endswith(suffix)
-                    or str(b.get("build_id", "")).endswith(alt_suffix)
-                )
+                if b.get("alias") == alias and str(b.get("build_id", "")).endswith("-" + PROFILES[profile])
             ]
         if len(hit) != 1:
             raise QualifyError(f"profile {profile}: {len(hit)} {alias} builds in models/registry.yaml (need one)")
