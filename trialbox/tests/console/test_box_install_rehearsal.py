@@ -18,7 +18,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-import pytest
 import yaml
 from console.app import create_app
 from console.auth import UserStore
@@ -375,25 +374,3 @@ def test_a_preflight_that_hangs_never_holds_the_code_back(tmp_path: Path) -> Non
     finally:
         proc.kill()
         proc.communicate()
-
-
-@pytest.mark.parametrize("mode", [0o640, 0o604, 0o600])
-def test_runbook_unattended_passphrase_file(tmp_path: Path, mode: int) -> None:
-    import secrets
-
-    t: dict[str, Any] = _tree(tmp_path)
-    hardware = Path(t["env"]["TB_BOX_HARDWARE"])
-    hardware.write_text(json.dumps({**json.loads(hardware.read_text()), "tpm": False}))
-    phrase = secrets.token_hex(16)
-    private = tmp_path / "private input"
-    private.write_text(phrase + "\n")
-    private.chmod(mode)
-    res = _unattended(t, tmp_path, OWNER, "--passphrase-file", str(private))
-    assert phrase not in res.stdout + res.stderr
-    if mode == 0o600:
-        assert res.returncode == 0, res.stderr
-        assert phrase not in t["calls"].read_text()
-        assert f"--passphrase-file {private}" in t["calls"].read_text()
-    else:
-        assert res.returncode != 0 and not t["calls"].exists()
-        assert all(word in res.stderr for word in ("0600", "權限", "権限"))

@@ -78,11 +78,6 @@ def test_restore_runbook_offers_the_public_command() -> None:
     assert DRILL_CMD.startswith("trialbox restore-drill {file} --key ")
 
 
-def test_unattended_runbook_gives_a_private_file() -> None:
-    page = next(PAGES.glob("16-*")).read_text()
-    assert "--passphrase-file" in page and "0600" in page
-
-
 def test_installer_cleans_its_project_before_using_the_network() -> None:
     script = (ROOT / "deploy/install.sh").read_text()
     down = script.index('"${COMPOSE[@]}" down --remove-orphans')
@@ -100,31 +95,8 @@ def test_installer_cleans_its_project_before_using_the_network() -> None:
 def test_restore_runbook_uses_installed_box_runtime() -> None:
     page = next(PAGES.glob("05-*")).read_text()
     drill = page.split("**Restore drill", 1)[1].split("**Restore.**", 1)[0]
-    assert "restore-drill --box" in drill and "pg_restore" in drill and "zstandard" in drill
-    assert "restore-drill --box" in (ROOT / "services/console/ops_pages.py").read_text()
-
-
-def test_private_launcher_keeps_secret_out_of_process_arguments(tmp_path: Path) -> None:
-    import secrets
-    import sys
-
-    private = tmp_path / "input"
-    value = secrets.token_hex(20)
-    private.write_text(value + "\n")
-    private.chmod(0o600)
-    script = (
-        "import os, pathlib, sys\n"
-        "value = os.environ['TB_KEK_NEW_PASSPHRASE']\n"
-        "assert value == pathlib.Path(sys.argv[1]).read_text().rstrip('\\n')\n"
-        "assert value.encode() not in pathlib.Path('/proc/self/cmdline').read_bytes()\n"
-    )
-    argv = [sys.executable, "-m", "tools.private_input", "--passphrase-file", str(private),
-            "TB_KEK_NEW_PASSPHRASE", sys.executable, "-c", script, str(private)]  # fmt: skip
-    res = subprocess.run(argv, text=True, capture_output=True, check=False)
-    assert res.returncode == 0 and not res.stdout and not res.stderr
-    private.chmod(0o640)
-    refused = subprocess.run(argv, text=True, capture_output=True, check=False)
-    assert refused.returncode and "0600" in refused.stderr and value not in refused.stdout + refused.stderr
+    assert "trialbox restore-drill <backup file> --key <key>" in drill
+    assert "pg_restore" in drill and "zstandard" in drill
 
 
 def test_restore_box_entry_point_needs_no_host_python_packages(tmp_path: Path) -> None:

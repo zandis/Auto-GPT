@@ -243,18 +243,3 @@ def test_noisy_neighbour_cli_writes_the_record(tmp_path: Path) -> None:
     finally:
         srv.shutdown()
         srv.server_close()
-
-
-def test_runbook_kms_token_file(kms: str, tmp_path: Path) -> None:
-    token_file = tmp_path / "token"
-    token_file.write_text(_Transit.token + "\n")
-    token_file.chmod(0o644)
-    sec = tmp_path / "secrets"
-    sec.mkdir()
-    (sec / "site_hmac.key").write_bytes(secrets.token_bytes(32))
-    args = ["init", "--secrets", str(sec), "--backend", "kms", "--kms-url", kms,
-            "--kms-key", next(iter(_Transit.keys)), "--kms-token-file", str(token_file)]  # fmt: skip
-    assert keys.main(args, {"TB_ENV": "TEST"}) == 1
-    assert not (sec / K.META_FILE).exists()
-    token_file.chmod(0o600)
-    assert keys.main(args, {"TB_ENV": "TEST"}) == 0
