@@ -62,6 +62,8 @@ from console.timefmt import local_date, local_today, site_zone
 
 # D-178 (review J-14): the contact outcomes that end the contact; each names its consequence before it is recorded
 CLOSING_OUTCOMES = frozenset({"reached_declined", "not_approached", "lost_contact"})
+# 9k-7 (D-1388): how long the toast's Undo of a mark is offered, stated on the toast; after it, a new mark is the way
+UNDO_MINUTES = 15
 
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 # T-102c (D-425): where ``/home`` sends a role, by the first of these matrix rows it holds (the investigator marks the
@@ -948,6 +950,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             if sess.user.can_request and not sess.user.can_mark and store.study_state(rid).state != "closed"
             else (),
             sel=sel,
+            mark_undo=sel.get("mark_undo") if sel else None,  # 9k-7 (D-1388): the toast's Undo of the open patient
             opened=opened and sel is not None,
             marks=MARKS,
             reasons=settings_of(rid).reasons,
@@ -1022,6 +1025,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "crits": st.patient_rows(row.get("criteria") or [], crit),
             "practitioner": names.get(row.get("practitioner_id") or "", row.get("practitioner_id") or ""),
             "history": store.mark_history(rid, pid),
+            "mark_undo": undo_offer(sess, rid, pid),  # 9k-7 (D-1388): the toast's Undo, from the store
             "registry": registry_map(rid).get(pid),
             "person": (listed or {}).get("person") or wk["people"].of(pid),  # D-1221
             "study_closed": store.study_state(rid).state == "closed",
@@ -1302,6 +1306,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         reason: str,
         recheck: str,
         note: str,
+        undo_id: int | None = None,
     ) -> tuple[str, str, dict[str, Any]]:
         """One mark (D-108, FR-SCR-07), the same for the page and ``/api/v1``. Returns (study, stored mark, detail).
 
@@ -1330,18 +1335,20 @@ def register(app: FastAPI, h: Helpers) -> None:
         stored_reason: str | None = None
         stored_note = note.strip()[:300] or None
         undone: str | None = None
-        if mark == "undo":  # D-133: the toast's Undo puts back the state before this user's last mark
-            hist = store.mark_history(rid, pid)
-            if not hist or hist[-1].by != sess.user.username:
-                raise h.problem(409, "mark.undo_none")
-            undone = hist[-1].mark
-            before: Mark | None = None
-            for m in hist[:-1]:
-                before = None if m.mark == WITHDRAWN else m
+        undo_of: Mark | None = None
+        put_back: Mark | None = None  # the row an Undo puts back (its list and version too)
+        if mark == "undo":  # D-133, 9k-7 (D-1388): the toast's Undo puts back the state before this user's mark
+            undo_of, before, already = undo_target(sess, rid, pid, undo_id, wk)
+            if already:  # a second click, a second tab, the back button: done once, nothing written again
+                return rid, "undo", {"pid": pid, "action": "undo", "already": True}
+            undone, put_back = undo_of.mark, before
             if before is None:
                 mark, stored_note = "withdraw", None
             else:
                 mark, stored_reason, stored_note = before.mark, before.reason, before.note
+            # 9k-7 (D-1388): every check the act it puts back runs (an Approach waits while the death records cannot
+            # be read, FIT-U04), as if that act were marked now
+            contact_or_refuse(sess, rid, wk, pid, mark)
         elif mark == "not_suitable":
             stored_reason = reason
         elif mark == "not_now":
@@ -1368,6 +1375,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         detail: dict[str, Any] = {"pid": pid, "action": value, "reason": stored_reason or ""}
         if undone is not None:
             detail["undo"] = undone
+        if undo_of is not None:
+            detail["undoes"] = undo_of.id  # 9k-7 (D-1388): the done event's row; this event is its pair
         if prev is not None:
             detail["from"] = prev.mark  # a replaced or withdrawn mark stays visible in the trail
         if warned:  # D-147: a warning, not a gate; each override is its own record and audit event
@@ -1391,11 +1400,90 @@ def register(app: FastAPI, h: Helpers) -> None:
         version = str((wk.get("cl") or {}).get("version") or wk["job"].ruleset_version or "") or None
         if version:
             detail["version"] = version
-        store.mark(rid, Mark(pid, value, stored_reason, stored_note, sess.user.username, now, wk["job"].job_id,
-                             version), number=conf if mark == "approach" else None, before_commit=audit)  # fmt: skip
+        new = Mark(pid, value, stored_reason, stored_note, sess.user.username, now, wk["job"].job_id, version)
+        if put_back is not None:  # 9k-7 (D-1388): exactly the state before, on the list it was made on
+            new = Mark(pid, value, stored_reason, stored_note, sess.user.username, now, put_back.job_id,
+                       put_back.version)  # fmt: skip
+        number = conf if mark == "approach" else None
+        if undo_of is not None and undo_of.id is not None:
+            got = store.undo_mark(rid, undo_of.id, new, number=number, before_commit=audit)
+            if got == "already":  # the other click won the race: it wrote the Undo and its event
+                return rid, "undo", {"pid": pid, "action": "undo", "already": True}
+            if got == "changed":
+                raise h.problem(409, "mark.undo_changed")
+        else:
+            store.mark(rid, new, number=number, before_commit=audit)
         if warned:  # the override record follows its audit event (an event without the record, never the reverse)
             h.team.add_override(rid, pid, warned, sess.user.username, now)
         return rid, value, detail
+
+    def undo_window_end(m: Mark) -> datetime:
+        """The end of the Undo's time: UNDO_MINUTES after the mark, cut to the whole minute, so the HH:MM the toast
+        states is the end itself (the Undo is refused from that minute on, never later than it says)."""
+        return (datetime.fromisoformat(m.at) + timedelta(minutes=UNDO_MINUTES)).replace(second=0, microsecond=0)
+
+    def undo_until_text(m: Mark) -> str:
+        """The end of the Undo's time as the site's clock shows it (HH:MM)."""
+        return undo_window_end(m).astimezone(site_zone(bk)).strftime("%H:%M")
+
+    def undo_offer(sess: Session, rid: str, pid: str) -> dict[str, Any] | None:
+        """9k-7 (D-1388): the Undo the toast offers, read from the store (never from the page): this person's latest
+        mark of the patient, not itself an Undo, inside its time, with no contact outcome recorded after it."""
+        if not sess.user.can_mark:
+            return None
+        hist = store.mark_history(rid, pid)
+        last = hist[-1] if hist else None
+        if last is None or last.by != sess.user.username or last.undoes is not None or last.id is None:
+            return None
+        if h.clock() >= undo_window_end(last) or outcome_since(rid, pid, last):
+            return None
+        return {"pid": pid, "id": last.id, "until": undo_until_text(last)}
+
+    def outcome_since(rid: str, pid: str, m: Mark) -> bool:
+        return any(o.at > m.at for o in store.outcomes(rid, pid))
+
+    def undo_target(sess: Session, rid: str, pid: str, undo_id: int | None,
+                    wk: dict[str, Any]) -> tuple[Mark, Mark | None, bool]:  # fmt: skip
+        """9k-7 (D-1388): the mark row an Undo takes back, the state before it, and whether it is undone already.
+        Refused, with what is true, when the row is someone else's, is itself an Undo, is no longer the latest (the
+        mark changed since, or a contact outcome followed it), or its time is over; the role check is the act's own."""
+        hist = store.mark_history(rid, pid)
+        if undo_id is None:  # /api/v1 and a page from before 9k-7: the latest row
+            target = hist[-1] if hist else None
+        else:
+            target = next((m for m in hist if m.id == undo_id), None)
+        if target is None or target.undoes is not None:
+            raise h.problem(409, "mark.undo_none")
+        if target.by != sess.user.username:
+            raise h.problem(409, "mark.undo_not_yours", by=target.by)
+        if any(m.undoes == target.id for m in hist):
+            return target, None, True
+        if target is not hist[-1]:
+            last = hist[-1]
+            raise h.problem(409, "mark.undo_changed_by", by=last.by, at=local_time_text(last.at))
+        if h.clock() >= undo_window_end(target):
+            raise h.problem(409, "mark.undo_expired", until=undo_until_text(target))
+        if outcome_since(rid, pid, target):
+            raise h.problem(409, "mark.undo_outcome")
+        before: Mark | None = None
+        for m in hist[: hist.index(target)]:
+            before = None if m.mark == WITHDRAWN else m
+        if "approach" in (target.mark, before.mark if before is not None else "") and not h.permit(
+            sess.user, "task.approach", rid
+        ):  # the act's own check: an Undo that takes back or puts back an Approach needs the right to Approach
+            au.append("console.denied", actor=h.actor(sess), detail={"action": f"undo approach {pid[:8]}"})
+            raise h.problem(403, "forbidden")
+        if before is not None and before.mark == "approach":
+            version = str((wk.get("cl") or {}).get("version") or wk["job"].ruleset_version or "") or None
+            if (before.job_id, before.version) != (wk["job"].job_id, version):
+                raise h.problem(409, "mark.undo_list")  # the Approach was on another run's list: mark it again
+        return target, before, False
+
+    def local_time_text(at: str) -> str:
+        try:
+            return datetime.fromisoformat(at).astimezone(site_zone(bk)).strftime("%H:%M")
+        except ValueError:
+            return at[:16]
 
     def approach_events(sess: Session, rid: str, pid: str, prev: Mark | None, value: str, wk: dict[str, Any],
                         version: str | None) -> str:  # fmt: skip
@@ -1439,14 +1527,17 @@ def register(app: FastAPI, h: Helpers) -> None:
         recheck: str = Form(""),
         note: str = Form(""),
         back: str = Form(""),
+        undo: str = Form(""),
     ) -> Response:
         """One mark vocabulary (D-108, FR-SCR-07): Approach / Need info / Not suitable now (a study reason) / Not now,
         re-check on a date. A new mark replaces the current one; ``withdraw`` takes the current mark back. Every mark
-        is an event; the history keeps them all."""
+        is an event; the history keeps them all. 9k-7 (D-1388): ``undo`` names the mark row the toast's Undo takes
+        back (the store decides whether it may)."""
         sess = h.need(request)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
-        rid, value, _ = apply_mark(sess, request.url.path, rs, pid, mark, reason, recheck, note)
+        undo_id = int(undo) if undo.isdigit() and len(undo) <= 18 else None
+        rid, value, _ = apply_mark(sess, request.url.path, rs, pid, mark, reason, recheck, note, undo_id)
         return RedirectResponse(back_to(rid, pid, back, "undo" if mark == "undo" else value), status_code=303)
 
     def contact_rule(rid: str) -> dict[str, Any]:

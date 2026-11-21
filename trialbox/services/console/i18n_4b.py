@@ -124,6 +124,20 @@ EN: dict[str, str] = {
     # home
     "home.setup": "Study set-up",
     "home.clinic.all": "Show all {n}",
+    # 9k-7 (D-1388): the toast's Undo of a mark: this person's, for a stated time, once, and refused with what is true
+    "mark.undo_until": "You can undo this until {until}.",
+    "mark.undo_not_yours": "Only {by}, who made this mark, can undo it. Nothing was undone.",
+    "mark.undo_changed_by": (
+        "This patient's mark has changed since: {by} recorded a newer one at {at}. Nothing was undone."
+    ),
+    "mark.undo_changed": "This patient's mark has changed since. Nothing was undone.",
+    "mark.undo_expired": (
+        "The time to undo this mark ended at {until}. Nothing was undone: mark the patient again instead."
+    ),
+    "mark.undo_outcome": "A contact outcome was recorded after this mark. Nothing was undone.",
+    "mark.undo_list": (
+        "The mark before this one was made on an earlier list. Nothing was undone: mark the patient again."
+    ),
 }
 
 JA: dict[str, str] = {
@@ -227,6 +241,17 @@ JA: dict[str, str] = {
     "help.ask": "解決しない場合は、TrialBox の管理者に連絡してください。",
     "home.setup": "試験の設定",
     "home.clinic.all": "{n} 件すべて表示",
+    "mark.undo_until": "{until} まで元に戻せます。",
+    "mark.undo_not_yours": "この判断を元に戻せるのは、判断した {by} さんだけです。何も元に戻していません。",
+    "mark.undo_changed_by": (
+        "この患者さんの判断はその後変わりました（{at} に {by} さんが新しい判断を記録）。何も元に戻していません。"
+    ),
+    "mark.undo_changed": "この患者さんの判断はその後変わりました。何も元に戻していません。",
+    "mark.undo_expired": (
+        "この判断を元に戻せる時間は {until} に終わりました。何も元に戻していません。もう一度判断してください。"
+    ),
+    "mark.undo_outcome": "この判断の後に連絡結果が記録されました。何も元に戻していません。",
+    "mark.undo_list": "前の判断は以前のリストで行われました。何も元に戻していません。もう一度判断してください。",
 }
 
 ZH: dict[str, str] = {
@@ -321,4 +346,11 @@ ZH: dict[str, str] = {
     "help.ask": "仍無法解決？請聯絡 TrialBox 管理者。",
     "home.setup": "試驗設定",
     "home.clinic.all": "顯示全部 {n} 筆",
+    "mark.undo_until": "可在 {until} 前復原。",
+    "mark.undo_not_yours": "只有做出此標記的 {by} 可以復原。未復原任何內容。",
+    "mark.undo_changed_by": "此病人的標記之後已變更：{by} 於 {at} 記錄了新的標記。未復原任何內容。",
+    "mark.undo_changed": "此病人的標記之後已變更。未復原任何內容。",
+    "mark.undo_expired": "此標記可復原的時間已於 {until} 結束。未復原任何內容，請重新標記。",
+    "mark.undo_outcome": "此標記之後已記錄聯絡結果。未復原任何內容。",
+    "mark.undo_list": "前一個標記是在較早的名單上做的。未復原任何內容，請重新標記。",
 }
