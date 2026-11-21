@@ -59,8 +59,8 @@ async function fits(page, what) {
   // that scrolls sideways either
   const m = await page.evaluate(() => ({
     sw: document.documentElement.scrollWidth,
-    regions: Array.from(document.querySelectorAll("body.phone-first .scroll, body.phone-first .pcards"))
-      .filter((r) => r.offsetParent && (r.matches(".pcards") || r.querySelector("table.pf-cards")))
+    regions: Array.from(document.querySelectorAll("body.phone-first .scroll"))
+      .filter((r) => r.offsetParent && r.querySelector("table.worklist, table.pf-cards"))
       .map((r) => r.scrollWidth - r.clientWidth),
   }));
   check(m.regions.every((d) => d <= 1), `${args.lang} ${what}: no card list scrolls sideways (${m.regions.join(",")})`);
@@ -100,7 +100,7 @@ async function setFlag(browser) {
 // a NEW candidate (no mark yet) of the week list, one per language so the walks do not meet
 async function newCandidate(page) {
   await page.goto(`${BASE}/studies/${RS}/week?list=all`);
-  const pids = await page.locator(".pcards > .pcard").evaluateAll((rows) =>
+  const pids = await page.locator("table.worklist tbody tr").evaluateAll((rows) =>
     rows.filter((r) => !r.querySelector("[data-testid^=mark-]")).map((r) => new URL(r.querySelector("a.rowlink").href).searchParams.get("pid")));
   return pids[(args.pick || 0) + 2] || pids[0];
 }
@@ -123,14 +123,14 @@ const TASKS = {
     await page.goto(MAIL + "/inbox");
     await Promise.all([page.waitForURL((u) => u.href.startsWith(BASE + "/link"), { timeout: 20000 }), page.click("#go")]);
     check(await page.locator("[data-testid=link-page]").isVisible(), `${args.lang} a link from another site: the console's own page`);
-    check(!(await page.locator(".pcards").count()), `${args.lang} the page shows nothing of the study before the tap`);
+    check(!(await page.locator("table.worklist").count()), `${args.lang} the page shows nothing of the study before the tap`);
     await fits(page, "link page");
     await shot(page, "mail_link");
     await load(page, () => page.click("[data-testid=link-continue]"));
     const signin = await page.locator("form[action='/login']").count();
     check(new URL(page.url()).pathname === `/studies/${RS}/week` && signin === 0,
       `${args.lang} Continue with a live session: the week page, not the sign-in form`);
-    const top = await page.evaluate(() => Math.round(document.querySelector(".pcards > .pcard").getBoundingClientRect().top));
+    const top = await page.evaluate(() => Math.round(document.querySelector("table.worklist tbody tr").getBoundingClientRect().top));
     check(top < 844, `${args.lang} the first patient row is on the first screen (top ${top} px)`);
     check((await page.locator("body.phone-first [data-testid=study-fold]").count()) === 1, `${args.lang} the Study fold is below the list`);
     await fits(page, "week page");

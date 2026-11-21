@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_pcard.html" import person_card with context %}
 {% block title %}{{ t('cohort.title') }} · {{ rs }}{% endblock %}
 {% block content %}
 <div class="headrow"><h1>{{ rs }} · {{ t('cohort.title') }}</h1>
@@ -10,9 +9,10 @@
 {% else %}
 <section class="card">
 {% if not rows %}<p class="empty" data-testid="cohort-empty">{{ t('cohort.empty') }}</p>{% else %}
-<div class="pcards" data-testid="cohort">
-{% for r in rows %}{% set f_name %}<b>{{ t('week.patient', p=r.short) }}</b> <span class="pill" data-tone="{{ tone('status', 'new') }}">{{ t('cohort.new') }}</span>{% endset %}{{ person_card('member-' ~ r.short, f_name, r.met ~ '/' ~ r.total, r.visit or t('week.no_visit'), r.department or '–', '', '', '', '', 2, t('patient.visit'), t('cohort.c.dept'), true) }}{% endfor %}
-</div>{% endif %}
+<div class="scroll" tabindex="0"><table class="worklist" data-testid="cohort">
+<thead><tr><th>{{ t('wb.c.patient') }}</th><th>{{ t('wb.c.met') }}</th><th>{{ t('patient.visit') }}</th><th>{{ t('cohort.c.dept') }}</th></tr></thead>
+<tbody>{% for r in rows %}<tr data-testid="member-{{ r.short }}"><td><b>{{ t('week.patient', p=r.short) }}</b> <span class="pill" data-tone="{{ tone('status', 'new') }}">{{ t('cohort.new') }}</span></td><td class="num">{{ r.met }}/{{ r.total }}</td><td class="num">{{ r.visit or t('week.no_visit') }}</td><td>{{ r.department or '–' }}</td></tr>{% endfor %}</tbody>
+</table></div>{% endif %}
 <p class="hint">{{ t('cohort.no_contact') }}</p>
 <p class="hint" data-testid="cohort-run">{{ tp('week.meta', job=job.type, date=(job.run_date.isoformat() if job.run_date else job.updated_at|local(10)), snapshot=(job.snapshot_date.isoformat() if job.snapshot_date else '–')) }}</p>
 </section>
