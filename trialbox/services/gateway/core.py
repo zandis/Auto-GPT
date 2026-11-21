@@ -194,6 +194,7 @@ class _Call:
     context_of_use: str = ""
     prompt: str = ""  # id@version
     prompt_sha: str = ""  # the registry's sha256 of that version (D-300)
+    prompt_headers: dict[str, str] = field(default_factory=dict)
     prompt_registered: bool | None = None
     data_class: str = ""
     rendered_sha: str = ""
@@ -535,6 +536,16 @@ class Gateway:
             if rf.get("type") != "json_schema" or not isinstance(rf.get("json_schema"), dict):
                 raise Refusal("schema_required", "a json_schema response_format is required for this role (LLM-22)")
         self._resolve_prompt(call, h, label, messages, response_format, free_form)
+        if call.prompt:
+            pid, _, ver = call.prompt.partition("@")
+            metadata = {"X-TB-Prompt-Id": pid, "X-TB-Prompt-Version": ver}
+            if call.prompt_sha:
+                metadata["X-TB-Prompt-Sha"] = call.prompt_sha
+            try:
+                call.prompt_headers = prepare_output("prompt_headers", "model", metadata)
+            except OutputRefused as exc:
+                call.prompt = ""
+                raise Refusal(exc.reason, exc.reason, status=exc.status) from exc
         # Routing still examines the original text so a masking hit cannot clear the on-box tripwire.
         # 3 route
         flags = frozenset(x.strip() for x in h.get("x-tb-flags", "").split(",") if x.strip())
@@ -555,7 +566,7 @@ class Gateway:
         try:
             body = prepare_output("chat", "model", body, model_names=self.registry.aliases)
         except OutputRefused as exc:
-            raise Refusal(exc.reason, exc.reason, status=422) from exc
+            raise Refusal(exc.reason, exc.reason, status=exc.status) from exc
 
         if self.policy.no_fallback(route, call.role, call.context_of_use):
             # D-276 (review LLM-002): a judge whose server failed was answered by the next build of the route, the
@@ -738,13 +749,7 @@ class Gateway:
         upstream["model"] = res.served_name
         if res.build.provider_pin is not None:
             upstream["provider"] = provider_routing(res.build.provider_pin)
-        headers = {"X-TB-Call-Id": call.call_id}
-        if call.prompt:
-            pid, _, ver = call.prompt.partition("@")
-            headers["X-TB-Prompt-Id"] = pid
-            headers["X-TB-Prompt-Version"] = ver
-            if call.prompt_sha:
-                headers["X-TB-Prompt-Sha"] = call.prompt_sha
+        headers = {"X-TB-Call-Id": call.call_id, **call.prompt_headers}
         ep_key = endpoint_key(ep.api_key_env, self.env) if ep.api_key_env else ""
         if ep_key:  # TB_LLM_API_KEY_FILE (a compose secret, D-437) before TB_LLM_API_KEY
             headers["Authorization"] = f"Bearer {ep_key}"
@@ -887,7 +892,7 @@ class Gateway:
                 "dispatch", "model", upstream, model_names=(resolved.served_name,), provider_route=provider_route
             )
         except OutputRefused as exc:
-            raise Refusal(exc.reason, exc.reason, status=422) from exc
+            raise Refusal(exc.reason, exc.reason, status=exc.status) from exc
         breaker = lane.breaker if lane is not None else None
         resp: httpx.Response | None = None
         for attempt in (1, 2):

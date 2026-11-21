@@ -26,7 +26,7 @@ from typing import Any, Protocol
 
 from embed_service.embedder import Embedder
 from matching.cascade.s2b_semantic import SourceFallback, SourceNote, SourceRanking
-from tb_common.output_gate import prepare_output
+from tb_common.output_gate import IDENTIFIER_REFUSAL, OutputRefused, prepare_output
 from tb_common.phi_guard import NOTE_MASK_VERSION
 
 from vec.index import Note, note_chunks
@@ -76,7 +76,13 @@ def rank_chunks(
     want: set[tuple[str, int]] = set()
     for note in notes:
         have = sorted(stored.get(note.did, []))
-        expect = [(c.chunk_no, c.start, c.end, c.sha, NOTE_MASK_VERSION) for c in note_chunks(note, mrn_regex)]
+        try:
+            rows = note_chunks(note, mrn_regex)
+        except OutputRefused as exc:
+            if exc.reason != IDENTIFIER_REFUSAL:
+                raise
+            return fallback(STALE)
+        expect = [(c.chunk_no, c.start, c.end, c.sha, NOTE_MASK_VERSION) for c in rows]
         if have != expect:
             return fallback(STALE if have else NOT_INDEXED)
         want |= {(note.did, c[0]) for c in expect}

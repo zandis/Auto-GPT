@@ -146,9 +146,10 @@ def make_handler(g: Guard) -> type[BaseHTTPRequestHandler]:
             if rule == "keyed" and not g.authorised(self.headers.get("Authorization")):
                 self._reply(401, {"error": "Unauthorized"})
                 return
+            headers = {"Content-Type": "application/json"}
             outgoing = b""
             if path in KEYED and self.command == "POST":
-                from tb_common.output_gate import IDENTIFIER_REFUSAL, OutputRefused, prepare_output
+                from tb_common.output_gate import AUDIT_UNAVAILABLE, IDENTIFIER_REFUSAL, OutputRefused, prepare_output
 
                 purposes = {CHAT_COMPLETIONS: "chat", COMPLETIONS: "completion", "/tokenize": "tokenize"}
                 try:
@@ -157,15 +158,20 @@ def make_handler(g: Guard) -> type[BaseHTTPRequestHandler]:
                     incoming = None
                 try:
                     names = {os.environ[k] for k in ("LLM_MODEL", "JUDGE_MODEL", "VERIFIER_MODEL") if os.environ.get(k)}
+                    prompt_headers = {
+                        k: self.headers[k]
+                        for k in ("X-TB-Prompt-Id", "X-TB-Prompt-Version", "X-TB-Prompt-Sha")
+                        if k in self.headers
+                    }
+                    headers.update(prepare_output("prompt_headers", "model", prompt_headers))
                     approved = prepare_output(purposes[path], "model", incoming, model_names=names)
                     outgoing = json.dumps(approved, ensure_ascii=False, allow_nan=False).encode()
                 except OutputRefused as exc:
                     error = {"error": exc.reason}
-                    if exc.reason == IDENTIFIER_REFUSAL:
+                    if exc.reason in (IDENTIFIER_REFUSAL, AUDIT_UNAVAILABLE):
                         error["message"] = exc.message(self.headers.get("Accept-Language"))
-                    self._reply(422, error)
+                    self._reply(exc.status, error)
                     return
-            headers = {"Content-Type": "application/json"}
             if rule == "keyed":
                 headers["Authorization"] = f"Bearer {g.key}"
             headers["Content-Length"] = str(len(outgoing))

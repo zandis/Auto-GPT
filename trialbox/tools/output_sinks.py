@@ -181,13 +181,34 @@ class Scan(ast.NodeVisitor):
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
+    def invalidate(self, target: ast.expr) -> None:
+        seen: set[str] = set()
+        while True:
+            if isinstance(target, (ast.Attribute, ast.Subscript)):
+                target = target.value
+            elif isinstance(target, ast.Call) and isinstance(target.func, ast.Attribute):
+                target = target.func.value
+            elif isinstance(target, ast.Name) and target.id not in seen and (source := self.defs.get(target.id)):
+                seen.add(target.id)
+                target = source
+            else:
+                break
+        if target is APPROVED:
+            # Names bound to projections can share any nested dict or list. Without
+            # proof of independence the enclosing value and aliases need reapproval.
+            self.defs = {k: v for k, v in self.defs.items() if v is not APPROVED}
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        self.generic_visit(node)
+        self.invalidate(node.target)
+
     def visit_Assign(self, node: ast.Assign) -> None:
         self.visit(node.value)
         for target in node.targets:
             if isinstance(target, ast.Name):
                 self.defs[target.id] = APPROVED if self.gated(node.value) else node.value
-            elif isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name):
-                self.defs.pop(target.value.id, None)
+            elif isinstance(target, (ast.Subscript, ast.Attribute)):
+                self.invalidate(target)
 
     def visit_If(self, node: ast.If) -> None:
         self.visit(node.test)
@@ -257,6 +278,8 @@ class Scan(ast.NodeVisitor):
             self.visit(node.value)
             if isinstance(node.target, ast.Name):
                 self.defs[node.target.id] = APPROVED if self.gated(node.value) else node.value
+            elif isinstance(node.target, (ast.Attribute, ast.Subscript)):
+                self.invalidate(node.target)
 
     def visit_With(self, node: ast.With) -> None:
         for item in node.items:
@@ -408,8 +431,17 @@ class Scan(ast.NodeVisitor):
             raw_member = method == "writestr" and first is not None and not (_fixed(first) or self.gated(first))
             if raw_member or not self.gated(content):
                 self.add("support" if "support_bundle" in self.file else "package", method, node)
-        elif method in {"update", "extend", "append", "setdefault"} and isinstance(node.func, ast.Attribute):
-            self.defs.pop(_name(node.func.value), None)
+        elif method in {
+            "update",
+            "extend",
+            "append",
+            "setdefault",
+            "insert",
+            "__setitem__",
+            "__iadd__",
+            "__ior__",
+        } and isinstance(node.func, ast.Attribute):
+            self.invalidate(node.func.value)
         self.generic_visit(node)
 
 
@@ -433,22 +465,30 @@ def inventory_ceiling() -> Counter[Site]:
     def git(*args: str) -> bytes:
         return subprocess.check_output(["git", *args], cwd=ROOT.parent)
 
+    def sites(content: bytes) -> Counter[Site]:
+        return Counter(Site(**{k: v for k, v in row.items() if k != "why"}) for row in json.loads(content))
+
     def at(revision: str) -> Counter[Site]:
-        rows = json.loads(git("show", f"{revision}:{path}"))
-        return Counter(Site(**{k: v for k, v in row.items() if k != "why"}) for row in rows)
+        return sites(git("show", f"{revision}:{path}"))
 
     base = os.environ.get("TB_OUTPUT_SINK_BASE")
-    if base:
-        if git("ls-tree", "--full-tree", base, "--", path):
-            return at(base)
-        # The first PR has no table on its target. Verify its original table independently of subsequent edits.
+    if not base and git("rev-parse", "--is-shallow-repository").strip() == b"true":
+        raise ValueError("a shallow checkout needs an independent TB_OUTPUT_SINK_BASE")
+    if not git("ls-tree", "--full-tree", base or "HEAD", "--", path):
+        # The first slice may arrive as separate commits or as one squashed review.
+        # Authenticate its seed even in a worktree where the table has never been committed.
         initial = git("log", "--diff-filter=A", "-1", "--format=%H", "HEAD", "--", path).decode().strip()
-        content = git("show", f"{initial}:{path}")
-        if hashlib.sha256(content).hexdigest() != "b6d8e3a4cddea3ba9296d1be000f796e0d514e8785ec22e722666b974a3ba084":
+        content = git("show", f"{initial}:{path}") if initial else TABLE.read_bytes()
+        if hashlib.sha256(content).hexdigest() not in {
+            "b6d8e3a4cddea3ba9296d1be000f796e0d514e8785ec22e722666b974a3ba084",
+            "052f3497cf8763795b2e85ab83b8ef05b5e20f26856b942ff48ee871a5d0b935",
+        }:
             raise ValueError("unrecognised initial output sink inventory")
-        return at(initial)
+        return sites(content)
+    if base:
+        return at(base)
 
-    # In a working tree, catch both an uncommitted addition and an addition in the last committed table change.
+    # Local checkouts compare the current table with the preceding table change.
     ceiling = at("HEAD")
     revisions = git("log", "-2", "--format=%H", "--first-parent", "--", path).decode().splitlines()
     return ceiling & at(revisions[1]) if len(revisions) == 2 else ceiling

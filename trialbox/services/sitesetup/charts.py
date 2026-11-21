@@ -24,12 +24,13 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import Any, Protocol
 
 from doc_parser.hidden_text import hidden_text
 from tb_common import encoding, instruments
 from tb_common.output_gate import prepare_output
-from tb_common.phi_guard import DOB_LABELLED
+from tb_common.phi_guard import DOB_LABELLED, MRN_LABELLED
 from tb_common.quotes import quote_in
 from tb_llm.budget import estimate_tokens
 
@@ -421,6 +422,7 @@ def extract(
     job_id: str | None = None,
     switches: Mapping[str, instruments.Switch] | None = None,
     mrn_regex: str | None = None,
+    patient_numbers: tuple[str, ...] = (),
 ) -> tuple[list[dict[str, str]], int]:
     """``(proposed facts, facts dropped)``: a fact whose quote is not in the chart is dropped, never kept. A chart
     longer than the model's context allows is read in parts (:func:`chart_parts`), each fact kept once. An item
@@ -428,13 +430,29 @@ def extract(
     (``switches``, T-307)."""
     # A labelled demographic header can be read locally. Keep the site's proposed DOB fact
     # and its source quote even though the model can no longer read that value.
-    facts: list[dict[str, Any]] = [
-        {"domain": "birth_date", "value": match["v"], "quote": match[0]}
-        for line in text.splitlines()
-        if (match := DOB_LABELLED.match(line.strip()))
-    ]
-    # Analyse the complete chart before a context boundary can divide a name.
     safe = prepare_output("chart_facts", "model", {"text": text, "language": lang}, mrn_regex=mrn_regex)
+    facts: list[dict[str, Any]] = []
+    projected_lines = safe["text"].splitlines()
+    header_lines = text.splitlines()[:3]
+    for index, (header, line) in enumerate(pairwise(header_lines)):
+        number = MRN_LABELLED.search(header)
+        if number is None or number["v"] not in patient_numbers:
+            continue
+        if index and not re.fullmatch(
+            r"(?:外来記録|門診紀錄|Outpatient (?:record|note))\s*(?:[\d年月日./ -]+)?", header_lines[0].strip(), re.I
+        ):
+            continue
+        prefix = projected_lines[index][: number.start()].strip()
+        if number.end() != len(header.rstrip()) or not re.fullmatch(
+            r"(?:患者|病人|Patient)(?:\s*[:：]?\s*[○\s.]+(?:様|女士|先生)?)?", prefix, re.I
+        ):
+            continue
+        dob = DOB_LABELLED.match(line.strip())
+        if dob and re.fullmatch(
+            r"(?:\s*(?:性別|性别|Sex)\s*[:：]?\s*(?:男性|女性|男|女|male|female))?\s*", line.strip()[dob.end() :], re.I
+        ):
+            facts.append({"domain": "birth_date", "value": dob["v"], "quote": dob[0]})
+    # Analyse the complete chart before a context boundary can divide a name.
     for part in chart_parts(safe["text"], part_budget(llm, lang)):
         res = llm.chat_json(
             "chart_facts",

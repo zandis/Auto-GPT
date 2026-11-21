@@ -371,7 +371,7 @@ class LlmClient:
         prompt_id = prompt.meta.id
         schema_name = schema or prompt.meta.output_schema
         json_schema = inline_schema(schema_name)
-        if prompt_id in ("judge", "chart_facts", "crf_prefill", "ie_locate", "draft_doc"):
+        if prompt_id in ("assist", "judge", "chart_facts", "crf_prefill", "ie_locate", "draft_doc"):
             try:
                 variables = prepare_output(prompt_id, "model", variables)
             except OutputRefused as exc:

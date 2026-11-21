@@ -527,8 +527,13 @@ services:
       LLM_MODEL: "${LLM_MODEL:-qwen3.5-35b-a3b-q4}"
       JUDGE_MODEL: "${JUDGE_MODEL:-local/gemma-4-26b-a4b-nvfp4}"
       VERIFIER_MODEL: "${VERIFIER_MODEL:-local/qwen3.5-9b-awq}"
+      TB_SERVICE_NAME: model-guard
+      TB_SETTINGS: /etc/trialbox/settings.yaml
+      TB_GATEWAY_URL: "http://gateway:8020/v1"
+      TB_TZ: "${TB_TZ:?set TB_TZ in deploy/.env}"
       TB_GUARD_ROUTES: "llm-service=llm-service-vllm:8000,llm-verifier=llm-verifier-vllm:8000"
       TB_GUARD_ADMIN: "${TB_GUARD_ADMIN:-0}"
+    volumes: *settings_vol
     networks:
       model-net:
         aliases: [llm-service, llm-verifier]   # the names the gateway calls (models/routing.yaml)

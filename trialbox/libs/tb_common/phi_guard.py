@@ -313,8 +313,16 @@ PHONE_LABELLED = re.compile(
 )
 
 DATE = dates.PHI_SPAN  # Gregorian and 民國 written out (D-215: the pattern lives in tb_common.dates, unchanged)
+# A patient label also introduces clinical prose. These constructions have a
+# clinical predicate; explicit name fields and honorifics still identify names.
+CLINICAL_NEGATION = (
+    r"(?i:(?:no|without)\s+(?:history|evidence|signs?|symptoms?)\s+of\b|"
+    r"denies\s+(?:having|any)\b|not\s+(?:eligible|present|currently)\b)"
+    r"|(?:No|Without|Denies)\s+[A-Z]{2,}\b"
+)
 EN_NAME = re.compile(
-    r"\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|\bPatient(?: name)?:\s*[A-Z][a-z]+\s+[A-Z][a-z]+"
+    r"\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?"
+    rf"|\b(?:Patient name:\s*|Patient:\s*(?!{CLINICAL_NEGATION}))[A-Z][a-z]+\s+[A-Z][a-z]+"
 )
 
 
@@ -999,7 +1007,8 @@ _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "name",
         re.compile(
-            r"(?:\b(?:Mr|Mrs|Ms|Miss|Dr)\.?[ \t]{1,3}|\b(?:Patient|PATIENT)(?: [Nn]ame)?:[ \t]{0,3}"
+            r"(?:\b(?:Mr|Mrs|Ms|Miss|Dr)\.?[ \t]{1,3}|\b(?:Patient|PATIENT) [Nn]ame:[ \t]{0,3}"
+            rf"|\b(?:Patient|PATIENT):[ \t]{{0,3}}(?!{CLINICAL_NEGATION})"
             r"|\b(?:Name|NAME)[ \t]{0,3}:[ \t]{0,3})"
             rf"(?P<v>{_SURNAMES}(?:,[ \t]?|[ \t]{{1,2}}){_GIVEN_ANY}(?![A-Za-z])|{_EN_NAME_CAPS}|{_EN_NAME})"
         ),

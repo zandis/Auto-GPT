@@ -268,12 +268,20 @@ class SiteSetup:
         except charts.ChartError as exc:
             raise SetupError(exc.code, exc.message) from exc
         # Refuse before writing the input or asking the local storage scrubber to read it.
-        patterns = [re.escape(v) for v in _chart_numbers(chart_no)]
+        patient_numbers = tuple(_chart_numbers(chart_no))
+        patterns = [re.escape(v) for v in patient_numbers]
         if self.mrn_regex:
             patterns.append(self.mrn_regex.strip("^$"))
         mrn_regex = "(?:" + "|".join(patterns) + ")"
         switches = instruments.switches(self.store.setting(instruments.SETTING))
-        found, dropped = charts.extract(self.llm, ct.text, lang, switches=switches, mrn_regex=mrn_regex)
+        found, dropped = charts.extract(
+            self.llm,
+            ct.text,
+            lang,
+            switches=switches,
+            mrn_regex=mrn_regex,
+            patient_numbers=patient_numbers,
+        )
         clean_name = "pasted.txt" if pasted else (SAFE_NAME.sub("_", Path(name).name)[-80:] or "chart")
         day = messy.parse_date(_first_date(ct.text) or "").iso or self.today().isoformat()
         iid = self.store.add_input(ws, "chart", clean_name, sha256_bytes(data), "", "", by, self.stamp(), {}, pid, day)

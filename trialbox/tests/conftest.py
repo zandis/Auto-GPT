@@ -23,6 +23,15 @@ os.environ["TB_ADAPTER_RUN"] = "thread"
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _audit_directory(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """Give the file audit writer a private test chain when a run supplies none."""
+    with pytest.MonkeyPatch.context() as env:
+        if "TB_AUDIT_DIR" not in os.environ:
+            env.setenv("TB_AUDIT_DIR", str(tmp_path_factory.mktemp("audit")))
+        yield
+
+
+@pytest.fixture(scope="session", autouse=True)
 def _strict_text() -> None:
     """D-1220: a text key no catalogue has is an error in the suite's own process (console.i18n.translate raises), so
     a page a test renders cannot show a raw key. Switched on here, in process, and never through the environment: a

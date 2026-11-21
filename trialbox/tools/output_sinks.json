@@ -136,14 +136,6 @@
     "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
   },
   {
-    "file": "libs/tb_common/output_gate.py",
-    "function": "_refuse",
-    "area": "log",
-    "sink": "error",
-    "expression": "2108438d0eb8",
-    "why": "This diagnostic still relies on the service log formatter for the values or traceback supplied here."
-  },
-  {
     "file": "libs/tb_common/refdata.py",
     "function": "Cassette.body",
     "area": "package",

@@ -2,8 +2,8 @@
 
     stats = index_notes(store, notes, embedder, mrn_regex=site_mrn_regex())
 
-Each note is masked first (``tb_common.phi_guard.mask_note``, T-600, D-337): names, phone numbers, chart numbers and
-ID numbers never reach a chunk, the ``note_chunk`` table or the embedder's input. Masking keeps the length, so the
+The output gate checks the complete note before chunking. A note whose projected text would change a stored
+chunk identifier is refused pending a versioned reindex. Masking keeps the length, so the
 chunk offsets index the original note. Only the chunk texts whose sha has no vector of the embedder's model are
 embedded; every vector must have the embedder's dimension (``embedder.dim``: the embedder's own setting, D-429),
 checked before anything is written. A note indexed again has its chunks replaced.
@@ -20,7 +20,7 @@ from typing import Any, Protocol
 
 from embed_service.embedder import Embedder
 from tb_common.output_gate import prepare_output
-from tb_common.phi_guard import NOTE_MASK_VERSION, mask_note
+from tb_common.phi_guard import NOTE_MASK_VERSION
 
 from vec.chunker import OVERLAP, SIZE, chunk_note
 from vec.store import ChunkRow, VecError, check_dim, check_model
@@ -56,7 +56,7 @@ class Store(Protocol):
 
 def note_chunks(note: Note, mrn_regex: str | None = None, size: int = SIZE, overlap: int = OVERLAP) -> list[ChunkRow]:
     """The rows of one note: chunks of its masked text, with offsets into the note."""
-    masked = mask_note(note.text or "", mrn_regex)
+    masked = prepare_output("indexed_note", "model", {"text": note.text or ""}, mrn_regex=mrn_regex)["text"]
     return [
         ChunkRow(note.pid, note.did, c.no, note.date, note.type, c.start, c.end, c.text, c.sha, NOTE_MASK_VERSION)
         for c in chunk_note(masked, size, overlap)

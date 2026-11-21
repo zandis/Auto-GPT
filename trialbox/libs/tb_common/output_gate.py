@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import copy
-import logging
+import json
 import math
+import os
 import re
 from collections.abc import Collection, Mapping
 from functools import lru_cache
@@ -14,6 +15,7 @@ from tb_common import phi_guard
 
 _PURPOSES = frozenset(
     {
+        "assist",
         "judge",
         "chart_facts",
         "crf_prefill",
@@ -22,12 +24,14 @@ _PURPOSES = frozenset(
         "embedding",
         "embedding_pairs",
         "chart_text",
+        "indexed_note",
         "chart_excerpts",
         "ie_locate",
         "draft_doc",
         "tokenize",
         "completion",
         "dispatch",
+        "prompt_headers",
     }
 )
 _LANGUAGE = {"en": "English", "ja": "Japanese", "zh-TW": "Traditional Chinese"}
@@ -54,18 +58,50 @@ class OutputRefused(ValueError):
         super().__init__(reason)
         self.reason = reason
 
+    @property
+    def status(self) -> int:
+        return 503 if self.reason == AUDIT_UNAVAILABLE else 422
+
     def message(self, language: str | None = None) -> str:
+        if self.reason == AUDIT_UNAVAILABLE:
+            from tb_common.wording import lang_of
+
+            return AUDIT_MESSAGE[lang_of(language)]
         return identifier_message(language) if self.reason == IDENTIFIER_REFUSAL else self.reason
+
+
+AUDIT_UNAVAILABLE = "output_audit_unavailable"
+AUDIT_MESSAGE = {
+    "en": "Model input was withheld. The audit service is unavailable.",
+    "zh-TW": "已停止傳送模型輸入。稽核服務目前無法使用。",
+    "ja": "モデルへの入力を保留しました。監査サービスを利用できません。",
+}
+PROXY_PURPOSES = frozenset({"prompt_headers", "chat", "completion", "tokenize"})
+REFUSAL_REASONS = frozenset({IDENTIFIER_REFUSAL, "output_invalid", "analysis_unavailable", "output_not_permitted"})
+REFUSAL_PATH = "/internal/model-refusals"
 
 
 def _refuse(purpose: str, reason: str) -> NoReturn:
     detail = {"purpose": purpose if purpose in _PURPOSES else "unknown", "reason": reason}
     try:
-        from tb_common.audit_writer import open_audit
+        if os.environ.get("TB_SERVICE_NAME") == "model-guard" and os.environ.get("TB_GATEWAY_URL"):
+            import httpx
+            from model_guard import key_of
 
-        open_audit().append("llm.output_refused", detail=detail)
+            url = os.environ["TB_GATEWAY_URL"].removesuffix("/v1").rstrip("/")
+            with httpx.Client(trust_env=False, timeout=5) as client:
+                receipt = client.post(
+                    f"{url}{REFUSAL_PATH}/{detail['purpose']}/{reason}",
+                    headers={"Authorization": f"Bearer {key_of(os.environ)}"},
+                )
+                if receipt.status_code != 204:
+                    raise RuntimeError
+        else:
+            from tb_common.audit_writer import open_audit
+
+            open_audit().append("llm.output_refused", detail=detail)
     except Exception:
-        logging.getLogger(__name__).error("llm.output_refused", extra=detail)
+        reason = AUDIT_UNAVAILABLE
     raise OutputRefused(reason)
 
 
@@ -89,6 +125,12 @@ def _list(value: object) -> list[Any]:
     return value
 
 
+# The stored note-mask version treated a capitalized word after "Patient:"
+# as a name, including a clinical negation. Such notes need a versioned reindex.
+_OLD_INDEX_NEGATION = re.compile(rf"\b(?:Patient|PATIENT):[ \t]{{0,3}}(?=[A-Z])(?:{phi_guard.CLINICAL_NEGATION})")
+_POLARITY_AFTER_LABEL = re.compile(r"\b(?:Pt|Patient)\s*[:：]\s*(No|Not|Never|Denies|Without)\b", re.I)
+
+
 def _text(value: object, mrn: str | None) -> str:
     if not isinstance(value, str):
         raise _Invalid
@@ -110,6 +152,43 @@ def _text(value: object, mrn: str | None) -> str:
         for i in range(span.start, span.end):
             if not value[i].isspace():
                 chars[i] = phi_guard.MASK_CHAR
+    result = "".join(chars)
+    for cue in _POLARITY_AFTER_LABEL.finditer(value):
+        if result[cue.start(1) : cue.end(1)] != cue[1]:
+            # Ambiguous subject/name. Do not release a finding with reversed polarity.
+            raise _UnsafeIdentifier
+    return result
+
+
+_JSON_ESCAPE = re.compile(r'\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})')
+
+
+def _message_text(value: object, mrn: str | None) -> str:
+    raw = _text(value, mrn)
+    if not isinstance(value, str) or "\\" not in value:
+        return raw
+    # A template or an SDK may already have JSON-escaped the note. Map each decoded
+    # character back to its wire range so existing escapes and whitespace survive.
+    decoded: list[str] = []
+    offsets: list[int] = []
+    pos = 0
+    for match in _JSON_ESCAPE.finditer(value):
+        decoded.extend(value[pos : match.start()])
+        offsets.extend(range(pos, match.start()))
+        decoded.append(json.loads('"' + match[0] + '"'))
+        offsets.append(match.start())
+        pos = match.end()
+    if not offsets:
+        return raw
+    decoded.extend(value[pos:])
+    offsets.extend(range(pos, len(value) + 1))
+    plain = "".join(decoded)
+    checked = _text(plain, mrn)
+    chars = list(raw)
+    for i, (before, after) in enumerate(zip(plain, checked, strict=True)):
+        if before != after:
+            start, end = offsets[i : i + 2]
+            chars[start:end] = phi_guard.MASK_CHAR * (end - start)
     return "".join(chars)
 
 
@@ -204,6 +283,33 @@ def _identifier(value: object, mrn: str | None) -> str:
     return _unchanged(value, mrn)
 
 
+def _prompt_headers(data: Mapping[str, object], mrn: str | None) -> dict[str, str]:
+    from tb_llm.prompt_registry import default_registry
+
+    if "X-TB-Prompt-Id" not in data:
+        if "X-TB-Prompt-Version" in data or "X-TB-Prompt-Sha" in data:
+            raise _UnsafeIdentifier
+        return {}
+    registry = default_registry()
+    pid = _unchanged(data["X-TB-Prompt-Id"], mrn)
+    versions = registry.versions(pid)
+    if not versions and pid not in {"mlbench_judge", "trialgpt_criterion"}:
+        raise _UnsafeIdentifier
+    out = {"X-TB-Prompt-Id": pid}
+    if "X-TB-Prompt-Version" in data:
+        version = _unchanged(data["X-TB-Prompt-Version"], mrn)
+        if version not in {str(v) for v in versions or [1]}:
+            raise _UnsafeIdentifier
+        out["X-TB-Prompt-Version"] = version
+        if "X-TB-Prompt-Sha" in data:
+            if not versions or data["X-TB-Prompt-Sha"] != registry.entry(pid, int(version)).sha256:
+                raise _UnsafeIdentifier
+            out["X-TB-Prompt-Sha"] = registry.entry(pid, int(version)).sha256
+    elif "X-TB-Prompt-Sha" in data:
+        raise _UnsafeIdentifier
+    return out
+
+
 def _format(value: object, mrn: str | None) -> dict[str, Any]:
     from tb_llm.prompt_registry import default_registry, schema_sha
 
@@ -243,17 +349,17 @@ def _message(value: object, mrn: str | None) -> dict[str, Any]:
                 raise _Invalid
             texts.append(part["text"])
         # The backend concatenates text parts. A caller can place the name and its label in different parts.
-        joined = _text("".join(texts), mrn)
+        joined = _message_text("".join(texts), mrn)
         parts = []
         offset = 0
         for text in texts:
-            single = _text(text, mrn)
+            single = _message_text(text, mrn)
             combined = joined[offset : offset + len(text)]
             safe = "".join(a if b != phi_guard.MASK_CHAR else b for a, b in zip(single, combined, strict=True))
             parts.append({"type": "text", "text": safe})
             offset += len(text)
         return {"role": row["role"], "content": parts}
-    return {"role": row["role"], "content": _text(content, mrn)}
+    return {"role": row["role"], "content": _message_text(content, mrn)}
 
 
 def _chat(
@@ -268,7 +374,9 @@ def _chat(
         out["messages"] = [_message(m, mrn) for m in _list(data["messages"])]
     if purpose in ("completion", "tokenize") and "prompt" in data:
         prompt = data["prompt"]
-        out["prompt"] = [_text(p, mrn) for p in prompt] if isinstance(prompt, list) else _text(prompt, mrn)
+        out["prompt"] = (
+            [_message_text(p, mrn) for p in prompt] if isinstance(prompt, list) else _message_text(prompt, mrn)
+        )
     if purpose == "tokenize" and "add_generation_prompt" in data:
         if type(data["add_generation_prompt"]) is not bool:
             raise _Invalid
@@ -334,7 +442,13 @@ def prepare_output(
     try:
         if not isinstance(data, Mapping):
             raise _Invalid
-        mrn = mrn_regex or phi_guard.site_mrn_regex()
+        from tb_common.config import get_config
+
+        mrn = get_config().settings.mrn_regex
+        if mrn_regex and mrn_regex != mrn:
+            mrn = f"(?:{mrn.strip('^$')}|{mrn_regex.strip('^$')})" if mrn else mrn_regex
+        if purpose == "prompt_headers":
+            return _prompt_headers(data, mrn)
         if purpose == "ie_locate":
             return {"sections": [_fields(_object(s), ("title", "text"), mrn) for s in _list(data.get("sections"))]}
         if purpose == "draft_doc":
@@ -350,14 +464,33 @@ def prepare_output(
                 "approval_end",
             )
             return {"facts": _fields(_object(data.get("facts")), keys, mrn)}
+        if purpose == "indexed_note":
+            # Persisted vectors use a SHA of each chunk under the original note mask.
+            # A stronger projection that changes that text needs a versioned reindex.
+            value = data.get("text")
+            safe = _text(value, mrn)
+            if (
+                not isinstance(value, str)
+                or _OLD_INDEX_NEGATION.search(value)
+                or safe != phi_guard.mask_note(value, mrn_regex)
+            ):
+                raise _UnsafeIdentifier
+            return {"text": safe}
         if purpose == "chart_text":
             return {"text": _text(data.get("text"), mrn)}
         if purpose in ("judge", "chart_excerpts"):
             return _judge(data, mrn, uploaded=purpose == "chart_excerpts")
-        if purpose == "chart_facts":
+        if purpose in ("assist", "chart_facts"):
             lang = data.get("language")
             if not isinstance(lang, str) or lang not in _LANGUAGE:
                 raise _Invalid
+            if purpose == "assist":
+                return {
+                    "language": lang,
+                    "language_name": _LANGUAGE[lang],
+                    **_fields(dict(data), ("question", "draft"), mrn),
+                    "points": [_text(point, mrn) for point in _list(data.get("points"))],
+                }
             return {"language": lang, "language_name": _LANGUAGE[lang], "text": _text(data.get("text"), mrn)}
         if purpose == "crf_prefill":
             return _prefill(data, mrn)
