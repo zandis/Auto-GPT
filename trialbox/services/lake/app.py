@@ -231,7 +231,7 @@ def get_limits() -> dict[str, Any]:
 
 
 @app.get("/generations/{snapshot}")
-def get_generations(snapshot: str) -> dict[str, Any]:
+def get_generations(snapshot: str, recover: bool = False) -> dict[str, Any]:
     """T-724 (D-490): the generations of a date on the box and the one the date names now (``generation``: None for
     a date built before generations). 404: no such snapshot."""
     try:
@@ -241,7 +241,7 @@ def get_generations(snapshot: str) -> dict[str, Any]:
     try:
         return {
             "snapshot": snap,
-            "generation": lake().generation(snap),
+            "generation": lake().generation(snap, recover=recover),
             "generations": lake().generations(snap),
             "site_in_sync": lake().site_in_sync(snap),  # the served generation holds the site's inputs of now
         }

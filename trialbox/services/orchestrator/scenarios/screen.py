@@ -12,7 +12,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from matching import coded_values
@@ -21,9 +21,17 @@ from tb_common import lakeprobe
 from tb_common import provenance as ai_provenance
 from tb_common.authz import norm
 from tb_common.dates import site_dates
+from tb_common.generation import Generation
 from tb_common.llm import LlmError, LlmPromptUnqualified, load_prompt
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
+from tb_common.screening_inputs import (
+    RECORD_OPTION,
+    REFUSAL,
+    ScreeningRefused,
+    ScreeningScope,
+    ScreeningUse,
+)
 from tb_common.subject import job_subject
 from tb_common.timeutil import add_months
 from tb_common.verdict_word import shown_of
@@ -41,6 +49,7 @@ from orchestrator.decision_context import (
     note_block_of,
 )
 from orchestrator.i18n import population_line, t
+from orchestrator.jobs import GENERATION_OPTION, PinnedLake
 from orchestrator.reports import candidate_xlsx, screen_summary_pdf
 from orchestrator.reports.common import ReportMeta
 from orchestrator.scenarios.evaluate import (
@@ -57,7 +66,7 @@ from orchestrator.scenarios.evaluate import (
     served,
     sort_key,
 )
-from orchestrator.scenarios.review import recipients, require_approved
+from orchestrator.scenarios.review import recipients
 from orchestrator.scenarios.screen_cascade import max_pairs_of, pipeline, screen_with_cascade
 from orchestrator.scheduler import require_open
 
@@ -617,6 +626,7 @@ def run_screen(
     select: Callable[[list[Scoped]], list[Scoped]] | None = None,
     given: list[Scoped] | None = None,
     scope: list[Scoped] | None = None,
+    admitted_scope: ScreeningScope | None = None,
 ) -> ScreenRun:
     """``select`` (MICROBATCH, D-397): picks the patients to evaluate from the scope (the new ones, within the night
     budget); SCREEN evaluates the whole scope. ``given`` (MICROBATCH, T-707, D-476): exactly these patients, with no
@@ -624,7 +634,13 @@ def run_screen(
     ``scope`` (MICROBATCH, D-646): the study's scope as :func:`screen_scope` gave it to the caller a moment ago, so
     it is not asked for twice."""
     opts = ctx.job.options or {}
-    practitioners, depts, window, recent = _scope_terms(ctx, rs, given is None)
+    if admitted_scope is None:
+        practitioners, depts, window, recent = _scope_terms(ctx, rs, given is None)
+    else:
+        doctors = admitted_scope.practitioners
+        practitioners = list(doctors) if doctors is not None else None
+        depts = list(admitted_scope.departments)
+        window, recent = admitted_scope.window_days, admitted_scope.recent_months
     # D-147: the research office's opt-out register applies to every screening run (and MICROBATCH's incident run)
     if given is not None:
         scoped = drop_opted_out(ctx, list(given))
@@ -852,11 +868,10 @@ def deliver_lists(
 ) -> tuple[list[Delivery], dict[str, Any]]:
     """Candidate workbook + JSON to list_to; one referral workbook per routed department (phi)."""
     routing: Routing | None = rs.manifest.routing
-    list_to = sorted(set(routing.list_to or [])) if routing else []
-    if not list_to and rs.manifest.kind == "cohort":
+    list_to = list_recipients(rs, ctx.job.requested_by)
+    if list_to and rs.manifest.kind == "cohort" and not (routing and routing.list_to):
         # D-108: a cohort (registry) ruleset has no clinic list address; its member list goes to the coordinator who
         # asked (already allowed to request this study), never to the aggregate recipients
-        list_to = [norm(ctx.job.requested_by)]
         routing = routing.model_copy(update={"list_to": list_to}) if routing else Routing(list_to=list_to)
     if not list_to:
         raise StepFailed("routing", f"Ruleset {rs.id} has no routing.list_to; patient lists cannot be sent.")
@@ -933,18 +948,74 @@ def record_model_uses(ctx: Ctx, rs: Ruleset, srun: ScreenRun) -> int:
     return ai_provenance.verdicts_used(ctx.orch.audit, rs.id, rs.version, ctx.job.job_id, srun.rows)
 
 
+def list_recipients(rule: Ruleset, requester: str) -> list[str]:
+    routing = rule.manifest.routing
+    addresses = sorted(set(routing.list_to or [])) if routing else []
+    return [norm(requester)] if not addresses and rule.manifest.kind == "cohort" else addresses
+
+
+def screening_use(ctx: Ctx, rule: Ruleset, generation: str, release: str, mode: Literal["on", "off"]) -> ScreeningUse:
+    practitioners, departments, window, recent = _scope_terms(ctx, rule, True)
+    scope = ScreeningScope(
+        practitioners=practitioners, departments=departments, window_days=window, recent_months=recent
+    )
+    routing = rule.manifest.routing
+    if routing is None:
+        raise ScreeningRefused()
+    return ScreeningUse(
+        clearance_id=release,
+        site=ctx.cfg.settings.site.id,
+        generation=generation,
+        ruleset=rule.id,
+        rule_version=rule.version,
+        list_to=list_recipients(rule, ctx.job.requested_by),
+        referral_to=routing.referral_to or {},
+        aggregate_to=recipients(routing, ctx.job.requested_by),
+        scope=scope,
+        stored_read=mode,
+    )
+
+
+def start_screen(ctx: Ctx) -> tuple[Ruleset, ScreeningScope]:
+    """Hold the admitted generation before the job can read patients."""
+    job = ctx.job
+    try:
+        lake = ctx.services.lake
+        if not isinstance(lake, PinnedLake):
+            raise ScreeningRefused()
+        permitted, version = lake.admit_screen()
+        if ctx.screen_admission is None:
+            raise ScreeningRefused()
+        rs, use, record_sha = ctx.screen_admission
+        ctx.update(
+            snapshot_date=date.fromisoformat(Generation.parse(permitted).snapshot),
+            ruleset_version=version,
+            options={**(job.options or {}), GENERATION_OPTION: permitted, RECORD_OPTION: record_sha},
+        )
+    except Exception as exc:
+        raise StepFailed("running", t(job_language(ctx), REFUSAL), REFUSAL) from exc
+    return rs, use.scope
+
+
 def run(ctx: Ctx) -> Outcome:
     job = ctx.job
-    require_open(job.ruleset)  # D-386 (LIFE-008): no list for a study that is not open
-    rs = require_approved(ctx, (job.ruleset or "").upper(), (job.options or {}).get("version"))
-    ctx.update(ruleset_version=rs.version)
+    try:
+        # Lifecycle checks also run before a worker is attached to the request.
+        db = getattr(getattr(ctx, "orch", None), "db", None)
+        require_open(job.ruleset, site_url=db.url if db else os.environ.get("TB_DB_URL", ""))
+    except StepFailed as exc:
+        if exc.step == "restore":
+            raise StepFailed("running", t(job_language(ctx), REFUSAL), REFUSAL) from exc
+        raise
+    except Exception as exc:
+        raise StepFailed("running", t(job_language(ctx), REFUSAL), REFUSAL) from exc
+    rs, scope = start_screen(ctx)
     ctx.state("running")
     snapshot = ctx.services.lake.snapshot()
     if not snapshot:
-        raise StepFailed("running", "The data lake has no snapshot yet; the nightly ingest must run first.")
-    ctx.update(snapshot_date=date.fromisoformat(snapshot))
+        raise StepFailed("running", t(job_language(ctx), REFUSAL), REFUSAL)
     run_date = ctx.today()
-    srun = run_screen(ctx, rs, run_date, snapshot)
+    srun = run_screen(ctx, rs, run_date, snapshot, admitted_scope=scope)
     ctx.state("reporting")
     gone = opted_out_now(ctx, [r.pid for r in srun.rows], "publish")  # D-441: every file of the run
     if gone:

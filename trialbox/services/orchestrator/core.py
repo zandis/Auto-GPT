@@ -19,6 +19,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -59,6 +60,9 @@ from orchestrator.db import TERMINAL, JobDB, JobLeased
 from orchestrator.jobs import guarded_services, max_restarts, pinned_services, release_hold
 
 if TYPE_CHECKING:
+    from tb_common.ruleset import Ruleset
+    from tb_common.screening_inputs import ScreeningUse
+
     from orchestrator.decision_context import DecisionContext
 
 log = logging.getLogger("orchestrator")
@@ -120,11 +124,19 @@ class Services:
 Scenario = Callable[["Ctx"], Outcome]
 
 
+_screen_worker: ContextVar[Ctx | None] = ContextVar("screen_worker", default=None)
+
+
+def screening_worker() -> Ctx | None:
+    return _screen_worker.get()
+
+
 class Ctx:
     """What a scenario sees: its job, configuration, services and the publish/state primitives."""
 
     def __init__(self, orch: Orchestrator, job: Job) -> None:
         self.orch = orch
+        self.screen_admission: tuple[Ruleset, ScreeningUse, str] | None = None
         self._job = job
         self._services: Services | None = None
         self._decision: DecisionContext | None = None
@@ -554,7 +566,11 @@ class Orchestrator:
         try:
             if scenario is None:
                 raise StepFailed("received", f"{job.type} jobs are not available on this box yet.")
-            outcome = scenario(ctx)
+            token = _screen_worker.set(ctx if job.type == "SCREEN" else None)
+            try:
+                outcome = scenario(ctx)
+            finally:
+                _screen_worker.reset(token)
             job = ctx.job
             if ctx.step_clock is not None:
                 ctx.step_clock.mark()

@@ -96,6 +96,7 @@ class Published:
     fhir_loaded: int = 0
     fhir_deleted: int = 0
     lake: RebuildResult | None = None
+    promoted_generation: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -423,6 +424,7 @@ def publish_night(
             built_gen = getattr(out.lake, "generation", None)
             if built_gen:
                 rec["lake_generation"] = str(built_gen)
+                rec["build_result"] = out.lake.model_dump(mode="json")
             else:
                 rec.pop("lake_generation", None)
             note("build", DONE)
@@ -485,6 +487,11 @@ def publish_night(
                 stale(_current(cfg.lake_dir), "lake")
                 fhir_back()
                 return end()
+            out.promoted_generation = str(mine) if mine else None
+            if out.lake is None and mine and rec.get("build_result"):
+                saved = RebuildResult.model_validate(rec["build_result"])
+                if saved.snapshot == snap and saved.generation == mine:
+                    out.lake = saved
             note("lake", DONE)
         elif lake_on:
             assert cfg.rebuild is not None

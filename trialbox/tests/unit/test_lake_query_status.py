@@ -164,6 +164,7 @@ ASKS = "handler: only the lake's plain 0 for the table is 'no such table' (D-649
 #: by someone who read what it does with a 5xx (never "no data") and with a 4xx (a fault of the code: it stops).
 CALLERS: dict[tuple[str, str], str] = {
     ("lake/app.py", "query"): "the route: answers the status this card is about",
+    ("tb_common/screening_inputs.py", "admit_screening_inputs"): "a 4xx or 5xx reading the inventory refuses SCREEN",
     ("tb_common/derived_store.py", "rows_from_lake"): GOES_ON,
     ("tb_common/derived_store.py", "mapping_version_of"): GOES_ON,
     ("lake/client.py", "LakeLocal.query"): GOES_ON,

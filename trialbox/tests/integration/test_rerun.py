@@ -13,6 +13,7 @@ from orchestrator.rerun import rerun
 from tb_contracts import JobCreate, JobOutput
 
 from tests.inproc_box import Box, ingest_site, make_box
+from tests.screening_site import accept_fixture
 
 KEY = b"trialbox-test-site-key-0123456789abcdef"
 
@@ -24,7 +25,8 @@ def box(synth_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Box:
     sec.mkdir()
     (sec / "site_hmac.key").write_bytes(KEY)
     ingest_site(synth_dir / "site-a", tmp / "lake", sec, "2026-10-04")
-    b = make_box(tmp / "box", tmp / "lake", sec, date(2026, 10, 5))
+    b = make_box(tmp / "box", tmp / "lake", sec, date(2026, 10, 5), extra_env={"TB_DATA_DIR": str(tmp)})
+    accept_fixture(b, "GZQO")
     for subject, sender in (
         ("FEAS GZQO", "crc1@hospa.test"),
         ("SCREEN GZQO version=1.0.0", "crc1@hospa.test"),

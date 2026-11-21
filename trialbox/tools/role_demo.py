@@ -40,7 +40,6 @@ for p in (ROOT, ROOT / "libs", ROOT / "services"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-KEY = b"trialbox-demo-site-key-0123456789abcdef"
 RUN = date(2026, 10, 5)  # a Monday, the synthetic reference date
 
 
@@ -357,19 +356,42 @@ class InprocBackend:
 
 
 def build(work: Path) -> tuple[Any, Any, Path]:
+    from adapter.cli import keys_init
+    from console.sitestore import SiteStore
     from orchestrator import app as orch_app
+    from tb_common.config import adopt_site_tz
+    from tb_common.flags import Flags
 
     from tests.inproc_box import ingest_site, make_box
     from tools.make_fixtures import main as make_fixtures
 
+    adopt_site_tz()
     synth = work / "synth"
     if not (synth / "site-a").exists():
         assert make_fixtures(["--out", str(synth), "--sites", "a"]) == 0
     sec = work / "sec"
     sec.mkdir(parents=True, exist_ok=True)
-    (sec / "site_hmac.key").write_bytes(KEY)
-    ingest_site(synth / "site-a", work / "lake", sec, "2026-10-04")
-    box = make_box(work / "box", work / "lake", sec, RUN)
+    if keys_init(sec) != 0:
+        raise RuntimeError("site key initialization failed")
+    box = make_box(
+        work / "box",
+        work / "lake",
+        sec,
+        RUN,
+        settings_update={
+            "data_source": {"type": "csv", "path": str(synth / "site-a"), "mapping": "mapping/tw_core/demo_his.yaml"},
+            "registry_source": {"type": "csv", "path": str(synth / "site-a/registry.csv")},
+        },
+        extra_env={
+            "TB_DATA_DIR": str(work),
+            "TB_RULESETS_DIR": str(work / "box" / "repo"),
+        },
+    )
+    Flags(url=box.orch.db.url, audit=box.orch.audit).seed()
+    SiteStore(box.orch.db.url).close()
+    night = ingest_site(synth / "site-a", work / "lake", sec, "2026-10-04", screening_site=box.orch.cfg)
+    if not night.passed:
+        raise RuntimeError(str(night.errors))
     orch_app._orch = box.orch  # the orchestrator's routes now serve this box
     from rc_sim.app import register_inproc
 
