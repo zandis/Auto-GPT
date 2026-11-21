@@ -382,6 +382,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "提供之模型與鎖定版本不符",
     ),
     "ctgov.search": ("Trial registry searched", "臨床試験登録の検索", "搜尋臨床試驗登錄"),
+    "compile.presence_admitted": (
+        "Coded presence criterion admitted",
+        "コードによる存在判定基準を採用",
+        "已採用編碼存在條件",
+    ),
     "compile.start": ("Criteria compiling started", "基準の変換開始", "開始轉換條件"),
     "compile.error": (
         "Criteria compiler error (bug)",

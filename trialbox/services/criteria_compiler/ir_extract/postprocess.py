@@ -19,19 +19,24 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import ValidationError
+from tb_common.audit import AuditLog
+from tb_common.crypto import sha256_text
 from tb_common.derived import CODES, COMPONENTS
-from tb_contracts import Atom, BoolExpr, CriterionIR, CriterionReview, LlmExtractOutput, dump
+from tb_common.ruleset import Ruleset
+from tb_contracts import Atom, BoolExpr, CriterionIR, CriterionReview, LlmExtractOutput, Window, dump
 from tb_contracts.criterion_ir import ACTIVE_STATUSES
 
 from criteria_compiler import unit_check
 from criteria_compiler.ir_extract.negation_scope import negated_presence
 from criteria_compiler.ir_extract.polarity import is_negated, positive
-from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, atoms, check_bool, demographic_alone, kind
+from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, Kind, atoms, check_bool, demographic_alone, kind
 from criteria_compiler.terminology.mapper import (
+    SYSTEMS,
     Concept,
     ConceptMapLLM,
     MappingResult,
@@ -515,6 +520,272 @@ def hold_reused_negated(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) ->
                   "a person to check")  # fmt: skip
 
 
+@dataclass(frozen=True)
+class PresenceSource:
+    """Parser or editor evidence, supplied independently of the extraction answer."""
+
+    text: str
+    kind: str
+    language: str
+    standalone: bool = True
+    complete: bool = True
+
+
+PRESENCE_REVIEW = "presence_requires_review"
+_PRESENCE_MESSAGES = {
+    "en": "Review the full passage to decide whether the coded criterion applies to this patient.",
+    "zh-TW": "請審閱完整原文，判斷此編碼條件是否適用於這位病人。",
+    "ja": "原文全体を確認し、このコード化された基準が患者本人に該当するか判断してください。",
+}
+# A closed vocabulary keeps model-supplied concept names and synonyms out of the grammar.
+# Resolve the canonical name again without model suggestions before accepting its code set.
+_DIAGNOSES = {
+    "en": {
+        "gout": "gout",
+        "rheumatoid arthritis": "rheumatoid arthritis",
+        "type 2 diabetes": "type 2 diabetes mellitus",
+    },
+    "zh-TW": {"痛風": "gout", "類風濕性關節炎": "rheumatoid arthritis", "第二型糖尿病": "type 2 diabetes mellitus"},
+    "ja": {"痛風": "gout", "関節リウマチ": "rheumatoid arthritis", "2型糖尿病": "type 2 diabetes mellitus"},
+}
+_PATIENT_DIAGNOSIS = {
+    "en": re.compile(r"(?:the )?patient has (?:a diagnosis of )?([a-z0-9 ]+)\.?", re.I | re.ASCII),
+    "zh-TW": re.compile(r"(?:患者|病人)患有([^。]+)。?"),
+    "ja": re.compile(r"患者は([^。]+)と診断された。?"),
+}
+
+
+@dataclass(frozen=True)
+class _PresenceReading:
+    """The coded meaning of a complete, standalone eligibility item (multiple names mean OR)."""
+
+    names: tuple[str, ...]
+    domain: str = "condition"
+    window: Window | None = None
+    note: str | None = None
+    icd10cm: tuple[str, ...] = ()
+
+
+# Complete phrases, independent of the model and of the protocol, criterion ID and ValueSet IDs.
+# Time bounds apply to every alternative. A mixed reading also binds the question used on missing data.
+_PROTOCOL_READINGS = {
+    "Type 1 diabetes mellitus.": _PresenceReading(("type 1 diabetes mellitus",)),
+    "History of acute or chronic pancreatitis.": _PresenceReading(("acute or chronic pancreatitis",)),
+    "Use of a GLP-1 receptor agonist or GIP/GLP-1 receptor agonist within 90 days before screening.": _PresenceReading(
+        ("glp-1 receptor agonist",), "medication", Window(from_days=-90, to_days=0)
+    ),
+    "Myocardial infarction or stroke within 90 days before screening.": _PresenceReading(
+        ("myocardial infarction", "stroke"), window=Window(from_days=-90, to_days=0)
+    ),
+    "スクリーニング前90日以内に抗凝固薬（ワルファリン、直接経口抗凝固薬）を使用した者。": _PresenceReading(
+        ("anticoagulant",), "medication", Window(from_days=-90, to_days=0)
+    ),
+    "スクリーニング前12か月以内に脳卒中または一過性脳虚血発作（TIA）の既往がある者。": _PresenceReading(
+        ("stroke", "transient ischemic attack"), window=Window(from_days=-365, to_days=0)
+    ),
+    "軽度認知障害（MCI）または認知症（アルツハイマー型、血管性、その他）と診断されている者"
+    "（ICD-10-CM G31.84、G30、F01〜F03）。": _PresenceReading(
+        ("cognitive impairment or dementia",), icd10cm=("G31.84", "G30", "F01", "F02", "F03")
+    ),
+    "Rheumatoid arthritis diagnosed at least 6 months before screening.": _PresenceReading(
+        ("rheumatoid arthritis",), window=Window(to_days=-180)
+    ),
+    "Any prior biologic DMARD or JAK inhibitor.": _PresenceReading(("biologic dmard or jak inhibitor",), "medication"),
+    "Herpes zoster within 12 months before screening.": _PresenceReading(
+        ("herpes zoster",),
+        window=Window(from_days=-365, to_days=0),
+        note="Do the notes document an episode of herpes zoster (shingles) within the 12 months before the index date?",
+    ),
+    "History of venous thromboembolism (deep vein thrombosis or pulmonary embolism).": _PresenceReading(
+        ("venous thromboembolism",),
+        note="Do the notes document a deep vein thrombosis or a pulmonary embolism at any time?",
+    ),
+    "Malignancy within the past 5 years.": _PresenceReading(("malignancy",), window=Window(from_days=-1825, to_days=0)),
+}
+
+
+def _codes_agree(name: str, reading: _PresenceReading, mapped: MappingResult | None, term: Terminology) -> bool:
+    if not (mapped and mapped.domain == reading.domain and mapped.concepts and not mapped.needs_review):
+        return False
+    if reading.icd10cm:
+        # The protocol itself specifies both individual codes and three-character categories.
+        categories = {
+            (c.system, c.code if c.code in reading.icd10cm else c.code.partition(".")[0]) for c in mapped.concepts
+        }
+        if categories != {(SYSTEMS["icd10cm"], code) for code in reading.icd10cm}:
+            return False
+    try:
+        reference = term.map(reading.domain, name)
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return (
+        not reference.needs_review
+        and not reference.notes
+        and not mapped.notes
+        and reference.concepts == mapped.concepts
+        and reference.families == mapped.families
+    )
+
+
+def _passage_supports(
+    criterion: CriterionIR, source: PresenceSource, mappings: Mapping[str, MappingResult], term: Terminology
+) -> bool:
+    if criterion.flags:
+        return False
+    text = source.text.strip()
+    reading = _PROTOCOL_READINGS.get(text) if source.kind in {"inclusion", "exclusion"} else None
+    if reading is None:
+        match = _PATIENT_DIAGNOSIS[source.language].fullmatch(text)
+        diagnosis = _DIAGNOSES[source.language].get(match[1].lower()) if match else None
+        if diagnosis is None:
+            return False
+        reading = _PresenceReading((diagnosis,))
+
+    if criterion.class_ == "mixed":
+        if not reading.note or criterion.note_question != reading.note or criterion.note_question_source:
+            return False
+    elif criterion.class_ != "structured" or criterion.note_question:
+        return False
+    if criterion.time_sensitive and reading.window is None:
+        return False
+
+    logic = criterion.logic
+    if isinstance(logic, Atom):
+        parts = [logic]
+    elif logic.op == "or" and len(reading.names) > 1:
+        parts = [part for part in logic.args if isinstance(part, Atom)]
+        if len(parts) != len(logic.args):
+            return False
+    else:
+        return False
+    if len(parts) != len(reading.names):
+        return False
+    remaining = list(reading.names)
+    for part in parts:
+        if part.domain != reading.domain or part != Atom(
+            domain=part.domain, valueset=part.valueset, window=reading.window
+        ):
+            return False
+        name = next((n for n in remaining if _codes_agree(n, reading, mappings.get(part.valueset), term)), None)
+        if name is None:
+            return False
+        remaining.remove(name)
+    return True
+
+
+def _presence_logic(logic: Atom | BoolExpr) -> bool:
+    for atom in atoms(logic):
+        try:
+            if kind(atom) is Kind.PRESENCE:
+                return True
+        except CompileError:
+            # A malformed coded presence (e.g. an absent ValueSet) also goes to a person.
+            if atom.domain != "demographic" and atom.value is None and atom.derived is None and atom.duration is None:
+                return True
+    return False
+
+
+def _recorded_presence(criterion: CriterionIR, approved: Ruleset, mappings: Mapping[str, MappingResult]) -> bool:
+    """Replay only what the reviewer actually approved, including the referenced code sets."""
+    if approved.id != criterion.ruleset or approved.manifest.status != "approved":
+        return False
+    records = [c for c in approved.criteria if c.id == criterion.id]
+    if len(records) != 1 or approved.manifest.criteria.count(criterion.id) != 1:
+        return False
+    prior = records[0]
+    review = prior.review
+    if (
+        not review
+        or review.status != "approved"
+        or not (review.by or "").strip()
+        or not review.at
+        or prior.model_dump(exclude={"review"}) != criterion.model_dump(exclude={"review"})
+    ):
+        return False
+    pinned = ValueSets(approved.id, approved.valuesets, None)
+    try:
+        check_bool(criterion.logic)
+        for atom in atoms(criterion.logic):
+            if kind(atom) is Kind.DEMOGRAPHIC:
+                continue
+            mapped = mappings.get(atom.valueset)
+            if not mapped or mapped.domain != atom.domain or not mapped.concepts or mapped.notes:
+                return False
+            if set(pinned.codes(atom.valueset)) != {(c.system, c.code) for c in mapped.concepts}:
+                return False
+            if set(pinned.families(atom.valueset)) != set(mapped.families):
+                return False
+    except (CompileError, KeyError, TypeError, AttributeError):
+        return False
+    return True
+
+
+def admit_presence(
+    criterion: CriterionIR,
+    source: PresenceSource | None,
+    mappings: Mapping[str, MappingResult],
+    term: Terminology,
+    *,
+    audit: AuditLog | None = None,
+    approved: Ruleset | None = None,
+) -> CriterionIR:
+    """Release a coded presence only on independent passage evidence or a persisted decision.
+
+    Only a trusted reader of the review record may supply `approved`. First extraction has no such record.
+    A bare approval status on the proposal supplies no evidence.
+    """
+    flagged = PRESENCE_REVIEW in (criterion.flags or [])
+    if not flagged and (criterion.class_ not in FILTERED or not _presence_logic(criterion.logic)):
+        return criterion
+    if (
+        not flagged
+        and source
+        and source.complete
+        and source.language in _PRESENCE_MESSAGES
+        and source.text == criterion.text
+        and source.kind == criterion.kind
+        and audit is not None
+        and not term.terminology_refused
+        and not (criterion.review and criterion.review.status == "rejected")
+    ):
+        allowed = (
+            _recorded_presence(criterion, approved, mappings)
+            if approved is not None
+            else source.standalone and _passage_supports(criterion, source, mappings, term)
+        )
+        if allowed:
+            try:
+                receipt = audit.append(
+                    "compile.presence_admitted",
+                    ruleset=criterion.ruleset,
+                    input_sha=sha256_text(source.text),
+                    output_sha=sha256_text(criterion.logic.model_dump_json(exclude_none=True)),
+                    actor="criteria-compiler",
+                    detail={"criterion": criterion.id, "basis": "review" if approved is not None else "text"},
+                )
+            except (OSError, RuntimeError, ValueError):
+                pass  # An unavailable audit destination or invalid audit setting requires human review.
+            else:
+                if receipt and receipt.get("event") == "compile.presence_admitted":
+                    return criterion
+
+    message = _PRESENCE_MESSAGES.get(source.language if source else "", " / ".join(_PRESENCE_MESSAGES.values()))
+    return criterion.model_copy(
+        update={
+            "class_": "human",
+            "logic": Atom(domain="demographic", valueset="NONE"),
+            "text": source.text if source else criterion.text,
+            "human_question": message,
+            "note_question": None,
+            "note_question_source": None,
+            "review": criterion.review
+            if criterion.review and criterion.review.status == "rejected"
+            else CriterionReview(status="draft"),
+            "flags": sorted({*(criterion.flags or []), "needs_review", PRESENCE_REVIEW}),
+        }
+    )
+
+
 def postprocess(
     ruleset: str,
     extracted: LlmExtractOutput,
@@ -523,6 +794,9 @@ def postprocess(
     llm_map: ConceptMapLLM | None = None,
     id_offset: dict[str, int] | None = None,
     egfr: str = "egfr",
+    *,
+    sources: Sequence[PresenceSource] = (),
+    audit: AuditLog | None = None,
 ) -> PostResult:
     """``egfr``: what a criterion that says only "eGFR" becomes at this site (D-149): ``egfr`` (CKD-EPI 2021, the
     meaning it always had) or ``egfr_jsn`` at a Japanese site; a protocol that names its equation keeps it."""
@@ -585,9 +859,10 @@ def postprocess(
             warnings.append(f"{cid}: {exc}")
             logic, flags = {"domain": "demographic", "valueset": "NONE"}, ["needs_review", "logic_invalid"]
         ir_dict = {k: v for k, v in raw.items() if k not in ("concept_candidates", "logic") and v is not None}
-        ir_dict.update({"id": cid, "ruleset": ruleset, "logic": logic, "review": {"status": "draft"}})
         try:
-            ir = CriterionIR.model_validate(ir_dict)
+            ir = CriterionIR.model_validate(
+                {**ir_dict, "id": cid, "ruleset": ruleset, "logic": logic, "review": {"status": "draft"}}
+            )
         except ValidationError as exc:
             # D-910: one criterion the model wrote outside the IR (a public protocol is messier than the shipped
             # ones) failed the whole compile with an HTTP 500. It is kept as a person's check, flagged, with where
@@ -596,6 +871,7 @@ def postprocess(
             warnings.append(f"{cid}: not a valid criterion ({where}); kept for a person to check")
             ir = _for_a_person(cid, ruleset, ec.kind, str(raw.get("text") or ""), raw.get("source_ref"))
             flags = [*flags, "ir_invalid"]
+        proposed_presence = ir.class_ in FILTERED and _presence_logic(ir.logic)
         if stray:
             flags.extend(stray)
             warnings.append(f"{cid}: fields its atoms cannot use ({', '.join(stray)})")
@@ -732,9 +1008,12 @@ def postprocess(
             else:
                 flags.append("negated_question")
                 warnings.append(f"{cid}: exclusion question is negated and could not be rewritten; edit it")
+        if proposed_presence and ir.class_ not in FILTERED:
+            flags.append(PRESENCE_REVIEW)
         if flags:
             ir = ir.model_copy(update={"flags": sorted(set(flags) | {"needs_review"})})
-        criteria.append(ir)
+        source = sources[len(criteria)] if len(sources) == len(extracted.criteria) else None
+        criteria.append(admit_presence(ir, source, mappings, term, audit=audit))
     criteria = decided_once(criteria, warnings)
     return PostResult(criteria, dict(sorted(valuesets.items())), mappings, warnings)
 

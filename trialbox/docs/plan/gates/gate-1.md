@@ -1,0 +1,7 @@
+## Gate 1: what it guarantees, what calls it, what is still in the ratchet
+
+A coded presence test needs a whole passage that affirms the condition or exposure for this patient and agrees with the codes. Slice 1 recognizes explicit patient diagnoses and selected standalone protocol items. For a timed alternative, each branch must match its diagnosis and window. A mixed criterion must also ask the supported note question. A stored human approval also qualifies when the text, predicate and codes agree. Release requires available terminology and a successful audit write. Refusals go to a person with the reason `presence_requires_review`.
+
+First extraction calls `admit_presence` before emitting each criterion. Retries use the same gate with the original passage and its list heading, even when the retry prompt omits the heading. Re-extraction after a text edit uses the submitted replacement. Reviewers see the reason in English, Traditional Chinese or Japanese.
+
+The ratchet in `tools/presence_bypasses.json` covers reuse and review edits, group and variant construction, storage and publication, and the SQL and CQL generators, in that migration order. We searched `libs/` and `services/` for presence predicates, IR constructors, class and logic writes, review changes and publication calls. The AST test compares those sites with the inventory and with `GATE_BASE_REF`, which defaults to `origin/master`.
