@@ -7,6 +7,11 @@
 #        [--ssh-off-over-ssh]   (H-70: run over SSH, hardening.conf's SSH=off is refused unless this is given)
 #   sudo deploy/install.sh --check            # host checks only (deploy/check_host.sh)
 #   deploy/install.sh --tier large --tier-check   # only: may this tier be installed on this machine?
+#   Without a TPM, set bundle and answers to their paths. In your own Bash shell (passphrase of at least 12 characters):
+#   read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
+#   sudo --preserve-env=TB_KEK_PASSPHRASE TB_KEK_BACKEND=passphrase deploy/install.sh "$bundle" --answers "$answers"
+#   unset TB_KEK_PASSPHRASE
+#   sudo VAR=value command shows the value in the process list.
 #   ... --ctgov live|offline                       # ClinicalTrials.gov: online, or the copy in each update (D-140)
 #   deploy/install.sh --ctgov-check                # only: which ClinicalTrials.gov mode would be suggested here?
 #
@@ -28,7 +33,8 @@
 #   3. settings:  deploy/settings.yaml + deploy/.env from the settings wizard (questions, or --answers), random
 #                 service passwords; .env 0600, settings.yaml 0640 for group tb; an existing settings.yaml is kept
 #                 and re-validated
-#   4. start:     docker compose up --wait --pull never with the chosen model profile (every image from the bundle,
+#   4. start:     down --remove-orphans in this project / 清除此專案 / このプロジェクトを整理
+#                 docker compose up --wait --pull never with the chosen model profile (every image from the bundle,
 #                 digest pins kept on either Docker image store: tools/image_pins.py); egress rules (deploy/network.sh);
 #                 the systemd units of deploy/systemd (egress closed at boot before Docker, the stack after a restart,
 #                 the egress refresh and watchdog timers; D-377)
@@ -80,7 +86,7 @@ while [ $# -gt 0 ]; do
     --rehearsal) REHEARSAL=1 ;;
     --environment) ENVIRONMENT="$2"; shift ;;
     --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
-    -h|--help) sed -n 2,40p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,45p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
   esac
@@ -332,6 +338,12 @@ if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
   [ -L "$ROOT/deploy/install.sh" ] || die "deploy/install.sh is not the signed release's (tools/host_tree.py status)"
   say "continuing from the signed release ($ROOT/deploy/install.sh -> $(readlink "$ROOT/deploy/install.sh"))"
   TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${ARGS[@]+"${ARGS[@]}"}
+fi
+
+# Expose the signed host CLI on PATH. The link follows the release selected by an update or rollback.
+if [ "$(id -u)" = 0 ]; then
+  install -d /usr/local/bin
+  ln -sfnT "$ROOT/tools/trialbox/__main__.py" /usr/local/bin/trialbox
 fi
 
 # ------------------------------------------------------------------------------------------------ 3. settings
@@ -751,6 +763,11 @@ if [ "$PULL" = never ]; then
   [ -z "$MISSING" ] || die "images not on this box:$MISSING. They come only from the bundle; nothing is pulled (TB_INSTALL_PULL=missing on a site with its own mirror)"
   echo "    every image of the stack is on this box (nothing is pulled)"
 fi
+# The same named project and overlays as up. Include inactive profiles from an earlier attempt.
+(
+  COMPOSE+=(--profile '*')
+  "${COMPOSE[@]}" down --remove-orphans
+) || die "project cleanup failed / 專案清理失敗 / プロジェクトのクリーンアップに失敗しました"
 # D-620: this release's host-side steps before its stack starts (tools/trialbox/prestart.py), the same command an
 # update runs: a step a release adds there is run by a fresh install too. The steps are safe to run again.
 if command -v python3 >/dev/null; then
@@ -780,7 +797,7 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
   [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
   TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" \
-    || die "the site keys are not sealed (above): without a usable TPM run again with TB_KEK_BACKEND=passphrase and TB_KEK_PASSPHRASE set (no hardening.conf needed); docs/security/01-the-host.md"
+    || die "the site keys are not sealed (above): for TB_KEK_BACKEND=passphrase without a usable TPM, use the hidden-input example in deploy/install.sh --help; docs/security/01-the-host.md"
 fi
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 "${COMPOSE[@]}" up -d --pull "$PULL" --wait db || die "the database did not start (docker compose logs db)"

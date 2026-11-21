@@ -52,6 +52,10 @@ criteria that need a note's free text wait for a GPU or a pinned cloud model. Th
 files), and `release check` refuses a site bundle without them. A PRODUCTION install stops when they are missing.
 How fast the CPU embeds a hospital's records is not measured yet.
 
+**Re-running the installer.** Before starting the database, the installer runs Compose `down --remove-orphans` on its own project. This stops its services and removes its containers, orphans and stale networks. Its volumes and data are kept.
+重新執行安裝程式時，資料庫啟動前會先停止此 Compose 專案的服務，移除容器、孤立容器及過時網路，並保留資料卷與資料。
+再実行時はデータベースの起動前に、この Compose プロジェクトのサービスを停止してコンテナ、孤立コンテナ、古いネットワークを削除します。ボリュームとデータは保持されます。
+
 **The questions it asks.** Without `--yes`, at the terminal, the installer asks whether to start the stack now and,
 when the answers lack them, the ClinicalTrials.gov mode (`ctgov_mode`), the console's name (`tls_hostname`) and the
 trial office's mailbox (`sae_office_mailbox`). With all three in the answers, add `--yes` after `--` for an install

@@ -182,3 +182,100 @@ def test_the_command_prints_the_result_and_exits_by_it(
     assert out["ok"] and (deploy / "site" / metrics.VERIFIED_FILE).is_file()
     monkeypatch.setattr(shutil, "disk_usage", lambda _p: type("U", (), {"free": 0})())
     assert cli(args) == 2 and "GB free" in capsys.readouterr().err
+
+
+def test_box_restore_with_the_installers_nocreatedb_owner(
+    box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Replace Docker transport only. Run the real PostgreSQL programs and the image's unpack and compare code."""
+    import secrets
+    from urllib.parse import urlsplit, urlunsplit
+
+    from psycopg import sql
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+    from tools.trialbox import __main__ as entry
+    from tools.trialbox import box_drill, update
+
+    dsn = split_url(box["url"])[0]
+    with psycopg.connect(dsn) as con:
+        row = con.execute("SELECT rolname FROM pg_roles WHERE rolsuper AND rolcanlogin ORDER BY oid LIMIT 1").fetchone()
+    assert row is not None
+    admin = row[0]
+    owner = "drill_" + secrets.token_hex(6)
+    parts = urlsplit(box["url"])
+    limited_url = urlunsplit(parts._replace(netloc=owner + "@" + parts.netloc.rpartition("@")[2]))
+    settings = tmp_path / "deploy"
+    settings.mkdir()
+    (settings / ".env").write_text(f"TB_DB_URL={limited_url}\n")
+    conn = conninfo_to_dict(dsn)
+    pg_env = {"PGHOST": conn["host"], "POSTGRES_USER": admin, "POSTGRES_DB": conn["dbname"]}
+    if "port" in conn:
+        pg_env["PGPORT"] = conn["port"]
+
+    visited = []
+    audit_events = []
+    run_cmd = update.run_cmd
+    installed = box_drill.BoxDrill(settings)
+
+    def docker(argv: list[str], stdin_file: Path | None = None, env: dict[str, str] | None = None) -> str:
+        if argv[:2] == [*installed.box.docker, "inspect"]:
+            assert argv[-1] == "synthetic-container-id"
+            return json.dumps([{"Destination": "/var/lib/postgresql/data", "Source": str(tmp_path)}])
+        if argv == installed.box._c("ps", "-q", "db"):
+            return "synthetic-container-id"
+        if box_drill.MODULE in argv:
+            args = argv[argv.index(box_drill.MODULE) + 1 :]
+            work = Path(next(v.removesuffix(":/work:ro").removesuffix(":/work") for v in argv if ":/work" in v))
+            visited.append(args[0])
+            if args[0] == "unpack":
+                assert "--network" in argv and argv[argv.index("--network") + 1] == "none"
+                assert f"{box['priv']}:/key:ro" in argv
+                args = ["unpack", str(box["file"]), str(box["priv"])]
+            else:
+                assert "container:synthetic-container-id" in argv
+                assert env == {"TB_DB_URL": limited_url} and limited_url not in argv
+                assert str(box["priv"]) not in " ".join(argv)
+                monkeypatch.setenv("TB_DB_URL", limited_url)
+            return json.dumps(box_drill.image_step(args, work))
+        assert argv[: len(installed.box.compose)] == installed.box.compose
+        if "orchestrator" in argv:
+            assert stdin_file is not None
+            audit_events.append(json.loads(stdin_file.read_text()))
+            return ""
+        cmd = argv[argv.index("db") + 1 :]
+        visited.append(cmd[0])
+        return run_cmd(cmd, stdin_file=stdin_file, env=pg_env)
+
+    with psycopg.connect(dsn, user=admin, autocommit=True) as con:
+        # A second, empty source database exercises a full HAPI dump alongside the workflow's schema-filtered dump.
+        source_name = rd.SCRATCH_PREFIX + secrets.token_hex(6)
+        privileged = make_conninfo(dsn, user=admin)
+        rd._create(privileged, source_name)
+        try:
+            sources = {**box["env"], "TB_HAPI_DB_URL": make_conninfo(privileged, dbname=source_name)}
+            box["file"], *_ = bk.backup([tmp_path / "both"], tmp_path / "box/backup.pub", env=sources, dirs=box["dirs"])
+        finally:
+            rd._drop(privileged, source_name)
+        con.execute(sql.SQL("CREATE ROLE {} LOGIN NOCREATEDB").format(sql.Identifier(owner)))
+        try:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                rd._create(split_url(limited_url)[0], rd.SCRATCH_PREFIX + secrets.token_hex(8))
+            monkeypatch.setattr(installed.box, "run", docker)
+            assert installed.data_dir() == tmp_path
+            # The CLI's default deploy path is beside the signed release tools.
+            monkeypatch.setattr(entry, "__file__", str(tmp_path / "tools/trialbox/__main__.py"))
+            monkeypatch.setattr(update, "run_cmd", docker)
+            monkeypatch.setenv("TB_DB_URL", "postgresql://wrong-host/wrong-db")
+            assert cli(["restore-drill", str(box["file"]), "--key", str(box["priv"])], installed=True) == 0
+            res = json.loads(capsys.readouterr().out)
+            assert (settings / "site" / metrics.VERIFIED_FILE).is_file()
+            assert [event["event"] for event in audit_events] == [rd.EVENT]
+            assert str(box["priv"]) not in json.dumps(audit_events)
+            assert res["ok"], res
+            assert visited == ["unpack", "sh", "pg_restore", "compare", "sh", "pg_restore", "compare", "sh", "sh"]
+            assert set(res["databases"]) == {"trialbox_wf", "hapi"}
+            assert res["scratch_dropped"] and not _scratch_dbs(box["url"])
+            assert res["unpacked_removed"] and res["databases"]["trialbox_wf"]["differ_count"] == 0
+        finally:
+            con.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(owner)))

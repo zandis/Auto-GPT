@@ -159,10 +159,19 @@ question, no first-run code and no wait. Use it for the hospital's own unattende
 - The plan is made from that file. The install then makes the first administrator as the IT form does: the password
   and enrolment code are printed once.
 - After the install it sets the host's time zone, installs the backup schedule and runs the host check.
-- A password or passphrase in the file is refused. On a board without a usable TPM, set `TB_KEK_PASSPHRASE` in the
-  command's environment; the site keys are sealed under it at the install.
+- A password or passphrase in the answers file is refused.
 - A file that does not parse changes nothing.
 - It cannot be combined with `--prepare`, `--rehearsal` or `--firstrun`.
+
+Without a usable TPM, set `bundle` to the signed bundle’s path. In your own Bash shell, type a passphrase
+of at least 12 characters when `read` waits, then press Enter.
+Using `sudo VAR=value command` shows the value in the process list.
+
+```bash
+read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
+sudo --preserve-env=TB_KEK_PASSPHRASE deploy/box-install.sh "$bundle" --answers owner.json
+unset TB_KEK_PASSPHRASE
+```
 
 **The box's name (OPS-005):** a box named `<name>.local` answers that name on the clinic's network.
 - `hardening.conf` says `MDNS=on`, and the input firewall then lets mDNS (UDP 5353) in from the box's own network only.

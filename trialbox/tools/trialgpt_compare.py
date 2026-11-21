@@ -10,7 +10,9 @@
   ("not enough information") on both sides.
 
     python -m tools.trialgpt_compare fetch
-    OPENROUTER_API_KEY=... python -m tools.trialgpt_compare run --models qwen/qwen3.6-35b-a3b --langs en ja
+    read -rs OPENROUTER_API_KEY; export OPENROUTER_API_KEY
+    python -m tools.trialgpt_compare run --models qwen/qwen3.6-35b-a3b --langs en ja
+    unset OPENROUTER_API_KEY
     python -m tools.trialgpt_compare score        # -> eval/trialgpt_compare/results/scores.json
 
 Responses are cached by request hash (``.cache/trialgpt_compare``), so re-runs and re-scoring are free.
