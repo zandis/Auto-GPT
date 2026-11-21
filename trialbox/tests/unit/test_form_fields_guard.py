@@ -212,7 +212,8 @@ def test_the_recount_equals_a_fresh_measurement() -> None:
     assert {t: n for t, (n, _r) in form_fields.read_action_list(_ratchet()).items()} == broken
     tree = form_fields.scan()
     assert sum(1 for forms in tree.values() for f in forms if f.name is None) == n_typed + n_action
-    assert (n_typed, n_action, len(typed), sum(broken.values())) == (102, 51, 62, 0)  # as measured on 2026-11-20
+    # as measured on 2026-11-20 (102 typed); 10F-1 (D-1387) converted account.html's language form: 101
+    assert (n_typed, n_action, len(typed), sum(broken.values())) == (101, 51, 62, 0)
 
 
 def test_the_typed_list_did_not_go_up_against_master() -> None:

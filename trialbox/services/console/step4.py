@@ -16,13 +16,17 @@ from tb_common.authz import permit, role_allowed
 from tb_common.erased import is_erased
 from tb_contracts import Job, JobCreate
 
-from console import about, actor, command, terminology_refused, tier_words
+from console import about, actor, command, form_errors, i18n_prefs, prefs, terminology_refused, tier_words
 from console.auth import AuthError, Session, source_of
 from console.backend import Refused, Unavailable
 from console.home import Helpers
+from console.i18n import CATALOGUES, pick_language
 from console.local_path import local_path
 from console.models_view import build_rows
 from console.own_roles import own_roles
+
+for _lang, _cat in (("en", i18n_prefs.EN), ("ja", i18n_prefs.JA), ("zh-TW", i18n_prefs.ZH)):  # 10F-1 (D-1387)
+    CATALOGUES[_lang].update(_cat)
 
 # the orchestrator's in-process principals (orchestrator.core.SYSTEM_SENDERS; D-464): a retry names a person instead
 INTERNAL_PRINCIPALS = ("scheduler", "system")
@@ -216,6 +220,30 @@ def register(app: FastAPI, h: Helpers) -> None:
         left (9f-4 a). Their own rows only (``TeamStore.entries_for``): nobody else's entry is read."""
         return own_roles(getattr(h, "team", None), sess.user.username, h.today(), set(studies_of(sess)))
 
+    def account_page(request: Request, sess: Session, status: int = 200, **ctx: Any) -> Response:
+        """S22 My account: the facts, the person's own roles (9f-1), their preferences (10F-1, D-1387) and the
+        password. ``ctx``: ``saved``, ``error``, ``fe`` (a failed preferences POST) and ``last_login``."""
+        u = sess.user
+        mine = h.users.prefs(u.username)
+        options = {k: [(v, prefs.LABELS[k][v]) for v in vals] for k, vals in prefs.KEYS.items()}  # labels: keys
+        base: dict[str, Any] = {"saved": False, "saved_prefs": False, "error": "", "fe": None, "last_login": ""}
+        return h.page(
+            request,
+            "account.html",
+            sess,
+            status=status,
+            my_roles=my_roles(sess),
+            me=u,
+            sso=h.users.is_sso(u.username),
+            studies=studies_of(sess),
+            must_change=h.users.must_change(u.username),  # D-279: someone else set this password
+            totp_on=_totp_on(u.username),
+            prefs=mine,
+            pref_options=options,
+            pref_labels=prefs.FIELD_LABELS,
+            **{**base, **ctx},
+        )
+
     @app.get("/account")
     def account(request: Request, saved: str = "") -> Response:
         sess = h.need(request)
@@ -224,20 +252,38 @@ def register(app: FastAPI, h: Helpers) -> None:
             (r.ts for r in bk.audit(None, 2000) if r.event == "console.login" and r.actor == f"console:{u.username}"),
             "",
         )
-        return h.page(
-            request,
-            "account.html",
-            sess,
-            my_roles=my_roles(sess),
-            me=u,
-            sso=h.users.is_sso(u.username),
-            studies=studies_of(sess),
-            last_login=last[:16].replace("T", " "),
-            saved=saved == "1",
-            error="",
-            must_change=h.users.must_change(u.username),  # D-279: someone else set this password
-            totp_on=_totp_on(u.username),
-        )
+        return account_page(request, sess, last_login=last[:16].replace("T", " "), saved=saved == "1",
+                            saved_prefs=saved == "prefs")  # fmt: skip
+
+    @app.post("/account/prefs")
+    async def account_prefs(request: Request) -> Response:
+        """10F-1 (D-1387): the signed-in person's own preferences, nobody else's (the name is the session's, never a
+        field). Each posted key must hold a value of its closed set (``console.prefs.KEYS``), else the page answers
+        400 with the summary and nothing is stored; a key not posted is left as it is. Each change is audited
+        (who, key, from, to), inside the same transaction as the change. A language chosen here is the session's at
+        once ("auto": the browser's)."""
+        sess = h.need(request)
+        form = await request.form()
+        if not h.csrf_ok(sess, str(form.get("csrf") or "")):
+            raise h.problem(400, "csrf")
+        posted = {k: str(form.get(k) or "") for k in prefs.KEYS if k in form}
+        bad = prefs.problems(posted)
+        if bad:
+            fe = form_errors.failed(prefs.FORM, prefs.PREFIX, bad, [(k, v) for k, v in form.multi_items()])
+            return account_page(request, sess, status=form_errors.FAILED, fe=fe)
+        u = sess.user
+
+        def audited(changes: list[tuple[str, str, str]]) -> None:  # inside the store's transaction (L-1)
+            for key, before, after in changes:
+                au.append("console.pref_set", actor=h.actor(sess),
+                          detail={"user": u.username, "key": key, "from": before, "to": after})  # fmt: skip
+
+        changed = h.users.set_prefs(u.username, posted, before_commit=audited)
+        if any(key == "lang" for key, _before, _after in changed):
+            # the language takes effect at once: the one chosen, or with "auto" the browser's (L-4)
+            lang = prefs.session_lang(h.users.prefs(u.username))
+            h.users.set_lang(sess, lang or pick_language(request.headers.get("accept-language")))
+        return RedirectResponse("/account?saved=prefs", status_code=303)
 
     @app.post("/account/password")
     def account_password(
@@ -269,20 +315,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not error:
             au.append("console.user", actor=h.actor(sess), detail={"action": "password", "user": u.username})
             return RedirectResponse("/login", status_code=303)  # set_password signs the account out everywhere
-        return h.page(
-            request,
-            "account.html",
-            sess,
-            status=400,
-            me=u,
-            sso=h.users.is_sso(u.username),
-            studies=studies_of(sess),
-            last_login="",
-            saved=False,
-            error=error,
-            must_change=h.users.must_change(u.username),
-            totp_on=_totp_on(u.username),
-        )
+        return account_page(request, sess, status=400, error=error)
 
     # ------------------------------------------------------------------ S29 Help panel
     @app.get("/help")
