@@ -84,7 +84,7 @@ STATE_TONES: dict[str, dict[str, str]] = {
     "phase": {"done": "ok", "current": "info", "todo": "neutral", "off": "neutral"},
 }
 
-# the four states of a phase strip item, in one place: the macro, the catalogue keys ``ps.<state>`` and the style read it
+# the four states of a phase strip item, in one place: the macro, the keys ``ps.<state>`` and the style read it
 PHASE_STATES = tuple(STATE_TONES["phase"])
 
 

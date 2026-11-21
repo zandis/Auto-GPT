@@ -67,13 +67,18 @@ def test_the_wizard_shows_the_strip_with_its_current_step(box: dict[str, Any], l
     t = CATALOGUES[lang]
     page = _as(box, "steward", lang).get("/site/start")
     assert page.status_code == 200
-    assert f'aria-label="{html.escape(t["site.start.title"])}"' in page.text.split('data-testid="wizard-steps"')[0][-200:]
+    assert (
+        f'aria-label="{html.escape(t["site.start.title"])}"' in page.text.split('data-testid="wizard-steps"')[0][-200:]
+    )
     strip = _strips(page.text)
     assert len(strip) == 1 and 'data-testid="wizard-steps"' in strip[0]
     assert re.findall(r'data-state="(\w+)"', strip[0]).count("current") == 1
 
 
-def test_screenshots_every_label_is_whole_at_390_800_and_1280_px_in_three_languages(box: dict[str, Any], tmp_path: Path) -> None:  # noqa: F811
+def test_screenshots_every_label_is_whole_at_390_800_and_1280_px_in_three_languages(
+    box: dict[str, Any],  # noqa: F811
+    tmp_path: Path,
+) -> None:
     if not _node_playwright():
         pytest.skip("Node Playwright is not installed")
     _setup(box)

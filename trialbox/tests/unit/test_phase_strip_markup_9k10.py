@@ -50,7 +50,9 @@ def test_every_state_is_said_in_words_and_only_the_current_one_is_marked(lang: s
     assert out.count("<li ") == 4 and out.count('aria-current="step"') == 1
     for s in STATES:
         assert cat["ps." + s] == WORDS[lang][s]
-        assert re.search(rf'<li data-state="{s}"[^>]*><b>\d&nbsp;· P\d<span class="sr"> \({WORDS[lang][s]}\)</span>', out), s
+        assert re.search(
+            rf'<li data-state="{s}"[^>]*><b>\d&nbsp;· P\d<span class="sr"> \({WORDS[lang][s]}\)</span>', out
+        ), s
         assert f'<li data-state="{s}" data-tone="{tone("phase", s)}"' in out
     assert re.search(r'<li data-state="current" data-tone="info" aria-current="step"><b>2&nbsp;· P1', out)
     assert len({cat["ps." + s] for s in STATES}) == 4  # four different words
@@ -81,8 +83,6 @@ def test_no_template_or_rule_uses_the_old_steps_strip() -> None:
     css = CSS.read_text(encoding="utf-8")
     assert not re.search(r"(^|[\s,}])\.steps\b(?!-)", css, re.M)
     assert '.ps li[data-state="current"]' in css and "@media (max-width: 760px) { .ps {" in css
-
-
 
 
 def test_the_states_of_the_macro_are_the_states_of_the_table_and_have_words() -> None:
