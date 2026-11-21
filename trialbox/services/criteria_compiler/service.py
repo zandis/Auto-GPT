@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 import yaml
+from doc_parser.parser import HEADINGS, items_with_parents
 from lake.client import LakeAPI
 from tb_common import provenance
 from tb_common.audit import AuditLog
@@ -53,7 +54,7 @@ from criteria_compiler.compile_cql.translator import TranslationError, Translato
 from criteria_compiler.compile_sql.generator import SqlGenerator
 from criteria_compiler.ctgov import CtGov, CtgovError
 from criteria_compiler.equivalence.gate import run_gate, unproven, without_pseudonyms
-from criteria_compiler.ir_extract.postprocess import KIND_CODE, hold_reused_negated, postprocess
+from criteria_compiler.ir_extract.postprocess import KIND_CODE, PresenceSource, hold_reused_negated, postprocess
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.review import draft_zip, json_bytes, review_html, review_xlsx
 from criteria_compiler.semantics import FILTERED, CompileError, atoms, class_split, compiled
@@ -93,6 +94,78 @@ def align(lines: list[dict[str, Any]], answers: list[Any]) -> tuple[list[Any], s
     if unplaced and len(answers) == len(lines):  # reworded, not miscounted: by position
         return list(answers), set()
     return matched, {k for k, n in seen.items() if n > 1}
+
+
+# Instructions can govern later peers even when numbered and closed with a period.
+_GOVERNING = re.compile(
+    r"\b(?:the following|as follows|listed below|(?:in|on) this (?:list|section)|"
+    r"refers? to|pertains? to|appl(?:y|ies) to|"
+    r"any of these|one of these|all of these|(?:criteria|entries|items|diagnoses|conditions) "
+    r"(?:below|are for|concern|describe|belong to|relate to))\b|"
+    r"(?<![0-9歳歲才日月年点週分])以下(?:の(?:基準|疾患|項目)|條件|各項)?|下列|下記|次の(?:基準|疾患|項目)|符合任一",
+    re.I,
+)
+_SCOPE_HEADING = re.compile(
+    r"(?:(?:family|donor|parent(?:al)?|partner|sibling)(?: medical)? (?:history|diagnoses|conditions)|"
+    r"(?:active|current|ongoing|planned|suspected|possible) (?:diagnoses|diseases|conditions|procedures|medications)|"
+    r"(?:目前|活動性|疑似|予定|計劃)(?:の)?(?:疾病|疾患|診斷|診断|手術)|"
+    r"(?:history|diagnoses|conditions) (?:in|of|for) (?:the )?(?:family|donor|parent|partner)|"
+    r"(?:(?:for|in|of) (?:the )?)?(?:donor|parents?|partner|mother|father)|family history|"
+    r"(?:捐贈者|父母|伴侶)(?:病史|診斷)?|家族史|"
+    r"(?:ドナー|両親|配偶者)(?:の(?:病歴|診断))?|家族歴)[.。]?",
+    re.I,
+)
+
+
+def _presence_passages(doc: ParsedDoc) -> dict[str, list[tuple[str, int, PresenceSource]]]:
+    """Resolve positional references against the parser's sections, before alignment, retries or reuse."""
+    passages: dict[str, list[tuple[str, int, PresenceSource]]] = {}
+    if doc.ie_source != "heuristic":
+        return passages
+    ancestors: list[tuple[int, str]] = []
+    for section in doc.sections:
+        ancestors = [(level, context) for level, context in ancestors if level < section.level]
+        enclosing = [context for _, context in ancestors if context]
+        title = re.sub(r"^(?:[0-9]+\.)*[0-9]+\.?\s+", "", section.title.strip()).strip(" ：:")
+        if section.level:
+            # Only an empty, explicitly neutral population section is structural. Its prose
+            # (or any other title) can restrict the subject of every nested criterion.
+            population = title.casefold() in {
+                "study population",
+                "study population 研究族群",
+                "対象被験者",
+                "研究対象者",
+            }
+            context = section.text.strip() if population else section.title
+            ancestors.append((section.level, context))
+        elif _GOVERNING.search(section.text) or _SCOPE_HEADING.fullmatch(section.text.strip()):
+            ancestors.append((section.level, section.text.strip()))
+        kind = next((k for k, pattern in HEADINGS.items() if pattern.search(section.title)), None)
+        if kind is None:
+            continue
+        # A bilingual heading may repeat the same kind in a second language.
+        neutral = all(HEADINGS[kind].fullmatch(part) for part in re.split(r"(?<=[a-zA-Z])\s+(?=[一-鿿])", title))
+        items = items_with_parents(section.text)
+        parents = {parent for _, parent in items}
+        # The parser starts peers at list markers and joins every physical continuation,
+        # including PDF items whose number is alone on a line.
+        heading = None
+        for i, (text, parent) in enumerate(items):
+            lead = items[parent][0] if parent is not None else heading
+            passage = "\n".join(p for p in (*enclosing, "" if neutral else section.title, lead, text) if p)
+            standalone = neutral and not enclosing and lead is None and i not in parents
+            passages.setdefault(kind, []).append(
+                (section.title, i + 1, PresenceSource(passage, kind, doc.language, standalone))
+            )
+            introduction = i == 0 and len(items) > 1 and section.text.lstrip().startswith(text)
+            if (
+                text.rstrip(".。 ").endswith((":", "："))
+                or introduction
+                or _GOVERNING.search(text)
+                or _SCOPE_HEADING.fullmatch(text)
+            ):
+                heading = text  # a possible lead-in without parser parent references
+    return passages
 
 
 def _calls_of(answers: Sequence[Any]) -> dict[int, str]:
@@ -508,7 +581,8 @@ class Compiler:
                 retry = [{**part[k], "parent": None} for k in missing]
                 asked = self._ask_extract(job_id, ruleset, language, retry, guard, where)
                 call_of.update(_calls_of(asked))
-                again, _ = align(retry, asked)
+                again, retry_twice = align(retry, asked)
+                twice.update(missing[k] for k in retry_twice)
                 for k, c in zip(missing, again, strict=True):
                     matched[k] = c
             for k, c in enumerate(matched):
@@ -859,6 +933,8 @@ class Compiler:
         block = parsed.ie_block
         refs = block.refs or {}
         lines: list[dict[str, Any]] = []
+        sources: list[PresenceSource] = []
+        passages = _presence_passages(parsed)
         for kind, items in (
             ("inclusion", block.inclusion),
             ("exclusion", block.exclusion),
@@ -870,12 +946,23 @@ class Compiler:
             pos = (block.item_refs or {}).get(kind)
             base = len(lines)
             for i, t in enumerate(items):
+                source = PresenceSource(t, kind, parsed.language, standalone=False, complete=False)
                 if pos is not None and len(pos) == len(items):
                     r = pos[i]
                     parent = None if r.parent is None else base + r.parent
+                    originals = passages.get(kind, [])
+                    if len(originals) == len(items):
+                        title, n, located = originals[i]
+                        if (
+                            (title, n) == (r.section, r.n)
+                            and located.text.rsplit("\n", 1)[-1] == t
+                            and (not located.standalone or parent is None)
+                        ):
+                            source = located
                     lines.append({"text": t, "kind": kind, "source_ref": f"{r.section} #{r.n}", "parent": parent})
                 else:
                     lines.append({"text": t, "kind": kind, "source_ref": refs.get(t, "")})
+                sources.append(source)
         if not lines:
             raise CompileFailed("parse", "no eligibility criteria were found in the document")
         ruleset = req.ruleset
@@ -887,11 +974,18 @@ class Compiler:
         reuse: dict[tuple[str, str], CriterionIR] = {}
         if approved and options.get("incremental", "true") != "false":
             reuse = {(c.kind, _norm(c.text)): c for c in approved.criteria}
-        todo = [ln for ln in lines if (ln["kind"], _norm(str(ln["text"]))) not in reuse]
+        fresh_indices = [i for i, ln in enumerate(lines) if (ln["kind"], _norm(str(ln["text"]))) not in reuse]
+        todo = [lines[i] for i in fresh_indices]
+        # changed criteria keep the id of the approved criterion they replace (positional pairing per kind)
+        used = {hit.id for ln in lines if (hit := reuse.get((ln["kind"], _norm(str(ln["text"])))))}
+        freed: dict[str, list[str]] = {}
         offsets: dict[str, int] = {}
-        for c in reuse.values():
-            code = KIND_CODE[c.kind]
-            offsets[code] = max(offsets.get(code, 0), int(c.id.rsplit("-", 1)[1]))
+        if approved:
+            for c in approved.ordered():
+                code = KIND_CODE[c.kind]
+                offsets[code] = max(offsets.get(code, 0), int(c.id.rsplit("-", 1)[1]))
+                if c.id not in used:
+                    freed.setdefault(c.kind, []).append(c.id)
         guard_hit = False
         criteria_new: list[CriterionIR] = []
         valuesets: dict[str, dict[str, Any]] = dict(approved.valuesets) if approved else {}
@@ -900,23 +994,28 @@ class Compiler:
         if todo:
             extracted, guard, unread, calls = self._extract(req.job_id, ruleset, parsed.language, todo)
             guard_hit = guard.hit
+            fresh_ids = []
+            for item in extracted.criteria:
+                if freed.get(item.kind):
+                    fresh_ids.append(freed[item.kind].pop(0))
+                else:
+                    code = KIND_CODE[item.kind]
+                    offsets[code] = offsets.get(code, 0) + 1
+                    fresh_ids.append(f"{ruleset}-{code}-{offsets[code]:02d}")
             post = postprocess(
-                ruleset, extracted, self.d.term, version, self._concept_map(req.job_id), dict(offsets), self.d.egfr()
+                ruleset,
+                extracted,
+                self.d.term,
+                version,
+                self._concept_map(req.job_id),
+                egfr=self.d.egfr(),
+                criterion_ids=fresh_ids,
+                sources=[sources[i] for i in fresh_indices],
+                audit=self.d.audit,
             )
             criteria_new = with_calls(flag_unread(post.criteria, unread, warnings), calls)
             valuesets.update(post.valuesets)
             warnings.extend(post.warnings)
-        # changed criteria keep the id of the approved criterion they replace (positional pairing per kind)
-        used = {
-            c.id
-            for c in reuse.values()
-            if (c.kind, _norm(c.text)) in {(ln["kind"], _norm(str(ln["text"]))) for ln in lines}
-        }
-        freed: dict[str, list[str]] = {}
-        if approved:
-            for c in approved.ordered():
-                if c.id not in used:
-                    freed.setdefault(c.kind, []).append(c.id)
         new_iter = iter(criteria_new)
         criteria: list[CriterionIR] = []
         reused: set[int] = set()
@@ -930,14 +1029,7 @@ class Compiler:
                 reused.add(len(criteria))
                 criteria.append(hit.model_copy(update={"review": CriterionReview(status="draft")}))
                 continue
-            fresh = next(new_iter)
-            code = KIND_CODE[fresh.kind]
-            if freed.get(fresh.kind):
-                new_id = freed[fresh.kind].pop(0)
-            else:
-                offsets[code] = offsets.get(code, 0) + 1
-                new_id = f"{ruleset}-{code}-{offsets[code]:02d}"
-            criteria.append(fresh.model_copy(update={"id": new_id}))
+            criteria.append(next(new_iter))
         profile = self._profile(ruleset)
         lookback = int(options.get("lookback") or profile.get("scopes", {}).get("feas", {}).get("lookback_months", 36))
         # NEW-LIFE-2: a heading, a group's alternatives, a glued heading, another phase or a second section is not one
@@ -1158,7 +1250,15 @@ class Compiler:
             lines = [{"text": text, "kind": c.kind, "source_ref": c.source_ref or ""} for c, text in to_extract]
             extracted, _, unread, calls = self._extract(job_id, req.ruleset, rs.manifest.language or "en", lines)
             post = postprocess(
-                req.ruleset, extracted, self.d.term, req.version, self._concept_map(job_id), egfr=self.d.egfr()
+                req.ruleset,
+                extracted,
+                self.d.term,
+                req.version,
+                self._concept_map(job_id),
+                egfr=self.d.egfr(),
+                criterion_ids=[c.id for c, _ in to_extract],
+                sources=[PresenceSource(text, c.kind, rs.manifest.language or "und") for c, text in to_extract],
+                audit=self.d.audit,
             )
             post.criteria = with_calls(flag_unread(post.criteria, unread, []), calls)
             valuesets.update(post.valuesets)

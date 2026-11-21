@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 from criteria_compiler.ir_extract.polarity import is_negated, positive
-from criteria_compiler.ir_extract.postprocess import postprocess
+from criteria_compiler.ir_extract.postprocess import PresenceSource, postprocess
 from criteria_compiler.review import parse_review_xlsx, review_xlsx, rows
 from criteria_compiler.terminology.mapper import Terminology
 from openpyxl import load_workbook
@@ -24,6 +24,7 @@ from orchestrator.scenarios.evaluate import (
     tier,
 )
 from orchestrator.scenarios.review import check_split
+from tb_common.audit import AuditLog
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionVerdict, Evidence, LlmExtractOutput, PatientEvaluation
 
@@ -78,7 +79,7 @@ def _crit(kind: str, class_: str, question: str | None, text: str = "x") -> dict
     return c
 
 
-def test_postprocess_flags_and_rewrites_negated_exclusions_and_accepts_mixed() -> None:
+def test_postprocess_flags_and_rewrites_negated_exclusions_and_accepts_mixed(tmp_path: Path) -> None:
     post = postprocess(
         "TB",
         _extracted(
@@ -90,6 +91,11 @@ def test_postprocess_flags_and_rewrites_negated_exclusions_and_accepts_mixed() -
             _crit("exclusion", "note", "Does the patient have a history of tuberculosis?"),
         ),
         Terminology(),
+        audit=AuditLog(tmp_path),
+        sources=[
+            PresenceSource("x", kind, "en")
+            for kind in ("exclusion", "exclusion", "exclusion", "inclusion", "inclusion", "exclusion")
+        ],
     )
     c1, c2, c3, c4, c5, c6 = post.criteria
     assert c1.note_question == "Does the patient have a history of tuberculosis?"

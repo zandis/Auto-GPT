@@ -18,6 +18,8 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from criteria_compiler.ir_extract.postprocess import PRESENCE_REVIEW
+
 # a section heading inside a line, after text of its own (glued by the parser). English: the capitalised heading
 # ("… Key Inclusion Criteria that must be met"), never "meets all inclusion criteria"; Japanese and Chinese: a heading
 # after a space at the end of the line, never "…符合初次申請之納入條件" (an NHI renewal rule's own words)
@@ -204,7 +206,7 @@ def send_to_a_person(criteria: list[Any], rep: Report, keep: Collection[int] = (
         names = {f.flag for f in fs}
         flags = sorted(set(c.flags or []) | {"needs_review", "structure"} | names)
         ask = next(q for flag, q in QUESTIONS if flag in names)
-        question = f"{ask} ({c.text})"
+        question = c.human_question if PRESENCE_REVIEW in flags and c.human_question else f"{ask} ({c.text})"
         out.append(c.model_copy(update={"class_": "human", "human_question": question, "flags": flags}))
         warnings.append(f"{c.id}: " + "; ".join(f.message for f in fs) + "; moved to human review")
     return out, warnings

@@ -1,0 +1,226 @@
+[
+  {
+    "file": "libs/tb_common/ruleset.py",
+    "function": "Ruleset.from_files",
+    "operation": "construct CriterionIR",
+    "statement": "criteria = [CriterionIR.model_validate(json.loads(b)) for p, b in sorted(files.items()) if p.startswith('ir/') and p.endswith('.json')]",
+    "why": "A stored ruleset restores its original executable IR. Stored and imported versions need a migration with their compiled artifacts."
+  },
+  {
+    "file": "libs/tb_contracts/criterion_ir.py",
+    "function": "downgrade_to_v1",
+    "operation": "mutate criterion logic",
+    "statement": "out['logic'] = walk(ir.logic)",
+    "why": "The v1 converter rebuilds an executable expression from library atoms. The conversion needs the source and review record."
+  },
+  {
+    "file": "libs/tb_contracts/criterion_ir.py",
+    "function": "upgrade_v1",
+    "operation": "construct CriterionIRv3",
+    "statement": "return CriterionIRv3.model_validate(out)",
+    "why": "The v3 converter preserves the executable class and atom from v1. Library conversion follows stored-ruleset migration."
+  },
+  {
+    "file": "services/criteria_compiler/compile_cql/generator.py",
+    "function": "CqlGenerator._atom",
+    "operation": "emit presence predicate",
+    "statement": "return self._presence(cid, n, atom, w)",
+    "why": "CQL generation accepts IR directly, including older stored IR. Both generators need the same admitted input."
+  },
+  {
+    "file": "services/criteria_compiler/compile_sql/generator.py",
+    "function": "SqlGenerator.render",
+    "operation": "emit presence predicate",
+    "statement": "cs, expr, ev = self._presence(aname, atom, w)",
+    "why": "SQL generation accepts IR directly, including older stored IR. Both generators need the same admitted input."
+  },
+  {
+    "file": "services/criteria_compiler/import_ruleset.py",
+    "function": "install",
+    "operation": "publish ruleset retag",
+    "statement": "repo.retag(tag, f'{tag} (offline update, {by})')",
+    "why": "Offline installation publishes vendor-approved files. Checking the source requires reviewing or rebuilding their packaged SQL and CQL."
+  },
+  {
+    "file": "services/criteria_compiler/import_ruleset.py",
+    "function": "install",
+    "operation": "publish ruleset tag",
+    "statement": "repo.tag(tag, 'main', f'{tag} (offline update, {by})')",
+    "why": "Offline installation publishes vendor-approved files. Checking the source requires reviewing or rebuilding their packaged SQL and CQL."
+  },
+  {
+    "file": "services/criteria_compiler/ir_extract/postprocess.py",
+    "function": "hold_reused_negated",
+    "operation": "release input criterion",
+    "statement": "return (c, None)",
+    "why": "Incremental reuse releases a previously approved line after its older negation check. Reuse needs an exact-text decision."
+  },
+  {
+    "file": "services/criteria_compiler/library/repository.py",
+    "function": "CriterionLibrary._row_record",
+    "operation": "restore library record",
+    "statement": "return None if row is None else CriterionLibraryRecord.model_validate_json(row[0])",
+    "why": "Library reads restore stored criteria with their original approval. They need the same source check as library writes."
+  },
+  {
+    "file": "services/criteria_compiler/library/repository.py",
+    "function": "CriterionLibrary.approve",
+    "operation": "approve library criterion",
+    "statement": "upd = rec.model_copy(update={'status': 'approved', 'approved': LibraryApproval(gate=gate, approval=approval)})",
+    "why": "Library approval marks a reusable v3 record approved. The library needs a decision bound to its source and predicate."
+  },
+  {
+    "file": "services/criteria_compiler/library/repository.py",
+    "function": "CriterionLibrary.put",
+    "operation": "persist library record",
+    "statement": "rec = CriterionLibraryRecord.model_validate(record.model_dump(by_alias=True))",
+    "why": "The library accepts an already approved v3 record. Stored-record admission belongs with library approval."
+  },
+  {
+    "file": "services/criteria_compiler/library/repository.py",
+    "function": "CriterionLibrary.records",
+    "operation": "restore library record",
+    "statement": "return [CriterionLibraryRecord.model_validate_json(r[0]) for r in rows]",
+    "why": "Library reads restore stored criteria with their original approval. They need the same source check as library writes."
+  },
+  {
+    "file": "services/criteria_compiler/repo.py",
+    "function": "RulesetRepo._tag_seeded",
+    "operation": "publish ruleset tag",
+    "statement": "self.tag(tag, 'main', f'{tag} {SEEDED_TAG}')",
+    "why": "Example seeding tags the packaged criteria as approved. Seed artifacts need the same migration as imported rulesets."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._approve",
+    "operation": "merge remapped ValueSets",
+    "statement": "valuesets.update(post.valuesets)",
+    "why": "Merging a fresh extraction into shared ValueSets can replace the codes of an untouched criterion."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._approve",
+    "operation": "publish ruleset promote",
+    "statement": "self.d.repo.promote(req.ruleset, tag, f'release {tag}', req.by)",
+    "why": "Approval promotes stored artifacts to the executable ruleset. It needs proof covering every published predicate."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._approve",
+    "operation": "publish ruleset tag",
+    "statement": "self.d.repo.tag(tag, branch, f'{req.ruleset} v{req.version} approved by {req.by}', req.by)",
+    "why": "Approval tags the draft artifacts for execution. It needs proof covering every published predicate."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._approve",
+    "operation": "replace criterion review",
+    "statement": "new = c.model_copy(update={'review': review})",
+    "why": "Review applies a status to supplied or stored IR. Re-enabling an older predicate needs the original passage and decision."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._approve",
+    "operation": "replace criterion review",
+    "statement": "new = d.edited_ir.model_copy(update={'id': c.id, 'ruleset': c.ruleset, 'review': review})",
+    "why": "Review applies a status to supplied or stored IR. Re-enabling an older predicate needs the original passage and decision."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._approve",
+    "operation": "replace criterion review",
+    "statement": "replaced = {orig.id: new.model_copy(update={'id': orig.id, 'review': CriterionReview(status='draft')}) for (orig, _), new in zip(to_extract, post.criteria, strict=True)}",
+    "why": "Review applies a status to supplied or stored IR. Re-enabling an older predicate needs the original passage and decision."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._approve",
+    "operation": "replace criterion review",
+    "statement": "updated.append(c.model_copy(update={'review': review}))",
+    "why": "Review applies a status to supplied or stored IR. Re-enabling an older predicate needs the original passage and decision."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._approve",
+    "operation": "set executable class",
+    "statement": "new = c.model_copy(update=upd)",
+    "why": "Review can set an edited class to structured or mixed, including after text re-extraction. The final edited predicate needs admission."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._approve",
+    "operation": "set executable class",
+    "statement": "replaced[orig.id] = replaced[orig.id].model_copy(update={'class_': d.edited_class})",
+    "why": "Review can set an edited class to structured or mixed, including after text re-extraction. The final edited predicate needs admission."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler._files",
+    "operation": "serialize executable IR",
+    "statement": "files[f'ir/{c.id}.json'] = json_bytes(dump(c))",
+    "why": "Packaging writes the supplied IR to ruleset files for review or execution. The final writer must also cover historical and edited inputs."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler.compile",
+    "operation": "index criteria for reuse by text",
+    "statement": "reuse = {(c.kind, _norm(c.text)): c for c in approved.criteria}",
+    "why": "Indexing by item text omits the governing passage and its subject."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler.compile",
+    "operation": "merge remapped ValueSets",
+    "statement": "valuesets.update(post.valuesets)",
+    "why": "Merging a fresh extraction into shared ValueSets can replace the codes of an untouched criterion."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler.compile",
+    "operation": "replace criterion review",
+    "statement": "criteria.append(hit.model_copy(update={'review': CriterionReview(status='draft')}))",
+    "why": "Incremental compilation restores an approved criterion to draft and keeps its executable class. Reuse bypasses extraction."
+  },
+  {
+    "file": "services/criteria_compiler/service.py",
+    "function": "Compiler.diff",
+    "operation": "index criteria for reuse by text",
+    "statement": "old: dict[tuple[str, str], CriterionIR] = {(c.kind, _norm(c.text)): c for c in approved.criteria}",
+    "why": "Indexing by item text omits the governing passage and its subject."
+  },
+  {
+    "file": "services/criteria_compiler/structure.py",
+    "function": "combine",
+    "operation": "set executable class",
+    "statement": "replace[s.groups[0].lead] = first.model_copy(update={'class_': 'structured', 'logic': logic, 'text': ' '.join(parts), 'flags': flags, 'human_question': None, 'note_question': None, 'time_sensitive': timed})",
+    "why": "Group folding constructs a new structured criterion from several lines. It needs evidence for the combined passage."
+  },
+  {
+    "file": "services/criteria_compiler/terminology/mapper.py",
+    "function": "Terminology.map",
+    "operation": "resolve concept code set",
+    "statement": "res = self._map(domain, name, synonyms, llm)",
+    "why": "The terminology mapper supplies the codes used for admission without an independent check for missing or unrelated codes."
+  },
+  {
+    "file": "services/edc/service.py",
+    "function": "EdcService.send_redcap",
+    "operation": "mutate criterion logic",
+    "statement": "out[why].append(_brief(d))",
+    "why": "The conservative scan also finds this EDC result bucket named logic, which records a display-logic failure."
+  },
+  {
+    "file": "services/orchestrator/scenarios/feas_compute.py",
+    "function": "build_variants",
+    "operation": "construct CriterionIR",
+    "statement": "ir = CriterionIR.model_validate({**st.criterion.model_dump(mode='json', by_alias=True, exclude_none=True), 'id': f'V{n}-{st.id}', 'logic': logic})",
+    "why": "Feasibility variants rebuild executable mixed boolean expressions after editing numeric thresholds. They can carry a presence atom."
+  },
+  {
+    "file": "tools/build_rulesets.py",
+    "function": "offline",
+    "operation": "compile stored IR with remapped codes",
+    "statement": "art = comp.build_artifacts(rid, rs.version, rs.ordered(), vs, lookback)",
+    "why": "Offline recompile combines stored approved IR with newly mapped codes under its existing approval."
+  }
+]

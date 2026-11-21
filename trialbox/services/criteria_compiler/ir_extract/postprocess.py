@@ -18,25 +18,32 @@
 
 from __future__ import annotations
 
+import csv
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import cache
 from typing import Any
 
 from pydantic import ValidationError
+from tb_common.audit import AuditLog
+from tb_common.crypto import sha256_text
 from tb_common.derived import CODES, COMPONENTS
+from tb_common.ruleset import Ruleset
 from tb_contracts import Atom, BoolExpr, CriterionIR, CriterionReview, LlmExtractOutput, dump
 from tb_contracts.criterion_ir import ACTIVE_STATUSES
 
 from criteria_compiler import unit_check
 from criteria_compiler.ir_extract.negation_scope import negated_presence
 from criteria_compiler.ir_extract.polarity import is_negated, positive
-from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, atoms, check_bool, demographic_alone, kind
+from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, Kind, atoms, check_bool, demographic_alone, kind
 from criteria_compiler.terminology.mapper import (
     Concept,
     ConceptMapLLM,
     MappingResult,
     Terminology,
     ValueSets,
+    norm,
     valueset,
     vs_name_for,
 )
@@ -515,6 +522,292 @@ def hold_reused_negated(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) ->
                   "a person to check")  # fmt: skip
 
 
+@dataclass(frozen=True)
+class PresenceSource:
+    """Parser or editor evidence, supplied independently of the extraction answer."""
+
+    text: str
+    kind: str
+    language: str
+    standalone: bool = True
+    complete: bool = True
+
+
+PRESENCE_REVIEW = "presence_requires_review"
+_PRESENCE_MESSAGES = {
+    "en": "Review the full passage to decide whether the coded criterion applies to this patient.",
+    "zh-TW": "請審閱完整原文，判斷此編碼條件是否適用於這位病人。",
+    "ja": "原文全体を確認し、このコード化された基準が患者本人に該当するか判断してください。",
+}
+# The grammar consumes the whole item. The remaining noun must itself be a terminology
+# name; words supplied by the extractor never extend the grammar or the vocabulary.
+# Each frame specifies the domain of its noun, and whether it asserts a present diagnosis.
+_FRAMES = {
+    "en": [
+        ("", False, r"(?:(?:the )?patient (?:has|had) )?(?:(?:a|any|personal) )?history of (.+)"),
+        ("condition", False, r"(?:(?:the )?patient (?:was|has been) diagnosed with|diagnosis of) (.+)"),
+        ("procedure", False, r"(?:(?:the )?patient )?(?:underwent|had undergone|has undergone) (.+)"),
+        ("medication", False, r"(?:(?:the )?patient )?(?:took|used|use of|prior use of) (.+)"),
+        ("exposure", False, r"(?:(?:the )?patient )?(?:has received|received) (.+)"),
+        ("", False, r"(?:(?:the )?patient )?(?:has had|had|prior) (.+)"),
+        ("condition", True, r"(?:(?:the )?patient has|patients? with) (?:a diagnosis of )?(.+)"),
+    ],
+    "zh-TW": [
+        ("condition", False, r"(?:患者|病人)?(?:曾患有?|曾罹患|曾診斷為|確診)(.+)"),
+        ("", False, r"(?:患者|病人)?(?:有)?(.+?)\s*(?:病史|既往史)(?:之患者)?"),
+        ("condition", True, r"(?:患者|病人)?(?:患有|罹患|有)(.+)"),
+        ("medication", False, r"(?:患者|病人)?(?:曾)?(?:使用|服用)(.+?)(?:之患者)?"),
+        ("exposure", False, r"(?:患者|病人)?(?:曾)?接受(.+?)(?:之患者)?"),
+        ("condition", True, r"(.+?)(?:之)?患者"),
+    ],
+    "ja": [
+        ("condition", False, r"(?:患者は)?(.+?)(?:の既往(?:歴)?(?:がある)?|と診断された)(?:患者|者)?"),
+        ("condition", True, r"(?:患者は)?(.+?)(?:を有する|と診断されている)(?:患者|者)?"),
+        ("condition", True, r"(.+?)の患者"),
+        ("medication", False, r"(?:患者は)?(.+?)を(?:使用|服用)した(?:患者|者)?"),
+        ("procedure", False, r"(?:患者は)?(.+?)を受けた(?:患者|者)?"),
+    ],
+}
+_LOOKBACK = {
+    "en": r"(?P<body>.+?) (?:within (?:the (?:past|last) )?|in the (?:past|last) )"
+    r"(?P<n>[0-9]{1,6}) (?P<unit>days?|weeks?)(?: before screening)?",
+    "zh-TW": r"(?:篩(?:選|檢)前|過去)(?P<n>[0-9]{1,6})(?P<unit>天|日|週)內(?P<body>.+)",
+    "ja": r"(?:スクリーニング前|過去)(?P<n>[0-9]{1,6})(?P<unit>日|週間?)以内に(?P<body>.+)",
+}
+_MARKER = re.compile(r"^(?:[(][0-9一二三四五六七八九十]+[)]|[0-9一二三四五六七八九十]+[.)、](?!\d)|[•‧・*-])\s*")
+_QUALIFIED_NAME = re.compile(
+    r"\b(?:other|unspecified other|except|unless|if|no|not|without|family|donor|parent|partner|"
+    r"possible|suspected|planned|active|current|ongoing|according|consistent|followed|and)\b|"
+    r"家族|家屬|家属|捐贈|ドナー|配偶|父親|母親|伴侶|パートナー|疑い|疑似|除外|以外|其他|その他|活動性|目前|現在|計劃|予定"
+)
+
+
+def _item_text(text: str) -> str:
+    return _MARKER.sub("", norm(text)).rstrip(".。;!").strip()
+
+
+@cache
+def _translations(language: str) -> dict[tuple[str, str], str]:
+    from tb_common import refdata_jp, refdata_tw
+    from tb_common.catalogue import CATALOGUE_DIR
+    from tb_common.refdata import curated_synonyms
+
+    path = {"ja": refdata_jp.REPO_SYNONYMS, "zh-TW": refdata_tw.REPO_SYNONYMS}.get(language)
+    if path is None:
+        return {}
+    names: dict[tuple[str, str], set[str]] = {}
+    for row in curated_synonyms(path, language, "clinical synonyms"):
+        if row["curated"]:
+            names.setdefault((row["domain"], norm(row["term"])), set()).add(norm(row["canonical"]))
+    dictionary_terms = set(names)
+    column = "name_ja" if language == "ja" else "name_zh_tw"
+    with (CATALOGUE_DIR / "phenotypes.csv").open(encoding="utf-8", newline="") as f:
+        for row in csv.DictReader(f):
+            key = ("condition", norm(row[column]))
+            if row[column] and row["name_en"] and key not in dictionary_terms:
+                names.setdefault(key, set()).add(norm(row["name_en"]))
+    return {key: next(iter(labels)) for key, labels in names.items() if len(labels) == 1}
+
+
+def _same_concept(name: str, language: str, mapped: MappingResult, term: Terminology) -> bool:
+    # No punctuation, subclauses or alternative concepts inside the noun. A coordinated
+    # pair of course modifiers can be part of one terminology name.
+    if not re.fullmatch(r"[^\W_]+(?:[ -][^\W_]+)*", name) or _QUALIFIED_NAME.search(name):
+        return False
+    if re.search(r"\bor\b|または|又は|或", re.sub(r"\b(?:acute or chronic|chronic or acute) ", "", name)):
+        return False
+    if mapped.needs_review or not mapped.concepts:
+        return False
+    domain = mapped.domain
+    try:
+        target = norm(mapped.name)
+        if name != target:
+            labels = _translations(language)
+            if labels.get((domain, name), name) != labels.get((domain, target), target):
+                return False
+        reference = term.map(domain, target)
+    except (KeyError, OSError, RuntimeError, ValueError, csv.Error):
+        return False
+    if reference.method == "icd10cm":
+        # That lookup can drop words in parentheses or ignore non-Latin letters.
+        if not target.isascii() or not reference.notes or not reference.notes[0].startswith("ICD-10-CM description:"):
+            return False
+    elif reference.notes:
+        return False
+    return (
+        not reference.needs_review
+        and reference.notes == mapped.notes
+        and reference.concepts == mapped.concepts
+        and reference.families == mapped.families
+    )
+
+
+def _passage_predicate(
+    criterion: CriterionIR, source: PresenceSource, mappings: Mapping[str, MappingResult], term: Terminology
+) -> Atom | None:
+    atom = criterion.logic
+    if (
+        criterion.class_ != "structured"
+        or criterion.note_question
+        or criterion.note_question_source
+        or not isinstance(atom, Atom)
+        or atom.domain not in {"condition", "procedure", "medication"}
+        or set(criterion.flags or []) - {"needs_review", "domain_refiled"}
+        or (criterion.flags and "domain_refiled" not in criterion.flags)
+    ):
+        return None
+    body = _item_text(source.text)
+    lookback = re.fullmatch(_LOOKBACK[source.language], body)
+    from_days = None
+    if lookback:
+        body = lookback["body"].strip()
+        from_days = -int(lookback["n"]) * (7 if lookback["unit"] in {"week", "weeks", "週", "週間"} else 1)
+    if criterion.time_sensitive and from_days is None:
+        return None
+    present = False
+    for domain, present_tense, frame in _FRAMES[source.language]:
+        match = re.fullmatch(frame, body)
+        if match:
+            if domain == "exposure" and atom.domain == "condition":
+                return None
+            if domain not in ("", "exposure", atom.domain):
+                return None
+            present = present_tense
+            body = match[1].strip()
+            break
+    mapped = mappings.get(atom.valueset)
+    if not mapped or mapped.domain != atom.domain or not _same_concept(body, source.language, mapped, term):
+        return None
+    actual = atom.window
+    if actual and (actual.anchor != "index" or actual.to_days not in (None, 0)):
+        return None
+    if (actual.from_days if actual else None) != from_days:
+        return None
+    expected = Atom(domain=atom.domain, valueset=atom.valueset, window=actual)
+    # Present-tense diagnosis excludes records explicitly marked resolved. An explicit
+    # active-status requirement is stronger: the engines also count unstated status.
+    restricted = expected.model_copy(update={"clinical_status": list(ACTIVE_STATUSES)}) if present else expected
+    return restricted if atom in (expected, restricted) else None
+
+
+def _presence_logic(logic: Atom | BoolExpr) -> bool:
+    for atom in atoms(logic):
+        try:
+            if kind(atom) is Kind.PRESENCE:
+                return True
+        except CompileError:
+            # A malformed coded presence (e.g. an absent ValueSet) also goes to a person.
+            if atom.domain != "demographic" and atom.value is None and atom.derived is None and atom.duration is None:
+                return True
+    return False
+
+
+def _recorded_presence(criterion: CriterionIR, approved: Ruleset, mappings: Mapping[str, MappingResult]) -> bool:
+    """Replay only what the reviewer actually approved, including the referenced code sets."""
+    if approved.id != criterion.ruleset or approved.manifest.status != "approved":
+        return False
+    records = [c for c in approved.criteria if c.id == criterion.id]
+    if len(records) != 1 or approved.manifest.criteria.count(criterion.id) != 1:
+        return False
+    prior = records[0]
+    review = prior.review
+    if (
+        not review
+        or review.status != "approved"
+        or not (review.by or "").strip()
+        or not review.at
+        or prior.model_dump(exclude={"review"}) != criterion.model_dump(exclude={"review"})
+    ):
+        return False
+    pinned = ValueSets(approved.id, approved.valuesets, None)
+    try:
+        check_bool(criterion.logic)
+        for atom in atoms(criterion.logic):
+            if kind(atom) is Kind.DEMOGRAPHIC:
+                continue
+            mapped = mappings.get(atom.valueset)
+            if not mapped or mapped.domain != atom.domain or not mapped.concepts or mapped.notes:
+                return False
+            if set(pinned.codes(atom.valueset)) != {(c.system, c.code) for c in mapped.concepts}:
+                return False
+            if set(pinned.families(atom.valueset)) != set(mapped.families):
+                return False
+    except (CompileError, KeyError, TypeError, AttributeError):
+        return False
+    return True
+
+
+def admit_presence(
+    criterion: CriterionIR,
+    source: PresenceSource | None,
+    mappings: Mapping[str, MappingResult],
+    term: Terminology,
+    *,
+    audit: AuditLog | None = None,
+    approved: Ruleset | None = None,
+) -> CriterionIR:
+    """Release a coded presence only on independent passage evidence or a persisted decision.
+
+    Only a trusted reader of the review record may supply `approved`. First extraction has no such record.
+    A bare approval status on the proposal supplies no evidence.
+    """
+    flagged = PRESENCE_REVIEW in (criterion.flags or [])
+    if not flagged and (criterion.class_ not in FILTERED or not _presence_logic(criterion.logic)):
+        return criterion
+    if (
+        not flagged
+        and source
+        and source.complete
+        and source.language in _PRESENCE_MESSAGES
+        and (
+            source.text == criterion.text
+            or (approved is None and source.standalone and _item_text(source.text) == _item_text(criterion.text))
+        )
+        and source.kind == criterion.kind
+        and audit is not None
+        and not term.terminology_refused
+        and not (criterion.review and criterion.review.status == "rejected")
+    ):
+        if approved is not None:
+            allowed = _recorded_presence(criterion, approved, mappings)
+        else:
+            predicate = _passage_predicate(criterion, source, mappings, term) if source.standalone else None
+            allowed = predicate is not None
+            if predicate is not None:
+                criterion = criterion.model_copy(update={"logic": predicate, "text": source.text})
+        if allowed:
+            try:
+                receipt = audit.append(
+                    "compile.presence_admitted",
+                    ruleset=criterion.ruleset,
+                    input_sha=sha256_text(source.text),
+                    output_sha=sha256_text(criterion.logic.model_dump_json(exclude_none=True)),
+                    actor="criteria-compiler",
+                    detail={"criterion": criterion.id, "basis": "review" if approved is not None else "text"},
+                )
+            except (OSError, RuntimeError, ValueError):
+                pass  # An unavailable audit destination or invalid audit setting requires human review.
+            else:
+                if receipt and receipt.get("event") == "compile.presence_admitted":
+                    return criterion
+
+    message = _PRESENCE_MESSAGES.get(source.language if source else "", " / ".join(_PRESENCE_MESSAGES.values()))
+    return criterion.model_copy(
+        update={
+            "class_": "human",
+            "logic": Atom(domain="demographic", valueset="NONE"),
+            "text": source.text if source else criterion.text,
+            "human_question": message,
+            "note_question": None,
+            "note_question_source": None,
+            "review": criterion.review
+            if criterion.review and criterion.review.status == "rejected"
+            else CriterionReview(status="draft"),
+            "flags": sorted({*(criterion.flags or []), "needs_review", PRESENCE_REVIEW}),
+        }
+    )
+
+
 def postprocess(
     ruleset: str,
     extracted: LlmExtractOutput,
@@ -523,9 +816,15 @@ def postprocess(
     llm_map: ConceptMapLLM | None = None,
     id_offset: dict[str, int] | None = None,
     egfr: str = "egfr",
+    *,
+    criterion_ids: Sequence[str] | None = None,
+    sources: Sequence[PresenceSource] = (),
+    audit: AuditLog | None = None,
 ) -> PostResult:
     """``egfr``: what a criterion that says only "eGFR" becomes at this site (D-149): ``egfr`` (CKD-EPI 2021, the
     meaning it always had) or ``egfr_jsn`` at a Japanese site; a protocol that names its equation keeps it."""
+    if criterion_ids is not None and len(criterion_ids) != len(extracted.criteria):
+        raise ValueError("expected one criterion ID per extracted item")
     counters = dict(id_offset or {})
     concept_vs: dict[str, str] = {}
     vs_terms: dict[str, list[str]] = {}  # a ValueSet's concept names and synonyms (card 10A-1)
@@ -573,7 +872,7 @@ def postprocess(
     for ec in extracted.criteria:
         code = KIND_CODE[ec.kind]
         counters[code] = counters.get(code, 0) + 1
-        cid = f"{ruleset}-{code}-{counters[code]:02d}"
+        cid = criterion_ids[len(criteria)] if criterion_ids is not None else f"{ruleset}-{code}-{counters[code]:02d}"
         flags: list[str] = []
         raw = dump(ec)
         logic_raw, stray = strip_stray(
@@ -585,9 +884,10 @@ def postprocess(
             warnings.append(f"{cid}: {exc}")
             logic, flags = {"domain": "demographic", "valueset": "NONE"}, ["needs_review", "logic_invalid"]
         ir_dict = {k: v for k, v in raw.items() if k not in ("concept_candidates", "logic") and v is not None}
-        ir_dict.update({"id": cid, "ruleset": ruleset, "logic": logic, "review": {"status": "draft"}})
         try:
-            ir = CriterionIR.model_validate(ir_dict)
+            ir = CriterionIR.model_validate(
+                {**ir_dict, "id": cid, "ruleset": ruleset, "logic": logic, "review": {"status": "draft"}}
+            )
         except ValidationError as exc:
             # D-910: one criterion the model wrote outside the IR (a public protocol is messier than the shipped
             # ones) failed the whole compile with an HTTP 500. It is kept as a person's check, flagged, with where
@@ -596,6 +896,7 @@ def postprocess(
             warnings.append(f"{cid}: not a valid criterion ({where}); kept for a person to check")
             ir = _for_a_person(cid, ruleset, ec.kind, str(raw.get("text") or ""), raw.get("source_ref"))
             flags = [*flags, "ir_invalid"]
+        proposed_presence = ir.class_ in FILTERED and _presence_logic(ir.logic)
         if stray:
             flags.extend(stray)
             warnings.append(f"{cid}: fields its atoms cannot use ({', '.join(stray)})")
@@ -732,9 +1033,12 @@ def postprocess(
             else:
                 flags.append("negated_question")
                 warnings.append(f"{cid}: exclusion question is negated and could not be rewritten; edit it")
+        if proposed_presence and ir.class_ not in FILTERED:
+            flags.append(PRESENCE_REVIEW)
         if flags:
             ir = ir.model_copy(update={"flags": sorted(set(flags) | {"needs_review"})})
-        criteria.append(ir)
+        source = sources[len(criteria)] if len(sources) == len(extracted.criteria) else None
+        criteria.append(admit_presence(ir, source, mappings, term, audit=audit))
     criteria = decided_once(criteria, warnings)
     return PostResult(criteria, dict(sorted(valuesets.items())), mappings, warnings)
 
