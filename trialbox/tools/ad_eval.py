@@ -13,9 +13,11 @@ Three parts, all on public data:
 * ``chiacheck``: the same router on a seeded sample of Chia criteria, scored against the entity rule of
   :mod:`tools.chia_routes`, so the router's routes come with an agreement figure.
 
-    OPENROUTER_API_KEY=... python -m tools.ad_eval trec --models <m> ...
-    OPENROUTER_API_KEY=... python -m tools.ad_eval ctgov --router google/gemma-4-26b-a4b-it
-    OPENROUTER_API_KEY=... python -m tools.ad_eval chiacheck --router google/gemma-4-26b-a4b-it
+    read -rs OPENROUTER_API_KEY; export OPENROUTER_API_KEY
+    python -m tools.ad_eval trec --models <m> ...
+    python -m tools.ad_eval ctgov --router google/gemma-4-26b-a4b-it
+    python -m tools.ad_eval chiacheck --router google/gemma-4-26b-a4b-it
+    unset OPENROUTER_API_KEY
     python -m tools.ad_eval score
 """
 

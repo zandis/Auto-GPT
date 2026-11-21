@@ -6,7 +6,9 @@
     python tools/phi_synth_eval.py eval/phi_synth/notes.jsonl regex            # TrialBox guard recognisers
     python tools/phi_synth_eval.py eval/phi_synth/notes.jsonl pf-multi-v2      # OpenMed privacy-filter-multilingual-v2 (CPU)
     python tools/phi_synth_eval.py eval/phi_synth/notes.jsonl openmed-ja-600m  # OpenMed Japanese PII 600M (ja only)
-    OPENROUTER_API_KEY=... python tools/phi_synth_eval.py eval/phi_synth/notes.jsonl google/gemma-4-26b-a4b-it
+    read -rs OPENROUTER_API_KEY; export OPENROUTER_API_KEY
+    python tools/phi_synth_eval.py eval/phi_synth/notes.jsonl google/gemma-4-26b-a4b-it
+    unset OPENROUTER_API_KEY
 
 A planted identifier counts as found when detected spans cover at least half of its characters; a decoy (eponym,
 drug, role word) counts as a false hit on any overlap. HF models use score >= 0.5.

@@ -1,3 +1,4 @@
+#!/usr/bin/python3 -I
 """``python -m tools.trialbox <command>`` (spec v4 §18). Commands: ``doctor``, ``eval``, ``backup-keygen``,
 ``backup``, ``backup-check`` (D-178), ``backup-verify``, ``restore`` (D-126, ``tools/trialbox/backup.py``),
 ``restore-drill`` (T-730d, D-892, ``restore_drill.py``);
@@ -30,7 +31,7 @@ import tempfile
 from pathlib import Path
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args[:1] == ["platform-day2"]:  # its own options (platform_day2.py); `pg` passes its arguments through
         from tools.trialbox import platform_day2
@@ -327,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd in ("backup-keygen", "backup", "backup-check", "backup-verify", "restore"):
         return _backup_cmd(a)
     if a.cmd == "restore-drill":
-        return _drill_cmd(a)
+        return _drill_cmd(a, installed)
     if a.cmd in ("platform-images", "platform-egress"):
         return _platform_cmd(a)
     if a.cmd == "doctor" and a.preflight:
@@ -486,19 +487,40 @@ def _secrets_cmd(a: argparse.Namespace) -> int:
         return 1
 
 
-def _drill_cmd(a: argparse.Namespace) -> int:
+def _drill_cmd(a: argparse.Namespace, installed: bool) -> int:
     """T-730d (D-892): the restore drill, printed as JSON; exit 0 on a pass, 1 on a fail, 2 when nothing started."""
-    from tools.trialbox import backup as bk
     from tools.trialbox import restore_drill as rd
 
     docker_root = Path("/var/lib/docker")
     db_dir = a.db_dir or (docker_root if docker_root.is_dir() else None)
+    res = None
     try:
-        res = rd.drill(a.file, a.key, os.environ, work=a.work, db_dir=db_dir)
-    except (rd.DrillError, bk.BackupError, OSError) as e:
-        print(f"restore-drill: {e}", file=sys.stderr)
-        return 2
-    res["audit"] = rd.record(a.deploy, res, os.environ, bk.layout(os.environ, a.dir))
+        # Installed boxes use the site settings even if another connection was exported by the caller.
+        if installed or (a.deploy / ".env").is_file():
+            from tools.trialbox.box_drill import BoxDrill
+
+            box = BoxDrill(a.deploy)
+            res = rd.drill(a.file, a.key, box.env, work=a.work, db_dir=a.db_dir or box.data_dir(), ops=box)
+            # As in tools.trialbox.ops, the box's host Python can read metrics without third-party modules.
+            libs = str(Path(__file__).resolve().parents[2] / "libs")
+            if libs not in sys.path:
+                sys.path.insert(0, libs)
+            from tb_common import metrics
+
+            metrics.record_drill(a.deploy, res)
+            box.audit(rd.EVENT, rd.audit_detail(res))
+        else:
+            from tools.trialbox import backup as bk
+
+            res = rd.drill(a.file, a.key, os.environ, work=a.work, db_dir=db_dir)
+            res["audit"] = rd.record(a.deploy, res, os.environ, bk.layout(os.environ, a.dir))
+    except (RuntimeError, ValueError, OSError) as e:
+        if res is None:
+            print(f"restore-drill: {e}", file=sys.stderr)
+            return 2
+        print(json.dumps(res, indent=1, ensure_ascii=False))
+        print(f"restore-drill: could not record the result: {e}", file=sys.stderr)
+        return 1
     print(json.dumps(res, indent=1, ensure_ascii=False))
     if not res["ok"]:
         print(f"restore-drill: FAILED: {res.get('error')}", file=sys.stderr)
@@ -646,4 +668,8 @@ def _backup_cmd(a: argparse.Namespace) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # install.sh links this signed file onto PATH. Keep relative input paths relative to the operator's shell.
+    if not __package__:
+        root = Path(__file__).resolve().parents[2]
+        sys.path[:0] = [str(root), str(root / "libs"), str(root / "services")]
+    raise SystemExit(main(installed=not __package__))

@@ -498,11 +498,8 @@ def secrets_rows(svcs: list[Service], lang: str) -> list[tuple[str, str, str]]:
         # D-378 / D-450: each service's own password reaches it inside its own TB_DB_URL, never as a variable
         ("TB_DB_PW_<SERVICE> (one role per service)", "deploy/.env (0600, root)", "db; each service its own only"),
         ("IMAP_PASS, SMTP_PASS", "deploy/.env (0600, root)", keep("IMAP_PASS")),
-        (
-            "TB_KEK_PASSPHRASE, TB_KMS_TOKEN (if the KEK back end uses them)",
-            "deploy/.env (0600, root)",
-            keep("TB_KMS_TOKEN"),
-        ),
+        ("TB_KEK_PASSPHRASE", "terminal / command environment (RUNBOOK §16)", T["host_only"][lang]),
+        ("TB_KMS_TOKEN", "KMS token (RUNBOOK §17)", keep("TB_KMS_TOKEN")),
         ("CLOUD_LLM_API_KEY (empty by default)", "deploy/.env (0600, root)", keep("CLOUD_LLM_API_KEY")),
         (
             "site_hmac.key, pid_map.key, REDCap API tokens",
