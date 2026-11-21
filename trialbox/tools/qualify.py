@@ -321,10 +321,17 @@ def profile_builds(profile: str, doc: dict[str, Any] | None = None) -> dict[str,
             want_id = STUB_VERIFIER_BUILD if role == "verifier" else STUB_BUILD
             hit = [b for b in rows if b.get("build_id") == want_id]
         else:
+            suffix = PROFILES[profile]
+            alt_suffix = suffix.replace("-", "")
             hit = [
                 b
                 for b in rows
-                if b.get("alias") == alias and str(b.get("build_id", "")).endswith("-" + PROFILES[profile])
+                if b.get("alias") == alias
+                and (
+                    str(b.get("build_id", "")).endswith("-" + suffix)
+                    or str(b.get("build_id", "")).endswith(suffix)
+                    or str(b.get("build_id", "")).endswith(alt_suffix)
+                )
             ]
         if len(hit) != 1:
             raise QualifyError(f"profile {profile}: {len(hit)} {alias} builds in models/registry.yaml (need one)")
