@@ -86,14 +86,39 @@ def _docstring_nodes(tree: ast.AST) -> set[int]:
     return ids
 
 
+def _literal(node: ast.AST) -> str:
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else ""
+
+
+def _folded(node: ast.AST) -> str:
+    """R22-14 (G-5, G2): the literal parts of a ``+`` chain (``base + "/v1/chat/" + "completions"``), or of a
+    string's ``join`` of a list or tuple, put together; "" for anything else."""
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        parts: list[str] = []
+        stack: list[ast.expr] = [node]
+        while stack:
+            x = stack.pop()
+            if isinstance(x, ast.BinOp) and isinstance(x.op, ast.Add):
+                stack += [x.right, x.left]
+            else:
+                parts.append(_literal(x))
+        return "".join(parts)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "join":
+        items = node.args[0] if node.args else None
+        if isinstance(node.func.value, ast.Constant) and isinstance(items, ast.List | ast.Tuple):
+            return _literal(node.func.value).join(_literal(e) for e in items.elts)
+    return ""
+
+
 def python_hits(source: str) -> list[int]:
-    """Line numbers of string literals (not docstrings) that contain a model API path."""
+    """Line numbers of string literals (not docstrings), and of literals put together with ``+`` or a ``join``,
+    that contain a model API path."""
     tree = ast.parse(source)
     docs = _docstring_nodes(tree)
     hits: list[int] = []
     for node in ast.walk(tree):
         is_str = isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docs
-        if is_str and MODEL_PATH.search(node.value):  # type: ignore[attr-defined]
+        if (is_str and MODEL_PATH.search(node.value)) or MODEL_PATH.search(_folded(node)):  # type: ignore[attr-defined]
             hits.append(node.lineno)  # type: ignore[attr-defined]
     return sorted(set(hits))
 
@@ -143,3 +168,20 @@ def test_scanner_finds_planted_calls(tmp_path: Path) -> None:
     (pkg / "b.sh").write_text("# curl /v1/completions in a comment\ncurl -s http://m/v1/completions\n")
     (pkg / "c.py").write_text('"""Docstring /v1/completions."""\nX = 1\n', encoding="utf-8")
     assert scan(tmp_path) == ["services/rogue/a.py:4", "services/rogue/a.py:5", "services/rogue/b.sh:2"]
+
+
+def test_the_scan_sees_every_spelling(tmp_path: Path) -> None:
+    """R22-14 (G-5, G2): the path split over literals put together is the path; a URL with no model path is not."""
+    pkg = tmp_path / "services" / "rogue"
+    pkg.mkdir(parents=True)
+    (pkg / "d.py").write_text(
+        "import httpx\n"
+        "def f(base: str) -> None:\n"
+        '    httpx.post(base + "/v1/chat/" + "completions", json={})\n'
+        '    httpx.post(base + "/v1/" + "embed" + "dings", json={})\n'
+        '    httpx.post("/".join([base, "v1", "chat", "completions"]), json={})\n'
+        '    httpx.get(base + "/v1/" + "models")\n'
+        '    httpx.get("/".join([base, "health"]))\n',
+        encoding="utf-8",
+    )
+    assert scan(tmp_path) == ["services/rogue/d.py:3", "services/rogue/d.py:4", "services/rogue/d.py:5"]
