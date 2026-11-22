@@ -33,7 +33,6 @@ from __future__ import annotations
 import ast
 import hashlib
 import hmac
-import html
 import itertools
 import re
 import secrets
@@ -42,7 +41,6 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "libs" / "tb_common" / "config.py"
@@ -216,10 +214,6 @@ FLAG = re.compile(r"(?<![\w\-])(?P<dash>--?)(?P<key>[A-Za-z][A-Za-z0-9_\-]{0,40}
 CLI_USER = re.compile(r"(?<![\w\-])(?P<key>-u|--user|--proxy-user|-U)(?P<sep>[ \t]+|=)(?P<user>[^\s:]*):(?P<val>\S+)")
 #: ``<password>VALUE</password>`` (any namespace, any attributes)
 XML = re.compile(r"<(?P<key>[A-Za-z_][\w.\-:]{0,80})(?P<attrs>\s[^<>]{0,512})?>(?P<val>[^<]{1,4096})</(?P=key)\s*>")
-#: what an encoding makes of a character: ``%2F``, ``%252F``, ``\u002F``, ``\x2F``, ``&#x2F;``, ``&quot;``, ``=3D``
-ENCODED = re.compile(r"%[0-9A-Fa-f]{2}|\\[uxU][0-9A-Fa-f]{2}|&#?[A-Za-z0-9]{1,8};|=3D")
-_BACKSLASH = re.compile(r"\\(?:u([0-9A-Fa-f]{4})|x([0-9A-Fa-f]{2})|U([0-9A-Fa-f]{8}))")
-_QP = re.compile(r"=([0-9A-F]{2})")
 #: a PEM block's END line whose BEGIN is not in the text (a cut, a rotated log): the base64 lines before it go too
 PEM_END = re.compile(r"-----END [A-Z0-9 ]{1,64}-----")
 _B64 = re.compile(r"[A-Za-z0-9+/=]{16,}")
@@ -447,20 +441,15 @@ class Scrubber:
     def decoded(self, text: str) -> str:
         """Review H1: an encoding puts a hex digit or a letter next to a token (``%2F<pid>``, ``%22<pid>%22``,
         ``\\u002F``, ``&#x2F;``, ``=3D``), and a key or value of a secret can be encoded whole. Each line that holds an
-        encoded character is decoded (percent, twice-percent, ``\\u``/``\\x``/``\\U``, HTML entities, ``=3D``) and
-        scrubbed; if that changes anything, the line is kept decoded and scrubbed."""
-        lines = text.split("\n")
-        for k, line in enumerate(lines):
-            if not ENCODED.search(line):
-                continue
-            plain = _decode(line)
-            if plain == line:
-                continue
-            clean = self._rules(plain)
-            if clean != plain:
-                lines[k] = clean
-                self.found["decoded line"] += 1
-        return "\n".join(lines)
+        encoded character is decoded (percent in up to eight layers, ``\\u``/``\\x``/``\\U``, HTML entities,
+        ``=3D``) and scrubbed; if that changes anything, the line is kept decoded and scrubbed. The decoding is the
+        service log line's too (``tb_common.decode_scrub``, H-79, D-1358): one source for both."""
+        from tb_common.decode_scrub import decode_then_scrub  # here: the module is standard library only at import
+
+        text, replaced = decode_then_scrub(text, self._rules)
+        if replaced:
+            self.found["decoded line"] += replaced
+        return text
 
     def text(self, text: str) -> str:
         """Every rule, until the text no longer changes (at most three passes; a fourth change is refused)."""
@@ -562,20 +551,6 @@ def _held(rx: re.Pattern[str], text: str, rules: Callable[[str], str]) -> str:
 
     text = rules(rx.sub(hold, text))
     return _PRIVATE.sub(lambda m: held[ord(m.group(0)) - 0xF0000], text) if held else text
-
-
-def _decode(line: str) -> str:
-    """``line`` with every encoding undone, up to four layers (``%252F`` is ``/``)."""
-    for _ in range(4):
-        new = unquote(line, errors="replace")
-        new = html.unescape(new)
-        new = _BACKSLASH.sub(lambda m: chr(int(m.group(1) or m.group(2) or m.group(3), 16) % 0x110000), new)
-        if "=3D" in new:
-            new = _QP.sub(lambda m: chr(int(m.group(1), 16)), new)
-        if new == line:
-            break
-        line = new
-    return line
 
 
 def _seg_start(text: str, lo: int, k: int) -> int:

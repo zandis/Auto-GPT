@@ -1,0 +1,56 @@
+{
+ "card": "H79",
+ "title": "every value of a log line, decoded then scrubbed (D-1358)",
+ "date": "2026-11-22",
+ "source": "docs/handover/log-line-decode-then-scrub-2026-11-22.md",
+ "findings": [
+  {
+   "id": "H79-01",
+   "severity": "High",
+   "claim": "a service's log line kept a secret behind two to four percent layers or written password&#61;, and an e-mail address written %40 or &#64; (the bench: 150 of 150 each); fixed: every line with an encoded character is decoded (tb_common.decode_scrub, shared with the support bundle) before the rules read it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H79-02",
+   "severity": "High",
+   "claim": "the review's R22-21, confirmed with one correction: extra= values that are objects, dataclasses, exceptions or bytes, and a value under a secret's name in a mapping, went out as written (dicts, lists and tuples of text were already scrubbed); fixed: every value is walked or turned to text and scrubbed, keys too, bounded by depth, count and cycles",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H79-03",
+   "severity": "Medium",
+   "claim": "the review's R22-22, confirmed: a tuple as a dict key in an extra, or a broken format string, raised in the formatter, and the logging module printed the record's raw arguments to the error stream; fixed: the formatter never raises and writes a withheld line with the logger and the level",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H79-04",
+   "severity": "Medium",
+   "claim": "the support bundle's rules read the encoded text before its decoded pass: a percent-encoded entity holding an eight-digit run, with a site chart rule, kept the secret in 37 of 150 fuzz cases; the fix (decode first, as the log line now does) changes what two bundle tests assert, so it waits for a ruling",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H79-05",
+   "severity": "Low",
+   "claim": "pseudonyms and screening numbers are not masked in a service's log line, by design (logs carry pids; test_ordinary_words_are_kept asserts a 32-digit pid stays); masking them, as the card asked, needs a ruling",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H79-06",
+   "severity": "Low",
+   "claim": "the log rule's secret names are fewer than the bundle's: a value after cookie, session, dsn, auth or pin is not masked in a log line (it is in a bundle); one name list for both is not built",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}
