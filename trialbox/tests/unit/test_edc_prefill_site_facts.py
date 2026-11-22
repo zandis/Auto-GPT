@@ -129,3 +129,25 @@ def test_every_language_has_the_sentence_for_a_record_that_could_not_be_read() -
 
     text = (ROOT / "services/console/i18n_edc.py").read_text(encoding="utf-8")
     assert text.count('"edc.err.edc.lake"') == 3 and i18n_edc is not None
+
+
+def test_prefill_refuses_identifying_choice_before_storing_any_drafts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from edc.store import EdcError
+    from tb_common.output_gate import IDENTIFIER_MESSAGE, IDENTIFIER_REFUSAL
+
+    from tests import edc_kit as k
+
+    choice = {"field_type": "radio", "select_choices_or_calculations": "1, Present | AB1234567, Other"}
+    monkeypatch.setattr(k, "CRF", [row | choice if row["field_name"] == "tophus" else row for row in k.CRF])
+    svc, _, _ = k.service(tmp_path)
+    k.ready(svc)
+    with pytest.raises(EdcError) as refusal:
+        svc.build(k.STUDY, k.RECORD, k.PID, "", k.VISIT_DATE, "crc")
+    assert (refusal.value.status, refusal.value.code, refusal.value.message) == (
+        422,
+        IDENTIFIER_REFUSAL,
+        IDENTIFIER_MESSAGE["en"],
+    )
+    assert svc.store.drafts(k.STUDY, k.RECORD) == []

@@ -48,10 +48,12 @@ except ImportError:  # pragma: no cover - the image always has tb_common
 
 
 MAX_BODY = 16 * 1024 * 1024
+CHAT_COMPLETIONS = "/v1/chat/completions"
+COMPLETIONS = "/v1/completions"
 KEYED: dict[str, set[str]] = {
     "/v1/models": {"GET"},
-    "/v1/chat/completions": {"POST"},
-    "/v1/completions": {"POST"},
+    CHAT_COMPLETIONS: {"POST"},
+    COMPLETIONS: {"POST"},
     "/tokenize": {"POST"},  # D-739: counts tokens; the key already opens chat completions, which do more
 }
 ADMIN: dict[str, set[str]] = {"/sleep": {"POST"}, "/wake_up": {"POST"}, "/is_sleeping": {"GET"}}
@@ -144,11 +146,39 @@ def make_handler(g: Guard) -> type[BaseHTTPRequestHandler]:
             if rule == "keyed" and not g.authorised(self.headers.get("Authorization")):
                 self._reply(401, {"error": "Unauthorized"})
                 return
-            headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP}
+            headers = {"Content-Type": "application/json"}
+            outgoing = b""
+            if path in KEYED and self.command == "POST":
+                from tb_common.output_gate import AUDIT_UNAVAILABLE, IDENTIFIER_REFUSAL, OutputRefused, prepare_output
+
+                purposes = {CHAT_COMPLETIONS: "chat", COMPLETIONS: "completion", "/tokenize": "tokenize"}
+                try:
+                    incoming = json.loads(body)
+                except ValueError:
+                    incoming = None
+                try:
+                    names = {os.environ[k] for k in ("LLM_MODEL", "JUDGE_MODEL", "VERIFIER_MODEL") if os.environ.get(k)}
+                    prompt_headers = {
+                        k: self.headers[k]
+                        for k in ("X-TB-Prompt-Id", "X-TB-Prompt-Version", "X-TB-Prompt-Sha")
+                        if k in self.headers
+                    }
+                    headers.update(prepare_output("prompt_headers", "model", prompt_headers))
+                    approved = prepare_output(purposes[path], "model", incoming, model_names=names)
+                    outgoing = json.dumps(approved, ensure_ascii=False, allow_nan=False).encode()
+                except OutputRefused as exc:
+                    error = {"error": exc.reason}
+                    if exc.reason in (IDENTIFIER_REFUSAL, AUDIT_UNAVAILABLE):
+                        error["message"] = exc.message(self.headers.get("Accept-Language"))
+                    self._reply(exc.status, error)
+                    return
+            if rule == "keyed":
+                headers["Authorization"] = f"Bearer {g.key}"
+            headers["Content-Length"] = str(len(outgoing))
             headers["Host"] = f"{target[0]}:{target[1]}"
             conn = http.client.HTTPConnection(target[0], target[1], timeout=g.timeout)
             try:
-                conn.request(self.command, self.path, body=body or None, headers=headers)
+                conn.request(self.command, self.path, body=outgoing or None, headers=headers)
                 resp = conn.getresponse()
                 data = resp.read()
             except OSError as exc:

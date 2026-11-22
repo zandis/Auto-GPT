@@ -32,6 +32,7 @@ from matching.cascade import CascadeConfig, CascadeError, CascadeResult, run_cas
 from matching.cascade.engine import FILTERED, JUDGED, NOT_AT_INDEX
 from matching.cascade.judge import JudgeReply
 from matching.cascade.model import Outcome, PatientTrace
+from tb_common.output_gate import prepare_output
 from tb_common.reasons import Reason, code_of
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionVerdict, Evidence, Opinion
@@ -235,6 +236,7 @@ class _Served:
         job's ``TB_EMBED_OUTAGE_WAIT_S`` lasts, as a model outage is waited out (T-689)."""
         from matching.cascade.engine import CascadeError
 
+        texts = prepare_output("embedding", "model", {"texts": texts})["texts"]
         allowance = float(os.environ.get("TB_EMBED_OUTAGE_WAIT_S") or EMBED_OUTAGE_WAIT_S)
         step = 2.0
         while True:

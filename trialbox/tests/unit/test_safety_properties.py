@@ -42,7 +42,7 @@ from matching import proposed as proposed_mod
 from matching import recorded as recorded_mod
 from matching.cascade import engine as cascade_engine
 from matching.cascade.engine import CascadeConfig, run_cascade
-from matching.cascade.judge import JudgeReply
+from matching.cascade.judge import ASKING, JudgeReply
 from matching.cascade.model import STRATUM_INDEX, STRATUM_S1, STRATUM_S3, STRATUM_ZERO_HIT
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage, known_systems
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS
@@ -1045,11 +1045,16 @@ class _Reader:
     confident "not met"; the infection exclusion is absent. Both roles answer alike (the pair agrees)."""
 
     shown: dict[str, set[str]] = field(default_factory=dict)  # pid -> note ids it was shown
-    pid_of: dict[str, str] = field(default_factory=dict)
+    note_by_day: dict[tuple[str, str], str] = field(default_factory=dict)
 
     def judge(self, *, role: str, criterion_text: str, excerpts: list[dict[str, Any]], **_: Any) -> JudgeReply:
+        # Each synthetic patient has one note per date. Recover its fixture ID locally to count
+        # exactly the notes the model saw, without asking for a source ID in the model payload.
+        asking = ASKING.get()
+        assert asking is not None
         for e in excerpts:
-            self.shown.setdefault(self.pid_of[str(e["did"])], set()).add(str(e["did"]))
+            assert "did" not in e
+            self.shown.setdefault(asking.pid, set()).add(self.note_by_day[asking.pid, str(e["date"])])
         hit = next((e for e in excerpts if "swollen" in str(e["text"])), None)
         ex = hit or excerpts[0]
         if criterion_text == "Gout flare documented":
@@ -1095,7 +1100,9 @@ class _Ranked:
 
 def _toe_run(notes: list[dict[str, Any]], pids: list[str], embedder: Any, source: Any) -> tuple[Any, _Reader]:
     lake = _lake(CASCADE_RS, pids, notes)
-    judge = _Reader(pid_of={str(n["did"]): str(n["pid"]) for n in notes})
+    note_by_day = {(str(n["pid"]), str(n["d"])): str(n["did"]) for n in notes}
+    assert len(note_by_day) == len(notes)
+    judge = _Reader(note_by_day=note_by_day)
     conf: dict[str, Any] = {"study_id": lake.rs.id, "run_date": INDEX, "index_mode": "single",
                             "population": sorted(lake.s1), "semantics": "v1", "snapshot": None, "lexicon": LEXICON,
                             "absence_semantics": False, "sample_per_stratum": None}  # fmt: skip

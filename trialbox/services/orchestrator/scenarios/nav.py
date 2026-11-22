@@ -17,6 +17,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from matching import decision
+from tb_common.output_gate import prepare_output
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
 from tb_common.verdict_word import shown_of
@@ -316,7 +317,8 @@ def _draft(
     if ctx.services.llm is not None:
         cf = factmod.course_facts(f)
         try:
-            res = ctx.services.llm.chat_json("draft_doc", {"facts": cf}, job_id=ctx.job.job_id)
+            safe = prepare_output("draft_doc", "model", {"facts": cf})
+            res = ctx.services.llm.chat_json("draft_doc", safe, job_id=ctx.job.job_id)
             para = str(res.data.get("paragraph", "")).strip()
             if para and docx_draft.numbers_ok(para, cf):
                 course = para

@@ -40,6 +40,7 @@ from matching.stored_scores import apply_rows
 from tb_common.fhir import FhirEvaluator
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong
+from tb_common.output_gate import OutputRefused, prepare_output
 from tb_common.pair import DECIDED, Vote, combine, needs_verifier, same_model, served_keys
 from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
@@ -351,7 +352,13 @@ class NoteJudge:
         lo, hi = note_window(c, index_date)
         rows = self._lake().query(DOCUMENT_SQL, [pid, lo.isoformat(), hi.isoformat()]).to_pylist()
         notes = [
-            excerpt_builder.Note(str(r["did"]), r["d"], str(r["type"] or "note"), str(r["text"] or "")) for r in rows
+            excerpt_builder.Note(
+                str(r["did"]),
+                r["d"],
+                str(r["type"] or "note"),
+                prepare_output("chart_text", "model", {"text": str(r["text"] or "")})["text"],
+            )
+            for r in rows
         ]
         evidence: dict[str, list[str]] = {}
         if notes:
@@ -411,7 +418,11 @@ class NoteJudge:
             self._count(held=1)
             return NoteResult("unknown", 0.0, reason=Reason.NOT_EVALUATED.value, source=source)
         try:
-            res = client.chat_json(self.prompt, variables, job_id=self.job_id)
+            safe = prepare_output("judge", "model", {"excerpts": excerpts, **variables})
+            res = client.chat_json(self.prompt, safe, job_id=self.job_id)
+        except OutputRefused:
+            self._count(held=1)
+            return NoteResult("unknown", 0.0, reason=Reason.NOT_EVALUATED.value, source=source)
         except LlmPromptTooLong:
             # T-603: the excerpts did not fit this model (the budget is an estimate, the server counted more): the
             # reason says so, and it counts as a failure, so a box whose sizing is wrong stops the run (check_judge)
@@ -460,7 +471,7 @@ class NoteJudge:
             "criterion_text": criterion_text,
             "note_question": note_question,
             "index_date": index_date.isoformat(),
-            "excerpts": [shown_excerpt(e) for e in excerpts],  # D-644, D-941: what a model is shown of each
+            "excerpts": [shown_excerpt(e) for e in excerpts],
         }
         first = self._ask(primary if primary is not None else self.llm, variables, excerpts, source)
         second: NoteResult | None = None

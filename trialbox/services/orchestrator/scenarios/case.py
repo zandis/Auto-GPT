@@ -38,6 +38,7 @@ from matching import decision
 from matching import excerpts as excerpt_builder
 from tb_common import chartno, dates
 from tb_common.crypto import sha256_bytes
+from tb_common.output_gate import prepare_output
 from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
 from tb_common.routing import is_internal
@@ -106,9 +107,11 @@ def chart_excerpts(text: str, filename: str, fallback: date) -> list[dict[str, A
     paragraph and the ones after it until the next date; paragraphs before any date carry the fallback (the upload
     date), flagged ``date_source: "upload"`` so the sheet can say the chart did not date them."""
     text = unicodedata.normalize("NFKC", text).replace("\r", "")
+    text = prepare_output("chart_text", "model", {"text": text})["text"]
     paras = [p.strip() for p in re.split(r"\n\s*\n|\n(?=\s*(?:#|【|\[))", text) if p.strip()]
     out: list[dict[str, Any]] = []
     current: date | None = None
+    heading = ""
     note_type = Path(filename).stem[:40] or "chart"
     n = 0
     for p in paras:
@@ -116,14 +119,15 @@ def chart_excerpts(text: str, filename: str, fallback: date) -> list[dict[str, A
         if d is not None:
             current = d
         if _HEADING.match(p) and len(p) < 60:
-            note_type = re.sub(r"^[#\s【\[]+|[】\]\s]+$", "", p)[:40] or note_type
+            heading = re.sub(r"^[#\s【\[]+|[】\]\s]+$", "", p)[:40] or heading
             continue
         for piece in _split_long(p):
             n += 1
             out.append(
                 {
                     "date": (current or fallback).isoformat(),
-                    "note_type": note_type,
+                    "note_type": heading or note_type,
+                    "section_heading": heading,
                     "text": piece,
                     "did": f"chart:{filename}#{n}",
                     "date_source": "document" if current is not None else "upload",
@@ -240,8 +244,11 @@ class ChartJudge:
         else:
             # T-710 (D-479): the chart's window through the one excerpt builder and the judge's own budget; before,
             # the whole upload went to the models with no budget and nothing counted as left out
-            notes = [excerpt_builder.Note(str(e["did"]), str(e["date"]), str(e.get("note_type") or "note"),
-                                          str(e["text"])) for e in ex]  # fmt: skip
+            shown = prepare_output("chart_excerpts", "model", {"excerpts": ex})["excerpts"]
+            notes = [
+                excerpt_builder.Note(str(local["did"]), row["date"], row["note_type"], row["text"])
+                for local, row in zip(ex, shown, strict=True)
+            ]
             room = self.judge.excerpt_budget(c, index_date)
             got = excerpt_builder.build(notes, {}, room if room is not None else excerpt_builder.DEFAULT_TOKENS)
             if not got.shown:

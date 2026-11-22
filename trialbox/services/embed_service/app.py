@@ -15,7 +15,8 @@ from typing import Any
 
 from tb_common.config import environment_name
 from tb_common.http import make_app
-from tb_common.phi_guard import mask_note, site_mrn_regex
+from tb_common.output_gate import prepare_output
+from tb_common.phi_guard import site_mrn_regex
 from tb_contracts import EmbedRequest, EmbedResponse
 
 from embed_service.embedder import Embedder, service_embedder
@@ -78,7 +79,7 @@ def embed(req: EmbedRequest) -> EmbedResponse:
     """Every input is masked first (T-600, D-337): a caller that sends note text unmasked still embeds no name, phone
     number, chart number or ID number. Masking keeps the length and is a no-op on text already masked."""
     e = embedder()
-    texts = [mask_note(t, mrn_regex()) for t in req.texts]
+    texts = prepare_output("embedding", "model", {"texts": req.texts}, mrn_regex=mrn_regex())["texts"]
     with gate():
         vectors = e.embed(texts)
     return EmbedResponse(vectors=vectors, model=e.model, dim=e.dim)

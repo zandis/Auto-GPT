@@ -25,6 +25,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
+from tb_common.output_gate import prepare_output
+
 DIM = 1024
 EMBED_BUILD = "e-embed-1"  # the embedder's build in models/registry.yaml (D-429)
 DEFAULT_MODEL_PATH = "/models/embedder"
@@ -172,6 +174,7 @@ class LocalEmbedder:
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
+        texts = prepare_output("embedding", "model", {"texts": texts})["texts"]
         tok = getattr(self._st, "tokenizer", None)
         if tok is not None:
             lengths = [len(x) for x in tok(texts, truncation=True, max_length=self.max_tokens)["input_ids"]]
@@ -217,10 +220,11 @@ class HttpEmbedder:
     def _post(self, texts: list[str]) -> dict[str, Any]:
         import httpx
 
+        body = prepare_output("embedding", "model", {"texts": texts})
         for attempt in range(len(self.waits) + 1):
             last = attempt >= len(self.waits)
             try:
-                resp = self.client.post(f"{self.base_url}/embed", json={"texts": texts})
+                resp = self.client.post(f"{self.base_url}/embed", json=body)
                 resp.raise_for_status()
                 return dict(resp.json())
             except httpx.TransportError:  # connection refused or reset, a timeout: the service's own reason

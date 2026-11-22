@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, cast
 
+from tb_common.output_gate import prepare_output
+
 from matching.registry_match import prompts
 from matching.registry_match.llm import LLMClient
 from matching.registry_match.tokenize import sent_tokenize
@@ -142,7 +144,13 @@ def match_trial(
     out = TrialMatch(nct_id=str(trial.get("NCTID") or trial.get("nct_id") or ""), raw={})
     for inc_exc in ("inclusion", "exclusion"):
         system, user = matching_prompt(trial, inc_exc, patient_numbered)
-        res = client.chat_json([{"role": "system", "content": system}, {"role": "user", "content": user}])
+        res = client.chat_json(
+            prepare_output(
+                "chat",
+                "model",
+                {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]},
+            )["messages"]
+        )
         clean, rows = normalise(res.data, inc_exc, criteria_list(trial, inc_exc), strict_labels)
         if res.data is None:
             out.errors.append(f"{inc_exc}: {res.error or 'output is not JSON'}")
@@ -155,7 +163,11 @@ def match_trial(
 def aggregate(client: LLMClient, match: TrialMatch, trial: dict[str, Any], patient_numbered: str) -> TrialMatch:
     """TrialGPT-Ranking LLM aggregation: relevance R (0..100) and eligibility E (-R..R)."""
     system, user = aggregation_prompt(patient_numbered, match.raw, trial)
-    res = client.chat_json([{"role": "system", "content": system}, {"role": "user", "content": user}])
+    res = client.chat_json(
+        prepare_output(
+            "chat", "model", {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+        )["messages"]
+    )
     if isinstance(res.data, dict):
         match.aggregation = res.data
         match.aggregation_score = aggregation_score(res.data)
@@ -169,7 +181,7 @@ def rank(
     client: LLMClient, note: str, trials: list[dict[str, Any]], *, strict_labels: bool = False
 ) -> list[TrialMatch]:
     """Match + aggregate every trial for one patient; best first (NCBI ranking)."""
-    numbered, _ = number_patient(note)
+    numbered, _ = number_patient(prepare_output("chart_text", "model", {"text": note})["text"])
     results = []
     for t in trials:
         m = match_trial(client, t, numbered, strict_labels=strict_labels)
@@ -181,7 +193,7 @@ def generate_keywords(client: LLMClient, note: str) -> dict[str, Any]:
     """TrialGPT-Retrieval keyword generation: {"summary": str, "conditions": [str, ...]} (up to 32, by priority).
 
     The keywords are patient-derived (D3): they are used only against the local mirror, never sent to a registry."""
-    res = client.chat_json(keyword_messages(note))
+    res = client.chat_json(prepare_output("chat", "model", {"messages": keyword_messages(note)})["messages"])
     data = res.data if isinstance(res.data, dict) else {}
     raw = data.get("conditions")
     conds: list[Any] = raw if isinstance(raw, list) else []

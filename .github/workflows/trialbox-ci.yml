@@ -35,6 +35,7 @@ defaults:
     working-directory: trialbox
 
 env:
+  TB_OUTPUT_SINK_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
   TB_SCRATCH: ${{ github.workspace }}/../tb-scratch  # pglocal compares resolved paths, so the .. is harmless
   # D-970: a card's pull request runs the fast tier unless it changes a path of trialbox/tools/ci_tier.py's FULL_TIER
   # list or carries the label ci:full (the trial of E). `touched` reverts the trial to D: every ready card runs the
@@ -121,6 +122,7 @@ jobs:
     timeout-minutes: 8  # D-995: measured 3 min 8 s; D-537 ceiling is 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with: {fetch-depth: 0}
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
@@ -318,6 +320,7 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with: {fetch-depth: 0}
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)

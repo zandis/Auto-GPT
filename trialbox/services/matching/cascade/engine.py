@@ -44,6 +44,7 @@ from tb_common import lakeprobe
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import CALL_CONTEXT
 from tb_common.optout import REGISTRY_SQL, RegistryState, registry_state
+from tb_common.output_gate import OutputRefused, prepare_output
 from tb_common.reasons import CODES as REASON_CODES
 from tb_common.ruleset import Ruleset
 from tb_common.timeutil import add_months, month_ends
@@ -719,7 +720,8 @@ class _Run:
         rows = lakeprobe.rows_or_no_table(self.lake, NOTES_SQL, params, self.cfg.snapshot, "document") or []
         out: dict[str, list[_Note]] = {}
         for r in rows:
-            text = str(r["text"] or "")
+            # Mask the entire note before a sentence or token budget can split an identifier.
+            text = prepare_output("chart_text", "model", {"text": str(r["text"] or "")})["text"]
             out.setdefault(str(r["pid"]), []).append(
                 _Note(str(r["did"]), r["d"], str(r["type"] or "note"), text, sentences(text))
             )
@@ -1153,7 +1155,24 @@ class _Run:
                 self.metrics.cache_hits += 1
                 return self.cache[key], True
         # D-908: the store below the judge keys and erases by these; an audit sample (CAS-8) is always asked live
-        question = question_digest(c.text, c.note_question or c.text, t.index_date.isoformat(), list(r.excerpts))
+        try:
+            shown = prepare_output(
+                "judge",
+                "model",
+                {
+                    "criterion_text": c.text,
+                    "note_question": c.note_question or c.text,
+                    "index_date": t.index_date.isoformat(),
+                    "excerpts": r.excerpts,
+                },
+            )
+        except OutputRefused as exc:
+            with self._lock:
+                self.metrics.gateway_refusals += 1
+            return JudgeReply("unknown", 0.0, None, None, exc.reason, refused=exc.reason), False
+        question = question_digest(
+            shown["criterion_text"], shown["note_question"], shown["index_date"], shown["excerpts"]
+        )
         asking = ASKING.set(Asking(r.pid, self.hashes[r.cid], (lo.isoformat(), hi.isoformat()),
                                    audit=self.cfg.sample_per_stratum is not None, role=role,
                                    question=question))  # fmt: skip
@@ -1163,10 +1182,10 @@ class _Run:
         try:
             reply = self.judge.judge(
                 role=role,
-                criterion_text=c.text,
-                note_question=c.note_question or c.text,
+                criterion_text=shown["criterion_text"],
+                note_question=shown["note_question"],
                 index_date=t.index_date,
-                excerpts=r.excerpts,
+                excerpts=shown["excerpts"],
                 study_id=self.cfg.study_id,
                 data_class=self.cfg.notes_class,
                 step_id=self.cfg.step_id or f"cascade:{self.cfg.study_id}",

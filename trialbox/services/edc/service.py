@@ -47,6 +47,7 @@ from rc_bridge.client import RcError, RedcapClient
 from tb_common.audit import AuditLog
 from tb_common.config import environment_name
 from tb_common.llm import LlmError
+from tb_common.output_gate import IDENTIFIER_REFUSAL, OutputRefused
 
 from edc import mapping, odm, prefill
 from edc.layout import Layout, Slot, split_visit
@@ -303,6 +304,10 @@ class EdcService:
         run_id = hashlib.sha256(f"{rs}|{record}|{visit}|{self.stamp()}".encode()).hexdigest()[:16]
         try:
             drafts = prefill.build(pid, vd, items, fields, self.facts(), self.drafter(run_id))
+        except OutputRefused as exc:
+            if exc.reason == IDENTIFIER_REFUSAL:
+                raise EdcError(exc.reason, exc.message(), 422) from exc
+            raise EdcError("edc.model", exc.reason, 422) from exc
         except LlmError as exc:  # the gateway refused or the model failed: nothing is drafted, and the page says why
             why = model_failure(exc)
             log.error("EDC prefill: the box's model did not draft study %s record %s: %s", rs, record, why)

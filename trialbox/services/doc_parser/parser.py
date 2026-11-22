@@ -397,13 +397,23 @@ def locator_sections(secs: list[DocSection], guard: Guard) -> tuple[list[dict[st
     out: list[dict[str, Any]] = []
     masked: set[str] = set()
     n = 0
-    for s in secs[:60]:
+    from tb_common.output_gate import prepare_output
+
+    sections = secs[:60]
+    checked = prepare_output(
+        "ie_locate",
+        "model",
+        {"sections": [{"title": s.title, "text": s.text} for s in sections]},
+        mrn_regex=guard.mrn_regex,
+    )
+    for s, safe in zip(sections, checked["sections"], strict=True):
         title, k1 = mask_contacts(s.title, guard)
-        text, k2 = mask_contacts(s.text[:4000], guard)
+        text, k2 = mask_contacts(s.text, guard)
         if k1 or k2:
             n += 1
             masked.update(k1 + k2)
-        out.append({"title": title, "text": text})
+        # Keep the locator's established contact tags and use the gate mask for other clinical values.
+        out.append({"title": title if k1 else safe["title"], "text": (text if k2 else safe["text"])[:4000]})
     warn = [f"contact details masked in {n} section(s) before the criteria locator call ({', '.join(sorted(masked))})"]
     return out, warn if n else []
 
@@ -446,7 +456,10 @@ def parse(data: bytes, filename: str, ie_locator: IeLocator | None = None, backe
     if source == "none" and ie_locator is not None:
         sent, masked = locator_sections(secs, guard)  # LLM-035: contact lines masked, not a refused call
         doc.warnings.extend(masked)
-        located = ie_locator(sent)
+        from tb_common.output_gate import prepare_output
+
+        safe = prepare_output("ie_locate", "model", {"sections": sent})
+        located = ie_locator(safe["sections"])
         block = IEBlock(inclusion=located.get("inclusion", []), exclusion=located.get("exclusion", []))
         source = "llm" if (block.inclusion or block.exclusion) else "none"
     return ParsedDoc(
