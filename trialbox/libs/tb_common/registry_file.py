@@ -158,10 +158,45 @@ def _rows(text: str) -> list[list[str]]:
             if len(out) > 2:
                 raise Refused("many_records")
     except csv.Error as exc:
-        if "field larger than field limit" in str(exc):  # Python csv's own cell limit, above CELL_MAX
+        if _over_csv_limit(text):  # Python csv's own cell limit, above CELL_MAX
             raise Refused("cell_long") from exc
         raise Refused("bad_csv") from exc
     return out
+
+
+def _over_csv_limit(text: str) -> bool:
+    """Did the ``csv`` reader stop at its own cell limit (``csv.field_size_limit()``), not at a stray quote?
+
+    ``csv.Error`` carries no code, so this is told from the file, never from the error's words: the text is walked as
+    the reader walks it (the default dialect, ``strict=True``) up to whichever comes first, a cell one character over
+    the limit or a character after a closing quote that is not a comma or a line end."""
+    limit = csv.field_size_limit()
+    quoted = after_quote = False
+    n = 0
+    for ch in text:
+        if after_quote:
+            after_quote = False
+            if ch == '"':  # a doubled quote: one quote character in the cell
+                quoted = True
+            elif ch in ",\r\n":
+                n = 0
+                continue
+            else:
+                return False  # strict: text after a closing quote
+        elif quoted:
+            if ch == '"':
+                quoted, after_quote = False, True
+                continue
+        elif ch in ",\r\n":
+            n = 0
+            continue
+        elif ch == '"' and n == 0:
+            quoted = True
+            continue
+        if n >= limit:
+            return True
+        n += 1
+    return False
 
 
 def _columns(header: list[str]) -> dict[str, int]:
