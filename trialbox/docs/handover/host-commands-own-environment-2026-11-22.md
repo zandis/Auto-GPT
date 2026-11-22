@@ -112,6 +112,20 @@ run (H88-04).
   path resolved (master's entry block resolves `__file__`; `-m` takes the physical cwd).
 - N1 (quoted values keep their quotes, as `update._env_file`) and N2 (cron's mail) are unchanged.
 
+## Red on train 129 (rehearsal step 26, `missing-key`)
+
+- **Cause.** The rehearsal runs the doctor in the box image with `--env-file deploy/.env -e TB_LLM_API_KEY=
+  -e TB_LLM_API_KEY_FILE=<the gateway's key file>` and the box's deploy folder at `/app/deploy`. Inside that
+  container the launcher read `/app/deploy/.env` and put its `TB_LLM_API_KEY` back, so with the gateway's key file
+  emptied the serving probe still carried the working key and passed. The integrator's reading was right.
+- **Fix.** Inside a container the launcher leaves the environment as it was given (D-1089, item 3). Test:
+  `test_the_doctor_in_the_image_still_sees_the_gateways_missing_key` (the rehearsal's form; it fails on `2c8e4edd`
+  with PASS where FAIL is due, and passes now). The rehearsal step is unchanged.
+- **The bench's two ids.** The cron test ran the db container's spool at the fixed host path `/tmp/tb-backup`, so
+  another user's leftover there failed it with the bench's line (reproduced as `nobody`). The drill test ran
+  `trialbox` by its shebang, on the host's `/usr/bin/python3`. Both now stay inside the test's temp root and its
+  stand-in python; the file passes as root and as `nobody` with a foreign `/tmp/tb-backup` present.
+
 ## Findings
 
 | Id | Severity | Claim | Basis | State |

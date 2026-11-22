@@ -28,6 +28,7 @@ from typing import Any
 import pytest
 import yaml
 
+from tests.unit.test_doctor_serving import KEY, _inputs, _pins, servers  # noqa: F401 (the fixture)
 from tools.trialbox import backup_schedule as bs
 from tools.trialbox import launch
 
@@ -103,7 +104,13 @@ if "compose" in argv and "exec" in argv:  # into the db container: its shell and
           "POSTGRES_USER": os.environ["STANDIN_PGUSER"], "POSTGRES_DB": os.environ["STANDIN_PGDB"]}
     path = os.environ["STANDIN_PGWRAP"] + ":" + os.environ["STANDIN_PG_BIN"] + ":" + os.environ["PATH"]
     if rest[:1] == ["db"] and rest[1:2] in (["sh"], ["rm"], ["pg_restore"]):
-        sys.exit(subprocess.run(rest[1:], env={**os.environ, **pg, "PATH": path}).returncode)
+        # the db container's own /tmp spool is this test's folder here: a fixed host path may be another user's
+        spool = os.environ["STANDIN_SPOOL"]
+        rest = [x.replace("/tmp/tb-backup", spool) for x in rest]
+        data = None if sys.stdin.isatty() else sys.stdin.buffer.read()
+        if rest[1] != "pg_restore" and data is not None:
+            data = data.replace(b"/tmp/tb-backup", spool.encode())
+        sys.exit(subprocess.run(rest[1:], input=data, env={**os.environ, **pg, "PATH": path}).returncode)
     if rest[:1] == ["orchestrator"] and os.environ.get("STANDIN_AUDIT"):  # the audit event, on stdin
         with open(os.environ["STANDIN_AUDIT"], "a") as fh:
             fh.write(sys.stdin.read().strip() + "\n")
@@ -212,11 +219,11 @@ def box(tmp_path_factory: pytest.TempPathFactory, system_python: Path, pg_cluste
            "STANDIN_PGUSER": str(info.get("user") or "postgres"), "STANDIN_PGDB": str(info.get("dbname") or "postgres"),
            "STANDIN_DB_URL": f"postgresql://{info.get('user') or 'postgres'}@/{dbs['trialbox_wf']}"
                              f"?host={info.get('host')}&port={info.get('port') or '5432'}",
-           "STANDIN_AUDIT": str(d / "audit-events.jsonl"),
+           "STANDIN_AUDIT": str(d / "audit-events.jsonl"), "STANDIN_SPOOL": str(d / "db-container-tmp" / "tb-backup"),
            **{f"STANDIN_DB_{k}": v for k, v in dbs.items()}}  # fmt: skip
     yield {"root": root, "deploy": root / "deploy", "nas": nas, "env": env, "log": log, "dir": d,
            "key": d / "usb" / "backup.key", "dbs": dbs, "admin": admin, "user": str(info.get("user") or "postgres"),
-           "bin": bindir}  # fmt: skip
+           "bin": bindir, "python": system_python}  # fmt: skip
     with psycopg.connect(admin, autocommit=True) as con:
         for n in dbs.values():
             con.execute(f'DROP DATABASE IF EXISTS "{n}" WITH (FORCE)')
@@ -468,7 +475,12 @@ def test_the_drill_typed_with_sudo_as_the_runbook_writes_it_runs_from_a_bare_env
     (bindir / "docker").write_text(f'#!/bin/sh\n{exports}exec {box["bin"] / "docker"} "$@"\n', encoding="utf-8")
     for name in ("sudo", "docker"):
         (bindir / name).chmod(0o755)
-    (bindir / "trialbox").symlink_to(root / "tools" / "trialbox" / "__main__.py")  # install.sh's link
+    link = tmp_path / "usr-local-bin" / "trialbox"  # install.sh's link
+    link.parent.mkdir()
+    link.symlink_to(root / "tools" / "trialbox" / "__main__.py")
+    # its shebang's interpreter (`python3 -I`), the stand-in system python, not the test host's /usr/bin/python3
+    (bindir / "trialbox").write_text(f'#!/bin/sh\nexec {box["python"]} -I {link} "$@"\n', encoding="utf-8")
+    (bindir / "trialbox").chmod(0o755)
     audit = Path(box["env"]["STANDIN_AUDIT"])
     audit.unlink(missing_ok=True)
     before = len(calls(box))
@@ -573,3 +585,32 @@ def test_a_box_file_that_cannot_be_trusted_stops_everything(tmp_path: Path, monk
     else:
         monkeypatch.setattr(os, "geteuid", lambda: 4242)
     refused("neither root nor this user")
+
+
+def test_the_doctor_in_the_image_still_sees_the_gateways_missing_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    servers: dict[str, str],  # noqa: F811
+) -> None:
+    """Train 129, rehearsal step 26 (``missing-key``): the doctor runs in the box image with ``--env-file
+    deploy/.env -e TB_LLM_API_KEY= -e TB_LLM_API_KEY_FILE=<the gateway's key file>`` and the box's deploy folder
+    mounted. With the key file emptied, its serving check must FAIL with "refused the key (HTTP 401)", whatever
+    deploy/.env holds: inside a container the launcher leaves the environment as it was given (D-450, D-1089)."""
+    from tools.trialbox import doctor
+
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    (deploy / ".env").write_text(f"TB_LLM_API_KEY={KEY}\n", encoding="utf-8")  # the box's working copy
+    (deploy / ".env").chmod(0o600)
+    key_file = tmp_path / "llm.key"
+    key_file.write_text("", encoding="utf-8")  # the drill: the gateway's key file emptied
+    mark = tmp_path / "dockerenv"
+    mark.write_text("", encoding="utf-8")
+    monkeypatch.setattr(launch, "DEPLOY", deploy)
+    monkeypatch.setattr(launch, "CONTAINER_MARKS", (str(mark),), raising=False)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    env = {**_inputs(_pins(tmp_path), servers, key=None).env, "TB_LLM_API_KEY": "",
+           "TB_LLM_API_KEY_FILE": str(key_file)}  # fmt: skip
+    assert launch.enter(["doctor", "--serving"], env) is None
+    c = doctor.check_serving(doctor.DoctorInputs(env=env))
+    assert c.status == "FAIL" and "refused the key (HTTP 401)" in c.detail, c

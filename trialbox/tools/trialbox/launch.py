@@ -298,6 +298,15 @@ def run_in_image(args: Sequence[str], need: Need, box: Mapping[str, str]) -> int
         return 2
 
 
+#: what Docker and Podman put in every container they start
+CONTAINER_MARKS = ("/.dockerenv", "/run/.containerenv")
+
+
+def in_container() -> bool:
+    """Whether this process runs inside a container (the box image) rather than on the host."""
+    return any(os.path.exists(m) for m in CONTAINER_MARKS)
+
+
 def enter(args: Sequence[str], environ: dict[str, str] | os._Environ[str] | None = None, *,
           installed: bool = False) -> int | None:  # fmt: skip
     """The entry of ``trialbox`` (installed on PATH) and ``python3 -m tools.trialbox``: its own import path and the
@@ -309,6 +318,8 @@ def enter(args: Sequence[str], environ: dict[str, str] | os._Environ[str] | None
     environ = os.environ if environ is None else environ
     _CALLER.update(caller_entries(environ))
     sys.path[:] = own_path(sys.path, environ)
+    if in_container():  # the box image: its environment is what compose, install.sh, this launcher or the rehearsal
+        return None  # set for it (`-e TB_LLM_API_KEY=` on purpose, D-450); the box's file is the host's rule
     cmd = command_of(args)
     try:
         box = box_file(DEPLOY)

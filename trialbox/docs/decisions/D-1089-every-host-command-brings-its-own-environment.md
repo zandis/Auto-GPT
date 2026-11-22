@@ -20,6 +20,9 @@
    link, unreadable), is owned by neither root nor the user running the command, or is writable by group or others
    stops the command (exit 2, nothing run); none there is no setting. One exception, #1305's own design (its review,
    item 12): the module form `python -m tools.trialbox restore-drill` keeps the caller's connection and `--dir`.
+   Inside a container (the box image, `/.dockerenv`) the launcher leaves the environment as whoever started it set
+   it: compose, install.sh, this launcher or the rehearsal (whose doctor blanks `TB_LLM_API_KEY` on purpose so that
+   it sees the gateway's own key file, D-450). The box's file is the host's rule.
 4. **Libraries.** A command that needs a library the host does not have (`launch.COMMANDS`) runs in a one-off
    container of the box's Python image, as `ops.py` and `audit_heads.py` run theirs; the runtime (`TB_DOCKER`) and
    the image (`TB_IMAGE`) are the box file's or the defaults, never the caller's: `--pull never`, `--network none`
