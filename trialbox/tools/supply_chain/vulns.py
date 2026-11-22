@@ -300,7 +300,7 @@ def gate(
         e.id for e in allow.vulnerabilities if id(e) not in used and allowlist_image_matches(e.image, subject)
     ]
     if subject:  # D-622: the wide entry of this repository did not apply, and its package's findings now fail
-        failing = {f.package for f in result.failing}
+        failing = {norm(f.package) for f in result.failing}
         for e in allow.vulnerabilities:
             if (
                 e.id == EVERY_ID
