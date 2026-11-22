@@ -15,7 +15,8 @@ of these hold: the verdict is final (D-476: not given while a note answer may no
 models gave it (``basis``; a row stored before the field is read by the rest), its confidence reaches the threshold,
 and the run may exclude on notes (:class:`Policy`). Otherwise a note "not met" says ``unknown``: a person looks. A
 note "met" below the threshold, or with notes left out of what the models read (T-603), says ``unknown`` too. So a
-single model, a cut record or a low confidence can send a patient to review and can never take them off.
+single model, a cut record or a low confidence can send a patient to review and can never take them off. An
+exclusion's note "not met" whose quote does not state the condition (D-985) says ``unknown`` on every path.
 
 The verdict of a structured criterion is T-652's table (:mod:`matching.verdict`): ``pass`` / ``fail`` / ``unknown``
 by kind and predicate, with a coded ``fail`` the only one that excludes on its own.
@@ -30,6 +31,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from tb_common.pair import inferred_exclusion
 from tb_common.verdict_word import held_back
 
 Answer = Literal["yes", "no", "unknown"]
@@ -91,6 +93,19 @@ def _flagged(verdict: Any) -> bool:
     return ev is not None and ev.reason == NOTES_OVER_BUDGET
 
 
+def _inferred(criterion: Any, verdict: Any) -> bool:
+    """D-985 (R22-16), the backstop of every builder and of a stored row: a note "fail" on an exclusion whose quote
+    does not state the condition (:func:`tb_common.pair.inferred_exclusion`) is the models' inference. A row with no
+    quote (no path decides a note answer without one: SPEC §7.3, CAS-16) and a criterion that does not say its kind
+    (a caller's stand-in) are read as before."""
+    kind = getattr(criterion, "kind", None)
+    ev = verdict.evidence
+    quote = ev.quote if ev is not None else None
+    if kind != "exclusion" or quote is None:
+        return False
+    return inferred_exclusion(kind, True, quote, str(getattr(criterion, "text", "") or ""))
+
+
 def answer_of(criterion: Any, verdict: Any, policy: Policy) -> Answer:
     """``yes`` (fine for eligibility), ``no`` (excludes) or ``unknown`` (a person looks) for one verdict."""
     v = verdict.verdict
@@ -100,6 +115,8 @@ def answer_of(criterion: Any, verdict: Any, policy: Policy) -> Answer:
     if basis == "person" or not is_note_answer(criterion, verdict):
         # the records' answer (T-652's table made it) or a person's decision: final as it stands
         return "yes" if v == "pass" else "no"
+    if v == "fail" and _inferred(criterion, verdict):
+        return "unknown"
     sure = _confidence(verdict) >= policy.threshold
     if v == "pass":
         return "yes" if sure and not _flagged(verdict) else "unknown"

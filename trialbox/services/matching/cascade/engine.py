@@ -44,6 +44,7 @@ from tb_common import lakeprobe
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import CALL_CONTEXT
 from tb_common.optout import REGISTRY_SQL, RegistryState, registry_state
+from tb_common.pair import INFERRED_REASON, inferred_exclusion
 from tb_common.reasons import CODES as REASON_CODES
 from tb_common.ruleset import Ruleset
 from tb_common.timeutil import add_months, month_ends
@@ -1226,13 +1227,12 @@ class _Run:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
         if reply.confidence < self.cfg.confidence_floor:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason="abstained")
-        from matching.inferred import inferred  # D-985; local, beside the one rule that reads it
-
         quoted = str((span or {}).get("quote") or reply.quote or "")
-        if c.kind == "exclusion" and condition_present and inferred(quoted, c.text):
+        if inferred_exclusion(c.kind, condition_present, quoted, c.text):
             # D-985 (F6 of the P1b review): an exclusion present on a quote that does not state its condition (a drug, a
-            # value, findings counted into one) is the models' inference (both agreed on four on jmed): a person looks
-            why = "inferred: the quote does not state the condition; review"
+            # value, findings counted into one) is the models' inference (both agreed on four on jmed): a person looks.
+            # The rule is the pair's (``tb_common.pair``), which every path reads (R22-16)
+            why = INFERRED_REASON
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
         if not self.cfg.note_block:  # D-97: a single model may send a patient to review, never out
             return Outcome(

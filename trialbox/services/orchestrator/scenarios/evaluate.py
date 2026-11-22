@@ -40,9 +40,18 @@ from matching.stored_scores import apply_rows
 from tb_common.fhir import FhirEvaluator
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong
-from tb_common.pair import DECIDED, Vote, combine, needs_verifier, same_model, served_keys
+from tb_common.pair import (
+    DECIDED,
+    INFERRED_REASON,
+    Vote,
+    combine,
+    inferred_exclusion,
+    needs_verifier,
+    same_model,
+    served_keys,
+)
 from tb_common.quotes import quote_in
-from tb_common.reasons import Reason
+from tb_common.reasons import Reason, code_of
 from tb_common.ruleset import Ruleset
 from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, Opinion, PatientEvaluation
 from tb_llm.budget import shown as shown_excerpt
@@ -606,6 +615,12 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
     pred = {"pass": True, "fail": False}.get(r.predicate)
     refs = [f"DocumentReference/{d}" for d in r.dids]
     verdict = eligibility(c.kind, pred)
+    why = r.reason
+    if verdict == "fail" and inferred_exclusion(c.kind, pred is True, r.quote, c.text):
+        # D-985 (R22-16): an exclusion "present" on a quote that does not state its condition is the models'
+        # inference: a person looks, as on the cascade (the same rule, ``tb_common.pair``, published with the
+        # cascade's code for its reason). The quote and its notes stay, so the person sees what was quoted
+        verdict, why = "unknown", code_of(INFERRED_REASON, "unknown")
     return CriterionVerdict(
         id=c.id,
         verdict=verdict,
@@ -614,7 +629,7 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
             quote=r.quote,
             quote_date=r.quote_date,
             confidence=r.confidence,
-            reason=r.reason,
+            reason=why,
             opinions=[Opinion(**o) for o in r.opinions] or None,
         ),
         basis=("pair" if pair else "single") if verdict != "unknown" and pair is not None else None,
