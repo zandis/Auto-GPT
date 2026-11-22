@@ -1387,6 +1387,15 @@ def cron_text(template: str, root: Path, mailto: str) -> str:
     return "\n".join(out) + "\n"
 
 
+def cron_old_form(text: str) -> str:
+    """H-88: why an installed ``trialbox-backup`` file is of the form before the tools brought their own environment
+    (it sets ``PYTHONPATH``, which the tool no longer reads), or "" when it is the current form."""
+    lines = [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    if any(ln.startswith("PYTHONPATH=") for ln in lines):
+        return "it sets PYTHONPATH"
+    return ""
+
+
 def install_cron(cfg: Config, cron_dir: Path, root: Path, has_mta: bool) -> list[str]:
     """Write ``<cron_dir>/trialbox-backup`` (0644). In PRODUCTION an alert route is required (D-274, OPS-028):
     ``TB_BACKUP_ALERT_CMD``, or ``TB_BACKUP_MAILTO`` on a host that has a mail transfer agent; else ValueError."""
