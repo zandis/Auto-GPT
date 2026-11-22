@@ -1,8 +1,8 @@
 {
   "_about": "The one place TrialBox's public security contact is written (card 10G-9, D-1239). Every other file points here: .github/SECURITY.md, docs/security/13-vulnerability-disclosure*.md and the website's /.well-known/security.txt (rendered by tools/build_site.py). The owner fills `contact` with a mailto: or https: URI (RFC 9116 section 2.5.3). While it is not one, `make release-bundle` refuses to build a release (python -m tools.security_contact release-check) and the website publishes no security.txt. `encryption` (an https: URI of a public OpenPGP key) and `github_private_reporting` (https://github.com/zandis/Auto-GPT/security/advisories/new, once the owner enables private vulnerability reporting) stay null until the owner decides.",
-  "contact": "SECURITY-CONTACT-NOT-SET",
+  "contact": "https://github.com/zandis/Auto-GPT/security/advisories/new",
   "encryption": null,
   "preferred_languages": ["en", "ja", "zh-TW"],
   "policy": "https://github.com/zandis/Auto-GPT/blob/master/trialbox/docs/security/13-vulnerability-disclosure.md",
-  "github_private_reporting": null
+  "github_private_reporting": "https://github.com/zandis/Auto-GPT/security/advisories/new"
 }

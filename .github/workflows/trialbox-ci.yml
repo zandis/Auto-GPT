@@ -299,6 +299,10 @@ jobs:
   # to 55), set-up under a minute; six gave `unit` 16 minutes after a push at about 1.5 times the billed minutes,
   # eight no faster at about 2.5 times (D-475, from the shards' --durations=30). Each shard keeps its coverage data
   # and the record of what it collected and kept; the job `unit` below checks them all.
+  # H-83: eight shards, the 20 costliest files pinned (tools/test_shard_pins.json). The hash had left the six 16.5 to
+  # 27.5 minutes apart on a normal runner, and a slow runner (up to 1.55 times) took shard 4 to 39:05 of its 40. From
+  # the table of trains 117 to 124: about 16.8 minutes a shard, 26 on the slowest runner seen (docs/handover/
+  # unit-shard-split-measured-again-2026-11-22.md).
   unit-shard:
     name: unit-shard (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
@@ -315,7 +319,7 @@ jobs:
     strategy:
       fail-fast: false  # every shard reports, so one push shows every failure
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
