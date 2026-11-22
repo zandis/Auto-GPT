@@ -109,7 +109,31 @@ answers both on master, shown by the sudo test above). H88-04 is read from `__ma
 
 ## Mutation pass
 
-See the report; planted against `tests/unit/test_host_commands_own_environment.py` and the subject files.
+18 mutants planted on the master-based build, run against `tests/unit/test_host_commands_own_environment.py`,
+`test_restore_drill.py`, `test_install_faults.py` and `test_host_python_runs.py`: 18 caught. M11 survived its first
+round (the box's file had already replaced the caller's `TB_IMAGE` before the image was chosen); a direct check of
+`container_argv` now catches it.
+
+| Mutant | Caught by |
+| --- | --- |
+| M01 a module on the caller's `PYTHONPATH` counts as the host's | `test_the_callers_path_and_settings_never_win` |
+| M02 the product's path after the caller's | the same |
+| M03 the caller's settings win over `deploy/.env` | the same |
+| M04 the box's file applied to the module-form drill | `test_the_box_file_wins_except_for_the_module_forms_drill` |
+| M05 the box's file never applied to the installed drill | the same |
+| M06 `--pull missing` | `test_every_host_command_runs_from_a_bare_environment[backup-keygen, ...]` |
+| M07 the DSN on the container's command line | the same |
+| M08 the entry without the launcher | the same |
+| M09 the container's exit code swallowed | `test_the_container_keeps_the_exit_code_...` |
+| M10 never to the image | `test_every_host_command_runs_from_a_bare_environment[...]` |
+| M11 the caller's `TB_IMAGE` wins | `test_the_box_file_wins_except_for_the_module_forms_drill` (second round) |
+| M12 the compose network for every image command | `test_every_host_command_runs_from_a_bare_environment[...]` |
+| M13 the capabilities kept | the same |
+| M14 the cron template sets `PYTHONPATH` again | `test_the_installed_cron_line_runs_the_nightly_backup_...` |
+| M15 the box's `deploy/.env` not read | `test_the_callers_path_and_settings_never_win` |
+| M16 doctor misses the old-form file | `test_an_old_form_schedule_is_reported_and_replaced` |
+| M17 `__init__` puts no `libs/` on the path | `test_install_faults.py::test_installed_nightly_command_imports_its_host_modules` |
+| M18 `mail` routed without `pydantic` | `test_every_host_command_runs_from_a_bare_environment[mail]` |
 
 ## Files
 

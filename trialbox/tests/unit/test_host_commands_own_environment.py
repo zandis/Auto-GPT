@@ -499,3 +499,6 @@ def test_the_box_file_wins_except_for_the_module_forms_drill(tmp_path: Path, mon
         env = {"TB_DB_URL": caller}
         assert launch.enter(args, env, installed=installed) is None
         assert env["TB_DB_URL"] == want, (args, installed, env)
+    argv = launch.container_argv(["backup-check", "f"], launch.COMMANDS["backup-check"], {"TB_IMAGE": "caller/x:1"},
+                                 tmp_path, 0, 0)  # fmt: skip
+    assert PY_IMAGE in argv and "caller/x:1" not in argv  # the image is the box's, whatever the environment says
