@@ -204,9 +204,17 @@ The engine probe's compiled-op check accepts either name form of the pinned engi
 * **R4 (row H89-08):** "read once" is tested through `os.open` only; the folder is checked by path after the open, so
   a folder swapped in that window is not seen.
 
+## A host without a TPM (the integrator's ruling, item 1 of this round)
+
+deploy/check_host.sh refused a host with no TPM even with the passphrase back end the message itself names. Now a
+missing or unusable TPM is a WARN naming the passphrase back end when it is chosen (TB_KEK_BACKEND=passphrase with a
+TB_KEK_PASSPHRASE in this run, or the site keys sealed under it in kek.json); without it, it FAILs as before. The
+passphrase's value is never printed (tests/unit/test_host_baseline.py).
+
 ### Files outside the card (ruled: bodies only)
 
 `deploy/settings_guard.sh` (the boot guard), `services/console/app.py` (`environment_banner`, the sentence),
 `tools/engine_probe.py` (`--gpu-index`, the one-way ids `card_id` and `host_id`; without the option as before).
+`tests/unit/test_host_baseline.py` (the TPM test, added).
 `libs/tb_common/config.py` (one `DECLARED` row for TB_REHEARSAL_REAL_SERVERS, which the banner reads:
 tests/unit/test_config_declared.py requires every setting read to be declared).
