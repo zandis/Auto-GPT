@@ -25,8 +25,8 @@ from console import rc1_guard as rg
 from console.app import create_app
 from console.auth import UserStore
 from console.i18n import CATALOGUES
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from starlette.routing import Mount
 from tb_common import rc1_refusals
 from tb_common.audit import AuditLog
 from tb_common.crypto import sha256_bytes
@@ -145,7 +145,7 @@ def test_no_live_patient_list_on_a_production_box(
     _ask(b, paths, LIST_KEY, env)
     c = TestClient(b["app"], base_url="https://testserver", follow_redirects=False)
     assert c.get(f"/pilot/jobs/{b['feas'].job_id}").status_code != 403  # a card of counts stays open
-    assert c.get("/week").status_code != 403  # the list of studies; one study's list is the guarded page
+    assert (c.get("/week").status_code == 403) is _refused(env)  # fail-closed: a route the list does not name
 
 
 @pytest.mark.parametrize("env", ["", "PRODUCTION", "DEV"])
@@ -213,46 +213,110 @@ def test_the_consoles_words_are_the_tables_words() -> None:
             assert CATALOGUES[lang][f"problem.h.{r.key}"] == cats[lang][f"problem.h.{r.key}"]
 
 
-# ---------------------------------------------------------------------------------------------- every file route
-#: routes that answer with a file and hold no patient's data, each with its reason (the integrator's 7080384411)
-NOT_PATIENT_DATA: dict[str, str] = {
+# ---------------------------------------------------------------------------------------------- every route
+_FILE = re.compile(r"FileResponse|StreamingResponse|attachment|spreadsheetml|text/csv|application/zip|application/pdf")
+#: the allowed routes that give a file, each with why it holds no patient (the integrator's 7080384411)
+ALLOWED_FILES: dict[str, str] = {
     "/admin/ops/network/{name}": "hospital IT's network sheet of the box (hosts and ports), no person",
-    "/api/v1/studies/{rs}/forms/dictionary": "takes a data dictionary (CSV text) in; answers with forms, no person",
-    "/feedback/export.csv": "the testers' feedback on the console (T-510), no patient field; scanned (demo_guard)",
-    "/pilot/jobs/{job_id}/approve": "names a job's PDF in its text; answers with a page, never a file",
     "/pilot/jobs/{job_id}/sponsor-pack.zip": "a FEAS job's aggregate files and a README only (D-101)",
-    "/pilot/mailbox": "takes a test mail's attachment in; answers with a page, never a file",
-    "/pilot/protocol": "takes a protocol PDF in; answers with a page, never a file",
     "/reports/research-office.xlsx": "counts per study with small cells suppressed (D-270), no person",
-    "/site/templates/{name}.xlsx": "a blank candidates template or the site's code mapping sheet, no person",
+    "/pilot/jobs/{job_id}/files/{filename}": "allowed only for an aggregate output, read from the job",
+    "/pilot/jobs/{job_id}/view/{filename}": "allowed only for an aggregate output, read from the job",
+    "/favicon.ico": "the console's icon",
 }
-_FILE = re.compile(
-    r"FileResponse|StreamingResponse|attachment|spreadsheetml|text/csv|application/zip|application/pdf|"
-    r"\.xlsx|\.csv|\.zip|\.pdf"
-)
+#: refused routes whose code names a file type but take a file in and answer with a page (refused as a list)
+TAKES_FILES = {
+    "/pilot/protocol": "takes a protocol PDF in; answers with a page",
+    "/pilot/mailbox": "takes a test mail's attachment in; answers with a page",
+}
 
 
-def _file_routes(app: Any) -> dict[str, str]:
-    """Every route of the console whose endpoint answers with a file: path -> its methods."""
-    out = {}
+def _filled(path: str) -> str:
+    return re.sub(r"\{[^}]+\}", "X", path.replace("{fmt}", "csv"))
+
+
+def _routes(app: Any) -> list[tuple[str, str, Any]]:
+    """Every route of the console, mounted apps and ``add_route`` included: (methods, path, endpoint)."""
+    out = []
     for r in app.routes:
-        if isinstance(r, APIRoute) and _FILE.search(inspect.getsource(r.endpoint)):
-            out[r.path] = ",".join(sorted(r.methods or ()))
+        if isinstance(r, Mount):
+            out.append(("*", r.path + "/x", None))
+        else:
+            out.append((",".join(sorted(getattr(r, "methods", None) or ["*"])), r.path, getattr(r, "endpoint", None)))
     return out
 
 
-def test_every_route_that_answers_with_a_file_is_held_or_said_to_hold_no_patient_data(
-    db_url: str, tmp_path: Path
-) -> None:
-    app = _console(tmp_path, "PRODUCTION")["app"]
-    routes = _file_routes(app)
-    assert len(routes) > 15 and "/pilot/registry/{ruleset}/export.xlsx" in routes  # the walk reached the files
-    loose = []
-    for path in sorted(routes):
-        filled = re.sub(r"\{[^}]+\}", "X", path)
-        held = any(p.match(filled) for p, _ in rg.ROUTES) or rg.JOB_FILE.match(filled) or rg.JOB_CARD.match(filled)
-        if not held and path not in NOT_PATIENT_DATA:
-            loose.append(f"{routes[path]} {path}")
-    assert loose == [], "a file route on neither the guard's list nor NOT_PATIENT_DATA:\n" + "\n".join(loose)
-    assert set(NOT_PATIENT_DATA) <= set(routes), sorted(set(NOT_PATIENT_DATA) - set(routes))  # no stale reason
-    assert all(len(why) > 20 for why in NOT_PATIENT_DATA.values())
+def test_every_route_is_allowed_by_name_or_refused_and_the_guard_is_outermost(db_url: str, tmp_path: Path) -> None:
+    """Fail-closed by construction: each route of the console is on :data:`rg.ALLOWED` or answers rc1's refusal on
+    a PRODUCTION box; a route that gives a file is refused as a download unless its row above says why not."""
+    b = _console(tmp_path, "PRODUCTION")
+    app, g = b["app"], b["app"].state.rc1_guard
+    assert app.user_middleware[0].kwargs.get("dispatch") == g.dispatch  # outermost: before any rewrite
+    routes = _routes(app)
+    assert len(routes) > 300 and any(m == "*" for m, _, _ in routes)  # the walk reached the routes and the mount
+    allowed, refused, loose = [], [], []
+    for methods, path, endpoint in routes:
+        filled = _filled(path)
+        gives_file = endpoint is not None and bool(_FILE.search(inspect.getsource(endpoint)))
+        named = any(p.match(filled) for p, _ in rg.ALLOWED)
+        by_job = rg.JOB_CARD.match(filled) or rg.JOB_FILE.match(filled)
+        if named or by_job:
+            allowed.append(path)
+            if gives_file and path not in ALLOWED_FILES:
+                loose.append(f"{methods} {path}: allowed and gives a file, with no reason")
+            continue
+        name = g.refusal_of("GET", filled)
+        if name is None:
+            loose.append(f"{methods} {path}: on neither side")
+        elif gives_file and name != "patient_mail_and_downloads" and path not in TAKES_FILES:
+            loose.append(f"{methods} {path}: gives a file, refused as {name}")
+        else:
+            refused.append(path)
+    assert loose == [], "\n".join(loose)
+    assert len(refused) > 200 and len(allowed) > 40
+    for p, why in rg.ALLOWED:  # no stale line: each allows a route the console has
+        assert any(p.match(_filled(path)) for _, path, _ in routes), (p.pattern, why)
+
+
+@pytest.mark.parametrize("env", ["", "PRODUCTION", "DEV"])
+def test_a_people_list_address_of_j5_is_refused_before_its_rewrite(env: str, db_url: str, tmp_path: Path) -> None:
+    """J-5's addresses (``/studies/{rs}/people/candidates``, rewritten inside to the old list) meet the guard first."""
+    b = _console(tmp_path, env)
+    paths = ["/studies/GZQO/people/candidates", "/studies/GZQO/people/candidates/all",
+             "/studies/GZQO/people/participants", "/people/candidates"]  # fmt: skip
+    _ask(b, paths, LIST_KEY, env)
+
+
+@pytest.mark.parametrize("env", ["", "PRODUCTION"])
+def test_what_a_refused_box_still_serves(env: str, db_url: str, tmp_path: Path) -> None:
+    """Sign-in, health, the ops and admin pages, aggregate counts and static files answer; the refusal carries the
+    console's security headers although no inner middleware ran; the audit records the path, never the query."""
+    b = _console(tmp_path, env)
+    c = TestClient(b["app"], base_url="https://testserver", follow_redirects=False)
+    for path in ("/login", "/healthz", "/admin/ops", "/reports/research-office", "/static/console.css",
+                 f"/pilot/jobs/{b['feas'].job_id}", "/help"):  # fmt: skip
+        assert c.get(path).status_code != 403, path
+    r = c.get("/home?pid=" + PATIENT)
+    assert r.status_code == 403 and r.headers["X-Frame-Options"] == "DENY" and "Content-Security-Policy" in r.headers
+    (ev,) = _events(b)
+    assert ev["detail"] == {"refusal": "live_patient_lists", "environment": env or "PRODUCTION", "action": "/home"}
+    assert PATIENT not in json.dumps(ev)  # M17: the query is never recorded
+
+
+def test_a_card_of_any_list_job_is_refused_and_a_store_that_fails_refuses(db_url: str, tmp_path: Path) -> None:
+    """M11 and M12: a NAV job's card is a list (as SCREEN, MICROBATCH, COHORT, CASE); a store that does not answer
+    shows no card, not even one of counts."""
+    b = _console(tmp_path, "PRODUCTION")
+    nav = _job(b["app"].state.helpers.bk, 9, "NAV", (("nav_GZQO.json", b"{}", "phi"),))
+    g = b["app"].state.rc1_guard
+    assert g.refusal_of("GET", f"/pilot/jobs/{nav.job_id}") == "live_patient_lists"
+    assert g.refusal_of("GET", f"/pilot/jobs/{b['feas'].job_id}") is None
+
+    def down(_job_id: str) -> Any:
+        raise ConnectionError("the orchestrator did not answer")
+
+    b["app"].state.helpers.bk.get_job = down
+    assert g.refusal_of("GET", f"/pilot/jobs/{b['feas'].job_id}") == "live_patient_lists"
+    assert g.refusal_of("GET", f"/pilot/jobs/{b['feas'].job_id}/files/feasibility_GZQO.json") == (
+        "patient_mail_and_downloads"
+    )

@@ -211,3 +211,16 @@ def test_a_host_tool_asks_with_the_stricter_of_the_box_and_its_caller(tmp_path: 
     assert rr.host_env({"TB_ENV": "TEST"}, {"TB_ENV": "PILOT"}) == {"TB_ENV": "PILOT"}
     assert rr.host_env(tmp_path / "none", {"TB_ENV": "TEST"}) == {"TB_ENV": "TEST"}  # no box file: the caller's
     assert rr.host_env(tmp_path / "none", {}) == {} and rr.refused("support_exports", {})
+
+
+def test_a_box_file_that_cannot_be_read_is_production_whatever_the_caller_says(tmp_path: Path) -> None:
+    """M15: a ``.env`` that is a folder, a dangling link or not text never falls back to the caller's DEV."""
+    folder, link, binary = tmp_path / "folder", tmp_path / "link", tmp_path / "binary"
+    (folder / ".env").mkdir(parents=True)
+    link.mkdir()
+    (link / ".env").symlink_to(tmp_path / "gone")
+    binary.mkdir()
+    (binary / ".env").write_bytes(b"TB_ENV=DEV\n\xff\xfe")
+    for box in (folder, link, binary):
+        assert rr.host_env(box, {"TB_ENV": "DEV"}) == {"TB_ENV": "PRODUCTION"}, box.name
+        assert rr.refused("support_exports", rr.host_env(box, {"TB_ENV": "DEV"}))

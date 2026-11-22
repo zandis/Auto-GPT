@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 from tb_common import rc1_refusals
+from tb_common.audit import AuditLog
 
 ENVS = ("", "PRODUCTION", "PILOT", "DEV", "TEST", "VALIDATION")
 
@@ -157,13 +158,35 @@ def test_no_unattended_update_on_a_production_box(env: str, tmp_path: Path, monk
         assert res[0]["ok"] and r.applied == [{"bundle": "trialbox-2026.11-2.tar", "when": "quiet"}]
 
 
+def test_an_unattended_update_asks_with_the_callers_stricter_tb_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M13: the runner's own TB_ENV counts too: a DEV box's file and a PRODUCTION caller are refused."""
+    from tests.unit.test_ops_update_in_the_quiet_hour import ENV, Runner
+
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+
+    class Box(Runner):
+        def audit(self, res: Any) -> None:
+            return None
+
+    r = Box(tmp_path)
+    r.box.env = {**ENV, "TB_ENV": "DEV"}
+    quiet = r.ops.submit("update_apply", "admin:owner", {"bundle": "trialbox-2026.11-2.tar", "when": "quiet"})
+    (res,) = r.run_pending()
+    assert res["id"] == quiet and not res["ok"] and r.applied == []
+    assert res["lines"] == ["rc1.unattended_updates: PRODUCTION"]
+
+
 # ---------------------------------------------------------------------------------------------- key ceremonies
 def _KEY_COMMANDS(tmp: Path) -> list[list[str]]:
     """``tools.keys``'s ceremony commands (its ``init`` is not one: it stays allowed), on a bare folder."""
     sec = ["--secrets", str(tmp / "sec")]
     return [["rotate-kek", *sec, "--backend", "file", "--audit-dir", str(tmp / "audit")],
             ["ceremony-record", *sec, "--deploy", str(tmp / "deploy-k"), "--audit-dir", str(tmp / "audit")],
-            ["escrow-shares", *sec, "--escrow-out", str(tmp / "media"), "--audit-dir", str(tmp / "audit")]]  # fmt: skip
+            ["escrow-shares", *sec, "--escrow-out", str(tmp / "media"), "--audit-dir", str(tmp / "audit")],
+            ["restic-key", *sec],
+            ["rotate", "pid_map", *sec]]  # fmt: skip
 
 
 @pytest.mark.parametrize("env", ENVS)
@@ -220,7 +243,6 @@ def test_the_mvp_walk_is_not_refused_on_a_validation_box(
 
     from orchestrator.scheduler import require_open, require_released
 
-    from tests.console.test_rc1_guard import PATIENT, _console
     from tools import backup_key_ceremony as bkc
     from tools.trialbox.__main__ import main as trialbox_main
 
@@ -241,15 +263,42 @@ def test_the_mvp_walk_is_not_refused_on_a_validation_box(
     require_released()
     require_open("GZQO")
     monkeypatch.setenv("TB_DB_URL", db_url)
-    # step 6, the console: the week's list (page and API), one patient, the screening log, a job's file
-    b = _console(tmp_path / "console", "VALIDATION")
-    guard = b["app"].state.rc1_guard
-    s = b["screen"].job_id
-    walk = ["/studies/GZQO/week", "/api/v1/studies/GZQO/patients", f"/studies/GZQO/patients/{PATIENT}",
-            "/studies/GZQO/screening-log", "/api/v1/studies/GZQO/screening-log",
-            f"/pilot/jobs/{s}", f"/pilot/jobs/{s}/files/candidate_list_GZQO.json"]  # fmt: skip
+    # step 6, the console, with real pages: the week's list (page and API), one patient, the screening log, a file
+    from console.app import create_app
+    from console.auth import UserStore
+
+    from tests.console.test_console_app import PILOT_ENV, FakeBackend, _done_screen, _ulid, login_totp
+
+    backend = FakeBackend()
+    backend.audit_dir = tmp_path / "console-audit"
+    users = UserStore()
+    pw = "mvp-walk-password-0001"
+    users.create("admin", "admin", pw, "admin@hospa.test")
+    users.create("stw", "steward", pw, "stw@hospa.test")
+    users.create("drsato", "investigator", pw, "drsato@hospa.test")
+    app = create_app({**PILOT_ENV, **validation, "TB_CONSOLE_DIR": str(tmp_path / "console")}, backend=backend,
+                     audit=AuditLog(backend.audit_dir), users=users)  # fmt: skip
+    job = _done_screen(backend, _ulid(951))
+    stw, csrf = login_totp(app, "stw", pw)  # VALIDATION: the second factor, as on a box
+    r = stw.post("/studies/GZQO/team", data={"csrf": csrf, "username": "drsato", "role": "pi", "start": "2026-01-01",
+                                             "training_day": "2025-06-01"}, follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303, r.text[-300:]  # D-380: the steward names the PI
+    pi, _ = login_totp(app, "drsato", pw)
+    listed = "a" * 32
+    files = [o.filename for o in job.outputs or [] if o.tag == "aggregate"]
+    walk = [
+        "/studies/GZQO/week",
+        f"/studies/GZQO/patients/{listed}",
+        "/studies/GZQO/screening-log",
+        f"/pilot/jobs/{job.job_id}",
+        f"/pilot/jobs/{job.job_id}/files/{files[0]}",
+    ]
     for path in walk:
-        assert guard.refusal_of("GET", path) is None, path
+        r = pi.get(path)
+        assert r.status_code == 200, (path, r.status_code, r.text[-300:])  # every page answers
+        assert "rc1" not in r.text, path
+    assert "row-aaaaaaaa" in pi.get("/studies/GZQO/week").text  # the list itself, not a page about it
+    assert app.state.rc1_guard.refusal_of("GET", "/api/v1/studies/GZQO/patients") is None  # the week's API too
     # step 8, the scheduled backup and its restore: nothing there asks the table
     sites = {s.partition(":")[0] for r in rc1_refusals.REFUSALS for s in r.sites}
     backup = ("tools.trialbox.backup", "tools.trialbox.backup_schedule", "tools.trialbox.restore_drill")
