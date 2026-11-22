@@ -18,12 +18,12 @@
   {
    "id": "H74-02",
    "severity": "Medium",
-   "claim": "s08 serves through tools/ballast48.py measure --engine FORM, which takes tools/dgpu48.py's fixed environment for the form (VLLM_ENABLE_CUDA_COMPATIBILITY=1, or LD_LIBRARY_PATH=/usr/local/cuda/compat), not the probe's own; the probe's forms also set NVIDIA_DISABLE_REQUIRE=1 because the container toolkit refuses the image's cuda>=13.0 requirement on an older driver before the engine starts",
+   "claim": "s08 served through tools/ballast48.py measure --engine FORM, which handed lane J's tools/dgpu48.py measure the form by name (dgpu48's fixed environment: VLLM_ENABLE_CUDA_COMPATIBILITY=1, or LD_LIBRARY_PATH=/usr/local/cuda/compat), not the probe's own; the probe's forms also set NVIDIA_DISABLE_REQUIRE=1 because the container toolkit refuses the image's cuda>=13.0 requirement on an older driver before the engine starts",
    "severity_basis": "under the exception the ladder may end with 'did not start' at s08 after about an hour of s05 to s07; not reached: no run on a 575 driver",
-   "lane": "J",
+   "lane": "H",
    "basis": "read",
-   "state": "open",
-   "fix": "a question to lane J: ballast48 measure passes the probe's result to dgpu48.measure (whose engine_from_probe already takes the probe's environment), or dgpu48's compatibility forms carry NVIDIA_DISABLE_REQUIRE=1; until then the preflight says so in a note",
+   "state": "fixed 6cb269cad5c45a4319c70daf404511d123b0c9d6",
+   "fix": "ballast48 measure --probe FILE (the bench exception only; the probe's verdict must be --engine): lane J's measure reads the form from the probe (dgpu48.engine_from_probe, unchanged), with the probe's container environment; without --probe the call and the run file are as before",
    "from": "the integrator's card H-74, 2026-11-22"
   },
   {

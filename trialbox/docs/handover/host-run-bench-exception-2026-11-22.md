@@ -15,10 +15,12 @@ own project and image tag are not built (a question).**
   no environment variable). Below `deploy/images.lock` `gpu.driver_min` the preflight passes only when the engine
   probe's result (`tools/engine_probe.py`) passed with a forward-compatibility form of the pinned image
   (`pinned+compat` or `pinned+libs`), with the image's compatibility libraries seen inside, on this card's model, this
-  driver and the lock's pinned image (`tools/measure48_vm.py bench-exception`). s08 then serves with that form
-  (`ballast48 measure --engine FORM`). The preflight, `records/head.json`, `records/bench-exception.json`, `host.log`
-  and `out/BENCH-EXCEPTION.txt` say "bench exception: driver <found> with the forward-compatibility path; not valid
-  for an install", with the found driver and the minimum. Without the option, H-72's refusal is unchanged.
+  driver and the lock's pinned image (`tools/measure48_vm.py bench-exception`). s08 and s13 then serve with that
+  form and the probe's own container environment (`ballast48 measure --engine FORM --probe FILE`:
+  `NVIDIA_DISABLE_REQUIRE=1` and the switch, read from the probe, H74-02). The preflight, `records/head.json`,
+  `records/bench-exception.json`, `host.log` and `out/BENCH-EXCEPTION.txt` say "bench exception: driver <found> with the
+  forward-compatibility path; not valid for an install", with the found driver and the minimum. Without the option,
+  H-72's refusal is unchanged.
 - `deploy/check_host.sh`, `deploy/install.sh` and `tools/images_lock.py` are unchanged; a test proves they have no
   such option (check_host.sh: "unknown option", images_lock: "unrecognized arguments", a 575 driver still FAIL).
 - **Not built:** `--project` and the run's own image tag (H74-03): the database image's tag is fixed in
@@ -55,7 +57,8 @@ bench card can tell.
 | `tools/measure48-host.sh` | `--bench-driver-exception forward-compat` and `--engine-probe FILE` (either alone is a usage error); in the preflight's driver check, below the minimum: the exception's check, or H-72's refusal as before; the option with a driver at or above the minimum is refused; the records and `out/BENCH-EXCEPTION.txt` |
 | `tools/measure48_vm.py` | `bench_exception()` and `bench-exception`: the minimum read from `deploy/images.lock`; the probe's schema, verdict (`pass` with `pinned+compat` or `pinned+libs`, the pinned engine), the passing form's compatibility libraries, its driver, its card model and its pinned reference (digest matching); `records/bench-exception.json` on the allow-list |
 | `tools/measure48-vm.sh` | s08 and s13 pass `${ENGINE[@]}` to `ballast48 measure` (unset on the VM: its command lines are unchanged) |
-| `tests/unit/test_measure48_host_bench_h74.py` | 19 tests: the run under the exception and its words in every record; the refusal without the option (also with look-alike variables set); seven probes that do not grant it; the option where none is needed; its usage; the helper; the install path has no exception |
+| `tools/ballast48.py` | `measure --probe FILE`: refused unless the probe's verdict is `--engine`; then lane J's `dgpu48.measure` gets the probe file and no forced form, so its `engine_from_probe` (unchanged) takes the probe's environment into the run file's container environment. Without `--probe`: the same call as before |
+| `tests/unit/test_measure48_host_bench_h74.py` | 21 tests: the run under the exception and its words in every record; the refusal without the option (also with look-alike variables set); seven probes that do not grant it; the option where none is needed; its usage; the helper; the install path has no exception; ballast48 hands over the probe only under the exception; the servers' run file takes the probe's environment with it and is unchanged without it |
 
 **G1b's record (H74-01).** The order names it as the mechanism. It is not in the tree: G1b has not run
 (`docs/plan/measurements/b200-g1b/G1b.md`, "Status: not run"), and nothing in the tree records the engine image on a
@@ -63,9 +66,11 @@ bench card can tell.
 image, which `tools/dgpu48.py` already serves (`engine_from_probe`, `--engine`); the exception uses exactly those and
 invents nothing.
 
-**The run may still not start at s08 (H74-02).** `ballast48 measure --engine FORM` takes dgpu48's fixed environment
-for the form, not the probe's; the probe's forms also set `NVIDIA_DISABLE_REQUIRE=1`, which s08 does not. Whether the
-toolkit creates the container on 575 without it is unproven; the preflight says so. A question to lane J.
+**s08's environment (H74-02, fixed).** `ballast48 measure --engine FORM` handed lane J's measure the form by name,
+so the servers got dgpu48's fixed environment for it, without the probe's `NVIDIA_DISABLE_REQUIRE=1` (the toolkit
+refuses the image's `cuda>=13.0` on an older driver without it). Now, under the exception only, `--probe FILE` makes
+`tools/dgpu48.py` (lane J's, unchanged) read the form and its environment from the probe, as its `engine_from_probe`
+already could; the server start path runs through `dgpu48.py`'s `run_override` and `compose up`, not changed here.
 
 **Caution (H74-04), in the sheet and the preflight.** The server's session reported (2026-11-22, not measured here):
 the forward-compatibility path on driver 575 leaks driver memory per CUDA context; after many starts the card refuses
@@ -100,13 +105,13 @@ only; then part B in the six files.
 
 ## Files outside the card
 
-- `tools/measure48-vm.sh` (part A): the `${ENGINE[@]}` array on two `ballast48 measure` lines and one comment line;
-  empty on the VM. The other three of the ruling's four (`deploy/docker-compose.yml`, `deploy/poc.sh`,
+- `tools/measure48-vm.sh` (part A): the `${ENGINE[@]}` array on two `ballast48 measure` lines and two comment lines;
+  empty on the VM. `tools/dgpu48.py` (lane J) is on the servers' start path and is not changed. The other three of the ruling's four (`deploy/docker-compose.yml`, `deploy/poc.sh`,
   `tools/dgpu48.py`) are not changed.
 
 ## Not verified
 
 Nothing ran on a real card, Docker daemon or host; everything is on stand-ins. No engine probe has run on a 575 driver;
-whether the bench card supports the forward-compatibility path, whether s08 starts the servers without
-`NVIDIA_DISABLE_REQUIRE=1`, and the size of the leak per context are unknown. Stage O's `verifier-flag` recreates the
+whether the bench card supports the forward-compatibility path, whether the servers start on 575 with the probe's
+environment, and the size of the leak per context are unknown. Stage O's `verifier-flag` recreates the
 verifier from `down.json`'s command and environment; that it keeps the compatibility form was read, not run.

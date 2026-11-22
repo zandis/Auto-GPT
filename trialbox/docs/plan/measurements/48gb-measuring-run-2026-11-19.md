@@ -641,7 +641,7 @@ with its numbers (`card-too-small`, `card-is-the-target`).
 | --- | --- |
 | card N, with no other process on it | `nvidia-smi -i N`; other processes are counted, with their memory, never named |
 | the driver, at or above what the engine image needs | `python3 tools/images_lock.py host --driver <read>`: refused below `deploy/images.lock`'s `gpu.driver_min` (580.65.06: the engine image is CUDA 13), the found and the needed driver named (H-72); a note when it is not the rented run's branch (580) |
-| the bench host only: a driver below that, under the bench exception | `--bench-driver-exception forward-compat --engine-probe FILE` (an option only; H-74): passes only when `tools/engine_probe.py`'s result passed with `pinned+compat` or `pinned+libs` of the pinned image, its compatibility libraries seen, on this card's model and this driver (`tools/measure48_vm.py bench-exception`); s08 serves with that form; the records and `out/BENCH-EXCEPTION.txt` say "bench exception: driver <found> with the forward-compatibility path; not valid for an install", with the minimum. Never in `deploy/check_host.sh`, `deploy/install.sh` or `tools/images_lock.py` |
+| the bench host only: a driver below that, under the bench exception | `--bench-driver-exception forward-compat --engine-probe FILE` (an option only; H-74): passes only when `tools/engine_probe.py`'s result passed with `pinned+compat` or `pinned+libs` of the pinned image, its compatibility libraries seen, on this card's model and this driver (`tools/measure48_vm.py bench-exception`); s08 serves with that form and the probe's environment; the records and `out/BENCH-EXCEPTION.txt` say "bench exception: driver <found> with the forward-compatibility path; not valid for an install", with the minimum. Never in `deploy/check_host.sh`, `deploy/install.sh` or `tools/images_lock.py` |
 | a card that can offer the target | `python3 -m tools.ballast plan --gpu-index N` (allocates nothing) |
 | Docker, usable by this user | `docker info` answers |
 | the NVIDIA runtime registered with Docker | `docker info`'s `Runtimes` lists `nvidia` (what `nvidia-ctk runtime configure --runtime=docker` adds; the owner's step: this script never does it) |
@@ -659,8 +659,8 @@ with its numbers (`card-too-small`, `card-is-the-target`).
 forward-compatibility path on driver 575 leaks driver memory per CUDA context; after many starts the card refuses new
 contexts, and a driver reload fixes it. The run starts the ballast's context and two servers for each ladder option
 tried, stage O's verifier and s13's option (about 6 to 10 server starts): reload the driver just before the run, and
-read a later option against the first's free figure (`free_at_peak_mib`). s08's `--engine` form does not carry the
-probe's `NVIDIA_DISABLE_REQUIRE=1` (H74-02): whether the servers start on 575 without it is unproven. The run's own
+read a later option against the first's free figure (`free_at_peak_mib`). s08 and s13 start the servers with the
+probe's own container environment (`ballast48 measure --engine FORM --probe FILE`, H74-02). The run's own
 project and image tag are not built (H74-03): a host with an installed box is still refused.
 
 Also needed, not checked: the network for the stub's base images (s05), uv and the venv, node, Playwright's Chromium,
