@@ -39,10 +39,10 @@
   {
    "id": "H79-05",
    "severity": "Low",
-   "claim": "pseudonyms and screening numbers are not masked in a service's log line, by design (logs carry pids; test_ordinary_words_are_kept asserts a 32-digit pid stays); masking them, as the card asked, needs a ruling (asked of the integrator; not built)",
+   "claim": "pseudonyms and screening numbers are not masked in a service's log line, by design (logs carry pids; test_ordinary_words_are_kept asserts a 32-digit pid stays); ruled by the integrator on 2026-11-22 12:50 UTC: logs keep the pseudonym inside the box, the bundle masks it; a pseudonym is not an identifier outside the box only if the key that makes it stays in the box (D-1358)",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "not a defect: the integrator's ruling of 2026-11-22 12:50 UTC (D-1358)"
   },
   {
    "id": "H79-06",

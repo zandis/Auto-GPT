@@ -1,7 +1,7 @@
 # D-1358 Every value of a log line is decoded, then scrubbed (H-79)
 
 - **Task:** lane H, card H-79 (high-risk: masking) · **Date:** 2026-11-22
-- **Status:** accepted (the integrator's order of 2026-11-22 10:07 UTC)
+- **Status:** accepted (the integrator's order of 2026-11-22 10:07 UTC; ruling on the pseudonym 12:50 UTC)
 - **Builds on:** D-450 (every scrubber rule on), D-927 (the log scrubber runs the note masker's rules), D-1354 (the
   support bundle's scrub and its decoded pass)
 
@@ -25,8 +25,11 @@
 4. A record the formatter cannot render gives one line that says the message was withheld, with the logger and the
    level. The raw text is never written, and nothing is raised into the logging module, whose error path printed
    the raw arguments.
-5. Pseudonyms and screening numbers are not masked in a service's log line. Logs carry pids by design, and
-   `test_ordinary_words_are_kept` asserts that a 32-digit hex pid stays. Changing that needs a ruling.
+5. A service's log line keeps the pseudonym and the screening number, so that support can follow one case inside
+   the box. Whatever leaves the box (the support bundle) masks them (the integrator's ruling of 2026-11-22
+   12:50 UTC). A pseudonym is not an identifier outside the box only if the key that makes it stays in the box.
+   `test_ordinary_words_are_kept` is not changed. The bundle's assertion of that masking for every encoding H-76a
+   covers belongs to card H-76.
 
 ## Links
 

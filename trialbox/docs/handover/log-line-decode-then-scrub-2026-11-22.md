@@ -137,8 +137,7 @@ times. Lines per second; the formatter cuts a line at `TB_LOG_SCRUB_MAX_CHARS` (
 
 ### What the scrub does not catch
 
-- **Pseudonyms and screening numbers** in a service's log line. They are kept by design: logs carry pids, and
-  `test_ordinary_words_are_kept` asserts it. The card asked for them; a ruling is asked (question in the report).
+- **Pseudonyms and screening numbers** in a service's log line: kept on purpose, by the ruling below (D-1358).
 - **Encodings it does not decode:**
   - a named entity without `;` that is not one of HTML's legacy names (`&commat` with no `;` is left; a browser
     leaves it too);
@@ -159,12 +158,13 @@ times. Lines per second; the formatter cuts a line at `TB_LOG_SCRUB_MAX_CHARS` (
   the raw rules, and a line keeps its encoded form when the raw rules mask everything in place. On the merged tree
   the same 150 cases a class keep nothing (0 of 150 in all eight classes, with and without the chart rule).
 
-### Open question
+### The pseudonym in a log line (ruled)
 
-- **Pseudonyms and screening numbers in a service's log line.** The card asked for them to be masked. They are
-  not: logs keep pseudonyms by the stated design, so that support can follow a case, and
-  `test_ordinary_words_are_kept` asserts that a 32-digit pid stays. The lane lead has asked the integrator for a
-  ruling. Nothing is built for it in this card.
+The integrator's ruling of 2026-11-22 12:50 UTC, recorded in D-1358: a service's log line keeps the pseudonym (and
+the screening number), so that support can follow one case inside the box; whatever leaves the box (the support
+bundle) masks it. A pseudonym is not an identifier outside the box only if the key that makes it stays in the box.
+`test_ordinary_words_are_kept` is not changed. The bundle's invariant test asserting that masking for every encoding
+H-76a covers belongs to card H-76.
 
 ### What is masked though it may hide nothing
 
