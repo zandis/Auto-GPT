@@ -1,0 +1,17 @@
+{
+ "card": "H83",
+ "title": "the unit split measured again: eight shards, the costliest files pinned (the integrator's red of 2026-11-22, 11:31 UTC)",
+ "date": "2026-11-22",
+ "source": "docs/handover/unit-shard-split-measured-again-2026-11-22.md",
+ "note": "basis 'shown' means shown by the 57 public unit-shard job logs and API times of trains 117 to 124 and the local shard-union check; the minutes per shard after the change are estimated from the cost table, not measured on CI.",
+ "findings": [
+  {
+   "id": "H83-01",
+   "severity": "Medium",
+   "claim": "the hash split left the six unit shards 16.5 to 27.5 minutes apart on a normal runner, and a slow runner (up to 1.55 times on CPU-bound tests, about one shard job in four) took unit-shard (4/6) to 39:05 of its 40 (job 137183491766, all of it pytest); perfectly balanced six would still reach about 34.5; now eight shards with the 20 costliest files pinned from a measured per-file table, estimated 16.8 minutes a shard and 26.1 on the slowest runner seen",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8a23f28d250ad3f6e1f35b2ebb146177d0531a88"
+  }
+ ]
+}
