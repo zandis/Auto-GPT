@@ -1,3 +1,16 @@
 # 9k-17 (D-1377): the reviewed differences of the visual regression (tools/visual_regression.py).
 # One line per picture a person looked at and meant: "<shot> <hash>  # why". The job prints the lines to add.
 # A line accepts that one picture only (the hash is of its pixels); the next change to the page differs again.
+home-pi-en-desktop 6214c68e99628d4ef7c71910ed56d69f96848ec198feaafbd77b1f21c55c827f  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved (PI home is the week page)
+home-pi-ja-desktop 4ba9b83611ac7ac3df32573315537d32d0d1af66021456741974eecdf15ff8d4  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved (PI home is the week page)
+home-pi-ja-phone 996c49565fa692a5f8ea1e8c6dacf03059c0c8270e4848b0171466edc2853e46  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved (PI home is the week page)
+home-pi-zh-TW-desktop 85e8849ae42f400541516896798927022d6459daf1fbad4e49f08bfae240b505  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved (PI home is the week page)
+home-pi-zh-TW-phone ce2df9e64478e3a24294bd65a646ae2a693c1565a1d87b7c143cf3f6fe66f376  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved (PI home is the week page)
+patient-sheet-en-desktop 8db228b87dbd808eed539cd67b201c6c4f60878fa3f06f1b570c3145c844e5c0  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved; the open sheet beside it is unchanged
+patient-sheet-ja-desktop 095e19a42b76ed3e8ba71bf6fb1afbbccdb3bd1a2f4b4c6228d253b946222a4a  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved; the open sheet beside it is unchanged
+patient-sheet-zh-TW-desktop 4cb00e8155b3cfafd9a8fd7354ee39fe389b4c5998d93491b0bfce5b7d343eaa  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved; the open sheet beside it is unchanged
+week-en-desktop 9168797b1b6ae46e4bfc7928a4151fba2c3376dc949d3a1fd1404397efb80409  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved
+week-ja-desktop 9b78d07a1be5b490742b2d7d72fc5018c87c1dfaa88ed926a500496934b7ad51  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved
+week-ja-phone 996c49565fa692a5f8ea1e8c6dacf03059c0c8270e4848b0171466edc2853e46  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved
+week-zh-TW-desktop 875351b96f017d00103ca76843e0b6b2b5273fa30976c560e96e23fdaa58986d  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved
+week-zh-TW-phone ce2df9e64478e3a24294bd65a646ae2a693c1565a1d87b7c143cf3f6fe66f376  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved

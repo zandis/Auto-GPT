@@ -1,0 +1,20 @@
+{
+  "card": "H82",
+  "note": "States only: seven registered Highs that lane F's page high-findings-2026-11-22 (draft PR #1331) found fixed on master, each proof rerun by H-82 on master 72a293ad. Read by --sync-states; not an --add-from file (every id is already in the register).",
+  "findings": [
+    {"id": "H22-no-host-tree", "state": "fixed be8874eb3e2cd4e0fad0a1443385b8d1ce9b4eff",
+     "proof": "deploy/bootstrap.sh (D-996) unpacks the signed host tree from the stick; tests/unit/test_install_bootstrap.py::test_it_unpacks_the_signed_host_tree_places_the_key_and_runs_the_installer passes"},
+    {"id": "H22-vendor-key-after-start", "state": "fixed be8874eb3e2cd4e0fad0a1443385b8d1ce9b4eff",
+     "proof": "the bootstrap places the vendor key before install.sh; tests/unit/test_install_bootstrap.py::test_it_unpacks_the_signed_host_tree_places_the_key_and_runs_the_installer passes"},
+    {"id": "H22-bundle-sidecar-path", "state": "fixed be8874eb3e2cd4e0fad0a1443385b8d1ce9b4eff",
+     "proof": "sha256sum runs in the bundle's folder on basenames; tests/unit/test_install_bootstrap.py::test_the_sidecar_checks_from_another_mount passes"},
+    {"id": "H22-stub-production-embedder", "state": "fixed be8874eb3e2cd4e0fad0a1443385b8d1ce9b4eff",
+     "proof": "D-998: a box without a GPU pins the embedder; tests/unit/test_stub_box_embedder.py::test_stub_mode_pins_the_embedder_and_stops_a_production_install_without_it passes; a healthy box is not re-measured"},
+    {"id": "H23b-01", "state": "fixed 83f0490ef864c6af73f56c3eba5b976531feb563",
+     "proof": "D-1005: the orchestrator's memory cap grows with the hospital; tests/unit/test_orchestrator_cap.py::test_install_writes_the_cap_above_the_default_and_removes_its_own_when_no_longer_needed passes"},
+    {"id": "W2-db-image", "state": "fixed 083ce607b9939d2e6d2b6946b89f7c8186205ac2",
+     "proof": "card 24-2 (#1130): the builder path builds the database image; tests/unit/test_poc_db_image.py::test_a_machine_without_images_builds_the_database_image_with_the_one_command passes"},
+    {"id": "V5-04", "state": "fixed cf037b9d11c85b8da192d817357e4537c817c402",
+     "proof": "10C-1: the privacy guard masks Japanese identifiers; tests/unit/test_masking_leaks.py::test_no_planted_identifier_survives[mask-ja-national_id-insurance_symbol_no-in] passes"}
+  ]
+}
