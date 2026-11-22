@@ -300,7 +300,7 @@ def test_h73_a_failed_capture_is_taken_again_a_bounded_number_of_times(
         calls.append(names)
         failed: dict[str, str] = {}
         for n in names:
-            if n == "two" and len(calls) < 2 or n == "three":  # "two" fails once, "three" always
+            if (n == "two" and len(calls) < 2) or n == "three":  # "two" fails once, "three" always
                 failed[n] = unable
             else:
                 _png(png / f"{n}.png")
