@@ -35,9 +35,9 @@ import shutil
 import tempfile
 import time
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
-from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any

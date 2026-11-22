@@ -54,9 +54,9 @@ def tests_for(paths: Iterable[str], root: Path = ROOT) -> list[str]:
     folders: set[str] = set()
     for p in paths or ():
         if p:
-            n, f = _needles(p)
-            names |= n
-            folders |= f
+            more_names, more_folders = _needles(p)
+            names |= more_names
+            folders |= more_folders
     if not names:
         return []
     found = []
