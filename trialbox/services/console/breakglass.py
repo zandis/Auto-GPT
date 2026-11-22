@@ -152,11 +152,18 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
             return
         au.append("console.breakglass_notice", actor=h.actor(sess), detail={"grant": g.id, "sent": sent})
 
+    def seen_by_scope(user: User, g: Grant | None) -> bool:
+        """A grant a study-scoped account may see or review: its study is told and one the account sees."""
+        rid = study_of(h, g) if g is not None else ""
+        return bool(rid) and user.sees_study(rid)
+
     def view(sess: Session, path: str) -> dict[str, Any]:
         t = now()
         user = sess.user
         if permit(user.role, "breakglass.review"):  # the steward: every grant, unreviewed first
             rows = bg.grants()
+            if user.studies:  # BH1-12 (D-380): a study-scoped steward sees its studies' grants only
+                rows = [g for g in rows if seen_by_scope(user, g)]
             rows.sort(key=lambda g: (g.reviewed_at is not None, g.id * -1))
             return {"mode": "steward", "grants": rows, "active": [], "help": "bg.help.steward"}
         mine = bg.of(user.username) if permit(user.role, "breakglass.open") else []
@@ -234,6 +241,8 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
         if not permit(sess.user.role, "breakglass.review"):
+            raise deny(sess, request.url.path)
+        if sess.user.studies and not seen_by_scope(sess.user, bg.get(gid)):  # BH1-12: its studies' grants only
             raise deny(sess, request.url.path)
         try:
             g = bg.review(gid, sess.user.username, note, now())
