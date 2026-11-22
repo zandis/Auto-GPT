@@ -67,10 +67,15 @@ REFUSALS: tuple[Refusal, ...] = (
     Refusal(
         name="live_patient_lists",
         what="a list of patients made from the box's records (screening, micro-batch, cohort, navigation, case), "
-        "and a stored one shown by the console",
-        sites=("orchestrator.scheduler:require_released", "console.rc1_guard:Rc1Guard.lists_refused"),
+        "a stored one shown by the console, and a listed patient's chart number revealed",
+        sites=(
+            "orchestrator.scheduler:require_released",
+            "orchestrator.app:reveal",
+            "console.rc1_guard:Rc1Guard.lists_refused",
+        ),
         key="rc1.live_patient_lists",
-        audit="console.denied (the console); none at the orchestrator (follow-up for lane H's writer)",
+        audit="console.denied (the console); screen.reveal_refused (a reveal); none when a list job fails at its first "
+        "step (follow-up for lane H's writer)",
         test=f"{_CONSOLE_TESTS}::test_no_live_patient_list_on_a_production_box",
     ),
     Refusal(
@@ -84,10 +89,17 @@ REFUSALS: tuple[Refusal, ...] = (
     ),
     Refusal(
         name="patient_mail_and_downloads",
-        what="a mail that carries a job's patient-level files, and a patient-level file downloaded from the console",
-        sites=("mail_gateway.gateway:Gateway._still_current", "console.rc1_guard:Rc1Guard.downloads_refused"),
+        what="a mail that carries a job's patient-level files, a patient-level file downloaded from the console, and "
+        "the orchestrator's export of the registry with chart numbers",
+        sites=(
+            "mail_gateway.gateway:Gateway._still_current",
+            "mail_gateway.gateway:Gateway._attempt",
+            "orchestrator.app:registry_export",
+            "console.rc1_guard:Rc1Guard.downloads_refused",
+        ),
         key="rc1.patient_mail_and_downloads",
-        audit="mail.failed (the gateway holds it at once); console.denied (the console)",
+        audit="mail.failed (the gateway holds it at once); console.denied (the console); registry.export_refused (the "
+        "orchestrator's export)",
         test=f"{_CONSOLE_TESTS}::test_no_patient_mail_or_download_on_a_production_box",
     ),
     Refusal(
@@ -108,8 +120,15 @@ REFUSALS: tuple[Refusal, ...] = (
     ),
     Refusal(
         name="key_ceremonies",
-        what="the backup key ceremony and the backup key pair (trialbox backup-keygen)",
-        sites=("tools.backup_key_ceremony:run", "tools.trialbox.__main__:_backup_cmd"),
+        what="the backup key ceremony, the backup key pair (trialbox backup-keygen), and the KEK's rotation, ceremony "
+        "record and escrow shares (tools.keys; its init stays allowed)",
+        sites=(
+            "tools.backup_key_ceremony:run",
+            "tools.trialbox.__main__:_backup_cmd",
+            "tools.keys:cmd_rotate_kek",
+            "tools.keys:cmd_ceremony_record",
+            "tools.keys:cmd_escrow_shares",
+        ),
         key="rc1.key_ceremonies",
         audit="none (follow-up for lane H's writer)",
         test=f"{_SITE_TESTS}::test_no_key_ceremony_on_a_production_box",
@@ -166,27 +185,33 @@ def label(env: Mapping[str, str] | None = None) -> dict[str, str]:
 
 
 def host_env(box: Path | Mapping[str, str], env: Mapping[str, str] | None = None) -> dict[str, str]:
-    """The environment a host tool (``trialbox ...``) asks with: ``TB_ENV`` of the box (its ``deploy`` folder's
-    ``.env``, or the settings the tool read from it), unless the calling process sets ``TB_ENV`` itself, as
-    ``tools.backup_key_ceremony`` reads the box. The host's shell has no ``TB_ENV`` of its own on a box, so the box's
-    file decides; neither set is PRODUCTION."""
-    out: dict[str, str] = {}
+    """The environment a host tool (``trialbox ...``) asks with: the stricter of the box's and the caller's (the
+    review of R22-34: ``TB_ENV=DEV trialbox support-bundle`` on a PRODUCTION box is refused). The box's is its
+    ``deploy`` folder's ``.env`` when the file is there (no ``TB_ENV`` in it is PRODUCTION, the one rule), or the
+    settings a tool read from it (a mapping); the caller's is its own ``TB_ENV`` when set. The answer is allowed only
+    when both are in :data:`ALLOWED`; with neither, PRODUCTION."""
+    seen: list[str] = []
     if isinstance(box, Path):
         f = box / ".env"
         try:
-            lines = f.read_text(encoding="utf-8").splitlines() if f.is_file() else []
+            lines = f.read_text(encoding="utf-8").splitlines() if f.is_file() else None
         except OSError:
-            lines = []
-        for line in lines:
-            k, sep, v = line.partition("=")
-            if sep and k.strip() == "TB_ENV" and not line.lstrip().startswith("#"):
-                out["TB_ENV"] = v.strip().strip("\"'")
-    elif box.get("TB_ENV"):
-        out["TB_ENV"] = str(box["TB_ENV"]).strip().strip("\"'")
+            lines = []  # a file that cannot be read is a box that says nothing: PRODUCTION
+        if lines is not None:
+            written = ""
+            for line in lines:
+                k, sep, v = line.partition("=")
+                if sep and k.strip() == "TB_ENV" and not line.lstrip().startswith("#"):
+                    written = v.strip().strip("\"'")
+            seen.append(environment({"TB_ENV": written}))
+    else:
+        seen.append(environment({"TB_ENV": str(box.get("TB_ENV") or "").strip("\"'")}))
     own = (env if env is not None else os.environ).get("TB_ENV")
     if own:
-        out["TB_ENV"] = own
-    return out
+        seen.append(environment({"TB_ENV": own}))
+    if not seen:
+        return {}
+    return {"TB_ENV": next((e for e in seen if e not in ALLOWED), seen[0])}
 
 
 _DEMO = {
@@ -228,7 +253,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "rc1.unattended_updates": {
         "en": f"rc1 applies no update in the quiet hour on a {{environment}} box. {_DEMO['en']} Nothing was "
         "applied; an update a person runs now is still allowed.",
-        "ja": f"rc1 は {{environment}} のボックスでは静かな時間帯に更新を自動で適用しません。{_DEMO['ja']}"
+        "ja": f"rc1 は {{environment}} のボックスでは利用の少ない時間帯に更新を自動で適用しません。{_DEMO['ja']}"
         "何も適用していません。担当者がその場で行う更新は引き続きできます。",
         "zh-TW": f"rc1 在 {{environment}} 主機上不在離峰時段自動套用更新。{_DEMO['zh-TW']}未套用任何更新；"
         "由人員當下執行的更新仍可進行。",

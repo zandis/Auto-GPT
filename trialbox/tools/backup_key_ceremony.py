@@ -851,7 +851,7 @@ def run(stick: Path, operator: str | None, witness: str | None, env: Mapping[str
     from tb_common import rc1_refusals
 
     try:  # R22-34 (D-1072): rc1 holds no backup key ceremony on a PRODUCTION box; nothing is generated
-        rc1_refusals.check("key_ceremonies", env)
+        rc1_refusals.check("key_ceremonies", rc1_refusals.host_env(DEPLOY, env))  # the stricter of the two
     except rc1_refusals.Rc1Refused as exc:
         raise Stop(rc1_refusals.TEXTS[exc.refusal.key], environment=exc.environment) from None
     who, wit = person(operator), person(witness)

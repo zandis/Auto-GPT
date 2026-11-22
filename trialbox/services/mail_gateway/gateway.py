@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-from tb_common import patient_files
+from tb_common import patient_files, rc1_refusals
 from tb_common.audit import AuditLog, mask_ids
 from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
@@ -204,12 +204,10 @@ class Gateway:
         atts = req.attachments or []
         if not atts or (req.tag != "phi" and not any(a.tag == "phi" for a in atts)):
             return ""
-        from tb_common import rc1_refusals
-
         try:  # R22-34 (D-1072): rc1 sends no mail with patient files on a PRODUCTION box; held, never sent
             rc1_refusals.check("patient_mail_and_downloads")
         except rc1_refusals.Rc1Refused as exc:
-            return f"{exc}; not sent"  # names the key, which _attempt holds at once
+            return f"{exc}; not sent"  # _attempt holds it at once, by the same row
         if not req.job_id or not all(a.minio_key.startswith(f"outputs/{req.job_id}/") for a in atts):
             return NO_JOB  # the review of D-863: the job asked about is the job whose files are sent
         if self.outputs_current is None:
@@ -223,7 +221,7 @@ class Gateway:
 
     def _attempt(self, req: SendRequest, key: str, message_id: str | None, attempts: int, from_outbox: bool) -> Outcome:
         why = self._still_current(req)
-        if why in (OPTED_OUT, NO_JOB) or "(rc1.patient_mail_and_downloads)" in why:  # a person decides (drop, resend)
+        if why in (OPTED_OUT, NO_JOB) or (why and rc1_refusals.refused("patient_mail_and_downloads")):  # held at once
             return self._hold(req, key, message_id or "", False, [], "failed", attempts, why)
         if why:  # not known now: tried again with back-off, counted, and failed for a person at the limit
             n = attempts + 1

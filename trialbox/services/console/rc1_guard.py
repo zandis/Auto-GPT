@@ -8,13 +8,28 @@ store, nothing is rendered and nothing leaves. The refusal is the console's prob
 message in the reader's language, JSON on ``/api/``, and one audited ``console.denied`` event with the refusal's
 name, the environment and the path (never a query or a body).
 
-What the list holds, and why (each a GET):
+What the list holds, and why. Every method of a held path is refused (a page, its HEAD, its API twin, and the
+writes that act on a listed person: a mark, a reveal, a referral), so no door of the same rows stays open; a path
+ending ``(/...)`` holds its sub-paths too.
 
 * ``live_patient_lists`` (the orchestrator refuses to make one: ``orchestrator.scheduler.require_released``):
 
   - ``/studies/{rs}/week``: the week's list of candidates of a study (``console.home``);
+  - ``/api/v1/studies/{rs}/patients``: the same week's list as JSON (``console.home``);
+  - ``/studies/{rs}/patients/{pid}(/...)`` and ``/api/v1/studies/{rs}/patients/{pid}(/...)``: a listed patient's
+    page, reveal, mark, outcome and twin (``console.home``, ``console.twin_api``);
+  - ``/studies/{rs}/candidates(/...)`` and ``/api/v1/studies/{rs}/candidates(/...)``: the candidates and one
+    candidate, their reveal and referral (``console.team``);
+  - ``/studies/{rs}/referrals(/...)`` and ``/api/v1/studies/{rs}/referrals(/...)``: the candidates referred to a
+    treating doctor, their print and answer (``console.team``);
+  - ``/studies/{rs}/screening-log`` and ``/api/v1/studies/{rs}/screening-log``: the people screened, one row a
+    person (``console.screening_log``, ``console.home``);
   - ``/studies/{rs}/cohort``: the members of the study's latest screening or micro-batch list
     (``console.screening_log``);
+  - ``/pilot/registry/{rs}`` and ``/pilot/registry/{rs}/promote``: the study's registry of candidates, their
+    statuses and the promotion of a list into it (``console.app``);
+  - ``/site/patients`` and ``/site/people(/...)``: the site's listed people and their resolution
+    (``console.site_pages``);
   - ``/pilot/jobs/{id}`` of a job that lists patients (SCREEN, MICROBATCH, COHORT, NAV, CASE): its card shows the
     stored list or the case sheet. Any other job's card (FEAS, CONSENT ...) is counts and stays open.
 
@@ -22,17 +37,23 @@ What the list holds, and why (each a GET):
 
   - ``/pilot/jobs/{id}/files/{name}`` and ``/pilot/jobs/{id}/view/{name}`` of an output that is not aggregate
     (``console.app``'s own test of a patient-level file); aggregate files stay open;
+  - ``/pilot/cascade/{id}/files/{name}``: a cascade run's files, whose folder holds its final list of patients
+    (``console.app``);
   - ``/studies/{rs}/screening-log.xlsx`` (``console.screening_log``): the sponsor's screening log, one row a person;
   - ``/pilot/registry/{rs}/export.xlsx`` (``console.app``): the study's registry with chart numbers;
   - ``/studies/{rs}/enrolment.{fmt}`` and ``/api/v1/studies/{rs}/enrolment/{fmt}`` (``console.lifecycle_pages``);
   - ``/studies/{rs}/export.{fmt}`` and ``/api/v1/studies/{rs}/export/{fmt}`` (``console.entry_pages``): the data
     core's records;
   - ``/studies/{rs}/edc/export.odm.xml`` and ``/api/v1/studies/{rs}/edc/export/odm`` (``console.edc_pages``);
-  - ``/studies/{rs}/edc/copy.csv`` and ``/api/v1/studies/{rs}/edc/copy`` (``console.copy_assist_page``).
+  - ``/studies/{rs}/edc/copy.csv``, ``/studies/{rs}/edc/copy/{record}`` and ``/api/v1/studies/{rs}/edc/copy``
+    (``console.copy_assist_page``): a record's values to copy out;
+  - ``/audit/patients/{pid}/report.csv`` (``console.audit_page``): one patient's audit report as a file.
 
 Not held, and why: ``/reports/research-office.xlsx`` (counts per study with small cells suppressed, no person),
-``/pilot/jobs/{id}/sponsor-pack.zip`` (a FEAS job's aggregate files only), ``/week`` (the list of studies; a single
-study's list is the guarded week page it redirects to).
+``/pilot/jobs/{id}/sponsor-pack.zip`` (a FEAS job's aggregate files only), ``/week`` and ``/pilot/registry`` (the
+lists of studies; one study's list is a guarded page), and a participant's own EDC pages after consent (subjects,
+records, SAE, monitoring: people's own data entry, which rc1 does not refuse). The orchestrator's own export and
+reveal routes are not the console's (a go is asked for them).
 """
 
 from __future__ import annotations
@@ -70,7 +91,16 @@ ROUTES: tuple[tuple[re.Pattern[str], str], ...] = tuple(
     (re.compile(p), kind)
     for p, kind in (
         (r"^/studies/[^/]+/week$", LISTS),
+        (r"^/api/v1/studies/[^/]+/patients$", LISTS),
+        (r"^(?:/api/v1)?/studies/[^/]+/patients/[^/]+(?:/.*)?$", LISTS),
+        (r"^(?:/api/v1)?/studies/[^/]+/candidates(?:/.*)?$", LISTS),
+        (r"^(?:/api/v1)?/studies/[^/]+/referrals(?:/.*)?$", LISTS),
+        (r"^(?:/api/v1)?/studies/[^/]+/screening-log$", LISTS),
         (r"^/studies/[^/]+/cohort$", LISTS),
+        (r"^/pilot/registry/[^/]+(?:/promote)?$", LISTS),
+        (r"^/site/patients$", LISTS),
+        (r"^/site/people(?:/.*)?$", LISTS),
+        (r"^/pilot/cascade/[^/]+/files/[^/]+$", DOWNLOADS),
         (r"^/studies/[^/]+/screening-log\.xlsx$", DOWNLOADS),
         (r"^/pilot/registry/[^/]+/export\.xlsx$", DOWNLOADS),
         (r"^/studies/[^/]+/enrolment\.[^/]+$", DOWNLOADS),
@@ -80,7 +110,9 @@ ROUTES: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"^/studies/[^/]+/edc/export\.odm\.xml$", DOWNLOADS),
         (r"^/api/v1/studies/[^/]+/edc/export/odm$", DOWNLOADS),
         (r"^/studies/[^/]+/edc/copy\.csv$", DOWNLOADS),
+        (r"^/studies/[^/]+/edc/copy/[^/]+$", DOWNLOADS),
         (r"^/api/v1/studies/[^/]+/edc/copy$", DOWNLOADS),
+        (r"^/audit/patients/[^/]+/report\.csv$", DOWNLOADS),
     )
 )
 
@@ -108,9 +140,7 @@ class Rc1Guard:
             return None
 
     def refusal_of(self, method: str, path: str) -> str | None:
-        """The name of the refusal this request meets, or None."""
-        if method.upper() not in ("GET", "HEAD"):
-            return None
+        """The name of the refusal this request meets, or None. Every method: a held path has no open door."""
         for pattern, kind in ROUTES:
             if pattern.match(path):
                 return self._named(kind)

@@ -99,13 +99,21 @@ def require_released() -> None:
     from orchestrator.clients import StepFailed
 
     # R22-34 (D-1072): rc1 makes no live patient list on a PRODUCTION box (an unset or unknown TB_ENV is one); the
-    # job fails before anything is read, with the table's fixed sentence (rc1_refusals.TEXTS) and its key
+    # job fails before anything is read. Its error is a fixed sentence (an error names no value, test_error_answers);
+    # the detail is the table's key and the environment: PRODUCTION, or an unset or unknown name, said as such
     if rc1_refusals.refused("live_patient_lists"):
+        if rc1_refusals.environment() == "PRODUCTION":  # unset or written; any other name is unknown
+            raise StepFailed(
+                "rc1",
+                "rc1 makes and shows no live patient list on this box. rc1 is a supervised demonstration on synthetic "
+                "or public data. No list was made or shown.",
+                "rc1.live_patient_lists: PRODUCTION",
+            )
         raise StepFailed(
             "rc1",
-            "rc1 makes and shows no live patient list on a PRODUCTION box. rc1 is a supervised demonstration on "
-            "synthetic or public data. No list was made or shown.",
-            "rc1.live_patient_lists",
+            "rc1 makes and shows no live patient list on this box. rc1 is a supervised demonstration on synthetic "
+            "or public data. No list was made or shown.",
+            "rc1.live_patient_lists: an unknown TB_ENV",
         )
     if restore_held():
         raise StepFailed("restore", RESTORE_HELD)

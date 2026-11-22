@@ -330,6 +330,13 @@ def _unseal_escrow(a: argparse.Namespace, env: Mapping[str, str], sec: Path, met
 
 def cmd_escrow_shares(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     """D-894: split a TPM box's unsealed KEK into escrow shares on removable media (``tools/key_escrow.py``)."""
+    from tb_common import rc1_refusals
+
+    try:  # R22-34 (D-1072): rc1 holds no key ceremony on a PRODUCTION box (the stricter of the box and the caller)
+        rc1_refusals.check("key_ceremonies", rc1_refusals.host_env(Path(DEFAULT_DEPLOY), env))
+    except rc1_refusals.Rc1Refused as exc:
+        _err(exc.say())
+        return 1
     from tools import key_escrow as ke
 
     sec = secrets_dir(a.secrets, env)
@@ -418,6 +425,13 @@ def cmd_inventory(a: argparse.Namespace, env: Mapping[str, str]) -> int:
 def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     """A new KEK: every wrapped key is opened with the old one and re-wrapped. The new files are written beside the
     old (``.next``) and then renamed, key files first and ``kek.json`` last."""
+    from tb_common import rc1_refusals
+
+    try:  # R22-34 (D-1072): rc1 holds no key ceremony on a PRODUCTION box (the stricter of the box and the caller)
+        rc1_refusals.check("key_ceremonies", rc1_refusals.host_env(Path(DEFAULT_DEPLOY), env))
+    except rc1_refusals.Rc1Refused as exc:
+        _err(exc.say())
+        return 1
     sec = secrets_dir(a.secrets, env)
     pending = sorted(f.name for f in sec.glob("*.next.key" + K.WRAPPED_SUFFIX))
     if pending:  # a key rotation cut short (audit_sign.next.key): its staged key would stay under the old KEK
@@ -503,6 +517,13 @@ def cmd_rotate(a: argparse.Namespace, env: Mapping[str, str]) -> int:
 
 def cmd_ceremony_record(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     """TB-SOP-03 (D-893): the key ceremony's record, fingerprints and names only (``tools/key_ceremony.py``)."""
+    from tb_common import rc1_refusals
+
+    try:  # R22-34 (D-1072): rc1 holds no key ceremony on a PRODUCTION box (the stricter of the box and the caller)
+        rc1_refusals.check("key_ceremonies", rc1_refusals.host_env(Path(a.deploy), env))
+    except rc1_refusals.Rc1Refused as exc:
+        _err(exc.say())
+        return 1
     from tools import key_ceremony as kc
 
     deploy = Path(a.deploy)
