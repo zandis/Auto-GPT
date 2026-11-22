@@ -20,6 +20,7 @@ and ``/api/v1/admin/ops``, audited as ``console.denied``.
 from __future__ import annotations
 
 import re
+import shlex
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,7 +61,7 @@ def _hours_since(iso: str, now: datetime) -> float | None:
     return round((now - t).total_seconds() / 3600, 1)
 
 
-DRILL_CMD = "sudo python3 -m tools.trialbox restore-drill {file} --key <the key from the envelope>"
+DRILL_CMD = "trialbox restore-drill {file} --key <key>"
 
 
 def _drill(st: Mapping[str, Any], now: datetime, env: Mapping[str, str]) -> dict[str, Any]:
@@ -72,7 +73,7 @@ def _drill(st: Mapping[str, Any], now: datetime, env: Mapping[str, str]) -> dict
     chk = metrics.check_verified(rec, now, metrics.Thresholds.from_env(env))
     files = [(str(f.get("at") or ""), f"{tg.get('path')}/{f.get('name')}")
              for tg in ((st.get("backups") or {}).get("targets") or []) for f in tg.get("files") or []]  # fmt: skip
-    newest = max(files)[1] if files else "<backup file>"
+    newest = shlex.quote(max(files)[1]) if files else "<backup file>"
     failed = str((rec or {}).get("drill_failed_at") or "")
     passed = str((rec or {}).get("at") or "") if (rec or {}).get("drill") else ""
     return {

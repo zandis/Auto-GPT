@@ -161,18 +161,17 @@ least the last two weeks:
    "--target=2026-11-08 14:05:00+09" --target-action=promote restore`, and start everything again. Then run
    `backup-nightly` so a new full chain starts.
 
-**Restore drill (T-730d, D-892, H-84).** Proof that the newest backup restores, touching nothing live. Hospital IT
-types on the host, key in hand (the Operations page shows the line): `sudo python3 -m tools.trialbox restore-drill
-<backup file> --key <the key>`. Needs Docker, the box's db image (never pulled), 1 GB of memory and free space (it
-says how much and starts nothing when short). It checks the backup against its signed manifest and starts a
-**throwaway database server**: a container of the box's db image (`tb-restore-drill-<id>`, label `tb.restore-drill`)
-with no network, no port, none of the box's volumes, its data in `--db-dir` (default `--work`), a random password.
-Each database is restored there and compared with the manifest; nothing of the box (its database, containers, volumes,
-networks, roles, grants) is touched. All is removed at the end, after a failure or `kill` too; a drill killed with
-`-9` is cleaned up by the next one (labelled containers, marked folders only). Exit 0 pass, 1 fail, 2 nothing started,
-130 interrupted. The result (never the key or the password) is the key-check record and an audit event
-(`backup.restore_drill`): `backup_verified` turns red after `TB_HEALTH_VERIFIED_DAYS` (100) days, or on a failed
-drill, which also alerts. Run it at least every 90 days, after hardware changes and before go-live acceptance (§6).
+**Restore drill (T-730d, D-892).** Hospital IT brings the private key from the envelope. In a root shell on the
+box, run `trialbox restore-drill <backup file> --key <key>`. Operations → Backups fills in the newest backup path.
+The command checks free space for the unpacked backup and scratch databases first. If space is short, it reports
+the GB needed and starts nothing. The release image uses its locked zstandard to unpack and verify every file
+against the signed manifest. The database administrator creates scratch databases (`tb_drill_<id>_<name>`).
+The drill runs pg_restore as their owner and uses the site connection from `deploy/.env` to compare rows and hashes.
+It removes scratch databases and unpacked files even after a failure. Exit 0 means pass, 1 failure, 2 nothing started.
+The key-check record and audit event (`backup.restore_drill`) omit the key and its path. A failed drill alerts by mail
+or on the health page and turns `backup_verified` red until a drill passes. It also turns red after
+`TB_HEALTH_VERIFIED_DAYS` (100) days without a key check. Run the drill at least every 90 days, after hardware
+changes and before go-live acceptance (§6).
 
 **Restore.** Bring three things: the backup file, the private key (hospital IT) and **the vendor reference data
 pack** the backup names. A backup holds no vendor pack rows (layout 2, above), so a restore onto a fresh box is not
@@ -323,10 +322,3 @@ answers are applied, before the restart; the first-run page does not open again:
 folder named, or correct the line, then `sudo deploy/box-install.sh --firstrun`. **An installed PRODUCTION site that
 runs `deploy/install.sh` again** (02, the anchor folders; 05, after a restore and for the EDC tables; 12, the TLS
 check per release) stops there until both are set; `trialbox update` and `trialbox restore` do not run it.
-
-**The host commands' own environment (H-88).** Every `python3 -m tools.trialbox` command finds the product from its
-own folder and reads `deploy/.env` itself, so `sudo` and cron need nothing more; a command that needs the box image's
-libraries runs in a one-off container of `TB_IMAGE` (never pulled). The restore drill's unpack, restore and
-comparison run so too, with no network and only the backup, the key, its unpack folder and the throwaway's socket
-folder. A backup cron file from before H-88 sets `PYTHONPATH`: `trialbox doctor` (`backup`) warns until
-`python3 -m tools.trialbox backup-install --deploy deploy --no-first-run` is run again.

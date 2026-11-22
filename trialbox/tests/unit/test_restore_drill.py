@@ -1,27 +1,12 @@
 """T-730d (D-892): ``trialbox restore-drill`` proves a backup restores, typed by hospital IT with the key in hand. It
 restores into scratch databases, never the live one; cleans up after a failure too; refuses up front when space is
 short; and its result is the key-check record the health check reads (red after the interval, or on a failed drill)
-and a backup problem that goes through the alert route (D-735).
-
-H-84: the drill restores into a throwaway database server of its own (a one-off container of the box's database
-image, ``--network none``, reached through a socket folder of its own). The unit tier has no Docker daemon: a stand-in
-``docker`` on PATH records every call and, for ``run -d``, links the throwaway's socket to the test cluster, so the
-restore, the comparison and the clean-up below run for real against PostgreSQL and only Docker is stood in for. The
-invariant test is ``test_a_drill_never_touches_the_live_server_or_any_object_of_the_box``."""
+and a backup problem that goes through the alert route (D-735)."""
 
 from __future__ import annotations
 
-import contextlib
 import json
-import os
-import shlex
 import shutil
-import signal
-import socket
-import subprocess
-import sys
-import threading
-import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -31,171 +16,14 @@ import pytest
 from tb_common import metrics
 from tb_common.db import Database, split_url
 
-from tools import images_lock, pglocal
 from tools.trialbox import backup as bk
 from tools.trialbox import backup_schedule as bsch
 from tools.trialbox import restore_drill as rd
 from tools.trialbox.__main__ import main as cli
 
-STANDIN = r"""
-import json, os, stat, subprocess, sys, time
-from pathlib import Path
-
-argv = sys.argv[1:]
-state_f = Path(os.environ["STANDIN_STATE"])
-st = json.loads(state_f.read_text())
-with open(os.environ["STANDIN_LOG"], "a") as log:
-    log.write(json.dumps({"argv": argv, "pgpassword_in_env": bool(os.environ.get("PGPASSWORD"))}) + "\n")
-
-
-def save():
-    state_f.write_text(json.dumps(st))
-
-
-def opt(args, flag):
-    return [args[i + 1] for i, a in enumerate(args[:-1]) if a == flag]
-
-
-cmd = argv[0] if argv else ""
-if cmd == "version":
-    if os.environ.get("STANDIN_NO_DAEMON"):
-        print("Cannot connect to the Docker daemon", file=sys.stderr)
-        sys.exit(1)
-    print("27.0.0")
-elif cmd == "image" and argv[1] == "inspect":
-    if argv[-1] not in os.environ.get("STANDIN_IMAGES", "").split(","):
-        print("Error: No such image: " + argv[-1], file=sys.stderr)
-        sys.exit(1)
-    print("sha256:0")
-elif cmd == "run" and os.environ.get("STANDIN_PY_IMAGE", "-") in argv:  # H-88: the box's Python image
-    i = argv.index(os.environ["STANDIN_PY_IMAGE"])
-    opts, rest = argv[1:i], argv[i + 1 :]
-    name = opt(argv, "--name")[0]
-    st["containers"][name] = {"labels": dict(x.split("=", 1) for x in opt(argv, "--label")), "mounts": opt(argv, "-v")}
-    save()
-    env = {"PATH": os.environ["PATH"], "PYTHONPATH": os.environ["STANDIN_PY_PATH"]}
-    for v in opt(opts, "-e"):
-        k, eq, val = v.partition("=")
-        if eq:
-            env[k] = val
-        elif k in os.environ:
-            env[k] = os.environ[k]
-    for m in opt(opts, "-v"):
-        assert m.split(":")[0] == m.split(":")[1], m  # every mount at its own path
-    assert rest[0] == "python", rest
-    r = subprocess.run([os.environ["STANDIN_PY"], *rest[1:]], env=env)
-    st = json.loads(state_f.read_text())
-    st["containers"].pop(name, None)  # --rm
-    save()
-    sys.exit(r.returncode)
-elif cmd == "run":
-    name = opt(argv, "--name")[0]
-    labels = dict(x.split("=", 1) for x in opt(argv, "--label"))
-    mounts = [m.rsplit(":", 1)[0] if m.count(":") == 2 else m for m in opt(argv, "-v")]
-    if "-d" not in argv:  # the one-off initdb: the password file is there, 0400, while it runs
-        pw = [m.split(":")[0] for m in opt(argv, "-v") if m.split(":")[1] == "/run/tb-drill"][0]
-        f = Path(pw) / "pw"
-        st.setdefault("initdb", []).append({"pw_file": f.is_file(), "mode": oct(stat.S_IMODE(f.stat().st_mode))})
-        save()
-        if os.environ.get("STANDIN_FAIL_INITDB"):
-            print("initdb: synthetic failure", file=sys.stderr)
-            sys.exit(1)
-        sys.exit(0)
-    data = [m.split(":")[0] for m in mounts if m.split(":", 1)[1] == "/var/lib/postgresql/data"][0]
-    st.setdefault("pw_at_start", []).append(any(Path(data).parent.rglob("pw")))  # removed once initdb is done
-    st["containers"][name] = {"labels": labels, "mounts": mounts}
-    save()
-    for m in mounts:
-        src, dst = m.split(":", 1)
-        if src == dst:  # the socket folder, at the same path inside: the test cluster's socket stands in
-            os.symlink(os.path.join(os.environ["STANDIN_PG_SOCK"], ".s.PGSQL.5432"), os.path.join(src, ".s.PGSQL.5432"))
-    print("0" * 64)
-elif cmd == "inspect":
-    name = argv[-1]
-    c = st["containers"].get(name)
-    if c is None:
-        print("Error: No such object: " + name, file=sys.stderr)
-        sys.exit(1)
-    print(c["labels"].get("tb.restore-drill", "<no value>"))
-elif cmd == "ps":
-    if os.environ.get("STANDIN_PS_ALL"):  # a docker that ignores the filter: the sweep's own label check must hold
-        print("\n".join(st["containers"]))
-        sys.exit(0)
-    kind, key = opt(argv, "--filter")[0].split("=", 1)
-    print("\n".join(n for n, c in st["containers"].items() if (key in n if kind == "name" else key in c["labels"])))
-elif cmd == "rm":
-    name = argv[-1]
-    c = st["containers"].pop(name, None)
-    save()
-    if c is not None:  # its databases go with it, as a throwaway's data does
-        drill = c["labels"].get("tb.restore-drill", "")
-        for m in c["mounts"]:
-            src, dst = m.split(":", 1)
-            if src == dst and os.path.lexists(os.path.join(src, ".s.PGSQL.5432")):
-                os.unlink(os.path.join(src, ".s.PGSQL.5432"))
-        if drill:
-            psql = [os.path.join(os.environ["STANDIN_PG_BIN"], "psql"), "-X", "-q", "-h", os.environ["STANDIN_PG_SOCK"],
-                    "-U", "postgres", "-d", "postgres", "-tAc"]
-            names = subprocess.run([*psql, f"SELECT datname FROM pg_database WHERE datname LIKE 'tb_drill_{drill}_%'"],
-                                   capture_output=True, text=True).stdout.split()
-            for n in names:
-                subprocess.run([*psql, f'DROP DATABASE IF EXISTS "{n}" WITH (FORCE)'], capture_output=True)
-elif cmd == "exec":
-    name = [a for a in argv[1:] if not a.startswith("-") and a != "PGPASSWORD"][0]
-    if name not in st["containers"]:
-        print("Error: No such container: " + name, file=sys.stderr)
-        sys.exit(1)
-    rest = argv[argv.index(name) + 1 :]
-    if os.environ.get("STANDIN_FAIL_PG_RESTORE") and rest[0] == "pg_restore":  # H-88: the server answers, the restore not
-        print("pg_restore: error: synthetic failure", file=sys.stderr)
-        sys.exit(1)
-    if os.environ.get("STANDIN_HANG"):
-        Path(os.environ["STANDIN_HANG"]).write_text(str(os.getpid()))
-        time.sleep(120)
-    r = subprocess.run([os.path.join(os.environ["STANDIN_PG_BIN"], rest[0]), *rest[1:]])
-    sys.exit(r.returncode)
-"""
-
-BOX_OBJECTS = {"containers": {"deploy-db-1": {"labels": {"com.docker.compose.project": "deploy"}, "mounts": []},
-                              "tb-restore-drill-lookalike": {"labels": {}, "mounts": []}},
-               "volumes": ["deploy_db-pg", "deploy_lake"], "networks": ["deploy_trialbox-net"]}  # fmt: skip
-
 
 @pytest.fixture
-def standin(tmp_path: Path, pg_cluster_url: str, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """The stand-in ``docker`` on PATH, its state (the box's own objects planted in it) and its call log."""
-    from psycopg.conninfo import conninfo_to_dict
-
-    bindir = tmp_path / "standin-bin"
-    bindir.mkdir()
-    d = bindir / "docker"
-    d.write_text(f"#!{sys.executable}\n{STANDIN}", encoding="utf-8")
-    d.chmod(0o755)
-    state, log = tmp_path / "standin-state.json", tmp_path / "standin-log.jsonl"
-    state.write_text(json.dumps(BOX_OBJECTS), encoding="utf-8")
-    log.write_text("", encoding="utf-8")
-    sock = conninfo_to_dict(split_url(pg_cluster_url)[0]).get("host") or ""
-    image = images_lock.load()["images"]["db"]["image"]
-    for k, v in {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "STANDIN_STATE": str(state),
-                 "STANDIN_LOG": str(log), "STANDIN_PG_SOCK": str(sock), "STANDIN_PG_BIN": str(pglocal.bindir()),
-                 "STANDIN_IMAGES": image}.items():  # fmt: skip
-        monkeypatch.setenv(k, v)
-    monkeypatch.delenv("POSTGRES_IMAGE", raising=False)
-    owned: list[tuple[str, int, int]] = []
-    monkeypatch.setattr(rd, "_chown", lambda p, u, g: owned.append((str(p), u, g)))  # not root here: said, not done
-    return {"state": state, "log": log, "image": image, "owned": owned, "bin": bindir}
-
-
-def _calls(standin: dict[str, Any]) -> list[dict[str, Any]]:
-    return [json.loads(x) for x in standin["log"].read_text(encoding="utf-8").splitlines() if x.strip()]
-
-
-def _objects(standin: dict[str, Any]) -> dict[str, Any]:
-    return dict(json.loads(standin["state"].read_text(encoding="utf-8")))
-
-
-@pytest.fixture
-def box(tmp_path: Path, db_url: str, standin: dict[str, Any]) -> dict[str, Any]:
+def box(tmp_path: Path, db_url: str) -> dict[str, Any]:
     db = Database.connect(db_url, "site")
     db.migrate(["CREATE TABLE marks (pid TEXT PRIMARY KEY, mark TEXT NOT NULL)"])
     db.execute("INSERT INTO marks VALUES (?, ?)", ("P1", "approach"))
@@ -208,7 +36,7 @@ def box(tmp_path: Path, db_url: str, standin: dict[str, Any]) -> dict[str, Any]:
     bk.keygen(priv, pub)
     env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
     (f, *_) = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)
-    return {"db": db, "dirs": dirs, "priv": priv, "file": f, "env": env, "url": db_url, "standin": standin}
+    return {"db": db, "dirs": dirs, "priv": priv, "file": f, "env": env, "url": db_url}
 
 
 def _scratch_dbs(url: str) -> list[str]:
@@ -356,457 +184,119 @@ def test_the_command_prints_the_result_and_exits_by_it(
     assert cli(args) == 2 and "GB free" in capsys.readouterr().err
 
 
-# ------------------------------------------------------------------ H-84: the throwaway server, confined from the box
-class _Recorder:
-    """A planted live server: a TCP port that counts every connection attempt (the drill must make none)."""
-
-    def __init__(self) -> None:
-        self.sock = socket.socket()
-        self.sock.bind(("127.0.0.1", 0))
-        self.sock.listen(8)
-        self.port = self.sock.getsockname()[1]
-        self.hits = 0
-        threading.Thread(target=self._serve, daemon=True).start()
-
-    def _serve(self) -> None:
-        while True:
-            try:
-                con, _ = self.sock.accept()
-            except OSError:
-                return
-            self.hits += 1
-            con.close()
-
-
-@pytest.fixture
-def live() -> Any:
-    r = _Recorder()
-    yield r
-    r.sock.close()
-
-
-def _planted_env(box: dict[str, Any], live: _Recorder) -> dict[str, str]:
-    """The box's settings with the live database URL pointed at the recorder (same database name and tb_prefix), and
-    the box's own restore route (an exec into the live db) as TB_PG_RESTORE_CMD."""
-    prefix = box["url"].split("tb_prefix=", 1)[1]
-    return {**box["env"], "TB_DB_URL": f"postgresql://trialbox:x@127.0.0.1:{live.port}/trialbox_wf?tb_prefix={prefix}",
-            "TB_PG_RESTORE_CMD": "docker compose --project-directory deploy exec -T db pg_restore"}  # fmt: skip
-
-
-SENTINEL = "PW-SENTINEL-not-a-real-password-0123456789abcdef"
-
-
-def _assert_confined(box: dict[str, Any], live: _Recorder, work: Path, state: Path) -> None:
-    s = box["standin"]
-    assert live.hits == 0, "a connection was opened to the live server"
-    after = _objects(s)
-    assert {k: after[k] for k in ("volumes", "networks")} == {k: BOX_OBJECTS[k] for k in ("volumes", "networks")}
-    assert {n: c for n, c in after["containers"].items() if not n.startswith("tb-restore-drill-") or
-            "tb.restore-drill" not in c["labels"]} == BOX_OBJECTS["containers"]  # fmt: skip
-    made: set[Path] = set()
-    for c in _calls(s):
-        a = c["argv"]
-        assert a[0] in {"version", "image", "run", "inspect", "ps", "rm", "exec"}, a  # no compose, volume, network
-        if a[0] in {"rm", "exec"}:
-            assert any(x.startswith("tb-restore-drill-") for x in a) and "deploy-db-1" not in a, a
-        if a[0] == "run":
-            assert a[a.index("--network") + 1] == "none" and "-p" not in a and "--publish" not in a, a
-            assert a.count("--network") == 1 and a[a.index("--pull") + 1] == "never", a
-            for m in [a[i + 1] for i, x in enumerate(a) if x == "-v"]:
-                src = m.split(":")[0]
-                assert src.startswith((str(work), str(rd._short_parent(work)))), m
-                assert "deploy" not in m and "docker" not in src, m
-                made.add(Path(src))
-        assert SENTINEL not in json.dumps(a)
-    assert _scratch_dbs(box["url"]) == []
-    assert not [p for p in work.glob("tb-drill-*")] and not [p for p in made if p.exists()], made
-    assert not list(state.glob("*.json")), "a record is left: the drill did not clean up"
-    assert box["db"].fetchall("SELECT count(*) FROM marks") == [(2,)]
-
-
-@pytest.mark.parametrize("case", ["pass", "restore_fails", "mismatch", "initdb_fails"])
-def test_a_drill_never_touches_the_live_server_or_any_object_of_the_box(
-    box: dict[str, Any], tmp_path: Path, live: _Recorder, monkeypatch: pytest.MonkeyPatch, case: str
+def test_box_restore_with_the_installers_nocreatedb_owner(
+    box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """THE INVARIANT (H-84): during a drill no connection is opened to the live server and nothing of the box
-    (container, volume, network, database, role, grant) is made, changed or removed; the result names only what was
-    made; the password is on no command line, in no record and not in the result. SIGTERM and a crash: below."""
-    monkeypatch.setattr(rd, "_password", lambda: SENTINEL)
-    if case == "restore_fails":
-        monkeypatch.setenv("STANDIN_PG_BIN", str(tmp_path / "nowhere"))
-    if case == "mismatch":
-        real = rd.compare
-        monkeypatch.setattr(rd, "compare", lambda src, want: [*real(src, want), "site.marks"])
-    if case == "initdb_fails":
-        monkeypatch.setenv("STANDIN_FAIL_INITDB", "1")
-    work, state = tmp_path / "work", tmp_path / "state"
-    work.mkdir()
-    (work / "tb-drill-deadbeef-server").mkdir()  # a look-alike folder without the drill's mark or a record
-    res = rd.drill(box["file"], box["priv"], _planted_env(box, live), work=work, free=_plenty, state=state)
-    (work / "tb-drill-deadbeef-server").rmdir()  # it was left alone (rmdir fails otherwise)
-    _assert_confined(box, live, work, state)
-    text = json.dumps(res)
-    assert SENTINEL not in text and "PGPASSWORD" not in text
-    s = box["standin"]
-    assert all(i["pw_file"] and i["mode"] == "0o400" for i in _objects(s)["initdb"])
-    assert not any(_objects(s).get("pw_at_start", []))
-    assert all(c["pgpassword_in_env"] for c in _calls(s) if c["argv"][0] == "exec")
-    assert not list(work.rglob("pw"))
-    if case == "pass":
-        assert res["ok"] and res["server"]["removed"] and res["scratch_dropped"], res
-    elif case == "initdb_fails":  # nothing was created on a server that never started: nothing is listed
-        assert not res["ok"] and "initdb" in res["error"] and "server" not in res, res
-        assert res["scratch_dropped"] == [] and res["databases"] == {} and "left_behind" not in res, res
-        assert "scratch_removed_with_server" not in res
-    else:
-        assert not res["ok"] and res["scratch_dropped"] and "left_behind" not in res, res
-        assert ("differ" in res["error"]) if case == "mismatch" else ("pg_restore" in res["error"])
+    """Replace Docker transport only. Run the real PostgreSQL programs and the image's unpack and compare code."""
+    import secrets
+    from urllib.parse import urlsplit, urlunsplit
+
+    from psycopg import sql
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+    from tools.trialbox import __main__ as entry
+    from tools.trialbox import box_drill, update
+
+    dsn = split_url(box["url"])[0]
+    with psycopg.connect(dsn) as con:
+        row = con.execute("SELECT rolname FROM pg_roles WHERE rolsuper AND rolcanlogin ORDER BY oid LIMIT 1").fetchone()
+    assert row is not None
+    admin = row[0]
+    owner = "drill_" + secrets.token_hex(6)
+    parts = urlsplit(box["url"])
+    limited_url = urlunsplit(parts._replace(netloc=owner + "@" + parts.netloc.rpartition("@")[2]))
+    settings = tmp_path / "deploy"
+    settings.mkdir()
+    (settings / ".env").write_text(f"TB_DB_URL={limited_url}\n")
+    conn = conninfo_to_dict(dsn)
+    pg_env = {"PGHOST": conn["host"], "POSTGRES_USER": admin, "POSTGRES_DB": conn["dbname"]}
+    if "port" in conn:
+        pg_env["PGPORT"] = conn["port"]
+
+    visited = []
+    audit_events = []
+    run_cmd = update.run_cmd
+    installed = box_drill.BoxDrill(settings)
+
+    def docker(argv: list[str], stdin_file: Path | None = None, env: dict[str, str] | None = None) -> str:
+        if argv[:2] == [*installed.box.docker, "inspect"]:
+            assert argv[-1] == "synthetic-container-id"
+            return json.dumps([{"Destination": "/var/lib/postgresql/data", "Source": str(tmp_path)}])
+        if argv == installed.box._c("ps", "-q", "db"):
+            return "synthetic-container-id"
+        if box_drill.MODULE in argv:
+            args = argv[argv.index(box_drill.MODULE) + 1 :]
+            work = Path(next(v.removesuffix(":/work:ro").removesuffix(":/work") for v in argv if ":/work" in v))
+            visited.append(args[0])
+            if args[0] == "unpack":
+                assert "--network" in argv and argv[argv.index("--network") + 1] == "none"
+                assert f"{box['priv']}:/key:ro" in argv
+                args = ["unpack", str(box["file"]), str(box["priv"])]
+            else:
+                assert "container:synthetic-container-id" in argv
+                assert env == {"TB_DB_URL": limited_url} and limited_url not in argv
+                assert str(box["priv"]) not in " ".join(argv)
+                monkeypatch.setenv("TB_DB_URL", limited_url)
+            return json.dumps(box_drill.image_step(args, work))
+        assert argv[: len(installed.box.compose)] == installed.box.compose
+        if "orchestrator" in argv:
+            assert stdin_file is not None
+            audit_events.append(json.loads(stdin_file.read_text()))
+            return ""
+        cmd = argv[argv.index("db") + 1 :]
+        visited.append(cmd[0])
+        return run_cmd(cmd, stdin_file=stdin_file, env=pg_env)
+
+    with psycopg.connect(dsn, user=admin, autocommit=True) as con:
+        # A second, empty source database exercises a full HAPI dump alongside the workflow's schema-filtered dump.
+        source_name = rd.SCRATCH_PREFIX + secrets.token_hex(6)
+        privileged = make_conninfo(dsn, user=admin)
+        rd._create(privileged, source_name)
+        try:
+            sources = {**box["env"], "TB_HAPI_DB_URL": make_conninfo(privileged, dbname=source_name)}
+            box["file"], *_ = bk.backup([tmp_path / "both"], tmp_path / "box/backup.pub", env=sources, dirs=box["dirs"])
+        finally:
+            rd._drop(privileged, source_name)
+        con.execute(sql.SQL("CREATE ROLE {} LOGIN NOCREATEDB").format(sql.Identifier(owner)))
+        try:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                rd._create(split_url(limited_url)[0], rd.SCRATCH_PREFIX + secrets.token_hex(8))
+            monkeypatch.setattr(installed.box, "run", docker)
+            assert installed.data_dir() == tmp_path
+            # The CLI's default deploy path is beside the signed release tools.
+            monkeypatch.setattr(entry, "__file__", str(tmp_path / "tools/trialbox/__main__.py"))
+            monkeypatch.setattr(update, "run_cmd", docker)
+            monkeypatch.setenv("TB_DB_URL", "postgresql://wrong-host/wrong-db")
+            assert cli(["restore-drill", str(box["file"]), "--key", str(box["priv"])], installed=True) == 0
+            res = json.loads(capsys.readouterr().out)
+            assert (settings / "site" / metrics.VERIFIED_FILE).is_file()
+            assert [event["event"] for event in audit_events] == [rd.EVENT]
+            assert str(box["priv"]) not in json.dumps(audit_events)
+            assert res["ok"], res
+            assert visited == ["unpack", "sh", "pg_restore", "compare", "sh", "pg_restore", "compare", "sh", "sh"]
+            assert set(res["databases"]) == {"trialbox_wf", "hapi"}
+            assert res["scratch_dropped"] and not _scratch_dbs(box["url"])
+            assert res["unpacked_removed"] and res["databases"]["trialbox_wf"]["differ_count"] == 0
+        finally:
+            con.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(owner)))
 
 
-def test_the_throwaway_is_started_confined_with_the_box_image_limits_and_label(
-    box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_the_module_form_keeps_the_callers_connection_beside_site_settings(
+    box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
 ) -> None:
-    monkeypatch.setattr(rd, "_password", lambda: SENTINEL)
-    res = rd.drill(box["file"], box["priv"], box["env"], work=tmp_path, free=_plenty)
-    assert res["ok"], res
-    runs = [c["argv"] for c in _calls(box["standin"]) if c["argv"][0] == "run"]
-    assert len(runs) == 2
-    init, srv = runs
-    name = f"tb-restore-drill-{res['drill']}"
-    for a in runs:
-        for flag, want in (("--network", "none"), ("--pull", "never"), ("--user", "999:999"), ("--memory", rd.MEMORY),
-                           ("--memory-swap", rd.MEMORY), ("--pids-limit", str(rd.PIDS)), ("--cap-drop", "ALL"),
-                           ("--label", f"tb.restore-drill={res['drill']}")):  # fmt: skip
-            assert a[a.index(flag) + 1] == want, (flag, a)
-        assert "--rm" in a and "--read-only" in a and box["standin"]["image"] in a
-        assert not any(x.startswith(("-p", "--publish", "--net=", "--network=", "--add-host", "--link")) and
-                       x not in ("--pids-limit", "--pull") for x in a), a  # fmt: skip
-        assert "-e" not in a and "--env" not in a and "--env-file" not in a, a  # no secret in the container's config
-    assert init[init.index("--name") + 1] == f"{name}-init" and init[init.index("--entrypoint") + 1] == "initdb"
-    assert "--pwfile=/run/tb-drill/pw" in init and "--auth-local=scram-sha-256" in init and "--auth-host=reject" in init
-    assert srv[srv.index("--name") + 1] == name and "-d" in srv and srv[-2:] == ["-c", "listen_addresses="]
-    mounts = [srv[i + 1] for i, x in enumerate(srv) if x == "-v"]
-    sock = next(m.split(":")[0] for m in mounts if m.endswith(":/var/run/postgresql"))
-    assert f"{sock}:{sock}" in mounts and len(mounts) == 3 and len(f"{sock}/.s.PGSQL.5432") <= rd.SOCK_MAX
-    execs = [c["argv"] for c in _calls(box["standin"]) if c["argv"][0] == "exec"]
-    assert execs and all(a[:5] == ["exec", "-i", "-e", "PGPASSWORD", name] and a[5] == "pg_restore" for a in execs)
-    for a in execs:  # the very flags of trialbox restore (backup.restore_db), the throwaway's socket as the host
-        assert a[6:11] == ["--clean", "--if-exists", "--no-owner", "--no-privileges", "--single-transaction"]
-        assert f"host={sock}" in a[a.index("--dbname") + 1] and "password" not in a[a.index("--dbname") + 1]
-    owned = {(Path(p).name, u, g) for p, u, g in box["standin"]["owned"]}  # the database user's, on a box (root)
-    assert owned >= {("data", 999, 999), ("s", 999, 999), ("secret", 999, 999), ("pw", 999, 999)}
-
-
-def test_refusals_start_nothing_and_say_why(
-    box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    state = tmp_path / "state"
-
-    def nothing_made() -> None:
-        assert not [c for c in _calls(box["standin"]) if c["argv"][0] in ("run", "exec", "rm")]
-        assert (
-            not list(state.glob("*.json")) and not list(tmp_path.glob("tb-drill-*")) and _scratch_dbs(box["url"]) == []
-        )
-
-    def run(**k: Any) -> dict[str, Any]:
-        return rd.drill(box["file"], box["priv"], box["env"], work=tmp_path, free=_plenty, state=state, **k)
-
-    monkeypatch.setenv("STANDIN_NO_DAEMON", "1")
-    with pytest.raises(rd.DrillError, match="Docker is not available"):
-        run()
-    monkeypatch.delenv("STANDIN_NO_DAEMON")
-    monkeypatch.setenv("STANDIN_IMAGES", "something-else:1")
-    with pytest.raises(rd.DrillError, match="is not on this box.*never pulls"):
-        run()
-    monkeypatch.setenv("STANDIN_IMAGES", box["standin"]["image"])
-    with pytest.raises(rd.DrillError, match="not enough free memory"):
-        run(mem_free=lambda: 10)
-    held = rd._lock(state)
-    held.__enter__()
-    try:
-        with pytest.raises(rd.DrillError, match="still running"):
-            run()
-    finally:
-        held.__exit__(None, None, None)
-    nothing_made()
-    assert not any(c["argv"][0] == "image" and "pull" in c["argv"] for c in _calls(box["standin"]))
-
-
-def test_the_image_is_the_one_the_box_runs(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert rd.db_image({}) == images_lock.load()["images"]["db"]["image"]
-    assert rd.db_image({"POSTGRES_IMAGE": "site/postgres:16-x"}) == "site/postgres:16-x"  # as the compose file reads it
-
-
-def _cli_env(box: dict[str, Any], live: _Recorder, **extra: str) -> dict[str, str]:
-    root = Path(__file__).resolve().parents[2]
-    return {**os.environ, **_planted_env(box, live), "PYTHONPATH": f"{root / 'libs'}:{root / 'services'}:{root}",
-            **extra}  # fmt: skip
-
-
-def _cli(box: dict[str, Any], tmp_path: Path, env: dict[str, str]) -> subprocess.Popen[bytes]:
-    root = Path(__file__).resolve().parents[2]
-    args = [sys.executable, "-m", "tools.trialbox", "restore-drill", str(box["file"]), "--key", str(box["priv"]),
-            "--work", str(tmp_path / "work"), "--deploy", str(tmp_path / "deploy"),
-            "--dir", f"audit={box['dirs']['audit']}"]  # fmt: skip
-    return subprocess.Popen(args, cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-
-def _wait_for(f: Path, p: subprocess.Popen[bytes]) -> None:
-    end = time.monotonic() + 60
-    while not f.exists():
-        assert p.poll() is None, p.communicate()
-        assert time.monotonic() < end, "the drill never reached its restore"
-        time.sleep(0.1)
-
-
-def test_sigterm_cleans_up_and_a_crash_is_swept_by_the_next_drill(
-    box: dict[str, Any], tmp_path: Path, live: _Recorder, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    (tmp_path / "work").mkdir()
-    state = tmp_path / "deploy" / "site" / "restore-drill"
-    hang = tmp_path / "hang"
-    env = _cli_env(box, live, STANDIN_HANG=str(hang))
-    p = _cli(box, tmp_path, env)
-    _wait_for(hang, p)
-    p.send_signal(signal.SIGTERM)
-    out, err = p.communicate(timeout=60)
-    assert p.returncode == 130 and b"interrupted" in err, (out, err)
-    _assert_confined(box, live, tmp_path / "work", state)
-    # a crash (kill -9): nothing of its own clean-up runs; its record says what it made
-    hang.unlink()
-    p = _cli(box, tmp_path, env)
-    _wait_for(hang, p)
-    p.send_signal(signal.SIGKILL)
-    p.wait(timeout=60)
-    with contextlib.suppress(ProcessLookupError):  # the crashed drill's docker client, as an orphan, ends too
-        os.kill(int(hang.read_text(encoding="utf-8")), signal.SIGKILL)
-    p.communicate(timeout=60)
-    recs = list(state.glob("*.json"))
-    assert len(recs) == 1
-    rec = json.loads(recs[0].read_text(encoding="utf-8"))
-    assert f"tb-restore-drill-{rec['drill']}" in _objects(box["standin"])["containers"]
-    assert all(Path(f).is_dir() for f in rec["folders"])
-    lookalike = tmp_path / "work" / f"tb-drill-{rec['drill']}x-server"
-    lookalike.mkdir()  # a folder with a drill's look but no mark: never swept
-    forged = tmp_path / "work" / "tb-drill-feedface-server"
-    forged.mkdir()  # named by a record, but without the drill's mark: never swept; nor is an unlabelled container
-    (state / "feedface.json").write_text(json.dumps({"drill": "feedface", "folders": [str(forged)],
-                                                     "containers": ["tb-restore-drill-lookalike"]}))  # fmt: skip
-    monkeypatch.delenv("STANDIN_HANG", raising=False)
-    res = rd.drill(box["file"], box["priv"], _planted_env(box, live), work=tmp_path / "work", free=_plenty,
-                   state=state)  # fmt: skip
-    assert res["ok"], res
-    assert f"container tb-restore-drill-{rec['drill']}" in res["swept"]
-    assert all(f"folder {f}" in res["swept"] for f in rec["folders"]) and not any(
-        Path(f).exists() for f in rec["folders"]
-    )
-    assert "tb-restore-drill-lookalike" in _objects(box["standin"])["containers"] and lookalike.is_dir()
-    assert forged.is_dir()  # (the record itself, naming nothing of a drill's, is dropped)
-    lookalike.rmdir()
-    forged.rmdir()
-    _assert_confined(box, live, tmp_path / "work", state)
-
-
-def test_the_sweep_removes_only_the_drills_own_containers_whatever_docker_lists(
-    standin: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    objs = _objects(standin)
-    objs["containers"]["tb-restore-drill-0badc0de"] = {"labels": {"tb.restore-drill": "0badc0de"}, "mounts": []}
-    objs["containers"]["tb-restore-drill-cafe0000"] = {"labels": {"tb.restore-drill": "cafe0000"}, "mounts": []}
-    standin["state"].write_text(json.dumps(objs), encoding="utf-8")
-    # a record that names another drill's container: removed only when its label is the record's drill
-    assert (
-        rd._rm_container(["docker"], "tb-restore-drill-cafe0000", "0badc0de")
-        and "tb-restore-drill-cafe0000" in (_objects(standin)["containers"])
-    )
-    monkeypatch.setenv("STANDIN_PS_ALL", "1")
-    state = tmp_path / "state"
-    state.mkdir()
-    swept = rd.sweep(["docker"], state)
-    left = _objects(standin)["containers"]
-    assert sorted(swept) == ["container tb-restore-drill-0badc0de", "container tb-restore-drill-cafe0000"]
-    assert left == BOX_OBJECTS["containers"]  # the box's db and the unlabelled look-alike are left alone
-    assert not [c for c in _calls(standin) if c["argv"][0] == "rm" and c["argv"][-1] in BOX_OBJECTS["containers"]]
-
-
-# ------------------------------------------------- H-88: the drill's restore in the box's Python image, sudo typed
-PY_IMAGE = "trialbox-py:h88-drill"
-
-
-@pytest.fixture
-def in_image(standin: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> str:
-    """The stand-in docker runs the box's Python image with this interpreter, as the image would (its PYTHONPATH)."""
-    root = Path(__file__).resolve().parents[2]
-    monkeypatch.setenv("STANDIN_PY_IMAGE", PY_IMAGE)
-    monkeypatch.setenv("STANDIN_PY", sys.executable)
-    monkeypatch.setenv("STANDIN_PY_PATH", f"{root / 'libs'}:{root / 'services'}:{root}")
-    monkeypatch.setenv("STANDIN_IMAGES", f"{standin['image']},{PY_IMAGE}")
-    return PY_IMAGE
-
-
-def _assert_split(box: dict[str, Any], live: _Recorder, work: Path, state: Path) -> list[str]:
-    """H-84's confinement, and for the drill's own container (H-88): no network, the box's image never pulled, no
-    Docker socket, nothing of the box mounted: the backup and the key read-only, the unpack folder and the
-    throwaway's socket folder, each at its own path; the password and the URLs by name only."""
-    s = box["standin"]
-    assert live.hits == 0, "a connection was opened to the live server"
-    after = _objects(s)
-    assert {k: after[k] for k in ("volumes", "networks")} == {k: BOX_OBJECTS[k] for k in ("volumes", "networks")}
-    assert {n: c for n, c in after["containers"].items() if not n.startswith("tb-restore-drill-") or
-            "tb.restore-drill" not in c["labels"]} == BOX_OBJECTS["containers"]  # fmt: skip
-    inner = [c["argv"] for c in _calls(s) if c["argv"][0] == "run" and PY_IMAGE in c["argv"]]
-    assert len(inner) == 1, inner
-    a = inner[0]
-    assert a.count("--network") == 1 and a[a.index("--network") + 1] == "none" and a[a.index("--pull") + 1] == "never"
-    assert a[a.index("--cap-drop") + 1] == "ALL" and "--privileged" not in a and "-p" not in a, a
-    mounts = [a[i + 1] for i, x in enumerate(a) if x == "-v"]
-    file, key = box["file"].resolve(), box["priv"].resolve()
-    assert f"{file}:{file}:ro" in mounts and f"{key}:{key}:ro" in mounts and len(mounts) == 4, mounts
-    for m in mounts:
-        src = m.split(":")[0]
-        assert "docker.sock" not in m and "deploy" not in m and "volumes" not in m, m
-        assert src in (str(file), str(key)) or src.startswith(str(work)) or Path(src).name.startswith("tbd-"), m
-    envs = [a[i + 1] for i, x in enumerate(a) if x == "-e"]
-    assert set(envs) - {f"TMPDIR={m.split(':')[0]}/t" for m in mounts} == {*rd.PASSED, "PYTHONDONTWRITEBYTECODE=1"}, (
-        envs
-    )  # values by name, never on the line
-    for c in _calls(s):
-        assert SENTINEL not in json.dumps(c["argv"]) and "x@127.0.0.1" not in json.dumps(c["argv"]), c["argv"]
-        if c["argv"][0] in {"rm", "exec"}:
-            assert any(x.startswith("tb-restore-drill-") for x in c["argv"]) and "deploy-db-1" not in c["argv"]
-    assert _scratch_dbs(box["url"]) == []
-    assert not list(work.glob("tb-drill-*")) and not list(state.glob("*.json"))
-    assert box["db"].fetchall("SELECT count(*) FROM marks") == [(2,)]
-    return [str(x) for x in a]
-
-
-@pytest.mark.parametrize("case", ["pass", "restore_fails", "wrong_key"])
-def test_a_drill_in_the_image_never_touches_the_live_server_or_any_object_of_the_box(
-    box: dict[str, Any], tmp_path: Path, live: _Recorder, in_image: str, monkeypatch: pytest.MonkeyPatch, case: str
-) -> None:
-    """THE INVARIANT of H-84, kept for H-88's split: the host part (Docker, the throwaway, the records) here, the
-    unpack, restore and comparison in a container of the box's Python image that reaches the throwaway's socket
-    folder and nothing else; its restores are run in the throwaway, from a dump of the unpack folder only."""
-    monkeypatch.setattr(rd, "_password", lambda: SENTINEL)
-    if case == "restore_fails":
-        monkeypatch.setenv("STANDIN_FAIL_PG_RESTORE", "1")
-    key = box["priv"]
-    if case == "wrong_key":
-        other = tmp_path / "other"
-        bk.keygen(other / "k.key", other / "k.pub")
-        box = {**box, "priv": other / "k.key"}
-    work, state = tmp_path / "work", tmp_path / "state"
-    work.mkdir()
-    res = rd.drill(box["file"], box["priv"], _planted_env(box, live), work=work, free=_plenty, state=state,
-                   image=in_image)  # fmt: skip
-    _assert_split(box, live, work, state)
-    assert SENTINEL not in json.dumps(res) and "PGPASSWORD" not in json.dumps(res)
-    if case == "pass":
-        assert res["ok"] and res["server"]["removed"] and res["scratch_dropped"], res
-        assert res["databases"]["trialbox_wf"]["differ_count"] == 0 and res["created_at"], res
-        execs = [c["argv"] for c in _calls(box["standin"]) if c["argv"][0] == "exec" and "pg_restore" in c["argv"]]
-        assert execs and all(a[a.index("pg_restore") + 1 : a.index("pg_restore") + 7] == rd.RESTORE_FLAGS
-                             for a in execs), execs  # fmt: skip
-    else:
-        assert not res["ok"] and "left_behind" not in res, res
-        assert ("pg_restore" in res["error"]) if case == "restore_fails" else res["error"], res
-    assert key.is_file()
-
-
-def test_a_restore_the_drill_did_not_ask_for_is_refused(tmp_path: Path) -> None:
-    """The host runs only the drill's own restore: its flags, its scratch database on its socket, a dump of its unpack
-    folder (a container that asks for more, or for another database, gets nothing)."""
-    unpacked = tmp_path / "u"
-    (unpacked / "db").mkdir(parents=True)
-    (unpacked / "db" / "trialbox_wf.dump").write_bytes(b"PGDMP")
-    (tmp_path / "outside.dump").write_bytes(b"PGDMP")
-    srv = rd.Throwaway("cafe0123", "db:1", ["false"], tmp_path / "srv", tmp_path / "tbd")
-    good = [*rd.RESTORE_FLAGS, "--dbname", f"host={srv.sock} port=5432 user=postgres dbname=tb_drill_cafe0123_x"]
-    for args, dump in [
-        ([*rd.RESTORE_FLAGS, "--dbname", f"host={srv.sock} port=5432 user=postgres dbname=trialbox_wf"], "db/trialbox_wf.dump"),
-        ([*rd.RESTORE_FLAGS, "--dbname", "host=db port=5432 user=trialbox dbname=tb_drill_cafe0123_x"], "db/trialbox_wf.dump"),
-        ([*rd.RESTORE_FLAGS[:-1], "-f", "/x", "--dbname", good[-1]], "db/trialbox_wf.dump"),
-        ([*rd.RESTORE_FLAGS[:-1], "--create", "--dbname", good[-1]], "db/trialbox_wf.dump"),  # as long, not its flags
-        (good, "../outside.dump"),  # a file that is there, outside the unpack folder
-    ]:  # fmt: skip
-        req = tmp_path / "q.req"
-        req.write_text(json.dumps({"args": args, "dump": str(unpacked / dump)}), encoding="utf-8")
-        rc, why = rd._restore_here(req, srv, unpacked)
-        assert rc == 2 and why.startswith("refused"), (args, dump, rc, why)
-
-
-def test_the_host_record_finds_the_audit_folder_as_backup_does() -> None:
-    """restore_drill.audit_layout is backup.layout's audit folder, for the host's python3 (no backup.py there)."""
-    assert rd.audit_layout({}) == {"audit": bk.layout({})["audit"]}
-    assert rd.audit_layout({}, ["audit=/srv/a", "lake=/srv/l"]) == {"audit": Path("/srv/a")}
-    assert rd.audit_layout({"TB_BACKUP_DIRS": "lake=/l,audit=/a"}) == {"audit": Path("/a")}
-    assert bk.VOLUME_ROOT.format(bk.DEFAULT_DIRS["audit"]) == rd.AUDIT_VOLUME
-
-
-SUDO = """#!/bin/sh
-# sudo: the caller's environment is dropped (env_reset); secure_path, HOME, the user's names and TERM are set
-exec env -i PATH="{path}" HOME=/root USER=root LOGNAME=root SHELL=/bin/sh TERM=dumb SUDO_USER=hospital-it "$@"
-"""
-
-
-def _system_python(d: Path) -> Path:
-    """A python3 with the standard library and PyYAML only: the host's, as install.sh requires it."""
-    import yaml
-
-    base = getattr(sys, "_base_executable", None) or sys.executable
-    subprocess.run([base, "-m", "venv", "--without-pip", str(d / "venv")], check=True, capture_output=True)
-    site = next((d / "venv" / "lib").glob("python3*/site-packages"))
-    have = Path(yaml.__file__).resolve().parent.parent
-    for name in ("yaml", "_yaml"):
-        if (have / name).exists():
-            (site / name).symlink_to(have / name)
-    py = d / "venv" / "bin" / "python3"
-    for mod in ("psycopg", "zstandard", "cryptography", "tb_common"):
-        r = subprocess.run(
-            [str(py), "-c", f"import {mod}"], cwd="/", env={"PATH": "/usr/bin:/bin"}, capture_output=True, check=False
-        )
-        assert r.returncode != 0, f"the stand-in system python has {mod}"
-    return py
-
-
-def test_the_drill_typed_with_sudo_as_the_runbook_writes_it_runs_from_a_bare_environment(
-    box: dict[str, Any], tmp_path: Path, live: _Recorder, in_image: str
-) -> None:
-    """H-88 (the bench's step 8: "No module named 'tb_common'", then "TB_DB_URL is not set"): ``sudo python3 -m
-    tools.trialbox restore-drill <file> --key <key>`` from the install folder, with sudo dropping the caller's
-    environment and the host's python3 (no psycopg, zstandard, cryptography): the settings come from the box's
-    deploy/.env, the restore runs in the box's Python image, and nothing live is touched."""
-    root = Path(__file__).resolve().parents[2]
-    inst = tmp_path / "opt" / "trialbox"
-    skip = shutil.ignore_patterns("__pycache__", "*.pyc", "site", ".env")
-    for sub in ("tools", "libs", "deploy"):
-        shutil.copytree(root / sub, inst / sub, ignore=skip, symlinks=True)
-    planted = _planted_env(box, live)
-    (inst / "deploy" / ".env").write_text(f"TB_DB_URL={planted['TB_DB_URL']}\nTB_IMAGE={in_image}\nTB_ENV=TEST\n",
-                                          encoding="utf-8")  # fmt: skip
-    py = _system_python(tmp_path / "system-python")
-    bindir = tmp_path / "sudo-bin"
-    bindir.mkdir()
-    secure = f"{bindir}:/usr/sbin:/usr/bin:/bin"
-    keep = {k: v for k, v in os.environ.items() if k.startswith("STANDIN_")}
-    exports = "".join(f"export {k}={shlex.quote(v)}\n" for k, v in keep.items())
-    files = {"python3": f'#!/bin/sh\nexec {py} "$@"\n', "sudo": SUDO.format(path=secure),
-             "docker": f'#!/bin/sh\n{exports}exec {box["standin"]["bin"] / "docker"} "$@"\n'}  # fmt: skip
-    for name, text in files.items():
-        (bindir / name).write_text(text, encoding="utf-8")
-        (bindir / name).chmod(0o755)
-    work, deploy = tmp_path / "work", inst / "deploy"
-    work.mkdir()
-    cmd = shlex.join(["sudo", "python3", "-m", "tools.trialbox", "restore-drill", str(box["file"]), "--key",
-                      str(box["priv"]), "--work", str(work), "--dir", f"audit={box['dirs']['audit']}"])  # fmt: skip
-    caller = {"PATH": secure, "TB_DB_URL": "postgresql://x:caller@caller-host:5432/x", "PYTHONPATH": str(tmp_path)}
-    r = subprocess.run(["/bin/sh", "-c", cmd], cwd=inst, env=caller, capture_output=True, text=True, timeout=600,
-                       check=False)  # fmt: skip
-    text = r.stdout + r.stderr
-    assert "No module named" not in text and "TB_DB_URL is not set" not in text, text[-3000:]
-    assert r.returncode == 0, text[-3000:]
-    res = json.loads(r.stdout)
-    assert res["ok"] and res["server"]["removed"] and res["audit"] == str(box["dirs"]["audit"]), res
-    assert (deploy / "site" / metrics.VERIFIED_FILE).is_file()
-    _assert_split(box, live, work, deploy / "site" / "restore-drill")
-    assert "caller-host" not in json.dumps(_calls(box["standin"])), "the caller's TB_DB_URL reached the drill"
+    """Review of #1305 (12): ``python -m tools.trialbox restore-drill`` switched to the box's Compose stack whenever
+    ``deploy/.env`` existed, ignoring the caller's TB_DB_URL and ``--dir``. Only the installed command uses the box."""
+    for k, v in box["env"].items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(shutil, "disk_usage", lambda _p: type("U", (), {"free": 10**12})())
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    (deploy / ".env").write_text("TB_DB_URL=postgresql://box-owner@db:5432/trialbox_wf\n", encoding="utf-8")
+    rehearsal = tmp_path / "rehearsal-audit"
+    rehearsal.mkdir()
+    args = ["restore-drill", str(box["file"]), "--key", str(box["priv"]), "--work", str(tmp_path),
+            "--db-dir", str(tmp_path), "--deploy", str(deploy), "--dir", f"audit={rehearsal}"]  # fmt: skip
+    assert cli(args) == 0, capsys.readouterr().err
+    assert json.loads(capsys.readouterr().out)["ok"]
+    events = [json.loads(x) for f in rehearsal.rglob("*.jsonl") for x in f.read_text().splitlines()]
+    assert any(e.get("event") == rd.EVENT for e in events)

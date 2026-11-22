@@ -1,3 +1,4 @@
+#!/usr/bin/python3 -I
 """``python -m tools.trialbox <command>`` (spec v4 §18). Commands: ``doctor``, ``eval``, ``backup-keygen``,
 ``backup``, ``backup-check`` (D-178), ``backup-verify``, ``restore`` (D-126, ``tools/trialbox/backup.py``),
 ``restore-drill`` (T-730d, D-892, ``restore_drill.py``);
@@ -32,7 +33,7 @@ import tempfile
 from pathlib import Path
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args[:1] == ["platform-day2"]:  # its own options (platform_day2.py); `pg` passes its arguments through
         from tools.trialbox import platform_day2
@@ -154,13 +155,13 @@ def main(argv: list[str] | None = None) -> int:
     kept = Path(__file__).resolve().parents[2] / "deploy" / "refdata" / "loaded"
     r.add_argument("--refdata", type=Path, default=Path(os.environ.get("TB_REFDATA_DIR") or kept),
                    help="the kept reference packs (default: TB_REFDATA_DIR or deploy/refdata/loaded)")  # fmt: skip
-    rd = sub.add_parser("restore-drill", help="prove a backup restores, in a throwaway db server (key in hand; D-892)")
+    rd = sub.add_parser("restore-drill", help="prove a backup restores, into scratch databases (needs the key; D-892)")
     rd.add_argument("file", type=Path)
     rd.add_argument("--key", type=Path, required=True)
     rd.add_argument("--dir", action="append", default=[], help="the audit folder, as restore takes it")
     rd.add_argument("--work", type=Path, default=None, help="where the backup is unpacked (default: the temp folder)")
     rd.add_argument("--db-dir", type=Path, default=None,
-                    help="where the throwaway database server keeps its data (default: --work)")  # fmt: skip
+                    help="the database's folder, for the space check (default: Docker root, else --work)")  # fmt: skip
     rd.add_argument("--deploy", type=Path, default=Path(__file__).resolve().parents[2] / "deploy",
                     help="where deploy/site/backup-verified.json goes")  # fmt: skip
     deploy = Path(__file__).resolve().parents[2] / "deploy"
@@ -342,7 +343,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd in ("backup-keygen", "backup", "backup-check", "backup-verify", "restore"):
         return _backup_cmd(a)
     if a.cmd == "restore-drill":
-        return _drill_cmd(a)
+        return _drill_cmd(a, installed)
     if a.cmd in ("platform-images", "platform-egress"):
         return _platform_cmd(a)
     if a.cmd == "doctor" and a.preflight:
@@ -501,31 +502,41 @@ def _secrets_cmd(a: argparse.Namespace) -> int:
         return 1
 
 
-def _drill_cmd(a: argparse.Namespace) -> int:
-    """T-730d (D-892): the restore drill, printed as JSON; exit 0 on a pass, 1 on a fail, 2 when nothing started,
-    130 when interrupted (Ctrl-C, SIGTERM) after its clean-up."""
-    from tools.trialbox import launch
+def _drill_cmd(a: argparse.Namespace, installed: bool) -> int:
+    """T-730d (D-892): the restore drill, printed as JSON; exit 0 on a pass, 1 on a fail, 2 when nothing started."""
     from tools.trialbox import restore_drill as rd
 
-    here = launch.has_libs(rd.LIBS)  # H-88: else the drill's restore runs in the box's Python image
-    if here:
-        from tools.trialbox import backup as bk
+    docker_root = Path("/var/lib/docker")
+    db_dir = a.db_dir or (docker_root if docker_root.is_dir() else None)
+    res = None
+    try:
+        # The installed command (on PATH) uses the box's settings even if another connection was exported by the
+        # caller. The module form never switches on its own: it uses the caller's connection and --dir.
+        if installed:
+            from tools.trialbox.box_drill import BoxDrill
 
-        errors: tuple[type[Exception], ...] = (rd.DrillError, bk.BackupError, OSError)
-    else:
-        errors = (rd.DrillError, OSError)
-    try:  # H-84: the drill's records, for the next drill's sweep, beside the key-check record
-        res = rd.drill(a.file, a.key, os.environ, work=a.work, db_dir=a.db_dir,
-                       state=a.deploy / "site" / "restore-drill")  # fmt: skip
-        dirs = bk.layout(os.environ, a.dir) if here else rd.audit_layout(os.environ, a.dir)
-    except errors as e:
-        print(f"restore-drill: {e}", file=sys.stderr)
-        return 2
-    except (KeyboardInterrupt, rd.SigtermError):
-        print("restore-drill: interrupted; the throwaway server and the unpacked files were removed (what could not "
-              "be is removed by the next drill)", file=sys.stderr)  # fmt: skip
-        return 130
-    res["audit"] = rd.record(a.deploy, res, os.environ, dirs)
+            box = BoxDrill(a.deploy)
+            res = rd.drill(a.file, a.key, box.env, work=a.work, db_dir=a.db_dir or box.data_dir(), ops=box)
+            # As in tools.trialbox.ops, the box's host Python can read metrics without third-party modules.
+            libs = str(Path(__file__).resolve().parents[2] / "libs")
+            if libs not in sys.path:
+                sys.path.insert(0, libs)
+            from tb_common import metrics
+
+            metrics.record_drill(a.deploy, res)
+            box.audit(rd.EVENT, rd.audit_detail(res))
+        else:
+            from tools.trialbox import backup as bk
+
+            res = rd.drill(a.file, a.key, os.environ, work=a.work, db_dir=db_dir)
+            res["audit"] = rd.record(a.deploy, res, os.environ, bk.layout(os.environ, a.dir))
+    except (RuntimeError, ValueError, OSError) as e:
+        if res is None:
+            print(f"restore-drill: {e}", file=sys.stderr)
+            return 2
+        print(json.dumps(res, indent=1, ensure_ascii=False))
+        print(f"restore-drill: could not record the result: {e}", file=sys.stderr)
+        return 1
     print(json.dumps(res, indent=1, ensure_ascii=False))
     if not res["ok"]:
         print(f"restore-drill: FAILED: {res.get('error')}", file=sys.stderr)
@@ -673,7 +684,8 @@ def _backup_cmd(a: argparse.Namespace) -> int:
 
 
 if __name__ == "__main__":
-    from tools.trialbox import launch  # H-88: its own import path, the box's settings, the box image when needed
-
-    _code = launch.enter(sys.argv[1:])
-    raise SystemExit(main() if _code is None else _code)
+    # install.sh links this signed file onto PATH. Keep relative input paths relative to the operator's shell.
+    if not __package__:
+        root = Path(__file__).resolve().parents[2]
+        sys.path[:0] = [str(root), str(root / "libs"), str(root / "services")]
+    raise SystemExit(main(installed=not __package__))
