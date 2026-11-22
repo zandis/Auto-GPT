@@ -2,8 +2,8 @@
 
 After an install nothing on the box said which back end sealed the keys: seal_keys.sh chose it (tpm, then
 hardening.conf's KEK_BACKEND, then TB_KEK_BACKEND) and said it only in a log line, and under tpm the key tool's own
-kek.json says ``file``. seal_keys.sh now writes ``kek-backend`` beside the keys once its last step has passed, and
-install.sh copies that word into deploy/.env (TB_KEK_BACKEND, where the host check reads it); it never works the back
+kek.json says ``file``. seal_keys.sh --record FILE now writes the word once its last step has passed (install.sh: deploy/site/kek-backend,
+which the settings wizard's rewrite of deploy/.env leaves alone), and install.sh copies it into deploy/.env (TB_KEK_BACKEND, where the host check reads it); it never works the back
 end out itself. A dry run, a TPM that cannot seal and a box whose KEK exists already write no record."""
 
 from __future__ import annotations
@@ -62,17 +62,18 @@ def _conf(tmp: Path, backend: str) -> Path:
 
 
 def _seal(tmp: Path, env: dict[str, str], conf: Path | None = None, *extra: str) -> subprocess.CompletedProcess[str]:
-    args = ["sh", str(SEAL), "--secrets", str(tmp / "secrets"), "--conf", str(conf or tmp / "no-such.conf"), *extra]
+    args = ["sh", str(SEAL), "--secrets", str(tmp / "secrets"), "--conf", str(conf or tmp / "no-such.conf")]
+    args += ["--record", str(_record(tmp)), *extra]
     return subprocess.run(args, capture_output=True, text=True, env=env, check=False)
 
 
 def _record(tmp: Path) -> Path:
-    return tmp / "secrets" / "kek-backend"
+    return tmp / "deploy" / "site" / "kek-backend"
 
 
 def _no_record(tmp: Path) -> None:
     assert not _record(tmp).exists()
-    assert not (tmp / "secrets" / "kek-backend.tmp").exists()
+    assert not _record(tmp).with_name("kek-backend.tmp").exists()
 
 
 @pytest.mark.parametrize("backend", ["tpm", "shamir", "passphrase"])
@@ -81,21 +82,22 @@ def test_each_back_end_records_its_own_name(tmp_path: Path, backend: str) -> Non
     assert res.returncode == 0, res.stderr
     rec = _record(tmp_path)
     assert rec.read_text(encoding="utf-8") == backend + "\n"
-    assert rec.stat().st_mode & 0o777 == 0o600  # no wider than the keys beside it
-    assert (tmp_path / "secrets" / K.META_FILE).stat().st_mode & 0o077 == 0
-    assert not (tmp_path / "secrets" / "kek-backend.tmp").exists()
+    assert rec.stat().st_mode & 0o777 == 0o600  # no wider than the keys
+    assert not rec.with_name("kek-backend.tmp").exists()
+    assert sorted(p.name for p in rec.parent.iterdir()) == ["kek-backend"]
     assert f"the KEK back end is recorded: {backend}" in res.stdout
 
 
 def test_a_tpm_that_cannot_seal_records_nothing_and_keeps_an_earlier_record(tmp_path: Path) -> None:
     env = _host(tmp_path, SEAL_FAILS)
+    _record(tmp_path).parent.mkdir(parents=True)
     _record(tmp_path).write_text("shamir\n", encoding="utf-8")  # an earlier record, whatever it said
     res = _seal(tmp_path, {**env, "TB_KEK_BACKEND": "tpm"})
     assert res.returncode != 0 and "nothing was changed" in res.stderr
     assert not (tmp_path / "secrets" / K.META_FILE).exists()
     assert (tmp_path / "secrets" / "site_hmac.key").is_file()  # still plain
     assert _record(tmp_path).read_text(encoding="utf-8") == "shamir\n"
-    assert not (tmp_path / "secrets" / "kek-backend.tmp").exists()
+    assert not _record(tmp_path).with_name("kek-backend.tmp").exists()
 
 
 @pytest.mark.parametrize("creds", ['case "$1" in has-tpm2) echo partial; exit 1 ;; esac\n', None])
@@ -151,7 +153,7 @@ SEAL_BLOCK = INSTALL[
 def _install(
     tmp: Path, env: dict[str, str], conf_text: str | None, profile: str = "standard", site: str = "VALIDATION"
 ) -> subprocess.CompletedProcess[str]:
-    (tmp / "deploy" / "site").mkdir(parents=True)
+    (tmp / "deploy" / "site").mkdir(parents=True, exist_ok=True)
     (tmp / "deploy" / "hardening").symlink_to(ROOT / "deploy" / "hardening")
     (tmp / "tools").symlink_to(ROOT / "tools")
     (tmp / "libs").symlink_to(ROOT / "libs")
@@ -232,7 +234,8 @@ def test_install_does_not_work_the_back_end_out_itself() -> None:
     """Only seal_keys.sh decides: after the seal the installer reads the record and nothing else."""
     after = SEAL_BLOCK[SEAL_BLOCK.index("sh deploy/hardening/seal_keys.sh") :]
     after = after[after.index("\n", after.index("|| die")) :]  # the lines after the seal's own refusal
-    assert '"$SEC_DIR/kek-backend"' in after and "envset TB_KEK_BACKEND" in after
+    assert "< deploy/site/kek-backend)" in after and "envset TB_KEK_BACKEND" in after
+    assert "--record deploy/site/kek-backend" in SEAL_BLOCK
     for guess in ("has-tpm2", "hb_load_conf", "KEK_BACKEND=", "${TB_KEK_BACKEND", "$HB_CONF", "/dev/tpm"):
         assert guess not in after, guess
 
@@ -263,11 +266,12 @@ def test_a_later_step_that_fails_records_nothing(tmp_path: Path, backend: str, s
         encoding="utf-8",
     )
     fake.chmod(0o755)
+    _record(tmp_path).parent.mkdir(parents=True)
     _record(tmp_path).write_text("shamir\n", encoding="utf-8")
     res = _seal(tmp_path, {**env, "TB_KEK_BACKEND": backend})
     assert res.returncode != 0
     assert _record(tmp_path).read_text(encoding="utf-8") == "shamir\n"  # the earlier record, untouched
-    assert not (tmp_path / "secrets" / "kek-backend.tmp").exists()
+    assert not _record(tmp_path).with_name("kek-backend.tmp").exists()
 
 
 def test_install_copies_no_record_that_is_not_a_back_end_name(tmp_path: Path) -> None:
@@ -283,6 +287,19 @@ def test_install_copies_no_record_that_is_not_a_back_end_name(tmp_path: Path) ->
 def test_the_record_is_written_whole_then_renamed() -> None:
     """A reader never sees half a record: written to kek-backend.tmp, then renamed over kek-backend."""
     seal = SEAL.read_text(encoding="utf-8")
-    tail = seal[seal.index('REC="$SECRETS/kek-backend"') :]
+    tail = seal[seal.index('if [ -n "$REC" ]; then') :]
     assert '> "$REC.tmp"' in tail and 'mv -f "$REC.tmp" "$REC"' in tail
     assert '> "$REC"' not in tail and '>> "$REC' not in tail
+
+
+def test_without_record_nothing_is_written(tmp_path: Path) -> None:
+    """The callers of before (box-install.sh's deferred seal, the rehearsal) pass no --record: nothing new appears."""
+    env = {**_host(tmp_path), "TB_KEK_BACKEND": "passphrase"}
+    before = {p.name for p in tmp_path.iterdir()}
+    res = subprocess.run(
+        ["sh", str(SEAL), "--secrets", str(tmp_path / "secrets"), "--conf", str(tmp_path / "no-such.conf")],
+        capture_output=True, text=True, env=env, check=False,
+    )  # fmt: skip
+    assert res.returncode == 0, res.stderr
+    assert {p.name for p in tmp_path.iterdir()} == before | {"kek.runtime"}
+    assert "kek-backend" not in {p.name for p in (tmp_path / "secrets").iterdir()}

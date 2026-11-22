@@ -2,7 +2,7 @@
 # The site keys sealed at install (T-634, D-408, D-347; OPS-043). install.sh runs it right after the keys are made
 # and before the stack starts; safe to run again.
 #
-#   deploy/hardening/seal_keys.sh --secrets DIR [--conf deploy/site/hardening.conf] [--dry-run]
+#   deploy/hardening/seal_keys.sh --secrets DIR [--conf deploy/site/hardening.conf] [--record FILE] [--dry-run]
 #
 # A box with a KEK already (kek.json in the secrets folder): any key still plain is wrapped (tools.keys wrap), which
 # needs the KEK unsealed. A box without one: a KEK is made by KEK_BACKEND and every key is wrapped (tools.keys init):
@@ -20,11 +20,12 @@ set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 . "$HERE/lib.sh"
-CONF="$ROOT/deploy/site/hardening.conf"; SECRETS=""
+CONF="$ROOT/deploy/site/hardening.conf"; SECRETS=""; REC=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --secrets) SECRETS="$2"; shift ;;
     --conf) CONF="$2"; shift ;;
+    --record) REC="$2"; shift ;;
     --dry-run) DRY=1 ;;
     *) echo "seal_keys.sh: unknown option $1" >&2; exit 2 ;;
   esac
@@ -130,11 +131,12 @@ if [ "${OWNER%%:*}" != 0 ] && [ "$(id -u)" = 0 ]; then
   find "$SECRETS" -maxdepth 1 -type f -user 0 -exec chown "$OWNER" {} +
   [ -f "$KEK_FILE" ] && chown "$OWNER" "$KEK_FILE" "$(dirname "$KEK_FILE")"
 fi
-# H-77 (F-22): the back end this run sealed with, recorded beside the keys only now that every step above passed (a dry
-# run, a failed seal and a box with a KEK already never get here: an earlier record stays as it was). The name only,
-# owner only like the keys; install.sh copies it to deploy/.env (TB_KEK_BACKEND), where the host check reads it
-REC="$SECRETS/kek-backend"
-( umask 077; printf '%s\n' "$KEK_BACKEND" > "$REC.tmp" )
-if [ "${OWNER%%:*}" != 0 ] && [ "$(id -u)" = 0 ]; then chown "$OWNER" "$REC.tmp"; fi
-mv -f "$REC.tmp" "$REC"
-hb_say "the KEK back end is recorded: $KEK_BACKEND ($REC)"
+# H-77 (F-22): --record FILE gets the back end this run sealed with, only now that every step above passed (a dry run,
+# a failed seal and a box with a KEK already never get here: an earlier record stays as it was). The name only, owner
+# only; install.sh copies it to deploy/.env (TB_KEK_BACKEND), where the host check reads it
+if [ -n "$REC" ]; then
+  mkdir -p "$(dirname "$REC")"
+  ( umask 077; printf '%s\n' "$KEK_BACKEND" > "$REC.tmp" )
+  mv -f "$REC.tmp" "$REC"
+  hb_say "the KEK back end is recorded: $KEK_BACKEND ($REC)"
+fi
