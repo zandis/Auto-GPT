@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 
 KEY = b"k" * 32
-MRN = "00012345"
+RAW_ID = "00012345"
 NAME = "試験 花子"
 
 
@@ -35,10 +35,10 @@ def test_bulk_pseudonymisation_drops_names_and_chart_numbers_from_narrative_and_
     export: list[dict[str, Any]] = [
         {
             "resourceType": "Patient",
-            "id": MRN,
-            "text": {"status": "generated", "div": f'<div xmlns="http://www.w3.org/1999/xhtml">{NAME} {MRN}</div>'},
+            "id": RAW_ID,
+            "text": {"status": "generated", "div": f'<div xmlns="http://www.w3.org/1999/xhtml">{NAME} {RAW_ID}</div>'},
             "name": [{"text": NAME}],
-            "identifier": [{"value": MRN}],
+            "identifier": [{"value": RAW_ID}],
             "gender": "female",
             "birthDate": "1960-01-01",
         },
@@ -46,16 +46,16 @@ def test_bulk_pseudonymisation_drops_names_and_chart_numbers_from_narrative_and_
             "resourceType": "Condition",
             "id": "C1",
             "subject": {
-                "reference": f"Patient/{MRN}",
+                "reference": f"Patient/{RAW_ID}",
                 "display": NAME,
-                "identifier": {"system": "urn:example:mrn", "value": MRN},
+                "identifier": {"system": "urn:example:mrn", "value": RAW_ID},
             },
             "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10", "code": "E11.9"}]},
         },
     ]
     text = json.dumps(_pseudonymised(export), ensure_ascii=False)
     assert NAME not in text
-    assert MRN not in text
+    assert RAW_ID not in text
 
 
 @pytest.mark.xfail(
@@ -64,7 +64,7 @@ def test_bulk_pseudonymisation_drops_names_and_chart_numbers_from_narrative_and_
 )
 @pytest.mark.parametrize(
     "ref",
-    [f"https://his.example.invalid/fhir/Patient/{MRN}", f"Patient/{MRN}/_history/2"],
+    [f"https://his.example.invalid/fhir/Patient/{RAW_ID}", f"Patient/{RAW_ID}/_history/2"],
     ids=["absolute", "versioned"],
 )
 def test_bulk_reference_forms_reach_the_patients_pseudonym(ref: str) -> None:
@@ -73,13 +73,13 @@ def test_bulk_reference_forms_reach_the_patients_pseudonym(ref: str) -> None:
     from tb_common.crypto import pid_for_mrn
 
     export: list[dict[str, Any]] = [
-        {"resourceType": "Patient", "id": MRN, "gender": "female", "birthDate": "1960-01-01"},
+        {"resourceType": "Patient", "id": RAW_ID, "gender": "female", "birthDate": "1960-01-01"},
         {"resourceType": "Condition", "id": "C1", "subject": {"reference": ref}},
     ]
     out = _pseudonymised(export)
     cond = next(r for r in out if r["resourceType"] == "Condition")
-    assert MRN not in json.dumps(out)
-    assert cond["subject"]["reference"] == f"Patient/{pid_for_mrn(KEY, MRN)}"
+    assert RAW_ID not in json.dumps(out)
+    assert cond["subject"]["reference"] == f"Patient/{pid_for_mrn(KEY, RAW_ID)}"
 
 
 @pytest.mark.xfail(
