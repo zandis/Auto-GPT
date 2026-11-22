@@ -268,7 +268,7 @@ def test_an_old_form_schedule_is_reported_and_replaced(box: dict[str, Any], tmp_
     inp = doctor.inputs_from(env_file=box["deploy"] / ".env", settings=None, routing=None, lake=None)
     inp.cron_dir = cron
     check = doctor.check_backup(inp)
-    assert "old form" in check.detail and "backup-install" in check.detail, check
+    assert check.status != "PASS" and "old form" in check.detail and "backup-install" in check.detail, check
 
 
 # ------------------------------------------------------------------------------- every host command, bare

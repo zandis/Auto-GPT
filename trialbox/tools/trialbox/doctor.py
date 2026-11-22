@@ -1010,11 +1010,12 @@ def check_backup(inp: DoctorInputs) -> Check:
     if inp.cron_dir.is_dir() and not (inp.cron_dir / bs.CRON_NAME).is_file():
         fails.append(f"no {inp.cron_dir / bs.CRON_NAME}: python3 -m tools.trialbox backup-install (RUNBOOK §5)")
     warns = []
+    old_form = ""
     with contextlib.suppress(OSError):  # H-88: a schedule installed before the tools brought their own environment
-        why = bs.cron_old_form((inp.cron_dir / bs.CRON_NAME).read_text(encoding="utf-8"))
-        if why:
-            warns.append(f"{inp.cron_dir / bs.CRON_NAME} is of the old form ({why}): run python3 -m tools.trialbox "
-                         "backup-install --deploy deploy again to replace it (RUNBOOK §5)")  # fmt: skip
+        old_form = bs.cron_old_form((inp.cron_dir / bs.CRON_NAME).read_text(encoding="utf-8"))
+        if old_form:
+            warns.append(f"{inp.cron_dir / bs.CRON_NAME} is of the old form ({old_form}): run python3 -m "
+                         "tools.trialbox backup-install --deploy deploy again to replace it (RUNBOOK §5)")  # fmt: skip
     if cfg.page_only(bs.has_mta()):
         warns.append("the only backup alert route is the health page: nobody is mailed, someone must open /admin "
                      "every working day (TB_BACKUP_ALERT_ROUTE, D-735; RUNBOOK §5); " + cfg.page_watch())  # fmt: skip
@@ -1026,7 +1027,7 @@ def check_backup(inp: DoctorInputs) -> Check:
         f"{Path(good['path']).name} ({st['age_hours']} h old)" if good else "none")  # fmt: skip
     if fails:
         return Check("backup", "FAIL" if prod else "WARN", "; ".join(fails + warns) + f" ({facts})")
-    if warns and prod:
+    if warns and (prod or old_form):  # H-88: the old-form schedule is said in every environment
         return Check("backup", "WARN", "; ".join(warns) + f" ({facts})")
     return Check("backup", "PASS", facts)
 

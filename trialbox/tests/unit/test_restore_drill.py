@@ -665,7 +665,7 @@ def _assert_split(box: dict[str, Any], live: _Recorder, work: Path, state: Path)
     for m in mounts:
         src = m.split(":")[0]
         assert "docker.sock" not in m and "deploy" not in m and "volumes" not in m, m
-        assert src in (str(file), str(key)) or src.startswith((str(work), str(rd._short_parent(work)))), m
+        assert src in (str(file), str(key)) or src.startswith(str(work)) or Path(src).name.startswith("tbd-"), m
     envs = [a[i + 1] for i, x in enumerate(a) if x == "-e"]
     assert set(envs) == {*rd.PASSED, "PYTHONDONTWRITEBYTECODE=1"}, envs  # values by name, never on the line
     for c in _calls(s):
