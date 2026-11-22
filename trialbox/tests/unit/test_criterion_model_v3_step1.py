@@ -785,7 +785,9 @@ def _one(review: dict[str, Any], pid: str, cid: str) -> Outcome:
 
 
 def test_h1_an_atom_read_at_the_index_date_never_moves_onto_the_anchor(review: dict[str, Any]) -> None:
-    """A criterion that mixes a window on an event (or a planned start) with an atom v1 reads at the index date
+    """invariant: an atom is never decided at a date it does not carry.
+
+    A criterion that mixes a window on an event (or a planned start) with an atom v1 reads at the index date
     (no window, an age, a score) names two dates. Step 1 runs one: a person decides, the engine gives no answer."""
     for doc, why in ((H1_INFECTION, "a1"), (H1_AGE, "a1")):
         with pytest.raises(NotStep1, match=f"atom {why} is read at the index date"):
