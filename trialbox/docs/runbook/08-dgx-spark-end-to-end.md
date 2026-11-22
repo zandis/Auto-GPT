@@ -46,7 +46,7 @@ install.
 
 | Symptom | Fix |
 | --- | --- |
-| host check fails on driver or runtime | install and hold 580.142; `nvidia-ctk runtime configure --runtime=docker` |
+| host check fails on driver or runtime | install and hold 580.142; `nvidia-ctk runtime configure --runtime=docker` rewrites `/etc/docker/daemon.json`, so first, when it exists, `sudo cp -p /etc/docker/daemon.json /etc/docker/daemon.json.$(date +%Y%m%d-%H%M).bak` (to put it back: `sudo cp -p /etc/docker/daemon.json.<date>.bak /etc/docker/daemon.json`; `sudo systemctl restart docker`); then `sudo nvidia-ctk runtime configure --runtime=docker`; `sudo systemctl restart docker` |
 | pin refuses the files | safetensors or GGUF only; remove `.bin` and `.py` files |
 | llm-service or llm-verifier times out | first load takes up to 10 min; out of memory: lower `JUDGE_GPU_MEM_UTIL` or `JUDGE_MAX_LEN` |
 | gateway `build_unpinned` | the gateway started before the pin: `docker compose restart gateway` |

@@ -69,11 +69,15 @@ Not verified on any Arm machine. Page 29 (step 4) runs it after the engine probe
 | E9 | What to send back | `deploy/poc.sh report > ~/tb-embedder.txt`; `cat ~/tb-embedder.txt` | the services and their states, their memory, `embed-service TB_EMBED_MODE: model` and the embedder's pin | send `~/tb-embedder.txt` only. Not the start's own output: it shows the admin password and your folder names |
 
 The choice is kept in `deploy/.env` (`TB_POC_EMBED=model`): a later plain `deploy/poc.sh` keeps the real embedder. To
-go back, `deploy/poc.sh reset` and then `TB_POC_EMBED=hash deploy/poc.sh`. This manual download is replaced by the
-the repository's weights command (`tools/fetch_weights.py`) once it has an embedder target: today it fetches a GPU profile's pair only, from the file list of a measured serving record, and the embedder has no such record.
+go back, `deploy/poc.sh reset` and then `TB_POC_EMBED=hash deploy/poc.sh`. The embedder has a measured record now
+(`deploy/measured/embedder_files.e-embed-1.json`), and the repository's weights command fetches it with `--embedder`
+(`tools/fetch_weights.py`), but only together with a GPU profile's two models; on this machine, without a model, the
+manual download above stays.
 
 ## Only when we ask: the engine probe (no model)
 
-Replaced by page 29 step 2: one command (`python3 tools/engine_probe.py run`) tries the pinned engine as it is, with
+Replaced by page 29 step 2: one command (`python3 tools/engine_probe.py run --gpu-args "--gpus device=0"`) tries the pinned engine as it is, with
 its compatibility switch, with its compatibility libraries, and the same release's CUDA 12.9 build, one image at a
-time, and writes one small file to send. The commands that were here did half of that by hand.
+time, and writes one small file to send. The commands that were here did half of that by hand. The command names one
+card: `nvidia-smi -L` lists the cards with their index (`GPU 0: …`), and that index goes after `device=`. Its default
+is `--gpus all`: on a host with other work on other cards, never use `all`.
