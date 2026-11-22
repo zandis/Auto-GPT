@@ -2,8 +2,9 @@
 # The 48 GB measuring run on an existing host (lane H, card H-67): steps s05 to s14 of tools/measure48-vm.sh against
 # a checkout, on ONE card chosen by its index, with no VM and nothing of the cloud.
 #
-#   tools/measure48-host.sh preflight --gpu-index N --run-dir DIR [--weights-dir DIR] [--pull]
-#   tools/measure48-host.sh run       --gpu-index N --run-dir DIR [--weights-dir DIR] [--pull] [--no-o] [--run-id ID]
+#   tools/measure48-host.sh preflight --gpu-index N --run-dir DIR [--weights-dir DIR] [--pull] [BENCH]
+#   tools/measure48-host.sh run       --gpu-index N --run-dir DIR [--weights-dir DIR] [--pull] [--no-o] [--run-id ID] [BENCH]
+#   BENCH: --bench-driver-exception forward-compat --engine-probe FILE   (the bench host only; never an install)
 #
 # preflight  changes nothing: it prints what the run needs and what the host has, and exits 2 on any problem.
 # run        the same preflight, then the steps; the packed records in DIR/out (the VM form's allow-list and
@@ -22,7 +23,16 @@
 # trialbox-*, volumes trialbox_*) and the ballast's container tb-ballast-<run id>; it refuses to start when any of them
 # exists already, and removes them at the end (on success, on failure, on SIGINT and SIGTERM, at the cap). The box's
 # images it builds are listed in records/docker-objects.json and kept (the build cache too: Docker cannot tell this
-# run's cache from another user's).
+# run's cache from another user's); it refuses to start when any image of the box's names (trialbox-*) exists already,
+# since the stub would build over it (card H-72: a host with an installed box is refused, not shared).
+# The preflight also refuses a driver below what the engine image's CUDA needs (deploy/images.lock gpu.driver_min).
+# Card H-74, the bench host's exception: with --bench-driver-exception forward-compat (an option only: no default, no
+# environment variable) and --engine-probe FILE (tools/engine_probe.py's result), a driver below the minimum passes
+# only when that probe passed with a forward-compatibility form of the pinned image (pinned+compat or pinned+libs) on
+# this card's model and this driver (tools/measure48_vm.py bench-exception); s08 then serves with that form
+# (ballast48 measure --engine FORM --probe FILE: the probe's own container environment), and the preflight, records/head.json, records/bench-exception.json, host.log and
+# out/BENCH-EXCEPTION.txt say "bench exception: driver <found> with the forward-compatibility path; not valid for an
+# install". deploy/check_host.sh, deploy/install.sh and tools/images_lock.py have no such exception.
 #
 # The stop line and the cap are the VM form's (measure48_vm.py stop-line-min: 204 min with stage O; the cap 240 min),
 # counted from the start of the steps and kept by this script itself: at the stop line the running tool gets SIGINT
@@ -47,7 +57,7 @@ usage() {
   exit 2
 }
 CMD=${1:-}; [ $# -gt 0 ] && shift
-GPU_INDEX=""; RUN_DIR=""; WEIGHTS=""; CHECKOUT=$HERE; PULL=0; TAKE_O=1; RUN_ID=""
+GPU_INDEX=""; RUN_DIR=""; WEIGHTS=""; CHECKOUT=$HERE; PULL=0; TAKE_O=1; RUN_ID=""; BENCH=""; PROBE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --gpu-index) GPU_INDEX=${2:-}; shift 2 || usage "--gpu-index needs a number" ;;
@@ -55,6 +65,8 @@ while [ $# -gt 0 ]; do
     --weights-dir) WEIGHTS=${2:-}; shift 2 || usage "--weights-dir needs a folder" ;;
     --checkout) CHECKOUT=${2:-}; shift 2 || usage "--checkout needs a folder" ;;
     --run-id) RUN_ID=${2:-}; shift 2 || usage "--run-id needs a name" ;;
+    --bench-driver-exception) BENCH=${2:-}; shift 2 || usage "--bench-driver-exception needs its kind: forward-compat" ;;
+    --engine-probe) PROBE=${2:-}; shift 2 || usage "--engine-probe needs the engine probe's result file" ;;
     --pull) PULL=1; shift ;;
     --no-o) TAKE_O=0; shift ;;
     *) usage "unknown argument: $1" ;;
@@ -64,6 +76,12 @@ case "$CMD" in preflight|run) ;; *) usage "preflight or run first" ;; esac
 [[ "$GPU_INDEX" =~ ^[0-9]+$ ]] || usage "--gpu-index N is required (the card's nvidia-smi index)"
 [ -n "$RUN_DIR" ] || usage "--run-dir DIR is required (the one folder the run writes in)"
 case "$RUN_DIR" in /*) ;; *) RUN_DIR="$PWD/$RUN_DIR" ;; esac
+case "$BENCH" in
+  "") [ -z "$PROBE" ] || usage "--engine-probe is read only with --bench-driver-exception forward-compat" ;;
+  forward-compat) [ -n "$PROBE" ] || usage "--bench-driver-exception forward-compat needs --engine-probe FILE (tools/engine_probe.py run --out FILE)"
+                  case "$PROBE" in /*) ;; *) PROBE="$PWD/$PROBE" ;; esac ;;
+  *) usage "--bench-driver-exception: the one kind is forward-compat" ;;
+esac
 CHECKOUT=$(cd "$CHECKOUT" 2> /dev/null && pwd) || usage "--checkout: no such folder"
 WEIGHTS=${WEIGHTS:-$CHECKOUT/deploy/models}
 case "$WEIGHTS" in /*) ;; *) WEIGHTS="$PWD/$WEIGHTS" ;; esac
@@ -83,7 +101,7 @@ tick() { :; }
 say() { echo "TB-M48 $(stamp) $*" | if [ -d "$RUN" ]; then tee -a "$RUN/host.log"; else cat; fi; }
 
 # ------------------------------------------------------------------ the preflight: reads only, changes nothing
-PRE=""; PROBLEMS=0; GPU_UUID=""; DOCKER_ROOT=""
+PRE=""; PROBLEMS=0; GPU_UUID=""; DOCKER_ROOT=""; BENCH_REC=""; ENGINE=()
 pf() {  # pf ok|NO|note <text>
   local line="preflight: $1: $2"
   PRE="$PRE$line"$'\n'; echo "$line"
@@ -97,6 +115,22 @@ screen_missing() {  # what the screen's steps (s09, s10) need of the host and do
   for l in jpn chi_tra eng; do grep -qx "$l" <<< "$langs" || miss="$miss tesseract $l,"; done
   for t in curl xz git; do command -v "$t" > /dev/null || miss="$miss $t,"; done
   printf '%s' "${miss%,}"
+}
+bench_check() {  # bench_check <driver> <images_lock's FAIL text>: the bench host's exception (H-74), or the refusal
+  local drv=$1 why=$2 card ref res line
+  card=$(nvidia-smi -i "$GPU_INDEX" --query-gpu=name --format=csv,noheader 2> /dev/null | head -n 1 | sed 's/^ *//; s/ *$//')
+  ref=$(tool pinned_ref 2> /dev/null)
+  if res=$(h bench-exception --probe "$PROBE" --driver "$drv" --card "$card" --pinned "$ref" --lock "$HERE/deploy/images.lock"); then
+    BENCH_REC=${res#OK$'\t'}
+    ENGINE=(--engine "$(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["engine_form"])' "$BENCH_REC")" --probe "$PROBE")
+    pf note "card $GPU_INDEX: $why (deploy/images.lock gpu.driver_min)"
+    pf note "card $GPU_INDEX: $(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["words"])' "$BENCH_REC"); s08 serves with the engine probe's form ${ENGINE[1]}"
+    pf note "s08 and s13 start the servers with the probe's own container environment ($(python3 -c 'import json, sys; print(" ".join(f"{k}={v}" for k, v in sorted(json.loads(sys.argv[1])["engine_env"].items())))' "$BENCH_REC")): ballast48 measure --engine ${ENGINE[1]} --probe (H74-02)"
+    pf note "caution: $(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["caution"])' "$BENCH_REC")"
+  else
+    pf NO "card $GPU_INDEX: $why (deploy/images.lock gpu.driver_min); the bench exception is not granted:"
+    while IFS=$'\t' read -r _ line; do [ -z "$line" ] || pf NO "  $line"; done <<< "$res"
+  fi
 }
 preflight() {
   local docker_gb run_gb out ref n mib drv rt ver rented what
@@ -115,9 +149,18 @@ preflight() {
     GPU_UUID=$(printf '%s' "$out" | head -n 1 | cut -d, -f1 | tr -d ' ')
     drv=$(printf '%s' "$out" | head -n 1 | awk -F', *' '{print $NF}')
     pf ok "card $GPU_INDEX: $(printf '%s' "$out" | head -n 1 | cut -d, -f2,3 | sed 's/^ *//') MiB in all; driver $drv"
+    # the engine image's own need: deploy/images.lock gpu.driver_min (its CUDA), read by tools/images_lock.py host
+    out=$(python3 "$HERE/tools/images_lock.py" host --arch "$(uname -m)" --driver "$drv" 2> /dev/null | grep -m1 'NVIDIA driver')
+    case "$out" in
+      PASS*) pf ok "card $GPU_INDEX: $(sed 's/^PASS *//' <<< "$out") (deploy/images.lock)" ;;
+      FAIL*) if [ -n "$BENCH" ]; then bench_check "$drv" "$(printf '%s' "$out" | sed 's/^FAIL *//')"
+             else pf NO "card $GPU_INDEX: $(sed 's/^FAIL *//' <<< "$out") (deploy/images.lock gpu.driver_min); this script never installs a driver"; fi ;;
+      *) pf NO "card $GPU_INDEX: driver $drv could not be checked against deploy/images.lock (tools/images_lock.py host)" ;;
+    esac
+    case "$out" in PASS*) [ -z "$BENCH" ] || pf NO "--bench-driver-exception: driver $drv meets deploy/images.lock gpu.driver_min, no exception is needed: run without it" ;; esac
     rented=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import measure48_vm as m; print(m.RENTED_DRIVER_BRANCH)' "$HERE/tools")
     [ "${drv%%.*}" = "$rented" ] \
-      || pf note "driver $drv is not the rented run's branch ($rented): recorded; the run goes on (no minimum is set)"
+      || pf note "driver $drv is not the rented run's branch ($rented): recorded; the run goes on if it meets the engine image's minimum (above)"
   else pf NO "nvidia-smi has no card $GPU_INDEX: $(printf '%s' "$out" | head -n 1)"; fi
   # other processes on THAT card (a shared machine: how many and how much, never whose); other cards are not read
   if out=$(nvidia-smi -i "$GPU_INDEX" --query-compute-apps=pid,used_memory --format=csv,noheader,nounits 2> /dev/null); then
@@ -144,6 +187,11 @@ preflight() {
     out=$(objs); n=$(printf '%s' "$out" | grep -c .)
     if [ "$n" = 0 ]; then pf ok "no TrialBox objects on this host (compose project trialbox, trialbox-* networks, trialbox_* volumes, $BALLAST_NAME)"
     else pf NO "this host has $n Docker object(s) of the box's names already ($(cut -f1 <<< "$out" | sort | uniq -c | awk '{printf "%s%s %s", (NR > 1 ? ", " : ""), $1, $2}')): the run makes and removes objects of those names and shares none"; fi
+    # the box's images: the stub (s05, deploy/poc.sh) builds and tags trialbox-* images; an installed box's would be
+    # built over, so any image of those names already here refuses the run
+    out=$(images | grep '^trialbox-'); n=$(printf '%s' "$out" | grep -c .)
+    if [ "$n" = 0 ]; then pf ok "no images of the box's names on this host (trialbox-*: the stub builds and tags them)"
+    else pf NO "this host has $n image(s) of the box's names already ($(tr '\n' ' ' <<< "$out" | sed 's/ $//; s/ /, /g')): the stub (s05) builds and tags images of those names and would replace them; the run shares none"; fi
     ref=$(tool pinned_ref 2> /dev/null)
     if [ -z "$ref" ]; then pf NO "no pinned engine image (tools/engine_probe.py pinned_ref)"
     elif docker image inspect --format '{{.Id}}' "$ref" > /dev/null 2>&1; then pf ok "the engine image is here by digest: $ref"
@@ -276,8 +324,9 @@ printf '%s' "$PRE" > "$RUN/preflight.txt"
 kv gpu-uuid "$GPU_UUID"   # kv/ is never packed: the UUID stays on the host
 images > "$RUN/kv/images-before"
 git -C "$CHECKOUT" archive --format=tar HEAD . | tar -x -C "$W/src/trialbox" || { say "the checkout could not be copied"; exit 2; }
-python3 -c 'import json, sys; print(json.dumps({"head": sys.argv[1], "form": "an existing host (H-67)", "run_id": sys.argv[2]}))' \
-  "$(git -C "$CHECKOUT" rev-parse HEAD)" "$RUN_ID" > "$RUN/records/head.json"
+python3 -c 'import json, sys; b = json.loads(sys.argv[3] or "{}"); print(json.dumps({"head": sys.argv[1], "form": "an existing host (H-67)", "run_id": sys.argv[2], **({"bench_exception": b["words"], "driver_found": b["driver_found"], "driver_min": b["driver_min"], "engine_form": b["engine_form"]} if b else {})}))' \
+  "$(git -C "$CHECKOUT" rev-parse HEAD)" "$RUN_ID" "$BENCH_REC" > "$RUN/records/head.json"
+[ -z "$BENCH_REC" ] || printf '%s\n' "$BENCH_REC" > "$RUN/records/bench-exception.json"
 CK="$W/src/trialbox"
 GPU=(--gpu-index "$GPU_INDEX" --gpu-uuid "$GPU_UUID")
 DISK_PATH=$W; DOCKER_DISK_PATH=$(nearest_dir "${DOCKER_ROOT:-/}")
@@ -292,6 +341,7 @@ CAP_MIN=${TB_M48_CAP_MIN:-240}   # the VM form's cap (measure48_vm.py CAP_HOURS;
 LINE_S=$((LINE_MIN * 60)); CAP_S=$((CAP_MIN * 60))
 T0=$(date +%s); USED0=${TB_M48_USED0_S:-0}
 used() { echo $(( USED0 + ($(date +%s) - T0) * SCALE )); }
+[ -z "$BENCH_REC" ] || say "UNDER THE BENCH EXCEPTION: $(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["words"])' "$BENCH_REC"); its measurements are not a supported configuration"
 say "run $RUN_ID on card $GPU_INDEX: stop line $LINE_MIN min, cap $CAP_MIN min, optional stage O: $([ "$TAKE_O" = 1 ] && echo taken if time allows || echo not taken)"
 
 # the cap's watchdog: the script's own (nothing is powered off): at the cap it ends the steps; the end below runs
@@ -340,6 +390,10 @@ remove_objects; LEFT=$?
 [ "$LEFT" = 0 ] || say "LEFT BEHIND: $(tr '\t\n' ' ;' < "$RUN/kv/objects.after") (records/docker-objects.json)"
 h records --run "$RUN" --used-s "$(used)" --ended "$WHY" > /dev/null 2>&1
 pack
+if [ -n "$BENCH_REC" ]; then  # after the last pack (pack empties out/): every reader of out/ meets it first
+  python3 -c 'import json, sys; b = json.loads(sys.argv[1]); print(b["words"] + "."); print("driver found " + b["driver_found"] + ", deploy/images.lock gpu.driver_min " + b["driver_min"] + "; engine form " + b["engine_form"] + " (tools/engine_probe.py)."); print("Every measurement in this folder was taken under this exception: it is not a supported configuration and no profile follows from it."); print("Caution: " + b["caution"])' "$BENCH_REC" > "$W/out/BENCH-EXCEPTION.txt"
+  say "UNDER THE BENCH EXCEPTION: out/BENCH-EXCEPTION.txt"
+fi
 say "the run ended: $WHY; the records are in the run folder's out/"
 case "$STOPPED" in
   "") case "$WHY" in complete*) RC=0 ;; *) RC=1 ;; esac ;;

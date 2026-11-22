@@ -29,7 +29,7 @@ ADMIN = "standin-admin-pass-42"
 CARD = 3
 UUIDS = [f"GPU-{i}{i}{i}{i}aaaa-0000-0000-0000-00000000000{i}" for i in range(8)]
 TOTAL = 183359  # a large card of the existing host
-DRIVER = "575.57.08"
+DRIVER = "590.44.01"  # at or above deploy/images.lock gpu.driver_min, not the rented run's 580 branch (H-72)
 
 SMI = r"""#!@PY@
 import json, os, sys
@@ -357,6 +357,8 @@ def test_the_preflight_passes_and_changes_nothing(rig: Rig) -> None:
     assert f"driver {DRIVER} is not the rented run's branch (580): recorded" in r.stdout  # a note, not a refusal
     assert "the NVIDIA runtime is registered with Docker" in r.stdout
     assert "the engine image is here by digest" in r.stdout
+    assert f"card {CARD}: NVIDIA driver {DRIVER} runs CUDA" in r.stdout  # deploy/images.lock gpu.driver_min (H-72)
+    assert "no images of the box's names on this host" in r.stdout
     assert "Docker's data root: 200.0 GB free, 14 GB needed" in r.stdout
     assert "the run folder: 200.0 GB free, 10 GB needed" in r.stdout
     assert not rig.run_dir.exists()
@@ -383,6 +385,18 @@ def test_the_preflight_passes_and_changes_nothing(rig: Rig) -> None:
             "this host has 1 Docker object(s) of the box's names already (1 container)",
         ),
         ({"docker": {"volumes": ["trialbox_db"]}}, {}, (), "of the box's names already (1 volume)"),
+        (
+            {"docker": {"images": ["vllm/vllm-openai:v0.32.0@sha256:0000", "trialbox-py:1.0.0", "trialbox-jvm:1.0.0"]}},
+            {},
+            (),
+            "this host has 2 image(s) of the box's names already (trialbox-jvm:1.0.0, trialbox-py:1.0.0)",
+        ),
+        (
+            {"smi": {"driver": "575.57.08"}},
+            {},
+            (),
+            f"card {CARD}: NVIDIA driver 575.57.08 is below 580.65.06, the lowest that runs the vLLM image",
+        ),
         ({}, {"M48_WEIGHTS_RC": "1"}, (), "the weights in --weights-dir are not the pinned builds: NOT OK"),
         ({}, {"TB_M48_DOCKER_FREE_BYTES": str(10 * 10**9)}, (), "Docker's data root: 10.0 GB free, 14 GB needed"),
         ({}, {"TB_M48_DOCKER_FREE_BYTES": str(40 * 10**9)}, ("--pull",), "40.0 GB free, 44 GB needed"),
@@ -399,6 +413,8 @@ def test_each_preflight_refusal_is_named_and_nothing_changes(rig: Rig, setup: di
                                                              args: tuple[str, ...], said: str) -> None:  # fmt: skip
     if "docker" in setup:
         rig.dock(**setup["docker"])
+    if "smi" in setup:
+        rig.smi(**setup["smi"])
     r = rig.go("preflight", *args, **env)
     assert r.returncode == 2, r.stdout
     assert said in r.stdout, r.stdout
@@ -651,3 +667,30 @@ def test_the_stop_line_and_the_cap_are_the_vm_forms() -> None:
 
 def test_the_script_is_bash_clean() -> None:
     assert subprocess.run(["bash", "-n", str(SCRIPT)], check=False).returncode == 0
+
+
+# ------------------------------------------------------------------------------------------------ H-72
+
+
+def test_a_driver_below_the_engines_minimum_refuses_the_run_before_anything_starts(rig: Rig) -> None:
+    """H-72: the existing host's 575 driver cannot start the CUDA 13 engine image (deploy/images.lock gpu.driver_min);
+    the run is refused at its preflight, with the driver found and the one needed, and nothing is made."""
+    rig.smi(driver="575.57.08")
+    r = rig.go("run")
+    assert r.returncode == 2, r.stdout
+    assert "NVIDIA driver 575.57.08 is below 580.65.06" in r.stdout
+    assert "this script never installs a driver" in r.stdout
+    assert not rig.run_dir.exists()
+    assert not rig.calls.exists() or "poc" not in rig.calls.read_text()
+    rig.assert_nothing_forbidden_and_others_untouched()
+
+
+def test_an_installed_boxs_images_refuse_the_run_and_are_left_as_they_were(rig: Rig) -> None:
+    """H-72: the stub builds trialbox-* images; a host with an installed box's images is refused, never built over."""
+    imgs = ["vllm/vllm-openai:v0.32.0@sha256:0000", "someone/else:1", "trialbox-py:1.0.0"]
+    rig.dock(images=imgs)
+    r = rig.go("run")
+    assert r.returncode == 2, r.stdout
+    assert "1 image(s) of the box's names already (trialbox-py:1.0.0)" in r.stdout
+    assert rig.docker["images"] == imgs and not rig.run_dir.exists()
+    rig.assert_nothing_forbidden_and_others_untouched()

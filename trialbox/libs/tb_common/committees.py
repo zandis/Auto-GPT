@@ -86,7 +86,7 @@ def on(country: str) -> bool:
     from tb_common import country_layer
 
     lay = country_layer.layer(country)
-    return lay.broken or lay.value("P3", "committees") is not None
+    return lay.broken or bool(lay.value("P3", "committees"))
 
 
 def committee_of(kind: str) -> str:
