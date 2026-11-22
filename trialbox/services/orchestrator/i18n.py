@@ -58,6 +58,11 @@ T: dict[str, dict[str, str]] = {
         "mail.failed": "Job `{job}` (**{title}**) failed.\n\n- Step: **{step}**\n- Reason: {reason}\n\nNothing was sent to "
         "other recipients. Fix the request and send it again, or reply `STATUS {job}` for the job record.",
         "mail.status": "Job `{job}` is **{state}**.",
+        # F-44: the nightly ingest's process ended by a signal (its number and name, from the adapter's run record)
+        "ingest.signal": "The nightly ingest's process was ended by signal {number} ({name}) before it answered. Run it "
+        "again.",
+        "ingest.signal_kill": "The nightly ingest's process was ended by signal {number} ({name}) before it answered. "
+        "The usual cause is the adapter's memory limit: the kernel ends the process when it reaches it.",
         "screen.scope1": "Ruleset {rs} v{ver}, run {run}, snapshot {snapshot}.",
         "screen.whole_hospital": "all (the whole hospital)",
         "screen.scope2": "Scope: practitioners {pract}; appointments in the next {window} days or an encounter in the "
@@ -193,6 +198,8 @@ T: dict[str, dict[str, str]] = {
         "mail.failed": "ジョブ `{job}`（**{title}**）は失敗しました。\n\n- 工程: **{step}**\n- 理由: {reason}\n\n他の宛先には何も送られて"
         "いません。リクエストを修正して再送するか、`STATUS {job}` と返信してジョブ記録を確認してください。",
         "mail.status": "ジョブ `{job}` の状態は **{state}** です。",
+        "ingest.signal": "夜間の取り込みのプロセスは、応答する前にシグナル {number}（{name}）で終了しました。もう一度実行してください。",
+        "ingest.signal_kill": "夜間の取り込みのプロセスは、応答する前にシグナル {number}（{name}）で終了しました。よくある原因は adapter のメモリ上限です（上限に達するとカーネルがプロセスを終了します）。",
         "screen.scope1": "ルールセット {rs} v{ver}、実行日 {run}、スナップショット {snapshot}。",
         "screen.whole_hospital": "全員（病院全体）",
         "screen.scope2": "対象：担当医 {pract}；今後 {window} 日以内の予約、または過去 12 か月の受診がある患者；{scoped} 名を評価。",
@@ -321,6 +328,8 @@ T: dict[str, dict[str, str]] = {
         "mail.failed": "工作 `{job}`（**{title}**）失敗。\n\n- 步驟：**{step}**\n- 原因：{reason}\n\n未寄送任何內容給其他收件人。"
         "請修正請求後重送，或回覆 `STATUS {job}` 查看工作紀錄。",
         "mail.status": "工作 `{job}` 目前為 **{state}**。",
+        "ingest.signal": "夜間匯入的程序在回應前被訊號 {number}（{name}）終止。請再執行一次。",
+        "ingest.signal_kill": "夜間匯入的程序在回應前被訊號 {number}（{name}）終止。常見原因是 adapter 的記憶體上限：達到上限時，核心會終止該程序。",
         "screen.scope1": "規則集 {rs} v{ver}，執行日 {run}，快照 {snapshot}。",
         "screen.whole_hospital": "全部（全院）",
         "screen.scope2": "範圍：主治醫師 {pract}；未來 {window} 天內有預約或過去 12 個月內有就診的病人；共評估 {scoped} 位。",

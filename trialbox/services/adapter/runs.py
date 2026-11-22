@@ -15,6 +15,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import signal
 import threading
 from datetime import date, timedelta
 from pathlib import Path
@@ -32,6 +33,24 @@ _one_at_a_time = threading.Lock()
 ENDED_WITHOUT_ANSWER = (
     "the ingest's process ended without an answer (it was killed, or the box restarted); run it again"
 )
+#: F-44: a signal's number -> its name ("SIGKILL"), from the platform's own list
+_SIGNAL_NAMES = {int(s): s.name for s in signal.Signals}
+
+
+def signal_name(number: int) -> str:
+    """The name of signal ``number`` ("SIGKILL" for 9); ``"unknown"`` for a number the platform does not list."""
+    return _SIGNAL_NAMES.get(number, "unknown")
+
+
+def ended_by_signal(number: int) -> str:
+    """F-44: the run's record for an ingest whose process a signal ended (a return code of ``-number``): it names
+    the signal; for SIGKILL it says what usually sends it. Decided by the number only."""
+    said = f"the ingest's process ended without an answer: it was ended by signal {number} ({signal_name(number)})"
+    if number == signal.SIGKILL:
+        return (
+            f"{said}; the usual cause is the adapter's memory limit (the kernel ends the process at it); run it again"
+        )
+    return f"{said}; run it again"
 
 
 class RunLockHeld(RuntimeError):

@@ -114,7 +114,8 @@ def _run_in_process(state: dict[str, Any], lake_dir: Path, request: dict[str, An
     """Run one ingest as ``python -m adapter.run_job`` and wait for it (called in the service's waiting thread, which
     holds ``_running``). The child inherits the run lock's open file; this process closes its end and never
     unlocks. The run's record is on disk from before the child starts; the child writes its end. A child that ends
-    without an answer is ``failed``, with its exit code when it ended by itself."""
+    without an answer is ``failed``, with its exit code when it ended by itself, and with the signal (its number in
+    ``exit_signal``, F-44) when a signal ended it."""
     rid = str(state["run"])
     proc: subprocess.Popen[bytes] | None = None
     unreadable = False
@@ -146,6 +147,17 @@ def _run_in_process(state: dict[str, Any], lake_dir: Path, request: dict[str, An
         if end.get("state") == "failed" and end.get("detail") == runs.ENDED_WITHOUT_ANSWER and code > 0:
             end = {**end, "detail": f"the ingest's process ended with exit code {code} and no answer (the adapter's "
                                     "log has its error)"}  # fmt: skip
+        elif end.get("state") == "failed" and end.get("detail") == runs.ENDED_WITHOUT_ANSWER and code < 0:
+            # F-44: a signal ended it (the kernel at the memory limit sends SIGKILL): the record names the signal, by
+            # its number, for the orchestrator's job; and the log has the line the night left none of before
+            number = -code
+            end = {**end, "detail": runs.ended_by_signal(number), "exit_signal": number}
+            log.warning(
+                "ingest step failed: run %s was ended by signal %d (%s) with no answer",
+                rid,
+                number,
+                runs.signal_name(number),
+            )
         state.update(end)
     except Exception as exc:
         log.exception("ingest run %s could not be run as a process", rid)

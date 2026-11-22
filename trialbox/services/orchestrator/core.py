@@ -54,7 +54,7 @@ from tb_contracts import (
 )
 
 from orchestrator import i18n
-from orchestrator.clients import AdapterAPI, CompilerAPI, MailAPI, ParserAPI, StepFailed
+from orchestrator.clients import AdapterAPI, CompilerAPI, KeyedStepFailed, MailAPI, ParserAPI, StepFailed
 from orchestrator.db import TERMINAL, JobDB, JobLeased
 from orchestrator.jobs import guarded_services, max_restarts, pinned_services, release_hold
 
@@ -575,8 +575,13 @@ class Orchestrator:
         except Exception as exc:  # every failure becomes a Failed reply with the step
             job = self.db.get(job_id) or ctx.job
             err = _error(exc, job.state)
+            if isinstance(exc, KeyedStepFailed):  # F-44: said in the job's language from its catalogue key
+                err = err.model_copy(update={"message": i18n.t(self.lang(job), exc.key, **exc.values)})
             if not isinstance(exc, (StepFailed, RulesetNotApproved, RoutingViolation)):
                 log.exception("job %s failed in %s", job_id, job.state)
+            elif isinstance(exc, StepFailed):  # F-44: a failed step leaves its line too (the step and the detail,
+                # a service's run id or status: never the message, which can quote a pseudonymous patient id)
+                log.warning("job %s failed at step %s (%s)", job_id, exc.step, exc.detail or "no detail")
             more: dict[str, Any] = {}
             if ctx.step_clock is not None:  # H-45: the steps before the failure, on the write the failure makes
                 with contextlib.suppress(Exception):  # a timing never changes how a job fails
