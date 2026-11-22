@@ -39,6 +39,10 @@ of text that enters a bundle goes through it.
 - `history.jsonl` no longer says why a step failed, only the error's type (`CalledProcessError`, else `text`) and
   how long the text was. Support reads the reason on the box (`trialbox ops`), not in the bundle.
 - A UTF-16 or binary log is no longer in the bundle. Its name and why are in `MANIFEST.json` `left_out`.
+- A line with an encoded character (`%2F`, `\u0022`, `&quot;`) that held a token or a secret is kept decoded and
+  scrubbed: its escapes are gone, so it reads as plain text (review round 1, H1).
+- `-u user:password`, `--password X`, `<password>` elements and a value under `password:` are `[redacted]` too.
+- A bundle takes longer to make: about 50 s for each 15 MB log in this container.
 - Some ordinary words are masked as well (the over-masks below). A bundle is a little harder to read. It does not
   get bigger.
 - Nothing changes for the operator's command line. A scrub that cannot read its declarations refuses the bundle:
@@ -72,18 +76,58 @@ JSON-escaped, base64 (both alphabets), lower and upper case.
 
 ### What the scrub does not catch
 
-- Free text: names, addresses, dates of birth, diagnoses typed into a log message. Only the data-handling scan's line
-  removal (D-747) and the log scrubber's fixed patterns stand there. A name in a script the scan does not know leaves.
-- A screening number whose site prefix is lower-case letters glued to the digits (`tbx0042`), or all digits
-  (`20260042`). The site prefixes are in the console's database, which the host's bundle does not read. A prefix that
-  ends in `-` or `_`, any ruleset id with `-`, and capital letters before the digits are caught (H71-05).
-- A pseudonym glued to other hex digits (`deadbeef` and 32 hex digits make one run of 40) or cut short other than the
-  8-digit `…` form. A 64-digit sha256 and a 40-digit commit are kept on purpose.
+Corrected after review round 1.
+
+- Free text: names, addresses, dates of birth and diagnoses typed into a log message. Only the data-handling scan's
+  line removal (D-747) and the log scrubber's fixed patterns stand there. A name in a script the scan does not know
+  leaves (H71-06).
+- Screening numbers in three shapes leave (H71-05). The site prefixes are in the console's database, which the
+  host's bundle does not read.
+  - A lower-case prefix glued to the digits (`tbx0042`).
+  - An all-digit prefix (`20260042`).
+  - A lower-case prefix before `.`, `#`, `/`, `:` or a space (`scr.0042`).
+
+  Caught: a prefix in any script ending in `-` or `_`, capitals and digits before `.`, `#`, `/`, `:` or a space, and a
+  capital then letters glued to the digits (`Scr0042`).
+- A pseudonym glued to other hex digits (`deadbeef` and 32 hex digits make one run of 40). Its first 8 digits when
+  they are all decimal (about 2 in 100 pseudonyms). Any other cut of a pseudonym (`pid[:12]`). A 64-digit sha256 and
+  a 40-digit commit are kept on purpose.
 - A secret with no name or form next to it (a bare value in prose) when it is not a value of the box. The box's own
   values are still found by value (D-723).
-- A secret in base64 or another encoding other than a Basic header, a secret split by a line wrap the line rules do
-  not know, and a PIN of three digits or fewer next to a secret's name. Those digits are kept as a count.
+- A secret in base64 or another encoding not listed under H1 below (Basic headers are caught). A PIN of three digits
+  or fewer next to a secret's name: those digits are kept as a count. `mysql -pSECRET` (the value glued to the flag).
+- A secret whose `KEY="...` or `key: |` line was cut off before the member starts: a rotated log, a day's boundary,
+  or the first 64 MB read limit of a log. A PEM body is the exception: it goes with its END line. A cut that the
+  builder makes is after the scrub (H2).
 - Opt-out pids of another shape (`[A-Za-z0-9_-]{8,64}`, `tb_common.optout`) that are not minted pseudonyms.
+
+### Review round 1 (#1314, head f944d626: fix first; fixes in db6e109d and the commit after it)
+
+Every test below was red on f944d626 and is green after the fix. The class each finding belongs to was closed, not
+only the instance shown. Tests are in `tests/unit/test_support_bundle_review1.py` unless named otherwise.
+
+| Finding | The class closed | Test |
+| --- | --- | --- |
+| H1 a pseudonym after `%2F`/`%22` | A line holding any encoded character is decoded (percent, twice- and three-times-percent, `\u`/`\x`/`\U`, HTML entities, `=3D`) and scrubbed. Covers pseudonyms, screening numbers, secret keys and values. | `test_h1_*` (16 encodings x 2 token kinds, 6 secret forms), build level `test_h1_the_reviewers_lines_leave_no_pseudonym_in_a_built_bundle` |
+| H2 a PEM block cut by the 16 MB truncation | Every cut of text before the scrub now comes after it: `Bundle.add` and the container list's 200 characters. The other cuts (history lines, list items, the 64 MB read) cut whole items or the end. A PEM body without its BEGIN line goes with its END line. | build level `test_h2_a_pem_block_cut_by_the_size_limit_leaves_no_body`, `test_h2_a_yaml_block_secret_cut_by_the_size_limit_leaves_no_line`, `test_h2_every_cut_is_after_the_scrub`, `test_h2_a_pem_body_with_no_begin_line_is_masked` |
+| M1 secret forms | `--flag=value` and `--flag value`, `-u`/`--user` user:password, XML elements, `key = value` with spaces, a YAML value or list below its key, a JSON value on the next line (also commented out), userinfo up to the last `@` (a `/` or `@` in the password), an encoded key | `test_m1_secret_forms_are_replaced` (21 forms), build level `test_m1_the_reviewers_forms_leave_nothing_in_a_built_bundle` |
+| M2 screening prefixes | Any script; `.`, `#`, `/`, `:`, a space; a capital and letters glued (`Scr0042`); the docstring says what the console takes | `test_m2_*` |
+| M3 the ops snapshot's update rows | (test only) | `test_m3_the_ops_snapshots_update_rows_keep_type_and_length`: red with the reviewer's mutant M5 |
+| M4 the writer guard | Every write call of the two modules (`add`, `addfile`, `make_archive`, `GzipFile`, `ZipFile`, `write_bytes`, any open for writing, module level too) must be on a reviewed list. Only the command dispatcher imports the builder. | `test_m4_*` (the finder tried on 6 probes) |
+| Speed: userinfo quadratic | The scheme starts where no scheme character stands before it, and the userinfo is at most 256 characters. Every rule was tried on a 1 MB or 256 KB worst-case line (20 shapes). | `test_speed_every_rule_is_linear_on_a_long_line`: before, one 1 MB hex line was killed at 120 s; after, at most 0.72 s each |
+| L1 bare 8-hex short form | `pid[:8]` with or without `…`, when it holds a hex letter | `test_l1_*` |
+| L2 names that collide after the scrub | The second gets `~2` before its extension | `test_l2_*` (build level) |
+| L3 a trailing invalid byte | Dropped only when the caller cut the bytes (`as_text(..., cut=True)`, the log read limit) | `test_l3_*`; the card's own round-1 assertion in `test_support_bundle_scrub.py` was made stricter to match |
+
+The planted corpus (`test_support_bundle_planted.py`) carries every new form, and the whole bundle is checked again.
+
+Mutation pass after the fixes. 31 mutants of the scrub and the builder, one at a time: each rule dropped, each
+boundary loosened, each path skipped, a side writer, a `tar.add` helper. 30 were caught on the first run. The
+survivor cut a member before the scrub; the orphan-PEM rule hid it. `test_h2_a_yaml_block_secret_cut_by_the_size_limit_leaves_no_line`
+now catches it: 31 of 31.
+
+Measured on this container: scrubbing a realistic 15 MB log takes 39 s and the writer's check 12 s. A bundle of
+several large logs takes minutes.
 
 ### Near-misses kept, and over-masks owned
 
@@ -109,6 +153,5 @@ last commit.
 
 - Not run on a box. Real `docker compose config`, doctor and journal output were not used: synthetic outputs stand
   in for them.
-- Not measured: how long the scrub takes on a 16 MB log. Each member is scrubbed at least three times (add, seal,
-  the writer's check).
-- No review yet. The card waits for one independent review before it rides.
+- Measured only in this container (see Review round 1), not on a box's disk and CPU.
+- Review round 1 asked for "fix first". This round's fixes wait for the integrator's re-check of the two Highs.

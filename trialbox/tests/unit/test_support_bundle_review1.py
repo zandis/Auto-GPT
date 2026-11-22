@@ -100,6 +100,20 @@ def test_h2_a_pem_block_cut_by_the_size_limit_leaves_no_body(tmp_path: Path, mp:
     assert f"support/logs/{DAY}/orchestrator.log" in dict(_archive(out))
 
 
+def test_h2_a_yaml_block_secret_cut_by_the_size_limit_leaves_no_line(tmp_path: Path, mp: pytest.MonkeyPatch) -> None:
+    """The cut must come after the scrub, not be repaired after it: a YAML block value cut in its middle has no key
+    line left, and no rule can tell its lines from any other (a mutant that cut first passed every other test)."""
+    deploy, p, _add = make_box(tmp_path, mp)
+    mp.setattr(sb, "MAX_MEMBER", 4096)
+    parts = [secrets.token_hex(20) for _ in range(150)]  # 6.3 KB of value: the 4 KB cut lands inside it
+    text = "adapter | start\n" * 50 + "private_key: |\n" + "".join(f"  {x}\n" for x in parts) + "adapter | end\n" * 10
+    _gz(deploy.parent / "logs" / "services" / DAY / "adapter.log.gz", text.encode())
+    out = sb.build(deploy, tmp_path / "usb", runner=_runner(p), now=NOW, say=lambda _: None)
+    blob = _blob(out)
+    assert not [x for x in parts if x.encode() in blob]
+    assert f"support/logs/{DAY}/adapter.log" in dict(_archive(out))
+
+
 def test_h2_every_cut_is_after_the_scrub(tmp_path: Path, mp: pytest.MonkeyPatch) -> None:
     """The class: a slice of text taken before the scrub can halve a token, which the scrub then cannot know. The
     container list's error text is cut to 200 characters: the pseudonym at the cut must not leave in part."""

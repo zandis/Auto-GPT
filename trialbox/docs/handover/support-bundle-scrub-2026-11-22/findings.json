@@ -51,6 +51,86 @@
    "lane": "H",
    "basis": "hypothesis",
    "state": "open"
+  },
+  {
+   "id": "H71-07",
+   "severity": "High",
+   "claim": "a pseudonym after a percent-encoded character (%2F, %22, %3D) or another encoding left the box in a built bundle: the hex digit of the encoding joined the pseudonym into a longer hex run (review #1314 H1); fixed: lines with an encoded character are decoded and scrubbed, for every token and secret",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-08",
+   "severity": "High",
+   "claim": "Bundle.add cut a member to its last 16 MB before the scrub, so a PEM block cut there lost its BEGIN line and its body left (review #1314 H2); fixed: the scrub before every cut, and a PEM body without BEGIN goes with its END line",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-09",
+   "severity": "Medium",
+   "claim": "secret forms left: --password=X, a YAML value on the next line, URL userinfo with / or @ in the password, a double-encoded query, curl -u, XML elements, a key with a space, a JSON value on the next line or with an escaped key (review #1314 M1); fixed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-10",
+   "severity": "Medium",
+   "claim": "screening numbers with the prefixes the console takes (any 16 characters) left: Scr0042, SCR.0042, SCR 0042, SCR#0042, SCR/0042 (review #1314 M2); fixed for those shapes and any script; lower-case prefixes before a separator stay in H71-05",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-11",
+   "severity": "Medium",
+   "claim": "no test held the ops snapshot's update-row details as type and length: removing free_text_out failed nothing (review #1314 M3); fixed: a test, red with that mutant",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-12",
+   "severity": "Medium",
+   "claim": "the writer guard missed tar.add, shutil.make_archive, GzipFile, a from-import open and module-level code (review #1314 M4); fixed: every write call of both modules is on a reviewed list",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-13",
+   "severity": "Medium",
+   "claim": "the URL userinfo rule was quadratic on a long run of letters or digits (32 s per pass on a 100 KB hex line) (review #1314 speed); fixed: anchored and bounded; every rule tested on a 1 MB worst-case line",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-14",
+   "severity": "Low",
+   "claim": "the bare 8-hex short pseudonym (pid[:8], the console's usual short form) left (review #1314 L1); fixed when it holds a hex letter",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-15",
+   "severity": "Low",
+   "claim": "two names the scrub made one overwrote each other in the bundle (review #1314 L2); fixed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-16",
+   "severity": "Low",
+   "claim": "as_text dropped a trailing invalid byte of a file that was not cut (review #1314 L3); fixed: only when the caller cut the bytes",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
   }
  ]
 }
