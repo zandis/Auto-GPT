@@ -81,14 +81,33 @@ if argv[:1] == ["run"] and img in argv:  # the box image: its python, its PYTHON
             elif name in os.environ:
                 env[name] = os.environ[name]
     assert rest[0] == "python", rest
+    if "tools.trialbox.box_drill" in rest:  # the drill's image step: its /work is the mounted folder here
+        if "TB_DB_URL" in env:
+            env["TB_DB_URL"] = os.environ["STANDIN_DB_URL"]  # the box's URL, as the db container's network resolves it
+        i = rest.index("tools.trialbox.box_drill")
+        code = ("import json, sys; from pathlib import Path; from tools.trialbox import box_drill; "
+                "print(json.dumps(box_drill.image_step(sys.argv[2:], Path(sys.argv[1]))))")
+        rest = ["python", "-c", code, mapped("/work", maps), *rest[i + 1 :]]
     sys.exit(subprocess.run([os.environ["STANDIN_PY"], *rest[1:]], cwd=box, env=env).returncode)
-if "compose" in argv and "exec" in argv:  # into the db container: its shell and its psql, here on the test cluster
+if "compose" in argv and "ps" in argv and "-q" in argv:  # the db container's id
+    print("synthetic-db")
+    sys.exit(0)
+if argv[:1] == ["inspect"]:  # its mounts: the database's data folder
+    print(json.dumps([{"Destination": "/var/lib/postgresql/data", "Source": os.environ["STANDIN_VOLUMES"]}]))
+    sys.exit(0)
+if "compose" in argv and "exec" in argv:  # into the db container: its shell and its clients, here on the test cluster
     rest = argv[argv.index("exec") + 1 :]
     while rest and rest[0].startswith("-"):
         rest = rest[2:] if rest[0] in ("-u", "--user", "-e") else rest[1:]
-    if rest[:1] == ["db"] and rest[1:2] in (["sh"], ["rm"]):
-        env = {**os.environ, "PATH": os.environ["STANDIN_PGWRAP"] + ":" + os.environ["PATH"]}
-        sys.exit(subprocess.run(rest[1:], env=env).returncode)
+    pg = {"PGHOST": os.environ["STANDIN_PGHOST"], "PGPORT": os.environ["STANDIN_PGPORT"],
+          "POSTGRES_USER": os.environ["STANDIN_PGUSER"], "POSTGRES_DB": os.environ["STANDIN_PGDB"]}
+    path = os.environ["STANDIN_PGWRAP"] + ":" + os.environ["STANDIN_PG_BIN"] + ":" + os.environ["PATH"]
+    if rest[:1] == ["db"] and rest[1:2] in (["sh"], ["rm"], ["pg_restore"]):
+        sys.exit(subprocess.run(rest[1:], env={**os.environ, **pg, "PATH": path}).returncode)
+    if rest[:1] == ["orchestrator"] and os.environ.get("STANDIN_AUDIT"):  # the audit event, on stdin
+        with open(os.environ["STANDIN_AUDIT"], "a") as fh:
+            fh.write(sys.stdin.read().strip() + "\n")
+        sys.exit(0)
     if "count(*)" in " ".join(rest):  # no job runs or waits on this box
         print("0")
     sys.exit(0)  # another query of the db (sizes) or the orchestrator: no answer
@@ -167,6 +186,7 @@ def box(tmp_path_factory: pytest.TempPathFactory, system_python: Path, pg_cluste
     (root / "services").symlink_to(ROOT / "services")  # the image's /app/services (read only here)
     nas = d / "nas"
     nas.mkdir()
+    (d / "volumes").mkdir()  # where docker keeps the volumes (the db's data folder among them)
     (nas / bs.OFFBOX_MARKER).write_text("")
     settings = {"TB_ENV": "TEST", "TB_DB_URL": DSN, "TB_HAPI_DB_URL": HAPI, "TB_IMAGE": PY_IMAGE, "TB_BACKUP_TARGETS": str(nas),
                 "TB_BACKUP_OFFBOX": str(nas), "TB_DOCKER_VOLUMES": str(d / "volumes")}  # fmt: skip
@@ -189,10 +209,14 @@ def box(tmp_path_factory: pytest.TempPathFactory, system_python: Path, pg_cluste
            "STANDIN_BOX": str(root), "STANDIN_PY": sys.executable, "STANDIN_SERVICES": str(root / "services"),
            "STANDIN_VOLUMES": str(d / "volumes"), "STANDIN_PGWRAP": str(pgwrap), "STANDIN_PG_BIN": str(pglocal.bindir()),
            "STANDIN_PGHOST": str(info.get("host") or ""), "STANDIN_PGPORT": str(info.get("port") or "5432"),
-           "STANDIN_PGUSER": str(info.get("user") or "postgres"),
+           "STANDIN_PGUSER": str(info.get("user") or "postgres"), "STANDIN_PGDB": str(info.get("dbname") or "postgres"),
+           "STANDIN_DB_URL": f"postgresql://{info.get('user') or 'postgres'}@/{dbs['trialbox_wf']}"
+                             f"?host={info.get('host')}&port={info.get('port') or '5432'}",
+           "STANDIN_AUDIT": str(d / "audit-events.jsonl"),
            **{f"STANDIN_DB_{k}": v for k, v in dbs.items()}}  # fmt: skip
     yield {"root": root, "deploy": root / "deploy", "nas": nas, "env": env, "log": log, "dir": d,
-           "key": d / "usb" / "backup.key"}  # fmt: skip
+           "key": d / "usb" / "backup.key", "dbs": dbs, "admin": admin, "user": str(info.get("user") or "postgres"),
+           "bin": bindir}  # fmt: skip
     with psycopg.connect(admin, autocommit=True) as con:
         for n in dbs.values():
             con.execute(f'DROP DATABASE IF EXISTS "{n}" WITH (FORCE)')
@@ -322,18 +346,21 @@ def test_the_command_table_is_the_parsers() -> None:
 
 @pytest.mark.parametrize("cmd", sorted(launch.COMMANDS))
 def test_every_host_command_runs_from_a_bare_environment(box: dict[str, Any], tmp_path: Path, cmd: str) -> None:
-    """THE INVARIANT (H-88): ``--help`` and one read-only call of each command, typed as the runbook types it
-    (``python3 -m tools.trialbox`` from the install folder), in sudo's and cron's bare environment with the system
-    python: no import fault; a command that needs the box image's libraries goes to its container."""
-    r = bare(box, f"python3 -m tools.trialbox {cmd} --help", cwd=box["root"])
-    _no_import_fault(r)
-    assert r.returncode == 0 and "usage" in (r.stdout + r.stderr).lower(), (r.stdout, r.stderr)
+    """THE INVARIANT (H-88, D-1089): ``--help`` of each command in both forms (``python3 -m tools.trialbox`` from
+    the install folder; ``trialbox`` on PATH, install.sh's link to ``__main__.py``, run as its shebang runs it:
+    ``python3 -I``, from /) and one read-only call of the installed form, in sudo's and cron's bare environment with
+    the system python: no import fault; a command that needs the box image's libraries goes to its container."""
+    trialbox = f"python3 -I {box['root'] / 'tools' / 'trialbox' / '__main__.py'}"
+    for line, cwd in ((f"python3 -m tools.trialbox {cmd} --help", box["root"]), (f"{trialbox} {cmd} --help", "/")):
+        r = bare(box, line, cwd=cwd)
+        _no_import_fault(r)
+        assert r.returncode == 0 and "usage" in (r.stdout + r.stderr).lower(), (line, r.stdout, r.stderr)
     probe = PROBES[cmd]
     if probe is None:
         return
     before = len(calls(box))
     args = [a.format(tmp=tmp_path, deploy=box["deploy"]) for a in probe]
-    r = bare(box, shlex.join(["python3", "-m", "tools.trialbox", *args]), cwd=box["root"])
+    r = bare(box, f"{trialbox} {shlex.join(args)}", cwd=tmp_path)
     _no_import_fault(r)
     runs = [c["argv"] for c in calls(box)[before:] if c["argv"][:1] == ["run"] and PY_IMAGE in c["argv"]]
     need = launch.COMMANDS[cmd]
@@ -395,3 +422,80 @@ def test_the_container_keeps_the_exit_code_and_puts_no_secret_on_the_command_lin
     (tmp_path / "not-a-backup.tbbak").write_bytes(b"not a backup")
     r = bare(box, f"python3 -m tools.trialbox backup-check {tmp_path}/not-a-backup.tbbak", cwd=box["root"])
     assert r.returncode == 1 and "backup-check" in r.stderr, (r.returncode, r.stderr)  # the container's own exit
+
+
+# ------------------------------------------------------------------------------- the restore drill, sudo typed
+SUDO = """#!/bin/sh
+# sudo: the caller's environment is dropped (env_reset); secure_path, HOME, the user's names and TERM are set
+exec env -i PATH="{path}" HOME=/root USER=root LOGNAME=root SHELL=/bin/sh TERM=dumb SUDO_USER=hospital-it "$@"
+"""
+
+
+def test_the_drill_typed_with_sudo_as_the_runbook_writes_it_runs_from_a_bare_environment(
+    box: dict[str, Any], tmp_path: Path
+) -> None:
+    """The bench's step 8 ("No module named 'tb_common'", then "TB_DB_URL is not set"): ``sudo trialbox
+    restore-drill <file> --key <key>`` (RUNBOOK 5; ``trialbox`` is install.sh's link to ``__main__.py``, run by its
+    own shebang), with sudo dropping the caller's environment and a caller's ``TB_DB_URL`` and ``PYTHONPATH``
+    planted: the drill takes the box's settings, its image steps run in the box image, and it passes."""
+    from psycopg.conninfo import make_conninfo
+
+    from tools.trialbox import backup as bk
+
+    url = box["env"]["STANDIN_DB_URL"]
+    hapi = make_conninfo(box["admin"], dbname=box["dbs"]["hapi"])
+    made = bk.backup([tmp_path / "nas"], box["deploy"] / "secrets" / "backup.pub",
+                     env={"TB_DB_URL": url, "TB_HAPI_DB_URL": hapi}, dirs={})[0]  # fmt: skip
+    root = tmp_path / "opt" / "trialbox"  # an install folder of its own: the box's URL names this server's owner
+    skip = shutil.ignore_patterns("__pycache__", "*.pyc", "site", ".env")
+    for sub in ("tools", "libs", "deploy"):
+        shutil.copytree(box["root"] / sub, root / sub, ignore=skip, symlinks=True)
+    (root / "services").symlink_to(ROOT / "services")
+    env_text = (
+        f"TB_ENV=TEST\nTB_IMAGE={PY_IMAGE}\nTB_DB_URL=postgresql://{box['user']}@db:5432/{box['dbs']['trialbox_wf']}\n"
+    )
+    (root / "deploy" / ".env").write_text(env_text, encoding="utf-8")
+    bindir = tmp_path / "sudo-bin"
+    bindir.mkdir()
+    secure = f"{bindir}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    exports = "".join(f"export {k}={shlex.quote(v)}\n" for k, v in box["env"].items() if k.startswith("STANDIN_"))
+    (bindir / "sudo").write_text(SUDO.format(path=secure), encoding="utf-8")
+    (bindir / "docker").write_text(f'#!/bin/sh\n{exports}exec {box["bin"] / "docker"} "$@"\n', encoding="utf-8")
+    for name in ("sudo", "docker"):
+        (bindir / name).chmod(0o755)
+    (bindir / "trialbox").symlink_to(root / "tools" / "trialbox" / "__main__.py")  # install.sh's link
+    audit = Path(box["env"]["STANDIN_AUDIT"])
+    audit.unlink(missing_ok=True)
+    before = len(calls(box))
+    caller = {"PATH": secure, "TB_DB_URL": "postgresql://x@caller-host:5432/x", "PYTHONPATH": str(tmp_path)}
+    cmd = shlex.join(["sudo", "trialbox", "restore-drill", str(made), "--key", str(box["key"]), "--work",
+                      str(tmp_path)])  # fmt: skip
+    r = subprocess.run(["/bin/sh", "-c", cmd], cwd=tmp_path, env=caller, capture_output=True, text=True, timeout=600,
+                       check=False)  # fmt: skip
+    _no_import_fault(r)
+    assert r.returncode == 0, (r.stdout + r.stderr)[-3000:]
+    res = json.loads(r.stdout)
+    assert res["ok"] and res["scratch_dropped"] and res["unpacked_removed"], res
+    assert set(res["databases"]) == {"trialbox_wf", "hapi"}
+    assert (root / "deploy" / "site" / "backup-verified.json").is_file()
+    assert [json.loads(x)["event"] for x in audit.read_text(encoding="utf-8").splitlines()] == ["backup.restore_drill"]
+    argvs = [c["argv"] for c in calls(box)[before:]]
+    assert "caller-host" not in json.dumps(argvs) and str(box["key"]) not in json.dumps(audit.read_text())
+    images = [a for a in argvs if a[:1] == ["run"]]
+    assert images and all(a[a.index("--pull=never")] and PY_IMAGE in a for a in images), images
+
+
+def test_the_box_file_wins_except_for_the_module_forms_drill(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-1089 (3): the box's deploy/.env wins over the caller in every form, but ``python -m tools.trialbox
+    restore-drill`` keeps the caller's connection (#1305, review item 12); the installed ``trialbox restore-drill``
+    takes the box's."""
+    (tmp_path / ".env").write_text(f"TB_DB_URL={DSN}\nTB_IMAGE={PY_IMAGE}\n", encoding="utf-8")
+    monkeypatch.setattr(launch, "DEPLOY", tmp_path)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    caller = "postgresql://x@caller-host:5432/x"
+    for args, installed, want in ((["restore-drill", "f", "--key", "k"], False, caller),
+                                  (["restore-drill", "f", "--key", "k"], True, DSN),
+                                  (["backup-status"], False, DSN), (["backup-nightly"], True, DSN)):  # fmt: skip
+        env = {"TB_DB_URL": caller}
+        assert launch.enter(args, env, installed=installed) is None
+        assert env["TB_DB_URL"] == want, (args, installed, env)

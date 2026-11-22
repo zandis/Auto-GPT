@@ -17,8 +17,8 @@ nothing else, under ``sudo`` or cron, which drop the caller's environment. So ev
    (:func:`container_argv`). Where the libraries are there (the image itself, a developer's interpreter), the
    command runs here.
 
-``restore-drill`` keeps its host part (Docker: the throwaway server) on the host; only its restore and comparison
-go into a container that reaches the throwaway's socket folder and nothing else (``restore_drill.py``).
+``restore-drill`` runs on the host: the installed form's own steps already run the library parts in the box image
+(``box_drill.py``, #1305).
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ COMMANDS: dict[str, Need] = {
         pairs=("--dir",),
         site=True,
     ),
-    "restore-drill": Need(),  # its host part here; its restore in a container of its own (restore_drill.py)
+    "restore-drill": Need(),  # installed: its image steps are box_drill.py's own (#1305)
     "backup-nightly": Need(),
     "backup-status": Need(),
     "backup-install": Need(),
@@ -99,7 +99,9 @@ COMMANDS: dict[str, Need] = {
     "exports": Need(IMAGE, ("cryptography",), read=("--audit",)),
     "selftest": Need(),
     "decommission-plan": Need(),
-    "mail": Need(IMAGE, ("mail_gateway",), DB_NETWORK),  # the gateway's own code (services/), as the runbook runs it
+    "mail": Need(
+        IMAGE, ("mail_gateway", "pydantic"), DB_NETWORK
+    ),  # the gateway's own code (services/), as the runbook runs it
     "platform-day2": Need(),
     "model": Need(IMAGE, ("psycopg",), DB_NETWORK, write=("--out",)),
     "provenance": Need(),
@@ -244,7 +246,7 @@ def container_argv(args: Sequence[str], need: Need, settings: Mapping[str, str],
         if "--deploy" not in args and not any(a.startswith("--deploy=") for a in args):
             out_args += ["--deploy", str(DEPLOY)]
     envf = ["--env-file", str(DEPLOY / ".env")] if (DEPLOY / ".env").is_file() else []
-    image = settings.get("TB_IMAGE") or DEFAULT_IMAGE
+    image = env_file(DEPLOY / ".env").get("TB_IMAGE") or settings.get("TB_IMAGE") or DEFAULT_IMAGE
     return [*docker, "run", "--rm", "-i", "--pull", "never", "--network", need.network, "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges:true", "--user", f"{uid}:{gid}", "-e", "PYTHONDONTWRITEBYTECODE=1",
             *envf, *mounts, "-w", "/app", image, "python", "-m", "tools.trialbox", *out_args]  # fmt: skip
@@ -262,14 +264,21 @@ def run_in_image(args: Sequence[str], need: Need, settings: Mapping[str, str]) -
         return 2
 
 
-def enter(args: Sequence[str], environ: dict[str, str] | os._Environ[str] | None = None) -> int | None:
-    """The entry of ``python -m tools.trialbox``: its own import path and the box's settings; then either the exit
-    code of the command run in the box image, or None: run it here."""
+def enter(args: Sequence[str], environ: dict[str, str] | os._Environ[str] | None = None, *,
+          installed: bool = False) -> int | None:  # fmt: skip
+    """The entry of ``trialbox`` (installed on PATH) and ``python3 -m tools.trialbox``: its own import path and the
+    box's settings; then either the exit code of the command run in the box image, or None: run it here.
+
+    The one form that keeps the caller's environment is ``python -m tools.trialbox restore-drill`` (#1305, review
+    12: the module form drills against the caller's connection and ``--dir``; the installed ``trialbox
+    restore-drill`` reads the box's own settings itself, ``box_drill.BoxDrill``)."""
     environ = os.environ if environ is None else environ
     _CALLER.update(caller_entries(environ))
     sys.path[:] = own_path(sys.path, environ)
-    box_settings(environ)
-    need = COMMANDS.get(command_of(args))
+    cmd = command_of(args)
+    if installed or cmd != "restore-drill":
+        box_settings(environ, DEPLOY)
+    need = COMMANDS.get(cmd)
     if need is None or need.where == HOST or "-h" in args or "--help" in args or has_libs(need.libs):
         return None
     return run_in_image(args, need, environ)

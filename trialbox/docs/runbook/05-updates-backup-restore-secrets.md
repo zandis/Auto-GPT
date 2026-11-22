@@ -322,3 +322,9 @@ answers are applied, before the restart; the first-run page does not open again:
 folder named, or correct the line, then `sudo deploy/box-install.sh --firstrun`. **An installed PRODUCTION site that
 runs `deploy/install.sh` again** (02, the anchor folders; 05, after a restore and for the EDC tables; 12, the TLS
 check per release) stops there until both are set; `trialbox update` and `trialbox restore` do not run it.
+
+**The host commands' own environment (H-88, D-1089).** `trialbox` and `python3 -m tools.trialbox` find the product
+from their own folder and read `deploy/.env` themselves, so `sudo` and cron need nothing more; a command that needs
+the box image's libraries runs in a one-off container of `TB_IMAGE` (never pulled). A backup cron file from before
+H-88 sets `PYTHONPATH`: `trialbox doctor` (`backup`) warns until
+`python3 -m tools.trialbox backup-install --deploy deploy --no-first-run` is run again.
