@@ -209,14 +209,18 @@ def host_check(
 
 
 # REHEARSAL-REAL-SERVERS (H-89): the driver allowance of tools/rehearsal_real.py for this card (run as a file too)
-def _rehearsal_allowance(probe: Path, card: str, deploy: Path) -> Callable[[str], tuple[list[str], dict[str, Any]]]:
-    """The allowance, bound to the probe file, the card's name and the box's deploy folder."""
+def _rehearsal_allowance(probe: Path, index: str, deploy: Path) -> Callable[[str], tuple[list[str], dict[str, Any]]]:
+    """The allowance, bound to the probe file, the card's index and the box's deploy folder (the driver is that card's,
+    read again by the allowance)."""
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
     from tools import rehearsal_real
 
     def allowance(driver: str) -> tuple[list[str], dict[str, Any]]:
-        return rehearsal_real.driver_allowance(probe, driver, card, deploy)
+        problems, rec = rehearsal_real.driver_allowance(probe, index, deploy)
+        if rec.get("driver_found") not in (None, driver):
+            problems.append(f"the card's driver is {rec.get('driver_found')}, the host check read {driver}")
+        return problems, rec
 
     return allowance
 
@@ -243,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     # REHEARSAL-REAL-SERVERS (H-89): install.sh's rehearsal only; all four or none
     h.add_argument("--rehearsal-real-servers", action="store_true", help=argparse.SUPPRESS)
     h.add_argument("--engine-probe", type=Path, default=None, help=argparse.SUPPRESS)
-    h.add_argument("--card", default="", help=argparse.SUPPRESS)
+    h.add_argument("--gpu-index", default="", help=argparse.SUPPRESS)
     h.add_argument("--deploy", type=Path, default=None, help=argparse.SUPPRESS)
     # ---- end of REHEARSAL-REAL-SERVERS (H-89)
     sub.add_parser("vllm", help="print the locked vLLM reference (image@digest)")
@@ -276,10 +280,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if problems else 0
     allowance: Callable[[str], tuple[list[str], dict[str, Any]]] | None = None
     # REHEARSAL-REAL-SERVERS (H-89)
-    if args.rehearsal_real_servers or args.engine_probe or args.card or args.deploy:
-        if not (args.rehearsal_real_servers and args.engine_probe and args.card and args.deploy):
-            ap.error("--rehearsal-real-servers needs --engine-probe, --card and --deploy (install.sh's rehearsal)")
-        allowance = _rehearsal_allowance(args.engine_probe, args.card.strip(), args.deploy)
+    if args.rehearsal_real_servers or args.engine_probe or args.gpu_index or args.deploy:
+        if not (args.rehearsal_real_servers and args.engine_probe and args.gpu_index and args.deploy):
+            ap.error("--rehearsal-real-servers needs --engine-probe, --gpu-index and --deploy (install.sh's rehearsal)")
+        allowance = _rehearsal_allowance(args.engine_probe, args.gpu_index.strip(), args.deploy)
     # ---- end of REHEARSAL-REAL-SERVERS (H-89)
     lines = host_check(lock, args.arch, args.driver.strip(), args.compute_cap.strip(), args.image.strip(), allowance)
     for level, msg in lines:

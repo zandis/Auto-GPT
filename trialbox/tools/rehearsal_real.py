@@ -30,13 +30,15 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import re
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from tools import images_lock, measure48_vm
+from tools import engine_probe, images_lock, measure48_vm
 
 PROFILE = "rtxpro6000"
 PROFILE_CARD = "RTX PRO 6000"  # tools/serving_config.py PROFILES["rtxpro6000"]["card"]
@@ -51,6 +53,10 @@ WORDS = "rehearsal: driver below the minimum, not this profile's card, not valid
 SMI_FIELDS = "name,uuid,driver_version,mig.mode.current,mig.mode.pending,memory.free,memory.total"
 UUID = re.compile(r"^GPU-[0-9A-Fa-f-]{8,}$")
 ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+UTC0 = timezone(timedelta(0))  # the host's own python3 (3.10 on Ubuntu 22.04) has no datetime.UTC
+PROBE_MAX_AGE = timedelta(days=7)  # the bench reloads its driver and probes right before the install
+LIB_DIR = re.compile(r"^/[A-Za-z0-9_.+/-]+$")
+SIGNS_IN_ENV = ("TB_REHEARSAL", "TB_REHEARSAL_REAL_SERVERS")
 
 
 def words(driver_below: bool, other_card: bool) -> str:
@@ -60,14 +66,19 @@ def words(driver_below: bool, other_card: bool) -> str:
 
 
 def env_file(path: Path) -> dict[str, str]:
+    """deploy/.env as compose reads it, for the names this module judges: a leading ``export`` is the same name, and
+    an unquoted value ends at `` #`` (review L1); the last line of a name wins."""
     out: dict[str, str] = {}
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return out
     for line in text.splitlines():
+        line = re.sub(r"^\s*export\s+", "", line)
         k, sep, v = line.partition("=")
         if sep and not line.lstrip().startswith("#"):
+            if not v.lstrip().startswith(("'", '"')):
+                v = re.sub(r"\s+#.*$", "", v)
             out[k.strip()] = v
     return out
 
@@ -101,12 +112,78 @@ def _lock_pin() -> str:
     return images_lock.pinned(lock["third_party"][images_lock.VLLM])
 
 
-def driver_allowance(probe: Path, driver: str, card: str, deploy: Path) -> tuple[list[str], dict[str, Any]]:
-    """The driver below the minimum, on a rehearsal box only: the box rule, then H-74's check of the probe (the one
-    implementation, ``measure48_vm.bench_exception``) for this card, this driver and the lock's pinned image."""
+def _form_env(form: str | None, env: dict[str, Any]) -> list[str]:
+    """Why the probe's recorded environment is not exactly its passing form's (engine_probe.TESTS): only those names
+    reach the model servers (review M1: nothing else, LD_PRELOAD or any other, ever does)."""
+    test = next((t for t in engine_probe.TESTS if t["name"] == form), None)
+    if test is None:
+        return [f"the probe's form {form!r} is not one of tools/engine_probe.py's"]
+    want = {str(k): str(v) for k, v in test["env"].items()}
+    got = {str(k): str(v) for k, v in env.items()}
+    lib = got.pop("LD_LIBRARY_PATH", None) if test["prefix"] else None
+    problems = []
+    if got != want:
+        libs = " and LD_LIBRARY_PATH" if test["prefix"] else ""
+        problems.append(f"the probe's environment {sorted(env)} is not its form's ({form}: {sorted(want)}{libs}): "
+                        "refused, nothing else reaches the servers")  # fmt: skip
+    if test["prefix"]:
+        parts = (lib or "").split(":")
+        if not lib or parts[0] != engine_probe.COMPAT_DIR or not all(LIB_DIR.match(p) and ".." not in p for p in parts):
+            problems.append(f"the probe's LD_LIBRARY_PATH {lib!r} does not start with {engine_probe.COMPAT_DIR} as "
+                            "plain folders")  # fmt: skip
+    return problems
+
+
+def _probe_problems(probe: Path, facts: dict[str, Any], now: datetime | None = None) -> list[str]:
+    """What H-74's check does not ask and a rehearsal install does (review M2): the file is root's or the installer's
+    and not writable by others; the probe ran on this card (its one-way id) on this host, against the pinned image's
+    matching digest, within PROBE_MAX_AGE."""
+    try:
+        st = probe.stat()
+        doc = json.loads(probe.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return [f"the engine probe result {probe} cannot be read ({type(exc).__name__})"]
+    problems = []
+    if st.st_uid not in (0, os.getuid()):
+        problems.append(f"{probe} is owned by uid {st.st_uid}, not root or the installer")
+    if st.st_mode & 0o022:
+        problems.append(f"{probe} is writable by group or others (chmod go-w)")
+    if not isinstance(doc, dict):
+        return [*problems, f"{probe} is not an engine probe result"]
+    host = doc.get("host") or {}
+    if not facts.get("uuid") or host.get("card_id") != engine_probe.card_id(facts["uuid"]):
+        problems.append(f"the probe ran on another card than card {facts.get('index')} (its card id does not match; "
+                        f"run tools/engine_probe.py run --gpu-index {facts.get('index')})")  # fmt: skip
+    mine = engine_probe.host_id()
+    if mine is None or host.get("host_id") != mine:
+        problems.append("the probe ran on another host (its host id does not match this host's /etc/machine-id)")
+    if ((doc.get("images") or {}).get("pinned") or {}).get("digest_matches") is not True:
+        problems.append("the probe does not show the pinned image's digest matched (images.pinned.digest_matches)")
+    now = now or datetime.now(UTC0)
+    try:
+        at = datetime.fromisoformat(str(doc.get("at")))
+        at = at if at.tzinfo else at.replace(tzinfo=UTC0)
+    except ValueError:
+        at = None
+    if at is None or not (now - PROBE_MAX_AGE <= at <= now + timedelta(hours=1)):
+        problems.append(f"the probe was taken at {doc.get('at')!r}: older than {PROBE_MAX_AGE.days} days or not a "
+                        "time; probe again")  # fmt: skip
+    return problems
+
+
+def driver_allowance(probe: Path, index: str, deploy: Path) -> tuple[list[str], dict[str, Any]]:
+    """The driver below the minimum, on a rehearsal box only: the box rule, H-74's check of the probe (the one
+    implementation, ``measure48_vm.bench_exception``) for the card at ``index``, its driver and the lock's pinned
+    image, then this card's own checks of the probe (:func:`_probe_problems`, :func:`_form_env`)."""
     problems = box_problems(deploy)
-    found, rec = measure48_vm.bench_exception(probe, driver, card, _lock_pin(), images_lock.LOCK)
-    return problems + found, rec
+    _, facts = card_facts(index, smi(index), {})
+    if not facts:
+        return [*problems, f"nvidia-smi finds no card at index {index}"], {}
+    found, rec = measure48_vm.bench_exception(probe, facts["driver"], facts["name"], _lock_pin(), images_lock.LOCK)
+    problems += found + _probe_problems(probe, facts)
+    if not found:
+        problems += _form_env(rec.get("engine_form"), rec.get("engine_env") or {})
+    return problems, rec
 
 
 def smi(index: str) -> str:
@@ -198,7 +275,7 @@ def write(deploy: Path, index: str, probe: Path, record_path: Path) -> tuple[lis
     env: dict[str, str] = {}
     form = None
     if below:
-        found, allowance = driver_allowance(probe, facts["driver"], facts["name"], deploy)
+        found, allowance = driver_allowance(probe, index, deploy)
         if found:
             return found, {}
         env = {str(k): str(v) for k, v in (allowance.get("engine_env") or {}).items()}
@@ -246,6 +323,8 @@ def real_servers_sign(deploy: Path, env: dict[str, str]) -> str:
     """What says this box ran the real servers as a rehearsal (the record, or the compose file), or ``""``."""
     if (deploy / "site" / RECORD).is_file():
         return str(deploy / "site" / RECORD)
+    if (env.get("TB_REHEARSAL_REAL_SERVERS") or "").strip() == "1":
+        return "TB_REHEARSAL_REAL_SERVERS=1 (deploy/.env)"
     return _override_in_compose(deploy, env)
 
 

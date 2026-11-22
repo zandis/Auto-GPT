@@ -36,6 +36,22 @@
    "lane": "H",
    "basis": "shown",
    "state": "open"
+  },
+  {
+   "id": "H89-05",
+   "severity": "Low",
+   "claim": "the rehearsal mark deploy/site/rehearsal.json is checked for existing only, not for its content, owner or mode (as on master): forging it needs root on a DEV, TEST or VALIDATION box (with TB_REHEARSAL=1 on VALIDATION); a PRODUCTION box refuses it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H89-06",
+   "severity": "Low",
+   "claim": "with the pinned+libs form the probe's recorded LD_LIBRARY_PATH replaces the image's own value in the model servers instead of being put in front of it (the probe ran it as a shell prefix); to be checked on the bench",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
   }
  ]
 }

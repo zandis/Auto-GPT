@@ -169,6 +169,13 @@ H89_BLOCK = re.compile(r"# rehearsal-real-servers \(h-89\).*?# ---- end of rehea
 def test_the_install_path_has_no_bench_exception(rel: str) -> None:
     raw = (ROOT / rel).read_text(encoding="utf-8").lower()
     assert H89_BLOCK.search(raw), f"{rel}: the one rehearsal path (H-89) is named in its block"
+    opened, closed = (
+        raw.count("# rehearsal-real-servers (h-89)"),
+        raw.count("# ---- end of rehearsal-real-servers (h-89)"),
+    )
+    assert opened == closed == len(H89_BLOCK.findall(raw)), f"{rel}: every H-89 block is closed"
+    for word in ("vllm_enable_cuda_compatibility=1", "nvidia_disable_require", "bench exception"):
+        assert word not in raw, f"{rel}: {word}, blocks included (the probe's environment is read, never written)"
     text = H89_BLOCK.sub("", raw)
     for name in ("rehearsal-real-servers", "rehearsal_real", "--engine-probe"):
         assert name not in text, f"{rel}: {name} outside the H-89 rehearsal blocks"

@@ -535,6 +535,11 @@ if [ "$REHEARSAL" = 1 ]; then
   sed -i '/^TB_ENV=/d; /^TB_REHEARSAL=/d' deploy/.env && printf 'TB_ENV=VALIDATION\nTB_REHEARSAL=1\n' >> deploy/.env
 fi
 # ---- end of REHEARSAL (D-726): the box says TEST
+# REHEARSAL-REAL-SERVERS (H-89): deploy/.env says the box ran the real servers (the console's banner, the start check)
+if [ "$REAL_SERVERS" = 1 ]; then
+  sed -i '/^TB_REHEARSAL_REAL_SERVERS=/d' deploy/.env && echo "TB_REHEARSAL_REAL_SERVERS=1" >> deploy/.env
+fi
+# ---- end of REHEARSAL-REAL-SERVERS (H-89)
 # ENVIRONMENT (D-837): --environment, or a TB_ENV written before the wizard rewrote deploy/.env; never changed
 # silently (a pre-written VALIDATION was lost and the D-127 default below made the box PRODUCTION)
 NOW_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"

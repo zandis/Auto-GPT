@@ -21,6 +21,15 @@ if [ -f "$DEPLOY/site/compose.anchors.yml" ]; then
     exit 1
   fi
 fi
+# H-89: a box that carries a rehearsal sign starts only as a whole rehearsal box, never as PRODUCTION (a hand edit of
+# TB_ENV before a reboot): tools/rehearsal_real.py start. A box without a sign is not asked
+if [ -f "$DEPLOY/site/rehearsal.json" ] || [ -f "$DEPLOY/site/rehearsal-real-servers.json" ] || [ -f "$DEPLOY/site/rehearsal-real-servers.yml" ] \
+  || grep -qE '^[[:space:]]*(export[[:space:]]+)?TB_REHEARSAL(_REAL_SERVERS)?=|rehearsal-real-servers' "$DEPLOY/.env" 2>/dev/null; then
+  if ! (cd "$DEPLOY/.." && python3 -m tools.rehearsal_real start --deploy "$DEPLOY") >&2; then
+    echo "TrialBox REFUSED to start: this box carries a rehearsal sign and is not a whole rehearsal box (above), or the check could not run. A rehearsal box never becomes a site's box: install the site's box afresh on an empty box (RUNBOOK §16)" >&2
+    exit 1
+  fi
+fi
 [ -f "$DEPLOY/settings.yaml" ] || exit 0
 got="${TB_SETTINGS_FILE:-$(sed -n 's/^TB_SETTINGS_FILE=//p' "$DEPLOY/.env" 2>/dev/null | tail -1)}"
 case "$got" in

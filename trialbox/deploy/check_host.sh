@@ -71,8 +71,7 @@ gpu_image_check() {
   if [ "$RRS" = 1 ]; then
     drv=$(nvidia-smi -i "$RRS_INDEX" --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
     cap=$(nvidia-smi -i "$RRS_INDEX" --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1)
-    card=$(nvidia-smi -i "$RRS_INDEX" --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
-    set -- --rehearsal-real-servers --engine-probe "$RRS_PROBE" --card "${card:-?}" --deploy "$ROOT_DIR/deploy"
+    set -- --rehearsal-real-servers --engine-probe "$RRS_PROBE" --gpu-index "$RRS_INDEX" --deploy "$ROOT_DIR/deploy"
   fi
   # ---- end of REHEARSAL-REAL-SERVERS (H-89)
   out=$(cd "$ROOT_DIR" && python3 -m tools.images_lock host --arch "$(uname -m)" --driver "$drv" \

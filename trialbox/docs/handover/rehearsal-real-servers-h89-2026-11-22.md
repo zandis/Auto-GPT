@@ -21,15 +21,17 @@ a rehearsal box, with one explicit command line.
 
 2. The engine probe on that one card (never all):
 
-       python3 tools/engine_probe.py run --gpu-args "--gpus device=1" --out ~/tb-engine-probe.json
+       python3 tools/engine_probe.py run --gpu-index 1 --out ~/tb-engine-probe.json
+       chmod go-w ~/tb-engine-probe.json
 
 3. The install, on an empty box:
 
        sudo deploy/install.sh trialbox-<version>.tar --rehearsal --rehearsal-real-servers --gpu rtxpro6000 \
            --gpu-index 1 --engine-probe ~/tb-engine-probe.json --yes
 
-The probe file records the first card's model (tools/engine_probe.py `host_facts`); on the bench host every card is
-the same model, so it matches card 1. On a host of mixed cards, put the chosen card first or probe again.
+With `--gpu-index N` the probe runs on that one card (`--gpus device=N`) and records that card's facts and two one-way
+ids (sha256 digests, no UUID or machine id in the file): the card's and this host's (/etc/machine-id). The install
+then requires the probe to be at most 7 days old.
 
 ### What changes for a site: nothing
 
@@ -115,7 +117,7 @@ rtxpro6000 profile's performance or context on its own card, or a qualification.
   own names (`rehearsal-real-servers`, `rehearsal_real`, `--engine-probe`) nowhere outside it. Its other assertions
   (the bench option refused by check_host.sh and images_lock.py, a low driver still FAILs) are unchanged.
 
-## Decision (lane H's number block is used up: a number is asked)
+## Decision D-1087 (the record: docs/decisions/D-1087-a-rehearsal-box-may-run-the-real-servers-on-another-card.md)
 
 Under the rehearsal mark only, and with an explicit command line, the install may run the real model servers of the
 rtxpro6000 profile on one whole card of another model and on a driver below the lock's minimum, when an engine probe
@@ -142,3 +144,33 @@ the one judged; the summary line).
 ## Findings
 
 In `rehearsal-real-servers-h89-2026-11-22/findings.json` (`--add-from` form).
+
+## Review round 1 (#1370 at 0f6cb619, "fix first"), as ruled
+
+* **H1, the boot path:** deploy/settings_guard.sh (the systemd unit's ExecStartPre) now runs
+  `python3 -m tools.rehearsal_real start` when the box carries a rehearsal sign (deploy/site/rehearsal.json, the
+  real-servers record or compose file, TB_REHEARSAL or TB_REHEARSAL_REAL_SERVERS in deploy/.env); a box without one
+  is not asked and behaves byte for byte as before (a test with a failing python3 on PATH).
+* **M1, the probe's environment:** only the passing form's named variables reach the model servers
+  (`tools/engine_probe.py TESTS`: pinned+compat exactly NVIDIA_DISABLE_REQUIRE=1 and the compatibility switch;
+  pinned+libs NVIDIA_DISABLE_REQUIRE=1 and an LD_LIBRARY_PATH that starts with the compatibility folder, plain folders
+  only). Anything else (LD_PRELOAD, a changed value) refuses the driver allowance; nothing is written.
+* **M2, the probe file:** the card's one-way id and this host's must match, `digest_matches` must be true (missing is
+  refused), at most 7 days old, owned by root or the installer and not group- or world-writable. H-74's check is
+  unchanged; these are this card's own (`rehearsal_real._probe_problems`).
+* **L1:** `rehearsal_real.env_file` reads `export NAME=` and an unquoted value's trailing ` # ...` as compose does.
+* **L2:** the H-74 guard test also requires every H-89 block closed and H-74's compatibility words nowhere in the
+  three files, blocks included.
+* **L5:** the console's banner says "VALIDATION REHEARSAL: rehearsal: driver below the minimum, not this profile's
+  card, not valid for a site" when deploy/.env has TB_REHEARSAL_REAL_SERVERS=1 (written by the installer under the
+  mark) on a rehearsal box.
+* **L3 (row H89-05):** deploy/site/rehearsal.json is checked for existing only (as on master); forging it needs root
+  on a DEV, TEST or VALIDATION box, and a PRODUCTION box refuses it.
+* **L4 (row H89-06):** with pinned+libs the probe's recorded LD_LIBRARY_PATH (the compatibility folder, then the
+  image's own value as the probe saw it) replaces the image's value instead of being put in front of it: to be
+  checked on the bench.
+
+### Files outside the card (ruled: bodies only)
+
+`deploy/settings_guard.sh` (the boot guard), `services/console/app.py` (`environment_banner`, the sentence),
+`tools/engine_probe.py` (`--gpu-index`, the one-way ids `card_id` and `host_id`; without the option as before).

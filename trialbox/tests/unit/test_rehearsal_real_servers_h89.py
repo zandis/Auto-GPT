@@ -14,17 +14,19 @@ No GPU, no Docker: the installer runs in a folder laid out as an installer's, wi
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from tools import images_lock, rehearsal_real
+from tools import engine_probe, images_lock, rehearsal_real
 from tools.trialbox import doctor, prestart
 from tools.trialbox.update import UpdateFailed
 
@@ -39,14 +41,17 @@ UUIDS = ["GPU-00000000-0000-0000-0000-000000000000", "GPU-11111111-1111-1111-111
 PIN = images_lock.pinned(images_lock.load(images_lock.LOCK)["third_party"][images_lock.VLLM])
 REC = ROOT / "deploy" / "measured" / "serving_config.rtxpro6000.json"
 ENV_OUT = {"NVIDIA_DISABLE_REQUIRE": "1", "VLLM_ENABLE_CUDA_COMPATIBILITY": "1"}
+MACHINE_ID = "0123456789abcdef0123456789abcdef"
+HOST_ID = hashlib.sha256(f"tb-engine-probe/1 host {MACHINE_ID}".encode()).hexdigest()[:32]
 
 
 def probe_doc(**change: Any) -> dict[str, Any]:
     """An engine probe result (tb-engine-probe/1) that passed with the compatibility switch on a B200 and driver 575."""
     doc: dict[str, Any] = {
         "schema": "tb-engine-probe/1",
-        "at": "2026-11-22T05:00:00+00:00",
-        "host": {"arch": "x86_64", "card": B200, "driver": LOW, "compute_cap": "10.0"},
+        "at": (datetime.now(UTC) - timedelta(hours=2)).isoformat(timespec="seconds"),
+        "host": {"arch": "x86_64", "card": B200, "driver": LOW, "compute_cap": "10.0", "gpu_index": 1,
+                 "card_id": engine_probe.card_id(UUIDS[1]), "host_id": HOST_ID},
         "images": {"pinned": {"ref": PIN, "verified_in_lock": True, "digest_matches": True}},
         "tests": [
             {"name": "pinned", "status": "DRIVER", "probe": None},
@@ -74,6 +79,9 @@ class Bench:
             (d / "measured").mkdir()
             shutil.copy(REC, d / "measured" / REC.name)
         (tmp / "tools").symlink_to(ROOT / "tools")
+        self.hostroot = tmp / "hostroot"
+        (self.hostroot / "etc").mkdir(parents=True)
+        (self.hostroot / "etc" / "machine-id").write_text(MACHINE_ID + "\n", encoding="utf-8")
         self.bin = tmp / "bin"
         self.bin.mkdir()
         (self.bin / "docker").write_text('#!/bin/sh\necho "$*" >> "$TB_TEST_LOG"\necho "Runtimes: nvidia runc"\n',
@@ -95,7 +103,8 @@ class Bench:
 
     def env(self, **extra: str) -> dict[str, str]:
         full = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "VLLM", "NVIDIA"))}
-        full.update(PATH=f"{self.bin}:{os.environ['PATH']}", TB_TEST_LOG=str(self.tmp / "docker.log"), **extra)
+        full.update(PATH=f"{self.bin}:{os.environ['PATH']}", TB_TEST_LOG=str(self.tmp / "docker.log"),
+                    TB_HOST_ROOT=str(self.hostroot), **extra)  # fmt: skip
         return full
 
     def install(self, *args: str, **extra: str) -> subprocess.CompletedProcess[str]:
@@ -264,12 +273,12 @@ def test_the_lock_tool_alone_grants_nothing_on_a_production_box(tmp_path: Path) 
     (b.deploy / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")
     r = subprocess.run([sys.executable, str(ROOT / "tools" / "images_lock.py"), "host", "--arch", "x86_64", "--driver",
                         LOW, "--compute-cap", "10.0", "--rehearsal-real-servers", "--engine-probe", str(b.probe),
-                        "--card", B200, "--deploy", str(b.deploy)], capture_output=True, text=True, timeout=60,
-                       check=False)  # fmt: skip
+                        "--gpu-index", "1", "--deploy", str(b.deploy)], capture_output=True, text=True, timeout=60,
+                       check=False, env=b.env())  # fmt: skip
     assert r.returncode == 1 and DRIVER_FAIL.strip() in r.stdout and "this box is PRODUCTION" in r.stdout
     r = subprocess.run([sys.executable, str(ROOT / "tools" / "images_lock.py"), "host", "--arch", "x86_64", "--driver",
                         LOW, "--rehearsal-real-servers"], capture_output=True, text=True, timeout=60, check=False)  # fmt: skip
-    assert r.returncode == 2 and "needs --engine-probe, --card and --deploy" in r.stderr
+    assert r.returncode == 2 and "needs --engine-probe, --gpu-index and --deploy" in r.stderr
 
 
 def test_check_host_takes_the_rehearsal_arguments_only_whole() -> None:
@@ -368,6 +377,7 @@ def test_write_records_the_three_facts_and_the_probe_digest(tmp_path: Path, monk
     b = Bench(tmp_path)
     _marked(b)
     monkeypatch.setenv("PATH", b.env()["PATH"])
+    monkeypatch.setenv("TB_HOST_ROOT", str(b.hostroot))
     problems, doc = rehearsal_real.write(b.deploy, "1", b.probe, b.deploy / "measured" / REC.name)
     assert problems == []
     assert doc["words"] == rehearsal_real.WORDS == ("rehearsal: driver below the minimum, not this profile's card, "
@@ -386,6 +396,7 @@ def test_write_records_the_three_facts_and_the_probe_digest(tmp_path: Path, monk
 def test_write_without_the_mark_writes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     b = Bench(tmp_path)
     monkeypatch.setenv("PATH", b.env()["PATH"])
+    monkeypatch.setenv("TB_HOST_ROOT", str(b.hostroot))
     problems, _ = rehearsal_real.write(b.deploy, "1", b.probe, b.deploy / "measured" / REC.name)
     assert problems and "no rehearsal mark" in problems[-1]
     assert not (b.deploy / "site" / rehearsal_real.RECORD).exists()
@@ -396,6 +407,7 @@ def test_with_a_good_driver_no_environment_goes_to_the_servers(tmp_path: Path, m
     b = Bench(tmp_path, driver=GOOD)
     _marked(b)
     monkeypatch.setenv("PATH", b.env()["PATH"])
+    monkeypatch.setenv("TB_HOST_ROOT", str(b.hostroot))
     problems, doc = rehearsal_real.write(b.deploy, "1", b.probe, b.deploy / "measured" / REC.name)
     assert (
         problems == []
@@ -548,3 +560,169 @@ def test_an_install_without_the_options_refuses_a_box_that_ran_the_real_servers(
         script = f'set -euo pipefail\ncd "{d.parent.parent}"\nREAL_SERVERS=0\ndie() {{ echo "install: $*" >&2; exit 1; }}\n{body}\n'
         r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
         assert r.returncode == 1 and "ran the real model servers as a rehearsal" in r.stderr
+
+
+# ------------------------------------------------------------------------------- the review's M1, M2 and L1 (round 1)
+def _allow(b: Bench, monkeypatch: pytest.MonkeyPatch, doc: dict[str, Any] | None = None) -> list[str]:
+    monkeypatch.setenv("PATH", b.env()["PATH"])
+    monkeypatch.setenv("TB_HOST_ROOT", str(b.hostroot))
+    if doc is not None:
+        b.probe.write_text(json.dumps(doc), encoding="utf-8")
+    return rehearsal_real.driver_allowance(b.probe, "1", b.deploy)[0]
+
+
+def _verdict(**change: Any) -> dict[str, Any]:
+    v = dict(probe_doc()["verdict"])
+    v.update(change)
+    return v
+
+
+LIBS_PASS = [{"name": "pinned", "status": "DRIVER", "probe": None}, {"name": "pinned+compat", "status": "FAIL"},
+             {"name": "pinned+libs", "status": "PASS", "probe": {"compat_libs": ["libcuda.so.1"]}}]  # fmt: skip
+
+
+def test_a_passing_probe_of_this_card_and_host_is_allowed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _allow(Bench(tmp_path), monkeypatch) == []
+    libs = probe_doc(tests=LIBS_PASS, verdict=_verdict(use="pinned+libs", env={
+        "NVIDIA_DISABLE_REQUIRE": "1", "LD_LIBRARY_PATH": "/usr/local/cuda/compat:/usr/local/nvidia/lib64"}))  # fmt: skip
+    assert _allow(Bench(tmp_path / "libs"), monkeypatch, libs) == []
+
+
+@pytest.mark.parametrize(
+    ("change", "said"),
+    [
+        ({"verdict": _verdict(env={**ENV_OUT, "LD_PRELOAD": "/tmp/x.so"})}, "is not its form's"),  # M1
+        ({"verdict": _verdict(env={"NVIDIA_DISABLE_REQUIRE": "1"})}, "is not its form's"),
+        ({"verdict": _verdict(env={**ENV_OUT, "VLLM_ENABLE_CUDA_COMPATIBILITY": "0"})}, "is not its form's"),
+        ({"tests": LIBS_PASS, "verdict": _verdict(use="pinned+libs", env={
+            "NVIDIA_DISABLE_REQUIRE": "1", "LD_LIBRARY_PATH": "/tmp/evil:/usr/local/cuda/compat"})}, "does not start with"),
+        ({"images": {"pinned": {"ref": PIN, "verified_in_lock": True}}}, "digest matched"),  # M2: missing is refused
+        ({"at": "2019-01-01T00:00:00+00:00"}, "older than 7 days"),
+        ({"at": "yesterday"}, "older than 7 days"),
+        ({"host": {**probe_doc()["host"], "card_id": engine_probe.card_id(UUIDS[0])}}, "another card than card 1"),
+        ({"host": {**probe_doc()["host"], "card_id": None}}, "another card than card 1"),
+        ({"host": {**probe_doc()["host"], "host_id": "f" * 32}}, "another host"),
+    ],
+)  # fmt: skip
+def test_the_probe_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: dict[str, Any], said: str
+) -> None:
+    problems = _allow(Bench(tmp_path), monkeypatch, probe_doc(**change))
+    assert any(said in p for p in problems), problems
+
+
+def test_a_probe_with_ld_preload_never_reaches_the_compose_file(tmp_path: Path) -> None:
+    b = Bench(tmp_path)
+    b.probe.write_text(json.dumps(probe_doc(verdict=_verdict(env={**ENV_OUT, "LD_PRELOAD": "/tmp/x.so"}))))
+    r = b.real()
+    assert r.returncode == 1 and DRIVER_FAIL in r.stdout.splitlines() and "is not its form's" in r.stdout
+    assert not (b.deploy / "site" / rehearsal_real.OVERRIDE).exists()
+
+
+def test_a_probe_without_this_hosts_machine_id_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    b = Bench(tmp_path)
+    (b.hostroot / "etc" / "machine-id").unlink()
+    assert any("another host" in p for p in _allow(b, monkeypatch))
+
+
+def test_a_probe_file_others_may_write_or_own_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    b = Bench(tmp_path)
+    b.probe.chmod(0o664)
+    assert any("writable by group or others" in p for p in _allow(b, monkeypatch))
+    b.probe.chmod(0o644)
+    if os.geteuid() == 0:
+        os.chown(b.probe, 4242, 4242)
+    else:
+        monkeypatch.setattr(os, "getuid", lambda: 4242)
+    assert any("is owned by uid" in p for p in _allow(b, monkeypatch))
+
+
+@pytest.mark.parametrize(
+    "lines",
+    ["TB_ENV=VALIDATION\nTB_REHEARSAL=1\nexport TB_ENV=PRODUCTION\n", "TB_ENV=PRODUCTION # site\nTB_REHEARSAL=1\n"],
+)
+def test_the_start_check_reads_env_as_compose_does(tmp_path: Path, lines: str) -> None:
+    deploy = _box(tmp_path, lines, mark=True, record=False)
+    assert "TB_ENV=PRODUCTION" in rehearsal_real.start_refusal(deploy, rehearsal_real.env_file(deploy / ".env"))
+
+
+def test_the_engine_probe_records_the_cards_and_hosts_one_way_ids(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / "etc").mkdir()
+    (tmp_path / "etc" / "machine-id").write_text(MACHINE_ID, encoding="utf-8")
+    monkeypatch.setenv("TB_HOST_ROOT", str(tmp_path))
+    asked: list[list[str]] = []
+
+    def run(cmd: list[str], _t: int) -> tuple[int, str, str]:
+        asked.append(cmd)
+        if "--query-gpu=uuid" in cmd:
+            return 0, UUIDS[1] + "\n", ""
+        if "--query-gpu=name,memory.total,driver_version,compute_cap" in cmd:
+            return 0, f"{B200}, 183359, {LOW}, 10.0\n", ""
+        return 0, "", ""
+
+    facts = engine_probe.host_facts(run, "1")
+    assert facts["card_id"] == engine_probe.card_id(UUIDS[1]) and facts["host_id"] == HOST_ID
+    assert UUIDS[1] not in json.dumps(facts) and MACHINE_ID not in json.dumps(facts)
+    assert all(c[1:3] == ["-i", "1"] for c in asked if c[0] == "nvidia-smi")
+    assert "card_id" not in engine_probe.host_facts(run)  # without --gpu-index: as before
+
+
+# ------------------------------------------------------------------------------- the boot path and the banner (H1, L5)
+GUARD = ROOT / "deploy" / "settings_guard.sh"
+GUARD_REFUSAL = ("TrialBox REFUSED to start on the example settings: {d}/settings.yaml is this site's, but compose would "
+                 "mount ./settings.example.yaml (TB_SETTINGS_FILE). Add TB_SETTINGS_FILE=./settings.yaml to {d}/.env (or "
+                 "run deploy/install.sh again, which writes it), then start again\n")  # fmt: skip
+
+
+def _guard(deploy: Path, no_python: bool = False) -> subprocess.CompletedProcess[str]:
+    (deploy.parent / "tools").symlink_to(ROOT / "tools") if not (deploy.parent / "tools").exists() else None
+    env = {k: v for k, v in os.environ.items() if not k.startswith("TB_")}
+    env["PYTHONPATH"] = str(deploy.parent)
+    if no_python:  # a python3 that fails: proves the guard does not ask it on a box without a sign
+        stub = deploy.parent / "nopy"
+        stub.mkdir()
+        (stub / "python3").write_text("#!/bin/sh\necho python3 was asked >&2\nexit 9\n", encoding="utf-8")
+        (stub / "python3").chmod(0o755)
+        env["PATH"] = f"{stub}:{env['PATH']}"
+    return subprocess.run(["sh", str(GUARD), str(deploy)], capture_output=True, text=True, env=env, check=False)
+
+
+def test_without_a_sign_the_boot_guard_is_as_before(tmp_path: Path) -> None:
+    deploy = tmp_path / "deploy"
+    (deploy / "site").mkdir(parents=True)
+    (deploy / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
+    r = _guard(deploy, no_python=True)
+    assert (r.returncode, r.stdout, r.stderr) == (0, "", "")
+    (deploy / "settings.yaml").write_text("site: {}\n", encoding="utf-8")
+    r = _guard(deploy)
+    assert (r.returncode, r.stdout, r.stderr) == (1, "", GUARD_REFUSAL.format(d=deploy))
+
+
+@pytest.mark.parametrize(
+    ("env_lines", "mark", "record"),
+    [("TB_ENV=PRODUCTION\nTB_REHEARSAL=1\n", True, True), ("TB_ENV=PRODUCTION\n", True, False),
+     ("TB_ENV=PRODUCTION\n", False, True), ("export TB_ENV=PRODUCTION\nTB_REHEARSAL_REAL_SERVERS=1\n", False, False)],
+)  # fmt: skip
+def test_a_rehearsal_box_turned_production_is_refused_at_boot(
+    tmp_path: Path, env_lines: str, mark: bool, record: bool
+) -> None:
+    r = _guard(_box(tmp_path, env_lines, mark=mark, record=record))
+    assert r.returncode == 1 and "TrialBox REFUSED to start: this box carries a rehearsal sign" in r.stderr
+    assert "TB_ENV=PRODUCTION" in r.stderr
+
+
+def test_a_whole_rehearsal_box_boots(tmp_path: Path) -> None:
+    r = _guard(_box(tmp_path, WHOLE + "TB_REHEARSAL_REAL_SERVERS=1\n", mark=True, record=True))
+    assert (r.returncode, r.stderr) == (0, "")
+
+
+def test_the_console_banner_says_the_sentence() -> None:
+    from console.app import environment_banner
+
+    real = {"TB_ENV": "VALIDATION", "TB_REHEARSAL": "1", "TB_REHEARSAL_REAL_SERVERS": "1"}
+    assert environment_banner(real) == f"VALIDATION REHEARSAL: {rehearsal_real.WORDS}"
+    assert environment_banner({"TB_ENV": "VALIDATION", "TB_REHEARSAL": "1"}) == "VALIDATION REHEARSAL"
+    assert environment_banner({**real, "TB_ENV": "PRODUCTION"}) == "PRODUCTION"
+    assert environment_banner({"TB_ENV": "VALIDATION", "TB_REHEARSAL_REAL_SERVERS": "1"}) == "VALIDATION"
