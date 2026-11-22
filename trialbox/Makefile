@@ -33,6 +33,11 @@ TB_MIN_FREE_GB ?= 20
 TB_ROOT_BUDGET_GB ?= 10
 # pytest-xdist (D-201): one worker per core; PYTEST_N=0 runs serially
 PYTEST_N ?= auto
+# H-73 (D-1355): the workers steal queued tests from each other (`--dist worksteal`). Under xdist's default `load` a
+# worker is sent the next tests as one run of the collection, so the seven long role walks of
+# tests/console/test_prefs_10f1.py (150 to 260 s each) ran one after another on one worker while the others idled:
+# shard 1's last 14 % took 13 to 21 minutes (unit-shard (1/6) cancelled at 40 minutes, jobs 137064085949 and others)
+XDIST_DIST = $(if $(filter-out 0,$(PYTEST_N)),--dist worksteal,)
 # T-747 (D-475): SHARD=i/N runs only shard i of N of the suite (each test file in one shard, by a hash of its path;
 # tools/test_shard.py), as CI's unit-shard jobs do; SHARD_RECORD=<file> also writes what the shard collected and kept
 # (`python -m tools.test_shard check` over all N records proves every test ran in exactly one shard)
@@ -139,7 +144,7 @@ test-random-locked:
 
 test-locked:
 	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -p "$(TB_TEST_ROOT)/tmp"
-	TMPDIR="$(TB_TEST_ROOT)/tmp" $(if $(TRACE),TB_TRACE_OUT="$(TRACE)",) $(PY) -m pytest -q -n $(PYTEST_N) \
+	TMPDIR="$(TB_TEST_ROOT)/tmp" $(if $(TRACE),TB_TRACE_OUT="$(TRACE)",) $(PY) -m pytest -q -n $(PYTEST_N) $(XDIST_DIST) \
 		--basetemp "$(TB_TEST_ROOT)/pytest" -m "not integration and not e2e and not llm and not perf" $(SHARD_ARGS) \
 		$(TESTS); rc=$$?; \
 	rm -rf "$(TB_TEST_ROOT)/tmp"; PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop-idle "$(TB_TEST_ROOT)/pglocal"; \
