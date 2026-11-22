@@ -166,6 +166,20 @@ bundle) masks it. A pseudonym is not an identifier outside the box only if the k
 `test_ordinary_words_are_kept` is not changed. The bundle's invariant test asserting that masking for every encoding
 H-76a covers belongs to card H-76.
 
+### One normalisation step before any rule (from the integrator's review of H-76a; not built here)
+
+The bench passed these forms on log lines nearly always: a zero-width joiner, quoted-printable, full-width
+characters, and base64 (100 % for chart, phone and id). The integrator wants one normalisation step before any rule.
+Here is what `decode_then_scrub` does today and what is left for a follow-up card:
+
+| Form | Today | Follow-up |
+| --- | --- | --- |
+| `%XX`, backslash escapes, HTML entities | decoded (see above) | none |
+| quoted-printable `=3D`, `=40` | decoded | every `=XX` and the soft break `=` at a line's end: not decoded |
+| zero-width characters (U+200B to U+200D, U+2060, U+FEFF) | not stripped | strip them before the rules |
+| full-width digits and letters | not folded (NFKC is not applied); the log scrubber's own patterns read full-width digits in the Japanese number rules only | NFKC (or a narrower width fold) before the rules |
+| base64 | not decoded | decoding base64 runs is a separate card (cost and false hits to measure) |
+
 ### What is masked though it may hide nothing
 
 - A line decoded because something was found loses its other escapes (`path=%2Fdata to [EMAIL]` becomes
