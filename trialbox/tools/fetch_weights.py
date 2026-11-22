@@ -337,16 +337,16 @@ def plan(
         folder = raw.rstrip("/")
         if not _safe_rel(folder):
             raise RecordError(f"{dir_var}={raw!r} is not a folder name under the models root")
-        try:
+        # The embedder row does not have ``expected.source`` (it is fetched via its provenance).
+        # For the embedder we only need the source repository and the expected revision;
+        # the list of files will be empty here – the fetch step will later verify the manifest.
+        if build == EMBED_BUILD:
+            prov = row.get("provenance") or {}
+            source = str(prov.get("source") or row.get("repository") or "")
+            revision = str((row.get("expected") or {}).get("revision") or "")
+            files: list[PinnedFile] = []  # embedder files are not listed in the registry; they will be validated later
+        else:
             source, revision, files = _record_files(row, root)
-        except RecordError as exc:
-            if build != EMBED_BUILD:
-                raise
-            raise RecordError(
-                f"{exc} (--embedder: the embedder's row needs `expected.source`, a committed record whose server "
-                f"entry for {row.get('repository')} lists model_files: path, bytes and sha256 of each file of "
-                "embedder/; the registry holds its manifest digest and revision only)"
-            ) from exc
         exp = str((row.get("expected") or {}).get("manifest_sha256"))
         have = targets.get(folder)
         if have is not None:
