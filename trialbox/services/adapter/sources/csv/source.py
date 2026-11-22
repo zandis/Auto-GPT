@@ -5,7 +5,10 @@ through the one detector of D-215 (:mod:`tb_common.encoding`), with the site's d
 (``settings.data_source.encoding``) as the first candidate. A file the detector refuses, or that is not a readable
 CSV, is **quarantined**: it is moved to ``<directory>/quarantine/`` (left in place when the folder is read-only), the
 table yields no rows, and :meth:`CsvSource.quarantine_reason` says why, with the line. The adapter holds the night and
-reads the other tables; nothing is guessed and no U+FFFD reaches a record.
+reads the other tables; nothing is guessed and no U+FFFD reaches a record. A file cut short is not a readable CSV
+either (F-2): one that does not end with a line end, ends inside a quoted field, starts with a blank line, or has a
+row with more or fewer fields than its header, is quarantined with the line, never served with a value cut or a
+column taken as empty.
 
 Delta (T-615b, DATA-008). ``--since`` filters on the table's change-time column (the mapping's ``delta:``, canonical
 ``updated_at``). A row whose change time is empty is kept, and so is every row of a file that has no such column: a
@@ -62,6 +65,57 @@ def candidates(declared: str | None) -> tuple[str, ...]:
     return (first, *rest) if first else rest
 
 
+def _ends_with_line_end(path: Path) -> bool:
+    """Whether the file's last byte ends a line (every character set read here writes CR and LF as ASCII)."""
+    with path.open("rb") as fh:
+        if fh.seek(0, 2) == 0:
+            return True
+        fh.seek(-1, 2)
+        return fh.read(1) in (b"\n", b"\r")
+
+
+def _not_whole(path: Path, codec: str) -> str | None:
+    """F-2 (H34-01, -03, -04): why the file is not a whole CSV, or None. A file that does not end with a line end is
+    cut: a writer ends every row with one, and a row cut anywhere (inside a field, after a separator, after half of an
+    escaped quote) can have the header's width, so only the missing line end tells it. Parsed strictly (a quoted field
+    the file ends inside is an error, not a field), the first line is the header (a blank one would make every row's
+    columns nameless), and every row has the header's fields: a row short or long is a row cut or split, never one
+    whose missing column is taken as empty. Two shapes of a real export are no fault: header columns with no name at
+    its end may be missing from a row, and a row may carry empty fields past the header's end (a trailing separator),
+    as long as every row of the file has the width of the first. Read as a stream, no row kept (T-692); the reason
+    holds the line, never a cell's text."""
+    if not _ends_with_line_end(path):
+        return ": the file does not end with a line end, so its last row may be cut"
+    width = named = first = 0
+    try:
+        with path.open(encoding=codec, newline="") as fh:
+            reader = csv.reader(fh, strict=True)
+            for rec in reader:
+                if not width:
+                    if not rec:
+                        return f": line {reader.line_num} is blank where the header must be"
+                    width = len(rec)
+                    named = width
+                    while named > 1 and not rec[named - 1].strip():
+                        named -= 1
+                    continue
+                if not rec:  # a blank line is no row (as DictReader reads it)
+                    continue
+                n = len(rec)
+                fits = named <= n <= width or (n > width and not any(f.strip() for f in rec[width:]))
+                # every row of one export has one width: a row that differs from the first is shifted, even when its
+                # extra field is empty (a decimal comma in a row whose last field is empty)
+                if fits and n == (first or n):
+                    first = n
+                    continue
+                return f": line {reader.line_num} has {n} fields where the header has {width}" + (
+                    f" and the first row {first}" if fits else ""
+                )
+    except csv.Error as exc:
+        return f" ({exc}, line {reader.line_num})"
+    return None
+
+
 class CsvSource:
     name = "csv"
 
@@ -110,12 +164,9 @@ class CsvSource:
         except encoding.EncodingRefused as exc:
             self._quarantine(path, source_name, str(exc))
             return None
-        try:
-            with path.open(encoding=codec, newline="") as fh:
-                for _ in csv.reader(fh):
-                    pass
-        except csv.Error as exc:
-            self._quarantine(path, source_name, f"not a readable CSV ({exc})")
+        why = _not_whole(path, codec)
+        if why is not None:
+            self._quarantine(path, source_name, f"not a readable CSV{why}")
             return None
         self.encodings[source_name] = codec
         return codec
