@@ -194,9 +194,13 @@ def build_site(
     """``profile``: the ``tools.synth_hospital`` profile (``ci``: the JP + TW hospital; ``jp-ad``: the Japanese
     memory-clinic site of scenario J1, with ``settings_update=SITE_JP``). ``day`` (T-513): the box's day; the
     hospital's dates are moved so that its data is as of the day before (None: :func:`data_day`, nothing moved)."""
+    from adapter.cli import keys_init
+    from console.sitestore import SiteStore
     from orchestrator import app as orch_app
+    from tb_common.flags import Flags
 
     from tests.inproc_box import ingest_site, make_box
+    from tools import pglocal
     from tools.role_demo import orch_client
     from tools.synth_hospital import run as synth_run
 
@@ -218,17 +222,56 @@ def build_site(
     if had != shift:
         raise SystemExit(f"{work} holds a hospital made for another day (moved {had} days, not {shift}): use --fresh")
     sec = work / "sec"
-    sec.mkdir(parents=True, exist_ok=True)
-    (sec / "site_hmac.key").write_bytes(KEY)
     site_id = str((settings_update or {}).get("site", {}).get("id") or "DEMO-A")
-    if not (work / "lake").exists():
-        snapshot = REF - timedelta(days=1) + timedelta(days=shift)
-        ingest_site(hospital, work / "lake", sec, snapshot.isoformat(), site_id=site_id)
     shutil.rmtree(work / "box", ignore_errors=True)  # the box (jobs, mail, repo) starts fresh on every run
-    box = make_box(work / "box", work / "lake", sec, day or data_day(), settings_update=settings_update,
-                   extra_list_to=people_mailboxes())  # fmt: skip
+    # As a real install: the key ceremony, the data folder set, the box made, then the night that publishes the
+    # screening inputs. A lake kept from an earlier run is reused only while its install's grant still holds on this
+    # box's database; else the install starts over (a new box cannot inherit an old box's grant).
+    url = pglocal.for_work(work / "box")
+    if (work / "lake").exists() and not install_holds(work, url):
+        for name in ("lake", "sec", "screening-inputs"):
+            shutil.rmtree(work / name, ignore_errors=True)
+    fresh = not (work / "lake").exists()
+    sec.mkdir(parents=True, exist_ok=True)
+    if fresh and keys_init(sec) != 0:
+        raise SystemExit("the site key could not be made")
+    # the installed feed is the hospital's folder, so the night's own checks accept it as this site's
+    feed = {
+        "data_source": {"type": "csv", "path": str(hospital), "mapping": "mapping/tw_core/demo_his.yaml"},
+        "registry_source": {"type": "csv", "path": str(hospital / "registry.csv")},
+    }
+    settings = {**(settings_update or {}), **feed}
+    box = make_box(work / "box", work / "lake", sec, day or data_day(), settings_update=settings,
+                   extra_list_to=people_mailboxes(),
+                   extra_env={"TB_DATA_DIR": str(work), "TB_RULESETS_DIR": str(work / "box" / "repo")})  # fmt: skip
+    if fresh:
+        Flags(url=box.orch.db.url, audit=box.orch.audit).seed()
+        SiteStore(box.orch.db.url).close()
+        snapshot = REF - timedelta(days=1) + timedelta(days=shift)
+        night = ingest_site(hospital, work / "lake", sec, snapshot.isoformat(), site_id=site_id,
+                            screening_site=box.orch.cfg)  # fmt: skip
+        if not night.passed:
+            raise SystemExit(f"the demo's night did not pass: {night.errors}")
     orch_app._orch = box.orch
     return box, orch_client(orch_app.app), work / "box" / "repo", summary
+
+
+def site_key(work: Path) -> bytes:
+    """The site key the install ceremony of :func:`build_site` made in ``work`` (the lake's pseudonyms)."""
+    return (work / "sec" / "site_hmac.key").read_bytes()
+
+
+def install_holds(work: Path, url: str) -> bool:
+    """Whether the grant of the install kept in ``work`` was given on this database's release (gate 4's check)."""
+    from tb_common.flags import Flags
+    from tb_common.screening_inputs import RestoreClearance, clearance_path, release_id
+    from tb_common.study_manifest import load_json
+
+    try:
+        grant = RestoreClearance.model_validate(load_json(clearance_path(work).read_bytes()))
+        return grant.state == "released" and grant.clearance_id == release_id(Flags(url=url))
+    except Exception:
+        return False
 
 
 def reopen_site(work: Path, settings_update: dict[str, Any] | None = None) -> tuple[Any, Any, Path]:
