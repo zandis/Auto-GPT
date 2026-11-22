@@ -234,10 +234,19 @@ def test_install_does_not_work_the_back_end_out_itself() -> None:
     """Only seal_keys.sh decides: after the seal the installer reads the record and nothing else."""
     after = SEAL_BLOCK[SEAL_BLOCK.index("sh deploy/hardening/seal_keys.sh") :]
     after = after[after.index("\n", after.index("|| die")) :]  # the lines after the seal's own refusal
-    assert "< deploy/site/kek-backend)" in after and "envset TB_KEK_BACKEND" in after
+    assert "< deploy/site/kek-backend)" in after and 'echo "TB_KEK_BACKEND=$KEK_USED" >> deploy/.env' in after
     assert "--record deploy/site/kek-backend" in SEAL_BLOCK
-    for guess in ("has-tpm2", "hb_load_conf", "KEK_BACKEND=", "${TB_KEK_BACKEND", "$HB_CONF", "/dev/tpm"):
-        assert guess not in after, guess
+    for blk in (after, _copy_block(BOX_INSTALL)):
+        for guess in (
+            "has-tpm2",
+            "hb_load_conf",
+            "^KEK_BACKEND",
+            "${TB_KEK_BACKEND",
+            "$HB_CONF",
+            "hardening.conf",
+            "/dev/tpm",
+        ):
+            assert guess not in blk, guess
 
 
 @pytest.mark.parametrize("backend", ["passphrase", "shamir"])
@@ -303,3 +312,80 @@ def test_without_record_nothing_is_written(tmp_path: Path) -> None:
     assert res.returncode == 0, res.stderr
     assert {p.name for p in tmp_path.iterdir()} == before | {"kek.runtime"}
     assert "kek-backend" not in {p.name for p in (tmp_path / "secrets").iterdir()}
+
+
+# ---- box-install.sh: the deferred seal (TB_BOX_DEFER_SEAL=1; the owner's passphrase at the apply step), as it stands
+BOX_INSTALL = (ROOT / "deploy" / "box-install.sh").read_text(encoding="utf-8")
+BOX_BLOCK = BOX_INSTALL[
+    BOX_INSTALL.index(
+        "if [ -f \"$ROOT/deploy/site/hardening.conf\" ] && grep -q '^KEK_BACKEND=passphrase'"
+    ) : BOX_INSTALL.index("TZ_NEW=")
+]
+COPY_START = "  # H-77 (F-22): the back end is the one seal_keys.sh recorded"
+
+
+def _copy_block(text: str) -> str:
+    start = text.index(COPY_START)
+    return text[start : text.index("  esac\n", start) + len("  esac\n")]
+
+
+def _box(tmp: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    """The box's apply-step seal: hardening.conf says passphrase (the plan's, D-898), the owner's answers hold it."""
+    for d in ("hardening",):
+        (tmp / "deploy").mkdir(exist_ok=True)
+        (tmp / "deploy" / d).symlink_to(ROOT / "deploy" / d)
+    (tmp / "deploy" / "site").mkdir()
+    (tmp / "tools").symlink_to(ROOT / "tools")
+    (tmp / "libs").symlink_to(ROOT / "libs")
+    (tmp / "deploy" / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
+    (tmp / "deploy" / "site" / "hardening.conf").write_text("KEK_BACKEND=passphrase\n", encoding="utf-8")
+    script = (
+        "set -euo pipefail\n"
+        f'ROOT="{tmp}"\ncd "$ROOT"\nFR=unused\nIMAGE_PY=unused\n'
+        'die() { echo "box-install: $*" >&2; exit 1; }\n'
+        "id() { echo 0; }\n"  # the block's root check; CI runs non-root
+        f'json_get() {{ echo "{PHRASE}"; }}\n'  # the owner's answers: the passphrase the owner set
+        f"{BOX_BLOCK}\n"
+    )
+    full = {k: v for k, v in env.items() if k != "TB_KEK_PASSPHRASE"}  # only from the owner's answers
+    return subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=False,
+        env={**full, "TB_SECRETS_HOST_DIR": str(tmp / "secrets")},
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize("asked", [None, "tpm"])
+def test_the_box_deferred_seal_copies_the_back_end_seal_keys_recorded(tmp_path: Path, asked: str | None) -> None:
+    """The invariant on box-install.sh's door: hardening.conf says passphrase, the environment may say tpm; the line,
+    deploy/.env and the record name what sealed the keys, and no passphrase shows anywhere."""
+    env = _host(tmp_path)
+    if asked:
+        env["TB_KEK_BACKEND"] = asked
+    res = _box(tmp_path, env)
+    assert res.returncode == 0, res.stderr
+    ran = asked or "passphrase"
+    recorded = _record(tmp_path).read_text(encoding="utf-8").strip()
+    assert recorded == ran and _env_value(tmp_path) == [ran]
+    assert f"the KEK back end that sealed the keys: {ran} " in res.stdout
+    meta = K.read_meta(tmp_path / "secrets")
+    assert meta is not None and meta["backend"] == ("file" if ran == "tpm" else ran)
+    cred = tmp_path / "host" / "etc" / "credstore.encrypted" / "trialbox-kek"
+    assert cred.is_file() == (ran == "tpm")
+    seen = res.stdout + res.stderr + (tmp_path / "deploy" / ".env").read_text(encoding="utf-8") + recorded
+    assert PHRASE not in seen
+
+
+def test_a_failed_deferred_seal_records_nothing(tmp_path: Path) -> None:
+    res = _box(tmp_path, {**_host(tmp_path, SEAL_FAILS), "TB_KEK_BACKEND": "tpm"})
+    assert res.returncode != 0 and "the site keys could not be sealed" in res.stderr
+    _no_record(tmp_path)
+    assert _env_value(tmp_path) == []
+    assert not (tmp_path / "secrets" / K.META_FILE).exists()
+
+
+def test_the_two_installers_copy_the_record_with_one_block() -> None:
+    """install.sh and box-install.sh share no sourced file: the copy is the same block in both, byte for byte, and
+    each passes the same record file to seal_keys.sh."""
+    assert _copy_block(INSTALL) == _copy_block(BOX_INSTALL)
+    assert _copy_block(BOX_INSTALL) in BOX_BLOCK
+    assert "--record deploy/site/kek-backend" in SEAL_BLOCK and "--record deploy/site/kek-backend" in BOX_BLOCK
