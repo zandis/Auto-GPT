@@ -11,21 +11,38 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
+from tools import pin_model as pm
 from tools import vocab_bundle_check as vbc
 
 ROOT = Path(__file__).resolve().parents[2]
-EMBEDDER = ROOT / "deploy/measured/embedder_files.e-embed-1.json"
-SERVING = ROOT / "deploy/measured/serving_config.rtxpro6000.json"
-TOKENIZER = "sentencepiece.bpe.model"
-VERIFIER = "qwen3.5-9b-4bit"  # the verifier's default folder (tools.pin_model.PROFILE_PAIRS)
+ROWS = {
+    str(b.get("build_id")): b
+    for b in yaml.safe_load((ROOT / "models/registry.yaml").read_text(encoding="utf-8"))["builds"]
+}
+PAIRS = [t for pairs in pm.PROFILE_PAIRS.values() for t in pairs]
+# the default folders of the judge and the verifier, and the builds they hold (tools.pin_model)
+JUDGE = next(t[3] for t in PAIRS if t[1] == "serving")
+VERIFIER_BUILD, VERIFIER = next((t[0], t[3]) for t in PAIRS if t[1] == "verifier")
+
+
+def _files(build: str) -> list[dict[str, object]]:
+    """The model files the measured record of a build's registry row lists for the row's source."""
+    row = ROWS[build]
+    model = (row.get("provenance") or {}).get("source") or row.get("repository")
+    record = json.loads((ROOT / row["expected"]["source"]).read_text(encoding="utf-8"))
+    return next(list(sv["model_files"]) for sv in record["servers"] if sv.get("model") == model)
+
+
+# the embedder's tokenizer file: the one binary of its record that no extension of the check names
+TOKENIZER = next(str(f["path"]) for f in _files(pm.EMBED_BUILD) if Path(str(f["path"])).suffix == ".model")
 BLOB = b"\x00\x01synthetic stand-in for a measured file\x00"
 MEASURED = vbc.measured_files()
 
 
-def _record_sha(record: Path, path: str, server: int = 0) -> str:
-    files = json.loads(record.read_text(encoding="utf-8"))["servers"][server]["model_files"]
-    return next(str(f["sha256"]) for f in files if f["path"] == path)
+def _record_sha(build: str, path: str) -> str:
+    return next(str(f["sha256"]) for f in _files(build) if f["path"] == path)
 
 
 def _models(tmp_path: Path, rel: str, blob: bytes = BLOB) -> Path:
@@ -46,18 +63,19 @@ def _stand_in(monkeypatch: pytest.MonkeyPatch, blob: bytes, digest: str) -> None
 
 
 def test_the_records_cover_the_embedder_and_the_serving_pairs_folders() -> None:
-    assert MEASURED[f"embedder/{TOKENIZER}"] == {_record_sha(EMBEDDER, TOKENIZER)}
-    assert MEASURED[f"{VERIFIER}/recipe.yaml"] == {_record_sha(SERVING, "recipe.yaml", server=1)}
-    assert {k.split("/")[0] for k in MEASURED} == {"embedder", VERIFIER, "gemma-4-26b-a4b-it-4bit"}
-    embedder = json.loads(EMBEDDER.read_text(encoding="utf-8"))["servers"][0]["model_files"]
-    assert {k for k in MEASURED if k.startswith("embedder/")} == {f"embedder/{f['path']}" for f in embedder}
-    assert MEASURED["embedder/1_Pooling/config.json"] == {_record_sha(EMBEDDER, "1_Pooling/config.json")}
+    assert MEASURED[f"embedder/{TOKENIZER}"] == {_record_sha(pm.EMBED_BUILD, TOKENIZER)}
+    assert MEASURED[f"{VERIFIER}/recipe.yaml"] == {_record_sha(VERIFIER_BUILD, "recipe.yaml")}
+    assert {k.split("/")[0] for k in MEASURED} == {"embedder", VERIFIER, JUDGE}
+    assert {k for k in MEASURED if k.startswith("embedder/")} == {
+        f"embedder/{f['path']}" for f in _files(pm.EMBED_BUILD)
+    }
+    assert MEASURED["embedder/1_Pooling/config.json"] == {_record_sha(pm.EMBED_BUILD, "1_Pooling/config.json")}
 
 
 def test_the_real_records_tokenizer_passes_by_its_measured_hash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    want = _record_sha(EMBEDDER, TOKENIZER)
+    want = _record_sha(pm.EMBED_BUILD, TOKENIZER)
     _stand_in(monkeypatch, BLOB, want)
     rep = vbc.check(models=[_models(tmp_path, f"embedder/{TOKENIZER}")])
     assert rep.problems == []
@@ -68,7 +86,7 @@ def test_the_tokenizers_name_with_another_hash_fails(tmp_path: Path) -> None:
     rep = vbc.check(models=[_models(tmp_path, f"embedder/{TOKENIZER}")])
     assert len(rep.problems) == 1
     assert TOKENIZER in rep.problems[0] and "is not the measured record's" in rep.problems[0]
-    assert _record_sha(EMBEDDER, TOKENIZER)[:12] in rep.problems[0]
+    assert _record_sha(pm.EMBED_BUILD, TOKENIZER)[:12] in rep.problems[0]
 
 
 def test_an_unlisted_model_file_fails(tmp_path: Path) -> None:
@@ -79,7 +97,7 @@ def test_an_unlisted_model_file_fails(tmp_path: Path) -> None:
 
 def test_a_listed_text_file_with_one_changed_byte_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     text = b'{"model_type": "invented", "hidden_size": 1024}\n'
-    _stand_in(monkeypatch, text, _record_sha(EMBEDDER, "config.json"))
+    _stand_in(monkeypatch, text, _record_sha(pm.EMBED_BUILD, "config.json"))
     assert vbc.check(models=[_models(tmp_path / "a", "embedder/config.json", text)]).problems == []
     changed = text.replace(b"1024", b"1025")
     rep = vbc.check(models=[_models(tmp_path / "b", "embedder/config.json", changed)])
@@ -96,7 +114,7 @@ def test_a_listed_recipe_with_the_recorded_hash_passes_unparsed(
     broken = b"recipe: [an unclosed list\n  stage: {\n"
     m = _models(tmp_path / "a", "unlisted-model/recipe.yaml", broken)
     assert any("does not parse" in p or "cannot" in p for p in vbc.check(models=[m]).problems)  # read when unlisted
-    _stand_in(monkeypatch, broken, _record_sha(SERVING, "recipe.yaml", server=1))
+    _stand_in(monkeypatch, broken, _record_sha(VERIFIER_BUILD, "recipe.yaml"))
     rep = vbc.check(models=[_models(tmp_path / "b", f"{VERIFIER}/recipe.yaml", broken)])
     assert rep.problems == [] and any("recipe.yaml" in n for n in rep.notes)
 
@@ -127,7 +145,7 @@ def test_a_record_that_is_not_the_rows_expected_manifest_covers_nothing(
 
     doc = yaml.safe_load((ROOT / "models/registry.yaml").read_text(encoding="utf-8"))
     for row in doc["builds"]:
-        if row.get("build_id") == "e-embed-1":
+        if row.get("build_id") == pm.EMBED_BUILD:
             row["expected"]["manifest_sha256"] = "0" * 64
     reg = tmp_path / "registry.yaml"
     reg.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")

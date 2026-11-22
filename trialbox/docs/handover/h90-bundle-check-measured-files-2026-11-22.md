@@ -37,9 +37,10 @@ the skip list.
   `models/registry.yaml`. The release tests' synthetic embedder sets its own expected manifest there, so the record
   does not apply to it and its stand-in files are read as before.
 
-**Covered.** `deploy/measured/embedder_files.e-embed-1.json` for `embedder/` (18 files);
-`deploy/measured/serving_config.rtxpro6000.json` for `gemma-4-26b-a4b-it-4bit/` (the judge, 12 files) and
-`qwen3.5-9b-4bit/` (the verifier, 17 files, `recipe.yaml` among them). Every profile's pair names the serving record.
+**Covered.** The embedder's record (`deploy/measured/embedder_files.*.json`) for `embedder/` (18 files); the serving
+record (`deploy/measured/serving_config.*.json`) for the judge's folder (12 files) and the verifier's folder (17 files,
+`recipe.yaml` among them), each the default folder `tools.pin_model` names. Every profile's pair names the serving
+record.
 
 **Not covered.** A judge or verifier folder renamed with `JUDGE_MODEL_DIR` or `VERIFIER_MODEL_DIR` (its files are read
 as unlisted ones); the judge's chat template (a single file under the models root; its sha256 is in the registry row,
@@ -81,6 +82,6 @@ a test pinning the keys to the record's full paths was added).
 - **H90-01.** Fixed in b4bd3f721f0bf8433464a8c6cc7ef28378bf264f: every listed file is hash-checked, not skipped by
   extension.
 - **H90-03.** Fixed in b4bd3f721f0bf8433464a8c6cc7ef28378bf264f: the verifier's `recipe.yaml` is listed in
-  `deploy/measured/serving_config.rtxpro6000.json:177` (and named as the provenance recipe in `models/registry.yaml`),
+  the serving record under `deploy/measured/` (and named as the provenance recipe in `models/registry.yaml`),
   so it is hash-checked, not parsed. Why the bench's copy does not parse as YAML is not shown: the file is not in the
   repository.

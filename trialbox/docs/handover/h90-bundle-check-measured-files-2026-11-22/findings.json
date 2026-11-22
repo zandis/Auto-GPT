@@ -24,7 +24,7 @@
   {
    "id": "H90-03",
    "severity": "Medium",
-   "claim": "the bundle check refused a verifier model folder's recipe.yaml as YAML that does not parse (the bench, integrator comment 7085061627); the file is listed in that model's measured record (deploy/measured/serving_config.rtxpro6000.json:177), so it is now hash-checked, not parsed; why the bench's copy does not parse is not shown, as the file is not in the repository",
+   "claim": "the bundle check refused a verifier model folder's recipe.yaml as YAML that does not parse (the bench, integrator comment 7085061627); the file is listed in that model's measured record (the serving record under deploy/measured/), so it is now hash-checked, not parsed; why the bench's copy does not parse is not shown, as the file is not in the repository",
    "lane": "H",
    "basis": "not stated",
    "state": "fixed b4bd3f721f0bf8433464a8c6cc7ef28378bf264f"
