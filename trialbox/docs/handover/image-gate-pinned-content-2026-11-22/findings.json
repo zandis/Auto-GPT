@@ -11,7 +11,7 @@
    "claim": "the D-622 entry (every linux-libc-dev finding of the pinned engine image) matched only a scanned reference whose text ends in the lock's digest, so the pinned content scanned under its tag failed the release gate with 702 findings and make release-bundle refused; it now matches the content's recorded repository digests too, and says plainly when the scan was not of the pinned digest",
    "lane": "Int",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed 7614ae63bd43f1b80ba9ed609f76ac9b29dfca09"
   },
   {
    "id": "B1-02",
