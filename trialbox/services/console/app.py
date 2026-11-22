@@ -1564,6 +1564,9 @@ def create_app(
 
     copy_assist_page.register(app, helpers)  # T-302c (D-434): copy-assist, its CSV and /api/v1
     demo_guard.register(app, helpers)  # T-502 (D-328): demo mode's refusals, banner and acknowledgement
+    from console import rc1_guard
+
+    rc1_guard.register(app, helpers, settings.environment)  # R22-34 (D-1072): no live list or download
     feedback.register(app, helpers)  # T-510 (D-331): the feedback control of every page and its CSV export
     from console import items_page
 
