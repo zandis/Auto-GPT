@@ -61,7 +61,7 @@ def test_paths_types_refs_and_pruning(tmp_path: Path) -> None:
         "nothing": "",
     }
     res = mapper.map_row(m.resources[0], row)
-    other = mapper.map_row(m.resources[0], {**row, "mrn": "12345679"})
+    other = mapper.map_row(m.resources[0], {**row, "mrn": "20481234"})
     expected = resolve_record(
         KEY,
         '["S1","t"]',

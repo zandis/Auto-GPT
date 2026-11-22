@@ -199,7 +199,7 @@ def test_a_delta_night_links_a_changed_diagnosis_to_its_unchanged_visit(tmp_path
     visit = {**_visit("V1", "A", "10000001", "2026-09-30 09:10:00"), "updated_at": "2026-09-30"}
     d1 = {**_diag("D1", "A", "10000001", "2026-09-30"), "updated_at": "2026-09-30"}
     d2 = {**_diag("D2", "A", "10000001", "2026-09-30"), "updated_at": "2026-10-01"}  # changed after the first night
-    feed = _feed(tmp_path / "feed", [visit, {**visit, "mrn": "10000002"}], [d1, d2])
+    feed = _feed(tmp_path / "feed", [visit, {**visit, "mrn": "10000004"}], [d1, d2])
     run_ingest(cfg, "csv", feed, snapshot="2026-10-01", load_fhir=False, validate=False)
     run_ingest(cfg, "csv", feed, since="2026-10-01", snapshot="2026-10-02", load_fhir=False, validate=False)
     folder = snapshot_dir(cfg.lake_dir, "2026-10-02")
