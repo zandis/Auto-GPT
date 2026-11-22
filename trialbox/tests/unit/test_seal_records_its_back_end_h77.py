@@ -143,7 +143,9 @@ def test_a_box_with_a_kek_already_keeps_its_record_as_it_was(tmp_path: Path) -> 
 
 
 # ---- install.sh: the seal block as it stands, run with the real seal_keys.sh in a folder laid out as an installer's
-SEAL_BLOCK = INSTALL[INSTALL.index('HB_CONF="$ROOT/deploy/site/hardening.conf"') : INSTALL.index("# D-378: the services")]
+SEAL_BLOCK = INSTALL[
+    INSTALL.index('HB_CONF="$ROOT/deploy/site/hardening.conf"') : INSTALL.index("# D-378: the services")
+]
 
 
 def _install(
@@ -283,4 +285,4 @@ def test_the_record_is_written_whole_then_renamed() -> None:
     seal = SEAL.read_text(encoding="utf-8")
     tail = seal[seal.index('REC="$SECRETS/kek-backend"') :]
     assert '> "$REC.tmp"' in tail and 'mv -f "$REC.tmp" "$REC"' in tail
-    assert '> "$REC"' not in tail and ">> \"$REC" not in tail
+    assert '> "$REC"' not in tail and '>> "$REC' not in tail
