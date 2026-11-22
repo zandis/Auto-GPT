@@ -65,7 +65,35 @@ def test_a_row_that_says_on_opens_nothing_off_a_test_box(
         monkeypatch.setenv("TB_ENV", env)
     assert not reimbursement.is_open()
     with pytest.raises(StepFailed) as refused:
-        submit.run(SimpleNamespace(job=SimpleNamespace(ruleset="ONC-OSI", options={})))  # type: ignore[arg-type]
+        submit.run(_ctx())
+    assert refused.value.step == "reimbursement"
+
+
+@pytest.mark.parametrize("env", ["STAGING", "", "  ", "prod"])
+def test_an_unknown_environment_is_not_a_test_box(env: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fails closed: a name that is not DEV or TEST (a made-up one, an empty one) opens nothing, even with the row on."""
+    _switch_on(tmp_path)
+    flags.clear_cache()
+    monkeypatch.setenv("TB_ENV", env)
+    assert not reimbursement.is_open()
+    with pytest.raises(StepFailed) as refused:
+        reimbursement.require_open()
+    assert refused.value.step == "reimbursement"
+
+
+def test_a_flag_store_that_cannot_be_read_is_off(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fails closed: on a test box with the row on, a store that raises when read keeps the fence shut."""
+    _switch_on(tmp_path)
+    assert reimbursement.is_open()
+    flags.clear_cache()
+
+    def unreadable(self: flags.Flags, name: str) -> str | None:
+        raise RuntimeError("the flag store is down")
+
+    monkeypatch.setattr(flags.Flags, "row", unreadable)
+    assert not reimbursement.is_open()
+    with pytest.raises(StepFailed) as refused:
+        reimbursement.require_open()
     assert refused.value.step == "reimbursement"
 
 
