@@ -18,8 +18,14 @@ TrialBox's own namespace; Aimedics runs the install checks there; the hospital w
 | Network | a CNI that enforces NetworkPolicy; the console's TLS proxy or ingress controller in a namespace labelled `trialbox.io/console-ingress=true` | `network_policy`, the isolation probe |
 | Services | NTP, the directory (LDAP or OIDC), the SMTP relay, the backup share | `ntp`, `directory`, `mail_relay`, `backup_target` |
 | Secrets | `trialbox-db` (`POSTGRES_PASSWORD`, `POSTGRES_WF_PASSWORD`, `TB_DB_URL`, `TB_HAPI_DB_URL` for the backup), `trialbox-mail` (optional), `trialbox-cloud` (optional), `trialbox-actor` (key `keys`, from `secrets/services/actor/keys`, for the orchestrator), `trialbox-actor-sign` (key `key`, from `secrets/services/actor-sign.key`, for the console only), `trialbox-token-<service>` (key `token`) and the ConfigMap `trialbox-service-tokens`, made with `python3 -m tools.trialbox secrets init` on an admin workstation and created with `kubectl create secret`; **never** the key-encryption key, the `pid_map.key` or the `site_hmac.key` (WS-13.11: a hospital KMS or the steward's unseal; T-210) | `kek_custody` |
-| Model key | the Secret `trialbox-model-key` (key `TB_LLM_API_KEY`, a random value of at least 32 characters, e.g. `kubectl create secret generic trialbox-model-key --from-literal=TB_LLM_API_KEY="$(openssl rand -hex 32)"`): the two model servers (`VLLM_API_KEY`), model-guard and the gateway read it, nothing else (D-177, D-409) | `model_key` |
+| Model key | the Secret `trialbox-model-key` (key `TB_LLM_API_KEY`, a random value of at least 32 characters, generated below): the two model servers (`VLLM_API_KEY`), model-guard and the gateway read it, nothing else (D-177, D-409) | `model_key` |
 | Weights | the model folders in the `models-data` claim (read-only to the servers); the pin job writes the site's pins to the `model-pins` claim | `gpu_serving`, `canary` |
+
+Create the model key on the admin workstation:
+
+```bash
+openssl rand -hex 32 | tr -d '\n' | kubectl create secret generic trialbox-model-key --from-file=TB_LLM_API_KEY=/dev/stdin
+```
 
 **Apply.** A site overlay sits on top of `deploy/platform/overlays/shared-quota` (or `interim-cloud`): it sets the
 namespace and the storage class, replaces `trialbox-settings` with the site's `settings.yaml`, merges the site's
@@ -91,9 +97,17 @@ the KMS back end against a mock, the measurement against a fake server).
 | CGMH at IQ | not run | — | not run | not run | not run |
 
 **The KEK on a platform** (WS-13.11 platform variant, D-432). The KEK is never a Secret (`kek_custody`). Where the
-hospital has a KMS that speaks the Vault or OpenBao transit protocol: `python -m tools.keys init --backend kms
---kms-url https://<kms>/v1/transit --kms-key <key>` with `TB_KMS_TOKEN` set; `kek.json` keeps only the KMS
-ciphertext, and the services open the KEK from the KMS with `TB_KMS_TOKEN` from the Secret `trialbox-kms` (a
+hospital has a KMS that speaks the Vault or OpenBao transit protocol, set `kms_url` to its transit URL and `kms_key` to the key name.
+Enter the token in your own Bash shell.
+Using `sudo VAR=value command` shows the value in the process list.
+
+```bash
+read -rs TB_KMS_TOKEN; export TB_KMS_TOKEN
+sudo --preserve-env=TB_KMS_TOKEN env PYTHONPATH=libs:services:. python3 -m tools.keys init --backend kms --kms-url "$kms_url" --kms-key "$kms_key"
+unset TB_KMS_TOKEN
+```
+
+`kek.json` keeps only the KMS ciphertext, and the services open the KEK from the KMS with `TB_KMS_TOKEN` from the Secret `trialbox-kms` (a
 revocable token the hospital's KMS audits; `TB_KMS_URL` when the KMS moves). Without a KMS, the steward's unseal
 (`shamir`) as on the appliance.
 

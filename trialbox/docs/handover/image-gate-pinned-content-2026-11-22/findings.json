@@ -1,0 +1,33 @@
+{
+ "card": "B1",
+ "title": "the image gate takes the pinned engine image by its content, not only by its name (the release bundle's 702 findings)",
+ "date": "2026-11-22",
+ "source": "docs/handover/image-gate-pinned-content-2026-11-22.md",
+ "note": "basis 'shown' means shown by the CI image gates' own report of the pinned image (run 45017707606), gated offline on the card's branch, and by the card's tests; the bench's own gates.json was not read.",
+ "findings": [
+  {
+   "id": "B1-01",
+   "severity": "Medium",
+   "claim": "the D-622 entry (every linux-libc-dev finding of the pinned engine image) matched only a scanned reference whose text ends in the lock's digest, so the pinned content scanned under its tag failed the release gate with 702 findings and make release-bundle refused; it now matches the content's recorded repository digests too, and says plainly when the scan was not of the pinned digest",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "fixed 7614ae63bd43f1b80ba9ed609f76ac9b29dfca09"
+  },
+  {
+   "id": "B1-02",
+   "severity": "Low",
+   "claim": "deploy/measured/serving_config.rtxpro6000.json names the engine image by its tag only (vllm/vllm-openai:v0.32.0); a VLLM_IMAGE taken from it is a tag, not the lock's tag@digest; that the bench's run took this road is not verified",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "B1-03",
+   "severity": "Medium",
+   "claim": "all 732 fixable High/Critical findings of the pinned engine image (702 linux-libc-dev, 39 of them CRITICAL; 30 others, 3 CRITICAL) are accepted only by standing dated entries that lapse on 2027-01-10; they clear only with a moved pin (a model change, requalify first) or an engine image without the kernel headers",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

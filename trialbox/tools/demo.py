@@ -9,7 +9,10 @@ the console: role homes (S2/S3/S13), the header command field and the three lang
     python -m tools.demo [--lang ja|zh-TW|en] [--port 8080] [--host 0.0.0.0]
     python -m tools.demo --keep --dir /data/demo --accounts /run/secrets/demo-accounts.json   # the PoC (T-505b)
     make demo                                               # same, on 127.0.0.1:8080
-    docker build -f demo/Dockerfile -t trialbox-demo . && docker run -p 8080:8080 -e TB_DEMO_PASSWORD=... trialbox-demo
+    docker build -f demo/Dockerfile -t trialbox-demo .
+    read -rs TB_DEMO_PASSWORD; export TB_DEMO_PASSWORD
+    docker run -p 8080:8080 -e TB_DEMO_PASSWORD trialbox-demo
+    unset TB_DEMO_PASSWORD
 
 Built-in accounts: admin, crc (coordinator), pi (investigator), subpi (sub-investigator), cra (CRO, aggregate only),
 viewer; one password from ``TB_DEMO_PASSWORD`` (else a random one is printed). Stub model, no network, no secrets,

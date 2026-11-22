@@ -102,6 +102,16 @@ def test_a_file_level_ruff_noqa_s_is_counted(tmp_path: Path, capsys: pytest.Capt
     assert rc == 1 and "c.py:1: S608" in out
 
 
+@pytest.mark.parametrize(
+    ("comment", "rule"),
+    [("# NOQA: S608", "S608"), ("# Noqa:E501,s608", "S608"), ("# noqa : S506", "S506"), ("# RUFF: NOQA: S608", "S608")],
+)
+def test_a_noqa_s_in_any_case_is_counted(comment: str, rule: str) -> None:
+    """R22-14 (G-5, R2): ruff reads ``noqa`` in any case; so does the ledger."""
+    got = IS.suppressions_in(f"q = 1  {comment}\n", "e.py")
+    assert [(s.line, s.rule) for s in got] == [(1, rule)]
+
+
 def test_a_ledger_line_that_matches_no_code_line_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     entries = [
         _entry("a.py", "B603", 'subprocess.run(["ls"], check=True)'),

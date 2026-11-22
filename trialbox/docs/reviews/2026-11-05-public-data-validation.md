@@ -251,14 +251,16 @@ gain. Synthea's disease model is coarse (no MCI, no amyloid), so treat these as 
 ## Reproduce
 
 ```bash
-python -m tools.trec_ct_eval fetch && OPENROUTER_API_KEY=... python -m tools.trec_ct_eval run --models <m> [--variant negation]
+read -rs OPENROUTER_API_KEY; export OPENROUTER_API_KEY
+python -m tools.trec_ct_eval fetch && python -m tools.trec_ct_eval run --models <m> [--variant negation]
 python -m tools.trec_ct_eval score
-python -m tools.medtxt_eval fetch && OPENROUTER_API_KEY=... python -m tools.medtxt_eval run --models <m> [--variant suspected]
+python -m tools.medtxt_eval fetch && python -m tools.medtxt_eval run --models <m> [--variant suspected]
 python -m tools.medtxt_eval score
 TB_ENV=TEST PYTHONPATH=libs:services:. python -m tools.hospital_sim scale --sizes 2000 10000 --trials GZQO
 python -m tools.hospital_sim project --patients 50000 --trials-per-year 12
-python -m tools.open_cohorts_eval fetch && OPENROUTER_API_KEY=... python -m tools.open_cohorts_eval run --cohort sigir --models <m>
+python -m tools.open_cohorts_eval fetch && python -m tools.open_cohorts_eval run --cohort sigir --models <m>
 python -m tools.chia_routes
-OPENROUTER_API_KEY=... python -m tools.ad_eval trec --models <m> ; python -m tools.ad_eval ctgov --router openai/gpt-oss-120b
+python -m tools.ad_eval trec --models <m> ; python -m tools.ad_eval ctgov --router openai/gpt-oss-120b
 python -m tools.ad_eval score && python -m tools.open_cohorts_eval score && python -m tools.validation_figures
+unset OPENROUTER_API_KEY
 ```
