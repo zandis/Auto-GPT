@@ -23,12 +23,15 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.concurrency import run_in_threadpool
+from starlette.requests import HTTPConnection
+from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.websockets import WebSocket
 from tb_common import rc1_refusals
 
 from console import i18n_rc1
@@ -42,8 +45,9 @@ for _lang, _cat in (("en", i18n_rc1.EN), ("ja", i18n_rc1.JA), ("zh-TW", i18n_rc1
 
 #: the audited event of a refusal: the console's "page refused" (its family is the console's, D-718)
 EVENT = "console.denied"
-#: the jobs whose card shows a list of patients or one patient's sheet (``orchestrator.scheduler.require_released``)
-LIST_JOBS = frozenset({"SCREEN", "MICROBATCH", "COHORT", "NAV", "CASE"})
+#: the jobs whose card shows a list of patients, one patient's sheet or a pseudonym (the list jobs of
+#: ``orchestrator.scheduler.require_released``, and SUBMIT, whose card names the patient it submits)
+LIST_JOBS = frozenset({"SCREEN", "MICROBATCH", "COHORT", "NAV", "CASE", "SUBMIT"})  # SUBMIT: its card shows a pid
 JOB_CARD = re.compile(r"^/pilot/jobs/(?P<job>[^/]+)$")
 JOB_FILE = re.compile(r"^/pilot/jobs/(?P<job>[^/]+)/(?:files|view)/(?P<name>[^/]+)$")
 #: what a refused box still serves: (pattern, what it is). Every method of a matching path.
@@ -63,7 +67,13 @@ ALLOWED: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"^/$", "the administrator's overview (any other role is sent to its home page, which is refused)"),
         (r"^/jobs$", "ops: the jobs by their metadata"),
         (r"^/ops/(?:accounts/requests|flags|identity|ingest|notices|users)$", "ops pages"),
-        (r"^/admin(?:/.*)?$", "admin pages"),
+        (r"^/admin$", "admin: the administrator's page"),
+        (r"^/admin/(?:accounts|edc|notice|redcap|ops)$", "admin pages: accounts, EDC, notice, REDCap, operations"),
+        (r"^/admin/jobs/[^/]+/(?:cancel|retry)$", "admin: a job cancelled or retried, by its id"),
+        (r"^/admin/models/canary$", "admin: the models' canary"),
+        (r"^/admin/ops/network/[^/]+$", "admin: hospital IT's network sheet"),
+        (r"^/admin/ops/[^/]+$", "admin: an operations request (backup, update, logs)"),
+        (r"^/admin/redcap/[^/]+/test$", "admin: a REDCap connection's test"),
         (r"^/api/v1/admin/ops$", "ops on the API"),
         (r"^/audit$", "admin: the audit log"),
         (r"^(?:/api/v1)?/audit/verify$", "admin: the audit chain's check"),
@@ -113,12 +123,15 @@ class Rc1Guard:
     def _name_of(self, path: str) -> str:
         return "patient_mail_and_downloads" if any(p.search(path) for p in DOWNLOADS) else "live_patient_lists"
 
-    def refusal_of(self, method: str, path: str) -> str | None:
-        """The name of the refusal this request meets, or None. Every method; fail-closed: what :data:`ALLOWED` does
-        not name is refused."""
+    def refusal_of(self, method: str, path: str, query: str = "") -> str | None:
+        """The name of the refusal this request meets, or None. Every method (a websocket too); fail-closed: what
+        :data:`ALLOWED` does not name is refused. ``query``: the audit page filtered to one patient is that patient's
+        list (``/audit?pid=``, as ``/audit/patients/{pid}``), so it is refused."""
         name = self._name_of(path)
         if not (self.downloads_refused() if name == "patient_mail_and_downloads" else self.lists_refused()):
             return None
+        if path == "/audit" and any(v.strip() for v in parse_qs(query).get("pid", [])):
+            return name  # the audit log of one patient
         if any(p.match(path) for p, _ in ALLOWED):
             return None
         if m := JOB_CARD.match(path):
@@ -137,7 +150,7 @@ class Rc1Guard:
         return name
 
     # ------------------------------------------------------------------ the refusal
-    def session(self, request: Request) -> Any:
+    def session(self, request: HTTPConnection) -> Any:
         """The live session of the request, None without one (reads only, as ``console.demo_guard`` does)."""
         from console.app import COOKIE  # console.app imports this module
 
@@ -151,26 +164,54 @@ class Rc1Guard:
             log.warning("rc1 guard: session not read (%s)", type(e).__name__)
             return None
 
-    def refuse(self, request: Request, name: str) -> Response:
+    def refuse(self, request: HTTPConnection, name: str, path: str) -> Response:
         row = rc1_refusals.row(name)
         environment = rc1_refusals.environment(self.env)
         sess = self.session(request)
         who = f"console:{sess.user.username}" if sess is not None else "console:-"
         try:  # the path only: never a query or a body
-            detail = {"refusal": name, "environment": environment, "action": request.url.path[:120]}
+            detail = {"refusal": name, "environment": environment, "action": path[:120]}
             self.h.au.append(EVENT, actor=who, detail=detail)
         except Exception:
-            log.exception("rc1 guard: the refusal of %s was not audited", request.url.path[:120])
-        if request.url.path.startswith("/api/"):
+            log.exception("rc1 guard: the refusal of %s was not audited", path[:120])
+        if request.scope["type"] == "websocket":  # closed before it is accepted: nothing is sent
+            return Response(status_code=403)
+        if path.startswith("/api/"):
             return JSONResponse({"error": row.key, "detail": {"environment": environment}}, status_code=403)
         return self.h.page(request, "problem.html", sess, status=403, key=row.key,
                            values={"environment": environment})  # fmt: skip
 
-    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
-        name = self.refusal_of(request.method, request.url.path)
+
+def _path(scope: Scope) -> str:
+    """The address as the console's routes read it: without the root path a proxy mounts it under."""
+    path, root = str(scope.get("path") or "/"), str(scope.get("root_path") or "")
+    return (path[len(root) :] or "/") if root and path.startswith(root) else path
+
+
+class Rc1Layer:
+    """The guard as a plain ASGI layer, the console's outermost: every HTTP request and every websocket meets it
+    before any other middleware (``BaseHTTPMiddleware`` lets a websocket through unasked)."""
+
+    def __init__(self, app: ASGIApp, guard: Rc1Guard) -> None:
+        self.app = app
+        self.guard = guard
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        path = _path(scope)
+        method = str(scope.get("method") or "WEBSOCKET")
+        query = bytes(scope.get("query_string") or b"").decode("latin-1")
+        name = await run_in_threadpool(self.guard.refusal_of, method, path, query)  # it may ask the job store
         if name is None:
-            return await call_next(request)
-        resp = self.refuse(request, name)  # before the route: nothing is read, rendered or sent
+            await self.app(scope, receive, send)
+            return
+        if scope["type"] == "websocket":
+            await run_in_threadpool(self.guard.refuse, WebSocket(scope, receive, send), name, path)
+            await send({"type": "websocket.close", "code": 1008})  # policy violation, before accept
+            return
+        resp = await run_in_threadpool(self.guard.refuse, Request(scope, receive), name, path)
         from console.app import CSP  # outermost: the console's headers middleware never sees this answer
 
         resp.headers.setdefault("Content-Security-Policy", CSP)
@@ -178,7 +219,7 @@ class Rc1Guard:
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["Referrer-Policy"] = "no-referrer"
         resp.headers["Cache-Control"] = "no-store"
-        return resp
+        await resp(scope, receive, send)  # before the route: nothing is read, rendered or sent
 
 
 def register(app: FastAPI, h: Helpers, environment: str) -> Rc1Guard:
@@ -186,5 +227,5 @@ def register(app: FastAPI, h: Helpers, environment: str) -> Rc1Guard:
     middleware is added, and ``add_middleware`` puts it in front of them all."""
     g = Rc1Guard(h, environment)
     app.state.rc1_guard = g
-    app.add_middleware(BaseHTTPMiddleware, dispatch=g.dispatch)
+    app.add_middleware(Rc1Layer, guard=g)
     return g
