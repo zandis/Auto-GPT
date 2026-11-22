@@ -746,9 +746,9 @@ def _receiver_texts(data: bytes, depth: int) -> Iterator[str]:
                 yield page.extract_text() or ""
         elif len(data) >= 512 and _is_tar(data):
             with tarfile.open(fileobj=io.BytesIO(data)) as tar:
-                for member in tar.getmembers():
-                    yield member.name
-                    stream = tar.extractfile(member)
+                for entry in tar.getmembers():
+                    yield entry.name
+                    stream = tar.extractfile(entry)
                     if stream is not None:
                         yield from _receiver_texts(stream.read(), depth + 1)
         elif _MIME_HEAD.match(data):
