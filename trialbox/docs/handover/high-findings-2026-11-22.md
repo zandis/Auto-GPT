@@ -32,6 +32,13 @@ master with a fixing commit and a passing test named in the row (7 of them are s
 H22-no-host-tree, H22-vendor-key-after-start, H22-bundle-sidecar-path, H22-stub-production-embedder, W2-db-image,
 H23b-01 and V5-04; 7 are the register's `fixed` rows not seen closed; 2 are H71's), and 2 name code that never reached master (J1192-backfill, J1246-H2).
 
+## The findings file
+
+The 21 Highs of pull request reviews that are true on master and were in no findings file are in
+[findings.json](high-findings-2026-11-22/findings.json), in the register's `--add-from` form, card F1, ids F1-01 to
+F1-21 (19 `open`; F1-18 and F1-19 are the two limits the owner accepted). The register's keeper adds them; the
+dry run of `python -m tools.findings_register --add-from` on this branch wrote 21 rows and passed `--check`.
+
 ## How to read the table
 
 - **Id:** the register's id; R22 for the review; PR ids name the pull request and the review's own label.

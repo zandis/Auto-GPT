@@ -1,0 +1,219 @@
+{
+  "card": "F1",
+  "title": "every open High checked against master",
+  "date": "2026-11-22",
+  "source": "docs/handover/high-findings-2026-11-22.md",
+  "note": "The High findings of pull request reviews since 2026-11-19 that are true on master 225100f4 and not in the register. Each is checked on master; see the page. Synthetic data only.",
+  "findings": [
+    {
+      "id": "F1-01",
+      "date": "2026-11-19",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "SS-MIX2: an administration matched with its day stripped and prescription and injection orders pooled can fill another order's line (source.py:2139); review PR1095-B-1487, #639 or PR comment 7011294064; true on master 225100f4",
+      "lane": "J",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "F1-02",
+      "date": "2026-11-19",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "SS-MIX2: a lab correction filed on another day tombstones that day's own result (source.py:2260); review PR1095-B-1579, #639 or PR comment 7011294064; true on master 225100f4",
+      "lane": "J",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "F1-03",
+      "date": "2026-11-19",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "SS-MIX2: without the disease master, a ZPR-5 exchange code that is not PRB-3's own still yields a confirmed diagnosis (source.py:1913); review PR1189-H1, #639 or PR comment 7017475092; true on master 225100f4",
+      "lane": "J",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "F1-04",
+      "date": "2026-11-19",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "SS-MIX2: a normalised order number becomes the id, so a cancellation reaches the new id and the id published before stays (source.py:777); review PR1189-H2, #639 or PR comment 7017475092; true on master 225100f4",
+      "lane": "J",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "F1-05",
+      "date": "2026-11-19",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "SS-MIX2: an administration of a reused order number fills another day's prescription (source.py:2141); review PR1189-H3, #639 or PR comment 7017475092; true on master 225100f4",
+      "lane": "J",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "F1-06",
+      "date": "2026-11-19",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "SS-MIX2: a cross-day rekey tombstones an id that an unchanged injection still carries (source.py:1343); review PR1189-H4, #639 or PR comment 7017475092; true on master 225100f4",
+      "lane": "J",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "F1-07",
+      "date": "2026-11-20",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "CASE: the note judge sends uploaded chart excerpts to the model unmasked; the gateway masks nothing on these calls (case.py:155, gateway core.py:577); review PR1149r1-H1, #639 or PR comment 7041709955; true on master 225100f4",
+      "lane": "J",
+      "basis": "hypothesis",
+      "state": "open"
+    },
+    {
+      "id": "F1-08",
+      "date": "2026-11-20",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "site set-up masks the lake copy but passes the original chart text to the fact-extraction call (sitesetup/service.py:283); review PR1149r1-H2, #639 or PR comment 7041709955; true on master 225100f4",
+      "lane": "J",
+      "basis": "hypothesis",
+      "state": "open"
+    },
+    {
+      "id": "F1-09",
+      "date": "2026-11-20",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "a structured excerpt in a judge request reaches the model unmasked: the gateway runs only the tripwire, and only on the lower ranks (gateway core.py:577); review PR1149r2-H1, #639 or PR comment 7053573919; true on master 225100f4",
+      "lane": "J",
+      "basis": "hypothesis",
+      "state": "open"
+    },
+    {
+      "id": "F1-10",
+      "date": "2026-11-20",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "a note pasted into intake reaches the intent call unmasked (channels/native/engine.py:57); review PR1149r2-H2, #639 or PR comment 7053573919; true on master 225100f4",
+      "lane": "J",
+      "basis": "hypothesis",
+      "state": "open"
+    },
+    {
+      "id": "F1-11",
+      "date": "2026-11-20",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "the delegation check passes coordinators unconditionally, so one removed from a study's log still opens its jobs and patients (console/home.py:253); review PR1239-H1, #639 or PR comment 7043246130; true on master 225100f4",
+      "lane": "J",
+      "basis": "hypothesis",
+      "state": "open"
+    },
+    {
+      "id": "F1-12",
+      "date": "2026-11-20",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "screening delivery mails the candidate workbook to the list's addresses with no check of current delegation (scenarios/screen.py:855); review PR1239-H2, #639 or PR comment 7043246130; true on master 225100f4",
+      "lane": "J",
+      "basis": "hypothesis",
+      "state": "open"
+    },
+    {
+      "id": "F1-13",
+      "date": "2026-11-20",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "mailed commands are authorised against a site-wide sender list; STATUS replies with a job's options to someone off the log (orchestrator/core.py:336); review PR1239-H3, #639 or PR comment 7043246130; true on master 225100f4",
+      "lane": "J",
+      "basis": "hypothesis",
+      "state": "open"
+    },
+    {
+      "id": "F1-14",
+      "date": "2026-11-20",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "the site facts API returns patient-level proposed facts and quotes with no delegation-log check (console/site_pages.py:817); review PR1239-H4, #639 or PR comment 7043246130; true on master 225100f4",
+      "lane": "J",
+      "basis": "hypothesis",
+      "state": "open"
+    },
+    {
+      "id": "F1-15",
+      "date": "2026-11-21",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "seal_keys.sh's image fallback passes the key passphrase with docker run -e, so it is kept in the container's stored config (deploy/hardening/seal_keys.sh:50); review PR1305-H3, #639 or PR comment 7057683399; true on master 225100f4",
+      "lane": "H",
+      "basis": "hypothesis",
+      "state": "open"
+    },
+    {
+      "id": "F1-16",
+      "date": "2026-11-21",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "the settings wizard accepts the key passphrase as an extra setting and writes it to deploy/.env (tools/settings_wizard.py:853); review PR1305-H4, #639 or PR comment 7057683399; true on master 225100f4",
+      "lane": "H",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "F1-17",
+      "date": "2026-11-21",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "the nightly backup's pending audit queue is read, changed and written with no lock; two callers at once can lose an event (backup_schedule.py:1332); review PR1305-H6, #639 or PR comment 7057683399; true on master 225100f4",
+      "lane": "H",
+      "basis": "hypothesis",
+      "state": "open"
+    },
+    {
+      "id": "F1-18",
+      "date": "2026-11-20",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "the key ceremony on an ext4 stick with an external journal on an internal partition writes the key to the box's disk (backup_key_ceremony.py:517); review PR1285-H1, #639 or PR comment 7047034200; true on master 225100f4",
+      "lane": "K",
+      "basis": "hypothesis",
+      "state": "not a defect: a stated limit the owner accepted (#1297, D-1379)"
+    },
+    {
+      "id": "F1-19",
+      "date": "2026-11-20",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "swap is checked once when mlock fails; swap switched on later lets key pages reach disk (backup_key_ceremony.py:424); review PR1285-H4, #639 or PR comment 7047034200; true on master 225100f4",
+      "lane": "K",
+      "basis": "hypothesis",
+      "state": "not a defect: a stated limit the owner accepted (#1297, D-1379)"
+    },
+    {
+      "id": "F1-20",
+      "date": "2026-11-20",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "SS-MIX2: a content folder's child file naming another patient is merged into the folder patient's note (source.py:2346); review PR1238-H1, #639 or PR comment 7043246486; true on master 225100f4",
+      "lane": "J",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "F1-21",
+      "date": "2026-11-19",
+      "source": "docs/handover/high-findings-2026-11-22.md",
+      "severity": "High",
+      "claim": "an account limited to one study sees on the week page that a patient is also a candidate in another study (console/home.py:478); review J1098-home443, #639 or PR comment 6998569441; true on master 225100f4",
+      "lane": "J",
+      "basis": "hypothesis",
+      "state": "open"
+    }
+  ]
+}
