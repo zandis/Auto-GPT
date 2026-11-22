@@ -1,10 +1,11 @@
 """H-75: the 48 GB host run takes its own compose project and image tag, beside an installed box.
 
 `tools/measure48-host.sh --project NAME --image-tag TAG` (defaults from the run id; trialbox and the box's tags refused)
-runs the stub, the servers and the screen under the run's own names, through variables that six files of other lanes
-now read with today's value as the default: deploy/docker-compose.yml, deploy/docker-compose.test.yml, deploy/poc.sh,
-deploy/build_db_image.sh, tools/dgpu48.py, tools/measure48-vm.sh. With nothing set every name is master's: the compose
-files render byte-identical to their literal form, and the scripts' commands are master's. Under an own tag no build,
+runs the stub, the servers and the screen under the run's own names: compose's own project (-p, COMPOSE_PROJECT_NAME)
+and TRIALBOX_IMAGE_TAG, no box setting (TB_*) read or declared, which six files of other lanes now follow with today's
+value as the default: deploy/docker-compose.yml, deploy/docker-compose.test.yml, deploy/poc.sh,
+deploy/build_db_image.sh, tools/dgpu48.py, tools/measure48-vm.sh. With nothing set every name is master's: the three
+compose forms render byte-identical to their literal form, and the scripts' commands are master's. Under an own tag no build,
 tag or removal names a box tag, and the run removes only its own objects and images. No Docker daemon: compose renders
 without one; docker is a stand-in elsewhere."""
 
@@ -14,28 +15,31 @@ import json
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from tests.unit.test_compose_limits import DUMMY_ENV
-from tests.unit.test_measure48_host_h67 import ROOT, SCRIPT, Rig
+from tests.unit.test_measure48_host_h67 import ROOT, SCRIPT, Rig, _until
 from tests.unit.test_poc_db_image import DOCKER as POC_DOCKER
 
 pytestmark = [pytest.mark.nodb, pytest.mark.skipif(sys.platform != "linux", reason="bash and GNU tools")]
 
 DEPLOY = ROOT / "deploy"
-VAR = "${TB_COMPOSE_PROJECT:-trialbox}"
+VAR = "${COMPOSE_PROJECT_NAME:-trialbox}"
 BOX_TAG = re.compile(r"trialbox-[a-z]+:(1\.0\.0|16-1)\b")
-OWN = {"TB_COMPOSE_PROJECT": "r1", "TB_IMAGE": "trialbox-py:r1", "TB_JVM_IMAGE": "trialbox-jvm:r1",
-       "TB_DB_IMAGE": "trialbox-postgres:r1", "POSTGRES_IMAGE": "trialbox-postgres:r1"}  # fmt: skip
+OWN = {"COMPOSE_PROJECT_NAME": "r1", "TRIALBOX_IMAGE_TAG": "r1", "TB_IMAGE": "trialbox-py:r1",
+       "TB_JVM_IMAGE": "trialbox-jvm:r1", "POSTGRES_IMAGE": "trialbox-postgres:r1"}  # fmt: skip
 BOX_IMAGES = ["trialbox-py:1.0.0", "trialbox-jvm:1.0.0", "trialbox-embed:1.0.0", "trialbox-postgres:16-1"]
-NAMED = ("TB_COMPOSE_PROJECT", "TB_IMAGE", "TB_JVM_IMAGE", "TB_EMBED_IMAGE", "TB_DOCPARSER_IMAGE", "TB_DB_IMAGE",
-         "POSTGRES_IMAGE", "COMPOSE_PROJECT_NAME")  # fmt: skip
+NAMED = ("TRIALBOX_IMAGE_TAG", "TB_IMAGE", "TB_JVM_IMAGE", "TB_EMBED_IMAGE", "TB_DOCPARSER_IMAGE", "POSTGRES_IMAGE",
+         "COMPOSE_PROJECT_NAME")  # fmt: skip
 
 
 def _clean_env(**more: str) -> dict[str, str]:
@@ -49,7 +53,7 @@ def _render(project: Path, files: list[Path], **env: str) -> str:
     (project / ".env").write_text(DUMMY_ENV, encoding="utf-8")
     args = [x for f in files for x in ("-f", str(f))]
     r = subprocess.run(["docker", "compose", "--project-directory", str(project), *args, "--profile", "stub",
-                        "--profile", "test", "config", "--format", "json"],
+                        "--profile", "test", "--profile", "gpu", "config", "--format", "json"],
                        capture_output=True, text=True, timeout=120, check=False, env=_clean_env(**env))  # fmt: skip
     assert r.returncode == 0, r.stderr
     return r.stdout
@@ -58,14 +62,21 @@ def _render(project: Path, files: list[Path], **env: str) -> str:
 def _literal(tmp: Path, name: str) -> Path:
     """The file as master wrote it: the project's variable replaced by its default, trialbox."""
     text = (DEPLOY / name).read_text(encoding="utf-8")
-    assert VAR in text
+    assert (VAR in text) is (name != "docker-compose.poc.yml")
     out = tmp / "literal" / name
     out.parent.mkdir(exist_ok=True)
     out.write_text(text.replace(VAR, "trialbox"), encoding="utf-8")
     return out
 
 
-@pytest.mark.parametrize("stack", [("docker-compose.yml",), ("docker-compose.yml", "docker-compose.test.yml")])
+STACKS = [
+    ("docker-compose.yml",),
+    ("docker-compose.yml", "docker-compose.test.yml"),
+    ("docker-compose.yml", "docker-compose.test.yml", "docker-compose.poc.yml"),
+]  # the three forms
+
+
+@pytest.mark.parametrize("stack", STACKS)
 def test_with_nothing_set_compose_renders_byte_identical_to_the_literal_names(tmp_path: Path,
                                                                               stack: tuple[str, ...]) -> None:  # fmt: skip
     project = tmp_path / "proj"
@@ -76,7 +87,7 @@ def test_with_nothing_set_compose_renders_byte_identical_to_the_literal_names(tm
     doc = json.loads(now)
     assert doc["name"] == "trialbox"
     names = {n["name"] for n in doc["networks"].values()}
-    assert "trialbox-net" in names  # the stub profile's networks: the ones its services use
+    assert "trialbox-net" in names and "trialbox-model-backend" in names
     assert names <= {"trialbox-net", "trialbox-model-net", "trialbox-model-backend", "trialbox-egress",
                      "trialbox-console", "trialbox-hostnet"}  # fmt: skip
     if "docker-compose.test.yml" in stack:
@@ -87,7 +98,7 @@ def test_the_projects_variable_names_the_project_and_every_network(tmp_path: Pat
     project = tmp_path / "proj"
     project.mkdir()
     doc = json.loads(_render(project, [DEPLOY / "docker-compose.yml", DEPLOY / "docker-compose.test.yml"],
-                             TB_COMPOSE_PROJECT="m48h-r1"))  # fmt: skip
+                             COMPOSE_PROJECT_NAME="m48h-r1"))  # fmt: skip
     assert doc["name"] == "m48h-r1"
     names = sorted(n["name"] for n in doc["networks"].values())
     assert names and all(n.startswith("m48h-r1-") for n in names), names
@@ -170,7 +181,7 @@ DGPU = ("import json, tools.dgpu48 as d; o = {'serves': ['judge', 'verifier']}; 
 
 @pytest.mark.parametrize(("env", "names"), [
     ({}, ["trialbox", "trialbox-model-backend", "trialbox-py:1.0.0"]),
-    ({"TB_COMPOSE_PROJECT": "r1", "TB_IMAGE": "trialbox-py:r1"}, ["r1", "r1-model-backend", "trialbox-py:r1"]),
+    ({"COMPOSE_PROJECT_NAME": "r1", "TRIALBOX_IMAGE_TAG": "r1"}, ["r1", "r1-model-backend", "trialbox-py:r1"]),
 ])  # fmt: skip
 def test_dgpu48_names_follow_the_variables_and_default_to_masters(env: dict[str, str], names: list[str]) -> None:
     r = subprocess.run([sys.executable, "-c", DGPU], capture_output=True, text=True, cwd=ROOT, timeout=60, check=False,
@@ -189,7 +200,7 @@ tool canary --judge-url x; servers_up; bridge connect; step_screen > /dev/null 2
 
 
 @pytest.mark.parametrize(("env", "project", "image"), [({}, "trialbox", "trialbox-py:1.0.0"),
-                                                      ({"TB_COMPOSE_PROJECT": "r1", "TB_IMAGE": "trialbox-py:r1"},
+                                                      ({"COMPOSE_PROJECT_NAME": "r1", "TRIALBOX_IMAGE_TAG": "r1"},
                                                        "r1", "trialbox-py:r1")])  # fmt: skip
 def test_the_vm_scripts_container_network_and_image_names(tmp_path: Path, env: dict[str, str], project: str,
                                                          image: str) -> None:  # fmt: skip
@@ -214,28 +225,11 @@ BOX: dict[str, Any] = {"containers": {"trialbox-db-1": {"com.docker.compose.proj
 
 
 class OwnRig(Rig):
-    """H-67's rig, its stub and servers following the run's project and tag (as the real stub and dgpu48 now do),
-    with an installed box's objects and images on the host."""
+    """H-67's rig (its stub and servers follow the run's project and tag, as the real ones do), with an installed
+    box's objects and images on the host."""
 
     def __init__(self, tmp: Path) -> None:
         super().__init__(tmp)
-        si = (self.bin / "standin").read_text()
-        si = si.replace("a = sys.argv[1:]\n", 'a = sys.argv[1:]\nP = os.environ["TB_COMPOSE_PROJECT"]\n', 1)
-        si = si.replace('"com.docker.compose.project": "trialbox"', '"com.docker.compose.project": P')
-        si = si.replace(
-            's["images"] += ["trialbox-py:1.0.0"]',
-            's["images"] += [os.environ[v] for v in ("TB_IMAGE", "TB_JVM_IMAGE", "TB_DB_IMAGE")]',
-        )
-        si = re.sub(r'"trialbox([-_])', r'P + "\1', si)
-        assert "trialbox-" not in si and "trialbox_" not in si
-        (self.bin / "standin").write_text(si)
-        dk = (self.bin / "docker").read_text()
-        dk = dk.replace(
-            'elif a[0] == "pull":',
-            'elif a[:2] == ["image", "rm"]:\n'
-            '    [s["images"].remove(n) for n in a[2:] if n in s["images"]]\n    save()\nelif a[0] == "pull":',
-        )
-        (self.bin / "docker").write_text(dk)
         d = self.docker
         self.dock(containers={**d["containers"], **BOX["containers"]}, networks=d["networks"] + BOX["networks"],
                   volumes=d["volumes"] + BOX["volumes"], images=d["images"] + BOX["images"])  # fmt: skip
@@ -344,3 +338,70 @@ def test_a_stub_port_in_use_refuses_and_names_its_variable(own: OwnRig) -> None:
 def test_the_usage_names_the_options() -> None:
     r = subprocess.run(["bash", str(SCRIPT)], capture_output=True, text=True, timeout=60, check=False)
     assert r.returncode == 2 and "[--run-id ID] [--project NAME] [--image-tag TAG]" in r.stderr
+
+
+# ------------------------------------------------------------------------------ the invariant (replaces H-72's refusal)
+def _state(rig: Rig) -> dict[str, list[str]]:
+    """Docker's lists as the stand-in keeps them: every container (with its labels), network, volume and image."""
+    d = rig.docker
+    return {"containers": sorted(f"{n} {json.dumps(lab, sort_keys=True)}" for n, lab in d["containers"].items()),
+            "networks": sorted(d["networks"]), "volumes": sorted(d["volumes"]), "images": sorted(d["images"])}  # fmt: skip
+
+
+def _box(state: dict[str, list[str]]) -> dict[str, list[str]]:
+    return {k: [x for x in v if x.startswith("trialbox") and not re.search(r":(t1|m48h)", x)] for k, v in state.items()}
+
+
+def _sigterm(rig: OwnRig) -> int:
+    p = subprocess.Popen(rig.args("run"), env=rig.env(M48_HANG="pair-32k"), stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True)  # fmt: skip
+    try:
+        _until(rig, "measure --option pair-32k", p)
+        time.sleep(1)
+        assert "t1-llm-service-1" in rig.docker["containers"]  # the run's servers are up beside the box's
+        p.send_signal(signal.SIGTERM)
+        p.communicate(timeout=180)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        subprocess.run(["pkill", "-f", str(rig.bin / "standin")], check=False)
+    return p.returncode
+
+
+WAYS: dict[str, tuple[Callable[[OwnRig], int], int]] = {
+    "a full pass": (lambda r: r.go("run").returncode, 0),
+    "a failure at s07": (lambda r: r.go("run", M48_PLAN_REFUSED="49776 MiB free, not 49140 +/- 512").returncode, 1),
+    "SIGTERM mid-run": (_sigterm, 143),
+    "the cap": (
+        lambda r: r.go("run", M48_HANG="pair-32k", TB_M48_USED0_S=str(240 * 60 - 6), TB_M48_LINE_MIN="400").returncode,
+        3,
+    ),
+    "planted: the box's project": (lambda r: r.go("run", "--project", "trialbox").returncode, 2),
+    "planted: the box's py and jvm tag": (lambda r: r.go("run", "--image-tag", "1.0.0").returncode, 2),
+    "planted: the box's database tag": (lambda r: r.go("run", "--image-tag", "16-1").returncode, 2),
+}
+
+
+@pytest.mark.parametrize("way", list(WAYS))
+def test_the_boxs_objects_and_images_are_never_touched_by_a_run(own: OwnRig, way: str) -> None:
+    """H-75 (the integrator's ruling of 2026-11-22): H-72's refusal of any trialbox-* image is replaced by this
+    stronger statement. The box's images, containers, volumes and networks are never built over, tagged, stopped or
+    removed by a host run: the box's lists are identical before and after, however the run ends, and a run given the
+    box's own project or tag is refused before anything starts."""
+    before = _state(own)
+    assert _box(before) == {"containers": sorted(f"{n} {json.dumps(lab, sort_keys=True)}"
+                                                 for n, lab in BOX["containers"].items()),
+                            "networks": sorted(BOX["networks"]), "volumes": sorted(BOX["volumes"]),
+                            "images": sorted(BOX_IMAGES)}  # fmt: skip
+    run, rc = WAYS[way]
+    assert run(own) == rc
+    after = _state(own)
+    assert _box(after) == _box(before)  # the lists, not a count
+    assert after == before  # and the run left nothing of its own
+    box_names = {x.split(" ")[0] for v in _box(before).values() for x in v}
+    for call in own.calls_of_docker():
+        if call.startswith(("rm ", "stop ", "kill ", "network rm", "volume rm", "image rm", "rmi ", "tag ", "build ",
+                            "image tag", "compose ")):  # fmt: skip
+            assert not box_names & set(call.split()), call
+    if rc == 2:
+        assert not own.run_dir.exists()

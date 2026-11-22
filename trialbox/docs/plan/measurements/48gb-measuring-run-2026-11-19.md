@@ -649,7 +649,7 @@ with its numbers (`card-too-small`, `card-is-the-target`).
 | the NVIDIA runtime registered with Docker | `docker info`'s `Runtimes` lists `nvidia` (what `nvidia-ctk runtime configure --runtime=docker` adds; the owner's step: this script never does it) |
 | docker compose 2.24.4 or newer | `docker compose version` (the servers' pin uses `!override`) |
 | no objects of the run's own names | no container of compose project `<project>`, no `<project>-*` network, no `<project>_*` volume, no `tb-ballast-<run id>` (H-75; a project of the box's, `trialbox*`, is refused before this) |
-| no images of the run's own tag | none of `trialbox-py:<tag>`, `trialbox-jvm:<tag>`, `trialbox-postgres:<tag>`: the stub builds, tags and at the end removes them (H-75). An installed box's objects and images (project `trialbox`, `trialbox-*:1.0.0`, `trialbox-postgres:16-1`) may be there: a note, and the run never builds over, tags, stops or removes them (H-72's refusal of any `trialbox-*` image is relaxed to this) |
+| no images of the run's own tag | none of `trialbox-py:<tag>`, `trialbox-jvm:<tag>`, `trialbox-postgres:<tag>`: the stub builds, tags and at the end removes them (H-75). An installed box's objects and images (project `trialbox`, `trialbox-*:1.0.0`, `trialbox-postgres:16-1`) may be there: a note, and the run never builds over, tags, stops or removes them (H-72's refusal of any `trialbox-*` image is replaced by this stronger rule, tested as an invariant) |
 | the stub's host ports free | each `TB_HOST_*_PORT` of the checkout's compose files (default or as set) must not answer on 127.0.0.1; a taken one is named with its variable: set it to a free port for the run (e.g. `TB_HOST_CONSOLE_PORT=18090` before the command) |
 | the engine image, by digest | `docker image inspect` of `tools/engine_probe.py`'s `pinned_ref()`; never pulled without `--pull` (9.2 GB compressed, 23.4 GB unpacked) |
 | the weights, as pinned | `python3 -m tools.fetch_weights --profile rtxpro6000 --models-dir <weights folder> --verify-only` (27.9 GB; hashed, nothing fetched) |
@@ -692,10 +692,11 @@ the venv, node, Playwright's Chromium, the fonts and the hospital's data (s09).
   node, Playwright's Chromium, uv's and pip's and npm's caches and the temporary files (each tool's cache and temp
   variables point there).
 - **Docker:** it makes objects of its own names only (H-75): the compose project `<project>` (its containers,
-  `<project>-*` networks, `<project>_*` volumes; `TB_COMPOSE_PROJECT`, which `deploy/docker-compose.yml`,
-  `deploy/docker-compose.test.yml`, `deploy/poc.sh`, `tools/dgpu48.py` and `tools/measure48-vm.sh` follow), the images
-  `trialbox-py`, `trialbox-jvm` and `trialbox-postgres` under `<tag>` (built by `deploy/poc.sh`'s own build path and
-  `deploy/build_db_image.sh`, never `make images`), and the ballast's container `tb-ballast-<run id>`; the preflight
+  `<project>-*` networks, `<project>_*` volumes: compose's own `-p`, `COMPOSE_PROJECT_NAME`, which
+  `deploy/docker-compose.yml`, `deploy/docker-compose.test.yml`, `deploy/poc.sh`, `tools/dgpu48.py` and
+  `tools/measure48-vm.sh` follow), the images `trialbox-py`, `trialbox-jvm` and `trialbox-postgres` under `<tag>`
+  (`TRIALBOX_IMAGE_TAG`; built by `deploy/poc.sh`'s own build path and `deploy/build_db_image.sh`, never
+  `make images`), and the ballast's container `tb-ballast-<run id>`; the preflight
   refuses a host where any of them exists. At the end (complete, failed, Ctrl-C, SIGTERM, the cap) it removes every
   container, network and volume of those names and the three images of its tag (`docker image rm`, never `-f`), and
   lists them in `records/docker-objects.json` (with `project` and `image_tag`). Other images it caused (a builder
@@ -722,7 +723,9 @@ that changes, and the servers' pin. No card, no Docker daemon and no compose wer
 `!override` and `device_ids` and Docker's device request are taken from their documented shapes; the first run on the
 host is the first to show them. If compose's form differs, the measure is refused before any server starts; if
 the device request differs, the servers are stopped and the measure refused.
-`tests/unit/test_measure48_host_own_names_h75.py` (H-75): a full run beside an installed box's objects and images,
+`tests/unit/test_measure48_host_own_names_h75.py` (H-75): the invariant
+`test_the_boxs_objects_and_images_are_never_touched_by_a_run` (the box's lists identical before and after a full
+pass, a failure at s07, SIGTERM and the cap; the box's project and tags refused), a full run beside an installed box,
 the refusals of the box's project and tags, the run's own names already present, a taken port; the compose files
 rendered by `docker compose config` with nothing set, byte-identical to their literal `trialbox` form; `deploy/poc.sh`,
 `deploy/build_db_image.sh`, `tools/dgpu48.py` and `tools/measure48-vm.sh` with nothing set (master's names) and under

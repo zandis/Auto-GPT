@@ -57,11 +57,11 @@ DIR_VAR = {
     "verifier": ("VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit"),
 }
 TEMPLATE = ("JUDGE_CHAT_TEMPLATE", "chat-templates/gemma-4-26b-a4b-it/chat_template.jinja")
-# H-75: the compose project and the python image follow the variables compose reads (the 48 GB host run's own);
-# unset, the box's: trialbox, trialbox-model-backend, trialbox-py:1.0.0
-PROJECT = os.environ.get("TB_COMPOSE_PROJECT") or "trialbox"  # deploy/docker-compose.yml name:
+# H-75: the compose project (compose's own COMPOSE_PROJECT_NAME, as -p sets it) and the image tag of the 48 GB host
+# run; unset, the box's: trialbox, trialbox-model-backend, trialbox-py:1.0.0
+PROJECT = os.environ.get("COMPOSE_PROJECT_NAME") or "trialbox"  # deploy/docker-compose.yml name:
 BACKEND_NET = f"{PROJECT}-model-backend"  # deploy/docker-compose.yml model-backend-net (internal, its name)
-PY_IMAGE = os.environ.get("TB_IMAGE") or "trialbox-py:1.0.0"  # deploy/docker-compose.yml x-python image
+PY_IMAGE = "trialbox-py:" + (os.environ.get("TRIALBOX_IMAGE_TAG") or "1.0.0")  # deploy/docker-compose.yml x-python
 COMPAT_DIR = "/usr/local/cuda/compat"
 # the pinned builds whose weights every profile serves (models/registry.yaml: the same expected manifest in each
 # profile's build); the measuring run checks the weights folders against them before it downloads anything

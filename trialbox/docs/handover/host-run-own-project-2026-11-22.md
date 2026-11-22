@@ -15,21 +15,31 @@ touching any of the box's objects (D-1356).**
   `trialbox`). The compose project, its containers, networks and volumes, and the images `trialbox-py`, `trialbox-jvm`
   and `trialbox-postgres` of the run carry them. Refused in one line (exit 2): a project `trialbox*`, a tag `1.0.0` or
   `16-1`.
-- The preflight (H-72's "any `trialbox-*` image refuses" relaxed): an installed box's objects and images may be there
-  (a note); the run's own project's objects and its tag's images must not exist yet; the stub's host ports
+- The preflight: H-72's refusal "any `trialbox-*` image refuses" is replaced by a stronger statement, not dropped (the
+  integrator's ruling of 2026-11-22 08:41 UTC): the box's images, containers, volumes and networks are never built
+  over, tagged, stopped or removed by a host run. An installed box's objects and images may be there (a note); the run's own project's objects and its tag's images must not exist yet; the stub's host ports
   (`TB_HOST_*_PORT`) must be free, a taken one named with its variable. At the end the run removes its own containers,
   networks, volumes and the three images of its tag (`docker image rm`, never `-f`), and nothing else.
-- Six files of other lanes, bodies only (the rulings of 2026-11-22 04:31 and 06:21 UTC): every box name the run needs
-  follows a variable with today's value as the default (`TB_COMPOSE_PROJECT`, `TB_DB_IMAGE`, `TB_IMAGE`). With nothing
-  set, `docker compose config` of `docker-compose.yml`, `+ docker-compose.test.yml` and `+ docker-compose.poc.yml`
-  (profiles stub, test, gpu) renders byte-identical to master's files (56,669, 61,691 and 63,302 bytes; compared by
-  hand once), and a test compares the render with the files' literal `trialbox` form.
+- Six files of other lanes and `tools/network_sheet.py`, bodies only (the rulings of 2026-11-22 04:31, 06:21 and
+  08:41 UTC): every box name the run needs follows compose's own project (`-p`, `COMPOSE_PROJECT_NAME`) or
+  `TRIALBOX_IMAGE_TAG`, with today's value as the default. No box setting (`TB_*`) is read or declared for it; the run
+  sets compose's existing image variables (`TB_IMAGE`, `TB_JVM_IMAGE`, `TB_EMBED_IMAGE`, `TB_DOCPARSER_IMAGE`,
+  `POSTGRES_IMAGE`) to its tag. With nothing set, `docker compose config` of `docker-compose.yml`,
+  `+ docker-compose.test.yml` and `+ docker-compose.poc.yml` (profiles stub, test, gpu) renders byte-identical to
+  master's files (56,669, 61,691 and 63,302 bytes; compared by hand), and a test compares the three renders with the
+  files' literal `trialbox` form.
+- `deploy/build_db_image.sh` keeps the literal `-f deploy/docker/db.Dockerfile -t trialbox-postgres:16-1` for the box;
+  the run's tag replaces that pair only when `TRIALBOX_IMAGE_TAG` is set (ruling 4, its first choice:
+  `test_image_config_scans.py` untouched). `tools/network_sheet.py` reads a network name's `${VAR:-default}` as its
+  default: the three sheets are byte-identical to master's.
 - `deploy/poc.sh` builds images of other names by its own `docker build` path with `--build-arg BASE_IMAGE`, never
   `make images` (whose tags are the box's); the Makefile and the Dockerfiles are unchanged.
-- **Tests:** `tests/unit/test_measure48_host_own_names_h75.py`, 24 tests. **Ten tests of H-67's
-  `tests/unit/test_measure48_host_h67.py` now fail** (below): they assert the box's fixed names and H-72's refusal.
-  Their assertions are not changed here; a question to the integrator (H75-01). Five more fail on a file outside
-  the six or an assertion of another lane's test (H75-05, below): not changed, a question.
+- **Tests:** `tests/unit/test_measure48_host_own_names_h75.py`, 31 tests, among them the invariant
+  `test_the_boxs_objects_and_images_are_never_touched_by_a_run` (seven ways: a full pass, a failure at s07, SIGTERM,
+  the cap, and the planted box project and box tags refused; the box's lists of containers, networks, volumes and
+  images identical before and after; a run that removes a box image fails it in all four run endings, checked once by
+  hand). H-67's ten cases in `tests/unit/test_measure48_host_h67.py` move to the run's own names (ruling 1): its
+  stand-in follows the project and tag, the H-72 refusal test is replaced by the invariant.
 
 The bench host's commands (an existing host with an installed box, driver 575; card N; H-74's exception):
 
@@ -52,63 +62,38 @@ commands: `TB_HOST_CONSOLE_PORT=18090 tools/measure48-host.sh ...`.
 
 | Where | What |
 | --- | --- |
-| `tools/measure48-host.sh` | `--project`, `--image-tag`; their checks; exports `TB_COMPOSE_PROJECT`, `TB_IMAGE`, `TB_JVM_IMAGE`, `TB_EMBED_IMAGE`, `TB_DOCPARSER_IMAGE` (the run's `trialbox-py:<tag>`), `TB_DB_IMAGE` and `POSTGRES_IMAGE` (`trialbox-postgres:<tag>`); unsets `COMPOSE_PROJECT_NAME` (H75-04); the preflight's objects and images of the run's names, the box's as a note, the stub's ports (H75-02); the end removes the run's own images; `records/head.json` and `records/docker-objects.json` carry `project` and `image_tag` |
-| `deploy/docker-compose.yml` | `name: ${TB_COMPOSE_PROJECT:-trialbox}`; the five networks `${TB_COMPOSE_PROJECT:-trialbox}-net`, `-model-net`, `-model-backend`, `-egress`, `-console` |
-| `deploy/docker-compose.test.yml` | `${TB_COMPOSE_PROJECT:-trialbox}-hostnet` |
-| `deploy/build_db_image.sh` | `-t "${TB_DB_IMAGE:-trialbox-postgres:16-1}"` |
-| `deploy/poc.sh` | `IMAGE_DB` from `TB_DB_IMAGE`; the volume check `${TB_COMPOSE_PROJECT:-trialbox}_lake-data`; other image names build by its own path on `BASE_IMAGE` (the build inputs fetched on the host when it has Maven, curl and fontTools, else in the builder container, as before) (H75-03) |
-| `tools/dgpu48.py` | `PROJECT` from `TB_COMPOSE_PROJECT`, `BACKEND_NET` from it, `PY_IMAGE` from `TB_IMAGE` (the canary and the pin tool) |
-| `tools/measure48-vm.sh` | the canary's network and image, the servers' container names from `TB_COMPOSE_PROJECT` and `TB_IMAGE` |
+| `tools/measure48-host.sh` | `--project`, `--image-tag`; their checks; exports `COMPOSE_PROJECT_NAME` (compose's `-p`) and `TRIALBOX_IMAGE_TAG`, and sets compose's existing `TB_IMAGE`, `TB_JVM_IMAGE`, `TB_EMBED_IMAGE`, `TB_DOCPARSER_IMAGE` (the run's `trialbox-py:<tag>`) and `POSTGRES_IMAGE` (`trialbox-postgres:<tag>`); the preflight's objects and images of the run's names, the box's as a note, the stub's ports (H75-02); the end removes the run's own images; `records/head.json` and `records/docker-objects.json` carry `project` and `image_tag` |
+| `deploy/docker-compose.yml` | `name: trialbox` unchanged (compose's `-p` overrides it); the five networks `${COMPOSE_PROJECT_NAME:-trialbox}-net`, `-model-net`, `-model-backend`, `-egress`, `-console` |
+| `deploy/docker-compose.test.yml` | `${COMPOSE_PROJECT_NAME:-trialbox}-hostnet` |
+| `deploy/build_db_image.sh` | the literal `-f deploy/docker/db.Dockerfile -t trialbox-postgres:16-1` kept; `-t trialbox-postgres:$TRIALBOX_IMAGE_TAG` instead only when that is set |
+| `deploy/poc.sh` | `IMAGE_DB` `trialbox-postgres:$TRIALBOX_IMAGE_TAG` when set; the volume check `${COMPOSE_PROJECT_NAME:-trialbox}_lake-data`; other image names build by its own path on `BASE_IMAGE` (the build inputs fetched on the host when it has Maven, curl and fontTools, else in the builder container, as before) (H75-03) |
+| `tools/dgpu48.py` | `PROJECT` from `COMPOSE_PROJECT_NAME`, `BACKEND_NET` from it, `PY_IMAGE` `trialbox-py:$TRIALBOX_IMAGE_TAG` (the canary and the pin tool) |
+| `tools/measure48-vm.sh` | the canary's network and image, the servers' container names from `COMPOSE_PROJECT_NAME` and `TRIALBOX_IMAGE_TAG` |
+| `tools/network_sheet.py` | a network's `name:` read through its `interpolate` (the default of `${VAR:-default}`) |
 
 No further file fixes a box name the run needs: `tools/ballast48.py`, `tools/ballast.py`, `tools/measure48_vm.py`,
 `tools/engine_probe.py`, `tools/canary.py`, `tools/complete_run.py`, `tools/fetch_run_data.py` and
 `deploy/docker-compose.dgpu48.yml` and `docker-compose.poc.yml` name none (grep). `docker-compose.identity.yml`'s
 `trialbox-edge` is not on the run's path.
 
-## The ten H-67 tests that fail (H75-01)
+## The rulings of 2026-11-22 08:41 UTC (H75-01, H75-05)
 
-`tests/unit/test_measure48_host_h67.py`: `test_the_preflight_passes_and_changes_nothing`,
-`test_each_preflight_refusal_is_named_and_nothing_changes` (three cases: a box container, a box volume, two box
-images), `test_sigterm_mid_run_ends_the_steps_and_removes_what_the_run_made`,
-`test_an_installed_boxs_images_refuse_the_run_and_are_left_as_they_were`,
-`test_a_full_pass_runs_s05_to_s14_on_the_chosen_card_and_leaves_nothing`,
-`test_the_cap_ends_the_steps_and_cleans_up_without_powering_anything_off`,
-`test_a_failure_at_s07_ends_cleanly_with_its_reason`,
-`test_the_stop_line_interrupts_the_runs_measure_and_no_other_process_of_that_name`. They pass on the H-74 base
-(fd2fcedc). The cause: the rig's stand-in stub and servers make objects under the fixed box names (`trialbox_db`,
-`trialbox-net`, `trialbox-llm-service-1`, `trialbox-py:1.0.0`), which the run now treats as the box's and leaves; and
-the assertions name them, H-72's refusal and its words.
-
-**question:** a ruling to change those assertions to the run's own names: the stand-in follows `TB_COMPOSE_PROJECT`
-and the tags (as `OwnRig` in the new test file does), the names asserted become `t1-net`, `t1_db`,
-`t1-llm-service-1`, `trialbox-py:t1` (removed, no longer "made and kept"), the three box refusals become the run's
-own names' refusals (as in the new file), and `test_an_installed_boxs_images_refuse_the_run_...` is replaced by the
-new full run beside a box.
-
-## Three files outside the six (H75-05)
-
-These fail on this branch and pass on master (`e9e56b0f`), and need a seventh file or a changed assertion:
-
-- `tests/unit/test_config_declared.py::test_every_tb_setting_read_is_declared` (also in `make guard`):
-  `TB_COMPOSE_PROJECT`, read in `tools/dgpu48.py`, must be in `libs/tb_common/config.py` `DECLARED` (type `str`,
-  default `trialbox`, "the compose project"); `TB_IMAGE` is declared already.
-- `tests/unit/test_image_config_scans.py::test_every_own_image_is_scanned_from_its_dockerfile`: asserts the text
-  `-f deploy/docker/db.Dockerfile -t trialbox-postgres:16-1` in `deploy/build_db_image.sh`, which is now
-  `-t "${TB_DB_IMAGE:-trialbox-postgres:16-1}"`. Not worked around (a second, literal command line would only satisfy
-  the text).
-- `tests/unit/test_network_sheet.py::test_the_committed_sheet_lists_every_port_and_is_up_to_date[en|ja|zh-TW]`:
-  `tools/network_sheet.py` reads the compose file's network names raw and would now print
-  `${TB_COMPOSE_PROJECT:-trialbox}-console`; it needs to take the default (`trialbox-console`), after which the
-  committed sheets are unchanged.
-
-**question:** a go for `libs/tb_common/config.py` (one `DECLARED` row) and `tools/network_sheet.py` (resolve
-`${VAR:-default}` in a network name to its default), bodies only, and a ruling on
-`test_image_config_scans.py`'s assertion (to accept the variable with that default).
+1. H-67's ten cases: moved to the run's own names (`t1-net`, `t1_db`, `t1-llm-service-1`, `trialbox-py:t1`, removed
+   at the end); the stand-in stub and servers follow `COMPOSE_PROJECT_NAME` and `TRIALBOX_IMAGE_TAG`; the refusal
+   cases name the run's own objects and tag. `test_an_installed_boxs_images_refuse_the_run_and_are_left_as_they_were`
+   is replaced by the invariant (a comment in its place names it).
+2. `TB_COMPOSE_PROJECT` and `TB_DB_IMAGE` are gone: compose's own `COMPOSE_PROJECT_NAME` (what `-p` sets; compose
+   gives it to the file's interpolation too, so the networks follow `-p` as well) and `TRIALBOX_IMAGE_TAG`.
+   `libs/tb_common/config.py` is unchanged and `test_config_declared.py` passes.
+3. `tools/network_sheet.py`: one line; the committed sheets are unchanged and `test_network_sheet.py` passes.
+4. `deploy/build_db_image.sh`: the first choice (the literal line kept for the box); `test_image_config_scans.py` is
+   untouched and passes.
 
 ## Files outside the card
 
 `deploy/docker-compose.yml`, `deploy/docker-compose.test.yml`, `deploy/poc.sh`, `deploy/build_db_image.sh`,
-`tools/dgpu48.py`, `tools/measure48-vm.sh`: bodies only, by the rulings of 2026-11-22 04:31 and 06:21 UTC. No
+`tools/dgpu48.py`, `tools/measure48-vm.sh`, `tools/network_sheet.py`: bodies only, by the rulings of 2026-11-22
+04:31, 06:21 and 08:41 UTC. No
 interface of an existing caller changes; with nothing set, every name and command is master's.
 
 ## Not verified

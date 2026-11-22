@@ -4,9 +4,9 @@
 # Models are reached only through tb-gateway (spec v4 LLM-1, NFR-B9): llm-service / llm-stub sit on model-net, which
 # only the gateway joins; the services that call a model get TB_GATEWAY_URL. The model registry, PHI guard and trace
 # store run inside the gateway process (services/gateway/app.py).
-# H-75: the project and its fixed network names follow TB_COMPOSE_PROJECT (the 48 GB host run's own project);
-# unset, they are trialbox and trialbox-* as before
-name: ${TB_COMPOSE_PROJECT:-trialbox}
+# H-75: the fixed network names follow the project compose is given (-p, or COMPOSE_PROJECT_NAME: the 48 GB host
+# run's own); with none given, trialbox-* as before
+name: trialbox
 
 # No PHI in logs (pids only). Each container keeps TB_LOG_MAX_SIZE x TB_LOG_MAX_FILE of JSON log; `trialbox logs daily`
 # copies the site's day to TB_LOG_DIR at 00:20, kept retention.logs_days (365). D-389 (OPS-034): 100m x 10 is a
@@ -540,23 +540,23 @@ services:
 
 networks:
   trialbox-net:
-    name: ${TB_COMPOSE_PROJECT:-trialbox}-net
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-net
     internal: true        # no default route: deny-by-default egress at the compose level
   model-net:
-    name: ${TB_COMPOSE_PROJECT:-trialbox}-model-net
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-model-net
     internal: true        # gateway <-> model-guard (llm-service, llm-verifier) / llm-stub only
   model-backend-net:
-    name: ${TB_COMPOSE_PROJECT:-trialbox}-model-backend
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-model-backend
     internal: true        # model-guard <-> the vLLM servers only (D-177)
   egress-net:
-    name: ${TB_COMPOSE_PROJECT:-trialbox}-egress  # host-level nftables (network.sh) restricts destinations per container
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-egress  # host-level nftables (network.sh) restricts destinations per container
   console-net:
     # The console's published port only (D-176). Not internal (Docker publishes no port there), so it is closed by
     # hand: no NAT out (no reply ever comes back from outside), published ports bind to 127.0.0.1 unless
     # TB_CONSOLE_BIND says otherwise, no IPv6, no traffic between its members (the console is the only one).
     # deploy/network.sh drops everything from it that is not a reply, and every connection into it that is not to
     # the published port.
-    name: ${TB_COMPOSE_PROJECT:-trialbox}-console
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-console
     enable_ipv6: false
     driver_opts:
       com.docker.network.bridge.enable_ip_masquerade: "false"

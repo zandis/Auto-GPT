@@ -22,9 +22,10 @@
 # without --pull, touch a Docker object it did not make, read or use another card than --gpu-index. It writes in the
 # run folder only. Card H-75: every Docker object of the run carries its own names, never the box's, so a host with an
 # installed TrialBox runs it beside the box: the compose project --project NAME (default: from the run id; its
-# containers NAME-*, networks NAME-*, volumes NAME_*; TB_COMPOSE_PROJECT), the images trialbox-py, -jvm and -postgres
-# under --image-tag TAG (default: the project's name; TB_IMAGE, TB_JVM_IMAGE, TB_EMBED_IMAGE, TB_DOCPARSER_IMAGE,
-# TB_DB_IMAGE, POSTGRES_IMAGE) and the ballast's container tb-ballast-<run id>. The project trialbox (or any trialbox*)
+# containers NAME-*, networks NAME-*, volumes NAME_*: compose's own COMPOSE_PROJECT_NAME, as -p sets it), the images
+# trialbox-py, -jvm and -postgres under --image-tag TAG (default: the project's name; TRIALBOX_IMAGE_TAG, and compose's
+# existing image variables set to them) and the ballast's container tb-ballast-<run id>. No box setting (TB_*) is
+# read or declared for it. The project trialbox (or any trialbox*)
 # and the box's tags (1.0.0, 16-1) are refused. The preflight refuses when any object of the run's names or an image of
 # its tag exists already; the box's own objects and images may be there and are never built over, tagged or removed.
 # At the end (on success, on failure, on SIGINT and SIGTERM, at the cap) the run's objects and the images of its own
@@ -105,10 +106,10 @@ TAG=${TAG:-$PROJECT}
 [[ "$TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || usage "--image-tag $TAG: letters, digits, _ . -, not . or - first"
 case "$TAG" in 1.0.0|16-1) usage "--image-tag $TAG is refused: it is a tag of the installed box's images (trialbox-py:1.0.0, trialbox-postgres:16-1); the run takes its own" ;; esac
 OWN_IMAGES=("trialbox-py:$TAG" "trialbox-jvm:$TAG" "trialbox-postgres:$TAG")   # the run's own: built, used, removed
-export TB_COMPOSE_PROJECT=$PROJECT TB_IMAGE="trialbox-py:$TAG" TB_JVM_IMAGE="trialbox-jvm:$TAG" \
-  TB_EMBED_IMAGE="trialbox-py:$TAG" TB_DOCPARSER_IMAGE="trialbox-py:$TAG" TB_DB_IMAGE="trialbox-postgres:$TAG" \
-  POSTGRES_IMAGE="trialbox-postgres:$TAG"
-unset COMPOSE_PROJECT_NAME   # compose would take it over the file's name:, and the run's names from TB_COMPOSE_PROJECT
+# compose's project (-p) and the run's tag, read by compose, deploy/poc.sh, deploy/build_db_image.sh, tools/dgpu48.py and
+# tools/measure48-vm.sh; the services' images through compose's existing image variables (nothing new declared)
+export COMPOSE_PROJECT_NAME=$PROJECT TRIALBOX_IMAGE_TAG=$TAG TB_IMAGE="trialbox-py:$TAG" TB_JVM_IMAGE="trialbox-jvm:$TAG" \
+  TB_EMBED_IMAGE="trialbox-py:$TAG" TB_DOCPARSER_IMAGE="trialbox-py:$TAG" POSTGRES_IMAGE="trialbox-postgres:$TAG"
 
 SI=${TB_M48_STANDIN:-}
 POLL=${TB_M48_POLL_S:-10}
@@ -218,7 +219,7 @@ preflight() {
     out=$(ports_taken); out=${out%,}
     [ -z "$out" ] || pf NO "the stub (s05) publishes host ports that answer already:$out (on 127.0.0.1; give the variable a free port for the run, e.g. TB_HOST_CONSOLE_PORT=18090 tools/measure48-host.sh ...)"
     out=$(box_here); n=$(printf '%s' "$out" | grep -c .)
-    [ "$n" = 0 ] || pf note "an installed box's $n object(s) and image(s) are on this host (project trialbox, trialbox-*:1.0.0, trialbox-postgres:16-1): the run never builds over, tags, stops or removes them"
+    [ "$n" = 0 ] || pf note "an installed box's $n object(s) and image(s) are on this host (project trialbox, trialbox-*:1.0.0, trialbox-postgres:16-1): the run never builds over, tags, stops or removes them (H-75: this replaces H-72's refusal of any trialbox-* image with that stronger rule)"
     ref=$(tool pinned_ref 2> /dev/null)
     if [ -z "$ref" ]; then pf NO "no pinned engine image (tools/engine_probe.py pinned_ref)"
     elif docker image inspect --format '{{.Id}}' "$ref" > /dev/null 2>&1; then pf ok "the engine image is here by digest: $ref"

@@ -31,9 +31,11 @@ POC="$ROOT/deploy/poc"
 ADMIN_EMAIL="${TB_POC_ADMIN_EMAIL:-admin@hospa.test}"
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
 IMAGE_JVM="${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}"
-IMAGE_DB="${TB_DB_IMAGE:-trialbox-postgres:16-1}"  # deploy/build_db_image.sh builds it; compose's db service runs it (card 24-2)
-# H-75: the compose project (TB_COMPOSE_PROJECT, deploy/docker-compose.yml name:) names the volumes checked below
-PROJECT="${TB_COMPOSE_PROJECT:-trialbox}"
+IMAGE_DB=trialbox-postgres:16-1  # deploy/build_db_image.sh builds it; compose's db service runs it (card 24-2)
+# H-75: the 48 GB host run's own tag (deploy/build_db_image.sh takes the same) and its compose project (compose's
+# -p, COMPOSE_PROJECT_NAME), which names the volume checked below; unset, the box's
+[ -z "${TRIALBOX_IMAGE_TAG:-}" ] || IMAGE_DB="trialbox-postgres:$TRIALBOX_IMAGE_TAG"
+PROJECT="${COMPOSE_PROJECT_NAME:-trialbox}"
 OPENROUTER_MODEL="${TB_OPENROUTER_MODEL:-nvidia/nemotron-3-nano-30b-a3b}"
 
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
