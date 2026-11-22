@@ -3,7 +3,9 @@ that were waiting for this ruleset version, on edits re-send the review (max 3 r
 
 from __future__ import annotations
 
+import logging
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from criteria_compiler.semantics import human_heavy
@@ -14,6 +16,8 @@ from tb_contracts import ApproveRequest, JobFile
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome
 from orchestrator.scenarios.review import recipients, review_delivery
+
+log = logging.getLogger("orchestrator")
 
 
 def _workbook(ctx: Ctx) -> JobFile:
@@ -56,6 +60,34 @@ def _approved(ctx: Ctx, ruleset: str, version: str) -> Ruleset | None:
         return None
 
 
+def issue_on_approval(ctx: Ctx, ruleset: str, version: str) -> str | None:
+    """Gate 4: a version approved during the day gets its SCREEN record for the night's published generation from
+    gate 4's one writer, the function the night calls, with the same tamper and staleness checks, audited there.
+    No published generation yet (or any refusal): the approval stands and a list asked for later is refused with
+    the plain reason until a night publishes. Returns the record's hash, or None."""
+    from tb_common.screening_inputs import ScreeningRefused, issue_screening_record
+
+    try:
+        generation = ctx.orch.services.lake.generation(recover=True) or ""
+    except Exception as exc:  # no served generation: the gate refuses and audits it
+        log.warning("no served generation at the approval of %s v%s (%s)", ruleset, version, type(exc).__name__)
+        generation = ""
+    try:
+        return issue_screening_record(
+            ctx.cfg.settings,
+            root=Path(ctx.cfg.env.data_dir),
+            repo_dir=Path(ctx.rulesets_dir),
+            generation=generation,
+            study=ruleset,
+            version=version,
+            db_url=ctx.orch.db.url,
+            audit=ctx.orch.audit,
+            actor=ctx.job.requested_by,
+        )
+    except ScreeningRefused:
+        return None
+
+
 def _compiler_steps(clock: StepClock, steps: object) -> None:
     """H-45: the compiler's own steps, and the rest of the call as the HTTP round trip; no steps (a compiler that
     gave none): the whole call by its own name."""
@@ -83,7 +115,8 @@ def run(ctx: Ctx) -> Outcome:
     clock.lap("orch.target")
     if done is not None:
         # already tagged: this APPROVE was re-run after a restart that interrupted it after the compiler approved, or
-        # the reviewer replied twice. Nothing to compile; the waiting jobs must still resume.
+        # the reviewer replied twice. Nothing to compile; the record is issued if it was not, the waiting jobs resume.
+        issue_on_approval(ctx, ruleset, version)
         resumed = ctx.orch.resume_awaiting(ruleset, version)
         clock.lap("orch.resume_awaiting")
         body = f"Ruleset **{ruleset} v{version}** is already approved; nothing was changed.\n\n" + (
@@ -148,6 +181,7 @@ def run(ctx: Ctx) -> Outcome:
         )
         out = ctx.publish(f"manifest_{ruleset}_v{version}.yaml", manifest.encode("utf-8"), "aggregate", to)
         clock.lap("orch.publish")
+        issue_on_approval(ctx, ruleset, version)  # before the waiting lists run again
         resumed = ctx.orch.resume_awaiting(ruleset, version)
         clock.lap("orch.resume_awaiting")
         rev = res.manifest.review

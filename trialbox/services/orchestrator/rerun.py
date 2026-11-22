@@ -107,7 +107,7 @@ class ReplayAudit:
         self.audit = audit
 
     def append(self, event: str, **fields: Any) -> dict[str, Any]:
-        if event == "screen.inputs_admitted":
+        if event in ("screen.inputs_admitted", "screen.inputs_refused"):
             fields["detail"] = {**fields.get("detail", {}), "rerun": True}
             return self.audit.append(event, **fields)
         return {"event": event}

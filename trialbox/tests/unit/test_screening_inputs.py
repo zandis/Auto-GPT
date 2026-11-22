@@ -63,6 +63,7 @@ def clearance(record: bytes) -> dict[str, Any]:
         "clearance_id": "release-2",
         "state": "released",
         "accepted_records": [hashlib.sha256(record).hexdigest()],
+        "database": "synthetic/1",
     }
 
 
@@ -96,6 +97,7 @@ def admit_screening_inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> A
     monkeypatch.setattr(core, "screening_worker", lambda: ctx)
     monkeypatch.setattr(scheduler, "require_open", lambda *a, **kw: None)
     monkeypatch.setattr(gate, "release_id", lambda flags: "release-2")
+    monkeypatch.setattr(gate, "database_mark", lambda url: "synthetic/1")
     monkeypatch.setattr(Flags, "row", lambda *a: "off")
     state = MagicMock()
     state.return_value.__enter__.return_value.fetchval.return_value = "open"

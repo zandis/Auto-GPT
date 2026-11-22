@@ -1307,6 +1307,7 @@ def _run_ingest(
                 base,
                 promoted_generation,
                 cfg.db_url,
+                open_audit(cfg.audit_dir, cfg.tz),
             )
         except Exception as exc:
             # A passed night remains available for other jobs. SCREEN needs its own positive evidence.

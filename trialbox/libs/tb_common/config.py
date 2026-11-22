@@ -682,6 +682,9 @@ DECLARED: dict[str, Declared] = {
     "TB_GATEWAY_VERIFIER_MODEL": Declared("str", "", "the alias a verifier call asks the gateway for"),
     "TB_GATEWAY_VERIFIER_URL": Declared("str", "", "the gateway URL of the verifier"),
     "TB_GATEWAY_WATCH_S": Declared("float", "5", "gateway: how often the stall watch looks"),
+    "TB_GATE_BASE_REV": Declared(
+        "str", "origin/master", "tools/screening_inputs_guard: the git revision gate 4's ratchet is compared with"
+    ),
     "TB_GPU_KEY": Declared("str", "", "GPU profile tool: GPU key"),
     "TB_UNMEASURED_DGPU48_MEASURING_RUN": Declared(
         "bool", "", "tools/dgpu48.py measure: 1 lets the measuring run start the UNMEASURED 48 GB draft (card 24-5)"

@@ -12,7 +12,7 @@ from lake.client import LakeLocal
 from orchestrator.scheduler import RESTORE_FLAG
 from tb_common.flags import Flags
 from tb_common.ruleset import Ruleset
-from tb_common.screening_inputs import clearance_path, lake_resource_key, rule_digest
+from tb_common.screening_inputs import clearance_path, database_mark, lake_resource_key, rule_digest
 
 from tests.inproc_box import Box
 
@@ -102,8 +102,10 @@ def accept_fixture(box: Box, study: str, practitioners: list[str] | None = None)
             "accepted_records": [],
         }
     )
-    if clearance["clearance_id"] != clearance_id:
+    mark = database_mark(orch.db.url)
+    if clearance["clearance_id"] != clearance_id or clearance.get("database") != mark:
         clearance.update(clearance_id=clearance_id, accepted_records=[])
+    clearance["database"] = mark
     clearance["accepted_records"].append(hashlib.sha256(record.read_bytes()).hexdigest())
     grant.write_text(json.dumps(clearance), encoding="utf-8")
     return record, grant

@@ -107,6 +107,17 @@ def study_state(ruleset: str, url: str | None = None) -> str:
     return recorded_study_state(ruleset, url) or OPEN
 
 
+def screen_lifecycle(ruleset: str, url: str) -> str | None:
+    """Gate 4's read of the study's latest recorded state: None when the study has no row (the product's default
+    lifecycle). A missing table has lost its history and raises, as does any database error."""
+    from tb_common.db import Database
+
+    with Database.connect(url, "site") as db:
+        return db.fetchval(
+            "SELECT state FROM study_state WHERE ruleset = ? ORDER BY at DESC, id DESC LIMIT 1", (ruleset.upper(),)
+        )
+
+
 def recorded_study_state(ruleset: str, url: str | None = None) -> str | None:
     """The study's latest recorded state in the console's ``site.study_state``, or None when nothing is recorded
     (no row, no table, no trial database): a ruleset the console never set up as a study. A database error is
