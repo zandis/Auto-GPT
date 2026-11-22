@@ -142,6 +142,8 @@ if [ -n "$RULESETS" ]; then
 fi
 for f in ${REFDATA[@]+"${REFDATA[@]}"}; do VB_ARGS+=("$f"); done
 [ -z "$MODELS" ] || VB_ARGS+=(--models "$MODELS")
+# H-90: a rehearsal bundle's placeholder model folders are read as such; in any other bundle the check refuses them
+[ ${#VB_ARGS[@]} -eq 0 ] || VB_ARGS+=(${REHEARSAL[@]+"${REHEARSAL[@]}"})
 if [ ${#VB_ARGS[@]} -gt 0 ]; then
   echo "==> vocabulary bundle check (card 22-4)"
   (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.vocab_bundle_check "${VB_ARGS[@]}") \

@@ -47,6 +47,17 @@ as unlisted ones); the judge's chat template (a single file under the models roo
 not in a measured record); the builds whose rows name no record (`expected.manifest_sha256: null`);
 `deploy/measured/ingest_memory.json` and `orchestrator_memory.json`, which list no model files.
 
+## The box rehearsal (train 132's red)
+
+The rehearsal (`tools/rehearse_box/rehearse.sh`) stages its placeholder weights under the pair's real folder names,
+which the install pins by folder, so the records applied to them and the rehearsal's bundle was refused. The
+integrator's bound: no path may let a real build ship a listed file without its recorded hash. Chosen: the bundle
+names the rehearsal explicitly, not new folder names (those would change what the rehearsal box pins).
+`tools/make_bundle.sh --rehearsal` (the flag that already marks `release.json`, which a site box refuses, D-726) now
+passes `--rehearsal` to the check. With it, a folder whose `config.json` names the placeholder architecture
+(`tools.pin_model.is_placeholder`) is read as an unlisted folder; without it, every file of such a folder is refused,
+under any folder name. No environment variable selects the form; every other folder keeps the hash rule in both.
+
 ## Tests
 
 `tests/unit/test_vocab_bundle_measured_h90.py`, synthetic bytes only. On master the file does not collect

@@ -24,7 +24,10 @@ by nothing else: it passes, as a note and unread, only when it hashes to a sha25
 hash it is refused, whatever its kind (weights, text or binary). The records are those that the registry rows of the
 deployed pairs and of the embedder name as ``expected.source`` (``deploy/measured/``), each server's files keyed by the
 folder its build is mounted from by default (``tools.pin_model``: ``PROFILE_PAIRS`` and ``EMBED_PIN``). A file no
-record lists goes through the vocabulary check as before; an unlisted binary of no known kind is refused.
+record lists goes through the vocabulary check as before; an unlisted binary of no known kind is refused. The box
+rehearsal's placeholder model folders (``tools.pin_model.is_placeholder``) are read as unlisted folders only with
+``--rehearsal`` (passed by ``make_bundle.sh --rehearsal`` alone, no variable); without it each of their files is
+refused.
 
 **By label only.** The check reads the vocabulary labels and system URIs the artefacts carry. A row relabelled, or a
 concept id with no label, passes; looking concept ids up in the site's own download is card 22-4b, not done here.
@@ -193,6 +196,12 @@ def measured_files(root: Path = ROOT) -> dict[str, frozenset[str]]:
     return {k: frozenset(v) for k, v in out.items()}
 
 
+def _placeholder(folder: Path) -> bool:
+    from tools.pin_model import is_placeholder
+
+    return is_placeholder(folder)
+
+
 def _sha256(path: Path) -> str:
     """A file's sha256, read in chunks (a listed weights file is gigabytes)."""
     h = hashlib.sha256()
@@ -263,8 +272,8 @@ class Checker:
     """Reads one input (a file or a folder) in a mode: ``tree`` (shipped data files, tables need no vocabulary
     column), ``bundle`` (a bundle input: every table must have one) or ``models`` (a models folder)."""
 
-    def __init__(self, r: Rules, report: Report, root: Path = ROOT) -> None:
-        self.r, self.report, self.root = r, report, root
+    def __init__(self, r: Rules, report: Report, root: Path = ROOT, rehearsal: bool = False) -> None:
+        self.r, self.report, self.root, self.rehearsal = r, report, root, rehearsal
 
     # ---------------------------------------------------------------------------------------------- walking
     def path(self, p: Path, mode: str) -> None:
@@ -276,6 +285,16 @@ class Checker:
             self.report.problems.append(f"{p}: no artefact to check")
         for f in files:
             rel = f.relative_to(p).as_posix() if mode == "models" and p.is_dir() else None
+            if rel is not None and "/" in rel and _placeholder(p / rel.split("/")[0]):
+                # H-90 (the integrator's bound): the rehearsal's placeholder folder (tools.pin_model) is read as an
+                # unlisted folder in a rehearsal bundle only (--rehearsal, from make_bundle.sh --rehearsal); in any
+                # other bundle each of its files is refused
+                if not self.rehearsal:
+                    self.cannot(str(f), f"a rehearsal placeholder folder ({rel.split('/')[0]}/) in a bundle that is "
+                                        "not a rehearsal (make_bundle.sh --rehearsal)")  # fmt: skip
+                    continue
+                self.data(str(f), f.read_bytes(), mode, 0, self._exception(f))
+                continue
             if rel is not None and rel in self.r.measured:
                 self._measured(f, rel)
                 continue
@@ -554,9 +573,9 @@ class Checker:
 
 
 def check(paths: Iterable[Path] = (), *, tree: bool = False, models: Iterable[Path] = (),
-          register: Path = REGISTER, root: Path = ROOT) -> Report:  # fmt: skip
+          register: Path = REGISTER, root: Path = ROOT, rehearsal: bool = False) -> Report:  # fmt: skip
     report = Report()
-    c = Checker(rules(register), report, root)
+    c = Checker(rules(register), report, root, rehearsal)
     if tree:
         for f in lr.shipped_data_files(root):
             c.path(root / f, "tree")
@@ -575,10 +594,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("paths", nargs="*", type=Path, help="bundle inputs: folders or files (zip, tar, refdata packs)")
     ap.add_argument("--tree", action="store_true", help="the shipped data files of this tree")
     ap.add_argument("--models", action="append", type=Path, default=[], help="a models folder")
+    rehearsal_help = "a rehearsal bundle (make_bundle.sh --rehearsal): placeholder model folders are read"
+    ap.add_argument("--rehearsal", action="store_true", help=rehearsal_help)
     a = ap.parse_args(argv)
     if not (a.tree or a.paths or a.models):
         ap.error("give --tree, --models DIR or a path")
-    rep = check(a.paths, tree=a.tree, models=a.models)
+    rep = check(a.paths, tree=a.tree, models=a.models, rehearsal=a.rehearsal)
     print(BY_LABEL)
     for n in rep.notes:
         print(n)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -129,12 +130,14 @@ def test_stand_in_weights_under_a_measured_folder_are_refused(tmp_path: Path) ->
     assert len(rep.problems) == 3 and all("is not the measured record's" in p for p in rep.problems)
 
 
+@pytest.mark.parametrize("rehearsal", [False, True], ids=["site", "rehearsal"])
 @pytest.mark.parametrize("rel", sorted(MEASURED))
-def test_no_listed_file_passes_with_a_hash_other_than_the_records(tmp_path: Path, rel: str) -> None:
-    """The invariant: every file any measured record lists, given bytes of another hash, is refused."""
+def test_no_listed_file_passes_with_a_hash_other_than_the_records(tmp_path: Path, rel: str, rehearsal: bool) -> None:
+    """The invariant: every file any measured record lists, given bytes of another hash, is refused, in a site build
+    and in a rehearsal build alike (a rehearsal reads only its placeholder folders as unlisted)."""
     blob = b"synthetic bytes, not the measured file: " + rel.encode()
     assert hashlib.sha256(blob).hexdigest() not in MEASURED[rel]
-    rep = vbc.check(models=[_models(tmp_path, rel, blob)])
+    rep = vbc.check(models=[_models(tmp_path, rel, blob)], rehearsal=rehearsal)
     assert len(rep.problems) == 1 and rel in rep.problems[0] and "is not the measured record's" in rep.problems[0]
 
 
@@ -215,3 +218,70 @@ def test_a_measured_record_carried_in_the_bundle_is_not_read(tmp_path: Path, mon
     tok = [p for p in rep.problems if f"embedder/{TOKENIZER}" in p]
     assert len(tok) == 1 and "is not the measured record's" in tok[0]
     assert vbc.measured_files() == MEASURED
+
+
+# ------------------------------------------------------------------------------------------- the box rehearsal
+def _placeholders(models: Path, folders: tuple[str, ...] = (JUDGE, VERIFIER)) -> Path:
+    """The pair's placeholder folders as tools/rehearse_box/rehearse.sh stages them."""
+    for d in folders:
+        (models / d).mkdir(parents=True)
+        (models / d / "config.json").write_text(
+            json.dumps({"architectures": [pm.PLACEHOLDER_ARCH], "name": d}) + "\n", encoding="utf-8"
+        )
+        (models / d / "model.safetensors").write_text(f"box-install rehearsal placeholder for {d}: not a model\n")
+    return models
+
+
+def test_the_rehearsals_placeholders_pass_in_a_rehearsal_bundle(tmp_path: Path) -> None:
+    rep = vbc.check(models=[_placeholders(tmp_path / "models")], rehearsal=True)
+    assert rep.problems == [] and rep.artefacts == 2  # the two config.json read
+    assert len([n for n in rep.notes if "model.safetensors: not terminology" in n]) == 2
+
+
+def test_the_rehearsals_placeholders_are_refused_in_a_site_bundle(tmp_path: Path) -> None:
+    rep = vbc.check(models=[_placeholders(tmp_path / "models")])
+    assert len(rep.problems) == 4
+    assert all("a rehearsal placeholder folder" in p and "not a rehearsal" in p for p in rep.problems)
+
+
+def test_the_placeholder_marker_under_any_folder_is_refused_in_a_site_bundle(tmp_path: Path) -> None:
+    rep = vbc.check(models=[_placeholders(tmp_path / "models", ("embedder", "invented-model"))])
+    assert len(rep.problems) == 4 and all("not a rehearsal" in p for p in rep.problems)
+
+
+def test_no_variable_turns_a_site_check_into_the_rehearsal_form(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    models = _placeholders(tmp_path / "models")
+    for var, value in {"TB_REHEARSAL": "1", "TB_ENV": "TEST", "REHEARSAL": "--rehearsal"}.items():
+        monkeypatch.setenv(var, value)
+    assert vbc.main(["--models", str(models)]) == 1
+    assert "not a rehearsal" in capsys.readouterr().err
+    assert vbc.main(["--models", str(models), "--rehearsal"]) == 0
+
+
+@pytest.mark.parametrize("rehearsal", [True, False], ids=["rehearsal", "site"])
+def test_make_bundle_builds_the_placeholders_only_as_a_rehearsal(tmp_path: Path, rehearsal: bool) -> None:
+    """The real tools/make_bundle.sh (the stand-in docker of test_release_bundle): the rehearsal's models folder
+    builds with --rehearsal, and the same folder stops a bundle without it, before any image is saved."""
+    import shutil
+
+    if shutil.which("bash") is None:
+        pytest.skip("needs bash")
+    from tests.unit import test_release_bundle as trb
+
+    mp = pytest.MonkeyPatch()
+    try:
+        kit = trb.kit.__wrapped__(tmp_path, mp)  # type: ignore[attr-defined]
+        gates, sbom = trb._gate_record(kit["tmp"], [*trb.OWN, trb.BACKUP, trb.HAPI, trb.VLLM])
+        models = _placeholders(tmp_path / "rehearsal-models")
+        args = ["--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom), "--models", str(models)]
+        res = trb._make(kit, *args, *(["--rehearsal"] if rehearsal else []))
+        if rehearsal:
+            assert re.search(r"vocabulary bundle check: \d+ artefacts, 0 problems", res.stdout), res.stdout + res.stderr
+        else:
+            assert res.returncode == 1 and "not a rehearsal (make_bundle.sh --rehearsal)" in res.stderr, res.stderr
+            log = kit["log"].read_text(encoding="utf-8") if kit["log"].exists() else ""
+            assert not [ln for ln in log.splitlines() if ln.startswith("save ")]
+    finally:
+        mp.undo()
