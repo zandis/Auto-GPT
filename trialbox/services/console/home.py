@@ -43,6 +43,7 @@ from console.api_first import before_body, page_twin
 from console.auth import Session, source_of
 from console.backend import Problem, Refused, Unavailable
 from console.i18n import translate
+from console.own_roles import own_roles
 from console.reveal import Reveal
 from console.sitestore import (
     CAP_VALUES,
@@ -359,6 +360,13 @@ def register(app: FastAPI, h: Helpers) -> None:
             if r.status == "approved" and r.kind in ("trial", "") and sess.user.sees_study(r.id)
         ]
 
+    def home_roles(sess: Session, shown: list[Any]) -> list[dict[str, Any]]:
+        """9f-1, home half (D-1391): the person's own roles (``console.own_roles``) in the studies this page already
+        shows them, and in no other, in the page's order of studies: it names and arranges what the account page
+        lists, it reads nothing more."""
+        return own_roles(getattr(h, "team", None), sess.user.username, h.today(), {r.id.upper() for r in shown},
+                     [r.id.upper() for r in shown])  # fmt: skip
+
     def settings_of(rs: str) -> StudySettings:
         kind = next((r.kind for r in bk.rulesets() if r.id == rs), "trial")
         return s28.load(bk, store, rs, st.study_defaults(rs, kind))
@@ -636,6 +644,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         phi = sess.user.can_view_phi  # D-280 (CR-023): the administrator's study view carries no patient row
         return h.page(
             request, "home_crc.html", sess, cards=cards, tasks=tasks, clinic=clinic if phi else [], steps=st.STEPS,
+            home_roles=home_roles(sess, trials(sess)),
             pipeline_keys=st.PIPELINE, models=bk.models(), life=h.life_home(sess) if h.life_home and phi else None,
         )  # fmt: skip
 
@@ -734,6 +743,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         template = "home_crc.html" if coordinator_card else "home_today.html"
         return h.page(
             request, template, sess, today=True, every=every, lines=shown, more=len(lines) - len(shown),
+            home_roles=home_roles(sess, studies),
             total=len(lines), nexts=nexts, today_failed=failed, cards=cards, tasks=[], clinic=[], steps=st.STEPS,
             pipeline_keys=st.PIPELINE, models=bk.models() if coordinator_card else None, life=None,
             week_href=week_href,

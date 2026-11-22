@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 {% from "_today.html" import today_block, next_line with context %}
+{% from "_roles.html" import home_roles_card with context %}
 {% block title %}{{ t('today.home') }}{% endblock %}
 {% block content %}
 {# J-6 (D-1225, flag layout.home_today): the opening page of the investigator, the CRO and the viewer #}
 <div class="headrow"><h1>{{ t('today.home') }}</h1></div>
 {{ today_block(lines, more, total, every, today_failed) }}
+{{ home_roles_card(home_roles) }}
 <section class="card" data-testid="nexts">
   <div class="headrow"><h2>{{ t('today.next.title') }}</h2><span class="hint">{{ t('today.next.help') }}</span></div>
   {% if not nexts %}<p class="empty hint">{{ t('today.no_studies') }}</p>{% endif %}

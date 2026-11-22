@@ -174,6 +174,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/week` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | DELETE | `/api/v1/studies/{rs}/sources/redcap` | - | U | - | - | U | - | - | - | - |
 | POST | `/account/password` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/account/prefs` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | POST | `/admin/jobs/{job_id}/cancel` | Y | - | - | - | - | - | - | - | - |
 | POST | `/admin/jobs/{job_id}/retry` | Y | - | - | - | - | - | - | - | - |
 | POST | `/admin/models/canary` | Y | - | - | - | - | - | - | - | - |

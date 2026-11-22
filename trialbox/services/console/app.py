@@ -66,6 +66,7 @@ from console import (
     person_state,
     phone,
     plain_menu,
+    prefs,  # 10F-1 (D-1387)
     state_tone,  # 9k-4 (D-1380)
 )
 from console import actor as console_actor
@@ -774,6 +775,7 @@ def create_app(
                 "/cmd",
                 "/account",
                 "/account/password",
+                "/account/prefs",  # 10F-1 (D-1387): the account's own look and language
                 "/help",
                 "/ask",
                 "/help/guide",
@@ -939,6 +941,8 @@ def create_app(
             # NEW-JRN-8 (D-772): a CRO account's monitor grants, read only by the pages that show them (the menu)
             "monitoring": _once(lambda: helpers.monitor_grants(sess.user) if sess and helpers.monitor_grants else []),
             "account_notices": _account_notices(sess, lang),  # D-719 (a): read once, on the next page
+            # 10F-1 (D-1387): the look the person chose (density, text size, colour mode), as data attributes on <html>
+            "ui_attrs": _once(lambda: prefs.html_attrs(us.prefs(sess.user.username)) if sess else {}),
             # D-1370 (9g-19): the idle warning's clock (idle limit, seconds to the idle lock and to the absolute end)
             "session_left": _once(lambda: us.session_left(sess.token_sha) if sess else None),
             # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake

@@ -1,0 +1,41 @@
+{
+ "card": "H72",
+ "title": "the host run's names, its driver check, and pglocal's start lock",
+ "date": "2026-11-22",
+ "source": "docs/handover/host-run-own-names-2026-11-22.md",
+ "findings": [
+  {
+   "id": "H72-01",
+   "severity": "Medium",
+   "claim": "tools/measure48-host.sh makes Docker objects of the box's own names (compose project trialbox) and its stub (s05, deploy/poc.sh) builds and tags trialbox-* images; on a host with an installed box it would build over that box's images; the preflight checked objects but not images",
+   "severity_basis": "an installed box on the same host (the install test) would have its images replaced by the run's; not reached: the 48 GB host run is held",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "part: the preflight refuses a host with any trialbox-* image (2c0ccfb78c660d00d247b1c159043c7b127f1733); open: the run's own compose project and image tag need deploy/docker-compose.yml, deploy/poc.sh, tools/dgpu48.py and tools/measure48-vm.sh",
+   "from": "the integrator's card H-72, 2026-11-20"
+  },
+  {
+   "id": "H72-02",
+   "severity": "Medium",
+   "claim": "the host form's preflight took any driver (a note only, 'no minimum is set') while the engine image is CUDA 13 and needs driver 580.65.06 or newer (deploy/images.lock gpu.driver_min); the existing host's 575 driver would pass the preflight and fail at the servers' start in s08",
+   "severity_basis": "a run on that host would spend its time up to s08 and end without a measurement; not reached: no host run has happened",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 2c0ccfb78c660d00d247b1c159043c7b127f1733",
+   "fix": "the preflight runs tools/images_lock.py host with the card's driver and refuses below gpu.driver_min, naming the found and the needed driver",
+   "from": "the integrator's card H-72, 2026-11-20"
+  },
+  {
+   "id": "H72-03",
+   "severity": "Low",
+   "claim": "tools.pglocal.ensure had no cross-process lock: two processes that both found no server could both run initdb (one removing the other's half-made data folder) and both start a server",
+   "severity_basis": "a flaky start when two test processes share one cluster folder; no data at risk (a throwaway cluster)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 972742c29a97a77f9ab6c7c5542dae7e4daba43c",
+   "fix": "an exclusive flock on <root>/.ensure.lock across the check and the start; tests/unit/test_pglocal_ensure_lock_h72.py starts six processes at once",
+   "from": "the integrator's card H-72, 2026-11-20"
+  }
+ ]
+}
