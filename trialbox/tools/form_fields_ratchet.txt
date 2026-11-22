@@ -8,7 +8,6 @@
 # pull request (9k-6b), and a line at 0 goes. Action forms (hidden inputs and buttons only) are not counted here.
 _dataops_decide.html 1 before 9k-6a: converted journey by journey in 9k-6b
 _feedback.html 1 before 9k-6a: converted journey by journey in 9k-6b
-_icf_list.html 1 before 9k-6a: converted journey by journey in 9k-6b
 _mark.html 4 before 9k-6a: converted journey by journey in 9k-6b
 account.html 1 before 9k-6a: converted journey by journey in 9k-6b
 approval.html 2 before 9k-6a: converted journey by journey in 9k-6b
@@ -17,7 +16,6 @@ base.html 2 before 9k-6a: converted journey by journey in 9k-6b
 breakglass.html 2 before 9k-6a: converted journey by journey in 9k-6b
 cascade.html 1 before 9k-6a: converted journey by journey in 9k-6b
 case.html 1 before 9k-6a: converted journey by journey in 9k-6b
-committee.html 1 before 9k-6a: converted journey by journey in 9k-6b
 conflicts.html 1 before 9k-6a: converted journey by journey in 9k-6b
 consent.html 1 before 9k-6a: converted journey by journey in 9k-6b
 data_entry.html 1 before 9k-6a: converted journey by journey in 9k-6b
@@ -57,13 +55,9 @@ site_checks.html 1 before 9k-6a: converted journey by journey in 9k-6b
 site_codes.html 2 before 9k-6a: converted journey by journey in 9k-6b
 site_facts.html 1 before 9k-6a: converted journey by journey in 9k-6b
 site_help.html 1 before 9k-6a: converted journey by journey in 9k-6b
-site_optouts.html 2 before 9k-6a: converted journey by journey in 9k-6b
 site_sheets.html 2 before 9k-6a: converted journey by journey in 9k-6b
-site_staff.html 2 before 9k-6a: converted journey by journey in 9k-6b
 site_wizard.html 1 before 9k-6a: converted journey by journey in 9k-6b
-study_state.html 2 before 9k-6a: converted journey by journey in 9k-6b
 team_candidate.html 2 before 9k-6a: converted journey by journey in 9k-6b
-team_irb.html 1 before 9k-6a: converted journey by journey in 9k-6b
 team_log.html 3 before 9k-6a: converted journey by journey in 9k-6b
 team_referral_print.html 1 before 9k-6a: converted journey by journey in 9k-6b
 team_referrals.html 1 before 9k-6a: converted journey by journey in 9k-6b

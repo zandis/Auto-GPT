@@ -60,7 +60,7 @@ from tb_common.config import environment_name
 from tb_common.optout import SOURCES, OptOutError, OptOutRegister
 
 from console import actor as acting
-from console import s28
+from console import form_errors, s28
 from console import studies as st
 from console.api_first import before_body, page_twin
 from console.auth import REVEAL_REASONS, Session, User
@@ -101,6 +101,9 @@ _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # a screening number (re
 CHECK_DAYS = 30  # the copy is compared with the office's signed log every month
 IRB_REASON_MIN = 10  # D-380 (ROLE-015): the written reason for a change to a study's IRB record
 LIFT_REASON_MIN = 10  # D-380 (ROLE-005): the written reason for lifting an opt-out
+IRB_REASON_WHY = f"say why the IRB record changes (at least {IRB_REASON_MIN} characters)"
+LIFT_REASON_WHY = f"say why the opt-out is lifted (at least {LIFT_REASON_MIN} characters)"
+IRB_NUMBER_WHY = "give the IRB approval number with the approval date"
 # NEW-DIN-3 (D-544): an opt-out typed by chart number for a pseudonym the pid map does not hold is registered only
 # with a written reason of this length; without one the desk says this
 UNKNOWN_REASON_MIN = 10
@@ -115,6 +118,46 @@ CANNOT_CHECK = (
 )
 KNOWN_WORD = {True: "yes", False: "no", None: "cannot_say"}
 IRB_FIELDS = ("approval_no", "approved_on", "expires_on", "icf_version", "icf_date")  # the stored IRB record
+
+# 9k-6b (D-1376): the refusals of the forms of this page, each at its own field (``form_errors.from_refusal`` reads the
+# sentence the route raises; what is refused, and in which order, is as before). A date that is not a day names no field
+# in the store's sentence: the fields whose text is not a day are named from the form.
+IRB_DATES = {"approved_on": "fe.irb.approved_on", "expires_on": "fe.irb.expires_on", "icf_date": "fe.irb.icf_date"}
+ICF_DATES = {"version_date": "fe.icf.version_date", "irb_approved_on": "fe.icf.irb_approved_on",
+             "effective_from": "fe.icf.effective_from"}  # fmt: skip
+IRB_REFUSALS: dict[str, form_errors.Rule] = {
+    IRB_NUMBER_WHY: ("approval_no", "fe.irb.approval_no"),
+    IRB_REASON_WHY: ("reason", "fe.irb.reason"),
+    "dates are YYYY-MM-DD": lambda form: form_errors.bad_dates(form, IRB_DATES, IRB_DATES),
+    "the approval expires before it was given": ("expires_on", "fe.irb.expires_early"),
+}
+ICF_REFUSALS: dict[str, form_errors.Rule] = {
+    "the version is letters, digits, spaces and . _ / ( ) -, at most 40": ("version", "fe.icf.version"),
+    "dates are YYYY-MM-DD": lambda form: form_errors.bad_dates(form, ICF_DATES, ICF_DATES, cut=10),
+    "a version is used only from its IRB approval date": ("effective_from", "fe.icf.from_early"),
+    "that version is not on the list": ("version", "fe.icf.unlisted"),
+    "say why the version is taken off the list": ("note", "fe.icf.note"),
+}
+OPTOUT_REFUSALS: dict[str, form_errors.Rule] = {
+    WHOLE_PID_WHY: ("pid", "fe.optout.pid"),
+    "give a chart number or a pseudonym": ("chart_no", "fe.optout.chart_empty"),
+    "chart numbers are letters, digits or '-'": ("chart_no", "fe.optout.chart_no"),
+    "this is a pseudonym, not a chart number: put it in the pseudonym field": ("chart_no", "fe.optout.chart_is_pid"),
+    NOT_A_PATIENT: ("unknown_reason", "fe.optout.unknown_none"),
+    CANNOT_CHECK: ("unknown_reason", "fe.optout.unknown_cannot"),
+}  # fmt: skip
+LIFT_REFUSALS: dict[str, form_errors.Rule] = {
+    LIFT_REASON_WHY: ("note", "fe.lift.note"),
+}
+STAFF_REFUSALS: dict[str, form_errors.Rule] = {
+    "give the person's name": ("name", "fe.staff.name"),
+}
+CONTACT_REFUSALS: dict[str, form_errors.Rule] = {
+    "give the department and who answers for it": lambda form: [
+        (n, k) for n, k in (("department", "fe.contact.department"), ("name", "fe.contact.name"))
+        if not str(form.get(n) or "").strip()
+    ],
+}  # fmt: skip
 
 
 @dataclass(frozen=True)
@@ -329,6 +372,10 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
 
     def refused(exc: Exception) -> Exception:
         return h.problem(400, "request.refused", reason=str(exc))
+
+    # 9k-6b: the class of the console's refusal (the one ``h.problem`` builds): a form catches it alone, so an error of
+    # any other kind is raised as before and is never handed to the page
+    refusal_class = type(h.problem(400, "request.refused"))
 
     def need_csrf(sess: Session, form: Mapping[str, Any]) -> None:
         if not h.csrf_ok(sess, str(form.get("csrf") or "")):
@@ -826,12 +873,12 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         before = team.irb(rid)
         new = Irb(body.approval_no, body.approved_on, body.expires_on, body.icf_version, body.icf_date)
         if new.approved_on.strip() and not new.approval_no.strip():
-            raise refused(TeamError("give the IRB approval number with the approval date"))
+            raise refused(TeamError(IRB_NUMBER_WHY))
         fields = IRB_FIELDS
         changed = [k for k in fields if str(getattr(before, k) or "") != str(getattr(new, k) or "").strip()]
         reason = body.reason.strip()
         if before.at and changed and len(reason) < IRB_REASON_MIN:
-            raise refused(TeamError(f"say why the IRB record changes (at least {IRB_REASON_MIN} characters)"))
+            raise refused(TeamError(IRB_REASON_WHY))
         try:
             rec = team.save_irb(rid, new, sess.user.username, now())
         except TeamError as exc:
@@ -843,20 +890,26 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                           "before": {k: str(getattr(before, k) or "") for k in fields}})  # fmt: skip
         return rid, rec
 
+    def irb_view(request: Request, sess: Session, rid: str, status: int = 200,
+                 fe: form_errors.FormErrors | None = None) -> Response:  # fmt: skip
+        """The IRB page, or (9k-6b) the same page after a refused POST of the IRB record or of a consent-form version:
+        ``fe`` names the failing fields and what was typed."""
+        rec = team.irb(rid)
+        on = optout.effective()
+        # D-380: the overrides name patients (pseudonyms): only a patient-level reader sees them, never the admin
+        overrides = [o for o in team.overrides(rid) if o[0] not in on][-50:] if sess.user.can_view_phi else []
+        return h.page(request, "team_irb.html", sess, status=status, rs=rid, irb=rec, warnings=rec.warnings(today()),
+                      can_edit=may_edit_irb(sess, rid), icf=team.icf_list(rid), icf_history=team.icf_history(rid),
+                      reads_subjects=sess.user.can_view_phi, overrides=overrides, fe=fe,
+                      committee=h.committee_status(rid) if h.committee_status else None)  # fmt: skip
+
     @app.get("/studies/{rs}/irb")
     def irb_page(request: Request, rs: str) -> Response:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
-        rec = team.irb(rid)
-        on = optout.effective()
-        # D-380: the overrides name patients (pseudonyms): only a patient-level reader sees them, never the admin
-        overrides = [o for o in team.overrides(rid) if o[0] not in on][-50:] if sess.user.can_view_phi else []
-        return h.page(request, "team_irb.html", sess, rs=rid, irb=rec, warnings=rec.warnings(today()),
-                      can_edit=may_edit_irb(sess, rid), icf=team.icf_list(rid), icf_history=team.icf_history(rid),
-                      reads_subjects=sess.user.can_view_phi, overrides=overrides,
-                      committee=h.committee_status(rid) if h.committee_status else None)  # fmt: skip
+        return irb_view(request, sess, rid)
 
     @app.post("/studies/{rs}/irb")
     async def irb_save(request: Request, rs: str) -> Response:
@@ -864,7 +917,14 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         form = await request.form()
         need_csrf(sess, form)
         body = ApiIrb(**{k: str(form.get(k) or "")[: 300 if k == "reason" else 60] for k in ApiIrb.model_fields})
-        rid, _ = save_irb(sess, request.url.path, rs, body)
+        try:
+            rid, _ = save_irb(sess, request.url.path, rs, body)
+        except refusal_class as exc:  # 9k-6b: a refused value is shown at its field, the page again, 400 as before
+            bad = form_errors.from_refusal(exc, IRB_REFUSALS, form)
+            if bad is None:
+                raise
+            fe = form_errors.failed("irb", "irb", bad, form.multi_items())
+            return irb_view(request, sess, study_or_404(sess, rs), status=form_errors.FAILED, fe=fe)
         return RedirectResponse(f"/studies/{rid}/irb?done=1", status_code=303)
 
     # the monitor's pages (reads under a monitor grant, the visit record) are ``console.sdv_page`` (D-436)
@@ -928,7 +988,14 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                       effective_from=str(form.get("effective_from") or "")[:10],
                       reconsent=str(form.get("reconsent") or "") == "1", note=str(form.get("note") or "")[:200],
                       withdraw=str(form.get("withdraw") or "") == "1")  # fmt: skip
-        rid, _ = save_icf(sess, request.url.path, rs, body)
+        try:
+            rid, _ = save_icf(sess, request.url.path, rs, body)
+        except refusal_class as exc:  # 9k-6b: a refused value is shown at its field, the page again, 400 as before
+            bad = form_errors.from_refusal(exc, ICF_REFUSALS, form)
+            if bad is None:
+                raise
+            fe = form_errors.failed("icf", "icf", bad, form.multi_items())
+            return irb_view(request, sess, study_or_404(sess, rs), status=form_errors.FAILED, fe=fe)
         return RedirectResponse(f"/studies/{rid}/irb?icf=1#icf", status_code=303)
 
     @app.get("/studies/{rs}/reconsent")
@@ -1003,13 +1070,17 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         never the administrator."""
         return permit(user.role, "optout.keep").allowed
 
+    def staff_view(request: Request, sess: Session, status: int = 200,
+                   fe: form_errors.FormErrors | None = None) -> Response:  # fmt: skip
+        return h.page(request, "site_staff.html", sess, status=status, staff=team.staff(active_only=False),
+                      contacts=team.contacts(), can_edit=can_keep(sess.user), fe=fe)  # fmt: skip
+
     @app.get("/site/staff")
     def staff_page(request: Request) -> Response:
         sess = h.need(request)
         if not (sess.user.can_view_phi or can_keep(sess.user)):
             raise deny(sess, request.url.path)
-        return h.page(request, "site_staff.html", sess, staff=team.staff(active_only=False), contacts=team.contacts(),
-                      can_edit=can_keep(sess.user))  # fmt: skip
+        return staff_view(request, sess)
 
     @app.post("/site/staff")
     async def staff_add(request: Request) -> Response:
@@ -1035,7 +1106,19 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                                f["username"], sess.user.username, now())  # fmt: skip
                 action = "add"
         except TeamError as exc:
-            raise refused(exc) from exc
+            # 9k-6b: a name or a department left empty is shown at its field (the page again, 400 as before)
+            kind = "contact" if form.get("kind") == "contact" else "staff"
+            bad = (
+                None
+                if form.get("kind") == "active"
+                else form_errors.from_refusal(
+                    refused(exc), CONTACT_REFUSALS if kind == "contact" else STAFF_REFUSALS, form
+                )
+            )
+            if bad is None:
+                raise refused(exc) from exc
+            fe = form_errors.failed(kind, "ct" if kind == "contact" else "st", bad, form.multi_items())
+            return staff_view(request, sess, status=form_errors.FAILED, fe=fe)
         au.append("console.staff", actor=h.actor(sess), detail={"action": action})
         return RedirectResponse(f"/site/staff?done={action}", status_code=303)
 
@@ -1120,7 +1203,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if not can_keep_optouts(sess.user):
             raise deny(sess, path)
         if body.lift and len(body.note.strip()) < LIFT_REASON_MIN:  # D-380 (ROLE-005): a lift says why
-            raise refused(OptOutError(f"say why the opt-out is lifted (at least {LIFT_REASON_MIN} characters)"))
+            raise refused(OptOutError(LIFT_REASON_WHY))
         by_chart = bool(body.chart_no.strip()) and not body.pid.strip()
         if by_chart:
             chart_lookup(sess, "optout")
@@ -1179,15 +1262,19 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         found = on_lists(typed)
         return "" if found is None else ("yes" if found else "no")
 
+    def optout_view(request: Request, sess: Session, on: str = "", status: int = 200,
+                    fe: form_errors.FormErrors | None = None) -> Response:  # fmt: skip
+        return h.page(request, "site_optouts.html", sess, status=status, rows=optout.current(),
+                      events=optout.events()[-30:][::-1], sources=SOURCES, on=on if on in ("yes", "no") else "",
+                      fe=fe)  # fmt: skip
+
     @app.get("/site/opt-outs")
     def optout_page(request: Request) -> Response:
         sess = h.need(request)
         if not can_keep_optouts(sess.user):
             raise deny(sess, request.url.path)
         # NEW-JRN-2: what the last opt-out matched, from the redirect: study ids only, or "-" for nobody
-        on = request.query_params.get("on", "")
-        return h.page(request, "site_optouts.html", sess, rows=optout.current(), events=optout.events()[-30:][::-1],
-                      sources=SOURCES, on=on if on in ("yes", "no") else "")  # fmt: skip
+        return optout_view(request, sess, request.query_params.get("on", ""))
 
     @app.post("/site/opt-outs")
     async def optout_add(request: Request) -> Response:
@@ -1200,8 +1287,17 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                          source=str(form.get("source") or "office")[:20], note=str(form.get("note") or "")[:300],
                          lift=form.get("lift") == "1",
                          unknown_reason=str(form.get("unknown_reason") or "")[:300])  # fmt: skip
-        match = matched_before(sess, body)
-        _pid, changed = change_optout(sess, request.url.path, body, match)
+        try:
+            match = matched_before(sess, body)
+            _pid, changed = change_optout(sess, request.url.path, body, match)
+        except refusal_class as exc:  # 9k-6b: a refused value is shown at its field, the page again, 400 as before
+            bad = form_errors.from_refusal(exc, LIFT_REFUSALS if body.lift else OPTOUT_REFUSALS, form)
+            if bad is None:
+                raise
+            lift = form.get("lift") == "1"
+            fe = form_errors.failed("optout-lift" if lift else "optout", f"lift-{body.pid}" if lift else "oo", bad,
+                                    form.multi_items())  # fmt: skip
+            return optout_view(request, sess, status=form_errors.FAILED, fe=fe)
         done = ("lifted" if body.lift else "added") if changed else "same"
         # D-273 (PV-6): no pseudonym back. NEW-JRN-2: for a typed pseudonym, whether a listed patient matched
         more = f"&on={match}" if done == "added" and match else ""
