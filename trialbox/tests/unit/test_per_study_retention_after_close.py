@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -143,7 +144,13 @@ def test_the_close_form_asks_for_the_period_and_the_page_says_until_when(sb: dic
     sb["app"].state.helpers.sae_open = lambda rid: 0
     crc, _ = login(sb["app"], "crc", PW)
     page = crc.get("/studies/GZQO/state").text
-    assert f'name="keep_years" type="number" min="1" max="30" value="{STUDY_YEARS_AFTER_CLOSE}"' in page
+    field = re.search(r'<input\b[^>]*\bname="keep_years"[^>]*>', page)  # 9k-6b: the field macro writes the attributes
+    assert field is not None and dict(re.findall(r'\b(type|min|max|value)="([^"]*)"', field.group(0))) == {
+        "type": "number",
+        "min": "1",
+        "max": "30",
+        "value": str(STUDY_YEARS_AFTER_CLOSE),
+    }
     for bad in ("0", "31", "abc", "2.5"):
         r = _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out", keep_years=bad)
         assert r.status_code == 400 and _state(sb) == "open" and 'data-testid="state-error"' in r.text, bad

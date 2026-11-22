@@ -34,7 +34,7 @@
   <p class="hint">{{ t('pref.help') }}</p>
   <p class="hint" data-testid="prefs-lang-rule">{{ t('pref.lang.rule') }}</p>
   {% if saved_prefs %}<p class="ok" role="status" data-testid="prefs-saved">{{ t('pref.saved') }}</p>{% endif %}
-  <form method="post" action="/account/prefs" data-testid="prefs-form" data-fields="prefs">
+  <form method="post" action="/account/prefs" data-testid="prefs-form" data-fields="prefs" data-guard>
     <input type="hidden" name="csrf" value="{{ csrf }}">
     {% for k in pref_labels %}{% set ns = namespace(opts=[]) %}{% for v, key in pref_options[k] %}{% set ns.opts = ns.opts + [(v, t(key))] %}{% endfor %}
     {{ fm.field(fe, 'prefs', 'pref', k, t(pref_labels[k]), prefs[k], kind='select', options=ns.opts) }}
