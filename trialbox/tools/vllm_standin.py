@@ -304,6 +304,8 @@ def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     ap = argparse.ArgumentParser(prog="vllm_standin", description=__doc__.split("\n\n", 1)[0], allow_abbrev=False)
     ap.add_argument("--model", default="")
     ap.add_argument("--served-model-name", action="append", nargs="+", default=[])
+    # The rehearsal entrypoint supplies a name when no tier supplies a model command.
+    ap.add_argument("--default-served-model-name", default="")
     ap.add_argument("--api-key", default=None)
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8000)
@@ -317,6 +319,8 @@ def build(argv: list[str], env: dict[str, str] | None = None) -> tuple[Standin, 
     served = [n for group in a.served_model_name for n in group]
     if not served and a.model:
         served = [a.model.rstrip("/").rsplit("/", 1)[-1]]
+    if not served and a.default_served_model_name:
+        served = [a.default_served_model_name]
     key = a.api_key if a.api_key is not None else e.get("VLLM_API_KEY", "")
     return Standin(served, key, a.load_delay), a, ignored
 
