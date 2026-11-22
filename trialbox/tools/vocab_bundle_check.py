@@ -149,13 +149,18 @@ class Rules:
     measured: dict[str, frozenset[str]] = field(default_factory=dict)
 
 
+UNHASHED = "unhashed:"  # card H-90: the marker of a record that lists a file with no sha256 (never a hex digest)
+
+
 def measured_files(root: Path = ROOT) -> dict[str, frozenset[str]]:
     """Card H-90: ``<folder>/<path>`` -> the sha256s recorded for it, for every file a measured record lists. A build
     of a deployed pair (``PROFILE_PAIRS``, every profile) or the embedder (``EMBED_PIN``) whose registry row names a
     record as ``expected.source`` gives that record's server of the row's source (as ``tools.fetch_weights`` reads
     it), keyed by the build's default folder, when the server's files give the row's ``expected.manifest_sha256``. A
-    row without a record, or whose record is not its expected manifest, gives nothing. The registry is the one
-    ``tools.release`` reads (``TB_RELEASE_REGISTRY``: the unit tests' synthetic registry only)."""
+    row without a record, or whose record is not its expected manifest, gives nothing. A server of a row's source
+    with an entry that has no sha256 (missing or empty) gives each of its paths the marker ``UNHASHED`` + the record:
+    every file of that server is refused, never passed. The registry is the one ``tools.release`` reads
+    (``TB_RELEASE_REGISTRY``: the unit tests' synthetic registry only)."""
     from tools.pin_model import EMBED_PIN, PROFILE_PAIRS, manifest_sha256_of_files
 
     reg_path = Path(os.environ.get("TB_RELEASE_REGISTRY") or root / "models" / "registry.yaml")
@@ -174,7 +179,14 @@ def measured_files(root: Path = ROOT) -> dict[str, frozenset[str]]:
         model = str((row.get("provenance") or {}).get("source") or row.get("repository") or "")
         record = json.loads((root / str(source)).read_text(encoding="utf-8"))
         for server in record.get("servers") or []:
-            if server.get("model") != model or manifest_sha256_of_files(server.get("model_files") or []) != want:
+            files = server.get("model_files") or []
+            if server.get("model") != model:
+                continue
+            if any(not str(f.get("sha256") or "").strip() for f in files):  # fail closed, before the manifest digest
+                for f in files:
+                    out.setdefault(f"{folder.rstrip('/')}/{f.get('path')}", set()).add(f"{UNHASHED}{source}")
+                continue
+            if manifest_sha256_of_files(files) != want:
                 continue
             for f in server.get("model_files") or []:
                 out.setdefault(f"{folder.rstrip('/')}/{f['path']}", set()).add(str(f["sha256"]).lower())
@@ -401,6 +413,11 @@ class Checker:
         """Card H-90: a file a measured record lists passes only on a sha256 recorded for it, and is not read."""
         self.report.artefacts += 1
         want = self.r.measured[rel]
+        unhashed = sorted(w.removeprefix(UNHASHED) for w in want if w.startswith(UNHASHED))
+        if unhashed:
+            self.cannot(str(f), f"the measured record {', '.join(unhashed)} lists {rel} in a file list with an entry "
+                                "that has no sha256: every file of that list is refused")  # fmt: skip
+            return
         got = _sha256(f)
         if got not in want:
             self.cannot(str(f), f"its sha256 {got[:12]} is not the measured record's for {rel} "

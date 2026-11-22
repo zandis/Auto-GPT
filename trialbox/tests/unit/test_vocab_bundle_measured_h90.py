@@ -154,3 +154,64 @@ def test_a_record_that_is_not_the_rows_expected_manifest_covers_nothing(
     assert not [k for k in got if k.startswith("embedder/")] and {k for k in got} == {
         k for k in MEASURED if not k.startswith("embedder/")
     }
+
+
+def _unhashed_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, missing: bool) -> str:
+    """A synthetic registry whose embedder row names a copy of its record with the tokenizer's sha256 dropped or
+    emptied; the row's expected manifest is left as it is (the record's digest cannot be taken without the hash)."""
+    row = ROWS[pm.EMBED_BUILD]
+    record = json.loads((ROOT / row["expected"]["source"]).read_text(encoding="utf-8"))
+    for server in record["servers"]:
+        for f in server["model_files"]:
+            if f["path"] == TOKENIZER:
+                if missing:
+                    del f["sha256"]
+                else:
+                    f["sha256"] = ""
+    rec = tmp_path / "record.json"
+    rec.write_text(json.dumps(record), encoding="utf-8")
+    doc = yaml.safe_load((ROOT / "models/registry.yaml").read_text(encoding="utf-8"))
+    for r in doc["builds"]:
+        if r.get("build_id") == pm.EMBED_BUILD:
+            r["expected"]["source"] = str(rec)
+    reg = tmp_path / "registry.yaml"
+    reg.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    monkeypatch.setenv("TB_RELEASE_REGISTRY", str(reg))
+    return str(rec)
+
+
+@pytest.mark.parametrize("missing", [True, False], ids=["missing", "empty"])
+def test_a_record_entry_without_a_sha256_refuses_every_file_of_its_list(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing: bool
+) -> None:
+    rec = _unhashed_registry(tmp_path, monkeypatch, missing=missing)
+    _stand_in(monkeypatch, BLOB, _record_sha(pm.EMBED_BUILD, "config.json"))  # even the recorded hash does not pass
+    m = _models(tmp_path, f"embedder/{TOKENIZER}")
+    _models(tmp_path, "embedder/config.json")
+    rep = vbc.check(models=[m])
+    assert len(rep.problems) == 2 and rep.notes == []
+    for p in rep.problems:
+        assert ": cannot be checked: the measured record " in p and rec in p and "no sha256" in p
+    assert any(f"embedder/{TOKENIZER}" in p for p in rep.problems)
+
+
+def test_a_measured_record_carried_in_the_bundle_is_not_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Records come from the repository's registry only: a record and a registry inside the models folder that list
+    the tokenizer with the bundle's own hash change nothing (and are themselves read as ordinary files)."""
+    m = _models(tmp_path, f"embedder/{TOKENIZER}")
+    own = hashlib.sha256(BLOB).hexdigest()
+    row = ROWS[pm.EMBED_BUILD]
+    model = (row.get("provenance") or {}).get("source") or row.get("repository")
+    fake = {"servers": [{"model": model, "model_files": [{"path": TOKENIZER, "bytes": len(BLOB), "sha256": own}]}]}
+    (m / "deploy/measured").mkdir(parents=True)
+    (m / "deploy/measured" / Path(row["expected"]["source"]).name).write_text(json.dumps(fake), encoding="utf-8")
+    (m / "models").mkdir()
+    (m / "models/registry.yaml").write_text(
+        yaml.safe_dump({"builds": [{"build_id": pm.EMBED_BUILD, "expected": {"source": "deploy/measured/x.json"}}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(m)
+    rep = vbc.check(models=[m])
+    tok = [p for p in rep.problems if f"embedder/{TOKENIZER}" in p]
+    assert len(tok) == 1 and "is not the measured record's" in tok[0]
+    assert vbc.measured_files() == MEASURED
