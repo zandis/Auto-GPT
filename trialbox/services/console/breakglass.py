@@ -157,6 +157,8 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
         user = sess.user
         if permit(user.role, "breakglass.review"):  # the steward: every grant, unreviewed first
             rows = bg.grants()
+            if user.studies:  # BH1-12 (D-380): a study-scoped steward sees its studies' grants only
+                rows = [g for g in rows if (rid := study_of(h, g)) and user.sees_study(rid)]
             rows.sort(key=lambda g: (g.reviewed_at is not None, g.id * -1))
             return {"mode": "steward", "grants": rows, "active": [], "help": "bg.help.steward"}
         mine = bg.of(user.username) if permit(user.role, "breakglass.open") else []
