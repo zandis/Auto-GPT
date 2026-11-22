@@ -1,0 +1,25 @@
+{
+ "card": "H7301",
+ "title": "the preferences route invariant made cheaper and blind to the clock",
+ "date": "2026-11-22",
+ "source": "docs/handover/h73-01-prefs-route-test-2026-11-22.md",
+ "note": "basis 'shown' means shown by the local runs written on the card page (serial, -n 0, with the machine load); CI was not run by the card.",
+ "findings": [
+  {
+   "id": "H7301-01",
+   "severity": "Medium",
+   "claim": "test_no_preference_opens_a_route_or_shows_a_patient_value_the_defaults_do_not ran as seven role cases of 245 to 464 s each on the bench, each walking its 96 combinations in a row on one worker, and the test client crossed threads for every ASGI message of every request; the walk now goes through one event loop and each role is four cases (one per language group of 24 combinations) that the xdist workers share, with the same routes, roles, values and refusals",
+   "lane": "K",
+   "basis": "shown",
+   "state": "fixed c73c075884b1f319edfbe1f5b96aab968cd686ec"
+  },
+  {
+   "id": "H7301-02",
+   "severity": "Medium",
+   "claim": "the invariant depended on the clock: the patient value 09:30 was counted inside an audit row's stamp written at 10:09:30 (train 123, job 137165240799, [steward], /audit/patients/{pid}/report.csv); a stamp the page prints whose instant falls in the run is now masked before counting, and the seeded appointment is still counted",
+   "lane": "K",
+   "basis": "shown",
+   "state": "fixed 6e81ceb0ac590ad1f870c48755d206e8e4f7ffd9"
+  }
+ ]
+}

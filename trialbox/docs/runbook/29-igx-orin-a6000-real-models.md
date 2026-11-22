@@ -100,8 +100,13 @@ It needs no other tool than the host's `python3` with `python3-yaml` (page 28 st
 3. Check what is there at any time, without the network: `python3 -m tools.fetch_weights --profile rtxpro6000 --verify-only`.
 
 If a download asks for a sign-in, the model's page needs its terms accepted with a (free) Hugging Face account; then
-`export HF_TOKEN=<your token>` in the same window before step 2 (the tool sends it to the hub only and never prints
-it; do not send it to us).
+enter the token in your own Bash shell. Using `sudo VAR=value command` shows the value in the process list.
+
+```bash
+read -rs HF_TOKEN; export HF_TOKEN
+sudo --preserve-env=HF_TOKEN python3 -m tools.fetch_weights --profile rtxpro6000
+unset HF_TOKEN
+```
 
 ## Freeing the disk (step 1)
 
