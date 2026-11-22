@@ -22,14 +22,21 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from packaging.markers import InvalidMarker, Marker
 
-from tools.supply_chain.allowlist import EVERY_ID, Allowlist, norm
+from tools.supply_chain.allowlist import (
+    EVERY_ID,
+    Allowlist,
+    at_pinned_digest,
+    norm,
+    pinned_digest_problem,
+    same_repository,
+)
 from tools.supply_chain.allowlist import image_matches as allowlist_image_matches
 from tools.supply_chain.lock import parse_requirements
 
@@ -265,16 +272,19 @@ def gate(
     fails: Callable[[Finding], bool] | None = None,
     errors: list[str] | None = None,
     subject: str | None = None,
+    digests: Sequence[str] = (),
 ) -> GateResult:
     """Sort findings into failing, accepted (with the entry's reason) and reported.
 
     ``fails(finding) -> bool`` says whether a finding is above the bar; by default every finding is. ``subject`` is
-    the scanned image: an allow-list entry scoped to an image accepts findings of that image only.
+    the scanned image: an allow-list entry scoped to an image accepts findings of that image only. ``digests``: the
+    repository digests recorded for the scanned content; a D-622 entry accepts the pinned content by them too. When
+    such an entry does not apply because the scan was not of the pinned digest, an error says so plainly.
     """
     result = GateResult(errors=list(errors or []))
     used: set[int] = set()
     for f in findings:
-        entry = allow.vuln(f.ids(), f.package, subject)
+        entry = allow.vuln(f.ids(), f.package, subject, digests)
         # D-622: an entry for every id accepts findings nobody has read; one the scanner could not grade or name
         # is not among them
         if entry is not None and entry.id == EVERY_ID and (f.severity.startswith(INVALID) or f.id == "?"):
@@ -289,6 +299,17 @@ def gate(
     result.unused_entries = [
         e.id for e in allow.vulnerabilities if id(e) not in used and allowlist_image_matches(e.image, subject)
     ]
+    if subject:  # D-622: the wide entry of this repository did not apply, and its package's findings now fail
+        failing = {f.package for f in result.failing}
+        for e in allow.vulnerabilities:
+            if (
+                e.id == EVERY_ID
+                and e.image
+                and e.package in failing
+                and same_repository(e.image, subject)
+                and not at_pinned_digest(e.image, subject, digests)
+            ):
+                result.errors.append(pinned_digest_problem(e.image, e.package, subject, digests))
     return result
 
 
