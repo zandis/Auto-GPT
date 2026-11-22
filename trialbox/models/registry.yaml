@@ -603,7 +603,7 @@ builds:
     # compared with pytorch_model.bin (391 tensors, equal). The manifest counts every visible file, the README and
     # the images too: a box holds the whole folder, not the weights alone, or the pin is refused. Nothing is
     # trusted on first use.
-    expected: {manifest_sha256: e131f3203849cd7ba89144fdefce52c950bd748c285c2235c1f5628ddcc6e895, revision: 7b44caba5c06fd6f1ef1d2786261e636c38e4295}
+    expected: {manifest_sha256: e131f3203849cd7ba89144fdefce52c950bd748c285c2235c1f5628ddcc6e895, revision: 7b44caba5c06fd6f1ef1d2786261e636c38e4295, source: deploy/measured/embedder_files.e-embed-1.json}
     provenance:  # D-392
       copy: publisher-subset
       source: BAAI/bge-m3
