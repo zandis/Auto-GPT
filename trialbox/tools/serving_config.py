@@ -415,8 +415,9 @@ def card_info() -> tuple[dict[str, Any], int | None]:
     card = {"name": rows[0][0], "memory_total_mib": int(rows[0][1]), "driver": rows[0][3], "cuda": cuda,
             "count": len(rows)}  # fmt: skip
     try:  # D-409: MIG mode, and the instances by UUID (each server's device names its profile)
-        mode = _run(["nvidia-smi", "--query-gpu=mig.mode.current", "--format=csv,noheader"]).splitlines()
-        card["mig"] = bool(mode) and mode[0].strip().lower() == "enabled"
+        mode_lines = _run(["nvidia-smi", "--query-gpu=mig.mode.current", "--format=csv,noheader"]).splitlines()
+        # If any GPU reports MIG enabled, the host is considered MIG-capable.
+        card["mig"] = any(line.strip().lower() == "enabled" for line in mode_lines)
     except (subprocess.CalledProcessError, FileNotFoundError):
         card["mig"] = False
     return card, sum(int(r[2]) for r in rows)

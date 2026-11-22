@@ -305,12 +305,58 @@ elif [ -f deploy/site/rehearsal.json ] || { [ -f deploy/.env ] && grep -q '^TB_R
 fi
 # ---- end of REHEARSAL (D-726): before anything loads
 
+# FINISH-EARLY (10K-4, D-1390): tools/trialbox/finish_check.py reads deploy/.env, the mount table and /sys and writes
+# nothing: exit 1 is a refusal (each line names the setting to change), any other code means it did not run. Here a
+# re-run on an installed box (deploy/.env is there) is checked before the bundle step, which on a running box applies
+# the update and restarts the stack: refused here, nothing was loaded or changed. Not for a box's own install before
+# its set-up (TB_BOX=1), a rehearsal (--rehearsal: a VALIDATION box), nor the run from the signed tree after a load
+# (TB_INSTALL_SIGNED): the release that load brought is applied already, so FINISH-GATE says so when it refuses
+finish_check() {  # $1: what is true when it refuses; the rest: finish-check's own options (fixed words)
+  local said="$1" rc=0
+  shift
+  python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" "$@" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) die "$said (above: the setting to change in deploy/.env; RUNBOOK §5)" ;;
+    *) die "the finish check did not run (exit $rc, above), so nothing about the folders was decided: $said" ;;
+  esac
+}
+# Review 3 of #1303: skipped only by the run the bundle step below does not load again (TB_INSTALL_SIGNED is the
+# release `current` names): any other value of it (one carried in by sudo -E) is checked here like any re-run (M2).
+# The environment judged is the stricter of the one the box records (deploy/.env TB_ENV; none on an installed box is
+# PRODUCTION, D-127; a value that is none of the four is taken as PRODUCTION) and --environment, so a PRODUCTION
+# box re-run with --environment VALIDATION is refused here, not after the load (M1)
+SIGNED_RUN=0
+if [ -n "${TB_INSTALL_SIGNED:-}" ] && [ "$TB_INSTALL_SIGNED" = "$(readlink "$ROOT/current" 2>/dev/null)" ]; then
+  SIGNED_RUN=1
+fi
+GATE_ENV="$EARLY_ENV"
+if [ -f "$ROOT/deploy/.env" ] && [ -r "$ROOT/deploy/.env" ] && [ "$GATE_ENV" != PRODUCTION ]; then
+  REC_ENV="$(sed -n 's/^TB_ENV=//p' "$ROOT/deploy/.env" | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  if [ -z "$REC_ENV" ] && { [ -f "$ROOT/deploy/settings.yaml" ] || [ -f "$ROOT/deploy/updates/installed.json" ]; }; then
+    REC_ENV=PRODUCTION
+  fi
+  case "$REC_ENV" in
+    "") ;;
+    DEV|TEST|VALIDATION) GATE_ENV="${GATE_ENV:-$REC_ENV}" ;;
+    *) GATE_ENV=PRODUCTION ;;
+  esac
+fi
+if [ "${TB_BOX:-0}" != 1 ] && [ "$REHEARSAL" != 1 ] && [ "$SIGNED_RUN" != 1 ] && [ -f "$ROOT/deploy/.env" ]; then
+  if command -v python3 >/dev/null; then
+    finish_check "nothing was loaded or changed; then re-run" ${GATE_ENV:+--environment "$GATE_ENV"}
+  elif [ "${GATE_ENV:-PRODUCTION}" = PRODUCTION ]; then
+    die "no python3 on this host: a PRODUCTION install cannot check its backup target and audit anchor folder; nothing was loaded or changed (RUNBOOK §5)"
+  fi
+fi
+# ---- end of FINISH-EARLY
+
 # ------------------------------------------------------------------------------------------------ 2. bundle
 # D-888: a re-run on a box installed before deploy/.env named its settings: the update's guard (and compose) see them
 [ -f deploy/settings.yaml ] && export TB_SETTINGS_FILE="./settings.yaml"
 say "bundle: verify and load (host tree, images, models, rulesets)"
 # D-367: the second run, from the signed tree this run's load switched `current` to, does not load again
-if [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$ROOT/current" 2>/dev/null)" ]; then
+if [ "$SIGNED_RUN" != 1 ]; then  # the same test as FINISH-EARLY's skip (above)
   echo "    verifying the signature and every file of $(basename "$BUNDLE") (minutes for a large bundle)"
   alive_start "verifying the bundle"
   sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run >/dev/null || die "the bundle is not a valid signed TrialBox release; nothing was changed"
@@ -679,6 +725,12 @@ if [ "${TB_BOX:-0}" = 1 ]; then  # T-729: the console's first-run folder (box-in
   COMPOSE+=(-f deploy/docker-compose.box.yml); FILES="$FILES:$ROOT/deploy/docker-compose.box.yml"
 fi
 LOCK_FILES="$FILES"
+# ANCHOR-GATE (10K-4, D-1390): the anchor folder is judged before anything mounts it (the read probe below, the
+# console), whatever TB_BOX says: the rule for a folder the console may be given (finish-check --anchor-only)
+if command -v python3 >/dev/null; then
+  finish_check "the audit anchor folder is not given to the console: nothing was mounted, the stack was not started" --anchor-only
+fi
+# ---- end of ANCHOR-GATE
 # ANCHOR-MOUNT (D-638): the audit page checks the chain against the signed heads of the anchor folders, which are
 # host paths: a compose file of the installer's own mounts each into the console, read-only, and gives the console
 # the name (the shipped compose file clears it). No folder set: no file, and an earlier one is taken away. The
@@ -724,6 +776,18 @@ sed -i "/^COMPOSE_FILE=/d" deploy/.env && echo "COMPOSE_FILE=$FILES" >> deploy/.
 grep -q '^TB_LOG_DIR=' deploy/.env || echo "TB_LOG_DIR=$ROOT/deploy/logs" >> deploy/.env
 grep -q '^TB_AUDIT_ARCHIVE_DIR=' deploy/.env || echo "TB_AUDIT_ARCHIVE_DIR=$ROOT/deploy/logs/audit-archive" >> deploy/.env
 grep -q '^TB_BACKUP_TARGETS=' deploy/.env || echo "TB_BACKUP_TARGETS=$ROOT/deploy/backups" >> deploy/.env
+# FINISH-GATE (10K-4, D-1390): before the stack starts, unless TB_BOX=1 (deploy/box-install.sh checks after the
+# set-up): in PRODUCTION (read as the tool reads TB_ENV) a backup target shown to be off the box and the hospital's
+# audit share as the anchor folder. By here this run has loaded the bundle (on a box that was running, apply_update.sh
+# has applied the release and restarted the stack, as trialbox update does) and written its settings; a refusal says so
+if [ "${TB_BOX:-0}" != 1 ]; then
+  if command -v python3 >/dev/null; then
+    finish_check "not finished: the bundle this run loaded stays (on a box that was already running, its release is applied and running, as after trialbox update) and the settings it wrote stay; the install's own start, units, cron and checks were not run. Change what the lines above name in deploy/.env, then re-run this command: it goes on from here"
+  elif [ "$(printf '%s' "$TB_ENV_SITE" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')" = PRODUCTION ]; then
+    die "no python3 on this host: a PRODUCTION install cannot check its backup target and audit anchor folder (RUNBOOK §5)"
+  fi
+fi
+# ---- end of FINISH-GATE
 UP_EXTRA=(); [ "$MODE:$GPU" = gpu:rtx4090 ] && UP_EXTRA=(--scale llm-verifier=0)
 if [ "$YES" != 1 ] && [ -t 0 ]; then
   printf 'Start the stack now with profile %s? [Y/n] ' "$MODE"; read -r ans; case "$ans" in n|N) die "stopped before start; re-run with --yes to skip the question" ;; esac
@@ -844,6 +908,7 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
     say "systemd units (egress at boot, the stack after a restart, watchdog)"
     for unit in deploy/systemd/*.service deploy/systemd/*.timer; do
       sed -e "s#@TB_ROOT@#$ROOT#g" -e "s#@TB_BOOT_WAIT@#${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT}#g" \
+          -e "s#@TB_UP_EXTRA@#${UP_EXTRA[*]}#g" \
           -e "s#@TB_BOOT_LIMIT@#$(( ${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT} + 300 ))#g" \
           -e "s#@TB_STOP_LIMIT@#$(( STOP_WAIT + 10 ))#g" "$unit" > "$SYSTEMD_DIR/$(basename "$unit")"
       chmod 644 "$SYSTEMD_DIR/$(basename "$unit")"
@@ -855,7 +920,8 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
     systemctl enable trialbox-egress.service trialbox.service trialbox-egress-refresh.timer trialbox-watchdog.timer \
       trialbox-egress-watch.service trialbox-weights.timer trialbox-ops.timer >/dev/null 2>&1 \
       || die "the systemd units could not be enabled (systemctl status trialbox-egress trialbox)"
-    systemctl start trialbox-egress.service trialbox-egress-refresh.timer trialbox-watchdog.timer trialbox-weights.timer \
+    systemctl start trialbox.service
+    systemctl start trialbox-egress-refresh.timer trialbox-watchdog.timer trialbox-weights.timer \
       trialbox-egress-watch.service trialbox-ops.timer >/dev/null 2>&1 || true
     echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer, trialbox-weights.timer, trialbox-egress-watch, trialbox-ops.timer"
   else
@@ -947,7 +1013,7 @@ fi
 if [ "$CAN_CRON" = 1 ]; then
   say "backups: cron, WAL archiving, first backup"
   set +e
-  python3 -m tools.trialbox backup-install --deploy deploy ${TB_CRON_DIR:+--cron-dir "$TB_CRON_DIR"} 2>&1 | sed 's/^/    /'
+  PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.trialbox backup-install --deploy deploy ${TB_CRON_DIR:+--cron-dir "$TB_CRON_DIR"} 2>&1 | sed 's/^/    /'
   rc="${PIPESTATUS[0]}"
   set -e
   if [ "$rc" != 0 ] && [ "${TB_BOX:-0}" != 1 ]; then
@@ -956,10 +1022,10 @@ if [ "$CAN_CRON" = 1 ]; then
     # OPS-003 (D-566): a box has no alert route yet (no mail relay on a fresh host). A stop here is a stop before
     # the wizard; a FAIL line leaves the stack running, and box-install.sh goes on to the first-run code and
     # installs the schedule again after the owner's answers
-    FAILS+=("the backup schedule is not installed yet (above): box-install.sh installs it again after the first-run set-up; if it is still missing then: python3 -m tools.trialbox backup-install --deploy deploy (RUNBOOK §5)")
+    FAILS+=("the backup schedule is not installed yet (above): box-install.sh installs it again after the first-run set-up; if it is still missing, run the command below. 首次設定後會重新安裝備份排程，若仍未安裝，請執行此指令。初期設定後にバックアップスケジュールを再設定します。それでも未設定の場合は次のコマンドを実行してください。 PYTHONPATH=libs python3 -m tools.trialbox backup-install --deploy deploy (RUNBOOK §5)")
   fi
 else
-  echo "install: warning: the backup cron is not installed (needs root, /etc/cron.d and python3): python3 -m tools.trialbox backup-install --deploy deploy (RUNBOOK §5)" >&2
+  echo "install: warning: the backup cron is not installed (needs root, /etc/cron.d and python3). 備份排程尚未安裝，需要管理員權限、/etc/cron.d 及 python3。バックアップスケジュールは未設定です。管理者権限、/etc/cron.d、python3 が必要です。 PYTHONPATH=libs python3 -m tools.trialbox backup-install --deploy deploy (RUNBOOK §5)" >&2
 fi
 
 for f in deploy/refdata/pending/*.tar; do  # D-140: the reference data pack of the install bundle, now the db runs

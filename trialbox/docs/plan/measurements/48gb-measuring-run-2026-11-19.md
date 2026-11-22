@@ -640,18 +640,28 @@ with its numbers (`card-too-small`, `card-is-the-target`).
 | Need | How it is checked |
 | --- | --- |
 | card N, with no other process on it | `nvidia-smi -i N`; other processes are counted, with their memory, never named |
-| the driver | read and recorded; a note when it is not the rented run's branch (580); no minimum is set |
+| the driver, at or above what the engine image needs | `python3 tools/images_lock.py host --driver <read>`: refused below `deploy/images.lock`'s `gpu.driver_min` (580.65.06: the engine image is CUDA 13), the found and the needed driver named (H-72); a note when it is not the rented run's branch (580) |
+| the bench host only: a driver below that, under the bench exception | `--bench-driver-exception forward-compat --engine-probe FILE` (an option only; H-74): passes only when `tools/engine_probe.py`'s result passed with `pinned+compat` or `pinned+libs` of the pinned image, its compatibility libraries seen, on this card's model and this driver (`tools/measure48_vm.py bench-exception`); s08 serves with that form and the probe's environment; the records and `out/BENCH-EXCEPTION.txt` say "bench exception: driver <found> with the forward-compatibility path; not valid for an install", with the minimum. Never in `deploy/check_host.sh`, `deploy/install.sh` or `tools/images_lock.py` |
 | a card that can offer the target | `python3 -m tools.ballast plan --gpu-index N` (allocates nothing) |
 | Docker, usable by this user | `docker info` answers |
 | the NVIDIA runtime registered with Docker | `docker info`'s `Runtimes` lists `nvidia` (what `nvidia-ctk runtime configure --runtime=docker` adds; the owner's step: this script never does it) |
 | docker compose 2.24.4 or newer | `docker compose version` (the servers' pin uses `!override`) |
 | no TrialBox objects on the host | no container of compose project `trialbox`, no `trialbox-*` network, no `trialbox_*` volume, no `tb-ballast-<run id>` |
+| no TrialBox images on the host | no image named `trialbox-*`: the stub (s05) builds and tags images of those names and would replace an installed box's (H-72); a host with an installed box is refused, not shared |
 | the engine image, by digest | `docker image inspect` of `tools/engine_probe.py`'s `pinned_ref()`; never pulled without `--pull` (9.2 GB compressed, 23.4 GB unpacked) |
 | the weights, as pinned | `python3 -m tools.fetch_weights --profile rtxpro6000 --models-dir <weights folder> --verify-only` (27.9 GB; hashed, nothing fetched) |
 | Docker's data root: **14 GB** free (**44 GB** with `--pull`) | the stub's images (14 GB, `NEED_GB` "stub"), plus the engine (30 GB) when pulled |
 | the run folder: **10 GB** free | the screen's tools 6 GB, the screen 3 GB, one more option 1 GB (`NEED_GB`; the weights are not copied) |
 | python3 3.10 or newer with PyYAML; git | imported and asked |
 | for the screen (s09, s10) only | PostgreSQL's server binaries, tesseract with `jpn`, `chi_tra` and `eng`, curl, xz: a note when missing (the screen's steps then fail and the rest goes on); Chromium's system libraries are not checked (Playwright is installed without `--with-deps`) |
+
+**Caution under the bench exception (H-74).** Reported by the server's session (2026-11-22), not measured here: the
+forward-compatibility path on driver 575 leaks driver memory per CUDA context; after many starts the card refuses new
+contexts, and a driver reload fixes it. The run starts the ballast's context and two servers for each ladder option
+tried, stage O's verifier and s13's option (about 6 to 10 server starts): reload the driver just before the run, and
+read a later option against the first's free figure (`free_at_peak_mib`). s08 and s13 start the servers with the
+probe's own container environment (`ballast48 measure --engine FORM --probe FILE`, H74-02). The run's own
+project and image tag are not built (H74-03): a host with an installed box is still refused.
 
 Also needed, not checked: the network for the stub's base images (s05), uv and the venv, node, Playwright's Chromium,
 the fonts and the hospital's data (s09); ports 8090 and 8025 on 127.0.0.1 free for the stub's start (or

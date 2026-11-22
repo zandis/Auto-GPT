@@ -56,6 +56,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.unlock": ("Account unlocked", "アカウントのロック解除", "解除帳號鎖定"),
     "console.enrol_code": ("Enrolment code issued", "登録コードの発行", "核發註冊碼"),
     "console.user": ("Account changed", "アカウントの変更", "帳號變更"),
+    "console.pref_set": ("Own preference set", "自分の表示設定の変更", "變更自己的顯示設定"),  # 10F-1 (D-1387)
     # D-719: nobody holds both factors of a protected account
     "console.account_request": ("Account request made", "アカウントの依頼", "提出帳號申請"),
     "console.account_confirmed": ("Account request confirmed", "アカウント依頼の確認", "確認帳號申請"),
@@ -408,6 +409,12 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "Restore: events after the backup to re-apply",
         "復元：バックアップ後の操作の再適用が必要",
         "還原：備份之後的操作需重新套用",
+    ),
+    # 10K-13 (D-1379): the backup-key ceremony on the host, recorded before backup.pub is made
+    "backup.key_ceremony": (
+        "Backup key ceremony: the key file and the sheet file on the stick read back; witness named",
+        "バックアップ鍵の手続き：USB メモリの鍵ファイルと控えのファイルを読み直して確認（立会人の名前を記録）",
+        "備份金鑰儀式：隨身碟上的金鑰檔案與紙本檔案已讀回確認（記有見證人姓名）",
     ),
     "update.applied": ("Update applied", "更新の適用", "套用更新"),
     "update.downgrade": ("Downgrade", "ダウングレード", "降版"),

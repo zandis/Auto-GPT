@@ -225,12 +225,43 @@ start_setup() {  # start (G-2): the bundle in the bucket, the wizard's answers, 
   m tb-doctor-expected backup; m tb-g10-vllm-image "standin/model-server:new"; m tb-study GZQO
   m tb-g6-patients 500; m tb-screen-requester crc1@hospa.test; m tb-outage-seconds 1
   python3 - "$S" "$([ -f "$S/knobs/weak-password" ] && echo short || echo ok)" <<'PY'
-import json, sys
+import json, os, sys
 s, pw = sys.argv[1], ("short" if sys.argv[2] == "short" else "owner-password-0001")
+# 10K-4 (D-1390): a PRODUCTION box finishes only with a backup target shown to be off the box and the hospital's audit
+# share as its anchor folder. This IS a rehearsal: the finish check reads the "VM"'s own host from stand-ins inside a
+# marked test root ($S/finish with .tb-test-root, TB_TEST_ROOT; the stand-ins are honoured nowhere else): a mount
+# table where /mnt/backup-disk is a second physical disk (sdb) and /mnt/audit-share the hospital's NFS share, a
+# sysfs, the names a share resolves to, the VM's own address, and a folder that stands for /
+f = f"{s}/finish"
+os.makedirs(f, exist_ok=True)
+open(f"{f}/.tb-test-root", "w").close()
+for d in ("sda/sda1", "sdb/sdb1"):
+    os.makedirs(f"{f}/sys/devices/pci/{d}", exist_ok=True)
+    open(f"{f}/sys/devices/pci/{d}/partition", "w").write("1\n")
+for disk in ("sda", "sdb"):
+    os.makedirs(f"{f}/sys/devices/pci/{disk}/device", exist_ok=True)  # hardware behind it: a physical disk
+os.makedirs(f"{f}/sys/class/block", exist_ok=True)
+os.makedirs(f"{f}/sys/dev/block", exist_ok=True)
+for name, dev, mm in (("sda", "sda", "8:0"), ("sda1", "sda/sda1", "8:1"), ("sdb", "sdb", "8:16"),
+                      ("sdb1", "sdb/sdb1", "8:17")):
+    for link in (f"{f}/sys/class/block/{name}", f"{f}/sys/dev/block/{mm}"):
+        if not os.path.lexists(link):
+            os.symlink(f"{f}/sys/devices/pci/{dev}", link)
+open(f"{f}/mountinfo", "w").write("20 1 8:1 / / rw - ext4 /dev/sda1 rw\n"
+                                  "21 20 8:17 / /mnt/backup-disk rw - ext4 /dev/sdb1 rw\n"
+                                  "22 20 0:50 / /mnt/audit-share rw - nfs4 nas.hospa.test:/audit rw\n")
+open(f"{f}/hosts", "w").write("nas.hospa.test 192.0.2.10\n")
+open(f"{f}/own-addresses", "w").write("10.140.0.2\n")
+os.makedirs(f"{f}/root/mnt/backup-disk", exist_ok=True)
+os.makedirs(f"{f}/root/mnt/audit-share", exist_ok=True)
+# the nightly backup's own rule counts a declared folder on another device, or one with this mark: the stand-in
+# disk is a folder of the rehearsal's own disk, so it carries the mark (a real second disk needs none)
+open(f"{f}/root/mnt/backup-disk/.trialbox-offbox", "w").close()
 # a synthetic site: no real name, address or passphrase
 json.dump({"site_name": "Synthetic Hospital (rehearsal)", "tz": "Asia/Tokyo", "language": "en",
            "owner_full_name": "Rehearsal Owner", "owner_username": "owner", "owner_email": "owner@hospa.test",
            "password": pw, "box_name": "trialbox", "backup_kind": "second_disk", "backup_disk": "/dev/sdb",
+           "backup_dir": "/mnt/backup-disk", "anchor_dir": "/mnt/audit-share",
            "source": "spreadsheet"}, open(f"{s}/secrets/answers/1", "w"))
 json.dump({"arch": "x86_64", "cpu_count": 48, "ram_gib": 188, "disk_free_gib": 400, "tpm": True,
            "disks": [{"path": "/dev/sdb", "size_gib": 500.0, "transport": "scsi", "mounted": ""}],
@@ -238,6 +269,8 @@ json.dump({"arch": "x86_64", "cpu_count": 48, "ram_gib": 188, "disk_free_gib": 4
            "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Server Edition", "gpu_mem_gib": 96.0},
           open(f"{s}/hardware.json", "w"))
 PY
+  export TB_TEST_ROOT="$S/finish" TB_FINISH_MOUNTINFO="$S/finish/mountinfo" TB_FINISH_SYS="$S/finish/sys" \
+    TB_FINISH_TEST_ROOT="$S/finish/root"
   # the console of the box, over TLS for the box's provisional name (box1.local), on its own free port
   cport=$(free_port)
   openssl req -x509 -newkey rsa:2048 -nodes -keyout "$S/driver/console.key" -out "$S/driver/console.crt" -days 2 \

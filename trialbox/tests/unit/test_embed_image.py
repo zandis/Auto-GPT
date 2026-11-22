@@ -4,6 +4,7 @@ embedder with the pair. The start itself is ``tests/integration/test_embed_produ
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -194,7 +195,12 @@ def test_the_committed_row_names_the_real_folders_manifest_and_pins_no_other_fol
     hashed by lane G with this tool on the real files (2026-11-12). It counts every visible file of the folder
     (the README and the images too), so a box holds the whole folder, not the weights alone."""
     b = _build()
-    assert b["expected"] == {"manifest_sha256": MANIFEST, "revision": REVISION}
+    assert set(b["expected"]) == {"manifest_sha256", "revision", "source"}
+    assert b["expected"]["manifest_sha256"] == MANIFEST and b["expected"]["revision"] == REVISION
+    record = ROOT / str(b["expected"]["source"])  # the per-file record the fetch tool reads (F-35)
+    assert record.is_file()
+    servers = json.loads(record.read_text(encoding="utf-8"))["servers"]
+    assert len(servers) == 1 and pin_model.manifest_sha256_of_files(servers[0]["model_files"]) == MANIFEST
     _folder(tmp_path)
     out = tmp_path / "registry.site.yaml"
     ok, lines = pin_model.install_pins("rtxpro6000", tmp_path / "models", out, {}, with_embedder=True)

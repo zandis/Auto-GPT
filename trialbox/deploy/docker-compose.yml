@@ -220,7 +220,10 @@ services:
                   TB_DB_URL: "postgresql://tb_lake:${TB_DB_PW_LAKE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
                   TB_LAKE_DIR: /data/lake, TB_LAKE_EMBEDDER: http,
                   TB_LAKE_MEMORY_LIMIT: "${TB_LAKE_MEMORY_LIMIT:-}", TB_LAKE_MAX_TEMP: "${TB_LAKE_MAX_TEMP:-}",
-                  TB_LAKE_SOURCE: "${TB_LAKE_SOURCE:-legacy}"}
+                  TB_LAKE_SOURCE: "${TB_LAKE_SOURCE:-legacy}",
+                  # Per pool, per process (two HTTP workers plus the rebuild).
+                  TB_LAKE_THREADS: "${TB_LAKE_THREADS:-2}", OPENBLAS_NUM_THREADS: "${TB_LAKE_THREADS:-2}",
+                  OMP_NUM_THREADS: "${TB_LAKE_THREADS:-2}", ARROW_IO_THREADS: "${TB_LAKE_THREADS:-2}"}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - lake-data:/data/lake

@@ -107,11 +107,26 @@
     <label><input type="radio" name="backup_kind" value="share"{% if values.get('backup_kind') == 'share' %} checked{% endif %}> {{ t('firstrun.backup.share') }}</label>
     <label for="backup_share">{{ t('firstrun.backup.share.addr') }}</label>
     <input id="backup_share" name="backup_share" maxlength="255" value="{{ values.get('backup_share', '') }}">{{ err('backup_share') }}
+    {# 10K-4 (D-1390): the folder where the disk or the share is mounted on the box #}
+    <label for="backup_dir">{{ t('firstrun.backup.dir') }}</label>
+    <input id="backup_dir" name="backup_dir" maxlength="255" autocapitalize="none" spellcheck="false" value="{{ values.get('backup_dir', '') }}" aria-describedby="backup-dir-help">{{ err('backup_dir') }}
+    <p class="hint" id="backup-dir-help">{{ t('firstrun.backup.dir.help') }}</p>
     <label><input type="radio" name="backup_kind" value="later"{% if values.get('backup_kind') == 'later' %} checked{% endif %}> {{ t('firstrun.backup.later') }}</label>
     {# 10K-21 (D-1365): the box's backup alert route is the health page: who opens it every working day #}
     <label for="health_page_person">{{ t('firstrun.health_page_person') }}</label>
     <input id="health_page_person" name="health_page_person" maxlength="100"{% if production %} required{% endif %} value="{{ values.get('health_page_person', '') }}" aria-describedby="hpp-help">{{ err('health_page_person') }}
     <p class="hint" id="hpp-help">{{ t('firstrun.health_page_person.help') }}</p>
+  </fieldset>
+  {# 10K-4 (D-1390): the audit record's signed heads and the collected logs; the box checks the folders when it
+     finishes (tools/trialbox/finish_check.py), the page cannot see them #}
+  <fieldset data-testid="firstrun-folders"><legend>{{ t('firstrun.folders') }}</legend>
+    <p class="hint" data-testid="firstrun-folders-help">{{ t('firstrun.folders.production' if production else 'firstrun.folders.help') }}</p>
+    <label for="anchor_dir">{{ t('firstrun.anchor_dir') }}</label>
+    <input id="anchor_dir" name="anchor_dir" maxlength="255" autocapitalize="none" spellcheck="false" value="{{ values.get('anchor_dir', '') }}" aria-describedby="anchor-dir-help">{{ err('anchor_dir') }}
+    <p class="hint" id="anchor-dir-help">{{ t('firstrun.anchor_dir.help') }}</p>
+    <label for="log_dir">{{ t('firstrun.log_dir') }}</label>
+    <input id="log_dir" name="log_dir" maxlength="255" autocapitalize="none" spellcheck="false" value="{{ values.get('log_dir', '') }}" aria-describedby="log-dir-help">{{ err('log_dir') }}
+    <p class="hint" id="log-dir-help">{{ t('firstrun.log_dir.help') }}</p>
   </fieldset>
   <fieldset><legend>{{ t('firstrun.source') }}</legend>{{ err('source') }}
     <p class="hint">{{ t('firstrun.source.help') }}</p>

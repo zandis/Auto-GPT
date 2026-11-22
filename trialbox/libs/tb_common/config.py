@@ -649,6 +649,9 @@ DECLARED: dict[str, Declared] = {
     "TB_FHIR_PACKAGE_HOME": Declared("str", "/opt/hl7/home", "FHIR validator package folder"),
     "TB_FHIR_URL": Declared("str", "", "testbench: FHIR store URL"),
     "TB_FHIR_WORKERS": Declared("int", "8", "compiler: parallel FHIR evaluations"),
+    "TB_FINISH_MOUNTINFO": Declared("path", "", "finish check: a mount table read for /proc/self/mountinfo (tests)"),
+    "TB_FINISH_SYS": Declared("path", "", "finish check: a folder read for /sys (tests; 10K-4)"),
+    "TB_FINISH_TEST_ROOT": Declared("path", "", "finish check: a folder that stands for / (tests; 10K-4)"),
     "TB_FIRSTRUN_DIR": Declared("path", "", "console: the box's first-run folder (tmpfs; T-729, D-466)"),
     "TB_FIRSTRUN_COUNTRY": Declared(
         "bool", "", "console: the box's first-run page asks the site's country first (10K-1); off by default"
@@ -771,6 +774,7 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_LAKE_SOURCE": Declared("str", "legacy", "lake source (legacy or omop)"),
     "TB_LAKE_TEMP_DIR": Declared("path", "", "lake: temporary folder"),
+    "TB_LAKE_THREADS": Declared("int", "2", "lake: thread cap per DuckDB and native library pool in Compose"),
     "TB_LINK_ADDR": Declared("str", "", "two-device link: this device's address on the hospital network"),
     "TB_LINK_CERTS": Declared("path", "/run/secrets/tb_link", "two-device link: certificate folder"),
     "TB_LINK_PEER": Declared("str", "", "two-device link: the other device's address"),
