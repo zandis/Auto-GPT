@@ -19,6 +19,11 @@ or an NDJSON line that does not parse, and anything it **cannot check**: a datab
 table with no vocabulary or system column. Model weights, fonts and images in a models folder are listed as not
 terminology.
 
+**Measured files** (card H-90). In a models folder, a file of ``embedder/`` that the registry's measured record for the
+embedder lists (``expected.source`` of its row in ``models/registry.yaml``, a ``deploy/measured/`` file) is checked by
+its sha256, not by its extension: binary content there passes, as a note, only when it hashes to the record's sha256
+for that path; with another hash it is refused. A binary file the record does not list is refused as before.
+
 **By label only.** The check reads the vocabulary labels and system URIs the artefacts carry. A row relabelled, or a
 concept id with no label, passes; looking concept ids up in the site's own download is card 22-4b, not done here.
 
@@ -45,6 +50,7 @@ from __future__ import annotations
 import argparse
 import csv
 import gzip
+import hashlib
 import io
 import json
 import re
@@ -91,6 +97,8 @@ NOT_TERMINOLOGY = (
     ".safetensors", ".gguf", ".bin", ".pt", ".pth", ".onnx", ".msgpack", ".h5", ".ttf", ".otf", ".woff", ".woff2",
     ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp",
 )  # fmt: skip
+# card H-90: the models folder's subfolder whose files the embedder's measured record lists
+MEASURED_FOLDER = "embedder"
 ENCODINGS = ("utf-8", "cp932")  # the JP masters' sample files are Shift-JIS (cp932)
 NESTED_LIMIT = 6
 
@@ -132,11 +140,34 @@ TEXT_KEY = re.compile(r"name|display|description|definition|title|synonym|design
 @dataclass(frozen=True)
 class Rules:
     """The must-not-ship names (folded) -> (vocabulary, register row); the URIs and OIDs searched for in text; the
-    exception rows (id, path patterns)."""
+    exception rows (id, path patterns); the measured files (``embedder/<path>`` -> sha256, card H-90)."""
 
     names: dict[str, tuple[str, str]]
     needles: dict[str, tuple[str, str]]
     exceptions: tuple[ExceptionRow, ...] = ()
+    measured: dict[str, str] = field(default_factory=dict)
+
+
+def measured_files(root: Path = ROOT) -> dict[str, str]:
+    """Card H-90: ``embedder/<path>`` -> sha256 of every file the embedder's measured record lists (the record its
+    registry row names as ``expected.source``); none when the row or the record is absent."""
+    from tools.pin_model import EMBED_BUILD
+
+    reg_path = root / "models" / "registry.yaml"
+    if not reg_path.is_file():
+        return {}
+    reg = yaml.safe_load(reg_path.read_text(encoding="utf-8")) or {}
+    row: dict[str, Any] = next((b for b in reg.get("builds") or [] if b.get("build_id") == EMBED_BUILD), {})
+    source = (row.get("expected") or {}).get("source")
+    if not source or not (root / source).is_file():
+        return {}
+    record = json.loads((root / source).read_text(encoding="utf-8"))
+    return {f"{MEASURED_FOLDER}/{f['path']}": str(f["sha256"]).lower()
+            for s in record.get("servers") or [] for f in s.get("model_files") or []}  # fmt: skip
+
+
+def _sha256(blob: bytes) -> str:
+    return hashlib.sha256(blob).hexdigest()
 
 
 def rules(register: Path = REGISTER) -> Rules:
@@ -166,7 +197,7 @@ def rules(register: Path = REGISTER) -> Rules:
         if r.kind == lr.EXCEPTION_KIND:
             excepts = {names[fold(v)][0]: ids for v, ids in lr.excepted(r).items() if fold(v) in names}
             exceptions.append(ExceptionRow(r.id, r.paths, r.status, excepts))
-    return Rules(names, needles, tuple(exceptions))
+    return Rules(names, needles, tuple(exceptions), measured_files())
 
 
 @dataclass
@@ -212,7 +243,8 @@ class Checker:
         if not files:
             self.report.problems.append(f"{p}: no artefact to check")
         for f in files:
-            self.data(str(f), f.read_bytes(), mode, 0, self._exception(f))
+            rel = f.relative_to(p).as_posix() if mode == "models" and p.is_dir() else None
+            self.data(str(f), f.read_bytes(), mode, 0, self._exception(f), rel)
 
     def _exception(self, f: Path) -> ExceptionRow | None:
         try:
@@ -230,7 +262,15 @@ class Checker:
             merged.owners.update(dict.fromkeys(e.excepts, e.row))
         return merged
 
-    def data(self, name: str, blob: bytes, mode: str, depth: int, exception: ExceptionRow | None = None) -> None:
+    def data(
+        self,
+        name: str,
+        blob: bytes,
+        mode: str,
+        depth: int,
+        exception: ExceptionRow | None = None,
+        rel: str | None = None,
+    ) -> None:
         low = name.lower()
         if depth > NESTED_LIMIT:
             return self.cannot(name, "containers nested too deep")
@@ -257,7 +297,7 @@ class Checker:
         else:
             text = _decode(blob)
             if text is None:
-                return self.cannot(name, "binary content of an unknown kind")
+                return self._binary(name, blob, rel)
             if low.endswith(JSON_DOC):
                 self._json(name, text, hits)
             elif low.endswith(JSON_LINES):
@@ -341,6 +381,18 @@ class Checker:
                 elif vocab is not None:
                     ident = next((r[c] for c in ("concept_id", "code", "concept_code") if r.get(c)), None)
                     self._excepted(vocab, ident, r, exc, f"line {n}", allowed, out)
+
+    def _binary(self, name: str, blob: bytes, rel: str | None) -> None:
+        """Card H-90: binary content passes only as a file the embedder's measured record lists, by its sha256."""
+        want = self.r.measured.get(rel) if rel else None
+        if want is None:
+            return self.cannot(name, "binary content of an unknown kind")
+        got = _sha256(blob)
+        if got != want:
+            return self.cannot(name, f"binary content whose sha256 {got[:12]} differs from the measured record's "
+                                     f"{want[:12]} for {rel}")  # fmt: skip
+        self.report.notes.append(f"{name}: the measured record's file (sha256 {want[:12]}), not read")
+        return None
 
     def cannot(self, name: str, why: str) -> None:
         self.report.problems.append(f"{name}: cannot be checked: {why}")

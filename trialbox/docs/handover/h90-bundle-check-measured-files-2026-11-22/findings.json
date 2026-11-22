@@ -1,0 +1,25 @@
+{
+ "card": "H90",
+ "title": "the bundle check reads the embedder's measured files by their hash",
+ "date": "2026-11-22",
+ "source": "docs/handover/h90-bundle-check-measured-files-2026-11-22.md",
+ "note": "basis 'shown' means shown by the card's local runs; CI was not run by the card.",
+ "findings": [
+  {
+   "id": "H90-01",
+   "severity": "Low",
+   "claim": "in a models folder, the embedder's measured record grants a pass only to binary content of no known kind; its weights file is still listed as not terminology by its extension and its text files are read, not hashed; hashing every listed file would refuse the stand-in weights of test_a_models_folder_lists_weights_and_reads_the_rest, a changed assertion that needs the integrator's ruling",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H90-02",
+   "severity": "Low",
+   "claim": "make_bundle.sh with a real models folder holding the embedder's real tokenizer file was not run: the file was not fetched, so the pass of a real site bundle's vocabulary check is shown on synthetic bytes only",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  }
+ ]
+}
