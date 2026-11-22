@@ -33,8 +33,8 @@ VARIABLES = {"criterion_text": "x", "note_question": "x?", "index_date": "2026-1
 
 
 def _timeout_refusal(kinds: list[str] | None = None) -> httpx.Response:
-    kinds = ["timeout"] if kinds is None else kinds
     """The gateway's refusal when its time for the call ran out: 502, ``upstream_failed``, the kinds as a field."""
+    kinds = ["timeout"] if kinds is None else kinds
     error: dict[str, Any] = {
         "type": "tb_refusal",
         "code": "upstream_failed",
@@ -213,3 +213,61 @@ def _labels() -> Any:
     from tb_llm import CallLabels
 
     return CallLabels("D3", "screening", "S", "s3_note_judgement", "judge", "judge@5", "step")
+
+
+def test_mixed_kinds_stay_final() -> None:
+    """Only a refusal whose every upstream kind is a timeout is waited for; a busy or open endpoint beside it is not
+    this rule's (those are the gateway's own ``model_busy`` / ``model_unavailable``)."""
+    assert refusal_fault("upstream_failed", ("busy", "timeout")) is None
+    assert refusal_fault("upstream_failed", ("open", "timeout")) is None
+
+
+def test_the_gateway_says_a_spent_budget_is_a_timeout(tmp_path: Any) -> None:
+    """The gateway's call budget runs out (the wait for a slot included): its refusal names the kind ``timeout``, so
+    the same rule waits for it (before, the text had the kind ``other`` and the call stayed final)."""
+    from tests.unit.test_gateway import H, _judge_body
+    from tests.unit.test_gateway_one_role_one_model import _gw, _vllm
+
+    http, log = _vllm({})
+    gw = _gw(tmp_path, http)
+    gw.call_budget_s = 0.5  # less than the second the gateway needs to send at all
+    res = gw.chat(H(Data_Class="D3"), _judge_body())
+    assert (res.status, res.body["error"]["code"]) == (502, "upstream_failed"), res.body
+    assert res.body["error"]["upstream_kinds"] == ["timeout"] and log == []
+    assert refusal_fault("upstream_failed", tuple(res.body["error"]["upstream_kinds"])) == ANSWER_TIMEOUT
+
+
+def test_the_gateways_retry_after_is_kept(clock: Clock) -> None:
+    """A ``Retry-After`` on the timeout refusal is the wait before the resend, on both judges."""
+    from matching.cascade.judge import GatewayJudge
+
+    class Later(SlowGateway):
+        def _post(self) -> httpx.Response:
+            res = super()._post()
+            if res.status_code == 502:
+                return httpx.Response(502, json=res.json(), headers={"Retry-After": "42"})
+            return res
+
+    gw = Later(clock, {1})
+    with pytest.raises(LlmAnswerTimeout) as err:
+        gw.client().chat_json("judge", VARIABLES, job_id="J1")
+    assert err.value.retry_after == 42.0
+    gw = Later(clock, {1})
+    gc = GatewayClient("http://gateway/v1", "orchestrator", http=httpx.Client(transport=httpx.MockTransport(gw)))
+    before = clock.slept
+    judge = GatewayJudge(client=gc, outage=OutageBudget(1800.0, clock=clock))
+    judge.judge(role="judge", criterion_text="x", note_question="x?", index_date=date(2026, 10, 5), excerpts=EXCERPT,
+                study_id="S", data_class="D3", step_id="step", purpose="screening")  # fmt: skip
+    assert clock.slept - before == 42.0 and gw.posts == 2
+
+
+def test_a_canary_whose_every_call_times_out_fails_it(clock: Clock) -> None:
+    """D-915: "not reached" keeps an older pass of the canary; a model that is reached and too slow for the gateway's
+    time is no such model: it fails the canary."""
+    from orchestrator.selftest import check_model
+
+    gw = SlowGateway(clock, set(range(1, 100)))
+    case = {"id": "c1", "criterion_text": "x", "note_question": "x?", "index_date": "2026-10-05",
+            "excerpts": EXCERPT, "expected": "unknown"}  # fmt: skip
+    rep = check_model("judge", gw.client(), [case, {**case, "id": "c2"}])
+    assert rep.answered == 0 and not rep.unreached and not rep.ok, rep

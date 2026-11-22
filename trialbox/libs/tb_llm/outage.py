@@ -224,6 +224,7 @@ def wait_and_retry[T](
 
 
 __all__ = [
+    "ANSWER_TIMEOUT",
     "CALL_FAULTS",
     "CALL_STRIKES",
     "ENV",
@@ -235,5 +236,6 @@ __all__ = [
     "allowance_s",
     "monotonic",
     "pause",
+    "refusal_fault",
     "wait_and_retry",
 ]
