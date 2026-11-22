@@ -120,7 +120,7 @@ def test_a_planted_one_shot_nobody_waits_on_fails() -> None:
 
 
 def test_a_chain_of_helpers_only_is_not_enough_and_a_cycle_fails() -> None:
-    services = {
+    services: dict[str, dict[str, Any]] = {
         "a": {"restart": "no"},
         "b": {"restart": "no", "depends_on": {"a": {"condition": DONE}}},
         "srv": {"restart": "unless-stopped", "depends_on": {"x": {"condition": "service_healthy"}}},
