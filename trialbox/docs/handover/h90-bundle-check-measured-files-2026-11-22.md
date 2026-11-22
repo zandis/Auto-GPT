@@ -1,15 +1,16 @@
-# H90: the bundle check reads the embedder's measured files by their hash
+# H90: the bundle check reads measured model files by their hash
 
 **Reader:** the people who build TrialBox: the lane H lead and the integrator. Findings for builders, so in one
 language.
 
-- **Card:** H-90 (walk step 0, the release bundle; ruled go by the integrator)
+- **Card:** H-90 (walk step 0, the release bundle; ruled go by the integrator, and H90-01 ruled go in this card)
 - **Date:** 2026-11-22
-- **Decision:** none given. The ruling below is the integrator's; if it needs a decision record, the lead asks for a
-  number.
+- **Decision:** none given. The rulings below are the integrator's; if they need a decision record, the lead asks for
+  a number.
 - **Findings:** [`h90-bundle-check-measured-files-2026-11-22/findings.json`](h90-bundle-check-measured-files-2026-11-22/findings.json)
   (H90-01 to H90-03)
-- **Files:** `tools/vocab_bundle_check.py`, `tests/unit/test_vocab_bundle_measured_h90.py`
+- **Files:** `tools/vocab_bundle_check.py`, `tests/unit/test_vocab_bundle_measured_h90.py`,
+  `tests/unit/test_vocab_bundle_check_22_4.py` (one test's folder)
 
 ## What failed
 
@@ -17,44 +18,69 @@ Every site bundle carries the embedder whole in `embedder/` (`tools/release.py`,
 `tools/make_bundle.sh` runs `tools.vocab_bundle_check --models` on the models folder before the first image is saved.
 The embedder's tokenizer file is binary and its extension is not among the weights, fonts and images the check lists
 as not terminology, so the check refused it as "binary content of an unknown kind": every real site bundle stopped
-there.
+there. On the bench the check also refused the verifier folder's `recipe.yaml` as YAML that does not parse.
 
-## The ruling, and what changed
+## The rulings, and what changed
 
-A file listed in the embedder's measured record is checked by its measured hash, never skipped by extension; a binary
-file not in a measured record is still refused. `.model` is not added to the skip list.
+Every file a measured record lists passes only on its recorded sha256, weights, text and binary alike; a listed file
+with another hash is refused; an unlisted file goes through the vocabulary check unchanged. No extension is added to
+the skip list.
 
-- `measured_files()` reads the record that the embedder's registry row names as `expected.source`
-  (`deploy/measured/embedder_files.e-embed-1.json`) and keys each listed file as `embedder/<path>`.
-- In a models folder, binary content of no known kind passes, as a note, only when its path under the folder is a
-  listed one and its sha256 is the record's. With another sha256 it is refused, naming both hashes. A binary file the
-  record does not list is refused as before ("binary content of an unknown kind").
-- Nothing else changed: containers, the weights, fonts and images listed as not terminology, and every text file
-  (the record's `config.json`, `README.md` and `tokenizer.json` among them) are read as before.
+- `measured_files()` reads, for each build of a deployed pair (`tools.pin_model.PROFILE_PAIRS`, every profile) and for
+  the embedder (`EMBED_PIN`), the record its registry row names as `expected.source`, takes that record's server of
+  the row's source repository (as `tools.fetch_weights` does) and keys each listed file as `<folder>/<path>`, the
+  folder being the build's default folder. A record is used only when its files give the row's
+  `expected.manifest_sha256`.
+- In a models folder, a listed file is hashed (in chunks) and not read: it passes, as a note, on a recorded sha256,
+  and is refused with both hashes otherwise. Other files are read as before.
+- The registry is the one `tools.release` reads: `TB_RELEASE_REGISTRY` (the unit tests' synthetic registry only), else
+  `models/registry.yaml`. The release tests' synthetic embedder sets its own expected manifest there, so the record
+  does not apply to it and its stand-in files are read as before.
+
+**Covered.** `deploy/measured/embedder_files.e-embed-1.json` for `embedder/` (18 files);
+`deploy/measured/serving_config.rtxpro6000.json` for `gemma-4-26b-a4b-it-4bit/` (the judge, 12 files) and
+`qwen3.5-9b-4bit/` (the verifier, 17 files, `recipe.yaml` among them). Every profile's pair names the serving record.
+
+**Not covered.** A judge or verifier folder renamed with `JUDGE_MODEL_DIR` or `VERIFIER_MODEL_DIR` (its files are read
+as unlisted ones); the judge's chat template (a single file under the models root; its sha256 is in the registry row,
+not in a measured record); the builds whose rows name no record (`expected.manifest_sha256: null`);
+`deploy/measured/ingest_memory.json` and `orchestrator_memory.json`, which list no model files.
 
 ## Tests
 
-`tests/unit/test_vocab_bundle_measured_h90.py`, synthetic bytes only:
+`tests/unit/test_vocab_bundle_measured_h90.py`, synthetic bytes only. On master the file does not collect
+(`measured_files` is not there), so every test fails there. Where a recorded hash must match, a synthetic file's
+digest stands in for the record's (the record's own entry is read): the real files are not in the repository.
 
-| Test | On master | On the branch |
-| --- | --- | --- |
-| `test_the_real_records_tokenizer_passes_by_its_measured_hash` | fails (refused) | passes |
-| `test_the_tokenizers_name_with_another_hash_fails` | fails (refused, without the hash) | passes |
-| `test_an_unlisted_model_file_fails` | passes (the refusal was there) | passes |
+- The records cover the three folders, keyed by the record's full paths.
+- The record's tokenizer passes on its hash; the same name with another hash fails; an unlisted `.model` file fails.
+- A listed text file with one changed byte is refused.
+- A listed `recipe.yaml` with the recorded hash passes while it does not parse; unlisted, the same bytes are refused.
+- Stand-in weights, text and README under `embedder/` are refused (three problems).
+- A record that is not its row's expected manifest covers nothing.
+- **The invariant** (for the independent review): `test_no_listed_file_passes_with_a_hash_other_than_the_records`,
+  one case per listed file (47).
 
-The real tokenizer file is not in the repository, so the first test stands the synthetic file's sha256 in for the
-record's (the record's own entry is read). No existing test changed.
+**The changed test.** `test_a_models_folder_lists_weights_and_reads_the_rest` (`test_vocab_bundle_check_22_4.py`) put
+its stand-in files in `models/embedder/`, which a record now covers; its folder is now `models/invented-model/`, no
+record's, and its assertions are unchanged. The old setup is the new "stand-in weights" test, which asserts the
+refusals (go by the integrator).
+
+**Mutants** planted in `tools/vocab_bundle_check.py`, each run against the card's tests and the 22-4 file: a hash
+mismatch passes; the measured route skipped; files keyed by base name; only a 12-character prefix compared; the
+embedder's record only; the expected-manifest guard dropped. Six planted, six caught (the base-name mutant only after
+a test pinning the keys to the record's full paths was added).
 
 ## Open
 
-- **H90-01.** The ruling says "never skipped by extension". The record's weights file still takes the not-terminology
-  path by its extension, and its text files are read, not hashed. Hashing every listed file would refuse the stand-in
-  weights of `test_a_models_folder_lists_weights_and_reads_the_rest` (a changed assertion), so it waits for a ruling.
-- **H90-02.** Not run on a real site bundle: the real tokenizer file was not fetched here (no network fetch of the
+- **H90-02.** Not run on a real site bundle: the real model files were not fetched here (no network fetch of the
   weights, nothing paid).
-- **H90-03.** The bench also refuses a verifier model folder's `recipe.yaml` ("does not parse"). It is not a
-  download leftover: `deploy/measured/serving_config.rtxpro6000.json:177` lists it in that model's files (1,686 bytes,
-  sha256 `c91b5f9da703`), and `models/registry.yaml:165,255,345,408` name it as the provenance `recipe` of the
-  own-copy rows. No code under `tools/`, `services/` or `libs/` reads it; the folder needs it because its manifest
-  counts it. So staging only the listed files would still stage it, and the check must read it. Why it does not parse
-  is not shown: the file is not in the repository and was not fetched here. Not built by this card.
+
+## Closed
+
+- **H90-01.** Fixed in b4bd3f721f0bf8433464a8c6cc7ef28378bf264f: every listed file is hash-checked, not skipped by
+  extension.
+- **H90-03.** Fixed in b4bd3f721f0bf8433464a8c6cc7ef28378bf264f: the verifier's `recipe.yaml` is listed in
+  `deploy/measured/serving_config.rtxpro6000.json:177` (and named as the provenance recipe in `models/registry.yaml`),
+  so it is hash-checked, not parsed. Why the bench's copy does not parse as YAML is not shown: the file is not in the
+  repository.

@@ -1,6 +1,6 @@
 {
  "card": "H90",
- "title": "the bundle check reads the embedder's measured files by their hash",
+ "title": "the bundle check reads measured model files by their hash",
  "date": "2026-11-22",
  "source": "docs/handover/h90-bundle-check-measured-files-2026-11-22.md",
  "note": "basis 'shown' means shown by the card's local runs; CI was not run by the card.",
@@ -8,10 +8,10 @@
   {
    "id": "H90-01",
    "severity": "Low",
-   "claim": "in a models folder, the embedder's measured record grants a pass only to binary content of no known kind; its weights file is still listed as not terminology by its extension and its text files are read, not hashed; hashing every listed file would refuse the stand-in weights of test_a_models_folder_lists_weights_and_reads_the_rest, a changed assertion that needs the integrator's ruling",
+   "claim": "in a models folder, the measured record let only binary content of no known kind through by hash; its weights file was still listed as not terminology by its extension and its text files were read; now every file a measured record lists (embedder/, and the serving record's judge and verifier folders) passes only on its recorded sha256 and is not read",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed b4bd3f721f0bf8433464a8c6cc7ef28378bf264f"
   },
   {
    "id": "H90-02",
@@ -24,10 +24,10 @@
   {
    "id": "H90-03",
    "severity": "Medium",
-   "claim": "the bundle check refuses a verifier model folder's recipe.yaml as YAML that does not parse (the bench, integrator comment 7085061627); the file is listed in that model's measured record (deploy/measured/serving_config.rtxpro6000.json:177) and named as the provenance recipe in models/registry.yaml, so staging only listed files would still stage it and the check must read it; why it does not parse is not shown, as the file is not in the repository",
+   "claim": "the bundle check refused a verifier model folder's recipe.yaml as YAML that does not parse (the bench, integrator comment 7085061627); the file is listed in that model's measured record (deploy/measured/serving_config.rtxpro6000.json:177), so it is now hash-checked, not parsed; why the bench's copy does not parse is not shown, as the file is not in the repository",
    "lane": "H",
    "basis": "not stated",
-   "state": "open"
+   "state": "fixed b4bd3f721f0bf8433464a8c6cc7ef28378bf264f"
   }
  ]
 }
