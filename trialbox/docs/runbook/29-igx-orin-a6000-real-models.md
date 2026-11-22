@@ -61,9 +61,13 @@ engine refuses to start when less is free). Check before step 6:
 
 `Disabled` and a small number (under about 100 MiB): nothing to do. `Enabled`, or a few hundred MiB or more used
 before anything runs: the measuring run takes it off its prediction and records it, but with under about 1,000 MiB
-left spare the first option may not start. Then run step 6 without the desktop: from another computer over `ssh`, or
-from a text console (Ctrl+Alt+F3), type `sudo systemctl isolate multi-user.target` (the desktop closes), run the step,
-then `sudo systemctl isolate graphical.target` to get the desktop back.
+left spare the first option may not start. The step was there to free the card's memory that the desktop holds, so
+stop the desktop alone. First see what holds the card: `nvidia-smi` lists it under "Processes" (a desktop shows
+`Xorg` or `gnome-shell`). If anything else is listed, stop here and send those lines: it is other work on the host.
+Then, from another computer over `ssh` or from a text console (Ctrl+Alt+F3), `sudo systemctl stop display-manager`
+(the desktop's own service; the desktop closes), run step 6, and `sudo systemctl start display-manager` to get the
+desktop back. Nothing host-wide is switched: not `systemctl isolate multi-user.target`, which stops every service the
+desktop's target started, other work on the host included.
 
 ## The page
 
