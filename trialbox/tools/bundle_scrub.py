@@ -529,16 +529,15 @@ class Scrubber:
         changed = [
             (k, line, plain, clean) for (k, line, plain), clean in zip(cand, cleans, strict=True) if clean != plain
         ]
-        short = [line for _, line, _, _ in changed if len(line) <= 65536]
-        raws = iter(self._batch(self._rules, short))
-        for k, line, plain, clean in changed:
-            # H-76: the line keeps its own (encoded) form when the raw rules mask, where it stands, everything the
-            # decoded view masks; otherwise (a raw rule would leave a fragment) it is written decoded and scrubbed
-            if len(line) <= 65536:
-                raw_view = _decode(next(raws))
-                gone = _removed(plain, clean)
-                if gone is not None and not any(_leaks(seg, raw_view) for seg in gone):
-                    continue
+        short = [(line, plain) for _, line, plain, _ in changed if len(line) <= 65536]
+        raws = iter(self._batch(self._rules, [line for line, _ in short]))
+        stricts = iter(self._batch(self._rules, [plain for _, plain in short]))
+        for k, line, _plain, clean in changed:
+            # H-76a (the review of #1354): the line keeps its own (encoded) form only when the raw rules, decoded, give
+            # the decoded view text for text, the view read without the long value of H76-02 (where that long value
+            # matters, a secret's name is hidden from the raw rules, so the two differ and the long value is written)
+            if len(line) <= 65536 and _same_masks(_decode(next(raws)), next(stricts)):
+                continue
             lines[k] = clean
             self.found["decoded line"] += 1
         return "\n".join(lines)
@@ -582,8 +581,7 @@ class Scrubber:
             clean = self._view_rules(plain)
             if clean != plain:
                 raw_view = _decode(self._rules("\n".join(region)).replace("=\n", ""))
-                gone = _removed(plain, clean)
-                if gone is None or any(_leaks(seg, raw_view) for seg in gone):
+                if not _same_masks(raw_view, self._rules(plain)):
                     out.append(clean)
                     self.found["soft-broken lines"] += 1
                     continue
@@ -724,37 +722,10 @@ def _held(rx: re.Pattern[str], text: str, rules: Callable[[str], str]) -> str:
     return _PRIVATE.sub(lambda m: held[ord(m.group(0)) - 0xF0000], text) if held else text
 
 
-_MARK = re.compile(r"\[[^\[\]\n]{1,80}\]")
-
-
-def _removed(plain: str, clean: str) -> list[str] | None:
-    """The parts of ``plain`` that the scrub replaced in ``clean`` (every mask is a ``[...]`` marker): the text
-    between the literal pieces of ``clean``, found in order in ``plain``. None when they cannot be lined up."""
-    pieces = _MARK.split(clean)
-    if len(pieces) > 200 or not plain.startswith(pieces[0]):
-        return None
-    pos, gaps = len(pieces[0]), []
-    for piece in pieces[1:-1]:
-        j = plain.find(piece, pos)
-        if j < 0:
-            return None
-        gaps.append(plain[pos:j])
-        pos = j + len(piece)
-    end = len(plain) - len(pieces[-1])
-    if len(pieces) == 1 or end < pos or not plain.endswith(pieces[-1]):
-        return None if len(pieces) > 1 else []
-    gaps.append(plain[pos:end])
-    return gaps
-
-
-def _leaks(seg: str, text: str) -> bool:
-    """Whether ``text`` still holds ``seg`` or 8 of its characters in a row (any case)."""
-    seg, text = _MARK.sub("", seg).strip().lower(), text.lower()  # a mark already in place is no leak
-    if len(seg) < 4:
-        return False
-    if len(seg) <= 8:
-        return seg in text
-    return any(seg[i : i + 8] in text for i in range(len(seg) - 7))
+def _same_masks(raw_view: str, clean: str) -> bool:
+    """Whether the raw line's scrub, decoded, is the decoded view's scrub: the same text and the same marks in the
+    same places (one bundle's tags are the same for one token, so the marks are equal too). Linear in the line."""
+    return raw_view == clean
 
 
 def _decode(line: str) -> str:
