@@ -143,6 +143,12 @@ os.execve(os.path.join(os.environ["STANDIN_PG_BIN"], name), [name, *out], env)
 """
 
 
+@pytest.fixture(autouse=True)
+def _a_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """In this process the launcher sees a host, whatever marks the test host itself carries (review F2)."""
+    monkeypatch.setattr(launch, "CONTAINER_MARKS", ())
+
+
 @pytest.fixture(scope="module")
 def system_python(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A ``python3`` with the standard library and PyYAML only: the host's, as install.sh requires it."""
@@ -610,9 +616,36 @@ def test_the_doctor_in_the_image_still_sees_the_gateways_missing_key(
     mark.write_text("", encoding="utf-8")
     monkeypatch.setattr(launch, "DEPLOY", deploy)
     monkeypatch.setattr(launch, "CONTAINER_MARKS", (str(mark),), raising=False)
+    monkeypatch.setattr(launch, "IMAGE_ROOT", str(launch.ROOT), raising=False)  # the image's /app
     monkeypatch.setattr(sys, "path", list(sys.path))
     env = {**_inputs(_pins(tmp_path), servers, key=None).env, "TB_LLM_API_KEY": "",
            "TB_LLM_API_KEY_FILE": str(key_file)}  # fmt: skip
     assert launch.enter(["doctor", "--serving"], env) is None
     c = doctor.check_serving(doctor.DoctorInputs(env=env))
     assert c.status == "FAIL" and "refused the key (HTTP 401)" in c.detail, c
+
+
+def test_a_container_that_is_not_the_box_image_keeps_the_host_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review F1: the rehearsal's box host is itself a container; its `trialbox` calls must still take the box's
+    file over the caller, drop a caller's TB_ENV and stop on an untrusted file, as a site's host does. Only the box's
+    own image (a container, from /app) leaves its environment as given."""
+    mark = tmp_path / "dockerenv"
+    mark.write_text("", encoding="utf-8")
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    (deploy / ".env").write_text(f"TB_DB_URL={DSN}\n", encoding="utf-8")
+    (deploy / ".env").chmod(0o600)
+    monkeypatch.setattr(launch, "CONTAINER_MARKS", (str(mark),))
+    monkeypatch.setattr(launch, "DEPLOY", deploy)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    env = {"TB_DB_URL": "postgresql://x@caller-host:5432/x", "TB_ENV": "DEV"}
+    assert launch.enter(["backup-status"], env) is None
+    assert env["TB_DB_URL"] == DSN and "TB_ENV" not in env, env
+    assert str(launch.ROOT) != launch.IMAGE_ROOT and not launch.in_box_image()
+    (deploy / ".env").chmod(0o666)
+    assert launch.enter(["backup-status"], {}) == 2  # the untrusted-file stop holds there too
+    monkeypatch.setattr(launch, "IMAGE_ROOT", str(launch.ROOT))  # the same container from the image's folder
+    assert launch.in_box_image() and launch.enter(["backup-status"], env := {"TB_ENV": "DEV"}) is None
+    assert env == {"TB_ENV": "DEV"}

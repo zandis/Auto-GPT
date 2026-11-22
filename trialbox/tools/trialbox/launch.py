@@ -302,9 +302,15 @@ def run_in_image(args: Sequence[str], need: Need, box: Mapping[str, str]) -> int
 CONTAINER_MARKS = ("/.dockerenv", "/run/.containerenv")
 
 
-def in_container() -> bool:
-    """Whether this process runs inside a container (the box image) rather than on the host."""
-    return any(os.path.exists(m) for m in CONTAINER_MARKS)
+#: the box image's application folder (deploy/docker/python.Dockerfile: WORKDIR /app, the code copied under it)
+IMAGE_ROOT = "/app"
+
+
+def in_box_image() -> bool:
+    """Whether this process runs inside the box's own image: in a container AND from the image's application folder.
+    A host, or a container that is not the box image (the rehearsal's box host keeps its box elsewhere), keeps the
+    host's rules; a caller cannot put the install folder at /app on a host without root."""
+    return any(os.path.exists(m) for m in CONTAINER_MARKS) and str(ROOT) == IMAGE_ROOT
 
 
 def enter(args: Sequence[str], environ: dict[str, str] | os._Environ[str] | None = None, *,
@@ -318,7 +324,7 @@ def enter(args: Sequence[str], environ: dict[str, str] | os._Environ[str] | None
     environ = os.environ if environ is None else environ
     _CALLER.update(caller_entries(environ))
     sys.path[:] = own_path(sys.path, environ)
-    if in_container():  # the box image: its environment is what compose, install.sh, this launcher or the rehearsal
+    if in_box_image():  # the box image: its environment is what compose, install.sh, this launcher or the rehearsal
         return None  # set for it (`-e TB_LLM_API_KEY=` on purpose, D-450); the box's file is the host's rule
     cmd = command_of(args)
     try:

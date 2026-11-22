@@ -121,6 +121,10 @@ run (H88-04).
 - **Fix.** Inside a container the launcher leaves the environment as it was given (D-1089, item 3). Test:
   `test_the_doctor_in_the_image_still_sees_the_gateways_missing_key` (the rehearsal's form; it fails on `2c8e4edd`
   with PASS where FAIL is due, and passes now). The rehearsal step is unchanged.
+- **Review of the fix (F1, F2).** The container rule applies only in the box's own image: a container AND the
+  launcher's install folder at the image's `/app`. The rehearsal's box host (a container, its box at `$W/box`) keeps
+  the host's rules. Test: `test_a_container_that_is_not_the_box_image_keeps_the_host_rules` (fails on `a2db778d`).
+  F2: an autouse fixture gives the card's in-process tests a host whatever marks the test host carries.
 - **The bench's two ids.** The cron test ran the db container's spool at the fixed host path `/tmp/tb-backup`, so
   another user's leftover there failed it with the bench's line (reproduced as `nobody`). The drill test ran
   `trialbox` by its shebang, on the host's `/usr/bin/python3`. Both now stay inside the test's temp root and its
