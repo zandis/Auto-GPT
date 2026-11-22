@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import getpass
+import hashlib
 import json
 import os
 import platform
@@ -90,8 +91,19 @@ if torch is not None:
     step("device", lambda: torch.cuda.get_device_name(0))
     step("capability", lambda: "%d.%d" % torch.cuda.get_device_capability(0))
     step("matmul", lambda: float((torch.ones(64, 64, device="cuda") @ torch.ones(64, 64, device="cuda")).sum().item()))
-    step("vllm_ops", lambda: bool(__import__("vllm._C")))
-    step("vllm_moe_ops", lambda: bool(__import__("vllm._moe_C")))
+    # the engine's compiled-op modules, by either name form the pinned engine image may ship (the plain name, or the
+    # stable-ABI build's): the name found is recorded; neither found is an error
+    def ops(*names):
+        said = []
+        for n in names:
+            try:
+                __import__(n)
+                return n
+            except BaseException as e:
+                said.append(n + ": " + type(e).__name__ + ": " + str(e)[:150])
+        raise ImportError("; ".join(said))
+    step("vllm_ops", lambda: ops("vllm._C", "vllm._C_stable_libtorch"))
+    step("vllm_moe_ops", lambda: ops("vllm._moe_C", "vllm._moe_C_stable_libtorch"))
 print("TBPROBE " + json.dumps(r, sort_keys=True))
 """
 TESTS: list[dict[str, Any]] = [
@@ -244,7 +256,10 @@ def classify(rc: int, stdout: str, stderr: str) -> tuple[str, dict[str, Any] | N
     errors = " | ".join(f"{k}: {v}" for k, v in sorted(probe.items()) if k.endswith("_error"))
     seen = probe.get("available") is True
     ran = probe.get("matmul") == MATMUL_WANT
-    ops = probe.get("vllm_ops") is True and probe.get("vllm_moe_ops") is True
+    # True (a result from before either name form was accepted) or the module name the check found
+    ops = all(
+        probe.get(k) is True or (isinstance(probe.get(k), str) and probe[k]) for k in ("vllm_ops", "vllm_moe_ops")
+    )
     if seen and ran and ops and "vllm" in probe:
         return "PASS", probe, ""
     if _BUSY_WORDS.search(errors):  # a busy or full card says nothing about this engine on this card
@@ -437,10 +452,27 @@ def _real_runner(cmd: list[str], timeout: int, stream: bool = False) -> tuple[in
     return p.returncode, p.stdout, p.stderr
 
 
-def host_facts(run: Runner) -> dict[str, Any]:
-    """What the result needs to be read, and nothing that names the machine."""
+def card_id(uuid: str) -> str:
+    """H-89: a one-way digest of a card's UUID: says "the same card" without naming it."""
+    return hashlib.sha256(f"{SCHEMA} card {uuid.strip()}".encode()).hexdigest()[:32]
+
+
+def host_id() -> str | None:
+    """H-89: a one-way digest of this host's /etc/machine-id (TB_HOST_ROOT moves it: the tests only); None without
+    one."""
+    try:
+        mid = Path(os.environ.get("TB_HOST_ROOT", "") + "/etc/machine-id").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return hashlib.sha256(f"{SCHEMA} host {mid}".encode()).hexdigest()[:32] if mid else None
+
+
+def host_facts(run: Runner, index: str | None = None) -> dict[str, Any]:
+    """What the result needs to be read, and nothing that names the machine. With ``index`` (``run --gpu-index``,
+    H-89): that one card's facts, and the one-way ids of the card and of this host."""
     facts: dict[str, Any] = {"arch": platform.machine()}
-    rc, out, _ = run(["nvidia-smi", "--query-gpu=name,memory.total,driver_version,compute_cap",
+    one = ["-i", index] if index is not None else []
+    rc, out, _ = run(["nvidia-smi", *one, "--query-gpu=name,memory.total,driver_version,compute_cap",
                       "--format=csv,noheader,nounits"], 60)  # fmt: skip
     if rc == 0 and out.strip():
         cells = [c.strip() for c in out.strip().splitlines()[0].split(",")]
@@ -449,7 +481,9 @@ def host_facts(run: Runner) -> dict[str, Any]:
                      driver=cells[2], compute_cap=cells[3])  # fmt: skip
     else:
         facts.update(card=None, memory_total_mib=None, driver=None, compute_cap=None)
-    rc, out, _ = run(["nvidia-smi", "--query-gpu=display_active,memory.used", "--format=csv,noheader,nounits"], 60)
+    rc, out, _ = run(
+        ["nvidia-smi", *one, "--query-gpu=display_active,memory.used", "--format=csv,noheader,nounits"], 60
+    )
     cells = [c.strip() for c in out.strip().splitlines()[0].split(",")] if rc == 0 and out.strip() else []
     facts["display_active"] = cells[0] if cells else None  # "Enabled": the card also drives a screen
     facts["memory_used_mib"] = int(cells[1]) if len(cells) > 1 and cells[1].isdigit() else None
@@ -457,6 +491,10 @@ def host_facts(run: Runner) -> dict[str, Any]:
     facts["docker"] = out.strip() if rc == 0 else None
     rc, out, _ = run(["docker", "info", "--format", "{{json .Runtimes}}"], 60)
     facts["nvidia_runtime"] = rc == 0 and "nvidia" in out
+    if index is not None:
+        rc, out, _ = run(["nvidia-smi", "-i", index, "--query-gpu=uuid", "--format=csv,noheader"], 60)
+        uuid = out.strip().splitlines()[0].strip() if rc == 0 and out.strip() else ""
+        facts.update(gpu_index=int(index), card_id=card_id(uuid) if uuid else None, host_id=host_id())
     return facts
 
 
@@ -480,6 +518,7 @@ def probe(
     hostname: str = "",
     say: Callable[[str], None] = print,
     names: list[str] | None = None,
+    gpu_index: str | None = None,
 ) -> dict[str, Any]:
     """Run the tests one image at a time, stopping at the first form that passes, and return the result record (no
     file written here). Ctrl-C stops it cleanly: the running check's container and an image it pulled are removed,
@@ -514,7 +553,7 @@ def probe(
     stopped = ""  # a status every later form would meet the same way (no card given, the card busy)
     blocked: tuple[str, str] | None = None
     try:
-        rec["host"] = host_facts(run)
+        rec["host"] = host_facts(run, gpu_index)
         rec["host"]["free_gb_before"] = free_gb(run)
         blocked = preflight(run, 1.0, min_free)
         if blocked is not None:
@@ -616,6 +655,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--keep-images", action="store_true", help="leave the pulled images (needs about 50 GB)")
     r.add_argument("--min-free-gb", type=float, default=MIN_FREE_GB)
     r.add_argument("--gpu-args", default="--gpus all", help="how docker run is given the card (default --gpus all)")
+    r.add_argument("--gpu-index", default=None, help="H-89: probe the one card at this index (--gpus device=N), and "
+                   "record its one-way id and this host's (a rehearsal with real servers needs them)")  # fmt: skip
     r.add_argument("--dry-run", action="store_true", help="print the commands; run nothing")
     s = sub.add_parser("show", help="print the table of a result file")
     s.add_argument("file", type=Path)
@@ -630,6 +671,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"engine_probe: unknown test {', '.join(unknown)}", file=sys.stderr)
         return 2
     gpu_args = shlex.split(a.gpu_args)
+    if a.gpu_index is not None:
+        if not a.gpu_index.isdigit() or a.gpu_args != "--gpus all":
+            print(
+                "engine_probe: --gpu-index N names one card (0, 1, ...) and takes the place of --gpu-args",
+                file=sys.stderr,
+            )
+            return 2
+        gpu_args = ["--gpus", f"device={a.gpu_index}"]
     if a.dry_run:
         refs = {"pinned": pinned_ref(), "cu129": CU129}
         for t in TESTS:
@@ -640,7 +689,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     print("engine probe: no model is loaded; each image is pulled, checked and removed in turn")
     rec = probe(_real_runner, only or None, a.keep_images, a.min_free_gb, gpu_args,
-                hostname=platform.node())  # fmt: skip
+                hostname=platform.node(), gpu_index=a.gpu_index)  # fmt: skip
     a.out.write_text(json.dumps(rec, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     print()
     print(table(rec))
