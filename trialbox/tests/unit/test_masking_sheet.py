@@ -174,12 +174,18 @@ def _strings(x: Any, path: tuple[str, ...] = ()) -> list[tuple[tuple[str, ...], 
 
 def test_every_open_masking_row_of_the_register_is_on_the_sheet() -> None:
     """The register's open V5 and J10C1 rows (cards V-5 and 10C-1, the masker's), read from the register, and the
-    review's R22-21 and R22-23: each on the sheet once, with a figure; a row that leaked nothing says only that."""
+    review's R22-21 and R22-23: each on the sheet once, with a figure; a row that leaked nothing says only that. A
+    row the register has closed since the run may stay on the sheet until the next run, but only a row the register
+    holds (so the two can change in either order)."""
     register = REGISTER.read_text(encoding="utf-8")
     open_rows = set(re.findall(r"^\| ((?:V5|J10C1)-\d+) \|.*\| open \|$", register, re.M))
+    known = set(re.findall(r"^\| ((?:V5|J10C1)-\d+) \|", register, re.M))
     assert {"V5-01", "V5-13", "J10C1-01"} <= open_rows
     rows = _table("rows")
-    assert sorted(r[0] for r in rows) == sorted(open_rows | REVIEW_ROWS)
+    on_sheet = [r[0] for r in rows]
+    assert len(on_sheet) == len(set(on_sheet))
+    assert open_rows | REVIEW_ROWS <= set(on_sheet)
+    assert set(on_sheet) <= known | REVIEW_ROWS
     for row, _what, fig in rows:
         assert re.search(r"\d+ of \d+", fig), row
         if fig.startswith("0 of"):
