@@ -879,3 +879,47 @@ def test_an_override_with_carriage_returns_is_a_sign_at_boot(tmp_path: Path) -> 
     (deploy / ".env").write_text(f"TB_ENV=PRODUCTION\nCOMPOSE_FILE=/x/base.yml:{f}\n", encoding="utf-8")
     r = _guard(deploy)
     assert r.returncode == 1 and "this box carries a rehearsal sign" in r.stderr
+
+
+# ------------------------------------------------------------------------------- the shipped rehearsal's order of writes
+def _start_ok(deploy: Path) -> None:
+    assert rehearsal_real.start_refusal(deploy, rehearsal_real.env_file(deploy / ".env")) == ""
+    prestart._rehearsal_guard(deploy, _Box(deploy))  # type: ignore[arg-type]
+    r = _guard(deploy)
+    assert (r.returncode, r.stderr) == (0, ""), r.stderr
+
+
+def _start_refused(deploy: Path) -> None:
+    assert "TB_ENV=PRODUCTION" in rehearsal_real.start_refusal(deploy, rehearsal_real.env_file(deploy / ".env"))
+    with pytest.raises(UpdateFailed, match="refused to start"):
+        prestart._rehearsal_guard(deploy, _Box(deploy))  # type: ignore[arg-type]
+    r = _guard(deploy)
+    assert r.returncode == 1 and "TrialBox REFUSED to start: this box carries a rehearsal sign" in r.stderr
+
+
+@pytest.mark.parametrize("real", [False, True])
+def test_the_install_order_of_a_rehearsal_box_is_never_refused_and_a_hand_edit_is(tmp_path: Path, real: bool) -> None:
+    """The red rehearse jobs of #1370: install.sh --rehearsal writes the mark (and, with real servers, the record),
+    then loads the bundle, whose update path runs the boot guard before the settings step writes TB_ENV; the vendor's
+    deploy/.env then holds only TB_TZ and TB_TLS_HOSTNAME. Then the settings, then a second install over the box."""
+    deploy = tmp_path / "deploy"
+    site = deploy / "site"
+    site.mkdir(parents=True)
+    (deploy / ".env").write_text("TB_TZ=Asia/Taipei\nTB_TLS_HOSTNAME=box.invalid\n", encoding="utf-8")  # vendor cfg
+    (site / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")  # REHEARSAL, before the load
+    if real:
+        (site / rehearsal_real.RECORD).write_text(json.dumps({"words": rehearsal_real.WORDS}), encoding="utf-8")
+        (site / rehearsal_real.OVERRIDE).write_text(rehearsal_real.OVERRIDE_MARK + "\n", encoding="utf-8")
+    _start_ok(deploy)  # the bundle load (apply_update.sh: settings_guard.sh), the first install
+    (deploy / "settings.yaml").write_text("site: {}\n", encoding="utf-8")  # the settings step
+    with (deploy / ".env").open("a", encoding="utf-8") as fh:
+        fh.write("TB_SETTINGS_FILE=./settings.yaml\nTB_ENV=VALIDATION\nTB_REHEARSAL=1\n")
+        if real:
+            fh.write("TB_REHEARSAL_REAL_SERVERS=1\n")
+    _start_ok(deploy)  # the install's own start (pre-start), then the boot
+    _start_ok(deploy)  # a second install over it (the rehearsal's re-run), its bundle load and start
+    text = (deploy / ".env").read_text(encoding="utf-8")
+    (deploy / ".env").write_text(text.replace("TB_ENV=VALIDATION", "TB_ENV=PRODUCTION"), encoding="utf-8")
+    _start_refused(deploy)  # a hand edit to PRODUCTION: refused at boot and at start
+    (deploy / ".env").write_text(text.replace("TB_ENV=VALIDATION\n", ""), encoding="utf-8")
+    _start_refused(deploy)  # TB_ENV removed by hand on the installed box: PRODUCTION (D-127), refused

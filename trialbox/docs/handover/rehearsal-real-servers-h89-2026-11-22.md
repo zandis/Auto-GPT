@@ -211,6 +211,14 @@ missing or unusable TPM is a WARN naming the passphrase back end when it is chos
 TB_KEK_PASSPHRASE in this run, or the site keys sealed under it in kek.json); without it, it FAILs as before. The
 passphrase's value is never printed (tests/unit/test_host_baseline.py).
 
+## Red CI (rehearse jobs 137360707718 and 137360707726)
+
+The shipped rehearsal was refused at its bundle load: install.sh --rehearsal writes the mark, then the load's update
+path runs the boot guard before the settings step writes TB_ENV, and the start check took the missing TB_ENV for
+PRODUCTION. The refusal stays; the start check now reads that state as D-633 does (the mark and no TB_ENV is TEST)
+only while the box has no settings.yaml (an install in progress); on an installed box a missing TB_ENV is PRODUCTION
+and refused. Test: `test_the_install_order_of_a_rehearsal_box_is_never_refused_and_a_hand_edit_is`.
+
 ### Files outside the card (ruled: bodies only)
 
 `deploy/settings_guard.sh` (the boot guard), `services/console/app.py` (`environment_banner`, the sentence),

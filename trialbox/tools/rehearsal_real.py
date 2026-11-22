@@ -360,8 +360,13 @@ def start_refusal(deploy: Path, env: dict[str, str]) -> str:
     """Why this box may not start (``""``: it may). A box that carries a rehearsal sign never starts as PRODUCTION
     (a hand edit of TB_ENV); a box with the real-servers record or file starts only as a whole VALIDATION rehearsal
     box (the mark, TB_REHEARSAL=1): removing the mark by hand is not enough."""
-    tb_env = _norm(env.get("TB_ENV")) or "PRODUCTION"
     mark = (deploy / "site" / MARK).is_file()
+    if mark and "TB_ENV" not in env and not (deploy / "settings.yaml").exists():
+        # an install of a rehearsal box in progress: install.sh --rehearsal wrote the mark, and its bundle load runs
+        # this check before the settings step writes TB_ENV (D-633: no TB_ENV and the mark is TEST). An installed box
+        # has its settings.yaml: there a missing TB_ENV is PRODUCTION (D-127) and refused below
+        return ""
+    tb_env = _norm(env.get("TB_ENV")) or "PRODUCTION"
     flag = (env.get("TB_REHEARSAL") or "").strip() == "1"
     real = real_servers_sign(deploy, env)
     signs = [s for s, on in ((f"deploy/site/{MARK}", mark), ("TB_REHEARSAL=1", flag), (real, bool(real))) if on]
