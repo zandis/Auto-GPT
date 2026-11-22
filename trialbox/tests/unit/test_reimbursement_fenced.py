@@ -143,6 +143,22 @@ def test_off_by_default_the_night_passes_over_nav_and_says_so(tmp_path: Path, mo
     assert held == [{"job": "NAV", "state": "reimbursement off", "night": MON.isoformat()}]
 
 
+def test_the_mvp_walk_night_is_not_refused_on_a_validation_box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The MVP walk runs on a VALIDATION rehearsal box (step 5, one screening night; step 9, the same night again): the
+    fence holds NAV there and nothing else. The night's screening and retention jobs run and finish; only NAV is held,
+    and the night is not failed for it."""
+    box = Box(tmp_path, monkeypatch)
+    monkeypatch.setattr(reimbursement, "is_open", REAL_IS_OPEN)
+    monkeypatch.setenv("TB_ENV", "VALIDATION")
+    assert not reimbursement.is_open()
+    box.timer_ingest(MON)
+    box.orch.drain()
+    assert box.chain() == [("MICROBATCH", "ADX"), ("MICROBATCH", "GZQO"), ("RETENTION", None)]
+    ran = box.orch.db.find(type_="MICROBATCH") + box.orch.db.find(type_="RETENTION")
+    assert ran and all(j.state == "done" for j in ran)
+    assert box.orch.db.find(type_="NAV") == []
+
+
 # ------------------------------------------------------------------------------- on, on a TEST box: the three run
 def test_on_a_test_box_with_it_on_nav_and_submit_go_past_the_fence(tmp_path: Path) -> None:
     _switch_on(tmp_path)
