@@ -6,16 +6,12 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
 from tests.console.test_role_pages import PW
 
 MARK = "/bh1-other-study-marker"
 
 
-@pytest.mark.xfail(strict=True, reason="open finding: BH1-12: POST /audit/verify shows a study-scoped "
-                                       "account the cross-study audit list GET /audit refuses it")  # fmt: skip
 def test_a_scoped_steward_gets_no_cross_study_audit_list_from_verify(box: dict[str, Any]) -> None:  # noqa: F811
     """Entry point: ``POST /audit/verify`` (``console.audit_page.audit_verify``)."""
     box["users"].create("stw1", "steward", PW, "stw1@hospa.test")

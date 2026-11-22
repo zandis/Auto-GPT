@@ -790,7 +790,13 @@ def create_app(
         if not u.studies:
             return
         # cross-study lists a study-scoped account (an SMO coordinator) has no business with
-        if path in ("/jobs", "/audit", "/pilot/mailbox") or path.startswith("/pilot/cascade"):
+        # BH1-12 (D-380): the audit trail is one cross-study list; every page under it and its /api/v1 twin are
+        # refused by prefix, not only the list's own path
+        if (
+            path in ("/jobs", "/pilot/mailbox")
+            or path.startswith("/pilot/cascade")
+            or any(path == p or path.startswith(p + "/") for p in ("/audit", "/api/v1/audit"))
+        ):
             au.append("console.denied", actor=f"console:{u.username}", detail={"action": path[:80]})
             raise _Problem(403, "forbidden")
         m = re.match(r"^/pilot/(?:jobs/([0-9A-HJKMNP-TV-Z]{26})|registry/([A-Za-z0-9_-]+))", path)
