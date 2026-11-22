@@ -188,6 +188,11 @@ RECORDS: dict[str, list[dict[str, Any]]] = {
                 "subject": {"reference": "Patient/W-STMT"},
                 "medicationCodeableConcept": {"coding": [{"system": ATC, "code": "L01XA01"}]},
                 "effectivePeriod": {"start": "2026-10-01", "end": "2026-11-15"}}],
+    # an order dated 2026-11-10 (10 days before), and an older order (2026-08-22) whose therapy ran to 2026-10-31
+    "W-BOTH": [_med("m-bth-a", "W-BOTH", "L01XA01", "2026-11-10"),
+               {**_med("m-bth-b", "W-BOTH", "L01CD01", "2026-08-22"),
+                "dosageInstruction": [{"timing": {"repeat": {"boundsPeriod": {"start": "2026-08-22",
+                                                                               "end": "2026-10-31"}}}}]}],
     # a therapy period that ended on 2026-09-01, long before the 28 days
     "W-ENDED": [{**_med("m-end", "W-ENDED", "L01XA01", "2026-08-01"),
                  "dosageInstruction": [{"timing": {"repeat": {"boundsPeriod": {"start": "2026-08-01",
@@ -581,7 +586,7 @@ def test_only_the_washouts_exclude_and_the_stage_log_counts_the_v3_criteria(worl
     assert out == {
         "W-D27": "M3-EXC-06", "W-D28": "M3-EXC-06", "W-TODAY": "M3-EXC-06", "W-TWO": "M3-EXC-06",
         "W-NOSTART": "M3-EXC-06", "F-DOSED": "M3-EXC-06", "E-INF": "M3-EXC-03", "S-HIGH": "M3-INC-02",
-        "W-MIXED": "M3-EXC-06", "W-AHEAD": "M3-EXC-06", "W-PAST": "M3-EXC-01",
+        "W-MIXED": "M3-EXC-06", "W-AHEAD": "M3-EXC-06", "W-PAST": "M3-EXC-01", "W-BOTH": "M3-EXC-06",
     }  # fmt: skip
     # those out by the washouts alone are on the engine's watch-list (the criteria are marked time-sensitive); the
     # infection and the creatinine are not marked so, and exclude
@@ -834,7 +839,22 @@ def test_h2_an_order_with_no_period_or_one_that_ended_before_the_window_stays_de
     from matching.cascade.v3 import MED_PERIODS
 
     got = {r["mid"] for r in world["lake"].query(MED_PERIODS, [sorted(RECORDS)], None).to_pylist()}
-    assert got == {"m-sup", "m-bnd", "m-stm", "m-end"}
+    assert got == {"m-sup", "m-bnd", "m-stm", "m-end", "m-bth-b"}
+
+
+def test_h2_an_order_dated_inside_the_window_excludes_whatever_another_orders_period_says(
+    world: dict[str, Any],
+) -> None:
+    """A dose 10 days ago excludes. Another order, 90 days old, carries a therapy period that reaches the window
+    (to 2026-10-31, 20 days before): a period can only add doses to a window, never take one out, so the
+    exclusion stands. No day is kept: the order dates do not say when the therapy's last dose leaves the window."""
+    for cid in ("M3-EXC-01", "M3-EXC-06"):
+        o = _out(world, "W-BOTH", cid)
+        assert _excluded(o) and o.reason != Reason.ORDER_DATES_MISSING.value, (cid, o.status, o.reason)
+        assert o.flip_date is None and o.flip is None, cid
+    assert world["res"].traces["W-BOTH"].exit_criterion == "M3-EXC-06"
+    for lang, said in (("en", "does not say when the last dose was"), ("ja", "最終投与日"), ("zh-TW", "最後一次用藥")):
+        assert said in LABELS["order_dates_missing"][lang]
 
 
 def test_h3_a_window_on_the_index_date_that_reaches_ahead_is_not_answered_by_absence(review: dict[str, Any]) -> None:

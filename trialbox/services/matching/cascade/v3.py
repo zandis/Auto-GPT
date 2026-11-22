@@ -176,6 +176,7 @@ class V3Stage:
         check_anchors(run.cfg.anchors)
         self.today: date = run.cfg.run_date  # the day of the run, in every index mode
         self.flip_bound_hit = 0  # patient-criterion pairs whose flip-date search was cut short
+        self._by_order_date: set[tuple[str, str]] = set()  # (criterion, pid): met by an order's date beside a period
         self.forms: dict[str, Form] = {}
         self.sourceless: dict[str, list[str]] = {}
         self.left: dict[str, str] = {}  # criterion id -> the kind of refusal that leaves it to a person
@@ -422,10 +423,17 @@ class V3Stage:
                 if day is None or not got or f.id not in t.outcomes:
                     continue
                 mids = self._period_in_window(f, got, day)
+                was = t.outcomes[f.id]
+                # A period can only add doses to the window, never take one out. Where the records already meet a
+                # logic that only grows (an order dated inside the window), the answer stands as it is. No day is
+                # searched for it: the order's date does not say when the therapy's last dose leaves the window
+                met = was.hard if f.cx.kind == "exclusion" else _definite(was) is False
+                if mids and met and _only_grows(f.cx.logic):
+                    self._by_order_date.add((f.id, t.pid))
+                    continue
                 if mids:
                     ev = [{"source": "lake", "record": m, "date": None, "lineage": lineage,
                            "index_date": day.isoformat()} for m in mids[:20]]  # fmt: skip
-                    was = t.outcomes[f.id]
                     t.outcomes[f.id] = self._unknown(f.id, Reason.ORDER_DATES_MISSING, ev)
                     t.outcomes[f.id].anchor = was.anchor
         self._flips(scope, anchors)
@@ -459,7 +467,7 @@ class V3Stage:
         for f in forms:
             for t in scope:
                 day, now = anchors[(f.id, t.pid)], _definite(t.outcomes.get(f.id))
-                if day is not None and now is not None:
+                if day is not None and now is not None and (f.id, t.pid) not in self._by_order_date:
                     open_.append((f, t, day, now))
         if not open_:
             return

@@ -76,7 +76,10 @@ such stage.
    bounds period, a validity period, a supply duration, a statement's effective period; or a start of its own with
    no end), the order date does not say when the last dose was: the criterion answers unknown with the existing
    code `order_dates_missing`, and no date is computed (H2). An order with a date and no period, and one whose
-   period ended before the window, stay decided.
+   period ended before the window, stay decided. A period can only add doses to a window, never take one out: where
+   the records already meet a logic that only grows (an order dated inside the window), the answer stands as it
+   is, and only the day search is left out. The code's three texts now read "a medicine order does not say when
+   the last dose was", true for all its cases (no end date, no date, a period that reaches the window).
 6. **Device and allergy.** No lake table holds either kind, for either lake source (`lake.flatten.SCHEMAS`; the
    OMOP `device_exposure` table exists and nothing loads it; `AllergyIntolerance` is only validated by the adapter).
    A criterion with such an atom answers unknown with `not_in_source` for every patient. No reader was added.
@@ -154,8 +157,10 @@ stored criterion carries), so no stored criterion reaches any new code.
 - Nothing supplies a planned start or a screening date yet, so on a box these criteria answer
   `anchor_date_unknown` until a card does.
 
-- **Not verified:** the new tests build their lake from the legacy source only (the goldens run both sources,
-  on v1 rule sets); records held for a steward's review, if a source marks any beside proposed and suspected
+- The card's tests build their lake from the legacy source; on 2026-11-22 the same file was run once with the
+  lake built from the OMOP source (63 passed; `MED_PERIODS` reads `authored`, `start` and `end`, which the OMOP
+  export also gives). That run is not kept as a test.
+- **Not verified:** records held for a steward's review, if a source marks any beside proposed and suspected
   facts, when the event's date is picked.
 
 ## 5. Follow-ups, named

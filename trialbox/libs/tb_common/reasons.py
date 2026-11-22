@@ -56,7 +56,9 @@ class Reason(StrEnum):
     # conversion (D-275): no value, unknown
     UNIT_MISMATCH = "unit_mismatch"
     UNKNOWN_VALUE = "unknown_value"  # a lab result that is not a readable number ("see note", 陰性; D-142, D-215)
-    ORDER_DATES_MISSING = "order_dates_missing"  # a medicine order with no end date, or no date at all (D-275)
+    # a medicine order that does not say when the last dose was: no end date, no date at all (D-275), or a therapy
+    # period that reaches the criterion's window while the record rule reads the order's date (D-1263)
+    ORDER_DATES_MISSING = "order_dates_missing"
     RULES_CHANGED = "rules_changed"  # an approved answer the current safety rules do not confirm (D-275)
     # the model's quote is a sentence written as an instruction to a model (the guard's screen, T-606, D-359)
     PLANTED_INSTRUCTION = "planted_instruction"
@@ -245,9 +247,9 @@ LABELS: dict[str, dict[str, str]] = {
         "zh-TW": "有無法讀成數值的結果：未使用，請確認",
     },
     "order_dates_missing": {
-        "en": "a medicine order has no end date or no date: the duration is not known, please check",
-        "ja": "処方に終了日または日付の記録なし：投与期間が不明のため確認してください",
-        "zh-TW": "處方沒有結束日期或沒有日期：用藥期間不明，請確認",
+        "en": "a medicine order does not say when the last dose was: the duration is not known, please check",
+        "ja": "処方から最終投与日がわからない：投与期間が不明のため確認してください",
+        "zh-TW": "處方無法看出最後一次用藥日期：用藥期間不明，請確認",
     },
     "rules_changed": {
         "en": "the approved check and the current safety rules give different answers: please check",
