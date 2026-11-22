@@ -16,7 +16,7 @@ models gave it (``basis``; a row stored before the field is read by the rest), i
 and the run may exclude on notes (:class:`Policy`). Otherwise a note "not met" says ``unknown``: a person looks. A
 note "met" below the threshold, or with notes left out of what the models read (T-603), says ``unknown`` too. So a
 single model, a cut record or a low confidence can send a patient to review and can never take them off. An
-exclusion's note "not met" whose quote does not state the condition (D-985) says ``unknown`` on every path.
+exclusion's note "present" (its verdict ``fail``) whose quote does not state the condition (D-985) says ``unknown``.
 
 The verdict of a structured criterion is T-652's table (:mod:`matching.verdict`): ``pass`` / ``fail`` / ``unknown``
 by kind and predicate, with a coded ``fail`` the only one that excludes on its own.
