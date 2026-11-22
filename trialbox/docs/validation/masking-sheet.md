@@ -313,6 +313,24 @@ search index, trace store       15 %   QP 100 %, base64 88 % (note text on the b
 - The bench's comment does not say per kind or per language which encodings pass; this sheet has no per-language
   figure for encodings beyond the rebuilt R22-23 probes below.
 
+**The bundle by the real road.** The bench then logged each synthetic note through the log formatter
+(`tb_common.logging.JsonFormatter`) into the log the support bundle collects, built the bundle with
+`support_bundle.build` and read the archive back: at least 500 notes per kind and encoding, 52,000 notes, on master
+`225100f4bf3e1a05d7c1435314467d2b2c385ba4` (issue comment 7079771762 on pull request #639). Leaked, plain / worst
+encoding, through the formatter:
+
+```
+name                               18 % / zero-width joiner 100 %
+e-mail                              0 % / zero-width joiner 100 %
+address                             0 % / quoted-printable 99 %
+date of birth                       0 % / full-width 100 %
+chart number, phone, national id    0 % / base64 100 %
+secret                              0 % / 0 %
+```
+
+- What a log line holds in an encoding leaves in a support bundle; secrets left by neither road. The encodings are
+  generated, not seen in a hospital's feed, and the plain-name figure depends on the generator's name forms.
+
 ## Known to pass: the open register rows on masking
 
 Every open masking row of the findings register (`docs/handover/findings-register.md`: the V5 rows of card V-5 and
