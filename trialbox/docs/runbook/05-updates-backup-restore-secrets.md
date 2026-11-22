@@ -161,30 +161,18 @@ least the last two weeks:
    "--target=2026-11-08 14:05:00+09" --target-action=promote restore`, and start everything again. Then run
    `backup-nightly` so a new full chain starts.
 
-**Restore drill (T-730d, D-892, H-84).** Proof that the newest backup restores, without touching the box's data.
-Hospital IT brings the key from the envelope and types, on the box's host (the Operations page's backups tab shows
-this line with the newest file filled in): `sudo python3 -m tools.trialbox restore-drill <backup file> --key <the
-key>`. It checks free space and memory first (the unpacked backup in `--work`, the throwaway server's data in
-`--db-dir`, default `--work`; 1 GB of free memory; it says how much it needs and starts nothing when short), opens the
-backup with the key and checks every file against its signed manifest, and then **starts a throwaway database server
-of its own**: a one-off container of the box's own database image (`POSTGRES_IMAGE`, else `deploy/images.lock`;
-never pulled: a box without the image is refused), named `tb-restore-drill-<id>` and labelled `tb.restore-drill`,
-with no network at all (`--network none`, no port), none of the box's volumes or networks, its data in the drill's
-own folder, a random password that is on no command line and in no file after it starts, and limits (1 GB of memory,
-256 processes). The drill reaches it through a socket folder of its own (0700). Each database is restored into a
-scratch database there (`tb_drill_<id>_<name>`) with the very `pg_restore` call of a restore, and its rows and content
-hashes are compared with the manifest. **Nothing live is touched:** no connection is opened to the box's database
-(`TB_DB_URL` is read only for the database names), and no container, volume, network, database, role or grant of
-the box is made, changed or removed. At the end, after a failure, Ctrl-C or `kill` too, the throwaway, its data and
-the unpacked files are removed. What the drill makes is written down first (`deploy/site/restore-drill/`); a drill
-that died (power cut, `kill -9`) is cleaned up by the next drill, which removes only containers labelled
-`tb.restore-drill` and folders that carry the drill's mark. One drill at a time: a second one is refused while the
-first runs. Needs: Docker, the database image, the free space and memory above. Exit 0 is a pass, 1 a fail, 2
-nothing started, 130 interrupted (cleaned up). The result (never the key, its path or the password) is the box's
-key-check record and an audit event (`backup.restore_drill`): the health check's `backup_verified` turns red after
-`TB_HEALTH_VERIFIED_DAYS` (100) days without one, or at once on a failed drill until one passes, and a failed drill is
-a backup problem that goes through the alert route (mail, or the health page). Run it at least every 90 days, after
-hardware changes and before go-live acceptance (§6).
+**Restore drill (T-730d, D-892, H-84).** Proof that the newest backup restores, touching nothing live. Hospital IT
+types on the host, key in hand (the Operations page shows the line): `sudo python3 -m tools.trialbox restore-drill
+<backup file> --key <the key>`. Needs Docker, the box's db image (never pulled), 1 GB of memory and free space (it
+says how much and starts nothing when short). It checks the backup against its signed manifest and starts a
+**throwaway database server**: a container of the box's db image (`tb-restore-drill-<id>`, label `tb.restore-drill`)
+with no network, no port, none of the box's volumes, its data in `--db-dir` (default `--work`), a random password.
+Each database is restored there and compared with the manifest; nothing of the box (its database, containers, volumes,
+networks, roles, grants) is touched. All is removed at the end, after a failure or `kill` too; a drill killed with
+`-9` is cleaned up by the next one (labelled containers, marked folders only). Exit 0 pass, 1 fail, 2 nothing started,
+130 interrupted. The result (never the key or the password) is the key-check record and an audit event
+(`backup.restore_drill`): `backup_verified` turns red after `TB_HEALTH_VERIFIED_DAYS` (100) days, or on a failed
+drill, which also alerts. Run it at least every 90 days, after hardware changes and before go-live acceptance (§6).
 
 **Restore.** Bring three things: the backup file, the private key (hospital IT) and **the vendor reference data
 pack** the backup names. A backup holds no vendor pack rows (layout 2, above), so a restore onto a fresh box is not
