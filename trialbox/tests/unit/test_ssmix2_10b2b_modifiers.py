@@ -61,7 +61,7 @@ def test_the_modifier_table_loads_through_the_licensed_path_with_its_class_and_p
     rel = _synthetic_release()
     left = rel["medis_modifier"]["99980002"]
     assert left["display"] == "左"
-    assert '"modifier_class": "22000000"' in left["extra"] and '"position": "60"' in left["extra"]
+    assert '"modifier_class": "A2000000"' in left["extra"] and '"position": "60"' in left["extra"]
     assert '"exchange_code": "ZM02"' in left["extra"] and '"change": "0"' in left["extra"]
     assert "medis_modifier" in lic.KINDS
 
@@ -140,11 +140,22 @@ def test_the_master_rule_is_chosen_per_diagnosis_and_counted(tmp_path: Path) -> 
 
 
 # ------------------------------------------------------------------------------------------------ without it
-def test_without_the_master_the_specifications_own_zpr_shape_is_confirmed(tmp_path: Path) -> None:
-    """The one move toward confirmed (lane J's ruling): ZPR-2 and ZPR-5 naming PRB-3's own disease, nothing else
-    (仕様書 Ver.1.2j appendix example). #1095 read every ZPR value as a modifier and gave U."""
-    row = _row(tmp_path, "胃炎", [zpr(dis="99990002", dis_ex="ZA02")], master=False, code="99990002")
+def test_without_the_master_a_zpr_that_repeats_prb3s_own_code_is_confirmed(tmp_path: Path) -> None:
+    """The move toward confirmed that stands (lane J's ruling in D-1252, narrowed by D-1257): a ZPR-2 that is PRB-3's
+    own code, nothing else. #1095 read every ZPR value as a modifier and gave U."""
+    row = _row(tmp_path, "胃炎", [zpr(dis="99990002")], master=False, code="99990002")
     assert (row["status"], row["suspected"], row["modifiers"]) == ("A", "", "")
+
+
+@pytest.mark.parametrize(("master", "want"), [(False, "U"), (True, "")])
+def test_the_specifications_own_zpr_shape_is_confirmed_only_where_it_can_be_checked(
+    tmp_path: Path, master: bool, want: str
+) -> None:
+    """D-1257 (the second tool's review of #1189, source.py:1913) changes D-1252 here: ZPR-2 the 病名管理番号 and
+    ZPR-5 the 病名交換用コード (仕様書 Ver.1.2j appendix example) was confirmed without the master, where a ZPR-5 of
+    another disease looks the same as the right one. It is unknown without the master and confirmed with it."""
+    row = _row(tmp_path, "胃炎", [zpr(dis="99990002", dis_ex="ZA02")], master=master, code="99990002")
+    assert (row["status"], row["suspected"]) == ("A", want)
 
 
 @pytest.mark.parametrize(
@@ -197,7 +208,7 @@ def test_the_loader_refuses_a_master_table_without_its_change_column(kind: str) 
     row = (
         '"99990001","肺炎","ｶﾅ","1","ZA01","J189"'
         if kind == "medis"
-        else '"99980002","左","ｶﾅ","ZM02","60","22000000","","",""'
+        else '"99980002","左","ｶﾅ","ZM02","60","A2000000","","",""'
     )
     with pytest.raises(lic.LicensedError, match="変更区分"):
         lic.parse(kind, row.encode("cp932"), header)
@@ -232,10 +243,10 @@ def test_the_loader_reads_neither_row_of_a_code_given_twice_with_different_conte
     """The second tester's class D: which of two different rows is the master's cannot be told; an identical repeat
     keeps the row, as before."""
     rows = [
-        '"0","99980002","左","ｶﾅ","ZM02","60","22000000","","",""',
-        '"1","99980002","左","ｶﾅ","ZM02","60","22000000","","",""',
-        '"0","99980003","右","ｶﾅ","ZM03","60","22000001","","",""',
-        '"0","99980003","右","ｶﾅ","ZM03","60","22000001","","",""',
+        '"0","99980002","左","ｶﾅ","ZM02","60","A2000000","","",""',
+        '"1","99980002","左","ｶﾅ","ZM02","60","A2000000","","",""',
+        '"0","99980003","右","ｶﾅ","ZM03","60","A2000001","","",""',
+        '"0","99980003","右","ｶﾅ","ZM03","60","A2000001","","",""',
     ]
     parsed = lic.parse("medis_modifier", "\r\n".join(rows).encode("cp932"), MODIFIER_COLUMNS.split(","))
     assert [c["code"] for c in parsed.concepts] == ["99980003"]
