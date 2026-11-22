@@ -36,16 +36,25 @@ import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, TYPE_CHECKING, Any
 
-from tools.trialbox import backup as bk
 from tools.trialbox import backup_schedule as _sched
+from tools.trialbox import launch as _launch
+
+if TYPE_CHECKING:
+    from tools.trialbox import backup as bk
+
+# H-88: this module is imported by the host's python3 (standard library only): backup.py (zstandard, cryptography)
+# and psycopg are imported where they are used, in this process when it has them, else in the drill's container
+LIBS = ("psycopg", "zstandard", "cryptography")
+RESTORE_FLAGS = ["--clean", "--if-exists", "--no-owner", "--no-privileges", "--single-transaction", "--exit-on-error"]
 
 SCRATCH_PREFIX = "tb_drill_"
 UNPACK_FACTOR = 4.0  # the unpacked backup: a compressed dump and the lake are about this many times the file
@@ -160,6 +169,8 @@ def db_image(env: Mapping[str, str]) -> str:
 
 def compare(src: bk.DbSource, want: Mapping[str, Any]) -> list[str]:
     """The tables whose rows or content hash differ from the manifest, as ``trialbox restore`` compares them."""
+    from tools.trialbox import backup as bk
+
     scheme = want.get("row_hash", "md5")
     skip = [*want.get("excluded_tables", []), *want.get("excluded_data_schemas", [])]
     got = bk.row_counts(src, skip, scheme)
@@ -215,6 +226,7 @@ class Throwaway:
     sock_parent: Path  # <short>/tbd-<id> (0700, root's); sock/ in it is the database user's
     chown: Callable[[Path, int, int], None] = _chown
     made: list[str] = field(default_factory=list)  # containers started (names)
+    ready_by_exec: bool = False  # H-88: this process has no psycopg: pg_isready in the throwaway says it answers
 
     @property
     def name(self) -> str:
@@ -223,6 +235,11 @@ class Throwaway:
     @property
     def init_name(self) -> str:
         return f"{CONTAINER_PREFIX}{self.drill_id}-init"
+
+    @property
+    def restore_name(self) -> str:
+        """H-88: the container that unpacks, restores and compares when this process lacks the libraries."""
+        return f"{CONTAINER_PREFIX}{self.drill_id}-restore"
 
     @property
     def data(self) -> Path:
@@ -248,7 +265,8 @@ class Throwaway:
         return shlex.join([*self.docker, "exec", "-i", "-e", "PGPASSWORD", self.name, "pg_restore"])
 
     def record(self) -> dict[str, Any]:
-        return {"drill": self.drill_id, "containers": [self.init_name, self.name], "folders": [str(self.root),
+        return {"drill": self.drill_id, "containers": [self.init_name, self.name, self.restore_name],
+                "folders": [str(self.root),
                 str(self.sock_parent)], "pid": os.getpid(), "image": self.image}  # fmt: skip
 
     def _common(self, name: str) -> list[str]:
@@ -290,6 +308,8 @@ class Throwaway:
         self._wait()
 
     def _wait(self) -> None:
+        if self.ready_by_exec:
+            return self._wait_exec()
         import psycopg
 
         end = time.monotonic() + READY_SECONDS
@@ -303,6 +323,22 @@ class Throwaway:
                 last = str(e).strip().splitlines()[0] if str(e).strip() else type(e).__name__
                 time.sleep(0.5)
         raise DrillError(f"the throwaway server did not answer in {READY_SECONDS:.0f} s: {last[-200:]}")
+
+    def _wait_exec(self) -> None:
+        end = time.monotonic() + READY_SECONDS
+        last = ""
+        while time.monotonic() < end:
+            argv = [*self.docker, "exec", self.name, "pg_isready", "-q", "-h", str(self.sock), "-p", "5432", "-U",
+                    "postgres"]  # fmt: skip
+            try:
+                r = subprocess.run(argv, capture_output=True, text=True, timeout=30, check=False)
+                if r.returncode == 0:
+                    return
+                last = (r.stderr or r.stdout).strip()[-200:] or f"exit {r.returncode}"
+            except (OSError, subprocess.TimeoutExpired) as e:
+                last = str(e)[-200:]
+            time.sleep(0.5)
+        raise DrillError(f"the throwaway server did not answer in {READY_SECONDS:.0f} s: {last}")
 
     def remove(self) -> list[str]:
         """Remove the containers and folders this drill made; return what could not be removed."""
@@ -469,41 +505,54 @@ def drill(
     state: Path | None = None,
     mem_free: Callable[[], int] | None = None,
     chown: Callable[[Path, int, int], None] | None = None,
+    image: str | None = None,
 ) -> dict[str, Any]:
     """Run the drill on ``file`` with ``key``; return the result (``ok`` true or false). Raises :class:`DrillError`
     only when nothing was started (space, memory, Docker, the image, a drill still running, settings); every later
-    failure is a result with ``ok`` false. Ctrl-C and SIGTERM clean up and then propagate."""
+    failure is a result with ``ok`` false. Ctrl-C and SIGTERM clean up and then propagate.
+
+    H-88: ``image`` (default: the box's Python image when this process lacks psycopg, zstandard or cryptography, as
+    the host's python3 does; None when it has them) runs the unpack, the restore and the comparison in a one-off
+    container of that image that reaches the throwaway's socket folder and nothing else (:func:`restore_argv`);
+    Docker, the throwaway and the records stay here."""
     now = now or datetime.now(UTC)
     work = work or Path(tempfile.gettempdir())
     db_dir = db_dir or work
     state = state or work / ".tb-restore-drill"
+    if image is None and not _launch.has_libs(LIBS):
+        image = env.get("TB_IMAGE") or _launch.DEFAULT_IMAGE
     check_space(file, work, db_dir, free or (lambda p: shutil.disk_usage(p).free))
-    srcs = {s.name: s for s in bk.db_sources(env)}  # the names and tb_prefix only: never connected to
+    srcs: dict[str, Any] = {}
+    if image is None:
+        from tools.trialbox import backup as bk
+
+        srcs = {s.name: s for s in bk.db_sources(env)}  # the names and tb_prefix only: never connected to
+    elif not (env.get("TB_DB_URL") or env.get("TB_HAPI_DB_URL")):  # the same refusal, before anything starts
+        raise DrillError("TB_DB_URL is not set: nothing to back up from the database (the box's deploy/.env)")
     docker = shlex.split(env.get("TB_DOCKER") or "docker")
-    image = db_image(env)
+    db_img = db_image(env)
     with _lock(state):
-        preflight(docker, image, mem_free or mem_available)
+        preflight(docker, db_img, mem_free or mem_available)
+        if image is not None:
+            try:
+                _run([*docker, "image", "inspect", "--format", "{{.Id}}", image], "docker image inspect", 60)
+            except DrillError as e:
+                raise DrillError(f"the box's Python image {image} is not on this box, nothing was started (the "
+                                 "drill's restore runs in it; it is never pulled)") from e  # fmt: skip
         swept = sweep(docker, state)
         drill_id = secrets.token_hex(4)
-        srv = Throwaway(drill_id, image, docker, db_dir / f"tb-drill-{drill_id}-server",
+        srv = Throwaway(drill_id, db_img, docker, db_dir / f"tb-drill-{drill_id}-server",
                         _short_parent(work) / f"tbd-{drill_id}", chown or _chown)  # fmt: skip
+        if image is not None:
+            srv.ready_by_exec = True
+            return _drill_in_image(file, key, env, srv, state, work, now, swept, image)
         return _drill(file, key, env, srcs, srv, state, work, now, name, swept)
 
 
-def _drill(
-    file: Path,
-    key: Path,
-    env: Mapping[str, str],
-    srcs: Mapping[str, bk.DbSource],
-    srv: Throwaway,
-    state: Path,
-    work: Path,
-    now: datetime,
-    name: Callable[[str], str] | None,
-    swept: list[str],
-) -> dict[str, Any]:
-    scratch_name = name or (lambda db: f"{SCRATCH_PREFIX}{srv.drill_id}_{db}")
-    made: list[str] = []
+def _begin(srv: Throwaway, state: Path, work: Path, file: Path, now: datetime,
+           swept: list[str]) -> tuple[dict[str, Any], Path, Path]:  # fmt: skip
+    """The result, the drill's record (written before anything is made: a lost answer is swept) and the 0700 folder
+    the backup is unpacked into (swept too after a crash)."""
     res: dict[str, Any] = {"ok": False, "at": now.isoformat(timespec="seconds"), "file": file.name,
                            "drill": srv.drill_id, "databases": {}}  # fmt: skip
     if swept:
@@ -512,11 +561,64 @@ def _drill(
     holder = work / f"tb-drill-{srv.drill_id}-unpacked"  # the decrypted backup: swept too after a crash
     rec = srv.record()
     rec["folders"].append(str(holder))
-    rec_file.write_text(json.dumps(rec), encoding="utf-8")  # before anything is made: a lost answer is swept
+    rec_file.write_text(json.dumps(rec), encoding="utf-8")
     holder.mkdir(mode=0o700)
     _mark(holder, srv.drill_id)
+    (holder / "u").mkdir(mode=0o700)
+    return res, rec_file, holder
+
+
+def _restore_all(manifest: Mapping[str, Any], srcs: Mapping[str, Any], admin_dsn: str,
+                 scratch_name: Callable[[str], str], unpacked: Path, denv: Mapping[str, str],
+                 res: dict[str, Any], made: list[str]) -> None:  # fmt: skip
+    """Each database of the backup into a scratch database of the throwaway, then its rows and hashes compared with
+    the manifest, as ``trialbox restore`` does (here, or in the drill's container)."""
+    from tools.trialbox import backup as bk
+
+    res.update(created_at=manifest["created_at"], site=manifest.get("site", ""),
+               sha256=manifest["_sha256"], files=len(manifest["files"]))  # fmt: skip
+    for db in manifest["databases"]:
+        if db not in srcs:
+            raise DrillError(f"the backup holds database {db} but its URL is not set on this box")
+    for db, want in manifest["databases"].items():
+        scratch = scratch_source(srcs[db], admin_dsn, scratch_name(db))
+        _create(admin_dsn, _dbname(scratch.dsn))
+        made.append(_dbname(scratch.dsn))
+        bk.restore_db(scratch, unpacked / "db" / f"{db}.dump", denv)
+        for t in _sched.BULK_REFDATA:  # the hospital's own reference rows, as the restore copies them in
+            f = unpacked / "db" / f"{db}.site.{t}.copy"
+            if f.is_file() and want.get("refdata_schema") and f.stat().st_size:
+                bk._copy_in(scratch, f"{want['refdata_schema']}.{t}", f)
+        diff = compare(scratch, want)
+        res["databases"][db] = {"tables": len(want["rows"]),
+                                "rows": sum(r[0] for r in want["rows"].values()),
+                                "differ": diff[:10], "differ_count": len(diff)}  # fmt: skip
+    bad = {db: r["differ_count"] for db, r in res["databases"].items() if r["differ_count"]}
+    res["ok"] = not bad
+    if bad:
+        res["error"] = "restored rows differ from the backup's manifest: " + ", ".join(
+            f"{db} in {n} table(s)" for db, n in sorted(bad.items())
+        )
+
+
+def _drill(
+    file: Path,
+    key: Path,
+    env: Mapping[str, str],
+    srcs: Mapping[str, Any],
+    srv: Throwaway,
+    state: Path,
+    work: Path,
+    now: datetime,
+    name: Callable[[str], str] | None,
+    swept: list[str],
+) -> dict[str, Any]:
+    from tools.trialbox import backup as bk
+
+    scratch_name = name or (lambda db: f"{SCRATCH_PREFIX}{srv.drill_id}_{db}")
+    made: list[str] = []
+    res, rec_file, holder = _begin(srv, state, work, file, now, swept)
     unpacked = holder / "u"
-    unpacked.mkdir(mode=0o700)
     # the restore runs in the throwaway, whatever TB_PG_RESTORE_CMD says (on a box: an exec into the live db)
     denv = {**env, "TB_PG_RESTORE_CMD": srv.restore_cmd()}
     with _on_sigterm(), _pgpassword(_password()):
@@ -529,25 +631,7 @@ def _drill(
                     raise DrillError(f"the backup holds database {db} but its URL is not set on this box")
             srv.start(os.environ["PGPASSWORD"])
             res["server"] = {"container": srv.name, "image": srv.image}
-            for db, want in manifest["databases"].items():
-                scratch = scratch_source(srcs[db], srv.admin_dsn, scratch_name(db))
-                _create(srv.admin_dsn, _dbname(scratch.dsn))
-                made.append(_dbname(scratch.dsn))
-                bk.restore_db(scratch, unpacked / "db" / f"{db}.dump", denv)
-                for t in _sched.BULK_REFDATA:  # the hospital's own reference rows, as the restore copies them in
-                    f = unpacked / "db" / f"{db}.site.{t}.copy"
-                    if f.is_file() and want.get("refdata_schema") and f.stat().st_size:
-                        bk._copy_in(scratch, f"{want['refdata_schema']}.{t}", f)
-                diff = compare(scratch, want)
-                res["databases"][db] = {"tables": len(want["rows"]),
-                                        "rows": sum(r[0] for r in want["rows"].values()),
-                                        "differ": diff[:10], "differ_count": len(diff)}  # fmt: skip
-            bad = {db: r["differ_count"] for db, r in res["databases"].items() if r["differ_count"]}
-            res["ok"] = not bad
-            if bad:
-                res["error"] = "restored rows differ from the backup's manifest: " + ", ".join(
-                    f"{db} in {n} table(s)" for db, n in sorted(bad.items())
-                )
+            _restore_all(manifest, srcs, srv.admin_dsn, scratch_name, unpacked, denv, res, made)
         except (bk.BackupError, DrillError, OSError) as e:
             res["error"] = str(e)[-400:]
         except Exception as e:  # a database that refused (psycopg), a damaged dump: a failed drill, said
@@ -557,19 +641,196 @@ def _drill(
     return res
 
 
-def _clean(srv: Throwaway, made: list[str], unpacked: Path, res: dict[str, Any], rec_file: Path) -> None:
+# ------------------------------------------------------------------- H-88: the restore in the box's Python image
+#: what the drill's container is given of this process's environment, by name (the values never on a command line):
+#: the throwaway's password, and the box's URLs for the database names and tb_prefix only (it has no network)
+PASSED = ("PGPASSWORD", "TB_DB_URL", "TB_HAPI_DB_URL")
+
+
+def restore_argv(srv: Throwaway, image: str, file: Path, key: Path, holder: Path) -> list[str]:
+    """The drill's container: the box's Python image, never pulled; no network (it reaches the throwaway through the
+    socket folder, mounted at its own path, and nothing else: no Docker socket, no volume or network of the box);
+    the backup and the key read-only; the unpack folder; no capability but reading the database user's socket
+    folder; this process's uid and gid (its files stay the invoking user's); the drill's label, so a sweep takes it."""
+    f, k = file.resolve(), key.resolve()
+    names = [x for n in PASSED for x in ("-e", n)]
+    return [*srv.docker, "run", "--rm", "--name", srv.restore_name, "--label", f"{LABEL}={srv.drill_id}",
+            "--network", "none", "--pull", "never", "--user", f"{os.getuid()}:{os.getgid()}", "--read-only",
+            "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m", "--cap-drop", "ALL", "--cap-add", "DAC_READ_SEARCH",
+            "--security-opt", "no-new-privileges:true", "--pids-limit", str(PIDS), *names,
+            "-e", "PYTHONDONTWRITEBYTECODE=1", "-v", f"{f}:{f}:ro", "-v", f"{k}:{k}:ro", "-v", f"{holder}:{holder}",
+            "-v", f"{srv.sock_parent}:{srv.sock_parent}", image, "python", "-m", "tools.trialbox.restore_drill",
+            "--inner", str(holder / "spec.json")]  # fmt: skip
+
+
+def _drill_in_image(file: Path, key: Path, env: Mapping[str, str], srv: Throwaway, state: Path, work: Path,
+                    now: datetime, swept: list[str], image: str) -> dict[str, Any]:  # fmt: skip
+    res, rec_file, holder = _begin(srv, state, work, file, now, swept)
+    unpacked, queue = holder / "u", holder / "q"
+    queue.mkdir(mode=0o700)
+    spec = {"file": str(file.resolve()), "key": str(key.resolve()), "unpacked": str(unpacked), "queue": str(queue),
+            "sock": str(srv.sock), "prefix": f"{SCRATCH_PREFIX}{srv.drill_id}_"}  # fmt: skip
+    (holder / "spec.json").write_text(json.dumps(spec), encoding="utf-8")
+    inner: dict[str, Any] = {}
+    p: subprocess.Popen[str] | None = None
+    with _on_sigterm(), _pgpassword(_password()):
+        try:
+            srv.start(os.environ["PGPASSWORD"])
+            res["server"] = {"container": srv.name, "image": srv.image}
+            penv = {**os.environ, **{n: env[n] for n in PASSED[1:] if env.get(n)}}
+            srv.made.append(srv.restore_name)
+            p = subprocess.Popen(restore_argv(srv, image, file, key, holder), env=penv, text=True,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # fmt: skip
+            out, err = _serve(p, srv, queue, unpacked)
+            try:
+                inner = json.loads(out.strip().splitlines()[-1])
+            except (ValueError, IndexError) as e:
+                raise DrillError(f"the drill's restore container failed (exit {p.returncode}): "
+                                 f"{(err or out).strip()[-300:]}") from e  # fmt: skip
+            for k in ("created_at", "site", "sha256", "files", "databases", "ok", "error"):
+                if k in inner:
+                    res[k] = inner[k]
+        except (DrillError, OSError) as e:
+            res["error"] = str(e)[-400:]
+        finally:
+            if p is not None and p.poll() is None:
+                p.kill()
+                with contextlib.suppress(Exception):
+                    p.communicate(timeout=30)
+            _clean(srv, [], unpacked, res, rec_file, inner.get("scratch_dropped", []), inner.get("scratch_left", []))
+    return res
+
+
+def _serve(p: subprocess.Popen[str], srv: Throwaway, queue: Path, unpacked: Path) -> tuple[str, str]:
+    """While the drill's container runs: each restore it asks for (:func:`relay`) is run here, ``pg_restore`` in the
+    throwaway (``docker exec``, as :meth:`Throwaway.restore_cmd`), with the dump it names from the unpack folder as
+    input. Returns the container's output."""
+    import threading
+
+    got: dict[str, str] = {}
+
+    def read(name: str, stream: IO[str] | None) -> None:
+        got[name] = stream.read() if stream is not None else ""
+
+    readers = [threading.Thread(target=read, args=(n, s), daemon=True) for n, s in (("out", p.stdout),
+                                                                                   ("err", p.stderr))]  # fmt: skip
+    for t in readers:
+        t.start()
+    while True:
+        running = p.poll() is None
+        for req in sorted(queue.glob("*.req")):
+            done = req.with_suffix(".done")
+            if not done.exists():
+                rc, why = _restore_here(req, srv, unpacked)
+                tmp = req.with_suffix(".tmp")
+                tmp.write_text(json.dumps({"rc": rc, "err": why}), encoding="utf-8")
+                tmp.replace(done)
+        if not running:
+            break
+        time.sleep(0.05)
+    for t in readers:
+        t.join(timeout=60)
+    return got.get("out", ""), got.get("err", "")
+
+
+def _restore_here(req: Path, srv: Throwaway, unpacked: Path) -> tuple[int, str]:
+    """One restore the container asked for: only restore's own flags into a scratch database on the throwaway's
+    socket, from a dump in the unpack folder; anything else is refused."""
+    try:
+        ask = json.loads(req.read_text(encoding="utf-8"))
+        args, dump = [str(a) for a in ask["args"]], Path(os.path.realpath(str(ask["dump"])))
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        return 2, f"refused: an unreadable restore request ({e})"
+    conn = dict(x.split("=", 1) for x in (args[-1].split() if args else []) if "=" in x)
+    ok = (len(args) == len(RESTORE_FLAGS) + 2 and args[: len(RESTORE_FLAGS)] == RESTORE_FLAGS
+          and args[-2] == "--dbname" and conn.get("host") == str(srv.sock)
+          and str(conn.get("dbname", "")).startswith(f"{SCRATCH_PREFIX}{srv.drill_id}_")
+          and dump.is_relative_to(Path(os.path.realpath(unpacked))) and dump.is_file())  # fmt: skip
+    if not ok:
+        return 2, "refused: a restore that is not the drill's own (its flags, its scratch database, its dump)"
+    with dump.open("rb") as fh:
+        r = subprocess.run([*shlex.split(srv.restore_cmd()), *args], stdin=fh, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.PIPE, check=False)  # fmt: skip
+    return r.returncode, r.stderr.decode(errors="replace")[-2000:]
+
+
+def relay(queue: Path, args: Sequence[str]) -> int:
+    """``TB_PG_RESTORE_CMD`` in the drill's container (no Docker there): ask the host to run ``pg_restore`` in the
+    throwaway with these flags and the dump this process reads (its stdin, a file of the unpack folder); wait for
+    its answer; its exit code and errors are this command's."""
+    dump = os.readlink("/proc/self/fd/0")
+    n = secrets.token_hex(6)
+    tmp, req, done = queue / f"{n}.tmp", queue / f"{n}.req", queue / f"{n}.done"
+    tmp.write_text(json.dumps({"args": list(args), "dump": dump}), encoding="utf-8")
+    tmp.replace(req)
+    while not done.exists():
+        time.sleep(0.05)
+    ans = json.loads(done.read_text(encoding="utf-8"))
+    sys.stderr.write(str(ans.get("err") or ""))
+    return int(ans["rc"])
+
+
+def inner(spec: Mapping[str, str], environ: Mapping[str, str]) -> dict[str, Any]:
+    """The drill's container: unpack the backup, restore each database into a scratch database of the throwaway (the
+    restore relayed to the host), compare, drop the scratch databases. Returns what the host's result takes."""
+    from psycopg.conninfo import make_conninfo
+
+    from tools.trialbox import backup as bk
+
+    res: dict[str, Any] = {"ok": False, "databases": {}}
+    made: list[str] = []
+    admin = make_conninfo("", host=spec["sock"], port="5432", user="postgres", dbname="postgres")
+    relay_cmd = shlex.join([sys.executable, "-m", "tools.trialbox.restore_drill", "--relay", spec["queue"]])
+    denv = {**environ, "TB_PG_RESTORE_CMD": relay_cmd}
+    try:
+        srcs = {s.name: s for s in bk.db_sources(environ)}
+        manifest = bk.unpack(Path(spec["file"]), Path(spec["key"]), Path(spec["unpacked"]), lake_from_restic=False)
+        _restore_all(manifest, srcs, admin, lambda db: f"{spec['prefix']}{db}", Path(spec["unpacked"]), denv, res,
+                     made)  # fmt: skip
+    except (bk.BackupError, DrillError, OSError) as e:
+        res["error"] = str(e)[-400:]
+    except Exception as e:  # a database that refused (psycopg), a damaged dump: a failed drill, said
+        res["error"] = f"{type(e).__name__}: {str(e)[-400:]}"
+    finally:
+        res["scratch_dropped"], res["scratch_left"] = [], []
+        for n in made:
+            try:
+                _drop(admin, n)
+                res["scratch_dropped"].append(n)
+            except Exception:  # removed with the throwaway by the host
+                res["scratch_left"].append(n)
+    return res
+
+
+def _clean(
+    srv: Throwaway,
+    made: list[str],
+    unpacked: Path,
+    res: dict[str, Any],
+    rec_file: Path,
+    dropped_inside: Sequence[str] = (),
+    left_inside: Sequence[str] = (),
+) -> None:
     """Drop the scratch databases, remove the throwaway and its folders and the unpacked files; the result names only
     what was made, and what could not be removed is said (and its record kept, for the next drill's sweep)."""
     blocked = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})  # a SIGTERM now waits for the clean-up
     try:
-        _clean_up(srv, made, unpacked, res, rec_file)
+        _clean_up(srv, made, unpacked, res, rec_file, dropped_inside, left_inside)
     finally:
         signal.pthread_sigmask(signal.SIG_SETMASK, blocked)
 
 
-def _clean_up(srv: Throwaway, made: list[str], unpacked: Path, res: dict[str, Any], rec_file: Path) -> None:
-    dropped: list[str] = []
-    gone_with_server: list[str] = []
+def _clean_up(
+    srv: Throwaway,
+    made: list[str],
+    unpacked: Path,
+    res: dict[str, Any],
+    rec_file: Path,
+    dropped_inside: Sequence[str] = (),
+    left_inside: Sequence[str] = (),
+) -> None:
+    dropped: list[str] = list(dropped_inside)  # H-88: what the drill's container dropped itself, and could not
+    gone_with_server: list[str] = list(left_inside)
     for n in made:
         try:
             _drop(srv.admin_dsn, n)
@@ -602,4 +863,61 @@ def record(deploy: Path, res: Mapping[str, Any], env: Mapping[str, str], dirs: M
     metrics.record_drill(deploy, res)
     detail = {k: res.get(k) for k in ("ok", "at", "file", "created_at", "files", "databases", "error", "drill")}
     actor = {**env, "TB_RESTORE_ACTOR": env.get("TB_RESTORE_ACTOR") or "trialbox restore-drill"}
-    return bk._audit(dirs, actor, EVENT, str(res.get("sha256") or ""), detail)
+    if _launch.has_libs(LIBS):
+        from tools.trialbox import backup as bk
+
+        return bk._audit(dirs, actor, EVENT, str(res.get("sha256") or ""), detail)
+    return _audit_here(dirs, actor, str(res.get("sha256") or ""), detail)
+
+
+#: H-88: ``backup.layout``'s audit folder and ``backup._audit``, for the host's python3 (backup.py imports zstandard
+#: and cryptography); ``test_the_host_record_finds_the_audit_folder_as_backup_does`` holds them to backup.py's
+AUDIT_VOLUME = "/var/lib/docker/volumes/trialbox_audit-data/_data"
+
+
+def audit_layout(env: Mapping[str, str], given: Sequence[str] = ()) -> dict[str, Path]:
+    pairs = list(given) or [p for p in (env.get("TB_BACKUP_DIRS") or "").split(",") if p.strip()]
+    if pairs:
+        out = {}
+        for p in pairs:
+            name, _, path = p.strip().partition("=")
+            if not name or not path:
+                raise DrillError(f"bad directory {p!r}: use name=path")
+            out[name] = Path(path)
+        return {k: v for k, v in out.items() if k == "audit"}
+    return {"audit": Path(AUDIT_VOLUME)}
+
+
+def _audit_here(dirs: Mapping[str, Path], env: Mapping[str, str], sha: str, detail: dict[str, Any]) -> str:
+    where = dirs.get("audit") or (Path(env["TB_AUDIT_DIR"]) if env.get("TB_AUDIT_DIR") else None)
+    if where is None:
+        return "not written: no audit directory in the layout (or TB_AUDIT_DIR)"
+    from tb_common.audit import AuditLog
+
+    log = AuditLog(Path(where), tz=env["TB_TZ"]) if env.get("TB_TZ") else AuditLog(Path(where))
+    log.append(EVENT, actor=env.get("TB_RESTORE_ACTOR") or "trialbox restore", input_sha=sha, detail=detail)
+    folder = Path(where)
+    if os.geteuid() == 0 and folder.is_dir():  # D-724: what root wrote there is given to the folder's owner
+        st = folder.stat()
+        if st.st_uid != 0:
+            for p in folder.rglob("*"):
+                if not p.is_symlink() and p.lstat().st_uid == 0:
+                    os.chown(p, st.st_uid, st.st_gid, follow_symlinks=False)
+    return str(where)
+
+
+def main(argv: Sequence[str]) -> int:
+    """``python -m tools.trialbox.restore_drill --inner SPEC`` (the drill's container) or ``--relay QUEUE ARGS``
+    (its TB_PG_RESTORE_CMD)."""
+    if argv[:1] == ["--relay"] and len(argv) >= 2:
+        return relay(Path(argv[1]), argv[2:])
+    if argv[:1] == ["--inner"] and len(argv) == 2:
+        spec = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
+        print(json.dumps(inner(spec, os.environ)))
+        return 0
+    print("usage: python -m tools.trialbox.restore_drill --inner SPEC | --relay QUEUE ARGS", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

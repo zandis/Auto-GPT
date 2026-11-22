@@ -504,20 +504,28 @@ def _secrets_cmd(a: argparse.Namespace) -> int:
 def _drill_cmd(a: argparse.Namespace) -> int:
     """T-730d (D-892): the restore drill, printed as JSON; exit 0 on a pass, 1 on a fail, 2 when nothing started,
     130 when interrupted (Ctrl-C, SIGTERM) after its clean-up."""
-    from tools.trialbox import backup as bk
+    from tools.trialbox import launch
     from tools.trialbox import restore_drill as rd
 
+    here = launch.has_libs(rd.LIBS)  # H-88: else the drill's restore runs in the box's Python image
+    if here:
+        from tools.trialbox import backup as bk
+
+        errors: tuple[type[Exception], ...] = (rd.DrillError, bk.BackupError, OSError)
+    else:
+        errors = (rd.DrillError, OSError)
     try:  # H-84: the drill's records, for the next drill's sweep, beside the key-check record
         res = rd.drill(a.file, a.key, os.environ, work=a.work, db_dir=a.db_dir,
                        state=a.deploy / "site" / "restore-drill")  # fmt: skip
-    except (rd.DrillError, bk.BackupError, OSError) as e:
+        dirs = bk.layout(os.environ, a.dir) if here else rd.audit_layout(os.environ, a.dir)
+    except errors as e:
         print(f"restore-drill: {e}", file=sys.stderr)
         return 2
     except (KeyboardInterrupt, rd.SigtermError):
         print("restore-drill: interrupted; the throwaway server and the unpacked files were removed (what could not "
               "be is removed by the next drill)", file=sys.stderr)  # fmt: skip
         return 130
-    res["audit"] = rd.record(a.deploy, res, os.environ, bk.layout(os.environ, a.dir))
+    res["audit"] = rd.record(a.deploy, res, os.environ, dirs)
     print(json.dumps(res, indent=1, ensure_ascii=False))
     if not res["ok"]:
         print(f"restore-drill: FAILED: {res.get('error')}", file=sys.stderr)
@@ -665,4 +673,7 @@ def _backup_cmd(a: argparse.Namespace) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from tools.trialbox import launch  # H-88: its own import path, the box's settings, the box image when needed
+
+    _code = launch.enter(sys.argv[1:])
+    raise SystemExit(main() if _code is None else _code)
