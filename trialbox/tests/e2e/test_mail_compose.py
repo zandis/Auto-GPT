@@ -304,19 +304,29 @@ def test_cohort_and_alliance_merge(tmp_path: Path) -> None:
     )
     box_b.orch.drain()
     share = next(s for s in box_b.sent if s.subject.startswith("COHORT MERGE"))
-    ((name, data),) = share.attachments().items()
+    shared = share.attachments()
+    # D-1226: the share is the table and its signature file; the table is taken by its name
+    name, data = next((k, v) for k, v in shared.items() if k.endswith(".csv"))
+    sig_name, sig = next((k, v) for k, v in shared.items() if k.endswith(".sig.json"))
+
+    def remail(tag: str, files: list[tuple[str, bytes]]) -> dict[str, object]:
+        """B's share as the root receives it, with ``files`` attached; the root's COHORT job for it."""
+        m = EmailMessage()
+        m["From"] = "trialbox@hospb.test"
+        m["To"] = "trialbox@hospa.test"
+        m["Subject"] = f"COHORT MERGE -- {tag}"
+        m["Message-ID"] = make_msgid(domain="hospb.test")
+        m["Authentication-Results"] = "mx.hospa.test; spf=pass smtp.mailfrom=hospb.test; dkim=pass header.d=hospb.test"
+        m.set_content(share.text())
+        for fname, fdata in files:
+            sub = "csv" if fname.endswith(".csv") else "json"
+            m.add_attachment(fdata, maintype="text" if sub == "csv" else "application", subtype=sub, filename=fname)
+        with smtplib.SMTP("127.0.0.1", host_port("SMTP"), timeout=30) as s:
+            s.send_message(m)
+        return _job_by_tag("COHORT", tag)
+
     tag2 = f"merge-{os.getpid()}"
-    m = EmailMessage()
-    m["From"] = "trialbox@hospb.test"
-    m["To"] = "trialbox@hospa.test"
-    m["Subject"] = f"COHORT MERGE -- {tag2}"
-    m["Message-ID"] = make_msgid(domain="hospb.test")
-    m["Authentication-Results"] = "mx.hospa.test; spf=pass smtp.mailfrom=hospb.test; dkim=pass header.d=hospb.test"
-    m.set_content(share.text())
-    m.add_attachment(data, maintype="text", subtype="csv", filename=name)
-    with smtplib.SMTP("127.0.0.1", host_port("SMTP"), timeout=30) as s:
-        s.send_message(m)
-    merge = _job_by_tag("COHORT", tag2)
+    merge = remail(tag2, [(name, data), (sig_name, sig)])
     out = wait_for(lambda x: is_job_mail(str(x["Subject"]), "done", str(merge["job_id"])) and bool(attachments(x)), 600)
     assert "trialbox@hospb.test" in str(out["To"])
     merged_csv = next(iter(attachments(out).values()))
@@ -325,3 +335,11 @@ def test_cohort_and_alliance_merge(tmp_path: Path) -> None:
     pop = {r["site_id"]: r for r in merged if r["criterion_id"] == "GOUT-COH-INC-01" and r["quarter"] == "2026Q3"}
     assert set(pop) == {"DEMO-A", "DEMO-B", "ALLIANCE"}
     assert int(pop["ALLIANCE"]["n"]) == int(pop["DEMO-A"]["n"]) + int(pop["DEMO-B"]["n"])
+    # the same table without its signature file is refused (D-1226), and the root makes no merged table of it
+    unsigned = remail(f"merge-unsigned-{os.getpid()}", [(name, data)])
+    final = final_job(unsigned["job_id"], 600)
+    assert final["state"] == "failed", final
+    assert "is not signed" in str((final.get("error") or {}).get("message")), final
+    jid = str(unsigned["job_id"])
+    about = [x for x in outbox() if any(is_job_mail(str(x["Subject"]), k, jid) for k in ("received", "done", "failed"))]
+    assert not [k for x in about for k in attachments(x) if k.startswith("cohort_merged_")]
