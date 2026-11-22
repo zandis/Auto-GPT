@@ -236,8 +236,24 @@ if [ -f "$ROOT/deploy/site/hardening.conf" ] && grep -q '^KEK_BACKEND=passphrase
   export TB_KEK_PASSPHRASE
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets")}"
   TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$ROOT/deploy/site/hardening.conf" \
+    --record deploy/site/kek-backend \
     || die "the site keys could not be sealed (above)"
   unset TB_KEK_PASSPHRASE
+  # H-77 (F-22): the back end is the one seal_keys.sh recorded (deploy/site/kek-backend, kept when the wizard rewrites
+  # deploy/.env), copied as it is (never worked out here) to deploy/.env, where the host check reads it. Without a
+  # record: deploy/.env is left as it is. The same block is in install.sh and in
+  # box-install.sh's deferred seal; a test keeps the two identical
+  KEK_USED=""; [ -f deploy/site/kek-backend ] && KEK_USED="$(tr -d ' \r\t\n' < deploy/site/kek-backend)"
+  case "$KEK_USED" in
+    tpm|shamir|passphrase)
+      { [ -f deploy/.env ] && [ ! -L deploy/.env ]; } \
+        || die "deploy/.env is missing or a link: TB_KEK_BACKEND=$KEK_USED was not written (put the file back, then run this again)"
+      [ -z "$(tail -c 1 deploy/.env)" ] || echo >> deploy/.env  # a last line without its newline is not joined
+      { sed -i '/^[[:space:]]*\(export[[:space:]]\+\)\?TB_KEK_BACKEND=/d' deploy/.env \
+          && echo "TB_KEK_BACKEND=$KEK_USED" >> deploy/.env; } || die "deploy/.env: TB_KEK_BACKEND=$KEK_USED could not be written"
+      echo "    the KEK back end that sealed the keys: $KEK_USED (recorded by seal_keys.sh; deploy/.env TB_KEK_BACKEND)" ;;
+    *) echo "    note: no record of the KEK back end in deploy/site/kek-backend (above): deploy/.env not changed" >&2 ;;
+  esac
 fi
 TZ_NEW="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tz"])' "$FR/answers.json")"
 if [ -n "${TB_BOX_PY:-}" ]; then APPLY=(--firstrun "$FR" --hardware "$BOX/hardware.json" --deploy "$ROOT/deploy")

@@ -2,7 +2,7 @@
 # The site keys sealed at install (T-634, D-408, D-347; OPS-043). install.sh runs it right after the keys are made
 # and before the stack starts; safe to run again.
 #
-#   deploy/hardening/seal_keys.sh --secrets DIR [--conf deploy/site/hardening.conf] [--dry-run]
+#   deploy/hardening/seal_keys.sh --secrets DIR [--conf deploy/site/hardening.conf] [--record FILE] [--dry-run]
 #
 # A box with a KEK already (kek.json in the secrets folder): any key still plain is wrapped (tools.keys wrap), which
 # needs the KEK unsealed. A box without one: a KEK is made by KEK_BACKEND and every key is wrapped (tools.keys init):
@@ -20,11 +20,12 @@ set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 . "$HERE/lib.sh"
-CONF="$ROOT/deploy/site/hardening.conf"; SECRETS=""
+CONF="$ROOT/deploy/site/hardening.conf"; SECRETS=""; REC=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --secrets) SECRETS="$2"; shift ;;
     --conf) CONF="$2"; shift ;;
+    --record) REC="$2"; shift ;;
     --dry-run) DRY=1 ;;
     *) echo "seal_keys.sh: unknown option $1" >&2; exit 2 ;;
   esac
@@ -68,11 +69,29 @@ audit_key() {
     || hb_say "the audit signing key was not made (above): trialbox doctor names it; run this script again"
 }
 
+# H-77 (F-22): record WORD: --record FILE gets the back end the seal in place uses, the name only and owner only, whole
+# (a temp file, then renamed). install.sh copies it to deploy/.env (TB_KEK_BACKEND), where the host check reads it
+record() {
+  [ -n "$REC" ] || return 0
+  mkdir -p "$(dirname "$REC")"
+  ( umask 077; printf '%s\n' "$1" > "$REC.tmp" )
+  mv -f "$REC.tmp" "$REC"
+  hb_say "the KEK back end is recorded: $1 ($REC)"
+}
+
 if [ -f "$SECRETS/kek.json" ]; then
   hb_say "the KEK exists ($SECRETS/kek.json): wrapping any key still plain"
   [ "$DRY" = 1 ] && { hb_say "would run: tools.keys wrap"; exit 0; }
   keys wrap --secrets "$SECRETS"
   audit_key
+  # H-77: the record follows the seal in place as kek.json names it (after a rotate-kek, or a seal whose closing check
+  # failed once); kek.json's file back end is tpm's KEK (tools.keys init --backend file --kek-in, above)
+  WAS="$(sed -n 's/^ "backend": "\([a-z]*\)",\{0,1\}$/\1/p' "$SECRETS/kek.json")"
+  [ "$WAS" = file ] && WAS=tpm
+  case "$WAS" in
+    ""|*[!a-z]*) hb_say "kek.json names no back end: nothing recorded" ;;
+    *) record "$WAS" ;;
+  esac
   exit 0
 fi
 
@@ -139,3 +158,6 @@ if [ "${OWNER%%:*}" != 0 ] && [ "$(id -u)" = 0 ]; then
   find "$SECRETS" -maxdepth 1 -type f -user 0 -exec chown "$OWNER" {} +
   [ -f "$KEK_FILE" ] && chown "$OWNER" "$KEK_FILE" "$(dirname "$KEK_FILE")"
 fi
+# H-77 (F-22): the back end this run sealed with, recorded only now that every step above passed (a dry run and a failed
+# seal never get here: an earlier record stays as it was)
+record "$KEK_BACKEND"
