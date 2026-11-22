@@ -351,8 +351,7 @@ class RealAdmin(Admin):
             return self.compose("exec", "-T", "db", "sh", "-c",
                                 'exec mariadb -N -uredcap -p"$MARIADB_PASSWORD" redcap', stdin=statement)  # fmt: skip
         except RuntimeError as exc:  # the statement REDCap's tables did not take, without a token in it
-            first = " ".join(statement.split())[:160]
-            raise RuntimeError(scrub(f"{exc}\nthe statement began: {first}")) from None
+            raise RuntimeError(scrub(str(exc))) from None
 
     def up(self, zip_file: Path) -> dict[str, Any]:
         info = inspect_zip(zip_file)
