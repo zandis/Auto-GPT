@@ -208,9 +208,9 @@ class CascadeConfig:
     stored: Any = None
     # D-103 (SCREEN runs the cascade): the population is given by the caller instead of POP_SQL (the practitioner /
     # appointment scope of a screening run); a note ``fail`` is soft (review, never exclusion) when ``note_block`` is
-    # False (D-95/D-97 single-model fallback); zero-hit pairs below the S2b threshold go to the judge instead of
-    # taking absence semantics when ``absence_semantics`` is False (screening spends the tokens, feasibility saves
-    # them).
+    # False (D-95/D-97 single-model fallback), and an inclusion's always (R22-17); zero-hit pairs below the S2b
+    # threshold go to the judge instead of taking absence semantics when ``absence_semantics`` is False (screening
+    # spends the tokens, feasibility saves them).
     population: Sequence[str] | None = None
     note_block: bool = True
     absence_semantics: bool = True
@@ -1234,6 +1234,18 @@ class _Run:
             # The rule is the pair's (``tb_common.pair``), which every path reads (R22-16)
             why = INFERRED_REASON
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
+        if c.kind == "inclusion":
+            # R22-17 (the owner's ruling of 2026-11-22): an inclusion "not met" from the notes (this outcome of a
+            # note stage; ``matching.decision.is_note_answer`` on the rows) is never a hard fail, whatever the
+            # policy: the patient stays in the cascade, the other criteria are judged, and the tier is review
+            return Outcome(
+                c.id,
+                "fail",
+                stage,
+                hard=False,
+                evidence=[*ev, meta],
+                reason="not_met (from the notes, an inclusion: review, not exclusion)",
+            )
         if not self.cfg.note_block:  # D-97: a single model may send a patient to review, never out
             return Outcome(
                 c.id,
