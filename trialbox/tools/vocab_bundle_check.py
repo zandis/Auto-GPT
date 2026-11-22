@@ -19,10 +19,12 @@ or an NDJSON line that does not parse, and anything it **cannot check**: a datab
 table with no vocabulary or system column. Model weights, fonts and images in a models folder are listed as not
 terminology.
 
-**Measured files** (card H-90). In a models folder, a file of ``embedder/`` that the registry's measured record for the
-embedder lists (``expected.source`` of its row in ``models/registry.yaml``, a ``deploy/measured/`` file) is checked by
-its sha256, not by its extension: binary content there passes, as a note, only when it hashes to the record's sha256
-for that path; with another hash it is refused. A binary file the record does not list is refused as before.
+**Measured files** (card H-90). In a models folder, every file a measured record lists is checked by its sha256 and
+by nothing else: it passes, as a note and unread, only when it hashes to a sha256 recorded for that path; with another
+hash it is refused, whatever its kind (weights, text or binary). The records are those that the registry rows of the
+deployed pairs and of the embedder name as ``expected.source`` (``deploy/measured/``), each server's files keyed by the
+folder its build is mounted from by default (``tools.pin_model``: ``PROFILE_PAIRS`` and ``EMBED_PIN``). A file no
+record lists goes through the vocabulary check as before; an unlisted binary of no known kind is refused.
 
 **By label only.** The check reads the vocabulary labels and system URIs the artefacts carry. A row relabelled, or a
 concept id with no label, passes; looking concept ids up in the site's own download is card 22-4b, not done here.
@@ -53,6 +55,7 @@ import gzip
 import hashlib
 import io
 import json
+import os
 import re
 import sys
 import tarfile
@@ -97,8 +100,6 @@ NOT_TERMINOLOGY = (
     ".safetensors", ".gguf", ".bin", ".pt", ".pth", ".onnx", ".msgpack", ".h5", ".ttf", ".otf", ".woff", ".woff2",
     ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp",
 )  # fmt: skip
-# card H-90: the models folder's subfolder whose files the embedder's measured record lists
-MEASURED_FOLDER = "embedder"
 ENCODINGS = ("utf-8", "cp932")  # the JP masters' sample files are Shift-JIS (cp932)
 NESTED_LIMIT = 6
 
@@ -140,34 +141,53 @@ TEXT_KEY = re.compile(r"name|display|description|definition|title|synonym|design
 @dataclass(frozen=True)
 class Rules:
     """The must-not-ship names (folded) -> (vocabulary, register row); the URIs and OIDs searched for in text; the
-    exception rows (id, path patterns); the measured files (``embedder/<path>`` -> sha256, card H-90)."""
+    exception rows (id, path patterns); the measured files (``<folder>/<path>`` -> recorded sha256s, card H-90)."""
 
     names: dict[str, tuple[str, str]]
     needles: dict[str, tuple[str, str]]
     exceptions: tuple[ExceptionRow, ...] = ()
-    measured: dict[str, str] = field(default_factory=dict)
+    measured: dict[str, frozenset[str]] = field(default_factory=dict)
 
 
-def measured_files(root: Path = ROOT) -> dict[str, str]:
-    """Card H-90: ``embedder/<path>`` -> sha256 of every file the embedder's measured record lists (the record its
-    registry row names as ``expected.source``); none when the row or the record is absent."""
-    from tools.pin_model import EMBED_BUILD
+def measured_files(root: Path = ROOT) -> dict[str, frozenset[str]]:
+    """Card H-90: ``<folder>/<path>`` -> the sha256s recorded for it, for every file a measured record lists. A build
+    of a deployed pair (``PROFILE_PAIRS``, every profile) or the embedder (``EMBED_PIN``) whose registry row names a
+    record as ``expected.source`` gives that record's server of the row's source (as ``tools.fetch_weights`` reads
+    it), keyed by the build's default folder, when the server's files give the row's ``expected.manifest_sha256``. A
+    row without a record, or whose record is not its expected manifest, gives nothing. The registry is the one
+    ``tools.release`` reads (``TB_RELEASE_REGISTRY``: the unit tests' synthetic registry only)."""
+    from tools.pin_model import EMBED_PIN, PROFILE_PAIRS, manifest_sha256_of_files
 
-    reg_path = root / "models" / "registry.yaml"
+    reg_path = Path(os.environ.get("TB_RELEASE_REGISTRY") or root / "models" / "registry.yaml")
     if not reg_path.is_file():
         return {}
-    reg = yaml.safe_load(reg_path.read_text(encoding="utf-8")) or {}
-    row: dict[str, Any] = next((b for b in reg.get("builds") or [] if b.get("build_id") == EMBED_BUILD), {})
-    source = (row.get("expected") or {}).get("source")
-    if not source or not (root / source).is_file():
-        return {}
-    record = json.loads((root / source).read_text(encoding="utf-8"))
-    return {f"{MEASURED_FOLDER}/{f['path']}": str(f["sha256"]).lower()
-            for s in record.get("servers") or [] for f in s.get("model_files") or []}  # fmt: skip
+    rows = {
+        str(b.get("build_id")): b
+        for b in (yaml.safe_load(reg_path.read_text(encoding="utf-8")) or {}).get("builds") or []
+    }
+    out: dict[str, set[str]] = {}
+    for build, _endpoint, _var, folder, *_ in [*(t for pairs in PROFILE_PAIRS.values() for t in pairs), EMBED_PIN]:
+        row = rows.get(build) or {}
+        source, want = (row.get("expected") or {}).get("source"), (row.get("expected") or {}).get("manifest_sha256")
+        if not (source and want) or not (root / str(source)).is_file():
+            continue
+        model = str((row.get("provenance") or {}).get("source") or row.get("repository") or "")
+        record = json.loads((root / str(source)).read_text(encoding="utf-8"))
+        for server in record.get("servers") or []:
+            if server.get("model") != model or manifest_sha256_of_files(server.get("model_files") or []) != want:
+                continue
+            for f in server.get("model_files") or []:
+                out.setdefault(f"{folder.rstrip('/')}/{f['path']}", set()).add(str(f["sha256"]).lower())
+    return {k: frozenset(v) for k, v in out.items()}
 
 
-def _sha256(blob: bytes) -> str:
-    return hashlib.sha256(blob).hexdigest()
+def _sha256(path: Path) -> str:
+    """A file's sha256, read in chunks (a listed weights file is gigabytes)."""
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def rules(register: Path = REGISTER) -> Rules:
@@ -244,7 +264,10 @@ class Checker:
             self.report.problems.append(f"{p}: no artefact to check")
         for f in files:
             rel = f.relative_to(p).as_posix() if mode == "models" and p.is_dir() else None
-            self.data(str(f), f.read_bytes(), mode, 0, self._exception(f), rel)
+            if rel is not None and rel in self.r.measured:
+                self._measured(f, rel)
+                continue
+            self.data(str(f), f.read_bytes(), mode, 0, self._exception(f))
 
     def _exception(self, f: Path) -> ExceptionRow | None:
         try:
@@ -262,15 +285,7 @@ class Checker:
             merged.owners.update(dict.fromkeys(e.excepts, e.row))
         return merged
 
-    def data(
-        self,
-        name: str,
-        blob: bytes,
-        mode: str,
-        depth: int,
-        exception: ExceptionRow | None = None,
-        rel: str | None = None,
-    ) -> None:
+    def data(self, name: str, blob: bytes, mode: str, depth: int, exception: ExceptionRow | None = None) -> None:
         low = name.lower()
         if depth > NESTED_LIMIT:
             return self.cannot(name, "containers nested too deep")
@@ -297,7 +312,7 @@ class Checker:
         else:
             text = _decode(blob)
             if text is None:
-                return self._binary(name, blob, rel)
+                return self.cannot(name, "binary content of an unknown kind")
             if low.endswith(JSON_DOC):
                 self._json(name, text, hits)
             elif low.endswith(JSON_LINES):
@@ -382,17 +397,16 @@ class Checker:
                     ident = next((r[c] for c in ("concept_id", "code", "concept_code") if r.get(c)), None)
                     self._excepted(vocab, ident, r, exc, f"line {n}", allowed, out)
 
-    def _binary(self, name: str, blob: bytes, rel: str | None) -> None:
-        """Card H-90: binary content passes only as a file the embedder's measured record lists, by its sha256."""
-        want = self.r.measured.get(rel) if rel else None
-        if want is None:
-            return self.cannot(name, "binary content of an unknown kind")
-        got = _sha256(blob)
-        if got != want:
-            return self.cannot(name, f"binary content whose sha256 {got[:12]} differs from the measured record's "
-                                     f"{want[:12]} for {rel}")  # fmt: skip
-        self.report.notes.append(f"{name}: the measured record's file (sha256 {want[:12]}), not read")
-        return None
+    def _measured(self, f: Path, rel: str) -> None:
+        """Card H-90: a file a measured record lists passes only on a sha256 recorded for it, and is not read."""
+        self.report.artefacts += 1
+        want = self.r.measured[rel]
+        got = _sha256(f)
+        if got not in want:
+            self.cannot(str(f), f"its sha256 {got[:12]} is not the measured record's for {rel} "
+                                f"({', '.join(sorted(w[:12] for w in want))})")  # fmt: skip
+            return
+        self.report.notes.append(f"{f}: the measured record's file {rel} (sha256 {got[:12]}), not read")
 
     def cannot(self, name: str, why: str) -> None:
         self.report.problems.append(f"{name}: cannot be checked: {why}")
