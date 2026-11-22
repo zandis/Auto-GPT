@@ -79,7 +79,7 @@ def post_batches(base_url: str, resources: Iterable[dict[str, Any]], workers: in
         with httpx.Client(timeout=timeout) as client:
             resp = client.post(base_url.rstrip("/"), json=_bundle(batch), headers=headers)
             if resp.status_code >= 400:
-                raise RuntimeError(f"fhir-store transaction failed ({resp.status_code}): {resp.text[:500]}")
+                raise RuntimeError(f"fhir-store transaction failed ({resp.status_code})")
         return len(batch)
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -156,7 +156,7 @@ def delete_refs(base_url: str, refs: list[str], timeout: float = 600) -> int:
             chunk = refs[i : i + BATCH]
             resp = client.post(base_url.rstrip("/"), json=_delete_bundle(chunk), headers=headers)
             if resp.status_code >= 400:
-                raise RuntimeError(f"fhir-store delete failed ({resp.status_code}): {resp.text[:500]}")
+                raise RuntimeError(f"fhir-store delete failed ({resp.status_code})")
     return len(refs)
 
 
