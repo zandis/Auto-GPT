@@ -8,7 +8,7 @@ Findings for builders, so in one language.
 - **Date:** 2026-11-22
 - **Findings:** [`seal-records-its-back-end-h77-2026-11-22/findings.json`](seal-records-its-back-end-h77-2026-11-22/findings.json)
   (H77-01, H77-02)
-- **Tests:** `tests/unit/test_seal_records_its_back_end_h77.py` (27). The invariant:
+- **Tests:** `tests/unit/test_seal_records_its_back_end_h77.py` (31). The invariant:
   `test_seal_records_its_back_end_h77.py::test_install_copies_the_back_end_seal_keys_recorded`.
 
 ## PR body draft
@@ -33,8 +33,11 @@ own `kek.json` says `file`. The host check (`tools/trialbox/preflight.py`, `tpm_
   the script cannot tell an existing seal's back end (tpm's `kek.json` says `file`), so it records none.
 - `install.sh`, right after the seal, copies that word to `deploy/.env` as `TB_KEK_BACKEND` (already declared, D-836)
   and says it. It reads nothing else for it. Without a record, or with one that is not a back end's name, it says so
-  and leaves `deploy/.env` as it was. Where it does not seal (poc without a usable TPM, the box's deferred seal) it
-  writes nothing.
+  and leaves `deploy/.env` as it was. Where it does not seal (poc without a usable TPM) it writes nothing.
+- `box-install.sh`'s deferred seal (the owner's passphrase at the apply step) passes the same `--record` and copies
+  the word with the same block, byte for byte: the two scripts source no common file, and
+  `test_the_two_installers_copy_the_record_with_one_block` keeps the blocks identical. A failed deferred seal records
+  nothing.
 - No refusal was removed or softened; no existing test changed.
 
 ### The invariant
@@ -43,6 +46,8 @@ The back end `deploy/.env` names is the one the sealing step ran. The test plant
 and the environment another (tpm/passphrase both ways, and shamir from the conf alone), runs the installer's seal block
 as it stands with the real `seal_keys.sh`, and checks that the installer's line, `deploy/.env` and the record are the
 same word, and that the keys were sealed that way (the credential exists only for tpm; `kek.json` says that back end).
+`test_the_box_deferred_seal_copies_the_back_end_seal_keys_recorded` does the same through `box-install.sh`'s
+apply-step seal (hardening.conf passphrase, the environment tpm or nothing).
 
 ### Mutation pass
 
@@ -50,7 +55,9 @@ same word, and that the keys were sealed that way (the credential exists only fo
 seal, in a tpm and a passphrase dry run, on a re-run, on exit (failure too); the conf's word when the environment
 overrides it; mode 0644; written in place (no rename); the passphrase in it; `install.sh` taking `TB_KEK_BACKEND`,
 reading hardening.conf, defaulting to tpm without a record, taking any word, writing one on the poc path, preferring
-the environment over the record, `install.sh` not passing `--record`, `seal_keys.sh` ignoring it.
+the environment over the record, `install.sh` not passing `--record`, `seal_keys.sh` ignoring it. Then 8 for the box block, 8 caught: no `--record`,
+the conf's word, the environment's word, the copy before the seal, a default without a record, a copy after a failed
+seal, a drifted block in either script.
 
 ### Not verified
 
@@ -60,6 +67,7 @@ the environment over the record, `install.sh` not passing `--record`, `seal_keys
 ## Findings
 
 - **H77-01** (fixed): F-22, settled as above.
-- **H77-02** (open): the box's deferred seal (`TB_BOX_DEFER_SEAL=1`, `deploy/box-install.sh` apply step, T-729) runs
-  `seal_keys.sh` without `--record`, so nothing records the back end there and the host check on such a box still
-  reads hardening.conf or tpm. `box-install.sh` is outside this card.
+- **H77-02** (fixed, 710489fad127dfee822969b5b03b16db25b0916b): the box's deferred seal (`TB_BOX_DEFER_SEAL=1`, `deploy/box-install.sh` apply step,
+  T-729) ran `seal_keys.sh` without `--record`, so nothing recorded the back end there. It now passes the same
+  `--record deploy/site/kek-backend` and copies the word with the same block as `install.sh` (the integrator's ruling,
+  2026-11-22 11:43 UTC: the install is lane H's).
