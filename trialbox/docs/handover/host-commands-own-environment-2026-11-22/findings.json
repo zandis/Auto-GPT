@@ -3,37 +3,15 @@
  "title": "the host commands bring their own environment",
  "date": "2026-11-22",
  "source": "docs/handover/host-commands-own-environment-2026-11-22.md",
- "note": "lane H's card H-88 (high-risk); the bench's install walk, step 8, 2026-11-22",
+ "note": "lane H's card H-88 (high-risk); the bench's install walk, step 8, 2026-11-22; built on master's drill (#1305) by the integrator's ruling",
  "findings": [
-  {
-   "id": "H84-03",
-   "severity": "High",
-   "claim": "the restore drill typed with the host's python3 stops on a module the host lacks (zstandard, cryptography, psycopg): shown on the H-84 base by the sudo-typed bare test",
-   "lane": "H",
-   "basis": "shown",
-   "state": "fixed 3a7da014",
-   "place": "tools/trialbox/restore_drill.py",
-   "expected": "the drill runs as RUNBOOK 5 writes it",
-   "happened": "No module named 'zstandard'"
-  },
-  {
-   "id": "H84-04",
-   "severity": "Medium",
-   "claim": "sudo drops TB_DB_URL, so the restore drill refused at once; the tool now reads the box's deploy/.env",
-   "lane": "H",
-   "basis": "shown",
-   "state": "fixed 3a7da014",
-   "place": "tools/trialbox/launch.py",
-   "expected": "the drill finds the database names on the box",
-   "happened": "TB_DB_URL is not set"
-  },
   {
    "id": "H88-01",
    "severity": "High",
    "claim": "the scheduled backup run from cron's bare environment stops on No module named 'tb_common' (the bench's step 8)",
    "lane": "H",
    "basis": "shown",
-   "state": "fixed 3a7da014",
+   "state": "fixed a6e6adc2",
    "place": "deploy/backup/trialbox-backup.cron",
    "expected": "the 04:45 line writes a backup",
    "happened": "backup failed: ModuleNotFoundError: No module named 'tb_common'"
@@ -41,10 +19,10 @@
   {
    "id": "H88-02",
    "severity": "Medium",
-   "claim": "model status and omop-store need psycopg and mail needs the gateway's code: on the host's python3 each stopped on ModuleNotFoundError",
+   "claim": "model status and omop-store need psycopg and mail needs the gateway's code and pydantic: on the host's python3 each stopped on ModuleNotFoundError",
    "lane": "H",
    "basis": "shown",
-   "state": "fixed 3a7da014",
+   "state": "fixed a6e6adc2",
    "place": "tools/trialbox/launch.py",
    "expected": "each runs in the box image",
    "happened": "ModuleNotFoundError on the host"
