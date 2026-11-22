@@ -457,9 +457,17 @@ class Scrubber:
             if plain == line:
                 continue
             clean = self._rules(plain)
-            if clean != plain:
-                lines[k] = clean
-                self.found["decoded line"] += 1
+            if clean == plain:
+                continue
+            # H-76: the line keeps its own (encoded) form when the raw rules mask, where it stands, everything the
+            # decoded view masks; otherwise (a raw rule would leave a fragment) it is written decoded and scrubbed
+            if len(line) <= 65536:
+                raw_view = _decode(self._rules(line))
+                gone = _removed(plain, clean)
+                if gone is not None and not any(_leaks(seg, raw_view) for seg in gone):
+                    continue
+            lines[k] = clean
+            self.found["decoded line"] += 1
         return "\n".join(lines)
 
     def text(self, text: str) -> str:
@@ -567,6 +575,29 @@ def _held(rx: re.Pattern[str], text: str, rules: Callable[[str], str]) -> str:
 
     text = rules(rx.sub(hold, text))
     return _PRIVATE.sub(lambda m: held[ord(m.group(0)) - 0xF0000], text) if held else text
+
+
+_MARK = re.compile(r"\[[^\[\]\n]{1,80}\]")
+
+
+def _removed(plain: str, clean: str) -> list[str] | None:
+    """The parts of ``plain`` that the scrub replaced in ``clean`` (every mask is a ``[...]`` marker): the text
+    between the literal pieces of ``clean``, found in order in ``plain``. None when they cannot be lined up."""
+    pieces = _MARK.split(clean)
+    if len(pieces) > 200:
+        return None
+    m = re.fullmatch("(.*?)".join(re.escape(x) for x in pieces), plain, re.S)
+    return None if m is None else list(m.groups())
+
+
+def _leaks(seg: str, text: str) -> bool:
+    """Whether ``text`` still holds ``seg`` or 8 of its characters in a row (any case)."""
+    seg, text = seg.strip().lower(), text.lower()
+    if len(seg) < 4:
+        return False
+    if len(seg) <= 8:
+        return seg in text
+    return any(seg[i : i + 8] in text for i in range(len(seg) - 7))
 
 
 def _decode(line: str) -> str:
