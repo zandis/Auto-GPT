@@ -60,10 +60,23 @@ THEIRS: dict[str, str] = {
 }  # fmt: skip
 
 
-def _found() -> Counter[tuple[str, str]]:
+#: R22-14 (G-5, R5): attributes of a caught error that are text, beyond ``.args`` (read by ``_uses_text_of``): a failed
+#: process's output and an HTTP error's body or detail. ``reason`` is a codec's fixed phrase in the one place that
+#: reads it (adapter/sources/ssmix2/hl7.py), so it is not here.
+_TEXT_ATTRS = {"stderr", "stdout", "output", "text", "detail"}
+
+
+def _takes_text(stmt: ast.stmt, name: str) -> bool:
+    if _uses_text_of(stmt, name):
+        return True
+    return any(isinstance(n, ast.Attribute) and n.attr in _TEXT_ATTRS and isinstance(n.value, ast.Name)
+               and n.value.id == name for n in ast.walk(stmt))  # fmt: skip
+
+
+def _found(root: Path = ROOT) -> Counter[tuple[str, str]]:
     """How many statements take a general error's text, by (file, the general errors caught)."""
     out: Counter[tuple[str, str]] = Counter()
-    for f in sorted(ROOT.rglob("*.py")):
+    for f in sorted(root.rglob("*.py")):
         tree = ast.parse(f.read_text(encoding="utf-8"))
         for h in (n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler) and n.name):
             caught = sorted(set(_caught(h)) & GENERAL)
@@ -72,9 +85,23 @@ def _found() -> Counter[tuple[str, str]]:
             assert h.name is not None
             for stmt in (n for b in h.body for n in ast.walk(b) if isinstance(n, ast.stmt)):
                 takes = isinstance(stmt, ast.Raise | ast.Return | ast.Assign | ast.AnnAssign | ast.AugAssign | ast.Expr)
-                if takes and not _is_log(stmt) and _uses_text_of(stmt, h.name):
-                    out[(str(f.relative_to(ROOT)), "/".join(caught))] += 1
+                if takes and not _is_log(stmt) and _takes_text(stmt, h.name):
+                    out[(str(f.relative_to(root)), "/".join(caught))] += 1
     return out
+
+
+def test_the_scan_sees_every_spelling(tmp_path: Path) -> None:
+    """R22-14 (G-5, R5): a failed process's output or an HTTP error's body put into an answer is the error's text."""
+    head = "def f():\n    try:\n        run()\n    except Exception as exc:\n"
+    takes = ["        return {'error': str(exc)}\n", "        return {'error': exc.stderr}\n",
+             "        raise Refused(exc.stdout) from exc\n", "        note = exc.output.decode()\n",
+             "        return {'error': exc.text}\n", "        answer = {'error': exc.detail}\n"]  # fmt: skip
+    leaves = ["        return {'error': type(exc).__name__}\n", "        log.warning('x %s', exc.stderr)\n"]
+    for i, body in enumerate(takes):
+        (tmp_path / f"t{i}.py").write_text(head + body, encoding="utf-8")
+    for i, body in enumerate(leaves):
+        (tmp_path / f"u{i}.py").write_text(head + body, encoding="utf-8")
+    assert sorted(f for f, _ in _found(tmp_path)) == [f"t{i}.py" for i in range(len(takes))]
 
 
 def test_a_general_errors_text_is_used_only_in_the_listed_places() -> None:

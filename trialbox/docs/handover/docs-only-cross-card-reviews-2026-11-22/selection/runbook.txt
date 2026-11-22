@@ -1,0 +1,24 @@
+# before
+tests/console/test_runbook_25_leaver.py
+tests/unit/test_answer_store.py
+tests/unit/test_authelia_only_hospital_ca.py
+tests/unit/test_ci_docs_only.py
+tests/unit/test_dgpu48_draft.py
+tests/unit/test_doclint.py
+tests/unit/test_install_refuses_unsafe_folders_10k4.py
+tests/unit/test_judged_pair_store.py
+tests/unit/test_operations_docs.py
+tests/unit/test_planted_faults_fast.py
+tests/unit/test_poc_real_embedder.py
+tests/unit/test_rehearsal_required_check.py
+tests/unit/test_runbook_12_certificate_renewal.py
+tests/unit/test_runbook_20_decommission.py
+tests/unit/test_runbook_22_moving_the_box.py
+tests/unit/test_runbook_23_lost_box.py
+tests/unit/test_runbook_install_commands.py
+tests/unit/test_runbook_readers.py
+# after
+tests/unit/test_ci_docs_only.py
+tests/unit/test_doclint.py
+tests/unit/test_operations_docs.py
+tests/unit/test_runbook_readers.py

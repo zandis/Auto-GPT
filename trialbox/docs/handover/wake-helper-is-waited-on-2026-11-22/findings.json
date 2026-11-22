@@ -1,0 +1,35 @@
+{
+ "card": "H86",
+ "title": "the 32 GB profile's wake helper is waited on, so up --wait reaches healthy",
+ "date": "2026-11-22",
+ "source": "docs/handover/wake-helper-is-waited-on-2026-11-22.md",
+ "findings": [
+  {
+   "id": "H86-01",
+   "severity": "High",
+   "claim": "the 32 GB profile never reached healthy: the last start-up helper judge-wake-init (restart no) was waited on by no service, so docker compose up --wait (install.sh, poc.sh, update, the boot unit) failed on its exit 0; fixed: model-guard waits on it with service_completed_successfully",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/docker-compose.rtx5090.yml (model-guard)"
+  },
+  {
+   "id": "H86-02",
+   "severity": "Medium",
+   "claim": "a docker compose up of the 32 GB stack while a screening run holds the card re-runs the swap chain (sleep judge, sleep verifier, wake judge) and puts the verifier to sleep under the run while the gateway believes it awake",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "deploy/docker-compose.rtx5090.yml, services/gateway/swap.py"
+  },
+  {
+   "id": "H86-03",
+   "severity": "Medium",
+   "claim": "on --gpu rtx4090 (--scale llm-verifier=0) model-swap-init waits for a verifier that is not there and fails after its 600 tries, so judge-wake-init never runs and the stack does not reach healthy",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "deploy/docker-compose.rtx5090.yml (model-swap-init), deploy/install.sh:791"
+  }
+ ]
+}

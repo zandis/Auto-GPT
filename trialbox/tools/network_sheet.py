@@ -548,7 +548,7 @@ def tables(files: list[str], env: dict[str, str] | None, lang: str, root: Path =
     data = load(files, root)
     nets = []
     for n, spec in sorted((data.get("networks") or {}).items()):
-        name = (spec or {}).get("name", n)
+        name = interpolate(str((spec or {}).get("name", n)))  # H-75: ${COMPOSE_PROJECT_NAME:-trialbox}-net: its default
         kind = "net_internal" if (spec or {}).get("internal") else "net_console" if n == "console-net" else "net_egress"
         nets.append((name, T[kind][lang]))
     return {"services": svcs, "ports": ports, "nets": nets, "out": outbound(env), "secrets": secrets_rows(svcs, lang),
