@@ -396,6 +396,13 @@
    "claim": "Core words differ from their own list in Japanese; a deviation sentence drops before; quotes carry no language attribute in 8 of 9 places; the printed user guide is English only",
    "lane": "K",
    "basis": "shown"
+  },
+  {
+   "id": "R22-57",
+   "severity": "Medium",
+   "claim": "A docs-only pull request that adds a page under docs/reviews/ runs two property tests that need the report fonts in the cross-card job, which fetches none: 277 errors on this page's own pull request (job 137168755036)",
+   "lane": "H",
+   "basis": "shown"
   }
  ]
 }
