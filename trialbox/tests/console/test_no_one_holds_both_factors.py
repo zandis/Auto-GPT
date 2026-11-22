@@ -456,3 +456,37 @@ def test_the_command_line_records_its_resets_and_holds_the_same_rule(tmp_path: P
     assert cli.main(["reset-totp", "crc"]) == 2 and cli.main(["enrol-code", "crc"]) == 2  # the other factor: no
     assert users.factor_held("crc", "totp") is not None  # and the pages see the command line's reset
     assert cli.main(["reset-password", "reader"]) == 0 and cli.main(["reset-totp", "reader"]) == 0  # aggregate
+
+
+@pytest.mark.parametrize("password_set", [True, False])
+def test_cli_enrol_code_reaches_the_once_only_handler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], password_set: bool
+) -> None:
+    from console import cli
+    from console.auth import random_password
+
+    from tests.console.test_identity import _code, _enrol
+
+    app, users, audit_dir, clock = _box(tmp_path, steward=False, TB_CONSOLE_MFA="totp")
+    monkeypatch.setenv("TB_AUDIT_DIR", str(audit_dir))
+    monkeypatch.setattr(cli, "UserStore", lambda: users)
+    name = next(u.username for u in users.users() if u.role == "admin")
+    if not password_set:
+        name = random_password(2)
+        users.open_by_code(name, "admin", None, "cli")
+    assert cli.main(["enrol-code", name]) == 0
+    printed = capsys.readouterr().out
+    code = re.search(r"valid 24 hours\): ([a-z0-9-]+)", printed)
+    assert code
+    if password_set:
+        assert _redeem(app, name, code[1], CRC_PW).status_code == 401
+        assert "/login" in printed.split() and "/login/totp" in printed
+        client, key = _enrol(app, clock, name, ADMIN_PW, code[1])
+        assert not users.check_enrol_code(name, code[1])
+        assert _password(client, name, ADMIN_PW).headers["location"] == "/login/totp"
+        _, csrf = _code_page(client)
+        assert _code(client, totp.totp(key, clock.unix()), csrf, code[1]).status_code == 401
+    else:
+        assert "/enrol" in printed
+        assert _redeem(app, name, code[1], CRC_PW).headers["location"] == "/login/totp"
+        assert _redeem(app, name, code[1], CRC_PW).status_code == 401
