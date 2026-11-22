@@ -16,8 +16,6 @@ harness that proves this test is ``tools/gate2_planted.py``.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable
-from functools import partial
 from pathlib import Path
 
 import pytest
@@ -25,18 +23,10 @@ import pytest
 from tests import gate2_kit as kit
 from tests import gate2_people as gp
 
-STORIES: dict[str, Callable[[], gp.Story]] = {
-    "one_night": gp.one_night_story,
-    "corrections": gp.corrections_story,
-    "conflict_birth": partial(gp.conflict_story, ("J", "K")),
-    "conflict_national": partial(gp.conflict_story, ("M", "N")),
-    "conflict_birth_later": partial(gp.conflict_story, ("J", "K"), later=True),
-    "conflict_national_later": partial(gp.conflict_story, ("M", "N"), later=True),
-}
-
-#: every road with every story its input can say (a road's ``cannot`` names the stories its source format has no way
-#: to write, and why), in every order
-CASES = [(r.name, s, o) for r in kit.ROADS for s in STORIES if s not in r.cannot for o in gp.ORDERS]
+STORIES = kit.STORIES
+#: the unit tier's cases (:data:`tests.gate2_kit.UNIT_CASES`): every order of the order-sensitive stories, the
+#: as-written order of the others; their other orders are the nightly's (``tests/perf/test_gate2_cross_path_nightly.py``)
+CASES = kit.UNIT_CASES
 
 
 @pytest.fixture(autouse=True)
@@ -54,11 +44,7 @@ def test_edc_is_drafted_in_one_order_of_every_road_and_story() -> None:
 
 @pytest.mark.parametrize(("road", "story", "order"), CASES)
 def test_cross_path(road: str, story: str, order: str, tmp_path: Path, db_url: str) -> None:
-    r = kit.ROAD[road]
-    # the EDC drafts read the lake, which every order's case judges; they are drafted (twice) in the as-written order
-    d = kit.drive(r, STORIES[story](), order, tmp_path, db_url, edc=order == "as_written")
-    assert d.kinds == set(r.kinds), f"{road} declares {r.kinds}; the product opened {sorted(d.kinds)}"
-    findings = kit.judge(d)
+    findings = kit.run_case(road, story, order, tmp_path, db_url)
     assert not findings, f"{road} / {story} / {order}: {len(findings)} findings\n" + kit.summary(findings)
 
 
@@ -119,7 +105,25 @@ def test_the_case_matrix_is_whole() -> None:
     cannot = {("ssmix2", s) for s in STORIES if s.startswith("conflict")}
     want = {(r.name, s, o) for r in kit.ROADS for s in STORIES for o in gp.ORDERS}
     want -= {(r, s, o) for r, s in cannot for o in gp.ORDERS}
-    assert set(CASES) == want and len(CASES) == len(want)
+    assert set(kit.ALL_CASES) == want and len(kit.ALL_CASES) == len(want)
+    # the split: order is where identity faults hide, so every story that corrects, merges, opts out or conflicts
+    # runs all three orders here; only the one-night story leaves two orders to the nightly
+    sensitive = {
+        "corrections",
+        "conflict_birth",
+        "conflict_national",
+        "conflict_birth_later",
+        "conflict_national_later",
+    }
+    assert sensitive == kit.ORDER_SENSITIVE and set(STORIES) == sensitive | {"one_night"}
+    unit = {c for c in want if c[1] in sensitive or c[2] == "as_written"}
+    nightly = {c for c in want if c[1] not in sensitive and c[2] != "as_written"}
+    assert set(CASES) == unit and len(CASES) == len(unit)
+    assert set(kit.NIGHTLY_CASES) == nightly and len(kit.NIGHTLY_CASES) == len(nightly)
+    assert {(r, s) for r, s, _ in nightly} == {(r, "one_night") for r in {c[0] for c in want}}
+    from tests.perf import test_gate2_cross_path_nightly as nightly_module
+
+    assert nightly_module.CASES == kit.NIGHTLY_CASES
     assert set(kit.STORES) == {"ndjson", "lake", "chunks", "answers", "omop", "omop_export", "edc"}
     assert set(kit.PATH_STORES) == {"ndjson", "lake", "chunks", "omop", "omop_export"}
 

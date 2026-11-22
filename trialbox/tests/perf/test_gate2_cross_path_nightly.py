@@ -1,4 +1,7 @@
-"""Gate 2's cross-path test, the bench's nightly version (review 2026-11-22 §3.5 step 6): hundreds of generated
+"""Gate 2's cross-path test, the bench's nightly part (review 2026-11-22 §3.5 step 6).
+
+The other two orders of the one-night story (:data:`tests.gate2_kit.NIGHTLY_CASES`: the unit tier runs it as
+written, and every order of the order-sensitive stories), and hundreds of generated
 synthetic people in generated collision groups (record numbers shared within and across two source systems, chart
 numbers written four ways), through every road, judged by the same invariants as the unit tier's
 ``tests/unit/test_gate2_cross_path.py``.
@@ -35,6 +38,16 @@ def _site(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TB_OMOP_DUAL_WRITE", "on")
     monkeypatch.setenv("TB_TZ", kit.TZ)
     monkeypatch.setenv("TB_SITE_ID", kit.SITE)
+
+
+#: the unit tier's cases left to the nightly (the self-check in tests/unit/test_gate2_cross_path.py asserts the split)
+CASES = kit.NIGHTLY_CASES
+
+
+@pytest.mark.parametrize(("road", "story", "order"), CASES)
+def test_cross_path_other_orders(road: str, story: str, order: str, tmp_path: Path, db_url: str) -> None:
+    findings = kit.run_case(road, story, order, tmp_path, db_url)
+    assert not findings, f"{road} / {story} / {order}: {len(findings)} findings\n" + kit.summary(findings)
 
 
 @pytest.mark.parametrize("order", gp.ORDERS)

@@ -911,6 +911,40 @@ def _drive(road: Road, story: gp.Story, order: str, root: Path, db_url: str, edc
     return d
 
 
+# ---------------------------------------------------------------------------------------------- the case matrix
+STORIES: dict[str, Callable[[], gp.Story]] = {
+    "one_night": gp.one_night_story,
+    "corrections": gp.corrections_story,
+    "conflict_birth": partial(gp.conflict_story, ("J", "K")),
+    "conflict_national": partial(gp.conflict_story, ("M", "N")),
+    "conflict_birth_later": partial(gp.conflict_story, ("J", "K"), later=True),
+    "conflict_national_later": partial(gp.conflict_story, ("M", "N"), later=True),
+}
+#: the stories whose outcome can turn on the order of rows (corrections and merges, the opt-out under an alias, the
+#: conflicts within a night and across nights): every order runs in the unit tier
+ORDER_SENSITIVE = frozenset(
+    {"corrections", "conflict_birth", "conflict_national", "conflict_birth_later", "conflict_national_later"}
+)
+#: every road with every story its input can say (a road's ``cannot`` names the stories its source format has no
+#: way to write, and why), in every order
+ALL_CASES = [(r.name, s, o) for r in ROADS for s in STORIES if s not in r.cannot for o in gp.ORDERS]
+UNIT_CASES = [c for c in ALL_CASES if c[1] in ORDER_SENSITIVE or c[2] == "as_written"]
+NIGHTLY_CASES = [c for c in ALL_CASES if c not in UNIT_CASES]
+
+
+def run_case(road: str, story: str, order: str, root: Path, db_url: str) -> list[str]:
+    """One case of the matrix: the story on the road in the order, replayed and rebuilt, judged. The EDC drafts
+    read the lake, which every order's case judges; they are drafted (twice) in the as-written order."""
+    r = ROAD[road]
+    d = drive(r, STORIES[story](), order, root, db_url, edc=order == "as_written")
+    observed = (
+        []
+        if d.kinds == set(r.kinds)
+        else [f"registry store=- person=-: {road} declares {sorted(r.kinds)}; the product opened {sorted(d.kinds)}"]
+    )
+    return observed + judge(d)
+
+
 # ---------------------------------------------------------------------------------------------- the judges
 def expected_for(story: gp.Story, store: str) -> Counter[tuple[str, str]]:
     """(person, type) -> how many rows ``store`` must hold after the last night. The opted-out people are left
