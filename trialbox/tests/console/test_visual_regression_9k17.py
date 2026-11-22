@@ -306,7 +306,7 @@ def test_h73_a_failed_capture_is_taken_again_a_bounded_number_of_times(
                 _png(png / f"{n}.png")
         return {"failed": failed, "small": {}}
 
-    monkeypatch.setattr(vr.subprocess, "run", fake_run)
+    monkeypatch.setattr("tools.visual_regression.subprocess.run", fake_run)
     monkeypatch.setattr(vr, "photograph", fake_photograph)
     m = vr.shoot(tmp_path, tmp_path / "out")
     assert calls == [["one", "two", "three"], ["two", "three"], ["three"]] and vr.CAPTURE_TRIES == 3
