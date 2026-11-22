@@ -717,13 +717,15 @@ def test_a_restore_the_drill_did_not_ask_for_is_refused(tmp_path: Path) -> None:
     unpacked = tmp_path / "u"
     (unpacked / "db").mkdir(parents=True)
     (unpacked / "db" / "trialbox_wf.dump").write_bytes(b"PGDMP")
+    (tmp_path / "outside.dump").write_bytes(b"PGDMP")
     srv = rd.Throwaway("cafe0123", "db:1", ["false"], tmp_path / "srv", tmp_path / "tbd")
     good = [*rd.RESTORE_FLAGS, "--dbname", f"host={srv.sock} port=5432 user=postgres dbname=tb_drill_cafe0123_x"]
     for args, dump in [
         ([*rd.RESTORE_FLAGS, "--dbname", f"host={srv.sock} port=5432 user=postgres dbname=trialbox_wf"], "db/trialbox_wf.dump"),
         ([*rd.RESTORE_FLAGS, "--dbname", "host=db port=5432 user=trialbox dbname=tb_drill_cafe0123_x"], "db/trialbox_wf.dump"),
         ([*rd.RESTORE_FLAGS[:-1], "-f", "/x", "--dbname", good[-1]], "db/trialbox_wf.dump"),
-        (good, "../../etc/passwd"),
+        ([*rd.RESTORE_FLAGS[:-1], "--create", "--dbname", good[-1]], "db/trialbox_wf.dump"),  # as long, not its flags
+        (good, "../outside.dump"),  # a file that is there, outside the unpack folder
     ]:  # fmt: skip
         req = tmp_path / "q.req"
         req.write_text(json.dumps({"args": args, "dump": str(unpacked / dump)}), encoding="utf-8")

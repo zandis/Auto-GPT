@@ -97,7 +97,8 @@ you may push to the hospital's git server.
 2. **Schedule.** `deploy/install.sh` installs it (D-274): as root in the install folder it runs `PYTHONPATH=libs python3 -m
    tools.trialbox backup-install --deploy deploy`, which writes `/etc/cron.d/trialbox-backup`, turns WAL archiving
    on when it can (below), and runs the first backup once the backup key is there (run the command again after
-   `backup-keygen`). In PRODUCTION it refuses without an **alert route**: `TB_BACKUP_ALERT_CMD` (a command that
+   `backup-keygen`). A cron file from before H-88 sets `PYTHONPATH`: `trialbox doctor` (`backup`) warns until the
+   command is run again (`--no-first-run` to skip the backup). In PRODUCTION it refuses without an **alert route**: `TB_BACKUP_ALERT_CMD` (a command that
    reads the message on stdin), or `TB_BACKUP_MAILTO` on a host with a mail transfer agent, or, on a box with no
    mail, `TB_BACKUP_ALERT_ROUTE=health-page`: the site's written choice that the red backup tile on the `/admin`
    health tab and the audit carry the alert (D-735). Then nobody is mailed: someone must open the health tab every
@@ -173,6 +174,9 @@ networks, roles, grants) is touched. All is removed at the end, after a failure 
 130 interrupted. The result (never the key or the password) is the key-check record and an audit event
 (`backup.restore_drill`): `backup_verified` turns red after `TB_HEALTH_VERIFIED_DAYS` (100) days, or on a failed
 drill, which also alerts. Run it at least every 90 days, after hardware changes and before go-live acceptance (§6).
+The drill's unpack, restore and comparison run in a one-off container of the box's own Python image (`TB_IMAGE`,
+never pulled, no network, only the backup, the key, its unpack folder and the throwaway's socket folder); the drill
+reads the database names from `deploy/.env` itself, so `sudo` needs nothing more (H-88).
 
 **Restore.** Bring three things: the backup file, the private key (hospital IT) and **the vendor reference data
 pack** the backup names. A backup holds no vendor pack rows (layout 2, above), so a restore onto a fresh box is not
