@@ -97,12 +97,13 @@ CTGOV_MODES = ("live", "offline", "cassette")
 
 def _alert_elsewhere(life: Mapping[str, Any] | None, rid: str) -> bool:
     """D-1258 (review, High 5): whether ``/week``'s serious-AE block (``life``) holds an alert that the week page of
-    study ``rid`` would not show: an unacknowledged serious AE or an overdue report of another study, or any SAE
-    register that could not be read."""
+    study ``rid`` would not show: an unacknowledged serious AE or an overdue report of another study, or another
+    study's SAE register that could not be read. (Study ``rid``'s own unreadable register is answered as before.)"""
     if not life:
         return False
     rows = [*(life.get("sae") or []), *(life.get("reports") or [])]
-    return bool(life.get("sae_failed")) or any(str(a.get("rs") or "") != rid for a in rows)
+    failed = [str(rs) for rs in life.get("sae_failed") or []]
+    return any(rs != rid for rs in failed) or any(str(a.get("rs") or "") != rid for a in rows)
 
 
 def ctgov_mode(environ: Mapping[str, str] | None = None) -> str:
@@ -840,8 +841,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         life = h.life_home(sess, only=saes, visits=(), saes=saes) if h.life_home else None
         # D-1258 (review, High 5): the single-study redirect never hides an SAE alert this page would show. The study's
         # week page shows its own unacknowledged SAEs and overdue reports (``life_sae``, ``life_reports``), so those
-        # of the study redirected to do not hold the page; another study's, or an SAE register that could not be read
-        # (the week page has no such notice), do
+        # of the study redirected to do not hold the page; another study's, or another study's SAE register that could
+        # not be read, do
         if len(mine) == 1 and not waiting and not _alert_elsewhere(life, mine[0].id):
             return RedirectResponse(f"/studies/{mine[0].id}/week", status_code=303)
         cohorts = [

@@ -6,7 +6,8 @@ AEs and overdue SAE reports of the studies whose SAE pages admit the account. Wi
 waiting, it redirects to that study's week page. D-1258 narrowed the list to the studies whose logs admit the account,
 so an investigator with one admitting screened study and a serious AE in an unscreened one was redirected away from
 that alert. Now the redirect is taken only when the alert block holds nothing but the target study's own SAEs and
-reports, which its week page shows (``life_sae``, ``life_reports``); a register that could not be read holds the page.
+reports, which its week page shows (``life_sae``, ``life_reports``); another study's register that could not be read
+holds the page too.
 
 The studies: A is TRA (screened), B is GZQO (where the fixtures enter a serious AE, not screened), C is TRC (screened,
 its log names others). For the target-study case, A is GZQO."""
@@ -15,8 +16,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi.testclient import TestClient
 from console.backend import RulesetInfo
+from fastapi.testclient import TestClient
 
 from tests.console.test_console_app import _done_screen, _ulid, box, login, name_pi, sub_investigator  # noqa: F401
 from tests.console.test_lifecycle_pages import PW, _save, lb  # noqa: F401
@@ -33,7 +34,7 @@ def _screen(lb: dict[str, Any], rs: str, n: int) -> None:
 
 def _sae_in_gzqo(lb: dict[str, Any]) -> str:
     """One enrolled GZQO participant with an unacknowledged serious AE (no reporting rule set: an overdue report)."""
-    no = lb["nos"][0]
+    no: str = lb["nos"][0]
     crc, csrf = login(lb["app"], "crc", PW)
     crc.post(f"/studies/{B}/forms/builtin", data={"csrf": csrf})
     crc.get(f"/studies/{B}/subjects")
@@ -108,16 +109,19 @@ def test_an_sae_the_account_may_not_read_neither_shows_nor_holds_the_redirect(lb
     assert no not in r.text and "Pneumonia 1258" not in r.text
 
 
-def test_an_sae_register_that_cannot_be_read_holds_the_week_page(lb: dict[str, Any]) -> None:
-    """Invariant: /week never hides an SAE alert the account may read (the target's week page has no "could not be
-    read" notice, so a failed register keeps the account on /week, where ``sae_failed`` is shown)."""
+def test_another_studys_sae_register_that_cannot_be_read_holds_the_week_page(lb: dict[str, Any]) -> None:
+    """Invariant: /week never hides an SAE alert the account may read (another study's register that could not be
+    read is shown on /week as ``sae_failed`` and is on no other page, so it keeps the account there; the redirect
+    target's own, which its week page does not show either, is answered as before)."""
     _no, c = _seed(lb, a="TRA", screened=("TRA", "TRC"), sae=False)
     h = lb["app"].state.helpers
     real = h.life_home
+    for failed_rs, want in ((B, 200), ("TRA", 303)):
 
-    def failed(*a: Any, **kw: Any) -> dict[str, Any]:
-        return {**real(*a, **kw), "sae_failed": ["TRA"]}
+        def failed(*a: Any, _rs: str = failed_rs, **kw: Any) -> dict[str, Any]:
+            return {**real(*a, **kw), "sae_failed": [_rs]}
 
-    h.life_home = failed
-    r = c["both"].get("/week", follow_redirects=False)
-    assert r.status_code == 200, (r.status_code, r.headers.get("location"))
+        h.life_home = failed
+        r = c["both"].get("/week", follow_redirects=False)
+        assert r.status_code == want, (failed_rs, r.status_code, r.headers.get("location"))
+    h.life_home = real
