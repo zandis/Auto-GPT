@@ -19,21 +19,43 @@ from __future__ import annotations
 import os
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 #: the gateway's refusals that are the model's fault (an outage, a restart, a queue), not the call's. Not among
 #: them, on purpose (review of T-689): ``upstream_failed``, which is the gateway's configuration fault (a 400 or 404
 #: of the model server: sending it again changes nothing) and its batch read timeout (the server may still be
 #: working on the call: D-445, T-608). ``upstream_down`` is a 5xx or a transport error after the gateway's own retry
 MODEL_FAULTS = frozenset({"model_busy", "model_unavailable", "model_asleep", "upstream_down"})
+#: walk step 5 (2026-11-22): the gateway's ``upstream_failed`` whose every upstream kind is ``timeout`` (D-728) is not
+#: a configuration fault: the call ran out of the gateway's time (its read limit or its call budget, the wait for a
+#: slot on a busy card included) while the server worked on it. Counted as the model's answer, it ended a screening
+#: night as "the model did not answer 34 of 84 note checks" with every server call HTTP 200. It is waited for and
+#: sent again within the job's allowance, as a busy model is, and it is a call fault (:data:`CALL_FAULTS`): a call
+#: that keeps timing out while the model answers the others fails on its own after :data:`CALL_STRIKES`. The rest of
+#: ``upstream_failed`` (a 400 or 404, a malformed answer, no kind) stays final, as the review of T-689 ruled.
+ANSWER_TIMEOUT = "answer_timeout"
 #: D-659: the model faults a call can cause itself while the same model answers the other calls: a 5xx this request
 #: provokes (``upstream_down``) or a connection it kills (the callers' ``unreachable``). Load and state refusals
 #: (busy, asleep, unavailable) are never the call's
-CALL_FAULTS = frozenset({"upstream_down", "unreachable"})
+CALL_FAULTS = frozenset({"upstream_down", "unreachable", ANSWER_TIMEOUT})
 #: how many such faults of one call in a row, each after the model answered another call since the call's previous
 #: fault, make it the call's own failure (about 30 s at the poll): a model coming back from a restart can refuse a
 #: healthy call a few times while it answers others, and a real outage answers nobody
 CALL_STRIKES = 6
+
+
+def refusal_fault(reason: str, upstream_kinds: Sequence[str] = ()) -> str | None:
+    """The fault a gateway refusal is for :func:`wait_and_retry`: its code when it is one of :data:`MODEL_FAULTS`,
+    :data:`ANSWER_TIMEOUT` for an ``upstream_failed`` whose upstream kinds are all ``timeout``, else None (final).
+    The one rule every caller of the gateway reads (the client of the services, the cascade's judge)."""
+    if reason in MODEL_FAULTS:
+        return reason
+    kinds = [str(k) for k in upstream_kinds]
+    if reason == "upstream_failed" and kinds and all(k == "timeout" for k in kinds):
+        return ANSWER_TIMEOUT
+    return None
+
+
 WAIT_S = 1800.0
 POLL_S = 5.0  # between two tries when the gateway named no Retry-After: its own value for a busy model
 ENV = "TB_LLM_OUTAGE_WAIT_S"
