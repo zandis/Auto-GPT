@@ -595,7 +595,7 @@ def test_a_passing_probe_of_this_card_and_host_is_allowed(tmp_path: Path, monkey
         ({"verdict": _verdict(env={"NVIDIA_DISABLE_REQUIRE": "1"})}, "is not its form's"),
         ({"verdict": _verdict(env={**ENV_OUT, "VLLM_ENABLE_CUDA_COMPATIBILITY": "0"})}, "is not its form's"),
         ({"tests": LIBS_PASS, "verdict": _verdict(use="pinned+libs", env={
-            "NVIDIA_DISABLE_REQUIRE": "1", "LD_LIBRARY_PATH": "/tmp/evil:/usr/local/cuda/compat"})}, "does not start with"),
+            "NVIDIA_DISABLE_REQUIRE": "1", "LD_LIBRARY_PATH": "/tmp/evil:/usr/local/cuda/compat"})}, "image's own library folders"),
         ({"images": {"pinned": {"ref": PIN, "verified_in_lock": True}}}, "digest matched"),  # M2: missing is refused
         ({"at": "2019-01-01T00:00:00+00:00"}, "older than 7 days"),
         ({"at": "yesterday"}, "older than 7 days"),
@@ -726,3 +726,85 @@ def test_the_console_banner_says_the_sentence() -> None:
     assert environment_banner({"TB_ENV": "VALIDATION", "TB_REHEARSAL": "1"}) == "VALIDATION REHEARSAL"
     assert environment_banner({**real, "TB_ENV": "PRODUCTION"}) == "PRODUCTION"
     assert environment_banner({"TB_ENV": "VALIDATION", "TB_REHEARSAL_REAL_SERVERS": "1"}) == "VALIDATION"
+
+
+# ------------------------------------------------------------------------------- the review's re-read (round 2): L1-L4
+def test_a_renamed_override_named_by_compose_file_is_refused_at_boot(tmp_path: Path) -> None:
+    """L1: no mark file, no record, no name in deploy/.env: only a file COMPOSE_FILE names carries the mark."""
+    deploy = _box(tmp_path, "TB_ENV=PRODUCTION\n", mark=False, record=False, override=True)
+    assert rehearsal_real.start_refusal(deploy, rehearsal_real.env_file(deploy / ".env"))
+    r = _guard(deploy)
+    assert r.returncode == 1 and "TrialBox REFUSED to start: this box carries a rehearsal sign" in r.stderr
+
+
+def test_a_compose_file_without_the_mark_is_no_sign_at_boot(tmp_path: Path) -> None:
+    deploy = tmp_path / "deploy"
+    (deploy / "site").mkdir(parents=True)
+    (tmp_path / "plain.yml").write_text("services: {}\n", encoding="utf-8")
+    (deploy / ".env").write_text(
+        f"TB_ENV=PRODUCTION\nCOMPOSE_FILE=/x/base.yml:{tmp_path / 'plain.yml'}\n", encoding="utf-8"
+    )
+    r = _guard(deploy, no_python=True)
+    assert (r.returncode, r.stdout, r.stderr) == (0, "", "")
+
+
+def test_a_probe_in_a_folder_others_may_write_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """L2: the folder too: anyone who may write it could swap the file."""
+    b = Bench(tmp_path)
+    b.probe.parent.chmod(0o777)
+    try:
+        assert any("its folder" in p and "writable by group or others" in p for p in _allow(b, monkeypatch))
+    finally:
+        b.probe.parent.chmod(0o755)
+
+
+def test_a_probe_given_as_a_link_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    b = Bench(tmp_path)
+    link = tmp_path / "link.json"
+    link.symlink_to(b.probe)
+    monkeypatch.setenv("PATH", b.env()["PATH"])
+    monkeypatch.setenv("TB_HOST_ROOT", str(b.hostroot))
+    problems = rehearsal_real.driver_allowance(link, "1", b.deploy)[0]
+    assert any("is a link" in p for p in problems)
+
+
+def test_the_probe_is_read_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    b = Bench(tmp_path)
+    opened: list[str] = []
+    real_open = os.open
+
+    def counting(path: Any, *a: Any, **k: Any) -> int:
+        if str(path) == str(b.probe):
+            opened.append(str(path))
+        return real_open(path, *a, **k)
+
+    assert _allow(b, monkeypatch) == []
+    monkeypatch.setattr(os, "open", counting)
+    opened.clear()
+    problems, rec = rehearsal_real.driver_allowance(b.probe, "1", b.deploy)
+    assert problems == [] and opened == [str(b.probe)]
+    assert rec["probe_sha256"] == hashlib.sha256(b.probe.read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize(
+    "lib",
+    ["/usr/local/cuda/compat:/models/x", "/usr/local/cuda/compat:/data/lib", "/usr/local/cuda/compat:/usr/lib/../../models",
+     "/usr/local/cuda/compat:/usr/lib/x\n"],
+)  # fmt: skip
+def test_after_the_compatibility_folder_only_the_images_own_folders(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lib: str
+) -> None:
+    """L3: never a mounted folder (the host's models folder is mounted at /models)."""
+    doc = probe_doc(
+        tests=LIBS_PASS,
+        verdict=_verdict(use="pinned+libs", env={"NVIDIA_DISABLE_REQUIRE": "1", "LD_LIBRARY_PATH": lib}),
+    )
+    assert any("image's own library folders" in p for p in _allow(Bench(tmp_path), monkeypatch, doc))
+
+
+def test_a_probe_without_a_host_id_is_refused_on_a_host_that_has_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L4 (the surviving mutant): the host has /etc/machine-id, the probe names no host."""
+    host = {k: v for k, v in probe_doc()["host"].items() if k != "host_id"}
+    assert any("another host" in p for p in _allow(Bench(tmp_path), monkeypatch, probe_doc(host=host)))

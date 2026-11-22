@@ -175,6 +175,21 @@ allowed, the libs path loosened; the card id, host id, digest, age, mode and own
 the banner's sentence cut; the deploy/.env sign ignored); 15 caught (one planted twice: its first form was malformed).
 The invariant was compared again with master 7dcba1be's own installer: identical in all nine cases.
 
+## Re-read (round 2): the four Lows, fixed
+
+* **L1:** the boot guard's sign test is the start check's: it also asks when any file COMPOSE_FILE names carries the
+  real servers' mark, wherever it lies (a renamed override with the mark file and the record removed is refused).
+* **L2:** the probe file is read once, never through a link (`O_NOFOLLOW`); it and its folder must be root's or the
+  installer's and not group- or world-writable; H-74's check reads a private copy of those bytes, and the recorded
+  digest is of the same bytes.
+* **L3:** after the compatibility folder, LD_LIBRARY_PATH may name only the image's own library folders (under
+  /usr/local/, /usr/lib/, /usr/lib64/, /lib/, /lib64/; never /models or another mounted folder; no `..`, no newline).
+* **L4:** a test that a probe without host_id is refused on a host that has a machine id.
+
+Mutants: 7 planted, 6 caught. The survivor adds an extra read of the probe file whose result is never used; it
+changes nothing that is trusted.
+The engine probe's compiled-op check accepts either name form of the pinned engine image's modules (accepted).
+
 ### Files outside the card (ruled: bodies only)
 
 `deploy/settings_guard.sh` (the boot guard), `services/console/app.py` (`environment_banner`, the sentence),

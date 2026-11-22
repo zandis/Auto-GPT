@@ -34,6 +34,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -55,7 +56,9 @@ UUID = re.compile(r"^GPU-[0-9A-Fa-f-]{8,}$")
 ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 UTC0 = timezone(timedelta(0))  # the host's own python3 (3.10 on Ubuntu 22.04) has no datetime.UTC
 PROBE_MAX_AGE = timedelta(days=7)  # the bench reloads its driver and probes right before the install
-LIB_DIR = re.compile(r"^/[A-Za-z0-9_.+/-]+$")
+LIB_DIR = re.compile(r"/[A-Za-z0-9_.+/-]+")  # fullmatch: no newline
+# after the compatibility folder, only the image's own library folders (never a mounted folder such as /models)
+IMAGE_LIB_ROOTS = ("/usr/local/", "/usr/lib/", "/usr/lib64/", "/lib/", "/lib64/")
 SIGNS_IN_ENV = ("TB_REHEARSAL", "TB_REHEARSAL_REAL_SERVERS")
 
 
@@ -128,28 +131,44 @@ def _form_env(form: str | None, env: dict[str, Any]) -> list[str]:
                         "refused, nothing else reaches the servers")  # fmt: skip
     if test["prefix"]:
         parts = (lib or "").split(":")
-        if not lib or parts[0] != engine_probe.COMPAT_DIR or not all(LIB_DIR.match(p) and ".." not in p for p in parts):
-            problems.append(f"the probe's LD_LIBRARY_PATH {lib!r} does not start with {engine_probe.COMPAT_DIR} as "
-                            "plain folders")  # fmt: skip
+        plain = all(LIB_DIR.fullmatch(p) and ".." not in p.split("/") for p in parts)
+        own = all(p.startswith(IMAGE_LIB_ROOTS) for p in parts[1:])
+        if not lib or parts[0] != engine_probe.COMPAT_DIR or not plain or not own:
+            problems.append(f"the probe's LD_LIBRARY_PATH {lib!r} is not {engine_probe.COMPAT_DIR} followed only "
+                            f"by the image's own library folders ({', '.join(IMAGE_LIB_ROOTS)})")  # fmt: skip
     return problems
 
 
-def _probe_problems(probe: Path, facts: dict[str, Any], now: datetime | None = None) -> list[str]:
-    """What H-74's check does not ask and a rehearsal install does (review M2): the file is root's or the installer's
-    and not writable by others; the probe ran on this card (its one-way id) on this host, against the pinned image's
-    matching digest, within PROBE_MAX_AGE."""
+def read_probe(probe: Path) -> tuple[list[str], bytes]:
+    """The probe file, read ONCE (never through a link), and why it may not be trusted: it and its folder are root's
+    or the installer's and writable by no one else (review round 2, L2). Every later check uses these bytes."""
+    problems: list[str] = []
     try:
-        st = probe.stat()
-        doc = json.loads(probe.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        return [f"the engine probe result {probe} cannot be read ({type(exc).__name__})"]
-    problems = []
-    if st.st_uid not in (0, os.getuid()):
-        problems.append(f"{probe} is owned by uid {st.st_uid}, not root or the installer")
-    if st.st_mode & 0o022:
-        problems.append(f"{probe} is writable by group or others (chmod go-w)")
+        fd = os.open(probe, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError as exc:
+        return [f"the engine probe result {probe} cannot be read, or is a link ({type(exc).__name__})"], b""
+    with os.fdopen(fd, "rb") as fh:
+        st = os.fstat(fh.fileno())
+        data = fh.read()
+    for what, s in ((str(probe), st), (f"its folder {probe.parent}", probe.parent.stat())):
+        if s.st_uid not in (0, os.getuid()):
+            problems.append(f"{what} is owned by uid {s.st_uid}, not root or the installer")
+        if s.st_mode & 0o022:
+            problems.append(f"{what} is writable by group or others (chmod go-w)")
+    return problems, data
+
+
+def _probe_problems(data: bytes, facts: dict[str, Any], now: datetime | None = None) -> list[str]:
+    """What H-74's check does not ask and a rehearsal install does (review M2), on the bytes :func:`read_probe` read:
+    the probe ran on this card (its one-way id) on this host, against the pinned image's matching digest, within
+    PROBE_MAX_AGE."""
+    try:
+        doc = json.loads(data.decode("utf-8"))
+    except ValueError as exc:
+        return [f"the engine probe result cannot be read ({type(exc).__name__})"]
+    problems: list[str] = []
     if not isinstance(doc, dict):
-        return [*problems, f"{probe} is not an engine probe result"]
+        return [*problems, "the probe file is not an engine probe result"]
     host = doc.get("host") or {}
     if not facts.get("uuid") or host.get("card_id") != engine_probe.card_id(facts["uuid"]):
         problems.append(f"the probe ran on another card than card {facts.get('index')} (its card id does not match; "
@@ -179,10 +198,17 @@ def driver_allowance(probe: Path, index: str, deploy: Path) -> tuple[list[str], 
     _, facts = card_facts(index, smi(index), {})
     if not facts:
         return [*problems, f"nvidia-smi finds no card at index {index}"], {}
-    found, rec = measure48_vm.bench_exception(probe, facts["driver"], facts["name"], _lock_pin(), images_lock.LOCK)
-    problems += found + _probe_problems(probe, facts)
+    trust, data = read_probe(probe)
+    if not data:
+        return [*problems, *trust], {}
+    with tempfile.TemporaryDirectory() as tmp:  # H-74's check reads a path: the bytes read once, in a private copy
+        copy = Path(tmp) / "probe.json"
+        copy.write_bytes(data)
+        found, rec = measure48_vm.bench_exception(copy, facts["driver"], facts["name"], _lock_pin(), images_lock.LOCK)
+    problems += trust + found + _probe_problems(data, facts)
     if not found:
         problems += _form_env(rec.get("engine_form"), rec.get("engine_env") or {})
+    rec["probe_sha256"] = hashlib.sha256(data).hexdigest()
     return problems, rec
 
 
@@ -280,12 +306,14 @@ def write(deploy: Path, index: str, probe: Path, record_path: Path) -> tuple[lis
             return found, {}
         env = {str(k): str(v) for k, v in (allowance.get("engine_env") or {}).items()}
         form = allowance.get("engine_form")
+        probe_sha = str(allowance["probe_sha256"])
+    else:
+        trust, data = read_probe(probe)
+        if trust or not data:
+            return trust or [f"the engine probe file {probe} is empty"], {}
+        probe_sha = hashlib.sha256(data).hexdigest()
     rec_card = str((record.get("card") or {}).get("name") or "?")
     other = PROFILE_CARD not in facts["name"]
-    try:
-        probe_sha = hashlib.sha256(probe.read_bytes()).hexdigest()
-    except OSError as exc:
-        return [f"the engine probe file {probe} cannot be read ({type(exc).__name__})"], {}
     doc = {
         "schema": SCHEMA,
         "made_by": "deploy/install.sh --rehearsal --rehearsal-real-servers",

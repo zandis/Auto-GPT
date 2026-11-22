@@ -23,8 +23,22 @@ if [ -f "$DEPLOY/site/compose.anchors.yml" ]; then
 fi
 # H-89: a box that carries a rehearsal sign starts only as a whole rehearsal box, never as PRODUCTION (a hand edit of
 # TB_ENV before a reboot): tools/rehearsal_real.py start. A box without a sign is not asked
-if [ -f "$DEPLOY/site/rehearsal.json" ] || [ -f "$DEPLOY/site/rehearsal-real-servers.json" ] || [ -f "$DEPLOY/site/rehearsal-real-servers.yml" ] \
-  || grep -qE '^[[:space:]]*(export[[:space:]]+)?TB_REHEARSAL(_REAL_SERVERS)?=|rehearsal-real-servers' "$DEPLOY/.env" 2>/dev/null; then
+# the signs are the start check's (rehearsal_real.start_refusal): the files, the names in deploy/.env, and any file
+# COMPOSE_FILE names that carries the real servers' mark, wherever it lies
+rehearsal_sign() {
+  [ -f "$DEPLOY/site/rehearsal.json" ] || [ -f "$DEPLOY/site/rehearsal-real-servers.json" ] || [ -f "$DEPLOY/site/rehearsal-real-servers.yml" ] \
+    || grep -qE '^[[:space:]]*(export[[:space:]]+)?TB_REHEARSAL(_REAL_SERVERS)?=|rehearsal-real-servers' "$DEPLOY/.env" 2>/dev/null \
+    && return 0
+  cf="$(sed -n 's/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}COMPOSE_FILE=//p' "$DEPLOY/.env" 2>/dev/null | tail -1)"
+  old_ifs="$IFS"; IFS=:
+  for f in $cf; do
+    case "$f" in /*) ;; *) f="$DEPLOY/$f" ;; esac
+    if [ -f "$f" ] && grep -qx 'x-trialbox-rehearsal-real-servers: true' "$f" 2>/dev/null; then IFS="$old_ifs"; return 0; fi
+  done
+  IFS="$old_ifs"
+  return 1
+}
+if rehearsal_sign; then
   if ! (cd "$DEPLOY/.." && python3 -m tools.rehearsal_real start --deploy "$DEPLOY") >&2; then
     echo "TrialBox REFUSED to start: this box carries a rehearsal sign and is not a whole rehearsal box (above), or the check could not run. A rehearsal box never becomes a site's box: install the site's box afresh on an empty box (RUNBOOK §16)" >&2
     exit 1
