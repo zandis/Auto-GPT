@@ -18,6 +18,7 @@ import pyarrow as pa
 from embed_service.embedder import Embedder, from_env
 from fastapi import Header, HTTPException, Response
 from fastapi.responses import JSONResponse
+from tb_common import service_auth as sa
 from tb_common.config import site_tz
 from tb_common.http import make_app
 from tb_common.phi_guard import site_mrn_regex
@@ -67,7 +68,35 @@ def _vec_check() -> dict[str, Any]:
     return vec_health()  # defined below, with the S2b route (D-449)
 
 
-app = make_app("lake", checks=[lambda: {"snapshot": lake().current() or "none"}, _vec_check], protect_reads=True)
+#: BH1-01: what the criteria compiler's token reaches at the lake: its reads and the two searches it may need (its
+#: equivalence gate runs SQL). A night's promote, a rebuild, the site's inputs and the holds (D-760, D-489, D-403)
+#: are the orchestrator's and the adapter's. An allow-list: a route added later is refused to the compiler until named
+READER_POSTS = frozenset({"/query", "/chunks/search"})
+READS = frozenset({"GET", "HEAD"})
+#: the callers held to the reader routes; the old shared token too while a token registry is in place (as the
+#: adapter's publish gate, D-760 review: a token kept for a rotation is anyone's, so it does not change the lake)
+READERS = frozenset({"criteria-compiler", sa.LEGACY})
+
+
+def _route_gate(request: Any, caller: str | None) -> JSONResponse | None:
+    """BH1-01: the lake's route gate, right after the token check (``make_app``'s ``route_gate``). The orchestrator,
+    the adapter, the operator and an open DEV/TEST box (no caller) pass; a reader (``READERS``) reaches only the reads
+    and ``READER_POSTS``, else 403 with nothing touched. The path is the route's, without a mount's prefix."""
+    from starlette._utils import get_route_path
+
+    if caller not in READERS or (caller == sa.LEGACY and sa.registry() is None):
+        return None
+    if request.method in READS or (request.method == "POST" and get_route_path(request.scope) in READER_POSTS):
+        return None
+    return JSONResponse({"detail": "route_not_allowed"}, status_code=403)
+
+
+app = make_app(
+    "lake",
+    checks=[lambda: {"snapshot": lake().current() or "none"}, _vec_check],
+    protect_reads=True,
+    route_gate=_route_gate,
+)
 
 
 def to_ipc(table: pa.Table) -> bytes:

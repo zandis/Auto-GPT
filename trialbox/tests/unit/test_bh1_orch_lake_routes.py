@@ -44,9 +44,6 @@ def _client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient
     return TestClient(lake_app.app), fake
 
 
-@pytest.mark.xfail(
-    strict=True, reason="open finding: BH1-01: the criteria compiler's token promotes a night at the lake"
-)
 def test_the_criteria_compilers_token_cannot_promote_a_built_night(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -59,7 +56,6 @@ def test_the_criteria_compilers_token_cannot_promote_a_built_night(
     assert (r.status_code, fake.calls) == (403, [])
 
 
-@pytest.mark.xfail(strict=True, reason="open finding: BH1-01: the criteria compiler's token releases a job's lake hold")
 def test_the_criteria_compilers_token_cannot_release_a_jobs_hold(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
