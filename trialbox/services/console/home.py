@@ -95,6 +95,16 @@ def data_as_of(job: Job, today: date) -> dict[str, Any]:
 CTGOV_MODES = ("live", "offline", "cassette")
 
 
+def _alert_elsewhere(life: Mapping[str, Any] | None, rid: str) -> bool:
+    """D-1258 (review, High 5): whether ``/week``'s serious-AE block (``life``) holds an alert that the week page of
+    study ``rid`` would not show: an unacknowledged serious AE or an overdue report of another study, or any SAE
+    register that could not be read."""
+    if not life:
+        return False
+    rows = [*(life.get("sae") or []), *(life.get("reports") or [])]
+    return bool(life.get("sae_failed")) or any(str(a.get("rs") or "") != rid for a in rows)
+
+
 def ctgov_mode(environ: Mapping[str, str] | None = None) -> str:
     """The box's ClinicalTrials.gov mode, read from ``TB_CTGOV_MODE`` as the compiler reads it (lower case, D-140):
     one of :data:`CTGOV_MODES`; ``unset`` when the variable is empty or absent (the compiler then works ``offline``, its
@@ -823,18 +833,22 @@ def register(app: FastAPI, h: Helpers) -> None:
             if st.latest_job(jobs, r.id, SCREEN_TYPES) is not None and h.delegated_ok(sess.user, r.id)
         ]  # fmt: skip
         waiting = approvals(sess)
-        if len(mine) == 1 and not waiting:
+        # D-1258: the serious AEs and overdue reports of the studies whose SAE pages show them to this account
+        # (``sae_pages.sae_scope``, as the J-6 opening page reads them), never of a study off its log; the page shows
+        # no visit, so none is read
+        saes = [r.id for r in trials(sess) if h.reads_saes is not None and h.reads_saes(sess.user, r.id)]
+        life = h.life_home(sess, only=saes, visits=(), saes=saes) if h.life_home else None
+        # D-1258 (review, High 5): the single-study redirect never hides an SAE alert this page would show. The study's
+        # week page shows its own unacknowledged SAEs and overdue reports (``life_sae``, ``life_reports``), so those
+        # of the study redirected to do not hold the page; another study's, or an SAE register that could not be read
+        # (the week page has no such notice), do
+        if len(mine) == 1 and not waiting and not _alert_elsewhere(life, mine[0].id):
             return RedirectResponse(f"/studies/{mine[0].id}/week", status_code=303)
         cohorts = [
             r for r in bk.rulesets()
             if r.status == "approved" and r.kind in st.REGISTRY_KINDS and sess.user.sees_study(r.id)
             and st.latest_job(jobs, r.id, SCREEN_TYPES) is not None and h.delegated_ok(sess.user, r.id)
         ]  # fmt: skip  # D-1258: the cohort page's delegation check (``Helpers.need_rows``)
-        # D-1258: the serious AEs and overdue reports of the studies whose SAE pages show them to this account
-        # (``sae_pages.sae_scope``, as the J-6 opening page reads them), never of a study off its log; the page shows
-        # no visit, so none is read
-        saes = [r.id for r in trials(sess) if h.reads_saes is not None and h.reads_saes(sess.user, r.id)]
-        life = h.life_home(sess, only=saes, visits=(), saes=saes) if h.life_home else None
         return h.page(request, "week_pick.html", sess, studies=mine, approvals=waiting, cohorts=cohorts, life=life)
 
     # ------------------------------------------------------------------ feasibility report
