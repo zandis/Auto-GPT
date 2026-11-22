@@ -1,0 +1,33 @@
+{
+ "card": "H80",
+ "title": "the model servers run with CUDA graphs: --enforce-eager off in every serving profile",
+ "date": "2026-11-22",
+ "source": "docs/handover/serving-without-enforce-eager-2026-11-22.md",
+ "note": "basis 'shown' means shown by the tree, the card's tests and the bench's comment on #639 of 2026-11-22 10:08 UTC; nothing was run on a GPU.",
+ "findings": [
+  {
+   "id": "H80-01",
+   "severity": "Medium",
+   "claim": "the vendor's RTX PRO 6000 serving record was taken with --enforce-eager and still passes tools/serving_config.py measured, which does not compare a record's eager flag with the profile's; it now notes the difference on stderr only; a refusing check would block the RTX PRO 6000 install until the bench's record on the new setting lands",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H80-02",
+   "severity": "Medium",
+   "claim": "start time to healthy, card memory at start and at peak at the profiles' own fractions, throughput and the 5090's wake time are not measured with CUDA graphs on; the health-check start periods, install waits and the tier record's free_memory_at_peak_mib were set or measured with eager on",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H80-03",
+   "severity": "Low",
+   "claim": "the bench's label comparison ran at a memory fraction of 0.9, not at the profiles' fractions (0.40 and 0.20 on the RTX PRO 6000); graphs' memory comes out of each server's fraction, so the KV cache at the shipped fractions is not measured",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

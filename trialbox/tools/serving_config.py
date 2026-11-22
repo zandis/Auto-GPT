@@ -382,6 +382,21 @@ def measured_for(rec: dict[str, Any], profile: str, mem_kib: Callable[[], int | 
     return why
 
 
+def setting_notes(rec: dict[str, Any]) -> list[str]:
+    """What a record ran that the profiles no longer ship; it does not refuse the record (D-1359).
+
+    No serving profile starts its servers with ``--enforce-eager`` since D-1359 (CUDA graphs on). A record taken with
+    the flag is still the measurement it was, of the card and the settings it names, but not of the start time, the
+    memory or the rate of today's setting: those await a run of the bench on the new setting."""
+    eager = [str(s.get("role") or "?") for s in rec.get("servers") or [] if s.get("enforce_eager") is True]
+    if not eager:
+        return []
+    return [
+        f"{' and '.join(eager)} ran with --enforce-eager; the profiles run without it since D-1359: start time, memory "
+        "and rate of the new setting are to be re-measured on it (the record's other values stand)"
+    ]
+
+
 def _mig_problems(srv: dict[str, Any], card: dict[str, Any]) -> list[str]:
     """Why one server of a shared-quota record did not run on its own MIG instance of a profile with a rule."""
     who = srv.get("role") or "?"
@@ -503,6 +518,8 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "measured":
         why = measured_for(rec, a.profile, host_mem_kib if a.mem_kib is None else (lambda: a.mem_kib))
         print(f"measured on {a.profile}" if not why else "not a measurement of this profile: " + "; ".join(why))
+        for note in setting_notes(rec):
+            print(f"note: {note}", file=sys.stderr)
         return 1 if why else 0
     missing = validate(rec)
     print("complete" if not missing else "missing: " + ", ".join(missing))

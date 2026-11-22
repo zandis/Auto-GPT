@@ -66,7 +66,6 @@ services:
       - --chat-template-content-format=string  # D-880
       - --max-model-len=${JUDGE_MAX_LEN:-32768}
       - --max-num-seqs=${JUDGE_MAX_SEQS:-16}
-      - --enforce-eager
       - --gpu-memory-utilization=${JUDGE_GPU_MEM_UTIL:-0.57}
       - --limit-mm-per-prompt={"image":0,"audio":0,"video":0}
 
@@ -82,7 +81,6 @@ services:
       - --served-model-name=${VERIFIER_MODEL:-local/qwen3.5-9b-awq}
       - --max-model-len=${VERIFIER_MAX_LEN:-32768}
       - --max-num-seqs=${VERIFIER_MAX_SEQS:-16}
-      - --enforce-eager
       - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.27}
       - --limit-mm-per-prompt={"image":0,"video":0}
       - --default-chat-template-kwargs={"enable_thinking":false}

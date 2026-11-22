@@ -81,7 +81,6 @@ spec:
             - --chat-template-content-format=string  # D-880: strings, as the template's string path renders them
             - --max-model-len=$(JUDGE_MAX_LEN)
             - --max-num-seqs=$(JUDGE_MAX_SEQS)
-            - --enforce-eager
             - --gpu-memory-utilization=$(JUDGE_GPU_MEM_UTIL)
             - --limit-mm-per-prompt={"image":0,"audio":0,"video":0}
           envFrom: [{configMapRef: {name: trialbox-serving}}]
@@ -130,7 +129,6 @@ spec:
             - --served-model-name=$(VERIFIER_MODEL)
             - --max-model-len=$(VERIFIER_MAX_LEN)
             - --max-num-seqs=$(VERIFIER_MAX_SEQS)
-            - --enforce-eager
             - --gpu-memory-utilization=$(VERIFIER_GPU_MEM_UTIL)
             - --limit-mm-per-prompt={"image":0,"video":0}
             - --default-chat-template-kwargs={"enable_thinking":false}
